@@ -3,6 +3,20 @@
  * Replaces SQLite-backed session-manager.ts.
  */
 import type { DashboardSession, SessionSource, SessionStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { deriveEndedAt, type EndedAtDeriver } from "./derive-ended-at.js";
+
+/**
+ * How a session's ending became known. `witnessed` — the server observed it
+ * (explicit end signal, user-initiated termination) — stamps the time of the
+ * event. `inferred` — a heartbeat/grace expiry, or a history record being
+ * unregistered right after it was registered — derives the time from evidence,
+ * because the end happened earlier and was only detected now.
+ * See change: fix-ended-session-missing-endedat.
+ */
+export interface UnregisterOptions {
+  /** Default `true` — preserves the observed-ending `Date.now()` stamp. */
+  witnessed?: boolean;
+}
 
 export interface RegisterSessionParams {
   id: string;
@@ -64,7 +78,7 @@ export interface SessionManager {
   register(params: RegisterSessionParams): DashboardSession;
   /** Restore a previously persisted session (e.g. on startup). Does not trigger onChange. */
   restore(session: DashboardSession): void;
-  unregister(sessionId: string): void;
+  unregister(sessionId: string, opts?: UnregisterOptions): void;
   update(sessionId: string, updates: Partial<DashboardSession>): void;
   get(sessionId: string): DashboardSession | undefined;
   listActive(): DashboardSession[];
@@ -75,8 +89,29 @@ export interface SessionManager {
   onUnregister?: (sessionId: string) => void;
 }
 
-export function createMemorySessionManager(): SessionManager {
+export function createMemorySessionManager(
+  derive: EndedAtDeriver = deriveEndedAt,
+): SessionManager {
   const sessions = new Map<string, DashboardSession>();
+
+  /**
+   * The invariant: a session in the map with `status: "ended"` always carries
+   * an `endedAt`. Fills only when absent — an explicitly supplied value is
+   * always preserved.
+   *
+   * The conditional short-circuits BEFORE `derive` so the common case costs
+   * nothing: this runs on `update()`, which fires on every activity event, and
+   * on `restore()`, which runs once per record over a ~3,300-record store.
+   *
+   * Never emits `onChange` — see D1a: at boot the restore loop precedes the
+   * ended-id seeding, so an emitting helper would `moveToFront` every restored
+   * record and broadcast a `sessions_reordered` storm, churning the very stored
+   * order this change protects.
+   */
+  function ensureEndedAt(session: DashboardSession): void {
+    if (session.status !== "ended" || session.endedAt !== undefined) return;
+    session.endedAt = derive(session);
+  }
 
   const mgr: SessionManager = {
     register(params: RegisterSessionParams): DashboardSession {
@@ -156,14 +191,26 @@ export function createMemorySessionManager(): SessionManager {
     },
 
     restore(session: DashboardSession): void {
+      ensureEndedAt(session);
       sessions.set(session.id, session);
     },
 
-    unregister(sessionId: string): void {
+    unregister(sessionId: string, opts?: UnregisterOptions): void {
       const session = sessions.get(sessionId);
       if (session) {
         session.status = "ended";
-        session.endedAt = Date.now();
+        // Witnessed (the default) keeps the observed instant. An inferred
+        // ending — heartbeat/grace expiry, or history registered then
+        // immediately unregistered — must not record detection time.
+        //
+        // Only stamp when the record does not already carry one: a duplicate
+        // termination signal for an already-ended session is not a new ending,
+        // and moving the timestamp would violate the same "an explicit value is
+        // preserved" rule `ensureEndedAt` honours (and could reshuffle the
+        // ended-tier order seed). See change: fix-ended-session-missing-endedat.
+        if (session.endedAt === undefined) {
+          session.endedAt = opts?.witnessed === false ? derive(session) : Date.now();
+        }
         mgr.onChange?.(sessionId);
         mgr.onUnregister?.(sessionId);
       }
@@ -173,6 +220,7 @@ export function createMemorySessionManager(): SessionManager {
       const session = sessions.get(sessionId);
       if (session) {
         Object.assign(session, updates);
+        ensureEndedAt(session);
         mgr.onChange?.(sessionId);
       }
     },

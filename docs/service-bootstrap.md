@@ -28,51 +28,35 @@ Client gates on `launchSource === "electron"` as proxy for "immutable bundle" (`
 
 ## Startup Chains
 
-```
-┌──────────────────────────────────────────────────────────────────────────┐
-│  CHAIN 1: ELECTRON APP → SERVER                                         │
-│                                                                          │
-│  /Applications/PI Dashboard.app                                          │
-│    │                                                                     │
-│    ├─ main.ts: checking-server-health                                    │
-│    │    └─ isDashboardRunning(port) → attach when up                     │
-│    │                                                                     │
-│    ├─ main.ts: wizard-welcome (first-run only)                           │
-│    │    └─ ~/.pi/dashboard/first-run-done marker skips on relaunch       │
-│    │                                                                     │
-│    ├─ selectLaunchSource(): attach | devMonorepo | bundled               │
-│    │    bundled = <resourcesPath>/server/node_modules/                   │
-│    │    pi/openspec/tsx are regular npm deps (read-only at runtime)      │
-│    │                                                                     │
-│    ├─ spawnFromSource() stamps DASHBOARD_STARTER=Electron                │
-│    │    setSpawnedPid(pid) for lifecycle ownership                       │
-│    │                                                                     │
-│    ├─ server boots: no runtime install, no bootstrap state               │
-│    │    legacy ~/.pi-dashboard/ untouched (advisory only)                │
-│    │                                                                     │
-│    └─ BrowserWindow → http://localhost:8000                              │
-│                                                                          │
-├──────────────────────────────────────────────────────────────────────────┤
-│  CHAIN 2: PI TUI → BRIDGE EXTENSION → SERVER                            │
-│                                                                          │
-│  Terminal: `pi` (user's shell has full PATH)                             │
-│    │                                                                     │
-│    ├─ pi loads ~/.pi/agent/settings.json → packages[]                    │
-│    │    └─ finds bridge extension → loads bridge.ts                      │
-│    │                                                                     │
-│    ├─ bridge.ts reads ~/.pi/dashboard/config.json                        │
-│    │                                                                     │
-│    ├─ autoStartServer() discovery chain:                                 │
-│    │    ├─ mDNS browse (2s timeout)                                      │
-│    │    ├─ health check on configured port                               │
-│    │    └─ launchServer() if autoStart=true                              │
-│    │         └─ spawn(process.execPath, ["--import", jiti, cli.ts])      │
-│    │            process.execPath = the node running pi (from shell PATH) │
-│    │            cli.ts = resolved relative to extension __dirname        │
-│    │                                                                     │
-│    └─ ConnectionManager → ws://localhost:9999                            │
-│                                                                          │
-└──────────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    subgraph Chain1["CHAIN 1: ELECTRON APP → SERVER"]
+        App["/Applications/PI Dashboard.app"] --> Health["main.ts: checking-server-health"]
+        Health --> Attach["isDashboardRunning(port) → attach when up"]
+        App --> Wizard["main.ts: wizard-welcome (first-run only)"]
+        Wizard --> Marker["~/.pi/dashboard/first-run-done marker skips on relaunch"]
+        App --> Select["selectLaunchSource(): attach &#124; devMonorepo &#124; bundled"]
+        Select --> Bundled["bundled = <resourcesPath>/server/node_modules/"]
+        Bundled --> Deps["pi/openspec/tsx are regular npm deps (read-only at runtime)"]
+        App --> Spawn["spawnFromSource() stamps DASHBOARD_STARTER=Electron"]
+        Spawn --> Pid["setSpawnedPid(pid) for lifecycle ownership"]
+        App --> Boot["server boots: no runtime install, no bootstrap state"]
+        Boot --> Legacy["legacy ~/.pi-dashboard/ untouched (advisory only)"]
+        App --> Win["BrowserWindow → http://localhost:8000"]
+    end
+    subgraph Chain2["CHAIN 2: PI TUI → BRIDGE EXTENSION → SERVER"]
+        Term["Terminal: `pi` (user's shell has full PATH)"] --> Settings["pi loads ~/.pi/agent/settings.json → packages[]"]
+        Settings --> Bridge["finds bridge extension → loads bridge.ts"]
+        Bridge --> Cfg["bridge.ts reads ~/.pi/dashboard/config.json"]
+        Cfg --> Discovery["autoStartServer() discovery chain:"]
+        Discovery --> Mdns["mDNS browse (2s timeout)"]
+        Discovery --> HealthCheck["health check on configured port"]
+        Discovery --> Launch["launchServer() if autoStart=true"]
+        Launch --> SpawnCmd['spawn(process.execPath, ["--import", jiti, cli.ts])']
+        SpawnCmd --> ExecPath["process.execPath = the node running pi (from shell PATH)"]
+        ExecPath --> CliPath["cli.ts = resolved relative to extension __dirname"]
+        Bridge --> Conn["ConnectionManager → ws://localhost:9999"]
+    end
 ```
 
 ## The Tool Resolution Problem
@@ -182,58 +166,33 @@ All paths absolute. `null` or missing → detect at runtime.
 
 ### Writers
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│  WHO WRITES toolPaths?                                               │
-│                                                                      │
-│  ┌─────────────────┐                                                 │
-│  │  Electron Wizard │──── initial detection + user selection         │
-│  └────────┬────────┘     writes all toolPaths on first run           │
-│           │                                                          │
-│  ┌────────▼────────┐                                                 │
-│  │  Server Startup  │──── validate + re-detect on every start        │
-│  └────────┬────────┘     updates stale paths (nvm version change)    │
-│           │                                                          │
-│  ┌────────▼────────┐                                                 │
-│  │  Settings Panel  │──── manual override via dashboard UI           │
-│  └────────┬────────┘     (Doctor could also edit)                    │
-│           │                                                          │
-│  ┌────────▼────────┐                                                 │
-│  │  Bridge Start    │──── if toolPaths empty, detect from shell env  │
-│  └─────────────────┘     (Chain 2: full PATH available)              │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    Wiz["Electron Wizard: initial detection + user selection, writes all toolPaths on first run"] --> SS["Server Startup: validate + re-detect on every start, updates stale paths (nvm version change)"]
+    SS --> SP["Settings Panel: manual override via dashboard UI (Doctor could also edit)"]
+    SP --> BS["Bridge Start: if toolPaths empty, detect from shell env (Chain 2: full PATH available)"]
 ```
 
 ### Consumers
 
-```
-┌──────────────────────────────────────────────────────────────────────┐
-│  WHO READS toolPaths?                                                │
-│                                                                      │
-│  Electron ensureServer()                                             │
-│    ├─ toolPaths.serverCli → server CLI path                          │
-│    ├─ toolPaths.tsx → TypeScript loader                              │
-│    ├─ toolPaths.node → node binary for PATH                         │
-│    └─ derives PATH from dirname of all resolved paths                │
-│                                                                      │
-│  Server process-manager                                              │
-│    ├─ toolPaths.pi → resolvePiCommand() shortcut                     │
-│    ├─ derives PATH from dirname(pi), dirname(node) for spawn env     │
-│    └─ tmux: injects PATH export into tmux command                    │
-│                                                                      │
-│  Bridge server-launcher                                              │
-│    ├─ toolPaths.serverCli → CLI path (fallback: __dirname relative)  │
-│    └─ toolPaths.node → spawn binary                                  │
-│                                                                      │
-│  Bridge registration                                                 │
-│    └─ toolPaths.bridge → written to settings.json packages[]         │
-│                                                                      │
-│  Wizard / Doctor / Settings Panel                                    │
-│    └─ toolPaths.* → display, validate, edit                          │
-│                                                                      │
-└──────────────────────────────────────────────────────────────────────┘
-```
+**WHO READS toolPaths?**
+
+- Electron `ensureServer()`
+  - `toolPaths.serverCli` → server CLI path
+  - `toolPaths.tsx` → TypeScript loader
+  - `toolPaths.node` → node binary for PATH
+  - derives PATH from dirname of all resolved paths
+- Server process-manager
+  - `toolPaths.pi` → `resolvePiCommand()` shortcut
+  - derives PATH from `dirname(pi)`, `dirname(node)` for spawn env
+  - tmux: injects PATH export into tmux command
+- Bridge server-launcher
+  - `toolPaths.serverCli` → CLI path (fallback: `__dirname` relative)
+  - `toolPaths.node` → spawn binary
+- Bridge registration
+  - `toolPaths.bridge` → written to `settings.json` `packages[]`
+- Wizard / Doctor / Settings Panel
+  - `toolPaths.*` → display, validate, edit
 
 ### Server startup validation
 

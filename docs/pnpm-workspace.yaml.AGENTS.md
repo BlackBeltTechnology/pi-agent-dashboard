@@ -1,0 +1,3 @@
+# pnpm-workspace.yaml — index
+
+(repo root) pnpm workspace + config source of truth (package.json `pnpm.*` ignored when this exists). `packages:['packages/*']`; `nodeLinker:hoisted` (electron-forge requires; flattens node_modules, third-party phantom deps auto-resolve); `blockExoticSubdeps:false` (allows @electron/node-gyp git subdep; replaces npm@11.12.1 EALLOWGIT pin); `verifyDepsBeforeRun:false`; `link/preferWorkspacePackages:true`; `strictDepBuilds:false` + `ignoredBuiltDependencies` (ERR_PNPM_IGNORED_BUILDS non-fatal — else CI `pnpm install --frozen-lockfile` reds; onlyBuiltDependencies unreliable, natives rebuilt on electron paths); `overrides bonjour-service:1.4.2`. Single lockfile `pnpm-lock.yaml`. See change: adopt-pnpm-for-dev-ci.

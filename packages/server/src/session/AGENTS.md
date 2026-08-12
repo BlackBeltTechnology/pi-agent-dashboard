@@ -4,9 +4,11 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 
 | File | Purpose |
 |------|---------|
-| `active-sessions-in-cwd.ts` | Pure helpers `isPathInside(parent, child)`, `activeSessionsUnder(path, sessions)` (excludes `status ===… → see `active-sessions-in-cwd.ts.AGENTS.md` |
+| `active-sessions-in-cwd.ts` | `isPathInside` now RE-EXPORTED from `@pi-dashboard-shared/path-containment.js` (see change: scope-openspec-auto-attach-to-session-cwd); pure helpers `isPathInside(parent, child)`, `activeSessionsUnder(path, sessions)` (excludes `status ===… → see `active-sessions-in-cwd.ts.AGENTS.md` |
+| `derive-ended-at.ts` | Evidence rule for an UNWITNESSED session ending. Exports `readJsonlMtime(sessionFile)` (the single transcript-stat path, also used by `session-scanner`), `EndedAtEvidence`, `EndedAtDeriver`, `deriveEndedAt(evidence)` — precedence `lastActivityAt` → transcript mtime → `startedAt`, never `Date.now()`. Witnessed endings (explicit signal, user shutdown) keep `Date.now()` and do NOT come through here. See change: fix-ended-session-missing-endedat. |
 | `event-status-extraction.ts` | Extract session status/tool/model stats from forwarded events. → see `event-status-extraction.ts.AGENTS.md` |
 | `memory-session-manager.ts` | Pure in-memory session registry; replaces SQLite-backed session-manager. → see `memory-session-manager.ts.AGENTS.md` `register()` carry-over also preserves `notifyLog` across a bridge reattach (the reattach onChange save is a full `.meta.json` overwrite). See change: split-notify-from-prompt-request. |
+| `openspec-locality.ts` | Tri-state (`present`/`absent`/`unknown`) OpenSpec change locality over the poll cache: `candidateRoots` (cwd + worktree `mainPath`, + unknown root while unresolved), `localityGateAllows`, `attachedStillExistsInCandidateRoots`. Cache reads only. See change: scope-openspec-auto-attach-to-session-cwd. |
 | `reattach-placement.ts` | Reattach placement policy: decides how a re-registered session id (`registerReason: "reattach"`, dashboard… → see `reattach-placement.ts.AGENTS.md` |
 | `reconcile-session-order.ts` | Pure startup reconciliation of persisted `sessionOrder` map under all-status model. → see `reconcile-session-order.ts.AGENTS.md` |
 | `replay-compaction.ts` | `compactEventsForReplay(stored)` — pure REPLAY-ONLY drop of `message_update` snapshots superseded by a later… → see `replay-compaction.ts.AGENTS.md` |

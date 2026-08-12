@@ -21,9 +21,10 @@ export function useSessionCardDragHandle() {
 }
 
 /**
- * Wraps a SessionCard with dnd-kit sortable behavior. The card's existing
- * left gutter (status dot + source icon column) becomes the drag zone via
- * the DragHandleCtx — no separate handle icon needed.
+ * Wraps a SessionCard with dnd-kit sortable behavior. The drag zone used to be
+ * the card's 20px left gutter; that gutter is gone, so the props now land on
+ * the card's hover-revealed grip bead in the directory-rail band (still via
+ * DragHandleCtx). See change: session-card-directory-rail.
  */
 export function SortableSessionCard({ id, children }: Props) {
   const {

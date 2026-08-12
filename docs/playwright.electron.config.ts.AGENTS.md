@@ -1,0 +1,3 @@
+# playwright.electron.config.ts — index
+
+(repo root) Playwright config for Electron-E2E suite. testDir `tests/e2e-electron`, testMatch `*.electron.spec.ts`. No Docker globalSetup (unlike `playwright.config.ts`, boots Docker web-client harness). Launches real packaged Electron app via Playwright `_electron`. Drives native-surface flows unit tests can't reach: zombie-adoption modal, Doctor version-skew row. timeout 90s, globalTimeout 15min, workers 1, retries CI?1:0, reporter html → `playwright-report-electron`. Run via `npm run test:e2e:electron` (pretest packages app via `electron-forge package`). CI: `.github/workflows/ci-e2e-electron.yml` (workflow_dispatch, xvfb). See change: electron-attach-ownership-fixes.

@@ -119,6 +119,7 @@ import { registerResourceActivationRoutes } from "./routes/resource-activation-r
 import { registerSessionRoutes } from "./routes/session-routes.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
+import { deriveEndedAt } from "./session/derive-ended-at.js";
 import { createMemorySessionManager, type SessionManager } from "./session/memory-session-manager.js";
 import { applyReattachPolicy } from "./session/reattach-placement.js";
 import { reconcileSessionOrder } from "./session/reconcile-session-order.js";
@@ -358,7 +359,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // Force any non-`ended` restored status to `ended` — candidates and
       // non-candidates alike. Reopen re-hydrates independently of this status.
       restored.status = "ended";
-      restored.endedAt = restored.endedAt ?? Date.now();
+      // One rule for every reconstructed session: `Date.now()` here asserted a
+      // session ended at boot when it ended weeks earlier, and fed the ended-tier
+      // order seed. See change: fix-ended-session-missing-endedat.
+      restored.endedAt = restored.endedAt ?? deriveEndedAt(restored);
     }
     sessionManager.restore(restored);
   }

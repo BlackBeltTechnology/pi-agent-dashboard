@@ -189,10 +189,14 @@ describe("/api/doctor", () => {
       const elapsed = Date.now() - start;
 
       expect(res.statusCode).toBe(200);
-      // Must complete well under the old 3 s curl timeout. The full
-      // doctor run includes binary-detection checks that can take ~1 s
-      // on slow CI; we just assert no self-curl deadlock (< 3 s).
-      expect(elapsed).toBeLessThan(3000);
+      // Wall-clock is a WEAK proxy for the deadlock: a real self-curl deadlock
+      // and a healthy-but-loaded run both exceed a tight bound, so a 3 s limit
+      // cannot discriminate between them — it only flaked (observed 3098 ms on
+      // a busy host while the deadlock was absent). The DEADLOCK signal is the
+      // `Dashboard server` row asserted below: a self-curl that deadlocks
+      // reports a timeout/error row, never "ok". This bound is kept only to
+      // catch an outright hang, so it is set well clear of scheduler noise.
+      expect(elapsed).toBeLessThan(15_000);
 
       // The server check row should say "running" / "ok" since we are
       // processing this request inside the running server.

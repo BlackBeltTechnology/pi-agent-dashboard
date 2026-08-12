@@ -147,3 +147,249 @@ subscriber is gone.
 - **WHEN** a heartbeat interval elapses
 - **THEN** the server SHALL NOT send to the closed socket.
 
+### Requirement: Replay-in-flight is tracked to the terminal batch
+
+The client SHALL track a per-session replay-in-flight flag that is distinct from
+the history-loading flag. The replay-in-flight flag SHALL be set when a
+`subscribe` is sent for a session, and SHALL be cleared ONLY when the terminal
+`event_replay { isLast: true }` for that session is received, when the session's
+load fails, or when a safety-net timeout elapses. Arrival of a non-terminal
+`event_replay` batch — including the first batch carrying content — SHALL NOT
+clear the replay-in-flight flag.
+
+#### Scenario: First content batch does not clear the flag
+
+- **GIVEN** the client has sent `subscribe` for a session and the replay-in-flight flag is set
+- **WHEN** the client receives an `event_replay` with one or more events and `isLast: false`
+- **THEN** the replay-in-flight flag SHALL remain set
+- **AND** the client SHALL reduce that batch's events into `state.messages` as it does today.
+
+#### Scenario: Terminal batch clears the flag
+
+- **GIVEN** the replay-in-flight flag is set for a session
+- **WHEN** the client receives an `event_replay` with `isLast: true` for that session
+- **THEN** the client SHALL clear the replay-in-flight flag.
+
+#### Scenario: Empty session clears the flag on its terminal batch
+
+- **GIVEN** a session with no persisted history
+- **WHEN** the only `event_replay` received is `{ events: [], isLast: true }`
+- **THEN** the client SHALL clear the replay-in-flight flag.
+
+#### Scenario: The two flags diverge on the same message sequence
+
+- **GIVEN** the client has sent `subscribe` for a session with multi-batch history
+- **WHEN** the first `event_replay` batch with content and `isLast: false` is received
+- **THEN** the history-loading flag SHALL be cleared
+- **AND** the replay-in-flight flag SHALL remain set
+- **AND** the replay-in-flight flag SHALL clear only on the later `isLast: true` batch.
+
+### Requirement: Every subscribe terminates in a terminal batch
+
+The server SHALL send exactly one terminal `event_replay { isLast: true }` for
+every `subscribe` it accepts, including when it has no events to send. A replay
+payload containing zero events SHALL NOT be answered with silence.
+
+#### Scenario: Empty warm delta still terminates
+
+- **GIVEN** a warm subscribe carrying a `lastSeq` equal to the session's current high-water mark, so the computed delta is empty
+- **WHEN** the server sends the replay for that subscribe
+- **THEN** the server SHALL send one `event_replay { events: [], isLast: true }`.
+
+#### Scenario: Cold load of an empty session terminates
+
+- **GIVEN** a cold subscribe for a session whose persisted history contains zero events
+- **WHEN** the load succeeds
+- **THEN** the server SHALL send one `event_replay { events: [], isLast: true }`.
+
+#### Scenario: Non-empty replay is unchanged
+
+- **GIVEN** a subscribe whose replay payload contains one or more events
+- **WHEN** the server batches it
+- **THEN** the batch sequence SHALL be unchanged from today, with `isLast: true` on the final batch only
+- **AND** no additional terminal batch SHALL be sent.
+
+### Requirement: Chat view indicates an unfinished replay
+
+The chat view SHALL render an indeterminate in-flight indicator while the
+selected session's replay-in-flight flag is set, so a partially replayed session
+is never presented as complete. The indicator SHALL be anchored to the bottom of
+the message list, visually where the not-yet-delivered events will land, and
+SHALL overlay rather than occupy list space so it cannot displace or reflow the
+rendered messages. The indicator SHALL NOT express a count, a total, or a
+percentage. The indicator and the history-loading skeleton SHALL NOT render at
+the same time.
+
+The indicator SHALL carry `data-testid="replay-in-flight-pill"`, `role="status"`,
+`aria-busy="true"`, and an accessible label resolved through the existing i18n
+helper, mirroring the history-loading skeleton's contract.
+
+#### Scenario: Indicator exposes a stable test and accessibility handle
+
+- **GIVEN** the in-flight indicator is rendered
+- **WHEN** the chat view is queried
+- **THEN** the indicator SHALL be reachable by `data-testid="replay-in-flight-pill"`
+- **AND** it SHALL expose `role="status"`, `aria-busy="true"`, and a non-empty accessible name.
+
+#### Scenario: Indicator shows between the first and last batch
+
+- **GIVEN** a session whose first `event_replay` batch has been rendered and whose replay-in-flight flag is set
+- **WHEN** the chat view renders
+- **THEN** the chat view SHALL render the in-flight indicator at the end of the message list.
+
+#### Scenario: Indicator disappears on replay completion
+
+- **GIVEN** the in-flight indicator is showing for a session
+- **WHEN** the terminal `event_replay { isLast: true }` is received
+- **THEN** the chat view SHALL stop rendering the in-flight indicator.
+
+#### Scenario: Indicator is independent of the empty-session placeholder
+
+- **GIVEN** a session with no persisted history
+- **WHEN** the only `event_replay` received is `{ events: [], isLast: true }`
+- **THEN** the chat view SHALL render "No messages yet"
+- **AND** the chat view SHALL NOT render the in-flight indicator.
+
+#### Scenario: Indicator does not double up with the loading skeleton
+
+- **GIVEN** a cold session whose replay-in-flight flag is set, whose history-loading flag is still set, and whose message list is still empty
+- **WHEN** the delay threshold elapses before the first content batch arrives
+- **THEN** the chat view SHALL render the history-loading skeleton
+- **AND** the chat view SHALL NOT render the in-flight indicator
+- **AND** once the first content batch renders, the skeleton SHALL be replaced by the in-flight indicator.
+
+### Requirement: In-flight indicator is suppressed for fast replays
+
+The client SHALL delay rendering the in-flight indicator by a fixed threshold
+after the replay-in-flight flag is set, and SHALL render it only if the flag is
+still set once that threshold elapses. A replay that completes within the
+threshold SHALL produce no visible indicator at any point, so the warm
+(cache-hit / small-delta) path does not flicker. The threshold SHALL be a single
+named constant and SHALL NOT be conditioned on replay-cache state.
+
+#### Scenario: Fast replay never paints the indicator
+
+- **GIVEN** the client has sent `subscribe` and the replay-in-flight flag is set
+- **WHEN** the terminal `event_replay { isLast: true }` arrives before the delay threshold elapses
+- **THEN** the chat view SHALL never have rendered the in-flight indicator.
+
+#### Scenario: The pending delay is cancelled when the flag clears
+
+- **GIVEN** the client has sent `subscribe`, the replay-in-flight flag is set, and the delay timer is pending
+- **WHEN** the flag clears before the threshold elapses, and the threshold instant is then passed
+- **THEN** the chat view SHALL NOT render the in-flight indicator at or after that instant
+- **AND** no pending delay timer SHALL remain armed for that session.
+
+#### Scenario: Delay state does not leak across a session switch
+
+- **GIVEN** the in-flight indicator is showing for session A, or its delay timer is pending for session A
+- **WHEN** the user switches the chat view to session B, whose replay is not in flight
+- **THEN** the chat view SHALL NOT render the in-flight indicator for session B
+- **AND** no delay timer armed for session A SHALL cause the indicator to appear for session B.
+
+#### Scenario: Slow replay paints the indicator once the threshold elapses
+
+- **GIVEN** the client has sent `subscribe` and the replay-in-flight flag is set
+- **WHEN** the delay threshold elapses with the flag still set
+- **THEN** the chat view SHALL render the in-flight indicator
+- **AND** the indicator SHALL remain until the flag is cleared.
+
+#### Scenario: Suppression is not conditioned on the replay cache
+
+- **GIVEN** two sessions whose replays both complete within the delay threshold, one served from a warm replay-cache rehydrate and one from a cold full replay
+- **WHEN** each session's replay completes
+- **THEN** neither SHALL have rendered the in-flight indicator.
+
+### Requirement: Replay-in-flight flag can never stick
+
+The replay-in-flight flag SHALL be protected by the same two-stage safety net as
+the history-loading flag: a short subscribe-acknowledgement window armed when
+`subscribe` is sent, re-armed to the longer hydration ceiling. The flag SHALL be
+cleared when the session's history load fails and when the active safety-net
+window elapses, so a lost or never-sent terminal batch cannot leave the indicator
+showing indefinitely. Clearing SHALL be one-way: once a safety-net window has
+elapsed, a later non-terminal batch SHALL NOT re-set the flag.
+
+#### Scenario: Lost terminal batch clears at the ceiling
+
+- **GIVEN** the replay-in-flight flag is set and the safety-net window is armed
+- **WHEN** no terminal `event_replay { isLast: true }`, failure signal, or further heartbeat arrives before the armed window elapses
+- **THEN** the client SHALL clear the replay-in-flight flag
+- **AND** the chat view SHALL stop rendering the in-flight indicator.
+
+#### Scenario: Data-unavailable clears the flag
+
+- **GIVEN** the replay-in-flight flag is set for a session
+- **WHEN** the client receives `session_updated` with `dataUnavailable: true` for that session
+- **THEN** the client SHALL clear the replay-in-flight flag.
+
+#### Scenario: Heartbeats extend the window without clearing the flag
+
+- **GIVEN** the replay-in-flight flag is set and the hydration ceiling is armed
+- **WHEN** the client receives repeated empty `event_replay { events: [], isLast: false }` hydration heartbeats spaced closer together than the ceiling window
+- **THEN** each heartbeat SHALL re-arm the ceiling
+- **AND** the replay-in-flight flag SHALL remain set.
+
+### Requirement: The flag survives for as long as replay is in flight
+
+Every non-terminal `event_replay` for a session — carrying content or empty —
+SHALL re-arm that session's replay-in-flight safety-net window, because a batch
+on the wire is evidence the replay is still live. The flag SHALL NOT be cleared
+by a safety-net window that elapsed while batches were still arriving.
+
+#### Scenario: Content batches re-arm the ceiling
+
+- **GIVEN** the replay-in-flight flag is set for a multi-batch session
+- **WHEN** non-terminal content batches arrive spaced closer together than the ceiling window, over a total span longer than the ceiling window
+- **THEN** the replay-in-flight flag SHALL still be set when the final batch arrives
+- **AND** the chat view SHALL still be rendering the in-flight indicator throughout.
+
+#### Scenario: A slow transfer does not clear the flag mid-replay
+
+- **GIVEN** the replay-in-flight flag is set and the first content batch has been received
+- **WHEN** the next batch is delayed by backpressure for longer than the short subscribe-acknowledgement window but less than the ceiling window
+- **THEN** the replay-in-flight flag SHALL remain set
+- **AND** the chat view SHALL NOT present the partially replayed session as complete.
+
+#### Scenario: A silent wire still clears at the ceiling
+
+- **GIVEN** the replay-in-flight flag is set and a non-terminal batch has just re-armed the ceiling
+- **WHEN** no further message of any kind arrives before the ceiling window elapses
+- **THEN** the client SHALL clear the replay-in-flight flag.
+
+#### Scenario: A batch resuming after the ceiling does not revive the flag
+
+- **GIVEN** the replay-in-flight flag was cleared because its ceiling window elapsed
+- **WHEN** a further non-terminal `event_replay` batch for that session arrives
+- **THEN** the replay-in-flight flag SHALL remain clear
+- **AND** the chat view SHALL NOT render the in-flight indicator.
+
+### Requirement: No wire-schema change for the in-flight indicator
+
+The replay-in-flight behavior SHALL read only the existing `event_replay.isLast`
+field and the existing `subscribe` / `session_updated` messages. No new protocol
+message type and no new or changed `event_replay` field SHALL be introduced. The
+only server-side change SHALL be emitting the already-defined terminal batch on
+the empty-payload path.
+
+#### Scenario: Multi-batch indicator needs no server change
+
+- **GIVEN** a server with no changes to its batching, backpressure, or heartbeat behavior
+- **WHEN** a client implementing the in-flight indicator subscribes to a multi-batch session
+- **THEN** the indicator SHALL appear and clear correctly from the existing message stream alone.
+
+#### Scenario: Old client handles the terminal batch without new code
+
+- **GIVEN** a client that does not implement the replay-in-flight flag, talking to a server that terminates empty replays
+- **WHEN** it subscribes to a session with an empty replay payload and receives `event_replay { events: [], isLast: true }`
+- **THEN** it SHALL clear its history-loading flag and render "No messages yet" through its existing `isLast` handling
+- **AND** it SHALL render that placeholder sooner than it does today, where the empty path produces no terminal batch and the loading skeleton persists until the hydration ceiling elapses
+- **AND** no new message type SHALL require handling.
+
+#### Scenario: New client against an old server degrades safely
+
+- **GIVEN** a client implementing the replay-in-flight flag, talking to a server that does not terminate empty replays
+- **WHEN** it subscribes to a session with an empty replay payload
+- **THEN** the replay-in-flight flag SHALL be cleared by the safety-net window
+- **AND** the client SHALL NOT hang in a permanently in-flight state.
+

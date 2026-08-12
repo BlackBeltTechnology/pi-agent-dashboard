@@ -1,0 +1,3 @@
+# research/headroom-pi-integration.md — index
+
+Research dossier. Maps Headroom (local context-compression layer, shrinks tool outputs/logs/RAG before LLM, claims 60–95% token cut) integration into Pi. Explore-mode output, no implementation. Prior art: `@ryan_nookpi/pi-extension-headroom`, `@raquezha/noheadroom` (`pi --headroom`/`--tkmx`, `/headroom` cmd). Recommends Pi extension hooking `tool_result`/`context` events → local `/v1/compress` proxy → apply `toolResult` content mutations only (surgical, reversible). Open risk: Headroom issue #846 Pi support may be broken. Source: github.com/headroomlabs-ai/headroom.

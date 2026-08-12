@@ -11,17 +11,11 @@
 
 PI Dashboard: web-based dashboard for monitoring + interacting with pi agent sessions. Three components:
 
-```
-┌─────────────┐     WebSocket      ┌──────────────┐     WebSocket     ┌─────────────┐
-│   Bridge    │ ◄─────────────────► │  Dashboard   │ ◄───────────────► │  Web Client  │
-│  Extension  │    (port 9999)      │   Server     │    (port 8000)    │  (React)     │
-│  (per pi)   │                     │  (Node.js)   │                   │  (Browser)   │
-└─────────────┘                     └──────────────┘                   └─────────────┘
-                                          │
-                                    ┌─────┴─────┐
-                                    │  In-Memory │
-                                    │  + JSON    │
-                                    └───────────┘
+```mermaid
+flowchart LR
+    Bridge["Bridge Extension (per pi)"] <-->|"WebSocket (port 9999)"| Server["Dashboard Server (Node.js)"]
+    Server <-->|"WebSocket (port 8000)"| Client["Web Client (React)"]
+    Server --> Storage["In-Memory + JSON"]
 ```
 
 ## Components
@@ -503,11 +497,12 @@ Descriptor-only slots (existing in `extension-ui-system`): `management-modal`, `
 
 #### Health endpoint observability
 
-`/api/health` exposes four additive measurement fields (no behavior change). Existing clients ignore unknown fields. See change: instrument-session-hydration-timing.
+`/api/health` exposes five additive measurement fields (no behavior change). Existing clients ignore unknown fields. See change: instrument-session-hydration-timing.
 - `eventLoopDelay: { meanMs, p99Ms, maxMs }` — `perf_hooks.monitorEventLoopDelay` histogram, ns→ms. Resets window each read.
 - `hydration: HydrationSample[]` — ring buffer, ≤20 newest-first samples. Process-local, no persistence. Sample `{ sessionId, wallMs, fileBytes, entryCount, eventCount, at }` recorded by `loadSessionEvents`.
 - `eventLoopSpikes: { at, ms, turn }[]` — ring buffer, ≤50 newest-first, process-local, additive. Retains worst-case event-loop stalls. Two feeds: dedicated `monitorEventLoopDelay` sampler (own instance, never the boot histogram `/api/health` resets → no reset race; records `turn: null` for stalls no poll turn owns) + per-turn self-records from the openspec poll path (`turn: "tickOpen" \| "dirPollPre" \| "dirPollPost"`). Sub-threshold ~700 ms stall retained even when nobody polls `/api/health`. See change: attribute-openspec-poll-eventloop-stalls.
 - `notifyLog: { evictedEntries, bySession }` — from `browserGateway.getNotifyLogStats()` (`packages/server/src/pairing/notify-log.ts` `getStats()`). `evictedEntries` = total cap-50 evictions; `bySession` = per-session counts. Cap-50 eviction = silent transcript loss → counted beside `droppedFrames` / `storeTrim`. See change: split-notify-from-prompt-request.
+- `storeTrim: { trimmedEvents: { total, toolExecutionEnd, bySession }, evictedSessions, collapsedUpdates }` — from `eventStore.getTrimStats()` (`packages/server/src/persistence/memory-event-store.ts`). `trimmedEvents` + `evictedSessions` pre-existing: per-session cap trims, whole-session LRU evictions. See change: instrument-event-store-trim. NEW `collapsedUpdates`: cumulative count of superseded `tool_execution_update` events dropped at retention. Collapse keeps ≤2 `tool_execution_update` per `toolCallId`: pinned creating tick (first-wins `type`/`description`) + newest tail. Retention-only — never suppresses live broadcast; browser still receives every tick. Predecessor dropped only when successor subsumes it (superset gate on `partialResult.details`). Counters cumulative for process lifetime, never reset on read. No event store wired → `EMPTY_TRIM_STATS` (all-zero), exported from store. Harness A/B (4 sessions × 4 sustained subagent rounds): retained `tool_execution_update` per buffer 36 → 2; buffer share 18.4% → 1.2%. See change: collapse-superseded-tool-execution-updates.
 
 **Bundled-by-default plugins:** The plugin loader treats all plugins identically (same manifest, same discovery, same `enabled` flag, same failure isolation). What distinguishes "bundled-by-default" plugins (initial set: `git-plugin`) is purely operational — the build pipeline always includes them in `packages/`. Their absence is a deliberate user opt-out, not a normal state. OpenSpec, Flows, and Subagents plugins are bundled in standard builds but their absence is a normal use case (e.g. a workspace without OpenSpec).
 
@@ -2323,29 +2318,16 @@ Both `pi-dashboard start` (CLI) and the bridge extension's `launchServer` write 
 
 When `autoStart` is `true` (default), the bridge extension automatically starts the dashboard server:
 
-```
-pi session_start
-       │
-       ▼
-  ensureConfig() → create ~/.pi/dashboard/config.json if missing
-  loadConfig()   → read piPort, port, autoStart
-       │
-       ▼
-  TCP probe localhost:{piPort}
-       │
-  ┌────┴────┐
-  │ open    │ closed & autoStart=true
-  │         │
-  ▼         ▼
-connect   spawn server (detached)
-silently  pass --port & --pi-port
-               │
-               ▼
-          notify user:
-          "🌐 Dashboard started at http://localhost:{port}"
-               │
-               ▼
-            connect
+```mermaid
+flowchart TD
+    Start["pi session_start"] --> Config["ensureConfig() → create ~/.pi/dashboard/config.json if missing"]
+    Config --> Load["loadConfig() → read piPort, port, autoStart"]
+    Load --> Probe['TCP probe localhost:{piPort}']
+    Probe --> Open{port open?}
+    Open -->|"open"| Connect["connect (silently)"]
+    Open -->|"closed & autoStart=true"| Spawn["spawn server (detached), pass --port & --pi-port"]
+    Spawn --> Notify['notify user: "🌐 Dashboard started at http://localhost:{port}"']
+    Notify --> Connect2["connect"]
 ```
 
 The server is spawned detached (`child_process.spawn` with `detached: true`, stdout/stderr redirected to `~/.pi/dashboard/server.log`), so it outlives the pi session. If multiple pi sessions start simultaneously, duplicate spawn attempts fail harmlessly with EADDRINUSE. After a failed launch, the bridge re-probes the port — if another agent started the server concurrently, the warning is suppressed. The auto-start logic is extracted into `server-auto-start.ts` for testability.
@@ -2459,14 +2441,25 @@ The dashboard includes a browser-based terminal emulator for direct shell access
 
 ### Architecture
 
-```
-Browser                              Server
-┌────────────────┐            ┌──────────────────┐
-│  xterm.js      │            │ TerminalManager   │
-│  (per terminal)│◄──binary──►│  ├─ node-pty      │
-│  FitAddon      │    WS      │  ├─ RingBuffer    │
-│  AttachAddon   │            │  └─ clients Set   │
-└────────────────┘            └──────────────────┘
+```mermaid
+flowchart LR
+    subgraph Browser["Browser"]
+        X["xterm.js (per terminal)"]
+        Fit["FitAddon"]
+        Att["AttachAddon"]
+    end
+    subgraph ServerSide["Server"]
+        TM["TerminalManager"]
+        PTY["node-pty"]
+        RB["RingBuffer"]
+        CS["clients Set"]
+    end
+    X --- Fit
+    X --- Att
+    TM --- PTY
+    TM --- RB
+    TM --- CS
+    X <-->|"binary WS"| TM
 ```
 
 ### WebSocket Protocol
@@ -2769,27 +2762,14 @@ MSYS exists for legitimate reasons (porting GCC, Autotools, git itself — softw
 
 ### The four-cell failure-mode matrix
 
-```
-                          HOST OS
-                       ┌─────────────┬─────────────────┐
-                       │  POSIX      │  Windows        │
-        ───────────────┼─────────────┼─────────────────┤
-        argv-position  │  works      │  works          │
-        path           │             │  (MSYS converts)│
-        ───────────────┼─────────────┼─────────────────┤
-        EMBEDDED       │  works      │  ❌ broken      │
-        in JS source   │             │  MSYS can't     │
-        passed via     │             │  see inside     │
-        node -e "..."  │             │  string         │
-        ───────────────┼─────────────┼─────────────────┤
-        --import URL   │  works      │  ❌ broken      │
-        as raw path    │             │  Node parses B: │
-        (no file://)   │             │  as URL scheme  │
-        ───────────────┼─────────────┼─────────────────┤
-        inside .mjs    │  works      │  works          │
-        path.resolve   │             │                 │
-        ───────────────┴─────────────┴─────────────────┘
-```
+Host OS across, path form down.
+
+| Path form | POSIX | Windows |
+|---|---|---|
+| argv-position path | works | works (MSYS converts) |
+| EMBEDDED in JS source, passed via `node -e "..."` | works | ❌ broken — MSYS can't see inside string |
+| `--import` URL as raw path (no `file://`) | works | ❌ broken — Node parses `B:` as URL scheme |
+| inside `.mjs`, `path.resolve` | works | works |
 
 The two broken cells map to existing repo invariants:
 
@@ -2934,23 +2914,18 @@ History source is **derived**, not stored: `extractUserPromptHistory(state.messa
 
 Inside `CommandInput`, history navigation uses a small state machine:
 
-```
-historyIndex: number | null    — null = not in history mode
-savedDraftRef: useRef<string>  — in-progress draft captured when history mode is first entered
+`historyIndex: number | null` — `null` = not in history mode.
+`savedDraftRef: useRef<string>` — in-progress draft captured when history mode first entered.
 
-  ArrowUp  (caret on first line, no dropdown, no pending, history.length > 0)
-    null  ─────────────────────────────────────────▶  0         (save current text first)
-    k     ─────────────────────────────────────────▶  min(k+1, len-1)
-  ArrowDown (caret on last line, no dropdown, historyIndex != null)
-    k > 0 ─────────────────────────────────────────▶  k - 1
-    0     ─────────────────────────────────────────▶  null      (restore savedDraftRef)
-  Escape  (historyIndex != null)
-    k     ─────────────────────────────────────────▶  null      (restore savedDraftRef)
-  any text edit while historyIndex != null
-    k     ─────────────────────────────────────────▶  null      (user now editing; no restore)
-  sessionId change
-                                                      null, savedDraftRef = ""
-```
+| Event (guard) | From | To | Note |
+|---|---|---|---|
+| ArrowUp (caret on first line, no dropdown, no pending, `history.length > 0`) | `null` | `0` | save current text first |
+| ArrowUp (same guard) | `k` | `min(k+1, len-1)` | |
+| ArrowDown (caret on last line, no dropdown, `historyIndex != null`) | `k > 0` | `k - 1` | |
+| ArrowDown (same guard) | `0` | `null` | restore `savedDraftRef` |
+| Escape (`historyIndex != null`) | `k` | `null` | restore `savedDraftRef` |
+| any text edit while `historyIndex != null` | `k` | `null` | user now editing; no restore |
+| sessionId change | any | `null` | `savedDraftRef = ""` |
 
 **Bash-style caret gating** is critical: `ArrowUp` only triggers history when `selectionStart` is at or before the first `\n` (the textarea's native "ArrowUp" would have nowhere to go); `ArrowDown` only when `selectionStart` is at or after the last `\n`. Non-empty selections are excluded. This guarantees multiline editing (moving between rows with arrow keys) is never broken.
 

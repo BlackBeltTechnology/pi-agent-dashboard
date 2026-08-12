@@ -15,35 +15,36 @@
  *
  * See change: consolidate-windows-spawn-and-platform-handlers.
  */
+
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import type { ChildProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import path from "node:path";
+import type { SpawnFailureCode } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { loadConfig, type SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { MANAGED_BIN } from "@blackbelt-technology/pi-dashboard-shared/managed-paths.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
+import {
+  spawnDetached,
+  waitForNoCrash,
+} from "@blackbelt-technology/pi-dashboard-shared/platform/detached-spawn.js";
+import type { ChildProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { buildSafeArgv, execSync, spawnSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { prependManagedNodeToPath } from "@blackbelt-technology/pi-dashboard-shared/platform/managed-node-path.js";
 import { electronAsNodeRequired } from "@blackbelt-technology/pi-dashboard-shared/platform/runner.js";
+import {
+  buildWtArgs,
+  type SpawnMechanism,
+  selectMechanism,
+  sessionFlagsToArgv,
+  type UserSpawnStrategy,
+} from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js";
 import { mintSpawnToken } from "../auth/spawn-token.js";
 import { resolveGuardForSpawn, guardPolicyToSpawn, type GuardOrigin } from "../session-guard.js";
 import {
   createKeeperManager,
   type KeeperManager,
 } from "../rpc-keeper/keeper-manager.js";
-import { randomUUID } from "node:crypto";
-import { execSync, spawnSync, buildSafeArgv } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
-import {
-  spawnDetached,
-  waitForNoCrash,
-} from "@blackbelt-technology/pi-dashboard-shared/platform/detached-spawn.js";
-import {
-  selectMechanism,
-  buildWtArgs,
-  sessionFlagsToArgv,
-  type SpawnMechanism,
-  type UserSpawnStrategy,
-} from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js";
-import type { SpawnFailureCode } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 
 // ── Resolver seam (injectable for tests) ────────────────────────────────────
 
@@ -270,10 +271,19 @@ export function buildTmuxCommand(cwd: string, sessionExists: boolean, options?: 
     .map(shellEscape)
     .join(" ");
   const piCmd = flags ? `cd ${safeCwd} && pi ${flags}` : `cd ${safeCwd} && pi`;
+  // Per-window token. `execSync(cmd, { env })` only sets the tmux CLIENT's env;
+  // once a `pi-dashboard` server is running, `new-window` inherits the SERVER's
+  // environment, so every later window carried the FIRST spawn's token (three
+  // concurrent panes were measured sharing one). `-e` scopes it to this window,
+  // which is what makes the token a usable identity at all.
+  // See change: fix-tmux-session-shutdown-leak (design D5).
+  const tokenEnv = options?.spawnToken
+    ? ` -e PI_DASHBOARD_SPAWN_TOKEN=${shellEscape(options.spawnToken)}`
+    : "";
   if (sessionExists) {
-    return `tmux new-window -t pi-dashboard -c ${safeCwd} "${piCmd}"`;
+    return `tmux new-window -t pi-dashboard${tokenEnv} -c ${safeCwd} "${piCmd}"`;
   }
-  return `tmux new-session -d -s pi-dashboard -c ${safeCwd} "${piCmd}"`;
+  return `tmux new-session -d -s pi-dashboard${tokenEnv} -c ${safeCwd} "${piCmd}"`;
 }
 
 // ── Availability probes (isolated, one place) ───────────────────────────────

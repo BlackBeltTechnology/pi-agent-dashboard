@@ -84,6 +84,99 @@ export function findPidByMarker(marker: string, opts: ProcessIdentifyOpts = {}):
   }
 }
 
+// ── findPidsBySpawnToken ────────────────────────────────────
+
+/**
+ * Find PIDs whose ENVIRONMENT carries `PI_DASHBOARD_SPAWN_TOKEN=<token>`.
+ *
+ * This is the one handle that exists for a spawn the dashboard cannot address
+ * any other way. `tmux new-window` returns tmux's pid, not pi's, and the pane
+ * runs `cd <cwd> && pi` with nothing identifying on its command line — so a pi
+ * that never sends `session_register` (blocked on the interactive trust prompt,
+ * for instance) has no pid, no session record, and nothing that can reclaim it.
+ * The server already mints the token and passes it into the pane's env, so the
+ * environment is where the correlation survives.
+ *
+ * Command line is deliberately NOT searched: the token is never on it, and a
+ * `grep <token>` over `ps` output would match this very lookup.
+ *
+ * The result is narrowed to processes actually NAMED `pi`, and that narrowing
+ * is load-bearing rather than cosmetic. The token is an ordinary environment
+ * variable, so it is INHERITED: the tmux server that outlives the first spawn,
+ * the dashboard's own node process, the pane's shell and any child all carry
+ * it. An un-narrowed lookup returned five pids for one token, and handing that
+ * set to a kill path took the whole container down. Only the leaf `pi` is ever
+ * a legitimate target.
+ *
+ * Never throws. Returns `[]` on any error or on Windows.
+ *
+ * See change: fix-tmux-session-shutdown-leak (design D5).
+ */
+export function findPidsBySpawnToken(
+  token: string,
+  opts: ProcessIdentifyOpts = {},
+): number[] {
+  const platform = opts.platform ?? process.platform;
+  if (platform === "win32") return [];
+  // An empty/blank token would match every process that merely has the variable
+  // set — refuse rather than hand a kill path a wildcard.
+  if (!/^[A-Za-z0-9._-]{8,}$/.test(token)) return [];
+
+  const exec = opts.exec ?? defaultExec;
+  const needle = `PI_DASHBOARD_SPAWN_TOKEN=${token}`;
+  const isDarwin = platform === "darwin";
+
+  try {
+    const out = exec(spawnTokenProbe(needle, isDarwin), {
+      encoding: "utf-8",
+      timeout: 5000,
+    }).trim();
+    if (!out) return [];
+    // On darwin `ps` lists EVERY process, so the token is matched per line; on
+    // linux the shell already filtered and each line IS a pid.
+    const lines = out
+      .split("\n")
+      .map((l) => l.trim())
+      .filter(Boolean);
+    const matching = isDarwin
+      ? lines.filter((l) => l.includes(needle) && isPiExecutable(l.split(/\s+/)[1] ?? ""))
+      : lines;
+    return matching
+      .map((l) => Number.parseInt(l.split(/\s+/, 1)[0] ?? "", 10))
+      .filter((pid) => pid > 0);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * The per-platform probe: `/proc/<pid>/environ` on linux (exact and cheap),
+ * BSD `ps -E` on darwin (no /proc; `-E` appends the environment).
+ */
+function spawnTokenProbe(needle: string, isDarwin: boolean): string {
+  // `comm` (2nd column) is what the pi-only narrowing keys on.
+  if (isDarwin) return "ps -Aww -E -o pid=,comm=,command=";
+  // `; exit 0` is load-bearing: the loop's status is the LAST iteration's, and
+  // the last /proc entry almost never matches, so `grep -q` left the shell at
+  // status 1. execSync throws on non-zero, the catch swallowed it, and the
+  // probe silently returned [] for every lookup — measured in the harness as a
+  // watchdog that fired but never reclaimed anything.
+  // See change: fix-tmux-session-shutdown-leak.
+  return (
+    `for d in /proc/[0-9]*; do ` +
+    // Leaf pi only: the token is inherited by the tmux server, the dashboard's
+    // own node process and every shell in between.
+    `[ "$(cat "$d/comm" 2>/dev/null)" = "pi" ] || continue; ` +
+    `tr '\\0' '\\n' < "$d/environ" 2>/dev/null | ` +
+    `grep -q ${shellQuote(needle)} && echo "\${d#/proc/}"; done; exit 0`
+  );
+}
+
+/** True when a `ps` comm column names the pi binary (never `node`, never a shell). */
+function isPiExecutable(comm: string): boolean {
+  return comm.split("/").pop() === "pi";
+}
+
 // ── isProcessLikePi ────────────────────────────────────────────────────────
 
 /**

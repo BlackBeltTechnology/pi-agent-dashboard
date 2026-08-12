@@ -138,4 +138,64 @@ describe("Session drag-and-drop", () => {
     const pinnedHandles = screen.getAllByTestId("drag-handle-pinned");
     expect(pinnedHandles.length).toBe(1);
   });
+
+  // The drag zone used to BE the 20px status gutter. It is now an opaque bead
+  // parked in the directory-rail band; if the bead ever loses its opaque
+  // background the 2px rail shows through the grip dots (the defect this
+  // design round fixed). See change: session-card-directory-rail.
+  it("drag bead is an opaque hover-revealed pill that masks the directory rail", () => {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession("s1", "/project", 1000)]}
+            onSelect={() => {}}
+            sessionOrderMap={new Map([["/project", ["s1"]]])}
+            onReorderSessions={vi.fn()}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    const bead = screen.getByTestId("drag-handle-session");
+    // Opaque surface + border == the rail cannot bleed through the dots.
+    expect(bead.className).toContain("bg-[var(--bg-primary)]");
+    expect(bead.className).toContain("border-[var(--border-subtle)]");
+    // Parked in the rail band, left of the card body.
+    expect(bead.className).toContain("-left-[19px]");
+    // Hover-revealed, not always-on.
+    expect(bead.className).toContain("opacity-0");
+    expect(bead.className).toContain("group-hover/card:opacity-100");
+    expect(bead.className).toMatch(/cursor-grab/);
+    // Grip glyph is an exact 7x13 canvas so it centers inside the bead.
+    const svg = bead.querySelector("svg");
+    expect(svg?.getAttribute("viewBox")).toBe("0 0 7 13");
+    expect(svg?.querySelectorAll("circle").length).toBe(6);
+  });
+
+  // `.card-selected-ring > *` (index.css) re-declares position:relative on
+  // EVERY direct child of a selected card. The bead is a direct child, so
+  // without the `card-drag-bead` escape class it fell into normal flow and the
+  // selected card grew a blank 26px band. See change: session-card-directory-rail.
+  it("selected card keeps the drag bead out of normal flow (no extra space)", () => {
+    render(
+      <TestRouter>
+        <ThemeProvider>
+          <SessionList
+            sessions={[makeSession("s1", "/project", 1000)]}
+            onSelect={() => {}}
+            selectedId="s1"
+            sessionOrderMap={new Map([["/project", ["s1"]]])}
+            onReorderSessions={vi.fn()}
+          />
+        </ThemeProvider>
+      </TestRouter>,
+    );
+    const card = screen.getByTestId("session-card-desktop");
+    expect(card.className).toContain("card-selected-ring");
+    const bead = screen.getByTestId("drag-handle-session");
+    // The escape class must survive on a SELECTED card, otherwise the
+    // selected-ring rule wins on source order and re-flows the bead.
+    expect(bead.className).toContain("card-drag-bead");
+    expect(bead.className).toContain("absolute");
+  });
 });

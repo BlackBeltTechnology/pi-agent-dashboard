@@ -65,6 +65,18 @@ export async function sendEventBatches(
   // down to the cold (on-disk) path's shape. The store keeps the full stream.
   // See change: compact-warm-replay-stream.
   const compacted = compactEventsForReplay(stored);
+  // Terminate an empty payload explicitly. The loop below cannot run when there
+  // is nothing to batch, so without this a warm empty delta (or a cold session
+  // that parses to zero events) would send NO `event_replay` at all and the
+  // client's replay-in-flight flag would have no clearing edge. Only the empty
+  // case: a non-empty payload's final batch already carries `isLast: true`, so
+  // appending here unconditionally would double-terminate an exact multiple of
+  // REPLAY_BATCH_SIZE. See change: show-replay-in-flight-indicator (D6).
+  if (compacted.length === 0) {
+    if (ws.readyState !== ws.OPEN) return 0;
+    sendTo(ws, { type: "event_replay", sessionId, events: [], isLast: true });
+    return preCompactionMaxSeq;
+  }
   for (let i = 0; i < compacted.length; i += REPLAY_BATCH_SIZE) {
     if (ws.readyState !== ws.OPEN) return 0;
     const batch = compacted.slice(i, i + REPLAY_BATCH_SIZE);

@@ -59,7 +59,11 @@ export function pinDirectorySideEffects(
             firstMessage: hist.firstMessage,
             startedAt: hist.startedAt,
           });
-          sessionManager.unregister(hist.id);
+          // Historical sessions: registered only to seed the map, then ended
+          // immediately. The server never witnessed these endings, so they take
+          // the evidence-derived time rather than the moment the directory was
+          // added. See change: fix-ended-session-missing-endedat.
+          sessionManager.unregister(hist.id, { witnessed: false });
           sessionManager.update(hist.id, { hidden: true });
           const s = sessionManager.get(hist.id);
           if (s) broadcast({ type: "session_added", session: s });

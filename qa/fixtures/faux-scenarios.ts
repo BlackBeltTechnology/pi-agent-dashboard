@@ -913,6 +913,62 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "subagent spawn complete" },
   },
 
+  // Inner scenario for `subagent-sustained`: several SLEEPING bash calls so the
+  // subagent stays alive for ~6 s. The parent's `Agent` tool call emits a
+  // `tool_execution_update` roughly every 250 ms for that whole window, which
+  // is the sustained-tick workload the collapse policy exists to bound.
+  // See change: collapse-superseded-tool-execution-updates (test-plan P2/F4).
+  "subagent-slow-inner": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 2 && echo tick-one" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 2 && echo tick-two" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 2 && echo tick-three" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText("slow inner complete")]),
+    ],
+    expect: { text: "slow inner complete" },
+  },
+
+  // Parent that spawns a LONG-RUNNING subagent (`subagent-slow-inner`), so the
+  // Agent tool call produces a sustained run of `tool_execution_update` ticks
+  // carrying the cumulative subagent timeline. Drives the L3 collapse
+  // scenarios: `storeTrim.collapsedUpdates` must move off zero, and the live
+  // timeline must keep advancing (collapse is retention-only).
+  // See change: collapse-superseded-tool-execution-updates (test-plan P2/F4).
+  "subagent-sustained": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "faux sustained subagent",
+            prompt: "[[faux:subagent-slow-inner]] run the sustained subagent probe",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("sustained subagent complete")]),
+    ],
+    expect: { text: "sustained subagent complete" },
+  },
+
+  // ── OpenSpec auto-attach locality gate (change:
+  // scope-openspec-auto-attach-to-session-cwd) ───────────────────────────────
+  // The verbatim incident shape: an openspec CLI invocation prefixed with a
+  // `cd` into ANOTHER repository. The detector must drop the match entirely,
+  // so the card never attaches and never auto-renames. The bash tool runs for
+  // real; detection happens on `tool_execution_start` regardless of its exit
+  // code.
+  "openspec-foreign-cd": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("bash", { command: "cd /tmp && openspec new change repo-b-change || true" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("foreign openspec command done")]),
+    ],
+    expect: { toolName: "bash" },
+  },
+
   // ── auto-canvas driver scenarios (change: auto-canvas, Sections 6–8) ────
   // A `write` of a renderable markdown deliverable. The server-side detect
   // (write/edit only, gated by RENDERER_BY_EXT + canvasTypes) pushes a DOC
