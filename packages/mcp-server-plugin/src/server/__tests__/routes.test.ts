@@ -11,6 +11,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { McpTokenRegistry } from "../tokens.js";
 import { META_VERSION_KEY } from "../protocol.js";
 import { MCP_BODY_LIMIT_BYTES, REJECTED_METHODS, mountMcpRoutes } from "../routes.js";
+import { SubscriptionRegistry } from "../streaming.js";
 
 const V = "2026-07-28";
 const meta = { _meta: { [META_VERSION_KEY]: V } };
@@ -451,5 +452,126 @@ describe("X7 — concurrency", () => {
       // The id proves each response went to its own request.
       expect(res.json().id).toBe(i);
     }
+  });
+});
+
+describe("subscriptions/listen through the REAL route (not a mock hook)", () => {
+  /**
+   * These exist because the streaming class had full unit coverage while the
+   * feature was entirely unwired: `openSubscription` was a stub that threw, so
+   * every real call returned -32603 and the green suite proved nothing. Any
+   * assertion about streaming has to traverse the actual route.
+   */
+  function streamingHarness() {
+    const app = Fastify();
+    open.push(app);
+    const tokens = new McpTokenRegistry();
+    const handlers = new Set<(sessionId: string, payload: unknown) => void>();
+    const registry = new SubscriptionRegistry();
+
+    const ready = mountMcpRoutes(app, {
+      tokens,
+      verifyDeviceToken: () => null,
+      invokeTool: async () => ({}),
+      serverInfo: { name: "pi-dashboard", version: "0.7.0" },
+      log: { info: () => {}, warn: () => {}, error: () => {} },
+      streaming: {
+        registry,
+        source: {
+          onEvent(handler) {
+            handlers.add(handler);
+            return () => handlers.delete(handler);
+          },
+        },
+      },
+    });
+
+    return {
+      app,
+      tokens,
+      registry,
+      ready,
+      emit: (sessionId: string, payload: unknown) => {
+        for (const h of [...handlers]) h(sessionId, payload);
+      },
+      get listenerCount() {
+        return handlers.size;
+      },
+    };
+  }
+
+  it("advertises listen:true only when streaming is actually wired", async () => {
+    const h = streamingHarness();
+    await h.ready;
+    await h.app.ready();
+    const token = h.tokens.mintForSession("session-a");
+
+    const res = await h.app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: authed(token),
+      payload: rpc("server/discover"),
+    });
+    expect(res.json().result.capabilities.subscriptions.listen).toBe(true);
+  });
+
+  it("advertises listen:false when it is NOT wired", async () => {
+    // The harness() fixture supplies no `streaming` dep, so the capability
+    // must report false rather than promising a method that would 404.
+    const { app, tokens } = await harness();
+    const res = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: authed(tokens.mintForSession("session-a")),
+      payload: rpc("server/discover"),
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().result.capabilities.subscriptions.listen).toBe(false);
+  });
+
+  it("reports subscriptions/listen unsupported when it is NOT wired", async () => {
+    const { app, tokens } = await harness();
+    const res = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: authed(tokens.mintForSession("session-a")),
+      payload: rpc("subscriptions/listen", { sessionIds: ["session-a"] }),
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("S3 — an absent sessionIds filter is refused and opens no subscription", async () => {
+    const h = streamingHarness();
+    await h.ready;
+    await h.app.ready();
+    const token = h.tokens.mintForSession("session-a");
+
+    const res = await h.app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: authed(token),
+      payload: rpc("subscriptions/listen"),
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json()).toMatchObject({ error: { data: { type: "InvalidSubscriptionFilter" } } });
+    expect(h.registry.size).toBe(0);
+    expect(h.listenerCount).toBe(0);
+  });
+
+  it("an unauthenticated listen never opens a subscription", async () => {
+    const h = streamingHarness();
+    await h.ready;
+    await h.app.ready();
+
+    const res = await h.app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: { "mcp-protocol-version": V },
+      payload: rpc("subscriptions/listen", { sessionIds: ["session-a"] }),
+    });
+
+    expect(res.statusCode).toBe(401);
+    expect(h.registry.size).toBe(0);
   });
 });

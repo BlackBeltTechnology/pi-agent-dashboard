@@ -42,6 +42,31 @@ function mcpConfigPath(): string {
   return path.join(os.homedir(), ".pi", "agent", "mcp.json");
 }
 
+/**
+ * Read the installed `pi-mcp-adapter` version from disk.
+ *
+ * Resolved here rather than consumed from a host service, because there is no
+ * such service — consuming a name nobody registers yields `null` forever and
+ * makes the probe report "not installed" even when it is, which is worse than
+ * no diagnostic at all.
+ */
+function readInstalledAdapterVersion(): string | null {
+  const candidates = [
+    path.join(os.homedir(), ".pi", "agent", "npm", "node_modules", "pi-mcp-adapter", "package.json"),
+    path.join(os.homedir(), ".pi", "agent", "node_modules", "pi-mcp-adapter", "package.json"),
+  ];
+  for (const p of candidates) {
+    try {
+      const raw = fs.readFileSync(p, "utf8");
+      const version = (JSON.parse(raw) as { version?: unknown }).version;
+      if (typeof version === "string") return version;
+    } catch {
+      /* not installed at this location; try the next */
+    }
+  }
+  return null;
+}
+
 /** Atomic write: temp file in the same directory, then rename. */
 function writeFileAtomic(target: string, content: string): void {
   fs.mkdirSync(path.dirname(target), { recursive: true });
@@ -65,6 +90,20 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
 
   const tokens = new McpTokenRegistry();
   const subscriptions = new SubscriptionRegistry();
+
+  // Resolved once at load and asserted: a missing host service would silently
+  // refuse every device bearer (401 on every external-client request), and the
+  // unit suite cannot see it because it injects this dependency directly.
+  const hostVerifyDeviceToken = ctx.consume<(t: string) => string | null>(
+    "host.verifyDeviceToken",
+  );
+  if (!hostVerifyDeviceToken) {
+    ctx.logger.error(
+      "mcp-server: host service 'host.verifyDeviceToken' is unavailable — device-token callers (Claude Desktop, Cursor, phone) cannot authenticate",
+    );
+  }
+  const verifyDeviceToken = (token: string): string | null =>
+    hostVerifyDeviceToken?.(token) ?? null;
 
   const handlers: Record<string, (inv: ToolInvocation) => Promise<unknown>> = {
     list_sessions: async () => ({ sessions: ctx.sessionManager.listAll() }),
@@ -90,8 +129,7 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
 
   await mountMcpRoutes(ctx.fastify, {
     tokens,
-    verifyDeviceToken: (token) =>
-      (ctx.consume<(t: string) => string | null>("host.verifyDeviceToken")?.(token)) ?? null,
+    verifyDeviceToken: (token) => verifyDeviceToken(token),
     serverInfo: { name: "pi-dashboard", version: process.env.npm_package_version ?? "0.0.0" },
     invokeTool: async (invocation) => {
       const handler = handlers[invocation.tool.name];
@@ -104,10 +142,13 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
         `mcp-server: refused self-target caller=${callerSessionId} target=${targetSessionId} tool=${tool}`,
       );
     },
-    openSubscription: async () => {
-      // The streaming response is written by the route layer; this hook exists
-      // so dispatch stays transport-agnostic and unit-testable.
-      throw new Error("subscriptions/listen requires the streaming transport");
+    // `subscriptions/listen` is intercepted by the route layer before dispatch
+    // (it needs the live reply to hijack), so no `openSubscription` hook is
+    // needed here. `streamingAvailable` reflects the real wiring below.
+    streamingAvailable: true,
+    streaming: {
+      registry: subscriptions,
+      source: { onEvent: (handler) => ctx.onEvent(handler) },
     },
     log: {
       info: (m) => ctx.logger.info(m),
@@ -142,14 +183,18 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
 
   // --- Provisioning ---------------------------------------------------------
 
-  const probe = probeAdapterVersion(ctx.consume<string>("host.piMcpAdapterVersion") ?? null);
+  const adapterVersion = readInstalledAdapterVersion();
+  const probe = probeAdapterVersion(adapterVersion);
   if (!probe.ok) {
     // A warning, not a failure: the endpoint serves external clients fine
     // without a local adapter. Only the local-pi path needs the floor.
     ctx.logger.warn(`mcp-server: ${probe.message}`);
   }
 
-  const port = ctx.consume<number>("host.httpPort") ?? 8000;
+  // A live getter — the bound port is unknown until listen() resolves, so a
+  // boot-time snapshot would provision a URL pointing at the wrong address on
+  // any non-default port.
+  const port = ctx.consume<() => number | null>("host.httpPort")?.() ?? 8000;
   const result = provisionDashboardEntry(
     { readFile: (p) => (fs.existsSync(p) ? fs.readFileSync(p, "utf8") : null), writeFileAtomic },
     mcpConfigPath(),
@@ -162,6 +207,8 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   }
 
   ctx.provide(`${PLUGIN_ID}.disposeForTest`, () => {
+    // Order matters: release streams (which hold event-bus listeners) before
+    // dropping the tokens they were authorised by.
     subscriptions.closeAll();
     tokens.dispose();
   });

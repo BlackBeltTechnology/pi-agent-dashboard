@@ -83,6 +83,8 @@ export interface DispatchDeps {
   recordRefusal?(detail: { callerSessionId: string; targetSessionId: string; tool: string }): void;
   /** Open a subscription stream. Absent in unit contexts that never call it. */
   openSubscription?(sessionIds: string[], caller: McpCaller): Promise<unknown>;
+  /** Whether the streaming transport is wired; drives `server/discover`. */
+  streamingAvailable?: boolean;
 }
 
 function argsOf(params: unknown): Record<string, unknown> {
@@ -100,12 +102,18 @@ function argsOf(params: unknown): Record<string, unknown> {
  * mutable, so two connections receive equivalent responses and no server-side
  * state is created (E19, E20).
  */
-export function buildDiscoverResult(serverInfo: { name: string; version: string }) {
+export function buildDiscoverResult(
+  serverInfo: { name: string; version: string },
+  // Advertised from the ACTUAL wiring. Claiming `listen: true` for a method
+  // that always errors is worse than claiming false: a client would build on a
+  // capability that does not exist.
+  streamingAvailable = true,
+) {
   return {
     protocolVersions: [...SUPPORTED_PROTOCOL_VERSIONS],
     capabilities: {
       tools: { listChanged: false },
-      subscriptions: { listen: true },
+      subscriptions: { listen: streamingAvailable },
       // Stated explicitly rather than by omission: these are gone in this
       // revision, and a client should not have to infer that.
       resources: { subscribe: false },
@@ -179,7 +187,10 @@ export async function dispatchRpc(
 
   switch (request.method) {
     case "server/discover":
-      return rpcResult(id, buildDiscoverResult(deps.serverInfo));
+      return rpcResult(
+        id,
+        buildDiscoverResult(deps.serverInfo, deps.streamingAvailable ?? deps.openSubscription !== undefined),
+      );
 
     case "tools/list":
       return rpcResult(id, { tools: listTools(MCP_TOOLS) });

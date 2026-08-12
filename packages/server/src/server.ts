@@ -891,6 +891,22 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     for (const d of preferencesStore.getPinnedDirectories()) set.add(d);
     return [...set];
   });
+  // Host services consumed by mcp-server-plugin. Registered HERE because the
+  // plugin must verify a device bearer WITHOUT going through the global
+  // `onRequest` hook — `/mcp` deliberately does not trust
+  // `request.isAuthenticated`, so it needs the registry directly.
+  // See change: add-dashboard-mcp-server.
+  pluginServiceRegistry.set(
+    "host.verifyDeviceToken",
+    (token: string): string | null => pairedDeviceRegistry.verify(token),
+  );
+  // A live getter, not a boot-time snapshot: the bound port is unknown until
+  // `fastify.listen` resolves (port 0 in tests), and a plugin may read it later.
+  pluginServiceRegistry.set("host.httpPort", (): number | null => {
+    const addr = fastify.server.address();
+    return addr && typeof addr === "object" ? addr.port : null;
+  });
+
   // `sessionId` comes from the gateway's socket key, never from `msg`. A
   // plugin that attributes a message to a session (e.g. minting a session-
   // scoped credential) depends on that being unspoofable.

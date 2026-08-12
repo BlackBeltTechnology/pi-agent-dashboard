@@ -305,9 +305,37 @@ so it can never collide with a target and is structurally unaffected (G4).
 
 **Chosen: the bridge WebSocket, and nothing else.** The extension sends an
 `mcp/mint-token` message over its already-registered bridge socket. The server
-attributes the mint to the sessionId **that socket is keyed under** in
-`pi-gateway.ts`'s `connections: Map<sessionId, WebSocket>` — never from a field in
-the message body.
+attributes the mint to the session **that connection registered as**
+(`currentSessionId` in `pi-gateway.ts`) — never from a field in the message body.
+
+### Cycle-3 correction — the gateway had to be fixed for this to be true
+
+The first implementation asserted this property but did not have it. `plugin_pi_message.sessionId`
+is a **required** field on the envelope (`protocol.ts:593`), and the gateway
+preferred it over the connection:
+
+```ts
+// pi-gateway.ts, before
+const eventSessionId = "sessionId" in msg ? (msg as any).sessionId : undefined;
+onEvent?.(eventSessionId ?? currentSessionId ?? "", msg);
+```
+
+So the body field was *always* present and *always* won. Session A could send
+`{sessionId:"B", messageType:"mcp/mint-token"}` and receive a token bound to B —
+then self-target A while the guard saw a caller of B. The guard was theatre, and
+the test asserting otherwise exercised a hand-written stand-in rather than the
+real dispatch path, so it passed regardless.
+
+`plugin_pi_message` is now attributed to `currentSessionId`. Every other message
+type keeps its previous precedence.
+
+**The guarantee, stated exactly:** the id is *the session this connection
+registered as*. It is not spoofable per-message, which is what the self-target
+guard needs. It is **not** a claim about the pi gateway port's own
+authentication — `currentSessionId` is itself set from the first `register`
+message, so a process that can reach the gateway port can still register as a
+session id of its choosing. That is the dashboard's pre-existing bridge trust
+model and is out of scope here; it is recorded so the property is not overread.
 
 This is the only channel in the system that proves session identity server-side,
 which is exactly what Decision 4 requires for the guard to be real rather than

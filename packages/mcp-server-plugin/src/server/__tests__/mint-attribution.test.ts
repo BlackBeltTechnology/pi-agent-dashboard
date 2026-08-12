@@ -1,13 +1,15 @@
 /**
  * Mint attribution (design.md Decision 6, test-plan M1/M2/M4).
  *
- * The property under test is the one the whole self-target guard rests on: a
- * minted token binds to the session whose SOCKET carried the request, and
- * nothing on the wire can redirect that.
+ * SCOPE, stated precisely because an earlier version of this file overclaimed:
+ * these tests assert the HANDLER's contract — that it binds a token to the id it
+ * is dispatched with, and ignores the payload. They do NOT prove that the
+ * dispatched id is itself trustworthy.
  *
- * This is asserted at the seam rather than end-to-end because the seam is where
- * the guarantee actually lives: `dispatchPluginPiMessage` hands the handler the
- * gateway's own key, so the handler has no body-derived alternative to choose.
+ * That second half is the security property, and it lives in the gateway:
+ * `packages/server/src/__tests__/plugin-pi-message-attribution.test.ts`. Without
+ * it, every assertion here is satisfied by an implementation that reads
+ * `msg.sessionId` — which is exactly the spoofable state this change had to fix.
  */
 import { describe, expect, it } from "vitest";
 import { McpTokenRegistry } from "../tokens.js";
@@ -29,15 +31,7 @@ describe("M1 — minting attributes to the connection's session", () => {
   });
 });
 
-describe("M4 — minting for a foreign session is unrepresentable", () => {
-  it("ignores a body field naming another session", () => {
-    const tokens = new McpTokenRegistry();
-    // The spoof attempt: session A's socket carries a body claiming session B.
-    const { token } = mintHandler(tokens)({ sessionId: "session-b" }, "session-a");
-
-    expect(tokens.resolve(token)).toEqual({ kind: "session", sessionId: "session-a" });
-  });
-
+describe("M4 — the mint binds to the DISPATCHED id, not the payload", () => {
   it.each([
     ["sessionId", { sessionId: "session-b" }],
     ["session_id", { session_id: "session-b" }],
@@ -45,22 +39,15 @@ describe("M4 — minting for a foreign session is unrepresentable", () => {
     ["a nested claim", { params: { sessionId: "session-b" } }],
     ["an array body", ["session-b"]],
     ["a string body", "session-b"],
-  ])("a %s body field cannot redirect the mint", (_label, body) => {
+  ])("a %s body field does not redirect the mint", (_label, body) => {
     const tokens = new McpTokenRegistry();
     const { token } = mintHandler(tokens)(body, "session-a");
     expect(tokens.resolve(token)).toEqual({ kind: "session", sessionId: "session-a" });
   });
 
-  it("the handler has no parameter through which a body could be preferred", () => {
-    // Structural, and the strongest form of this assertion: attribution is the
-    // handler's SECOND parameter, supplied by the dispatcher. The body is the
-    // first and is never read for identity. A future edit that starts trusting
-    // the body would have to add a code path this signature does not invite.
+  it("the same body dispatched under two ids yields two distinct bindings", () => {
     const tokens = new McpTokenRegistry();
     const handler = mintHandler(tokens);
-    expect(handler.length).toBe(2);
-
-    // Same body, two different sockets → two different bindings.
     const body = { sessionId: "session-z" };
     const a = handler(body, "session-a").token;
     const b = handler(body, "session-b").token;

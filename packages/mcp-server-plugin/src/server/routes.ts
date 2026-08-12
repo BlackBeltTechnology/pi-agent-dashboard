@@ -20,7 +20,10 @@ import {
   rpcError,
 } from "./jsonrpc.js";
 import { PROTOCOL_VERSION_HEADER } from "./protocol.js";
-import { type DispatchDeps, dispatchRpc } from "./dispatch.js";
+import { type DispatchDeps, dispatchRpc, parseSubscriptionFilter } from "./dispatch.js";
+import { RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND } from "./jsonrpc.js";
+import type { EventSource, StreamSink, SubscriptionRegistry } from "./streaming.js";
+import type { McpCaller } from "./tokens.js";
 
 /**
  * Methods that must answer 405 rather than reaching the SPA fallback.
@@ -49,6 +52,21 @@ export const MCP_BODY_LIMIT_BYTES = 1024 * 1024;
 export interface McpRouteDeps extends AuthDeps, DispatchDeps {
   /** Structured log sink; refusals must be observable (G5). */
   log: { info(msg: string): void; warn(msg: string): void; error(msg: string): void };
+  /**
+   * Streaming wiring for `subscriptions/listen`. Optional so unit contexts that
+   * never open a stream stay simple — but when absent the method is reported
+   * unsupported rather than advertised-and-broken.
+   */
+  streaming?: { registry: SubscriptionRegistry; source: EventSource };
+}
+
+/**
+ * Whether streaming is actually wired. `server/discover` reads this so the
+ * advertised capability matches reality — advertising `listen: true` for a
+ * method that always errors is worse than advertising `false`.
+ */
+export function hasStreaming(deps: McpRouteDeps): boolean {
+  return deps.streaming !== undefined;
 }
 
 function send(reply: FastifyReply, res: RpcHttpResponse): void {
@@ -68,13 +86,80 @@ function send(reply: FastifyReply, res: RpcHttpResponse): void {
  *
  * Returns the registration promise so a caller can await readiness.
  */
-export function mountMcpRoutes(fastify: FastifyInstance, deps: McpRouteDeps): Promise<void> {
-  return fastify.register(async (scope) => {
+export async function mountMcpRoutes(
+  fastify: FastifyInstance,
+  deps: McpRouteDeps,
+): Promise<void> {
+  await fastify.register(async (scope) => {
     mountMcpRoutesInScope(scope, deps);
   });
 }
 
+/**
+ * Open a `subscriptions/listen` stream on the request's own response.
+ *
+ * The reply is hijacked so Fastify stops managing it, and events are written as
+ * newline-delimited JSON for as long as the request lives. Teardown is bound to
+ * BOTH `close` and `error` on the raw socket, because S4 (clean close) and S5
+ * (transport abort) are different paths to the same required release.
+ */
+async function handleListen(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  rpc: { id?: string | number | null; params?: unknown },
+  caller: McpCaller,
+  deps: McpRouteDeps,
+): Promise<void> {
+  const filter = parseSubscriptionFilter(rpc.params);
+  if (!filter.ok) {
+    send(reply, rpcError(400, rpc.id ?? null, RPC_INVALID_PARAMS, filter.message, "InvalidSubscriptionFilter"));
+    return;
+  }
+  if (!deps.streaming) {
+    send(
+      reply,
+      rpcError(404, rpc.id ?? null, RPC_METHOD_NOT_FOUND, "subscriptions/listen is not available"),
+    );
+    return;
+  }
+
+  const raw = reply.raw;
+  raw.writeHead(200, {
+    "content-type": "application/x-ndjson",
+    "cache-control": "no-store",
+    connection: "keep-alive",
+  });
+  reply.hijack();
+
+  const sink: StreamSink = {
+    write: (chunk) => raw.write(chunk),
+    end: () => raw.end(),
+  };
+
+  const subscription = deps.streaming.registry.open(
+    deps.streaming.source,
+    filter.sessionIds,
+    sink,
+    caller,
+    {
+      // S9 — re-verified per delivery, so a credential revoked mid-stream
+      // terminates it rather than letting the stream drain.
+      isStillAuthorised: () =>
+        authenticate(request.headers.authorization, deps) !== null,
+    },
+  );
+
+  const release = () => subscription.close();
+  raw.on("close", release);
+  raw.on("error", release);
+}
+
 function mountMcpRoutesInScope(fastify: FastifyInstance, deps: McpRouteDeps): void {
+  // Derived ONCE from the real wiring and handed to dispatch, so
+  // `server/discover` cannot advertise a capability the transport does not
+  // provide. Computed here rather than per request.
+  const dispatchDeps: McpRouteDeps = { ...deps, streamingAvailable: hasStreaming(deps) };
+
   for (const method of EXPLICITLY_REGISTERED_METHODS) {
     fastify.route({
       method,
@@ -116,12 +201,20 @@ function mountMcpRoutesInScope(fastify: FastifyInstance, deps: McpRouteDeps): vo
         return;
       }
 
+      // `subscriptions/listen` is a long-lived response stream, so it cannot go
+      // through the single-response path below. Handled here, where the reply
+      // object still exists to be hijacked.
+      if (parsed.request.method === "subscriptions/listen") {
+        await handleListen(request, reply, parsed.request, caller, deps);
+        return;
+      }
+
       try {
         const res = await dispatchRpc(
           parsed.request,
           request.headers[PROTOCOL_VERSION_HEADER] as string | string[] | undefined,
           caller,
-          deps,
+          dispatchDeps,
         );
         send(reply, res);
       } catch (err) {

@@ -698,7 +698,11 @@ Two credential kinds resolve to one `McpCaller`:
 
 **Session tokens.** Opaque 256-bit, `mcp_` prefix, SHA-256 at rest, plaintext returned once at mint, constant-time compare, flat-array scan (no membership-timing leak). No independent expiry — a token's lifetime IS its session's lifetime. IN-MEMORY only: no `mcp-tokens.json`, registry dies with the plugin. All die on restart; sessions re-mint when their bridge re-registers. Revocation: `onSessionEnded` / bridge disconnect (primary), explicit `mcp/revoke-token`, process exit / plugin unload.
 
-**Minting.** `mcp/mint-token` over the session's own bridge WebSocket. Server attributes it to the sessionId the socket is keyed under in `pi-gateway.ts` `connections`, never from the message body. Minting for a foreign session is unrepresentable, not merely rejected. `mcp/revoke-token` revokes by session.
+**Minting.** `mcp/mint-token` over the session's own bridge WebSocket. Server attributes it to the session the CONNECTION registered as (`currentSessionId`), never `msg.sessionId`. `mcp/revoke-token` revokes by session.
+
+`plugin_pi_message.sessionId` is a REQUIRED protocol field (`protocol.ts:593`), so it is always present. `pi-gateway.ts` previously preferred it over the connection — a bridge could name any session and receive that session's credential. `plugin_pi_message` is now excluded from body-sessionId precedence; other message types keep prior behaviour.
+
+Guarantee stated exactly: "the session this connection registered as". Not spoofable per-message — what the self-target guard needs. NOT a claim about pi-gateway port authentication: `currentSessionId` is itself set from the first `register` message. Pre-existing bridge trust model; out of scope here.
 
 **Self-target guard.** Refuses a session-targeting tool call (`send_prompt`, `abort`) whose target equals the caller's own resolved session. Target normalised for equality (trim, one quote pair, lowercase) — bypass-proof. Catches DIRECT self-targeting only; the indirect A→B→A loop permitted, documented out of scope. Device callers have no originating session, structurally outside the guard.
 

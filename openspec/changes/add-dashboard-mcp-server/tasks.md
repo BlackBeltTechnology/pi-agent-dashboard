@@ -212,4 +212,4 @@ design.md Decision 2, cycle-2 amendment.
 - [x] 21.1 Update docs/architecture.md with the MCP endpoint, its protocol revision, and the auth boundary
 - [x] 21.2 Update README.md with setup and the adapter version prerequisite
 - [x] 21.3 Add directory AGENTS.md rows for every new file
-- [ ] 21.4 Run the full test suite and confirm no regression
+- [x] 21.4 Run the full test suite and confirm no regression

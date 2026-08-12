@@ -377,8 +377,27 @@ export function createPiGateway(
               }
             }
 
-            // Notify listeners
-            const eventSessionId = "sessionId" in msg ? (msg as any).sessionId : undefined;
+            // Notify listeners.
+            //
+            // `plugin_pi_message` is attributed to the CONNECTION's registered
+            // session (`currentSessionId`), not to `msg.sessionId`. The body
+            // field is required by the protocol type and is therefore always
+            // present, so preferring it would let a bridge attribute its
+            // message to any session it names. Plugins make trust decisions on
+            // this id — mcp-server-plugin mints a session-scoped credential
+            // from it — so it must be the connection's own identity.
+            //
+            // The guarantee is exactly "the session this socket registered as",
+            // which is the pi gateway's existing per-connection identity model;
+            // it is not a claim about the gateway port's own authentication.
+            // Every other message type keeps the previous precedence.
+            // See change: add-dashboard-mcp-server.
+            const eventSessionId =
+              msg.type === "plugin_pi_message"
+                ? currentSessionId
+                : "sessionId" in msg
+                  ? (msg as any).sessionId
+                  : undefined;
             onEvent?.(eventSessionId ?? currentSessionId ?? "", msg);
           } catch {
             // Ignore malformed messages

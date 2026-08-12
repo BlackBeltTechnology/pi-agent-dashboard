@@ -35,6 +35,11 @@ export interface StreamSink {
   write(chunk: string): boolean;
   /** End the response. */
   end(): void;
+  /**
+   * Register a drain callback, invoked when a previously-backpressured sink has
+   * flushed. Optional: a sink that never reports backpressure never needs it.
+   */
+  onDrain?(handler: () => void): void;
 }
 
 /**
@@ -55,6 +60,7 @@ export interface SubscriptionOptions {
 export class McpSubscription {
   private buffered = 0;
   private closed = false;
+  private drainBound = false;
   private unsubscribe: (() => void) | null = null;
 
   constructor(
@@ -97,11 +103,28 @@ export class McpSubscription {
       return;
     }
 
-    this.buffered += 1;
     const ok = this.sink.write(`${JSON.stringify(event)}\n`);
-    // A sink that accepted the write has drained it; only a backpressured
-    // write keeps counting against the cap.
-    if (ok) this.buffered -= 1;
+    if (ok) {
+      // Accepted outright: nothing is outstanding for this event, and anything
+      // previously outstanding has flushed too (a stream only returns true once
+      // its buffer is below the high-water mark).
+      this.buffered = 0;
+      return;
+    }
+
+    // Backpressured: this event is outstanding.
+    //
+    // The counter must be able to FALL, or an intermittently-slow consumer that
+    // fully recovers between bursts would still be disconnected after 1000
+    // cumulative slow writes — a monotonic counter measures lifetime slowness,
+    // not current backlog.
+    this.buffered += 1;
+    if (!this.drainBound) {
+      this.drainBound = true;
+      this.sink.onDrain?.(() => {
+        this.buffered = 0;
+      });
+    }
   }
 
   private terminate(reason: string): void {
