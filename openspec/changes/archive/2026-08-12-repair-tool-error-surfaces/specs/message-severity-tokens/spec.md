@@ -42,13 +42,22 @@ transcript, a stack trace, tool output — SHALL carry its severity signal on th
 container chrome (border, fill, and label) and SHALL render the body in the
 normal code colours, `--text-secondary` on `--bg-code`.
 
-An error surface whose body is a **single line or a badge** SHALL take
+An error surface that is a **badge or a bare status icon** SHALL take
 `--severity-error-fg` for the whole element; no chrome/content split applies.
+
+An error surface that is an **icon (or a literal `Error:` marker) followed by a
+message** SHALL put `--severity-error-fg` on the icon/marker only and render the
+message in `--text-secondary`. The icon/marker is the chrome; the message is
+content. These surfaces carry no container fill or border, so the accent is
+deliberately kept on the one element that is not the message itself — the error
+signal is the icon/marker plus the message's own wording, not a tinted body.
 
 Colouring an entire block of program output in the severity hue removes the
 structure a reader needs, independently of whether the contrast ratio passes.
-The container's fill, border and label are three redundant channels for the error
-signal, so removing colour from the body does not weaken it.
+For a **contained** surface the fill, border and label are three redundant
+channels for the error signal, so removing colour from the body does not weaken
+it. For an icon-plus-message surface the redundancy is the icon plus the
+message's wording instead; no container is introduced to manufacture it.
 
 #### Scenario: Multi-line error body renders in code colours
 - **GIVEN** a tool result parsed as an error whose message spans multiple lines
@@ -60,9 +69,15 @@ signal, so removing colour from the body does not weaken it.
 - **GIVEN** a multi-line error body rendered in code colours
 - **THEN** the surface SHALL still convey the error state via at least the container fill, the container border, and a text label
 
-#### Scenario: Single-line error surfaces take the accent directly
-- **GIVEN** a badge, status icon, or one-line error message
+#### Scenario: Badges and bare status icons take the accent directly
+- **GIVEN** a badge or a bare status icon
 - **THEN** it SHALL take `--severity-error-fg`, and no separate body treatment SHALL apply
+
+#### Scenario: An icon-plus-message surface accents only the icon
+- **GIVEN** an error surface composed of an icon or an `Error:` marker followed by a message
+- **THEN** the icon or marker SHALL take `--severity-error-fg`
+- **AND** the message SHALL take `--text-secondary`
+- **AND** no container fill or border SHALL be added to the surface
 
 #### Scenario: Collapsed detail blocks already follow the rule
 - **GIVEN** an error card with a collapsible received-arguments block

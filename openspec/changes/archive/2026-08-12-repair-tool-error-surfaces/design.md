@@ -37,9 +37,16 @@ derivation, its own gate, and its own review discipline, to express exactly what
 transcript, a stack trace), severity tokens style the border, fill and label. The
 body uses `--text-secondary` on `--bg-code`.
 
-For **single-line** surfaces (a badge, a status icon, a one-line message) the
-whole element takes `--severity-error-fg`; there is no content/chrome split to
-make.
+For **badges and bare status icons** the whole element takes
+`--severity-error-fg`; there is no content/chrome split to make.
+
+For an **icon-plus-message** surface (`AskUserToolRenderer`,
+`AgentToolRenderer`) the accent goes on the icon / `Error:` marker only and the
+message takes `--text-secondary`. Reviewed and confirmed during apply: the
+alternative — giving those two surfaces a container fill + border so the
+"three redundant channels" argument holds literally — was **rejected**. Only the
+error tool *cards* are restructured; a one-line subagent error is not promoted
+to a card. The redundancy there is the icon plus the message's own wording.
 
 **Why.** Contrast and legibility are different problems. The ctx card's body
 measures 10.23:1 in dark mode and is *still* hard to read, because every token in
@@ -124,11 +131,28 @@ Human review is not a reliable gate for "did you use the token here too".
 fire on ~40 legitimate uses (destructive buttons, preview panes) and would be
 turned off within a week.
 
-**Open question Q1.** Where should the guard live — `scripts/check-conventions.mjs`
-(runs in the ship gate) or a Biome `noRestrictedSyntax`-style rule (runs in
-`quality:changed`, closer to the keystroke)? Biome catches it earlier but the
-class strings are template literals in some call sites, which is awkward to match
-syntactically. Leaning `check-conventions.mjs` with a path allowlist.
+**Q1 — resolved: a vitest guard, `scripts/__tests__/severity-literal-guard.test.mjs`.**
+Neither of the two candidates on the table. `check-conventions.mjs` caps itself
+at four rules in its own header ("growth pressure here is a signal to write a
+different script") and, decisively, it runs **only** in ship-it step 4.4 — not in
+CI. A vitest guard runs in `npm test`, which is what `ci.yml`, `publish.yml` and
+`npm run quality:changed` all invoke, so it gates strictly more paths at zero
+wiring cost. Biome was rejected for the reason already recorded: the class
+strings are template literals at some call sites.
+
+The shape has precedent: `scripts/__tests__/repo-hygiene.test.mjs` is the same
+thing — tree-absolute regression guards with zero current violations, living as
+vitest tests rather than as `check-conventions.mjs` rules.
+
+**Exemption mechanism.** The allowlist is file-scoped, but one governed file
+(`ToolCallStep.tsx`) legitimately carries a raw red literal for its **stop**
+button — a destructive-action control, explicitly out of scope. Rather than
+narrow the guard to line numbers (which rot on the first edit above them), a
+literal may be exempted with a `severity-exempt: <reason>` marker on its own or
+the preceding line. Exemptions are therefore explicit, greppable, and reviewed.
+
+Measured red state before the fix: 10 hits across the six files (9 in scope + the
+now-exempted stop button).
 
 ## Non-goal
 

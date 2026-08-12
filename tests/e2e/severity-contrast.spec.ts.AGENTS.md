@@ -1,3 +1,5 @@
 # severity-contrast.spec.ts — index
 
 L3 gate for `unify-message-severity-colors`. Sweeps 5 tiers × 9 themes × {light,dark} via `localStorage` theme-name/mode + reload; reads resolved `--severity-*` from probe elements (real browser resolves `color-mix`; parses `color(srgb …)` + `rgb()`). Asserts relative gate: accent ≥ 3:1 floor, `neutral` ≥ base, one documented exception tokyo-night/light `info` ≥ 2.5, ≥ 55/90 cells ≥ 4.5 AA; + F1 distinct bgs, F2 warning-hue≠working-yellow, F3 close = fg at reduced alpha.
+
+Second describe (change: repair-tool-error-surfaces): `TOOL_SURFACES` — 10 token pairs covering the six governed tool-result error surfaces (ctx card label/body/exit badge, burst `N failed`, bash `exit N`, tool-step icon, ask_user icon+message, agent marker+message). Browser resolves token names only (`resolveTokens`); compositing (`composite` over an opaque `under`) + WCAG ratio (`contrastRatio`) run in Node. Asserts every surface ≥ 3:1 across 9 themes × {light,dark} = 180 cells, no new exception. Class strings are gated separately at the source layer by `scripts/__tests__/severity-literal-guard.test.mjs`.

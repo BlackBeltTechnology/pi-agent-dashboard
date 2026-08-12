@@ -223,6 +223,42 @@ describe("CtxToolRenderer — error variants", () => {
     });
     expect(container.textContent).toMatch(/timeout error/i);
   });
+
+  // ── repair-tool-error-surfaces: severity on the chrome, structure in the body ──
+  const errCard = (result: string) =>
+    renderCtx({ toolName: "ctx_execute", args: {}, status: "error", result, context: ctx });
+
+  it("the container carries the severity signal and the body does not", () => {
+    const { container } = errCard(fx.err_runtime_plain);
+    const card = container.querySelector("div.rounded.border") as HTMLElement;
+    expect(card.className).toContain("bg-[var(--severity-error-bg)]");
+    expect(card.className).toContain("border-[var(--severity-error-border)]");
+    // The label is the third redundant channel alongside fill + border.
+    const label = container.querySelector("div.uppercase") as HTMLElement;
+    expect(label.className).toContain("text-[var(--severity-error-fg)]");
+    // The body is code-coloured — no severity class, no raw red literal.
+    const body = container.querySelector("pre") as HTMLElement;
+    expect(body.className).toContain("text-[var(--text-secondary)]");
+    expect(body.className).toContain("bg-[var(--bg-code)]");
+    expect(body.className).not.toMatch(/severity|red-\d{3}/);
+  });
+
+  it("a structured runtime error renders sections, not raw fence/label text", () => {
+    const { container } = errCard(fx.err_runtime_fenced);
+    const text = container.textContent ?? "";
+    expect(text).toContain("npm run test:e2e"); // the command, via CodeBlock
+    expect(text).toContain("exit 1"); // the badge
+    expect(text).toContain("stdout");
+    expect(text).toContain("stderr");
+    expect(text).not.toContain("```");
+    expect(text).not.toContain("Exit code:");
+  });
+
+  it("an unstructured runtime error falls back to the flat message, verbatim", () => {
+    const { container } = errCard(fx.err_runtime_plain);
+    expect(container.textContent).toContain(fx.err_runtime_plain);
+    expect(container.textContent).not.toContain("exit ");
+  });
 });
 
 describe("CtxToolRenderer — noise + raw fallback", () => {

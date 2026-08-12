@@ -183,3 +183,157 @@ test.describe("severity tokens — derived-triple contrast (unify-message-severi
     expect(err.close[3]).toBeGreaterThan(0);
   });
 });
+
+/**
+ * The governed tool-result error surfaces (change: repair-tool-error-surfaces).
+ *
+ * Each entry is the token PAIR the component now declares: a foreground against
+ * the background it actually sits on. `bg` may be semi-transparent (the severity
+ * fills are `color-mix` tints), so it is composited over `under` — the opaque
+ * surface behind it — before the ratio is computed.
+ *
+ * Tokens are referenced by NAME and resolved in the browser; the arithmetic runs
+ * here in Node. The Tailwind class strings are asserted at the SOURCE layer by
+ * scripts/__tests__/severity-literal-guard.test.mjs — reading them here would
+ * make this gate depend on Tailwind's JIT having emitted that exact
+ * arbitrary-value class into the bundle.
+ */
+interface Surface {
+  name: string;
+  fg: string;
+  bg: string;
+  under: string;
+  /**
+   * `accent` = a `--severity-*` token is involved, so the 3:1 floor applies.
+   * `base`   = the pair is the theme's OWN body tokens (`--text-secondary` on
+   *            `--bg-code`/`--bg-primary`) with no severity color added. Those
+   *            are held to the same RELATIVE rule the `neutral` tier already
+   *            uses: never worse than the theme's own
+   *            `--text-secondary`-on-`--bg-tertiary`. 5 of 18 combos ship
+   *            sub-AA base body text, so an absolute floor here would fail on a
+   *            theme deficiency this change neither caused nor can fix.
+   */
+  tier: "accent" | "base";
+}
+
+const TOOL_SURFACES: readonly Surface[] = [
+  // CtxToolRenderer.tsx:187-189 — chrome carries the signal, body stays neutral.
+  { name: "ctx error label", fg: "--severity-error-fg", bg: "--severity-error-bg", under: "--bg-primary", tier: "accent" },
+  { name: "ctx error body", fg: "--text-secondary", bg: "--bg-code", under: "--severity-error-bg", tier: "base" },
+  { name: "ctx exit badge", fg: "--severity-error-fg", bg: "--severity-error-bg", under: "--bg-primary", tier: "accent" },
+  // ToolBurstGroup.tsx:383 — the `N failed` badge.
+  { name: "burst failed badge", fg: "--severity-error-fg", bg: "--severity-error-bg", under: "--bg-primary", tier: "accent" },
+  // BashOutputCard.tsx:46 — the non-zero `exit N` badge.
+  { name: "bash exit badge", fg: "--severity-error-fg", bg: "--severity-error-bg", under: "--bg-primary", tier: "accent" },
+  // ToolCallStep.tsx:149 — the errored tool's status icon, on the chat surface.
+  { name: "tool-step error icon", fg: "--severity-error-fg", bg: "transparent", under: "--bg-primary", tier: "accent" },
+  // AskUserToolRenderer.tsx:220-221 — icon accent + neutral message.
+  { name: "ask_user error icon", fg: "--severity-error-fg", bg: "transparent", under: "--bg-primary", tier: "accent" },
+  { name: "ask_user error message", fg: "--text-secondary", bg: "transparent", under: "--bg-primary", tier: "base" },
+  // AgentToolRenderer.tsx:346 — `Error:` marker accent + neutral message.
+  { name: "agent error marker", fg: "--severity-error-fg", bg: "transparent", under: "--bg-primary", tier: "accent" },
+  { name: "agent error message", fg: "--text-secondary", bg: "transparent", under: "--bg-primary", tier: "base" },
+];
+
+type Rgba = [number, number, number, number];
+
+/** Gamma-encoded sRGB 0..1 + alpha, from any serialization Chrome emits. */
+function parseColor(s: string): Rgba {
+  const t = s.trim();
+  if (t === "transparent") return [0, 0, 0, 0];
+  const mix = t.match(/color\(srgb\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)(?:\s*\/\s*([\d.]+))?/);
+  if (mix) return [+mix[1], +mix[2], +mix[3], mix[4] !== undefined ? +mix[4] : 1];
+  const rgb = t.match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:[,\s/]+([\d.]+))?/);
+  if (rgb) return [+rgb[1] / 255, +rgb[2] / 255, +rgb[3] / 255, rgb[4] !== undefined ? +rgb[4] : 1];
+  return [0, 0, 0, 1];
+}
+
+/** Source-over composite of `top` onto an already-opaque `base`. */
+function composite(top: Rgba, base: Rgba): Rgba {
+  return [
+    top[0] * top[3] + base[0] * (1 - top[3]),
+    top[1] * top[3] + base[1] * (1 - top[3]),
+    top[2] * top[3] + base[2] * (1 - top[3]),
+    1,
+  ];
+}
+
+function contrastRatio(a: Rgba, b: Rgba): number {
+  const lin = (c: number) => (c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4));
+  const lum = (c: Rgba) => 0.2126 * lin(c[0]) + 0.7152 * lin(c[1]) + 0.0722 * lin(c[2]);
+  const l1 = lum(a);
+  const l2 = lum(b);
+  return (Math.max(l1, l2) + 0.05) / (Math.min(l1, l2) + 0.05);
+}
+
+/** Resolve each token name to its computed color string, in the live document. */
+function resolveTokens(page: Page, names: readonly string[]): Promise<Record<string, string>> {
+  return page.evaluate((TOKENS) => {
+    const out: Record<string, string> = {};
+    for (const token of TOKENS) {
+      const el = document.createElement("div");
+      el.style.backgroundColor = token.startsWith("--") ? `var(${token})` : token;
+      document.body.appendChild(el);
+      out[token] = getComputedStyle(el).backgroundColor;
+      el.remove();
+    }
+    return out;
+  }, names as string[]);
+}
+
+/** fg-on-bg contrast per surface, with alpha composited over the opaque base. */
+function surfaceContrast(resolved: Record<string, string>, s: Surface): number {
+  const white: Rgba = [1, 1, 1, 1];
+  const under = composite(parseColor(resolved[s.under]), white); // themes ship opaque bases
+  const bg = composite(parseColor(resolved[s.bg]), under);
+  const fg = composite(parseColor(resolved[s.fg]), bg);
+  return contrastRatio(fg, bg);
+}
+
+/**
+ * Surfaces failing their floor, given one theme·mode's resolved tokens.
+ * `accent` cells take the fixed 3:1 floor; `base` cells take the theme's own
+ * `--text-secondary`-on-`--bg-tertiary` ratio when that is already below it.
+ */
+function failingSurfaces(resolved: Record<string, string>): string[] {
+  const themeBase = surfaceContrast(resolved, {
+    name: "theme base",
+    fg: "--text-secondary",
+    bg: "--bg-tertiary",
+    under: "--bg-primary",
+    tier: "base",
+  });
+  const out: string[] = [];
+  for (const s of TOOL_SURFACES) {
+    const c = surfaceContrast(resolved, s);
+    const floor = s.tier === "accent" ? FLOOR : Math.min(FLOOR, themeBase);
+    if (c + 0.01 < floor) out.push(`${s.name}=${c.toFixed(2)} (floor ${floor.toFixed(2)})`);
+  }
+  return out;
+}
+
+test.describe("tool-result error surfaces — token contrast (repair-tool-error-surfaces)", () => {
+  test.setTimeout(180_000);
+
+  // The reported bug was light-mode-only: 7/7 surfaces failed light, 0/7 dark,
+  // because the raw literals they replaced were only ever eyeballed on a dark ground.
+  test("every governed tool-result error surface clears the floor in all themes/modes", async ({ page }) => {
+    await gotoDashboard(page);
+
+    const tokens = [...new Set([...TOOL_SURFACES.flatMap((s) => [s.fg, s.bg, s.under]), "--bg-tertiary"])];
+    const belowFloor: string[] = [];
+    let cells = 0;
+
+    for (const theme of THEMES) {
+      for (const mode of MODES) {
+        await applyTheme(page, theme, mode);
+        const resolved = await resolveTokens(page, tokens);
+        cells += TOOL_SURFACES.length;
+        belowFloor.push(...failingSurfaces(resolved).map((f) => `${theme}/${mode}/${f}`));
+      }
+    }
+
+    expect(cells).toBe(THEMES.length * MODES.length * TOOL_SURFACES.length);
+    expect(belowFloor, `surfaces under their floor: ${belowFloor.join(", ")}`).toEqual([]);
+  });
+});
