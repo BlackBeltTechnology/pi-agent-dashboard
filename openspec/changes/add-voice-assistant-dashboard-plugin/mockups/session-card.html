@@ -1,0 +1,220 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>voice-assistant — Session card controls</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="tokens.css" />
+<script src="theme-init.js"></script>
+<style>
+  .card { background: var(--bg-primary); border: 1px solid var(--border-subtle); border-radius: 0.75rem; box-shadow: inset 0 1px 0 var(--elevation-rim), 0 4px 8px var(--shadow-card); }
+  .subcard { background: var(--bg-tertiary); border: 1px solid var(--border-subtle); border-radius: 0.5rem; }
+  .btn { font-size: 9px; padding: 1px 6px; border-radius: 4px; border-width: 1px; display: inline-flex; align-items: center; gap: 2px; min-height: 22px; }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn-dictate-idle { border-color: color-mix(in srgb, var(--accent-green) 30%, transparent); color: var(--accent-green); }
+  .btn-dictate-idle:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-green) 10%, transparent); }
+  .btn-dictate-active { border-color: color-mix(in srgb, var(--accent-red) 30%, transparent); color: var(--accent-red); background: color-mix(in srgb, var(--accent-red) 8%, transparent); }
+  .btn-copilot-idle { border-color: color-mix(in srgb, var(--accent-purple) 30%, transparent); color: var(--accent-purple); }
+  .btn-copilot-idle:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-purple) 10%, transparent); }
+  .btn-copilot-active { border-color: color-mix(in srgb, var(--accent-purple) 45%, transparent); color: var(--accent-purple); background: color-mix(in srgb, var(--accent-purple) 12%, transparent); }
+  .badge { font-size: 10px; padding: 1px 6px; border-radius: 9999px; display: inline-flex; align-items: center; gap: 3px; border-width: 1px; }
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-5xl mx-auto p-4 sm:p-6">
+  <header class="flex items-center justify-between mb-6">
+    <div>
+      <h1 class="text-lg font-semibold" style="color:var(--text-primary)">voice-assistant — Session card controls</h1>
+      <p class="text-sm" style="color:var(--text-tertiary)">session-card-action-bar + session-card-badge claims, every state</p>
+    </div>
+    <nav class="flex items-center gap-3 text-sm">
+      <a href="index.html" class="hover:underline" style="color:var(--accent-blue)">← All screens</a>
+      <button onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'" class="btn" style="border-color:var(--border-primary); color:var(--text-secondary)">Toggle theme</button>
+    </nav>
+  </header>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+
+    <!-- STATE 1: idle, both controls available -->
+    <section class="card p-3" aria-label="Session card — idle">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0" style="background:var(--bg-tertiary); color:var(--status-idle)">●</span>
+        <span class="text-sm font-semibold flex-1 truncate" style="color:var(--text-primary)">acme-erp / spec review</span>
+        <span class="text-[10px]" style="color:var(--text-muted)">2m ago</span>
+      </div>
+      <div class="text-xs mb-2" style="color:var(--text-tertiary)">claude-sonnet-4</div>
+      <div class="flex items-center gap-2 text-[11px] mb-3" style="color:var(--text-tertiary)">Idle</div>
+      <div class="subcard p-2">
+        <div class="text-[10px] uppercase tracking-wide mb-1.5" style="color:var(--text-muted)">voice-assistant</div>
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <select class="text-[9px] rounded border px-1 py-0.5" title="Microphone source" style="border-color:var(--border-primary); color:var(--text-secondary); background:var(--bg-primary)">
+            <option>🖥 this server (dev-box)</option>
+            <option>🌐 this browser</option>
+          </select>
+          <button class="btn btn-dictate-idle font-mono" title="Start dictation"><span aria-hidden="true">●</span> dict-start</button>
+          <button class="btn btn-copilot-idle"><span aria-hidden="true">◆</span> Start meeting copilot</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- STATE 2: dictation recording -->
+    <section class="card p-3" aria-label="Session card — dictation recording">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0" style="background:var(--bg-tertiary); color:var(--status-idle)">●</span>
+        <span class="text-sm font-semibold flex-1 truncate" style="color:var(--text-primary)">acme-erp / spec review</span>
+        <span class="text-[10px]" style="color:var(--text-muted)">2m ago</span>
+      </div>
+      <div class="text-xs mb-2" style="color:var(--text-tertiary)">claude-sonnet-4</div>
+      <div class="flex items-center gap-1.5 text-[11px] mb-3">
+        <span class="badge" style="background:var(--severity-warning-bg); color:var(--severity-warning-fg); border-color:var(--severity-warning-border)">
+          <span aria-hidden="true" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor"></span>
+          Recording
+        </span>
+      </div>
+      <div class="subcard p-2">
+        <div class="text-[10px] uppercase tracking-wide mb-1.5" style="color:var(--text-muted)">voice-assistant</div>
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <button class="btn btn-dictate-active font-mono" title="Stop dictation"><span aria-hidden="true">■</span> dict-end</button>
+          <button class="btn btn-copilot-idle" disabled title="Dictation is active — meeting copilot uses the same capture">◆ Start meeting copilot</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- STATE 3: meeting copilot listening -->
+    <section class="card p-3" aria-label="Session card — meeting copilot listening">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0" style="background:var(--bg-tertiary); color:var(--status-idle)">●</span>
+        <span class="text-sm font-semibold flex-1 truncate" style="color:var(--text-primary)">acme-erp / client call</span>
+        <span class="text-[10px]" style="color:var(--text-muted)">14m ago</span>
+      </div>
+      <div class="text-xs mb-2" style="color:var(--text-tertiary)">claude-opus-4</div>
+      <div class="flex items-center gap-1.5 text-[11px] mb-3">
+        <span class="badge" style="background:color-mix(in srgb, var(--accent-purple) 12%, var(--bg-tertiary)); color:color-mix(in srgb, var(--accent-purple) 55%, var(--text-primary)); border-color:color-mix(in srgb, var(--accent-purple) 35%, transparent)">
+          <span aria-hidden="true" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor"></span>
+          Listening
+        </span>
+      </div>
+      <div class="subcard p-2">
+        <div class="text-[10px] uppercase tracking-wide mb-1.5" style="color:var(--text-muted)">voice-assistant</div>
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <button class="btn btn-dictate-idle font-mono" disabled title="Start dictation — unavailable: meeting copilot is active and already captures mic + system audio">● dict-start</button>
+          <button class="btn btn-copilot-active"><span aria-hidden="true">■</span> Stop meeting copilot</button>
+          <a href="wall-view.html" class="btn" style="border-color:var(--border-primary); color:var(--text-secondary)">View live wall →</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- STATE 4: knowledge sources required -->
+    <section class="card p-3" aria-label="Session card — knowledge sources required">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0" style="background:var(--bg-tertiary); color:var(--status-idle)">●</span>
+        <span class="text-sm font-semibold flex-1 truncate" style="color:var(--text-primary)">new-project / kickoff</span>
+        <span class="text-[10px]" style="color:var(--text-muted)">just now</span>
+      </div>
+      <div class="text-xs mb-2" style="color:var(--text-tertiary)">claude-sonnet-4</div>
+      <div class="flex items-center gap-1.5 text-[11px] mb-3" style="color:var(--text-tertiary)">Idle</div>
+      <div class="subcard p-2">
+        <div class="text-[10px] uppercase tracking-wide mb-1.5" style="color:var(--text-muted)">voice-assistant</div>
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <button class="btn btn-dictate-idle font-mono" title="Start dictation">● dict-start</button>
+          <button class="btn" disabled style="border-color:var(--border-primary); color:var(--text-muted)">◆ Meeting copilot</button>
+        </div>
+        <p class="text-[10px] mt-1.5" style="color:var(--text-muted)">Add <code>knowledge.sources</code> in <a href="config-editor.html" class="underline" style="color:var(--accent-blue)">voice-assistant settings</a> to enable meeting copilot.</p>
+      </div>
+    </section>
+
+    <!-- STATE 5: STT not configured -->
+    <section class="card p-3" aria-label="Session card — speech-to-text not configured">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0" style="background:var(--bg-tertiary); color:var(--status-idle)">●</span>
+        <span class="text-sm font-semibold flex-1 truncate" style="color:var(--text-primary)">draft-repo / sync</span>
+        <span class="text-[10px]" style="color:var(--text-muted)">5m ago</span>
+      </div>
+      <div class="text-xs mb-2" style="color:var(--text-tertiary)">claude-haiku-4.5</div>
+      <div class="flex items-center gap-1.5 text-[11px] mb-3" style="color:var(--text-tertiary)">Idle</div>
+      <div class="subcard p-2">
+        <div class="text-[10px] uppercase tracking-wide mb-1.5" style="color:var(--text-muted)">voice-assistant</div>
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <button class="btn font-mono" disabled title="Start dictation" style="border-color:var(--border-primary); color:var(--text-muted)">● dict-start</button>
+          <button class="btn" disabled style="border-color:var(--border-primary); color:var(--text-muted)">◆ Meeting copilot</button>
+        </div>
+        <p class="text-[10px] mt-1.5" style="color:var(--text-muted)">Speech-to-text isn't configured on this dashboard server. <a href="config-editor.html" class="underline" style="color:var(--accent-blue)">Set up Soniox or whisper →</a></p>
+      </div>
+    </section>
+
+    <!-- STATE 6: dictation delivery failed (error, recoverable) -->
+    <section class="card p-3" aria-label="Session card — dictation delivery failed">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0" style="background:var(--bg-tertiary); color:var(--status-idle)">●</span>
+        <span class="text-sm font-semibold flex-1 truncate" style="color:var(--text-primary)">acme-erp / spec review</span>
+        <span class="text-[10px]" style="color:var(--text-muted)">just now</span>
+      </div>
+      <div class="text-xs mb-2" style="color:var(--text-tertiary)">claude-sonnet-4 — session disconnected</div>
+      <div class="flex items-center gap-1.5 text-[11px] mb-3">
+        <span class="badge" style="background:var(--severity-error-bg); color:var(--severity-error-fg); border-color:var(--severity-error-border)">
+          <span aria-hidden="true">⚠</span> Delivery failed
+        </span>
+      </div>
+      <div class="subcard p-2">
+        <div class="text-[10px] uppercase tracking-wide mb-1.5" style="color:var(--text-muted)">voice-assistant</div>
+        <p class="text-[11px] mb-2" style="color:var(--text-secondary)">"…the invoice line item should reference the March PO, not the February one."</p>
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <button class="btn" style="border-color:color-mix(in srgb, var(--accent-blue) 35%, transparent); color:var(--accent-blue)">↻ Retry delivery</button>
+          <button class="btn" style="border-color:var(--border-primary); color:var(--text-secondary)">Copy text</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- STATE 7: browser-mic dictation active (remote dictation, v1) -->
+    <section class="card p-3" aria-label="Session card — browser-mic dictation active">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0" style="background:var(--bg-tertiary); color:var(--status-idle)">●</span>
+        <span class="text-sm font-semibold flex-1 truncate" style="color:var(--text-primary)">acme-erp / spec review</span>
+        <span class="text-[10px]" style="color:var(--text-muted)">just now</span>
+      </div>
+      <div class="text-xs mb-2" style="color:var(--text-tertiary)">claude-sonnet-4</div>
+      <div class="flex items-center gap-1.5 text-[11px] mb-3">
+        <span class="badge" style="background:var(--severity-warning-bg); color:var(--severity-warning-fg); border-color:var(--severity-warning-border)">
+          <span aria-hidden="true" style="display:inline-block;width:6px;height:6px;border-radius:50%;background:currentColor"></span>
+          Recording — 🌐 this browser
+        </span>
+      </div>
+      <div class="subcard p-2">
+        <div class="text-[10px] uppercase tracking-wide mb-1.5" style="color:var(--text-muted)">voice-assistant</div>
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <select class="text-[9px] rounded border px-1 py-0.5" disabled title="Source locked while recording" style="border-color:var(--border-primary); color:var(--text-muted); background:var(--bg-primary)">
+            <option>🌐 this browser</option>
+          </select>
+          <button class="btn btn-dictate-active font-mono" title="Stop dictation"><span aria-hidden="true">■</span> dict-end</button>
+        </div>
+        <p class="text-[10px] mt-1.5" style="color:var(--text-muted)">Streaming from this browser's microphone — works from any remote machine, not just the dashboard server's own mic.</p>
+      </div>
+    </section>
+
+    <!-- STATE 8: browser-mic unavailable — insecure context (picker hidden, not failed) -->
+    <section class="card p-3" aria-label="Session card — browser-mic hidden, insecure context">
+      <div class="flex items-center gap-2 mb-1">
+        <span class="w-4 h-4 rounded-full flex items-center justify-center flex-shrink-0" style="background:var(--bg-tertiary); color:var(--status-idle)">●</span>
+        <span class="text-sm font-semibold flex-1 truncate" style="color:var(--text-primary)">lan-box / quick check</span>
+        <span class="text-[10px]" style="color:var(--text-muted)">1m ago</span>
+      </div>
+      <div class="text-xs mb-2" style="color:var(--text-tertiary)">claude-haiku-4.5 — accessed over plain http://</div>
+      <div class="flex items-center gap-2 text-[11px] mb-3" style="color:var(--text-tertiary)">Idle</div>
+      <div class="subcard p-2">
+        <div class="text-[10px] uppercase tracking-wide mb-1.5" style="color:var(--text-muted)">voice-assistant</div>
+        <div class="flex items-center gap-1.5 flex-wrap">
+          <button class="btn btn-dictate-idle font-mono" title="Start dictation"><span aria-hidden="true">●</span> dict-start</button>
+        </div>
+        <p class="text-[10px] mt-1.5" style="color:var(--text-muted)">Only the server's own microphone is available here — browser-mic dictation needs HTTPS or localhost. This isn't shown as an error; the option is simply absent.</p>
+      </div>
+    </section>
+
+  </div>
+
+  <footer class="mt-6 text-xs" style="color:var(--text-muted)">
+    Grounded in <code>SessionCard.tsx</code>'s existing Resume/Fork button family (<code>text-[9px] px-1 py-px rounded border</code>) and badge conventions. Dictation = green (matches Resume), meeting-copilot = purple (matches the existing needs-you/attention hue) — distinct hues for two independently-controllable systems (Gestalt similarity).
+  </footer>
+</div>
+</body>
+</html>

@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>voice-assistant dashboard plugin — mockups</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="tokens.css" />
+<script src="theme-init.js"></script>
+<style>
+  .card { background: var(--bg-tertiary); border: 1px solid var(--border-subtle); border-radius: 0.75rem; }
+  .card:hover { background: var(--bg-hover); }
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-3xl mx-auto p-6 sm:p-10">
+  <header class="flex items-center justify-between mb-8">
+    <div>
+      <h1 class="text-xl font-semibold" style="color:var(--text-primary)">voice-assistant dashboard plugin</h1>
+      <p class="text-sm mt-1" style="color:var(--text-tertiary)">UX mockup pass — openspec/changes/add-voice-assistant-dashboard-plugin</p>
+    </div>
+    <button onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'" class="px-3 py-1.5 rounded border text-sm" style="border-color:var(--border-primary); color:var(--text-secondary)">Toggle theme</button>
+  </header>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <a href="session-card.html" class="card p-4 block">
+      <div class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Session card controls</div>
+      <div class="text-xs" style="color:var(--text-tertiary)">session-card-action-bar + session-card-badge — 8 states (incl. capture-source picker)</div>
+    </a>
+    <a href="wall-view.html" class="card p-4 block">
+      <div class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Live meeting wall</div>
+      <div class="text-xs" style="color:var(--text-tertiary)">core live-server-preview embed + browser popout (not a plugin slot)</div>
+    </a>
+    <a href="knowledge-browser.html" class="card p-4 block">
+      <div class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Knowledge browser</div>
+      <div class="text-xs" style="color:var(--text-tertiary)">folder-scoped — sidebar-folder-section + shell-overlay-route @ /folder/:encodedCwd/voice-assistant-knowledge</div>
+    </a>
+    <a href="config-editor.html" class="card p-4 block">
+      <div class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Settings</div>
+      <div class="text-xs" style="color:var(--text-tertiary)">settings-section</div>
+    </a>
+  </div>
+
+  <footer class="mt-8 text-xs" style="color:var(--text-muted)">
+    Tokens lifted verbatim from <code>packages/client/src/index.css</code> (<code>tokens.css</code> in this
+    folder). See <code>ui-plan.md</code> for the cited UX rules behind each decision.
+  </footer>
+</div>
+</body>
+</html>
