@@ -1118,7 +1118,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
           // positioned popover inside this card and would be clipped to the
           // card bounds. Nothing inside needs clipping (the tab nub is a
           // sibling, not a child).
-          className={`relative bg-[var(--bg-primary)] border border-[var(--border-subtle)] p-1.5 ${isCollapsed ? "rounded-[14px] shadow-[inset_0_1px_0_var(--elevation-rim),0_2px_4px_var(--shadow-card)]" : "rounded-t-[14px] border-b-0 shadow-[inset_0_1px_0_var(--elevation-rim)]"}`}
+          className={`relative bg-[var(--bg-primary)] border border-[var(--border-subtle)] p-1.5 ${isCollapsed ? "rounded-[14px] shadow-[inset_0_1px_0_var(--elevation-rim),0_2px_4px_var(--shadow-card)]" : "pb-0 rounded-t-[14px] border-b-0 shadow-[inset_0_1px_0_var(--elevation-rim)]"}`}
           style={folderTint}
         >
         <div className="relative z-[1]">
@@ -1306,16 +1306,15 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
         {/* Folder body — encloses the Create tray + sessions + ended row so the
             card reads as a folder holding its contents. Shares the header's
             --bg-primary surface with one continuous border (header is border-b-0
-            when expanded); an absolute fold-shadow child marks the header/body
-            seam. See change: folder-card-enclosure. */}
+            when expanded); no seam shading — the CREATE separator alone marks
+            the header/body junction. See change: folder-card-enclosure. */}
         {!isCollapsed && (
         <div
           className="relative bg-[var(--bg-primary)] border border-[var(--border-subtle)] border-t-0 rounded-b-[14px] px-1.5 pb-1.5 shadow-[0_2px_4px_var(--shadow-card)]"
           style={folderTint}
           data-testid={`folder-body-${group.cwd}`}
         >
-          <div aria-hidden="true" className="pointer-events-none absolute inset-x-0 top-0 h-2.5 shadow-[inset_0_6px_6px_-6px_var(--shadow-card)]" />
-            <div className="relative text-center text-[9.5px] font-semibold tracking-[.1em] uppercase text-[var(--text-muted)] my-2 before:content-[''] before:absolute before:top-1/2 before:left-0 before:w-[38%] before:h-px before:bg-[var(--border-subtle)] after:content-[''] after:absolute after:top-1/2 after:right-0 after:w-[38%] after:h-px after:bg-[var(--border-subtle)]">
+            <div className="relative text-center text-[9.5px] font-semibold tracking-[.1em] uppercase text-[var(--text-muted)] mt-0 mb-2 before:content-[''] before:absolute before:top-1/2 before:left-0 before:w-[38%] before:h-px before:bg-[var(--border-subtle)] after:content-[''] after:absolute after:top-1/2 after:right-0 after:w-[38%] after:h-px after:bg-[var(--border-subtle)]">
               {t("sessionList.create", undefined, "Create")}
             </div>
             <FolderSpawnButtons
@@ -1344,7 +1343,12 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             )}
         {/* Session + terminal cards */}
         <div className="group-collapse expanded">
-        <div className="space-y-1 pt-1">
+        {/* Directory rail: ONE 2px gray vertical line standing for the folder
+            that owns these sessions. Each card draws a 9px tick into it (see
+            SessionCard `before:`), and the 18px left inset is the band the
+            card's hover drag bead parks in. Replaces the per-card status
+            gutter. See change: session-card-directory-rail. */}
+        <div className="relative space-y-1 pt-1 pl-[18px] before:content-[''] before:absolute before:left-[7px] before:top-0.5 before:bottom-3.5 before:w-0.5 before:rounded-full before:bg-[var(--rail-directory)]">
           {/* Spawn error banner — see change: spawn-failure-diagnostics */}
           {spawnErrors?.get(group.cwd) && (
             <SpawnErrorBanner

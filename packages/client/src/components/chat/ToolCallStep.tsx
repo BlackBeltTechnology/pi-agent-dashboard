@@ -146,7 +146,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
         {!hideStatusIcon && (
           <span className={`inline-flex ${
             status === "error"
-              ? "text-red-400"
+              ? "text-[var(--severity-error-fg)]"
               : isAskUser
                 ? "text-sky-400"
                 : status === "complete"
@@ -174,6 +174,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
             role="button"
             data-testid="tool-stop-button"
             onClick={(e) => { e.stopPropagation(); onAbort(); if (onForceKill) setStopState("aborting"); }}
+            /* severity-exempt: destructive-action control, not an error surface */
             className="ml-1 p-0.5 rounded text-red-400 hover:text-red-300 hover:bg-red-900/30 inline-flex"
             title={i18nT("common.stop", undefined, "Stop")}
           >
