@@ -307,7 +307,7 @@ export function wireEvents(deps: EventWiringDeps): void {
   // WorktreeSpawnDialog after a successful POST /api/git/worktree) and
   // persist it to the session's .meta.json. See change:
   // add-worktree-spawn-dialog.
-  piGateway.onSessionRegistered = (sessionId, cwd) => {
+  piGateway.onSessionRegistered = (sessionId, cwd, spawnToken) => {
     // ── attachProposal arm ───────────────────────────────────────────────
     let attachConsumed = false;
     if (pendingAttachRegistry) {
@@ -399,7 +399,12 @@ export function wireEvents(deps: EventWiringDeps): void {
     // classification + effective board visibility survive restart.
     // See change: add-automation-plugin.
     if (pendingAutomationRunRegistry) {
-      const stamp = pendingAutomationRunRegistry.consume(cwd);
+      // Claim by the register's spawn token when present: several first-party
+      // plugins spawn stamped sessions into the SAME cwd, so a head-of-queue
+      // claim can hand a session another spawn's runId — whose owner then never
+      // correlates it and never delivers the action.
+      // See change: fix-automation-stamp-correlation.
+      const stamp = pendingAutomationRunRegistry.consume(cwd, spawnToken);
       if (stamp) {
         // Automation/flow-triggered spawns are machine-fronted → mark them
         // `ephemeral` so the lifecycle reaper/caps have real producers. Human

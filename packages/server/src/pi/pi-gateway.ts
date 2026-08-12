@@ -42,8 +42,13 @@ export interface PiGateway {
    * cwd. Wired by the dashboard server to consume any pending
    * spawn-with-attach intent. See change:
    * add-folder-task-checker-and-spawn-attach.
+   *
+   * `spawnToken` is the single-use spawn correlation token the bridge echoes on
+   * its FIRST register (absent on reattach and on non-dashboard sessions). It
+   * lets a cwd-keyed pending registry claim the entry belonging to exactly this
+   * spawn instead of the queue head. See change: fix-automation-stamp-correlation.
    */
-  onSessionRegistered?: (sessionId: string, cwd: string) => void;
+  onSessionRegistered?: (sessionId: string, cwd: string, spawnToken?: string) => void;
 }
 
 export function createPiGateway(
@@ -69,7 +74,7 @@ export function createPiGateway(
   let onConnection: (() => void) | undefined;
   let onDisconnect: ((sessionId: string) => void) | undefined;
   let onSessionCreated: ((sessionId: string) => void) | undefined;
-  let onSessionRegistered: ((sessionId: string, cwd: string) => void) | undefined;
+  let onSessionRegistered: ((sessionId: string, cwd: string, spawnToken?: string) => void) | undefined;
 
   function checkEmpty() {
     if (connections.size === 0) {
@@ -187,7 +192,7 @@ export function createPiGateway(
       onSessionCreated = handler;
     },
 
-    set onSessionRegistered(handler: ((sessionId: string, cwd: string) => void) | undefined) {
+    set onSessionRegistered(handler: ((sessionId: string, cwd: string, spawnToken?: string) => void) | undefined) {
       onSessionRegistered = handler;
     },
 
@@ -328,7 +333,7 @@ export function createPiGateway(
 
               resetHeartbeat(msg.sessionId);
               onConnection?.();
-              onSessionRegistered?.(msg.sessionId, msg.cwd);
+              onSessionRegistered?.(msg.sessionId, msg.cwd, msg.spawnToken);
             }
 
             if (msg.type === "session_heartbeat" && msg.sessionId) {

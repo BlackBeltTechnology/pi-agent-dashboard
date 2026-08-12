@@ -1946,6 +1946,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                       keeperOptsFromSpawnResult(result),
                     );
                   }
+                  // Bind the pre-enqueued stamp to the token of the process we
+                  // just started, so ONLY that session can claim it. Enqueue
+                  // stays pre-spawn (a fast bridge can register before this
+                  // promise resolves; such an entry is claimed via the unbound
+                  // fallback). See change: fix-automation-stamp-correlation.
+                  if (opts.automationRun && result.spawnToken) {
+                    pendingAutomationRunRegistry.bindToken(
+                      opts.cwd,
+                      opts.automationRun.runId,
+                      result.spawnToken,
+                    );
+                  }
                   return {
                     success: result.success,
                     message: result.message,

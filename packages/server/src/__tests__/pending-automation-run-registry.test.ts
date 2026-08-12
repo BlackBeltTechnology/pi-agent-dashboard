@@ -1,9 +1,10 @@
 /**
  * Unit tests for the pending-automation-run registry: FIFO-per-cwd,
- * TTL pruning, and cap enforcement. Mirrors the worktree-base registry
- * tests. See change: add-automation-plugin.
+ * TTL pruning, cap enforcement, and spawn-token-exact claiming. Mirrors the
+ * worktree-base registry tests.
+ * See change: add-automation-plugin, fix-automation-stamp-correlation.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   createPendingAutomationRunRegistry,
   PENDING_AUTOMATION_RUN_CAP,
@@ -42,6 +43,63 @@ describe("pending-automation-run-registry", () => {
     r.enqueue("/a", { name: "x", runId: "r1" });
     t = 61_000;
     expect(r.consume("/a")).toBeNull();
+  });
+
+  it("claims the entry bound to the registering session's spawn token", () => {
+    // Two independent plugins spawn stamped sessions into ONE cwd. Whichever
+    // session registers first must get ITS OWN run identity, never the queue
+    // head: a stolen stamp leaves its real owner unable to correlate the run,
+    // so the action is never delivered and the run wedges `running`.
+    const r = createPendingAutomationRunRegistry({ normalize: ident });
+    r.enqueue("/repo", { name: "intake", runId: "run-A" });
+    r.enqueue("/repo", { name: "scoped", runId: "run-B" });
+    expect(r.bindToken("/repo", "run-A", "tok-A")).toBe(true);
+    expect(r.bindToken("/repo", "run-B", "tok-B")).toBe(true);
+
+    // The SECOND spawn's session registers first.
+    expect(r.consume("/repo", "tok-B")?.runId).toBe("run-B");
+    expect(r.size("/repo")).toBe(1);
+    expect(r.consume("/repo", "tok-A")?.runId).toBe("run-A");
+    expect(r.size("/repo")).toBe(0);
+  });
+
+  it("never hands a token-bound stamp to a foreign or tokenless session", () => {
+    const r = createPendingAutomationRunRegistry({ normalize: ident });
+    r.enqueue("/repo", { name: "intake", runId: "run-A" });
+    r.bindToken("/repo", "run-A", "tok-A");
+
+    expect(r.consume("/repo", "tok-other")).toBeNull();
+    expect(r.consume("/repo")).toBeNull();
+    expect(r.size("/repo")).toBe(1);
+    expect(r.consume("/repo", "tok-A")?.runId).toBe("run-A");
+  });
+
+  it("falls back to the oldest UNBOUND entry when the token is unknown", () => {
+    // A bridge can register before `spawnPiSession` resolves, so the entry is
+    // still unbound; it must not be stranded.
+    const r = createPendingAutomationRunRegistry({ normalize: ident });
+    r.enqueue("/repo", { name: "bound", runId: "run-A" });
+    r.bindToken("/repo", "run-A", "tok-A");
+    r.enqueue("/repo", { name: "racing", runId: "run-B" });
+
+    expect(r.consume("/repo", "tok-fresh")?.runId).toBe("run-B");
+  });
+
+  it("keeps legacy tokenless FIFO for spawn paths that mint no token", () => {
+    const r = createPendingAutomationRunRegistry({ normalize: ident });
+    r.enqueue("/repo", { name: "x", runId: "r1" });
+    r.enqueue("/repo", { name: "x", runId: "r2" });
+    expect(r.consume("/repo")?.runId).toBe("r1");
+    expect(r.consume("/repo")?.runId).toBe("r2");
+  });
+
+  it("refuses to bind an unknown or already-claimed run", () => {
+    const r = createPendingAutomationRunRegistry({ normalize: ident });
+    r.enqueue("/repo", { name: "x", runId: "r1" });
+    expect(r.bindToken("/repo", "nope", "tok")).toBe(false);
+    expect(r.bindToken("/repo", "r1", "")).toBe(false);
+    expect(r.consume("/repo")?.runId).toBe("r1");
+    expect(r.bindToken("/repo", "r1", "tok")).toBe(false);
   });
 
   it("enforces the per-cwd cap", () => {

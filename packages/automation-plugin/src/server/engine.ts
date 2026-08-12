@@ -158,6 +158,14 @@ export interface EngineConfig {
    * finalize-automation-run-on-session-death.
    */
   maxRunAgeMs: number;
+  /**
+   * Max age (ms) a `running` run may stay UNDELIVERED (no session ever bound,
+   * so its action was never dispatched) before it is finalized `error` and its
+   * concurrency slot freed. Far shorter than `maxRunAgeMs`: such a run has no
+   * session it will ever hear from, so waiting the full backstop only starves
+   * the schedule. <= 0 disables. See change: fix-automation-stamp-correlation.
+   */
+  undeliveredRunTimeoutMs?: number;
 }
 
 export interface EngineDeps {
@@ -210,6 +218,8 @@ export interface RunContext {
   emitEvent?: { eventType: string; data?: Record<string, unknown>; completion?: ActionCompletion };
   modelError?: string;
   sessionId?: string;
+  /** Wall-clock start, used by the undelivered-run bound. */
+  startedAt: number;
   /**
    * Spawn correlation token captured from the `spawnSession` result. Gives
    * Stop a process handle BEFORE any sessionId is bound (the fix for the
@@ -335,7 +345,46 @@ export function createEngine(deps: EngineDeps): Engine {
     }
     return undefined;
   }
+  /** Best-effort terminate a reaped run's spawned process. A reaped
+   *  `--mode rpc` session never self-exits, so without this it outlives its
+   *  run. Fire-and-forget; finalization already happened.
+   *  See change: fix-automation-stamp-correlation. */
+  function terminate(ctx: RunContext): void {
+    if (!deps.abortSpawnedRun) return;
+    void deps.abortSpawnedRun({
+      ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+      ...(ctx.spawnToken ? { spawnToken: ctx.spawnToken } : {}),
+    });
+  }
+
+  /**
+   * Sweep runs that never reached delivery. Such a run's stamped session never
+   * registered (or registered carrying someone else's stamp), so no completion
+   * event, `agent_end`, or session-death signal will ever name it — only the
+   * 30-minute backstop would, holding a `concurrency: skip` slot the whole time.
+   * See change: fix-automation-stamp-correlation.
+   */
+  function reapUndeliveredRuns(): void {
+    const timeoutMs = deps.config().undeliveredRunTimeoutMs ?? 0;
+    if (timeoutMs <= 0) return;
+    const now = deps.now?.() ?? Date.now();
+    for (const q of [...pending.values()]) {
+      for (const ctx of [...q]) {
+        if (ctx.delivered) continue;
+        if (now - ctx.startedAt <= timeoutMs) continue;
+        warn(`[finalize] path=undelivered-reap run ${ctx.runId} (undelivered > ${timeoutMs}ms)`);
+        finishAndRelease(ctx, {
+          status: "error",
+          error: "run action never delivered",
+          result: "_(run action never delivered)_",
+        });
+        terminate(ctx);
+      }
+    }
+  }
+
   function reapStaleRuns(): void {
+    reapUndeliveredRuns();
     const cfg = deps.config();
     const maxAgeMs = cfg.maxRunAgeMs;
     if (!maxAgeMs || maxAgeMs <= 0) return;
@@ -353,12 +402,14 @@ export function createEngine(deps: EngineDeps): Engine {
       for (const rec of stale) {
         const ctx = findByRunId(rec.runId);
         if (ctx) {
-          // Live wedged run — finalize + free the concurrency slot.
+          // Live wedged run — finalize, free the concurrency slot, kill the
+          // session (it never self-exits).
           finishAndRelease(ctx, {
             status: "error",
             error: "run exceeded max age",
             result: "_(run exceeded max age)_",
           });
+          terminate(ctx);
         } else {
           // Pre-existing on-disk orphan (no live lock held) — clear the record.
           storeFinishRun(s.base, rec.runId, {
@@ -416,7 +467,10 @@ export function createEngine(deps: EngineDeps): Engine {
   // Stale-run reaper backstop timer. Sweeps on an interval; also callable
   // directly (reapStaleRuns) for tests. See change:
   // finalize-automation-run-on-session-death.
-  const REAP_INTERVAL_MS = 60_000;
+  // Sweep cadence. 15 s (was 60 s) so the much tighter undelivered bound is a
+  // real bound and not rounded up by the timer.
+  // See change: fix-automation-stamp-correlation.
+  const REAP_INTERVAL_MS = 15_000;
   let reapTimer: ReturnType<typeof setInterval> | null = null;
 
   function startRunFor(automation: DiscoveredAutomation, fireCtx?: FireContext): { runId: string } | null {
@@ -452,6 +506,7 @@ export function createEngine(deps: EngineDeps): Engine {
           }
         : {}),
       ...(resolved.error ? { modelError: resolved.error } : {}),
+      startedAt: deps.now?.() ?? Date.now(),
       delivered: false,
     };
     enqueuePending(ctx);

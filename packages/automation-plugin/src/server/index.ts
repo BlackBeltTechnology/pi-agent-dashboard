@@ -56,6 +56,12 @@ interface AutomationPluginConfig {
    * See change: finalize-automation-run-on-session-death.
    */
   maxRunAgeMs?: number;
+  /**
+   * Max age (ms) a run may stay `running` WITHOUT its action ever being
+   * delivered before it is finalized `error` + its slot freed. Default 60 s;
+   * <= 0 disables. See change: fix-automation-stamp-correlation.
+   */
+  undeliveredRunTimeoutMs?: number;
 }
 
 /** Shared holder so the synchronously-mounted run route can reach the engine
@@ -181,6 +187,7 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
       scanFolder: cfg.scanFolderScope !== false,
       scanGlobal: cfg.scanGlobalScope !== false,
       maxRunAgeMs: cfg.maxRunAgeMs ?? 30 * 60 * 1000,
+      undeliveredRunTimeoutMs: cfg.undeliveredRunTimeoutMs ?? 60_000,
     };
   }
 

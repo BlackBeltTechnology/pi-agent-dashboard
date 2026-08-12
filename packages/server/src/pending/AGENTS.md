@@ -5,7 +5,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | File | Purpose |
 |------|---------|
 | `pending-attach-registry.ts` | In-memory FIFO queue of pending `attachProposal` intents per cwd. → see `pending-attach-registry.ts.AGENTS.md` |
-| `pending-automation-run-registry.ts` | FIFO-per-cwd registry of automation-run stamps {name,runId,visibility}. → see `pending-automation-run-registry.ts.AGENTS.md` |
+| `pending-automation-run-registry.ts` | FIFO-per-cwd registry of automation-run stamps {name,runId,visibility}. → see `pending-automation-run-registry.ts.AGENTS.md` Claim is now spawn-token-exact (`bindToken` + `consume(cwd, spawnToken?)`), not head-of-queue. See change: fix-automation-stamp-correlation. |
 | `pending-client-correlations.ts` | Maps server-minted `spawnToken` → client-minted `requestId`. → see `pending-client-correlations.ts.AGENTS.md` |
 | `pending-fork-registry.ts` | Tracks pending fork operations keyed by `spawnToken` to place forked sessions after parent. → see `pending-fork-registry.ts.AGENTS.md` |
 | `pending-goal-link-registry.ts` | In-memory FIFO queue of pending `goalId` link intents per cwd. → see `pending-goal-link-registry.ts.AGENTS.md` |

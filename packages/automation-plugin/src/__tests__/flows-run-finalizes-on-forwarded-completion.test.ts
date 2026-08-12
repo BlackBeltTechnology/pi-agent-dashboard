@@ -21,7 +21,12 @@ import { flowsActionContributions } from "../../../flows-plugin/src/server/autom
 import { registerPlugin } from "../server/index.js";
 import { listRuns } from "../server/run-store.js";
 
-const ENGINE_INIT_WAIT_MS = 1400;
+/** Upper bound on the plugin's deferred engine init (1 s timer + lazy imports).
+ *  Waited on by POLLING the engine's own "armed" log, not by a fixed sleep — a
+ *  fixed 1400 ms margin made this suite flaky under load (the fire then hit
+ *  "engine not ready" and returned no runId).
+ *  See change: fix-automation-stamp-correlation. */
+const ENGINE_INIT_WAIT_MS = 15_000;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 type RawEvent = { eventType?: string; data?: Record<string, unknown> };
@@ -55,6 +60,7 @@ async function boot(
   let onEvent: Harness["onEvent"] = () => {};
   let browserHandler: ((msg: unknown) => void) | undefined;
   let lastRunId = "";
+  let engineArmed = false;
 
   const ctx = {
     fastify: { get: () => {}, post: () => {}, delete: () => {} },
@@ -89,6 +95,7 @@ async function boot(
     updatePluginConfig: async () => {},
     logger: {
       info: (m: string) => {
+        if (m.includes("[engine] armed")) engineArmed = true;
         const hit = /runId=(\S+)/.exec(m);
         if (hit && m.includes("automation run")) lastRunId = hit[1] ?? "";
       },
@@ -100,7 +107,10 @@ async function boot(
   // flows publishes its REAL contribution (the one shipping in production).
   ctx.provide("automation.action.flows", flowsActionContributions(flowsForCwd));
   await registerPlugin(ctx);
-  await sleep(ENGINE_INIT_WAIT_MS); // plugin defers engine init
+  // plugin defers engine init — wait for it to actually arm, not a fixed sleep
+  const deadline = Date.now() + ENGINE_INIT_WAIT_MS;
+  while (!engineArmed && Date.now() < deadline) await sleep(25);
+  if (!engineArmed) throw new Error("automation engine never armed");
 
   return {
     repo,
@@ -113,7 +123,11 @@ async function boot(
     fire: async (name) => {
       lastRunId = "";
       browserHandler?.({ pluginId: "automation", action: "run", payload: { scope: "folder", cwd: repo, name } });
-      await sleep(300);
+      // The handler runs a detached async IIFE (lazy imports + scan), so poll
+      // for the run id instead of betting on a fixed sleep — a fixed wait made
+      // this suite flaky under load. See change: fix-automation-stamp-correlation.
+      const until = Date.now() + 10_000;
+      while (!lastRunId && Date.now() < until) await sleep(25);
       return lastRunId;
     },
     runs: () => listRuns(repo),

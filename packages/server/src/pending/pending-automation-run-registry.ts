@@ -6,19 +6,32 @@
  *   1. The automation-plugin's scheduler fires a trigger and spawns a run
  *      session via the `ServerPluginContext` spawn hook → server enqueues
  *      the run stamp keyed by the run's cwd (worktree or repo root).
- *   2. Bridge later issues `session_register { sessionId, cwd }` → server
- *      consumes the head stamp for that cwd and:
+ *   1b. Once `spawnPiSession` resolves, the hook calls `bindToken(cwd, runId,
+ *      spawnToken)` so the queued stamp knows WHICH spawn owns it. Enqueue must
+ *      still happen BEFORE the spawn resolves — a fast bridge can register first.
+ *   2. Bridge later issues `session_register { sessionId, cwd, spawnToken? }` →
+ *      server claims the stamp for that cwd and:
  *        a. stamps `DashboardSession.kind="automation"` + `automationRun`,
  *        b. persists both to the session's `.meta.json` sidecar so the
  *           classification survives server restart.
  *
+ * Claim resolution is TWO-TIER (see change: fix-automation-stamp-correlation):
+ *   1. exact `spawnToken` match anywhere in the cwd queue;
+ *   2. else the oldest entry with NO bound token.
+ * A token-bound entry is never claimable by a foreign token nor by tier 2.
+ * Plain cwd-FIFO was provenance-blind: several first-party plugins spawn
+ * stamped sessions into the SAME cwd, so the queue interleaved owners and a
+ * registering session could take another spawn's `runId`. Its owner plugin then
+ * failed to correlate the stamp and never delivered the action, wedging the run
+ * `running` until the max-age reaper.
+ *
  * Constraints mirror `pending-worktree-base-registry`:
- *  - FIFO per cwd, capped at 8 entries.
+ *  - FIFO per cwd (within the unbound tier), capped at 8 entries.
  *  - 60 s TTL; stale entries dropped on every touch.
  *  - Cwd normalized via `safeRealpathSync` + trailing-sep strip.
  *  - In-memory only.
  *
- * See change: add-automation-plugin.
+ * See change: add-automation-plugin, fix-automation-stamp-correlation.
  */
 import { safeRealpathSync } from "../resolve-path.js";
 
@@ -32,6 +45,8 @@ export interface AutomationRunStamp {
 interface PendingStamp {
   stamp: AutomationRunStamp;
   enqueuedAt: number;
+  /** Spawn correlation token of the process this stamp belongs to, once known. */
+  spawnToken?: string;
 }
 
 export const PENDING_AUTOMATION_RUN_TTL_MS = 60_000;
@@ -39,7 +54,18 @@ export const PENDING_AUTOMATION_RUN_CAP = 8;
 
 export interface PendingAutomationRunRegistry {
   enqueue(cwd: string, stamp: AutomationRunStamp): boolean;
-  consume(cwd: string): AutomationRunStamp | null;
+  /**
+   * Bind an already-queued stamp to the spawn token of the process that owns
+   * it. Returns false when the run is unknown for that cwd (already claimed or
+   * TTL-pruned). Idempotent per runId.
+   */
+  bindToken(cwd: string, runId: string, spawnToken: string): boolean;
+  /**
+   * Claim a stamp for a registering session. `spawnToken` is the token the
+   * bridge echoed on its first `session_register`; when it matches a bound
+   * entry that entry is claimed, else the oldest UNBOUND entry is claimed.
+   */
+  consume(cwd: string, spawnToken?: string): AutomationRunStamp | null;
   size(cwd: string): number;
 }
 
@@ -91,13 +117,28 @@ export function createPendingAutomationRunRegistry(
       return true;
     },
 
-    consume(cwd: string): AutomationRunStamp | null {
+    bindToken(cwd: string, runId: string, spawnToken: string): boolean {
+      if (!runId || !spawnToken) return false;
+      const key = normalize(cwd);
+      const queue = pruneStale(key);
+      const entry = queue.find((e) => e.stamp.runId === runId);
+      if (!entry) return false;
+      entry.spawnToken = spawnToken;
+      return true;
+    },
+
+    consume(cwd: string, spawnToken?: string): AutomationRunStamp | null {
       const key = normalize(cwd);
       const queue = pruneStale(key);
       if (queue.length === 0) return null;
-      const head = queue.shift()!;
+      // Tier 1: exact owner. Tier 2: oldest entry whose owner is not yet known
+      // (spawn still resolving, or a spawn path that mints no token).
+      let index = spawnToken ? queue.findIndex((e) => e.spawnToken === spawnToken) : -1;
+      if (index < 0) index = queue.findIndex((e) => e.spawnToken === undefined);
+      if (index < 0) return null;
+      const [claimed] = queue.splice(index, 1);
       if (queue.length === 0) store.delete(key);
-      return head.stamp;
+      return claimed!.stamp;
     },
 
     size(cwd: string): number {
