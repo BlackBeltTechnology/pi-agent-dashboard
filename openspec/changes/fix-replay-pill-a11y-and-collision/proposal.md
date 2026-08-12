@@ -37,10 +37,13 @@ this change, with the live A/B/C comparison in `mockups/index.html`.
 - Move the pill clear of the scroll-to-bottom button so the two can never
   occlude one another at any viewport width, and give it a `z-index` above the
   scroll controls so paint order is no longer accidental.
-- Restyle the pill onto `--bg-surface` with a `--text-tertiary` hairline,
-  raising the surface boundary to **5.01:1** dark / **4.48:1** light and clearing
-  the SC 1.4.11 floor. Label moves to `--text-primary`. No new token is
-  introduced — both already exist in `index.css`.
+- Restyle the pill onto `--bg-surface` with a hairline border in a new
+  `--border-strong` token, raising the surface boundary to **5.01:1** dark /
+  **4.48:1** light and clearing the SC 1.4.11 floor. Label moves to
+  `--text-primary`. No existing border token qualifies (`--border-secondary` is
+  1.57:1 / 1.61:1), and a fill alone cannot reach 3:1 without becoming a
+  light-grey blob in a dark transcript — so the token is added to the theme
+  layer, per the theme-system rule. See design D2.
 - Stop the spinner rotation under `@media (prefers-reduced-motion: reduce)`. The
   pill stays visible and `role="status"` still announces, so the status remains
   conveyed without motion.
@@ -72,14 +75,16 @@ None.
 
 - `packages/client/src/components/chat/ChatView.tsx` — pill position, `z-index`,
   surface/border/text tokens, `aria-label` removal (`:1432-1444`).
-- `packages/client/src/index.css` — a reduced-motion branch for the pill's
-  spinner, alongside the six existing blocks.
+- `packages/client/src/index.css` — a new `--border-strong` token in both
+  `:root` and `[data-theme="light"]`, plus a reduced-motion branch for the
+  pill's spinner alongside the six existing blocks.
 - `packages/client/src/components/chat/__tests__/ChatView.replay-in-flight-pill.test.tsx`
   — new non-occlusion, token, and reduced-motion cases; existing 22 assertions
   unchanged.
 - `tests/e2e/replay-in-flight-pill.spec.ts` — may gain a 375px non-occlusion
   check; its existing selectors are unaffected.
-- No server change. No protocol change. No new design token.
+- No server change. No protocol change. One new design token
+  (`--border-strong`), defined in both theme blocks.
 
 ## Discipline Skills
 
