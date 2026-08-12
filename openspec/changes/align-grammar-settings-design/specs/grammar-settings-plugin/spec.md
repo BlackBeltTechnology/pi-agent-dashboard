@@ -102,8 +102,8 @@ listing a short curated set of recommended models.
 
 #### Scenario: An inline recommended-models disclosure lists the top models
 - **WHEN** the user expands the recommended-models disclosure by the model picker
-- **THEN** it SHALL list a short curated set including `claude-haiku-4-5` marked
-  as the recommended default
+- **THEN** it SHALL list a short curated set (from the OpenRouter grammar
+  competition) including `openai/gpt-4.1-nano` marked as the recommended default
 - **AND** it SHALL be collapsed by default and SHALL NOT duplicate the full
   benchmark table (which remains in the linked doc)
 - **AND** the disclosure SHALL NOT be nested inside the model-picker `<label>`

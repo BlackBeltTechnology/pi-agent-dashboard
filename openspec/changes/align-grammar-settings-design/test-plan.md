@@ -24,7 +24,7 @@ current component harness: `packages/grammar-plugin/src/__tests__/GrammarSetting
 | E5 | settings controls → A persisted LanguageTool config renders as LLM-only | EP | L1 | automated | `plugins.grammar` = `{…, backend:"languagetool", languagetool:{url}}` | mount | no `grammar-backend` / `grammar-lt-url`; LLM controls render |
 | E6 | settings controls → Correction view control persists | state-transition | L1 | automated | set **Correction view** = `list` | host commit | POST body carries `correctionView:"list"` |
 | E7 | settings controls → Fields are grouped into collapsible accordions | state-transition | L1 | automated | render | inspect DOM | `<details>` group(s) present; surviving testids all present; `grammar-save`/`grammar-reload`/`grammar-dirty` ABSENT |
-| E8 | model guidance → recommended-models disclosure lists the top models | decision-table | L1 | automated | render | expand `grammar-recommended-models` | lists `claude-haiku-4-5` (recommended) + others; collapsed by default; the `<details>` is NOT a descendant of a `<label>` |
+| E8 | model guidance → recommended-models disclosure lists the top models | decision-table | L1 | automated | render | expand `grammar-recommended-models` | lists `openai/gpt-4.1-nano` (recommended) + others; collapsed by default; the `<details>` is NOT a descendant of a `<label>` |
 | E9 | model guidance → hint + link render; target resolves | static-lint | L1 | automated | render (llm section) | inspect + resolve link href | localized hint present; `grammar-model-guidance-link` present; href resolves to an existing `docs/*.md` file |
 
 ### Error-handling

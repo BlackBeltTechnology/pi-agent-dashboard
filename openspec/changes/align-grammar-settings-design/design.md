@@ -71,13 +71,14 @@ Two caveats the cited idiom does NOT cover:
 
 ### D4 — Recommended-models disclosure = static curated list, not the full table
 
-A collapsed `<details>` by the picker lists a SHORT curated set
-(`claude-haiku-4-5` recommended + `claude-sonnet-4-5`, `claude-opus-4-5`,
-`gemini-flash-latest`, with a "avoid `gemini-flash-lite-latest`" note). The data
-is a small static array in the component with localized labels — not fetched,
-not the full benchmark table (which stays in `docs/grammar-model-guidance.md`,
-still linked). Keeps the surface light and the doc the single source of the full
-tradeoff table.
+A collapsed `<details>` by the picker lists a SHORT curated set from the
+OpenRouter grammar competition (`openai/gpt-4.1-nano` recommended — 100% recall,
+~2.5s, zero style churn; + `qwen/qwen3-30b-a3b-2507`, `amazon/nova-lite-v1`,
+`openai/gpt-4o-mini`, with an "avoid reasoning models / ministral-8b / retired
+gemini-2.0-flash" note). The data is a small static array in the component with
+localized labels — not fetched, not the full benchmark table (which stays in
+`docs/grammar-model-guidance.md`, still linked). Keeps the surface light and the
+doc the single source of the full tradeoff table.
 
 ### D5 — The "no inline style" invariant is scoped to plugin-owned elements
 

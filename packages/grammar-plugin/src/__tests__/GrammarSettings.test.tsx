@@ -233,8 +233,8 @@ describe("GrammarSettings", () => {
     expect(disc.tagName).toBe("DETAILS");
     expect(disc.open).toBe(false); // collapsed by default
     expect(disc.closest("label")).toBeNull(); // invalid nesting guard
-    expect(disc.textContent).toContain("claude-haiku-4-5");
-    expect(disc.textContent).toContain("claude-sonnet-4-5");
+    expect(disc.textContent).toContain("openai/gpt-4.1-nano");
+    expect(disc.textContent).toContain("qwen/qwen3-30b-a3b-2507");
   });
 
   it("renders the model-guidance hint + a link whose target exists in docs/ (E9)", async () => {

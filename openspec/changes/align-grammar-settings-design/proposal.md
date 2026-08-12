@@ -26,9 +26,11 @@ inline recommended-models quick-reference by the model picker.
 - **Group into accordions** — wrap the fields in `<details>`/`<summary>`
   sections (General · Model · Advanced), matching the pattern.
 - **Recommended-models disclosure** — a collapsed-by-default `<details>` next to
-  the model picker listing a short curated set (recommended `claude-haiku-4-5`;
-  also `claude-sonnet-4-5`, `claude-opus-4-5`, `gemini-flash-latest`; note
-  `gemini-flash-lite-latest` is too weak). Localized. The existing inline hint +
+  the model picker listing a short curated set from the OpenRouter grammar
+  competition (recommended `openai/gpt-4.1-nano`; also `qwen/qwen3-30b-a3b-2507`,
+  `amazon/nova-lite-v1`, `openai/gpt-4o-mini`; note: avoid reasoning models like
+  `deepseek-v4-flash`, `ministral-8b`, and the retired gemini-2.0-flash ids).
+  Localized. The existing inline hint +
   link to `docs/grammar-model-guidance.md` stay.
 
 ## Capabilities

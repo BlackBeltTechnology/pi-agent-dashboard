@@ -15,7 +15,7 @@
 
 ## 4. Recommended-models disclosure
 
-- [x] 4.1 Add a collapsed-by-default `<details>` by the model picker (testid `grammar-recommended-models`) listing a short static curated set: `claude-haiku-4-5` (recommended) + `claude-sonnet-4-5`, `claude-opus-4-5`, `gemini-flash-latest`; note avoid `gemini-flash-lite-latest`. Localized labels. **Place the `<details>` OUTSIDE the model-picker `<label>`** (a `<details>` inside a `<label>` is invalid HTML + a `<summary>` click would toggle the label's control) — restructure the current single `<label>` (picker + hint + link + prompt) so the disclosure is a sibling, and give the `<summary>` a `focus-ring`.
+- [x] 4.1 Add a collapsed-by-default `<details>` by the model picker (testid `grammar-recommended-models`) listing a short static curated set from the OpenRouter competition: `openai/gpt-4.1-nano` (recommended) + `qwen/qwen3-30b-a3b-2507`, `amazon/nova-lite-v1`, `openai/gpt-4o-mini`; note avoid reasoning models (deepseek-v4-flash), `ministral-8b` (78% recall), retired `gemini-2.0-flash-001/-lite-001`. Localized labels. **Place the `<details>` OUTSIDE the model-picker `<label>`** (a `<details>` inside a `<label>` is invalid HTML + a `<summary>` click would toggle the label's control) — restructure the current single `<label>` (picker + hint + link + prompt) so the disclosure is a sibling, and give the `<summary>` a `focus-ring`.
 - [x] 4.2 Keep the existing inline hint + `grammar-model-guidance-link` to `docs/grammar-model-guidance.md` (disclosure complements, does not replace).
 
 ## 5. i18n
@@ -42,7 +42,7 @@ All L1 in `packages/grammar-plugin/src/__tests__/GrammarSettings.test.tsx` (rewo
 - [x] 8.5 (test-plan #E5) Persisted LT renders LLM-only: config with `backend`/`languagetool` · mount · no `grammar-backend`/`grammar-lt-url`; LLM controls render.
 - [x] 8.6 (test-plan #E6) Correction-view persists: set `list` · host commit · POST body `correctionView:"list"`.
 - [x] 8.7 (test-plan #E7) Accordion grouping + testids: render · inspect · `<details>` groups present; surviving testids present; `grammar-save`/`grammar-reload`/`grammar-dirty` absent.
-- [x] 8.8 (test-plan #E8) Recommended-models disclosure: expand `grammar-recommended-models` · lists `claude-haiku-4-5` (recommended) + others; collapsed by default; not a `<label>` descendant.
+- [x] 8.8 (test-plan #E8) Recommended-models disclosure: expand `grammar-recommended-models` · lists `openai/gpt-4.1-nano` (recommended) + others; collapsed by default; not a `<label>` descendant.
 - [x] 8.9 (test-plan #E9) Guidance hint+link + target exists: render · inspect + resolve href · hint present, `grammar-model-guidance-link` present, href resolves to an existing `docs/*.md`.
 - [x] 8.10 (test-plan #X1) Failed save stays dirty: `POST /api/config/plugins/grammar` → 500 · host commit · `commit` rejects; source stays dirty; no success path.
 - [x] 8.11 (test-plan #F1) No plugin-owned inline styles: scan `[style]` excluding `[data-testid="grammar-llm-model-selector"]` descendants · render · zero; no `#hex`/`rgba()`/`hsl()` literal in section.

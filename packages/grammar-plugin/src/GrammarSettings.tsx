@@ -25,12 +25,16 @@ import type { GrammarConfig } from "./grammar-config.js";
 /** Docs page describing which models are good grammar-check candidates. */
 const MODEL_GUIDANCE_DOC = "/docs/grammar-model-guidance.md";
 
-/** Short curated recommended-model set (full tradeoff table lives in the doc). */
+/**
+ * Short curated recommended-model set from the OpenRouter grammar competition
+ * (11 hard cases ×2; full tradeoff table lives in the doc). Model ids are the
+ * OpenRouter slugs (provider `openrouter`).
+ */
 const RECOMMENDED_MODELS: Array<{ id: string; recommended?: boolean; noteKey: string; note: string }> = [
-  { id: "claude-haiku-4-5", recommended: true, noteKey: "recHaiku", note: "fast, cheap, keeps style — ~2–4 s" },
-  { id: "claude-sonnet-4-5", noteKey: "recSonnet", note: "thorough, slower — ~8 s" },
-  { id: "claude-opus-4-5", noteKey: "recOpus", note: "most thorough, pricier — ~7 s" },
-  { id: "gemini-flash-latest", noteKey: "recGemini", note: "capable non-Anthropic option" },
+  { id: "openai/gpt-4.1-nano", recommended: true, noteKey: "recNano", note: "100% recall, ~2.5s, zero style churn" },
+  { id: "qwen/qwen3-30b-a3b-2507", noteKey: "recQwen30", note: "balanced — ~4.7s, 100% recall" },
+  { id: "amazon/nova-lite-v1", noteKey: "recNova", note: "fastest/cheapest (~1s), but adds markdown churn + fails code fences" },
+  { id: "openai/gpt-4o-mini", noteKey: "recMini", note: "solid alternative — ~3.5s" },
 ];
 
 /**
@@ -297,7 +301,11 @@ export function GrammarSettings(): React.ReactElement {
                 </li>
               ))}
               <li className="text-[10.5px] text-[var(--text-tertiary)] mt-0.5">
-                {t("recAvoid", undefined, "Avoid weak/lite models (e.g. gemini-flash-lite-latest) — they leave typos uncorrected.")}
+                {t(
+                  "recAvoid",
+                  undefined,
+                  "Avoid reasoning models (e.g. deepseek-v4-flash, ~11.5s), ministral-8b (78% recall), and the retired gemini-2.0-flash-001/-lite-001 (404).",
+                )}
               </li>
             </ul>
           </details>
