@@ -50,7 +50,14 @@ export interface WatchdogArmOptions {
   cwd: string;
   mechanism: SpawnMechanism;
   logPath?: string;
-  ws: WebSocket;
+  /**
+   * Browser transport for the diagnostic, when the caller has one. REST
+   * resume, zombie reopen and headless reload arm without a browser socket;
+   * the *reclaim* must still run, so this is optional and only the diagnostic
+   * is skipped when absent.
+   * See change: fix-duplicate-bridge-registration (D0/D2).
+   */
+  ws?: WebSocket;
   /**
    * Server-minted spawn correlation token. When provided, the entry is
    * indexed in `byToken` for strong-identity clearing via `clearByToken`.
@@ -65,7 +72,7 @@ interface Entry {
   pid?: number;
   mechanism: SpawnMechanism;
   logPath?: string;
-  ws: WebSocket;
+  ws?: WebSocket;
   timeoutMs: number;
   spawnToken?: string;
 }
@@ -73,7 +80,7 @@ interface Entry {
 interface RecentlyFiredEntry {
   firedAt: number;
   pid?: number;
-  ws: WebSocket;
+  ws?: WebSocket;
   spawnToken?: string;
 }
 
@@ -248,7 +255,7 @@ export class SpawnRegisterWatchdog {
     // not a browser is still listening for the diagnostic.
     this._reclaimSpawn(entry);
 
-    if (ws.readyState !== WebSocket.OPEN) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
     const msg: SpawnRegisterTimeoutMessage = {
       type: "spawn_register_timeout",
@@ -308,7 +315,7 @@ export class SpawnRegisterWatchdog {
 
     this.recentlyFired.delete(cwd);
 
-    if (fired.ws.readyState !== WebSocket.OPEN) return;
+    if (!fired.ws || fired.ws.readyState !== WebSocket.OPEN) return;
 
     const msg: SpawnRegisterRecoveredMessage = {
       type: "spawn_register_recovered",

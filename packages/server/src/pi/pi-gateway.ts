@@ -7,13 +7,26 @@ import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared
 import { WebSocket, WebSocketServer } from "ws";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import { getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
+import {
+  CONTENTION_PROBE_WINDOW,
+  type ContentionTracker,
+  createContentionTracker,
+  decideClaim,
+  formatContentionLine,
+  isSocketAlive,
+  type ProbeableSocket,
+  resolveProbe,
+} from "./bridge-contention.js";
 
 export const HEARTBEAT_TIMEOUT = 180_000;
 export const WS_PING_INTERVAL = 60_000;
+export { CONTENTION_PROBE_WINDOW };
 
 export interface PiGatewayOptions {
   heartbeatTimeout?: number;
   pingInterval?: number;
+  /** Bounded window the contention probe waits for the incumbent's pong. */
+  contentionProbeWindow?: number;
 }
 
 export interface PiGateway {
@@ -31,6 +44,17 @@ export interface PiGateway {
   isSessionConnected(sessionId: string): boolean;
   /** Force-close the WebSocket connection for a session */
   closeSession(sessionId: string): boolean;
+  /**
+   * Contention records, cumulative refusal counter and rate limiter.
+   * See change: fix-duplicate-bridge-registration (D4, D6).
+   */
+  contention: ContentionTracker;
+  /**
+   * True when a live bridge serves `sessionFile` under ANY session id, using
+   * D1's liveness definition (not raw `readyState`). The resume guard keys on
+   * this. See change: fix-duplicate-bridge-registration (D5).
+   */
+  findLiveSessionBySessionFile(sessionFile: string): string | undefined;
   onEvent?: (sessionId: string, msg: ExtensionToServerMessage) => void;
   onEmpty?: () => void;
   onConnection?: () => void;
@@ -52,6 +76,8 @@ export function createPiGateway(
 ): PiGateway {
   const hbTimeout = options?.heartbeatTimeout ?? HEARTBEAT_TIMEOUT;
   const pingMs = options?.pingInterval ?? WS_PING_INTERVAL;
+  const probeWindow = options?.contentionProbeWindow ?? CONTENTION_PROBE_WINDOW;
+  const contention = createContentionTracker();
   let wss: WebSocketServer | null = null;
   let pingTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -257,18 +283,133 @@ export function createPiGateway(
 
       wss.on("connection", (ws) => {
         let currentSessionId: string | null = null;
+        // Serializes this socket's messages. The contention decision is async
+        // (it may probe the incumbent), and a bridge sends `session_register`
+        // immediately followed by events; without this queue a later message
+        // would overtake the deferred register and be dropped as unowned.
+        let queue: Promise<void> = Promise.resolve();
+        // Set once this socket has been terminally refused; it must never
+        // influence gateway state again, even for in-flight frames.
+        let refused = false;
         aliveMisses.set(ws, 0);
         ws.on("pong", () => { aliveMisses.set(ws, 0); });
+
+        /**
+         * Probe the incumbent for a pong within the bounded window, then apply
+         * D1's two-factor rule. See change: fix-duplicate-bridge-registration.
+         */
+        function probeIncumbent(incumbent: WebSocket): Promise<boolean> {
+          return new Promise((resolve) => {
+            let settled = false;
+            const onPong = () => {
+              if (settled) return;
+              settled = true;
+              incumbent.off("pong", onPong);
+              clearTimeout(timer);
+              resolve(true);
+            };
+            const timer = setTimeout(() => {
+              if (settled) return;
+              settled = true;
+              incumbent.off("pong", onPong);
+              resolve(false);
+            }, probeWindow);
+            // Do not hold the event loop open for the probe window.
+            (timer as any).unref?.();
+            incumbent.on("pong", onPong);
+            try {
+              incumbent.ping();
+            } catch {
+              /* a socket that cannot even be pinged will fail the writability factor */
+            }
+          });
+        }
+
+        /** Terminally refuse this socket: tell it why, then close it. */
+        function refuse(sessionId: string, incumbentPid?: number, newcomerPid?: number) {
+          refused = true;
+          const emit = contention.record(sessionId, incumbentPid, newcomerPid);
+          if (emit) {
+            console.error(formatContentionLine(sessionId, incumbentPid, newcomerPid));
+          }
+          if (ws.readyState === WebSocket.OPEN) {
+            ws.send(
+              JSON.stringify({
+                type: "register_rejected",
+                sessionId,
+                reason: "another live bridge already serves this session id",
+              }),
+            );
+          }
+          ws.close();
+        }
+
+        /**
+         * Resolve whether `ws` may claim the routing entry for `sessionId`.
+         * Returns false when the socket was refused (caller must return).
+         */
+        async function claim(sessionId: string, newcomerPid?: number): Promise<boolean> {
+          const incumbent = connections.get(sessionId);
+          const session = sessionManager.get(sessionId);
+          const decision = decideClaim({
+            incumbent,
+            newcomer: ws,
+            incumbentSource: incumbent ? session?.source : undefined,
+            incumbentPid: session?.pid,
+            newcomerPid,
+          });
+
+          if (decision.outcome === "accept") return true;
+
+          // Contended: probe the incumbent within the bounded window.
+          const held = incumbent as WebSocket;
+          const ponged = await probeIncumbent(held);
+
+          // The world may have moved during the probe: if the incumbent gave up
+          // the entry meanwhile, there is nothing left to contend.
+          if (connections.get(sessionId) !== held) return !refused;
+
+          const resolved = resolveProbe(held, ponged);
+          if (resolved.outcome === "displace") {
+            held.terminate();
+            connections.delete(sessionId);
+            return true;
+          }
+          refuse(sessionId, session?.pid, newcomerPid);
+          return false;
+        }
 
         ws.on("message", (raw) => {
           // Any received message proves the connection is alive
           aliveMisses.set(ws, 0);
-          try {
-            const msg = JSON.parse(raw.toString()) as ExtensionToServerMessage;
+          queue = queue.then(() => handleMessage(raw)).catch(() => {});
+        });
 
-            // Track session identity from any message with a sessionId
+        async function handleMessage(raw: unknown) {
+          // A refused socket may never mutate gateway state again, not even
+          // via frames already in flight when it lost.
+          // See change: fix-duplicate-bridge-registration (D0).
+          if (refused) return;
+          try {
+            const msg = JSON.parse(String(raw)) as ExtensionToServerMessage;
+
+            if (msg.type === "session_register") {
+              await handleRegister(msg);
+              return;
+            }
+
+            // Track session identity from any message with a sessionId.
+            // This is a claim on the routing table, so it is contention-checked
+            // too — but a non-register message never displaces a live
+            // incumbent, it is simply not routable.
             if (!currentSessionId && "sessionId" in msg && (msg as any).sessionId) {
               const sid: string = (msg as any).sessionId;
+              const incumbent = connections.get(sid);
+              if (incumbent && incumbent !== ws && incumbent.readyState === WebSocket.OPEN) {
+                // Held by a live socket: this socket never becomes the entry.
+                currentSessionId = sid;
+                return;
+              }
               currentSessionId = sid;
               connections.set(sid, ws);
               // Auto-create a placeholder session so events aren't lost
@@ -284,18 +425,40 @@ export function createPiGateway(
               onConnection?.();
             }
 
-            if (msg.type === "session_register") {
-              // Clear spawn-register watchdog BEFORE any throwing logic. See change: spawn-failure-diagnostics.
-              // Priority: token > pid > cwd. Token is the strongest identity
-              // (spawn-correlation-token); pid catches headless without token;
-              // cwd is the legacy fallback for tmux/wt with neither.
-              const watchdog = getSpawnRegisterWatchdog();
-              if (msg.spawnToken) watchdog.clearByToken(msg.spawnToken);
-              if (msg.pid !== undefined) watchdog.clearByPid(msg.pid);
-              watchdog.clearByCwd(msg.cwd);
+            // Ownership gate: a socket that does not hold the entry for the id
+            // it names may not reset the incumbent's heartbeat, overwrite its
+            // metrics, unregister it, or reach `onEvent`.
+            const named = "sessionId" in msg ? (msg as any).sessionId : undefined;
+            if (named && connections.get(named) !== ws) return;
 
-              // If session ID changed (e.g., after /reload), clean up the old placeholder
-              if (currentSessionId && currentSessionId !== msg.sessionId) {
+            handleOwnedMessage(msg);
+          } catch {
+            // Ignore malformed messages
+          }
+        }
+
+        async function handleRegister(msg: Extract<ExtensionToServerMessage, { type: "session_register" }>) {
+          // The contention decision runs BEFORE every register side effect:
+          // the watchdog clear, the placeholder cleanup, `resetHeartbeat`, the
+          // callbacks and `onEvent`. A refused newcomer that reached any of
+          // them would strip the incumbent's `sessionFile`, consume its spawn
+          // token, or reset its reconnect-grace timer.
+          // See change: fix-duplicate-bridge-registration (D0).
+          const ok = await claim(msg.sessionId, msg.pid);
+          if (!ok) return;
+
+          try {
+            // Clear spawn-register watchdog BEFORE any throwing logic. See change: spawn-failure-diagnostics.
+            // Priority: token > pid > cwd. Token is the strongest identity
+            // (spawn-correlation-token); pid catches headless without token;
+            // cwd is the legacy fallback for tmux/wt with neither.
+            const watchdog = getSpawnRegisterWatchdog();
+            if (msg.spawnToken) watchdog.clearByToken(msg.spawnToken);
+            if (msg.pid !== undefined) watchdog.clearByPid(msg.pid);
+            watchdog.clearByCwd(msg.cwd);
+
+            // If session ID changed (e.g., after /reload), clean up the old placeholder
+            if (currentSessionId && currentSessionId !== msg.sessionId) {
                 const oldSession = sessionManager.get(currentSessionId);
                 // Clean up if it's an auto-created placeholder (source unknown)
                 // or a ghost session (no sessionFile, created by duplicate bridge)
@@ -337,8 +500,13 @@ export function createPiGateway(
               resetHeartbeat(msg.sessionId);
               onConnection?.();
               onSessionRegistered?.(msg.sessionId, msg.cwd);
-            }
+              onEvent?.(msg.sessionId, msg);
+          } catch {
+            // Ignore malformed messages
+          }
+        }
 
+        function handleOwnedMessage(msg: ExtensionToServerMessage) {
             if (msg.type === "session_heartbeat" && msg.sessionId) {
               resetHeartbeat(msg.sessionId);
               // Store process metrics on the session if provided
@@ -380,13 +548,16 @@ export function createPiGateway(
             // Notify listeners
             const eventSessionId = "sessionId" in msg ? (msg as any).sessionId : undefined;
             onEvent?.(eventSessionId ?? currentSessionId ?? "", msg);
-          } catch {
-            // Ignore malformed messages
-          }
-        });
+        }
 
         ws.on("close", () => {
-          if (currentSessionId) {
+          // Identity-scoped cleanup: only the socket that still OWNS the routing
+          // entry may run id-keyed teardown. A displaced or refused socket
+          // closing must not raise a disconnect on a live session, clear the
+          // incumbent's heartbeat/reconnect-grace timers, or finalize an
+          // automation run another socket is serving.
+          // See change: fix-duplicate-bridge-registration (D3).
+          if (currentSessionId && connections.get(currentSessionId) === ws) {
             console.error(`[gateway] connection closed: ${currentSessionId}`);
             // Headless automation runs are one-shot and never reconnect.
             // Treating a WS close as terminal for them finalizes the run
@@ -414,6 +585,8 @@ export function createPiGateway(
               // This handles temporary disconnects
               onDisconnect?.(currentSessionId);
             }
+            // The incumbent leaving is one of the four D4 clearing triggers.
+            contention.clear(currentSessionId);
           }
           aliveMisses.delete(ws);
         });
@@ -431,9 +604,12 @@ export function createPiGateway(
       heartbeatTimers.clear();
       heartbeatMeta.clear();
       aliveMisses.clear();
-      // Forcibly terminate all extension connections
-      for (const ws of connections.values()) {
-        ws.terminate();
+      // Forcibly terminate every accepted socket, not just the ones holding a
+      // routing entry — `wss.close()` does not terminate clients, so a socket
+      // outside `connections` would survive teardown and re-register against
+      // the fresh server. See change: fix-duplicate-bridge-registration (D3).
+      for (const client of wss?.clients ?? []) {
+        client.terminate();
       }
       connections.clear();
       wss?.close();
@@ -505,9 +681,26 @@ export function createPiGateway(
       if (ws) {
         ws.close();
         connections.delete(sessionId);
+        contention.clear(sessionId);
         return true;
       }
       return false;
+    },
+
+    contention,
+
+    findLiveSessionBySessionFile(sessionFile: string): string | undefined {
+      // Liveness is D1's definition, not raw `readyState`: a half-open
+      // incumbent must NOT lock out a resume.
+      // See change: fix-duplicate-bridge-registration (D5).
+      if (!sessionFile) return undefined;
+      for (const [sid, ws] of connections) {
+        if (ws.readyState !== WebSocket.OPEN) continue;
+        if (!isSocketAlive(ws as unknown as ProbeableSocket)) continue;
+        const session = sessionManager.get(sid);
+        if (session?.sessionFile === sessionFile) return sid;
+      }
+      return undefined;
     },
   };
 }
