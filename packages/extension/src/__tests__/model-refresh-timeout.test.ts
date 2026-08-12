@@ -23,9 +23,14 @@ describe("reportRefresh — bounded wait", () => {
     const never = new Promise<never>(() => {});
     const pending = reportRefresh(never);
     let settled = false;
-    void pending.then(() => {
-      settled = true;
-    });
+    pending.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
 
     await vi.advanceTimersByTimeAsync(REFRESH_TIMEOUT_MS - 1);
     expect(settled).toBe(false);
