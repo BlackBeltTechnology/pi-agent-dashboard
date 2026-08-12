@@ -47,6 +47,29 @@ function stripThinkingLevel(pattern: string): string {
  * (`anthropic/*`), and bare globs (`*sonnet*`) all work. A trailing
  * `:<thinkingLevel>` suffix is stripped before matching.
  */
+/**
+ * Read the server-minted spawn correlation token and SCRUB it from the env.
+ *
+ * Single-use by construction: a pi this pi later spawns (subagent, nested `pi`,
+ * reload) must not inherit and re-report a consumed token
+ * (change: fix-spawn-token-env-leak).
+ *
+ * Shared because there is more than one first-register path. `bridge.ts`'s
+ * `session_start` register — the first register a FRESH session sends — omitted
+ * the token entirely, so tier-1 token correlation never fired for a
+ * dashboard-spawned session and the spawn watchdog could not tell which spawn
+ * had registered. Keeping the read+scrub in one place is what stops the two
+ * paths from drifting again.
+ *
+ * See change: spawn-correlation-token (Decision 3),
+ * fix-tmux-session-shutdown-leak.
+ */
+export function consumeSpawnToken(): string | undefined {
+  const token = process.env.PI_DASHBOARD_SPAWN_TOKEN;
+  delete process.env.PI_DASHBOARD_SPAWN_TOKEN;
+  return token;
+}
+
 export function filterByEnabledModels<T extends { provider: string; id: string }>(models: T[]): T[] {
   try {
     const settingsPath = join(homedir(), ".pi", "agent", "settings.json");
@@ -121,11 +144,7 @@ export function sendStateSync(
   // `process.env.PI_DASHBOARD_SPAWN_TOKEN` so any pi process this pi later
   // spawns (subagent, nested `pi`, reload) does NOT inherit and re-report the
   // consumed token. See change: fix-spawn-token-env-leak.
-  let spawnToken: string | undefined;
-  if (isFirstRegister) {
-    spawnToken = process.env.PI_DASHBOARD_SPAWN_TOKEN;
-    delete process.env.PI_DASHBOARD_SPAWN_TOKEN;
-  }
+  const spawnToken = isFirstRegister ? consumeSpawnToken() : undefined;
 
   // Strong, restart-survival flag, derived from the capture-once boolean
   // (captured at bridge startup BEFORE the token was scrubbed), not a live

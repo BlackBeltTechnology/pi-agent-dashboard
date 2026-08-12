@@ -2,6 +2,7 @@
  * Session bootstrap: discovers sessions from known directories and starts OpenSpec polling.
  * Called during server startup (async, non-blocking).
  */
+import { deriveEndedAt } from "./derive-ended-at.js";
 import type { SessionManager } from "./memory-session-manager.js";
 import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import { isOpenSpecDataEmpty, type DirectoryService } from "../directory-service.js";
@@ -46,6 +47,14 @@ export async function discoverAndBroadcastSessions(deps: SessionBootstrapDeps): 
             source: "tui",
             status: "ended",
             startedAt: hist.startedAt,
+            // This path sets no `lastActivityAt`, so it must stat its own
+            // transcript rather than lean on a last-activity fallback — the one
+            // case where the card's time badge is actually wrong today.
+            // See change: fix-ended-session-missing-endedat.
+            endedAt: deriveEndedAt({
+              sessionFile: hist.sessionFile,
+              startedAt: hist.startedAt,
+            }),
             sessionFile: hist.sessionFile,
             sessionDir: hist.sessionDir,
             firstMessage: hist.firstMessage,

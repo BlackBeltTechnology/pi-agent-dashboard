@@ -67,7 +67,7 @@ export function buildOpenSpecConnectSnapshot(
 
 import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleMoveFolderToWorkspace, handleOpenSpecBulkArchive, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
-import { handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handleRemoveFollowupEntry, handleResumeSession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest } from "../browser-handlers/session-action-handler.js";
+import { handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handleRemoveFollowupEntry, handleResumeSession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
 import { handleAcceptReplaceProposal, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleHideSession, handleListSessions, handleRemoveTagGlobally, handleRenameSession, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnhideSession } from "../browser-handlers/session-meta-handler.js";
 import { handleSubscribe } from "../browser-handlers/subscription-handler.js";
 import { handleCloseInlineTerminal, handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "../browser-handlers/terminal-handler.js";
@@ -83,6 +83,17 @@ export interface BrowserGateway {
   broadcastSessionAdded(session: any, opts?: { spawnRequestId?: string }): void;
   broadcastSessionUpdated(sessionId: string, updates: any): void;
   broadcastSessionRemoved(sessionId: string): void;
+  /**
+   * End a session the same way the browser `shutdown` message does — terminate
+   * the process for ANY spawn strategy, write the manual-close liveness marker,
+   * then unregister and broadcast.
+   *
+   * Exposed so `POST /api/session/:id/shutdown` stops being a parallel
+   * implementation: as a duplicate it omitted the liveness write (#449) and,
+   * once the WS path learned to terminate a tmux session, kept leaking one
+   * (#452). See change: fix-tmux-session-shutdown-leak.
+   */
+  shutdownSession(sessionId: string): Promise<void>;
   sendToSubscribers(sessionId: string, msg: ServerToBrowserMessage): void;
   broadcastToAll(msg: ServerToBrowserMessage): void;
   /**
@@ -1068,6 +1079,16 @@ export function createBrowserGateway(
 
     broadcastSessionRemoved(sessionId: string) {
       broadcast({ type: "session_removed", sessionId });
+    },
+
+    shutdownSession(sessionId: string) {
+      return shutdownSessionImpl(sessionId, {
+        sessionManager,
+        piGateway,
+        headlessPidRegistry,
+        broadcast,
+        metaPersistence,
+      });
     },
 
     broadcastSessionStateReset(sessionId: string) {

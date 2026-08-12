@@ -42,7 +42,16 @@ The directory card SHALL render a small folder-tab nub peeking above its top-lef
 
 ### Requirement: Directory card encloses its Create tray and sessions in a folder body
 
-When a folder group is expanded, the directory card SHALL render its header (git row + slot pills) and a folder body inside ONE continuous bordered surface, so the card reads as a folder containing its contents. The folder body SHALL contain, in order: a `CREATE` separator + the spawn actions (New Session / New Worktree), a `SESSIONS` separator, the folder's session cards, and the "Show N ended" affordance. The header and body SHALL share the `--bg-primary` surface (one continuous sheet), with a soft non-interactive fold-shadow seam marking the header/body junction. Session cards SHALL keep their existing surface, status spine, and selection ring (unchanged). Spawn behavior, worktree gating, DnD reordering, collapse/expand, and all `data-testid`s SHALL be preserved.
+When a folder group is expanded, the directory card SHALL render its header (git row + slot pills) and a folder body inside ONE continuous bordered surface, so the card reads as a folder containing its contents. The folder body SHALL contain, in order: a `CREATE` separator + the spawn actions (New Session / New Worktree), a `SESSIONS` separator, the folder's session cards, and the "Show N ended" affordance. The header and body SHALL share the `--bg-primary` surface (one continuous sheet) with no seam shading at the header/body junction — the `CREATE` separator alone marks it. Session cards SHALL keep their existing surface and selection ring. The session list SHALL render ONE gray directory rail (`--rail-directory`) down its left band, each card connecting to it with a 9px tick; the per-card status spine is REMOVED and status is carried by the inline status chip alone. Each card's drag zone SHALL be an opaque hover-revealed bead parked in the rail band (opaque `--bg-primary` + `--border-subtle`, masking the rail so the grip glyph stays legible), retaining `data-testid="drag-handle-session"`. Spawn behavior, worktree gating, DnD reordering, collapse/expand, and all `data-testid`s SHALL be preserved.
+
+#### Scenario: Directory rail replaces the per-card status gutter
+- **GIVEN** a folder group with session cards
+- **WHEN** the folder body renders
+- **THEN** no card SHALL render a status gutter (`data-rail-bg`), the list SHALL render one `--rail-directory` rail, and each card SHALL draw a 9px tick into it
+
+#### Scenario: Drag bead masks the rail
+- **WHEN** a session card is hovered
+- **THEN** its drag bead SHALL reveal over the rail band with an opaque background so the rail does not bleed through the grip glyph
 
 #### Scenario: Create tray renders inside the folder body
 - **WHEN** a folder group is rendered expanded

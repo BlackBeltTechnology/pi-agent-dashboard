@@ -14,17 +14,36 @@
  * detected via `recentlyFired` (60 s TTL) and cause a `spawn_register_recovered`
  * message to auto-clear the timeout banner.
  *
- * See change: spawn-failure-diagnostics.
+ * Firing also RECLAIMS the spawn. A pi that never registers is unreachable by
+ * every other teardown path — no session record, so no shutdown, no reap, no
+ * idle-reclaim — and it is not hypothetical: three tmux panes were measured
+ * sitting forever on pi's interactive "Trust project folder?" prompt for an
+ * untrusted cwd, ~127 MB each, while this watchdog reported the timeout and
+ * moved on. The kill keys on the spawn token in the process ENVIRONMENT because
+ * for a tmux spawn that is the only handle that exists: `tmux new-window`
+ * returns tmux's pid, not pi's, and the pane's command line carries nothing
+ * identifying.
+ *
+ * See change: spawn-failure-diagnostics, fix-tmux-session-shutdown-leak (D5).
  */
-import WebSocket from "ws";
+
 import { readFileSync } from "node:fs";
-import type { SpawnMechanism } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js";
 import type {
-  SpawnRegisterTimeoutMessage,
   SpawnRegisterRecoveredMessage,
+  SpawnRegisterTimeoutMessage,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { clampSpawnRegisterTimeoutMs, loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { killProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
+import { findPidsBySpawnToken } from "@blackbelt-technology/pi-dashboard-shared/platform/process-identify.js";
+import type { SpawnMechanism } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js";
+import WebSocket from "ws";
 import { appendSpawnFailure } from "./spawn-failure-log.js";
+
+/** Injection seam for the reclaim path, so tests never touch real processes. */
+export interface WatchdogReclaimDeps {
+  findPidsBySpawnToken: (token: string) => number[];
+  kill: (pid: number) => void;
+}
 
 export interface WatchdogArmOptions {
   pid?: number;
@@ -68,8 +87,20 @@ export class SpawnRegisterWatchdog {
   private readonly byToken = new Map<string, Entry>();
   private readonly recentlyFired = new Map<string, RecentlyFiredEntry>();
 
-  constructor(timeoutMs: number) {
+  private readonly reclaim: WatchdogReclaimDeps;
+
+  constructor(timeoutMs: number, reclaim?: Partial<WatchdogReclaimDeps>) {
     this.timeoutMs = clampSpawnRegisterTimeoutMs(timeoutMs);
+    this.reclaim = {
+      findPidsBySpawnToken: reclaim?.findPidsBySpawnToken ?? findPidsBySpawnToken,
+      kill:
+        reclaim?.kill ??
+        ((pid) => {
+          // Same SIGTERM → 2 s → SIGKILL ladder every other teardown path uses.
+          // Fire-and-forget: the diagnostic below must not wait on it.
+          void killProcess(pid, { timeoutMs: 2000 }).catch(() => undefined);
+        }),
+    };
   }
 
   arm(opts: WatchdogArmOptions & { timeoutMs?: number }): void {
@@ -94,7 +125,13 @@ export class SpawnRegisterWatchdog {
     // enable-rpc-keeper-by-default.
     // Replace any prior entry for the same cwd/pid/token to avoid leaking timers.
     const priorCwd = this.byCwd.get(cwd);
-    if (priorCwd) clearTimeout(priorCwd.timer);
+    // Only DISARM a prior entry that has no strong identity of its own. A prior
+    // spawn with its own token is a separate, still-unregistered process: three
+    // concurrent spawns into one cwd used to collapse into one watch, so two
+    // leaked pi were never diagnosed and (now) would never be reclaimed. Its
+    // own `clearByToken` cancels it when it actually registers.
+    // See change: fix-tmux-session-shutdown-leak.
+    if (priorCwd && !priorCwd.spawnToken) clearTimeout(priorCwd.timer);
     this.byCwd.set(cwd, entry);
     if (pid !== undefined) {
       const priorPid = this.byPid.get(pid);
@@ -207,6 +244,10 @@ export class SpawnRegisterWatchdog {
       ...(stderrTail ? { stderrTail } : {}),
     });
 
+    // Reclaim BEFORE the `readyState` early-return: the leak is real whether or
+    // not a browser is still listening for the diagnostic.
+    this._reclaimSpawn(entry);
+
     if (ws.readyState !== WebSocket.OPEN) return;
 
     const msg: SpawnRegisterTimeoutMessage = {
@@ -217,6 +258,29 @@ export class SpawnRegisterWatchdog {
       ...(stderrTail ? { stderrTail } : {}),
     };
     ws.send(JSON.stringify(msg));
+  }
+
+  /**
+   * Terminate the process behind a spawn that never registered.
+   *
+   * Token first (the only handle a tmux/wt/wsl-tmux pane has), then the spawn
+   * pid for headless, where the dashboard owns it directly. Never throws: a
+   * failed reclaim must not suppress the diagnostic that makes the leak visible.
+   */
+  private _reclaimSpawn(entry: Entry): void {
+    try {
+      const pids = entry.spawnToken
+        ? this.reclaim.findPidsBySpawnToken(entry.spawnToken)
+        : [];
+      const candidates = pids.length > 0 ? pids : entry.pid !== undefined ? [entry.pid] : [];
+      // Unconditional net under the probe's own leaf-`pi` narrowing: the token
+      // is an inherited env var, so a widened match can name the dashboard
+      // itself. Killing that takes down every session at once.
+      const targets = candidates.filter((pid) => pid !== process.pid && pid !== process.ppid);
+      for (const pid of targets) this.reclaim.kill(pid);
+    } catch {
+      /* reporting the timeout matters more than reclaiming it */
+    }
   }
 
   private _checkRecoveryByPid(pid: number): void {

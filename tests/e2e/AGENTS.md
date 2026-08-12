@@ -18,6 +18,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `severity-contrast.spec.ts` | L3 gate for `unify-message-severity-colors`. Sweeps 5 tiers × 9 themes × {light,dark} via `localStorage`… → see `severity-contrast.spec.ts.AGENTS.md` |
 | `ctx-running-render.spec.ts` | Browser E2E for `fix-ctx-running-render`. Drives `[[faux:ctx-batch-running]]` (single `ctx_batch_execute`… → see `ctx-running-render.spec.ts.AGENTS.md` |
 | `dashboard-slash.spec.ts` | Browser E2E: spawn session → `/dashboard:server-health` asserts bash card + "ran locally" footer + `ok=true`;… → see `dashboard-slash.spec.ts.AGENTS.md` |
+| `ended-session-endedat.spec.ts` | L3 for the evidence-based `endedAt` invariant (test-plan #F1, #F2); plants historical transcripts in the harness via `docker exec`. → see `ended-session-endedat.spec.ts.AGENTS.md` |
 | `editor-pane.spec.ts` | Playwright E2E for internal Monaco editor pane (change: add-internal-monaco-editor-pane). → see `editor-pane.spec.ts.AGENTS.md` |
 | `enhance-tool-call-grouping.spec.ts` | Playwright spec for universal tool-call grouping (change: enhance-tool-call-grouping). 3 tests, faux model. → see `enhance-tool-call-grouping.spec.ts.AGENTS.md` |
 | `error-lifecycle.spec.ts` | Playwright spec. Single-card error-lifecycle surface end-to-end via faux model (no LLM). 4 tests. → see `error-lifecycle.spec.ts.AGENTS.md` |
@@ -25,6 +26,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `faux-text.spec.ts` | Playwright spec. Sends `[[faux:plain-text]]` via `sendPrompt`. Asserts `PLAIN_TEXT_MARKER` text renders in message DOM. Needs `PI_E2E_SEED=1`. See change: add-e2e-faux-model-roundtrip. |
 | `faux-tool.spec.ts` | Playwright spec. Sends `[[faux:tool-read]]` via `sendPrompt`. Asserts read tool renderer mounts (path `src/example.ts` visible). Needs `PI_E2E_SEED=1`. See change: add-e2e-faux-model-roundtrip. |
 | `tool-collapse-narration.spec.ts` | Playwright spec for the semantic-first composition flip. `[[faux:poll-narrated]]` → 4 identical `echo… → see `tool-collapse-narration.spec.ts.AGENTS.md` |
+| `tmux-session-shutdown.spec.ts` | L3 gate for the tmux shutdown leak (test-plan #T2): spawn under the harness default `PI_SPAWN_STRATEGY=tmux`, `shutdown`, then assert the CONTAINER's process table (`/proc` + `tmux list-panes` via `docker exec`) — a vanished session RECORD is exactly what the bug already did. Session pid from `/api/sessions`; container by published `DASHBOARD_PORT`, never by name. See change: fix-tmux-session-shutdown-leak. |
 | `tool-burst.spec.ts` | Playwright spec for temporal burst grouping. Sends `[[faux:burst-heterogeneous]]` (3 distinct bash calls,… → see `tool-burst.spec.ts.AGENTS.md` |
 | `tool-created-files.spec.ts` | L3 spec (change: detect-tool-created-files, U1+U3). `spawnFreshGitSession` + `dirtyMarkdown(README.md)`… → see `tool-created-files.spec.ts.AGENTS.md` |
 | `directory-home.spec.ts` | L3 for the `/folder/:encodedCwd` directory home page (change: add-directory-home-page). → see `directory-home.spec.ts.AGENTS.md` |

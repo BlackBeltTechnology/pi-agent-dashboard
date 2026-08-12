@@ -940,95 +940,23 @@ describe("SessionCard subcard structure", () => {
   });
 });
 
-// ── Status-tinted mosaic rail (left gutter) ─────────────────────────────
-// See change: add-session-card-status-mosaic-rail.
+// ── Directory rail replaces the per-card status gutter ──────────────────
+// The 20px left gutter (status capsule + icon chip + drag zone) is GONE; the
+// folder now owns one gray rail and each card ticks into it. Status survives
+// only on the inline chip. The rail-tint derivation itself is still unit
+// tested in lib/__tests__/session-status-visuals.test.ts (deriveRailBgColor
+// is retained there but no longer rendered).
+// See change: session-card-directory-rail.
 
-describe("SessionCard left-gutter mosaic rail", () => {
-  function railEl(container: HTMLElement): HTMLElement {
-    const el = container.querySelector("[data-rail-bg]") as HTMLElement | null;
-    if (!el) throw new Error("rail element not found");
-    return el;
-  }
-
-  it("renders idle-token rail tint for idle/active sessions", () => {
-    const { container } = render(
-      <SessionCard session={makeSession({ status: "idle" })} {...defaultProps} />,
-    );
-    expect(railEl(container).getAttribute("data-rail-bg")).toBe("bg-[color-mix(in_srgb,var(--status-idle)_40%,transparent)]");
-  });
-
-  it("renders working-token rail tint for streaming sessions", () => {
+describe("SessionCard directory rail", () => {
+  it("renders NO left status gutter (no data-rail-bg element)", () => {
     const { container } = render(
       <SessionCard session={makeSession({ status: "streaming" })} {...defaultProps} />,
     );
-    expect(railEl(container).getAttribute("data-rail-bg")).toBe("bg-[color-mix(in_srgb,var(--status-working)_40%,transparent)]");
+    expect(container.querySelector("[data-rail-bg]")).toBeNull();
   });
 
-  it("renders needs-you-token rail tint for chat-routed ask_user (not green/idle)", () => {
-    const { container } = render(
-      <SessionCard session={makeSession({ status: "streaming", currentTool: "ask_user" })} {...defaultProps} />,
-    );
-    expect(railEl(container).getAttribute("data-rail-bg")).toBe("bg-[color-mix(in_srgb,var(--status-needs-you)_40%,transparent)]");
-  });
-
-  it("renders muted rail palette for ended sessions", () => {
-    const { container } = render(
-      <SessionCard session={makeSession({ status: "ended" })} {...defaultProps} />,
-    );
-    expect(railEl(container).getAttribute("data-rail-bg")).toBe("bg-[var(--bg-surface)]");
-  });
-
-  it("renders red rail palette when hasError is true", () => {
-    const { container } = render(
-      <SessionCard
-        session={makeSession({ status: "idle" })}
-        {...defaultProps}
-        hasError={true}
-      />,
-    );
-    expect(railEl(container).getAttribute("data-rail-bg")).toBe("bg-[color-mix(in_srgb,var(--status-error)_40%,transparent)]");
-  });
-
-  it("selected idle session uses brighter -400/65 palette", () => {
-    const { container } = render(
-      <SessionCard
-        session={makeSession({ status: "idle" })}
-        {...defaultProps}
-        selectedId="test-session"
-      />,
-    );
-    expect(railEl(container).getAttribute("data-rail-bg")).toBe("bg-[color-mix(in_srgb,var(--status-idle)_65%,transparent)]");
-  });
-
-  it("selected streaming session uses brighter -400/65 palette", () => {
-    const { container } = render(
-      <SessionCard
-        session={makeSession({ status: "streaming" })}
-        {...defaultProps}
-        selectedId="test-session"
-      />,
-    );
-    expect(railEl(container).getAttribute("data-rail-bg")).toBe("bg-[color-mix(in_srgb,var(--status-working)_65%,transparent)]");
-  });
-
-  it("rail bar is a centered capsule (rounded-full, 6px wide, top-2 bottom-2)", () => {
-    const { container } = render(
-      <SessionCard session={makeSession({ status: "idle" })} {...defaultProps} />,
-    );
-    const bar = railEl(container).querySelector("[aria-hidden=true]") as HTMLElement | null;
-    expect(bar).toBeTruthy();
-    expect(bar!.className).toMatch(/absolute/);
-    expect(bar!.className).toMatch(/left-1\/2/);
-    expect(bar!.className).toMatch(/-translate-x-1\/2/);
-    expect(bar!.className).toMatch(/w-1\.5/);
-    expect(bar!.className).toMatch(/rounded-full/);
-    expect(bar!.className).toMatch(/top-7/);
-    expect(bar!.className).toMatch(/bottom-2/);
-    // Status palette class is applied.
-    expect(bar!.className).toContain("bg-[color-mix(in_srgb,var(--status-idle)_40%,transparent)]");
-  });
-
-  it("source icon sits in a circular tertiary-surface chip above the rail bar", () => {
+  it("status chip is the sole status carrier and sits inline in the name row", () => {
     const { container } = render(
       <SessionCard session={makeSession({ status: "idle" })} {...defaultProps} />,
     );
@@ -1038,8 +966,34 @@ describe("SessionCard left-gutter mosaic rail", () => {
     expect(icon!.className).toContain("rounded-full");
     expect(icon!.className).toMatch(/w-4/);
     expect(icon!.className).toMatch(/h-4/);
-    // Chip sits above the rail bar via z-10.
-    expect(icon!.className).toMatch(/z-10/);
+    // Must not shrink when the session name is long.
+    expect(icon!.className).toMatch(/flex-shrink-0/);
+    // Source + status moved onto the chip when the gutter was deleted.
+    expect(icon!.getAttribute("title")).toContain("idle");
+  });
+
+  it("card draws a 9px tick into the folder rail and slims its left padding", () => {
+    const { container } = render(
+      <SessionCard session={makeSession({ status: "idle" })} {...defaultProps} />,
+    );
+    const card = container.querySelector("[data-testid='session-card-desktop']") as HTMLElement | null;
+    expect(card).toBeTruthy();
+    // Tick connector into the directory rail.
+    expect(card!.className).toContain("before:-left-[11px]");
+    expect(card!.className).toContain("before:w-[9px]");
+    expect(card!.className).toContain("before:bg-[var(--rail-directory)]");
+    // Left padding slimmed 8px -> 6px; right padding untouched.
+    expect(card!.className).toMatch(/pl-1\.5/);
+    expect(card!.className).toMatch(/pr-2/);
+    // Hover group drives the drag bead reveal.
+    expect(card!.className).toContain("group/card");
+  });
+
+  it("renders no drag bead when the card is not inside a sortable wrapper", () => {
+    const { container } = render(
+      <SessionCard session={makeSession({ status: "idle" })} {...defaultProps} />,
+    );
+    expect(container.querySelector("[data-testid='drag-handle-session']")).toBeNull();
   });
 });
 

@@ -4,11 +4,12 @@
  * Uses an injected fake `exec` so we can simulate ps/tasklist output on
  * any host OS. All tests pass `platform` explicitly.
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   findPidByMarker,
-  isProcessLikePi,
+  findPidsBySpawnToken,
   isPiCommandLine,
+  isProcessLikePi,
 } from "../platform/process-identify.js";
 
 describe("isPiCommandLine", () => {
@@ -109,5 +110,96 @@ describe("isProcessLikePi", () => {
   it("returns false when process has exited (exec throws)", () => {
     const exec = vi.fn(() => { throw new Error("no such process"); }) as any;
     expect(isProcessLikePi(9999, { platform: "linux", exec })).toBe(false);
+  });
+});
+
+/**
+ * `findPidsBySpawnToken` — the only handle for a spawn the dashboard cannot
+ * address any other way.
+ *
+ * A tmux-spawned pi that never registers (blocked on pi's interactive
+ * "Trust project folder?" prompt, measured in the E2E harness) has no session
+ * record, no pid known to the server, and nothing on its command line: three
+ * such panes held ~127 MB each indefinitely while the watchdog reported the
+ * timeout and moved on. The spawn token in the process ENVIRONMENT is what
+ * survives.
+ *
+ * See change: fix-tmux-session-shutdown-leak (design D5).
+ */
+describe("findPidsBySpawnToken", () => {
+  const TOKEN = "fe487887-9973-4805-ab90-17f3d889ef68";
+
+  it("linux: returns the pids the /proc scan printed", () => {
+    // Typed params, so `exec.mock.calls[0][0]` is the command string rather
+    // than an empty tuple.
+    const exec = vi.fn((_cmd: string, _opts: { encoding: "utf-8" }) => "18163\n18674\n18830\n");
+    expect(findPidsBySpawnToken(TOKEN, { platform: "linux", exec })).toEqual([
+      18163, 18674, 18830,
+    ]);
+    // The token must be matched in the ENVIRONMENT, never on the command line:
+    // it is not on the command line, and a `ps | grep <token>` would match the
+    // lookup's own process.
+    expect(exec.mock.calls[0]?.[0]).toContain("environ");
+    // Leaf `pi` only. The token is an ordinary env var, so it is INHERITED by
+    // the tmux server, the dashboard's own node process and every shell in
+    // between; an un-narrowed lookup returned five pids for one token and
+    // handing that set to a kill path took the whole container down.
+    expect(exec.mock.calls[0]?.[0]).toContain('"$d/comm"');
+    expect(exec.mock.calls[0]?.[0]).toContain(`PI_DASHBOARD_SPAWN_TOKEN=${TOKEN}`);
+  });
+
+  it("linux: the probe cannot exit non-zero just because the last /proc entry did not match", () => {
+    // The loop's status is the LAST iteration's, and the last /proc entry almost
+    // never matches. Without a forced zero exit, `grep -q` left the shell at
+    // status 1, execSync threw, the catch swallowed it, and EVERY lookup
+    // silently returned [] — a watchdog that fired but reclaimed nothing.
+    const exec = vi.fn((_cmd: string, _opts: { encoding: "utf-8" }) => "18163\n");
+    findPidsBySpawnToken(TOKEN, { platform: "linux", exec });
+    expect(exec.mock.calls[0]?.[0]).toMatch(/exit 0\s*$/);
+  });
+
+  it("darwin: keeps only the ps lines whose environment carries the token", () => {
+    const exec = vi.fn(
+      () =>
+        `  501 pi /usr/bin/pi PI_DASHBOARD_SPAWN_TOKEN=${TOKEN} TERM=xterm\n` +
+        "  777 pi /usr/bin/pi PI_DASHBOARD_SPAWN_TOKEN=some-other-token TERM=xterm\n" +
+        "  999 node node server.js\n",
+    );
+    expect(findPidsBySpawnToken(TOKEN, { platform: "darwin", exec })).toEqual([501]);
+  });
+
+  it("darwin: a node/tmux process that INHERITED the token is not a target", () => {
+    // The dashboard server and the tmux server both carry the token by
+    // inheritance. Killing either takes down far more than one leaked session.
+    const exec = vi.fn(
+      () =>
+        `  100 node /usr/bin/node server.js PI_DASHBOARD_SPAWN_TOKEN=${TOKEN}\n` +
+        `  200 tmux tmux new-session PI_DASHBOARD_SPAWN_TOKEN=${TOKEN}\n` +
+        `  300 pi /usr/bin/pi PI_DASHBOARD_SPAWN_TOKEN=${TOKEN}\n`,
+    );
+    expect(findPidsBySpawnToken(TOKEN, { platform: "darwin", exec })).toEqual([300]);
+  });
+
+  it("windows returns []", () => {
+    const exec = vi.fn(() => "1\n");
+    expect(findPidsBySpawnToken(TOKEN, { platform: "win32", exec })).toEqual([]);
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it("refuses a blank or too-short token instead of matching every process", () => {
+    // A wildcard here would hand a KILL path every process that merely has the
+    // variable set.
+    const exec = vi.fn(() => "1\n2\n3\n");
+    for (const bad of ["", "   ", "short"]) {
+      expect(findPidsBySpawnToken(bad, { platform: "linux", exec })).toEqual([]);
+    }
+    expect(exec).not.toHaveBeenCalled();
+  });
+
+  it("never throws when the probe fails", () => {
+    const exec = vi.fn(() => {
+      throw new Error("no /proc");
+    });
+    expect(findPidsBySpawnToken(TOKEN, { platform: "linux", exec })).toEqual([]);
   });
 });

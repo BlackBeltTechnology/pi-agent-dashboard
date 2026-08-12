@@ -364,6 +364,23 @@ export function useMessageHandler(
         }
         break;
 
+      case "session_orphaned":
+        // The session's process outlived SIGTERM → SIGKILL. `session_removed`
+        // follows immediately (the record is released so the session cannot
+        // wedge the UI), so without this the user would see an ordinary,
+        // successful-looking close while a ~127 MB `pi` stayed resident — the
+        // exact indistinguishability that hid #452 for weeks.
+        // See change: fix-tmux-session-shutdown-leak.
+        showToast?.(
+          t(
+            "session.orphanedProcess",
+            { pid: msg.pid },
+            `Session closed, but its process (pid ${msg.pid}) survived and is still running.`,
+          ),
+          "error",
+        );
+        break;
+
       case "session_removed":
         setSessions((prev) => {
           const next = new Map(prev);
