@@ -118,7 +118,10 @@ export function createPiGateway(
                 return;
               }
               console.error(`[gateway] session timed out: ${sessionId} (reconnect grace period expired)`);
-              sessionManager.unregister(sessionId);
+              // Expiry only DETECTS an ending that already happened; the
+              // session's last activity is the evidence.
+              // See change: fix-ended-session-missing-endedat.
+              sessionManager.unregister(sessionId, { witnessed: false });
               connections.delete(sessionId);
               heartbeatTimers.delete(sessionId);
               heartbeatMeta.delete(sessionId);
@@ -146,7 +149,8 @@ export function createPiGateway(
                 return;
               }
               console.error(`[gateway] session timed out: ${sessionId} (sleep recovery failed)`);
-              sessionManager.unregister(sessionId);
+              // Detection, not observation — see above.
+              sessionManager.unregister(sessionId, { witnessed: false });
               connections.delete(sessionId);
               heartbeatTimers.delete(sessionId);
               heartbeatMeta.delete(sessionId);
@@ -157,7 +161,9 @@ export function createPiGateway(
         }
 
         console.error(`[gateway] session timed out: ${sessionId} (no heartbeat for ${hbTimeout}ms)`);
-        sessionManager.unregister(sessionId);
+        // Heartbeat expiry — evidence-derived, not detection time.
+        // See change: fix-ended-session-missing-endedat.
+        sessionManager.unregister(sessionId, { witnessed: false });
         connections.delete(sessionId);
         heartbeatTimers.delete(sessionId);
         heartbeatMeta.delete(sessionId);
@@ -228,7 +234,9 @@ export function createPiGateway(
             for (const [sid, ws] of connections) {
               if (ws === client) {
                 console.error(`[gateway] connection dead (ping timeout, ${misses} misses): ${sid}`);
-                sessionManager.unregister(sid);
+                // Ping timeout — same family as heartbeat expiry.
+                // See change: fix-ended-session-missing-endedat.
+                sessionManager.unregister(sid, { witnessed: false });
                 connections.delete(sid);
                 const timer = heartbeatTimers.get(sid);
                 if (timer) clearTimeout(timer);

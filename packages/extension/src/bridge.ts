@@ -36,7 +36,6 @@ import { ConnectionManager } from "./connection.js";
 import { registerDashboardContextInjector } from "./dashboard-context-injector.js";
 import { DashboardDefaultAdapter } from "./dashboard-default-adapter.js";
 import { runDevBuild } from "./dev-build.js";
-import { provisionOpenspecCli } from "./openspec-cli-shim.js";
 import { EmptyActionableGuard, SURFACE_MESSAGE } from "./empty-actionable-guard.js";
 import { resolveGuardConfig } from "./empty-actionable-guard-config.js";
 import { mapEventToProtocol } from "./event-forwarder.js";
@@ -49,23 +48,24 @@ import {
 import { runGitPollTick } from "./git-poll.js";
 import { flipHasUI } from "./hasui-flip.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
+import { reportRefresh } from "./model-refresh.js";
 import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged, defaultReadPiVersion } from "./model-tracker.js";
 import { decodeMultiselectAnswer } from "./multiselect-decode.js";
 import { createNotifyProxy } from "./notify-proxy.js";
+import { provisionOpenspecCli } from "./openspec-cli-shim.js";
+import { readPiRetrySettings } from "./pi-retry-settings.js";
 import { collectMetrics, startMetricsMonitor, stopMetricsMonitor } from "./process-metrics.js";
 import { getOwnPgid, scanChildProcesses } from "./process-scanner.js";
 import { decideProjectTrust, readEventCwd } from "./project-trust.js";
 import { PromptBus } from "./prompt-bus.js";
 import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
-import { reportRefresh } from "./model-refresh.js";
 import { activate as activateProviderRegister, buildProviderCatalogue, onProviderChanged, reloadProviders, toModelInfo } from "./provider-register.js";
 import { RetryTracker } from "./retry-tracker.js";
-import { readPiRetrySettings } from "./pi-retry-settings.js";
 import { activate as activateRoleManager, lookupRole } from "./role-manager.js";
 import { registerRoleModelTools } from "./role-model-tools.js";
 import { autoStartServer } from "./server-auto-start.js";
 import { launchServer } from "./server-launcher.js";
-import { filterByEnabledModels, handleSessionChange as _handleSessionChange, replaySessionEntries as _replaySessionEntries, sendStateSync as _sendStateSync } from "./session-sync.js";
+import { handleSessionChange as _handleSessionChange, replaySessionEntries as _replaySessionEntries, sendStateSync as _sendStateSync, consumeSpawnToken, filterByEnabledModels } from "./session-sync.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 import { detectSessionSource } from "./source-detector.js";
 import { SubagentFrameBuffer } from "./subagent-frame-buffer.js";
@@ -2427,6 +2427,7 @@ function initBridge(pi: ExtensionAPI) {
     // the heartbeat/git timers, leaving a resumed session dead in the UI.
     // See change: fix-bridge-resume-disconnect.
     const startCwd = safeCwd(ctx);
+    const spawnToken = consumeSpawnToken();
     connection.send({
       type: "session_register",
       sessionId,
@@ -2439,6 +2440,23 @@ function initBridge(pi: ExtensionAPI) {
       sessionDir,
       firstMessage,
       eventCount,
+      // The ONLY channel by which the server learns this session's process for a
+      // non-headless spawn: `tmux new-window` returns tmux's own pid, not pi's,
+      // so without this the server's record has no `pid` and shutdown has
+      // nothing to escalate to — the session was unregistered while a ~127 MB
+      // pi kept running (#452). The two `session_register` sends in
+      // session-sync.ts already carry it; this one, the FIRST register of a
+      // fresh session, did not.
+      // See change: fix-tmux-session-shutdown-leak (D6).
+      pid: process.pid,
+      // The spawn correlation token, echoed back so the server can match THIS
+      // register to the spawn that produced it. This is a fresh session's FIRST
+      // register, and it omitted the token entirely: tier-1 correlation never
+      // fired for a dashboard spawn, so the spawn watchdog could only match by
+      // cwd and reported false register-timeouts for concurrent spawns into one
+      // directory. Single-use — `consumeSpawnToken` scrubs the env.
+      // See change: fix-tmux-session-shutdown-leak (D5).
+      ...(spawnToken ? { spawnToken } : {}),
       ...(dashboardSpawned ? { dashboardSpawned: true } : {}),
       // Tri-state git-repo signal, computed at register time (authority).
       // See change: gate-session-worktree-button-on-git.

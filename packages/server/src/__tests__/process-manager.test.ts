@@ -1,5 +1,5 @@
-import { describe, it, expect, vi } from "vitest";
-import { buildTmuxCommand, buildHeadlessArgs, shellEscape, spawnPiSession, buildSpawnEnv, type SessionOptions } from "../spawn-process/process-manager.js";
+import { describe, expect, it, vi } from "vitest";
+import { buildHeadlessArgs, buildSpawnEnv, buildTmuxCommand, type SessionOptions, shellEscape, spawnPiSession } from "../spawn-process/process-manager.js";
 
 // Note: platform-dispatch tests live in packages/shared/src/__tests__/
 // spawn-mechanism.test.ts. `detectPlatform` was removed in change:
@@ -210,5 +210,47 @@ describe("Process Manager", () => {
       });
       expect(cmd).toContain("--fork '/s/with space.jsonl'");
     });
+  });
+});
+
+/**
+ * Each tmux window SHALL carry its OWN spawn correlation token.
+ *
+ * `execSync(cmd, { env })` sets the env of the tmux CLIENT. When a
+ * `pi-dashboard` tmux SERVER is already running, `new-window` inherits the
+ * SERVER's environment — the one captured when the very first window was
+ * created — so every later window received the FIRST spawn's token.
+ *
+ * Measured in the harness: three concurrently spawned panes all reported
+ * `PI_DASHBOARD_SPAWN_TOKEN=5fbdbd63-…`. That silently breaks the token as an
+ * identity: watchdog `byToken` collapses every spawn onto one entry, and any
+ * token-keyed action (correlation OR termination) addresses the wrong process.
+ * `-e` sets the variable for that window only.
+ *
+ * See change: fix-tmux-session-shutdown-leak (design D5).
+ */
+describe("buildTmuxCommand: per-window spawn token", () => {
+  const TOKEN = "fe487887-9973-4805-ab90-17f3d889ef68";
+
+  it("passes the token with -e on a new window", () => {
+    const cmd = buildTmuxCommand("/home/user/project", true, { spawnToken: TOKEN });
+    expect(cmd).toContain(`-e PI_DASHBOARD_SPAWN_TOKEN=${TOKEN}`);
+    // Before the `-e`, i.e. as a tmux flag rather than part of the pane command.
+    expect(cmd.indexOf("-e PI_DASHBOARD_SPAWN_TOKEN")).toBeLessThan(cmd.indexOf('"cd '));
+  });
+
+  it("passes the token with -e on a new session too", () => {
+    const cmd = buildTmuxCommand("/home/user/project", false, { spawnToken: TOKEN });
+    expect(cmd).toContain(`-e PI_DASHBOARD_SPAWN_TOKEN=${TOKEN}`);
+  });
+
+  it("omits -e entirely when there is no token", () => {
+    expect(buildTmuxCommand("/home/user/project", true)).not.toContain("-e ");
+  });
+
+  it("shell-escapes a token containing shell metacharacters", () => {
+    const cmd = buildTmuxCommand("/p", true, { spawnToken: "a; rm -rf /" });
+    expect(cmd).toContain("'a; rm -rf /'");
+    expect(cmd).not.toContain("=a; rm -rf /");
   });
 });

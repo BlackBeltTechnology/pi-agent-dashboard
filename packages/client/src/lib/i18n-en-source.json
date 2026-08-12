@@ -10,6 +10,7 @@
   "common.activate": "Activate",
   "session.activePiSession": "active pi session",
   "session.autoNameError": "Couldn't auto-name session: {reason}",
+  "session.orphanedProcess": "Session closed, but its process (pid {pid}) survived and is still running.",
   "settings.autoNameSessions": "Auto-name sessions",
   "settings.autoNameSessionsDesc": "Let pi automatically name new sessions by their topic using the fast model.",
   "common.add2": "Add",

@@ -1,0 +1,84 @@
+## ADDED Requirements
+
+### Requirement: Guarded migration away from an established bridge
+The bridge SHALL NOT abandon a connection on which it has successfully registered
+in favour of a discovered candidate unless that candidate has been verified
+reachable. Verification SHALL be a `GET /api/health` returning `{ ok: true }` at
+the candidate's advertised host and HTTP port, performed before the established
+connection is dropped.
+
+#### Scenario: Unreachable candidate is rejected
+- **WHEN** the bridge is registered on `ws://localhost:9999` and discovery reports a server at `home-imac-54922.local:9594` whose health check does not return `{ ok: true }`
+- **THEN** the bridge SHALL keep its established connection
+- **AND** it SHALL NOT re-target `ConnectionManager` at the candidate
+
+#### Scenario: Reachable candidate is adopted
+- **WHEN** the bridge is registered and a discovered candidate's health check returns `{ ok: true }`
+- **AND** the candidate is preferred under the localhost-preference rule
+- **THEN** the bridge MAY migrate to the candidate
+
+#### Scenario: No health check, no migration
+- **WHEN** a candidate is discovered but its health cannot be determined within the probe timeout
+- **THEN** the established connection SHALL be retained
+
+### Requirement: Migration is reversible
+A migration that fails to establish SHALL NOT strand the bridge. After a bounded
+number of failed connection attempts to a newly adopted endpoint, the bridge
+SHALL return to the last endpoint on which it successfully registered.
+
+#### Scenario: Failed migration falls back
+- **WHEN** the bridge migrates to a candidate and the connection fails to open for the configured maximum attempts
+- **THEN** the bridge SHALL re-target the last successfully registered endpoint
+- **AND** it SHALL resume its normal reconnect behaviour against that endpoint
+
+#### Scenario: Backoff does not grow without bound against a dead candidate
+- **WHEN** connection attempts to a newly adopted endpoint fail repeatedly
+- **THEN** the bridge SHALL NOT continue doubling its backoff against that endpoint indefinitely without attempting the previous endpoint
+
+### Requirement: Bridge re-targeting is observable
+Changing the endpoint of an established bridge SHALL be recorded with the
+previous endpoint, the new endpoint, and the reason. The record SHALL reach the
+dashboard server rather than depending on pi's stdout/stderr, which is discarded
+unless `keeperLog.capturePiOutput` is enabled.
+
+#### Scenario: Migration is logged server-side
+- **WHEN** the bridge re-targets from one endpoint to another
+- **THEN** a record naming both endpoints and the trigger SHALL be observable without enabling pi output capture
+
+#### Scenario: Rejected migration is logged
+- **WHEN** a discovered candidate is rejected by the reachability guard
+- **THEN** the rejection SHALL be recorded with the candidate endpoint and the failure reason
+
+### Requirement: Advertisement matches what the server serves
+A dashboard server SHALL NOT advertise an address on which it does not accept
+connections. A server bound only to loopback SHALL advertise a
+loopback-resolvable address, or SHALL NOT advertise at all.
+
+#### Scenario: Loopback-bound server does not advertise a LAN hostname
+- **WHEN** a dashboard server listens only on `127.0.0.1`
+- **THEN** it SHALL NOT publish an mDNS record whose host resolves to a non-loopback address
+
+#### Scenario: Stale instance cannot poison discovery
+- **WHEN** a dashboard instance is bound to loopback and another process is serving the machine's primary ports
+- **THEN** bridges discovering the loopback-bound instance SHALL NOT be able to adopt an endpoint they cannot reach
+
+## MODIFIED Requirements
+
+### Requirement: Localhost preference
+When multiple servers are discovered, localhost servers SHALL be preferred over
+remote servers. This preference SHALL apply both to initial selection and to any
+later decision to re-target an established connection: a non-localhost candidate
+SHALL NOT displace an established localhost connection.
+
+#### Scenario: Both local and remote servers found
+- **WHEN** `discoverDashboard()` finds both a localhost and a remote server
+- **THEN** the localhost server SHALL be returned as the primary result
+- **AND** remote servers SHALL be included as additional results
+
+#### Scenario: Remote candidate does not displace an established localhost bridge
+- **WHEN** the bridge is registered on a localhost endpoint and discovery reports a remote server
+- **THEN** the bridge SHALL retain the localhost connection
+
+#### Scenario: A `.local` hostname counts as remote
+- **WHEN** a discovered candidate's host is an mDNS `*.local` name that does not resolve to a loopback address
+- **THEN** it SHALL be treated as remote for the purposes of localhost preference
