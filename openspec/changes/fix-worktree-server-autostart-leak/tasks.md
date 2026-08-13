@@ -5,7 +5,8 @@ Test tasks are folded from `test-plan.md` (the manifest). Each carries its scena
 ## 1. Ground truth — reproduce before fixing
 
 - [ ] 1.1 Reproduce the bind-conflict case: start a dashboard, spawn a second server for the same port, capture its log output and `lsof` state BEFORE killing it. The original evidence was destroyed by an immediate kill.
-- [ ] 1.2 Reproduce the port-less zombie (the 5-of-7 case D1 does NOT explain): induce a startup failure after `piGateway.start` (`server.ts:1828`) and check whether the gateway's `pingTimer` interval (`pi-gateway.ts:214`) holds the process open with no listener. This is the manifest's X-gap — if it reproduces, the change needs a requirement it currently lacks.
+- [x] 1.2 Reproduce the port-less zombie — **DONE 2026-08-13, occurred in the wild.** PID 78379 (`.worktrees/os-fix-kb-search-retrieval-quality/.../cli.ts --port 8000 --pi-port 9999`) held `127.0.0.1:9999` for 5h52m, never bound its dashboard port, kept a live event loop (RSS 316 MB, CPU 1:25), and exited cleanly on SIGTERM. State captured to `/tmp/zombie-evidence/` before the kill. Confirms the gateway-timer theory and falsifies the bind-failure-exit diagnosis. See `proposal.md` → Evidence.
+- [ ] 1.2b Determine WHICH step between `server.ts:1828` and `:2099` failed or hung in the captured case — the reproduction proves the outcome but not the trigger. Candidates: plugin load (`:1848`), `setSpawnDashboardPiPort`, or a swallowed rejection. Needed to size the C4 startup deadline correctly.
 - [ ] 1.3 Reproduce the concurrent-spawn race: with no dashboard running, start two pi sessions inside the health-check window and confirm both reach the spawn step.
 - [ ] 1.4 Assert `resolveServerCliPath()` returns the worktree path when the extension is loaded from a worktree — assert the returned value directly, do not infer it from `ps`.
 - [ ] 1.5 Record baseline `recovery-server.ts` bind behaviour on an occupied port, so task 3.x can prove it unchanged.
@@ -15,6 +16,11 @@ Test tasks are folded from `test-plan.md` (the manifest). Each carries its scena
 - [ ] 2.1 Author E2 (test-plan #E2, L1) — see `packages/server/src/__tests__/cold-start-recovery-exempt.test.ts` for startup-failure harness glue. Triple: `start()` with a stubbed post-gateway step that throws `Error("plugin load failed")` · teardown runs then rejection propagates · rejected message is `plugin load failed` not a teardown error, and gateway `close()` called exactly once.
 - [ ] 2.2 Author E3 (test-plan #E3, L1) — same exemplar. Triple: all startup steps resolve · `start()` completes · teardown path never invoked, both listeners remain open.
 - [ ] 2.3 Implement teardown of already-opened listeners in `start()` (`packages/server/src/server.ts`), gateway first, running before the rejection propagates and without replacing the original error.
+- [ ] 2.5 Resolve C4 (startup deadline value) before authoring E20 — derive it from the same constant as the C1 readiness budget so the two cannot drift apart.
+- [ ] 2.6 Author E20 (test-plan #E20, L1, BLOCKED on C4) — see `packages/server/src/__tests__/cold-start-recovery-exempt.test.ts`. Triple: `start()` with a stubbed post-gateway step that never settles · startup deadline elapses · listeners torn down, process exits non-zero, not left resident.
+- [ ] 2.7 Author E21 (test-plan #E21, L1) — same exemplar. Triple: startup fails after `pingTimer` is installed (`pi-gateway.ts:214`) · failure propagates · gateway port released and no live handle keeps the loop alive (timer cleared or `unref`ed).
+- [ ] 2.8 Implement the bounded startup: a deadline covering the hang case, plus release of gateway timers so teardown actually ends the process. Teardown alone is insufficient — the captured process proved a closed-socket path would still have lingered.
+- [ ] 2.9 Author E22 (test-plan #E22, L2) — see `qa/tests/02-server-start.sh`. Triple: a real server started against an occupied dashboard port, observed 60s · steady state · no process holds the gateway port while never having bound its dashboard port (the exact 78379 signature).
 - [ ] 2.4 Author E1 (test-plan #E1, L2) — see `qa/tests/02-server-start.sh` for process-lifecycle smoke glue. Triple: dashboard A live on gateway port G, server B configured for same G · B starts, gateway binds, a later step throws · B exits non-zero, `lsof -iTCP:G -sTCP:LISTEN` names only A's pid, no process with B's pid remains.
 
 ## 3. Port-conflict classification (server-launch)
@@ -82,5 +88,6 @@ Test tasks are folded from `test-plan.md` (the manifest). Each carries its scena
 - [ ] 9.1 Run the full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` then grep `FAIL|Error|✗|✘|Tests +[0-9]+ (failed|passed)`.
 - [ ] 9.2 Re-run the 1.3 concurrent-session reproduction and confirm exactly one server results.
 - [ ] 9.3 Re-run the 1.1 reproduction and confirm the loser leaves no listener-less residue.
+- [ ] 9.3b Re-run the 1.2 scenario and confirm no process survives holding the gateway port without its dashboard port — assert via `lsof -nP -iTCP:9999 -sTCP:LISTEN` returning exactly one holder.
 - [ ] 9.4 Manually verify the `isolated-ui-verification` flow still brings up a worktree dashboard, now requiring both ports non-default (test-plan #M1) (test-plan: manual-only).
 - [ ] 9.5 Update per-file rows in `packages/extension/src/AGENTS.md`, `packages/server/src/AGENTS.md` and `packages/shared/src/AGENTS.md` for every touched file, including `See change:` markers.

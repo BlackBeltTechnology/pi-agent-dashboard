@@ -35,7 +35,13 @@ Constraint: `.worktrees/` holds several hundred checkouts on the dev host, so ga
 
 ## Decisions
 
-### D1 — Startup failure tears down pre-listen handles **[DR-1, re-aimed]**
+### D1 — A server that never reaches serving state exits **[DR-1, re-aimed; REPRODUCED 2026-08-13]**
+
+> **Reproduction supersedes the earlier inference.** PID 78379 was captured holding `127.0.0.1:9999` for 5h52m while never having bound its dashboard port, with a live event loop, and exited cleanly on SIGTERM. It never reached `main().catch`. Full capture in `proposal.md` → Evidence. Consequences for this decision:
+>
+> 1. The trigger is **not** a rejected bind. Startup failed or hung *before* `fastify.listen()` was reached, so an `EADDRINUSE` handler at the listen site would never have fired.
+> 2. **Teardown is necessary but not sufficient.** Closing the gateway socket does not end a process whose loop is held by `pi-gateway.ts:214` `pingTimer`. The decision now requires an explicit bounded startup and exit, not just handle release.
+> 3. The hang case must be covered, which no earlier version of this decision addressed.
 
 The original decision (exit non-zero on `EADDRINUSE` at the `listen()` site) targeted a defect the code does not have: `cli.ts:573-577` already exits 1 when `start()` rejects. Re-aimed at the real mechanism.
 
@@ -43,7 +49,9 @@ The original decision (exit non-zero on `EADDRINUSE` at the `listen()` site) tar
 
 Separately, and retained from the original D1, a port conflict SHALL be distinguishable to the spawning parent. Because `recovery-server.ts:411` already exits **2** on its own `EADDRINUSE`, the parent MUST treat both 2 and the normal-path conflict code as "port taken" **[DR-6]**.
 
-*Alternative rejected*: relying on `process.exit()` to reap handles implicitly. It does — but only once reached; the failure mode here is a path that never reaches it, or reaches it after the gateway has served requests. Explicit teardown is the invariant.
+*Alternative rejected*: relying on `process.exit()` to reap handles implicitly. The reproduction settles this — the observed process never reached `main().catch` at all, so an exit path that depends on the rejection arriving cannot be the whole answer. A startup deadline is required so that "never completes" is also bounded.
+
+*Startup deadline*: startup SHALL be bounded and the bound SHALL exceed a legitimate cold start (jiti compile + plugin load) — the same tension as the D2 readiness budget, and it SHOULD be derived from the same constant so the two cannot drift apart.
 
 *Precision correction* **[DR-13]**: the earlier draft framed recovery-server as "deliberately binds the same port," implying a same-process conflict. Import-fail→recovery and import-ok→listen are disjoint within one process; the only interaction is cross-process, and recovery already handles it.
 
@@ -103,9 +111,9 @@ No data migration, no config change. Behaviour is additive for single-dashboard 
 
 Cycle 2 of the cross-model doubt-review (`@propose-review-1`) surfaced the findings below. They were **verified against source** and then **accepted as-is by explicit decision** rather than reconciled, to keep the change moving. They are recorded here so the implementer is not surprised, and so a future reader does not mistake silence for absence.
 
-**Diagnosis-level (the important one)**
+**Diagnosis-level — RESOLVED 2026-08-13, no longer a deferred finding**
 
-- **The linger diagnosis does not cover the evidence.** The proposal describes five of the seven observed leaked processes as *port-less*. D1 tears down **listeners**, which cannot explain a process holding no listener. The likelier mechanism is the gateway's `setInterval` ping/heartbeat timers (`pi-gateway.ts:214`) keeping the event loop alive. D1 as written addresses at most the single `:9999` hijacker. Task 1.1 reproduces a bind conflict, so it **cannot falsify** D1 for the other five. Treat `server-launch` as unproven until the port-less case is reproduced.
+- ~~The linger diagnosis does not cover the evidence.~~ **The reviewer was right, and the case is now reproduced.** PID 78379 held the gateway port for 5h52m without ever binding its dashboard port, with a live event loop — exactly the mechanism predicted (gateway timers at `pi-gateway.ts:214` holding the loop open), and exactly what listener-teardown alone would not have fixed. D1 and the `server-launch` requirement were rewritten against the captured state: they now bound startup, cover the hang case, and require the process to exit rather than merely release handles. `server-launch` is no longer an unproven limb.
 
 **Correctness of the stated predicates**
 

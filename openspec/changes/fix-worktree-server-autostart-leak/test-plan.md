@@ -2,12 +2,13 @@
 
 Stage: apply   Generated: 2026-08-13
 
-## ⚠ Clarifications needed (4)
+## ⚠ Clarifications needed (3 open, 1 resolved)
 
 - [ ] **C1** — Spawn readiness budget has no value. Blocks E7/E8 (the staleness boundary) and X4 (the loser's wait). The health-check timeout is 10s; the budget must be larger. Candidates: 30s, 60s, or derive as `healthTimeoutMs × 3`. Without a number the just-below/just-above boundary pair cannot be written.
 - [ ] **C2** — The normal-path port-conflict exit code is unspecified. Blocks E10 (parent classification). Recovery already uses `2`; design says "a distinct code", tasks said `3`. Pin a value, or drop the exit-code path in favour of the existing probe-based `PortConflictError`.
 - [ ] **C3** — The worktree predicate is self-contradictory on symlinks (accepted trade-off, design.md). Blocks E14: cannot state an expected observable for a symlinked worktree, because `realpath` strips the segment the check requires. Decide: match pre-realpath (catches symlinks, risks siblings), post-realpath (current spec, misses symlinks), or both paths.
-- [ ] **X-gap** — The port-less zombie (5 of 7 observed leaks) has no reproduction and no requirement. No scenario can assert it. Recorded so coverage is not mistaken for completeness.
+- [x] **X-gap — RESOLVED 2026-08-13.** The port-less zombie was reproduced and captured (PID 78379: gateway port held 5h52m, dashboard port never bound, live event loop, clean SIGTERM exit). `server-launch` now carries a requirement covering it, and scenarios E20-E22 assert it. See `proposal.md` → Evidence.
+- [ ] **C4** — The startup deadline (new, from the reproduction) has no value. Blocks E20. It must exceed a legitimate cold start; design suggests deriving it from the same constant as the C1 readiness budget so the two cannot drift.
 
 > Resolve before the blocked scenarios (marked below) can be authored.
 
@@ -38,6 +39,9 @@ Stage: apply   Generated: 2026-08-13
 | E17 | host install serving worktree cwd | decision-table | L1 | automated | cwd `/repo/.worktrees/os-x`, resolved cliPath `~/.pi-dashboard/node_modules/.../cli.ts`, ports default | `autoStartServer` runs | `launchServer` invoked (refusal keys on cliPath, not cwd) |
 | E18 | sibling directory does not match | BVA (string boundary) | L1 | automated | cliPath under `/repo/.worktrees-backup/os-x/...`, ports default | predicate evaluated | NOT refused; `launchServer` invoked |
 | E19 | refusal precedes lock acquisition | state-transition | L1 | automated | a session that will refuse, plus a concurrent host session | both run | refusing session creates no lockfile; host session acquires without contention |
+| E20 | server-launch: startup hangs after gateway up | state-transition | L1 | automated | `start()` with a stubbed post-gateway step that never settles | startup deadline elapses | listeners torn down, process exits non-zero, not resident — [NEEDS CLARIFICATION: deadline value — see C4] |
+| E21 | server-launch: gateway timers do not hold the loop | state-transition | L1 | automated | startup fails after `pingTimer` is installed (`pi-gateway.ts:214`) | failure propagates | gateway port released and no live handle keeps the loop alive (assert timer cleared or `unref`ed) |
+| E22 | server-launch: resident server always serves its dashboard port | invariant | L2 | automated | a real server started against an occupied dashboard port, observed 60s | steady state | no process holds the gateway port while never having bound its dashboard port — the exact 78379 signature |
 
 ### Performance
 
@@ -70,14 +74,14 @@ Stage: apply   Generated: 2026-08-13
 
 ## Coverage summary
 
-- Requirements covered: 6/6 (but see X-gap — the port-less zombie has no requirement to cover)
-- Scenarios by class: edge 19 · perf 2 · frontend 3 · error 7
-- Scenarios by level: L1 27 · L2 2 · L3 0 · electron 0 · ci 0 · manual-only 1
-- Scenarios by disposition: automated 30 · manual-only 1
-- Blocked on clarification: 5 rows (E7, E8, E10, E14, X4)
+- Requirements covered: 6/6 (X-gap resolved — the port-less zombie now has a requirement and scenarios E20-E22)
+- Scenarios by class: edge 22 · perf 2 · frontend 3 · error 7
+- Scenarios by level: L1 29 · L2 3 · L3 0 · electron 0 · ci 0 · manual-only 1
+- Scenarios by disposition: automated 33 · manual-only 1
+- Blocked on clarification: 6 rows (E7, E8, E10, E14, E20, X4)
 
 ## New infra needed
 
 - None for L1 — `server-auto-start.ts` already takes injected `AutoStartDeps`, so lock/refusal/log/spinner scenarios are unit-testable without a real spawn.
-- P1 and E1 need a real multi-process bind test in `qa/tests/`. No existing qa test spawns competing dashboards; extend the nearest process-lifecycle smoke rather than authoring a new harness.
+- P1, E1 and E22 need a real multi-process bind test in `qa/tests/`. No existing qa test spawns competing dashboards; extend the nearest process-lifecycle smoke rather than authoring a new harness.
 - No L3 rows: nothing in this change asserts rendered UI. The spinner is TUI-side and is asserted through injected callbacks at L1, not through a browser.
