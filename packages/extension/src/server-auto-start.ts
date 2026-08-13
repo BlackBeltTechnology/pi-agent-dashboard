@@ -3,6 +3,16 @@
  * Uses mDNS discovery first, falls back to health check, then auto-starts.
  */
 import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+import { SPAWN_READINESS_BUDGET_MS } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { appendAutoStartLog, shouldRefuseWorktreeAutoStart } from "./autostart-guard.js";
+import {
+  acquireAutoStartLock,
+  defaultProbes,
+  type LockProbes,
+  recordChildPid,
+  releaseAutoStartLock,
+} from "./autostart-lock.js";
+import { resolveServerCliPath } from "./server-launcher.js";
 
 export interface DiscoveredServer {
   host: string;
@@ -48,6 +58,20 @@ export interface AutoStartDeps {
    * bursts. See change: fix-restart-bridge-auto-start-race.
    */
   shouldSuppressAutoStart?: () => boolean;
+
+  // ── Test seams (production omits) ──────────────────────────────────────
+  /** Replace `resolveServerCliPath` (the worktree predicate's input). */
+  resolveCliPath?: () => string;
+  /** Directory holding `autostart-<port>.lock`. Defaults to `~/.pi/dashboard`. */
+  lockDir?: string;
+  /** Replace the OS liveness / start-time probes used for lock staleness. */
+  lockProbes?: LockProbes;
+  /** Replace the durable auto-start log sink. */
+  log?: (message: string) => void;
+  /** Spawn readiness budget (lock staleness bound + the loser's wait). */
+  readinessBudgetMs?: number;
+  /** Replace the loser's wait. */
+  sleep?: (ms: number) => Promise<void>;
 }
 
 export interface AutoStartResult {
@@ -115,11 +139,91 @@ export async function autoStartServer(
     return {};
   }
 
-  // 3. Auto-start server
+  const log = deps.log ?? appendAutoStartLog;
+  const cliPath = (deps.resolveCliPath ?? resolveServerCliPath)();
+
+  // 3a. Worktree refusal (D3). Evaluated BEFORE lock acquisition (DR-10) and
+  // before `onLaunchStart` (D5), so a refusing session neither contends for
+  // the lock nor leaks a spinner. Keys on the resolved cliPath — which code
+  // would be spawned — never on cwd.
+  if (shouldRefuseWorktreeAutoStart({ cliPath, port: config.port, piPort: config.piPort })) {
+    log(
+      `refused: worktree checkout would take a shared default port ` +
+      `(cliPath=${cliPath} port=${config.port} piPort=${config.piPort})`,
+    );
+    // A toast is a bonus, not the requirement (D4) — and is absent headless.
+    try {
+      deps.notify(
+        `Dashboard auto-start refused: worktree checkout on shared port ${config.port}/${config.piPort}`,
+        "warning",
+      );
+    } catch { /* headless session with no UI (X2) */ }
+    return {};
+  }
+
+  // 3b. Single-flight lock (D2). Only the winner spawns.
+  const budgetMs = deps.readinessBudgetMs ?? SPAWN_READINESS_BUDGET_MS;
+  const probes = deps.lockProbes ?? defaultProbes();
+  const lock = acquireAutoStartLock(
+    { port: config.port, cliPath, dir: deps.lockDir },
+    probes,
+    budgetMs,
+  );
+  if (!lock.acquired) {
+    log(`lock held by session ${lock.holder?.sessionPid ?? "unknown"} — not spawning`);
+    // Wait out the holder's readiness budget, then attach (X4) or report
+    // unavailable (X5). Never spawn, never throw.
+    const sleep = deps.sleep ?? ((ms: number) => new Promise<void>(r => setTimeout(r, ms)));
+    await sleep(budgetMs);
+    const afterHolder = await deps.isDashboardRunning(config.port);
+    if (afterHolder.running) {
+      return { server: { host: "localhost", port: config.port, piPort: config.piPort } };
+    }
+    return {};
+  }
+  if (lock.degraded) {
+    log("lock directory unwritable — proceeding without single-flight");
+  }
+
+  try {
+    return await spawnAndAttach(config, deps, noMdns, {
+      lockDir: deps.lockDir,
+      locked: !lock.degraded,
+    });
+  } finally {
+    if (!lock.degraded) releaseAutoStartLock(config.port, deps.lockDir);
+  }
+}
+
+/**
+ * Step 3 proper: spawn the server and resolve the address to connect to.
+ * Extracted so the caller can wrap it in the lock's `finally` (E9 — the lock
+ * is released on ready, failed AND timed-out spawns alike).
+ */
+async function spawnAndAttach(
+  config: { piPort: number; port: number; autoStart: boolean },
+  deps: AutoStartDeps,
+  noMdns: boolean,
+  lockCtx: { lockDir?: string; locked: boolean },
+): Promise<AutoStartResult> {
   deps.onLaunchStart?.();
-  const result = await deps.launchServer(config);
+  let result: Awaited<ReturnType<AutoStartDeps["launchServer"]>>;
+  try {
+    result = await deps.launchServer(config);
+  } catch (err) {
+    // Production `launchServer` resolves rather than rejects, but the
+    // never-a-start-without-an-end invariant (F1/F2) must hold locally and
+    // not depend on the bridge's outer spinner net.
+    deps.onLaunchEnd?.(false);
+    throw err;
+  }
   if (result.success) {
     if (typeof result.childPid === "number" && result.childPid > 0) {
+      // Record the detached child so a concurrent session's staleness check
+      // sees a live spawn even if this session dies. Accepted gap: the
+      // primitive surfaces `childPid` only on readiness success, so the lock
+      // is childPid-less for the whole readiness window.
+      if (lockCtx.locked) recordChildPid(config.port, result.childPid, lockCtx.lockDir);
       deps.onServerSpawned?.(result.childPid);
     }
     deps.onLaunchEnd?.(true);
