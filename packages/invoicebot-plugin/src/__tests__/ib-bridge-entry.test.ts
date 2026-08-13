@@ -129,6 +129,39 @@ describe("invoicebot bridge entry — foreign emissions over the shared bus", ()
   });
 });
 
+// scoped-session-liveness — state-changed is invoice-addressable exactly like
+// cost, and EVERY mid-flight transition is forwarded (none dropped/coalesced) on
+// the same ib_domain_event road. See change: scoped-session-liveness.
+describe("scoped-session-liveness — state rides the cost road, addressable + complete", () => {
+  it("T.4 ib:invoice-state-changed forwards ib_invoice_state_changed with invoice_id preserved verbatim", () => {
+    const bus = makeSharedBus();
+    activateBridge(bus);
+    const foreign = bus.facade();
+
+    const payload = { invoice_id: "inv-addr", state: "needs_review", hold_reason: "missing_po" };
+    foreign.emit("ib:invoice-state-changed", payload);
+
+    const msgs = pluginMessages(bus);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0].payload.eventType).toBe("ib_invoice_state_changed");
+    expect((msgs[0].payload.data as { invoice_id: string }).invoice_id).toBe("inv-addr");
+    expect(msgs[0].payload.data).toEqual(payload); // verbatim — invoice_id (and all fields) intact
+  });
+
+  it("T.5 a sequence of mid-flight ib:invoice-state-changed emissions each forward one frame — none dropped or collapsed", () => {
+    const bus = makeSharedBus();
+    activateBridge(bus);
+    const foreign = bus.facade();
+
+    const states = ["new", "extracting", "needs_review", "approved", "paid"];
+    for (const state of states) foreign.emit("ib:invoice-state-changed", { invoice_id: "inv-seq", state });
+
+    const msgs = pluginMessages(bus).filter((m) => m.payload.eventType === "ib_invoice_state_changed");
+    expect(msgs).toHaveLength(states.length); // every transition forwarded, none coalesced
+    expect(msgs.map((m) => (m.payload.data as { state: string }).state)).toEqual(states);
+  });
+});
+
 describe("startup-ordering race — the hop the unit suite previously missed", () => {
   // Measured live: entry activates at extension load; the main bridge
   // registers its dashboard:plugin-message listener ~tens of ms later inside
