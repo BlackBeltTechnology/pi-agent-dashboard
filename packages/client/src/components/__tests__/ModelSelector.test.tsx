@@ -4,7 +4,7 @@
  * See change: enrich-model-selector-capabilities-favorites.
  */
 import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, within, act } from "@testing-library/react";
+import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
 import { ModelSelector } from "../settings/ModelSelector.js";
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
@@ -80,49 +80,74 @@ describe("ModelSelector favorites", () => {
   });
 });
 
-describe("ModelSelector refresh control (refresh-model-selector-models)", () => {
-  it("calls onRefresh and enters busy (disabled) state on activation", () => {
-    const onRefresh = vi.fn();
-    render(<ModelSelector models={models} onSelect={() => {}} onRefresh={onRefresh} favorites={[]} />);
-    open();
-    const btn = screen.getByTestId("model-refresh");
-    expect(btn.hasAttribute("disabled")).toBe(false);
-    fireEvent.click(btn);
-    expect(onRefresh).toHaveBeenCalledTimes(1);
-    // Busy: control disabled while awaiting a new models list.
-    expect(screen.getByTestId("model-refresh").hasAttribute("disabled")).toBe(true);
-  });
-
-  it("does not render the refresh control when onRefresh is undefined", () => {
-    render(<ModelSelector models={models} onSelect={() => {}} favorites={[]} />);
+describe("ModelSelector refresh on open (upgrade-model-selector-primitives)", () => {
+  it("renders no manual refresh button and no busy indicator", () => {
+    render(<ModelSelector models={models} onSelect={() => {}} onRefresh={vi.fn()} favorites={[]} />);
     open();
     expect(screen.queryByTestId("model-refresh")).toBeNull();
   });
 
-  it("clears busy state when the models prop identity changes", () => {
+  it("fires onRefresh exactly once on the open transition", () => {
     const onRefresh = vi.fn();
-    const { rerender } = render(<ModelSelector models={models} onSelect={() => {}} onRefresh={onRefresh} favorites={[]} />);
+    render(<ModelSelector models={models} onSelect={() => {}} onRefresh={onRefresh} favorites={[]} />);
     open();
-    fireEvent.click(screen.getByTestId("model-refresh"));
-    expect(screen.getByTestId("model-refresh").hasAttribute("disabled")).toBe(true);
-    // A fresh models_list arrives => new array identity.
-    rerender(<ModelSelector models={[...models]} onSelect={() => {}} onRefresh={onRefresh} favorites={[]} />);
-    expect(screen.getByTestId("model-refresh").hasAttribute("disabled")).toBe(false);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 
-  it("clears busy state on the safety timeout when no new list arrives", () => {
-    vi.useFakeTimers();
-    try {
-      const onRefresh = vi.fn();
-      render(<ModelSelector models={models} onSelect={() => {}} onRefresh={onRefresh} favorites={[]} />);
-      open();
-      fireEvent.click(screen.getByTestId("model-refresh"));
-      expect(screen.getByTestId("model-refresh").hasAttribute("disabled")).toBe(true);
-      act(() => { vi.advanceTimersByTime(10_000); });
-      expect(screen.getByTestId("model-refresh").hasAttribute("disabled")).toBe(false);
-    } finally {
-      vi.useRealTimers();
-    }
+  it("sends nothing when no refresh handler is wired, and still renders the list", () => {
+    render(<ModelSelector models={models} onSelect={() => {}} favorites={[]} />);
+    open();
+    expect(screen.getAllByTestId("model-row").length).toBeGreaterThan(0);
+  });
+});
+
+describe("ModelSelector provider refresh failures", () => {
+  it("names the failing provider and keeps models selectable", () => {
+    const onSelect = vi.fn();
+    render(
+      <ModelSelector
+        models={models}
+        onSelect={onSelect}
+        favorites={[]}
+        refreshErrors={[{ provider: "openai", message: "catalog 503" }]}
+      />,
+    );
+    open();
+    const notice = screen.getByTestId("model-refresh-errors");
+    expect(notice.textContent).toContain("openai");
+    expect(notice.textContent).toMatch(/last known/i);
+    fireEvent.click(screen.getAllByTestId("model-row")[0]);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it("names every failing provider", () => {
+    render(
+      <ModelSelector
+        models={models}
+        onSelect={() => {}}
+        favorites={[]}
+        refreshErrors={[
+          { provider: "openai", message: "catalog 503" },
+          { provider: "anthropic", message: "bad key" },
+        ]}
+      />,
+    );
+    open();
+    const notice = screen.getByTestId("model-refresh-errors");
+    expect(notice.textContent).toContain("openai");
+    expect(notice.textContent).toContain("anthropic");
+  });
+
+  it("renders no notice on a clean refresh", () => {
+    render(<ModelSelector models={models} onSelect={() => {}} favorites={[]} />);
+    open();
+    expect(screen.queryByTestId("model-refresh-errors")).toBeNull();
+  });
+
+  it("renders no notice for an empty error list", () => {
+    render(<ModelSelector models={models} onSelect={() => {}} favorites={[]} refreshErrors={[]} />);
+    open();
+    expect(screen.queryByTestId("model-refresh-errors")).toBeNull();
   });
 });
 

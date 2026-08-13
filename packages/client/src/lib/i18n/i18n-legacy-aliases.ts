@@ -519,8 +519,6 @@ export const LEGACY_ALIASES: Record<string, string> = {
   "auto.refresh_chat": "session.refreshChat",
   "auto.refresh_chat_2": "session.refreshChat2",
   "auto.refresh_model_registry": "providers.refreshModelRegistry",
-  "auto.refresh_models": "common.refreshModels",
-  "auto.refreshing_models": "common.refreshingModels",
   "auto.regenerate": "common.regenerate",
   "auto.registry_unreachable": "providers.registryUnreachable",
   "auto.reload_from_disk": "common.reloadFromDisk",

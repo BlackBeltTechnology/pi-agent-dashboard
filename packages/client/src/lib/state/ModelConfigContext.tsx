@@ -1,5 +1,5 @@
 /**
- * OpenSpecRunConfigContext — exposes the attached session's model / thinking
+ * ModelConfigContext — exposes the attached session's model / thinking
  * level, the model list, favorites, and their setters to the OpenSpec launch
  * dialogs (Explore / Propose / New Change) via a single React context provided
  * once at the app root.
@@ -15,12 +15,17 @@
  * The consuming hook throws when used outside the provider, turning a silent
  * degraded row into a loud test failure (design Risk 5).
  *
- * See change: openspec-dialog-model-effort-selector.
+ * Neutral, NOT OpenSpec-specific: the shell-bound `ui:model-selector` primitive
+ * registration reads the same bundle to inject favorites + refresh into plugin
+ * surfaces. Renamed from `OpenSpecRunConfigContext` with no compatibility alias.
+ *
+ * See changes: openspec-dialog-model-effort-selector,
+ * upgrade-model-selector-primitives (design D2).
  */
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { createContext, useContext } from "react";
 
-export interface OpenSpecRunConfigValue {
+export interface ModelConfigValue {
   /** Session's current model as a `"provider/id"` label, or undefined. */
   model?: string;
   /** Available models for the session (undefined/empty → degraded state). */
@@ -41,18 +46,27 @@ export interface OpenSpecRunConfigValue {
   notify: (message: string) => void;
 }
 
-const OpenSpecRunConfigContext = createContext<OpenSpecRunConfigValue | undefined>(undefined);
+const ModelConfigContext = createContext<ModelConfigValue | undefined>(undefined);
 
-export const OpenSpecRunConfigProvider = OpenSpecRunConfigContext.Provider;
+export const ModelConfigProvider = ModelConfigContext.Provider;
 
 /**
  * Read the run-config context. Throws when rendered outside the provider so a
  * missing mount site fails loudly rather than rendering a degraded row.
  */
-export function useOpenSpecRunConfig(): OpenSpecRunConfigValue {
-  const ctx = useContext(OpenSpecRunConfigContext);
+export function useModelConfig(): ModelConfigValue {
+  const ctx = useContext(ModelConfigContext);
   if (ctx === undefined) {
-    throw new Error("useOpenSpecRunConfig must be used within an OpenSpecRunConfigProvider");
+    throw new Error("useModelConfig must be used within a ModelConfigProvider");
   }
   return ctx;
+}
+
+/**
+ * Non-throwing read for hosts that legitimately render outside a session (e.g.
+ * the shell-bound `ui:model-selector` primitive on a folder-level plugin
+ * surface). See change: upgrade-model-selector-primitives (task 6.3).
+ */
+export function useModelConfigOptional(): ModelConfigValue | undefined {
+  return useContext(ModelConfigContext);
 }
