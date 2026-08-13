@@ -1,0 +1,3 @@
+# heap-probe.mjs — index
+
+CDP heap probe for a RUNNING dashboard: `SIGUSR1`s the pid (from `--pid` or `/api/health`), attaches to 127.0.0.1:9229, `Runtime.queryObjects(Array.prototype)`, ranks event-store `{seq,event}` buffers by estimated bytes with a per-`eventType` breakdown + `tool_execution_update` share. Samples ~200 entries rather than stringifying the buffer (a full serialization of a fat buffer is itself an OOM risk on the process under investigation). NEVER restart the server to investigate memory — a restart destroys the evidence; this exists so the investigation is non-destructive. SIDE EFFECT: the inspector port stays OPEN until that process restarts. See change: collapse-superseded-tool-execution-updates.

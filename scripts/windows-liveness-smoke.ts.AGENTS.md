@@ -1,0 +1,3 @@
+# windows-liveness-smoke.ts — index
+
+Windows boot-parent-liveness smoke (CI: `_smoke.yml` standalone-install-smoke-windows). Imports `packages/server/src/lifecycle/boot-parent-liveness.ts` in-process so koffi actually loads. Asserts `computeBootParentAlive()` boolean + idempotent (no throw), `bootParentPid`/`readLivePpid()` numbers, and active tier via `bootParentLivenessTier()` = `tier2` on win32 (koffi `OpenProcess`+`WaitForSingleObject` loaded), `tier1` elsewhere. Guards silent Windows-wide Tier-1 degrade. Cross-platform (green on Linux legs + local). Exit 0 pass. See change: electron-attach-ownership-fixes (1b.4).

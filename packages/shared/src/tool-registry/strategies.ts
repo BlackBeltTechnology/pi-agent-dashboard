@@ -12,9 +12,9 @@ import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ToolResolver, isAppImageSelfHit } from "../platform/binary-lookup.js";
-import { resolveBundledGitDir } from "../platform/ensure-bundled-git.js";
 import { getManagedBin, getManagedDir } from "../managed-paths.js";
+import { isAppImageSelfHit, ToolResolver } from "../platform/binary-lookup.js";
+import { resolveBundledGitDir } from "../platform/ensure-bundled-git.js";
 import { getManagedNodeBinDir } from "../platform/managed-node-path.js";
 import * as npm from "../platform/npm.js";
 import type { Strategy, StrategyCtx, StrategyResult } from "./types.js";
@@ -54,26 +54,58 @@ export interface StrategyDeps {
  *   1. `createRequire(from).resolve(id)` — fast CJS resolver; succeeds
  *      for packages that ship either a `"require"` exports condition
  *      or no exports map at all.
- *   2. ESM-aware fallback: `import.meta.resolve(id)` honours the
- *      `"import"` condition. Available synchronously and stably on
- *      every supported Node version (engines: >=22.12).
- *      Anchored at this module's URL; the `from` argument is ignored
- *      in this branch because the synchronous `import.meta.resolve`
- *      signature does not take a parent specifier. In practice every
- *      production caller uses the default anchor (this file), so this
- *      is a no-op.
- *   3. Filesystem dir-walk: locate `node_modules/<id>/package.json`
+ *   2. Filesystem dir-walk: locate `node_modules/<id>/package.json`
  *      starting at `from`, read the manifest, and compute the entry
  *      path from `exports["."]` (`"import"` / `"default"` conditions)
- *      or `"main"`. Required when the package ships only an `"import"`
- *      condition AND the host Node refuses `import.meta.resolve` for
- *      some other reason (e.g. exports map present but with no `"."`
- *      key). Mirrors the same dir-walk-around-exports-map pattern
+ *      or `"main"`. Mirrors the dir-walk-around-exports-map pattern
  *      already used by `findPackageJsonByDirWalk` in `definitions.ts`.
+ *   3. `import.meta.resolve(id)` — an **INERT GUARD**, not an expected
+ *      code path. Retained for shape-correctness and defence in depth.
+ *
+ * ── Why the ESM step is LAST, and why the obvious order is dangerous ──
+ *
+ * The obvious order puts the ESM resolver at step 2. Do NOT "restore"
+ * it. This module is itself loaded through jiti, whose native-ESM
+ * fallback evaluates it from a `data:` URL, where
+ * `import.meta.resolve(<bare id>)` throws
+ * `ERR_UNSUPPORTED_RESOLVE_REQUEST`. **The ESM step has therefore never
+ * produced a value in production**, and the dir-walk has silently
+ * carried every step-1 miss since both landed together in `43a730368`.
+ * Behaviour preservation holds *because step 2 was already dead* — not
+ * because the dir-walk is authoritative. Promoting the (now repaired)
+ * ESM step ahead of the dir-walk would hand every lookup to a resolver
+ * that has never run, and the two demonstrably disagree on package
+ * shape: no `exports` but a `module` field → `main` under ESM vs
+ * `module` under the dir-walk; `exports["."]` nesting `node`/`default`
+ * → the `node` entry vs the `default` entry; `exports` with subpaths
+ * but no `"."` → throws under ESM vs resolves via `main` here.
+ *
+ * In last position the guard is not merely safe, it is **unreachable**
+ * for the ids this registry actually uses: `bareImportStrategy` anchors
+ * both steps at the same URL (its `anchor` defaults to this module's),
+ * and `readEntryFromPackageJson` returns a string for every manifest it
+ * can parse, so the dir-walk answers whenever the package is present.
+ * Unreachability is CONTINGENT, not structural — it holds only for bare
+ * (not subpath) specifiers, with the default `anchor`, a `file:` anchor,
+ * and a package that ships a `package.json`. Registering a subpath id or
+ * passing a non-default anchor makes the guard live; re-evaluate this
+ * comment and the capability spec before doing either.
+ *
+ * A pre-existing defect this change does NOT fix: the entry falls back
+ * to `"index.js"` with no existence check, so the dir-walk can return a
+ * path that is not on disk. The inert guard is not its mitigation.
+ *
+ * Two claims previously asserted here were false and are corrected: the
+ * synchronous `import.meta.resolve` **does** accept a parent specifier
+ * (Node 20.6+), so declining to pass `from` is a deliberate choice and
+ * not an API limit; and there is no `>=22.12` engines floor (the repo
+ * root declares `>=22.19.0 <27`; `packages/shared` and
+ * `packages/extension` declare none).
  *
  * See change: fix-node-resolution-under-electron (follow-up: live
  * `/api/packages/installed` failure on `@earendil-works/pi-coding-agent`
  * exports-map regression).
+ * See change: fix-jiti-cjs-transpile-safety.
  */
 function defaultResolveModule(id: string, from: string): string | null {
   // 1. CJS createRequire.
@@ -82,21 +114,26 @@ function defaultResolveModule(id: string, from: string): string | null {
   } catch {
     // Fall through.
   }
-  // 2. ESM import.meta.resolve. Synchronous since Node 20.6 GA; on
-  // the dashboard's engines floor (>=22.12) it's always available.
-  const metaResolve = (import.meta as unknown as { resolve?: (s: string) => string }).resolve;
-  if (typeof metaResolve === "function") {
-    try {
-      const url = metaResolve(id);
-      if (typeof url === "string" && url.startsWith("file:")) {
-        return fileURLToPath(url);
-      }
-    } catch {
-      // Fall through.
+  // 2. Filesystem dir-walk for exports-map-incomplete packages. This is the
+  // step that answers in production today; keeping it here preserves behaviour.
+  const byDirWalk = resolvePackageEntryByDirWalk(id, from);
+  if (byDirWalk !== null) return byDirWalk;
+  // 3. Inert ESM guard. The call MUST stay a direct `import.meta.resolve(id)`:
+  // jiti erases `import.meta` only when the member expression's `object.type`
+  // is `MetaProperty`, and a TypeScript cast makes it `TSAsExpression`, which
+  // defeats the erasure and forces jiti's `data:`-URL ESM fallback — fatal on
+  // hosts whose resolver rejects `data:` specifiers (issue #408). No `typeof`
+  // probe either: the `catch` below already routes a missing or throwing
+  // resolver to the same `null`.
+  try {
+    const url = import.meta.resolve(id);
+    if (typeof url === "string" && url.startsWith("file:")) {
+      return fileURLToPath(url);
     }
+  } catch {
+    // Fall through.
   }
-  // 3. Filesystem dir-walk for exports-map-incomplete packages.
-  return resolvePackageEntryByDirWalk(id, from);
+  return null;
 }
 
 /**
