@@ -1,13 +1,12 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { existsSync, readdirSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { indexSource } from "../indexer.js";
-import { SqliteFtsStore } from "../sqlite-store.js";
-import { runIndexAtomic } from "../index-run.js";
+import { afterEach, describe, expect, it } from "vitest";
 import { loadConfig, validateConfig } from "../config.js";
 import { DEFAULT_SEARCHABLE_KEYS } from "../frontmatter.js";
+import { runIndexAtomic } from "../index-run.js";
+import { indexSource } from "../indexer.js";
+import { SqliteFtsStore } from "../sqlite-store.js";
 import type { KbStore } from "../types.js";
 
 const tmps: string[] = [];
@@ -315,7 +314,10 @@ describe("performance budgets", () => {
     }
     const minRatio = Math.min(...ratios);
     expect(minRatio).toBeLessThanOrEqual(1.25);
-  });
+    // 32 forced reindexes of a 250-file corpus do not fit vitest's 5s default.
+    // Pre-existing overrun, surfaced when packages/kb joined the root vitest
+    // projects. See change: fix-kb-search-retrieval-quality.
+  }, 120_000);
 
   it("P2: one eq filter adds ≤ 25ms p95 vs unfiltered", async () => {
     const dir = mkdir();
