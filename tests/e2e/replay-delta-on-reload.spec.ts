@@ -131,6 +131,24 @@ test.describe("Strategy A — delta replay on reload", () => {
       });
     });
 
+    // PROVE the durable entry exists before refreshing it away. Without this,
+    // the whole test is vacuous: if the write never landed, the post-refresh
+    // subscribe would carry `lastSeq: 0` for the trivial reason that there was
+    // never anything to purge, and the assertion below would pass regardless.
+    // A delta subscribe (lastSeq > 0) is only reachable from a cache hit.
+    await page.reload();
+    await byTestId(page, "headerAppBar").waitFor({ state: "visible" });
+    await openSession(page, sessionId as string);
+    await expect
+      .poll(
+        () => subscribes.filter((s) => s.sessionId === sessionId).some((s) => (s.lastSeq ?? 0) > 0),
+        { timeout: 30_000 },
+      )
+      .toBe(true);
+
+    // Only frames from here on describe the POST-refresh subscribe.
+    subscribes.length = 0;
+
     // Refresh Chat, then reload BEFORE the next 1 s debounce could re-persist.
     // The short settle lets the awaited durable delete land; it stays well under
     // the debounce so nothing is written back.

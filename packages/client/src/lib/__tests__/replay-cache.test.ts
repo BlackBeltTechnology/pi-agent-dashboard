@@ -269,6 +269,17 @@ describe("deriveServerKey", () => {
     expect(deriveServerKey("ws://box:8000/ws")).toBe("box:8000");
   });
 
+  it("normalizes scheme CASE, so one endpoint cannot key two ways", () => {
+    // Regression: `secure` was derived with a case-sensitive
+    // `startsWith("wss://")` prefix test while `URL` normalizes the scheme, so
+    // `WSS://box/ws` fell through to the ws: default and yielded `box:80` — the
+    // same endpoint attributed two ways depending purely on URL casing.
+    expect(deriveServerKey("WSS://box/ws")).toBe("box:443");
+    expect(deriveServerKey("WSS://box/ws")).toBe(deriveServerKey("wss://box/ws"));
+    expect(deriveServerKey("WS://box/ws")).toBe("box:80");
+    expect(deriveServerKey("WS://box/ws")).toBe(deriveServerKey("ws://box/ws"));
+  });
+
   it("keeps distinct servers on distinct keys", () => {
     expect(deriveServerKey("ws://a:8000/ws")).not.toBe(deriveServerKey("ws://b:8000/ws"));
     expect(deriveServerKey("ws://a:8000/ws")).not.toBe(deriveServerKey("ws://a:9000/ws"));

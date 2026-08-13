@@ -312,6 +312,15 @@ nothing foreign is readable in the first place. Entries for the previous server
 remain in the store and remain usable if the user switches back, so switching is
 not penalised with a full replay in each direction.
 
+That preservation holds per DISTINCT session id. The durable record is still
+identified by `sessionId` alone, so when the same id exists on two servers the
+later write replaces the earlier server's record and switching back to that
+server full-replays that one session. This is a hit-rate cost only — the
+recorded-server check still governs what may be READ, so a replaced or foreign
+record can never serve the wrong server's history. Identifying the record by
+server AND session id would preserve both copies; it is not required for
+correctness and is left to a follow-up.
+
 The recorded server identity SHALL be derived from information the client
 already has, and SHALL NOT require a protocol change, a server change, or a new
 message type. Such an identity distinguishes servers by network location rather

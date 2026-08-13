@@ -68,10 +68,14 @@ export interface ReplayCacheEntry {
  */
 export function deriveServerKey(wsUrl: string): string {
   try {
-    const secure = wsUrl.startsWith("wss://");
-    const u = new URL(wsUrl.replace(/^ws:\/\//, "http://").replace(/^wss:\/\//, "https://"));
+    // `ws:`/`wss:` are WHATWG special schemes, so `URL` parses them directly and
+    // normalizes the scheme to lower case. Deriving `secure` from the PARSED
+    // protocol rather than a `startsWith("wss://")` prefix test is load-bearing:
+    // the prefix test is case-sensitive, so `WSS://box/ws` produced `box:80`
+    // — the same endpoint keyed two ways depending on URL casing.
+    const u = new URL(wsUrl);
     // `URL` blanks the port when it equals the scheme default, so re-substitute.
-    const port = u.port || (secure ? "443" : "80");
+    const port = u.port || (u.protocol === "wss:" ? "443" : "80");
     return `${u.hostname}:${port}`;
   } catch {
     // Unparseable input: return it verbatim. Deterministic. Unreachable in
