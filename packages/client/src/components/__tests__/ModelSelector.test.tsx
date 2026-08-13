@@ -5,7 +5,7 @@
  */
 
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ModelSelector } from "../settings/ModelSelector.js";
 
@@ -225,6 +225,25 @@ describe("ModelSelector openable empty catalogue", () => {
     fireEvent.click(screen.getByTestId("model-selector-button"));
     open();
     expect(onRefresh).toHaveBeenCalledTimes(2);
+  });
+
+  it("1.3b safety timeout with no models_list reveals the recovery link", () => {
+    vi.useFakeTimers();
+    try {
+      render(
+        <ModelSelector models={[]} onSelect={() => {}} onRefresh={vi.fn()} favorites={[]} onOpenProviderSettings={() => {}} />,
+      );
+      open();
+      // Still awaiting: refreshing body, no link.
+      expect(screen.getByTestId("model-empty-refreshing")).toBeTruthy();
+      expect(screen.queryByTestId("model-provider-settings-link")).toBeNull();
+      // No models_list ever arrives; the safety timeout elapses.
+      act(() => { vi.advanceTimersByTime(10_000); });
+      expect(screen.queryByTestId("model-empty-refreshing")).toBeNull();
+      expect(screen.getByTestId("model-provider-settings-link")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("1.6 activating the recovery link calls the settings-open callback", () => {

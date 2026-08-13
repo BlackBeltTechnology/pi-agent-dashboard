@@ -39,7 +39,7 @@ While the open-triggered refresh is in flight the popover SHALL show a transient
 
 After an open-triggered refresh has completed and the list is still empty, the empty-state body SHALL render a recovery link labelled `Open provider settings` with a settings (gear) icon and no directional arrow. Activating it SHALL navigate to the dashboard's Settings → Providers surface.
 
-The link SHALL NOT be rendered while the selector is still awaiting the first `models_list` after opening (the `awaitingRefresh` window). "Refresh completed and still empty" is defined as: a `models_list` for the selected session has arrived since the open-triggered `request_models`, and its `models` array is empty. This prevents a premature "no models" affordance during a normal in-flight refresh.
+The link SHALL NOT be rendered while the selector is still awaiting the first `models_list` after opening (the `awaitingRefresh` window). The window ENDS — and the empty state is treated as settled — on the FIRST of: (a) a `models_list` for the selected session arriving since the open-triggered `request_models`, or (b) the open-triggered refresh's safety timeout elapsing without any such `models_list`. When the window ends with the list still empty (either path), the recovery link SHALL be shown; a refresh that never returns therefore falls back to the link rather than stranding the operator on the refreshing body. This still prevents a premature "no models" affordance during a normal in-flight refresh.
 
 Design mockup: `mockups/empty-model-selector.html` state 2 ("genuinely empty"); decision D4-A in `mockups/selector-decisions.html`.
 
@@ -49,6 +49,12 @@ Design mockup: `mockups/empty-model-selector.html` state 2 ("genuinely empty"); 
 - **THEN** the empty state SHALL show the refreshing body and SHALL NOT show the recovery link
 - **WHEN** a `models_list` for the session then arrives with an empty `models` array
 - **THEN** the empty state SHALL show the `Open provider settings` link
+
+#### Scenario: Safety timeout with no response reveals the link
+
+- **WHEN** the selector was opened (open-triggered `request_models` sent) and no `models_list` arrives before the safety timeout elapses
+- **THEN** the `awaitingRefresh` window SHALL end
+- **AND** with the list still empty the empty state SHALL show the `Open provider settings` link
 
 #### Scenario: Link navigates to provider settings
 

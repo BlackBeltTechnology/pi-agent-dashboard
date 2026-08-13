@@ -44,7 +44,9 @@ Interactive state/decision boards (served via `serve_mockup mockups/`; both `dat
   the list is still empty, the empty state SHALL show a `⚙ Open provider settings` link (plain
   icon+label, no arrow) that navigates to Settings → Providers. The link SHALL NOT show *before*
   the first post-open `models_list` arrives (while `awaitingRefresh`), so a still-loading catalogue
-  never renders a premature "no models" affordance.
+  never renders a premature "no models" affordance. The `awaitingRefresh` window also ends on the
+  open-triggered refresh's safety timeout, so a refresh that never returns falls back to the link
+  rather than stranding the operator on the refreshing body.
 - **Empty + error is reopen-to-retry (D5-B).** When the empty state coincides with a refresh error,
   it SHALL present the same `⚙ Providers` link and rely on close→reopen as the retry (no inline
   Retry control): opening is the only refresh trigger, consistent with the removed manual ↻.
