@@ -315,7 +315,10 @@ describe("performance budgets", () => {
     }
     const minRatio = Math.min(...ratios);
     expect(minRatio).toBeLessThanOrEqual(1.25);
-  });
+    // 32 forced reindexes of a 250-file corpus do not fit vitest's 5s default.
+    // Pre-existing overrun, surfaced when packages/kb joined the root vitest
+    // projects. See change: fix-kb-search-retrieval-quality.
+  }, 120_000);
 
   it("P2: one eq filter adds ≤ 25ms p95 vs unfiltered", async () => {
     const dir = mkdir();

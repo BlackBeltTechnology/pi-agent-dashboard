@@ -24,6 +24,16 @@ export interface RankingConfig {
   fieldWeights: { headingPath: number; heading: number; body: number };
   proximityBoost: boolean;
   diversity: { enabled: boolean; lambda: number };
+  /** Collapse hits to one per `(root, path)` (design D1). */
+  sourceDedup: boolean;
+  /** Share of the page reserved for the `agents` doc-type lane, 0..1 (design D3).
+   *  0 disables the quota. SWEPT over the bundled fixtures — see
+   *  openspec/changes/fix-kb-search-retrieval-quality/measurements.md. */
+  laneQuota: number;
+  /** IDF-weighted coverage rerank over the candidate pool (design D4).
+   *  Implemented, DEFAULT OFF: on the bundled fixtures it costs markdown-intent
+   *  R@10 0.620 → 0.472 to buy source-intent 0.423 → 0.462, a net regression. */
+  coverageRerank: boolean;
 }
 export interface ExpandConfig {
   parent: boolean;
@@ -36,6 +46,8 @@ export interface RerankConfig {
 }
 export interface QueryExpansionConfig {
   mode: "off" | "prf" | "synonym" | "agent";
+  /** RM3-style pseudo-relevance-feedback tuning (design D4). */
+  prf: { terms: number; topK: number; dfCeiling: number };
 }
 export interface DirectoryLevelAgentsConfig {
   enabled: boolean;
@@ -110,10 +122,21 @@ export const DEFAULTS: KbConfig = {
   directoryLevelAgents: { enabled: true, claudeMd: true, mode: "pull", fallbackManifest: true },
   frontmatter: { searchableKeys: DEFAULT_SEARCHABLE_KEYS, facetKeys: DEFAULT_FACET_KEYS },
   doxEnforcement: false,
-  ranking: { fieldWeights: { headingPath: 10, heading: 3, body: 1 }, proximityBoost: true, diversity: { enabled: true, lambda: 0.7 } },
+  ranking: {
+    fieldWeights: { headingPath: 10, heading: 3, body: 1 },
+    proximityBoost: true,
+    diversity: { enabled: true, lambda: 0.7 },
+    sourceDedup: true,
+    // 0.5 = the largest reserved share with NO markdown-intent regression
+    // (R@10 0.630 vs 0.611 unquota'd) while source-intent rises 0.317 → 0.500.
+    laneQuota: 0.5,
+    coverageRerank: false,
+  },
   expand: { parent: true, graph: false },
   rerank: { enabled: false, model: "ms-marco-MiniLM-L-6-v2", candidateK: 50 },
-  queryExpansion: { mode: "off" },
+  // PRF is implemented engine-side but DEFAULT OFF: it is gated on coverage
+  // rerank (which measures as a net regression), and adds ~3x search latency.
+  queryExpansion: { mode: "off", prf: { terms: 6, topK: 10, dfCeiling: 0.1 } },
   dbPath: ".pi/dashboard/kb/index.db",
 };
 
@@ -160,6 +183,8 @@ export function validateConfig(c: Partial<KbConfig>, origin = "config"): KbConfi
   if (typeof merged.maxFileCount !== "number" && merged.maxFileCount !== null) throw err("maxFileCount must be a number or null");
   if (typeof merged.dbPath !== "string" || !merged.dbPath) throw err("dbPath must be a non-empty string");
   if (!/^(off|prf|synonym|agent)$/.test(merged.queryExpansion.mode)) throw err(`queryExpansion.mode "${merged.queryExpansion.mode}" unknown`);
+  const lq = merged.ranking.laneQuota;
+  if (typeof lq !== "number" || !Number.isFinite(lq) || lq < 0 || lq > 1) throw err("ranking.laneQuota must be a number in [0,1]");
   const fm = merged.frontmatter;
   if (!fm || !Array.isArray(fm.searchableKeys) || fm.searchableKeys.some((k) => typeof k !== "string")) throw err("frontmatter.searchableKeys must be a string array");
   if (!Array.isArray(fm.facetKeys)) throw err("frontmatter.facetKeys must be an array");

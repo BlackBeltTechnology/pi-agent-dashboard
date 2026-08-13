@@ -55,17 +55,20 @@ export default function kbExtension(pi: ExtensionAPI): void {
     label: "KB Search",
     description:
       "Search the local markdown knowledge base (FTS5 + BM25) for ranked sections before answering from memory. " +
-      "Default output is condensed text, one block per hit: `<rank>  <path>  ::  <headingPath>`, an optional `(+N dup)` " +
-      "duplicate-copy marker, an optional `⤷ <parentHeading>` continuation, then a one-line snippet. FTS match markers `[ ]` " +
+      "Default output is condensed text, one block per hit: `<rank>  <path>  ::  <leafHeading>`, an optional `(+N dup)` " +
+      "duplicate-copy marker, an optional `(+N more sections)` marker counting further matching sections of that SAME file, " +
+      "an optional `⤷ <parentHeading>` continuation, then a one-line snippet. FTS match markers `[ ]` " +
       "in the snippet flag the terms that matched. `rank` is a 1-based ordinal over the returned hits (not a global score). " +
-      "Pass `format:\"json\"` for compact machine-readable JSON that also retains the raw BM25 `score`. Prefer 2\u20135 keyword / identifier terms.",
+      "`limit` bounds DISTINCT SOURCES (files), not chunks — one entry per file, so a page of 10 names 10 different files. " +
+      "Expand a file marked `(+N more sections)` with `kb_get(path)` / `kb_get(path, section)`. " +
+      "Pass `format:\"json\"` for compact machine-readable JSON that also retains the raw BM25 `score` and the full `headingPath`.",
     promptSnippet: "Search the local markdown KB for ranked sections",
     promptGuidelines: [
       "Call kb_search FIRST for any project-specific factual / 'where is X' / 'how does Y work' question — before ctx_search, memory_search, grep, or reading source.",
       "kb_search indexes repo markdown (docs/, openspec/, packages/, .pi/). ctx_search/memory_search index session memory, not docs — different corpus. Fall through to grep/source only when kb_search returns nothing relevant.",
     ],
     parameters: Type.Object({
-      query: Type.String({ description: "2\u20135 keyword / identifier / error-string terms to search" }),
+      query: Type.String({ description: "Keyword / identifier / error-string terms to search" }),
       limit: Type.Optional(Type.Number({ default: 10 })),
       doc_type: Type.Optional(Type.Union([Type.Literal("doc"), Type.Literal("agents"), Type.Literal("source-md")])),
       // Free string, NOT a strict Literal union: an unknown/malformed value must
@@ -96,6 +99,13 @@ export default function kbExtension(pi: ExtensionAPI): void {
         fieldWeights: cfg.ranking.fieldWeights,
         proximityBoost: cfg.ranking.proximityBoost,
         diversity: cfg.ranking.diversity,
+        // Source dedup + agents lane quota + coverage rerank + engine-side PRF.
+        // See change: fix-kb-search-retrieval-quality.
+        sourceDedup: cfg.ranking.sourceDedup,
+        laneQuota: cfg.ranking.laneQuota,
+        coverageRerank: cfg.ranking.coverageRerank,
+        queryExpansion: cfg.queryExpansion.mode,
+        prf: cfg.queryExpansion.prf,
         expandParent: cfg.expand.parent,
         rootPriority: Object.fromEntries(cfg.resolvedSources.map((s: { id: string; priority: number }) => [s.id, s.priority])),
       });
@@ -133,7 +143,10 @@ export default function kbExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "kb_get",
     label: "KB Get",
-    description: "Fetch the full body of a markdown section by path (and optional heading_path).",
+    description:
+      "Fetch the full body of a markdown section by path (and optional heading_path). " +
+      "A path-only fetch of a multi-section file returns the first section AND reports how many further sections exist — " +
+      "it never silently hands back one arbitrary slice. Pass `section` (the full `headingPath` from `kb_search` JSON output) to address one.",
     parameters: Type.Object({
       path: Type.String(),
       section: Type.Optional(Type.String({ description: "heading_path breadcrumb" })),
@@ -149,7 +162,15 @@ export default function kbExtension(pi: ExtensionAPI): void {
       const { store, cfg } = getKb(state, cwd);
       const root = cfg.resolvedSources[0]?.id ?? "";
       const chunk = store.getChunk(root, params.path as string, params.section as string | undefined);
-      return { content: [{ type: "text", text: chunk?.body ?? `(not found: ${params.path})` }], details: { found: !!chunk } };
+      // Non-silent truncation (design D7): 53 of 636 indexed AGENTS files have
+      // >1 chunk, so a bare first-chunk body used to lie about being the file.
+      const more = chunk?.suppressedSections ?? 0;
+      const text = chunk
+        ? more > 0
+          ? `${chunk.body}\n\n(+${more} more section${more === 1 ? "" : "s"} in this file — pass \`section\` to fetch one)`
+          : chunk.body
+        : `(not found: ${params.path})`;
+      return { content: [{ type: "text", text }], details: { found: !!chunk, suppressedSections: more } };
     },
   });
 

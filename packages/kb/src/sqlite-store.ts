@@ -224,10 +224,47 @@ export class SqliteFtsStore implements KbStore {
     this.db.prepare("INSERT OR IGNORE INTO edges(src,dst,rel,weight) VALUES(?,?,?,?)").run(src.id, dst.id, e.rel, e.weight ?? 1);
   }
 
+  /** Corpus document frequency for raw tokens, via the fts5vocab shadow table.
+   *  Terms there are porter-stemmed, so a raw token is matched by PREFIX RANGE
+   *  (`collapsed` → `collaps`) — an over-estimate for short tokens, which is
+   *  acceptable for an IDF weight and a PRF ceiling. Falls back to df=0 when the
+   *  vocab table cannot be created (e.g. a read-only DB). Cached per store. */
+  private dfCache = new Map<string, number>();
+  private vocabReady: boolean | null = null;
+  private documentFrequencies(tokens: string[]): Map<string, number> {
+    const out = new Map<string, number>();
+    const missing = tokens.filter((t) => !this.dfCache.has(t));
+    if (this.vocabReady === null) {
+      try {
+        this.db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vocab USING fts5vocab(chunks, 'row')");
+        this.vocabReady = true;
+      } catch {
+        this.vocabReady = false;
+      }
+    }
+    if (this.vocabReady && missing.length) {
+      // One UNION ALL of prefix ranges → an index seek per token, one round trip.
+      const sql = missing.map(() => "SELECT ? tok, COALESCE(MAX(doc),0) df FROM chunks_vocab WHERE term >= ? AND term < ?").join(" UNION ALL ");
+      const args: string[] = [];
+      for (const t of missing) args.push(t, t, `${t}\uffff`);
+      try {
+        for (const r of this.db.prepare(sql).all(...args) as any[]) this.dfCache.set(r.tok, Number(r.df) || 0);
+      } catch { /* vocab unusable → leave uncached, treated as df 0 below */ }
+    }
+    for (const t of tokens) out.set(t, this.dfCache.get(t) ?? 0);
+    return out;
+  }
+
+  /** IDF weights for the given tokens over the current corpus. */
+  private idf(tokens: string[]): Map<string, number> {
+    const n = Math.max(1, this.counts().chunks);
+    const df = this.documentFrequencies(tokens);
+    const out = new Map<string, number>();
+    for (const t of tokens) out.set(t, Math.log(1 + n / (1 + (df.get(t) ?? 0))));
+    return out;
+  }
+
   search(query: string, opts: SearchOpts = {}): KbHit[] {
-    const expanded = expandQuery(query, opts);
-    const m = toMatch(expanded);
-    if (!m) return [];
     // Coerce numerics that get interpolated into SQL (bm25 weights, LIMIT) to
     // finite, bounded numbers — never trust raw config/flag values in a SQL string.
     const num = (v: unknown, dflt: number, min: number, max: number): number => {
@@ -242,54 +279,121 @@ export class SqliteFtsStore implements KbStore {
     };
     const limit = num(opts.limit, 10, 1, 1000);
     const wantDedup = opts.dedup !== false;
-    const fetch = Math.min(4000, wantDedup ? limit * 4 : limit);
-    const where: string[] = ["chunks MATCH ?"];
-    const args: any[] = [m];
-    if (opts.root) { where.push("root = ?"); args.push(opts.root); }
-    if (opts.docType) { where.push("doc_type = ?"); args.push(opts.docType); }
-    // structured facet filters (opt-in; absent → no clause → identical query)
-    const ff = buildFilterClauses(opts.filters, "chunks");
-    where.push(...ff.clauses);
-    args.push(...ff.args);
-    const sql = `SELECT root, path, chunk_id chunkId, doc_type docType, body_hash bodyHash,
+    const wantSourceDedup = opts.sourceDedup !== false;
+    // Coverage rerank is opt-IN: measured a net regression on the bundled
+    // fixtures. See openspec/changes/fix-kb-search-retrieval-quality/measurements.md.
+    const wantCoverage = opts.coverageRerank === true;
+    // Source dedup collapses many sections of one file into one slot, so a pool
+    // sized at `limit` would starve the page — fetch a multiple of `limit`
+    // (design D2), still bounded by the pre-existing 4000 ceiling.
+    const fetch = Math.min(4000, wantSourceDedup ? limit * 6 : wantDedup ? limit * 4 : limit);
+    const qterms = tokenize(query);
+
+    // --- one BM25 pass, optionally restricted to a doc-type lane -------------
+    const pass = (match: string, docType?: string, depth = fetch): any[] => {
+      const where: string[] = ["chunks MATCH ?"];
+      const args: any[] = [match];
+      if (opts.root) { where.push("root = ?"); args.push(opts.root); }
+      if (docType) { where.push("doc_type = ?"); args.push(docType); }
+      // structured facet filters (opt-in; absent → no clause → identical query)
+      const ff = buildFilterClauses(opts.filters, "chunks");
+      where.push(...ff.clauses);
+      args.push(...ff.args);
+      const sql = `SELECT root, path, chunk_id chunkId, doc_type docType, body_hash bodyHash,
       parent_chunk_id parentChunkId, heading_path headingPath, heading, body,
       bm25(chunks, 0,0,0,0,0,0,0, ${w.headingPath}, ${w.heading}, ${w.body}) score,
       snippet(chunks, 9, '[', ']', ' … ', 12) snippet
-      FROM chunks WHERE ${where.join(" AND ")} ORDER BY score LIMIT ${fetch}`;
-    const rows = this.db.prepare(sql).all(...args) as any[];
+      FROM chunks WHERE ${where.join(" AND ")} ORDER BY score LIMIT ${depth}`;
+      return this.db.prepare(sql).all(...args) as any[];
+    };
 
-    // bodies for proximity + MMR (dropped before returning)
-    const bodies = new Map<string, string>();
-    const qterms = tokenize(query);
-    let hits: KbHit[] = rows.map((r) => {
-      bodies.set(r.chunkId, r.body);
-      let score = r.score;
-      if (opts.proximityBoost) score += proximityDelta(qterms, r.body);
-      return { root: r.root, path: r.path, headingPath: r.headingPath, chunkId: r.chunkId, docType: r.docType, score, snippet: r.snippet, parentChunkId: r.parentChunkId } as KbHit & { parentChunkId: string | null };
-    });
-
-    if (wantDedup) {
-      // exact-content collapse; prefer higher-priority root, then best score
-      const prio = opts.rootPriority ?? {};
-      const groups = new Map<string, KbHit[]>();
-      for (const h of hits) {
-        const key = (rows.find((r) => r.chunkId === h.chunkId) as any).bodyHash;
-        (groups.get(key) ?? groups.set(key, []).get(key)!).push(h);
-      }
-      hits = [];
-      for (const g of groups.values()) {
-        g.sort((a, b) => (prio[b.root] ?? 0) - (prio[a.root] ?? 0) || a.score - b.score);
-        const head = g[0];
-        if (g.length > 1) head.akaPaths = g.slice(1).map((x) => x.path);
-        hits.push(head);
-      }
-      hits.sort((a, b) => a.score - b.score);
+    // --- query expansion ------------------------------------------------------
+    // PRF is engine-side (design D4) and is applied ONLY with coverage rerank on:
+    // expanding an OR-query deepens the very dilution the rerank exists to cure
+    // (measured: PRF alone P@5 0.366 → 0.297).
+    const mode = opts.queryExpansion ?? "off";
+    let match = toMatch(expandQuery(query, opts));
+    if (!match) return [];
+    let extraTerms: string[] = [];
+    if (mode === "prf" && wantCoverage) {
+      extraTerms = this.prfTerms(query, qterms, pass(match, opts.docType), opts);
+      if (extraTerms.length) match = toMatch(`${query} ${extraTerms.join(" ")}`);
     }
 
-    // lexical MMR diversity (Tier A)
-    const div = opts.diversity;
-    if (div?.enabled) hits = mmr(hits, bodies, div.lambda, fetch);
-    hits = hits.slice(0, limit);
+    // --- lanes ----------------------------------------------------------------
+    // An `agents` chunk is 3.2% of the index and ~3x longer than a `doc` chunk,
+    // so BM25 length normalisation buries the per-file record layer ~30:1. The
+    // fix is engine-side: rank an `agents` lane separately and interleave a
+    // reserved share of the page (design D3). An explicit docType bypasses it.
+    const laneShare = opts.docType ? 0 : Math.min(1, Math.max(0, Number(opts.laneQuota ?? 0.5) || 0));
+    const mainRows = pass(match, opts.docType);
+    // The reserved lane only ever contributes `limit * share` slots, so it needs
+    // a shallow pool — fetching it as deep as the main lane doubles query cost
+    // for candidates that can never be shown. Headroom of 2x covers source dedup.
+    const agentsRows = laneShare > 0 ? pass(match, "agents", Math.min(fetch, Math.max(2, Math.ceil(limit * laneShare * 2)))) : [];
+
+    const bodies = new Map<string, string>();
+    const lane = (rows: any[]): KbHit[] => {
+      let hits: KbHit[] = rows.map((r) => {
+        bodies.set(r.chunkId, r.body);
+        let score = r.score;
+        if (opts.proximityBoost) score += proximityDelta(qterms, r.body);
+        return { root: r.root, path: r.path, headingPath: r.headingPath, chunkId: r.chunkId, docType: r.docType, score, snippet: r.snippet, parentChunkId: r.parentChunkId } as KbHit & { parentChunkId: string | null };
+      });
+
+      if (wantDedup) {
+        // exact-content collapse; prefer higher-priority root, then best score.
+        // Runs FIRST so `akaPaths` is computed against the full candidate set —
+        // source dedup then operates over already-collapsed hits (design D1).
+        const prio = opts.rootPriority ?? {};
+        const byChunk = new Map<string, any>(rows.map((r) => [r.chunkId, r]));
+        const groups = new Map<string, KbHit[]>();
+        for (const h of hits) {
+          const key = byChunk.get(h.chunkId).bodyHash;
+          (groups.get(key) ?? groups.set(key, []).get(key)!).push(h);
+        }
+        hits = [];
+        for (const g of groups.values()) {
+          g.sort((a, b) => (prio[b.root] ?? 0) - (prio[a.root] ?? 0) || a.score - b.score);
+          const head = g[0];
+          if (g.length > 1) head.akaPaths = g.slice(1).map((x) => x.path);
+          hits.push(head);
+        }
+        hits.sort((a, b) => a.score - b.score);
+      }
+
+      if (wantSourceDedup) {
+        // One slot per (root, path); representative = best (lowest) BM25 score;
+        // the rest become a per-source count the render surfaces.
+        const groups = new Map<string, KbHit[]>();
+        for (const h of hits) {
+          const key = `${h.root}\u001f${h.path}`;
+          (groups.get(key) ?? groups.set(key, []).get(key)!).push(h);
+        }
+        hits = [];
+        for (const g of groups.values()) {
+          g.sort((a, b) => a.score - b.score);
+          const head = g[0];
+          head.suppressedSections = g.length - 1;
+          hits.push(head);
+        }
+        hits.sort((a, b) => a.score - b.score);
+      }
+
+      // lexical MMR diversity (Tier A)
+      const div = opts.diversity;
+      if (div?.enabled) hits = mmr(hits, bodies, div.lambda, fetch);
+      if (wantCoverage) hits = this.coverageRerank(hits, bodies, qterms, extraTerms);
+      return hits;
+    };
+
+    const main = lane(mainRows);
+    let hits: KbHit[];
+    if (laneShare > 0 && agentsRows.length) {
+      hits = interleaveLanes(main, lane(agentsRows), laneShare, limit, wantSourceDedup);
+    } else {
+      hits = main.slice(0, limit);
+    }
 
     // optional cross-encoder rerank (Tier C): no-op without an injected reranker
     if (opts.rerank) {
@@ -340,12 +444,75 @@ export class SqliteFtsStore implements KbStore {
       JOIN nodes t ON e.dst = t.id JOIN nodes n ON e.src = n.id WHERE t.name = ?`;
     return (this.db.prepare(sql).all(node) as any[]).map((r) => ({ type: r.type, name: r.name, path: r.path }));
   }
+  /** Fetch a chunk by path (+ optional section). A path-only fetch of a
+   *  multi-chunk file returns the FIRST chunk plus a `suppressedSections` count
+   *  — it must never silently hand back one arbitrary slice of N (design D7). */
   getChunk(root: string, path: string, headingPath?: string): Chunk | null {
-    const sql = headingPath
-      ? "SELECT * FROM chunks WHERE root=? AND path=? AND heading_path=? LIMIT 1"
-      : "SELECT * FROM chunks WHERE root=? AND path=? ORDER BY rowid LIMIT 1";
-    const r = (headingPath ? this.db.prepare(sql).get(root, path, headingPath) : this.db.prepare(sql).get(root, path)) as any;
-    return r ? rowToChunk(r) : null;
+    if (headingPath) {
+      const r = this.db.prepare("SELECT * FROM chunks WHERE root=? AND path=? AND heading_path=? LIMIT 1").get(root, path, headingPath) as any;
+      return r ? rowToChunk(r) : null;
+    }
+    const r = this.db.prepare("SELECT * FROM chunks WHERE root=? AND path=? ORDER BY rowid LIMIT 1").get(root, path) as any;
+    if (!r) return null;
+    const n = (this.db.prepare("SELECT COUNT(*) n FROM chunks WHERE root=? AND path=?").get(root, path) as any).n as number;
+    return { ...rowToChunk(r), suppressedSections: Math.max(0, n - 1) };
+  }
+
+  /** All chunks of a file in document order — the non-truncating companion to a
+   *  path-only `getChunk`. */
+  getChunks(root: string, path: string): Chunk[] {
+    return (this.db.prepare("SELECT * FROM chunks WHERE root=? AND path=? ORDER BY rowid").all(root, path) as any[]).map(rowToChunk);
+  }
+
+  /** Rerank by IDF-weighted coverage of the ORIGINAL query terms, BM25 as the
+   *  tiebreak. PRF-appended terms count at half weight so expansion can never
+   *  dominate the sort (design D4). */
+  private coverageRerank(hits: KbHit[], bodies: Map<string, string>, qterms: string[], extraTerms: string[]): KbHit[] {
+    if (!qterms.length || hits.length < 2) return hits;
+    const all = [...qterms, ...extraTerms];
+    const idf = this.idf(all);
+    const cov = new Map<string, number>();
+    for (const h of hits) {
+      const toks = new Set(tokenize(`${h.headingPath} ${bodies.get(h.chunkId) ?? ""}`));
+      let c = 0;
+      for (const t of qterms) if (hasStem(toks, t)) c += idf.get(t) ?? 0;
+      for (const t of extraTerms) if (hasStem(toks, t)) c += 0.5 * (idf.get(t) ?? 0);
+      cov.set(h.chunkId, c);
+    }
+    return [...hits].sort((a, b) => (cov.get(b.chunkId)! - cov.get(a.chunkId)!) || a.score - b.score);
+  }
+
+  /** RM3-style pseudo-relevance feedback: mine the top candidates of a first
+   *  pass for terms absent from the query and below the corpus-frequency
+   *  ceiling, rank by freq × IDF, return the top `terms` (design D4). */
+  private prfTerms(query: string, qterms: string[], firstPass: any[], opts: SearchOpts): string[] {
+    const cfg = opts.prf ?? {};
+    const want = Math.max(0, Math.trunc(cfg.terms ?? 6));
+    const topK = Math.max(1, Math.trunc(cfg.topK ?? 10));
+    const ceiling = Math.min(1, Math.max(0, cfg.dfCeiling ?? 0.1));
+    // RM3 needs a feedback SET. When the first pass returns only a handful of
+    // candidates the "top-k relevant" docs are simply the whole corpus, so the
+    // mined terms carry no discriminating signal and only dilute the OR-query.
+    if (!want || firstPass.length < MIN_FEEDBACK_DOCS) return [];
+    const seen = new Set(qterms);
+    const freq = new Map<string, number>();
+    for (const r of firstPass.slice(0, topK)) {
+      for (const t of tokenize(`${r.headingPath} ${r.body}`)) {
+        if (seen.has(t)) continue;
+        freq.set(t, (freq.get(t) ?? 0) + 1);
+      }
+    }
+    // Bound the df round trip: only the most frequent feedback candidates.
+    const cands = [...freq.entries()].sort((a, b) => b[1] - a[1]).slice(0, 40).map(([t]) => t);
+    if (!cands.length) return [];
+    const n = Math.max(1, this.counts().chunks);
+    const df = this.documentFrequencies(cands);
+    return cands
+      .filter((t) => (df.get(t) ?? 0) / n <= ceiling)
+      .map((t) => [t, (freq.get(t) ?? 0) * Math.log(1 + n / (1 + (df.get(t) ?? 0)))] as const)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, want)
+      .map(([t]) => t);
   }
   getChunkById(root: string, chunkId: string): Chunk | null {
     const r = this.db.prepare("SELECT * FROM chunks WHERE root=? AND chunk_id=? LIMIT 1").get(root, chunkId) as any;
@@ -362,6 +529,9 @@ export class SqliteFtsStore implements KbStore {
   }
 }
 
+/** Minimum first-pass candidates before PRF mining is meaningful (design D4). */
+const MIN_FEEDBACK_DOCS = 5;
+
 const STOP = new Set("the for and how what with you your does can from that this are into use using get set all a an of to in on is be as it or by at do".split(" "));
 function tokenize(s: string): string[] {
   return (s.toLowerCase().match(/[a-z0-9]{2,}/g) ?? []).filter((t) => !STOP.has(t));
@@ -371,19 +541,65 @@ function rowToChunk(r: any): Chunk {
   return { root: r.root, path: r.path, chunkId: r.chunk_id, headingPath: r.heading_path, heading: r.heading, level: r.level, parentChunkId: r.parent_chunk_id, docType: r.doc_type, body: r.body, bodyHash: r.body_hash };
 }
 
-/** Query expansion (Tier C, default off). synonym = curated glossary;
- *  agent = pass-through (caller reformulates); prf = lightweight lexical RM3.
+/** Query expansion (Tier C). synonym = curated glossary; off/agent =
+ *  pass-through (the caller already reformulated). `prf` is NOT handled here:
+ *  it needs a first retrieval pass, so `search()` owns it (design D4).
  *  No model dependency. */
 function expandQuery(query: string, opts: SearchOpts): string {
   const mode = opts.queryExpansion ?? "off";
-  if (mode === "off" || mode === "agent") return query; // agent: caller already reformulated
-  const terms = tokenize(query);
-  if (mode === "synonym" && opts.synonyms) {
-    const extra: string[] = [];
-    for (const t of terms) for (const syn of opts.synonyms[t] ?? []) extra.push(syn);
-    return extra.length ? query + " " + extra.join(" ") : query;
+  if (mode !== "synonym" || !opts.synonyms) return query;
+  const extra: string[] = [];
+  for (const t of tokenize(query)) for (const syn of opts.synonyms[t] ?? []) extra.push(syn);
+  return extra.length ? `${query} ${extra.join(" ")}` : query;
+}
+
+/** Stem-tolerant membership: FTS5 indexes porter stems while `tokenize()`
+ *  yields raw tokens, so `collapsed` must count as covering `collapse`.
+ *  The prefix arm is bounded to a shared stem of at least STEM_MIN characters —
+ *  an unbounded prefix test saturates coverage (every candidate "covers" every
+ *  short term) and collapses the rerank into noise. */
+const STEM_MIN = 4;
+function hasStem(tokens: Set<string>, term: string): boolean {
+  if (tokens.has(term)) return true;
+  if (term.length < STEM_MIN) return false;
+  for (const t of tokens) {
+    if (t.length < STEM_MIN) continue;
+    if (t.startsWith(term) || term.startsWith(t)) return true;
   }
-  return query; // prf handled by callers via a second pass; engine no-ops here
+  return false;
+}
+
+/** Interleave a reserved-share lane with the unrestricted lane (design D3).
+ *  A source already emitted by either lane is never repeated, and a lane that
+ *  runs dry yields its remaining slots to the other. */
+function interleaveLanes(main: KbHit[], reserved: KbHit[], share: number, limit: number, dedupSources: boolean): KbHit[] {
+  const out: KbHit[] = [];
+  const seen = new Set<string>();
+  let mi = 0;
+  let ri = 0;
+  let taken = 0;
+  // The lanes overlap (the unrestricted lane also sees `agents` chunks), so a
+  // source taken by one lane is skipped in the other — but only when the caller
+  // asked for source dedup at all.
+  const next = (arr: KbHit[], i: number): number => {
+    if (!dedupSources) return i;
+    while (i < arr.length && seen.has(`${arr[i].root}\u001f${arr[i].path}`)) i++;
+    return i;
+  };
+  while (out.length < limit) {
+    mi = next(main, mi);
+    ri = next(reserved, ri);
+    const mHas = mi < main.length;
+    const rHas = ri < reserved.length;
+    if (!mHas && !rHas) break;
+    // Take from the reserved lane while it is under its share of the page so far.
+    const wantReserved = rHas && (!mHas || (taken + 1) / (out.length + 1) <= share);
+    const pick = wantReserved ? reserved[ri++] : main[mi++];
+    if (wantReserved) taken++;
+    if (dedupSources) seen.add(`${pick.root}\u001f${pick.path}`);
+    out.push(pick);
+  }
+  return out;
 }
 
 /** Proximity/in-order boost: reward hits whose query terms appear close and in

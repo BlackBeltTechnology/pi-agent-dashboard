@@ -1,0 +1,549 @@
+{
+  "$provenance": [
+    "Derived from IMPLICIT relevance feedback in pi session transcripts: the file",
+    "the agent opened within 8 tool calls of a kb_search.",
+    "",
+    "MARKDOWN INTENT: counted only when the opened file actually appeared in that",
+    "search's own result text, so the open is feedback on the search and not on",
+    "prior knowledge.",
+    "",
+    "SOURCE INTENT: a source file can never appear in kb results (the KB indexes",
+    "markdown), so the target is the AGENTS.md record that documents it — the",
+    "sidecar if present, else the nearest ancestor AGENTS.md that names the file.",
+    "`openedFile` records which source file the agent actually opened.",
+    "",
+    "KNOWN BIAS: a pair exists only when the search succeeded well enough for the",
+    "agent to open something. Queries the agent abandoned, refined away, or",
+    "answered by falling through to rg/grep are absent BY CONSTRUCTION, so this",
+    "set systematically under-samples the failure population it is meant to fix.",
+    "An opened file is also not proof of relevance — it is the cheapest available",
+    "proxy for it.",
+    "",
+    "Regenerate: node packages/kb/eval/mine-golden-sets.mjs"
+  ],
+  "intent": "source files, reachable via their AGENTS.md record",
+  "minedAt": "2026-08-12",
+  "n": 104,
+  "items": [
+    {
+      "q": "automation plugin folder section icon tasks flows",
+      "expect": "packages/automation-plugin/src/client/AGENTS.md",
+      "openedFile": "packages/automation-plugin/src/client/FolderAutomationSection.tsx"
+    },
+    {
+      "q": "automation stop cancel flow",
+      "expect": "packages/automation-plugin/src/server/AGENTS.md",
+      "openedFile": "packages/automation-plugin/src/server/runner.ts"
+    },
+    {
+      "q": "server in-memory session state event buffer persistence",
+      "expect": "packages/automation-plugin/src/server/AGENTS.md",
+      "openedFile": "packages/automation-plugin/src/server/engine.ts"
+    },
+    {
+      "q": "directory workspace selectable page routing spawn session directory",
+      "expect": "packages/client/src/AGENTS.md",
+      "openedFile": "packages/client/src/App.tsx"
+    },
+    {
+      "q": "DirectoryHomeView eligibility guard pinnedDirectories workspaceFolders",
+      "expect": "packages/client/src/AGENTS.md",
+      "openedFile": "packages/client/src/App.tsx"
+    },
+    {
+      "q": "file autocomplete search ranking type-ahead mention",
+      "expect": "packages/client/src/AGENTS.md",
+      "openedFile": "packages/client/src/App.tsx"
+    },
+    {
+      "q": "ChatViewMenu component popover display preferences toggles",
+      "expect": "packages/client/src/components/chat/ChatViewMenu.tsx.AGENTS.md",
+      "openedFile": "packages/client/src/components/chat/ChatViewMenu.tsx"
+    },
+    {
+      "q": "DiffPanel extractHunks gitDiff Path B git-aggregate hunks payload",
+      "expect": "packages/client/src/components/diff/DiffPanel.tsx.AGENTS.md",
+      "openedFile": "packages/client/src/components/diff/DiffPanel.tsx"
+    },
+    {
+      "q": "Directory Settings screen instructions packages resources file list content pane",
+      "expect": "packages/client/src/components/DirectorySettings/AGENTS.md",
+      "openedFile": "packages/client/src/components/DirectorySettings/InstructionsEditorPane.tsx"
+    },
+    {
+      "q": "diff viewer changed files tree panel",
+      "expect": "packages/client/src/components/editor-pane/AGENTS.md",
+      "openedFile": "packages/client/src/components/editor-pane/EditorFileTree.tsx"
+    },
+    {
+      "q": "diff viewer file changed load new file empty content",
+      "expect": "packages/client/src/components/editor-pane/AGENTS.md",
+      "openedFile": "packages/client/src/components/editor-pane/DiffViewer.tsx"
+    },
+    {
+      "q": "SplitView tree view open file ViewTarget dispatch renderer",
+      "expect": "packages/client/src/components/editor-pane/AGENTS.md",
+      "openedFile": "packages/client/src/components/editor-pane/EditorPane.tsx"
+    },
+    {
+      "q": "CREATE divider directory header session picker",
+      "expect": "packages/client/src/components/folder/AGENTS.md",
+      "openedFile": "packages/client/src/components/folder/FolderSpawnButtons.tsx"
+    },
+    {
+      "q": "directory settings menu workspace Float blocked sessions to top",
+      "expect": "packages/client/src/components/folder/AGENTS.md",
+      "openedFile": "packages/client/src/components/folder/FolderActionsMenu.tsx"
+    },
+    {
+      "q": "pairing expired message pair session mobile",
+      "expect": "packages/client/src/components/Gateway/AGENTS.md",
+      "openedFile": "packages/client/src/components/Gateway/GatewayPairQR.tsx"
+    },
+    {
+      "q": "public QR code share URL mobile",
+      "expect": "packages/client/src/components/Gateway/AGENTS.md",
+      "openedFile": "packages/client/src/components/Gateway/GatewayPairQR.tsx"
+    },
+    {
+      "q": "openspec kanban drag drop column card",
+      "expect": "packages/client/src/components/openspec/OpenSpecBoardView.tsx.AGENTS.md",
+      "openedFile": "packages/client/src/components/openspec/OpenSpecBoardView.tsx"
+    },
+    {
+      "q": "OpenSpecBoardView openspec-board-order computeReorder",
+      "expect": "packages/client/src/components/openspec/OpenSpecBoardView.tsx.AGENTS.md",
+      "openedFile": "packages/client/src/components/openspec/OpenSpecBoardView.tsx"
+    },
+    {
+      "q": "settings general plugin settings block render",
+      "expect": "packages/client/src/components/packages/PluginsSection.tsx.AGENTS.md",
+      "openedFile": "packages/client/src/components/packages/PluginsSection.tsx"
+    },
+    {
+      "q": "image preview modal Escape close dialog keyboard",
+      "expect": "packages/client/src/components/preview/AGENTS.md",
+      "openedFile": "packages/client/src/components/preview/ImageLightbox.tsx"
+    },
+    {
+      "q": "PdfPreview component canvas",
+      "expect": "packages/client/src/components/preview/AGENTS.md",
+      "openedFile": "packages/client/src/components/preview/PdfPreview.tsx"
+    },
+    {
+      "q": "PdfPreview pdfjs preview component client",
+      "expect": "packages/client/src/components/preview/AGENTS.md",
+      "openedFile": "packages/client/src/components/preview/PdfPreview.tsx"
+    },
+    {
+      "q": "Markdown renderer message card memo rerender",
+      "expect": "packages/client/src/components/primitives/AGENTS.md",
+      "openedFile": "packages/client/src/components/primitives/CopyButton.tsx"
+    },
+    {
+      "q": "SessionCard status badge",
+      "expect": "packages/client/src/components/session/SessionCard.tsx.AGENTS.md",
+      "openedFile": "packages/client/src/components/session/SessionCard.tsx"
+    },
+    {
+      "q": "spawn session initial status registration",
+      "expect": "packages/client/src/components/session/SessionCard.tsx.AGENTS.md",
+      "openedFile": "packages/client/src/components/session/SessionCard.tsx"
+    },
+    {
+      "q": "Workspace button SessionCard Fork Session",
+      "expect": "packages/client/src/components/session/SessionCard.tsx.AGENTS.md",
+      "openedFile": "packages/client/src/components/session/SessionCard.tsx"
+    },
+    {
+      "q": "directory card slots pills New Session New Worktree",
+      "expect": "packages/client/src/components/session/SessionList.tsx.AGENTS.md",
+      "openedFile": "packages/client/src/components/session/SessionList.tsx"
+    },
+    {
+      "q": "folder header cluster sort home pin open external",
+      "expect": "packages/client/src/components/session/SessionList.tsx.AGENTS.md",
+      "openedFile": "packages/client/src/components/session/SessionList.tsx"
+    },
+    {
+      "q": "workspace add button +ws",
+      "expect": "packages/client/src/components/session/SessionList.tsx.AGENTS.md",
+      "openedFile": "packages/client/src/components/session/SessionList.tsx"
+    },
+    {
+      "q": "inline messages logs preview card recent activity tail",
+      "expect": "packages/client/src/components/session/SpawnErrorBanner.tsx.AGENTS.md",
+      "openedFile": "packages/client/src/components/session/SpawnErrorBanner.tsx"
+    },
+    {
+      "q": "SpawnErrorBanner SessionBanner MissingToolInlineError FolderSpawnButtons",
+      "expect": "packages/client/src/components/session/SpawnErrorBanner.tsx.AGENTS.md",
+      "openedFile": "packages/client/src/components/session/SpawnErrorBanner.tsx"
+    },
+    {
+      "q": "Settings load API endpoint dashboard",
+      "expect": "packages/client/src/components/settings/SettingsPanel.tsx.AGENTS.md",
+      "openedFile": "packages/client/src/components/settings/SettingsPanel.tsx"
+    },
+    {
+      "q": "Settings Sessions tab default model",
+      "expect": "packages/client/src/components/settings/SettingsPanel.tsx.AGENTS.md",
+      "openedFile": "packages/client/src/components/settings/SettingsPanel.tsx"
+    },
+    {
+      "q": "ask_user duplicate message dialog prompt UI",
+      "expect": "packages/client/src/components/tool-renderers/AGENTS.md",
+      "openedFile": "packages/client/src/components/tool-renderers/AskUserToolRenderer.tsx"
+    },
+    {
+      "q": "diff link display content view",
+      "expect": "packages/client/src/components/tool-renderers/AGENTS.md",
+      "openedFile": "packages/client/src/components/tool-renderers/EditToolRenderer.tsx"
+    },
+    {
+      "q": "subagent card not found in session rendering",
+      "expect": "packages/client/src/components/tool-renderers/AGENTS.md",
+      "openedFile": "packages/client/src/components/tool-renderers/AgentToolRenderer.tsx"
+    },
+    {
+      "q": "Subagent not found in this session popout",
+      "expect": "packages/client/src/components/tool-renderers/AGENTS.md",
+      "openedFile": "packages/client/src/components/tool-renderers/AgentToolRenderer.tsx"
+    },
+    {
+      "q": "MobileActionMenu WorktreeActionsMenu useMobile popover sheet",
+      "expect": "packages/client/src/components/worktree/WorktreeActionsMenu.tsx.AGENTS.md",
+      "openedFile": "packages/client/src/components/worktree/WorktreeActionsMenu.tsx"
+    },
+    {
+      "q": "spawn session request cwd worktree api",
+      "expect": "packages/client/src/hooks/AGENTS.md",
+      "openedFile": "packages/client/src/hooks/useSessionActions.ts"
+    },
+    {
+      "q": "useActiveChatSelection selectionSpanRef isSelecting",
+      "expect": "packages/client/src/hooks/AGENTS.md",
+      "openedFile": "packages/client/src/hooks/useActiveChatSelection.ts"
+    },
+    {
+      "q": "SubagentDetail timeline resync expand",
+      "expect": "packages/client/src/lib/chat/event-reducer.ts.AGENTS.md",
+      "openedFile": "packages/client/src/lib/chat/event-reducer.ts"
+    },
+    {
+      "q": "tool_execution_update partialResult streaming render",
+      "expect": "packages/client/src/lib/chat/event-reducer.ts.AGENTS.md",
+      "openedFile": "packages/client/src/lib/chat/event-reducer.ts"
+    },
+    {
+      "q": "IndexedDB replay cache eviction",
+      "expect": "packages/client/src/lib/replay/replay-cache.ts.AGENTS.md",
+      "openedFile": "packages/client/src/lib/replay/replay-cache.ts"
+    },
+    {
+      "q": "replay-cache replay-persist rehydrate-session serverKey",
+      "expect": "packages/client/src/lib/replay/replay-cache.ts.AGENTS.md",
+      "openedFile": "packages/client/src/lib/replay/replay-cache.ts"
+    },
+    {
+      "q": "tool card spinner running state completed terminal event render client",
+      "expect": "packages/extension/src/bridge.ts.AGENTS.md",
+      "openedFile": "packages/extension/src/bridge.ts"
+    },
+    {
+      "q": "bridge sendUserMessage prompt input source extension",
+      "expect": "packages/extension/src/command-handler.ts.AGENTS.md",
+      "openedFile": "packages/extension/src/command-handler.ts"
+    },
+    {
+      "q": "file autocomplete list_files bridge search results cap MAX_RESULTS gitignore",
+      "expect": "packages/extension/src/command-handler.ts.AGENTS.md",
+      "openedFile": "packages/extension/src/command-handler.ts"
+    },
+    {
+      "q": "AGENTS.md auto inject per directory turn",
+      "expect": "packages/extension/src/dashboard-context-injector.ts.AGENTS.md",
+      "openedFile": "packages/extension/src/dashboard-context-injector.ts"
+    },
+    {
+      "q": "dox-doctrine seed AGENTS.md read discipline block compose project-init",
+      "expect": "packages/extension/src/project-init/AGENTS.md",
+      "openedFile": "packages/extension/src/project-init/seed-doctrine.ts"
+    },
+    {
+      "q": "extension_ui_request bridge forward ui select confirm input to web UI",
+      "expect": "packages/extension/src/prompt-bus.ts.AGENTS.md",
+      "openedFile": "packages/extension/src/prompt-bus.ts"
+    },
+    {
+      "q": "opus xhigh reasoning effort model selection enabled",
+      "expect": "packages/extension/src/provider-register.ts.AGENTS.md",
+      "openedFile": "packages/extension/src/provider-register.ts"
+    },
+    {
+      "q": "provider-register registerProvider custom models pi session",
+      "expect": "packages/extension/src/provider-register.ts.AGENTS.md",
+      "openedFile": "packages/extension/src/provider-register.ts"
+    },
+    {
+      "q": "subagent model resolution inheritContext pi-dashboard-subagents provider",
+      "expect": "packages/extension/src/provider-register.ts.AGENTS.md",
+      "openedFile": "packages/extension/src/provider-register.ts"
+    },
+    {
+      "q": "docker container connect pi agent dashboard remote network",
+      "expect": "packages/extension/src/server-auto-start.ts.AGENTS.md",
+      "openedFile": "packages/extension/src/server-auto-start.ts"
+    },
+    {
+      "q": "pi-dashboard-subagents producer spawn subagent session forward",
+      "expect": "packages/extension/src/subagent-frame-buffer.ts.AGENTS.md",
+      "openedFile": "packages/extension/src/subagent-frame-buffer.ts"
+    },
+    {
+      "q": "subagent_resync_request replay detail hydrate AgentToolRenderer",
+      "expect": "packages/extension/src/subagent-frame-buffer.ts.AGENTS.md",
+      "openedFile": "packages/extension/src/subagent-frame-buffer.ts"
+    },
+    {
+      "q": "reducer subagent entries slice cap partialResult",
+      "expect": "packages/flows-plugin/src/AGENTS.md",
+      "openedFile": "packages/flows-plugin/src/flow-reducer.ts"
+    },
+    {
+      "q": "reconcilePluginBridgePackages register dashboard plugin bridges into pi settings packages[]",
+      "expect": "packages/flows-plugin/src/client/AGENTS.md",
+      "openedFile": "packages/flows-plugin/src/client/SessionFlowActions.tsx"
+    },
+    {
+      "q": "hermes memory plugin settings page",
+      "expect": "packages/goal-plugin/src/client/AGENTS.md",
+      "openedFile": "packages/goal-plugin/src/client/GoalPluginSettings.tsx"
+    },
+    {
+      "q": "plugin slot dashboard client render custom panel extension UI",
+      "expect": "packages/goal-plugin/src/client/AGENTS.md",
+      "openedFile": "packages/goal-plugin/src/client/FolderGoalsSection.tsx"
+    },
+    {
+      "q": "goal feature session handling end_agent strategy",
+      "expect": "packages/goal-plugin/src/server/AGENTS.md",
+      "openedFile": "packages/goal-plugin/src/server/index.ts"
+    },
+    {
+      "q": "kb_search tool definition description registration",
+      "expect": "packages/kb-extension/src/AGENTS.md",
+      "openedFile": "packages/kb-extension/src/extension.ts"
+    },
+    {
+      "q": "lazy indexing knowledge base active not yet initialized index on demand",
+      "expect": "packages/kb-extension/src/AGENTS.md",
+      "openedFile": "packages/kb-extension/src/extension.ts"
+    },
+    {
+      "q": "KB row component reindex fetch stats poll indexing spinner",
+      "expect": "packages/kb-plugin/src/client/AGENTS.md",
+      "openedFile": "packages/kb-plugin/src/client/useKbStats.ts"
+    },
+    {
+      "q": "KnowledgeBase slot component session card background color",
+      "expect": "packages/kb-plugin/src/client/AGENTS.md",
+      "openedFile": "packages/kb-plugin/src/client/index.tsx"
+    },
+    {
+      "q": "worktree card Kb section knowledge base project init",
+      "expect": "packages/kb-plugin/src/client/AGENTS.md",
+      "openedFile": "packages/kb-plugin/src/client/FolderKbSection.tsx"
+    },
+    {
+      "q": "stale index kb dox lint drift",
+      "expect": "packages/kb-plugin/src/server/AGENTS.md",
+      "openedFile": "packages/kb-plugin/src/server/kb-routes.ts"
+    },
+    {
+      "q": "kb index database",
+      "expect": "packages/kb/src/AGENTS.md",
+      "openedFile": "packages/kb/src/cli.ts"
+    },
+    {
+      "q": "kb indexing frontmatter parse markdown",
+      "expect": "packages/kb/src/AGENTS.md",
+      "openedFile": "packages/kb/src/chunker.ts"
+    },
+    {
+      "q": "roles providers.json model selector UI screen",
+      "expect": "packages/roles-plugin/src/AGENTS.md",
+      "openedFile": "packages/roles-plugin/src/RolesSettingsSection.tsx"
+    },
+    {
+      "q": "loading-history replay subscription-handler sendEventBatches",
+      "expect": "packages/server/src/browser-handlers/AGENTS.md",
+      "openedFile": "packages/server/src/browser-handlers/subscription-handler.ts"
+    },
+    {
+      "q": "models.json registry singleton thinkingLevelMap",
+      "expect": "packages/server/src/model-proxy/AGENTS.md",
+      "openedFile": "packages/server/src/model-proxy/custom-provider-discovery.ts"
+    },
+    {
+      "q": "truncateStrings exceedsSerializedSize DEFAULT_MAX_EVENT_DATA_SIZE memory-event-store",
+      "expect": "packages/server/src/persistence/memory-event-store.ts.AGENTS.md",
+      "openedFile": "packages/server/src/persistence/memory-event-store.ts"
+    },
+    {
+      "q": "pi-gateway session_register connections routing",
+      "expect": "packages/server/src/pi/pi-gateway.ts.AGENTS.md",
+      "openedFile": "packages/server/src/pi/pi-gateway.ts"
+    },
+    {
+      "q": "pi-resource-activation resolveActivation ResolvedPaths",
+      "expect": "packages/server/src/pi/pi-resource-activation.ts.AGENTS.md",
+      "openedFile": "packages/server/src/pi/pi-resource-activation.ts"
+    },
+    {
+      "q": "skills endpoint api skills registry",
+      "expect": "packages/server/src/pi/pi-resource-scanner.ts.AGENTS.md",
+      "openedFile": "packages/server/src/pi/pi-resource-scanner.ts"
+    },
+    {
+      "q": "skills enabled disabled project settings API",
+      "expect": "packages/server/src/pi/resource-activation-toggle.ts.AGENTS.md",
+      "openedFile": "packages/server/src/pi/resource-activation-toggle.ts"
+    },
+    {
+      "q": "internal proxy model selection pi-dashboard",
+      "expect": "packages/server/src/routes/AGENTS.md",
+      "openedFile": "packages/server/src/routes/model-proxy-routes.ts"
+    },
+    {
+      "q": "client render performance React re-render optimization",
+      "expect": "packages/server/src/server.ts.AGENTS.md",
+      "openedFile": "packages/server/src/server.ts"
+    },
+    {
+      "q": "known servers settings network add server connect select",
+      "expect": "packages/server/src/server.ts.AGENTS.md",
+      "openedFile": "packages/server/src/server.ts"
+    },
+    {
+      "q": "ask_user pending status thinking indicator session",
+      "expect": "packages/server/src/session/event-status-extraction.ts.AGENTS.md",
+      "openedFile": "packages/server/src/session/event-status-extraction.ts"
+    },
+    {
+      "q": "endedAt session ended timestamp restore",
+      "expect": "packages/server/src/session/memory-session-manager.ts.AGENTS.md",
+      "openedFile": "packages/server/src/session/memory-session-manager.ts"
+    },
+    {
+      "q": "otherChanges ownership evidence bash window mtime",
+      "expect": "packages/server/src/session/session-diff.ts.AGENTS.md",
+      "openedFile": "packages/server/src/session/session-diff.ts"
+    },
+    {
+      "q": "event-wiring agent_settled lastActivityAt capture",
+      "expect": "packages/server/src/session/session-to-meta.ts.AGENTS.md",
+      "openedFile": "packages/server/src/session/session-to-meta.ts"
+    },
+    {
+      "q": "zrok tunnel share reserved token",
+      "expect": "packages/server/src/tunnel-providers/AGENTS.md",
+      "openedFile": "packages/server/src/tunnel-providers/zrok.ts"
+    },
+    {
+      "q": "sidebar-dnd sameTypeClosestCenter resolveWorkspaceFolderReorder",
+      "expect": "packages/shared/src/browser-protocol.ts.AGENTS.md",
+      "openedFile": "packages/shared/src/browser-protocol.ts"
+    },
+    {
+      "q": "WebSocket event bus protocol bridge server client message types command",
+      "expect": "packages/shared/src/browser-protocol.ts.AGENTS.md",
+      "openedFile": "packages/shared/src/browser-protocol.ts"
+    },
+    {
+      "q": "Playwright e2e Docker test harness globalSetup port 18000 model proxy",
+      "expect": "packages/shared/src/config.ts.AGENTS.md",
+      "openedFile": "packages/shared/src/config.ts"
+    },
+    {
+      "q": "tunnel module server subprocess management reserved token status endpoint",
+      "expect": "packages/shared/src/config.ts.AGENTS.md",
+      "openedFile": "packages/shared/src/config.ts"
+    },
+    {
+      "q": "extension printed message custom event chatlog",
+      "expect": "packages/shared/src/display-prefs.ts.AGENTS.md",
+      "openedFile": "packages/shared/src/display-prefs.ts"
+    },
+    {
+      "q": "NotifyRenderer InlineMessage severity tokens notify row",
+      "expect": "packages/shared/src/display-prefs.ts.AGENTS.md",
+      "openedFile": "packages/shared/src/display-prefs.ts"
+    },
+    {
+      "q": "openspec-activity-detector detectOpenSpecActivity",
+      "expect": "packages/shared/src/openspec-activity-detector.ts.AGENTS.md",
+      "openedFile": "packages/shared/src/openspec-activity-detector.ts"
+    },
+    {
+      "q": "openspec-poller runOpenSpecStatus runOpenSpecList buildOpenSpecData parse json",
+      "expect": "packages/shared/src/openspec-poller.ts.AGENTS.md",
+      "openedFile": "packages/shared/src/openspec-poller.ts"
+    },
+    {
+      "q": "sessionFlagsToArgv SessionFlags spawn-mechanism",
+      "expect": "packages/shared/src/platform/AGENTS.md",
+      "openedFile": "packages/shared/src/platform/spawn-mechanism.ts"
+    },
+    {
+      "q": "in-memory fast model subagent spawn summarize",
+      "expect": "packages/shared/src/session-meta.ts.AGENTS.md",
+      "openedFile": "packages/shared/src/session-meta.ts"
+    },
+    {
+      "q": "inheritContext compressed snapshot parent conversation maxChars subagent spawn",
+      "expect": "packages/subagents-plugin/src/client/AGENTS.md",
+      "openedFile": "packages/subagents-plugin/src/client/SubagentsSettings.tsx"
+    },
+    {
+      "q": "SubagentFrameBuffer resync snapshots agentId",
+      "expect": "packages/subagents-plugin/src/client/AGENTS.md",
+      "openedFile": "packages/subagents-plugin/src/client/types.ts"
+    },
+    {
+      "q": "bridge init openspec-poller verify-release-deps worktreeInit shim PATH",
+      "expect": "scripts/AGENTS.md",
+      "openedFile": "scripts/verify-release-deps.mjs"
+    },
+    {
+      "q": "mutation-harness verifyTeeth scripts",
+      "expect": "scripts/AGENTS.md",
+      "openedFile": "scripts/__tests__/repair-meta-source.test.mjs"
+    },
+    {
+      "q": "verify-release-deps.mjs node-version.ts node-guard engines cap",
+      "expect": "scripts/AGENTS.md",
+      "openedFile": "scripts/verify-release-deps.mjs"
+    },
+    {
+      "q": "Playwright e2e docker test harness scenarios thinking reasoning",
+      "expect": "tests/e2e/AGENTS.md",
+      "openedFile": "tests/e2e/faux-text.spec.ts"
+    },
+    {
+      "q": "Playwright e2e docker harness system browser tests",
+      "expect": "tests/e2e/chat-transcript-virtualization.spec.ts.AGENTS.md",
+      "openedFile": "tests/e2e/chat-transcript-virtualization.spec.ts"
+    },
+    {
+      "q": "Playwright e2e test harness globalSetup docker test-up",
+      "expect": "tests/e2e/lifecycle.ts.AGENTS.md",
+      "openedFile": "tests/e2e/lifecycle.ts"
+    },
+    {
+      "q": "Playwright e2e test harness docker clipboard chat table copy",
+      "expect": "tests/e2e/mermaid-colorize.spec.ts.AGENTS.md",
+      "openedFile": "tests/e2e/mermaid-colorize.spec.ts"
+    }
+  ]
+}

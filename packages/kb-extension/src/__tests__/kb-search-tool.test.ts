@@ -97,4 +97,76 @@ describe("kb_search tool output contract", () => {
     expect(kbSearch.description.toLowerCase()).toContain("condensed");
     expect(kbSearch.description).toContain("format");
   });
+
+  // --- change: fix-kb-search-retrieval-quality ------------------------------
+
+  it("no two condensed entries name the same path (limit bounds distinct sources)", async () => {
+    const text = (await run({ query: "token", limit: 10 })).content[0].text;
+    const paths = text.split("\n").filter((l) => /^\d+  /.test(l)).map((l) => l.split("  ")[1]);
+    expect(paths.length).toBeGreaterThan(0);
+    expect(new Set(paths).size).toBe(paths.length);
+  });
+
+  it("condensed output carries the leaf heading, not the full breadcrumb", async () => {
+    const text = (await run({ query: "token extraction claims" })).content[0].text;
+    const header = text.split("\n").find((l) => /^\d+  /.test(l))!;
+    expect(header).not.toContain(" > ");
+  });
+
+  it("condensed output marks further matching sections of the same source", async () => {
+    const text = (await run({ query: "token", limit: 10 })).content[0].text;
+    // auth.md has three matching sections collapsed to one entry.
+    expect(text).toMatch(/\(\+\d+ more sections?\)/);
+  });
+
+  it("json format retains score, rank, the FULL headingPath and the suppressed count", async () => {
+    const text = (await run({ query: "token", format: "json" })).content[0].text;
+    const hits = JSON.parse(text) as { headingPath: string; score: number; rank: number; suppressedSections?: number }[];
+    expect(hits.length).toBeGreaterThan(0);
+    for (const h of hits) {
+      expect(typeof h.headingPath).toBe("string");
+      expect(h.headingPath.length).toBeGreaterThan(0);
+      expect(typeof h.suppressedSections).toBe("number");
+    }
+    expect(hits.some((h) => h.headingPath.includes(" > "))).toBe(true);
+  });
+
+  it("the description states the delivered shape and drops the unrewarded term-count advice", () => {
+    expect(kbSearch.description).toContain("leafHeading");
+    expect(kbSearch.description).toContain("more sections");
+    expect(kbSearch.description).toContain("DISTINCT SOURCES");
+    expect(kbSearch.description).not.toContain("Prefer 2");
+  });
+});
+
+describe("kb_get tool: path-only fetch never truncates silently (design D7)", () => {
+  let dir: string;
+  let kbGet: Tool;
+  let kbSearch: Tool;
+  beforeAll(async () => {
+    dir = setupProject();
+    const tools = loadTools();
+    kbGet = tools.get("kb_get")!;
+    kbSearch = tools.get("kb_search")!;
+    await kbSearch.execute("id", { query: "token" }, undefined, undefined, { cwd: dir }); // populate the index
+  });
+  afterAll(() => rmSync(dir, { recursive: true, force: true }));
+
+  it("reports how many further sections exist for a multi-section file", async () => {
+    const res = await kbGet.execute("id", { path: "auth.md" }, undefined, undefined, { cwd: dir });
+    expect(res.content[0].text).toMatch(/\(\+\d+ more sections? in this file/);
+    expect((res.details as unknown as { suppressedSections: number }).suppressedSections).toBeGreaterThan(0);
+  });
+
+  it("adds no marker when a section is addressed explicitly", async () => {
+    const json = (await kbSearch.execute("id", { query: "token extraction claims", format: "json" }, undefined, undefined, { cwd: dir })).content[0].text;
+    const target = (JSON.parse(json) as { path: string; headingPath: string }[]).find((h) => h.path.endsWith("auth.md"))!;
+    const res = await kbGet.execute("id", { path: target.path, section: target.headingPath }, undefined, undefined, { cwd: dir });
+    expect(res.content[0].text).not.toMatch(/more sections? in this file/);
+  });
+
+  it("still reports a clean not-found", async () => {
+    const res = await kbGet.execute("id", { path: "nope.md" }, undefined, undefined, { cwd: dir });
+    expect(res.content[0].text).toContain("(not found: nope.md)");
+  });
 });

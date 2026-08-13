@@ -109,12 +109,15 @@ Usage:
   kb search  "<query>" [--limit N] [--root id] [--doc-type doc|agents|source-md]
              [--expand-parent|--no-expand-parent] [--expand-graph] [--rerank]
              [--expand-query] [--json] [--no-reindex] [--source <dir>...] [--db <path>]
+             [--no-source-dedup] [--no-lane-quota] [--no-coverage-rerank]
+             (--limit bounds distinct SOURCES, not chunks)
   kb neighbors "<node>" [--depth N] [--rel child_of|links_to|references|has_tag]
   kb backlinks "<node>"
   kb get <path> [--section "<heading_path>"]
   kb agents <path>                  nearest AGENTS.md chain (root→nearest); --fallback-manifest
   kb dox init [--dry-run]           scaffold a DOX AGENTS.md tree (path rows only)
-  kb dox lint [--json] [--fix]      audit DOX tree drift
+  kb dox lint [--json] [--fix] [--source-rows]   audit DOX tree drift
+                                    (--source-rows also reports undocumented .ts/.tsx)
   kb dox triage [--json] [--limit N]  triage STALE rows vs the git diff since ack
               [--apply <d.json> [--write]] [--ack <targets.json>]
   kb eval    --golden <file.json> [--limit N] [--doc-type ...] [--no-reindex]
@@ -167,7 +170,9 @@ function main() {
       return;
     }
     if (sub === "lint") {
-      const r = doxLint({ cwd, json: !!flags.json, fix: !!flags.fix });
+      // --source-rows opts into the D9 source-file `missing` arm (off by default
+      // so an existing tree adopts it incrementally). See change: fix-kb-search-retrieval-quality.
+      const r = doxLint({ cwd, json: !!flags.json, fix: !!flags.fix, sourceFileRows: !!flags["source-rows"] });
       if (flags.json) console.log(JSON.stringify(r, null, 2));
       else for (const i of r.issues) console.log(`${i.kind}\t${i.agentsFile}${i.path ? "\t" + i.path : ""}\t${i.detail}`);
       if (r.issues.length) process.exit(1);
@@ -248,6 +253,11 @@ async function runCmd(cmd: string, flags: Flags): Promise<void> {
         fieldWeights: cfg.ranking.fieldWeights,
         proximityBoost: cfg.ranking.proximityBoost,
         diversity: cfg.ranking.diversity,
+        // `limit` bounds distinct SOURCES, not chunks. See change: fix-kb-search-retrieval-quality.
+        sourceDedup: flags["no-source-dedup"] ? false : cfg.ranking.sourceDedup,
+        laneQuota: flags["no-lane-quota"] ? 0 : cfg.ranking.laneQuota,
+        coverageRerank: flags["no-coverage-rerank"] ? false : cfg.ranking.coverageRerank,
+        prf: cfg.queryExpansion.prf,
         expandParent: flags["no-expand-parent"] ? false : (cfg.expand.parent || !!flags["expand-parent"]),
         expandGraph: cfg.expand.graph || !!flags["expand-graph"],
         rerank: cfg.rerank.enabled || !!flags.rerank,
@@ -272,7 +282,10 @@ async function runCmd(cmd: string, flags: Flags): Promise<void> {
         c = store.getChunk(s.id, flags._[1], flags.section as string | undefined);
         if (c) break;
       }
-      console.log(c ? c.body : `(not found: ${flags._[1]})`);
+      // A path-only fetch of a multi-chunk file must never look like the whole
+      // file. See change: fix-kb-search-retrieval-quality (design D7).
+      const more = c?.suppressedSections ?? 0;
+      console.log(c ? (more > 0 ? `${c.body}\n\n(+${more} more section${more === 1 ? "" : "s"} in this file — pass --section <headingPath> to fetch one)` : c.body) : `(not found: ${flags._[1]})`);
     } else if (cmd === "eval") {
       const gf = flags.golden as string | undefined;
       if (!gf) { console.error("eval needs --golden <file.json>"); process.exit(2); }
