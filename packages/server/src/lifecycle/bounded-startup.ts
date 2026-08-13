@@ -66,16 +66,34 @@ export async function runBoundedStartup(opts: BoundedStartupOpts): Promise<void>
       });
 
   // The deadline cannot CANCEL `core` — it keeps running after the race
-  // rejects, and teardown then closes listeners underneath it. Own its late
-  // settle here: without this, a boot that finishes after the deadline throws
-  // into nothing (unhandled rejection) and can leave the process wedged
-  // instead of exiting, which is the exact failure this module exists to stop.
+  // rejects. Two consequences, both handled here:
+  //
+  //  1. Its late settle needs an owner, or a boot that fails after the
+  //     deadline throws into nothing (unhandled rejection).
+  //  2. Worse, a late step can OPEN something after teardown already ran —
+  //     `fastify.listen()` sits at the very end of startup, so a boot that
+  //     crawls past the deadline could bind the dashboard port moments after
+  //     we released it, resurrecting the resident-but-not-serving process
+  //     this module exists to prevent. So teardown runs AGAIN when a
+  //     superseded core finally settles, closing anything it opened late.
+  let superseded = false;
   const core = opts.core();
-  core.catch(() => { /* superseded by the deadline; teardown already ran */ });
+  const sweepIfSuperseded = async () => {
+    if (!superseded) return;
+    try {
+      await opts.teardown();
+    } catch {
+      /* best-effort sweep */
+    }
+  };
+  core.then(sweepIfSuperseded, sweepIfSuperseded);
 
   try {
     await (deadline === null ? core : Promise.race([core, deadline]));
   } catch (err) {
+    // From here on `core` (if still running) is superseded: whatever it opens
+    // afterwards must be swept by the handler above.
+    superseded = true;
     try {
       await opts.teardown();
     } catch {

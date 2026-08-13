@@ -122,4 +122,29 @@ describe("runBoundedStartup", () => {
     ).rejects.toThrow("plugin load failed");
     expect(teardown).toHaveBeenCalledTimes(1);
   });
+
+  it("E20: teardown runs AGAIN when a superseded core settles, sweeping late binds", async () => {
+    const teardown = vi.fn();
+
+    await expect(
+      runBoundedStartup({
+        // Stands in for a boot that crawls past the deadline and only then
+        // reaches `fastify.listen()` — it must not keep what it opened.
+        core: () => new Promise<void>((resolve) => setTimeout(resolve, 40)),
+        teardown,
+        deadlineMs: 10,
+      }),
+    ).rejects.toBeInstanceOf(StartupDeadlineError);
+
+    expect(teardown).toHaveBeenCalledTimes(1);
+    await new Promise((r) => setTimeout(r, 80));
+    expect(teardown).toHaveBeenCalledTimes(2);
+  });
+
+  it("does NOT sweep after a successful startup", async () => {
+    const teardown = vi.fn();
+    await runBoundedStartup({ core: async () => {}, teardown, deadlineMs: 1000 });
+    await new Promise((r) => setTimeout(r, 30));
+    expect(teardown).not.toHaveBeenCalled();
+  });
 });
