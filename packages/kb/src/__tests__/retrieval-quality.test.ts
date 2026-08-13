@@ -156,17 +156,26 @@ describe("store: source-level dedup, lane quota, coverage rerank, PRF, getChunk"
   });
 
   it("the candidate pool is a multiple of limit, not limit itself", () => {
-    // With limit 2 and 4 sources indexed, a pool of exactly 2 chunks would only
-    // ever see spec.md's sections; a deeper pool surfaces a second source.
-    const hits = store.search(Q, { limit: 2 });
+    // `laneQuota: 0` is load-bearing: with the quota on, the agents lane supplies
+    // a second source by itself and the assertion would pass even if the main
+    // pool were exactly `limit`. Both sources must come from the ONE main lane.
+    const hits = store.search(Q, { limit: 2, laneQuota: 0, queryExpansion: "off" });
     expect(new Set(hits.map((h) => h.path)).size).toBe(2);
+    // spec.md alone contributes >2 matching chunks, so a pool of 2 could only
+    // ever have yielded spec.md.
+    expect(store.search(Q, { limit: 50, sourceDedup: false, laneQuota: 0 }).filter((h) => h.path.endsWith("spec.md")).length).toBeGreaterThan(2);
   });
 
-  it("completes a default search within the 50 ms budget", () => {
+  // NOTE: the spec's 50 ms budget is over a ~22,000-chunk corpus; this fixture is
+  // ~40 chunks, where any implementation passes. The real measurement lives in
+  // openspec/changes/fix-kb-search-retrieval-quality/measurements.md (and it
+  // does NOT meet the budget at p95). Asserting a wall-clock bound here would be
+  // a green light that means nothing, so this only guards gross regressions.
+  it("does not become pathologically slow on the fixture corpus", () => {
     store.search(Q, { limit: 10 }); // warm the prepared statement
     const t = performance.now();
-    store.search(Q, { limit: 10 });
-    expect(performance.now() - t).toBeLessThan(50);
+    for (let i = 0; i < 10; i++) store.search(Q, { limit: 10 });
+    expect((performance.now() - t) / 10).toBeLessThan(50);
   });
 
   it("surfaces agents hits without a docType filter (lane quota)", () => {
@@ -192,13 +201,17 @@ describe("store: source-level dedup, lane quota, coverage rerank, PRF, getChunk"
   });
 
   it("a starved lane yields its slots to the other lane", () => {
-    // `queryExpansion: off` keeps PRF from pulling extra terms in: the point here
-    // is the interleave, not the expansion.
-    const hits = store.search("filler prose", { limit: 5, queryExpansion: "off" });
-    // Only ONE agents chunk exists, so its lane can never fill its 40% share —
-    // the doc lane must yield-fill the page to `limit`.
+    // The query must match the agents lane, else `agentsRows` is empty, the
+    // interleave branch never runs, and this asserts nothing. `per-file record`
+    // hits src/AGENTS.md; `filler` hits the 30 doc files.
+    const q = "per-file record filler prose";
+    const agentsOnly = store.search(q, { limit: 10, docType: "agents", queryExpansion: "off" });
+    expect(agentsOnly.length).toBe(1); // exactly one agents SOURCE exists → lane runs dry
+    const hits = store.search(q, { limit: 5, laneQuota: 0.6, queryExpansion: "off" });
+    // A 0.6 share reserves 3 of 5 slots, but the lane can only ever supply 1 —
+    // the doc lane must yield-fill the rest rather than leaving the page short.
     expect(hits.length).toBe(5);
-    expect(hits.filter((h) => h.docType === "agents").length).toBeLessThanOrEqual(1);
+    expect(hits.filter((h) => h.docType === "agents").length).toBe(1);
     expect(new Set(hits.map((h) => h.path)).size).toBe(5);
   });
 
@@ -226,6 +239,17 @@ describe("store: source-level dedup, lane quota, coverage rerank, PRF, getChunk"
       s.close();
       rmSync(d, { recursive: true, force: true });
     });
+  });
+
+  it("document frequency resolves the PORTER STEM, not the raw token", () => {
+    // FTS5 indexes `collaps`, never `collapsed`. Keying the vocab lookup on the
+    // raw token silently returns df=0 — i.e. maximum IDF for a common word, and
+    // a PRF corpus-frequency ceiling that can never reject anything.
+    const df = (store as unknown as { documentFrequencies: (t: string[]) => Map<string, number> }).documentFrequencies.bind(store);
+    expect(df(["collapsed"]).get("collapsed")).toBeGreaterThan(0);
+    expect(df(["messages"]).get("messages")).toBeGreaterThan(0);
+    // A token genuinely absent from the corpus must still report 0.
+    expect(df(["zzzznotpresent"]).get("zzzznotpresent")).toBe(0);
   });
 
   it("PRF is skipped when coverage rerank is disabled", () => {

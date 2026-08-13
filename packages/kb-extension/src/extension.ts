@@ -17,14 +17,13 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 /** Minimal structural shape of the extension context we use (cwd). */
 type Ctx = { cwd?: string };
-import { Type } from "typebox";
-import { loadConfig } from "@blackbelt-technology/pi-dashboard-kb";
-import { agentsChain } from "@blackbelt-technology/pi-dashboard-kb";
-import { renderHits } from "@blackbelt-technology/pi-dashboard-kb";
+
 import { readFileSync } from "node:fs";
-import {
-  createReindexState, getKb, scheduleReindex, acknowledgeRows,
-  decideNudge, nudgeText, closeKb, reindexNow, ensurePopulated, type ReindexState,
+import { agentsChain, loadConfig, renderHits } from "@blackbelt-technology/pi-dashboard-kb";
+import { Type } from "typebox";
+import {acknowledgeRows,closeKb, 
+  createReindexState, 
+  decideNudge, ensurePopulated, getKb, nudgeText, type ReindexState,reindexNow, scheduleReindex, 
 } from "./reindex.js";
 
 const WRITE_TOOLS = new Set(["write", "edit", "bash"]);
@@ -202,7 +201,7 @@ export default function kbExtension(pi: ExtensionAPI): void {
     const toolName = (event as { toolName?: string }).toolName;
     if (!WRITE_TOOLS.has(toolName ?? "")) return;
     const input = (event as { input?: { path?: string; command?: string } }).input;
-    let p = input?.path;
+    const p = input?.path;
     if (!p && toolName === "bash" && input?.command) {
       // best-effort: don't parse bash for edits; only handle write/edit paths
       return;
@@ -238,4 +237,4 @@ export default function kbExtension(pi: ExtensionAPI): void {
   });
 }
 
-export { createReindexState, getKb, scheduleReindex, acknowledgeRows, decideNudge, nudgeText, closeKb, closeKbForCwd, reindexNow, ensurePopulated } from "./reindex.js";
+export { acknowledgeRows, closeKb, closeKbForCwd, createReindexState, decideNudge, ensurePopulated, getKb, nudgeText, reindexNow, scheduleReindex } from "./reindex.js";

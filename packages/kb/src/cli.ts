@@ -5,8 +5,8 @@
 import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { frontmatterConfigHash, loadConfig, type ResolvedConfig, type ResolvedSource } from "./config.js";
-import { ackTargets, applyDecisions, buildWorkItems } from "./dox-triage.js";
 import { agentsChain, doxInit, doxLint } from "./dox.js";
+import { ackTargets, applyDecisions, buildWorkItems } from "./dox-triage.js";
 import { evaluate, type GoldenItem } from "./eval.js";
 import { runIndexAtomic } from "./index-run.js";
 import { indexSource } from "./indexer.js";

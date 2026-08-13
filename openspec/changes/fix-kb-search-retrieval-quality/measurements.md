@@ -42,13 +42,13 @@ can never appear in kb results, since the KB indexes markdown.
 | markdown | baseline (pre-change) | 0.537 | 0.426 | 0.293 | **0.480** | 5.20 |
 | markdown | + source dedup (D1/D2) | 0.611 | 0.519 | 0.329 | 0.000 | 9.98 |
 | markdown | **+ lane quota 0.5 (D3) — SHIPPED** | **0.630** | 0.509 | 0.324 | 0.000 | 10.00 |
-| markdown | + coverage rerank (D4a) | 0.491 | 0.361 | 0.233 | 0.000 | 10.00 |
-| markdown | + PRF (D4b) | 0.491 | 0.370 | 0.237 | 0.000 | 9.98 |
+| markdown | + coverage rerank (D4a) | 0.491 | 0.352 | 0.235 | 0.000 | 10.00 |
+| markdown | + PRF (D4b) | 0.509 | 0.389 | 0.218 | 0.000 | 10.00 |
 | source | baseline (pre-change) | 0.183 | 0.125 | 0.082 | **0.484** | 5.16 |
 | source | + source dedup (D1/D2) | 0.317 | 0.212 | 0.110 | 0.000 | 10.00 |
 | source | **+ lane quota 0.5 (D3) — SHIPPED** | **0.500** | 0.337 | 0.198 | 0.000 | 10.00 |
-| source | + coverage rerank (D4a) | 0.481 | 0.394 | 0.241 | 0.000 | 10.00 |
-| source | + PRF (D4b) | 0.558 | 0.433 | 0.240 | 0.000 | 10.00 |
+| source | + coverage rerank (D4a) | 0.558 | 0.394 | 0.254 | 0.000 | 10.00 |
+| source | + PRF (D4b) | 0.558 | 0.481 | 0.281 | 0.000 | 10.00 |
 
 Combined R@10 (n=212, weighted): baseline **0.363** → shipped **0.566** (**+56%**).
 
@@ -61,19 +61,39 @@ defect (55.8% duplicate slots) is real and fully corrected by D1 alone.
 The proposal projected D4 at +100% R@10. On the re-mined fixtures it is a **net
 regression**:
 
-- markdown-intent R@10 **0.630 → 0.491 (−22%)**
-- source-intent R@10 0.500 → 0.558 (+12%)
-- combined **0.566 → 0.524 (−7%)**
-- latency ~4× (53 ms → 222 ms median)
+| | markdown R@10 | source R@10 | combined R@10 | source P@5 | source MRR |
+|---|---|---|---|---|---|
+| D3 (shipped) | **0.630** | 0.500 | **0.566** | 0.337 | 0.198 |
+| + coverage rerank | 0.491 | 0.558 | 0.524 | 0.394 | 0.254 |
+| + PRF | 0.509 | 0.558 | 0.533 | **0.481** | **0.281** |
 
-The dependency the design predicted *is* visible in the source set (PRF alone
-adds nothing without the rerank; together they lift P@5 0.337 → 0.433), so D4 is
-not broken — it trades markdown recall for source precision, and this corpus
-does not want that trade. Both are implemented, tested, and config-gated
-(`ranking.coverageRerank`, `queryExpansion.mode`), defaulting **off**.
+D4 is **not broken** — it is a coherent trade. It is clearly *good* for
+source-intent (P@5 0.337 → 0.481, MRR 0.198 → 0.281) and clearly *bad* for
+markdown-intent (R@10 0.630 → 0.509). The design's stated dependency also
+reproduces: PRF without the rerank is a no-op (identical to D3), exactly as
+predicted. This corpus is 96.4% `doc` chunks, so the markdown loss outweighs the
+source gain and the combined number goes down.
+
+Cost: ~3× latency (57 ms → 173 ms median).
+
+Both are implemented, tested, and config-gated (`ranking.coverageRerank`,
+`queryExpansion.mode`), defaulting **off**. A deployment that mostly asks
+"where is this symbol" rather than "where is this doc" should turn them on.
 
 Not reproducible against the original numbers: the fixtures they were measured
 on no longer exist.
+
+### Correction: the first D4 measurement was run with broken IDF
+
+The initial pass scored D4 lower still (source P@5 0.433, MRR 0.240). Code review
+found that `documentFrequencies()` keyed the `chunks_vocab` lookup on the RAW
+query token while FTS5 stores porter STEMS — `collapsed` is indexed as `collaps`,
+and no prefix range anchored at `collapsed` reaches a key sorting before it. Every
+inflected token returned df = 0, i.e. maximum IDF, so coverage weighting was
+effectively unweighted and the PRF corpus-frequency ceiling could never reject a
+term. Fixed by stemming through SQLite's own tokenizer (`temp.kb_stem`) and
+looking up exact stems; the numbers above are post-fix. The **conclusion did not
+change**, but the margin narrowed.
 
 ## Lane-quota sweep (D3), on the dedup-only base
 
@@ -111,6 +131,10 @@ Median over 212 real queries, 31,121-chunk index, `expandParent` off:
 | baseline | 20.6 ms | 34.8 ms |
 | + source dedup (D1/D2) | 25.5 ms | 38.2 ms |
 | **+ lane quota 0.5 — SHIPPED** | **53.2 ms** | **84.8 ms** |
+
+The reserved lane is fetched at the SAME depth as the main lane. A shallower
+pool was tried and reverted: it saves nothing (the scan, not the `LIMIT`, is the
+cost) and it makes `suppressedSections` depend on which lane surfaced a source.
 
 D1/D2 land exactly on the design's prediction (13→25 ms). **D3 is the cost**: its
 `agents` lane is a second FTS query, and `doc_type` is an `UNINDEXED` FTS5

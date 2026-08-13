@@ -7,7 +7,7 @@
 //
 // `--sweep` additionally walks the lane-quota share so the default is a measured
 // choice rather than a guess (task 4.5).
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";

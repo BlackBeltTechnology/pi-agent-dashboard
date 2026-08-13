@@ -1,13 +1,12 @@
-import { afterEach, describe, expect, it } from "vitest";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
-import { existsSync, readdirSync, symlinkSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { indexSource } from "../indexer.js";
-import { SqliteFtsStore } from "../sqlite-store.js";
-import { runIndexAtomic } from "../index-run.js";
+import { afterEach, describe, expect, it } from "vitest";
 import { loadConfig, validateConfig } from "../config.js";
 import { DEFAULT_SEARCHABLE_KEYS } from "../frontmatter.js";
+import { runIndexAtomic } from "../index-run.js";
+import { indexSource } from "../indexer.js";
+import { SqliteFtsStore } from "../sqlite-store.js";
 import type { KbStore } from "../types.js";
 
 const tmps: string[] = [];

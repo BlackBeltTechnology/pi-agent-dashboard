@@ -111,6 +111,9 @@ export class SqliteFtsStore implements KbStore {
   }
   commit() {
     this.db.exec("COMMIT");
+    // An index batch just changed the corpus; cached document frequencies (and
+    // therefore IDF) are stale. The fts5vocab view itself is live.
+    this.dfCache.clear();
   }
   rollback() {
     try {
@@ -160,6 +163,7 @@ export class SqliteFtsStore implements KbStore {
     return (this.db.prepare("SELECT path FROM files WHERE root=?").all(root) as any[]).map((r) => r.path);
   }
   deleteByPath(root: string, path: string) {
+    this.dfCache.clear();
     // chunks includes the file's synthetic `:meta` chunk (same path) — removed here.
     this.db.prepare("DELETE FROM chunks WHERE root=? AND path=?").run(root, path);
     // outbound edges originate from this file's nodes; prune nodes owned by path then dangling edges
@@ -224,16 +228,54 @@ export class SqliteFtsStore implements KbStore {
     this.db.prepare("INSERT OR IGNORE INTO edges(src,dst,rel,weight) VALUES(?,?,?,?)").run(src.id, dst.id, e.rel, e.weight ?? 1);
   }
 
+  /** Porter stems for raw tokens, computed by SQLite's OWN tokenizer so they
+   *  match what FTS5 actually indexed. A raw token is NOT a usable key into the
+   *  vocab table: FTS5 stores `collaps`, and no prefix range anchored at
+   *  `collapsed` can reach a key that sorts BEFORE it. The helper tables live in
+   *  `temp.`, so this works against a read-only main DB. */
+  private stemReady: boolean | null = null;
+  private stemCache = new Map<string, string>();
+  private stems(tokens: string[]): Map<string, string> {
+    const out = new Map<string, string>();
+    const missing = [...new Set(tokens.filter((t) => !this.stemCache.has(t)))];
+    if (this.stemReady === null) {
+      try {
+        this.db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS temp.kb_stem USING fts5(t, tokenize='porter unicode61')");
+        this.db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS temp.kb_stem_vocab USING fts5vocab(kb_stem, 'instance')");
+        this.stemReady = true;
+      } catch {
+        this.stemReady = false;
+      }
+    }
+    if (this.stemReady && missing.length) {
+      try {
+        this.db.exec("DELETE FROM temp.kb_stem");
+        const ins = this.db.prepare("INSERT INTO temp.kb_stem(rowid, t) VALUES(?,?)");
+        missing.forEach((t, i) => ins.run(i + 1, t));
+        // 'instance' carries the source rowid, so each stem maps back to its token.
+        for (const r of this.db.prepare("SELECT term, doc FROM temp.kb_stem_vocab").all() as any[]) {
+          const tok = missing[(Number(r.doc) || 0) - 1];
+          if (tok !== undefined) this.stemCache.set(tok, String(r.term));
+        }
+      } catch { /* stemming unavailable → fall back to the raw token below */ }
+    }
+    for (const t of tokens) out.set(t, this.stemCache.get(t) ?? t);
+    return out;
+  }
+
   /** Corpus document frequency for raw tokens, via the fts5vocab shadow table.
-   *  Terms there are porter-stemmed, so a raw token is matched by PREFIX RANGE
-   *  (`collapsed` → `collaps`) — an over-estimate for short tokens, which is
-   *  acceptable for an IDF weight and a PRF ceiling. Falls back to df=0 when the
-   *  vocab table cannot be created (e.g. a read-only DB). Cached per store. */
+   *  Keys are exact porter stems (see `stems()`), so df is exact rather than a
+   *  prefix over-estimate. `fts5vocab` is a live view over the FTS index, but
+   *  `dfCache` is not — it is dropped on `commit()`/`deleteByPath`, the points at
+   *  which an index batch can have moved the counts. Falls back to df=0 when the
+   *  vocab table cannot be created (e.g. a read-only DB). */
   private dfCache = new Map<string, number>();
   private vocabReady: boolean | null = null;
   private documentFrequencies(tokens: string[]): Map<string, number> {
     const out = new Map<string, number>();
-    const missing = tokens.filter((t) => !this.dfCache.has(t));
+    const stem = this.stems(tokens);
+    const keys = [...new Set(tokens.map((t) => stem.get(t) as string))];
+    const missing = keys.filter((k) => !this.dfCache.has(k));
     if (this.vocabReady === null) {
       try {
         this.db.exec("CREATE VIRTUAL TABLE IF NOT EXISTS chunks_vocab USING fts5vocab(chunks, 'row')");
@@ -243,15 +285,14 @@ export class SqliteFtsStore implements KbStore {
       }
     }
     if (this.vocabReady && missing.length) {
-      // One UNION ALL of prefix ranges → an index seek per token, one round trip.
-      const sql = missing.map(() => "SELECT ? tok, COALESCE(MAX(doc),0) df FROM chunks_vocab WHERE term >= ? AND term < ?").join(" UNION ALL ");
-      const args: string[] = [];
-      for (const t of missing) args.push(t, t, `${t}\uffff`);
+      const ph = missing.map(() => "?").join(",");
       try {
-        for (const r of this.db.prepare(sql).all(...args) as any[]) this.dfCache.set(r.tok, Number(r.df) || 0);
+        const rows = this.db.prepare(`SELECT term, doc FROM chunks_vocab WHERE term IN (${ph})`).all(...missing) as any[];
+        for (const k of missing) this.dfCache.set(k, 0); // absent term = df 0
+        for (const r of rows) this.dfCache.set(String(r.term), Number(r.doc) || 0);
       } catch { /* vocab unusable → leave uncached, treated as df 0 below */ }
     }
-    for (const t of tokens) out.set(t, this.dfCache.get(t) ?? 0);
+    for (const t of tokens) out.set(t, this.dfCache.get(stem.get(t) as string) ?? 0);
     return out;
   }
 
@@ -327,10 +368,12 @@ export class SqliteFtsStore implements KbStore {
     // reserved share of the page (design D3). An explicit docType bypasses it.
     const laneShare = opts.docType ? 0 : Math.min(1, Math.max(0, Number(opts.laneQuota ?? 0.5) || 0));
     const mainRows = pass(match, opts.docType);
-    // The reserved lane only ever contributes `limit * share` slots, so it needs
-    // a shallow pool — fetching it as deep as the main lane doubles query cost
-    // for candidates that can never be shown. Headroom of 2x covers source dedup.
-    const agentsRows = laneShare > 0 ? pass(match, "agents", Math.min(fetch, Math.max(2, Math.ceil(limit * laneShare * 2)))) : [];
+    // Same depth as the main lane. A shallower pool would be cheaper only in
+    // theory: `doc_type` is an UNINDEXED FTS5 column, so this pass scans the
+    // whole match set regardless of LIMIT. It would, however, make
+    // `suppressedSections` depend on WHICH lane surfaced a source — an `agents`
+    // file with more matching sections than the shallow pool would under-report.
+    const agentsRows = laneShare > 0 ? pass(match, "agents") : [];
 
     const bodies = new Map<string, string>();
     const lane = (rows: any[]): KbHit[] => {

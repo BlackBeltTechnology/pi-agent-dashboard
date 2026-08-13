@@ -84,7 +84,9 @@ export interface SearchOpts {
   /** Share of the result page reserved for `doc_type='agents'` (0..1). 0 disables
    *  the lane quota. Ignored when the caller passes an explicit `docType`. */
   laneQuota?: number;
-  coverageRerank?: boolean; // IDF-weighted coverage rerank (default true; design D4)
+  /** IDF-weighted coverage rerank (design D4). Opt-IN: default OFF, because it
+   *  measured a net regression on the bundled fixtures. Gates PRF expansion. */
+  coverageRerank?: boolean;
   prf?: { terms?: number; topK?: number; dfCeiling?: number }; // PRF tuning (design D4)
   fieldWeights?: { headingPath: number; heading: number; body: number };
   rootPriority?: Record<string, number>; // root id → priority (higher = preferred on dedup)
