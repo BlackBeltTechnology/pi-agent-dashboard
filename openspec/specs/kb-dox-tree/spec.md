@@ -34,7 +34,7 @@ The `.pi` tree SHALL NOT be excluded wholesale. `.pi/skills/`, `.pi/agents/` and
 - **AND** no files are written to disk
 
 ### Requirement: Drift lint
-The `dox lint` operation SHALL scan all `AGENTS.md` files and report drift issues in the categories `stale`, `orphan`, `missing`, `missing-companion`, `broken-pointer`, `broken-ref`, and `over-threshold`, and MAY auto-correct a subset when fix mode is enabled.
+The `dox lint` operation SHALL scan all `AGENTS.md` files and report drift issues in the categories `stale`, `orphan`, `missing`, `missing-companion`, `broken-pointer`, `broken-ref`, and `over-threshold`, and MAY auto-correct a subset when fix mode is enabled. The `missing` category SHALL cover source files as well as markdown files, because a source file with no per-file record is unreachable through the `agents` document-type lane that retrieval depends on.
 
 Only table rows under a `# DOX` heading are treated as file-index rows; rows under other headings are ignored.
 
@@ -56,6 +56,20 @@ Only table rows under a `# DOX` heading are treated as file-index rows; rows und
 - **WHEN** a markdown file lives in a directory covered by an `AGENTS.md` (itself or an ancestor) and has no row
 - **THEN** a `missing` issue is reported against the nearest ancestor `AGENTS.md` (deepest matching directory)
 - **AND** in fix mode a blank-purpose row for that file is appended to that owner
+
+#### Scenario: Undocumented source file in an area
+- **WHEN** a source file lives in a directory covered by an `AGENTS.md` (itself or an ancestor), has no row in any ancestor `AGENTS.md`, and has no `<file>.AGENTS.md` sidecar
+- **THEN** a `missing` issue is reported against the nearest ancestor `AGENTS.md`
+- **AND** the same exclusions that apply to the source-file walk (declaration files, test and spec files, excluded trees) SHALL apply, so they are never reported
+
+#### Scenario: A sidecar satisfies the source-file row requirement
+- **WHEN** a source file has no row in its directory `AGENTS.md` but does have a `<file>.AGENTS.md` sidecar
+- **THEN** no `missing` issue is reported for that file
+
+#### Scenario: Source-file missing rows are separately selectable
+- **WHEN** `dox lint` runs
+- **THEN** source-file `missing` findings SHALL be distinguishable from markdown `missing` findings by their reported target
+- **AND** the source-file arm SHALL be independently enableable, so an existing tree can adopt it without failing wholesale on first run
 
 #### Scenario: DOX row path resolves outside its own AGENTS.md directory
 - **WHEN** a DOX row path is relative and the dir-relative target (resolved against the row's own `AGENTS.md` directory) does not exist

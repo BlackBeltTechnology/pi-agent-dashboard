@@ -157,6 +157,10 @@ The store SHALL expose graph traversal from a named node and reverse lookup of n
 - **WHEN** the caller requests neighbors of a node with a depth
 - **THEN** nodes reachable within that depth are returned, excluding the origin node
 
+#### Scenario: Neighbors filtered by relation
+- **WHEN** a relation type is supplied
+- **THEN** traversal follows only edges of that relation
+
 #### Scenario: Backlinks
 - **WHEN** the caller requests backlinks for a node
 - **THEN** the distinct nodes with an edge pointing at it are returned
