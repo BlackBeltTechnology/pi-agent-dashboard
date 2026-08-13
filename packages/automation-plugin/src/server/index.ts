@@ -434,8 +434,11 @@ function concatText(content: unknown): string {
 }
 
 /**
- * Manual single-run trigger for the Run-now board action. Scans the target
- * scope for the named automation and fires exactly one run via the engine.
+ * Manual run trigger for the Run-now board action. Scans the target scope for
+ * the named automation and runs it via the engine's fan-out-aware `runNow`: a
+ * `scope: per-invoice` automation fans out to one scoped run per queued invoice
+ * (mirroring the scheduler fire), every other automation starts exactly one run.
+ * See change: run-now-fans-out-per-invoice.
  */
 async function runNowViaEngine(
   scope: AutomationScope,
@@ -455,8 +458,7 @@ async function runNowViaEngine(
     eng.actionRegistry.ids(),
   ).find((a) => a.name === name && a.scope === scope && a.valid);
   if (!found) return { ok: false, error: `automation "${name}" not found or invalid in ${scope} scope` };
-  const r = eng.startRunFor(found);
-  return r ? { ok: true, runId: r.runId } : { ok: false, error: "run not started" };
+  return eng.runNow(found);
 }
 
 /** Stop a running run via the engine (terminate process + finalize idempotently). */

@@ -303,6 +303,14 @@ export interface Engine {
    */
   fire(automation: DiscoveredAutomation, ctx?: FireContext): Promise<void>;
   /**
+   * Fan-out-aware manual run-now. A `scope: per-invoice` action force-starts one
+   * run per queued invoice (each bound to its invoice id + scoped env); every
+   * other action starts exactly one run. Returns the first started run's id.
+   * Empty queue → `{ ok: true }` (no id); missing/failed enumerator →
+   * `{ ok: false }`. See change: run-now-fans-out-per-invoice.
+   */
+  runNow(automation: DiscoveredAutomation): Promise<{ ok: boolean; runId?: string; error?: string }>;
+  /**
    * Stop a `running` run: terminate its spawned process via the host hook
    * (hard-kill by sessionId, or by spawnToken during the spawn→register
    * window) and finalize the run record once, AFTER termination is attempted.
@@ -557,51 +565,107 @@ export function createEngine(deps: EngineDeps): Engine {
     warn,
   });
 
+  /** True when the automation's action requests per-invoice fan-out. */
+  function isPerInvoice(automation: DiscoveredAutomation): boolean {
+    return (automation.config?.action?.payload as Record<string, unknown> | undefined)?.scope === "per-invoice";
+  }
+
   /**
-   * Fan-out-aware fire. An action declaring `scope: per-invoice` fans out to one
-   * run per queued invoice (each fire carries that invoice's id as the
-   * `invoice_id` var + `invoiceId`, so the payload resolves per invoice and the
-   * spawn is scoped by env). An empty queue fires nothing; a missing enumerator
-   * skips the fire (never a single literal-`${invoice_id}` run). Every fan-out
-   * fire flows through `runner.fire`, so the automation's `concurrency` policy is
-   * honoured unchanged (`queue` drains the invoices serially under one key).
-   * A non-per-invoice action fires exactly once, as before.
-   * See change: wire-per-invoice-automation-drain.
+   * Shared per-invoice fan-out core used by BOTH entry points (the scheduler's
+   * `dispatchFire` and the manual `runNow`), so the enumerate→resolve step has a
+   * single implementation and the two paths never drift.
+   *
+   * Returns a per-invoice `FireContext` list (one per queued invoice — each
+   * carrying that invoice's id as the `invoice_id` var + `invoiceId`, so the
+   * payload resolves per invoice and the spawn is scoped by env), or a `skip`
+   * verdict when fan-out is impossible: no enumerator wired, or enumeration
+   * threw. An empty queue is `skip: false` with an empty `contexts` list.
+   * See change: wire-per-invoice-automation-drain, run-now-fans-out-per-invoice.
    */
-  async function dispatchFire(automation: DiscoveredAutomation, ctx?: FireContext): Promise<void> {
-    const scope = (automation.config?.action?.payload as Record<string, unknown> | undefined)?.scope;
-    if (scope !== "per-invoice") {
-      runner.fire(automation, ctx);
-      return;
-    }
+  async function perInvoiceFanout(
+    automation: DiscoveredAutomation,
+    baseCtx?: FireContext,
+  ): Promise<{ skip: true; reason: string } | { skip: false; contexts: FireContext[] }> {
     const key = automationKey(automation);
     const enumerate = deps.enumerateQueued;
-    if (!enumerate) {
-      warn(`[engine] per-invoice fan-out for ${key}: no queued-invoice enumerator wired; skipping fire`);
-      return;
-    }
+    if (!enumerate) return { skip: true, reason: `per-invoice fan-out for ${key}: no queued-invoice enumerator wired` };
     const cwd = scopeBaseFor(automation);
     let ids: string[] | null;
     try {
       ids = await enumerate(cwd);
     } catch (e) {
-      warn(`[engine] per-invoice enumerate failed for ${key}: ${e instanceof Error ? e.message : String(e)}`);
+      return { skip: true, reason: `per-invoice enumerate failed for ${key}: ${e instanceof Error ? e.message : String(e)}` };
+    }
+    const contexts = (ids ?? []).map<FireContext>((id) => ({
+      firedAt: baseCtx?.firedAt ?? deps.now?.() ?? Date.now(),
+      ...(baseCtx?.value !== undefined ? { value: baseCtx.value } : {}),
+      vars: { ...(baseCtx?.vars ?? {}), invoice_id: id },
+      invoiceId: id,
+    }));
+    return { skip: false, contexts };
+  }
+
+  /**
+   * Fan-out-aware SCHEDULER fire. An action declaring `scope: per-invoice` fans
+   * out to one run per queued invoice; an empty queue fires nothing; a missing
+   * enumerator skips the fire (never a single literal-`${invoice_id}` run). Every
+   * fan-out fire flows through `runner.fire`, so the automation's `concurrency`
+   * policy is honoured unchanged (`queue` drains the invoices serially under one
+   * key). A non-per-invoice action fires exactly once, as before.
+   * See change: wire-per-invoice-automation-drain.
+   */
+  async function dispatchFire(automation: DiscoveredAutomation, ctx?: FireContext): Promise<void> {
+    if (!isPerInvoice(automation)) {
+      runner.fire(automation, ctx);
       return;
     }
-    if (!ids || ids.length === 0) {
+    const key = automationKey(automation);
+    const res = await perInvoiceFanout(automation, ctx);
+    if (res.skip) {
+      warn(`[engine] ${res.reason}; skipping fire`);
+      return;
+    }
+    if (res.contexts.length === 0) {
       log(`[engine] per-invoice fan-out for ${key}: no queued invoices; no fire`);
       return;
     }
-    log(`[engine] per-invoice fan-out for ${key}: ${ids.length} queued invoice(s)`);
-    for (const id of ids) {
-      const fireCtx: FireContext = {
-        firedAt: ctx?.firedAt ?? deps.now?.() ?? Date.now(),
-        ...(ctx?.value !== undefined ? { value: ctx.value } : {}),
-        vars: { ...(ctx?.vars ?? {}), invoice_id: id },
-        invoiceId: id,
-      };
-      runner.fire(automation, fireCtx);
+    log(`[engine] per-invoice fan-out for ${key}: ${res.contexts.length} queued invoice(s)`);
+    for (const fireCtx of res.contexts) runner.fire(automation, fireCtx);
+  }
+
+  /**
+   * Fan-out-aware MANUAL run-now. Mirrors `dispatchFire`'s per-invoice fan-out but
+   * FORCE-STARTS each run directly via `startRunFor` (Run-now deliberately
+   * ignores the concurrency gate that gates scheduled fires). A non-per-invoice
+   * automation starts exactly one run, unchanged. An empty queue starts no run
+   * (success, no id); a missing/failed enumerator skips (failure). Returns the
+   * FIRST started run's id so the route contract holds.
+   * See change: run-now-fans-out-per-invoice.
+   */
+  async function runNow(
+    automation: DiscoveredAutomation,
+  ): Promise<{ ok: boolean; runId?: string; error?: string }> {
+    if (!isPerInvoice(automation)) {
+      const r = startRunFor(automation);
+      return r ? { ok: true, runId: r.runId } : { ok: false, error: "run not started" };
     }
+    const key = automationKey(automation);
+    const res = await perInvoiceFanout(automation);
+    if (res.skip) {
+      warn(`[engine] run-now ${res.reason}; skipping`);
+      return { ok: false, error: `per-invoice run-now unavailable: ${res.reason}` };
+    }
+    if (res.contexts.length === 0) {
+      log(`[engine] run-now per-invoice fan-out for ${key}: no queued invoices; no run`);
+      return { ok: true };
+    }
+    log(`[engine] run-now per-invoice fan-out for ${key}: ${res.contexts.length} queued invoice(s)`);
+    let first: string | undefined;
+    for (const fireCtx of res.contexts) {
+      const r = startRunFor(automation, fireCtx);
+      if (r && !first) first = r.runId;
+    }
+    return first ? { ok: true, runId: first } : { ok: false, error: "run not started" };
   }
 
   const scheduler = createScheduler({
@@ -734,6 +798,7 @@ export function createEngine(deps: EngineDeps): Engine {
 
     startRunFor,
     fire: dispatchFire,
+    runNow,
 
     pendingForCwd(cwd: string): RunContext | undefined {
       return firstUndeliveredForCwd(cwd);
