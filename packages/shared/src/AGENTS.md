@@ -5,6 +5,7 @@ Files in this directory. One row per source file.
 | File | Purpose |
 |------|---------|
 | `__tests__/client-build-deps-runtime.test.ts` | Repo-lint (#E6): client `package.json` declares `vite`, `@vitejs/plugin-react`, `@tailwindcss/vite`,… → see `__tests__/client-build-deps-runtime.test.ts.AGENTS.md` |
+| `__tests__/knip-workflow-contract.test.ts` | CI placement contract for the dead-code oracle (test-plan #X1-#X3). Locks the scan into nightly and OUT of `ci.yml`: its verdict does not depend on a PR diff and its runtime has no business on the PR path, so a later "just add it to CI" edit fails here. Also asserts the nightly job runs the config check before the ratchet and carries no `continue-on-error`. Corollary the wording respects: nightly runs after merge, so it DETECTS; the ship-it enforcer PREVENTS. See change: add-knip-dead-code-oracle. |
 | `__tests__/nightly-workflow-contract.test.ts` | Repo-lint safety contract for the nightly (change: add-nightly-verdaccio-build). → see `__tests__/nightly-workflow-contract.test.ts.AGENTS.md` |
 | `__tests__/node-cap-single-source.test.ts` | Repo-lint (#E5): engines-cap arithmetic lives only in `node-version.ts`. → see `__tests__/node-cap-single-source.test.ts.AGENTS.md` |
 | `__tests__/smoke-node-matrix.test.ts` | Repo-lint (#E8): `_smoke.yml` `standalone-install-smoke-linux` matrix majors equal the SUPPORTED set… → see `__tests__/smoke-node-matrix.test.ts.AGENTS.md` |

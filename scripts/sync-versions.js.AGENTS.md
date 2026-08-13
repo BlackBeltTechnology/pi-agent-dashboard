@@ -1,0 +1,3 @@
+# sync-versions.js — index
+
+Post-bump release helper. Reads every workspace `package.json`, enforces lockstep versions, rewrites every inter-package dep specifier (e.g. `"@blackbelt-technology/pi-dashboard-shared": "^<ver>"`) to current bumped version. Called by `release-cut` skill AND by `.github/workflows/publish.yml` `tag-and-push` job between `npm version -ws` + lockfile regen. Required because npm CLI does not implement pnpm/yarn `workspace:` protocol — plain semver ranges + sync at bump time. Cross-ref specifiers use plain `"^<ver>"`; `packages/electron` `"private": true` so `npm publish -ws` skips automatically.

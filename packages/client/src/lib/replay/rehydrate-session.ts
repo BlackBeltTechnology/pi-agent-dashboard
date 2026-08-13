@@ -25,8 +25,12 @@ export interface RehydratedSession {
 export async function rehydrateSession(
   sessionId: string,
   cache: ReplayCache,
+  /** Current server identity. An entry written by a different server is a miss,
+   *  so a colliding `sessionId` can never serve the wrong server's history.
+   *  See change: purge-replay-cache-on-reset-paths. */
+  serverKey: string,
 ): Promise<RehydratedSession | null> {
-  const entry = await cache.get(sessionId);
+  const entry = await cache.get(sessionId, serverKey);
   if (!entry) return null;
   // Fault-isolation: this re-reduce runs at App level, ABOVE every React
   // error boundary, so an uncaught throw on one malformed cached event would
