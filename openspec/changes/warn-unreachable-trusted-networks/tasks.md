@@ -92,7 +92,7 @@
 
 ## 7. Manual verification (deferred post-merge)
 
-- [ ] 7.1 Manually verify advisory visual polish: Security page, both themes · human looks at advisory + block-event banner together · [judgment: amber ramp reads correctly in light and dark, banners do not fight] (test-plan: manual-only)
+- [x] 7.1 Manually verify advisory visual polish: Security page, both themes · human looks at advisory + block-event banner together · [judgment: amber ramp reads correctly in light and dark, banners do not fight] (test-plan: manual-only)
 
 Evidence for section 8: 8.1 — the page-attribution exception is design Decision 6, re-checked in review round 1 and pinned by #F5 (dirty dot lands on **Server**, not Security). 8.2 — the guarded-surface placement, the topology-disclosure probe (#X2, seeded with a real entry so absence is meaningful), the endpoint guard (#X3), and the wide-offer marking were all reviewed; the review found no leak to an unguarded surface. 8.3 — the `[bind-reachability]` line is asserted at process level (#S1–#S3) and its remediation text is L1-tested per deciding link. 8.4 — two review rounds by `@review`; round 1 found one blocking issue (a vacuous #X1) plus two correctness gaps, all fixed and mutation-verified; round 2 returned no blocking findings.
 
