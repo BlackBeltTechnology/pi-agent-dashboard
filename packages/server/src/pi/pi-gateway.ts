@@ -19,6 +19,14 @@ import {
   resolveProbe,
 } from "./bridge-contention.js";
 
+/**
+ * How many times a contended claim may be re-decided when the routing entry's
+ * holder changes mid-probe. Each retry REQUIRES an observed holder change, so
+ * this cannot spin against a stable incumbent.
+ * See change: fix-duplicate-bridge-registration.
+ */
+const MAX_CLAIM_ATTEMPTS = 3;
+
 export const HEARTBEAT_TIMEOUT = 180_000;
 export const WS_PING_INTERVAL = 60_000;
 export { CONTENTION_PROBE_WINDOW };
@@ -350,6 +358,8 @@ export function createPiGateway(
          * Returns false when the socket was refused (caller must return).
          */
         async function claim(sessionId: string, newcomerPid?: number): Promise<boolean> {
+          let attempt = 0;
+          while (attempt < MAX_CLAIM_ATTEMPTS) {
           const incumbent = connections.get(sessionId);
           const session = sessionManager.get(sessionId);
           const decision = decideClaim({
@@ -379,15 +389,21 @@ export function createPiGateway(
 
           // The newcomer may itself have died during the probe window. Handing
           // it the routing entry would point the map at a dead socket and wedge
-          // the session until the heartbeat grace path reaps it. Checked FIRST,
-          // so it also covers the case where the incumbent gave up the entry
-          // during the probe (the check below would otherwise accept a dead
-          // newcomer on that path).
+          // the session until the heartbeat grace path reaps it.
           if (ws.readyState !== WebSocket.OPEN) return false;
 
-          // The world may have moved during the probe: if the incumbent gave up
-          // the entry meanwhile, there is nothing left to contend.
-          if (connections.get(sessionId) !== held) return !refused;
+          // The holder may have changed during the probe: two newcomers have
+          // independent message queues, so their claims race against one
+          // incumbent. Accepting here on the strength of a probe against a
+          // socket that no longer holds the entry would let the second
+          // newcomer overwrite the first — reintroducing last-writer-wins,
+          // precisely what this rule exists to prevent. Re-decide against the
+          // CURRENT holder instead.
+          if (connections.get(sessionId) !== held) {
+            if (refused) return false;
+            attempt++;
+            continue;
+          }
 
           const resolved = resolveProbe(held, ponged);
           if (resolved.outcome === "displace") {
@@ -396,6 +412,15 @@ export function createPiGateway(
             return true;
           }
           refuse(sessionId, session?.pid, newcomerPid);
+          return false;
+          }
+
+          // Bounded: each retry requires the holder to have changed mid-probe,
+          // so this cannot spin on a stable incumbent.
+          console.error(
+            `[gateway] contention for ${sessionId} did not settle in ${MAX_CLAIM_ATTEMPTS} attempts; refusing newcomer`,
+          );
+          refuse(sessionId, sessionManager.get(sessionId)?.pid, newcomerPid);
           return false;
         }
 

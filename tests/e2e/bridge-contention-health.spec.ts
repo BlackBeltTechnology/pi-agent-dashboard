@@ -45,18 +45,18 @@ test.describe("bridge contention health surface (L3)", () => {
 
     const sessionId = `e2e-contention-${Date.now()}`;
 
-    // Drive two claims for one id straight at the pi gateway.
-    const { WebSocket } = await import("ws");
-
+    // Drive two claims for one id straight at the pi gateway. Uses the Node
+    // global `WebSocket` rather than the `ws` package: `ws` is only a hoisted
+    // transitive dependency here, not one this workspace declares.
     const connect = (port: number) =>
-      new Promise<InstanceType<typeof WebSocket>>((resolve, reject) => {
+      new Promise<WebSocket>((resolve, reject) => {
         const ws = new WebSocket(`ws://127.0.0.1:${port}`);
-        ws.on("open", () => resolve(ws));
-        ws.on("error", reject);
+        ws.addEventListener("open", () => resolve(ws));
+        ws.addEventListener("error", () => reject(new Error("socket error")));
         setTimeout(() => reject(new Error("open timeout")), 5000);
       });
 
-    const register = (ws: InstanceType<typeof WebSocket>, pid: number) =>
+    const register = (ws: WebSocket, pid: number) =>
       ws.send(
         JSON.stringify({
           type: "session_register",
@@ -68,13 +68,11 @@ test.describe("bridge contention health surface (L3)", () => {
       );
 
     const incumbent = await connect(piPort!);
-    incumbent.on("error", () => {});
     register(incumbent, 111111);
     await new Promise((r) => setTimeout(r, 500));
 
     const duplicate = await connect(piPort!);
-    duplicate.on("error", () => {});
-    const closed = new Promise<void>((r) => duplicate.on("close", () => r()));
+    const closed = new Promise<void>((r) => duplicate.addEventListener("close", () => r()));
     register(duplicate, 222222);
     await closed;
 

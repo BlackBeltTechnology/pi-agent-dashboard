@@ -69,11 +69,18 @@ const reg = (ws, extra) => ws.send(JSON.stringify(Object.assign({
 })().catch((e) => fail(e.message));
 '@
 
-$tmp = [System.IO.Path]::GetTempFileName() + ".js"
+# Write the probe INSIDE the repo, not the system temp dir: node resolves the
+# bare specifier `ws` by walking node_modules upward from the script's own
+# directory, and the system temp dir never reaches the repository node_modules.
+$repoRoot = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
+$tmp = Join-Path $repoRoot ".qa-contention-probe-$PID.js"
 Set-Content -Path $tmp -Value $script -Encoding UTF8
 try {
+  Push-Location $repoRoot
   & node $tmp
-  if ($LASTEXITCODE -ne 0) { Write-Error "FAIL: contention probe failed"; exit 1 }
+  $probeExit = $LASTEXITCODE
+  Pop-Location
+  if ($probeExit -ne 0) { Write-Error "FAIL: contention probe failed"; exit 1 }
 } finally {
   Remove-Item $tmp -ErrorAction SilentlyContinue
 }

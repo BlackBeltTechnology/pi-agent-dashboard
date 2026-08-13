@@ -49,6 +49,8 @@ async function postJson(path: string, body?: Record<string, unknown>) {
 }
 
 const sockets: WebSocket[] = [];
+/** The bridge that owns `/t/shared.jsonl`; X12 sets it, X14 closes it. */
+let holderSocket: WebSocket | undefined;
 
 /** Connect a bridge socket and register `sessionId`, waiting until it routes. */
 async function connectBridge(sessionId: string, extra: Record<string, unknown> = {}) {
@@ -113,8 +115,9 @@ describe("session-file resume guard (REST)", () => {
 
   // ── X12 ───────────────────────────────────────────────────────────────────
   it("X12: refuses a continue whose session file a live bridge serves under another id", async () => {
-    // B is live and owns the file.
-    await connectBridge("live-B", { sessionFile: "/t/shared.jsonl", pid: 4242 });
+    // B is live and owns the file. Held in a named binding so X14 closes THIS
+    // socket rather than whichever one happens to be open at the time.
+    holderSocket = await connectBridge("live-B", { sessionFile: "/t/shared.jsonl", pid: 4242 });
 
     // A is a separate, ended session recorded against the SAME file.
     server.sessionManager.register({
@@ -149,19 +152,24 @@ describe("session-file resume guard (REST)", () => {
   it("X14: once the holder's bridge is gone the same continue proceeds", async () => {
     // A non-automation close deliberately leaves the map entry in place for the
     // reconnect grace window, so `activeBridgeCount` does NOT drop here. The
-    // guard keys on D1 liveness, which follows `readyState` — wait for that.
-    const holder = sockets.find((s) => s.readyState === WebSocket.OPEN)!;
-    holder.close();
+    // guard keys on D1 liveness, which follows the transport — poll the SERVER
+    // until it actually stops seeing the file as live, rather than sleeping.
+    expect(holderSocket).toBeDefined();
+    holderSocket!.close();
+
+    let body: any;
     for (let i = 0; i < 300; i++) {
-      if (holder.readyState === WebSocket.CLOSED) break;
-      await delay(10);
+      const res = await postJson("/api/session/ended-A/resume", { mode: "continue" });
+      body = await res.json();
+      if (!String(body.error ?? "").includes("already served by live session")) break;
+      await delay(20);
     }
-    await delay(50);
 
-    const res = await postJson("/api/session/ended-A/resume", { mode: "continue" });
-    const body = (await res.json()) as any;
-
+    // Positive outcome, not merely the absence of one string: the resume is
+    // accepted and a pi is actually spawned for it.
     expect(body.error ?? "").not.toContain("already served by live session");
+    expect(body.success).toBe(true);
+    expect(spawnCalls.length).toBeGreaterThan(0);
   }, 25000);
 
   // ── X17 ───────────────────────────────────────────────────────────────────

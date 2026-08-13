@@ -455,6 +455,43 @@ describe("pi-gateway duplicate register", () => {
     expect(b.ws.readyState).toBe(WebSocket.CLOSED);
   }, 20000);
 
+  // ── E19 (concurrent newcomers) ─────────────────────────────────────────
+  it("E19: two newcomers racing one incumbent still leave exactly one routable socket", async () => {
+    // Each socket has its own message queue, so both claims run concurrently
+    // against the same incumbent. A claim that accepted purely because the
+    // holder changed mid-probe would let the second newcomer overwrite the
+    // first — last-writer-wins, reintroduced.
+    const { port } = await startGateway({ contentionProbeWindow: 500 });
+
+    const a = await newClient(port);
+    register(a, "S", { pid: 1111 });
+    await delay(200);
+    // Incumbent goes silent AND loses its transport, so the probe resolves
+    // "dead" and a displacement is actually on the table.
+    (a.ws as any)._socket?.destroy();
+
+    const b = await newClient(port);
+    const c = await newClient(port);
+    register(b, "S", { pid: 2222 });
+    register(c, "S", { pid: 3333 });
+
+    await delay(3000);
+
+    // Whatever the outcome, at most one socket may be routable for S.
+    b.received.length = 0;
+    c.received.length = 0;
+    gateway.sendToSession("S", { type: "reload" } as any);
+    await delay(400);
+
+    const reached = [b, c].filter((x) => x.received.some((m) => m.type === "reload"));
+    expect(reached.length).toBeLessThanOrEqual(1);
+
+    // And the socket that owns the entry is the one that is still open.
+    if (reached.length === 1) {
+      expect(reached[0].ws.readyState).toBe(WebSocket.OPEN);
+    }
+  }, 25000);
+
   // ── X7 ────────────────────────────────────────────────────────────────────
   it("X7: the rejection names the session id and a reason, and is sent before the close", async () => {
     const { port } = await startGateway();

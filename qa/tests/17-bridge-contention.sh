@@ -14,6 +14,10 @@ echo "=== Test: bridge registration contention ==="
 export NVM_DIR="$HOME/.nvm"
 [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 
+# `node -e` resolves the bare `ws` specifier from the CWD, so run from the repo
+# root regardless of where this script was invoked.
+cd "$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
 PORT="${DASHBOARD_PORT:-8000}"
 PI_PORT="${PI_GATEWAY_PORT:-9999}"
 

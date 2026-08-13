@@ -1917,10 +1917,11 @@ placeholder cleanup, `resetHeartbeat`, callbacks, `onEvent`. Refused newcomer
 reaching any would strip the incumbent's `sessionFile`, consume its spawn token,
 or reset its reconnect-grace timer. Refusal path short-circuits before all.
 
-Ownership gate after register: `session_heartbeat` and `model_update` keyed on
-`msg.sessionId` with no ownership check. In-flight frames from a refused socket
-could reset incumbent heartbeat or overwrite `processMetrics`. Messages from a
-socket that does not own the id are dropped.
+Ownership gate after register. `session_heartbeat` and `model_update` name
+`msg.sessionId`. Without a gate, in-flight frames from a refused socket reset
+the incumbent's heartbeat or overwrite its `processMetrics`. Gate drops every
+message whose named id is not held by that socket (`connections.get(id) !==
+ws`).
 
 Id-change contention decision hoisted above the watchdog clear. `clearByCwd`
 would disarm a pending spawn watchdog before the register is refused.
@@ -2022,12 +2023,20 @@ already serves under ANY session id:
 - `packages/server/src/browser-handlers/session-action-handler.ts` (WebSocket
 drag-to-resume)
 
-Both call `piGateway.findLiveSessionBySessionFile`. Uses D1's two-factor
-liveness definition (`isSocketAlive`), NOT raw `readyState` — a half-open
-incumbent must not lock out a resume. Fork exempt. Sessions with no
-`sessionFile` never match (placeholders store `undefined`). Lookup runs before
-the register-time `sessionFile` mutation (`event-wiring.ts`), which would
-already have nulled the key.
+Third site: `handleSendPrompt`'s zombie-reopen branch in
+`session-action-handler.ts` also spawns `mode:"continue"`, so it carries the
+same guard.
+
+All three call `piGateway.findLiveSessionBySessionFile`. Liveness is D1's
+two-factor definition (`isSocketAlive`), NOT raw `readyState`: a socket the
+gateway has not yet reaped, but whose transport is gone, does not block a
+resume. A TRUE half-open incumbent (`readyState OPEN`, transport still
+writable) reads as alive and DOES block the resume — the same accepted residual
+as D1, recovered by killing the losing keeper by pid.
+
+Fork exempt. Sessions with no `sessionFile` never match (placeholders store
+`undefined`). Lookup runs before the register-time `sessionFile` mutation
+(`event-wiring.ts`), which would already have nulled the key.
 
 #### Observability (D6)
 
