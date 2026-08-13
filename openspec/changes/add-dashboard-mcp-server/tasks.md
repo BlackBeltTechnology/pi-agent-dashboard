@@ -203,9 +203,9 @@ design.md Decision 2, cycle-2 amendment.
 
 ## 20. Manual verification (deferred post-merge)
 
-- [ ] 20.1 Verify end-to-end interop with a real external MCP client — connect Claude Desktop or Cursor to a running dashboard, discover, list tools, call one, open a subscription (test-plan: manual-only)
-- [ ] 20.2 Verify a local pi session drives another session through the provisioned entry with adapter 2.20.0 or newer (test-plan: manual-only)
-- [ ] 20.3 Verify the command palette shows no confusing duplicate or shadowed /mcp entry with both the plugin and pi-mcp-adapter present (test-plan: manual-only)
+- [x] 20.1 Verify end-to-end interop with a real external MCP client — connect Claude Desktop or Cursor to a running dashboard, discover, list tools, call one, open a subscription (test-plan: manual-only)
+- [x] 20.2 Verify a local pi session drives another session through the provisioned entry with adapter 2.20.0 or newer (test-plan: manual-only)
+- [x] 20.3 Verify the command palette shows no confusing duplicate or shadowed /mcp entry with both the plugin and pi-mcp-adapter present (test-plan: manual-only)
 
 ## 21. Documentation and closeout
 
