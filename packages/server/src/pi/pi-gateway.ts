@@ -473,6 +473,22 @@ export function createPiGateway(
             // Ownership gate: a socket that does not hold the entry for the id
             // it names may not reset the incumbent's heartbeat, overwrite its
             // metrics, unregister it, or reach `onEvent`.
+            //
+            // `plugin_pi_message` is exempt from the NAMED-id form of this gate:
+            // its body `sessionId` is not a routing claim, because the event is
+            // attributed to the connection's own registered session (see the
+            // `eventSessionId` note in `handleOwnedMessage`). Gating on the body
+            // id would silently DROP a forged frame instead of re-attributing
+            // it, so the spoof would never reach the plugin under its true
+            // identity. The connection must still own its own entry, which
+            // keeps refused/displaced sockets out.
+            // See change: add-dashboard-mcp-server.
+            if (msg.type === "plugin_pi_message") {
+              if (!currentSessionId || connections.get(currentSessionId) !== ws) return;
+              handleOwnedMessage(msg);
+              return;
+            }
+
             const named = "sessionId" in msg ? (msg as any).sessionId : undefined;
             if (named && connections.get(named) !== ws) return;
 
