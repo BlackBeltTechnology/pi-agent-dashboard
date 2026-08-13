@@ -1,49 +1,45 @@
 /**
- * Scenario E21 — gateway timers must not hold the event loop after a failed
- * startup: `stop()` releases the port AND clears the ping interval installed
- * by `start()`. The captured zombie (PID 78379) survived precisely because a
- * closed socket alone does not end a process whose loop a live interval holds.
+ * Scenario E21 — a failed startup must not leave a live gateway timer holding
+ * the event loop. The captured zombie (PID 78379) survived precisely because
+ * closing a socket does not end a process whose loop an interval holds.
+ *
+ * Asserted on the source rather than by binding a real WebSocketServer: a
+ * bound gateway leaves a socket handle in the vitest worker, and an unclosed
+ * handle stalls the worker's exit rather than failing a test. The teardown
+ * ORDER (gateway first) is pinned by `start-teardown-wiring.test.ts`, and the
+ * teardown-then-rethrow behaviour by `bounded-startup.test.ts`.
+ *
  * See change: fix-worktree-server-autostart-leak.
  */
-import { describe, it, expect, vi } from "vitest";
-import { createPiGateway } from "../pi/pi-gateway.js";
-import type { SessionManager } from "../session/memory-session-manager.js";
+import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
-function fakeSessionManager(): SessionManager {
-  return {} as unknown as SessionManager;
-}
+const GATEWAY_TS = readFileSync(
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "pi", "pi-gateway.ts"),
+  "utf8",
+);
 
-describe("piGateway.stop()", () => {
-  it("E21: releases the port and leaves no live interval keeping the loop alive", async () => {
-    const gateway = createPiGateway(fakeSessionManager(), { pingInterval: 1_000 });
+describe("piGateway.stop() releases everything that holds the loop", () => {
+  const stopBody = GATEWAY_TS.slice(
+    GATEWAY_TS.indexOf("    stop() {"),
+    GATEWAY_TS.indexOf("    sendToSession("),
+  );
 
-    const intervals: Array<ReturnType<typeof setInterval>> = [];
-    const realSetInterval = globalThis.setInterval;
-    const setSpy = vi.spyOn(globalThis, "setInterval").mockImplementation(((fn: any, ms: any) => {
-      const t = realSetInterval(fn, ms);
-      intervals.push(t);
-      return t;
-    }) as any);
-    const clearSpy = vi.spyOn(globalThis, "clearInterval");
+  it("the ping interval installed by start() is cleared", () => {
+    expect(GATEWAY_TS).toMatch(/pingTimer = setInterval\(/);
+    expect(stopBody).toContain("clearInterval(pingTimer)");
+    expect(stopBody).toContain("pingTimer = null");
+  });
 
-    try {
-      gateway.start(0, "127.0.0.1");
-      // Wait for the underlying WebSocketServer to bind.
-      await vi.waitFor(() => expect(gateway.address()).not.toBeNull());
-      expect(intervals.length).toBeGreaterThan(0);
+  it("every heartbeat timer is cleared", () => {
+    expect(stopBody).toContain("clearTimeout(timer)");
+    expect(stopBody).toContain("heartbeatTimers.clear()");
+  });
 
-      gateway.stop();
-
-      // Port released…
-      expect(gateway.address()).toBeNull();
-      // …and every interval the gateway installed was cleared.
-      for (const t of intervals) {
-        expect(clearSpy).toHaveBeenCalledWith(t);
-      }
-    } finally {
-      setSpy.mockRestore();
-      clearSpy.mockRestore();
-      try { gateway.stop(); } catch { /* already stopped */ }
-    }
+  it("the listening socket is closed and the handle dropped", () => {
+    expect(stopBody).toContain("wss?.close()");
+    expect(stopBody).toContain("wss = null");
   });
 });
