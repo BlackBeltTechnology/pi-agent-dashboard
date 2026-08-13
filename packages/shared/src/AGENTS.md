@@ -15,7 +15,7 @@ Files in this directory. One row per source file.
 | `bridge-register.ts` | Shared bridge registration: `findBundledExtension(baseDir)` + `registerBridgeExtension(path)`; non-destructive cleanup, AppImage guard. Used by server startup and Electron wizard. |
 | `browser-protocol.ts` | Server↔Browser WebSocket message contracts. Exports `ServerToBrowserMessage` + `BrowserToServerMessage` unions… → see `browser-protocol.ts.AGENTS.md` `BrowserModelsListMessage.refreshErrors?: ProviderRefreshError[]` — forwarded verbatim; absent on clean refresh and on older bridges. See change: upgrade-model-selector-primitives. `ReachabilityUpdatedMessage` (`reachability_updated`) pushes the bind-vs-trust fact and is replayed on connect. See change: warn-unreachable-trusted-networks. |
 | `changelog-types.ts` | `ChangelogBullet` / `Release` / `Response` types for parsed CHANGELOG.md responses. See change: pi-update-whats-new-panel. |
-| `config.ts` | Dashboard config loader. `loadConfig()` reads `~/.pi/dashboard/config.json` via `CONFIG_FILE`;… → see `config.ts.AGENTS.md` |
+| `config.ts` | Dashboard config loader. `loadConfig()` reads `~/.pi/dashboard/config.json` via `CONFIG_FILE`;… → see `config.ts.AGENTS.md` Also owns the startup budgets (`HEALTH_CHECK_TIMEOUT_MS`, `SPAWN_READINESS_BUDGET_MS`, `SERVER_STARTUP_DEADLINE_MS`) and the shared production ports (`DEFAULT_DASHBOARD_PORT`, `DEFAULT_GATEWAY_PORT`). See change: fix-worktree-server-autostart-leak. |
 | `credential-detect.ts` | Detects configured LLM-provider credential. `hasAnyProviderCredential(homeDir?)` OR-merges… → see `credential-detect.ts.AGENTS.md` |
 | `dashboard-paths.ts` | Single-source path helpers for dashboard runtime dirs. `getDashboardConfigDir` → `~/.pi/dashboard/`. → see `dashboard-paths.ts.AGENTS.md` |
 | `dashboard-starter.ts` | Identifies dashboard launcher. `DashboardStarter` = `Bridge` | `Standalone` | `Electron`. → see `dashboard-starter.ts.AGENTS.md` |
@@ -48,7 +48,7 @@ Files in this directory. One row per source file.
 | `role-name-validation.ts` | Shared role-name trust boundary. `isValidRoleName(name, existing) → {ok, reason?}`: non-empty after trim;… → see `role-name-validation.ts.AGENTS.md` |
 | `semaphore.ts` | Tiny FIFO throttling semaphore. `createSemaphore(max)` → `Semaphore` with `run(fn)` (queue when at cap,… → see `semaphore.ts.AGENTS.md` |
 | `server-identity.ts` | Identity-verified dashboard detection over GET /api/health. → see `server-identity.ts.AGENTS.md` |
-| `server-launcher.ts` | `launchDashboardServer` — single shared spawn primitive (jiti loader, argv, env, log header, readiness) used by Bridge / Standalone / Electron starters |
+| `server-launcher.ts` | `launchDashboardServer` — single shared spawn primitive (jiti loader, argv, env, log header, readiness) used by Bridge / Standalone / Electron starters. Also exports `RECOVERY_PORT_CONFLICT_EXIT_CODE` + `isPortConflictExitCode` (child exit 2 → `PortConflictError`). See change: fix-worktree-server-autostart-leak. |
 | `session-group-path.ts` | Hoisted `inferPlatform`/`pathKey`/`resolveSessionGroupPath` from client session-grouping.ts. → see `session-group-path.ts.AGENTS.md` |
 | `session-meta.ts` | Per-session sidecar `.meta.json` schema + IO. Exports `SessionMeta`, `metaPath`, `readSessionMeta`,… → see `session-meta.ts.AGENTS.md` |
 | `skill-block-parser.ts` | Single source of truth for pi's `<skill name location>…</skill>` envelope. → see `skill-block-parser.ts.AGENTS.md` |

@@ -3,6 +3,7 @@
  */
 
 import { existsSync } from "node:fs";
+import { runBoundedStartup } from "./lifecycle/bounded-startup.js";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -202,7 +203,20 @@ export interface ServerConfig {
 }
 
 export interface DashboardServer {
-  start(): Promise<void>;
+  /**
+   * Boot the server. Always tears down already-opened listeners when a startup
+   * step fails. Pass `deadlineMs` to ALSO bound a startup that never settles —
+   * `cli.ts` does, for the standalone process. In-process callers own the
+   * lifetime themselves and default to no deadline.
+   */
+  start(opts?: { deadlineMs?: number | null }): Promise<void>;
+  /**
+   * @internal The raw startup body. `start()` wraps it in `runBoundedStartup`
+   * so a step that throws or hangs after `piGateway.start()` cannot leave the
+   * process resident holding the gateway port.
+   * See change: fix-worktree-server-autostart-leak.
+   */
+  _startCore(): Promise<void>;
   stop(): Promise<void>;
   /**
    * Flush pending session-metadata + preference writes WITHOUT tearing the
@@ -1834,7 +1848,28 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       return piGateway.address();
     },
 
-    async start() {
+    async start(opts: { deadlineMs?: number | null } = {}) {
+      // D1: bound + tear down. A failure after `piGateway.start()` must not
+      // leave this process holding the gateway port, and a startup that never
+      // settles must not linger forever. Teardown preserves the original error.
+      await runBoundedStartup({
+        deadlineMs: opts.deadlineMs ?? null,
+        core: () => server._startCore(),
+        teardown: async () => {
+          // Gateway FIRST — it is the port bound earliest and the one the
+          // captured zombie held. `stop()` also clears `pingTimer`, which is
+          // what actually lets the process exit.
+          try { piGateway.stop(); } catch { /* ignore */ }
+          if (secondFastify) {
+            try { await secondFastify.close(); } catch { /* ignore */ }
+            secondFastify = null;
+          }
+          try { await fastify.close(); } catch { /* ignore */ }
+        },
+      });
+    },
+
+    async _startCore() {
       // Clean up orphan headless processes from a previous server instance
       await browserGateway.headlessPidRegistry.cleanupOrphans();
 

@@ -19,6 +19,7 @@
 // top-level module-resolution failure (missing `fastify` etc.) can be
 // caught and degraded into the recovery HTTP server instead of crashing
 // the process. The type-only import here is fully erased at runtime.
+import { SERVER_STARTUP_DEADLINE_MS } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { createServer as _CreateServerType, ServerConfig } from "./server.js";
 import {
   startRecoveryServer,
@@ -282,7 +283,9 @@ async function runForeground(config: ServerConfig): Promise<void> {
   process.on("SIGTERM", onExitSignal);
   process.on("SIGINT", onExitSignal);
 
-  await server.start();
+  // Standalone server process: nobody else is watching this boot, so bound it.
+  // See change: fix-worktree-server-autostart-leak.
+  await server.start({ deadlineMs: SERVER_STARTUP_DEADLINE_MS });
 }
 
 
