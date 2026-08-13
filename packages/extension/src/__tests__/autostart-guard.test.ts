@@ -3,7 +3,7 @@
  * See change: fix-worktree-server-autostart-leak.
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtempSync, readFileSync, rmSync, existsSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -72,8 +72,13 @@ describe("appendAutoStartLog", () => {
     expect(readFileSync(logPath, "utf8")).toMatch(/\[auto-start\] refused: something/);
   });
 
-  it("never throws when the log path is unwritable", () => {
-    expect(() => appendAutoStartLog("x", { logPath: "/proc/definitely/not/writable/x.log" })).not.toThrow();
+  it("never throws when the log path is unusable", () => {
+    // Nest the log UNDER a regular file: mkdir then fails ENOTDIR everywhere,
+    // deterministically. (A `/proc/...` path is not portable — on Linux it is
+    // a virtual filesystem, not merely an unwritable directory.)
+    const blocker = join(dir, "not-a-dir");
+    writeFileSync(blocker, "");
+    expect(() => appendAutoStartLog("x", { logPath: join(blocker, "x.log") })).not.toThrow();
   });
 });
 
