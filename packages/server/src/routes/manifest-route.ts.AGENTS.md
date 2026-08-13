@@ -1,0 +1,3 @@
+# manifest-route.ts — index
+
+Dynamic `/manifest.json` route. Exports `stripPort`, `resolveManifestSource`, `buildManifestBody`, `loadStaticManifest`, `registerManifestRoute`. Resolves source: `config.dashboardName` → request `Host` header (port stripped, IPv6-safe) → `os.hostname()` → `"Pi-Dash"`. `buildManifestBody` sets `id="/"`, `name="Pi-Dash · <src>"`, `short_name=src.slice(0,12)`. Registered before `@fastify/static` so explicit route wins over on-disk asset. Re-reads config per request via `loadConfig()`; Settings change propagates without restart. Sets `Cache-Control: no-cache, must-revalidate` + `Content-Type: application/manifest+json`. See change: add-dynamic-pwa-manifest-naming.
