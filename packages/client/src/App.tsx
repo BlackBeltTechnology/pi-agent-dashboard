@@ -71,7 +71,7 @@ import { deleteDraft, readAllDrafts, writeDraft } from "./lib/state/draft-storag
 // SubagentPopoutPage no longer imported by the shell — it's registered via
 // the subagents-plugin's `shell-overlay-route` claim and mounted through
 // `<ShellOverlayRouteSlot>` below. See change: add-flow-agent-popout.
-import { createInitialState, deriveBannerState, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/chat/event-reducer.js";
+import { applyPromptTimeout, createInitialState, deriveBannerState, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/chat/event-reducer.js";
 import { decodeFolderPath, encodeFolderPath } from "./lib/util/folder-encoding.js";
 import { fetchActiveInits } from "./lib/git/git-api.js";
 import { refreshGitStatus } from "./lib/git/git-status-cache.js";
@@ -136,6 +136,7 @@ import { buildContextUsageMap } from "./lib/context-usage.js";
 import { DisplayPrefsProvider } from "./lib/state/DisplayPrefsContext.js";
 import { registerPluginCatalog, useI18n } from "./lib/i18n/i18n.js";
 import { SessionAssetsProvider } from "./lib/session/SessionAssetsContext.js";
+import { deriveRetryProjection } from "./lib/session/retry-projection.js";
 import { deriveSelectedSessionId } from "./lib/session/selectedSessionId.js";
 import { selectViewedSessionId } from "./lib/session/selectViewedSessionId.js";
 
@@ -1102,20 +1103,21 @@ export default function App() {
   // `pendingPrompt` is idle-scoped now (only ever set for a fresh-turn send),
   // so it can never co-exist with a mid-turn queue entry — no pause logic
   // needed. See change: optimistic-prompt-progress.
-  usePendingPromptTimeout(!!selectedState.pendingPrompt, useCallback(() => {
+  // Arms only on `sending`: a `failed` bubble must never re-arm the timer and
+  // be wiped 30s later. See change: fix-optimistic-prompt-stuck-sending.
+  usePendingPromptTimeout(selectedState.pendingPrompt?.status === "sending", useCallback(() => {
     if (selectedId) {
       setSessionStates((prev) => {
         const next = new Map(prev);
         const current = next.get(selectedId);
-        if (current?.pendingPrompt) {
-          next.set(selectedId, {
-            ...current,
-            pendingPrompt: undefined,
-            lastError: {
-              message: t("session.noResponse", undefined, "No response from session — the prompt may not have been received."),
-              timestamp: Date.now(),
-            },
-          });
+        if (current) {
+          // Keeps the bubble with the user's text, marked failed, instead of
+          // silently dropping it. The `lastError` banner stays too.
+          const settled = applyPromptTimeout(
+            current,
+            t("session.noResponse", undefined, "No response from session — the prompt may not have been received."),
+          );
+          if (settled !== current) next.set(selectedId, settled);
         }
         return next;
       });
@@ -1368,15 +1370,15 @@ export default function App() {
     return ids;
   }, [sessionStates]);
 
-  // Compute set of session IDs in active provider-retry phase (retryState set,
-  // no terminal error). See change: fix-provider-retry-infinite-loop.
-  const retrySessionIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const [id, state] of sessionStates) {
-      if (state.retryState && !state.lastError) ids.add(id);
-    }
-    return ids;
-  }, [sessionStates]);
+  // Session IDs in an active provider-retry phase, plus the attempt number for
+  // the card's activity label. Membership is `retryState` alone: the old
+  // `!state.lastError` gate excluded the common case (a retry runs WHILE the
+  // error card is up), which is why the card never showed a retry.
+  // See change: unify-retry-visibility.
+  const { retrySessionIds, retryAttemptMap } = useMemo(
+    () => deriveRetryProjection(sessionStates),
+    [sessionStates],
+  );
 
   // Sessions whose last turn returned only reasoning, no answer (non-error
   // notice). Suppressed when a real error is also present.
@@ -1498,6 +1500,7 @@ export default function App() {
       errorSessionIds={errorSessionIds}
       noticeSessionIds={noticeSessionIds}
       retrySessionIds={retrySessionIds}
+      retryAttemptMap={retryAttemptMap}
       spawnErrors={spawnErrors}
       onDismissSpawnError={(cwd) => setSpawnErrors((prev) => { const next = new Map(prev); next.delete(cwd); return next; })}
       resumeErrors={resumeErrors}
@@ -1765,22 +1768,27 @@ export default function App() {
               sub-line (bare attempt + countdown from pi's own retry settings).
               Observe-only: pi owns the retry loop; the banner has NO Stop
               retrying control (the always-present session Stop is the sole
-              abort entry point) and NO collapse. While a retry is pending the
-              surface shows status + Copy only and clears itself on a
-              confirmed-good resume; onDismiss fires — clearing the settled
-              error — only once no retry sub-status is carried. See change:
-              error-banner-observe-only. */}
+              abort entry point). The trailing control's icon states its action:
+              a chevron that COLLAPSES while retrying (component-local — it never
+              clears `retryState`, so the session Stop stays mounted), and a real
+              ✕ once retrying stops. The surface also clears itself on a
+              confirmed-good resume.
+              See change: error-banner-observe-only, raw-error-render-and-retry-authority. */}
           <SessionBanner
             state={deriveBannerState(selectedState)}
             onDismiss={selectedId ? () => {
               setSessionStates((prev) => {
                 const next = new Map(prev);
                 const current = next.get(selectedId!);
-                // Clear-only, reachable only on a settled error (no dismiss is
-                // rendered while a retry is pending). Never aborts.
-                // See change: error-banner-observe-only.
-                if (current?.lastError || current?.retryState) {
-                  next.set(selectedId!, { ...current, lastError: undefined, retryState: undefined });
+                // Clear-only — never aborts, and NEVER writes `retryState`.
+                // While a retry is pending the banner collapses locally instead
+                // of calling this, so we only ever reach here on a settled
+                // error. Clearing `retryState` here would unmount the session
+                // Stop that `CommandInput` derives from it, leaving a live loop
+                // with no handle.
+                // See change: raw-error-render-and-retry-authority (D1).
+                if (current?.lastError) {
+                  next.set(selectedId!, { ...current, lastError: undefined });
                 }
                 return next;
               });
@@ -1850,7 +1858,7 @@ export default function App() {
             onAbort={handleAbort}
             onForceKill={handleForceKill}
             onStopAfterTurn={handleStopAfterTurn}
-            pendingPrompt={!!selectedState.pendingPrompt}
+            pendingPrompt={selectedState.pendingPrompt?.status}
             onCancelPending={handleCancelPending}
             sessionId={selectedId}
             draft={selectedDraft}

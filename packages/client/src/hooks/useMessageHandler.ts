@@ -17,7 +17,7 @@ import type { DiscoveredServerInfo } from "../components/connectivity/ServerSele
 import type { ToastVariant } from "../components/primitives/Toast.js";
 import { EMPTY_CANVAS_STATE, reduceCanvasChip, reduceCanvasIntent } from "../lib/canvas/canvas-gate.js";
 import { foldLiveEvents, type QueuedLiveEvent } from "../lib/chat/coalesce-live-events.js";
-import { addInteractiveRequest, addNotify, applyPromptReceived, createInitialState, dismissInteractiveRequest, reduceEvent, type SessionState } from "../lib/chat/event-reducer.js";
+import { addInteractiveRequest, addNotify, applyPromptReceived, carryPendingPrompt, createInitialState, dismissInteractiveRequest, reduceEvent, type SessionState } from "../lib/chat/event-reducer.js";
 import { dispatchInitEvent } from "../lib/git/worktree-init-bus.js";
 import { t } from "../lib/i18n/i18n.js";
 import { clearLoadingHistory, HYDRATE_CEILING_MS, rearmLoadingHistory } from "../lib/replay/loading-history.js";
@@ -402,7 +402,9 @@ export function useMessageHandler(
           // bridge re-register triggers this reset, and dropping the bubble
           // makes the user feel their message vanished.
           // See change: preserve-pending-prompt-across-replay.
-          const carry = next.get(msg.sessionId)?.pendingPrompt;
+          // …but a `sending` bubble is NOT carried: nothing in the rebuilt
+          // state can settle it. See change: fix-optimistic-prompt-stuck-sending.
+          const carry = carryPendingPrompt(next.get(msg.sessionId)?.pendingPrompt);
           const fresh = createInitialState();
           if (carry) fresh.pendingPrompt = carry;
           next.set(msg.sessionId, fresh);
@@ -696,7 +698,7 @@ export function useMessageHandler(
           // Same rationale as session_state_reset: preserve optimistic
           // pendingPrompt across the full-replay reset branch.
           // See change: preserve-pending-prompt-across-replay.
-          const carry = shouldReset ? next.get(msg.sessionId)?.pendingPrompt : undefined;
+          const carry = shouldReset ? carryPendingPrompt(next.get(msg.sessionId)?.pendingPrompt) : undefined;
           let current = shouldReset ? createInitialState() : (next.get(msg.sessionId) ?? createInitialState());
           if (carry) current.pendingPrompt = carry;
           for (const { event } of msg.events) {

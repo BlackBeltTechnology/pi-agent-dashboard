@@ -4,9 +4,11 @@
  *
  * ONE card renders the error string plus an optional live retry sub-line —
  * never two sibling cards. Observe-only: pi owns the retry loop, so the banner
- * has NO "Stop retrying" control and NO collapse. While a retry is pending the
- * surface shows status + Copy only (no dismiss); a state-clearing dismiss
- * appears only on a settled error. There is NO Retry control.
+ * has NO "Stop retrying" control. The trailing control's icon states its action:
+ * a chevron that COLLAPSES while retrying (component-local — it never clears
+ * `retryState`, so the session Stop stays mounted), and a real ✕ once retrying
+ * stops. There is NO Retry control.
+ * See change: raw-error-render-and-retry-authority.
  *
  * The selector (`deriveBannerState`) is tested in event-reducer.test.ts.
  */
@@ -87,58 +89,143 @@ describe("SessionBanner — settled error (no retry)", () => {
   });
 });
 
-describe("SessionBanner — observe-only while retrying (no stop / dismiss / collapse)", () => {
-  it("renders status + Copy but NO stop, NO dismiss, NO collapse while retrying", () => {
-    const onDismiss = vi.fn();
+describe("SessionBanner — trailing control states its own action", () => {
+  const errRetry = { error: { kind: "error" as const, message: "overloaded" }, retry: retry() };
+
+  it("renders COLLAPSE (not dismiss) while waiting", () => {
+    const { getByTestId, container } = render(
+      <SessionBanner state={errRetry} onDismiss={vi.fn()} now={clock} />,
+    );
+    expect(getByTestId("error-banner-collapse")).toBeTruthy();
+    expect(container.querySelector('[data-testid="error-banner-dismiss"]')).toBeNull();
+    expect(container.querySelector('[data-testid="error-banner-stop"]')).toBeNull();
+  });
+
+  it("renders COLLAPSE while an attempt is in flight", () => {
     const { getByTestId, container } = render(
       <SessionBanner
-        state={{ error: { kind: "error", message: "overloaded" }, retry: retry() }}
-        onDismiss={onDismiss}
+        state={{ error: { kind: "error", message: "overloaded" }, retry: retry({ waiting: false }) }}
+        onDismiss={vi.fn()}
         now={clock}
       />,
     );
-    expect(getByTestId("retry-banner-attempt").textContent).toMatch(/attempt 1/);
-    expect(getByTestId("retry-banner-countdown")).toBeTruthy();
-    expect(container.querySelector('[data-testid="error-banner-stop"]')).toBeNull();
+    expect(getByTestId("error-banner-collapse")).toBeTruthy();
     expect(container.querySelector('[data-testid="error-banner-dismiss"]')).toBeNull();
-    expect(container.querySelector('[data-testid="error-banner-collapse"]')).toBeNull();
-    expect(container.querySelector('[data-testid="error-banner-expand"]')).toBeNull();
-    expect(onDismiss).not.toHaveBeenCalled();
   });
 
-  it("a clearing dismiss appears only once no retry sub-status is carried", () => {
-    const { getByTestId, rerender, container } = render(
-      <SessionBanner state={{ error: { kind: "error", message: "x" }, retry: retry() }} onDismiss={vi.fn()} now={clock} />,
+  it("collapsing does NOT invoke onDismiss and dispatches no abort", () => {
+    const onDismiss = vi.fn();
+    const spies = { onAbort: vi.fn(), onCancel: vi.fn(), onStop: vi.fn(), onStopRetrying: vi.fn() };
+    const { getByTestId } = render(
+      <SessionBanner state={errRetry} onDismiss={onDismiss} now={clock} {...(spies as Record<string, unknown>)} />,
     );
-    expect(container.querySelector('[data-testid="error-banner-dismiss"]')).toBeNull();
-    // Retry ends → settled → the clearing ✕ returns.
-    rerender(<SessionBanner state={{ error: { kind: "error", message: "x" } }} onDismiss={vi.fn()} now={clock} />);
+    fireEvent.click(getByTestId("error-banner-collapse"));
+    expect(onDismiss).not.toHaveBeenCalled();
+    for (const spy of Object.values(spies)) expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("the collapsed row keeps the attempt status and offers expand", () => {
+    const { getByTestId, container } = render(
+      <SessionBanner
+        state={{ error: { kind: "error", message: "overloaded" }, retry: retry({ attempt: 2 }) }}
+        onDismiss={vi.fn()}
+        now={clock}
+      />,
+    );
+    fireEvent.click(getByTestId("error-banner-collapse"));
+    expect(getByTestId("retry-banner-attempt").textContent).toMatch(/Retry 2/);
+    expect(getByTestId("error-banner-expand")).toBeTruthy();
+    // The error text is gone while collapsed.
+    expect(container.querySelector('[data-testid="error-banner-text"]')).toBeNull();
+  });
+
+  it("a later attempt updates the number in place without re-expanding", () => {
+    const { getByTestId, rerender, container } = render(
+      <SessionBanner
+        state={{ error: { kind: "error", message: "overloaded" }, retry: retry({ attempt: 2 }) }}
+        onDismiss={vi.fn()}
+        now={clock}
+      />,
+    );
+    fireEvent.click(getByTestId("error-banner-collapse"));
+    rerender(
+      <SessionBanner
+        state={{ error: { kind: "error", message: "overloaded" }, retry: retry({ attempt: 3 }) }}
+        onDismiss={vi.fn()}
+        now={clock}
+      />,
+    );
+    expect(getByTestId("retry-banner-attempt").textContent).toMatch(/Retry 3/);
+    expect(container.querySelector('[data-testid="error-banner-text"]')).toBeNull();
+  });
+
+  it("expand restores the full card", () => {
+    const { getByTestId } = render(<SessionBanner state={errRetry} onDismiss={vi.fn()} now={clock} />);
+    fireEvent.click(getByTestId("error-banner-collapse"));
+    fireEvent.click(getByTestId("error-banner-expand"));
+    expect(getByTestId("error-banner-text").textContent).toContain("overloaded");
+  });
+
+  it("a collapsed surface re-expands when retrying stops, and offers a real dismiss", () => {
+    const { getByTestId, rerender, container } = render(
+      <SessionBanner state={errRetry} onDismiss={vi.fn()} now={clock} />,
+    );
+    fireEvent.click(getByTestId("error-banner-collapse"));
+    expect(container.querySelector('[data-testid="error-banner-text"]')).toBeNull();
+    // Retry ends, error remains → expanded + closable.
+    rerender(<SessionBanner state={{ error: { kind: "error", message: "overloaded" } }} onDismiss={vi.fn()} now={clock} />);
+    expect(getByTestId("error-banner-text").textContent).toContain("overloaded");
     expect(getByTestId("error-banner-dismiss")).toBeTruthy();
+    expect(container.querySelector('[data-testid="error-banner-collapse"]')).toBeNull();
+  });
+
+  it("NO stop-retrying control exists in ANY state", () => {
+    const states = [
+      { error: { kind: "error" as const, message: "overloaded" } },
+      { error: { kind: "error" as const, message: "overloaded" }, retry: retry({ waiting: true }) },
+      { error: { kind: "error" as const, message: "overloaded" }, retry: retry({ waiting: false }) },
+      { retry: retry({ waiting: true }) },
+      { retry: retry({ waiting: false }) },
+    ];
+    for (const state of states) {
+      const { container, unmount } = render(<SessionBanner state={state} onDismiss={vi.fn()} now={clock} />);
+      expect(container.querySelector('[data-testid="error-banner-stop"]')).toBeNull();
+      expect(container.querySelector('[data-testid="retry-banner-stop"]')).toBeNull();
+      expect(container.textContent ?? "").not.toMatch(/stop retry/i);
+      unmount();
+    }
   });
 });
 
 describe("SessionBanner — status line", () => {
-  it("renders bare 'attempt N' — never 'of N'", () => {
+  it("renders the short 'Retry N' label — never 'attempt' or 'of N'", () => {
     const { getByTestId } = render(
       <SessionBanner state={{ retry: retry({ attempt: 7, maxAttempts: 100 }) }} now={clock} />,
     );
     const line = getByTestId("retry-banner").textContent ?? "";
-    expect(line).toMatch(/attempt 7/);
+    expect(line).toMatch(/Retry 7/);
     expect(line).not.toMatch(/of\s*\d/);
+    expect(line).not.toMatch(/attempt/i);
+    expect(line).not.toMatch(/next attempt in/i);
+  });
+
+  it("renders a spinner alongside the label", () => {
+    const { container } = render(<SessionBanner state={{ retry: retry({ attempt: 2 }) }} now={clock} />);
+    expect(container.querySelector(".animate-spin")).not.toBeNull();
   });
 
   it("exact countdown from nextAttemptAt", () => {
     const { getByTestId } = render(
       <SessionBanner state={{ retry: retry({ attempt: 7, waiting: true, nextAttemptAt: NOW + 42_000 }) }} now={clock} />,
     );
-    expect(getByTestId("retry-banner-countdown").textContent).toMatch(/42\s*s/);
+    expect(getByTestId("retry-banner-countdown").textContent).toMatch(/^42\s*s/);
   });
 
   it("computed countdown from startedAt + delayMs when nextAttemptAt absent", () => {
     const { getByTestId } = render(
       <SessionBanner state={{ retry: retry({ waiting: true, delayMs: 4000, startedAt: NOW }) }} now={clock} />,
     );
-    expect(getByTestId("retry-banner-countdown").textContent).toMatch(/4\s*s/);
+    expect(getByTestId("retry-banner-countdown").textContent).toMatch(/^4\s*s/);
   });
 
   it("degrades to 'still waiting… (N s elapsed)' on overrun", () => {
@@ -146,7 +233,7 @@ describe("SessionBanner — status line", () => {
       <SessionBanner state={{ retry: retry({ waiting: true, delayMs: 4000, startedAt: NOW - 10_000 }) }} now={clock} />,
     );
     const txt = getByTestId("retry-banner-countdown").textContent ?? "";
-    expect(txt).toMatch(/still waiting/i);
+    expect(txt).not.toMatch(/still waiting/i);
     expect(txt).toMatch(/10\s*s/);
   });
 
@@ -155,15 +242,17 @@ describe("SessionBanner — status line", () => {
       <SessionBanner state={{ retry: retry({ waiting: true, delayMs: 0, startedAt: NOW - 5000 }) }} now={clock} />,
     );
     const txt = getByTestId("retry-banner-countdown").textContent ?? "";
-    expect(txt).toMatch(/still waiting/i);
+    expect(txt).not.toMatch(/still waiting/i);
     expect(txt).toMatch(/5\s*s/);
   });
 
-  it("in-flight sub-state shows 'retrying now' (no countdown)", () => {
-    const { getByTestId } = render(
+  it("in-flight renders the spinner and NO countdown suffix", () => {
+    const { container } = render(
       <SessionBanner state={{ retry: retry({ waiting: false }) }} now={clock} />,
     );
-    expect(getByTestId("retry-banner-countdown").textContent).toMatch(/retrying now/i);
+    expect(container.querySelector(".animate-spin")).not.toBeNull();
+    expect(container.querySelector('[data-testid="retry-banner-countdown"]')).toBeNull();
+    expect(container.textContent ?? "").not.toMatch(/retrying now/i);
   });
 
   it("retry-only (no settled error): the reason string is the card header", () => {

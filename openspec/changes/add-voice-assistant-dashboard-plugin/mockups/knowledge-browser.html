@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>voice-assistant — Knowledge browser</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="tokens.css" />
+<script src="theme-init.js"></script>
+<style>
+  .panel { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 0.75rem; }
+  .row { background: var(--bg-tertiary); border: 1px solid var(--border-subtle); border-radius: 0.5rem; }
+  .status-chip { font-size: 10px; padding: 1px 7px; border-radius: 9999px; border-width: 1px; }
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-4xl mx-auto p-4 sm:p-6">
+  <header class="flex items-center justify-between mb-4">
+    <div class="min-w-0">
+      <div class="flex items-center gap-2">
+        <span aria-hidden="true" style="color:var(--text-tertiary)">←</span>
+        <h1 class="text-lg font-semibold" style="color:var(--text-primary)">Knowledge browser</h1>
+      </div>
+      <p class="text-sm flex items-center gap-2 flex-wrap" style="color:var(--text-tertiary)">
+        <code class="text-xs">/folder/&lt;cwd&gt;/voice-assistant-knowledge</code>
+        <span>— ~/Project/acme-erp — read-only</span>
+        <span class="status-chip" title="Active knowledge backend" style="background:var(--severity-info-bg); color:var(--severity-info-fg); border-color:var(--severity-info-border)">kb</span>
+      </p>
+      <p class="text-xs mt-1" style="color:var(--text-tertiary)">Folder-scoped overlay route (design 6b) — back arrow binds to the slot's <code>onBack</code>; full-bleed, matching kb-plugin's KbSettingsPanel.</p>
+    </div>
+    <nav class="flex items-center gap-3 text-sm">
+      <a href="index.html" class="hover:underline whitespace-nowrap" style="color:var(--accent-blue)">← All screens</a>
+      <button onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'" class="px-2 py-1 rounded border text-xs" style="border-color:var(--border-primary); color:var(--text-secondary)">Toggle theme</button>
+    </nav>
+  </header>
+
+  <section class="panel p-4 mb-4">
+    <div class="text-xs uppercase tracking-wide mb-2" style="color:var(--text-muted)">Configured sources</div>
+    <ul class="space-y-2">
+      <li class="row px-3 py-2 flex items-center justify-between">
+        <code class="text-sm" style="color:var(--text-primary)">docs/**/*.md</code>
+        <span class="text-xs" style="color:var(--text-tertiary)">42 files matched</span>
+      </li>
+      <li class="row px-3 py-2 flex items-center justify-between">
+        <code class="text-sm" style="color:var(--text-primary)">manufacturing.md</code>
+        <span class="text-xs" style="color:var(--text-tertiary)">1 file matched</span>
+      </li>
+      <li class="row px-3 py-2 flex items-center justify-between">
+        <code class="text-sm" style="color:var(--text-primary)">notes</code>
+        <span class="text-xs" style="color:var(--text-tertiary)">7 files matched</span>
+      </li>
+    </ul>
+  </section>
+
+  <section class="panel p-4">
+    <div class="flex items-center gap-2 mb-2">
+      <div class="text-xs uppercase tracking-wide" style="color:var(--text-muted)">Recorded decisions</div>
+      <span class="flex-1"></span>
+      <span class="status-chip" style="background:var(--severity-success-bg); color:var(--severity-success-fg); border-color:var(--severity-success-border)">active 12</span>
+      <span class="status-chip" style="background:var(--severity-neutral-bg); color:var(--severity-neutral-fg); border-color:var(--severity-neutral-border)">superseded 3</span>
+    </div>
+    <p class="text-[11px] mb-2" style="color:var(--text-muted)">Grouped by the <code>status</code> facet — kb indexes it by default. (On the fallback backend this is a flat list with no counts.)</p>
+    <ul class="space-y-2">
+      <li class="row px-3 py-3">
+        <div class="flex items-center gap-2 mb-1">
+          <span class="text-sm font-semibold" style="color:var(--text-primary)">DEC-002</span>
+          <span class="status-chip" style="background:var(--severity-success-bg); color:var(--severity-success-fg); border-color:var(--severity-success-border)">active</span>
+        </div>
+        <p class="text-sm" style="color:var(--text-secondary)">Cutting log capability deferred to phase 2</p>
+        <p class="text-xs mt-0.5" style="color:var(--text-muted)">manufacturing.md:100</p>
+      </li>
+      <li class="row px-3 py-3">
+        <div class="flex items-center gap-2 mb-1">
+          <span class="text-sm font-semibold" style="color:var(--text-primary)">DEC-014</span>
+          <span class="status-chip" style="background:var(--severity-neutral-bg); color:var(--severity-neutral-fg); border-color:var(--severity-neutral-border)">superseded</span>
+        </div>
+        <p class="text-sm" style="color:var(--text-secondary)">Driver-app photo upload ships in v1, not v2</p>
+        <p class="text-xs mt-0.5" style="color:var(--text-muted)">logistics.md:44</p>
+      </li>
+    </ul>
+  </section>
+
+  <!-- Fallback-backend state -->
+  <section class="panel p-4 mt-6" aria-label="Fallback backend example">
+    <div class="flex items-center gap-2 mb-2">
+      <div class="text-xs uppercase tracking-wide" style="color:var(--text-muted)">Fallback backend example</div>
+      <span class="status-chip" style="background:var(--severity-warning-bg); color:var(--severity-warning-fg); border-color:var(--severity-warning-border)">fallback</span>
+    </div>
+    <p class="text-[11px]" style="color:var(--text-secondary)">This folder has no kb index — reading the configured <code>knowledge.sources</code> globs directly. Decisions are listed flat, without status counts.</p>
+    <p class="text-[11px] mt-1.5" style="color:var(--text-muted)">Index this folder with kb (sidebar KB row → reindex) for faceted decisions and faster lookups.</p>
+  </section>
+
+  <!-- Empty state -->
+  <section class="panel p-8 mt-6 text-center" aria-label="Empty state example">
+    <p class="text-sm" style="color:var(--text-tertiary)">No knowledge available for this folder yet.</p>
+    <p class="text-xs mt-1" style="color:var(--text-muted)">Either index this folder with kb, or add <code>knowledge.sources</code> in <a href="config-editor.html" class="underline" style="color:var(--accent-blue)">voice-assistant settings</a>.</p>
+  </section>
+</div>
+</body>
+</html>

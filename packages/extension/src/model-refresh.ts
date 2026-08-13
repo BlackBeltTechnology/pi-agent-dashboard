@@ -26,6 +26,19 @@ export function errText(err: unknown): string {
 }
 
 /**
+ * Hard bound on how long a catalogue refresh may block its caller.
+ *
+ * `request_models` is dispatched from the bridge's SERIALIZED inbound pump
+ * (`serialize-bridge-message-pump`), which awaits each handler to completion.
+ * A `refresh()` that never settles therefore wedges the pump forever: every
+ * later browser message — including `send_prompt` — is queued and never
+ * dispatched, so the composer's optimistic bubble never gets its
+ * `prompt_received` ack and hangs at `sending`.
+ * See change: fix-optimistic-prompt-stuck-sending.
+ */
+export const REFRESH_TIMEOUT_MS = 10_000;
+
+/**
  * Await a refresh and report its outcome. Returns the result when one was
  * produced, or `undefined` when the refresh threw (already reported).
  *
@@ -37,11 +50,29 @@ export async function reportRefresh(
   label = "model refresh",
 ): Promise<ModelsRefreshResultLike | undefined> {
   if (!pending) return undefined;
-  let result: ModelsRefreshResultLike | undefined;
+  // Keep the caller's own rejection handling AND make sure a late rejection of
+  // the abandoned promise never surfaces as an unhandled rejection.
+  pending.catch(() => {});
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const TIMED_OUT = Symbol("refresh-timeout");
+  let result: ModelsRefreshResultLike | undefined | typeof TIMED_OUT;
   try {
-    result = await pending;
+    result = await Promise.race([
+      pending,
+      new Promise<typeof TIMED_OUT>((resolve) => {
+        timer = setTimeout(() => resolve(TIMED_OUT), REFRESH_TIMEOUT_MS);
+      }),
+    ]);
   } catch (err) {
     console.warn(`[dashboard] ${label} threw:`, errText(err));
+    return undefined;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+  if (result === TIMED_OUT) {
+    // Degraded, never broken: the registry still serves its last-known
+    // catalogue, and the caller (and the message pump behind it) moves on.
+    console.warn(`[dashboard] ${label} timed out after ${REFRESH_TIMEOUT_MS}ms — using the last-known catalogue`);
     return undefined;
   }
   if (!result) return undefined;

@@ -6,7 +6,7 @@ import React, { type ReactNode, useCallback, useEffect, useMemo, useRef, useStat
 import { useImagePaste } from "../../hooks/useImagePaste.js";
 import { LIST_POPOVER_MIN_HEIGHT, usePopoverFlip } from "../../hooks/usePopoverFlip.js";
 import { usePopoverBoundary } from "../../lib/state/PopoverBoundaryContext.js";
-import type { ChatMessage } from "../../lib/chat/event-reducer.js";
+import type { ChatMessage, PendingPrompt } from "../../lib/chat/event-reducer.js";
 import { extractRecentUrls } from "../../lib/preview/extract-urls.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { ImagePreviewStrip } from "../preview/ImagePreviewStrip.js";
@@ -77,7 +77,12 @@ interface Props {
   onForceKill?: () => void;
   /** Graceful stop: finish the current turn, then end the session cleanly. */
   onStopAfterTurn?: () => void;
-  pendingPrompt?: boolean;
+  /**
+   * Status of the optimistic pending prompt, or undefined when none.
+   * Only `"sending"` gates the composer — `"sent"`/`"failed"` are settled and
+   * must re-enable it. See change: fix-optimistic-prompt-stuck-sending.
+   */
+  pendingPrompt?: PendingPrompt["status"];
   onCancelPending?: () => void;
   /** Current session id — used to reset history-navigation state on switch. */
   sessionId?: string;
@@ -570,7 +575,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
       }
 
       // Cancel pending prompt on Escape
-      if (e.key === "Escape" && pendingPrompt && onCancelPending) {
+      if (e.key === "Escape" && pendingPrompt === "sending" && onCancelPending) {
         e.preventDefault();
         onCancelPending();
         return;
@@ -578,7 +583,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
 
       // --- History recall (ArrowUp / ArrowDown / Escape in history mode) ---
       // Only activates when no dropdown is open and no prompt is pending.
-      if (!pendingPrompt && (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Escape")) {
+      if (pendingPrompt !== "sending" && (e.key === "ArrowUp" || e.key === "ArrowDown" || e.key === "Escape")) {
         const ta = inputRef.current;
         // Escape while in history mode: restore the in-progress draft and exit.
         if (e.key === "Escape" && historyIndex !== null) {
@@ -707,7 +712,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   // --- Morphing action button (send → stop → force-stop) ---
   // One button whose glyph/behaviour derive from state, replacing the old
   // four-button cluster. See change: redesign-prompt-input.
-  const pendingIdle = pendingPrompt === true && !isWorking;
+  const pendingIdle = pendingPrompt === "sending" && !isWorking;
   const canStop = !!(onAbort || onCancelPending);
   let actionButton: ReactNode;
   if (isWorking && stopState === "aborting" && onForceKill) {
@@ -738,7 +743,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
     actionButton = (
       <button
         onClick={() => {
-          if (pendingPrompt) {
+          if (pendingPrompt === "sending") {
             onCancelPending?.();
           } else {
             onAbort?.();
@@ -769,7 +774,7 @@ export function CommandInput({ commands: externalCommands, onSend, onListFiles, 
   }
 
   // Stop-after-turn slim secondary affordance (beside the action button).
-  const showStopAfterTurn = isWorking && onStopAfterTurn && stopState === "idle" && !pendingPrompt;
+  const showStopAfterTurn = isWorking && onStopAfterTurn && stopState === "idle" && pendingPrompt !== "sending";
   const stopAfterTurnNode = !showStopAfterTurn ? null : stopAfterTurnRequested ? (
     <span
       className="flex items-center gap-1 px-2 self-end text-xs text-[var(--text-muted)]"

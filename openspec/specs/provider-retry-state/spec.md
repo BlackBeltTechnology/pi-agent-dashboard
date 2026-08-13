@@ -96,10 +96,13 @@ waiting and in-flight sub-states. This visual SHALL be distinct from the red err
 default idle/streaming/ended marks, and SHALL carry a non-hue channel (a shape/icon marker) so
 it is distinguishable without colour.
 
-The per-attempt number and countdown are surfaced on the `SessionBanner` (including its collapsed
-pill), NOT on every sidebar card: duplicating a live countdown onto each card would require a
-per-card timer in a render-hot component for information the banner already carries. The card's
-job is only to mark "this session is retrying".
+The live COUNTDOWN is surfaced on the `SessionBanner`, NOT on every sidebar card: duplicating a
+per-second countdown onto each card would require a timer in a render-hot component. The card
+DOES carry the static attempt NUMBER in its activity slot — see `session-card-status`,
+*Session card surfaces the in-flight retry attempt* — which needs no timer.
+
+This paragraph previously excluded the attempt number from the card as well, which made a retry
+unrepresentable there by construction.
 
 #### Scenario: Amber mark during retry (both sub-states)
 
@@ -360,4 +363,66 @@ the always-present session Stop, not through the banner.
 - **WHEN** attempt 4 starts and then fails
 - **THEN** the surface SHALL remain visible throughout
 - **AND** the attempt counter SHALL advance rather than resetting
+
+### Requirement: Turn disposition reads the last assistant message
+
+The reducer SHALL determine a turn's disposition — clean versus errored — from
+the last message in `agent_end.data.messages` whose `role` is `"assistant"`,
+located by scanning the array backward. Both `isCleanAgentEnd` and
+`extractAgentEndError` SHALL use this rule, via one shared helper, so the two
+cannot diverge.
+
+The determination SHALL be structural (`role`, `stopReason`) and SHALL NOT match
+on error message text.
+
+#### Scenario: Successful turn ending with a trailing toolResult clears the error
+- **GIVEN** `SessionState.lastError` is set from a previous failed attempt
+- **AND** an `agent_end` arrives whose `messages` array ends with a `toolResult`
+- **AND** the last `role: "assistant"` message has a `stopReason` other than `"error"`
+- **THEN** the turn SHALL be treated as clean
+- **AND** `SessionState.lastError` SHALL be cleared to undefined
+- **AND** the error surface SHALL no longer render
+
+#### Scenario: Failed turn ending with a trailing toolResult still extracts the error
+- **GIVEN** an `agent_end` whose `messages` array ends with a `toolResult`
+- **AND** the last `role: "assistant"` message has `stopReason: "error"`
+- **THEN** `SessionState.lastError` SHALL be set from that assistant message
+- **AND** the turn SHALL NOT be treated as clean
+
+#### Scenario: Disposition helpers agree
+- **WHEN** any `agent_end` payload is evaluated
+- **THEN** `isCleanAgentEnd` returning `true` SHALL imply `extractAgentEndError` returns no error
+- **AND** `isCleanAgentEnd` returning `false` because of an errored assistant message SHALL imply `extractAgentEndError` returns that error
+
+#### Scenario: No assistant message present
+- **GIVEN** an `agent_end` whose `messages` array contains no entry with `role: "assistant"`
+- **THEN** `SessionState.lastError` SHALL remain unchanged
+- **AND** no error SHALL be synthesized
+
+### Requirement: Dismissing an error surface never mutates retry state
+
+`SessionState.retryState` has two consumers: the error surface renders it, and
+the command input derives its working state from it to decide whether the
+session abort control is mounted. A view-level dismissal SHALL NOT write to it.
+
+Collapsing or dismissing an error surface SHALL therefore leave
+`SessionState.retryState` unchanged. Only retry lifecycle events
+(`auto_retry_*`, `agent_start`, `agent_settled`) may clear it.
+
+#### Scenario: Collapsing while retrying leaves retry state intact
+- **GIVEN** a session whose state has `retryState` set at attempt 2
+- **WHEN** the user collapses the error surface
+- **THEN** `SessionState.retryState` SHALL remain set at attempt 2
+- **AND** the session SHALL remain a member of the retry set
+
+#### Scenario: Dismissing a settled error does not resurrect or clear retry state
+- **GIVEN** a session with `lastError` set and `retryState` undefined
+- **WHEN** the user dismisses the error surface
+- **THEN** `SessionState.lastError` SHALL be cleared
+- **AND** `SessionState.retryState` SHALL remain undefined
+
+#### Scenario: The abort control survives a dismissal during a retry
+- **GIVEN** a retry is pending and the session abort control is displayed
+- **WHEN** the user collapses the error surface
+- **THEN** the session abort control SHALL remain displayed
 

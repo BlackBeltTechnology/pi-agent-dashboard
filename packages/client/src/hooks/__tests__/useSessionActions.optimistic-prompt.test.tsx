@@ -10,7 +10,7 @@
 import { describe, it, expect, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
 import { useSessionActions } from "../useSessionActions.js";
-import { createInitialState, type SessionState } from "../../lib/chat/event-reducer.js";
+import { applyPromptTimeout, createInitialState, type SessionState } from "../../lib/chat/event-reducer.js";
 
 function setup(selectedId: string | undefined, states: Map<string, SessionState>) {
   let sessionStates = states;
@@ -85,12 +85,32 @@ describe("useSessionActions — idle-scoped optimistic pendingPrompt", () => {
     expect(getStates().get("s2")!.pendingPrompt).toEqual({ text: "quick hello", images: undefined, status: "sending" });
   });
 
-  it("handleSendPromptToSession does NOT write pendingPrompt for a streaming target", () => {
+  it("#X4 handleSendPromptToSession does NOT write pendingPrompt for a streaming target", () => {
     const states = new Map([["s2", streaming()]]);
     const { actions, getStates } = setup(undefined, states);
 
     actions.handleSendPromptToSession("s2", "quick hello");
 
     expect(getStates().get("s2")!.pendingPrompt).toBeUndefined();
+  });
+
+  // The card quick-send targets a session this browser is not subscribed to, so
+  // neither the ack nor `message_start` can reach it — the safety timeout is its
+  // ONLY settlement, and it must land on a visible failed bubble (text kept),
+  // never a silent drop or a permanently-disabled composer.
+  // See change: fix-optimistic-prompt-stuck-sending, test-plan #X3.
+  it("#X3 an unackable quick-send settles into a visible failed bubble on timeout", () => {
+    const states = new Map([["s2", idle()]]);
+    const { actions, getStates } = setup(undefined, states);
+
+    actions.handleSendPromptToSession("s2", "quick hello");
+    expect(getStates().get("s2")!.pendingPrompt!.status).toBe("sending");
+
+    // No ack / message_start is reachable for this session; the 30s safety
+    // timeout is what settles it.
+    const settled = applyPromptTimeout(getStates().get("s2")!, "no response");
+
+    expect(settled.pendingPrompt).toEqual({ text: "quick hello", images: undefined, status: "failed" });
+    expect(settled.lastError?.message).toBe("no response");
   });
 });

@@ -1,0 +1,95 @@
+/* Lifted verbatim from packages/client/src/index.css — dark (default) + light theme. */
+:root {
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #141414;
+  --bg-tertiary: #1e1e1e;
+  --bg-surface: #2a2a2a;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-selected: #1e1e1e;
+  --bg-code: #1a1a1a;
+
+  --text-primary: #e5e5e5;
+  --text-secondary: #b0b0b0;
+  --text-tertiary: #808080;
+  --text-muted: #585858;
+  --text-faint: #3a3a3a;
+
+  --border-primary: #252525;
+  --border-secondary: #333333;
+  --border-subtle: rgba(255, 255, 255, 0.06);
+
+  --accent-blue: #3b82f6;
+  --accent-green: #22c55e;
+  --accent-yellow: #eab308;
+  --accent-red: #ef4444;
+  --accent-purple: #a855f7;
+  --accent-orange: #f97316;
+  --accent-primary: #3b82f6;
+
+  --status-needs-you: var(--accent-purple);
+  --status-working: var(--accent-yellow);
+  --status-idle: var(--accent-green);
+  --status-error: var(--accent-red);
+  --status-notice: var(--accent-blue);
+
+  --severity-error-bg: color-mix(in srgb, var(--accent-red) 10%, var(--bg-tertiary));
+  --severity-error-fg: color-mix(in srgb, var(--accent-red) 46%, var(--text-primary));
+  --severity-error-border: color-mix(in srgb, var(--accent-red) 40%, transparent);
+  --severity-warning-bg: color-mix(in srgb, var(--accent-orange) 10%, var(--bg-tertiary));
+  --severity-warning-fg: color-mix(in srgb, var(--accent-orange) 46%, var(--text-primary));
+  --severity-warning-border: color-mix(in srgb, var(--accent-orange) 40%, transparent);
+  --severity-success-bg: color-mix(in srgb, var(--accent-green) 10%, var(--bg-tertiary));
+  --severity-success-fg: color-mix(in srgb, var(--accent-green) 46%, var(--text-primary));
+  --severity-success-border: color-mix(in srgb, var(--accent-green) 40%, transparent);
+  --severity-info-bg: color-mix(in srgb, var(--accent-blue) 10%, var(--bg-tertiary));
+  --severity-info-fg: color-mix(in srgb, var(--accent-blue) 46%, var(--text-primary));
+  --severity-info-border: color-mix(in srgb, var(--accent-blue) 40%, transparent);
+  --severity-neutral-bg: var(--bg-tertiary);
+  --severity-neutral-fg: var(--text-secondary);
+  --severity-neutral-border: var(--border-primary);
+
+  --focus-ring: var(--accent-primary);
+  --shadow-card: rgba(0, 0, 0, 0.4);
+  --elevation-rim: rgba(255, 255, 255, 0.10);
+}
+
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #fafafa;
+  --bg-tertiary: #f0f0f0;
+  --bg-surface: #e0e0e0;
+  --bg-hover: rgba(0, 0, 0, 0.04);
+  --bg-selected: #e8e8e8;
+  --bg-code: #f5f5f5;
+
+  --text-primary: #1a1a1a;
+  --text-secondary: #444444;
+  --text-tertiary: #777777;
+  --text-muted: #aaaaaa;
+  --text-faint: #d0d0d0;
+
+  --border-primary: #e0e0e0;
+  --border-secondary: #cccccc;
+  --border-subtle: rgba(0, 0, 0, 0.06);
+
+  --accent-primary: #2563eb;
+  --focus-ring: var(--accent-primary);
+  --shadow-card: rgba(0, 0, 0, 0.08);
+  --elevation-rim: rgba(255, 255, 255, 0.9);
+}
+
+body {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+/* Visible focus ring on every interactive element — WCAG 2.4.7 */
+a:focus-visible, button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+}
