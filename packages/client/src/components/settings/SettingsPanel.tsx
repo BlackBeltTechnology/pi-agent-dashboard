@@ -19,12 +19,13 @@ import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { listKnownServers } from "../../lib/api/known-servers-api.js";
-import { type TestProviderResult, testProvider } from "../../lib/api/providers-api.js";
+import { type ProviderHealth, type TestProviderResult, testProvider } from "../../lib/api/providers-api.js";
 import { type BlockEvent, getBlockEvents } from "../../lib/gateway/gateway-api.js";
 import { suggestTrustEntries } from "../../lib/gateway/gateway-config-ops.js";
 import { fetchAutoInitWorktreePref, fetchAutoNameSessionsPref, setAutoInitWorktreePref, setAutoNameSessionsPref } from "../../lib/git/git-api.js";
 import { t as i18nT, LANGUAGE_OPTIONS, type Language, useI18n } from "../../lib/i18n/i18n.js";
 import { buildPiResourceFileUrl } from "../../lib/nav/route-builders.js";
+import { logRejection } from "../../lib/report-error.js";
 import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
 import { KnownServersSection } from "../connectivity/KnownServersSection.js";
@@ -51,7 +52,6 @@ import { PluginNotFoundNotice, PluginSettingsPage } from "./PluginSettingsPage.j
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
 import { RetrySettingsSection } from "./RetrySettingsSection.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
-import { logRejection } from "../../lib/report-error.js";
 
 interface ProviderConfig {
   clientId: string;
@@ -320,6 +320,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
   const [config, setConfig] = useState<Config | null>(null);
   const [original, setOriginal] = useState<Config | null>(null);
   const [llmProviders, setLlmProviders] = useState<LlmProvider[]>([]);
+  // Cached per-provider health from GET /api/providers (`health[name]`), used to
+  // seed each row's pill. See change: surface-provider-health-in-settings.
+  const [providerHealth, setProviderHealth] = useState<Record<string, ProviderHealth>>({});
   // Detect upstream pi-model-proxy extension for ModelProxySection coexistence advisory.
   // See change: add-dashboard-model-proxy task 14.1.
   const installedTopLevel = useInstalledPackages("global");
@@ -508,6 +511,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
           );
           setLlmProviders(list);
           setOriginalLlmProviders(JSON.parse(JSON.stringify(list)));
+          if (providersData.health && typeof providersData.health === "object") {
+            setProviderHealth(providersData.health as Record<string, ProviderHealth>);
+          }
         }
       })
       .catch(() => setMessage({ type: "error", text: t("settings.failedLoad", undefined, "Failed to load settings") }))
@@ -639,6 +645,24 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
           const saved = validProviders.map(({ isNew, ...rest }) => rest);
           setLlmProviders(saved);
           setOriginalLlmProviders(JSON.parse(JSON.stringify(saved)));
+          // The PUT awaited a server-side probe per provider; refetch so each
+          // pill reflects the freshly cached health without a remount. See
+          // change: surface-provider-health-in-settings.
+          try {
+            const refetched = await fetch(`${getApiBase()}/api/providers`).then((r) => (r.ok ? r.json() : null));
+            if (refetched?.health && typeof refetched.health === "object") {
+              setProviderHealth(refetched.health as Record<string, ProviderHealth>);
+            }
+          } catch {
+            // Refetch failed: the just-saved providers' cached health is stale
+            // (their config changed), so drop it to not-tested rather than show
+            // a stale pill. See change: surface-provider-health-in-settings.
+            setProviderHealth((prev) => {
+              const next = { ...prev };
+              for (const p of saved) delete next[p.name];
+              return next;
+            });
+          }
           return {};
         },
       });
@@ -1475,10 +1499,21 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   <p className="text-xs text-[var(--text-tertiary)] mb-3">
                     {t("settings.llmProvidersDescription", undefined, "Register custom OpenAI-compatible API endpoints for model access.")}
                   </p>
-                  {llmProviders.map((provider, index) => (
+                  {llmProviders.map((provider, index) => {
+                    // Suppress cached health for a row edited since its last save:
+                    // the cache reflects the SAVED config, so showing it against
+                    // unsaved edits would be misleading. See change:
+                    // surface-provider-health-in-settings.
+                    const savedOriginal = originalLlmProviders.find((o) => o.name === provider.name);
+                    const rowDirty = provider.isNew || !savedOriginal
+                      || savedOriginal.baseUrl !== provider.baseUrl
+                      || savedOriginal.apiKey !== provider.apiKey
+                      || savedOriginal.api !== provider.api;
+                    return (
                     <LlmProviderCard
                       key={`${provider.name}-${index}`}
                       provider={provider}
+                      health={rowDirty ? undefined : providerHealth[provider.name]}
                       onChange={(updated) => {
                         setLlmProviders((prev) => prev.map((p, i) => (i === index ? updated : p)));
                       }}
@@ -1486,7 +1521,8 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                         setLlmProviders((prev) => prev.filter((_, i) => i !== index));
                       }}
                     />
-                  ))}
+                    );
+                  })}
                   <button
                     onClick={() => setLlmProviders((prev) => [...prev, { name: "", baseUrl: "", apiKey: "", api: "openai-completions", isNew: true }])}
                     className="flex items-center gap-1.5 text-sm text-[var(--accent-blue)] hover:text-blue-400 mt-1"
@@ -2633,13 +2669,22 @@ type TestState =
   | { kind: "ok"; modelCount: number; sample: string[] }
   | { kind: "err"; status?: number; message: string };
 
-export function LlmProviderCard({ provider, onChange, onRemove }: {
+export function LlmProviderCard({ provider, health, onChange, onRemove }: {
   provider: LlmProvider;
+  health?: ProviderHealth;
   onChange: (p: LlmProvider) => void;
   onRemove: () => void;
 }) {
   const { t } = useI18n();
   const [testState, setTestState] = useState<TestState>({ kind: "idle" });
+
+  // Reset the live Test result when the provider's config changes from OUTSIDE
+  // this card (e.g. Discard restoring saved values). derivePillView prioritizes
+  // testState, so a stale failed-Test would otherwise mask the restored cached
+  // health. See change: surface-provider-health-in-settings.
+  useEffect(() => {
+    setTestState({ kind: "idle" });
+  }, [provider.baseUrl, provider.apiKey, provider.api]);
 
   const handleChange = (update: LlmProvider) => {
     // Any change to baseUrl / apiKey / api clears a stale test result.
@@ -2670,8 +2715,10 @@ export function LlmProviderCard({ provider, onChange, onRemove }: {
     if (result.ok) {
       setTestState({ kind: "ok", modelCount: result.modelCount, sample: result.sample ?? [] });
     } else {
-      const firstLine = (result.error ?? "Test failed").split("\n")[0].trim();
-      setTestState({ kind: "err", status: result.status, message: firstLine || "Test failed" });
+      // Keep the verbatim error for the monospace error line; the pill itself
+      // shows only the status code / Unreachable. See change:
+      // surface-provider-health-in-settings.
+      setTestState({ kind: "err", status: result.status, message: result.error ?? "Test failed" });
     }
   };
 
@@ -2751,55 +2798,94 @@ export function LlmProviderCard({ provider, onChange, onRemove }: {
             ))}
           </select>
         </div>
-        {testState.kind !== "idle" && <TestPill state={testState} />}
+        <HealthPill state={testState} health={health} />
       </div>
     </div>
   );
 }
 
-function TestPill({ state }: { state: TestState }) {
+// Normalized pill view derived from either a live Test result (`state`) or the
+// server-cached health. Four registers per the spec: connected / error (HTTP
+// status) / unreachable (no status) / not-tested.
+type PillView =
+  | { kind: "testing" }
+  | { kind: "ok"; modelCount: number; sample: string[] }
+  | { kind: "error"; status: number; error: string }
+  | { kind: "unreachable"; error: string }
+  | { kind: "not-tested" };
+
+function derivePillView(state: TestState, health?: ProviderHealth): PillView {
+  if (state.kind === "testing") return { kind: "testing" };
+  if (state.kind === "ok") return { kind: "ok", modelCount: state.modelCount, sample: state.sample };
+  if (state.kind === "err") {
+    return state.status !== undefined
+      ? { kind: "error", status: state.status, error: state.message }
+      : { kind: "unreachable", error: state.message };
+  }
+  // idle — fall back to the server-cached health.
+  if (!health) return { kind: "not-tested" };
+  if (health.ok) return { kind: "ok", modelCount: health.modelCount ?? 0, sample: [] };
+  return health.status !== undefined
+    ? { kind: "error", status: health.status, error: health.error ?? "" }
+    : { kind: "unreachable", error: health.error ?? "" };
+}
+
+function HealthPill({ state, health }: { state: TestState; health?: ProviderHealth }) {
   const { t } = useI18n();
-  if (state.kind === "testing") {
+  const view = derivePillView(state, health);
+
+  if (view.kind === "testing") {
     return (
-      <div
-        className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]"
-        data-testid="test-pill"
-        data-state="testing"
-      >
+      <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]" data-testid="test-pill" data-state="testing">
         <Icon path={mdiLoading} size={0.45} className="animate-spin" />
         {t("common.testing", undefined, "Testing...")}
       </div>
     );
   }
-  if (state.kind === "ok") {
-    const label = state.modelCount > 0
-      ? t("settings.connectedModels", { count: state.modelCount }, `Connected · ${state.modelCount} models`)
+
+  if (view.kind === "ok") {
+    const label = view.modelCount > 0
+      ? t("settings.connectedModels", { count: view.modelCount }, `Connected · ${view.modelCount} models`)
       : t("settings.connectedOnly", undefined, "Connected");
     return (
       <div
         className="flex items-center gap-1.5 text-xs text-green-400"
         data-testid="test-pill"
         data-state="ok"
-        title={state.sample.length > 0 ? i18nT("settings.sampleModels", { list: state.sample.join(", ") }, "Sample: {list}") : undefined}
+        title={view.sample.length > 0 ? i18nT("settings.sampleModels", { list: view.sample.join(", ") }, "Sample: {list}") : undefined}
       >
         <Icon path={mdiCheckCircle} size={0.5} />
         {label}
       </div>
     );
   }
-  if (state.kind === "err") {
-    const prefix = state.status ? `${state.status} — ` : "";
+
+  if (view.kind === "not-tested") {
     return (
-      <div
-        className="flex items-center gap-1.5 text-xs text-red-400"
-        data-testid="test-pill"
-        data-state="err"
-      >
-        <Icon path={mdiCloseCircle} size={0.5} />
-        <span className="truncate" title={`${prefix}${state.message}`}>{prefix}{state.message}</span>
+      <div className="flex items-center gap-1.5 text-xs text-[var(--text-tertiary)]" data-testid="test-pill" data-state="not-tested">
+        {t("settings.providerNotTested", undefined, "Not tested")}
       </div>
     );
   }
-  // idle — parent guards against rendering, but keep a safe default.
-  return null;
+
+  // error (yellow, HTTP status) or unreachable (red, no status) — both carry a
+  // verbatim error line beneath the pill.
+  const isError = view.kind === "error";
+  return (
+    <>
+      <div
+        className={`flex items-center gap-1.5 text-xs ${isError ? "text-yellow-400" : "text-red-400"}`}
+        data-testid="test-pill"
+        data-state={view.kind}
+      >
+        <Icon path={isError ? mdiAlert : mdiCloseCircle} size={0.5} />
+        {isError ? String(view.status) : t("settings.providerUnreachable", undefined, "Unreachable")}
+      </div>
+      {view.error && (
+        <div className="font-mono text-[11px] text-[var(--text-tertiary)] break-all whitespace-pre-wrap" data-testid="provider-error-line">
+          {view.error}
+        </div>
+      )}
+    </>
+  );
 }

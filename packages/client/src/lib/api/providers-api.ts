@@ -16,6 +16,19 @@ export type TestProviderResult =
   | { ok: false; status?: number; error: string };
 
 /**
+ * Per-provider cached health from `GET /api/providers` (`health[name]`). Sourced
+ * from a server-side probe on save / Test; credential-free.
+ * See change: surface-provider-health-in-settings.
+ */
+export interface ProviderHealth {
+  ok: boolean;
+  status?: number;
+  error?: string;
+  modelCount?: number;
+  testedAt: number;
+}
+
+/**
  * POST /api/providers/test — verify a provider's baseUrl + apiKey + api
  * combination against the upstream `/models`-style endpoint without saving.
  *
