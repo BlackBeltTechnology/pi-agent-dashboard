@@ -10,6 +10,8 @@ import {
   acquireAutoStartLock,
   autoStartLockPath,
   isLockStale,
+  readLock,
+  recordChildPid,
   releaseAutoStartLock,
   type AutoStartLockRecord,
   type LockProbes,
@@ -99,7 +101,7 @@ describe("acquireAutoStartLock", () => {
   it("E9: release removes the lockfile so the next acquisition does not wait for staleness", () => {
     const alive = probes({ isAlive: () => true, processStartedAt: () => NOW - 1_000 });
     acquireAutoStartLock({ port: 8000, cliPath: "/x/cli.ts", dir, sessionPid: 42 }, alive, BUDGET);
-    releaseAutoStartLock(8000, dir);
+    releaseAutoStartLock(8000, dir, 42);
 
     expect(existsSync(autoStartLockPath(8000, dir))).toBe(false);
     expect(acquireAutoStartLock({ port: 8000, cliPath: "/x/cli.ts", dir, sessionPid: 43 }, alive, BUDGET).acquired).toBe(true);
@@ -121,5 +123,45 @@ describe("acquireAutoStartLock", () => {
     acquireAutoStartLock({ port: 8000, cliPath: "/x/cli.ts", dir, sessionPid: 42 }, dead, BUDGET);
     const second = acquireAutoStartLock({ port: 8000, cliPath: "/x/cli.ts", dir, sessionPid: 43 }, dead, BUDGET);
     expect(second.acquired).toBe(true);
+  });
+});
+
+/**
+ * CodeRabbit finding: both lock mutations acted on the PORT, not on ownership.
+ * A holder that overran the budget could rewrite or delete a lock another
+ * session had already broken and re-acquired — re-opening the double-spawn
+ * window the lock exists to close.
+ * See change: fix-worktree-server-autostart-leak.
+ */
+describe("lock mutations are ownership-checked", () => {
+  it("release does NOT delete a lock owned by someone else", () => {
+    const alive = probes({ isAlive: () => true, processStartedAt: () => NOW - 1_000 });
+    acquireAutoStartLock({ port: 8000, cliPath: "/x/cli.ts", dir, sessionPid: 99 }, alive, BUDGET);
+
+    // The overrun holder (pid 42) tries to release the new holder's lock.
+    releaseAutoStartLock(8000, dir, 42);
+
+    expect(existsSync(autoStartLockPath(8000, dir))).toBe(true);
+    expect(readLock(autoStartLockPath(8000, dir))?.sessionPid).toBe(99);
+  });
+
+  it("release removes a lock we still own", () => {
+    acquireAutoStartLock({ port: 8000, cliPath: "/x/cli.ts", dir, sessionPid: 42 }, probes(), BUDGET);
+    releaseAutoStartLock(8000, dir, 42);
+    expect(existsSync(autoStartLockPath(8000, dir))).toBe(false);
+  });
+
+  it("recordChildPid does NOT write into someone else's lock", () => {
+    acquireAutoStartLock({ port: 8000, cliPath: "/x/cli.ts", dir, sessionPid: 99 }, probes(), BUDGET);
+
+    recordChildPid(8000, 4242, dir, 42);
+
+    expect(readLock(autoStartLockPath(8000, dir))?.childPid).toBeUndefined();
+  });
+
+  it("recordChildPid writes into our own lock", () => {
+    acquireAutoStartLock({ port: 8000, cliPath: "/x/cli.ts", dir, sessionPid: 42 }, probes(), BUDGET);
+    recordChildPid(8000, 4242, dir, 42);
+    expect(readLock(autoStartLockPath(8000, dir))?.childPid).toBe(4242);
   });
 });

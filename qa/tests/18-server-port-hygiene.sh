@@ -65,11 +65,23 @@ B_PID=$!
 sleep 60
 
 if kill -0 "$B_PID" 2>/dev/null; then
-  echo "FAIL (E1): server B (pid $B_PID) is still resident 60s after losing both ports"
+  echo "FAIL (E1): server B (pid $B_PID) is still resident 60s after losing the dashboard port"
   lsof -nP -p "$B_PID" -iTCP -sTCP:LISTEN || true
   exit 1
 fi
-echo "Server B exited rather than lingering"
+
+# Exiting is not enough — E1 requires a NON-ZERO exit, or a regression that
+# swallows the failure and exits 0 would pass here.
+set +e
+wait "$B_PID"
+B_STATUS=$?
+set -e
+B_PID=""            # reaped; keep the trap from signalling a stale pid
+if [ "$B_STATUS" -eq 0 ]; then
+  echo "FAIL (E1): server B exited 0 after failing to bind its dashboard port"
+  exit 1
+fi
+echo "Server B exited non-zero (status $B_STATUS) rather than lingering"
 
 GATEWAY_A_HOLDERS=$(holders "$GATEWAY_A")
 GATEWAY_B_HOLDERS=$(holders "$GATEWAY_B")

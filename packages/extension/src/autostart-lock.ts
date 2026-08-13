@@ -58,6 +58,11 @@ export function defaultProbes(): LockProbes {
     now: Date.now,
     isAlive: (pid) => isProcessAlive(pid),
     processStartedAt: (pid) => {
+      // `ps` is POSIX. On Windows the spawn simply fails and the catch below
+      // returns null, which disables pid-reuse detection there: staleness
+      // falls back to liveness plus the age bound. Degrading is the correct
+      // direction — a false "stale" verdict would break a LIVE holder's lock
+      // and double-spawn, which is the bug this lock exists to prevent.
       try {
         const out = execFileSync("ps", ["-o", "lstart=", "-p", String(pid)], {
           encoding: "utf8",
@@ -205,10 +210,18 @@ function isReadableFile(path: string): boolean {
 }
 
 /** Record the detached child's pid once the launch primitive surfaces it. */
-export function recordChildPid(port: number, childPid: number, dir?: string): void {
+export function recordChildPid(
+  port: number,
+  childPid: number,
+  dir?: string,
+  sessionPid: number = process.pid,
+): void {
   const path = autoStartLockPath(port, dir);
   const lock = readLock(path);
-  if (!lock) return;
+  // Only mutate a lock we still own. A holder that overran the budget may find
+  // its lock already broken and re-acquired by someone else; writing into that
+  // record would corrupt the new holder's state.
+  if (!lock || lock.sessionPid !== sessionPid) return;
   try {
     const fd = openSync(path, "w");
     try {
@@ -226,9 +239,19 @@ export function recordChildPid(port: number, childPid: number, dir?: string): vo
  * timed-out spawns (E9) — otherwise a failed spawn wedges every other
  * session until the staleness budget elapses.
  */
-export function releaseAutoStartLock(port: number, dir?: string): void {
+export function releaseAutoStartLock(
+  port: number,
+  dir?: string,
+  sessionPid: number = process.pid,
+): void {
+  const path = autoStartLockPath(port, dir);
+  // Same ownership rule as `recordChildPid`: never delete a lock that is no
+  // longer ours, or a slow holder's `finally` frees the NEW holder's lock and
+  // re-opens the double-spawn window the lock exists to close.
+  const lock = readLock(path);
+  if (lock && lock.sessionPid !== sessionPid) return;
   try {
-    rmSync(autoStartLockPath(port, dir), { force: true });
+    rmSync(path, { force: true });
   } catch {
     /* best-effort */
   }
