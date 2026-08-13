@@ -129,6 +129,7 @@ import { sessionToMeta } from "./session/session-to-meta.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import { createIdleTimer } from "./spawn-process/idle-timer.js";
 import { spawnPiSession } from "./spawn-process/process-manager.js";
+import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
 import { removePid, writePid } from "./spawn-process/server-pid.js";
 import { createTerminalGateway, type TerminalGateway } from "./terminal/terminal-gateway.js";
 import { createTerminalManager, deriveTranscriptCapBytes, type TerminalManager } from "./terminal/terminal-manager.js";
@@ -866,7 +867,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // createContext block below); consumed by wireEvents — `plugin_pi_message`
   // envelopes route to handlers by messageType; every `event_forward` fans
   // out to raw-event subscribers. See change: add-goal-continuation-plugin.
-  const pluginPiHandlers = new Map<string, Array<(msg: unknown) => void>>();
+  const pluginPiHandlers = new Map<string, Array<(msg: unknown, sessionId: string) => void>>();
   const pluginRawEventSubs = new Set<(sessionId: string, event: unknown) => void>();
   // Plugin session-end subscribers (ServerPluginContext.onSessionEnded). Fired
   // from sessionManager.onUnregister via wireEvents — the transport-independent
@@ -891,11 +892,38 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     for (const d of preferencesStore.getPinnedDirectories()) set.add(d);
     return [...set];
   });
-  function dispatchPluginPiMessage(messageType: string, msg: unknown): void {
+  // Host services consumed by mcp-server-plugin. Registered HERE because the
+  // plugin must verify a device bearer WITHOUT going through the global
+  // `onRequest` hook — `/mcp` deliberately does not trust
+  // `request.isAuthenticated`, so it needs the registry directly.
+  // See change: add-dashboard-mcp-server.
+  pluginServiceRegistry.set(
+    "host.verifyDeviceToken",
+    (token: string): string | null => pairedDeviceRegistry.verify(token),
+  );
+  // Prefers the BOUND port, falls back to the CONFIGURED one.
+  //
+  // Both halves are needed. Plugins consume this during `registerPlugin`, which
+  // runs before `fastify.listen`, so the bound address is still null then and a
+  // bound-only getter would silently yield nothing (mcp-server-plugin would
+  // provision a URL hardcoded to 8000 regardless of `--port`). `config.port` is
+  // known at load and is right for every case except `port: 0`, where the
+  // caller must read the getter again after listen to learn the real port.
+  pluginServiceRegistry.set("host.httpPort", (): number | null => {
+    const addr = fastify.server.address();
+    if (addr && typeof addr === "object") return addr.port;
+    return config.port || null;
+  });
+
+  // `sessionId` comes from the gateway's socket key, never from `msg`. A
+  // plugin that attributes a message to a session (e.g. minting a session-
+  // scoped credential) depends on that being unspoofable.
+  // See change: add-dashboard-mcp-server.
+  function dispatchPluginPiMessage(messageType: string, msg: unknown, sessionId: string): void {
     const arr = pluginPiHandlers.get(messageType);
     if (!arr) return;
     for (const h of arr) {
-      try { h(msg); } catch (err) { console.error("[plugin-pi-handler]", messageType, err); }
+      try { h(msg, sessionId); } catch (err) { console.error("[plugin-pi-handler]", messageType, err); }
     }
   }
   function dispatchPluginRawEvent(sessionId: string, event: unknown): void {
@@ -1286,6 +1314,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           spawnToken,
           ...(opts?.model ? { model: opts.model } : {}),
         });
+        // REST/goal spawn has no browser socket; the reclaim must run anyway.
+        // See change: fix-duplicate-bridge-registration (D0/D2).
+        armSpawnWatchdog(cwd, "headless", result);
         if (result.process && result.pid) {
           browserGateway.headlessPidRegistry.register(
             result.pid,
@@ -1326,6 +1357,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           ? { sessionFile: req.sessionFile, mode: "continue" as const }
           : {}),
       });
+      // REST resume — the path that minted the incident's duplicate.
+      armSpawnWatchdog(req.cwd, "headless", result);
       if (result.process && result.pid) {
         browserGateway.headlessPidRegistry.register(
           result.pid,
@@ -1922,6 +1955,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                     // creation via `--name`. See change: adopt-pi-074-080-features.
                     ...(opts.automationRun?.name ? { name: opts.automationRun.name } : {}),
                   });
+                  // Plugin/automation spawn: transport-less, reclaim required.
+                  armSpawnWatchdog(opts.cwd, "headless", result);
                   if (result.process && result.pid) {
                     browserGateway.headlessPidRegistry.register(
                       result.pid,
@@ -2354,6 +2389,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   mode: "continue",
                   strategy: resumeConfig.spawnStrategy,
                 });
+                // Cold-start recovery resume: no ws, reclaim still required.
+                armSpawnWatchdog(cand.cwd, resumeConfig.spawnStrategy as any, result);
                 if (result.process && result.pid) {
                   browserGateway.headlessPidRegistry.register(
                     result.pid,

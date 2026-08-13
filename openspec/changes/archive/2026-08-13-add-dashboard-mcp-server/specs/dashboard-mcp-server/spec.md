@@ -38,6 +38,42 @@ request and does not constitute cross-request state.
 - **WHEN** a request declares a protocol version the server does not support
 - **THEN** the server SHALL return `UnsupportedProtocolVersionError`
 
+#### Scenario: Only revision 2026-07-28 is served
+- **WHEN** a request declares `2025-06-18` or `2025-11-25`
+- **THEN** the server SHALL return `UnsupportedProtocolVersionError`
+- **AND** the server SHALL NOT fall back to a legacy handshake
+
+#### Scenario: MCP-Protocol-Version header is required on every POST
+- **WHEN** a `POST /mcp` request carries no `MCP-Protocol-Version` header
+- **THEN** the server SHALL refuse the request
+- **AND** the server SHALL NOT default to its latest supported version
+
+#### Scenario: Header and body version mismatch is refused
+- **WHEN** the `MCP-Protocol-Version` header disagrees with the
+  `io.modelcontextprotocol/protocolVersion` value in `params._meta`
+- **THEN** the server SHALL respond `400` with a `HeaderMismatch` error
+
+#### Scenario: Absent params._meta version is refused
+- **WHEN** a request omits `params._meta` entirely
+- **THEN** the server SHALL refuse the request
+- **AND** the server SHALL NOT silently default to its latest supported version
+
+#### Scenario: Unknown method returns 404 with JSON-RPC -32601
+- **WHEN** a request names a method the server does not implement
+- **THEN** the server SHALL respond `404`
+- **AND** the body SHALL carry JSON-RPC error code `-32601`
+
+#### Scenario: Malformed payloads produce JSON-RPC errors, never a 500
+- **WHEN** a request body is not valid JSON, or is valid JSON that is not JSON-RPC
+- **THEN** the server SHALL return a JSON-RPC parse or invalid-request error
+- **AND** the server SHALL NOT return `500`
+- **AND** the server SHALL NOT raise an unhandled rejection
+
+#### Scenario: Oversized and deeply nested payloads are bounded
+- **WHEN** a request body exceeds the configured size limit, or is deeply nested
+- **THEN** the server SHALL reject it within a bounded amount of work
+- **AND** the server SHALL NOT grow memory without bound or overflow the stack
+
 ### Requirement: server/discover is implemented
 The server SHALL implement the `server/discover` RPC, advertising its supported
 protocol versions, its capabilities, and its identity.
@@ -112,6 +148,24 @@ introduce an OAuth flow and SHALL NOT bind an OAuth callback port.
 - **WHEN** a client sends a second request without an `Authorization` header after a successful authenticated request
 - **THEN** the second request SHALL be refused
 
+### Requirement: Plugin pi-message handlers receive a server-attributed session id
+The plugin server context SHALL deliver the originating session id alongside
+every bridge message dispatched to a `registerPiHandler` handler. The id SHALL be
+supplied by the pi gateway from the connection the message arrived on, and SHALL
+NOT be read from the message body.
+
+#### Scenario: Handler receives the gateway's session id
+- **WHEN** a bridge message is dispatched to a registered pi handler
+- **THEN** the handler SHALL receive the id of the session whose connection carried it
+
+#### Scenario: A body-supplied session id does not influence attribution
+- **WHEN** a bridge message body contains a field naming a different session
+- **THEN** the attributed session SHALL remain the connection's own session
+
+#### Scenario: Existing single-argument handlers keep working
+- **WHEN** a handler is registered that accepts only the message argument
+- **THEN** it SHALL continue to be dispatched without error
+
 ### Requirement: Per-session MCP tokens carry caller identity
 The dashboard SHALL be able to mint a session-scoped MCP token whose originating
 session is recorded server-side. Caller identity SHALL be derived from the
@@ -182,6 +236,22 @@ stream, and SHALL NOT implement `resources/subscribe` or `resources/unsubscribe`
 - **WHEN** a client calls `resources/subscribe` or `resources/unsubscribe`
 - **THEN** the server SHALL report the method as unsupported
 
+#### Scenario: Subscription filter names its sessions explicitly
+- **WHEN** a client calls `subscriptions/listen`
+- **THEN** the server SHALL read the requested sessions from a `sessionIds` array in `params`
+
+#### Scenario: An absent or empty session filter is a request error
+- **WHEN** a `subscriptions/listen` request omits `sessionIds`, supplies an empty array, or supplies a non-array
+- **THEN** the server SHALL return JSON-RPC error `-32602`
+- **AND** the server SHALL NOT open a stream
+- **AND** the server SHALL NOT interpret the request as a subscription to every session
+
+#### Scenario: A slow consumer is bounded
+- **WHEN** a subscriber stops reading while events continue to arrive
+- **THEN** the server SHALL bound its buffering per subscription
+- **AND** the server SHALL terminate the subscription once its buffer limit is reached
+- **AND** the server SHALL NOT silently drop events from a still-open subscription
+
 ### Requirement: Dashboard MCP entry is provisioned into the user MCP config
 The dashboard SHALL provision its own entry into `~/.pi/agent/mcp.json` so a
 local pi session can reach the endpoint. The entry SHALL declare a protocol
@@ -192,6 +262,24 @@ the adapter's legacy default.
 - **WHEN** the dashboard writes its `mcpServers` entry
 - **THEN** the entry SHALL set a protocol version selection of `auto` or a pinned `2026-07-28`
 - **AND** it SHALL NOT omit the protocol version selection
+
+#### Scenario: Entry uses the HTTP server shape
+- **WHEN** the dashboard writes its `mcpServers` entry
+- **THEN** the entry SHALL declare the endpoint by `url`
+- **AND** it SHALL NOT use the stdio `command` shape used for local stdio servers
+
+#### Scenario: Entry occupies the reserved pi-dashboard key
+- **WHEN** the dashboard writes its `mcpServers` entry
+- **THEN** it SHALL be written under the key `pi-dashboard`
+
+#### Scenario: A foreign entry under the reserved key is never clobbered
+- **WHEN** `mcpServers` already holds an entry under `pi-dashboard` that does not declare a `url`
+- **THEN** the writer SHALL refuse the write and surface an error
+- **AND** the existing file SHALL be left unmodified
+
+#### Scenario: An existing dashboard entry is refreshed
+- **WHEN** `mcpServers` already holds an entry under `pi-dashboard` that declares a `url`
+- **THEN** the writer SHALL overwrite that entry
 
 #### Scenario: Sibling entries are preserved
 - **WHEN** the write occurs and the file already contains other `mcpServers` entries

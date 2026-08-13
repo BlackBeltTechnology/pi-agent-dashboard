@@ -41,6 +41,7 @@ import type { ViewedSessionTracker } from "./session/viewed-session-tracker.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import { buildPidIndex, classifyProcesses } from "./spawn-process/process-classifier.js";
 import { spawnPiSession } from "./spawn-process/process-manager.js";
+import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
 import {
   buildEmptyActionableLogLine,
   buildModelErrorLogLine,
@@ -173,7 +174,7 @@ export interface EventWiringDeps {
    * `ServerPluginContext.registerPiHandler(messageType, handler)`.
    * See change: add-goal-continuation-plugin.
    */
-  dispatchPluginPiMessage?: (messageType: string, msg: unknown) => void;
+  dispatchPluginPiMessage?: (messageType: string, msg: unknown, sessionId: string) => void;
   /**
    * Optional raw pi-event fan-out. When provided, every forwarded
    * `event_forward` event is delivered to plugin-server subscribers
@@ -733,7 +734,10 @@ export function wireEvents(deps: EventWiringDeps): void {
     // handlers by messageType; never touches core session state.
     // See change: add-goal-continuation-plugin.
     if (msg.type === "plugin_pi_message") {
-      dispatchPluginPiMessage?.(msg.messageType, msg);
+      // `sessionId` is the gateway's own socket key, passed through so a
+      // plugin can attribute the message without trusting its body.
+      // See change: add-dashboard-mcp-server.
+      dispatchPluginPiMessage?.(msg.messageType, msg, sessionId);
       return;
     }
 
@@ -1921,7 +1925,12 @@ export function wireEvents(deps: EventWiringDeps): void {
     }
 
     if (msg.type === "spawn_new_session") {
-      spawnPiSession(msg.cwd, { strategy: loadConfig().spawnStrategy }).then((result) => {
+      const spawnStrategy = loadConfig().spawnStrategy;
+      spawnPiSession(msg.cwd, { strategy: spawnStrategy }).then((result) => {
+        // Bridge-initiated spawn is a spawn entry point too: without the arm, a
+        // duplicate refused for contention here is never reclaimed.
+        // See change: fix-duplicate-bridge-registration (D0/D2).
+        armSpawnWatchdog(msg.cwd, spawnStrategy as any, result);
         if (result.process && result.pid) {
           browserGateway.headlessPidRegistry.register(
             result.pid,

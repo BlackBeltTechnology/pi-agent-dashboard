@@ -2,17 +2,24 @@
 
 Stage: apply   Generated: 2026-08-11
 
-## ⚠ Clarifications needed (7)
+## ✅ Clarifications resolved (7/7)
 
-- [ ] **C1** — Token minting flow is unspecified, blocking M1–M4. Which channel mints a session-scoped token: the bridge WebSocket (the only path that proves session identity server-side, `pi-gateway.ts` `connections.get(sessionId)`), a REST endpoint authenticated by a device token, or the spawn path? Without this the "unspoofable" property has no test.
-- [ ] **C2** — Token format, expiry, and restart persistence are unspecified, blocking M5, X9. Is the token opaque-256-bit like `paired-devices.ts`? Does it expire independently of its session? Does the registry survive a server restart, or do all tokens die on restart?
-- [ ] **C3** — Revocation mechanism is unspecified, blocking A6, X8. Is there a revoke endpoint, a Settings surface, or is session-end the only invalidation path?
-- [ ] **C4** — `subscriptions/listen` session-filter wire shape is unspecified, blocking S1–S6. The base `2026-07-28` params carry a fixed `notifications` filter with no session notion, so the per-session filter is a custom extension. What is the param name and shape, and what does an absent/empty filter mean — all sessions, no sessions, or a request error?
-- [ ] **C5** — Legacy revision support is undecided, blocking D3. Does the server also serve 2025-06-18 / 2025-11-25? `server/discover` must list every supported version, so this must be answered before that scenario is concrete.
-- [ ] **C6** — The reserved `mcpServers` key name is unspecified, blocking J6. What is the dashboard's entry name, and what makes it collision-safe against `iMCP` and future provisioners?
-- [ ] **C7** — No performance thresholds exist anywhere in the spec, blocking P1–P4. What are the acceptable bounds for token verification per request, `tools/list` response, concurrent `subscriptions/listen` streams, and stream memory over a soak window?
+All seven are answered in `design.md` Decisions 6–12 and ratified by the change
+owner. No scenario below carries a blocking marker any more.
 
-> Resolve before the blocked scenarios (marked below) can be authored. C1–C3 correspond to tasks 1.2/1.3, C4 to task 1.4, C5 to task 1.5.
+| id | resolution | authority |
+|----|------------|-----------|
+| **C1** | Minting happens over the **bridge WebSocket only**; the server attributes the mint to the sessionId the socket is keyed under in `pi-gateway.ts` `connections`, never from the message body. M4 becomes structurally true — there is no spoofable field. | design.md Decision 6 |
+| **C2** | Opaque 32-byte random, `mcp_` prefix, SHA-256 hex at rest, plaintext returned once. **No independent expiry** (lifetime == session lifetime). **In-memory only, no disk file** — all tokens die on restart, so X9's "all or none" holds by construction. | design.md Decision 7 |
+| **C3** | Row delete via three paths: `onSessionEnded` / bridge `onDisconnect` (primary), explicit `mcp/revoke-token` over the bridge, and process exit. **No Settings UI in this change.** S9: an open stream re-verifies its caller per event and **terminates** on a revoked token. | design.md Decision 8 |
+| **C4** | `params.sessionIds: string[]`. **Absent, empty, or non-array → `-32602` invalid-params**; there is no input meaning "every session," so S3's dangerous partition is unreachable. No wildcard. An unknown id → `-32602`. | design.md Decision 9 |
+| **C5** | **`2026-07-28` only.** `server/discover` advertises exactly one version; `2025-06-18` / `2025-11-25` → `UnsupportedProtocolVersionError`. Serving legacy would reintroduce `initialize` + `Mcp-Session-Id`. | design.md Decision 10 |
+| **C6** | Reserved key **`"pi-dashboard"`**. Absent → create; present with a `url` → overwrite; present with any other shape → **refuse the whole write**, file unmodified. | design.md Decision 11 |
+| **C7** | P1 ≤ **1 ms** p95 · P2 ≤ **50 ms** p95 · P3 **N=50**, ≤ **250 ms** p95, **0** dropped · P4 **10 min**, ≤ **25 MB** RSS growth, listener count **±0**. | design.md Decision 12 |
+
+Also resolved alongside: **task 1.1** (two token *kinds*, not a contradiction —
+design.md Decision 4a) and **task 1.9** (no force-kill path; `abort` stays
+soft-only and reports `false` honestly on a disconnected bridge — Decision 13).
 
 ---
 
@@ -60,14 +67,14 @@ Stage: apply   Generated: 2026-08-11
 | A3 | Req 4 loopback | EP (the carve-out boundary) | L1 | automated | POST to `/mcp` from a genuinely-local address, no `Authorization` header | request dispatched | refused — the loopback allowance does not apply to `/mcp` |
 | A4 | Req 4 cookie leak | fault-injection (adjacent auth path) | L1 | automated | request carrying a valid `pi_dash_token` cookie but no `Authorization` header | POST `/mcp` | refused — proves the handler does not trust `request.isAuthenticated`, which the global hooks in `auth-plugin.ts` and `bearer-auth.ts` set for cookies and device tokens |
 | A5 | Req 4 non-regression | EP (the invariant) | L1 | automated | genuinely-local request, no credential, to a non-`/mcp` route that previously allowed it | request dispatched | still allowed — the guard is unchanged elsewhere |
-| A6 | Req 4 revocation | state-transition | L1 | automated | a credential valid at T0, revoked at T1 | request at T2 presenting it | refused [NEEDS CLARIFICATION: input — revocation mechanism for a session token, see C3] |
+| A6 | Req 4 revocation | state-transition | L1 | automated | a credential valid at T0, revoked at T1 via `mcp/revoke-token` over the bridge (C3) | request at T2 presenting it | refused |
 | A7 | Req 4 per-request | state-transition (illegal edge) | L1 | automated | one successful authenticated request on a connection | second request on the same connection with no `Authorization` header | refused — credential is per-request, not per-connection |
 | A8 | Req 4 open-endpoint guard | fault-injection (negative control) | L1 | automated | the handler's auth check removed in a fixture | any unauthenticated POST | test FAILS — proves the suite would catch a forgotten auth hook, given `/mcp` sits outside `createNetworkGuard` |
 | A9 | Req 4 header parsing | EP (malformed) | L1 | automated | `Authorization` values: empty, `Bearer`, `Bearer ` with trailing space, `Basic xyz`, a very long token | each dispatched | each refused, no crash, constant-time comparison path preserved |
-| M1 | Req 5 mint | state-transition | L1 | automated | a live session with a proven identity channel | token minted | token resolves server-side to that session [NEEDS CLARIFICATION: trigger — minting channel, see C1] |
+| M1 | Req 5 mint | state-transition | L1 | automated | a live session with a registered bridge WebSocket | `mcp/mint-token` sent over that socket (C1) | token resolves server-side to that session |
 | M2 | Req 5 resolve | state-transition | L1 | automated | request presenting a session-scoped token | request dispatched | caller's originating session resolved from server-side records |
 | M3 | Req 5 no self-claim | fault-injection (spoof attempt) | L1 | automated | request presenting device token but carrying a client-supplied field asserting a session id | request dispatched | the asserted field is ignored for identity; caller treated as sessionless |
-| M4 | Req 5 mint attribution | fault-injection (spoof attempt) | L1 | automated | a mint request attempting to mint for a session other than the caller's own | mint attempted | refused [NEEDS CLARIFICATION: trigger — depends on minting channel, see C1] |
+| M4 | Req 5 mint attribution | fault-injection (spoof attempt) | L1 | automated | a mint message over session A's socket carrying a body field naming session B | mint attempted | the body field is ignored; the minted token binds to **A** — attribution comes from the socket key, so a foreign mint is unrepresentable (C1) |
 | M5 | Req 5 device token | EP | L1 | automated | request presenting a device-scoped paired-device token | request dispatched | caller has no originating session |
 | M6 | Req 5 session end | state-transition | L1 | automated | a session with a live token | that session ends | token no longer authenticates any request |
 | M7 | Req 5 session end race | state-transition (illegal edge) | L1 | automated | a request in flight when its session ends | session-end fires mid-request | documented outcome; no use-after-end that authenticates on a dead session |
@@ -83,15 +90,15 @@ Stage: apply   Generated: 2026-08-11
 
 | id | requirement | technique | level | disposition | input | trigger | expected observable |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------|
-| S1 | Req 7 delivery | state-convergence | L1 | automated | client opens `subscriptions/listen` scoped to session A | A emits an event | event delivered on that request's response stream [NEEDS CLARIFICATION: input — filter param shape, see C4] |
+| S1 | Req 7 delivery | state-convergence | L1 | automated | client opens `subscriptions/listen` with `params.sessionIds: ["A"]` (C4) | A emits an event | event delivered on that request's response stream |
 | S2 | Req 7 isolation | state-convergence (the leak case) | L1 | automated | subscription scoped to A | session B emits an event | B's event NOT delivered on A's stream |
-| S3 | Req 7 empty filter | EP (the dangerous partition) | L1 | automated | `subscriptions/listen` with absent or empty filter | any session emits | documented behaviour, and it is not "fan out every session by default" [NEEDS CLARIFICATION: expected observable, see C4] |
+| S3 | Req 7 empty filter | EP (the dangerous partition) | L1 | automated | `subscriptions/listen` with `sessionIds` absent, `[]`, and a non-array | each dispatched | JSON-RPC `-32602` invalid-params in all three cases; no stream opens, so fan-out-everything is unreachable (C4) |
 | S4 | Req 7 teardown | state-transition | L1 | automated | an open stream | client closes the response stream | underlying `onEvent` subscription released (assert listener count returns to baseline) |
 | S5 | Req 7 teardown fault | fault-injection (abort) | L1 | automated | an open stream | transport drops without a clean close | subscription still released; no listener leak |
-| S6 | Req 7 repeated churn | soak | L1 | automated | open and abandon a stream 1000 times | churn loop | listener count returns to baseline; no unbounded growth [NEEDS CLARIFICATION: metric threshold, see C7] |
+| S6 | Req 7 repeated churn | soak | L1 | automated | open and abandon a stream 1000 times | churn loop | listener count returns to baseline **±0**; RSS growth ≤ **25 MB** (C7) |
 | S7 | Req 7 legacy methods | state-transition (illegal edge) | L1 | automated | client calls `resources/subscribe`, then `resources/unsubscribe` | each dispatched | reported unsupported |
 | S8 | Req 7 GET stream | state-transition (illegal edge) | L1 | automated | client attempts a standalone HTTP GET event stream | request dispatched | `405` — covered by E1 but asserted here as the streaming-path invariant |
-| S9 | Req 7 auth on stream | fault-injection | L1 | automated | stream opened with a valid token, token then revoked | events emitted after revocation | documented behaviour — stream terminated, or refusal on next event [NEEDS CLARIFICATION: expected observable, see C3] |
+| S9 | Req 7 auth on stream | fault-injection | L1 | automated | stream opened with a valid token, token then revoked | events emitted after revocation | the stream **terminates** with a JSON-RPC error frame on the next dispatch — the caller re-verifies per event, never silently drains (C3) |
 
 ### Provisioning
 
@@ -102,7 +109,7 @@ Stage: apply   Generated: 2026-08-11
 | J3 | Req 8 siblings | state-transition | L2 | automated | existing `mcp.json` containing an `iMCP` entry and one unrelated entry | writer runs against the real filesystem | both siblings preserved byte-identical |
 | J4 | Req 8 atomicity | fault-injection (crash mid-write) | L2 | automated | writer interrupted between temp-file write and rename | interruption injected | original file intact; no partially-written file observable at the destination path |
 | J5 | Req 8 unparseable | fault-injection (corrupt input) | L2 | automated | existing `mcp.json` containing invalid JSON, and separately valid JSON whose root is an array | writer runs | write refused and surfaced; existing file left unmodified in both cases |
-| J6 | Req 8 name collision | decision-table | L1 | automated | existing config already containing an entry under the dashboard's intended key | writer runs | documented outcome; no silent clobber of a foreign entry [NEEDS CLARIFICATION: input — reserved key name, see C6] |
+| J6 | Req 8 name collision | decision-table | L1 | automated | existing config with `mcpServers["pi-dashboard"]` holding (a) a `url` entry and (b) a stdio `command` entry (C6) | writer runs | (a) overwritten; (b) whole write **refused** and surfaced, file byte-identical — no silent clobber |
 | J7 | Req 8 permissions | fault-injection (disk) | L2 | automated | `~/.pi/agent/` not writable | writer runs | clear surfaced error; no partial state; server continues to run |
 | J8 | Req 8 absent file | EP (first-run partition) | L2 | automated | no `mcp.json` present at all | writer runs | file created with only the dashboard entry, valid JSON, correct permissions |
 
@@ -117,8 +124,8 @@ Stage: apply   Generated: 2026-08-11
 | X5 | Req 3 spawn failure | fault-injection (subprocess) | L1 | automated | spawn fails or times out | `spawn_session` tool invoked | error surfaced to the MCP caller as a JSON-RPC error, no orphan process |
 | X6 | Req 3 trust gate | fault-injection (gate closed) | L1 | automated | the first-party trust gate denies the plugin | `spawn_session` / `abort` invoked | tools degrade per the gate contract rather than throwing; behaviour documented |
 | X7 | Req 1 concurrency | fault-injection (parallel) | L1 | automated | 50 concurrent `tools/call` requests with distinct handles | dispatched simultaneously | all resolve correctly; no cross-request state bleed; no unhandled rejection |
-| X8 | Req 5 plugin load failure | fault-injection (lifecycle) | L1 | automated | the MCP plugin fails to load after tokens were minted | server runs without the plugin | no stale token authenticates anything [NEEDS CLARIFICATION: expected observable — depends on registry ownership, see C3] |
-| X9 | Req 5 restart | state-transition (persistence) | L1 | automated | tokens minted, server restarted | restart completes | documented outcome — tokens either all survive or all die, never a partially-valid registry [NEEDS CLARIFICATION: expected observable, see C2] |
+| X8 | Req 5 plugin load failure | fault-injection (lifecycle) | L1 | automated | the MCP plugin fails to load after tokens were minted | server runs without the plugin | no stale token authenticates anything — the registry lives with the plugin, so it dies with it (C3) |
+| X9 | Req 5 restart | state-transition (persistence) | L1 | automated | tokens minted, server restarted | restart completes | **all** tokens are invalid — the registry is in-memory, so "partially valid" is unrepresentable; sessions re-mint on bridge re-registration (C2) |
 | X10 | Req 4 timing | fault-injection (side channel) | L1 | automated | token comparisons against a valid and an invalid token of equal length | many comparisons timed | comparison is constant-time, matching the `paired-devices.ts` `timingSafeEqual` discipline |
 | X11 | Req 1 oversized input | BVA (size) | L1 | automated | request body at the limit, just over it, and a deeply-nested JSON payload | dispatched | bounded rejection, no unbounded memory growth, no stack overflow |
 | X12 | Req 7 slow consumer | fault-injection (backpressure) | L1 | automated | a `subscriptions/listen` client that stops reading while events keep arriving | backpressure builds | bounded buffering with a documented drop or disconnect policy; server memory does not grow unbounded |
@@ -127,10 +134,10 @@ Stage: apply   Generated: 2026-08-11
 
 | id | requirement | technique | level | disposition | workload | metric + threshold | window |
 |----|-------------|-----------|-------|-------------|----------|--------------------|--------|
-| P1 | Req 4 auth cost | tail-latency | L1 | automated | sustained authenticated `tools/call` | p95 added latency of token verification | [NEEDS CLARIFICATION: threshold, see C7] |
-| P2 | Req 3 tools/list | tail-latency | L1 | automated | repeated `tools/list` | p95 response time | [NEEDS CLARIFICATION: threshold, see C7] |
-| P3 | Req 7 concurrent streams | throughput | L2 | automated | N concurrent `subscriptions/listen` streams with steady event flow | delivery latency and dropped-event count | [NEEDS CLARIFICATION: N and thresholds, see C7] |
-| P4 | Req 7 soak | soak | L2 | automated | long-running streams under continuous events | RSS growth, listener count | [NEEDS CLARIFICATION: window and threshold, see C7] |
+| P1 | Req 4 auth cost | tail-latency | L1 | automated | sustained authenticated `tools/call` | p95 added latency of token verification | **≤ 1 ms** |
+| P2 | Req 3 tools/list | tail-latency | L1 | automated | repeated `tools/list` | p95 response time | **≤ 50 ms** |
+| P3 | Req 7 concurrent streams | throughput | L2 | automated | **50** concurrent `subscriptions/listen` streams with steady event flow | delivery p95 latency; dropped-event count | **≤ 250 ms**; **0 dropped** |
+| P4 | Req 7 soak | soak | L2 | automated | long-running streams under continuous events | RSS growth; listener count | **≤ 25 MB** over **10 min**; baseline **±0** |
 
 ### Manual
 
@@ -150,7 +157,7 @@ Stage: apply   Generated: 2026-08-11
 - Scenarios by level: L1 72 · L2 12 · L3 0 · manual 3
 - Scenarios by disposition: automated 84 · manual-only 3
 - L2 rows: E3, E28, J3, J4, J5, J7, J8, X1, X2, X3, P3, P4
-- Rows carrying a clarification marker: 13 (A6, M1, M4, S1, S3, S6, S9, J6, X8, X9, P1, P2, P3, P4 — counted once per row)
+- Rows carrying a clarification marker: **0** (was 14: A6, M1, M4, S1, S3, S6, S9, J6, X8, X9, P1, P2, P3, P4 — all resolved via design.md Decisions 6–12)
 
 ## New infra needed
 

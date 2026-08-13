@@ -50,7 +50,14 @@ export interface WatchdogArmOptions {
   cwd: string;
   mechanism: SpawnMechanism;
   logPath?: string;
-  ws: WebSocket;
+  /**
+   * Browser transport for the diagnostic, when the caller has one. REST
+   * resume, zombie reopen and headless reload arm without a browser socket;
+   * the *reclaim* must still run, so this is optional and only the diagnostic
+   * is skipped when absent.
+   * See change: fix-duplicate-bridge-registration (D0/D2).
+   */
+  ws?: WebSocket;
   /**
    * Server-minted spawn correlation token. When provided, the entry is
    * indexed in `byToken` for strong-identity clearing via `clearByToken`.
@@ -65,7 +72,7 @@ interface Entry {
   pid?: number;
   mechanism: SpawnMechanism;
   logPath?: string;
-  ws: WebSocket;
+  ws?: WebSocket;
   timeoutMs: number;
   spawnToken?: string;
 }
@@ -73,7 +80,7 @@ interface Entry {
 interface RecentlyFiredEntry {
   firedAt: number;
   pid?: number;
-  ws: WebSocket;
+  ws?: WebSocket;
   spawnToken?: string;
 }
 
@@ -248,7 +255,7 @@ export class SpawnRegisterWatchdog {
     // not a browser is still listening for the diagnostic.
     this._reclaimSpawn(entry);
 
-    if (ws.readyState !== WebSocket.OPEN) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
     const msg: SpawnRegisterTimeoutMessage = {
       type: "spawn_register_timeout",
@@ -308,7 +315,7 @@ export class SpawnRegisterWatchdog {
 
     this.recentlyFired.delete(cwd);
 
-    if (fired.ws.readyState !== WebSocket.OPEN) return;
+    if (!fired.ws || fired.ws.readyState !== WebSocket.OPEN) return;
 
     const msg: SpawnRegisterRecoveredMessage = {
       type: "spawn_register_recovered",
@@ -338,6 +345,52 @@ export function getSpawnRegisterWatchdog(): SpawnRegisterWatchdog {
 /** Swap the singleton for tests. Pass `null` to reset. */
 export function _setSpawnRegisterWatchdogForTests(w: SpawnRegisterWatchdog | null): void {
   _instance = w;
+}
+
+/** The subset of a `spawnPiSession` result the watchdog needs to arm. */
+export interface ArmableSpawnResult {
+  success?: boolean;
+  pid?: number;
+  logPath?: string;
+  spawnToken?: string;
+}
+
+/**
+ * Arm the watchdog for a successful spawn from ANY entry point.
+ *
+ * Every spawn must be armed, not just the WebSocket one: a duplicate whose
+ * `session_register` is refused for contention is only reclaimed because its
+ * watchdog is still armed, and the incident's duplicate was minted through the
+ * REST path. `ws` is optional — a transport-less caller still gets the reclaim,
+ * only the browser diagnostic is skipped.
+ *
+ * See change: fix-duplicate-bridge-registration (D0/D2).
+ */
+export function armSpawnWatchdog(
+  cwd: string,
+  mechanism: SpawnMechanism,
+  result: ArmableSpawnResult,
+  ws?: WebSocket,
+): void {
+  if (result.success === false) return;
+  // Never throws: the watchdog is a diagnostic + reclaim safety net layered on
+  // top of the spawn. Failing to arm it must not abort the spawn it is
+  // watching — that would turn a missing safety net into a broken feature.
+  try {
+    getSpawnRegisterWatchdog().arm({
+      cwd,
+      mechanism,
+      pid: result.pid,
+      logPath: result.logPath,
+      spawnToken: result.spawnToken,
+      timeoutMs: loadConfig().spawnRegisterTimeoutMs,
+      ...(ws ? { ws } : {}),
+    });
+  } catch (err) {
+    console.error(
+      `[watchdog] failed to arm for ${cwd}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

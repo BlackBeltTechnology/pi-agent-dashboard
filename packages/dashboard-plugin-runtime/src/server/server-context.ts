@@ -36,8 +36,21 @@ export interface PluginEventStore {
 /** Minimal broadcast function exposed to plugins. */
 export type BroadcastFn = (msg: unknown) => void;
 
-/** Register a handler for an extension WebSocket message type. */
-export type RegisterPiHandlerFn = (type: string, handler: (msg: unknown) => void) => void;
+/**
+ * Register a handler for an extension WebSocket message type.
+ *
+ * The handler receives `(msg, sessionId)`. `sessionId` is supplied by the pi
+ * gateway from the key the sending socket is stored under — it is NOT read out
+ * of `msg`, so it cannot be spoofed by a bridge. That distinction is what lets
+ * a plugin attribute a message to a session as a trust decision rather than as
+ * a hint. See change: add-dashboard-mcp-server.
+ *
+ * The parameter is additive: handlers declared as `(msg) => …` remain valid.
+ */
+export type RegisterPiHandlerFn = (
+  type: string,
+  handler: (msg: unknown, sessionId: string) => void,
+) => void;
 
 /**
  * Subscribe to every forwarded pi event for any session. The handler
