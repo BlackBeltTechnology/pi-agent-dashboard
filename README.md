@@ -210,6 +210,7 @@ State persists in a named volume; API keys seed into `auth.json` on first run (o
 - **Browser-based provider auth** — sign in to Anthropic, OpenAI Codex, GitHub Copilot, Gemini CLI, and Antigravity from Settings. Enter API keys for other providers. Credentials saved to `~/.pi/agent/auth.json` and live-synced to running sessions.
 - **Custom LLM providers** — add OpenAI-compatible, Anthropic-compatible, or Google Generative AI endpoints (Settings → Providers → LLM Providers). **Test** button verifies the base URL + API key before saving. Adding / editing / removing takes effect live in every running session — no restart.
 - **Package management** — browse, install, update, remove, and **move** pi packages between global and project scopes from a single rich-row UI used in both Settings and Pi Resources. Install dialog exposes a Local/Global radio when launched from a per-folder context. Search the npm registry for pi-package extensions/skills/themes; install from npm or git URL. Active sessions auto-reload after changes.
+- **MCP endpoint** — `POST /mcp` exposes dashboard sessions to MCP clients (Claude Desktop, Cursor) once the server runs. Every request needs a bearer credential, including localhost. `~/.pi/agent/mcp.json` gets a `pi-dashboard` entry automatically on first server start; external clients authenticate with a paired-device token. Local pi sessions need `pi-mcp-adapter >= 2.20.0`.
 
 **Dev tools**
 - **Integrated terminal** — full browser-based terminal emulator (xterm.js + node-pty) with ANSI colors, scrollback, and keep-alive
@@ -243,6 +244,7 @@ This keeps plugin-provided dynamic content, package names, model names, and comm
 | Requirement | Why | Install |
 |-------------|-----|---------|
 | **[pi](https://github.com/badlogic/pi-mono)** | The AI coding agent the dashboard monitors | `npm i -g @mariozechner/pi-coding-agent` |
+| **pi-mcp-adapter ≥ 2.20.0** | Lets local pi sessions call the dashboard's `POST /mcp` endpoint | `pi ext update pi-mcp-adapter` |
 | **Node.js ≥ 22.18.0** | Server runtime. Older 22.x / 24.x < 24.3.0 are affected by [nodejs/node#58515](https://github.com/nodejs/node/issues/58515) which crashes Fastify at startup. | [nodejs.org](https://nodejs.org/) |
 | **C++ build tools** | Required by `node-pty` native addon for the integrated terminal | Xcode CLI Tools (macOS) / `build-essential` (Linux) |
 

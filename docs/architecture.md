@@ -674,6 +674,76 @@ New package `packages/hermes-memory-plugin` (client + server + shared). Settings
 - Runtime caveat: hermes reads config once at extension load → edits apply to newly started sessions only ("applies to new sessions" notice in the UI), not running ones.
 - Structured logging: path + field count on read/write success, failure reason on error, NEVER field values (config may hold model/provider hints).
 
+### MCP Endpoint (`add-dashboard-mcp-server`)
+
+New plugin `packages/mcp-server-plugin/`. Headless — no client entry, `claims: []`. Mounts `POST /mcp` on `ctx.fastify`, the shared Fastify instance every plugin gets. Seven other plugins register routes the same way.
+
+**Protocol.** Implements MCP revision `2026-07-28` ONLY. No legacy `2025-06-18` / `2025-11-25`. Both reintroduce `initialize` + `Mcp-Session-Id`, the two mechanisms this endpoint exists to refuse. Unsupported version → `UnsupportedProtocolVersionError`. Stateless: no `initialize` handshake. No `Mcp-Session-Id` (never minted, never echoed, ignored on input). No `Last-Event-ID` resumption.
+
+`MCP-Protocol-Version` header required on EVERY POST. Must agree with `params._meta["io.modelcontextprotocol/protocolVersion"]`. Disagreement → `400 HeaderMismatch`. Check order observable:
+- absent header → `MissingHeader`
+- absent `_meta` → `MissingMeta`
+- non-string body version → `UnsupportedProtocolVersion`
+- only then judged supported
+
+**Method / error mapping.**
+- Unknown method → `404` + JSON-RPC `-32601`. Unknown tool → `404` + `-32601`.
+- Malformed body → `-32700` (unparseable) or `-32600` (valid JSON, not JSON-RPC).
+- Fastify body-parse failure normalised into JSON-RPC parse error.
+- Never `500`. Handler rejection → `-32603`, never an unhandled rejection.
+- Non-POST methods → `405` + `Allow: POST`.
+- Explicitly registered: GET, DELETE, PUT, PATCH, OPTIONS.
+- HEAD NOT registered. Fastify derives HEAD from GET. Returns same 405. Asserted in tests, not registered.
+- Reason: Fastify falls an unmatched method through to `setNotFoundHandler`. In `--dev`, that proxies Vite and returns 200 + SPA HTML. Conformance failure that looks like success.
+
+**Encapsulated scope.** Routes register inside a Fastify `register` scope, not on the shared instance. Load-bearing: `setErrorHandler` global on the instance called on. Call on `ctx.fastify` → replaces dashboard handler, breaks SPA fallback.
+
+**Auth boundary.** `createNetworkGuard` applied per-route. `/mcp` sits outside it, self-guards. Every request needs a bearer credential, INCLUDING loopback. No `isGenuinelyLocal` parameter exists. Handler reads `Authorization` directly, never `request.isAuthenticated` (global hooks set that for cookies + device tokens). Cookie-authenticated browser cannot reach `/mcp`.
+
+Two credential kinds resolve to one `McpCaller`:
+- session-scoped MCP tokens → `{ kind:"session", sessionId }`, has originating session
+- paired-device bearers → `{ kind:"device", deviceId }`, no originating session
+
+**Session tokens.** Opaque 256-bit. `mcp_` prefix. SHA-256 at rest. Plaintext returned once at mint. Constant-time compare. Flat-array scan, no membership-timing leak. No independent expiry — a token's lifetime IS its session's lifetime. IN-MEMORY only: no `mcp-tokens.json`. Registry dies with the plugin. All die on restart. Sessions re-mint when bridge re-registers. Revocation: `onSessionEnded` / bridge disconnect (primary), explicit `mcp/revoke-token`, process exit / plugin unload.
+
+**Minting.** `mcp/mint-token` over the session's own bridge WebSocket. Server attributes it to the session the CONNECTION registered as (`currentSessionId`), never `msg.sessionId`. `mcp/revoke-token` revokes by session.
+
+`plugin_pi_message.sessionId` a REQUIRED protocol field (`protocol.ts:593`), always present. `pi-gateway.ts` previously preferred it over the connection — a bridge could name any session and receive that session's credential. `plugin_pi_message` now excluded from body-sessionId precedence. Other message types keep prior behaviour.
+
+Guarantee stated exactly: "the session this connection registered as". Not spoofable per-message — what the self-target guard needs. NOT a claim about pi-gateway port authentication. `currentSessionId` itself set from the first `register` message. Pre-existing bridge trust model. Out of scope here.
+
+**Self-target guard.** Refuses a session-targeting tool call (`send_prompt`, `abort`) whose target equals the caller's own resolved session. Target normalised for equality (trim, one quote pair, lowercase) — bypass-proof. Catches DIRECT self-targeting only. Indirect A→B→A loop permitted, documented out of scope. Device callers have no originating session, structurally outside the guard.
+
+**Tool surface.** Curated allowlist over `ServerPluginContext`. 5 of 19 allowlisted (`sessionManager`, `sendToSession`, `spawnSession`, `abortSession`, `onEvent`), 14 denied. Partition total — future member fails `assertContextPartitionTotal`. Tools: `list_sessions`, `send_prompt`, `spawn_session`, `abort`. `abort` maps to `abortSession` (soft-only, false on a disconnected bridge), NOT `abortSpawnedRun`. `sessionId` an ordinary required argument (revision removed protocol sessions).
+
+**Streaming.** `subscriptions/listen`, a long-lived POST-response stream. `params.sessionIds[]` required; absent/empty/non-array → `-32602`. No subscribe-to-all. Filter applied per subscription before write. Authorisation re-checked per delivery. Revoked mid-stream → terminates it. Slow consumer → subscription TERMINATED at `MAX_BUFFERED_EVENTS` (1000) buffered events. Does NOT silently drop events. Subscription dies with its request.
+
+**Provisioning.** Writes `~/.pi/agent/mcp.json` key `pi-dashboard` on server start. HTTP `url` shape, not stdio `command` (iMCP writes `command`). `protocolVersion` pinned `2026-07-28` — never omitted, else legacy handshake. Merge-only. Atomic rename. Refuses unparseable file. Foreign shape under the reserved key → refuses the whole write, file untouched. Failure logged, never thrown — provisioning a convenience, not a precondition for serving `/mcp`.
+
+**Prerequisite.** `pi-mcp-adapter >= 2.20.0` for the local-pi path. Below that, "legacy remains the default", handshake silently degrades. Runtime probe reports floor + installed + failure mode (`absent` / `below-floor` / `unparseable`).
+
+**Config reference.** `MCP_BODY_LIMIT_BYTES` 1 MiB body cap. `MAX_BUFFERED_EVENTS` 1000 buffered events.
+
+```mermaid
+sequenceDiagram
+    participant C as MCP client
+    participant S as /mcp (encapsulated scope)
+    participant R as McpTokenRegistry
+    participant B as Bridge (session socket)
+    C->>S: POST /mcp (Authorization: Bearer, MCP-Protocol-Version)
+    S->>S: authenticate(header) → McpCaller
+    S->>S: resolveProtocolVersion(header, params._meta)
+    S->>S: dispatchRpc (method allowlist)
+    Note over S,R: session token kind
+    B->>S: mcp/mint-token (over session's own socket)
+    S->>R: mintForSession(sessionId from socket key)
+    R-->>B: plaintext token (once)
+```
+
+**Seam change.** `RegisterPiHandlerFn` widened to `(msg, sessionId)`. Gateway passes its socket key through `dispatchPluginPiMessage`. Additive — `(msg)`-only handlers still valid. `sessionId` from the socket key, never the message body — a plugin can attribute a bridge message as a trust decision.
+
+See change: add-dashboard-mcp-server.
+
 ### Bootstrap & First Run (R3, immutable bundle)
 
 pi/openspec/tsx are regular npm dependencies of `@blackbelt-technology/pi-dashboard-server`. There is no runtime install pyramid. All three arms (Electron, standalone `npm i -g`, bridge) start ready.
