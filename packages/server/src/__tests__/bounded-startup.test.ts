@@ -96,4 +96,30 @@ describe("runBoundedStartup", () => {
       process.off("unhandledRejection", onUnhandled);
     }
   });
+
+  it("deadlineMs: null runs teardown-only — a slow core is never killed", async () => {
+    const teardown = vi.fn();
+    let resolved = false;
+
+    await runBoundedStartup({
+      core: () => new Promise<void>((r) => setTimeout(() => { resolved = true; r(); }, 60)),
+      teardown,
+      deadlineMs: null,
+    });
+
+    expect(resolved).toBe(true);
+    expect(teardown).not.toHaveBeenCalled();
+  });
+
+  it("deadlineMs: null still tears down on a failure", async () => {
+    const teardown = vi.fn();
+    await expect(
+      runBoundedStartup({
+        core: async () => { throw new Error("plugin load failed"); },
+        teardown,
+        deadlineMs: null,
+      }),
+    ).rejects.toThrow("plugin load failed");
+    expect(teardown).toHaveBeenCalledTimes(1);
+  });
 });

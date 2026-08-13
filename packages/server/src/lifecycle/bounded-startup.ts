@@ -33,8 +33,17 @@ export interface BoundedStartupOpts {
    * failure. Its own errors are swallowed so the original rejection survives.
    */
   teardown: () => Promise<void> | void;
-  /** Deadline in ms. Defaults to the shared `SERVER_STARTUP_DEADLINE_MS`. */
-  deadlineMs?: number;
+  /**
+   * Deadline in ms, or `null` for teardown-only (no deadline).
+   *
+   * `null` is for IN-PROCESS callers (tests, embedders) that own the server's
+   * lifetime already: killing their boot on a wall-clock timer buys nothing
+   * and, on a slow host, yanks a legitimately-slow-but-fine startup out from
+   * under them. The deadline exists for the STANDALONE server process, where
+   * nobody else is watching — `cli.ts` passes it. Teardown-on-failure applies
+   * either way.
+   */
+  deadlineMs?: number | null;
 }
 
 /**
@@ -45,14 +54,16 @@ export interface BoundedStartupOpts {
  * error propagates (E2). The caller (`cli.ts` `main().catch`) exits non-zero.
  */
 export async function runBoundedStartup(opts: BoundedStartupOpts): Promise<void> {
-  const deadlineMs = opts.deadlineMs ?? SERVER_STARTUP_DEADLINE_MS;
+  const deadlineMs = opts.deadlineMs === undefined ? SERVER_STARTUP_DEADLINE_MS : opts.deadlineMs;
   let timer: ReturnType<typeof setTimeout> | undefined;
 
-  const deadline = new Promise<never>((_resolve, reject) => {
-    timer = setTimeout(() => reject(new StartupDeadlineError(deadlineMs)), deadlineMs);
-    // The deadline timer itself must never be what keeps the process alive.
-    timer.unref?.();
-  });
+  const deadline = deadlineMs === null
+    ? null
+    : new Promise<never>((_resolve, reject) => {
+        timer = setTimeout(() => reject(new StartupDeadlineError(deadlineMs)), deadlineMs);
+        // The deadline timer itself must never be what keeps the process alive.
+        timer.unref?.();
+      });
 
   // The deadline cannot CANCEL `core` — it keeps running after the race
   // rejects, and teardown then closes listeners underneath it. Own its late
@@ -63,7 +74,7 @@ export async function runBoundedStartup(opts: BoundedStartupOpts): Promise<void>
   core.catch(() => { /* superseded by the deadline; teardown already ran */ });
 
   try {
-    await Promise.race([core, deadline]);
+    await (deadline === null ? core : Promise.race([core, deadline]));
   } catch (err) {
     try {
       await opts.teardown();

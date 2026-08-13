@@ -22,11 +22,25 @@ const SERVER_TS = readFileSync(
   "utf8",
 );
 
+const CLI_TS = readFileSync(
+  path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "cli.ts"),
+  "utf8",
+);
+
+describe("the standalone server process opts into the deadline", () => {
+  it("cli.ts passes SERVER_STARTUP_DEADLINE_MS to start()", () => {
+    expect(CLI_TS).toContain("SERVER_STARTUP_DEADLINE_MS");
+    expect(CLI_TS).toMatch(/server\.start\(\{ deadlineMs: SERVER_STARTUP_DEADLINE_MS \}\)/);
+  });
+});
+
 describe("server.start() is wired to runBoundedStartup", () => {
   it("imports the helper and runs the startup body through it", () => {
     expect(SERVER_TS).toContain('from "./lifecycle/bounded-startup.js"');
     expect(SERVER_TS).toMatch(/await runBoundedStartup\(\{/);
     expect(SERVER_TS).toMatch(/core: \(\) => server\._startCore\(\)/);
+    // The deadline is opt-in: in-process callers get teardown only.
+    expect(SERVER_TS).toMatch(/deadlineMs: opts\.deadlineMs \?\? null/);
   });
 
   it("keeps the startup body in a separate `_startCore` member", () => {
