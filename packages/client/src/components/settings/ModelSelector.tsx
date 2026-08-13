@@ -1,6 +1,6 @@
 import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { ModelInfo, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiAlertOutline, mdiBrain, mdiChevronDown, mdiEye, mdiLoading, mdiStar, mdiStarOutline } from "@mdi/js";
+import { mdiAlertOutline, mdiBrain, mdiChevronDown, mdiCog, mdiEye, mdiLoading, mdiStar, mdiStarOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { LIST_POPOVER_MIN_HEIGHT, usePopoverFlip } from "../../hooks/usePopoverFlip.js";
@@ -28,6 +28,15 @@ interface Props {
   placeholder?: string;
 
   /**
+   * Opt-in disable of the trigger. Default (undefined/false) leaves the trigger
+   * openable even with an empty catalogue — the composer's recovery path (see
+   * change: open-empty-model-selector). Surfaces that legitimately want a dead
+   * trigger while a list loads (e.g. the OpenSpec run-config launch row, which
+   * has no session to recover) pass `disabled`.
+   */
+  disabled?: boolean;
+
+  /**
    * Re-request of the model list for the current session, fired on the dropdown
    * OPEN transition — the sole refresh trigger. Optional: with no handler (no
    * session selected) opening simply renders the last-known list.
@@ -41,6 +50,14 @@ interface Props {
    * every open. See change: upgrade-model-selector-primitives (design D5).
    */
   refreshErrors?: ProviderRefreshError[];
+
+  /**
+   * Navigate to the dashboard's Settings → Providers surface. Wired to the
+   * recovery link shown in the empty-state body and the thin partial-failure
+   * footer. Optional: mount sites without a navigation path omit it and the
+   * link is not rendered. See change: open-empty-model-selector.
+   */
+  onOpenProviderSettings?: () => void;
 
   /** Favorite model labels (`"provider/id"`), server-persisted, hydrated by App. */
   favorites?: string[];
@@ -106,7 +123,234 @@ function CapBadges({ m }: { m: ModelInfo }) {
   );
 }
 
-export function ModelSelector({ current, models, onSelect, onRefresh, refreshErrors, favorites, onToggleFavorite, placeholder }: Props) {
+/**
+ * Shared recovery link → Settings → Providers (gear icon, no directional
+ * arrow). Rendered only when a navigation handler is wired.
+ * See change: open-empty-model-selector.
+ */
+function ProviderSettingsLink({ label, onClick }: { label: string; onClick?: () => void }) {
+  if (!onClick) return null;
+  return (
+    <button
+      type="button"
+      data-testid="model-provider-settings-link"
+      onClick={onClick}
+      className="inline-flex items-center gap-1 text-[var(--accent-blue)] hover:underline"
+    >
+      <Icon path={mdiCog} size={0.55} className="flex-shrink-0" />
+      <span>{label}</span>
+    </button>
+  );
+}
+
+/**
+ * Empty-catalogue popover body: a transient refreshing line while the
+ * open-triggered refresh is in flight, then "no models available" + the
+ * provider-settings recovery link once the refresh has completed empty.
+ * See change: open-empty-model-selector (D4-A, D5-B).
+ */
+function EmptyCatalogueBody({
+  awaitingRefresh,
+  failCount,
+  onOpenProviderSettings,
+}: {
+  awaitingRefresh: boolean;
+  failCount: number;
+  onOpenProviderSettings?: () => void;
+}) {
+  if (awaitingRefresh) {
+    return (
+      <div className="px-3 py-4 flex flex-col items-start gap-2 text-xs" data-testid="model-empty">
+        <div className="flex items-center gap-1.5 text-[var(--text-muted)]" data-testid="model-empty-refreshing">
+          <Icon path={mdiLoading} size={0.6} className="animate-spin" />
+          <span>{i18nT("common.refreshingModels", undefined, "Refreshing models…")}</span>
+        </div>
+      </div>
+    );
+  }
+  return (
+    <div className="px-3 py-4 flex flex-col items-start gap-2 text-xs" data-testid="model-empty">
+      <div className="text-[var(--text-secondary)]">{i18nT("common.noModelsAvailable", undefined, "No models available")}</div>
+      <ProviderSettingsLink
+        label={i18nT("common.openProviderSettings", undefined, "Open provider settings")}
+        onClick={onOpenProviderSettings}
+      />
+      {failCount > 0 && (
+        <div className="text-[10px] text-[var(--text-muted)]">
+          {i18nT("common.reopenToRetry", undefined, "Close and reopen to retry the refresh.")}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Fire the open-transition `request_models` refresh (the sole refresh trigger)
+ * and report whether the selector is still awaiting the first `models_list`
+ * since opening. `awaitingRefresh` is true from that fired refresh until the
+ * next change in `models` prop identity (a fresh list arrived) or a safety
+ * timeout. Gates the empty-state recovery link so an in-flight refresh never
+ * renders a premature "no models" affordance.
+ * See changes: upgrade-model-selector-primitives (D4), open-empty-model-selector.
+ */
+function useOpenTriggeredRefresh(open: boolean, models: ModelInfo[] | undefined, onRefresh?: () => void): boolean {
+  const [awaitingRefresh, setAwaitingRefresh] = useState(false);
+  // Latest handler without re-firing the open effect when its identity changes.
+  const onRefreshRef = useRef(onRefresh);
+  useEffect(() => { onRefreshRef.current = onRefresh; }, [onRefresh]);
+
+  useEffect(() => {
+    if (open) {
+      if (onRefreshRef.current) {
+        onRefreshRef.current();
+        setAwaitingRefresh(true);
+      }
+    } else {
+      setAwaitingRefresh(false);
+    }
+  }, [open]);
+
+  // A change in `models` identity = a fresh `models_list` arrived; leave the
+  // awaiting window. (Runs on mount too, harmlessly — the flag is already false.)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: identity-only signal, not a value read.
+  useEffect(() => { setAwaitingRefresh(false); }, [models]);
+
+  // Safety timeout: never strand the refreshing body if no list ever arrives.
+  useEffect(() => {
+    if (!awaitingRefresh) return;
+    const timer = setTimeout(() => setAwaitingRefresh(false), 10_000);
+    return () => clearTimeout(timer);
+  }, [awaitingRefresh]);
+
+  return awaitingRefresh;
+}
+
+/**
+ * Populated-catalogue popover body: provider/favs filters, the text filter, the
+ * grouped model list, and the thin partial-failure footer. Extracted so its
+ * nested conditionals live in their own scope (keeps ModelSelector's cognitive
+ * complexity in budget). See change: open-empty-model-selector.
+ */
+function PopulatedCatalogueBody({
+  filter,
+  setFilter,
+  favOnly,
+  setFavOnly,
+  providerFilter,
+  setProviderFilter,
+  setSelectedIndex,
+  uniqueProviders,
+  providerGroups,
+  flat,
+  inputRef,
+  listRef,
+  handleKeyDown,
+  renderRow,
+  failCount,
+  onOpenProviderSettings,
+}: {
+  filter: string;
+  setFilter: (v: string) => void;
+  favOnly: boolean;
+  setFavOnly: (updater: (v: boolean) => boolean) => void;
+  providerFilter: string;
+  setProviderFilter: (v: string) => void;
+  setSelectedIndex: (v: number) => void;
+  uniqueProviders: string[];
+  providerGroups: Array<{ provider: string; items: ModelInfo[] }>;
+  flat: ModelInfo[];
+  inputRef: React.RefObject<HTMLInputElement | null>;
+  listRef: React.RefObject<HTMLDivElement | null>;
+  handleKeyDown: (e: React.KeyboardEvent) => void;
+  renderRow: (m: ModelInfo, flatIdx: number) => React.ReactNode;
+  failCount: number;
+  onOpenProviderSettings?: () => void;
+}) {
+  // Running flat index so grouped rows map to the same order as `flat`.
+  let cursor = -1;
+  const nextIdx = () => (cursor += 1);
+  return (
+    <>
+      {/* ── Filters ── */}
+      <div className="p-1.5 pb-1 space-y-1">
+        <div className="flex gap-1">
+          {uniqueProviders.length > 1 && (
+            <select
+              value={providerFilter}
+              onChange={(e) => { setProviderFilter(e.target.value); setSelectedIndex(0); }}
+              className="flex-1 min-w-0 px-2 py-1 text-xs bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
+              data-testid="provider-filter"
+            >
+              <option value="">{i18nT("providers.allProviders", undefined, "All Providers")}</option>
+              {uniqueProviders.map((p) => (
+                <option key={p} value={p}>{p}</option>
+              ))}
+            </select>
+          )}
+          <button
+            type="button"
+            data-testid="favs-only-toggle"
+            aria-pressed={favOnly}
+            onClick={() => { setFavOnly((v) => !v); setSelectedIndex(0); }}
+            className={`flex items-center gap-1 px-2 py-1 text-xs rounded border whitespace-nowrap ${
+              favOnly
+                ? "text-amber-400 border-amber-400"
+                : "text-[var(--text-secondary)] border-[var(--border-primary)] bg-[var(--bg-tertiary)]"
+            }`}
+          >
+            <Icon path={favOnly ? mdiStar : mdiStarOutline} size={0.55} /> {i18nT("common.favs", undefined, "Favs")}
+          </button>
+        </div>
+        <input
+          ref={inputRef}
+          value={filter}
+          onChange={(e) => { setFilter(e.target.value); setSelectedIndex(0); }}
+          onKeyDown={handleKeyDown}
+          placeholder={i18nT("common.filterModels", undefined, "Filter models…")}
+          className="w-full px-2 py-1 text-xs bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-blue)]"
+          data-testid="model-filter"
+        />
+      </div>
+
+      {/* ── Grouped list ── */}
+      <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto">
+        {flat.length === 0 ? (
+          <div className="px-3 py-2 text-xs text-[var(--text-muted)]">{i18nT("common.noModelsMatch", undefined, "No models match")}</div>
+        ) : (
+          providerGroups.map((g) => (
+            <React.Fragment key={g.provider}>
+              <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-[var(--text-tertiary)] bg-[var(--bg-primary)] sticky top-0" data-testid="group-provider">{g.provider}</div>
+              {g.items.map((m) => renderRow(m, nextIdx()))}
+            </React.Fragment>
+          ))
+        )}
+      </div>
+
+      {/* ── Footer: thin partial-failure hint (count only; names live in
+          Settings → Providers). See change: open-empty-model-selector (D1-B). ── */}
+      {failCount > 0 && (
+        <div
+          className="border-t border-[var(--border-secondary)] px-2 py-1.5 flex items-center gap-1.5 text-[11px] text-[var(--text-muted)]"
+          data-testid="model-refresh-errors"
+        >
+          <Icon path={mdiAlertOutline} size={0.55} className="flex-shrink-0" />
+          <span>
+            {i18nT(
+              "common.modelProvidersUnavailable",
+              { count: failCount },
+              `${failCount} ${failCount === 1 ? "provider" : "providers"} unavailable`,
+            )}
+          </span>
+          <span className="ml-auto">
+            <ProviderSettingsLink label={i18nT("common.providers", undefined, "Providers")} onClick={onOpenProviderSettings} />
+          </span>
+        </div>
+      )}
+    </>
+  );
+}
+
+export function ModelSelector({ current, models, onSelect, onRefresh, refreshErrors, onOpenProviderSettings, favorites, onToggleFavorite, placeholder, disabled }: Props) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -156,17 +400,9 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
     return () => clearTimeout(timer);
   }, [pendingModel]);
 
-  // Latest handler without re-firing the open effect when its identity changes.
-  // Written in an effect, not during render (concurrent-safe).
-  const onRefreshRef = useRef(onRefresh);
-  useEffect(() => { onRefreshRef.current = onRefresh; }, [onRefresh]);
-
-  // Opening the dropdown is the ONLY refresh trigger: the user going looking
-  // for a model is exactly when a stale list matters.
-  // See change: upgrade-model-selector-primitives (design D4).
-  useEffect(() => {
-    if (open) onRefreshRef.current?.();
-  }, [open]);
+  // Opening is the ONLY refresh trigger; the hook also reports the awaiting
+  // window that gates the empty-state recovery link.
+  const awaitingRefresh = useOpenTriggeredRefresh(open, models, onRefresh);
 
   const uniqueProviders = useMemo(
     () => (hasModels ? [...new Set(models!.map((m) => m.provider))].sort() : []),
@@ -287,21 +523,28 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
     );
   };
 
-  // Running flat index so grouped rows map to the same order as `flat`.
-  let cursor = -1;
-  const nextIdx = () => (cursor += 1);
+  const failCount = refreshErrors?.length ?? 0;
+
+  // A disabled trigger (e.g. the run-config launch row while models load) reads
+  // as inert — muted, no hover affordance. An openable trigger keeps hover, even
+  // with an empty catalogue (the composer recovery path).
+  // See change: open-empty-model-selector.
+  let triggerClass: string;
+  if (disabled) {
+    triggerClass = "text-[var(--text-muted)]";
+  } else if (hasModels) {
+    triggerClass = "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]";
+  } else {
+    triggerClass = "text-[var(--text-muted)] hover:text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]";
+  }
 
   return (
     <div ref={containerRef} className="relative" data-testid="model-selector">
       <button
         ref={triggerRef}
-        onClick={() => hasModels && setOpen(!open)}
-        className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded ${
-          hasModels
-            ? "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
-            : "text-[var(--text-muted)]"
-        }`}
-        disabled={!hasModels}
+        onClick={() => !disabled && setOpen(!open)}
+        className={`flex items-center gap-1 text-xs px-2 py-0.5 rounded ${triggerClass}`}
+        disabled={disabled}
         data-testid="model-selector-button"
         aria-haspopup="true"
         aria-expanded={open}
@@ -316,7 +559,7 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
             current ?? placeholder ?? "no model"
           )}
         </span>
-        {hasModels && !pendingModel && <Icon path={mdiChevronDown} size={0.5} />}
+        {!pendingModel && !disabled && <Icon path={mdiChevronDown} size={0.5} />}
       </button>
 
       {open && (
@@ -330,78 +573,27 @@ export function ModelSelector({ current, models, onSelect, onRefresh, refreshErr
           data-testid="model-dropdown"
           id={dropdownId}
         >
-          {/* ── Filters ── */}
-          <div className="p-1.5 pb-1 space-y-1">
-            <div className="flex gap-1">
-              {uniqueProviders.length > 1 && (
-                <select
-                  value={providerFilter}
-                  onChange={(e) => { setProviderFilter(e.target.value); setSelectedIndex(0); }}
-                  className="flex-1 min-w-0 px-2 py-1 text-xs bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded text-[var(--text-primary)] focus:outline-none focus:border-[var(--accent-blue)]"
-                  data-testid="provider-filter"
-                >
-                  <option value="">{i18nT("providers.allProviders", undefined, "All Providers")}</option>
-                  {uniqueProviders.map((p) => (
-                    <option key={p} value={p}>{p}</option>
-                  ))}
-                </select>
-              )}
-              <button
-                type="button"
-                data-testid="favs-only-toggle"
-                aria-pressed={favOnly}
-                onClick={() => { setFavOnly((v) => !v); setSelectedIndex(0); }}
-                className={`flex items-center gap-1 px-2 py-1 text-xs rounded border whitespace-nowrap ${
-                  favOnly
-                    ? "text-amber-400 border-amber-400"
-                    : "text-[var(--text-secondary)] border-[var(--border-primary)] bg-[var(--bg-tertiary)]"
-                }`}
-              >
-                <Icon path={favOnly ? mdiStar : mdiStarOutline} size={0.55} /> {i18nT("common.favs", undefined, "Favs")}
-              </button>
-            </div>
-            <input
-              ref={inputRef}
-              value={filter}
-              onChange={(e) => { setFilter(e.target.value); setSelectedIndex(0); }}
-              onKeyDown={handleKeyDown}
-              placeholder={i18nT("common.filterModels", undefined, "Filter models…")}
-              className="w-full px-2 py-1 text-xs bg-[var(--bg-tertiary)] border border-[var(--border-primary)] rounded text-[var(--text-primary)] placeholder-[var(--text-muted)] focus:outline-none focus:border-[var(--accent-blue)]"
-              data-testid="model-filter"
+          {hasModels ? (
+            <PopulatedCatalogueBody
+              filter={filter}
+              setFilter={setFilter}
+              favOnly={favOnly}
+              setFavOnly={setFavOnly}
+              providerFilter={providerFilter}
+              setProviderFilter={setProviderFilter}
+              setSelectedIndex={setSelectedIndex}
+              uniqueProviders={uniqueProviders}
+              providerGroups={providerGroups}
+              flat={flat}
+              inputRef={inputRef}
+              listRef={listRef}
+              handleKeyDown={handleKeyDown}
+              renderRow={renderRow}
+              failCount={failCount}
+              onOpenProviderSettings={onOpenProviderSettings}
             />
-          </div>
-
-          {/* ── Grouped list ── */}
-          <div ref={listRef} className="flex-1 min-h-0 overflow-y-auto">
-            {flat.length === 0 ? (
-              <div className="px-3 py-2 text-xs text-[var(--text-muted)]">{i18nT("common.noModelsMatch", undefined, "No models match")}</div>
-            ) : (
-              <>
-                {providerGroups.map((g) => (
-                  <React.Fragment key={g.provider}>
-                    <div className="px-3 py-1 text-[10px] uppercase tracking-wider text-[var(--text-tertiary)] bg-[var(--bg-primary)] sticky top-0" data-testid="group-provider">{g.provider}</div>
-                    {g.items.map((m) => renderRow(m, nextIdx()))}
-                  </React.Fragment>
-                ))}
-              </>
-            )}
-          </div>
-
-          {/* ── Footer: per-provider refresh failures (degraded, not fatal) ── */}
-          {refreshErrors && refreshErrors.length > 0 && (
-            <div
-              className="border-t border-[var(--border-secondary)] px-2 py-1.5 flex items-start gap-1.5 text-[11px] text-[var(--text-muted)]"
-              data-testid="model-refresh-errors"
-            >
-              <Icon path={mdiAlertOutline} size={0.55} className="flex-shrink-0 mt-px" />
-              <span>
-                {i18nT(
-                  "common.modelRefreshFailed",
-                  { providers: refreshErrors.map((e) => e.provider).join(", ") },
-                  `couldn't reach ${refreshErrors.map((e) => e.provider).join(", ")} — showing last known list`,
-                )}
-              </span>
-            </div>
+          ) : (
+            <EmptyCatalogueBody awaitingRefresh={awaitingRefresh} failCount={failCount} onOpenProviderSettings={onOpenProviderSettings} />
           )}
         </div>
       )}

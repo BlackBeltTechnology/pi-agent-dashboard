@@ -3,10 +3,11 @@
  * group + filter, persistent provider filter.
  * See change: enrich-model-selector-capabilities-favorites.
  */
-import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, within } from "@testing-library/react";
-import { ModelSelector } from "../settings/ModelSelector.js";
+
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ModelSelector } from "../settings/ModelSelector.js";
 
 const models: ModelInfo[] = [
   { provider: "anthropic", id: "claude-opus-4-7", name: "Claude Opus 4.7", reasoning: true, vision: true, contextWindow: 1_000_000, metadataSource: "catalog" },
@@ -101,8 +102,8 @@ describe("ModelSelector refresh on open (upgrade-model-selector-primitives)", ()
   });
 });
 
-describe("ModelSelector provider refresh failures", () => {
-  it("names the failing provider and keeps models selectable", () => {
+describe("ModelSelector partial-failure footer (thin count, D1-B)", () => {
+  it("shows a count + Providers link, not provider names, and keeps models selectable", () => {
     const onSelect = vi.fn();
     render(
       <ModelSelector
@@ -110,17 +111,21 @@ describe("ModelSelector provider refresh failures", () => {
         onSelect={onSelect}
         favorites={[]}
         refreshErrors={[{ provider: "openai", message: "catalog 503" }]}
+        onOpenProviderSettings={() => {}}
       />,
     );
     open();
     const notice = screen.getByTestId("model-refresh-errors");
-    expect(notice.textContent).toContain("openai");
-    expect(notice.textContent).toMatch(/last known/i);
+    expect(notice.textContent).toMatch(/1 provider unavailable/i);
+    // Provider name and per-message text are NOT shown in the footer anymore.
+    expect(notice.textContent).not.toContain("openai");
+    expect(notice.textContent).not.toMatch(/last known/i);
+    expect(within(notice).getByTestId("model-provider-settings-link")).toBeTruthy();
     fireEvent.click(screen.getAllByTestId("model-row")[0]);
     expect(onSelect).toHaveBeenCalledTimes(1);
   });
 
-  it("names every failing provider", () => {
+  it("shows the total count for several failures without naming any provider", () => {
     render(
       <ModelSelector
         models={models}
@@ -130,24 +135,109 @@ describe("ModelSelector provider refresh failures", () => {
           { provider: "openai", message: "catalog 503" },
           { provider: "anthropic", message: "bad key" },
         ]}
+        onOpenProviderSettings={() => {}}
       />,
     );
     open();
     const notice = screen.getByTestId("model-refresh-errors");
-    expect(notice.textContent).toContain("openai");
-    expect(notice.textContent).toContain("anthropic");
+    expect(notice.textContent).toMatch(/2 providers unavailable/i);
+    expect(notice.textContent).not.toContain("openai");
+    expect(notice.textContent).not.toContain("anthropic");
   });
 
-  it("renders no notice on a clean refresh", () => {
+  it("renders no footer on a clean refresh", () => {
     render(<ModelSelector models={models} onSelect={() => {}} favorites={[]} />);
     open();
     expect(screen.queryByTestId("model-refresh-errors")).toBeNull();
   });
 
-  it("renders no notice for an empty error list", () => {
+  it("renders no footer for an empty error list", () => {
     render(<ModelSelector models={models} onSelect={() => {}} favorites={[]} refreshErrors={[]} />);
     open();
     expect(screen.queryByTestId("model-refresh-errors")).toBeNull();
+  });
+});
+
+describe("ModelSelector openable empty catalogue", () => {
+  it("1.1 trigger is not disabled, opens with models:[], and shows the chevron", () => {
+    render(<ModelSelector models={[]} onSelect={() => {}} favorites={[]} />);
+    const trigger = screen.getByTestId("model-selector-button") as HTMLButtonElement;
+    expect(trigger.disabled).toBe(false);
+    // Chevron affordance present in the empty state (control reads interactive).
+    expect(trigger.querySelector("svg")).toBeTruthy();
+    open();
+    expect(screen.getByTestId("model-dropdown")).toBeTruthy();
+  });
+
+  it("1.2 fires exactly one request_models on open with models:[] + onRefresh", () => {
+    const onRefresh = vi.fn();
+    render(<ModelSelector models={[]} onSelect={() => {}} onRefresh={onRefresh} favorites={[]} />);
+    open();
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("1.2 opens without throwing and sends nothing when no onRefresh is wired", () => {
+    render(<ModelSelector models={[]} onSelect={() => {}} favorites={[]} />);
+    expect(() => open()).not.toThrow();
+    expect(screen.getByTestId("model-dropdown")).toBeTruthy();
+  });
+
+  it("1.3 while awaiting refresh shows the refreshing body and no recovery link", () => {
+    render(<ModelSelector models={[]} onSelect={() => {}} onRefresh={vi.fn()} favorites={[]} />);
+    open();
+    expect(screen.getByTestId("model-empty-refreshing")).toBeTruthy();
+    expect(screen.queryByTestId("model-provider-settings-link")).toBeNull();
+  });
+
+  it("1.3 after a post-open empty models_list shows the Open provider settings link", () => {
+    const { rerender } = render(
+      <ModelSelector models={[]} onSelect={() => {}} onRefresh={vi.fn()} favorites={[]} onOpenProviderSettings={() => {}} />,
+    );
+    open();
+    // Simulate the post-open `models_list` arriving empty (fresh array identity).
+    rerender(
+      <ModelSelector models={[]} onSelect={() => {}} onRefresh={vi.fn()} favorites={[]} onOpenProviderSettings={() => {}} />,
+    );
+    expect(screen.queryByTestId("model-empty-refreshing")).toBeNull();
+    expect(screen.getByTestId("model-provider-settings-link")).toBeTruthy();
+  });
+
+  it("1.4 empty + refreshErrors shows the Providers link, no inline Retry; reopen re-fires refresh", () => {
+    const onRefresh = vi.fn();
+    const { rerender } = render(
+      <ModelSelector models={[]} onSelect={() => {}} onRefresh={onRefresh} favorites={[]} onOpenProviderSettings={() => {}} />,
+    );
+    open();
+    rerender(
+      <ModelSelector
+        models={[]}
+        onSelect={() => {}}
+        onRefresh={onRefresh}
+        favorites={[]}
+        refreshErrors={[{ provider: "openai", message: "catalog 503" }]}
+        onOpenProviderSettings={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("model-provider-settings-link")).toBeTruthy();
+    expect(screen.queryByTestId("model-empty-retry")).toBeNull();
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    // close + reopen → a fresh open-triggered refresh.
+    fireEvent.click(screen.getByTestId("model-selector-button"));
+    open();
+    expect(onRefresh).toHaveBeenCalledTimes(2);
+  });
+
+  it("1.6 activating the recovery link calls the settings-open callback", () => {
+    const onOpen = vi.fn();
+    const { rerender } = render(
+      <ModelSelector models={[]} onSelect={() => {}} onRefresh={vi.fn()} favorites={[]} onOpenProviderSettings={onOpen} />,
+    );
+    open();
+    rerender(
+      <ModelSelector models={[]} onSelect={() => {}} onRefresh={vi.fn()} favorites={[]} onOpenProviderSettings={onOpen} />,
+    );
+    fireEvent.click(screen.getByTestId("model-provider-settings-link"));
+    expect(onOpen).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -238,6 +238,7 @@ function OpenSpecRunConfigRowView({
               favorites={favorites}
               onToggleFavorite={onToggleFavorite}
               placeholder={i18nT("openspec.sessionModel", undefined, "session model")}
+              disabled={modelsUnavailable}
             />
             <ThinkingLevelSelector current={level} onSelect={onSelectLevel} />
           </fieldset>

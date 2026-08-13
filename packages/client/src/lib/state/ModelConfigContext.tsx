@@ -42,6 +42,8 @@ export interface ModelConfigValue {
   toggleFavorite: (label: string, makeFavorite: boolean) => void;
   /** Emit `request_models` for the session (refresh the list). */
   refreshModels: () => void;
+  /** Navigate to Settings → Providers (model-selector empty-state recovery link). */
+  openProviderSettings: () => void;
   /** Surface a transient notice (e.g. the confirm-gate timeout copy). */
   notify: (message: string) => void;
 }

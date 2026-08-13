@@ -3,8 +3,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ModelSelector } from "../settings/ModelSelector.js";
-import { StatusBar } from "../shell/StatusBar.js";
 import { ThinkingLevelSelector } from "../settings/ThinkingLevelSelector.js";
+import { StatusBar } from "../shell/StatusBar.js";
 
 afterEach(() => cleanup());
 
@@ -80,9 +80,9 @@ describe("ModelSelector", () => {
     expect(onSelect).toHaveBeenCalledWith("openai/gpt-4.1");
   });
 
-  it("is disabled when no models available", () => {
+  it("stays openable when no models available (open-empty-model-selector)", () => {
     render(<ModelSelector current="anthropic/claude-4" onSelect={() => {}} />);
-    expect(screen.getByTestId("model-selector-button").hasAttribute("disabled")).toBe(true);
+    expect(screen.getByTestId("model-selector-button").hasAttribute("disabled")).toBe(false);
   });
 
   it("requests a refresh on the open transition (upgrade-model-selector-primitives)", () => {
