@@ -10,6 +10,7 @@ import type {
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { WebSocket, WebSocketServer } from "ws";
+import { getLastBindReachability } from "../auth/bind-reachability-service.js";
 import { type DirectoryService, hasOpenSpecDir, hasOpenSpecRoot } from "../directory-service.js";
 import type { PendingForkRegistry } from "../pending/pending-fork-registry.js";
 import type { EventStore } from "../persistence/memory-event-store.js";
@@ -19,7 +20,6 @@ import type { SessionManager } from "../session/memory-session-manager.js";
 import type { SessionOrderManager } from "../session/session-order-manager.js";
 // PendingLoadManager removed — server loads sessions directly via DirectoryService
 import { createHeadlessPidRegistry, type HeadlessPidRegistry } from "../spawn-process/headless-pid-registry.js";
-import { getLastBindReachability } from "../auth/bind-reachability-service.js";
 import { createNotifyLog, type NotifyLogStats } from "./notify-log.js";
 
 /**

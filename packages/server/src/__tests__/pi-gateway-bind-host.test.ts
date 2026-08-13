@@ -4,14 +4,15 @@
  */
 
 import os from "node:os";
-import { afterEach, describe, expect, it } from "vitest";
-import { WebSocket } from "ws";
-import { createMemorySessionManager } from "../session/memory-session-manager.js";
-import { createPiGateway } from "../pi/pi-gateway.js";
 import {
+  bindHostSource,
   pendingEffectiveHost,
   resolveBindHost,
 } from "@blackbelt-technology/pi-dashboard-shared/bind-reachability.js";
+import { afterEach, describe, expect, it } from "vitest";
+import { WebSocket } from "ws";
+import { createPiGateway } from "../pi/pi-gateway.js";
+import { createMemorySessionManager } from "../session/memory-session-manager.js";
 
 function waitForOpen(ws: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -116,5 +117,38 @@ describe("effective bind host resolution", () => {
     const inputs = { hostFlag: null, envHost: "0.0.0.0", configBindHost: "127.0.0.1" };
     expect(resolveBindHost(inputs)).toBe("0.0.0.0");
     expect(pendingEffectiveHost({ pendingBindHost: resolveBindHost(inputs) })).toBe("0.0.0.0");
+  });
+});
+
+// ── Remediation must not be offered where it cannot work ──────────────
+// Both remediations (the inline control and the Server-page picker) write
+// `config.bindHost`, which `--host` and `PI_DASHBOARD_HOST` outrank. Offering
+// them under either would hand the user a fix that silently does nothing and
+// an advisory that never clears. `bindHostSource` is what gates that.
+// See change: warn-unreachable-trusted-networks.
+describe("bindHostSource", () => {
+  it("names the flag when --host is present, even with a config value", () => {
+    expect(bindHostSource({ hostFlag: "127.0.0.1", envHost: null, configBindHost: "0.0.0.0" }))
+      .toBe("flag");
+  });
+
+  it("names the env var when it is present and no flag is", () => {
+    expect(bindHostSource({ hostFlag: null, envHost: "0.0.0.0", configBindHost: "127.0.0.1" }))
+      .toBe("env");
+  });
+
+  it("names the config when it is the deciding link", () => {
+    expect(bindHostSource({ hostFlag: null, envHost: null, configBindHost: "0.0.0.0" }))
+      .toBe("config");
+  });
+
+  it("names the default when nothing supplies a bind host", () => {
+    expect(bindHostSource({})).toBe("default");
+  });
+
+  it("agrees with resolveBindHost about which link won", () => {
+    const chain = { hostFlag: "10.0.0.5", envHost: "0.0.0.0", configBindHost: "127.0.0.1" };
+    expect(resolveBindHost(chain)).toBe("10.0.0.5");
+    expect(bindHostSource(chain)).toBe("flag");
   });
 });

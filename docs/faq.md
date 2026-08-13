@@ -375,6 +375,29 @@ Docker all-in-one already sets `PI_DASHBOARD_HOST=0.0.0.0` to stay reachable thr
 
 See change: configurable-bind-host.
 
+## I added a trusted network and the device still cannot connect?
+
+Trust does not open a socket. A loopback or specific-NIC bind refuses the peer at the TCP layer before any handler runs — the trusted entry is never consulted, no block event records, and the Trusted Networks section stays blank.
+
+Diagnose:
+- Grep server.log for `[bind-reachability]` warn line. Lists trusted entries the current bind cannot serve.
+- Settings → Security shows the advisory banner naming the unreachable entries.
+- Remediation on Settings → Server: set Listen Interface to `0.0.0.0` (All interfaces) or the NIC inside the trusted range. Restart required.
+
+Bind host wins over trust. `trustedNetworks` only ever admits peers the socket already accepts.
+
+See change: warn-unreachable-trusted-networks.
+
+## My Tailscale device is not trusted after Add Local Network?
+
+Old offer was `<self>/32`. Tailscale gives each node its own `/32` from `100.64.0.0/10`, so netmask-only offer trusted nobody new — host already loopback-exempt.
+
+Dropdown now offers `100.64.0.0/10`, marked wide. Whole CGNAT space, shared across tailnets and some ISP CGNAT.
+
+Real mitigation: bind to the Tailscale NIC. Settings → Server → Listen Interface → pick the `utun`/tailnet interface. Restart required.
+
+See change: warn-unreachable-trusted-networks.
+
 ## Pairing ≠ LAN access; how to get a secure road for LAN pairing
 
 Pairing not the plain-LAN path. Plain-LAN access = Network Guard / `bindHost` + trusted networks. See [How do I expose the dashboard on my LAN?](#how-do-i-expose-the-dashboard-on-my-lan).

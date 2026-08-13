@@ -21,6 +21,7 @@
  */
 import {
   type BindReachability,
+  bindHostSource,
   collectTrustedEntries,
   resolveBindHost,
   unreachableTrustedEntries,
@@ -52,18 +53,39 @@ export function computeBindReachability(
 ): BindReachability {
   const resolvedBindHost = bootInputs?.resolvedBindHost ?? "127.0.0.1";
   const cfg = loadConfig();
-  const pendingBindHost = resolveBindHost({
+  const chain = {
     hostFlag: bootInputs?.hostFlag ?? null,
     envHost: process.env.PI_DASHBOARD_HOST ?? null,
     configBindHost: cfg?.bindHost ?? null,
-  });
+  };
+  const pendingBindHost = resolveBindHost(chain);
   const value: BindReachability = {
     resolvedBindHost,
     pendingBindHost,
     unreachable: unreachableTrustedEntries(pendingBindHost, collectTrustedEntries(cfg)),
+    bindHostSource: bindHostSource(chain),
   };
   last = value;
   return value;
+}
+
+/**
+ * `computeBindReachability`, failure-isolated. Returns `null` instead of
+ * throwing, so a serving route can degrade the field without degrading the
+ * response — the same contract `eventLoopDelay` / `storeTrim` / `notifyLog`
+ * have on `/api/health`.
+ *
+ * This lives here, not inline in the route, so the isolation is a testable unit
+ * rather than a `try` block only an HTTP round-trip can reach.
+ */
+export function safeComputeBindReachability(
+  loadConfig: Parameters<typeof computeBindReachability>[0],
+): BindReachability | null {
+  try {
+    return computeBindReachability(loadConfig);
+  } catch {
+    return null;
+  }
 }
 
 /** The last computed value, or `null` when nothing has been computed yet. */
@@ -78,9 +100,17 @@ export function getLastBindReachability(): BindReachability | null {
  */
 export function formatBindReachabilityWarning(r: BindReachability): string | null {
   if (r.unreachable.length === 0) return null;
+  // Name the link that actually decides, so the suggested fix is the one that
+  // works: writing config.bindHost is a no-op under --host or PI_DASHBOARD_HOST.
+  const remedy =
+    r.bindHostSource === "flag"
+      ? "Pass --host 0.0.0.0 (the --host flag overrides config.bindHost)."
+      : r.bindHostSource === "env"
+        ? "Set PI_DASHBOARD_HOST=0.0.0.0 (it overrides config.bindHost)."
+        : "Set bindHost to 0.0.0.0 (Settings → Server) to serve them.";
   return (
     `[bind-reachability] listening on ${r.resolvedBindHost} — ` +
     `trusted ${r.unreachable.length === 1 ? "entry" : "entries"} ${r.unreachable.join(", ")} ` +
-    `cannot reach this dashboard. Set bindHost to 0.0.0.0 (Settings → Server) to serve them.`
+    `cannot reach this dashboard. ${remedy}`
   );
 }

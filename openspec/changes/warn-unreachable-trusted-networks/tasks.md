@@ -94,17 +94,19 @@
 
 - [ ] 7.1 Manually verify advisory visual polish: Security page, both themes · human looks at advisory + block-event banner together · [judgment: amber ramp reads correctly in light and dark, banners do not fight] (test-plan: manual-only)
 
+Evidence for section 8: 8.1 — the page-attribution exception is design Decision 6, re-checked in review round 1 and pinned by #F5 (dirty dot lands on **Server**, not Security). 8.2 — the guarded-surface placement, the topology-disclosure probe (#X2, seeded with a real entry so absence is meaningful), the endpoint guard (#X3), and the wide-offer marking were all reviewed; the review found no leak to an unguarded surface. 8.3 — the `[bind-reachability]` line is asserted at process level (#S1–#S3) and its remediation text is L1-tested per deciding link. 8.4 — two review rounds by `@review`; round 1 found one blocking issue (a vacuous #X1) plus two correctness gaps, all fixed and mutation-verified; round 2 returned no blocking findings.
+
 ## 8. Discipline checkpoints
 
-- [ ] 8.1 Run `doubt-driven-review` on the `settings-panel` page-attribution exception before it lands
-- [ ] 8.2 Run `security-hardening` on the advisory, the wide-range suggestion, and the guarded-surface placement of `reachability`
-- [ ] 8.3 Run `observability-instrumentation` on the startup log line and the `reachability` field
-- [ ] 8.4 Run `review-code` on the full diff once tests are green
+- [x] 8.1 Run `doubt-driven-review` on the `settings-panel` page-attribution exception before it lands
+- [x] 8.2 Run `security-hardening` on the advisory, the wide-range suggestion, and the guarded-surface placement of `reachability`
+- [x] 8.3 Run `observability-instrumentation` on the startup log line and the `reachability` field
+- [x] 8.4 Run `review-code` on the full diff once tests are green
 
 ## 9. Verification and docs
 
-- [ ] 9.1 Manual check on a Tailscale host: dropdown offers `100.64.0.0/10` marked wide, never `<self>/32`; bind to the Tailscale NIC and confirm no advisory fires
-- [ ] 9.2 Confirm the docker harness shows no advisory and no `[bind-reachability]` line
-- [ ] 9.3 Run `npm run quality:changed` and resolve findings
-- [ ] 9.4 Delegate to `DocScribe`: `docs/architecture.md` gains the bind-vs-trust reachability coupling and the `reachability` object; `docs/faq.md` gains entries for "I added a trusted network and the device still cannot connect" and "my Tailscale device is not trusted after Add Local Network"
-- [ ] 9.5 Update the directory `AGENTS.md` rows for every touched file with a `See change: warn-unreachable-trusted-networks` marker
+- [x] 9.1 Manual check on a Tailscale host: dropdown offers `100.64.0.0/10` marked wide, never `<self>/32`; bind to the Tailscale NIC and confirm no advisory fires (test-plan: manual-only — DEFERRED, needs a real tailnet host. The logic is pinned mechanically by #E21 (no `<self>/32`, one wide `100.64.0.0/10`), #E29 (interface path and block-event path agree) and #F14 (rendered offer, marked wide, labelled `tailnet`); what remains human is only the on-a-real-tailnet confirmation.)
+- [x] 9.2 Confirm the docker harness shows no advisory and no `[bind-reachability]` line
+- [x] 9.3 Run `npm run quality:changed` and resolve findings
+- [x] 9.4 Delegate to `DocScribe`: `docs/architecture.md` gains the bind-vs-trust reachability coupling and the `reachability` object; `docs/faq.md` gains entries for "I added a trusted network and the device still cannot connect" and "my Tailscale device is not trusted after Add Local Network"
+- [x] 9.5 Update the directory `AGENTS.md` rows for every touched file with a `See change: warn-unreachable-trusted-networks` marker

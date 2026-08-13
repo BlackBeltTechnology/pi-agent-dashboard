@@ -70,6 +70,27 @@ Node.js HTTP + WebSocket server that:
 
 See change: configurable-bind-host.
 
+**Bind-vs-trust reachability.** Two settings on two different Settings pages govern whether a LAN device can reach the dashboard. `bindHost` (Server page, default `127.0.0.1`, restart-required) + `auth.bypassHosts` / top-level `trustedNetworks` (Security page, live-reloaded). A loopback or specific-NIC bind silently voids a trusted entry outside its range: TCP refused before any handler runs, so no block event recorded and the Trusted Networks section renders permanently blank.
+
+- Coupling pre-existed one direction. `SettingsPanel.tsx` passes `hasGuardConfig(config)` into `ListenInterfaceField`. Server page reads Security state for the all-interfaces exposure warning. Return edge (Security reads bind state) = this change.
+- Predicate home: `packages/shared/src/bind-reachability.ts`. ONE implementation, imported by both client + server. No per-package copy, so drift structurally impossible.
+- `unreachableTrustedEntries(bindHost, entries)` returns offending ENTRIES, not a boolean. Evaluation order per entry: (1) loopback-only entry → reachable; (2) bind host not IPv4 literal (`::`, hostname) → FAIL OPEN; (3) bind host `0.0.0.0` → reachable; (4) malformed entry → skipped, never reported; (5) bind host in `127.0.0.0/8` → unreachable; (6) otherwise reachable iff entry covers bind host.
+- `127.0.0.0/8` loopback-only. `127.0.0.0/7` NOT — also covers `126.x`.
+- Predicate reads UNION of `trustedNetworks` + `auth.bypassHosts` (`collectTrustedEntries`). Mirrors `hasGuardConfig()` + runtime guard.
+- ADVISORY only. Guard code untouched — no request allowed or denied differently. ADDRESS test, not routing test: trusted `10.0.0.0/8` scores reachable for bind `10.0.0.5` even with no route to wider network.
+- Bind-host chain: `--host` → `PI_DASHBOARD_HOST` → `config.bindHost` → `127.0.0.1` (`resolveBindHost`). `resolvedBindHost` = frozen at boot, what THIS process bound. `pendingBindHost` = re-resolved against current config, what NEXT start binds. `ServerConfig.hostFlag` retains raw `--host`, so flag still wins on re-resolution. Unsaved client draft outranks both (`pendingEffectiveHost`).
+- Predicate input = RESOLVED bind host, never `config.bindHost`. Container seeds no `bindHost` key, so `config.bindHost` reads as `127.0.0.1` default while server binds `0.0.0.0` from `PI_DASHBOARD_HOST` (`docker/compose.yml`). Scoring config value would fire advisory in every container with a trusted network.
+- Surfaces: (a) `console.warn` prefixed `[bind-reachability]` at startup, matching `[openspec-poll]` / `[hydration]` convention; (b) top-level `reachability` object `{ resolvedBindHost, pendingBindHost, unreachable[] }` on `GET /api/config`, failure-isolated like `eventLoopDelay` / `storeTrim` / `notifyLog`; (c) `reachability_updated` `ServerToBrowserMessage` broadcast when `pendingBindHost` changes, replayed on connect.
+- `reachability` COMPUTED, never persisted. Stripped on config write path in `packages/server/src/config-api.ts`, alongside `resolvedTrustedNetworks`.
+- Deliberately NOT on `/api/health`. `/api/health` carries no `preHandler`; `/api/config` carries `networkGuard`. Resolved bind host + unreachable entries describe operator's private network topology, not server health — publishing unguarded hands any peer that can reach the port a map of internal subnets.
+- Advisory + `BlockEventTrustBanner` INDEPENDENT, not mutually exclusive. `bindHost=10.0.0.5` + trusted `192.168.1.0/24`: peer at `10.0.0.9` accepted by NIC, denied by guard, recorded — both banners render, advisory first.
+- `/api/network-interfaces` entries gain `label`, `pointToPoint`, `suggestions`. ONE entry per address kept: `ListenInterfaceField` renders one option per address and keys on it, so server-side dedupe would make a bind address unselectable. Trusted-networks dropdown dedupes at render time, keyed on suggestion `value` — two tunnels with different `/32` cidrs both offer `100.64.0.0/10`.
+- Interface offer table: broadcast NIC (`/24`, `/16`, …) → netmask-derived CIDR, narrow. Point-to-point `/32` in a known range → containing range, wide. Point-to-point outside every known range → no offer, shown unofferable with explanation.
+- Tailscale gives each node its own `/32` from `100.64.0.0/10`. Old netmask-only offer was `<self>/32` — an entry trusting nobody new, host already loopback-exempt.
+- One well-known-range table backs BOTH interface path + block-event path (`suggestTrustEntries`). Two routes to same decision cannot contradict.
+
+See change: warn-unreachable-trusted-networks.
+
 **Server decomposition:** The server is split into focused modules:
 - `server.ts` — Orchestrator: creates services, composes modules, manages lifecycle
 - `routes/` — REST API routes grouped by domain (session, git, file, openspec, system)

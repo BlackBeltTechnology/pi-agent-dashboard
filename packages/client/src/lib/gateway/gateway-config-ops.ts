@@ -101,6 +101,7 @@ export function suggestTrustEntries(ip: string): TrustSuggestion[] {
   return out;
 }
 
+export type { BindReachability, TrustSuggestion } from "@blackbelt-technology/pi-dashboard-shared/bind-reachability.js";
 export {
   collectTrustedEntries,
   dedupeInterfaceOffers,
@@ -111,4 +112,3 @@ export {
   unreachableTrustedEntries,
   wellKnownContainingRange,
 } from "@blackbelt-technology/pi-dashboard-shared/bind-reachability.js";
-export type { BindReachability, TrustSuggestion } from "@blackbelt-technology/pi-dashboard-shared/bind-reachability.js";

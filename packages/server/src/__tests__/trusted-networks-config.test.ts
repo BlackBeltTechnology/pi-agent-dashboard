@@ -1,13 +1,13 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import {
   deriveInterfaceSuggestions,
   interfaceLabel,
 } from "@blackbelt-technology/pi-dashboard-shared/bind-reachability.js";
+import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { suggestTrustEntries } from "../../../client/src/lib/gateway/gateway-config-ops.js";
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
 
 describe("trustedNetworks config", () => {
   let testDir: string;

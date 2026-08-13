@@ -93,7 +93,16 @@ export function isValidTrustEntry(entry: string): boolean {
   }
 }
 
-/** True when `entry` covers `ip`. Mirrors the runtime guard's matching rules. */
+/**
+ * True when `entry` covers `ip`, over the three documented Trusted Networks
+ * formats.
+ *
+ * Deliberately NOT a copy of the runtime guard's `isBypassedHost`: this one
+ * rejects a malformed octet that the guard's lenient `parseInt` would accept.
+ * The divergence is always in the SKIP direction, so it can only ever suppress
+ * an advisory, never fabricate one — and it can never change an allow/deny,
+ * because the guard does not consult this function.
+ */
 export function trustEntryCovers(entry: string, ip: string): boolean {
   if (!isValidTrustEntry(entry)) return false;
   const ipNum = ipv4ToNum(ip);
@@ -119,9 +128,11 @@ export function trustEntryCovers(entry: string, ip: string): boolean {
 /**
  * True when EVERY address `entry` covers lies inside `127.0.0.0/8`.
  *
- * Such an entry is always reachable: a loopback peer is exempted by the guard
- * before trust is consulted, and no bind host can make loopback unreachable to
- * itself. Note `127.0.0.0/7` is NOT loopback-only — it also covers `126.x`.
+ * Such an entry is always reachable: the whole of `127.0.0.0/8` is served by the
+ * host's own loopback device regardless of what the dashboard binds, so no bind
+ * host can make it unreachable. (The guard's own exemption is narrower — only
+ * `127.0.0.1`/`::1` — but that is an AUTH question, not a reachability one.)
+ * Note `127.0.0.0/7` is NOT loopback-only — it also covers `126.x`.
  */
 export function isLoopbackOnlyEntry(entry: string): boolean {
   if (!isValidTrustEntry(entry)) return false;
@@ -155,24 +166,27 @@ export function isLoopbackOnlyEntry(entry: string): boolean {
  * line can name them. Order and duplicates of the input are preserved apart
  * from de-duplication across the two config sources.
  */
+function scoreEntry(entry: string, host: string): "reachable" | "unreachable" {
+  if (isLoopbackOnlyEntry(entry)) return "reachable";        // 1
+  if (!isIpv4Literal(host)) return "reachable";              // 2 — fail open
+  if (host === "0.0.0.0") return "reachable";                // 3
+  if (!isValidTrustEntry(entry)) return "reachable";         // 4 — skipped
+  if (isLoopbackIpv4(host)) return "unreachable";            // 5
+  return trustEntryCovers(entry, host) ? "reachable" : "unreachable"; // 6
+}
+
 export function unreachableTrustedEntries(
   bindHost: string | null | undefined,
   entries: readonly string[] | null | undefined,
 ): string[] {
-  const list = entries ?? [];
   const host = (bindHost ?? "").trim();
   const out: string[] = [];
   const seen = new Set<string>();
-  for (const raw of list) {
+  for (const raw of entries ?? []) {
     const entry = typeof raw === "string" ? raw.trim() : "";
     if (!entry || seen.has(entry)) continue;
     seen.add(entry);
-    if (isLoopbackOnlyEntry(entry)) continue;          // 1
-    if (!isIpv4Literal(host)) continue;                 // 2 — fail open
-    if (host === "0.0.0.0") continue;                   // 3
-    if (!isValidTrustEntry(entry)) continue;            // 4
-    if (isLoopbackIpv4(host)) { out.push(entry); continue; } // 5
-    if (!trustEntryCovers(entry, host)) out.push(entry);     // 6
+    if (scoreEntry(entry, host) === "unreachable") out.push(entry);
   }
   return out;
 }
@@ -212,6 +226,27 @@ export function resolveBindHost(opts: {
   return opts.hostFlag || opts.envHost || opts.configBindHost || DEFAULT_BIND_HOST;
 }
 
+/** Which link of the resolution chain actually decides the bind host. */
+export type BindHostSource = "flag" | "env" | "config" | "default";
+
+/**
+ * The link that WINS. Load-bearing for the remediation, not decoration: the
+ * inline "listen on all interfaces" control writes `config.bindHost`, so under
+ * `--host` or `PI_DASHBOARD_HOST` that write is shadowed and the advisory would
+ * never clear. The UI must offer the button only when `config` governs, and
+ * name the real source otherwise.
+ */
+export function bindHostSource(opts: {
+  hostFlag?: string | null;
+  envHost?: string | null;
+  configBindHost?: string | null;
+}): BindHostSource {
+  if (opts.hostFlag) return "flag";
+  if (opts.envHost) return "env";
+  if (opts.configBindHost) return "config";
+  return "default";
+}
+
 /**
  * The bind host the advisory must score against: an UNSAVED listen-interface
  * edit wins over the server's `pendingBindHost`, because that draft is what the
@@ -233,6 +268,12 @@ export interface BindReachability {
   pendingBindHost: string;
   /** Trusted entries `pendingBindHost` cannot serve. */
   unreachable: string[];
+  /**
+   * Which link of the chain decides `pendingBindHost`. Anything other than
+   * `config`/`default` means a `config.bindHost` write cannot take effect, so
+   * the inline remediation must not be offered.
+   */
+  bindHostSource: BindHostSource;
 }
 
 // ── Well-known ranges (shared by the dropdown AND the block-event banner) ──

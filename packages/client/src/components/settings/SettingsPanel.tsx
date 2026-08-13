@@ -33,6 +33,7 @@ import {
 import { fetchAutoInitWorktreePref, fetchAutoNameSessionsPref, setAutoInitWorktreePref, setAutoNameSessionsPref } from "../../lib/git/git-api.js";
 import { t as i18nT, LANGUAGE_OPTIONS, type Language, useI18n } from "../../lib/i18n/i18n.js";
 import { buildPiResourceFileUrl } from "../../lib/nav/route-builders.js";
+import { logRejection } from "../../lib/report-error.js";
 import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
 import { KnownServersSection } from "../connectivity/KnownServersSection.js";
@@ -59,7 +60,6 @@ import { PluginNotFoundNotice, PluginSettingsPage } from "./PluginSettingsPage.j
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
 import { RetrySettingsSection } from "./RetrySettingsSection.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
-import { logRejection } from "../../lib/report-error.js";
 
 interface ProviderConfig {
   clientId: string;
@@ -623,6 +623,13 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     () => (config ? unreachableTrustedEntries(pendingBindHost, collectTrustedEntries(config)) : []),
     [config, pendingBindHost],
   );
+
+  // `--host` / `PI_DASHBOARD_HOST` outrank `config.bindHost`, so under either
+  // the inline remediation (which writes config.bindHost) cannot take effect.
+  const bindHostShadowedBy =
+    reachability?.bindHostSource === "flag" || reachability?.bindHostSource === "env"
+      ? reachability.bindHostSource
+      : null;
 
   // A saved-but-unapplied bind host. Surfaced through the header's EXISTING
   // Restart affordance rather than a new notice component.
@@ -1533,6 +1540,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   legacyTrustedNetworks={config.trustedNetworks ?? []}
                   pendingBindHost={pendingBindHost}
                   unreachable={unreachableEntries}
+                  bindHostShadowedBy={bindHostShadowedBy}
                   onListenOnAllInterfaces={() => update((c) => { c.bindHost = "0.0.0.0"; })}
                   onGoToServerPage={() => navigate("/settings/server")}
                   onChange={(nets) => update((c) => {
@@ -2168,16 +2176,24 @@ export function shouldShowLegacyHint(legacyTrustedNetworks: string[]): boolean {
 function UnreachableTrustedNetworksAdvisory({
   pendingBindHost,
   unreachable,
+  bindHostShadowedBy,
   onListenOnAllInterfaces,
   onGoToServerPage,
 }: {
   pendingBindHost: string;
   unreachable: string[];
+  /**
+   * `"flag"` / `"env"` when `--host` or `PI_DASHBOARD_HOST` decides the bind
+   * host. Both remediations write `config.bindHost`, which those two shadow —
+   * offering them there would hand the user a fix that silently does nothing.
+   */
+  bindHostShadowedBy?: "flag" | "env" | null;
   onListenOnAllInterfaces?: () => void;
   onGoToServerPage?: () => void;
 }) {
   const { t } = useI18n();
   if (unreachable.length === 0) return null;
+  const shadowed = bindHostShadowedBy === "flag" || bindHostShadowedBy === "env";
   return (
     <div
       role="status"
@@ -2192,8 +2208,15 @@ function UnreachableTrustedNetworksAdvisory({
           `This dashboard listens on {host}, so devices in {entries} cannot reach it — these entries have no effect.`,
         )}
       </p>
+      {shadowed && (
+        <p className="mt-1.5 text-[11px] text-[var(--warn-body,var(--text-secondary))]" data-testid="unreachable-advisory-shadowed">
+          {bindHostShadowedBy === "flag"
+            ? t("settings.bindHostShadowedByFlag", undefined, "The listen interface comes from the --host flag, which overrides this setting. Restart the server with --host 0.0.0.0.")
+            : t("settings.bindHostShadowedByEnv", undefined, "The listen interface comes from PI_DASHBOARD_HOST, which overrides this setting. Set PI_DASHBOARD_HOST=0.0.0.0 and restart.")}
+        </p>
+      )}
       <div className="mt-1.5 flex flex-wrap items-center gap-2">
-        {onListenOnAllInterfaces && (
+        {!shadowed && onListenOnAllInterfaces && (
           <button
             type="button"
             onClick={onListenOnAllInterfaces}
@@ -2203,7 +2226,7 @@ function UnreachableTrustedNetworksAdvisory({
             {t("settings.listenOnAllInterfacesAction", undefined, "Listen on all interfaces (0.0.0.0)")}
           </button>
         )}
-        {onGoToServerPage && (
+        {!shadowed && onGoToServerPage && (
           <button
             type="button"
             onClick={onGoToServerPage}
@@ -2230,6 +2253,7 @@ function TrustedNetworksSection({
   legacyTrustedNetworks,
   pendingBindHost,
   unreachable = [],
+  bindHostShadowedBy,
   onListenOnAllInterfaces,
   onGoToServerPage,
   onChange,
@@ -2240,6 +2264,8 @@ function TrustedNetworksSection({
   pendingBindHost?: string;
   /** Trusted entries that bind host cannot serve. */
   unreachable?: string[];
+  /** `--host` / `PI_DASHBOARD_HOST` shadowing, when either governs. */
+  bindHostShadowedBy?: "flag" | "env" | null;
   onListenOnAllInterfaces?: () => void;
   onGoToServerPage?: () => void;
   onChange: (nets: string[]) => void;
@@ -2317,6 +2343,7 @@ function TrustedNetworksSection({
       <UnreachableTrustedNetworksAdvisory
         pendingBindHost={pendingBindHost ?? "127.0.0.1"}
         unreachable={unreachable}
+        bindHostShadowedBy={bindHostShadowedBy}
         onListenOnAllInterfaces={onListenOnAllInterfaces}
         onGoToServerPage={onGoToServerPage}
       />

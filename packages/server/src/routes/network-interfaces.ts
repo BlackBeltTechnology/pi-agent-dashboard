@@ -28,28 +28,30 @@ type Enumerate = () => NodeJS.Dict<os.NetworkInterfaceInfo[]>;
 export function buildNetworkInterfaceList(
   enumerate: Enumerate,
 ): { success: true; data: NetworkInterface[] } | { success: false; error: string } {
-  let interfaces: NodeJS.Dict<os.NetworkInterfaceInfo[]>;
+  // The whole build is isolated, not just `enumerate()`: an exotic platform can
+  // also yield an entry with a missing/odd `netmask`, and that would throw
+  // during DERIVATION — the same unhandled-route outcome, one line later.
   try {
-    interfaces = enumerate();
+    const interfaces = enumerate();
+    const data: NetworkInterface[] = [];
+    for (const [name, addrs] of Object.entries(interfaces)) {
+      if (!addrs) continue;
+      for (const info of addrs) {
+        if (info.internal || info.family !== "IPv4") continue;
+        const { pointToPoint, suggestions } = deriveInterfaceSuggestions(info);
+        data.push({
+          name,
+          address: info.address,
+          netmask: info.netmask,
+          cidr: `${networkAddressOf(info.address, info.netmask)}/${netmaskBits(info.netmask)}`,
+          label: interfaceLabel(name, info.address),
+          pointToPoint,
+          suggestions,
+        });
+      }
+    }
+    return { success: true, data };
   } catch (err) {
     return { success: false, error: err instanceof Error ? err.message : String(err) };
   }
-  const data: NetworkInterface[] = [];
-  for (const [name, addrs] of Object.entries(interfaces)) {
-    if (!addrs) continue;
-    for (const info of addrs) {
-      if (info.internal || info.family !== "IPv4") continue;
-      const { pointToPoint, suggestions } = deriveInterfaceSuggestions(info);
-      data.push({
-        name,
-        address: info.address,
-        netmask: info.netmask,
-        cidr: `${networkAddressOf(info.address, info.netmask)}/${netmaskBits(info.netmask)}`,
-        label: interfaceLabel(name, info.address),
-        pointToPoint,
-        suggestions,
-      });
-    }
-  }
-  return { success: true, data };
 }

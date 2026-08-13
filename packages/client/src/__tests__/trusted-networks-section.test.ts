@@ -6,7 +6,7 @@
  * the wire-up between the component and the SettingsPanel config object is covered
  * by simulating the onChange callback path.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   addTrustedEntry,
   removeTrustedEntry,

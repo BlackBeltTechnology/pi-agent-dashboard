@@ -1,7 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { isBypassedHost, matchCidr, ipToNum, createNetworkGuard, netmaskToCidrBits, networkAddress } from "../auth/localhost-guard.js";
+import { describe, expect, it } from "vitest";
+import { createNetworkGuard, ipToNum, isBypassedHost, localhostGuard, matchCidr, netmaskToCidrBits, networkAddress } from "../auth/localhost-guard.js";
 import { isLoopback } from "../auth/loopback.js";
-import { localhostGuard } from "../auth/localhost-guard.js";
 import { buildNetworkInterfaceList } from "../routes/network-interfaces.js";
 
 describe("isLoopback", () => {

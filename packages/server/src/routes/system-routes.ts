@@ -21,24 +21,23 @@ import { RESTART_QUIESCE_MS } from "@blackbelt-technology/pi-dashboard-shared/re
 import type { NetworkInterface } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
-import { bootParentPid, computeBootParentAlive, readLivePpid } from "../lifecycle/boot-parent-liveness.js";
-import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
-import { recordExitIntent } from "../persistence/boot-state.js";
-import { EMPTY_TRIM_STATS, type TrimStats } from "../persistence/memory-event-store.js";
-import type { DirectoryService } from "../directory-service.js";
-import type { EventLoopSpikeMetrics } from "../metrics/eventloop-spike-metrics.js";
-import type { HydrationMetrics } from "../metrics/hydration-metrics.js";
-import { computeEffectiveLaunchSource } from "../lifecycle/launch-source-effective.js";
-import { systemOpenCapability } from "../system-open-capability.js";
-import { localhostGuard } from "../auth/localhost-guard.js";
-import { buildNetworkInterfaceList } from "./network-interfaces.js";
 import {
   computeBindReachability,
   getLastBindReachability,
+  safeComputeBindReachability,
 } from "../auth/bind-reachability-service.js";
-import type { SessionManager } from "../session/memory-session-manager.js";
-import type { MetaPersistence } from "../persistence/meta-persistence.js";
+import { localhostGuard } from "../auth/localhost-guard.js";
+import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
+import type { DirectoryService } from "../directory-service.js";
+import { bootParentPid, computeBootParentAlive, readLivePpid } from "../lifecycle/boot-parent-liveness.js";
+import { computeEffectiveLaunchSource } from "../lifecycle/launch-source-effective.js";
+import type { EventLoopSpikeMetrics } from "../metrics/eventloop-spike-metrics.js";
+import type { HydrationMetrics } from "../metrics/hydration-metrics.js";
 import { getModelProxyStatus } from "../model-proxy/registry-singleton.js";
+import { recordExitIntent } from "../persistence/boot-state.js";
+import { EMPTY_TRIM_STATS, type TrimStats } from "../persistence/memory-event-store.js";
+import type { MetaPersistence } from "../persistence/meta-persistence.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
 import {
   type BootstrapCompatibility,
@@ -46,15 +45,17 @@ import {
   readCurrentPiVersion,
   readPiCompatibility,
 } from "../pi/pi-version-skew.js";
-import type { PreferencesStore } from "../persistence/preferences-store.js";
-import { spawnRestart } from "../spawn-process/restart-helper.js";
 import type { ServerConfig } from "../server.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
+import { spawnRestart } from "../spawn-process/restart-helper.js";
 import { readSpawnFailures } from "../spawn-process/spawn-failure-log.js";
+import { systemOpenCapability } from "../system-open-capability.js";
 import { createTunnel, deleteTunnel, ensureReservedName, getTunnelStatus, getTunnelUrl, releaseShare } from "../tunnel/tunnel.js";
 import { blockEvents } from "../tunnel/tunnel-block-events.js";
 import { collectEndpoints } from "../tunnel/tunnel-endpoints.js";
 import { runEnrollStep } from "../tunnel/tunnel-enroll.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "../tunnel/tunnel-watchdog.js";
+import { buildNetworkInterfaceList } from "./network-interfaces.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 /**
@@ -195,13 +196,8 @@ export function registerSystemRoutes(
       // like `eventLoopDelay` / `storeTrim` / `notifyLog`: a throw here must
       // never take the config response down with it.
       // See change: warn-unreachable-trusted-networks.
-      let reachability: import("@blackbelt-technology/pi-dashboard-shared/bind-reachability.js").BindReachability | null = null;
-      try {
-        const configModule = await import("@blackbelt-technology/pi-dashboard-shared/config.js");
-        reachability = computeBindReachability(configModule.loadConfig);
-      } catch {
-        reachability = null;
-      }
+      const configModule = await import("@blackbelt-technology/pi-dashboard-shared/config.js");
+      const reachability = safeComputeBindReachability(configModule.loadConfig);
       return { success: true, data: { ...readConfigRedacted(), reachability } };
     },
   );

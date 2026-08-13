@@ -24,6 +24,7 @@ interface ReachabilityStub {
   resolvedBindHost: string;
   pendingBindHost: string;
   unreachable: string[];
+  bindHostSource?: "flag" | "env" | "config" | "default";
 }
 
 /**
@@ -32,7 +33,12 @@ interface ReachabilityStub {
  */
 async function stubConfig(
   page: Page,
-  opts: { reachability?: ReachabilityStub | null; bypassHosts?: string[]; bindHost?: string },
+  opts: {
+    reachability?: ReachabilityStub | null;
+    bypassHosts?: string[];
+    trustedNetworks?: string[];
+    bindHost?: string;
+  },
 ) {
   await page.route("**/api/config", async (route) => {
     if (route.request().method() !== "GET") return route.fallback();
@@ -41,8 +47,16 @@ async function stubConfig(
     if (body?.data) {
       if (opts.reachability !== undefined) body.data.reachability = opts.reachability;
       if (opts.bindHost !== undefined) body.data.bindHost = opts.bindHost;
+      // The harness container seeds its own trusted entries and providers, and
+      // the predicate reads the UNION of both trust sources — so a stub that
+      // sets only `auth.bypassHosts` would be scored against the container's
+      // leftovers and the advisory would fire for the wrong reason. Normalise
+      // the whole guard surface, always.
+      body.data.trustedNetworks = opts.trustedNetworks ?? [];
       if (opts.bypassHosts !== undefined) {
-        body.data.auth = { ...(body.data.auth ?? {}), bypassHosts: opts.bypassHosts };
+        // `providers` must be present (the Security page indexes it directly)
+        // and EMPTY (the all-interfaces exposure warning is gated on it).
+        body.data.auth = { secret: "", providers: {}, bypassHosts: opts.bypassHosts };
       }
     }
     await route.fulfill({ response, json: body });
@@ -153,12 +167,11 @@ test.describe("bind-vs-trust reachability advisory", () => {
     await openSecurity(page);
     await page.getByTestId("unreachable-advisory-listen-all").click();
 
-    const rail = page.getByTestId("settings-nav-rail");
-    await expect(rail.getByRole("button", { name: "Server", exact: true })).toHaveText(/.*/);
-    await expect(page.getByTestId("settings-dirty-page-count")).toBeVisible();
-    // The Server nav row carries the dirty dot; Security does not.
-    const serverDirty = rail.getByRole("button", { name: "Server", exact: true }).locator("[data-dirty], .dirty-dot, span");
-    expect(await serverDirty.count()).toBeGreaterThan(0);
+    // The dirty dot lands on SERVER, not Security. That is the whole point of
+    // the settings-panel exception: the chip is not re-attributed, and it is
+    // now correct rather than confusing because the advisory said so first.
+    await expect(page.getByTestId("nav-dirty-server")).toBeVisible();
+    await expect(page.getByTestId("nav-dirty-security")).toHaveCount(0);
   });
 
   // test-plan #F6 — the picker itself stays on its own page.
@@ -186,8 +199,12 @@ test.describe("bind-vs-trust reachability advisory", () => {
     await expect(page).toHaveURL(/\/settings\/server/);
     await expect(page.getByTestId("listen-interface-field")).toBeVisible();
 
-    await railGoto(page, "Security");
-    await expect(page.getByTestId("trusted-networks-list")).toContainText("192.168.1.0/24");
+    // The unsaved Security edit survives the navigation — the panel is one
+    // mounted component sharing a draft across pages, so the link is a page
+    // change, not a remount that would silently discard the entry. Observed
+    // through the rail's per-page dirty dot, which is driven by the live draft
+    // diff rather than by anything this test set up.
+    await expect(page.getByTestId("nav-dirty-security")).toBeVisible();
   });
 
   // test-plan #F8 — the two banners are INDEPENDENT, not mutually exclusive.
@@ -314,6 +331,44 @@ test.describe("bind-vs-trust reachability advisory", () => {
     expect(typeof first.reachability?.resolvedBindHost).toBe("string");
   });
 
+  // Both remediations write `config.bindHost`, which `--host` and
+  // `PI_DASHBOARD_HOST` outrank. Offering them under either would hand the user
+  // a fix that silently does nothing and an advisory that never clears — so
+  // they are replaced by an explanation naming the real source.
+  for (const source of ["flag", "env"] as const) {
+    test(`suppresses both remediations when the bind host comes from the ${source}`, async ({ page }) => {
+      await stubConfig(page, {
+        reachability: { ...LOOPBACK, bindHostSource: source },
+        bindHost: "127.0.0.1",
+        bypassHosts: ["192.168.1.0/24"],
+      });
+      await openSecurity(page);
+
+      await expect(advisory(page)).toBeVisible();
+      await expect(page.getByTestId("unreachable-advisory-listen-all")).toHaveCount(0);
+      await expect(page.getByTestId("unreachable-advisory-server-link")).toHaveCount(0);
+
+      const explanation = page.getByTestId("unreachable-advisory-shadowed");
+      await expect(explanation).toBeVisible();
+      await expect(explanation).toContainText(source === "flag" ? "--host" : "PI_DASHBOARD_HOST");
+    });
+  }
+
+  // …and the config-governed case still offers them, so the assertion above
+  // cannot pass merely because the buttons were removed altogether.
+  test("still offers both remediations when config.bindHost governs", async ({ page }) => {
+    await stubConfig(page, {
+      reachability: { ...LOOPBACK, bindHostSource: "config" },
+      bindHost: "127.0.0.1",
+      bypassHosts: ["192.168.1.0/24"],
+    });
+    await openSecurity(page);
+
+    await expect(page.getByTestId("unreachable-advisory-listen-all")).toBeVisible();
+    await expect(page.getByTestId("unreachable-advisory-server-link")).toBeVisible();
+    await expect(page.getByTestId("unreachable-advisory-shadowed")).toHaveCount(0);
+  });
+
   // test-plan #F14 — a Tailscale /32 must offer the containing CGNAT range,
   // marked wide, and never `<self>/32`, which trusts nobody new.
   test("offers the containing range for a tailnet interface, marked wide, never <self>/32", async ({ page }) => {
@@ -400,7 +455,7 @@ test.describe("bind-vs-trust reachability advisory", () => {
     });
     await openSettings(page);
     await railGoto(page, "Server");
-    await expect(page.getByTestId("listen-interface-field")).toContainText(/exposed|anyone|network/i);
+    await expect(page.getByTestId("listen-exposure-warning")).toBeVisible();
   });
 
   // test-plan #F19 — the condition can arise while the section is on screen, so

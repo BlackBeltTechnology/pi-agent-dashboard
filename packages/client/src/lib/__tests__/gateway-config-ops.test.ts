@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   addTrustedNetwork,
   appendPublicBaseUrl,
-  isSecureBaseUrl,
   collectTrustedEntries,
+  isSecureBaseUrl,
   isValidTrustEntry,
   removeTrustedNetwork,
   suggestTrustEntries,

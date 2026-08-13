@@ -1,14 +1,16 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   computeBindReachability,
+  formatBindReachabilityWarning,
   initBindReachability,
   resetBindReachability,
+  safeComputeBindReachability,
 } from "../auth/bind-reachability-service.js";
-import fs from "node:fs";
-import path from "node:path";
-import os from "node:os";
+import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
 
 describe("config-api", () => {
   let testDir: string;
@@ -380,18 +382,15 @@ describe("reachability surface", () => {
     expect("reachability" in written).toBe(false);
   });
 
-  it("#X1 keeps the rest of the config readable when the computation throws", () => {
+  it("#X1 degrades `reachability` to null instead of throwing", () => {
     fs.writeFileSync(configFile, JSON.stringify({ port: 8123, bindHost: "127.0.0.1" }));
-    // The route's failure isolation, exercised at its seam: a throwing config
-    // load must yield `reachability: null`, never take the response down.
-    let reachability: unknown;
-    try {
-      reachability = computeBindReachability(() => { throw new Error("boom"); });
-    } catch {
-      reachability = null;
-    }
-    expect(reachability).toBeNull();
-    const payload = { ...readConfigRedacted(), reachability };
+    // `safeComputeBindReachability` is the PRODUCTION isolation the route calls;
+    // deleting its try/catch fails this test. (An earlier version of this test
+    // wrapped the call in its own try/catch and therefore proved nothing.)
+    expect(safeComputeBindReachability(() => { throw new Error("boom"); })).toBeNull();
+
+    // …and the rest of the config is unaffected by that degradation.
+    const payload = { ...readConfigRedacted(), reachability: null };
     expect(payload.port).toBe(8123);
     expect(payload.reachability).toBeNull();
   });
@@ -407,5 +406,36 @@ describe("reachability surface", () => {
     expect(r.unreachable).toEqual(["192.168.1.0/24"]);
     expect(r.resolvedBindHost).toBe("127.0.0.1");
     // The unguarded `/api/health` counterpart is pinned in health-endpoint.test.ts.
+  });
+});
+
+// ── The startup warning names the link that actually decides ───────────
+// See change: warn-unreachable-trusted-networks.
+describe("formatBindReachabilityWarning", () => {
+  const base = { resolvedBindHost: "127.0.0.1", pendingBindHost: "127.0.0.1", unreachable: ["192.168.1.0/24"] };
+
+  it("is silent when every trusted entry is reachable", () => {
+    expect(formatBindReachabilityWarning({ ...base, unreachable: [], bindHostSource: "config" })).toBeNull();
+  });
+
+  it("suggests config.bindHost when the config is the deciding link", () => {
+    const line = formatBindReachabilityWarning({ ...base, bindHostSource: "config" });
+    expect(line).toContain("[bind-reachability]");
+    expect(line).toContain("127.0.0.1");
+    expect(line).toContain("192.168.1.0/24");
+    expect(line).toContain("bindHost");
+  });
+
+  it("suggests the FLAG when --host shadows the config", () => {
+    const line = formatBindReachabilityWarning({ ...base, bindHostSource: "flag" });
+    expect(line).toContain("--host 0.0.0.0");
+    // Must not tell the user to edit a setting the flag overrides.
+    expect(line).not.toContain("Settings → Server");
+  });
+
+  it("suggests the ENV VAR when PI_DASHBOARD_HOST shadows the config", () => {
+    const line = formatBindReachabilityWarning({ ...base, bindHostSource: "env" });
+    expect(line).toContain("PI_DASHBOARD_HOST=0.0.0.0");
+    expect(line).not.toContain("Settings → Server");
   });
 });
