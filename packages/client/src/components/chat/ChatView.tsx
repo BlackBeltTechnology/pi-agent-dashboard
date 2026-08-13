@@ -1391,7 +1391,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
                 ) : (
                   <>
                     <Icon path={mdiCheck} size={0.7} className="text-emerald-400 prompt-tick-in" />
-                    <span className="text-[10px] text-emerald-400/80 font-medium">sent</span>
+                    <span className="text-[10px] text-emerald-400/80 font-medium" data-testid="pending-prompt-sent">sent</span>
                   </>
                 )}
               </div>

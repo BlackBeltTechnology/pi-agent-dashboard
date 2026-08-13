@@ -222,10 +222,12 @@ export interface PendingPrompt {
  */
 export function applyPromptReceived(state: SessionState, fresh: boolean): SessionState {
   if (!state.pendingPrompt) return state;
-  if (!fresh) return { ...state, pendingPrompt: undefined };
-  // Any settled status is terminal — a late ack must not resurrect/promote it.
+  // Any settled status is terminal — a late ack must neither promote it
+  // (`fresh:true`) nor drop it (`fresh:false`). Checked BEFORE the race-drop
+  // branch, which only ever applies to a still-`sending` bubble.
   // See change: fix-optimistic-prompt-stuck-sending.
   if (state.pendingPrompt.status !== "sending") return state;
+  if (!fresh) return { ...state, pendingPrompt: undefined };
   return { ...state, pendingPrompt: { ...state.pendingPrompt, status: "sent" } };
 }
 

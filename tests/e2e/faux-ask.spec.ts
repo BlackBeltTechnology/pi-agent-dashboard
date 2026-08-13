@@ -20,6 +20,11 @@ test.describe("faux round-trip — interactive ask_user", () => {
 
     // Ack-driven settlement, well below the 30s safety timeout, and never the
     // failed arm. See change: fix-optimistic-prompt-stuck-sending, test-plan #F2.
+    // NOT asserted: the transient `sent` tick. The user `message_start` clears
+    // the bubble entirely, and against the faux model that can land in the same
+    // frame as the ack — asserting the tick would be racy. The composer gate is
+    // the stable ack-settlement observable: it re-enables ONLY when the prompt
+    // is no longer `sending`.
     await expect(page.getByTestId("pending-prompt-failed")).toHaveCount(0);
     await expect(page.getByPlaceholder(/message/i).first()).toBeEnabled({
       timeout: 15_000,

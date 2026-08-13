@@ -13,7 +13,7 @@ Files in this directory. One row per source file.
 | `bridge-context.ts` | Shared mutable bridge state + pure predicates. Exports `BridgeContext`, `DASHBOARD_NATIVE_COMMANDS`,… → see `bridge-context.ts.AGENTS.md` |
 | `bridge-default-model-gate.ts` | Pure predicate `shouldApplyDefaultModel({reason, entryCount, hasModelRegistry, hasDefaultModel})`. → see `bridge-default-model-gate.ts.AGENTS.md` |
 | `bridge.ts` | Main bridge extension entry (default export). Connects to dashboard server, forwards pi events via… → see `bridge.ts.AGENTS.md` |
-| `command-handler.ts` | Command routing: `!`/`!!` bash, `/compact`, slash commands. → see `command-handler.ts.AGENTS.md` |
+| `command-handler.ts` | Command routing: `!`/`!!` bash, `/compact`, slash commands. → see `command-handler.ts.AGENTS.md` `request_models` is dispatched OUTSIDE the serialized inbound lane (`connection.ts` `IMMEDIATE_TYPES`), so its awaited catalogue refresh cannot head-of-line-block a later `send_prompt`. See change: fix-optimistic-prompt-stuck-sending. |
 | `connection.ts` | WebSocket connection manager with exponential backoff reconnect, message buffering while disconnected,… → see `connection.ts.AGENTS.md` `IMMEDIATE_TYPES` also carries `request_models`: serialized, a hung catalogue refresh head-of-line-blocks the pump and later `send_prompt`s never dispatch. See change: fix-optimistic-prompt-stuck-sending. |
 | `dashboard-context-injector.ts` | Registers `before_agent_start` handler. Splice-replaces trailing `Current working directory:` line of system… → see `dashboard-context-injector.ts.AGENTS.md` |
 | `dashboard-default-adapter.ts` | Built-in last-resort `PromptAdapter` (priority `9999`). Exports `DashboardDefaultAdapter`. → see `dashboard-default-adapter.ts.AGENTS.md` |

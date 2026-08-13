@@ -1220,6 +1220,13 @@ describe("applyPromptReceived", () => {
     expect(state.pendingPrompt!.status).toBe("failed");
   });
 
+  it("#E4 fresh:false is a no-op on a settled prompt (never drops the bubble)", () => {
+    const failed: SessionState = { ...createInitialState(), pendingPrompt: { text: "hi", status: "failed" } };
+    expect(applyPromptReceived(failed, false)).toBe(failed);
+    const sent: SessionState = { ...createInitialState(), pendingPrompt: { text: "hi", status: "sent" } };
+    expect(applyPromptReceived(sent, false)).toBe(sent);
+  });
+
   it("#E7 fresh:true preserves text and images while promoting", () => {
     const images: PendingPrompt["images"] = [{ data: "d", mimeType: "image/png" }];
     const state: SessionState = { ...createInitialState(), pendingPrompt: { text: "hi", images, status: "sending" } };
