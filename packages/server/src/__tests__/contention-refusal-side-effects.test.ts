@@ -163,10 +163,15 @@ describe("refused register has no side effects", () => {
       "packages/server/src/session/session-api.ts",
       "packages/server/src/server.ts",
       "packages/server/src/browser-handlers/session-action-handler.ts",
+      // The bridge-initiated spawn uses the `.then()` form, which an
+      // `await`-only pattern missed — that is exactly how the REST-resume gap
+      // escaped the first pass.
+      "packages/server/src/event-wiring.ts",
     ];
     for (const site of sites) {
       const src = readFileSync(new URL(`../../../../${site}`, import.meta.url), "utf-8");
-      const spawns = (src.match(/await spawnPiSession\(/g) ?? []).length;
+      // Any call form, not just `await` — a `.then()` spawn is still a spawn.
+      const spawns = (src.match(/(?<!function )spawnPiSession\(/g) ?? []).length;
       // Either the shared helper or the original inline `watchdog.arm(...)`
       // block counts — both leave the watchdog armed for the reclaim.
       const arms =

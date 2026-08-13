@@ -377,14 +377,17 @@ export function createPiGateway(
           const held = incumbent as WebSocket;
           const ponged = await probeIncumbent(held);
 
+          // The newcomer may itself have died during the probe window. Handing
+          // it the routing entry would point the map at a dead socket and wedge
+          // the session until the heartbeat grace path reaps it. Checked FIRST,
+          // so it also covers the case where the incumbent gave up the entry
+          // during the probe (the check below would otherwise accept a dead
+          // newcomer on that path).
+          if (ws.readyState !== WebSocket.OPEN) return false;
+
           // The world may have moved during the probe: if the incumbent gave up
           // the entry meanwhile, there is nothing left to contend.
           if (connections.get(sessionId) !== held) return !refused;
-
-          // The newcomer may itself have died during the probe window. Handing
-          // it the routing entry would point the map at a dead socket and wedge
-          // the session until the heartbeat grace path reaps it.
-          if (ws.readyState !== WebSocket.OPEN) return false;
 
           const resolved = resolveProbe(held, ponged);
           if (resolved.outcome === "displace") {
