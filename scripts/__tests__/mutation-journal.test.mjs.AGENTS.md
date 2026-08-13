@@ -1,0 +1,3 @@
+# __tests__/mutation-journal.test.mjs — index
+
+Vitest crash-safety tests for the mutation-harness journal (test-plan #E1-#E8, #X1-#X13). Journal-before-source ordering, one-entry-per-mutation, byte-exact restore through BOM/invalid-UTF-8, repo-relative paths surviving a tree move, clean-start silence, concurrent-run refusal, SIGKILL recovery, uncommitted-work preservation, conflict refusal + unblock-message content, unreadable/missing-file conflicts, globalSetup throw-on-conflict vs proceed-on-clean-restore, live-owner skip. FIXTURE RULE: every test builds a throwaway repoRoot under `mkdtempSync` — none may mutate a real tracked file. See change: harden-mutation-harness-restore.

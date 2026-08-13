@@ -1,0 +1,3 @@
+# __tests__/knip-scan.test.mjs — index
+
+Live whole-workspace Knip scan assertions (test-plan #G3, #G5, #G6, #D2, #D3, #P1). One scan, many assertions. Pins the exact false positives the unrooted spike produced: app entries, shell-invoked scripts (`ab-context/extract.mjs`, `lib/smoke-spawn-session.mjs`), and directly-imported modules (`canvas-tool.ts`, imported by `bridge.ts`) must NOT be reported unused. Verified fail-closed: removing the `scripts/**` entry and the `packages/extension` workspace turns #G5 and #G6 red. `ci`-level behind `RUN_CI_SCENARIOS=1` (`npm run test:ci-scenarios`, wired in ci.yml) because ~8s of whole-workspace CPU in parallel starves unrelated 5s-timeout tests. See change: add-knip-dead-code-oracle.
