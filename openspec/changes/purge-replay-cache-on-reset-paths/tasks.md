@@ -45,8 +45,8 @@
 
 ## 6. Tests — L3 Playwright e2e
 
-- [ ] 6.1 Refresh-then-reload does not resurrect: session with a flushed entry · click Refresh Chat then reload before the 1 s debounce · subscribe carries `lastSeq: 0` and the transcript converges to the server's. See `tests/e2e/replay-delta-on-reload.spec.ts`; read the harness port from `.pi-test-harness.json` (`dashboardPort`), never hardcode `:18000`. (test-plan #F1)
-- [ ] 6.2 Happy-path delta regression: normal single-server session, no switch or refresh · reload after a flush · still delta-subscribes from the persisted cursor. See `tests/e2e/replay-delta-on-reload.spec.ts`. (test-plan #F7)
+- [x] 6.1 Refresh-then-reload does not resurrect: session with a flushed entry · click Refresh Chat then reload before the 1 s debounce · subscribe carries `lastSeq: 0` and the transcript converges to the server's. See `tests/e2e/replay-delta-on-reload.spec.ts`; read the harness port from `.pi-test-harness.json` (`dashboardPort`), never hardcode `:18000`. (test-plan #F1)
+- [x] 6.2 Happy-path delta regression: normal single-server session, no switch or refresh · reload after a flush · still delta-subscribes from the persisted cursor. See `tests/e2e/replay-delta-on-reload.spec.ts`. (test-plan #F7)
 
 ## 7. Manual verification (deferred post-merge)
 
@@ -63,6 +63,6 @@
 
 ## 9. Documentation
 
-- [ ] 9.1 Update the per-file rows for `replay-cache.ts`, `replay-persist.ts`, `rehydrate-session.ts`, and `App.tsx` in their directory `AGENTS.md` files with the new signatures and a `See change: purge-replay-cache-on-reset-paths` marker.
-- [ ] 9.2 If `docs/architecture.md` documents replay-cache lifetime or the schema version, delegate the prose edit to `DocScribe` (caveman style) to record server-scoped entries and the v3 bump.
-- [ ] 9.3 Note that the `fix-poisoned-replay-cache` project skill's manual devtools remedy is now largely superseded by Refresh Chat — revisit as a follow-up, do not edit the skill here.
+- [x] 9.1 Update the per-file rows for `replay-cache.ts`, `replay-persist.ts`, `rehydrate-session.ts`, and `App.tsx` in their directory `AGENTS.md` files with the new signatures and a `See change: purge-replay-cache-on-reset-paths` marker.
+- [x] 9.2 If `docs/architecture.md` documents replay-cache lifetime or the schema version, delegate the prose edit to `DocScribe` (caveman style) to record server-scoped entries and the v3 bump.
+- [x] 9.3 Note that the `fix-poisoned-replay-cache` project skill's manual devtools remedy is now largely superseded by Refresh Chat — revisit as a follow-up, do not edit the skill here.

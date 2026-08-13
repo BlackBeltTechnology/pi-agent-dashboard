@@ -134,7 +134,7 @@ test.describe("Strategy A — delta replay on reload", () => {
     // Refresh Chat, then reload BEFORE the next 1 s debounce could re-persist.
     // The short settle lets the awaited durable delete land; it stays well under
     // the debounce so nothing is written back.
-    await byTestId(page, "refresh-chat").click();
+    await byTestId(page, "refreshChat").click();
     await page.waitForTimeout(300);
     await page.reload();
     await byTestId(page, "headerAppBar").waitFor({ state: "visible" });
