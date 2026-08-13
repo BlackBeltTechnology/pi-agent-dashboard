@@ -102,6 +102,17 @@ describe("ratchetDecision", () => {
     expect(d.missingClasses).toEqual(["exports"]);
   });
 
+  it("#R8 refuses an Infinity ceiling smuggled in as JSON 1e400", () => {
+    // `1e400` is valid JSON, parses to Infinity, and passes `typeof === number`.
+    // `now > Infinity` is always false, so it silences the class exactly like a
+    // deleted key — the same bypass wearing a number.
+    const poisoned = JSON.parse('{"counts":{"files":10,"exports":1e400,"types":189,"duplicates":11,"enumMembers":0}}');
+    expect(poisoned.counts.exports).toBe(Number.POSITIVE_INFINITY);
+    const d = ratchetDecision(poisoned, { files: 10, exports: 99_999, types: 189, duplicates: 11, enumMembers: 0 });
+    expect(d.ok).toBe(false);
+    expect(d.missingClasses).toEqual(["exports"]);
+  });
+
   it("#R6 is deterministic on the same input", () => {
     const args = [baseOf({ exports: 227 }), { exports: 228 }];
     expect(ratchetDecision(...args)).toEqual(ratchetDecision(...args));
@@ -121,6 +132,12 @@ describe("baselineIncreases", () => {
   it("#R4 catches a raise hidden behind a lowering of another class", () => {
     const raised = baselineIncreases(baseOf({ files: 10, exports: 227 }), baseOf({ files: 2, exports: 300 }));
     expect(raised.map((r) => r.class)).toEqual(["exports"]);
+  });
+
+  it("#R8 treats an Infinity ceiling as raising it", () => {
+    const next = JSON.parse('{"counts":{"files":10,"exports":1e400}}');
+    const raised = baselineIncreases({ counts: { files: 10, exports: 227 } }, next);
+    expect(raised).toEqual([{ class: "exports", from: 227, to: null, removed: true }]);
   });
 
   it("#R7 treats a DELETED class as raising the ceiling, not as nothing to compare", () => {

@@ -39,23 +39,31 @@ export function countIssues(report) {
  * Returns `{ ok, violations, missingBaseline, missingClasses }` — never throws,
  * never mutates.
  *
- * A class whose baseline is absent or non-numeric is a HARD FAILURE, not a
- * skip. Skipping it was a bypass of the very property this gate exists for:
- * deleting `counts.exports` (or emptying `counts` entirely) left that class
- * completely unmeasured while the command still exited 0. "Raising the ceiling
- * is rejected" means nothing if the ceiling can simply be deleted.
+ * A class whose baseline is absent, non-numeric or non-FINITE is a HARD
+ * FAILURE, not a skip. Skipping it was a bypass of the very property this gate
+ * exists for: deleting `counts.exports` (or emptying `counts` entirely) left
+ * that class completely unmeasured while the command still exited 0. "Raising
+ * the ceiling is rejected" means nothing if the ceiling can simply be deleted.
+ *
+ * `Number.isFinite`, not `typeof`, because `1e400` is valid JSON that parses to
+ * `Infinity` and passes `typeof x === "number"`. `now > Infinity` is always
+ * false, so an `Infinity` ceiling silences a class exactly like a deleted one
+ * — the same bypass wearing a number. (`NaN` cannot reach here: it is not
+ * JSON-representable, so parsing fails first and the baseline reads as absent.)
  */
 export function ratchetDecision(baseline, current) {
   if (!baseline || typeof baseline !== "object" || !baseline.counts || typeof baseline.counts !== "object") {
     return { ok: false, missingBaseline: true, missingClasses: [], violations: [] };
   }
-  const missingClasses = GATED_CLASSES.filter((cls) => typeof baseline.counts[cls] !== "number");
+  const missingClasses = GATED_CLASSES.filter((cls) => !Number.isFinite(baseline.counts[cls]));
   if (missingClasses.length > 0) {
     return { ok: false, missingBaseline: false, missingClasses, violations: [] };
   }
   const violations = [];
   for (const cls of GATED_CLASSES) {
     const max = baseline.counts[cls];
+    // `countIssues` always emits every gated class, so the `?? 0` is defensive
+    // rather than a path a real report takes.
     const now = current?.[cls] ?? 0;
     if (now > max) violations.push({ class: cls, baseline: max, current: now, delta: now - max });
   }
@@ -70,12 +78,14 @@ export function baselineIncreases(previous, next) {
   const raised = [];
   for (const cls of GATED_CLASSES) {
     const before = previous?.counts?.[cls];
-    if (typeof before !== "number") continue;
+    if (!Number.isFinite(before)) continue;
     const after = next?.counts?.[cls];
     // A DELETED class is the cheapest possible way to silence a regression, so
     // it counts as raising the ceiling to infinity rather than as "nothing to
     // compare".
-    if (typeof after !== "number") {
+    if (!Number.isFinite(after)) {
+      // Covers both a deleted key and an `Infinity` ceiling (`1e400` in JSON):
+      // each leaves the class unmeasured, so each counts as raising it.
       raised.push({ class: cls, from: before, to: null, removed: true });
       continue;
     }
