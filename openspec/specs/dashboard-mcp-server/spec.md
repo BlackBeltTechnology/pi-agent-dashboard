@@ -252,7 +252,8 @@ stream, and SHALL NOT implement `resources/subscribe` or `resources/unsubscribe`
 #### Scenario: A slow consumer is bounded
 - **WHEN** a subscriber stops reading while events continue to arrive
 - **THEN** the server SHALL bound its buffering per subscription
-- **AND** the server SHALL apply a documented drop or disconnect policy rather than growing memory without bound
+- **AND** the server SHALL terminate the subscription once its buffer limit is reached
+- **AND** the server SHALL NOT silently drop events from a still-open subscription
 
 ### Requirement: Dashboard MCP entry is provisioned into the user MCP config
 The dashboard SHALL provision its own entry into `~/.pi/agent/mcp.json` so a

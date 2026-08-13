@@ -23,7 +23,7 @@ The changelog entries this change depends on, also verbatim:
 
 Example request shape:
 
-```
+```http
 POST /mcp HTTP/1.1
 MCP-Protocol-Version: 2026-07-28
 Mcp-Method: tools/call
@@ -496,10 +496,10 @@ property of its own handler, not of a guard it declined.
 |---|---|
 | New credential type expands the auth surface | `security-hardening` pass; reuse the opaque + SHA-256-at-rest + revocation-by-row-delete pattern already proven in `paired-devices.ts` |
 | 405 conformance silently passes as 200 SPA HTML in dev | Explicit `GET`/`DELETE` registration + a spec scenario asserting 405 in **both** dev and production modes |
-| Allowlist drifts from the 18-member context | Completeness test asserting every advertised tool resolves to a handler (the `denylist.ts` lesson: naive codegen "would emit a WS helper that **silently fails**") |
+| Allowlist drifts from the 19-member context | Completeness test asserting every advertised tool resolves to a handler (the `denylist.ts` lesson: naive codegen "would emit a WS helper that **silently fails**") |
 | `onEvent` leaks all sessions to any subscriber | Per-subscription filtering is a spec requirement, not an implementation detail |
 | Local adapter is 2.19.0 | Documented prerequisite + runtime probe; version floor per Decision 5 |
-| Ecosystem clients still speak 2025-06-18 / 2025-11-25 | Decide explicitly whether to serve legacy alongside |
+| Ecosystem clients still speak 2025-06-18 / 2025-11-25 | RESOLVED by Decision 10 — serve `2026-07-28` only. Legacy would reintroduce `initialize` + `Mcp-Session-Id`, so the adapter `>= 2.20.0` floor is a hard prerequisite rather than a nicety. |
 
 ## References
 
