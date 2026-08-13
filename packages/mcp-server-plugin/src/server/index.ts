@@ -78,23 +78,6 @@ function writeFileAtomic(target: string, content: string): void {
 export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   ctx.logger.info("mcp-server plugin server entry activated");
 
-  // TEMPORARY BISECT COMMIT — revert before merge.
-  //
-  // `job-object-windows` fails with "app never brought a server up on :8000"
-  // on this branch only; the same workflow is green on every other recent
-  // branch, and the Linux equivalent passes. This early return keeps the
-  // package BUNDLED and IMPORTED (so `bundled-plugins-complete` still passes)
-  // while doing none of its runtime work.
-  //
-  //   Windows goes GREEN -> the cause is this function's runtime work
-  //                         (route mounting / provisioning / adapter probe).
-  //   Windows stays RED  -> the cause is packaging or module import, not
-  //                         anything registerPlugin does.
-  if (process.env.MCP_SERVER_PLUGIN_BISECT !== "off") {
-    ctx.logger.warn("mcp-server: BISECT no-op active; endpoint NOT mounted");
-    return;
-  }
-
   // Fail loudly at load rather than advertising a tool that cannot be called.
   // The denylist.ts lesson: an advertised-but-dead tool is worse than an absent
   // one, because the client believes the call landed.
