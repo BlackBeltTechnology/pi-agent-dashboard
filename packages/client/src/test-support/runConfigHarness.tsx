@@ -32,6 +32,7 @@ export function makeRunConfig(
     setThinkingLevel: vi.fn(),
     toggleFavorite: vi.fn(),
     refreshModels: vi.fn(),
+    openProviderSettings: vi.fn(),
     notify: vi.fn(),
     ...overrides,
   };

@@ -35,6 +35,7 @@ export const ModelSelectorPrimitive: React.FC<UiModelSelectorProps> = (props) =>
       favorites={cfg?.favorites}
       onToggleFavorite={cfg ? cfg.toggleFavorite : undefined}
       onRefresh={cfg ? cfg.refreshModels : undefined}
+      onOpenProviderSettings={cfg ? cfg.openProviderSettings : undefined}
     />
   );
 };

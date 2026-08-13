@@ -1,0 +1,261 @@
+<!doctype html>
+<html lang="en" data-theme="studio">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Model Selector — states mockup</title>
+<style>
+  /* ── dark (studio) ── */
+  html[data-theme="studio"] {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e;
+    --bg-surface:#2a2a2a; --bg-hover:rgba(255,255,255,.06);
+    --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080;
+    --text-muted:#585858; --border-primary:#252525; --border-secondary:#333;
+    --accent-blue:#3b82f6; --accent-yellow:#eab308; --accent-red:#ef4444;
+    --accent-green:#22c55e; --accent-purple:#a855f7; --shadow:rgba(0,0,0,.5);
+  }
+  /* ── light ── */
+  html[data-theme="light"] {
+    --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0;
+    --bg-surface:#e0e0e0; --bg-hover:rgba(0,0,0,.04);
+    --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#777;
+    --text-muted:#aaa; --border-primary:#e0e0e0; --border-secondary:#ccc;
+    --accent-blue:#2563eb; --accent-yellow:#d97706; --accent-red:#dc2626;
+    --accent-green:#16a34a; --accent-purple:#9333ea; --shadow:rgba(0,0,0,.15);
+  }
+  * { box-sizing:border-box; }
+  body {
+    margin:0; background:var(--bg-primary); color:var(--text-primary);
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+    padding:32px 40px 60px;
+  }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  h1 { font-size:18px; font-weight:600; margin:0 0 2px; }
+  .sub { color:var(--text-tertiary); font-size:13px; margin:0 0 20px; }
+
+  /* theme toggle */
+  .toolbar { display:flex; align-items:center; gap:10px; margin-bottom:26px; }
+  .seg { display:inline-flex; border:1px solid var(--border-secondary); border-radius:8px; overflow:hidden; }
+  .seg button {
+    padding:6px 14px; font-size:12px; font-weight:500; cursor:pointer; border:0;
+    background:transparent; color:var(--text-tertiary); display:flex; align-items:center; gap:6px;
+  }
+  .seg button.active { background:var(--bg-tertiary); color:var(--text-primary); }
+  .swatch { width:12px; height:12px; border-radius:50%; border:1px solid var(--border-secondary); }
+
+  .grid { display:flex; flex-wrap:wrap; gap:40px; align-items:flex-start; }
+  .col { display:flex; flex-direction:column; gap:12px; width:328px; }
+  .label { font-size:12px; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:.05em; }
+
+  /* trigger */
+  .trigger {
+    display:inline-flex; align-items:center; gap:6px; padding:4px 8px; font-size:12px;
+    border-radius:6px; cursor:pointer; user-select:none; color:var(--text-secondary);
+    background:transparent; border:1px solid transparent; width:max-content;
+  }
+  .trigger:hover { color:var(--text-primary); background:var(--bg-hover); }
+  .trigger.disabled { color:var(--text-muted); cursor:not-allowed; }
+  .chev { width:0;height:0;border-left:4px solid transparent;border-right:4px solid transparent;border-top:5px solid currentColor; }
+  .spin { width:11px;height:11px;border:2px solid var(--text-muted);border-top-color:var(--accent-blue);border-radius:50%;display:inline-block;animation:s .8s linear infinite; }
+  @keyframes s { to { transform:rotate(360deg); } }
+
+  /* popover */
+  .pop {
+    width:320px; background:var(--bg-secondary); border:1px solid var(--border-secondary);
+    border-radius:8px; box-shadow:0 10px 30px var(--shadow); overflow:hidden;
+  }
+  .filters { padding:6px; display:flex; flex-direction:column; gap:6px; }
+  .frow { display:flex; gap:6px; }
+  select.fld, .btnfav, .fld {
+    font-size:12px; border-radius:5px; border:1px solid var(--border-primary);
+    background:var(--bg-tertiary); color:var(--text-secondary); padding:6px 8px;
+  }
+  select.fld { flex:1; appearance:none; background-image:linear-gradient(45deg,transparent 50%,var(--text-tertiary) 50%),linear-gradient(135deg,var(--text-tertiary) 50%,transparent 50%); background-position:calc(100% - 14px) 11px,calc(100% - 9px) 11px; background-size:5px 5px,5px 5px; background-repeat:no-repeat; }
+  .btnfav { display:inline-flex; align-items:center; gap:4px; color:var(--accent-yellow); border-color:var(--accent-yellow); white-space:nowrap; cursor:pointer; }
+  .fld.filter { width:100%; color:var(--text-muted); }
+  .fld.filter.focus { border-color:var(--accent-blue); color:var(--text-primary); }
+
+  .list { max-height:520px; overflow-y:auto; }
+  .ghead {
+    padding:5px 12px; font-size:10px; text-transform:uppercase; letter-spacing:.08em;
+    color:var(--text-tertiary); background:var(--bg-primary); position:sticky; top:0;
+  }
+  .row {
+    display:flex; align-items:center; gap:8px; padding:5px 10px 5px 8px; cursor:pointer;
+    color:var(--text-secondary);
+  }
+  .row:hover { background:var(--bg-hover); }
+  .row.current { color:var(--accent-blue); }
+  .row.sel { background:var(--bg-tertiary); }
+  .star { flex-shrink:0; font-size:13px; line-height:1; color:var(--text-tertiary); }
+  .star.on { color:var(--accent-yellow); }
+  .meta { flex:1; min-width:0; }
+  .mname { font-size:12px; }
+  .msub { font-size:10px; color:var(--text-muted); }
+  .caps { display:flex; align-items:center; gap:5px; flex-shrink:0; font-size:11px; color:var(--text-tertiary); }
+  .brain { color:var(--accent-purple); }
+  .eye { color:var(--accent-green); }
+  .tok { padding:1px 5px; border-radius:4px; background:var(--bg-tertiary); color:var(--text-muted); font-size:11px; }
+
+  /* empty body */
+  .body { padding:22px 16px; text-align:center; }
+  .body .icon { font-size:22px; margin-bottom:8px; }
+  .body .title { font-size:13px; color:var(--text-secondary); margin-bottom:4px; }
+  .body .hint { font-size:12px; color:var(--text-muted); line-height:1.5; }
+  .body a.link {
+    display:inline-flex; align-items:center; gap:5px; margin-top:12px; padding:6px 12px;
+    font-size:12px; font-weight:500; text-decoration:none; color:#fff;
+    background:var(--accent-blue); border-radius:6px;
+  }
+  .body a.link.ghost { background:transparent; color:var(--text-secondary); border:1px solid var(--border-secondary); }
+  .foot-thin { border-top:1px solid var(--border-secondary); padding:7px 10px; display:flex; justify-content:space-between; align-items:center; font-size:11px; color:var(--text-muted); }
+  .foot-thin a { color:var(--accent-blue); text-decoration:none; display:inline-flex; align-items:center; gap:4px; }
+  .refresh-row {
+    border-top:1px solid var(--border-secondary); padding:7px 10px; display:flex;
+    align-items:center; gap:6px; font-size:12px; color:var(--text-tertiary); cursor:pointer;
+  }
+  .refresh-row:hover { color:var(--text-secondary); background:var(--bg-hover); }
+  .err {
+    border-top:1px solid var(--border-secondary); padding:8px 10px; display:flex; gap:6px;
+    font-size:11px; color:var(--text-muted); align-items:flex-start;
+  }
+  .err .dot { color:var(--accent-yellow); }
+  .footbar {
+    border-top:1px solid var(--border-secondary); padding:6px 12px; font-size:11px;
+    color:var(--text-tertiary); display:flex; justify-content:space-between;
+  }
+  .note { font-size:11px; color:var(--text-muted); line-height:1.5; border-left:2px solid var(--border-secondary); padding-left:10px; }
+  .bad { color:var(--accent-red); }
+  .before { opacity:.85; }
+</style>
+</head>
+<body>
+  <h1>Model selector — real style + proposed empty states</h1>
+  <div class="sub">Row anatomy mirrors the live component. Toggle theme to check both.</div>
+
+  <div class="toolbar">
+    <span class="label">Theme</span>
+    <div class="seg" id="seg">
+      <button data-t="studio" class="active"><span class="swatch" style="background:#0a0a0a"></span> Black</button>
+      <button data-t="light"><span class="swatch" style="background:#fff"></span> White</button>
+    </div>
+  </div>
+
+  <div class="grid">
+
+    <!-- REAL / POPULATED -->
+    <div class="col">
+      <div class="label">Live style (populated)</div>
+      <div class="trigger"><span class="mono">claude-opus-4-8</span><span class="chev"></span></div>
+      <div class="pop">
+        <div class="filters">
+          <div class="frow">
+            <select class="fld"><option>All Providers</option></select>
+            <span class="btnfav">★ Favs</span>
+          </div>
+          <input class="fld filter" placeholder="Filter models…" />
+        </div>
+        <div class="list">
+          <div class="ghead">anthropic</div>
+          <div class="row"><span class="star on">★</span><div class="meta"><div class="mname mono">Claude Fable 5</div><div class="msub mono">anthropic/claude-fable-5</div></div><div class="caps"><span class="brain">◐</span><span class="eye">◉</span><span class="tok">1M</span></div></div>
+          <div class="row"><span class="star on">★</span><div class="meta"><div class="mname mono">Claude Haiku 4.5 (latest)</div><div class="msub mono">anthropic/claude-haiku-4-5</div></div><div class="caps"><span class="brain">◐</span><span class="eye">◉</span><span class="tok">200k</span></div></div>
+          <div class="row current"><span class="star on">★</span><div class="meta"><div class="mname mono">Claude Opus 4.8</div><div class="msub mono">anthropic/claude-opus-4-8</div></div><div class="caps"><span class="brain">◐</span><span class="eye">◉</span><span class="tok">1M</span></div></div>
+          <div class="row"><span class="star on">★</span><div class="meta"><div class="mname mono">Claude Opus 5</div><div class="msub mono">anthropic/claude-opus-5</div></div><div class="caps"><span class="brain">◐</span><span class="eye">◉</span><span class="tok">1M</span></div></div>
+          <div class="ghead">google</div>
+          <div class="row"><span class="star">☆</span><div class="meta"><div class="mname mono">Nano Banana 2 Lite</div><div class="msub mono">google/gemini-3.1-flash-lite-image</div></div><div class="caps"><span class="brain">◐</span><span class="eye">◉</span><span class="tok">66k</span></div></div>
+          <div class="row"><span class="star on">★</span><div class="meta"><div class="mname mono">Gemini Flash Latest</div><div class="msub mono">google/gemini-flash-latest</div></div><div class="caps"><span class="brain">◐</span><span class="eye">◉</span><span class="tok">1.05M</span></div></div>
+          <div class="ghead">openai-codex</div>
+          <div class="row"><span class="star">☆</span><div class="meta"><div class="mname mono">GPT-5.6 Luna</div><div class="msub mono">openai-codex/gpt-5.6-luna</div></div><div class="caps"><span class="brain">◐</span><span class="eye">◉</span><span class="tok">272k</span></div></div>
+          <div class="row"><span class="star">☆</span><div class="meta"><div class="mname mono">GPT-5.6 Sol</div><div class="msub mono">openai-codex/gpt-5.6-sol</div></div><div class="caps"><span class="brain">◐</span><span class="eye">◉</span><span class="tok">272k</span></div></div>
+        </div>
+        <div class="footbar"><span class="mono">anthropic/claude-opus-4-8</span><span>◆ medium</span></div>
+      </div>
+      <div class="note">Reference — mirrors the screenshot: All-Providers + Favs, filter, grouped rows with ★ / name / <span class="mono">provider/id</span> / caps / token badge, current row in blue.</div>
+    </div>
+
+    <!-- STATE 0: BEFORE -->
+    <div class="col before">
+      <div class="label">Today (bug)</div>
+      <div class="trigger disabled"><span class="mono">no model</span></div>
+      <div class="note"><span class="bad">Dead button.</span> <span class="mono">disabled={!hasModels}</span>. No chevron, can't open, no refresh, no settings. Session looks modelless forever.</div>
+    </div>
+
+    <!-- STATE 1: refreshing -->
+    <div class="col">
+      <div class="label">1 · Opened → refreshing</div>
+      <div class="trigger"><span class="mono">no model</span><span class="chev"></span></div>
+      <div class="pop">
+        <div class="filters"><input class="fld filter" placeholder="Filter models…" /></div>
+        <div class="body">
+          <div class="icon"><span class="spin"></span></div>
+          <div class="title">Refreshing…</div>
+          <div class="hint">Re-fetching the model catalogue for this session.</div>
+        </div>
+      </div>
+      <div class="note">Open itself fires <span class="mono">request_models</span> once (manual ↻ button removed). <span class="mono">awaitingRefresh=true</span>. No provider link yet — we don't know it's empty.</div>
+    </div>
+
+    <!-- STATE 2: empty -->
+    <div class="col">
+      <div class="label">2 · Refresh done → genuinely empty</div>
+      <div class="trigger"><span class="mono">no model</span><span class="chev"></span></div>
+      <div class="pop">
+        <div class="filters"><input class="fld filter" placeholder="Filter models…" /></div>
+        <div class="body">
+          <div class="icon">⬚</div>
+          <div class="title">No models available</div>
+          <div class="hint">No provider is configured with usable credentials.</div>
+          <a class="link" href="#">⚙ Open provider settings</a>
+        </div>
+      </div>
+      <div class="note"><span class="mono">models_list</span> arrived, <span class="mono">models.length===0</span>, no <span class="mono">refreshErrors</span> → provider-settings link (D4-A, no arrow). Re-refresh = close &amp; reopen.</div>
+    </div>
+
+    <!-- STATE 3: empty + all providers errored (D5-B) -->
+    <div class="col">
+      <div class="label">3 · Empty + provider errored (D5-B)</div>
+      <div class="trigger"><span class="mono">no model</span><span class="chev"></span></div>
+      <div class="pop">
+        <div class="filters"><input class="fld filter" placeholder="Filter models…" /></div>
+        <div class="body">
+          <div class="icon">⚠</div>
+          <div class="title">No models loaded</div>
+          <div class="hint">Couldn't reach any provider. Close &amp; reopen to retry.</div>
+          <a class="link ghost" href="#">⚙ Providers</a>
+        </div>
+      </div>
+      <div class="note">D5-B: no inline Retry — open is the only refresh trigger. Per-provider detail lives in Settings, not here (D1-B). Link → same ⚙ Providers panel.</div>
+    </div>
+
+    <!-- STATE 4: partial failure (D1-B) -->
+    <div class="col">
+      <div class="label">4 · Partial failure (D1-B)</div>
+      <div class="trigger"><span class="mono">gemini-flash-latest</span><span class="chev"></span></div>
+      <div class="pop">
+        <div class="filters">
+          <div class="frow"><select class="fld"><option>All Providers</option></select><span class="btnfav">★ Favs</span></div>
+          <input class="fld filter" placeholder="Filter models…" />
+        </div>
+        <div class="list">
+          <div class="ghead">google</div>
+          <div class="row"><span class="star on">★</span><div class="meta"><div class="mname mono">Gemini Flash Latest</div><div class="msub mono">google/gemini-flash-latest</div></div><div class="caps"><span class="tok">1.05M</span></div></div>
+          <div class="ghead">openai-codex</div>
+          <div class="row"><span class="star">☆</span><div class="meta"><div class="mname mono">GPT-5.6 Sol</div><div class="msub mono">openai-codex/gpt-5.6-sol</div></div><div class="caps"><span class="tok">272k</span></div></div>
+        </div>
+        <div class="foot-thin"><span>⚠ 1 provider unavailable</span><a href="#">⚙ Providers</a></div>
+      </div>
+      <div class="note">D1-B: anthropic errored, google + openai resolved → their models show; footer = count + plain ⚙ Providers link, no names, no arrow. Names/error live in Settings.</div>
+    </div>
+
+  </div>
+
+<script>
+  const seg = document.getElementById('seg');
+  seg.addEventListener('click', e => {
+    const b = e.target.closest('button'); if(!b) return;
+    document.documentElement.setAttribute('data-theme', b.dataset.t);
+    seg.querySelectorAll('button').forEach(x => x.classList.toggle('active', x===b));
+  });
+</script>
+</body>
+</html>

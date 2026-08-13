@@ -1179,6 +1179,10 @@ export default function App() {
   // change: pluginize-flows-via-registry.
 
   const selectedSession = selectedId ? sessions.get(selectedId) : undefined;
+  // Shared navigation to Settings → Providers — the model-selector empty-state
+  // recovery link, consumed both directly (composer) and via ModelConfig (the
+  // shell-bound `ui:model-selector` primitive). See change: open-empty-model-selector.
+  const openProviderSettings = useCallback(() => navigate("/settings/providers"), [navigate]);
   // Neutral model config for the selected session — sourced from
   // `selectedState.model`/`thinkingLevel`, `modelsMap`, and `favoriteModels`;
   // setters emit the existing browser messages. Consumed by the OpenSpec launch
@@ -1205,9 +1209,10 @@ export default function App() {
       refreshModels: () => {
         if (selectedId) send({ type: "request_models", sessionId: selectedId });
       },
+      openProviderSettings,
       notify: (message) => showToast(message, "info"),
     }),
-    [selectedId, selectedState.model, selectedState.thinkingLevel, selectedSession?.model, selectedSession?.thinkingLevel, modelsMap, favoriteModels, send, showToast],
+    [selectedId, selectedState.model, selectedState.thinkingLevel, selectedSession?.model, selectedSession?.thinkingLevel, modelsMap, favoriteModels, send, showToast, openProviderSettings],
   );
   // Per-cwd OpenSpec workflow config — drives which action buttons render.
   // See change: redesign-session-card-and-composer (config-driven-workflow).
@@ -1918,6 +1923,7 @@ export default function App() {
               send({ type: "set_thinking_level", sessionId: selectedId, level });
             }}
             onRefreshModels={() => selectedId && send({ type: "request_models", sessionId: selectedId })}
+            onOpenProviderSettings={openProviderSettings}
             modelRefreshErrors={modelRefreshErrorsMap.get(selectedId)}
             contextUsage={selectedContextUsage}
           />
