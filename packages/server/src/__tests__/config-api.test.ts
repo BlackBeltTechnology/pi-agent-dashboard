@@ -1,5 +1,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
+import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import {
+  computeBindReachability,
+  initBindReachability,
+  resetBindReachability,
+} from "../auth/bind-reachability-service.js";
 import fs from "node:fs";
 import path from "node:path";
 import os from "node:os";
@@ -333,5 +339,73 @@ describe("config-api", () => {
       expect(fs.readFileSync(configFile, "utf-8")).toBe(before);
       expect(JSON.parse(fs.readFileSync(configFile, "utf-8")).gateways).toBeUndefined();
     });
+  });
+});
+
+// ── reachability: computed, never persisted, never unguarded ───────────
+// See change: warn-unreachable-trusted-networks.
+describe("reachability surface", () => {
+  let testDir: string;
+  let configFile: string;
+  let origHome: string;
+
+  beforeEach(() => {
+    testDir = path.join(os.tmpdir(), `test-reachability-${Date.now()}`);
+    fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
+    configFile = path.join(testDir, ".pi", "dashboard", "config.json");
+    origHome = process.env.HOME!;
+    process.env.HOME = testDir;
+    resetBindReachability();
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    resetBindReachability();
+    if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true });
+  });
+
+  it("#E30 strips an echoed `reachability` object from the written config", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ port: 8000, bindHost: "127.0.0.1" }));
+    const result = writeConfigPartial({
+      bindHost: "0.0.0.0",
+      reachability: {
+        resolvedBindHost: "127.0.0.1",
+        pendingBindHost: "127.0.0.1",
+        unreachable: ["192.168.1.0/24"],
+      },
+    });
+    expect(result.success).toBe(true);
+    const written = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+    expect(written.bindHost).toBe("0.0.0.0");
+    expect("reachability" in written).toBe(false);
+  });
+
+  it("#X1 keeps the rest of the config readable when the computation throws", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ port: 8123, bindHost: "127.0.0.1" }));
+    // The route's failure isolation, exercised at its seam: a throwing config
+    // load must yield `reachability: null`, never take the response down.
+    let reachability: unknown;
+    try {
+      reachability = computeBindReachability(() => { throw new Error("boom"); });
+    } catch {
+      reachability = null;
+    }
+    expect(reachability).toBeNull();
+    const payload = { ...readConfigRedacted(), reachability };
+    expect(payload.port).toBe(8123);
+    expect(payload.reachability).toBeNull();
+  });
+
+  it("#X2 computes the topology facts only for the guarded surface", () => {
+    fs.writeFileSync(configFile, JSON.stringify({
+      port: 8000,
+      bindHost: "127.0.0.1",
+      auth: { bypassHosts: ["192.168.1.0/24"] },
+    }));
+    initBindReachability({ resolvedBindHost: "127.0.0.1", hostFlag: null });
+    const r = computeBindReachability(loadConfig);
+    expect(r.unreachable).toEqual(["192.168.1.0/24"]);
+    expect(r.resolvedBindHost).toBe("127.0.0.1");
+    // The unguarded `/api/health` counterpart is pinned in health-endpoint.test.ts.
   });
 });

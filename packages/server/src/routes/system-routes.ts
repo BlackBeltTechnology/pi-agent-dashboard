@@ -30,7 +30,12 @@ import type { EventLoopSpikeMetrics } from "../metrics/eventloop-spike-metrics.j
 import type { HydrationMetrics } from "../metrics/hydration-metrics.js";
 import { computeEffectiveLaunchSource } from "../lifecycle/launch-source-effective.js";
 import { systemOpenCapability } from "../system-open-capability.js";
-import { localhostGuard, netmaskToCidrBits, networkAddress } from "../auth/localhost-guard.js";
+import { localhostGuard } from "../auth/localhost-guard.js";
+import { buildNetworkInterfaceList } from "./network-interfaces.js";
+import {
+  computeBindReachability,
+  getLastBindReachability,
+} from "../auth/bind-reachability-service.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import type { MetaPersistence } from "../persistence/meta-persistence.js";
 import { getModelProxyStatus } from "../model-proxy/registry-singleton.js";
@@ -184,7 +189,20 @@ export function registerSystemRoutes(
     "/api/config",
     { preHandler: networkGuard },
     async () => {
-      return { success: true, data: readConfigRedacted() };
+      // `reachability` is COMPUTED, never persisted, and rides this guarded
+      // surface rather than `/api/health` — it describes the operator's private
+      // network topology, and `/api/health` has no preHandler. Failure-isolated
+      // like `eventLoopDelay` / `storeTrim` / `notifyLog`: a throw here must
+      // never take the config response down with it.
+      // See change: warn-unreachable-trusted-networks.
+      let reachability: import("@blackbelt-technology/pi-dashboard-shared/bind-reachability.js").BindReachability | null = null;
+      try {
+        const configModule = await import("@blackbelt-technology/pi-dashboard-shared/config.js");
+        reachability = computeBindReachability(configModule.loadConfig);
+      } catch {
+        reachability = null;
+      }
+      return { success: true, data: { ...readConfigRedacted(), reachability } };
     },
   );
 
@@ -254,6 +272,20 @@ export function registerSystemRoutes(
 
       // Apply runtime-safe changes
       const reloaded = (await import("@blackbelt-technology/pi-dashboard-shared/config.js")).loadConfig();
+
+      // Push the recomputed reachability when the effective next-start bind
+      // host moved, so an open Security page converges without a reload or a
+      // panel reopen. Failure-isolated — a config write must never fail because
+      // an advisory could not be computed.
+      // See change: warn-unreachable-trusted-networks.
+      try {
+        const before = getLastBindReachability();
+        const configModule = await import("@blackbelt-technology/pi-dashboard-shared/config.js");
+        const after = computeBindReachability(configModule.loadConfig);
+        if (before?.pendingBindHost !== after.pendingBindHost) {
+          browserGateway?.broadcastToAll({ type: "reachability_updated", reachability: after });
+        }
+      } catch { /* advisory only */ }
       if (partial.autoShutdown !== undefined || partial.shutdownIdleSeconds !== undefined) {
         config.autoShutdown = reloaded.autoShutdown;
         config.shutdownIdleSeconds = reloaded.shutdownIdleSeconds;
@@ -729,24 +761,10 @@ export function registerSystemRoutes(
   fastify.get(
     "/api/network-interfaces",
     { preHandler: localhostGuard },
-    async () => {
-      const interfaces = os.networkInterfaces();
-      const result: NetworkInterface[] = [];
-      for (const [name, addrs] of Object.entries(interfaces)) {
-        if (!addrs) continue;
-        for (const info of addrs) {
-          if (info.internal || info.family !== "IPv4") continue;
-          const bits = netmaskToCidrBits(info.netmask);
-          const net = networkAddress(info.address, info.netmask);
-          result.push({
-            name,
-            address: info.address,
-            netmask: info.netmask,
-            cidr: `${net}/${bits}`,
-          });
-        }
-      }
-      return { success: true, data: result };
+    async (_request, reply) => {
+      const out = buildNetworkInterfaceList(os.networkInterfaces);
+      if (!out.success) return reply.code(500).send(out);
+      return out;
     },
   );
 }

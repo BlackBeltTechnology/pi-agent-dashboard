@@ -205,4 +205,12 @@ Purely additive: new pure helper, new advisory render path, new log line, new ad
 
 - Should the advisory list every unreachable entry, or collapse to a count once past a threshold? Deferred to implementation; the spec requires only that unreachable entries be named.
 - Does the doctor skill want to consume the new guarded-config field as a derived check? Additive and out of scope here, but the field is shaped to allow it. The doctor already reads a guarded endpoint over loopback without a JWT, so the guard is not an obstacle.
+- **RESOLVED (task 1.4)** — both live in `packages/shared/src/bind-reachability.ts`.
+  Neither side keeps a copy: the client imports the predicate through
+  `gateway-config-ops.ts` (which re-exports it), and the server imports it in
+  `auth/bind-reachability-service.ts` + `routes/network-interfaces.ts`. There is
+  therefore no truth table to run twice — there is one implementation, so
+  divergence is structurally impossible rather than test-detected. The
+  block-event path (`suggestTrustEntries`) was rewritten onto the same range
+  table, which is what #E29 pins.
 - Where does the server-side copy of the predicate and the well-known-range table live — lifted into `packages/shared/` or duplicated with a shared test? Both the containment predicate AND the suggestion range table now need agreement across the package boundary; whichever route is taken, one truth-table fixture must be executed by both implementations. Named in tasks rather than settled here.

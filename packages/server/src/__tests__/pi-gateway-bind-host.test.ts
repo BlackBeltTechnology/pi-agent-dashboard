@@ -8,6 +8,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import { createPiGateway } from "../pi/pi-gateway.js";
+import {
+  pendingEffectiveHost,
+  resolveBindHost,
+} from "@blackbelt-technology/pi-dashboard-shared/bind-reachability.js";
 
 function waitForOpen(ws: WebSocket): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -77,5 +81,40 @@ describe("pi-gateway bind host", () => {
     const lanWs = new WebSocket(`ws://${lan}:${port}`);
     await expect(waitForOpen(lanWs)).resolves.toBeUndefined();
     lanWs.close();
+  });
+});
+
+// ── Effective bind-host resolution (test-plan #E17–#E20) ──────────────
+// `resolvedBindHost` is what THIS process bound; `pendingBindHost` is what the
+// NEXT start would bind, re-resolved against the current config. The advisory
+// must score against the pending value, and against an unsaved draft ahead of
+// even that. See change: warn-unreachable-trusted-networks.
+describe("effective bind host resolution", () => {
+  it("#E17 lets an unsaved draft edit win over the saved and resolved values", () => {
+    expect(
+      pendingEffectiveHost({
+        draftBindHost: "0.0.0.0",
+        pendingBindHost: "127.0.0.1",
+        resolvedBindHost: "127.0.0.1",
+      }),
+    ).toBe("0.0.0.0");
+  });
+
+  it("#E18 falls through to the saved config value when there is no draft", () => {
+    const pending = resolveBindHost({ hostFlag: null, envHost: null, configBindHost: "0.0.0.0" });
+    expect(pending).toBe("0.0.0.0");
+    expect(pendingEffectiveHost({ pendingBindHost: pending, resolvedBindHost: "127.0.0.1" })).toBe("0.0.0.0");
+  });
+
+  it("#E19 keeps --host winning over config.bindHost on the next start too", () => {
+    expect(
+      resolveBindHost({ hostFlag: "127.0.0.1", envHost: null, configBindHost: "0.0.0.0" }),
+    ).toBe("127.0.0.1");
+  });
+
+  it("#E20 resolves the container case from PI_DASHBOARD_HOST for both values", () => {
+    const inputs = { hostFlag: null, envHost: "0.0.0.0", configBindHost: "127.0.0.1" };
+    expect(resolveBindHost(inputs)).toBe("0.0.0.0");
+    expect(pendingEffectiveHost({ pendingBindHost: resolveBindHost(inputs) })).toBe("0.0.0.0");
   });
 });

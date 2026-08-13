@@ -1,6 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { isBypassedHost, matchCidr, ipToNum, createNetworkGuard, netmaskToCidrBits, networkAddress } from "../auth/localhost-guard.js";
 import { isLoopback } from "../auth/loopback.js";
+import { localhostGuard } from "../auth/localhost-guard.js";
+import { buildNetworkInterfaceList } from "../routes/network-interfaces.js";
 
 describe("isLoopback", () => {
   it("should match loopback addresses", () => {
@@ -182,5 +184,45 @@ describe("createNetworkGuard", () => {
     await guard(mockRequest("203.0.113.5", true), reply);
     expect(reply.statusCode).toBe(0);
     expect(reply.body).toBeNull();
+  });
+});
+
+// ── /api/network-interfaces hardening (test-plan #X3–#X4) ──────────────
+// See change: warn-unreachable-trusted-networks.
+describe("/api/network-interfaces hardening", () => {
+  it("#X3 denies a non-loopback caller — the endpoint's preHandler is unchanged", async () => {
+    const sent: { code?: number; body?: unknown } = {};
+    const reply = {
+      code(c: number) { sent.code = c; return this; },
+      send(b: unknown) { sent.body = b; return this; },
+    };
+    await localhostGuard({ ip: "192.168.1.9" } as never, reply as never);
+    expect(sent.code).toBe(403);
+  });
+
+  it("#X3 still admits a loopback caller", async () => {
+    let code: number | undefined;
+    const reply = { code(c: number) { code = c; return this; }, send() { return this; } };
+    await localhostGuard({ ip: "127.0.0.1" } as never, reply as never);
+    expect(code).toBeUndefined();
+  });
+
+  it("#X4 surfaces an enumeration failure as an error instead of throwing", () => {
+    const out = buildNetworkInterfaceList(() => { throw new Error("EPERM: interfaces unavailable"); });
+    expect(out.success).toBe(false);
+    expect(out.success === false && out.error).toContain("EPERM");
+  });
+
+  it("#X4 enriches each address with label, pointToPoint, and suggestions", () => {
+    const out = buildNetworkInterfaceList(() => ({
+      utun4: [{ address: "100.97.246.31", netmask: "255.255.255.255", family: "IPv4", internal: false, mac: "", cidr: null } as never],
+    }));
+    expect(out.success).toBe(true);
+    const entry = out.success === true ? out.data[0] : undefined;
+    expect(entry?.pointToPoint).toBe(true);
+    expect(entry?.label).toBe("tailnet");
+    expect(entry?.suggestions).toEqual([
+      { value: "100.64.0.0/10", label: "tailnet CGNAT range", wide: true },
+    ]);
   });
 });

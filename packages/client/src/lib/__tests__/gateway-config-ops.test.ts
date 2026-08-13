@@ -3,8 +3,11 @@ import {
   addTrustedNetwork,
   appendPublicBaseUrl,
   isSecureBaseUrl,
+  collectTrustedEntries,
+  isValidTrustEntry,
   removeTrustedNetwork,
   suggestTrustEntries,
+  unreachableTrustedEntries,
 } from "../gateway/gateway-config-ops.js";
 
 describe("isSecureBaseUrl", () => {
@@ -88,5 +91,86 @@ describe("suggestTrustEntries", () => {
   it("returns only the exact host for a plain LAN 192.168 address (no huge subnet)", () => {
     const s = suggestTrustEntries("192.168.1.44");
     expect(s.some((e) => e.value === "192.168.1.0/24" && e.wide)).toBe(true);
+  });
+});
+
+// ── Bind-vs-trust reachability predicate (test-plan #E1–#E16) ──────────
+// See change: warn-unreachable-trusted-networks.
+describe("unreachableTrustedEntries", () => {
+  it("#E1 reports a LAN range as unreachable from a loopback bind", () => {
+    expect(unreachableTrustedEntries("127.0.0.1", ["192.168.1.0/24"])).toEqual(["192.168.1.0/24"]);
+  });
+
+  it("#E2 reports a LAN range as unreachable from an unrelated specific NIC", () => {
+    expect(unreachableTrustedEntries("10.0.0.5", ["192.168.1.0/24"])).toEqual(["192.168.1.0/24"]);
+  });
+
+  it("#E3 reports nothing when the bind host sits inside the range", () => {
+    expect(unreachableTrustedEntries("192.168.1.42", ["192.168.1.0/24"])).toEqual([]);
+  });
+
+  it("#E4 accepts the network address as the lower boundary", () => {
+    expect(unreachableTrustedEntries("192.168.1.0", ["192.168.1.0/24"])).toEqual([]);
+  });
+
+  it("#E5 accepts the broadcast address as the upper boundary", () => {
+    expect(unreachableTrustedEntries("192.168.1.255", ["192.168.1.0/24"])).toEqual([]);
+  });
+
+  it("#E6 reports just outside the upper boundary as unreachable", () => {
+    expect(unreachableTrustedEntries("192.168.2.1", ["192.168.1.0/24"])).toEqual(["192.168.1.0/24"]);
+  });
+
+  it("#E7 reports nothing at all for a 0.0.0.0 bind", () => {
+    const entries = ["192.168.1.0/24", "10.0.0.*", "1.2.3.4"];
+    expect(unreachableTrustedEntries("0.0.0.0", entries)).toEqual([]);
+  });
+
+  it("#E8 exempts a loopback entry before containment is consulted", () => {
+    expect(unreachableTrustedEntries("10.0.0.5", ["127.0.0.1"])).toEqual([]);
+  });
+
+  it("#E9 exempts every loopback-only entry format", () => {
+    const entries = ["127.0.0.1", "127.0.0.2", "127.0.0.*", "127.0.0.0/8"];
+    expect(unreachableTrustedEntries("127.0.0.1", entries)).toEqual([]);
+  });
+
+  it("#E10 does NOT exempt 127.0.0.0/7 — it also covers 126.x", () => {
+    expect(unreachableTrustedEntries("127.0.0.1", ["127.0.0.0/7"])).toEqual(["127.0.0.0/7"]);
+  });
+
+  it("#E11 fails open for a non-IPv4 bind literal", () => {
+    expect(unreachableTrustedEntries("::", ["192.168.1.0/24"])).toEqual([]);
+  });
+
+  it("#E12 fails open for a hostname bind", () => {
+    expect(unreachableTrustedEntries("myhost.local", ["192.168.1.0/24"])).toEqual([]);
+  });
+
+  it("#E13 reports only the entries that miss, keeping the ones that cover", () => {
+    expect(unreachableTrustedEntries("10.0.0.5", ["10.0.*.*", "192.168.1.*"])).toEqual(["192.168.1.*"]);
+  });
+
+  it("#E14 returns [] and does not throw for empty or absent entry lists", () => {
+    expect(unreachableTrustedEntries("127.0.0.1", [])).toEqual([]);
+    expect(unreachableTrustedEntries("127.0.0.1", undefined)).toEqual([]);
+  });
+
+  it("#E15 skips malformed entries rather than reporting them unreachable", () => {
+    const entries = ["not-an-ip", "999.1.1.1", "10.0.0.0/33"];
+    expect(unreachableTrustedEntries("127.0.0.1", entries)).toEqual([]);
+    expect(entries.every((e) => !isValidTrustEntry(e))).toBe(true);
+  });
+
+  it("#E16 evaluates the union of trustedNetworks and auth.bypassHosts", () => {
+    const config = {
+      trustedNetworks: ["192.168.1.0/24"],
+      auth: { bypassHosts: ["10.0.0.0/8"] },
+    };
+    const entries = collectTrustedEntries(config);
+    expect(entries).toEqual(["192.168.1.0/24", "10.0.0.0/8"]);
+    expect(unreachableTrustedEntries("127.0.0.1", entries).sort()).toEqual(
+      ["10.0.0.0/8", "192.168.1.0/24"],
+    );
   });
 });

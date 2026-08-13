@@ -18,6 +18,11 @@
  * See changes: add-tunnel-providers, config-override-oauth-redirect-base.
  */
 
+import {
+  type TrustSuggestion,
+  wellKnownContainingRange,
+} from "@blackbelt-technology/pi-dashboard-shared/bind-reachability.js";
+
 const SECURE_SCHEME = /^(https|wss):\/\/[^\s]+$/i;
 
 /** Client-side UX validation: only `https`/`wss` base URLs are accepted. */
@@ -78,34 +83,32 @@ export function removeTrustedNetwork(list: string[] | undefined, entry: string):
   return (list ?? []).filter((e) => e !== entry);
 }
 
-/** A trust suggestion — the exact host (default) or a wider, riskier subnet. */
-export interface TrustSuggestion {
-  value: string;
-  label: string;
-  /** True = grants unauthenticated access to a whole subnet (explicitly riskier). */
-  wide: boolean;
-}
-
 /**
  * Offer trust entries for a refused IP. The exact `/32` host is the default,
  * safest choice; a mesh/LAN subnet is offered as the wider, explicitly-riskier
  * option (blast radius stated at the confirm step — one entry bypasses auth for
  * every host it covers).
+ *
+ * The wide range comes from the SHARED well-known-range table, the same one the
+ * `/api/network-interfaces` suggestions read, so the block-event path and the
+ * interface path cannot give contradictory advice for one address (H4).
+ * See change: warn-unreachable-trusted-networks.
  */
 export function suggestTrustEntries(ip: string): TrustSuggestion[] {
   const out: TrustSuggestion[] = [{ value: ip, label: "exact host", wide: false }];
-  const octets = ip.split(".").map((o) => Number.parseInt(o, 10));
-  if (octets.length === 4 && octets.every((o) => Number.isInteger(o) && o >= 0 && o <= 255)) {
-    const [a, b] = octets;
-    if (a === 100 && b >= 64 && b <= 127) {
-      out.push({ value: "100.64.0.0/10", label: "tailnet CGNAT range", wide: true });
-    } else if (a === 10) {
-      out.push({ value: "10.0.0.0/8", label: "mesh /8 subnet", wide: true });
-    } else if (a === 172 && b >= 16 && b <= 31) {
-      out.push({ value: `172.${b}.0.0/16`, label: "private /16 subnet", wide: true });
-    } else if (a === 192 && b === 168) {
-      out.push({ value: `192.168.${octets[2]}.0/24`, label: "home LAN /24", wide: true });
-    }
-  }
+  const wide = wellKnownContainingRange(ip);
+  if (wide) out.push({ ...wide, wide: true });
   return out;
 }
+
+export {
+  collectTrustedEntries,
+  dedupeInterfaceOffers,
+  isLoopbackOnlyEntry,
+  isValidTrustEntry,
+  pendingEffectiveHost,
+  trustEntryCovers,
+  unreachableTrustedEntries,
+  wellKnownContainingRange,
+} from "@blackbelt-technology/pi-dashboard-shared/bind-reachability.js";
+export type { BindReachability, TrustSuggestion } from "@blackbelt-technology/pi-dashboard-shared/bind-reachability.js";

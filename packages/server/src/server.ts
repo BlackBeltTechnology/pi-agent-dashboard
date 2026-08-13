@@ -127,6 +127,11 @@ import { createSessionOrderManager, type SessionOrderManager } from "./session/s
 import { scanAllSessions } from "./session/session-scanner.js";
 import { sessionToMeta } from "./session/session-to-meta.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
+import {
+  computeBindReachability,
+  formatBindReachabilityWarning,
+  initBindReachability,
+} from "./auth/bind-reachability-service.js";
 import { createIdleTimer } from "./spawn-process/idle-timer.js";
 import { spawnPiSession } from "./spawn-process/process-manager.js";
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
@@ -146,6 +151,12 @@ export interface ServerConfig {
    * port stays loopback. See change: configurable-bind-host.
    */
   host: string;
+  /**
+   * The raw `--host` flag, or `null`. Retained so `pendingBindHost` can
+   * re-resolve the full chain against the current config — a flag wins on the
+   * next start too. See change: warn-unreachable-trusted-networks.
+   */
+  hostFlag?: string | null;
   dev: boolean;
   autoShutdown: boolean;
   shutdownIdleSeconds: number;
@@ -2134,6 +2145,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       await fastify.listen({ port: config.port, host: config.host });
       writePid(process.pid);
       console.log(`Dashboard server running at http://${config.host}:${config.port}`);
+
+      // Bind-vs-trust reachability. A loopback or specific-NIC bind silently
+      // voids a trusted network outside its range: the TCP connection is
+      // refused before any handler runs, so no block event is ever recorded and
+      // the Settings banner stays blank. Operators who never open Settings get
+      // this line instead. Failure-isolated — never blocks startup.
+      // See change: warn-unreachable-trusted-networks.
+      try {
+        initBindReachability({ resolvedBindHost: config.host, hostFlag: config.hostFlag });
+        const warning = formatBindReachabilityWarning(computeBindReachability(loadConfig));
+        if (warning) console.warn(warning);
+      } catch { /* advisory only */ }
       console.log(`Pi gateway listening on port ${config.piPort}`);
 
       // ── Optional second port for model proxy (/v1/*) ──────────────

@@ -710,6 +710,20 @@ export interface NetworkInterface {
   address: string;
   netmask: string;
   cidr: string;
+  /**
+   * Human-meaningful name (`tailnet`), falling back to the device name.
+   * `utun4` says nothing to the person deciding whom to trust.
+   * See change: warn-unreachable-trusted-networks.
+   */
+  label?: string;
+  /** True for a `/32` NIC (Tailscale, WireGuard, `ppp`) — its own address only. */
+  pointToPoint?: boolean;
+  /**
+   * Trust offers this interface can honestly make. Empty for a `/32` in no
+   * recognised range — inventing one would be a guess, and a wrong trust entry
+   * is worse than none.
+   */
+  suggestions?: import("./bind-reachability.js").TrustSuggestion[];
 }
 
 // ── Recommended extensions ───────────────────────────

@@ -19,6 +19,7 @@ import type { SessionManager } from "../session/memory-session-manager.js";
 import type { SessionOrderManager } from "../session/session-order-manager.js";
 // PendingLoadManager removed — server loads sessions directly via DirectoryService
 import { createHeadlessPidRegistry, type HeadlessPidRegistry } from "../spawn-process/headless-pid-registry.js";
+import { getLastBindReachability } from "../auth/bind-reachability-service.js";
 import { createNotifyLog, type NotifyLogStats } from "./notify-log.js";
 
 /**
@@ -560,6 +561,15 @@ export function createBrowserGateway(
           sendTo(ws, { type: "display_prefs_updated", prefs: displayPrefs });
         }
       }
+    }
+
+    // Replay the current bind-vs-trust reachability so a browser that was
+    // disconnected while `pendingBindHost` changed converges on connect rather
+    // than showing a stale advisory until the next reload (#X6).
+    // See change: warn-unreachable-trusted-networks.
+    {
+      const reachability = getLastBindReachability();
+      if (reachability) sendTo(ws, { type: "reachability_updated", reachability });
     }
 
     // Send OpenSpec data for every known directory — exactly one

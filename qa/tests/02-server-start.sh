@@ -137,6 +137,110 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
       echo "SKIP: lsof unavailable, cannot enumerate listening ports (E28)"
     fi
 
+    # --- Bind-vs-trust reachability startup log (test-plan #S1-#S3) -------
+    # See change: warn-unreachable-trusted-networks.
+    #
+    # Asserted at PROCESS level because the whole point of the log line is the
+    # operator who never opens Settings. A unit test on the formatter proves the
+    # string; only a real boot proves the line is actually emitted, exactly
+    # once, with the resolved bind host the process really bound.
+    CONFIG_PATH="$HOME/.pi/dashboard/config.json"
+    CONFIG_BACKUP=""
+    if [ -f "$CONFIG_PATH" ]; then
+      CONFIG_BACKUP=$(cat "$CONFIG_PATH")
+    fi
+
+    restore_config() {
+      pi-dashboard stop >/dev/null 2>&1 || true
+      if [ -n "$CONFIG_BACKUP" ]; then
+        printf '%s' "$CONFIG_BACKUP" > "$CONFIG_PATH"
+      else
+        rm -f "$CONFIG_PATH"
+      fi
+    }
+    trap 'restore_config; cleanup' EXIT
+
+    # Boot with the given config.json and leave the fresh log in $LOG_PATH.
+    boot_with_config() {
+      pi-dashboard stop >/dev/null 2>&1 || true
+      sleep 2
+      mkdir -p "$(dirname "$CONFIG_PATH")"
+      printf '%s' "$1" > "$CONFIG_PATH"
+      : > "$LOG_PATH"
+      pi-dashboard start >/dev/null 2>&1 &
+      local waited=0
+      while [ $waited -lt 20 ]; do
+        if curl -fsS http://localhost:8000/api/health >/dev/null 2>&1; then return 0; fi
+        sleep 1
+        waited=$((waited + 1))
+      done
+      return 1
+    }
+
+    TRUSTED_LOOPBACK='{"port":8000,"bindHost":"127.0.0.1","auth":{"bypassHosts":["192.168.1.0/24"]}}'
+    TRUSTED_ALL='{"port":8000,"bindHost":"0.0.0.0","auth":{"bypassHosts":["192.168.1.0/24"]}}'
+    TRUSTED_NO_BINDHOST='{"port":8000,"auth":{"bypassHosts":["192.168.1.0/24"]}}'
+
+    # S1 — a loopback bind with a LAN trusted entry warns exactly once, naming
+    # both the bind host and the unreachable entry.
+    if ! boot_with_config "$TRUSTED_LOOPBACK"; then
+      echo "FAIL: server did not come up for the #S1 bind-reachability check"
+      exit 1
+    fi
+    WARN_COUNT=$(grep -c "\[bind-reachability\]" "$LOG_PATH" || true)
+    if [ "$WARN_COUNT" != "1" ]; then
+      echo "FAIL (#S1): expected exactly 1 [bind-reachability] line, got $WARN_COUNT"
+      grep -n "bind-reachability" "$LOG_PATH" | head -5
+      exit 1
+    fi
+    if ! grep "\[bind-reachability\]" "$LOG_PATH" | grep -q "127.0.0.1"; then
+      echo "FAIL (#S1): the warning does not name the resolved bind host 127.0.0.1"
+      exit 1
+    fi
+    if ! grep "\[bind-reachability\]" "$LOG_PATH" | grep -q "192.168.1.0/24"; then
+      echo "FAIL (#S1): the warning does not name the unreachable entry 192.168.1.0/24"
+      exit 1
+    fi
+    echo "#S1: one [bind-reachability] warning naming 127.0.0.1 and 192.168.1.0/24"
+
+    # S2 — the same entries under an all-interfaces bind are reachable, so the
+    # line must be ABSENT. Pins the advisory against firing on a correct config.
+    if ! boot_with_config "$TRUSTED_ALL"; then
+      echo "FAIL: server did not come up for the #S2 bind-reachability check"
+      exit 1
+    fi
+    if grep -q "\[bind-reachability\]" "$LOG_PATH"; then
+      echo "FAIL (#S2): a [bind-reachability] line was emitted for a 0.0.0.0 bind"
+      grep -n "bind-reachability" "$LOG_PATH" | head -5
+      exit 1
+    fi
+    echo "#S2: no [bind-reachability] line for a 0.0.0.0 bind"
+
+    # S3 — the container shape: PI_DASHBOARD_HOST supplies the bind host and
+    # config.json carries NO bindHost key, so `config.bindHost` reads as the
+    # 127.0.0.1 default while the server really binds 0.0.0.0. Scoring the
+    # config value instead of the RESOLVED one would fire the advisory in every
+    # container that has a trusted network (design Decision 10).
+    export PI_DASHBOARD_HOST=0.0.0.0
+    if ! boot_with_config "$TRUSTED_NO_BINDHOST"; then
+      echo "FAIL: server did not come up for the #S3 bind-reachability check"
+      unset PI_DASHBOARD_HOST
+      exit 1
+    fi
+    if grep -q "\[bind-reachability\]" "$LOG_PATH"; then
+      echo "FAIL (#S3): a [bind-reachability] line was emitted with PI_DASHBOARD_HOST=0.0.0.0"
+      grep -n "bind-reachability" "$LOG_PATH" | head -5
+      unset PI_DASHBOARD_HOST
+      exit 1
+    fi
+    UNREACHABLE=$(curl -fsS http://localhost:8000/api/config 2>/dev/null | node -e "let s='';process.stdin.on('data',d=>s+=d).on('end',()=>{let j;try{j=JSON.parse(s)}catch{process.exit(2)}const r=j.data&&j.data.reachability;process.stdout.write(r?JSON.stringify(r.unreachable):'MISSING')})")
+    unset PI_DASHBOARD_HOST
+    if [ "$UNREACHABLE" != "[]" ]; then
+      echo "FAIL (#S3): reachability.unreachable was '$UNREACHABLE', expected []"
+      exit 1
+    fi
+    echo "#S3: no warning and reachability.unreachable empty under PI_DASHBOARD_HOST=0.0.0.0"
+
     echo "PASS: Server started successfully"
     exit 0
   fi
