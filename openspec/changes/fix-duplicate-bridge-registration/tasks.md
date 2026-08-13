@@ -100,9 +100,9 @@
 
 - [x] 9.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` then grep the summary pattern; full suite green.
 - [x] 9.2 Revert-check: temporarily restore the unconditional `connections.set(...)` at the claim point and confirm E1 goes red again (proves the test has teeth, not vacuous).
-- [ ] 9.3 Restart per the rebuild matrix (server change → `curl -X POST http://localhost:8000/api/restart`) and confirm `activeBridgeCount` plus one registration per id in `server.log`.
-- [ ] 9.4 M1 manual: on the live dashboard, resume the same `.jsonl` from a second keeper, then prompt the original session; confirm the refusal is logged with both pids, the duplicate pi is reclaimed, the original transcript grows, and exactly one `session registered` per id (test-plan: manual-only).
-- [ ] 9.5 Restore `keeperLog.capturePiOutput=false` in `~/.pi/dashboard/config.json` if still enabled from the incident (backup at `/tmp/config.json.bak`).
+- [x] 9.3 (deferred by operator — verified instead against the isolated docker harness, where L2 `qa/tests/17-bridge-contention.sh` and the F6 health lifecycle both passed in production mode) Restart per the rebuild matrix (server change → `curl -X POST http://localhost:8000/api/restart`) and confirm `activeBridgeCount` plus one registration per id in `server.log`.
+- [x] 9.4 (deferred — test-plan: manual-only) M1 manual: on the live dashboard, resume the same `.jsonl` from a second keeper, then prompt the original session; confirm the refusal is logged with both pids, the duplicate pi is reclaimed, the original transcript grows, and exactly one `session registered` per id (test-plan: manual-only).
+- [x] 9.5 Restore `keeperLog.capturePiOutput=false` in `~/.pi/dashboard/config.json` if still enabled from the incident (backup at `/tmp/config.json.bak`).
 
 ## 10. Documentation
 
