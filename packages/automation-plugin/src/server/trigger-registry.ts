@@ -33,6 +33,18 @@ export interface FireContext {
    * `schedule`). See change: wire-flow-inputs-in-automation.
    */
   value?: unknown;
+  /**
+   * Named per-fire variables resolved into single-brace `${name}` payload
+   * tokens at dispatch (additive to `${{trigger}}`). Per-invoice fan-out sets
+   * `{ invoice_id: <id> }`. See change: wire-per-invoice-automation-drain.
+   */
+  vars?: Record<string, string>;
+  /**
+   * The invoice this fire is bound to, when the fired automation's action
+   * declared `scope: per-invoice`. Drives scoped-env passthrough on the spawn.
+   * See change: wire-per-invoice-automation-drain.
+   */
+  invoiceId?: string;
 }
 
 export interface TriggerType<Cfg = unknown> {

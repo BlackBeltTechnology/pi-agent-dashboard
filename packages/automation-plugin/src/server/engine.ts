@@ -100,9 +100,10 @@ export function buildRunDispatch(
   ctx?: FireContext,
 ): RunDispatch {
   const action = automation.config!.action;
-  // Central per-fire substitution: resolve `${{trigger}}` in the whole payload
-  // ONCE, so no action needs its own interpolation logic.
-  const payload = interpolate(action.payload ?? {}, ctx?.value) as Record<string, unknown>;
+  // Central per-fire substitution: resolve `${{trigger}}` (and per-invoice
+  // `${invoice_id}` from `ctx.vars`) in the whole payload ONCE, so no action
+  // needs its own interpolation logic.
+  const payload = interpolate(action.payload ?? {}, ctx?.value, ctx?.vars) as Record<string, unknown>;
   const reg = actionRegistry?.get(normalizeActionKind(action.kind));
   if (reg?.buildEvent) {
     const ev = reg.buildEvent({ payload, automation });
@@ -117,6 +118,29 @@ export function buildRunDispatch(
     return { kind: "prompt", text: "" };
   }
   return { kind: "prompt", text: buildRunPrompt(automation, actionRegistry, payload) };
+}
+
+/**
+ * Resolve the action `env` map for a per-invoice fire into a string→string map
+ * scoped to the bound invoice. Returns undefined for a non-per-invoice fire, an
+ * absent/non-object `env`, or an empty result. Uses the same trigger+vars
+ * substitution as the payload, so `${invoice_id}` resolves to the bound id.
+ * See change: wire-per-invoice-automation-drain.
+ */
+export function resolveScopedEnv(
+  automation: DiscoveredAutomation,
+  fireCtx?: FireContext,
+): Record<string, string> | undefined {
+  if (!fireCtx?.invoiceId) return undefined;
+  const rawEnv = (automation.config?.action?.payload as Record<string, unknown> | undefined)?.env;
+  if (!rawEnv || typeof rawEnv !== "object" || Array.isArray(rawEnv)) return undefined;
+  const resolved = interpolate(rawEnv, fireCtx.value, fireCtx.vars) as Record<string, unknown>;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(resolved)) {
+    if (typeof v === "string") out[k] = v;
+    else if (v !== undefined && v !== null) out[k] = String(v);
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 /** Effective board visibility: per-automation field ?? settings default. */
@@ -142,6 +166,13 @@ export interface SpawnLike {
     /** Sandbox level requested for the run. Honored by the host spawn hook. */
     sandbox?: Sandbox;
     automationRun?: { name: string; runId: string; visibility?: Visibility };
+    /**
+     * Caller-supplied env forwarded into the spawned run session. A per-invoice
+     * run passes its resolved action `env` (e.g. `IB_TOOLSET`/`IB_INVOICE_ID`)
+     * to scope the session to one invoice. Absent ⇒ unchanged. See change:
+     * wire-per-invoice-automation-drain.
+     */
+    env?: Record<string, string>;
   }): Promise<{ success: boolean; spawnToken?: string; message?: string }>;
 }
 
@@ -205,6 +236,15 @@ export interface EngineDeps {
   resolveRegistry?: () => ActionRegistry;
   /** Scope targets to scan/arm (global + per-folder). */
   listScopes: () => ScopeTarget[];
+  /**
+   * Enumerate the invoice ids currently queued for a workspace `cwd`. Injected
+   * (cross-plugin service seam) so the generic engine carries no invoice
+   * knowledge. Drives `scope: per-invoice` action fan-out: each fired automation
+   * with that scope fans out to one run per returned id. Returns `null`/absent
+   * when no enumerator is wired (fan-out fire is then skipped rather than run
+   * with an unresolved token). See change: wire-per-invoice-automation-drain.
+   */
+  enumerateQueued?: (cwd: string) => Promise<string[] | null>;
   config: () => EngineConfig;
   homeDir?: string;
   readRoles?: () => Record<string, string>;
@@ -255,6 +295,13 @@ export interface Engine {
   /** Spawn-side of a fire — exposed for tests. Returns the run id or null.
    *  `ctx` carries the per-fire value for `${{trigger}}` resolution. */
   startRunFor(automation: DiscoveredAutomation, ctx?: FireContext): { runId: string } | null;
+  /**
+   * Fan-out-aware fire entrypoint (the scheduler's `onFire`). A `scope:
+   * per-invoice` action fans out to one run per queued invoice through the
+   * runner's concurrency policy; every other action fires once. Exposed for
+   * tests. See change: wire-per-invoice-automation-drain.
+   */
+  fire(automation: DiscoveredAutomation, ctx?: FireContext): Promise<void>;
   /**
    * Stop a `running` run: terminate its spawned process via the host hook
    * (hard-kill by sessionId, or by spawnToken during the spawn→register
@@ -510,9 +557,58 @@ export function createEngine(deps: EngineDeps): Engine {
     warn,
   });
 
+  /**
+   * Fan-out-aware fire. An action declaring `scope: per-invoice` fans out to one
+   * run per queued invoice (each fire carries that invoice's id as the
+   * `invoice_id` var + `invoiceId`, so the payload resolves per invoice and the
+   * spawn is scoped by env). An empty queue fires nothing; a missing enumerator
+   * skips the fire (never a single literal-`${invoice_id}` run). Every fan-out
+   * fire flows through `runner.fire`, so the automation's `concurrency` policy is
+   * honoured unchanged (`queue` drains the invoices serially under one key).
+   * A non-per-invoice action fires exactly once, as before.
+   * See change: wire-per-invoice-automation-drain.
+   */
+  async function dispatchFire(automation: DiscoveredAutomation, ctx?: FireContext): Promise<void> {
+    const scope = (automation.config?.action?.payload as Record<string, unknown> | undefined)?.scope;
+    if (scope !== "per-invoice") {
+      runner.fire(automation, ctx);
+      return;
+    }
+    const key = automationKey(automation);
+    const enumerate = deps.enumerateQueued;
+    if (!enumerate) {
+      warn(`[engine] per-invoice fan-out for ${key}: no queued-invoice enumerator wired; skipping fire`);
+      return;
+    }
+    const cwd = scopeBaseFor(automation);
+    let ids: string[] | null;
+    try {
+      ids = await enumerate(cwd);
+    } catch (e) {
+      warn(`[engine] per-invoice enumerate failed for ${key}: ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+    if (!ids || ids.length === 0) {
+      log(`[engine] per-invoice fan-out for ${key}: no queued invoices; no fire`);
+      return;
+    }
+    log(`[engine] per-invoice fan-out for ${key}: ${ids.length} queued invoice(s)`);
+    for (const id of ids) {
+      const fireCtx: FireContext = {
+        firedAt: ctx?.firedAt ?? deps.now?.() ?? Date.now(),
+        ...(ctx?.value !== undefined ? { value: ctx.value } : {}),
+        vars: { ...(ctx?.vars ?? {}), invoice_id: id },
+        invoiceId: id,
+      };
+      runner.fire(automation, fireCtx);
+    }
+  }
+
   const scheduler = createScheduler({
     registry,
-    onFire: (automation, ctx) => runner.fire(automation, ctx),
+    onFire: (automation, ctx) => {
+      void dispatchFire(automation, ctx);
+    },
     now: deps.now,
     log,
     warn,
@@ -542,6 +638,11 @@ export function createEngine(deps: EngineDeps): Engine {
     const rec = storeStartRun(scopeBase, automation.name);
     const dispatch = buildRunDispatch(automation, resolveRegistry(), fireCtx);
     const promptText = dispatch.kind === "prompt" ? dispatch.text : "";
+    // Per-invoice run: resolve the action `env` map (with the same trigger+vars
+    // substitution) and forward it to the spawn so the session is scoped to this
+    // one invoice (IB_TOOLSET/IB_INVOICE_ID). See change:
+    // wire-per-invoice-automation-drain.
+    const spawnEnv = resolveScopedEnv(automation, fireCtx);
 
     const ctx: RunContext = {
       key: automationKey(automation),
@@ -572,6 +673,7 @@ export function createEngine(deps: EngineDeps): Engine {
         mode: automation.config.mode,
         sandbox: automation.config.sandbox,
         automationRun: { name: automation.name, runId: rec.runId, visibility: vis },
+        ...(spawnEnv ? { env: spawnEnv } : {}),
       })
       .then((res) => {
         if (!res.success) {
@@ -631,6 +733,7 @@ export function createEngine(deps: EngineDeps): Engine {
     },
 
     startRunFor,
+    fire: dispatchFire,
 
     pendingForCwd(cwd: string): RunContext | undefined {
       return firstUndeliveredForCwd(cwd);
