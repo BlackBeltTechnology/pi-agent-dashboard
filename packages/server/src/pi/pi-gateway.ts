@@ -473,7 +473,18 @@ export function createPiGateway(
             // Ownership gate: a socket that does not hold the entry for the id
             // it names may not reset the incumbent's heartbeat, overwrite its
             // metrics, unregister it, or reach `onEvent`.
-            const named = "sessionId" in msg ? (msg as any).sessionId : undefined;
+            // `plugin_pi_message` is gated on the CONNECTION's registered
+            // session, matching how it is attributed below. Gating it on the
+            // body field instead would let a bridge name any session and have
+            // its own message silently dropped, so the attribution that treats
+            // that field as untrusted could never be reached.
+            // See change: add-dashboard-mcp-server.
+            const named =
+              msg.type === "plugin_pi_message"
+                ? currentSessionId
+                : "sessionId" in msg
+                  ? (msg as any).sessionId
+                  : undefined;
             if (named && connections.get(named) !== ws) return;
 
             handleOwnedMessage(msg);
