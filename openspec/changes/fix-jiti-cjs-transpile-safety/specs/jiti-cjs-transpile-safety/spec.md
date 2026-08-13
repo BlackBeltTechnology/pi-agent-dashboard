@@ -145,13 +145,17 @@ condition that produced this bug. `packages/mockup-loop/src/presets/contract.ts`
 already uses `import.meta.url`; it is benign only because that shape is
 erasable, leaving it one TypeScript cast away from reproducing the fault.
 
-Seed 3 qualifies **twelve** entries across ten workspaces (eight `server`, four
-`bridge`), all raw `.ts`: `apple-tools`, `automation-plugin`,
-`flows-anthropic-bridge-plugin`, `flows-plugin`, `goal-plugin`,
-`hermes-memory-plugin`, `kb-plugin`, `subagents-plugin` declare `server`;
-`automation-plugin`, `flows-anthropic-bridge-plugin`, `flows-plugin`,
-`goal-plugin` also declare `bridge`. As with the other seeds, the gate SHALL
-derive this set rather than hardcode it.
+Seed 3 qualifies **fourteen** entries across eleven workspaces (ten `server`,
+four `bridge`), all raw `.ts`: `apple-tools`, `automation-plugin`,
+`blackhole-plugin`, `flows-anthropic-bridge-plugin`, `flows-plugin`,
+`goal-plugin`, `hermes-memory-plugin`, `kb-plugin`, `mcp-server-plugin`,
+`subagents-plugin` declare `server`; `automation-plugin`,
+`flows-anthropic-bridge-plugin`, `flows-plugin`, `goal-plugin` also declare
+`bridge`. An earlier draft said "twelve across ten", omitting `blackhole-plugin`
+and `mcp-server-plugin` — a live re-instance of the hand-enumeration decay this
+change's correction-of-record already documents twice, and precisely why the
+gate SHALL derive this set rather than hardcode it, and why the assertion below
+is a superset check.
 
 The assertion over each derived seed set SHALL be a **superset** check — every
 entry known at authoring time is present — not an equality check. Equality would
