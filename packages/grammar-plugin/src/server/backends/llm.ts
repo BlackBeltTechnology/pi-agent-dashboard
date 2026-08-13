@@ -284,7 +284,7 @@ export function parseLlmResult(raw: unknown, text: string, language: string): Gr
       original: text,
       replacement: correctedText,
       kind: "grammar",
-      message: "Suggested rewrite",
+      message: "",
     });
   }
   const summary =
