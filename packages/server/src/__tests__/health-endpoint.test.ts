@@ -10,8 +10,14 @@ import { createTestServer, type TestServerHandle } from "../test-support/test-se
 
 let handle: TestServerHandle | undefined;
 let server: DashboardServer | undefined;
-/** Prior config.json bytes, so a seeding test cannot leak into its siblings. */
-let configBackup: string | null = null;
+/**
+ * Prior config.json bytes, or `ABSENT` when there was no file to begin with.
+ * A plain `null` sentinel could not tell "nothing to restore" apart from "the
+ * file did not exist", so teardown left the seeded file behind and later tests
+ * inherited `bindHost` / `auth.bypassHosts` — an order-dependent suite.
+ */
+const ABSENT = Symbol("absent");
+let configBackup: string | typeof ABSENT | null = null;
 
 function configPath(): string {
   // HOME is ephemeral (see the setup-home global setup, which HARD-FAILS if it
@@ -24,14 +30,18 @@ function configPath(): string {
 function seedConfig(patch: Record<string, unknown>): void {
   const file = configPath();
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  configBackup = fs.existsSync(file) ? fs.readFileSync(file, "utf-8") : null;
-  const existing = configBackup ? JSON.parse(configBackup) : {};
+  const present = fs.existsSync(file);
+  // Only the FIRST seed in a test captures the baseline, so repeated calls
+  // cannot overwrite it with an already-seeded snapshot.
+  if (configBackup === null) configBackup = present ? fs.readFileSync(file, "utf-8") : ABSENT;
+  const existing = present ? JSON.parse(fs.readFileSync(file, "utf-8")) : {};
   fs.writeFileSync(file, JSON.stringify({ ...existing, ...patch }));
 }
 
 function restoreConfig(): void {
   if (configBackup === null) return;
-  fs.writeFileSync(configPath(), configBackup);
+  if (configBackup === ABSENT) fs.rmSync(configPath(), { force: true });
+  else fs.writeFileSync(configPath(), configBackup);
   configBackup = null;
 }
 
