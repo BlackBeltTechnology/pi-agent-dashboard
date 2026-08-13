@@ -1,0 +1,3 @@
+# __tests__/verify-release-deps-client-build-deps.test.mjs — index
+
+Vitest tests for the E7 client build-dep rules in verify-release-deps.mjs. Drives exported `collectFailures({repoRoot})` against a tmp fixture repo (real client package.json mutated in memory; server/extension package.json + docker/Dockerfile copied so the unrelated gates stay green). Asserts real tree passes, each of vite/@vitejs/plugin-react/@tailwindcss/vite/tailwindcss/tsx regressing to devDependencies yields exactly 1 failure naming it, and multiple regressions all report. See change: fix-pi-install-node26-and-omit-dev-build.

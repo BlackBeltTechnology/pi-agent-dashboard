@@ -64,12 +64,24 @@ Measured baseline: files 10, exports 227, types 189, duplicates 11 (total 437),
 
 | id | requirement | technique | level | disposition | input | trigger | expected observable |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------|
-| H1 | harness runs Knip | EP | L2 | automated | docker harness container | invoke the Knip script inside the harness | completes; same per-class counts as a host run |
+| H1 | harness analyses the same tree | EP | L2 | automated | docker harness container | scan in the harness and on the host | unused-FILES sets equal; ratchet passes in-container; every knip-referenced tree present; `.pi/settings.json` absent |
+| H1b | scalar equality is not asserted | EP | L2 | automated | host vs container `types` count | compare | documented env delta (1) does not fail the gate — see spec scenario "Cross-environment scalar equality is not required" |
 | H2 | enforcer blocks a real regression | state-transition | L1 | manual-only | an unused export added on a branch | run the ship enforcer step | enforcer exits non-zero — verified once against a live run |
 
 ---
 
 ## Disposition summary
 
-- `automated`: G1–G6 (6), R1–R6 (6), D1–D3 (3), P1–P2 (2), X1–X3 (3), H1 (1) → **21**
+- `automated`: G1–G6 (6), R1–R6 (6), D1–D3 (3), P1–P2 (2), X1–X3 (3), H1+H1b (2) → **22**
 - `manual-only`: H2 → **1**
+
+### Revised during implementation
+
+H1's original observable ("same per-class counts as a host run") was **not
+achievable** and was replaced above. The image change did work — files, exports
+and duplicates now match exactly — but the `types` class differs by one
+(`KbSettingsClaimProps`) with identical file hashes, identical TypeScript
+5.9.3 / `@types/react` 19.2.17, and each environment internally deterministic
+across repeat runs. The difference is environmental (Node 24.15 vs 24.19), not
+a tree difference, so the assertion now covers the unused-FILES set — the class
+the tree shape actually moves (90 → 10 when the graph was rooted).

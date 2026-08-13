@@ -1,0 +1,3 @@
+# __tests__/knip-harness.test.mjs — index
+
+Docker-harness reproducibility for the dead-code oracle (test-plan #H1). Asserts the container's unused-FILES set equals the host's exactly, the ratchet + config check pass in-container, every knip-referenced tree is present, and `.pi/settings.json` is ABSENT (it pins a host absolute path). Deliberately does NOT assert scalar equality of every class: the `types` count differs by exactly one between host and container with identical file hashes, TypeScript 5.9.3 and `@types/react` 19.2.17, each environment internally deterministic — an environment artifact (Node 24.15 vs 24.19), not a tree difference. Skips with no `.pi-test-harness.json`; `ship-it` step 3 stands the harness up. See change: add-knip-dead-code-oracle.

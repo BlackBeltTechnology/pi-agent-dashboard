@@ -22,8 +22,7 @@
  *
  * See change: add-knip-dead-code-oracle.
  */
-import { execSync } from "node:child_process";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 /**
@@ -112,18 +111,34 @@ function covers(configured, entry) {
   return false;
 }
 
-export function readWorkspacePackages(root) {
-  const dirs = execSync("git ls-files '**/package.json' package.json", { cwd: root, encoding: "utf8" })
-    .split("\n")
-    .filter((f) => f && !f.includes("node_modules/"));
-  const out = [];
-  for (const f of dirs) {
-    const dir = path.dirname(f) === "." ? "." : path.dirname(f);
+const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", ".vite", "out", "coverage"]);
+
+/**
+ * Every manifest in the tree, walked from the filesystem.
+ *
+ * Deliberately NOT `git ls-files`: the Docker harness image carries the source
+ * but not `.git` (it is in .dockerignore), so a git-backed walk aborts with
+ * "not a git repository" there — caught by the harness run, which is the whole
+ * reason that check exists.
+ */
+export function readWorkspacePackages(root, dir = ".", out = []) {
+  const abs = path.join(root, dir);
+  let entries;
+  try {
+    entries = readdirSync(abs, { withFileTypes: true });
+  } catch {
+    return out;
+  }
+  if (entries.some((e) => e.isFile() && e.name === "package.json")) {
     try {
-      out.push({ dir, pkg: JSON.parse(readFileSync(path.join(root, f), "utf8")) });
+      out.push({ dir, pkg: JSON.parse(readFileSync(path.join(abs, "package.json"), "utf8")) });
     } catch {
       /* an unparseable manifest is not this script's problem */
     }
+  }
+  for (const e of entries) {
+    if (!e.isDirectory() || SKIP_DIRS.has(e.name)) continue;
+    readWorkspacePackages(root, dir === "." ? e.name : `${dir}/${e.name}`, out);
   }
   return out;
 }

@@ -1,0 +1,3 @@
+# verify-lockfile-versions.mjs — index
+
+Sanity gate after `pnpm install --lockfile-only` in `publish.yml` (`tag-and-push`) + `_electron-build.yml`. Line-parses `pnpm-lock.yaml`'s `importers:` map (fixed 2/4/6/8-space shape, no YAML lib), walks every `packages/<workspace>` importer's dep sections, asserts each `@blackbelt-technology/*` cross-ref specifier equals `^<root.version>`; tracks `checkedCount` to guard a vacuous pass. Prints `file → name: spec (expected ^X.Y.Z)` per mismatch + exits 1. Catches lockfile-version drift before commit lands on tag. See changes: fix-release-lockfile-drift, adopt-pnpm-for-dev-ci.

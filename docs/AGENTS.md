@@ -24,6 +24,8 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `faq.md` | Recurring how-to + troubleshooting questions. Caveman style. Cross-refs README.md + docs/. → see `faq.md.AGENTS.md` |
 | `install-invoice-bot-extension.md` | Install `@blackbelt-technology/invoicebot` (local `../pi-invoice-bot`) as global pi extension. → see `install-invoice-bot-extension.md.AGENTS.md` |
 | `installation-windows.md` | Windows 10/11 install guide. 2 paths: Electron Setup.exe NSIS (per-user, bundled Node) + tarball/npm (advanced). Runtime layout `%USERPROFILE%\.pi-dashboard\` + `%USERPROFILE%\.pi\`. |
+| `knip-baseline.json` | (repo root) Knip dead-code baseline. Per-class debt counts, measured 2026-08-13. Debt ceiling, not target. → see `knip-baseline.json.AGENTS.md` |
+| `knip.json` | (repo root) Knip 6.32.2 whole-graph dead-code config. 38 workspaces. → see `knip.json.AGENTS.md` |
 | `migration/from-pi-model-proxy.md` | Migration guide `@blackbelt-technology/pi-model-proxy` → dashboard built-in proxy. → see `migration/from-pi-model-proxy.md.AGENTS.md` |
 | `perf-ws-broadcast-load.md` | WS broadcast load harness. Measures head-of-line blocking on single browser WS. `createDrainingWs` timing-aware fake socket drives real gateway. Test-only, regression-gated. |
 | `plan/electron-app.md` | Comprehensive Electron desktop-app plan. Bundle dashboard standalone macOS/Linux/Windows, zero prereqs,… → see `plan/electron-app.md.AGENTS.md` |

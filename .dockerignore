@@ -8,4 +8,10 @@ packages/electron/.vite
 dist
 .git
 .pi
+# ...except the skill scripts, which are part of the module graph the dead-code
+# oracle analyses (knip.json roots `.pi/skills/**/scripts/*.ts`). Everything
+# else under .pi stays out — notably settings.json, which pins a HOST absolute
+# path for its extension packages and would break container sessions.
+# See change: add-knip-dead-code-oracle.
+!.pi/skills
 openspec

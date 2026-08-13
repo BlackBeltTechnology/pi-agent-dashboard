@@ -1,0 +1,3 @@
+# check-conventions.mjs — index
+
+Deterministic half of the ship gate, run by `ship-it` step 4.4. Four rules, no deps: Mermaid not ASCII box-drawing (fenced blocks; directory-tree rows `├──`/`└──` excluded), browser scenarios are `tests/e2e` Playwright specs not `qa/tests/*.sh`, root `AGENTS.md` carries no per-file index, touched `proposal.md` carries `## Discipline Skills`. Touched set = committed diff (`--base <ref>`, three-dot) ∪ working tree, so in-flight fixes are inspected; no `--base` ⇒ touched-scoped rules report without gating. Exports `mermaidViolations`, `mermaidViolationsIn`, `shellBrowserViolations`, `rootIndexViolations`, `disciplineSkillsViolations`, `unionTouched`. Four rules is the ceiling. See change: wire-local-review-gate.
