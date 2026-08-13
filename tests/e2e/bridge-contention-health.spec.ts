@@ -51,9 +51,25 @@ test.describe("bridge contention health surface (L3)", () => {
     const connect = (port: number) =>
       new Promise<WebSocket>((resolve, reject) => {
         const ws = new WebSocket(`ws://127.0.0.1:${port}`);
-        ws.addEventListener("open", () => resolve(ws));
-        ws.addEventListener("error", () => reject(new Error("socket error")));
-        setTimeout(() => reject(new Error("open timeout")), 5000);
+        // Cleared on settle: a live 5 s timer per connection would otherwise
+        // hold the test worker open past the assertions.
+        const timer = setTimeout(() => reject(new Error("open timeout")), 5000);
+        ws.addEventListener(
+          "open",
+          () => {
+            clearTimeout(timer);
+            resolve(ws);
+          },
+          { once: true },
+        );
+        ws.addEventListener(
+          "error",
+          () => {
+            clearTimeout(timer);
+            reject(new Error("socket error"));
+          },
+          { once: true },
+        );
       });
 
     const register = (ws: WebSocket, pid: number) =>
