@@ -377,7 +377,7 @@ See change: configurable-bind-host.
 
 ## I added a trusted network and the device still cannot connect?
 
-Trust does not open a socket. A loopback or specific-NIC bind refuses the peer at the TCP layer before any handler runs — the trusted entry is never consulted, no block event records, and the Trusted Networks section stays blank.
+Trust does not open a socket. A loopback or specific-NIC bind refuses the peer at the TCP layer before any handler runs — the trusted entry is never consulted and no block event records. The entry stays listed; what is missing is the signal. No block event means no "Trust this network?" banner, so nothing tells you the entry is inert.
 
 Diagnose:
 - Grep server.log for `[bind-reachability]` warn line. Lists trusted entries the current bind cannot serve.

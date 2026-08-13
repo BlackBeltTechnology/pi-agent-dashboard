@@ -8,6 +8,7 @@ import {
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { suggestTrustEntries } from "../../../client/src/lib/gateway/gateway-config-ops.js";
+import { buildNetworkInterfaceList } from "../routes/network-interfaces.js";
 
 describe("trustedNetworks config", () => {
   let testDir: string;
@@ -170,5 +171,38 @@ describe("interface trust suggestions", () => {
     expect(fromInterface).toBe("100.64.0.0/10");
     expect(fromBlockEvent).toBe("100.64.0.0/10");
     expect(fromInterface).toBe(fromBlockEvent);
+  });
+});
+
+// ── Regression: an unusable netmask must never become a trust offer ────
+// `netmaskBits` scores 0 both for a genuine /0 and for a netmask that does not
+// parse, and the naive `${network}/${bits}` then rendered `<address>/0` — an
+// entry granting unauthenticated access to the ENTIRE IPv4 space, one click
+// away in the dropdown. Found by CodeRabbit on PR #483.
+// See change: warn-unreachable-trusted-networks.
+describe("unusable netmask", () => {
+  it("offers nothing for a netmask that does not parse", () => {
+    for (const netmask of ["", "not-a-mask", "255.255.255", "999.0.0.0"]) {
+      const out = deriveInterfaceSuggestions({ address: "192.168.10.123", netmask });
+      expect(out.suggestions).toEqual([]);
+      expect(out.suggestions.some((s) => s.value.endsWith("/0"))).toBe(false);
+    }
+  });
+
+  it("offers nothing for a genuine 0.0.0.0 netmask", () => {
+    expect(deriveInterfaceSuggestions({ address: "192.168.10.123", netmask: "0.0.0.0" }).suggestions)
+      .toEqual([]);
+  });
+
+  it("drops such an interface from the endpoint payload rather than publishing <address>/0", () => {
+    const out = buildNetworkInterfaceList(() => ({
+      bogus: [{ address: "192.168.10.123", netmask: "not-a-mask", family: "IPv4", internal: false, mac: "", cidr: null } as never],
+      en0: [{ address: "192.168.10.123", netmask: "255.255.255.0", family: "IPv4", internal: false, mac: "", cidr: null } as never],
+    }));
+    expect(out.success).toBe(true);
+    const data = out.success === true ? out.data : [];
+    expect(data).toHaveLength(1);
+    expect(data[0].name).toBe("en0");
+    expect(data.some((e) => e.cidr.endsWith("/0"))).toBe(false);
   });
 });

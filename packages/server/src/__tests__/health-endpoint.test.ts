@@ -10,6 +10,30 @@ import { createTestServer, type TestServerHandle } from "../test-support/test-se
 
 let handle: TestServerHandle | undefined;
 let server: DashboardServer | undefined;
+/** Prior config.json bytes, so a seeding test cannot leak into its siblings. */
+let configBackup: string | null = null;
+
+function configPath(): string {
+  // HOME is ephemeral (see the setup-home global setup, which HARD-FAILS if it
+  // still points at the developer's real home), so this never touches the real
+  // user config. The save/restore below is sibling-test isolation, not
+  // user-data protection.
+  return path.join(os.homedir(), ".pi", "dashboard", "config.json");
+}
+
+function seedConfig(patch: Record<string, unknown>): void {
+  const file = configPath();
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  configBackup = fs.existsSync(file) ? fs.readFileSync(file, "utf-8") : null;
+  const existing = configBackup ? JSON.parse(configBackup) : {};
+  fs.writeFileSync(file, JSON.stringify({ ...existing, ...patch }));
+}
+
+function restoreConfig(): void {
+  if (configBackup === null) return;
+  fs.writeFileSync(configPath(), configBackup);
+  configBackup = null;
+}
 
 describe("GET /api/health", () => {
   afterEach(async () => {
@@ -18,6 +42,7 @@ describe("GET /api/health", () => {
       handle = undefined;
       server = undefined;
     }
+    restoreConfig();
   });
 
   it("should return ok, pid, and uptime", async () => {
@@ -50,13 +75,7 @@ describe("GET /api/health", () => {
     // Seed a REAL trusted entry first, so there is something that could leak.
     // Without it the assertion would pass even on a server that started
     // publishing `auth.bypassHosts` on health, because the list would be empty.
-    const configFile = path.join(os.homedir(), ".pi", "dashboard", "config.json");
-    fs.mkdirSync(path.dirname(configFile), { recursive: true });
-    const existing = fs.existsSync(configFile) ? JSON.parse(fs.readFileSync(configFile, "utf-8")) : {};
-    fs.writeFileSync(
-      configFile,
-      JSON.stringify({ ...existing, bindHost: "127.0.0.1", auth: { bypassHosts: [TOPOLOGY_SECRET] } }),
-    );
+    seedConfig({ bindHost: "127.0.0.1", auth: { bypassHosts: [TOPOLOGY_SECRET] } });
 
     handle = await createTestServer();
     server = handle.server;
@@ -76,13 +95,7 @@ describe("GET /api/health", () => {
   // `reachability` into the config response, and would therefore stay green if
   // the route stopped producing one at all.
   it("serves a well-shaped `reachability` on the guarded /api/config", async () => {
-    const configFile = path.join(os.homedir(), ".pi", "dashboard", "config.json");
-    fs.mkdirSync(path.dirname(configFile), { recursive: true });
-    const existing = fs.existsSync(configFile) ? JSON.parse(fs.readFileSync(configFile, "utf-8")) : {};
-    fs.writeFileSync(
-      configFile,
-      JSON.stringify({ ...existing, bindHost: "127.0.0.1", auth: { bypassHosts: [TOPOLOGY_SECRET] } }),
-    );
+    seedConfig({ bindHost: "127.0.0.1", auth: { bypassHosts: [TOPOLOGY_SECRET] } });
 
     handle = await createTestServer();
     server = handle.server;

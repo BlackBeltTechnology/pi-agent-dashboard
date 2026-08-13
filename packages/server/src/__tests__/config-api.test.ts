@@ -9,6 +9,7 @@ import {
   initBindReachability,
   resetBindReachability,
   safeComputeBindReachability,
+  sameReachability,
 } from "../auth/bind-reachability-service.js";
 import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
 
@@ -437,5 +438,36 @@ describe("formatBindReachabilityWarning", () => {
     const line = formatBindReachabilityWarning({ ...base, bindHostSource: "env" });
     expect(line).toContain("PI_DASHBOARD_HOST=0.0.0.0");
     expect(line).not.toContain("Settings → Server");
+  });
+});
+
+// ── Regression: the broadcast gate must watch the WHOLE published fact ─
+// Gating the `reachability_updated` push on `pendingBindHost` alone meant a
+// write that edited only the trusted entries sent nothing, leaving every other
+// connected browser on a stale advisory until it reloaded — contradicting the
+// protocol docstring and the server-bind-host spec's no-polling requirement.
+// Found by CodeRabbit on PR #483. See change: warn-unreachable-trusted-networks.
+describe("sameReachability (broadcast gate)", () => {
+  const base = {
+    resolvedBindHost: "127.0.0.1",
+    pendingBindHost: "127.0.0.1",
+    unreachable: ["192.168.1.0/24"],
+    bindHostSource: "config" as const,
+  };
+
+  it("is true for an identical fact — no needless broadcast", () => {
+    expect(sameReachability(base, { ...base, unreachable: [...base.unreachable] })).toBe(true);
+  });
+
+  it("is FALSE when only the unreachable set changed (the bind host standing still)", () => {
+    expect(sameReachability(base, { ...base, unreachable: ["192.168.1.0/24", "10.0.0.0/8"] })).toBe(false);
+    expect(sameReachability(base, { ...base, unreachable: [] })).toBe(false);
+    expect(sameReachability(base, { ...base, unreachable: ["10.0.0.0/8"] })).toBe(false);
+  });
+
+  it("is false when the bind host, the resolved host, or the deciding link changed", () => {
+    expect(sameReachability(base, { ...base, pendingBindHost: "0.0.0.0" })).toBe(false);
+    expect(sameReachability(base, { ...base, resolvedBindHost: "0.0.0.0" })).toBe(false);
+    expect(sameReachability(base, { ...base, bindHostSource: "env" })).toBe(false);
   });
 });

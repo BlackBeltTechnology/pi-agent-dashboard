@@ -327,8 +327,17 @@ test.describe("bind-vs-trust reachability advisory", () => {
     await expect
       .poll(() => replayed.length, { timeout: 20_000 })
       .toBeGreaterThan(0);
-    const first = replayed[0] as { reachability?: { resolvedBindHost?: string } };
-    expect(typeof first.reachability?.resolvedBindHost).toBe("string");
+
+    // Pin the replayed VALUE against the server's current one, not merely the
+    // presence of the key — a stale or empty frame would otherwise pass and the
+    // whole point of the replay is that a client which missed a change ends up
+    // on the CURRENT fact.
+    const live = await page.request.get("/api/config");
+    expect(live.ok()).toBeTruthy();
+    const expected = ((await live.json()) as { data?: { reachability?: unknown } }).data?.reachability;
+    expect(expected).toBeTruthy();
+    const first = replayed[0] as { reachability?: unknown };
+    expect(first.reachability).toEqual(expected);
   });
 
   // Both remediations write `config.bindHost`, which `--host` and

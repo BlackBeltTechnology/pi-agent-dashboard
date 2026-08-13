@@ -25,6 +25,7 @@ import {
   computeBindReachability,
   getLastBindReachability,
   safeComputeBindReachability,
+  sameReachability,
 } from "../auth/bind-reachability-service.js";
 import { localhostGuard } from "../auth/localhost-guard.js";
 import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
@@ -269,16 +270,18 @@ export function registerSystemRoutes(
       // Apply runtime-safe changes
       const reloaded = (await import("@blackbelt-technology/pi-dashboard-shared/config.js")).loadConfig();
 
-      // Push the recomputed reachability when the effective next-start bind
-      // host moved, so an open Security page converges without a reload or a
-      // panel reopen. Failure-isolated — a config write must never fail because
-      // an advisory could not be computed.
-      // See change: warn-unreachable-trusted-networks.
+      // Push the recomputed reachability when ANY part of the published fact
+      // moved — not just `pendingBindHost`. A write that edits `trustedNetworks`
+      // or `auth.bypassHosts` keeps the same bind host yet changes
+      // `unreachable`, and gating on the host alone would leave every OTHER
+      // connected browser on a stale advisory until it reloaded. Failure-
+      // isolated: a config write must never fail because an advisory could not
+      // be computed. See change: warn-unreachable-trusted-networks.
       try {
         const before = getLastBindReachability();
         const configModule = await import("@blackbelt-technology/pi-dashboard-shared/config.js");
         const after = computeBindReachability(configModule.loadConfig);
-        if (before?.pendingBindHost !== after.pendingBindHost) {
+        if (!before || !sameReachability(before, after)) {
           browserGateway?.broadcastToAll({ type: "reachability_updated", reachability: after });
         }
       } catch { /* advisory only */ }

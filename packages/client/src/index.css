@@ -114,14 +114,15 @@
      See change: extend-client-utils-state-feedback-primitives. */
   --focus-ring: var(--accent-primary);
 
-  /* Amber advisory ramp (reachability advisory, wide-range trust offers,
-     restart-pending dot). Dark values equal the hardcoded fallbacks the
-     block-event banner already ships, so the existing surface is unchanged;
-     the light overrides below are what this ramp exists for.
+  /* Advisory ramp (reachability advisory, wide-range trust offers,
+     restart-pending dot). ALIASES of the shared severity-warning tokens, not a
+     second palette — those stay the single colour source, so a theme that
+     retunes `--accent-orange` retunes this surface too and the WCAG 1.4.11
+     non-text contrast is inherited rather than hand-picked per theme.
      See change: warn-unreachable-trusted-networks. */
-  --warn-bg: #3a2e10;
-  --warn-border: #4a3c14;
-  --warn-fg: #e2b24a;
+  --warn-bg: var(--severity-warning-bg);
+  --warn-border: var(--severity-warning-border);
+  --warn-fg: var(--severity-warning-fg);
   --warn-body: var(--text-secondary);
 
   /* Shadows */
@@ -173,13 +174,6 @@
   --link: #2563eb;
   --link-hover: #1d4ed8;
   --focus-ring: var(--accent-primary);
-
-  /* Amber advisory ramp — light values. See change:
-     warn-unreachable-trusted-networks. */
-  --warn-bg: #fef6e4;
-  --warn-border: #e0c078;
-  --warn-fg: #8a5a00;
-  --warn-body: #5c4a1a;
 
   /* Shadows */
   --shadow-card: rgba(0, 0, 0, 0.08);

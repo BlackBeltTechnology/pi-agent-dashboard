@@ -117,8 +117,14 @@ export function trustEntryCovers(entry: string, ip: string): boolean {
       return (ipNum & mask) === (baseNum & mask);
     }
     case "wildcard": {
-      const pattern = new RegExp(`^${entry.replace(/\./g, "\\.").replace(/\*/g, "\\d+")}$`);
-      return pattern.test(ip);
+      // Compared octet-by-octet rather than by compiling the entry into a
+      // RegExp. `isValidTrustEntry` already restricts the entry to digits, dots
+      // and `*`, but building a pattern out of user-controlled text invites the
+      // escaping question every reader (and CodeQL) then has to re-answer.
+      // Structural comparison has no escaping surface at all.
+      const want = entry.split(".");
+      const got = ip.split(".");
+      return want.every((part, i) => part === "*" || Number(part) === Number(got[i]));
     }
     default:
       return ipv4ToNum(entry) === ipNum;
@@ -351,7 +357,13 @@ export function interfaceLabel(name: string, address: string): string {
 
 // ── Interface suggestion derivation ──────────────────────────────────
 
-/** Netmask → prefix length. `"255.255.255.0"` → `24`. */
+/**
+ * Netmask → prefix length. `"255.255.255.0"` → `24`.
+ *
+ * Returns `0` both for a genuine `/0` and for a netmask that does not parse.
+ * Callers MUST treat `0` as "unusable" rather than as a prefix — see
+ * `deriveInterfaceSuggestions` and `buildNetworkInterfaceList`.
+ */
 export function netmaskBits(netmask: string): number {
   const num = ipv4ToNum(netmask);
   if (num === null) return 0;
@@ -397,6 +409,11 @@ export function deriveInterfaceSuggestions(iface: { address: string; netmask: st
   suggestions: TrustSuggestion[];
 } {
   const bits = netmaskBits(iface.netmask);
+  // A netmask that does not parse (or genuinely covers everything) scores 0
+  // bits, and the naive `${network}/${bits}` would then offer `<address>/0` —
+  // an entry that grants unauthenticated access to the ENTIRE IPv4 space, one
+  // click away. Offer nothing instead; manual entry remains available.
+  if (bits === 0) return { pointToPoint: false, suggestions: [] };
   if (bits === 32) {
     const wk = wellKnownContainingRange(iface.address);
     return {

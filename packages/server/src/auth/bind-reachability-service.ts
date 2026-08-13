@@ -88,6 +88,22 @@ export function safeComputeBindReachability(
   }
 }
 
+/**
+ * Value equality over the whole published fact. Used to decide whether a config
+ * write actually moved anything a browser renders — comparing only
+ * `pendingBindHost` would miss a trusted-entry edit, which changes
+ * `unreachable` while the bind host stands.
+ */
+export function sameReachability(a: BindReachability, b: BindReachability): boolean {
+  return (
+    a.resolvedBindHost === b.resolvedBindHost &&
+    a.pendingBindHost === b.pendingBindHost &&
+    a.bindHostSource === b.bindHostSource &&
+    a.unreachable.length === b.unreachable.length &&
+    a.unreachable.every((e, i) => e === b.unreachable[i])
+  );
+}
+
 /** The last computed value, or `null` when nothing has been computed yet. */
 export function getLastBindReachability(): BindReachability | null {
   return last;

@@ -168,8 +168,9 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
       printf '%s' "$1" > "$CONFIG_PATH"
       : > "$LOG_PATH"
       pi-dashboard start >/dev/null 2>&1 &
+      # 15s, matching the bound the main health probe above enforces.
       local waited=0
-      while [ $waited -lt 20 ]; do
+      while [ $waited -lt 15 ]; do
         if curl -fsS http://localhost:8000/api/health >/dev/null 2>&1; then return 0; fi
         sleep 1
         waited=$((waited + 1))

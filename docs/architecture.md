@@ -70,7 +70,7 @@ Node.js HTTP + WebSocket server that:
 
 See change: configurable-bind-host.
 
-**Bind-vs-trust reachability.** Two settings on two different Settings pages govern whether a LAN device can reach the dashboard. `bindHost` (Server page, default `127.0.0.1`, restart-required) + `auth.bypassHosts` / top-level `trustedNetworks` (Security page, live-reloaded). A loopback or specific-NIC bind silently voids a trusted entry outside its range: TCP refused before any handler runs, so no block event recorded and the Trusted Networks section renders permanently blank.
+**Bind-vs-trust reachability.** Two settings on two different Settings pages govern whether a LAN device can reach the dashboard. `bindHost` (Server page, default `127.0.0.1`, restart-required) + `auth.bypassHosts` / top-level `trustedNetworks` (Security page, live-reloaded). A loopback or specific-NIC bind silently voids a trusted entry outside its range: TCP refused before any handler runs, so `blockEvents.record()` never fires. The entries stay listed and configured — what is missing is any SIGNAL: no block event, so `BlockEventTrustBanner` early-returns `null` and the operator gets no hint the entries are inert.
 
 - Coupling pre-existed one direction. `SettingsPanel.tsx` passes `hasGuardConfig(config)` into `ListenInterfaceField`. Server page reads Security state for the all-interfaces exposure warning. Return edge (Security reads bind state) = this change.
 - Predicate home: `packages/shared/src/bind-reachability.ts`. ONE implementation, imported by both client + server. No per-package copy, so drift structurally impossible.

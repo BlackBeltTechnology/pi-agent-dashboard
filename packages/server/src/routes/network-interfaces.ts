@@ -38,12 +38,19 @@ export function buildNetworkInterfaceList(
       if (!addrs) continue;
       for (const info of addrs) {
         if (info.internal || info.family !== "IPv4") continue;
+        // A netmask that does not parse scores 0 bits; publishing the derived
+        // `<address>/0` would put an entry covering ALL of IPv4 in front of the
+        // operator. Drop the interface rather than offer a false range — the
+        // listen-interface picker keys on `cidr`, so a bogus one is not a
+        // usable bind target either.
+        const bits = netmaskBits(info.netmask);
+        if (bits === 0) continue;
         const { pointToPoint, suggestions } = deriveInterfaceSuggestions(info);
         data.push({
           name,
           address: info.address,
           netmask: info.netmask,
-          cidr: `${networkAddressOf(info.address, info.netmask)}/${netmaskBits(info.netmask)}`,
+          cidr: `${networkAddressOf(info.address, info.netmask)}/${bits}`,
           label: interfaceLabel(name, info.address),
           pointToPoint,
           suggestions,
