@@ -442,6 +442,57 @@ describe("dispatchFlow canonical reuse/resume (§6)", () => {
   });
 });
 
+// scoped-session-liveness — the dashboard adopts the producer-run per-invoice
+// scoped session (IB_INVOICE_ID bound; automationRun.name
+// `invoicebot-scoped:<invoice_id>`) as canonical WITHOUT a spawn, never adopts a
+// shared intake session, and never proactively spawns outside the explicit
+// POST /scoped-session call. See change: scoped-session-liveness.
+describe("scoped-session-liveness — adopt the producer-run scoped session", () => {
+  it("T.1 adopts a bound recorded invoicebot-scoped:<id> run as canonical WITHOUT a spawn", async () => {
+    ctx.addSession({
+      id: "producer-scoped",
+      cwd: CWD,
+      status: "streaming",
+      automationRun: { name: "invoicebot-scoped:inv-live", runId: "r-prod" },
+    });
+    ctx.setRecordedIds(["producer-scoped"]);
+    const link = createSessionLink(ctx.deps);
+    expect(await link.ensureScopedSession(CWD, "inv-live")).toBe("producer-scoped");
+    expect(ctx.spawns).toHaveLength(0);
+  });
+
+  it("T.2 an invoice whose only recorded run is a shared invoicebot-intake yields NO adoption of that intake session", async () => {
+    ctx.addSession({ id: "intake-only", cwd: CWD, status: "streaming", automationRun: { name: "invoicebot-intake", runId: "ri" } });
+    ctx.setRecordedIds(["intake-only"]);
+    const link = createSessionLink(ctx.deps);
+    const p = link.ensureScopedSession(CWD, "inv-x");
+    await new Promise((r) => setTimeout(r, 5));
+    // The intake session is never adopted; resolution falls through to a scoped spawn.
+    expect(ctx.spawns).toHaveLength(1);
+    const runId = ctx.spawns[0].automationRun.runId;
+    ctx.addSession({ id: "scoped-x", cwd: CWD, status: "active", automationRun: { name: "invoicebot-scoped:inv-x", runId } });
+    ctx.fire("scoped-x");
+    expect(await p).not.toBe("intake-only");
+  });
+
+  it("T.3 no bound scoped session and no adopt: a spawn happens ONLY when ensureScopedSession (the POST /scoped-session path) is invoked", async () => {
+    // ensureScopedSession is the ONLY caller-facing spawn entry (wired solely to
+    // POST /scoped-session). Constructing the link does not spawn; nothing runs
+    // proactively until the explicit resolve call.
+    const link = createSessionLink(ctx.deps);
+    await new Promise((r) => setTimeout(r, 5));
+    expect(ctx.spawns).toHaveLength(0);
+    // The explicit call is the fallback that spawns — and only then.
+    const p = link.ensureScopedSession(CWD, "inv-none");
+    await new Promise((r) => setTimeout(r, 5));
+    expect(ctx.spawns).toHaveLength(1);
+    const runId = ctx.spawns[0].automationRun.runId;
+    ctx.addSession({ id: "scoped-none", cwd: CWD, status: "active", automationRun: { name: "invoicebot-scoped:inv-none", runId } });
+    ctx.fire("scoped-none");
+    expect(await p).toBe("scoped-none");
+  });
+});
+
 describe("resolveSessionId", () => {
   it("returns the recorded link", async () => {
     ctx.addSession({ id: "sess-live", cwd: CWD, automationRun: { name: "invoicebot:process", runId: "r0" } });
