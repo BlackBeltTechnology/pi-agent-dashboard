@@ -11,7 +11,7 @@ import { ChatViewMenu } from "./components/chat/ChatViewMenu.js";
 import { CommandInput } from "./components/chat/CommandInput.js";
 import { CommitDialogProvider } from "./components/worktree/CommitDialog.js";
 import { ComposerSessionActions } from "./components/session/ComposerSessionActions.js";
-import { OpenSpecRunConfigProvider, type OpenSpecRunConfigValue } from "./lib/state/OpenSpecRunConfigContext.js";
+import { ModelConfigProvider, type ModelConfigValue } from "./lib/state/ModelConfigContext.js";
 import { ConnectionStatusBanner } from "./components/connectivity/ConnectionStatusBanner.js";
 import { DirectoryHomeView } from "./components/folder/DirectoryHomeView.js";
 import { DirectorySettings, type DirectorySettingsPage } from "./components/DirectorySettings/DirectorySettings.js";
@@ -114,6 +114,7 @@ const NAV_TRACKER = { predecessor, popNav };
 import { applyPluginConfigUpdate, initPluginConfigs, PluginContextProvider, type SubagentStateSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
+import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { CommandInfo, DashboardSession, FileEntry, ImageContent, ModelInfo, OpenSpecData, OpenSpecGroup, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { DialogPortal } from "./components/primitives/DialogPortal.js";
 import { ErrorBoundary } from "./components/primitives/ErrorBoundary.js";
@@ -532,6 +533,10 @@ export default function App() {
   // See change: redesign-openspec-board.
   const [boardWorktreeForChange, setBoardWorktreeForChange] = useState<{ cwd: string; changeName: string } | null>(null);
   const [modelsMap, setModelsMap] = useState<Map<string, ModelInfo[]>>(new Map());
+  // Per-session provider refresh failures from the latest `models_list`; drives
+  // the model dropdown's footer notice.
+  // See change: upgrade-model-selector-primitives.
+  const [modelRefreshErrorsMap, setModelRefreshErrorsMap] = useState<Map<string, ProviderRefreshError[]>>(new Map());
   // Write-only: the last reader (StatusBar's deprecated `roles` prop) was
   // removed in `redesign-prompt-input`; roles UI lives in the roles settings
   // plugin. `setRolesMap` still consumes server role events. Full excision of
@@ -635,6 +640,10 @@ export default function App() {
           setFolderGitMap(new Map());
           setOpenspecGroupsMap(new Map());
           setTerminals(new Map());
+          // Per-session refresh failures are scoped to one server's bridges;
+          // a stale notice from server A must not render against server B.
+          // See change: upgrade-model-selector-primitives.
+          setModelRefreshErrorsMap(new Map());
           subscribedRef.current.clear();
           // Strategy A (reduce-session-replay-traffic): drop the replay-cursor
           // guards too. Otherwise switching back to a server that still has the
@@ -764,7 +773,7 @@ export default function App() {
   }, []);
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast },
   );
 
@@ -1124,10 +1133,13 @@ export default function App() {
   // change: pluginize-flows-via-registry.
 
   const selectedSession = selectedId ? sessions.get(selectedId) : undefined;
-  // Run-config context for the OpenSpec launch dialogs — sourced from the
-  // selected session's model/effort/models/favorites; setters emit the existing
-  // browser messages. See change: openspec-dialog-model-effort-selector.
-  const openSpecRunConfig = useMemo<OpenSpecRunConfigValue>(
+  // Neutral model config for the selected session — sourced from
+  // `selectedState.model`/`thinkingLevel`, `modelsMap`, and `favoriteModels`;
+  // setters emit the existing browser messages. Consumed by the OpenSpec launch
+  // dialogs AND by the shell-bound `ui:model-selector` primitive.
+  // See changes: openspec-dialog-model-effort-selector,
+  // upgrade-model-selector-primitives (design D2).
+  const modelConfig = useMemo<ModelConfigValue>(
     () => ({
       model: selectedState.model ?? selectedSession?.model,
       models: selectedId ? modelsMap.get(selectedId) : undefined,
@@ -1884,6 +1896,7 @@ export default function App() {
               send({ type: "set_thinking_level", sessionId: selectedId, level });
             }}
             onRefreshModels={() => selectedId && send({ type: "request_models", sessionId: selectedId })}
+            modelRefreshErrors={modelRefreshErrorsMap.get(selectedId)}
             contextUsage={selectedContextUsage}
           />
           {/* Plugin slot: content-inline-footer — contributions from flows-plugin (per-session inline footer) and other plugins. */}
@@ -2046,7 +2059,7 @@ export default function App() {
     <ApiContext.Provider value={apiBase}>
       <DisplayPrefsProvider value={displayPrefsContextValue}>
       <CommitDialogProvider onCommitted={(shortHash, cwd) => { showToast(`Committed ${shortHash}`, "success"); void refreshGitStatus(cwd); }}>
-      <OpenSpecRunConfigProvider value={openSpecRunConfig}>
+      <ModelConfigProvider value={modelConfig}>
       <PluginContextProvider
         registry={_pluginRegistry}
         sessions={allSessionsList}
@@ -2116,7 +2129,7 @@ export default function App() {
         </ErrorBoundary>
       </ShellSessionsProvider>
       </PluginContextProvider>
-      </OpenSpecRunConfigProvider>
+      </ModelConfigProvider>
       </CommitDialogProvider>
       </DisplayPrefsProvider>
     </ApiContext.Provider>

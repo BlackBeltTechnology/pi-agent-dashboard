@@ -542,37 +542,6 @@ as a fallback; `max` SHALL never appear in the fallback set.
   regardless of their `supportedThinkingLevels` (the filter applies only to the
   thinking-level dropdown, never to the model list)
 
-### Requirement: User-initiated model list refresh
-
-The model selector dropdown SHALL provide a refresh control in its footer that re-requests the available model list for the currently selected session. Activating the control SHALL send a `request_models` message scoped to the selected session, deliberately bypassing the client's "fetch once per session" guard (`!modelsMap.has(sessionId)`), so a live session can pull a fresh list on demand. The resulting `models_list` push SHALL update the dropdown through the existing per-session update path.
-
-The control SHALL show a transient busy indicator from activation until either a `models_list` for the selected session arrives or a short safety timeout elapses, after which it returns to its idle state.
-
-The `onRefresh` capability SHALL be an optional prop on the selector; when absent (e.g. no session selected, or a host that does not provide it) the footer refresh control SHALL NOT render, preserving backward compatibility for the registered UI primitive.
-
-#### Scenario: Refresh a stale list mid-session
-
-- **WHEN** a session is live and the user opens the model dropdown and activates the refresh control
-- **THEN** the client sends `request_models` for the selected session
-- **AND** the control enters a busy state
-- **AND** on receipt of the `models_list` for that session the dropdown shows the updated models and the control returns to idle
-
-#### Scenario: Refresh bypasses the fetch-once guard
-
-- **WHEN** the selected session already has an entry in `modelsMap`
-- **AND** the user activates the refresh control
-- **THEN** the client still sends `request_models` for that session (the `!modelsMap.has(sessionId)` guard does not suppress the explicit user action)
-
-#### Scenario: Busy state clears on safety timeout
-
-- **WHEN** the refresh control is busy and no `models_list` for the selected session arrives
-- **THEN** the busy indicator clears after the safety timeout and the control returns to idle
-
-#### Scenario: No refresh control without a handler
-
-- **WHEN** the selector is rendered without an `onRefresh` handler
-- **THEN** the footer refresh control SHALL NOT render
-
 ### Requirement: Roles UI SHALL let the user add a custom role (atomic name + model)
 
 The `BuiltInRolesSettings` settings-section contribution SHALL provide an **＋ Add custom role** affordance. Activating it SHALL reveal an inline, `@`-prefixed role-name input with live validation via the shared `isValidRoleName(name, existingNames)` helper, where `existingNames` is the set of effective role names currently shown. The confirm control SHALL be disabled while the input is invalid, and an inline hint SHALL indicate why (see the validation requirement).
@@ -637,4 +606,66 @@ Each Custom role pill SHALL expose a **×** remove control; Built-in role pills 
 
 - **GIVEN** the built-in role `@planning` is rendered
 - **THEN** its pill SHALL NOT expose a **×** remove control
+
+### Requirement: Model list refresh on dropdown open
+
+Opening the model selector dropdown SHALL re-request the available model list for the currently selected session. The open transition SHALL send a `request_models` message scoped to the selected session, deliberately bypassing the client's "fetch once per session" guard (`!modelsMap.has(sessionId)`), so a live session pulls a fresh list every time the user goes looking for a model. The resulting `models_list` push SHALL update the dropdown through the existing per-session update path.
+
+Opening the dropdown SHALL be the only refresh trigger. The dropdown SHALL NOT render a separate manual refresh control in its footer: it duplicated the open-transition request without offering any capability the open transition does not already provide, and its busy indicator implied the list was otherwise stale.
+
+The refresh capability SHALL remain optional on the selector; when the host provides no refresh handler (e.g. no session selected) opening the dropdown SHALL simply render the last-known list without requesting an update.
+
+#### Scenario: Opening the dropdown refreshes a stale list
+
+- **WHEN** a session is live and the user opens the model dropdown
+- **THEN** the client sends `request_models` for the selected session
+- **AND** on receipt of the `models_list` for that session the dropdown shows the updated models
+
+#### Scenario: Refresh bypasses the fetch-once guard
+
+- **WHEN** the selected session already has an entry in `modelsMap`
+- **AND** the user opens the model dropdown
+- **THEN** the client still sends `request_models` for that session (the `!modelsMap.has(sessionId)` guard does not suppress the open-transition request)
+
+#### Scenario: No manual refresh control is rendered
+
+- **WHEN** the user opens the model dropdown
+- **THEN** the dropdown SHALL NOT present a manual refresh button
+- **AND** the dropdown SHALL NOT present a refresh busy indicator
+
+#### Scenario: No request without a handler
+
+- **WHEN** the selector is opened and the host provided no refresh handler
+- **THEN** no `request_models` message SHALL be sent
+- **AND** the dropdown SHALL render the last-known list
+
+### Requirement: Model dropdown surfaces provider refresh failures
+
+When the `models_list` for the selected session reports that one or more providers failed to refresh, the model selector dropdown SHALL render a non-blocking notice in its footer naming each failing provider and stating that the last-known list is being shown. The notice SHALL NOT prevent selecting any model in the list.
+
+When no provider failure is reported, the footer SHALL render no notice — a clean refresh SHALL be silent.
+
+The notice SHALL NOT be presented as a toast or other transient global alert, because the refresh fires on every dropdown open and a persistently failing provider would otherwise alert repeatedly.
+
+#### Scenario: One provider fails to refresh
+
+- **WHEN** the dropdown is open and the session's `models_list` reports a refresh failure for a provider
+- **THEN** the footer SHALL name that provider
+- **AND** the footer SHALL indicate that the displayed list is the last-known one
+- **AND** the models already in the list SHALL remain selectable
+
+#### Scenario: Several providers fail to refresh
+
+- **WHEN** the session's `models_list` reports refresh failures for more than one provider
+- **THEN** the footer SHALL name every reported provider, not only the first
+
+#### Scenario: Clean refresh is silent
+
+- **WHEN** the session's `models_list` reports no refresh failure
+- **THEN** the footer SHALL render no refresh notice
+
+#### Scenario: Failure is not raised as a toast
+
+- **WHEN** a refresh failure is reported
+- **THEN** no toast or global alert SHALL be raised for it
 

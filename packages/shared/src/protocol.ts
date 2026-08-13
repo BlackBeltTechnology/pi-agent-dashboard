@@ -257,10 +257,25 @@ export interface GitInfoUpdateMessage {
 
 // OpenSpecUpdateMessage removed — server polls directly via DirectoryService
 
+/**
+ * One provider that failed to refresh its catalogue. Degraded, not fatal:
+ * the last-known catalogue is still served alongside it.
+ * See change: upgrade-model-selector-primitives.
+ */
+export interface ProviderRefreshError {
+  provider: string;
+  message: string;
+}
+
 export interface ModelsListMessage {
   type: "models_list";
   sessionId: string;
   models: ModelInfo[];
+  /**
+   * Present only when at least one provider failed to refresh — omitted (never
+   * `[]`) on a clean refresh, and never populated by a bare abort.
+   */
+  refreshErrors?: ProviderRefreshError[];
 }
 
 /**

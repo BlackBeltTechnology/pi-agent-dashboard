@@ -12,7 +12,7 @@ Files in this directory. One row per source file.
 | `archive-types.ts` | `ArchiveEntry` interface — OpenSpec archive dir row (name, date, done artifacts). Shared server↔client. |
 | `boot-state.ts` | Exit-intent vocabulary for the server boot record. Exports `ExitIntent`… → see `boot-state.ts.AGENTS.md` |
 | `bridge-register.ts` | Shared bridge registration: `findBundledExtension(baseDir)` + `registerBridgeExtension(path)`; non-destructive cleanup, AppImage guard. Used by server startup and Electron wizard. |
-| `browser-protocol.ts` | Server↔Browser WebSocket message contracts. Exports `ServerToBrowserMessage` + `BrowserToServerMessage` unions… → see `browser-protocol.ts.AGENTS.md` |
+| `browser-protocol.ts` | Server↔Browser WebSocket message contracts. Exports `ServerToBrowserMessage` + `BrowserToServerMessage` unions… → see `browser-protocol.ts.AGENTS.md` `BrowserModelsListMessage.refreshErrors?: ProviderRefreshError[]` — forwarded verbatim; absent on clean refresh and on older bridges. See change: upgrade-model-selector-primitives. |
 | `changelog-types.ts` | `ChangelogBullet` / `Release` / `Response` types for parsed CHANGELOG.md responses. See change: pi-update-whats-new-panel. |
 | `config.ts` | Dashboard config loader. `loadConfig()` reads `~/.pi/dashboard/config.json` via `CONFIG_FILE`;… → see `config.ts.AGENTS.md` |
 | `credential-detect.ts` | Detects configured LLM-provider credential. `hasAnyProviderCredential(homeDir?)` OR-merges… → see `credential-detect.ts.AGENTS.md` |
@@ -40,7 +40,7 @@ Files in this directory. One row per source file.
 | `path-containment.ts` | Boundary-correct `isPathInside(parent, child, platform?)` (sibling prefix `/repo-other` is NOT inside `/repo`). Relocated from `packages/server/src/session/active-sessions-in-cwd.ts` so the shared OpenSpec detector can cwd-scope. See change: scope-openspec-auto-attach-to-session-cwd. |
 | `pi-package-resolver.ts` | Walks `~/.pi/agent/settings.json#packages[]` + per-workspace `<cwd>/.pi/settings.json`. → see `pi-package-resolver.ts.AGENTS.md` |
 | `plugin-bridge-register.ts` | Dual-write contract. `registerPluginBridge` writes BOTH `dashboardPluginBridges["dashboard-<id>"]` AND… → see `plugin-bridge-register.ts.AGENTS.md` |
-| `protocol.ts` | Extension↔Server WebSocket protocol. `ExtensionToServerMessage` + `ServerToExtensionMessage` unions. → see `protocol.ts.AGENTS.md` |
+| `protocol.ts` | Extension↔Server WebSocket protocol. `ExtensionToServerMessage` + `ServerToExtensionMessage` unions. → see `protocol.ts.AGENTS.md` New `ProviderRefreshError { provider, message }`; `ModelsListMessage.refreshErrors?` — present only when a provider refresh failed, omitted (never `[]`) on success, never set by a bare abort. See change: upgrade-model-selector-primitives. |
 | `recovery-timing.ts` | The two cold-start recovery windows in one module so their relation is testable. → see `recovery-timing.ts.AGENTS.md` |
 | `recommended-extensions.ts` | Curated manifest of recommended pi extensions. `RecommendedExtension` (id, source, displayName, status,… → see `recommended-extensions.ts.AGENTS.md` |
 | `rest-api.ts` | REST endpoint request/response types. Sessions, events, spawn, file read/write (`FileWriteRequest` mtime… → see `rest-api.ts.AGENTS.md` |
