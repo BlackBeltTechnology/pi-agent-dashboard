@@ -5,7 +5,7 @@
 Optimistic user-message feedback in the dashboard chat: render a pending-prompt bubble the moment a prompt is sent and reconcile it against server-confirmed events, so the user sees instant confirmation instead of a blank gap during the send round-trip.
 ## Requirements
 ### Requirement: Pending prompt state
-`SessionState` SHALL include a `pendingPrompt` field (`{ text: string; images?: ChatImage[]; status: "sending" | "sent" | "failed" } | undefined`) that represents a prompt sent by the user to an **idle** session and not yet confirmed by the server. `pendingPrompt` SHALL be written **only when the session is not mid-turn at send time** (a fresh-turn send). Mid-turn sends SHALL NOT set `pendingPrompt`; they are governed by `mid-turn-prompt-queue`.
+`SessionState` SHALL include a `pendingPrompt` field (`{ text: string; images?: ChatImage[]; status: "sending" | "sent" | "failed" } | undefined`) that represents a prompt sent by the user to an **idle** session, retained until the authoritative user message replaces it. `"sending"` = written optimistically, no bridge acknowledgement yet; `"sent"` = the bridge acknowledged a fresh-turn receipt (the record stays until `message_start`); `"failed"` = terminal failure (the send was never acknowledged), the text kept so the user can retry. `pendingPrompt` SHALL be written **only when the session is not mid-turn at send time** (a fresh-turn send). Mid-turn sends SHALL NOT set `pendingPrompt`; they are governed by `mid-turn-prompt-queue`.
 
 #### Scenario: Set pending prompt on idle send
 - **WHEN** the user sends a prompt while the session is idle (no turn in progress)
@@ -105,8 +105,9 @@ A SETTLED `pendingPrompt` (`sent` or `failed`) SHALL NOT be cleared by `session_
 #### Scenario: Auto-resume of ended session keeps the optimistic bubble visible
 - **WHEN** the user sends a prompt to an ended session and the server triggers auto-resume (per `auto-resume-on-prompt`)
 - **AND** the bridge re-registers, causing the server to broadcast `session_state_reset` and/or `event_replay`
-- **THEN** the optimistic user-message bubble SHALL remain visible across the reset/replay
-- **AND** the bubble SHALL only disappear when the bridge emits the corresponding user `message_start` event (or one of the existing clear paths fires)
+- **THEN**, if `pendingPrompt.status` is `"sent"` or `"failed"` before the reset/replay, the optimistic user-message bubble SHALL remain visible across the reset/replay
+- **AND** a `"sending"` prompt SHALL NOT be restored (nothing in the rebuilt state could settle it); the server-replayed prompt surfaces as the authoritative user card instead
+- **AND** a carried bubble SHALL only disappear when the bridge emits the corresponding user `message_start` event (or one of the existing clear paths fires)
 
 #### Scenario: Safety timeout still fires after replay
 - **WHEN** a settled `pendingPrompt` survives a reset/replay, a later prompt is sent, and 30 seconds elapse without confirmation
