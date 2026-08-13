@@ -192,7 +192,12 @@ export async function autoStartServer(
     const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
     const lockPath = autoStartLockPath(config.port, deps.lockDir);
     const pollMs = Math.min(deps.lossPollIntervalMs ?? 250, budgetMs);
-    const deadline = probes.now() + budgetMs;
+    // Wait out the holder's REMAINING budget, not a fresh one: a lock taken
+    // 29s ago has one second left to live, and restarting the clock on every
+    // loser would let a stuck holder stall an unbounded number of sessions for
+    // a full budget each.
+    const heldSince = lock.holder?.startedAt ?? probes.now();
+    const deadline = Math.min(heldSince, probes.now()) + budgetMs;
 
     let holderGone = false;
     while (probes.now() < deadline) {
