@@ -145,8 +145,9 @@ export function createReplayPersister(
     // Clear timers so no pending debounce fires against the new server's key
     // (flush reads getServerKey() at fire time). The ordering is NOT itself
     // load-bearing — both clears run in one synchronous tick, so no timer can
-    // fire between them; what neutralizes an already-queued callback is the
-    // buffer clear, since flush() early-returns on an empty buffer.
+    // fire between them. clearTimeout cancels the pending debounce; the buffer
+    // clear is the backstop for a callback already queued past cancellation,
+    // since flush() early-returns on an empty buffer.
     for (const t of timers.values()) clearTimeout(t);
     timers.clear();
     buffers.clear();

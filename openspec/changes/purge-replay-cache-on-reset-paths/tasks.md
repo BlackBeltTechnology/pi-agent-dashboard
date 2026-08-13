@@ -57,7 +57,7 @@
 
 - [x] 8.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` then `grep -nE 'FAIL|Error|✗|✘|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log` — green.
 - [x] 8.2 `npm run quality:changed` clean on the touched files.
-- [ ] 8.3 `npm run build && curl -X POST http://localhost:8000/api/restart` (client change → build + restart).
+- [x] 8.3 `npm run build && curl -X POST http://localhost:8000/api/restart` (client change → build + restart).
 - [x] 8.4 Confirm `performServerSwitch` and `ServerSwitchDeps` are unmodified in the final diff — D3 asserts the switch coordinator is untouched.
 - [x] 8.5 Run the `review-code` discipline skill on the diff before commit.
 
