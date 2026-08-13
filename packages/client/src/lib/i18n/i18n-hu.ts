@@ -4,6 +4,7 @@
 export const huCatalog: Record<string, string> = {
   // --- Zone 1 batch 3 (lint cleanup) ---
   "common.howToUpgrade": "Hogyan frissíts",
+  "common.modelRefreshFailed": "nem sikerült elérni: {providers} — a legutóbb ismert lista látható",
   "common.overflowMore": "+{count} további",
   "common.piDashboard": "Pi Irányítópult",
   "common.viewLog": "Napló megtekintése",
@@ -696,8 +697,6 @@ export const huCatalog: Record<string, string> = {
   "common.recommendedForThisDashboard": "Ehhez az irányítópulthoz ajánlott",
   "common.recovered": "helyreállítva",
   "common.refresh": "Frissítés",
-  "common.refreshModels": "Modellek frissítése",
-  "common.refreshingModels": "Frissítés…",
   "common.regenerate": "Újragenerálás",
   "common.reloadFromDisk": "Újratöltés lemezről",
   "common.remove": "Eltávolítás",

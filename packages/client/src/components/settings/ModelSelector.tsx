@@ -1,5 +1,6 @@
+import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { ModelInfo, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { mdiBrain, mdiChevronDown, mdiEye, mdiLoading, mdiRefresh, mdiStar, mdiStarOutline } from "@mdi/js";
+import { mdiAlertOutline, mdiBrain, mdiChevronDown, mdiEye, mdiLoading, mdiStar, mdiStarOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { LIST_POPOVER_MIN_HEIGHT, usePopoverFlip } from "../../hooks/usePopoverFlip.js";
@@ -27,12 +28,19 @@ interface Props {
   placeholder?: string;
 
   /**
-   * User-initiated re-request of the model list for the current session.
-   * When provided, a footer refresh control renders in the dropdown; when
-   * absent the control is omitted (backward-compatible for the registered UI
-   * primitive). See change: refresh-model-selector-models.
+   * Re-request of the model list for the current session, fired on the dropdown
+   * OPEN transition — the sole refresh trigger. Optional: with no handler (no
+   * session selected) opening simply renders the last-known list.
+   * See changes: refresh-model-selector-models, upgrade-model-selector-primitives.
    */
   onRefresh?: () => void;
+
+  /**
+   * Providers whose catalogue refresh failed. Rendered as a non-blocking footer
+   * notice; absent/empty renders nothing. Never a toast — the refresh fires on
+   * every open. See change: upgrade-model-selector-primitives (design D5).
+   */
+  refreshErrors?: ProviderRefreshError[];
 
   /** Favorite model labels (`"provider/id"`), server-persisted, hydrated by App. */
   favorites?: string[];
@@ -98,12 +106,11 @@ function CapBadges({ m }: { m: ModelInfo }) {
   );
 }
 
-export function ModelSelector({ current, models, onSelect, onRefresh, favorites, onToggleFavorite, placeholder }: Props) {
+export function ModelSelector({ current, models, onSelect, onRefresh, refreshErrors, favorites, onToggleFavorite, placeholder }: Props) {
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [pendingModel, setPendingModel] = useState<string | null>(null);
-  const [refreshing, setRefreshing] = useState(false);
   // Persistent per-browser view state (restored from localStorage on mount).
   const [providerFilter, setProviderFilter] = useState<string>(() => readLS(PROVIDER_FILTER_KEY));
   const [favOnly, setFavOnly] = useState<boolean>(() => readLS(FAV_ONLY_KEY) === "1");
@@ -149,20 +156,17 @@ export function ModelSelector({ current, models, onSelect, onRefresh, favorites,
     return () => clearTimeout(timer);
   }, [pendingModel]);
 
-  // Clear refreshing when a new `models` list arrives (prop identity changes)
-  // — the completion signal for a user-initiated refresh.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally keyed on `models` identity, not `refreshing`.
-  useEffect(() => {
-    if (refreshing) setRefreshing(false);
-  }, [models]);
+  // Latest handler without re-firing the open effect when its identity changes.
+  // Written in an effect, not during render (concurrent-safe).
+  const onRefreshRef = useRef(onRefresh);
+  useEffect(() => { onRefreshRef.current = onRefresh; }, [onRefresh]);
 
-  // Safety timeout: clear refreshing after 10s if no `models_list` arrives
-  // (e.g. the refreshed list is byte-identical, so the prop identity is stable).
+  // Opening the dropdown is the ONLY refresh trigger: the user going looking
+  // for a model is exactly when a stale list matters.
+  // See change: upgrade-model-selector-primitives (design D4).
   useEffect(() => {
-    if (!refreshing) return;
-    const timer = setTimeout(() => setRefreshing(false), 10_000);
-    return () => clearTimeout(timer);
-  }, [refreshing]);
+    if (open) onRefreshRef.current?.();
+  }, [open]);
 
   const uniqueProviders = useMemo(
     () => (hasModels ? [...new Set(models!.map((m) => m.provider))].sort() : []),
@@ -383,21 +387,20 @@ export function ModelSelector({ current, models, onSelect, onRefresh, favorites,
             )}
           </div>
 
-          {/* ── Footer: user-initiated refresh (only when a handler is wired) ── */}
-          {onRefresh && (
-            <div className="border-t border-[var(--border-secondary)] p-1">
-              <button
-                type="button"
-                data-testid="model-refresh"
-                disabled={refreshing}
-                onClick={() => { setRefreshing(true); onRefresh(); }}
-                className="flex items-center gap-1.5 w-full px-2 py-1 text-xs rounded text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-50 disabled:cursor-default"
-              >
-                <Icon path={mdiRefresh} size={0.55} className={refreshing ? "animate-spin" : undefined} />
-                {refreshing
-                  ? i18nT("common.refreshingModels", undefined, "Refreshing…")
-                  : i18nT("common.refreshModels", undefined, "Refresh models")}
-              </button>
+          {/* ── Footer: per-provider refresh failures (degraded, not fatal) ── */}
+          {refreshErrors && refreshErrors.length > 0 && (
+            <div
+              className="border-t border-[var(--border-secondary)] px-2 py-1.5 flex items-start gap-1.5 text-[11px] text-[var(--text-muted)]"
+              data-testid="model-refresh-errors"
+            >
+              <Icon path={mdiAlertOutline} size={0.55} className="flex-shrink-0 mt-px" />
+              <span>
+                {i18nT(
+                  "common.modelRefreshFailed",
+                  { providers: refreshErrors.map((e) => e.provider).join(", ") },
+                  `couldn't reach ${refreshErrors.map((e) => e.provider).join(", ")} — showing last known list`,
+                )}
+              </span>
             </div>
           )}
         </div>

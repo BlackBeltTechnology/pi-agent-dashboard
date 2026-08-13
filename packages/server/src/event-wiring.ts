@@ -1644,6 +1644,9 @@ export function wireEvents(deps: EventWiringDeps): void {
         type: "models_list",
         sessionId,
         models: msg.models,
+        // Forwarded verbatim; absent on a clean refresh and on older bridges.
+        // See change: upgrade-model-selector-primitives.
+        ...(msg.refreshErrors ? { refreshErrors: msg.refreshErrors } : {}),
       } as any);
     }
 

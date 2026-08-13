@@ -1,6 +1,14 @@
-## MODIFIED Requirements
+## REMOVED Requirements
 
 ### Requirement: User-initiated model list refresh
+
+**Reason**: The requirement's premise — a manual refresh control in the dropdown footer, with a busy indicator and a safety timeout — is deleted. The control fired the same `request_models` the open transition already sends microseconds earlier, so it offered no capability of its own, while its busy indicator taught users the list might be stale when it had just been refreshed. The `refreshing` state, the `models`-identity clear effect, and the 10 s safety-timeout effect existed only to service that indicator and are removed with it. The surviving behaviour (refresh on open, optional handler) is restated by the ADDED requirement "Model list refresh on dropdown open", whose trigger is the open transition rather than a user-activated control — so the requirement is replaced rather than modified. The vacated footer slot now carries provider refresh failures.
+
+**Migration**: No user action. The `model-refresh` test id and the `common.refreshModels` / `common.refreshingModels` i18n keys (plus their `auto.refresh_models` / `auto.refreshing_models` legacy aliases) are retired. `onRefresh` remains an optional prop with unchanged signature; hosts that pass it keep refreshing, now on open instead of on click. Hosts that pass no handler are unaffected.
+
+## ADDED Requirements
+
+### Requirement: Model list refresh on dropdown open
 
 Opening the model selector dropdown SHALL re-request the available model list for the currently selected session. The open transition SHALL send a `request_models` message scoped to the selected session, deliberately bypassing the client's "fetch once per session" guard (`!modelsMap.has(sessionId)`), so a live session pulls a fresh list every time the user goes looking for a model. The resulting `models_list` push SHALL update the dropdown through the existing per-session update path.
 
@@ -31,8 +39,6 @@ The refresh capability SHALL remain optional on the selector; when the host prov
 - **WHEN** the selector is opened and the host provided no refresh handler
 - **THEN** no `request_models` message SHALL be sent
 - **AND** the dropdown SHALL render the last-known list
-
-## ADDED Requirements
 
 ### Requirement: Model dropdown surfaces provider refresh failures
 
