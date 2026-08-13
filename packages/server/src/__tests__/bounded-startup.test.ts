@@ -72,4 +72,28 @@ describe("runBoundedStartup", () => {
 
     expect(timers.some(t => t.unrefed)).toBe(true);
   });
+
+  it("E20: a core that rejects AFTER the deadline is owned, not an unhandled rejection", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (err: unknown) => unhandled.push(err);
+    process.on("unhandledRejection", onUnhandled);
+
+    try {
+      await expect(
+        runBoundedStartup({
+          core: () => new Promise<void>((_r, reject) => {
+            setTimeout(() => reject(new Error("late boot failure")), 40);
+          }),
+          teardown: vi.fn(),
+          deadlineMs: 10,
+        }),
+      ).rejects.toBeInstanceOf(StartupDeadlineError);
+
+      // Give the late rejection time to land.
+      await new Promise((r) => setTimeout(r, 80));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
 });

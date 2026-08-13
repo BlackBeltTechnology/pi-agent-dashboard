@@ -54,8 +54,16 @@ export async function runBoundedStartup(opts: BoundedStartupOpts): Promise<void>
     timer.unref?.();
   });
 
+  // The deadline cannot CANCEL `core` — it keeps running after the race
+  // rejects, and teardown then closes listeners underneath it. Own its late
+  // settle here: without this, a boot that finishes after the deadline throws
+  // into nothing (unhandled rejection) and can leave the process wedged
+  // instead of exiting, which is the exact failure this module exists to stop.
+  const core = opts.core();
+  core.catch(() => { /* superseded by the deadline; teardown already ran */ });
+
   try {
-    await Promise.race([opts.core(), deadline]);
+    await Promise.race([core, deadline]);
   } catch (err) {
     try {
       await opts.teardown();

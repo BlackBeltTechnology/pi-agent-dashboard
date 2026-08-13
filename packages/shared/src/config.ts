@@ -577,10 +577,13 @@ export function clampSpawnRegisterTimeoutMs(v: unknown): number {
  * staleness and the lock loser's wait.
  *
  * `SERVER_STARTUP_DEADLINE_MS` (Clarification C4) is derived from the same
- * constant, so a server can never sit hung longer than a spawner's budget.
- * It too exceeds the health poll on purpose: a spawner that gave up at
- * `HEALTH_CHECK_TIMEOUT_MS` still leaves the child room to finish a
- * slow-but-legitimate cold start.
+ * constant, so it cannot drift from the budget. It is a MULTIPLE of it,
+ * because the two bound different things: the budget bounds how long a
+ * SPAWNER waits, while the deadline decides when a booting server is declared
+ * hung and killed. A cold start on a loaded CI runner (jiti compile + 12
+ * plugins) legitimately takes far longer than a spawner is willing to wait,
+ * and killing that boot would be a false positive — the failure mode this
+ * value must avoid, since a hang is bounded either way.
  *
  * They live in `config.ts` rather than a module of their own because the
  * server and the extension resolve `@blackbelt-technology/pi-dashboard-shared`
@@ -591,7 +594,7 @@ export function clampSpawnRegisterTimeoutMs(v: unknown): number {
  */
 export const HEALTH_CHECK_TIMEOUT_MS = 10_000;
 export const SPAWN_READINESS_BUDGET_MS = HEALTH_CHECK_TIMEOUT_MS * 3;
-export const SERVER_STARTUP_DEADLINE_MS = SPAWN_READINESS_BUDGET_MS;
+export const SERVER_STARTUP_DEADLINE_MS = SPAWN_READINESS_BUDGET_MS * 4;
 
 /**
  * The shared production ports. Exported because the bridge's worktree
