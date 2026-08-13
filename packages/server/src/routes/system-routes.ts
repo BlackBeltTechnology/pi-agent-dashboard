@@ -21,19 +21,24 @@ import { RESTART_QUIESCE_MS } from "@blackbelt-technology/pi-dashboard-shared/re
 import type { NetworkInterface } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
-import { bootParentPid, computeBootParentAlive, readLivePpid } from "../lifecycle/boot-parent-liveness.js";
+import {
+  computeBindReachability,
+  getLastBindReachability,
+  safeComputeBindReachability,
+  sameReachability,
+} from "../auth/bind-reachability-service.js";
+import { localhostGuard } from "../auth/localhost-guard.js";
 import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
-import { recordExitIntent } from "../persistence/boot-state.js";
-import { EMPTY_TRIM_STATS, type TrimStats } from "../persistence/memory-event-store.js";
 import type { DirectoryService } from "../directory-service.js";
+import { bootParentPid, computeBootParentAlive, readLivePpid } from "../lifecycle/boot-parent-liveness.js";
+import { computeEffectiveLaunchSource } from "../lifecycle/launch-source-effective.js";
 import type { EventLoopSpikeMetrics } from "../metrics/eventloop-spike-metrics.js";
 import type { HydrationMetrics } from "../metrics/hydration-metrics.js";
-import { computeEffectiveLaunchSource } from "../lifecycle/launch-source-effective.js";
-import { systemOpenCapability } from "../system-open-capability.js";
-import { localhostGuard, netmaskToCidrBits, networkAddress } from "../auth/localhost-guard.js";
-import type { SessionManager } from "../session/memory-session-manager.js";
-import type { MetaPersistence } from "../persistence/meta-persistence.js";
 import { getModelProxyStatus } from "../model-proxy/registry-singleton.js";
+import { recordExitIntent } from "../persistence/boot-state.js";
+import { EMPTY_TRIM_STATS, type TrimStats } from "../persistence/memory-event-store.js";
+import type { MetaPersistence } from "../persistence/meta-persistence.js";
+import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
 import {
   type BootstrapCompatibility,
@@ -41,15 +46,17 @@ import {
   readCurrentPiVersion,
   readPiCompatibility,
 } from "../pi/pi-version-skew.js";
-import type { PreferencesStore } from "../persistence/preferences-store.js";
-import { spawnRestart } from "../spawn-process/restart-helper.js";
 import type { ServerConfig } from "../server.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
+import { spawnRestart } from "../spawn-process/restart-helper.js";
 import { readSpawnFailures } from "../spawn-process/spawn-failure-log.js";
+import { systemOpenCapability } from "../system-open-capability.js";
 import { createTunnel, deleteTunnel, ensureReservedName, getTunnelStatus, getTunnelUrl, releaseShare } from "../tunnel/tunnel.js";
 import { blockEvents } from "../tunnel/tunnel-block-events.js";
 import { collectEndpoints } from "../tunnel/tunnel-endpoints.js";
 import { runEnrollStep } from "../tunnel/tunnel-enroll.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "../tunnel/tunnel-watchdog.js";
+import { buildNetworkInterfaceList } from "./network-interfaces.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 /**
@@ -184,7 +191,15 @@ export function registerSystemRoutes(
     "/api/config",
     { preHandler: networkGuard },
     async () => {
-      return { success: true, data: readConfigRedacted() };
+      // `reachability` is COMPUTED, never persisted, and rides this guarded
+      // surface rather than `/api/health` — it describes the operator's private
+      // network topology, and `/api/health` has no preHandler. Failure-isolated
+      // like `eventLoopDelay` / `storeTrim` / `notifyLog`: a throw here must
+      // never take the config response down with it.
+      // See change: warn-unreachable-trusted-networks.
+      const configModule = await import("@blackbelt-technology/pi-dashboard-shared/config.js");
+      const reachability = safeComputeBindReachability(configModule.loadConfig);
+      return { success: true, data: { ...readConfigRedacted(), reachability } };
     },
   );
 
@@ -254,6 +269,22 @@ export function registerSystemRoutes(
 
       // Apply runtime-safe changes
       const reloaded = (await import("@blackbelt-technology/pi-dashboard-shared/config.js")).loadConfig();
+
+      // Push the recomputed reachability when ANY part of the published fact
+      // moved — not just `pendingBindHost`. A write that edits `trustedNetworks`
+      // or `auth.bypassHosts` keeps the same bind host yet changes
+      // `unreachable`, and gating on the host alone would leave every OTHER
+      // connected browser on a stale advisory until it reloaded. Failure-
+      // isolated: a config write must never fail because an advisory could not
+      // be computed. See change: warn-unreachable-trusted-networks.
+      try {
+        const before = getLastBindReachability();
+        const configModule = await import("@blackbelt-technology/pi-dashboard-shared/config.js");
+        const after = computeBindReachability(configModule.loadConfig);
+        if (!before || !sameReachability(before, after)) {
+          browserGateway?.broadcastToAll({ type: "reachability_updated", reachability: after });
+        }
+      } catch { /* advisory only */ }
       if (partial.autoShutdown !== undefined || partial.shutdownIdleSeconds !== undefined) {
         config.autoShutdown = reloaded.autoShutdown;
         config.shutdownIdleSeconds = reloaded.shutdownIdleSeconds;
@@ -729,24 +760,10 @@ export function registerSystemRoutes(
   fastify.get(
     "/api/network-interfaces",
     { preHandler: localhostGuard },
-    async () => {
-      const interfaces = os.networkInterfaces();
-      const result: NetworkInterface[] = [];
-      for (const [name, addrs] of Object.entries(interfaces)) {
-        if (!addrs) continue;
-        for (const info of addrs) {
-          if (info.internal || info.family !== "IPv4") continue;
-          const bits = netmaskToCidrBits(info.netmask);
-          const net = networkAddress(info.address, info.netmask);
-          result.push({
-            name,
-            address: info.address,
-            netmask: info.netmask,
-            cidr: `${net}/${bits}`,
-          });
-        }
-      }
-      return { success: true, data: result };
+    async (_request, reply) => {
+      const out = buildNetworkInterfaceList(os.networkInterfaces);
+      if (!out.success) return reply.code(500).send(out);
+      return out;
     },
   );
 }

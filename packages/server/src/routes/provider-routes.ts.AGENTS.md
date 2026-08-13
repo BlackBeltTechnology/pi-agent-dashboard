@@ -1,0 +1,3 @@
+# provider-routes.ts — index
+
+Custom LLM provider read/write to `~/.pi/agent/providers.json`. Exports `registerProviderRoutes`. Endpoints: `GET /api/providers` (redacted, folds in credential-free `health` from `provider-health-cache` WITHOUT re-probing), `PUT /api/providers` (merge, blank-name guard, recursion guard, `***` masked-sentinel preserve, ATOMIC tmp+rename write per change add-agent-role-model-tools Bug 7, then AWAITS `probeProvider` per saved provider → caches health), `POST /api/providers/test` (probe without saving; caches result when `name` present). Broadcasts `credentials_updated` + `refreshModelRegistry()` (re-runs custom-provider discovery). See change: surface-provider-health-in-settings.

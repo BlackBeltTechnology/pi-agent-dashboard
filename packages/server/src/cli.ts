@@ -157,6 +157,11 @@ export function buildConfig(flags: Partial<ServerConfig>): ServerConfig {
     port: guardTempHomePort(resolvedPort, os.homedir(), os.tmpdir()),
     piPort: flags.piPort ?? (parseInt(process.env.PI_DASHBOARD_PI_PORT ?? "") || null) ?? fileConfig.piPort,
     host: flags.host ?? (process.env.PI_DASHBOARD_HOST || null) ?? fileConfig.bindHost,
+    // The `--host` FLAG, kept alongside the resolved value. `pendingBindHost`
+    // must re-resolve the same chain against the CURRENT config, and a flag
+    // wins on the next start too — so the flag has to survive resolution.
+    // See change: warn-unreachable-trusted-networks.
+    hostFlag: flags.host ?? null,
     dev: flags.dev ?? false,
     autoShutdown: fileConfig.autoShutdown,
     shutdownIdleSeconds: fileConfig.shutdownIdleSeconds,

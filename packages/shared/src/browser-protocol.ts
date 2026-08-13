@@ -49,6 +49,18 @@ export interface DisplayPrefsUpdatedMessage {
 }
 
 /**
+ * Server → browser: the bind-vs-trust reachability fact changed (the operator
+ * saved a new `bindHost`, or edited the trusted entries). Pushed so the Security
+ * page advisory converges without a reload or a panel reopen, and REPLAYED on
+ * connect so a browser that was disconnected during the change still converges.
+ * See change: warn-unreachable-trusted-networks.
+ */
+export interface ReachabilityUpdatedMessage {
+  type: "reachability_updated";
+  reachability: import("./bind-reachability.js").BindReachability;
+}
+
+/**
  * Browser → server: write the sparse per-session override.
  * `override: null` clears the field from `.meta.json`.
  */
@@ -917,6 +929,7 @@ export type ServerToBrowserMessage =
   | PluginIntentsMessage
   | PluginEventBroadcast
   | DisplayPrefsUpdatedMessage
+  | ReachabilityUpdatedMessage
   | QueueUpdateToBrowserMessage
   | PromptReceivedToBrowserMessage
   | CanvasIntentMessage
