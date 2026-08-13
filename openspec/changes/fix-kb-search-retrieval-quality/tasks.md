@@ -41,9 +41,9 @@
 - [x] 5.4 Implement PRF inside `expandQuery`, replacing the pass-through stub and its stale "handled by callers" comment
 - [x] 5.5 Write a failing test that PRF is skipped when coverage rerank is disabled
 - [x] 5.6 Make coverage rerank weight the ORIGINAL query terms above appended terms; test that expansion cannot dominate the sort
-- [ ] 5.7 Change the `queryExpansion` default to `prf` in `packages/kb/src/config.ts`
-- [ ] 5.8 Re-run both fixtures; confirm the combined stack beats the 1.6 baseline on Recall@K and MRR with no rise in duplicate-slot share
-- [ ] 5.9 Validate the per-source cap on a held-out slice of the fixtures, since it was derived by inspecting losses
+- [x] 5.7 ~~Change the `queryExpansion` default to `prf`~~ **REVERSED ON EVIDENCE**: default stays `off` and `ranking.coverageRerank` ships `false`. D4 measured a net regression on the re-mined fixtures (markdown R@10 0.630→0.509 vs source P@5 0.337→0.481); both stages are implemented, tested and config-gated. Spec delta + proposal updated to match. See `measurements.md`
+- [x] 5.8 Re-ran both fixtures. Combined stack does NOT beat the D3 line (0.533 vs 0.566) → not enabled by default. The SHIPPED stack does beat the 1.6 baseline: combined R@10 0.363→0.566, duplicate-slot share 0.48→0.00
+- [x] 5.9 N/A — no per-source cap was implemented. Source dedup keeps exactly one hit per `(root, path)`, so the fitted-cap risk the design flagged does not arise
 
 ## 6. `kb_get` truncation (D7 — independent)
 
@@ -67,15 +67,15 @@
 
 ## 9. Discipline gates
 
-- [ ] 9.1 `doubt-driven-review` on the `limit` semantics change and the condensed output shape before they stand
+- [x] 9.1 `limit` semantics + condensed shape reviewed before landing: full `headingPath` retained in `KbHit` and the json format so `kb_get(path, section)` still addresses a section; tool description states both changes; `kb-plugin` audited (never calls `store.search()`)
 - [x] 9.2 `performance-optimization` on the fetch-depth change: measure, state the budget, confirm the 50 ms assertion holds on the real index
-- [ ] 9.3 `review-code` over the full diff across store, render, eval, dox, and extension
+- [x] 9.3 `@review` subagent reviewed the full diff. 1 blocking (spec/default drift — resolved by updating the artifacts), plus a real IDF stemming bug and 3 vacuous tests, all fixed in be89177fc
 - [x] 9.4 `npm run quality:changed` clean
 
 ## 10. Verification
 
 - [x] 10.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` green
-- [ ] 10.2 Both fixtures beat the 1.6 baseline on Recall@K, MRR, and duplicate-slot share; record the final table in the change folder
-- [ ] 10.3 Manual: run three real queries from the fixtures through the live tool and read the rendered pages — confirm no page is dominated by one source
-- [ ] 10.4 Restart the dashboard (`curl -X POST http://localhost:8000/api/restart`) and confirm `kb_search` behaves as specified in a live session
-- [ ] 10.5 Open a follow-up note on the deferred items: query-refinement hints, and the un-measured fall-through rate. Do NOT repoint `scripts/ab-context` at mined real queries — tested 2026-08-06, no effect (p=1.0); the gap is cold-single-turn vs warm-multi-turn, so the harness needs multi-turn warm-context fixtures or must be accepted as unable to gate this change (see ab-context-calibration.md)
+- [x] 10.2 Recorded in `measurements.md`. markdown R@10 0.537→0.630, source 0.183→0.500, MRR up on both, duplicate-slot share 0.48→0.00 on both
+- [x] 10.3 Ran 3 real fixture queries through the rendered tool output: 10/10 distinct sources on every page, leaf headings, AGENTS records surfacing via the lane. No page dominated by one source.
+- [ ] 10.4 QA (post-merge, manual): restart the dashboard and confirm `kb_search` in a live session. Deferred deliberately — the running dashboard loads the MAIN repo checkout, so restarting it from this worktree would exercise unchanged code and disrupt live sessions. Verify after merge to develop.
+- [x] 10.5 `follow-ups.md` records 7 deferred items incl. the explicit DO-NOT-repoint-ab-context finding, `expandParent` (~180ms, the real latency lever), and dead `mmr()`.

@@ -45,6 +45,21 @@ Measured effects, combined golden set (n=185, paired bootstrap 10k):
 
 \* quota measured standalone on the source-target set.
 
+**Post-implementation correction.** The fixtures behind this table were never
+persisted, so it could not be reproduced directly. Re-mined golden sets (n=212)
+confirm the first two rows and **refute the third**:
+
+| stage | combined R@10 | Δ vs baseline |
+|---|---|---|
+| baseline (pre-change) | 0.363 | — |
+| + source dedup | 0.467 | +29% |
+| + lane quota (0.5) — **shipped** | **0.566** | **+56%** |
+| + coverage rerank + PRF | 0.533 | +47% (a regression vs the line above) |
+
+The redundancy defect this change exists to fix reproduces exactly: duplicate‑
+slot share 0.48 → 0.00 and distinct sources per page 5.2 → 10.0, at −32.8%
+rendered tokens. See `measurements.md`.
+
 Render repricing over 215 real queries: dedup-by-path + leaf heading +
 `(+N more sections)` marker → **665 → 470 tokens (−29%)** while distinct files
 per page rise **4.5 → 9.9**. Strictly cheaper and 3.1× more information-dense.
@@ -85,11 +100,23 @@ and do nothing for the push budget the sidecar split actually exists to manage.
   retry. An intent-detecting router was tested and **lost** to the
   unconditional quota (detector precision 45%, recall 30%) — the simpler design
   wins.
-- **PRF query expansion + IDF-weighted coverage rerank** — finish the dead
-  `expandQuery(mode:"prf")` stub, whose comment already says *"prf handled by
-  callers via a second pass"* and whose caller was never written. Neither
-  component is shippable alone: PRF expansion *without* coverage rerank drops
-  P@5 (0.366 → 0.297); coverage rerank alone is underpowered (p = 0.11).
+- **PRF query expansion + IDF-weighted coverage rerank — IMPLEMENTED, SHIPPED
+  OFF.** Finish the dead `expandQuery(mode:"prf")` stub, whose comment already
+  says *"prf handled by callers via a second pass"* and whose caller was never
+  written. Neither component is shippable alone, and the dependency reproduced
+  exactly: PRF without coverage rerank is a measured no-op.
+
+  **The projected +100% R@10 did not reproduce and the defaults were reversed on
+  the evidence.** The fixtures that number was measured on were never persisted,
+  so both golden sets were re-mined from session transcripts by
+  `packages/kb/eval/mine-golden-sets.mjs` (committed with this change). On the
+  re-mined sets D4 is a coherent trade rather than a win: clearly good for
+  source-intent (P@5 0.337 → 0.481, MRR 0.198 → 0.281), clearly bad for
+  markdown-intent (R@10 0.630 → 0.509), net **−6% combined** on a corpus that is
+  96.4% `doc` chunks, at ~3× the search latency. Both stages ship implemented,
+  tested and config-gated (`ranking.coverageRerank`, `queryExpansion.mode`),
+  defaulting off, for a deployment whose query mix is source-shaped. Full table:
+  `measurements.md`.
 - **Condensed-render change** — show the **leaf** heading instead of the full
   breadcrumb (47% of the current page is breadcrumb text, 38% of it verbatim
   repetition within a file group) and surface `(+N more sections)` per file.
@@ -106,6 +133,8 @@ and do nothing for the push budget the sidecar split actually exists to manage.
   significance tests before being found by rendering one page.
 - **BREAKING (tool semantics)**: `limit` changes meaning from "N chunks" to
   "N distinct sources". Condensed output line shape changes.
+- **`packages/kb` and `packages/kb-extension` join the root vitest projects.**
+  Neither was collected by any project, so every kb test gated nothing in CI.
 
 ## Capabilities
 
@@ -116,9 +145,9 @@ and do nothing for the push budget the sidecar split actually exists to manage.
 ### Modified Capabilities
 
 - `kb-fts5-search-store`: adds source-level dedup alongside exact-content
-  dedup; adds an unconditional `doc_type` lane quota; makes PRF expansion +
-  coverage rerank the default ranking path; makes path-only `getChunk`
-  non-silent.
+  dedup; adds an unconditional `doc_type` lane quota; adds PRF expansion +
+  coverage rerank as an opt-in ranking path (implemented, default off — see
+  above); makes path-only `getChunk` non-silent.
 - `markdown-knowledge-base`: condensed `kb_search` output renders the leaf
   heading and a per-source suppressed-section count.
 - `kb-retrieval-eval`: golden-set fixtures ship with the repo; adds a
