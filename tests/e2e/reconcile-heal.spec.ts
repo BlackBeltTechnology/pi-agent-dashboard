@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { expect, test } from "./fixtures.js";
 import { SUPERSEDE_HEAL_MARKER } from "../../qa/fixtures/faux-scenarios.js";
 import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 

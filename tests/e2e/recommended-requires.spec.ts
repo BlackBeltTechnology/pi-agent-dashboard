@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 import { byTestId, gotoDashboard } from "./helpers/index.js";
 
 // Piece A — recommended-extension `requires` declaration + live probe.

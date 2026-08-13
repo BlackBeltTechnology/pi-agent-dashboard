@@ -343,7 +343,10 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
         <div className="text-[11px] text-[var(--text-secondary)] mt-1 truncate">"{description}"</div>
       )}
       {details.status === "error" && details.error && (
-        <div className="text-[11px] text-red-400 mt-1">{i18nT("common.error", undefined, "Error:")} {details.error}</div>
+        <div className="text-[11px] text-[var(--text-secondary)] mt-1">
+          <span className="text-[var(--severity-error-fg)]">{i18nT("common.error", undefined, "Error:")}</span>{" "}
+          {details.error}
+        </div>
       )}
       {details.status === "aborted" && (
         <div className="text-[11px] text-orange-400 mt-1">{i18nT("session.abortedMaxTurnsExceeded", undefined, "Aborted (max turns exceeded)")}</div>

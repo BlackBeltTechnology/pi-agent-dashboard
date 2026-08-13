@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>voice-assistant — Settings</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="tokens.css" />
+<script src="theme-init.js"></script>
+<style>
+  .panel { background: var(--bg-secondary); border: 1px solid var(--border-subtle); border-radius: 0.75rem; }
+  label { font-size: 12px; color: var(--text-secondary); display:block; margin-bottom: 4px; }
+  input, select, textarea {
+    width: 100%; background: var(--bg-tertiary); border: 1px solid var(--border-primary); border-radius: 0.375rem;
+    padding: 6px 8px; font-size: 13px; color: var(--text-primary);
+  }
+  .field { margin-bottom: 14px; }
+  .hint { font-size: 11px; color: var(--text-muted); margin-top: 3px; }
+</style>
+</head>
+<body class="min-h-screen">
+<div class="max-w-2xl mx-auto p-4 sm:p-6">
+  <header class="flex items-center justify-between mb-4">
+    <div>
+      <h1 class="text-lg font-semibold" style="color:var(--text-primary)">voice-assistant settings</h1>
+      <p class="text-sm" style="color:var(--text-tertiary)">Settings → voice-assistant — acme-erp/set-copilot.config.json</p>
+    </div>
+    <nav class="flex items-center gap-3 text-sm">
+      <a href="index.html" class="hover:underline" style="color:var(--accent-blue)">← All screens</a>
+      <button onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'" class="px-2 py-1 rounded border text-xs" style="border-color:var(--border-primary); color:var(--text-secondary)">Toggle theme</button>
+    </nav>
+  </header>
+
+  <form class="panel p-5">
+    <div class="field">
+      <label for="lang">Language hint</label>
+      <input id="lang" value="en" />
+      <p class="hint">Passed to the STT backend. "auto" lets whisper detect it.</p>
+    </div>
+
+    <div class="field">
+      <label for="stt">Speech-to-text backend</label>
+      <select id="stt">
+        <option>soniox (cloud — needs an API key)</option>
+        <option>whisper (local, offline)</option>
+      </select>
+      <p class="hint" style="color:var(--severity-success-fg)">✓ Soniox key configured on this dashboard server</p>
+    </div>
+
+    <div class="field">
+      <label for="sources">Knowledge sources <span style="color:var(--text-muted)">(one glob per line)</span></label>
+      <textarea id="sources" rows="3">docs/**/*.md
+manufacturing.md
+notes</textarea>
+    </div>
+
+    <div class="field">
+      <label for="decisions">Decisions directory</label>
+      <input id="decisions" value="docs/decisions" />
+    </div>
+
+    <fieldset class="field" style="border:1px solid var(--border-primary); border-radius: 0.5rem; padding: 10px 12px;">
+      <legend class="text-xs px-1" style="color:var(--text-secondary)">Meeting copilot alerts</legend>
+      <div class="flex items-center justify-between py-1 text-sm" style="color:var(--text-primary)">
+        <span>⚠ Contradiction <span style="color:var(--text-muted)">— high priority, desktop notify</span></span>
+        <input type="checkbox" checked style="width:auto" />
+      </div>
+      <div class="flex items-center justify-between py-1 text-sm" style="color:var(--text-primary)">
+        <span>📋 Context <span style="color:var(--text-muted)">— informational</span></span>
+        <input type="checkbox" checked style="width:auto" />
+      </div>
+      <div class="flex items-center justify-between py-1 text-sm" style="color:var(--text-primary)">
+        <span>✏ New decision</span>
+        <input type="checkbox" checked style="width:auto" />
+      </div>
+      <div class="flex items-center justify-between py-1 text-sm" style="color:var(--text-primary)">
+        <span>❓ Question <span style="color:var(--text-muted)">— low priority</span></span>
+        <input type="checkbox" checked style="width:auto" />
+      </div>
+    </fieldset>
+
+    <div class="flex items-center gap-2 mt-5">
+      <button type="submit" class="text-sm px-4 py-1.5 rounded" style="background:var(--accent-primary); color:white">Save</button>
+      <button type="button" class="text-sm px-4 py-1.5 rounded border" style="border-color:var(--border-primary); color:var(--text-secondary)">Revert</button>
+      <span class="text-xs ml-auto" style="color:var(--text-muted)">Writes directly to the project's set-copilot.config.json — unrecognized fields are preserved.</span>
+    </div>
+  </form>
+
+  <!-- No-file state -->
+  <section class="panel p-8 mt-6 text-center" aria-label="No config file state">
+    <p class="text-sm" style="color:var(--text-tertiary)">No <code>set-copilot.config.json</code> found for this project.</p>
+    <button class="mt-3 text-sm px-4 py-1.5 rounded" style="background:var(--accent-primary); color:white">Create with defaults</button>
+  </section>
+</div>
+</body>
+</html>

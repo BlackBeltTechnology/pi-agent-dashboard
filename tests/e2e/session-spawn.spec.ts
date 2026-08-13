@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 import { ensureGitSession } from "./helpers/index.js";
 
 // Scenario 5.1 (design.md "scenario B") — the AUTHORITATIVE WS round-trip.

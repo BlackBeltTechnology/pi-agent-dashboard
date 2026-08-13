@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./fixtures.js";
 import { spawnFreshGitSession } from "./helpers/index.js";
 
 // Two-phase attachment render (change: fit-attachments-for-display).

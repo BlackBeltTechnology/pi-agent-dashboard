@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./fixtures.js";
 import { byTestId, spawnFreshGitSession } from "./helpers/index.js";
 
 // Browser E2E — `/view` opens its target in the editor pane (change:

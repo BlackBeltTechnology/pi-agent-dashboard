@@ -24,7 +24,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `SessionSidebar.tsx` | Legacy compact session sidebar. Active + ended (`<details>`) lists with status dots, source icons, model,… → see `SessionSidebar.tsx.AGENTS.md` |
 | `SessionSubcard.tsx` | Inset titled panel wrapper grouping session-card sections (OPENSPEC, WORKSPACE, PROCESS, MEMORY, FLOWS). → see `SessionSubcard.tsx.AGENTS.md` |
 | `SortablePinnedGroup.tsx` | dnd-kit sortable wrapper for a pinned folder group (`data.type: "pinned-group"`), drop indicator via… → see `SortablePinnedGroup.tsx.AGENTS.md` |
-| `SortableSessionCard.tsx` | dnd-kit sortable wrapper for a session card (`data.type: "session"`). Drag handle props fed to descendant `SessionCard` via `DragHandleCtx`. Exports `SortableSessionCard`, `useSessionCardDragHandle`. |
+| `SortableSessionCard.tsx` | dnd-kit sortable wrapper for a session card (`data.type: "session"`). Drag handle props fed to descendant `SessionCard` via `DragHandleCtx` — they now land on the card’s hover-revealed grip bead in the directory-rail band, not the deleted left gutter (see change: session-card-directory-rail). Exports `SortableSessionCard`, `useSessionCardDragHandle`. |
 | `SpawnErrorBanner.tsx` | Renders structured spawn error: code→hint, preflight reasons, stderr details, timeout banner. → see `SpawnErrorBanner.tsx.AGENTS.md` |
 | `SpawnErrorToastHost.tsx` | App-level toast container for off-screen `spawn_error` events. Raw red → `--severity-error-*`. → see `SpawnErrorToastHost.tsx.AGENTS.md` |
 | `StatePill.tsx` | Color-coded OpenSpec ChangeState pill (`PLANNING`=zinc, `READY`=blue, `IMPLEMENTING`=amber, `COMPLETE`=green)… → see `StatePill.tsx.AGENTS.md` |

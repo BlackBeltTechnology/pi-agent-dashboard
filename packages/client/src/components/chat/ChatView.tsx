@@ -1,11 +1,14 @@
 import { isWidgetBarPrompt } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { EmptyState } from "@blackbelt-technology/pi-dashboard-client-utils/EmptyState";
 import { Skeleton } from "@blackbelt-technology/pi-dashboard-client-utils/Skeleton";
-import { toolCallPrefKey } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
-import { mdiCheck, mdiChevronDown, mdiChevronUp, mdiClose, mdiContentCopy, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
+import {
+  isNotifyRowVisible,
+  toolCallPrefKey,
+} from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import { mdiAlertCircleOutline, mdiCheck, mdiChevronDown, mdiChevronUp, mdiClose, mdiContentCopy, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
-import React, { forwardRef, useCallback, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useActiveChatSelection } from "../../hooks/useActiveChatSelection.js";
 import { isDebugTool } from "../../hooks/useDebugToolsVisible.js";
 import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
@@ -23,6 +26,7 @@ import { type BurstItem, groupToolBursts, type ToolBurstGroup as ToolBurstGroupD
 import type { ToolCallGroup } from "../../lib/chat/group-tool-calls.js";
 import { computeAnchorCorrection } from "../../lib/chat/selection-anchor.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { REPLAY_PILL_DELAY_MS } from "../../lib/replay/loading-history.js";
 import { formatMessageTime } from "../../lib/util/format.js";
 import { buildTurnSummaries, type TurnSummary } from "../../lib/util/lineDelta.js";
 import { isOutOfCwd, normalizeUnderCwd } from "../../lib/util/normalize-path.js";
@@ -80,6 +84,14 @@ interface Props {
    * session. See change: show-chat-history-loading-indicator.
    */
   loadingHistory?: boolean;
+  /**
+   * Selected session's "replay in flight" flag. Unlike `loadingHistory` it
+   * stays true until the TERMINAL replay batch lands, so it covers the window
+   * where partial history is already painted but the transcript is still
+   * filling in. Renders an indeterminate pill after `REPLAY_PILL_DELAY_MS`.
+   * See change: show-replay-in-flight-indicator.
+   */
+  replayInFlight?: boolean;
   /**
    * Client-only signal: the user manually collapsed the LIVE streaming
    * reasoning block. Sets `streamingThinkingCollapsed` on the session state so
@@ -310,7 +322,7 @@ export interface ChatViewHandle {
   scrollToTurn: (turnIndex: number) => void;
 }
 
-const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, onCollapseStreamingThinking }, ref) {
+const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, replayInFlight, onCollapseStreamingThinking }, ref) {
   // `ToolContext` is a published surface (re-exported from `chat-embed`), so an
   // external embedder builds one by hand and would carry no `fileLink` —
   // silently losing file-mention linkification with no type error. Merge a
@@ -320,6 +332,45 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   // an inline merge would hand it a fresh `context` reference on every render
   // and defeat the memo. See change: cleanup-import-cycles (D4b).
   const toolContext = useMemo(() => withDefaultFileLink(suppliedToolContext), [suppliedToolContext]);
+  // Show-delay for the replay-in-flight pill: paint only once the flag has
+  // been true for REPLAY_PILL_DELAY_MS, so a fast replay never flashes an
+  // indicator. Deliberately NOT conditioned on replay-cache state.
+  // See change: show-replay-in-flight-indicator.
+  //
+  // The visible bit stores the SESSION the pill belongs to, not a bare boolean.
+  // `<ChatView>` is rendered without a `key` and is React.memo'd, so the
+  // instance is reused across session switches, and an effect-based reset runs
+  // only AFTER the new session's first render — session B would briefly paint
+  // A's pill. Requiring `pillForSession === sessionId` AT RENDER TIME closes
+  // that frame without reaching for `useLayoutEffect`.
+  const [pillForSession, setPillForSession] = useState<string | null>(null);
+  // `sessionId` is optional on the published embed surface; an undefined id can
+  // never match a recorded one, so the pill stays down for it.
+  const showReplayPill = pillForSession !== null && pillForSession === sessionId;
+  const replayPillTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => {
+    if (!replayInFlight) {
+      // Cancel a pending timer AND reset the visible bit: a replay that
+      // resolves at 250ms must not leave a timer that paints the pill after.
+      if (replayPillTimerRef.current) {
+        clearTimeout(replayPillTimerRef.current);
+        replayPillTimerRef.current = null;
+      }
+      setPillForSession(null);
+      return;
+    }
+    replayPillTimerRef.current = setTimeout(() => {
+      replayPillTimerRef.current = null;
+      setPillForSession(sessionId ?? null);
+    }, REPLAY_PILL_DELAY_MS);
+    return () => {
+      if (replayPillTimerRef.current) {
+        clearTimeout(replayPillTimerRef.current);
+        replayPillTimerRef.current = null;
+      }
+    };
+  }, [replayInFlight, sessionId]);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   // True when the user wants the chat to chase new content. Flips to false on
   // any real scroll-up gesture, on explicit navigation (scrollToTurn), and on
@@ -492,7 +543,19 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           const cmp = (args?.params as Record<string, unknown> | undefined)?._promptBusComponent as
             | { type?: string }
             | undefined;
-          return !(cmp?.type && isWidgetBarPrompt(cmp.type));
+          if (cmp?.type && isWidgetBarPrompt(cmp.type)) return false;
+          // Notify rows are gated by level; blocking asks never are. The shared
+          // predicate fails open on anything it cannot positively identify as a
+          // notify. Mirrored in the render branch below (D3).
+          // See change: gate-notify-rows-by-level.
+          return isNotifyRowVisible(
+            {
+              content: msg.content,
+              method: args?.method,
+              level: (args?.params as Record<string, unknown> | undefined)?.level,
+            },
+            prefs.notifyMinLevel,
+          );
         }
         case "rawEvent":
           return showDebugTools;
@@ -1164,6 +1227,22 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           if (cmp?.type && isWidgetBarPrompt(cmp.type)) {
             return null;
           }
+          // Second gate site, mirroring the `rawEvent` precedent below: the
+          // filter above already drops sub-floor notifies, so this is the
+          // defensive half of the D3 pair — it must never disagree with it.
+          // See change: gate-notify-rows-by-level.
+          if (
+            !isNotifyRowVisible(
+              {
+                content: msg.content,
+                method: args?.method,
+                level: (args?.params as Record<string, unknown> | undefined)?.level,
+              },
+              prefs.notifyMinLevel,
+            )
+          ) {
+            return null;
+          }
           const request: InteractiveUiRequest = {
             requestId: args.requestId,
             method: args.method,
@@ -1301,10 +1380,18 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
                     <Icon path={mdiLoading} size={0.7} className="animate-spin text-blue-400" />
                     <span className="text-[10px] text-blue-400/70 font-medium">sending</span>
                   </>
+                ) : state.pendingPrompt.status === "failed" ? (
+                  /* Failed arm: the prompt text is preserved so the user can
+                     retry; never the emerald success tick.
+                     See change: fix-optimistic-prompt-stuck-sending. */
+                  <>
+                    <Icon path={mdiAlertCircleOutline} size={0.7} className="text-red-400" />
+                    <span className="text-[10px] text-red-400/80 font-medium" data-testid="pending-prompt-failed">not sent</span>
+                  </>
                 ) : (
                   <>
                     <Icon path={mdiCheck} size={0.7} className="text-emerald-400 prompt-tick-in" />
-                    <span className="text-[10px] text-emerald-400/80 font-medium">sent</span>
+                    <span className="text-[10px] text-emerald-400/80 font-medium" data-testid="pending-prompt-sent">sent</span>
                   </>
                 )}
               </div>
@@ -1343,6 +1430,27 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         )
       )}
     </div>
+    {/*
+      Replay-in-flight pill. OVERLAYS the list (absolutely positioned sibling,
+      like the scroll buttons) rather than inserting a row, so it cannot perturb
+      scroll anchoring. Indeterminate by design — no count, total, or percentage.
+      Mutually exclusive with the loading skeleton, which only renders while the
+      message list is empty. See change: show-replay-in-flight-indicator.
+    */}
+    {showReplayPill && state.messages.length > 0 && (
+      <div
+        data-testid="replay-in-flight-pill"
+        role="status"
+        aria-busy="true"
+        aria-label={i18nT("status.loadingHistoryInFlight", undefined, "Loading earlier messages…")}
+        className="absolute bottom-4 right-4 z-10 flex items-center gap-1.5 rounded-full bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] px-3 py-1 shadow-lg"
+      >
+        <Icon path={mdiLoading} size={0.6} className="animate-spin text-[var(--text-secondary)]" />
+        <span className="text-[11px] text-[var(--text-secondary)]">
+          {i18nT("status.loadingHistoryInFlight", undefined, "Loading earlier messages…")}
+        </span>
+      </div>
+    )}
     {showScrollTopButton && (
       <button
         data-testid="scroll-to-top"

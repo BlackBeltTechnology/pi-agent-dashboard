@@ -158,11 +158,33 @@ export class RetryTracker {
     agentEndData: { messages?: unknown } | undefined | null,
   ): SyntheticRetryEvent | null {
     const messages = agentEndData?.messages;
-    const lastMsg =
-      Array.isArray(messages) && messages.length > 0
-        ? (messages[messages.length - 1] as ObservedAssistantMessage)
-        : undefined;
-    const isError = lastMsg?.stopReason === "error";
+    // Match pi's own `_willRetryAfterAgentEnd`: the retry decision keys off the
+    // last ASSISTANT message (found by its structured `role`), NOT merely the
+    // final array element. A turn can end with a `toolResult` (or other
+    // non-assistant entry) after the failed assistant message, so a bare
+    // `messages[length-1]` check would miss the error and never arm the chain —
+    // yielding no retry counting even though pi is retrying. Scan backward for
+    // `role === "assistant"`. See change: unify-retry-visibility.
+    let lastMsg: ObservedAssistantMessage | undefined;
+    if (Array.isArray(messages)) {
+      for (let i = messages.length - 1; i >= 0; i--) {
+        const m = messages[i] as ObservedAssistantMessage;
+        if (m?.role === "assistant") {
+          lastMsg = m;
+          break;
+        }
+      }
+    }
+    // NO assistant message = NO disposition. Distinct from "a clean assistant
+    // message": absence tells us nothing about whether the turn succeeded, so
+    // the chain's recorded disposition must be left exactly as it was.
+    // Collapsing the two cases let a payload carrying no assistant entry mark a
+    // LIVE retry chain successful, and `agent_settled` then reported success for
+    // a turn that never succeeded.
+    // See change: raw-error-render-and-retry-authority.
+    if (lastMsg === undefined) return null;
+
+    const isError = lastMsg.stopReason === "error";
     if (!isError) {
       // A non-error agent_end closes an active chain SUCCESSFULLY, but the
       // chain stays open until `agent_settled` terminates it. Record the
@@ -173,7 +195,7 @@ export class RetryTracker {
     }
 
     const err =
-      typeof lastMsg?.errorMessage === "string" && lastMsg.errorMessage.length > 0
+      typeof lastMsg.errorMessage === "string" && lastMsg.errorMessage.length > 0
         ? lastMsg.errorMessage
         : (this.chains.get(sessionId)?.errorMessage ?? "");
     const chain =

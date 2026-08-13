@@ -1,0 +1,3 @@
+# research/context-injection-ab-test.md — index
+
+A/B non-inferiority experiment: pi context injections. Harness `scripts/ab-context/`. Arm A (full root AGENTS.md) vs B (trimmed). N=5 runs/cell, haiku-4.5. Adherence non-inferiority 9/9 PASS (superior 3: kb-gate +20pp, rebuild-reload +20pp, doc-protocol perfect parity). Blind quality A4.10 B5.00 (zero misses in B). Output −47.4%, cost −12.7%–29.6%. Signal-dilution insight: verbose context dilutes rule adherence; trim elevates signal-to-noise. cacheWrite flat (+0.4%, behavioral wins dominate). Trim promoted −58% per-turn (~7.4k→3.1k tok). Skill `ab-test-context-injections` captures method. Commit fa2558186.

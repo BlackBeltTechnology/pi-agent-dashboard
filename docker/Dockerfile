@@ -124,11 +124,19 @@ RUN npm install -g @earendil-works/pi-coding-agent@0.84.1 openspec \
 # non-fatal on version probe, fatal on install, same as the pi install above.
 ARG PI_FLOWS_VERSION=0.3.2
 ARG PI_ANTHROPIC_MESSAGES_VERSION=0.3.4
+# pi-dashboard-subagents is the ONLY producer of `tool_execution_update` for a
+# subagent: its `extensions/agent.ts` drives `createProgressEmitter` ->
+# `progress.schedule(details)` into the tool's `onProgress` callback. Without it
+# the collapse scenarios (P2/F4) have no workload and pass vacuously.
+# See change: collapse-superseded-tool-execution-updates.
+ARG PI_DASHBOARD_SUBAGENTS_VERSION=0.2.4
 RUN npm install -g \
       "@blackbelt-technology/pi-flows@${PI_FLOWS_VERSION}" \
       "@blackbelt-technology/pi-anthropic-messages@${PI_ANTHROPIC_MESSAGES_VERSION}" \
+      "@blackbelt-technology/pi-dashboard-subagents@${PI_DASHBOARD_SUBAGENTS_VERSION}" \
  && ls -d /usr/local/lib/node_modules/@blackbelt-technology/pi-flows \
-         /usr/local/lib/node_modules/@blackbelt-technology/pi-anthropic-messages
+         /usr/local/lib/node_modules/@blackbelt-technology/pi-anthropic-messages \
+         /usr/local/lib/node_modules/@blackbelt-technology/pi-dashboard-subagents
 
 # Enable corepack so `pnpm` resolves to the version pinned by the root
 # package.json `packageManager` field (pnpm@11.15.1). The global `npm install

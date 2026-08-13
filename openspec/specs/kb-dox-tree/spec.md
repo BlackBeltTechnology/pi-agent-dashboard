@@ -2,9 +2,7 @@
 
 ## Purpose
 The kb-dox-tree capability maintains a directory-level `AGENTS.md` navigation tree over a codebase: it scaffolds one `AGENTS.md` per source directory, audits the tree for drift against the filesystem, triages drifted rows against the git history, resolves the nearest-applicable chain of `AGENTS.md` files on a path, and synthesizes a routing manifest when none exists. It is pure-local and deterministic — it fills path columns, prunes rows, and applies externally-supplied purpose text, but never authors a row purpose itself.
-
 ## Requirements
-
 ### Requirement: Directory-level tree scaffolding
 The `dox init` operation SHALL scaffold an `AGENTS.md` in every directory that holds at least one source file, and SHALL be idempotent — never clobbering an existing `AGENTS.md`, only adding missing files and missing path rows.
 
@@ -36,7 +34,7 @@ The `.pi` tree SHALL NOT be excluded wholesale. `.pi/skills/`, `.pi/agents/` and
 - **AND** no files are written to disk
 
 ### Requirement: Drift lint
-The `dox lint` operation SHALL scan all `AGENTS.md` files and report drift issues in the categories `stale`, `orphan`, `missing`, `missing-companion`, `broken-pointer`, `broken-ref`, and `over-threshold`, and MAY auto-correct a subset when fix mode is enabled.
+The `dox lint` operation SHALL scan all `AGENTS.md` files and report drift issues in the categories `stale`, `orphan`, `missing`, `missing-companion`, `broken-pointer`, `broken-ref`, and `over-threshold`, and MAY auto-correct a subset when fix mode is enabled. The `missing` category SHALL cover source files as well as markdown files, because a source file with no per-file record is unreachable through the `agents` document-type lane that retrieval depends on.
 
 Only table rows under a `# DOX` heading are treated as file-index rows; rows under other headings are ignored.
 
@@ -58,6 +56,20 @@ Only table rows under a `# DOX` heading are treated as file-index rows; rows und
 - **WHEN** a markdown file lives in a directory covered by an `AGENTS.md` (itself or an ancestor) and has no row
 - **THEN** a `missing` issue is reported against the nearest ancestor `AGENTS.md` (deepest matching directory)
 - **AND** in fix mode a blank-purpose row for that file is appended to that owner
+
+#### Scenario: Undocumented source file in an area
+- **WHEN** a source file lives in a directory covered by an `AGENTS.md` (itself or an ancestor), has no row in any ancestor `AGENTS.md`, and has no `<file>.AGENTS.md` sidecar
+- **THEN** a `missing` issue is reported against the nearest ancestor `AGENTS.md`
+- **AND** the same exclusions that apply to the source-file walk (declaration files, test and spec files, excluded trees) SHALL apply, so they are never reported
+
+#### Scenario: A sidecar satisfies the source-file row requirement
+- **WHEN** a source file has no row in its directory `AGENTS.md` but does have a `<file>.AGENTS.md` sidecar
+- **THEN** no `missing` issue is reported for that file
+
+#### Scenario: Source-file missing rows are separately selectable
+- **WHEN** `dox lint` runs
+- **THEN** source-file `missing` findings SHALL be distinguishable from markdown `missing` findings by their reported target
+- **AND** the source-file arm SHALL be independently enableable, so an existing tree can adopt it without failing wholesale on first run
 
 #### Scenario: DOX row path resolves outside its own AGENTS.md directory
 - **WHEN** a DOX row path is relative and the dir-relative target (resolved against the row's own `AGENTS.md` directory) does not exist
@@ -152,3 +164,53 @@ When no `AGENTS.md` exists anywhere on the target path and the fallback option i
 - **WHEN** the agents chain is empty and the fallback manifest option is enabled
 - **THEN** a manifest is generated listing up to 50 markdown files under the target subtree by relative path
 - **AND** when a KB store is provided it appends the top matching sections for the subtree
+
+### Requirement: The AGENTS.md byte cap is enforced by gating the existing lint's byte arm
+
+The existing `kb dox lint` — which already implements `AGENTS_BYTE_CAP = 30000`
+and emits an `over-threshold` issue with `arm: "bytes"` — SHALL be the source of
+the byte-cap verdict at `ship-it` step 4.4. No second implementation of the cap
+SHALL be written; in particular `scripts/split-large-agents.mjs` SHALL NOT gain a
+cap-checking mode, because it computes a per-row character cap (`INLINE_CAP`),
+not a per-file byte cap.
+
+The lint SHALL NOT be invoked in its default exit-code mode, which fails on any
+of its seven issue kinds and would adopt the repo's entire DOX backlog as a
+blocking gate. The gate SHALL consume `kb dox lint --json` and fail only on
+`over-threshold` issues whose `arm` is `"bytes"`.
+
+#### Scenario: Over-cap file fails the gate
+
+- **WHEN** an `AGENTS.md` exceeds `AGENTS_BYTE_CAP` and `ship-it` step 4.4 runs
+- **THEN** the byte-arm gate reports it from `kb dox lint --json`
+- **AND** step 4.4 exits non-zero
+
+#### Scenario: Unrelated DOX issues do not fail the gate
+
+- **WHEN** `kb dox lint` reports `missing`, `missing-companion`, `broken-ref`, `orphan`, `broken-pointer`, or `stale` issues, and no `over-threshold` / `arm:"bytes"` issue
+- **THEN** step 4.4 exits 0 on this rule
+- **AND** the pre-existing DOX backlog is not adopted as a blocking gate
+
+#### Scenario: Row-arm over-threshold is not gated
+
+- **WHEN** `kb dox lint` reports an `over-threshold` issue with `arm: "rows"`
+- **THEN** the gate does not fail on it, because the row cap is informational
+
+#### Scenario: Cap logic is not duplicated
+
+- **WHEN** the change's diff is inspected
+- **THEN** `scripts/split-large-agents.mjs` is unmodified
+- **AND** no new code recomputes a per-file byte threshold; the gate only filters `kb dox lint`'s own verdict
+
+#### Scenario: The splitter remains the remediation tool
+
+- **WHEN** the byte-arm gate reports an over-cap `AGENTS.md`
+- **THEN** `node scripts/split-large-agents.mjs <path> --write` remains the documented fix
+- **AND** its existing behavior is unchanged
+
+#### Scenario: Existing breach cleared when the gate is wired
+
+- **WHEN** the byte-arm gate is wired into step 4.4
+- **THEN** the over-cap `AGENTS.md` measured on this branch has been split
+- **AND** the gate exits 0 on the change's own tree
+

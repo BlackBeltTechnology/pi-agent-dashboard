@@ -17,6 +17,10 @@ export interface Chunk {
   docType: DocType;
   body: string; // section text (breadcrumb is indexed via columns, not prepended)
   bodyHash: string; // sha256 of trimmed body (exact-content dedup)
+  /** Further sections of this file NOT returned by this fetch. Set by a
+   *  path-only `getChunk` so it can never silently truncate a multi-chunk file
+   *  (design D7). Absent/0 = this is the whole story. */
+  suppressedSections?: number;
 }
 
 export interface GraphNode {
@@ -40,6 +44,9 @@ export interface KbHit {
   score: number; // lower = more relevant (BM25 convention)
   snippet: string;
   akaPaths?: string[]; // duplicate copies collapsed by dedup
+  /** Further matching sections of this same source collapsed by source-level
+   *  dedup (design D1). 0 = this source matched exactly once. */
+  suppressedSections?: number;
   parent?: { headingPath: string } | null; // small-to-big parent context (expand.parent); display-only, NOT a refetch key; non-recursive
 }
 
@@ -73,6 +80,14 @@ export interface SearchOpts {
   root?: string;
   docType?: DocType;
   dedup?: boolean; // exact-content collapse (default true)
+  sourceDedup?: boolean; // collapse to one hit per (root, path) (default true; design D1)
+  /** Share of the result page reserved for `doc_type='agents'` (0..1). 0 disables
+   *  the lane quota. Ignored when the caller passes an explicit `docType`. */
+  laneQuota?: number;
+  /** IDF-weighted coverage rerank (design D4). Opt-IN: default OFF, because it
+   *  measured a net regression on the bundled fixtures. Gates PRF expansion. */
+  coverageRerank?: boolean;
+  prf?: { terms?: number; topK?: number; dfCeiling?: number }; // PRF tuning (design D4)
   fieldWeights?: { headingPath: number; heading: number; body: number };
   rootPriority?: Record<string, number>; // root id → priority (higher = preferred on dedup)
   proximityBoost?: boolean; // Tier A: in-order/proximity aux ranker

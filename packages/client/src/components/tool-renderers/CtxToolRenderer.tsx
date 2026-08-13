@@ -176,6 +176,35 @@ function IntentPreviewList({ intent }: { intent: IntentPreview }) {
   );
 }
 
+const SECTION_LABEL = "text-[10px] font-mono text-[var(--text-tertiary)] uppercase tracking-wide";
+/** Chrome-vs-content rule: the body stays in code colours, never the severity hue. */
+const ERROR_BODY_BASE = "whitespace-pre-wrap text-code p-2 bg-[var(--bg-code)] rounded";
+const ERROR_BODY = `${ERROR_BODY_BASE} text-[var(--text-secondary)]`;
+
+/** One labelled `stdout` / `stderr` section. An empty stream is marked, not hidden. */
+function StreamSection({
+  label,
+  text,
+  context,
+}: {
+  label: string;
+  text: string;
+  context: ToolRendererProps["context"];
+}) {
+  return (
+    <div className="space-y-1">
+      <div className={SECTION_LABEL}>{label}</div>
+      {text ? (
+        <pre className={`${ERROR_BODY} ${bodyCap}`}>
+          <LinkifiedText text={text} context={context} />
+        </pre>
+      ) : (
+        <pre className={`${ERROR_BODY_BASE} italic text-[var(--text-muted)]`}>(empty)</pre>
+      )}
+    </div>
+  );
+}
+
 function ErrorCard({
   parsed,
   context,
@@ -183,12 +212,46 @@ function ErrorCard({
   parsed: Extract<CtxResult, { kind: "error" }>;
   context: ToolRendererProps["context"];
 }) {
+  // Structured when the parser recognised the context-mode execution shape.
+  // Otherwise the body degrades to the flat message — no text is ever dropped.
+  const structured =
+    parsed.command !== undefined ||
+    parsed.exitCode !== undefined ||
+    parsed.stdout !== undefined ||
+    parsed.stderr !== undefined;
   return (
-    <div className="rounded border border-red-500/40 bg-red-950/20 p-2 space-y-2">
-      <div className="text-[11px] font-medium text-red-400 uppercase">{parsed.variant} error</div>
-      <pre className="whitespace-pre-wrap text-code text-red-300">
-        <LinkifiedText text={parsed.message} context={context} />
-      </pre>
+    <div className="rounded border border-[var(--severity-error-border)] bg-[var(--severity-error-bg)] p-2 space-y-2">
+      <div className="flex items-center gap-2">
+        <div className="text-[11px] font-medium text-[var(--severity-error-fg)] uppercase flex-1">
+          {parsed.variant} error
+        </div>
+        {parsed.exitCode !== undefined && (
+          <span className="text-[10px] font-mono px-1.5 py-0.5 rounded bg-[var(--bg-code)] text-[var(--severity-error-fg)] border border-[var(--severity-error-border)]">
+            exit {parsed.exitCode}
+          </span>
+        )}
+      </div>
+      {structured ? (
+        <>
+          {parsed.preamble && (
+            <pre className={`${ERROR_BODY} ${bodyCap}`}>
+              <LinkifiedText text={parsed.preamble} context={context} />
+            </pre>
+          )}
+          {parsed.command !== undefined && (
+            <div className="space-y-1">
+              <div className={SECTION_LABEL}>command</div>
+              <CodeBlock code={parsed.command} language={parsed.language} />
+            </div>
+          )}
+          {parsed.stdout !== undefined && <StreamSection label="stdout" text={parsed.stdout} context={context} />}
+          {parsed.stderr !== undefined && <StreamSection label="stderr" text={parsed.stderr} context={context} />}
+        </>
+      ) : (
+        <pre className={`${ERROR_BODY} ${bodyCap}`}>
+          <LinkifiedText text={parsed.message} context={context} />
+        </pre>
+      )}
       {parsed.receivedArgs && (
         <Collapsible title={i18nT("common.receivedArguments", undefined, "Received arguments")}>
           <pre className="whitespace-pre-wrap text-code text-[var(--text-secondary)] p-2 bg-[var(--bg-code)] rounded">

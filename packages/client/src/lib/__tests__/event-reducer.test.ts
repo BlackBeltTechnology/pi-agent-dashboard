@@ -1,6 +1,6 @@
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
-import { addInteractiveRequest, applyPromptReceived, type ChatMessage, createInitialState, deriveBannerState, dismissInteractiveRequest, extractAgentEndError, findLastUserPrompt, humanizeProviderError, type PendingPrompt, reduceEvent, resolveInteractiveRequest, type SessionState, toDisplayString } from "../chat/event-reducer.js";
+import { addInteractiveRequest, applyPromptReceived, applyPromptTimeout, carryPendingPrompt, type ChatMessage, createInitialState, deriveBannerState, dismissInteractiveRequest, extractAgentEndError, findLastUserPrompt, isCleanAgentEnd, type PendingPrompt, reduceEvent, resolveInteractiveRequest, type SessionState, toDisplayString } from "../chat/event-reducer.js";
 
 function applyEvents(events: DashboardEvent[]): SessionState {
   return events.reduce((s, e) => reduceEvent(s, e), createInitialState());
@@ -1207,9 +1207,66 @@ describe("applyPromptReceived", () => {
     expect(applyPromptReceived(state, false)).toBe(state);
   });
 
-  it("fresh:true is idempotent on an already-sent prompt", () => {
+  it("#E5 fresh:true is idempotent on an already-sent prompt", () => {
     const state: SessionState = { ...createInitialState(), pendingPrompt: { text: "hi", status: "sent" } };
     expect(applyPromptReceived(state, true)).toBe(state);
+  });
+
+  // A late ack must not resurrect a settled failure.
+  // See change: fix-optimistic-prompt-stuck-sending (test-plan #E4).
+  it("#E4 fresh:true is a no-op on a failed prompt", () => {
+    const state: SessionState = { ...createInitialState(), pendingPrompt: { text: "hi", status: "failed" } };
+    expect(applyPromptReceived(state, true)).toBe(state);
+    expect(state.pendingPrompt!.status).toBe("failed");
+  });
+
+  it("#E4 fresh:false is a no-op on a settled prompt (never drops the bubble)", () => {
+    const failed: SessionState = { ...createInitialState(), pendingPrompt: { text: "hi", status: "failed" } };
+    expect(applyPromptReceived(failed, false)).toBe(failed);
+    const sent: SessionState = { ...createInitialState(), pendingPrompt: { text: "hi", status: "sent" } };
+    expect(applyPromptReceived(sent, false)).toBe(sent);
+  });
+
+  it("#E7 fresh:true preserves text and images while promoting", () => {
+    const images: PendingPrompt["images"] = [{ data: "d", mimeType: "image/png" }];
+    const state: SessionState = { ...createInitialState(), pendingPrompt: { text: "hi", images, status: "sending" } };
+    const next = applyPromptReceived(state, true);
+    expect(next.pendingPrompt).toEqual({ text: "hi", images, status: "sent" });
+  });
+});
+
+// Safety-timeout settlement + reset/replay carry rules.
+// See change: fix-optimistic-prompt-stuck-sending (test-plan #X1/#X2/#F4/#F5).
+describe("applyPromptTimeout / carryPendingPrompt", () => {
+  it("#X1 marks a sending prompt failed, preserving the text, and sets lastError", () => {
+    const state: SessionState = { ...createInitialState(), pendingPrompt: { text: "hi", status: "sending" } };
+    const next = applyPromptTimeout(state, "no response");
+    expect(next.pendingPrompt).toEqual({ text: "hi", status: "failed" });
+    expect(next.lastError?.message).toBe("no response");
+  });
+
+  it("#X2 is a no-op on an already-failed prompt (never wipes it)", () => {
+    const state: SessionState = { ...createInitialState(), pendingPrompt: { text: "hi", status: "failed" } };
+    expect(applyPromptTimeout(state, "no response")).toBe(state);
+  });
+
+  it("#X2 is a no-op on a sent prompt and with no prompt at all", () => {
+    const sent: SessionState = { ...createInitialState(), pendingPrompt: { text: "hi", status: "sent" } };
+    expect(applyPromptTimeout(sent, "x")).toBe(sent);
+    const none = createInitialState();
+    expect(applyPromptTimeout(none, "x")).toBe(none);
+  });
+
+  it("#F4 does not carry a sending prompt across a reset", () => {
+    expect(carryPendingPrompt({ text: "hi", status: "sending" })).toBeUndefined();
+    expect(carryPendingPrompt(undefined)).toBeUndefined();
+  });
+
+  it("#F5 carries settled prompts unchanged", () => {
+    const sent: PendingPrompt = { text: "hi", status: "sent" };
+    const failed: PendingPrompt = { text: "hi", status: "failed" };
+    expect(carryPendingPrompt(sent)).toBe(sent);
+    expect(carryPendingPrompt(failed)).toBe(failed);
   });
 });
 
@@ -2640,35 +2697,153 @@ describe("extractAgentEndError", () => {
     })).toBeUndefined();
   });
 
-  it("humanizes a JSON envelope errorMessage", () => {
+  it("returns a JSON envelope errorMessage verbatim", () => {
+    const raw = '{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}';
     expect(extractAgentEndError({
-      messages: [{ role: "assistant", stopReason: "error", errorMessage: '{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}', content: [] }],
-    })).toBe("overloaded_error: Overloaded");
+      messages: [{ role: "assistant", stopReason: "error", errorMessage: raw, content: [] }],
+    })).toBe(raw);
   });
 });
 
-describe("humanizeProviderError", () => {
-  it("humanizes an Anthropic overloaded JSON envelope to 'type: message'", () => {
+describe("provider error strings are printed verbatim (no humanizing)", () => {
+  // pi types errorMessage as a bare string and sets it from String(error), so
+  // there is no envelope shape to rely on. The surface prints it and offers
+  // Show more + Copy. See change: raw-error-render-and-retry-authority.
+  it("returns a pure-JSON envelope verbatim, not `type: message`", () => {
     const raw =
       '{"type":"error","error":{"details":null,"type":"overloaded_error","message":"Overloaded"},"request_id":"req_x"}';
-    expect(humanizeProviderError(raw)).toBe("overloaded_error: Overloaded");
+    expect(extractAgentEndError({ messages: [{ role: "assistant", stopReason: "error", errorMessage: raw }] })).toBe(raw);
   });
 
-  it("renders the bare message when the envelope has no type", () => {
-    expect(humanizeProviderError('{"error":{"message":"Service unavailable"}}')).toBe("Service unavailable");
+  it("returns pi's documented status-prefixed payload verbatim", () => {
+    const raw = '529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}';
+    expect(extractAgentEndError({ messages: [{ role: "assistant", stopReason: "error", errorMessage: raw }] })).toBe(raw);
   });
 
-  it("passes plain (non-JSON) strings through unchanged", () => {
-    expect(humanizeProviderError("Rate limit exceeded")).toBe("Rate limit exceeded");
+  it("falls back for a non-string errorMessage instead of leaking an object", () => {
+    // A malformed agent_end can carry `errorMessage: {}`. Letting that reach
+    // lastError.message crashes the render with "Objects are not valid as a
+    // React child". See change: raw-error-render-and-retry-authority.
+    for (const bad of [{}, 42, null, undefined, []]) {
+      expect(
+        extractAgentEndError({ messages: [{ role: "assistant", stopReason: "error", errorMessage: bad }] }),
+      ).toBe("An unknown error occurred");
+    }
   });
 
-  it("passes malformed JSON through unchanged", () => {
-    expect(humanizeProviderError("{not valid json")).toBe("{not valid json");
+  it("returns a plain non-JSON string verbatim", () => {
+    expect(extractAgentEndError({ messages: [{ role: "assistant", stopReason: "error", errorMessage: "terminated" }] })).toBe("terminated");
   });
 
-  it("passes an envelope without error.message through unchanged", () => {
-    const raw = '{"type":"error","error":{"type":"overloaded_error"}}';
-    expect(humanizeProviderError(raw)).toBe(raw);
+  it("sets retryState.reason to the raw string on auto_retry_waiting", () => {
+    const raw = '529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}';
+    const s = applyEvents([
+      { eventType: "auto_retry_waiting", timestamp: 1, data: { attempt: 2, maxAttempts: 3, delayMs: 2000, errorMessage: raw } },
+    ] as unknown as DashboardEvent[]);
+    expect(s.retryState?.reason).toBe(raw);
+  });
+
+  it("sets retryState.reason to the raw string on auto_retry_start", () => {
+    const raw = "429 rate limited";
+    const s = applyEvents([
+      { eventType: "auto_retry_start", timestamp: 1, data: { attempt: 2, maxAttempts: 3, delayMs: 2000, errorMessage: raw } },
+    ] as unknown as DashboardEvent[]);
+    expect(s.retryState?.reason).toBe(raw);
+  });
+});
+
+describe("agent_end disposition keys off the last ASSISTANT message (regression)", () => {
+  // A turn can end with a trailing non-assistant entry (e.g. a `toolResult`).
+  // Keying off `messages[length-1]` made a SUCCESSFUL retry look non-clean, so
+  // the error card never disappeared. See change: unify-retry-visibility.
+  it("extracts the error when a toolResult trails the failed assistant message", () => {
+    expect(extractAgentEndError({
+      messages: [
+        { role: "assistant", stopReason: "error", errorMessage: "Overloaded" },
+        { role: "toolResult" },
+      ],
+    })).toBe("Overloaded");
+  });
+
+  it("is clean when a toolResult trails a successful assistant stop", () => {
+    expect(isCleanAgentEnd({
+      messages: [{ role: "assistant", stopReason: "stop" }, { role: "toolResult" }],
+    })).toBe(true);
+  });
+
+  it("is NOT clean when the last assistant message is an error", () => {
+    expect(isCleanAgentEnd({
+      messages: [{ role: "assistant", stopReason: "error", errorMessage: "x" }, { role: "toolResult" }],
+    })).toBe(false);
+  });
+
+  it("is NOT clean for an agent_end with no messages (bare abort)", () => {
+    expect(isCleanAgentEnd({})).toBe(false);
+    expect(isCleanAgentEnd({ messages: [] })).toBe(false);
+  });
+
+  it("a successful turn trailed by a toolResult clears lastError end-to-end", () => {
+    const errored = applyEvents([
+      { eventType: "agent_end", timestamp: 1, data: { messages: [{ role: "assistant", stopReason: "error", errorMessage: "Overloaded" }, { role: "toolResult" }] } } as unknown as DashboardEvent,
+    ]);
+    expect(errored.lastError).toBeTruthy();
+    const recovered = reduceEvent(errored, {
+      eventType: "agent_end",
+      timestamp: 2,
+      data: { messages: [{ role: "assistant", stopReason: "stop" }, { role: "toolResult" }] },
+    } as unknown as DashboardEvent);
+    expect(recovered.lastError).toBeUndefined();
+    // No error anchor and no retry sub-status → the surface is not rendered.
+    expect(deriveBannerState(recovered)).toEqual({ variant: "hidden" });
+  });
+
+  it("a payload with NO assistant entry synthesizes nothing and is not clean", () => {
+    // Spec: "No assistant message present" — a trailing toolResult must never
+    // decide the turn's disposition, in either direction. This mirrors the
+    // tracker, which arms nothing for the same input.
+    const erroredTrailer = { messages: [{ role: "toolResult", stopReason: "error", errorMessage: "boom" }] };
+    expect(extractAgentEndError(erroredTrailer)).toBeUndefined();
+    expect(isCleanAgentEnd(erroredTrailer)).toBe(false);
+    const goodTrailer = { messages: [{ role: "toolResult", stopReason: "stop" }, { role: "user" }] };
+    expect(extractAgentEndError(goodTrailer)).toBeUndefined();
+    expect(isCleanAgentEnd(goodTrailer)).toBe(false);
+  });
+
+  it("a live lastError survives an agent_end with no assistant entry", () => {
+    const errored = applyEvents([
+      { eventType: "agent_end", timestamp: 1, data: { messages: [{ role: "assistant", stopReason: "error", errorMessage: "Overloaded" }] } } as unknown as DashboardEvent,
+    ]);
+    expect(errored.lastError).toBeTruthy();
+    const after = reduceEvent(errored, {
+      eventType: "agent_end",
+      timestamp: 2,
+      data: { messages: [{ role: "toolResult", stopReason: "stop" }] },
+    } as unknown as DashboardEvent);
+    expect(after.lastError).toEqual(errored.lastError);
+  });
+
+  it("isCleanAgentEnd and extractAgentEndError agree on every head × trailer cell", () => {
+    const trailers = [[], [{ role: "toolResult" }], [{ role: "toolResult" }, { role: "user" }]];
+    const heads = [
+      { head: { role: "assistant", stopReason: "error", errorMessage: "boom" }, clean: false, err: true },
+      { head: { role: "assistant", stopReason: "stop" }, clean: true, err: false },
+      { head: { role: "assistant", stopReason: "end_turn" }, clean: true, err: false },
+      { head: { role: "assistant", stopReason: "toolUse" }, clean: false, err: false },
+      { head: { role: "assistant", stopReason: "aborted" }, clean: false, err: false },
+      { head: { role: "user" }, clean: false, err: false },
+    ];
+    for (const { head, clean, err } of heads) {
+      for (const trailer of trailers) {
+        const data = { messages: [head, ...trailer] };
+        const label = JSON.stringify(data);
+        // Each cell's disposition is pinned in BOTH directions, so the table is
+        // load-bearing rather than a tautology over a single shared read.
+        expect(isCleanAgentEnd(data), `clean: ${label}`).toBe(clean);
+        expect(extractAgentEndError(data) !== undefined, `err: ${label}`).toBe(err);
+        // A clean turn can never also carry an error.
+        expect(clean && err).toBe(false);
+      }
+    }
   });
 });
 

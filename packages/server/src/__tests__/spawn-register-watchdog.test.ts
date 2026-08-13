@@ -2,7 +2,7 @@
  * Tests for SpawnRegisterWatchdog.
  * Uses vitest fake timers. See change: spawn-failure-diagnostics.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 
 // Silence appendSpawnFailure in unit tests.
@@ -246,5 +246,209 @@ describe("SpawnRegisterWatchdog: byToken index", () => {
     w.clearByToken("tok_unknown");
     vi.advanceTimersByTime(31_000);
     expect(messages.filter((m) => m.includes("spawn_register_timeout"))).toHaveLength(1);
+  });
+});
+
+/**
+ * The watchdog SHALL reclaim a spawn that never registered — not merely report
+ * it.
+ *
+ * Measured in the E2E harness: three tmux panes sat forever on pi's interactive
+ * "Trust project folder?" prompt for an untrusted cwd. Each pi had zero open
+ * sockets, so `session_register` never fired, the dashboard never held a record,
+ * the reaper had nothing to reap and shutdown was never asked to end them —
+ * ~127 MB each, indefinitely. The watchdog SAW it (one `REGISTER_TIMEOUT` in
+ * spawn-failures.log) and did nothing.
+ *
+ * The kill is keyed on the spawn token in the process environment, because for
+ * a tmux spawn that is the only handle: `tmux new-window` returns tmux's pid,
+ * and the pane's command line carries nothing identifying.
+ *
+ * See change: fix-tmux-session-shutdown-leak (design D5).
+ */
+describe("SpawnRegisterWatchdog: reclaims a spawn that never registered", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const TOKEN = "fe487887-9973-4805-ab90-17f3d889ef68";
+
+  it("terminates every pid carrying the spawn token when the watchdog fires", () => {
+    const { ws, messages } = makeMockWs();
+    const findPids = vi.fn(() => [18163, 18674]);
+    const kill = vi.fn();
+    const w = new SpawnRegisterWatchdog(10000, { findPidsBySpawnToken: findPids, kill });
+
+    w.arm({ cwd: "/fixtures/kb-parent", mechanism: "tmux", ws, spawnToken: TOKEN });
+    vi.advanceTimersByTime(10001);
+
+    expect(findPids).toHaveBeenCalledWith(TOKEN);
+    expect(kill.mock.calls.map((c) => c[0])).toEqual([18163, 18674]);
+    // The diagnostic is NOT replaced by the kill — reporting is how the leak
+    // becomes visible; the kill is how it stops costing 127 MB.
+    expect(JSON.parse(messages[0]!).type).toBe("spawn_register_timeout");
+  });
+
+  it("kills the headless spawn pid when there is no token", () => {
+    const { ws } = makeMockWs();
+    const findPids = vi.fn(() => []);
+    const kill = vi.fn();
+    const w = new SpawnRegisterWatchdog(10000, { findPidsBySpawnToken: findPids, kill });
+
+    w.arm({ pid: 4242, cwd: "/p/headless", mechanism: "headless", ws });
+    vi.advanceTimersByTime(10001);
+
+    expect(kill.mock.calls.map((c) => c[0])).toEqual([4242]);
+  });
+
+  it("kills nothing when a session registers in time", () => {
+    const { ws } = makeMockWs();
+    const kill = vi.fn();
+    const w = new SpawnRegisterWatchdog(10000, {
+      findPidsBySpawnToken: () => [18163],
+      kill,
+    });
+
+    w.arm({ cwd: "/p/ok", mechanism: "tmux", ws, spawnToken: TOKEN });
+    w.clearByToken(TOKEN);
+    vi.advanceTimersByTime(15000);
+
+    expect(kill).not.toHaveBeenCalled();
+  });
+
+  it("never lets a failing kill break the diagnostic", () => {
+    const { ws, messages } = makeMockWs();
+    const w = new SpawnRegisterWatchdog(10000, {
+      findPidsBySpawnToken: () => [1],
+      kill: () => {
+        throw new Error("EPERM");
+      },
+    });
+
+    w.arm({ cwd: "/p/boom", mechanism: "tmux", ws, spawnToken: TOKEN });
+    expect(() => vi.advanceTimersByTime(10001)).not.toThrow();
+    expect(messages).toHaveLength(1);
+  });
+
+  it("a closed browser socket does not skip the kill", () => {
+    // The diagnostic goes to the originating WebSocket, but the leak is real
+    // whether or not anyone is listening. Ordering the kill after the early
+    // `readyState` return would have made a disconnected tab leak silently.
+    const { ws } = makeMockWs(WebSocket.CLOSED);
+    const kill = vi.fn();
+    const w = new SpawnRegisterWatchdog(10000, {
+      findPidsBySpawnToken: () => [18830],
+      kill,
+    });
+
+    w.arm({ cwd: "/p/closed", mechanism: "tmux", ws, spawnToken: TOKEN });
+    vi.advanceTimersByTime(10001);
+
+    expect(kill.mock.calls.map((c) => c[0])).toEqual([18830]);
+  });
+});
+
+/**
+ * Concurrent spawns into the SAME cwd must each stay watched.
+ *
+ * `arm()` indexes by cwd and replaced the prior entry, cancelling its timer. In
+ * the harness three spawns into `/fixtures/kb-parent` therefore produced ONE
+ * `REGISTER_TIMEOUT` for THREE leaked pi: two of them were silently unwatched,
+ * so no diagnostic and — now that firing reclaims — no kill would ever reach
+ * them. An entry that carries its own spawn token has strong identity and must
+ * keep its timer; `clearByToken` on a real registration cancels exactly the one
+ * that registered.
+ *
+ * See change: fix-tmux-session-shutdown-leak.
+ */
+describe("SpawnRegisterWatchdog: concurrent spawns in one cwd", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const CWD = "/fixtures/kb-parent";
+  const T1 = "aaaaaaaa-1111-4805-ab90-17f3d889ef68";
+  const T2 = "bbbbbbbb-2222-4805-ab90-17f3d889ef68";
+  const T3 = "cccccccc-3333-4805-ab90-17f3d889ef68";
+
+  it("fires once per spawn, not once per cwd", () => {
+    const { ws, messages } = makeMockWs();
+    const killed: number[] = [];
+    const pidsFor: Record<string, number[]> = { [T1]: [18163], [T2]: [18674], [T3]: [18830] };
+    const w = new SpawnRegisterWatchdog(10000, {
+      findPidsBySpawnToken: (t) => pidsFor[t] ?? [],
+      kill: (pid) => killed.push(pid),
+    });
+
+    for (const token of [T1, T2, T3]) {
+      w.arm({ cwd: CWD, mechanism: "tmux", ws, spawnToken: token });
+    }
+    vi.advanceTimersByTime(10001);
+
+    expect(killed.sort()).toEqual([18163, 18674, 18830]);
+    expect(messages).toHaveLength(3);
+  });
+
+  it("the one that registers is spared; its siblings are still reclaimed", () => {
+    const { ws } = makeMockWs();
+    const killed: number[] = [];
+    const pidsFor: Record<string, number[]> = { [T1]: [18163], [T2]: [18674], [T3]: [18830] };
+    const w = new SpawnRegisterWatchdog(10000, {
+      findPidsBySpawnToken: (t) => pidsFor[t] ?? [],
+      kill: (pid) => killed.push(pid),
+    });
+
+    for (const token of [T1, T2, T3]) {
+      w.arm({ cwd: CWD, mechanism: "tmux", ws, spawnToken: token });
+    }
+    w.clearByToken(T2); // this pi answered the trust prompt and registered
+    vi.advanceTimersByTime(10001);
+
+    expect(killed.sort()).toEqual([18163, 18830]);
+  });
+});
+
+/**
+ * The reclaim must never target the dashboard's own process.
+ *
+ * The spawn token is an ordinary environment variable and is therefore
+ * INHERITED — by the tmux server, by the dashboard's own node process, by every
+ * shell in between. A token lookup that was not narrowed returned five pids for
+ * one token, and handing that set to the kill path took the entire container
+ * down. The probe narrows to leaf `pi`; this is the second, unconditional net.
+ *
+ * See change: fix-tmux-session-shutdown-leak.
+ */
+describe("SpawnRegisterWatchdog: never kills the server itself", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("skips our own pid and our parent even if the probe returns them", () => {
+    const { ws } = makeMockWs();
+    const killed: number[] = [];
+    const w = new SpawnRegisterWatchdog(10000, {
+      findPidsBySpawnToken: () => [process.pid, process.ppid, 18163],
+      kill: (pid) => killed.push(pid),
+    });
+
+    w.arm({
+      cwd: "/p/inherit",
+      mechanism: "tmux",
+      ws,
+      spawnToken: "fe487887-9973-4805-ab90-17f3d889ef68",
+    });
+    vi.advanceTimersByTime(10001);
+
+    expect(killed).toEqual([18163]);
   });
 });

@@ -12,7 +12,7 @@ A trigger fire SHALL create one parent run record for the occurrence and one chi
 
 #### Scenario: Single-action fire still yields one child
 
-- **WHEN** a legacy single-`action:` automation fires
+- **WHEN** a legacy single-`action:` automation without `count` fires
 - **THEN** the parent run SHALL reference exactly one child
 
 ### Requirement: Each child dispatches, captures, and finalizes independently
@@ -31,6 +31,11 @@ Dispatch (prompt seed or configured event), result capture, session-death finali
 - **THEN** its output SHALL be captured to that child's own `result.md` under the parent run directory
 - **AND** no child's output SHALL overwrite another's
 
+#### Scenario: A child record is addressable by its own run id
+
+- **WHEN** a child's run record or result is requested by that child's run id
+- **THEN** it SHALL be resolved and returned, without the caller supplying the parent run id
+
 #### Scenario: Child session dies before a terminal event
 
 - **WHEN** a child's session ends without a terminal event
@@ -38,7 +43,7 @@ Dispatch (prompt seed or configured event), result capture, session-death finali
 
 ### Requirement: A parent run finalizes when all its children are terminal
 
-A parent run SHALL remain `running` while any child is `running`. When every child reaches a terminal state, the parent SHALL finalize exactly once, aggregating child outcomes: `done` when at least one child is `done` and none errored, `error` when any child errored, and a total findings count summed across children. Parent finalization SHALL be idempotent.
+A parent run SHALL remain `running` while any child is `running`. When every child reaches a terminal state, the parent SHALL finalize exactly once, aggregating child outcomes: `error` when any child errored; otherwise `stopped` when every child was stopped; otherwise `done`. The parent SHALL carry a total findings count summed across children. Parent finalization SHALL be idempotent.
 
 #### Scenario: All children succeed
 
@@ -50,6 +55,16 @@ A parent run SHALL remain `running` while any child is `running`. When every chi
 - **WHEN** children finalize `done`, `error`, `done`
 - **THEN** the parent SHALL finalize `error`
 
+#### Scenario: Every child stopped
+
+- **WHEN** every child of a fire is stopped by the user and none errored
+- **THEN** the parent SHALL finalize `stopped`
+
+#### Scenario: Some stopped, some done
+
+- **WHEN** children finalize `stopped`, `done` and none errored
+- **THEN** the parent SHALL finalize `done`
+
 #### Scenario: Parent stays running until the last child
 
 - **WHEN** 2 of 3 children have finalized
@@ -59,6 +74,27 @@ A parent run SHALL remain `running` while any child is `running`. When every chi
 
 - **WHEN** a further child termination signal arrives after the parent finalized
 - **THEN** the parent record SHALL be unchanged and no duplicate finalization SHALL occur
+
+#### Scenario: The fire slot is released only when the parent finalizes
+
+- **WHEN** an automation with `concurrency: queue` has a fire whose first child finalizes while siblings are still running
+- **THEN** the queued next fire SHALL NOT start
+- **AND** it SHALL start only after every child of the current occurrence is terminal
+
+### Requirement: A live occurrence SHALL survive retention and stale reaping
+
+Retention pruning SHALL NOT delete an occurrence that is still running. Stale-run reaping SHALL apply to child records and SHALL NOT force-finalize a parent that still has running children.
+
+#### Scenario: Retention does not prune a running occurrence
+
+- **WHEN** retention pruning runs while an occurrence is still `running`
+- **THEN** that occurrence and its child records SHALL be retained
+
+#### Scenario: A stale child is reaped without finalizing live siblings
+
+- **WHEN** one child exceeds the stale-run age while a sibling is still running
+- **THEN** only the stale child SHALL be finalized
+- **AND** the parent SHALL remain `running` until the sibling terminates
 
 ### Requirement: Stopping a parent run stops every live child
 

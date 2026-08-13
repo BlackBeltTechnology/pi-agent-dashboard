@@ -380,7 +380,7 @@ function headerSlots(p: {
 function FailedBadge({ n }: { n: number }) {
   return (
     <span
-      className="ml-1 px-1.5 py-0.5 rounded-full bg-red-500/15 text-red-400 border border-red-500/30 text-[10px] font-semibold"
+      className="ml-1 px-1.5 py-0.5 rounded-full bg-[var(--severity-error-bg)] text-[var(--severity-error-fg)] border border-[var(--severity-error-border)] text-[10px] font-semibold"
       data-testid="tool-burst-failed-badge"
     >
       {n} failed

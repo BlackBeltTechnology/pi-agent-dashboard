@@ -4,7 +4,7 @@
  * One primitive for every inline message/banner: a leading severity accent
  * bar, an icon, a title, optional sub/body content, an optional row of action
  * pills, and an optional `mdiClose` dismiss control. Colors (bg / border / fg)
- * derive exclusively from `--severity-{error,warning,info}-*` theme tokens —
+ * derive exclusively from `--severity-{error,warning,info,success}-*` tokens —
  * no raw Tailwind color literals. A `compact` one-line variant serves the
  * missing-tool surface; an `animate` top accent-bar sweep conveys an in-flight
  * state (provider auto-retry). The dismiss control invokes `onDismiss` only —
@@ -17,7 +17,7 @@ import { Icon } from "@mdi/react";
 import type { ReactNode } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 
-export type Severity = "error" | "warning" | "info";
+export type Severity = "error" | "warning" | "info" | "success";
 
 // Static token maps (Tailwind cannot JIT-scan a dynamic
 // `--severity-${severity}-*`), so each severity resolves through a literal
@@ -41,6 +41,15 @@ const TONE: Record<Severity, { bg: string; border: string; fg: string; bar: stri
     fg: "text-[var(--severity-info-fg)]",
     bar: "bg-[var(--severity-info-fg)]",
   },
+  // The `--severity-success-*` triple already ships and is already consumed by
+  // Toast / ToastSlot; this adds it to the inline surface.
+  // See change: gate-notify-rows-by-level.
+  success: {
+    bg: "bg-[var(--severity-success-bg)]",
+    border: "border-[var(--severity-success-border)]",
+    fg: "text-[var(--severity-success-fg)]",
+    bar: "bg-[var(--severity-success-fg)]",
+  },
 };
 
 interface Props {
@@ -52,8 +61,19 @@ interface Props {
   children?: ReactNode;
   /** Optional action-pill row (rendered as-is by the caller). */
   actions?: ReactNode;
-  /** Dismiss handler. Present → an `mdiClose` control renders. */
+  /** Dismiss handler. Present → a trailing control renders. */
   onDismiss?: () => void;
+  /**
+   * mdi path for the trailing control. Defaults to `mdiClose`.
+   *
+   * Callers whose trailing action is NOT a close (e.g. collapse) MUST override
+   * this together with `dismissLabel`, so the icon states what the control
+   * actually does. An ✕ that does not close promises an outcome it does not
+   * deliver. See change: raw-error-render-and-retry-authority.
+   */
+  dismissIcon?: string;
+  /** Accessible label + tooltip for the trailing control. Defaults to "Dismiss". */
+  dismissLabel?: string;
   /** One-line compact variant (icon + title + trailing action). */
   variant?: "compact";
   /** Render a thin top accent-bar sweep for an in-flight state. */
@@ -71,11 +91,14 @@ export function InlineMessage({
   children,
   actions,
   onDismiss,
+  dismissIcon = mdiClose,
+  dismissLabel,
   variant,
   animate,
   testId = "inline-message",
   dismissTestId = "inline-message-dismiss",
 }: Props) {
+  const dismissText = dismissLabel ?? i18nT("common.dismiss", undefined, "Dismiss");
   const tone = TONE[severity];
   const compact = variant === "compact";
 
@@ -121,10 +144,10 @@ export function InlineMessage({
           data-testid={dismissTestId}
           onClick={onDismiss}
           className="shrink-0 opacity-70 hover:opacity-100"
-          title={i18nT("common.dismiss", undefined, "Dismiss")}
-          aria-label={i18nT("common.dismiss", undefined, "Dismiss")}
+          title={dismissText}
+          aria-label={dismissText}
         >
-          <Icon path={mdiClose} size={0.6} />
+          <Icon path={dismissIcon} size={0.6} />
         </button>
       )}
     </div>

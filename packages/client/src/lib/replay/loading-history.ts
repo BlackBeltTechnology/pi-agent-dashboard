@@ -3,7 +3,11 @@
  *
  * The flag is set when the client sends `subscribe` for a session and cleared
  * the instant content arrives, replay completes, the load fails, or a
- * safety-net timeout elapses. `ChatView` reads the selected session's value to
+ * safety-net timeout elapses. These helpers are FLAG-GENERIC over
+ * `(setter, timersRef, id)` and are reused verbatim for the second per-session
+ * flag, `replayInFlight`, which clears on the terminal batch rather than on
+ * first content (see change: show-replay-in-flight-indicator).
+ * `ChatView` reads the selected session's value to
  * distinguish "history in flight" from "genuinely empty session".
  * See change: show-chat-history-loading-indicator.
  *
@@ -20,6 +24,14 @@ import type React from "react";
 export const SUBSCRIBE_ACK_MS = 15000;
 /** Long window: max gap tolerated after the last cold-hydration marker/heartbeat. */
 export const HYDRATE_CEILING_MS = 90000;
+/**
+ * Delay before the replay-in-flight pill paints, so a replay that resolves
+ * quickly never flashes an indicator. A RENDER THRESHOLD, not a safety net —
+ * the two windows above are the safety nets. The value is UNMEASURED pending
+ * transfer-phase instrumentation; retune it once real replay durations exist.
+ * See change: show-replay-in-flight-indicator.
+ */
+export const REPLAY_PILL_DELAY_MS = 300;
 
 export type LoadingHistorySetter = React.Dispatch<React.SetStateAction<Map<string, boolean>>>;
 export type LoadingHistoryTimersRef = React.MutableRefObject<Map<string, ReturnType<typeof setTimeout>>>;
@@ -29,7 +41,7 @@ export type LoadingHistoryTimersRef = React.MutableRefObject<Map<string, ReturnT
  * Idempotent: a no-op if the flag is already false and no timer is armed.
  */
 export function clearLoadingHistory(
-  setLoadingHistory: LoadingHistorySetter,
+  setFlag: LoadingHistorySetter,
   timersRef: LoadingHistoryTimersRef,
   id: string,
 ): void {
@@ -38,7 +50,7 @@ export function clearLoadingHistory(
     clearTimeout(timer);
     timersRef.current.delete(id);
   }
-  setLoadingHistory((prev) => {
+  setFlag((prev) => {
     if (!prev.get(id)) return prev;
     const next = new Map(prev);
     next.set(id, false);
@@ -56,7 +68,7 @@ export function clearLoadingHistory(
  * See change: fix-history-loading-false-empty-flash.
  */
 export function rearmLoadingHistory(
-  setLoadingHistory: LoadingHistorySetter,
+  setFlag: LoadingHistorySetter,
   timersRef: LoadingHistoryTimersRef,
   id: string,
   ms: number,
@@ -66,6 +78,6 @@ export function rearmLoadingHistory(
   clearTimeout(existing);
   timersRef.current.set(
     id,
-    setTimeout(() => clearLoadingHistory(setLoadingHistory, timersRef, id), ms),
+    setTimeout(() => clearLoadingHistory(setFlag, timersRef, id), ms),
   );
 }

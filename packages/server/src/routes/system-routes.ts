@@ -24,6 +24,7 @@ import type { FastifyInstance } from "fastify";
 import { localhostGuard, netmaskToCidrBits, networkAddress } from "../auth/localhost-guard.js";
 import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
 import { recordExitIntent } from "../persistence/boot-state.js";
+import { EMPTY_TRIM_STATS, type TrimStats } from "../persistence/memory-event-store.js";
 import type { DirectoryService } from "../directory-service.js";
 import { bootParentPid, computeBootParentAlive, readLivePpid } from "../lifecycle/boot-parent-liveness.js";
 import { computeEffectiveLaunchSource } from "../lifecycle/launch-source-effective.js";
@@ -118,11 +119,13 @@ export function registerSystemRoutes(
     eventLoopSpikes?: EventLoopSpikeMetrics;
     // Store-shed telemetry source; `/api/health` reads getTrimStats() into the
     // additive `storeTrim` field. See change: instrument-event-store-trim.
+    // DERIVED from the store's exported TrimStats, never restated inline: an
+    // inline structural type still typechecks after the store gains a field
+    // (excess-property checks do not fire on a function return type), so the
+    // wire-shape annotation would silently rot.
+    // See change: collapse-superseded-tool-execution-updates (D9).
     eventStore?: {
-      getTrimStats?: () => {
-        trimmedEvents: { total: number; toolExecutionEnd: number; bySession: Record<string, number> };
-        evictedSessions: number;
-      };
+      getTrimStats?: () => TrimStats;
     };
     // Embed-session-lifecycle diagnostics; `/api/health` reads its snapshot
     // (active/idle ephemeral counts, reaped-by-reason, capacity rejections,
@@ -566,10 +569,12 @@ export function registerSystemRoutes(
       // In-memory event-store shed counters (per-session trim + cross-session
       // LRU eviction). The third silent tool_execution_end loss path, made
       // observable beside droppedFrames. See change: instrument-event-store-trim.
-      storeTrim: eventStore?.getTrimStats?.() ?? {
-        trimmedEvents: { total: 0, toolExecutionEnd: 0, bySession: {} },
-        evictedSessions: 0,
-      },
+      // The fallback is the store's own EXPLICITLY-TYPED all-zero constant, not
+      // an inline literal: TypeScript types `a ?? b` as `NonNullable<A> | B` and
+      // does NOT check `b` against `A`, so an inline literal would silently omit
+      // a newly-required field while still typechecking.
+      // See change: collapse-superseded-tool-execution-updates (D9).
+      storeTrim: eventStore?.getTrimStats?.() ?? EMPTY_TRIM_STATS,
       // Embed-session-lifecycle diagnostics (active/idle ephemeral counts,
       // reaped-by-reason, capacity rejections, acquire reuse hit/miss). Failure-
       // isolated so a throwing snapshot can never 500 the health hot path.

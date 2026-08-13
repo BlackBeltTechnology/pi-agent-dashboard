@@ -16,5 +16,10 @@ export const ctxFixtures = {
   err_validation: "Validation failed for tool \"ctx_execute\":\n  - code: must have required properties code\n  - language: must be equal to one of the allowed values\n\nReceived arguments:\n{\n  \"language\": \"javascript\\\">\\n<parameter name=\\\"code\\\">// Diagnose WS handshake failure\\nconst WebSocket = require('/Users/robson/Project/pi-agent-dashboard/node_modules/ws');\\nconst ws = new WebSocket('ws://localhost:8000/ws');\\nws.on('error', (err) => { console.log('ERROR:', err.code, err.message, JSON.stringify(Object.keys(err))); });\\nws.on('unexpected-response', (req, res) => { console.log('HTTP', res.statusCode, res.statusMessage); });\\nws.on('open', () => { console.log('OPEN ok'); ws.close(); });\\nsetTimeout(() => process.exit(0), 3000);\"\n}",
   err_timeout: "MCP request timeout after 120000ms: tools/call",
   err_runtime: "Exit code: 1\n\nstdout:\n\n\nstderr:\nTraceback (most recent call last):\n  File \"<string>\", line 4, in <module>\nTypeError: 'NoneType' object is not subscriptable\n",
+  // The reported card: a fenced ```shell command, an exit line, and both streams.
+  // See change: repair-tool-error-surfaces.
+  err_runtime_fenced:
+    '```shell\nset -o pipefail\nnpm run test:e2e > /tmp/full-e2e-run1.log 2>&1\ncode=$?\necho "FULL_E2E_EXIT=$code"\n```\n\nExit code: 1\n\nstdout:\n\n\nstderr:\n',
+  err_runtime_plain: "Runtime error: the sandbox refused to start because the workspace is read-only.",
   index_with_banner: "⚠️ context-mode v1.0.161 outdated → v1.0.162 available. Upgrade: npm run build\n\nIndexed 830 sections (169 with code) from: docs/ — architecture, FAQs, file-index splits, plans, plugin docs\nUse ctx_search(queries: [\"...\"]) to query this content. Use source: \"docs/ — architecture, FAQs, file-index splits, plans, plugin docs\" to scope results.",
 } as const;

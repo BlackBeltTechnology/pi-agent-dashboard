@@ -53,6 +53,7 @@ function setup() {
     setFavoriteModels: vi.fn(), setTerminals: vi.fn(), setEditorStatuses: vi.fn(),
     setDiscoveredServers: vi.fn(), setSpawnErrors: vi.fn(), setResumeErrors: vi.fn(),
     setLoadingHistory: vi.fn(),
+    setReplayInFlight: vi.fn(),
   };
   const deps: any = {
     send: vi.fn(), navigate: vi.fn(), clearSpawningCwd: vi.fn(),
@@ -60,6 +61,7 @@ function setup() {
     pendingTerminalCwdRef: { current: null }, lastCreatedTerminalIdRef: { current: null },
     maxSeqMapRef: { current: maxSeqMap }, selectedSessionIdRef: { current: undefined },
     loadingHistoryTimersRef: { current: new Map() },
+    replayInFlightTimersRef: { current: new Map() },
   };
   const { result } = renderHook(() => useMessageHandler(setters, deps));
   return { dispatch: (msg: ServerToBrowserMessage) => result.current(msg) };

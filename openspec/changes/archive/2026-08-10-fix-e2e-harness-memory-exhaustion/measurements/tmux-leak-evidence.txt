@@ -1,0 +1,5 @@
+captured: 2026-08-10T03:00:53Z
+tmux panes:      21
+resident pi:     21
+server records:  0
+memory.current:  2550.2 MiB

@@ -142,6 +142,27 @@ Reconcile with: `comm -23 <(full-extract | sort) <(your-extract | sort)`.
 
 Evidence: Biome type inference approximate relative to `tsc`. No candidate enters at `error`. None enters at `warn`.
 
+## ast-grep — evaluated, rejected
+
+Recorded so it is not re-litigated.
+
+Measured against this repo:
+
+- `client → server` imports: **0** real. 4 matches are comments.
+- Raw hex literals in client: **678** total. **451 (66%)** live in
+  `lib/theme/themes.ts` (378), `index.css` (47), `lib/theme/monaco-theme.ts`
+  (26) — token-definition files, where hex belongs.
+
+Every code-shaped convention already obeyed, or violated by design. Rules that
+ARE violated are markdown- and filesystem-shaped. AST engine cannot read those.
+New dependency buying zero true positives → not bought. Enforcement lives in
+`scripts/check-conventions.mjs` instead.
+
+Caution, generalizable: original figures were 604/447 at `lib/themes.ts` and
+`lib/monaco-theme.ts`. Both paths deleted by a client reorg. Ratio survived
+re-derivation; paths did not. Same reorg silently broke `i18n-parity.mjs`.
+Re-derive counts against the tree before citing them.
+
 ## False positive escape hatch
 
 `error`-tier type-aware rule can false-positive on new code. Hard-stops unattended `ship-it`.
@@ -201,6 +222,39 @@ biome check --changed --error-on-warnings --write && tsc --noEmit && npm test
 - Exit 0 → achieved.
 - Non-zero → continue.
 - Goal-plugin (`@ricoyudog/pi-goal-hermes`) judge reads it.
+
+`quality:changed` = DEV-LOOP oracle. No automated caller. Absent from
+`.github/` workflows, `ship-it`, `ship-change`. Human or `code-quality` skill
+invokes it.
+
+## Ship gate — `ship-it` step 4.4
+
+Separate from `quality:changed`. Runs in order. First non-zero exit stops ship,
+routes to step-4 fix loop.
+
+| # | Command | Owns |
+|---|---|---|
+| 1 | `node scripts/check-conventions.mjs --base origin/develop` | 4 repo conventions; touched-file scoped (committed diff ∪ working tree) |
+| 2 | `node scripts/dox-byte-gate.mjs` | `AGENTS.md` byte cap |
+| 3 | `node scripts/i18n-lint.mjs --strict` | hardcoded user-facing strings |
+| 4 | `node scripts/i18n-parity.mjs` | catalog key parity |
+
+Gotchas, each load-bearing:
+
+- `i18n-lint.mjs` exits 0 regardless of findings without `--strict`. Pass
+  `--strict` or it advises instead of gates.
+- `i18n-parity.mjs` compares `union(zhCN, hu)` against each catalog. Read two
+  paths deleted by a client reorg → crashed on every run. Repaired.
+- `dox-byte-gate.mjs` filters `kb dox lint --json` to `kind="over-threshold"` +
+  `arm="bytes"`. Raw `kb dox lint` exits 1 on any of 7 issue kinds; tree carries
+  57 non-gating issues. Direct wiring never lands green.
+- `check-conventions.mjs` enforces exactly 4 rules. Four is a deliberate ceiling.
+  Growth pressure → write a different script.
+
+## Semantic layer — `ship-it` step 4.5
+
+Model review on the `@review` role. Deliberately NOT in `quality:changed`.
+`quality:changed` stays deterministic + offline-runnable.
 
 ## Safe vs unsafe fixes
 

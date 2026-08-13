@@ -1,4 +1,4 @@
-import { expect, type WebSocket as PWWebSocket, test } from "@playwright/test";
+import { expect, type WebSocket as PWWebSocket, test } from "./fixtures.js";
 import { byTestId, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 const PLAIN_TEXT_MARKER = "The quick brown faux jumps over the lazy dog.";

@@ -1,4 +1,4 @@
-import { expect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "./fixtures.js";
 import { gotoDashboard, pinDirectory } from "./helpers/index.js";
 
 // KB folder slot — browser E2E against the disposable Docker harness.

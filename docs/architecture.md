@@ -11,17 +11,11 @@
 
 PI Dashboard: web-based dashboard for monitoring + interacting with pi agent sessions. Three components:
 
-```
-┌─────────────┐     WebSocket      ┌──────────────┐     WebSocket     ┌─────────────┐
-│   Bridge    │ ◄─────────────────► │  Dashboard   │ ◄───────────────► │  Web Client  │
-│  Extension  │    (port 9999)      │   Server     │    (port 8000)    │  (React)     │
-│  (per pi)   │                     │  (Node.js)   │                   │  (Browser)   │
-└─────────────┘                     └──────────────┘                   └─────────────┘
-                                          │
-                                    ┌─────┴─────┐
-                                    │  In-Memory │
-                                    │  + JSON    │
-                                    └───────────┘
+```mermaid
+flowchart LR
+    Bridge["Bridge Extension (per pi)"] <-->|"WebSocket (port 9999)"| Server["Dashboard Server (Node.js)"]
+    Server <-->|"WebSocket (port 8000)"| Client["Web Client (React)"]
+    Server --> Storage["In-Memory + JSON"]
 ```
 
 ## Components
@@ -138,6 +132,48 @@ TypeScript type definitions shared across all components:
 - **Label split.** `ActivityIndicator`: ask_user → "Needs you" (`--status-needs-you`); idle/active → "Idle" (muted). "Waiting for input" retired.
 - **Folder status capsule** (change: unify-folder-status-capsule). `FolderStatusCapsule` = folder header's ONLY liveness surface. Renders in BOTH collapse states. Replaces `FolderNeedsYouPill` + collapsed-only `FolderStatusRollup` + raw `(N)` count — all DELETED, incl. `countStatusRollup`. Segments by `countStatusCapsule(sessions, flags)` (`packages/client/src/lib/session/session-status-visuals.ts`). Fixed severity order `CAPSULE_SEGMENT_ORDER` = needs-you > error > working > idle; magnitude never reorders. Zero-count segments absent; no countable sessions → no capsule at all (all-ended folder shows none; its `N ended` disclosure row still reports size). Excludes `ended` + `hidden` before shape derivation. `flags.widgetBar` tri-state `(id) => boolean | undefined`; `true` or `undefined` excludes that ask_user session from EVERY bucket. Still per-session `WidgetBarProbe` + `useHasWidgetBarPrompt`, now capsule-owned. needs-you uses explicit predicate, not `deriveStatusShape`; re-adds `!hasError` guard — errored ask_user counts once, as error. `notice` shape folds into `idle` bucket; retrying counts as `working`. Counts cap at `999+`. Non-idle segments = `<button>`s → first session of that state via `firstIds[bucket]`; idle = inert `<span>` + aria-label. Activation `stopPropagation()` → SessionList reveal path (`onSeekToCard` / `revealRequest`): inherits guarded expand, layout-settled scroll, hidden/filtered degrade toasts. Colors from `--status-*` family only, never `--severity-*`; no new CSS custom property. Capsule `flex-none` + `whitespace-nowrap`; sheds nothing; folder name absorbs width pressure. Test ids: `folder-status-capsule-<cwd>`, `folder-capsule-seg-{needs-you,error,working,idle}-<cwd>`.
 - **Opt-in urgency sort.** `useFolderUrgencySort` per-folder pref, default off, localStorage `dashboard:folder-urgency-sort`. When on, `SessionList` floats ask_user sessions first within active tier via `floatAskUserFirst`. Toggle = folder actions menu item `urgency-sort` (`mdiSortVariant`), `aria-pressed` bound to `urgencySort.isOn(cwd)`. Per-folder persisted preference unchanged.
+
+### EventBus Forwarding Mechanism (subscription-based, change: fix-automation-run-lifecycle)
+
+**Host topology.**
+
+- `EventBus` = `node:events` wrapper. `pi-coding-agent/dist/core/event-bus.js`. Methods: `emit` / `on` / `clear`. NO wildcard channel.
+- One bus per pi process. Shared by all extensions.
+- `pi.events` = PER-EXTENSION facade over that bus. `createExtensionAPI` -> `events: { emit, on }`. `pi-coding-agent/dist/core/extensions/loader.js`.
+
+**Why NOT an emit intercept.**
+
+- Patching `pi.events.emit` mutates only the patching extension's facade.
+- Foreign emissions bypass the patch. Emitters affected: pi-flows, pi-subagents.
+- Old bridge patched `emit`. Consequence: zero live `flow_*` / `subagent_*` `event_forward` ever left the bridge.
+- Flow cards rebuilt from persisted `custom/flow-event` JSONL. `packages/shared/src/state-replay.ts`.
+- Automation runs with a `flows.run` action stayed `status: "running"`.
+- Stale-run reaper finalized them `error: "run exceeded max age"` ~30 min later.
+- Measured: 101 runs, 0 reached `done`.
+- Proof: bridge `pi.events.on("flow:complete")` fired; patched `emit` never entered for that channel.
+
+**Current mechanism.**
+
+- `registerEventBusForwarding`. `packages/extension/src/flow-event-wiring.ts`.
+- ONE `pi.events.on(channel, ...)` subscription per declared channel.
+- `on()` observes every emitter.
+- Declared set = keys of `FLOW_EVENT_MAP` + `SUBAGENT_EVENT_MAP` + optional `extraMaps` (currently none passed).
+- Channel list IS the contract. Undeclared channel -> never forwarded.
+- New channel -> new map entry. Identity entry when no rename wanted.
+- Retired: wildcard forwarding of any unknown channel. Unimplementable without an emit intercept.
+
+**Forward gates.** `forwardBusEvent`, same file.
+
+- Subagent channel -> forward only when `sessionReady && isActive() && connection.isConnected`.
+- Else buffer latest-wins per agent in `SubagentFrameBuffer`. Flushed on re-register / reconnect.
+- Other declared channel -> forward when `sessionReady && isActive()`.
+- Forwarding failure never propagates to the emitter.
+- Forwarding failure drops that live frame. Nothing re-sends it. Subagent frames are the exception (buffered).
+
+**Teardown.** dispose returned by `registerEventBusForwarding`.
+
+- Removes only the bridge's own subscriptions.
+- Restores nothing. Bridge never replaces a host function.
 
 ### Retry Lifecycle (change: retry-forever-with-stop-control)
 
@@ -461,11 +497,12 @@ Descriptor-only slots (existing in `extension-ui-system`): `management-modal`, `
 
 #### Health endpoint observability
 
-`/api/health` exposes four additive measurement fields (no behavior change). Existing clients ignore unknown fields. See change: instrument-session-hydration-timing.
+`/api/health` exposes five additive measurement fields (no behavior change). Existing clients ignore unknown fields. See change: instrument-session-hydration-timing.
 - `eventLoopDelay: { meanMs, p99Ms, maxMs }` — `perf_hooks.monitorEventLoopDelay` histogram, ns→ms. Resets window each read.
 - `hydration: HydrationSample[]` — ring buffer, ≤20 newest-first samples. Process-local, no persistence. Sample `{ sessionId, wallMs, fileBytes, entryCount, eventCount, at }` recorded by `loadSessionEvents`.
 - `eventLoopSpikes: { at, ms, turn }[]` — ring buffer, ≤50 newest-first, process-local, additive. Retains worst-case event-loop stalls. Two feeds: dedicated `monitorEventLoopDelay` sampler (own instance, never the boot histogram `/api/health` resets → no reset race; records `turn: null` for stalls no poll turn owns) + per-turn self-records from the openspec poll path (`turn: "tickOpen" \| "dirPollPre" \| "dirPollPost"`). Sub-threshold ~700 ms stall retained even when nobody polls `/api/health`. See change: attribute-openspec-poll-eventloop-stalls.
 - `notifyLog: { evictedEntries, bySession }` — from `browserGateway.getNotifyLogStats()` (`packages/server/src/pairing/notify-log.ts` `getStats()`). `evictedEntries` = total cap-50 evictions; `bySession` = per-session counts. Cap-50 eviction = silent transcript loss → counted beside `droppedFrames` / `storeTrim`. See change: split-notify-from-prompt-request.
+- `storeTrim: { trimmedEvents: { total, toolExecutionEnd, bySession }, evictedSessions, collapsedUpdates }` — from `eventStore.getTrimStats()` (`packages/server/src/persistence/memory-event-store.ts`). `trimmedEvents` + `evictedSessions` pre-existing: per-session cap trims, whole-session LRU evictions. See change: instrument-event-store-trim. NEW `collapsedUpdates`: cumulative count of superseded `tool_execution_update` events dropped at retention. Collapse keeps ≤2 `tool_execution_update` per `toolCallId`: pinned creating tick (first-wins `type`/`description`) + newest tail. Retention-only — never suppresses live broadcast; browser still receives every tick. Predecessor dropped only when successor subsumes it (superset gate on `partialResult.details`). Counters cumulative for process lifetime, never reset on read. No event store wired → `EMPTY_TRIM_STATS` (all-zero), exported from store. Harness A/B (4 sessions × 4 sustained subagent rounds): retained `tool_execution_update` per buffer 36 → 2; buffer share 18.4% → 1.2%. See change: collapse-superseded-tool-execution-updates.
 
 **Bundled-by-default plugins:** The plugin loader treats all plugins identically (same manifest, same discovery, same `enabled` flag, same failure isolation). What distinguishes "bundled-by-default" plugins (initial set: `git-plugin`) is purely operational — the build pipeline always includes them in `packages/`. Their absence is a deliberate user opt-out, not a normal state. OpenSpec, Flows, and Subagents plugins are bundled in standard builds but their absence is a normal use case (e.g. a workspace without OpenSpec).
 
@@ -2335,29 +2372,16 @@ Both `pi-dashboard start` (CLI) and the bridge extension's `launchServer` write 
 
 When `autoStart` is `true` (default), the bridge extension automatically starts the dashboard server:
 
-```
-pi session_start
-       │
-       ▼
-  ensureConfig() → create ~/.pi/dashboard/config.json if missing
-  loadConfig()   → read piPort, port, autoStart
-       │
-       ▼
-  TCP probe localhost:{piPort}
-       │
-  ┌────┴────┐
-  │ open    │ closed & autoStart=true
-  │         │
-  ▼         ▼
-connect   spawn server (detached)
-silently  pass --port & --pi-port
-               │
-               ▼
-          notify user:
-          "🌐 Dashboard started at http://localhost:{port}"
-               │
-               ▼
-            connect
+```mermaid
+flowchart TD
+    Start["pi session_start"] --> Config["ensureConfig() → create ~/.pi/dashboard/config.json if missing"]
+    Config --> Load["loadConfig() → read piPort, port, autoStart"]
+    Load --> Probe['TCP probe localhost:{piPort}']
+    Probe --> Open{port open?}
+    Open -->|"open"| Connect["connect (silently)"]
+    Open -->|"closed & autoStart=true"| Spawn["spawn server (detached), pass --port & --pi-port"]
+    Spawn --> Notify['notify user: "🌐 Dashboard started at http://localhost:{port}"']
+    Notify --> Connect2["connect"]
 ```
 
 The server is spawned detached (`child_process.spawn` with `detached: true`, stdout/stderr redirected to `~/.pi/dashboard/server.log`), so it outlives the pi session. If multiple pi sessions start simultaneously, duplicate spawn attempts fail harmlessly with EADDRINUSE. After a failed launch, the bridge re-probes the port — if another agent started the server concurrently, the warning is suppressed. The auto-start logic is extracted into `server-auto-start.ts` for testability.
@@ -2471,14 +2495,25 @@ The dashboard includes a browser-based terminal emulator for direct shell access
 
 ### Architecture
 
-```
-Browser                              Server
-┌────────────────┐            ┌──────────────────┐
-│  xterm.js      │            │ TerminalManager   │
-│  (per terminal)│◄──binary──►│  ├─ node-pty      │
-│  FitAddon      │    WS      │  ├─ RingBuffer    │
-│  AttachAddon   │            │  └─ clients Set   │
-└────────────────┘            └──────────────────┘
+```mermaid
+flowchart LR
+    subgraph Browser["Browser"]
+        X["xterm.js (per terminal)"]
+        Fit["FitAddon"]
+        Att["AttachAddon"]
+    end
+    subgraph ServerSide["Server"]
+        TM["TerminalManager"]
+        PTY["node-pty"]
+        RB["RingBuffer"]
+        CS["clients Set"]
+    end
+    X --- Fit
+    X --- Att
+    TM --- PTY
+    TM --- RB
+    TM --- CS
+    X <-->|"binary WS"| TM
 ```
 
 ### WebSocket Protocol
@@ -2781,27 +2816,14 @@ MSYS exists for legitimate reasons (porting GCC, Autotools, git itself — softw
 
 ### The four-cell failure-mode matrix
 
-```
-                          HOST OS
-                       ┌─────────────┬─────────────────┐
-                       │  POSIX      │  Windows        │
-        ───────────────┼─────────────┼─────────────────┤
-        argv-position  │  works      │  works          │
-        path           │             │  (MSYS converts)│
-        ───────────────┼─────────────┼─────────────────┤
-        EMBEDDED       │  works      │  ❌ broken      │
-        in JS source   │             │  MSYS can't     │
-        passed via     │             │  see inside     │
-        node -e "..."  │             │  string         │
-        ───────────────┼─────────────┼─────────────────┤
-        --import URL   │  works      │  ❌ broken      │
-        as raw path    │             │  Node parses B: │
-        (no file://)   │             │  as URL scheme  │
-        ───────────────┼─────────────┼─────────────────┤
-        inside .mjs    │  works      │  works          │
-        path.resolve   │             │                 │
-        ───────────────┴─────────────┴─────────────────┘
-```
+Host OS across, path form down.
+
+| Path form | POSIX | Windows |
+|---|---|---|
+| argv-position path | works | works (MSYS converts) |
+| EMBEDDED in JS source, passed via `node -e "..."` | works | ❌ broken — MSYS can't see inside string |
+| `--import` URL as raw path (no `file://`) | works | ❌ broken — Node parses `B:` as URL scheme |
+| inside `.mjs`, `path.resolve` | works | works |
 
 The two broken cells map to existing repo invariants:
 
@@ -2946,23 +2968,18 @@ History source is **derived**, not stored: `extractUserPromptHistory(state.messa
 
 Inside `CommandInput`, history navigation uses a small state machine:
 
-```
-historyIndex: number | null    — null = not in history mode
-savedDraftRef: useRef<string>  — in-progress draft captured when history mode is first entered
+`historyIndex: number | null` — `null` = not in history mode.
+`savedDraftRef: useRef<string>` — in-progress draft captured when history mode first entered.
 
-  ArrowUp  (caret on first line, no dropdown, no pending, history.length > 0)
-    null  ─────────────────────────────────────────▶  0         (save current text first)
-    k     ─────────────────────────────────────────▶  min(k+1, len-1)
-  ArrowDown (caret on last line, no dropdown, historyIndex != null)
-    k > 0 ─────────────────────────────────────────▶  k - 1
-    0     ─────────────────────────────────────────▶  null      (restore savedDraftRef)
-  Escape  (historyIndex != null)
-    k     ─────────────────────────────────────────▶  null      (restore savedDraftRef)
-  any text edit while historyIndex != null
-    k     ─────────────────────────────────────────▶  null      (user now editing; no restore)
-  sessionId change
-                                                      null, savedDraftRef = ""
-```
+| Event (guard) | From | To | Note |
+|---|---|---|---|
+| ArrowUp (caret on first line, no dropdown, no pending, `history.length > 0`) | `null` | `0` | save current text first |
+| ArrowUp (same guard) | `k` | `min(k+1, len-1)` | |
+| ArrowDown (caret on last line, no dropdown, `historyIndex != null`) | `k > 0` | `k - 1` | |
+| ArrowDown (same guard) | `0` | `null` | restore `savedDraftRef` |
+| Escape (`historyIndex != null`) | `k` | `null` | restore `savedDraftRef` |
+| any text edit while `historyIndex != null` | `k` | `null` | user now editing; no restore |
+| sessionId change | any | `null` | `savedDraftRef = ""` |
 
 **Bash-style caret gating** is critical: `ArrowUp` only triggers history when `selectionStart` is at or before the first `\n` (the textarea's native "ArrowUp" would have nowhere to go); `ArrowDown` only when `selectionStart` is at or after the last `\n`. Non-empty selections are excluded. This guarantees multiline editing (moving between rows with arrow keys) is never broken.
 
@@ -3324,3 +3341,68 @@ Caps (caps.ts): `maxActiveEmbedSessionsPerVisitor` + `maxActiveEmbedSessionsGlob
 `createEmbedLifecycleController` (embed-lifecycle-controller.ts) constructed in server.ts. Reaper `start()`/`stop()` tied to server lifecycle. Dormant when `enabled: false`.
 
 See change: add-embed-session-lifecycle.
+
+## Knowledge Base (KB)
+
+Markdown knowledge base backed by a single FTS5 table (`chunks`) over `node:sqlite`. Zero network, zero LLM — all ranking is mechanical. Backend `SqliteFtsStore` (`packages/kb/src/sqlite-store.ts`). Config layered project → global → defaults (`packages/kb/src/config.ts`).
+
+### KB retrieval pipeline
+
+`store.search()` post-processes one FTS5 BM25 pass with a staged pipeline. Stage order:
+
+1. **Body-hash collapse** (exact-content dedup) — byte-identical chunks collapse to one `KbHit`; alternate locations become `akaPaths`. Runs FIRST so `akaPaths` computes against the full candidate set.
+2. **Source dedup** — one hit per `(root, path)`; representative = best (lowest) BM25 score; suppressed remainder counted in `KbHit.suppressedSections`.
+3. **MMR** (`diversity`, lexical over bodies, config-gated, default on).
+4. **Coverage rerank** — opt-in, default off.
+5. **Lane interleave** — `agents` lane blended into the page.
+6. **Limit slice**.
+7. **Parent expand** (`expandParent`, default on) — attaches parent `headingPath` to each hit.
+
+Source dedup differs from body-hash dedup: body-hash answers "same content, two places"; source dedup answers "already showed this file". A file vendored under two roots collapses across roots first, then dedups by source.
+
+#### `limit` = distinct sources (BREAKING)
+
+`limit` bounds **distinct sources**, not chunks. Contract change for `kb_search`, `kb search`, `store.search()`. `store.search()` still returns `KbHit[]`; only cardinality semantics change.
+
+Source dedup shrinks one source to one slot, so a pool sized at `limit` starves the page. Fetch depth = `limit × 6` when source dedup on (`limit × 4` body-hash only), capped at 4000.
+
+#### Lane quota (`ranking.laneQuota`)
+
+`agents` chunks are 3.2% of the index and ~3× longer than `doc`, so BM25 length normalisation buries the per-file record layer ~30:1. Fix is engine-side: second FTS pass restricted to `doc_type='agents'` with a shallow pool, interleaved at `ranking.laneQuota` (default 0.5). Explicit `docType` bypasses the quota. Starved lane yields its slots to the other; a source taken by one lane is never repeated (when source dedup on).
+
+Swept over bundled fixtures; 0.5 = largest reserved share with no markdown-intent regression. See `measurements.md` sweep table.
+
+#### Coverage rerank + PRF — off by default
+
+Coverage rerank (`ranking.coverageRerank`) + RM3-style PRF (`queryExpansion.mode: "prf"`) implemented, tested, config-gated, **default off**. Measured a net regression on bundled fixtures (markdown-intent R@10 0.630 → 0.491; combined 0.566 → 0.524; latency ~4×). PRF applies only with coverage rerank on; expanding an OR-query deepens the dilution the rerank exists to cure. Do not present as active. See `measurements.md` D4.
+
+#### Condensed render
+
+Result render emits leaf heading, not breadcrumb, plus `(+N more sections)`. Full `headingPath` retained in `KbHit` and the JSON format, so `kb_get(path, section)` still addresses a section.
+
+#### `kb_get` path-only fetch
+
+Path-only fetch (`getChunk` without `headingPath`) returns first chunk plus `suppressedSections` count. Never a silent 1-of-N slice.
+
+#### Measured outcome (31,121-chunk index, K=10)
+
+| metric | baseline | shipped |
+|---|---|---|
+| combined R@10 | 0.363 | 0.566 (+56%) |
+| duplicate-slot share | 0.48 | 0.00 |
+| distinct sources/page | 5.2 | 10.0 |
+| render tokens/page | — | −32.8% |
+
+Reproduce + full variant table: `packages/kb/eval/` (`run-fixtures.ts`, `measure-render.ts`).
+
+#### Latency — budget met at median, not p95
+
+| config | median | p95 |
+|---|---|---|
+| baseline | 20.6 ms | 34.8 ms |
+| + source dedup | 25.5 ms | 38.2 ms |
+| + lane quota 0.5 | 53.2 ms | 84.8 ms |
+
+Lane quota is the cost: its `agents` lane is a second FTS query, and `doc_type` is an UNINDEXED FTS5 column — cannot be answered by an index, scans the full match set. Scaled 31,121 → ~22,000 chunks: ≈38 ms median (passes 50 ms budget), ≈60 ms p95 (fails).
+
+See change: fix-kb-search-retrieval-quality.

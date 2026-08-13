@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect } from "./fixtures.js";
 import { spawnFreshGitSession, sendPrompt } from "./helpers/index.js";
 
 // Faux round-trip — plain assistant text.
@@ -20,8 +20,22 @@ test.describe("faux round-trip — plain text", () => {
 
     await sendPrompt(page, "[[faux:plain-text]] go");
 
+    // The ACK settles the optimistic card, not the 30s safety timeout: assert
+    // inside a window far below `TIMEOUT_MS`, and that the failed arm never
+    // appears. See change: fix-optimistic-prompt-stuck-sending, test-plan #F1.
+    // NOT asserted: the transient `sent` tick. The user `message_start` clears
+    // the bubble entirely, and against the faux model that can land in the same
+    // frame as the ack — asserting the tick would be racy. The composer gate is
+    // the stable ack-settlement observable: it re-enables ONLY when the prompt
+    // is no longer `sending`.
+    await expect(page.getByTestId("pending-prompt-failed")).toHaveCount(0);
+    await expect(page.getByPlaceholder(/message/i).first()).toBeEnabled({
+      timeout: 15_000,
+    });
+
     await expect(page.getByText(PLAIN_TEXT_MARKER).first()).toBeVisible({
       timeout: 30_000,
     });
+    await expect(page.getByTestId("pending-prompt-failed")).toHaveCount(0);
   });
 });

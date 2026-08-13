@@ -120,6 +120,61 @@ describe("parseCtxResult — error classification", () => {
     expect(r).toMatchObject({ kind: "error", variant: "runtime" });
     if (r.kind === "error") expect(r.message).toContain("Exit code: 1");
   });
+
+  // ── repair-tool-error-surfaces: the runtime error's execution shape ──────────
+  it("runtime error with the execution shape is structured into fields", () => {
+    const r = parseCtxResult("ctx_execute", fx.err_runtime_fenced, true);
+    expect(r).toMatchObject({ kind: "error", variant: "runtime" });
+    if (r.kind !== "error") return;
+    expect(r.language).toBe("shell");
+    expect(r.command).toContain("npm run test:e2e");
+    expect(r.command).not.toContain("```");
+    expect(r.command).not.toContain("Exit code");
+    expect(r.exitCode).toBe(1);
+    expect(r.stdout).toBe("");
+    expect(r.stderr).toBe("");
+  });
+
+  it("runtime error captures streams even without a fenced command", () => {
+    const r = parseCtxResult("ctx_execute", fx.err_runtime, true);
+    if (r.kind !== "error") throw new Error("expected error kind");
+    expect(r.command).toBeUndefined();
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain("TypeError: 'NoneType' object is not subscriptable");
+  });
+
+  it("plain-sentence runtime error leaves the fields undefined and keeps message", () => {
+    const r = parseCtxResult("ctx_execute", fx.err_runtime_plain, true);
+    expect(r).toMatchObject({ kind: "error", variant: "runtime" });
+    if (r.kind !== "error") return;
+    expect(r.command).toBeUndefined();
+    expect(r.language).toBeUndefined();
+    expect(r.exitCode).toBeUndefined();
+    expect(r.stdout).toBeUndefined();
+    expect(r.stderr).toBeUndefined();
+    expect(r.message).toBe(fx.err_runtime_plain);
+  });
+
+  it("prose above the dump is kept as a preamble, never dropped", () => {
+    const r = parseCtxResult("ctx_execute", `Runtime error: sandbox refused.\n\n${fx.err_runtime}`, true);
+    if (r.kind !== "error") throw new Error("expected error kind");
+    expect(r.preamble).toBe("Runtime error: sandbox refused.");
+    expect(r.exitCode).toBe(1);
+  });
+
+  it("never throws on partial or malformed execution shapes", () => {
+    const bodies = [
+      "```shell\nunterminated fence",
+      "Exit code: not-a-number",
+      "stdout:",
+      "stderr:\n\n\nstdout:\nout",
+      "```\n\n```\nExit code: -1",
+    ];
+    for (const body of bodies) {
+      const r = parseCtxResult("ctx_execute", body, true);
+      expect(r.kind).toBe("error");
+    }
+  });
 });
 
 describe("parseCtxResult — raw fallback never throws", () => {

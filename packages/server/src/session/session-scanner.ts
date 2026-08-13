@@ -10,6 +10,7 @@ import { resolvePiSessionsDir } from "@blackbelt-technology/pi-dashboard-shared/
 import { metaPath, readSessionMeta, type SessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { condenseForFirstMessage } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
 import type { DashboardSession, SessionSource } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { readJsonlMtime } from "./derive-ended-at.js";
 import { extractSessionStats } from "./session-stats-reader.js";
 
 function getSessionsDir(): string {
@@ -40,19 +41,6 @@ function extractTimestamp(filename: string): number {
   return isNaN(ts) ? Date.now() : ts;
 }
 
-/**
- * Read the events.jsonl mtime as a cold-start seed for `lastActivityAt`.
- * Returns `undefined` on stat failure — callers fall back to `startedAt` at
- * render time. See change: session-card-last-activity-badge.
- */
-function readJsonlMtime(sessionFile: string): number | undefined {
-  try {
-    return statSync(sessionFile).mtimeMs;
-  } catch {
-    return undefined;
-  }
-}
-
 /** Build a DashboardSession from cached `.meta.json` data */
 function sessionFromMeta(
   sessionId: string,
@@ -61,6 +49,12 @@ function sessionFromMeta(
   meta: SessionMeta,
   startedAt: number,
 ): DashboardSession {
+  // One stat per rebuilt session: the same mtime seeds last-activity, the
+  // lifecycle at-rest mark, and (when the persisted meta lacks one) the
+  // evidence-derived `endedAt`.
+  const jsonlMtime = readJsonlMtime(sessionFile);
+  const status = (meta.status as DashboardSession["status"]) ?? "ended";
+  const resolvedStartedAt = meta.startedAt ?? startedAt;
   return {
     id: sessionId,
     cwd: meta.cwd ?? "",
@@ -76,19 +70,23 @@ function sessionFromMeta(
     // Restore retained notifications so the transcript keeps its notification
     // rows across a restart. See change: split-notify-from-prompt-request.
     notifyLog: meta.notifyLog,
-    status: (meta.status as DashboardSession["status"]) ?? "ended",
+    status,
     model: meta.model,
     thinkingLevel: meta.thinkingLevel,
-    startedAt: meta.startedAt ?? startedAt,
-    endedAt: meta.endedAt,
+    startedAt: resolvedStartedAt,
+    // The dominant reproduction path: a defective meta carries no `endedAt`, and
+    // the cache-fresh branch never rewrites it. Derive from the same evidence
+    // rule rather than faithfully reproducing the defect.
+    // See change: fix-ended-session-missing-endedat.
+    endedAt: meta.endedAt ?? (status === "ended" ? (jsonlMtime ?? resolvedStartedAt) : undefined),
     // Seed last-activity from events.jsonl mtime so the session-card relative-time
     // badge survives server restarts. See change: session-card-last-activity-badge.
-    lastActivityAt: readJsonlMtime(sessionFile),
+    lastActivityAt: jsonlMtime,
     // Seed the lifecycle at-rest mark from the same mtime so a rehydrated
     // quiescent ephemeral session is immediately evaluable by the reaper's
     // quiescence gate without waiting for a fresh run to settle (E14).
     // See change: add-embed-session-lifecycle.
-    lastSettledAt: readJsonlMtime(sessionFile),
+    lastSettledAt: jsonlMtime,
     tokensIn: meta.tokensIn ?? 0,
     tokensOut: meta.tokensOut ?? 0,
     cacheRead: meta.cacheRead,
@@ -259,6 +257,10 @@ export function scanAllSessions(sessionsDir?: string): ScanResult {
         name: meta?.name ?? header.name,
         startedAt,
         status: "ended",
+        // Persist an evidence-derived end time so the rebuilt meta is not itself
+        // a fresh source of ended-without-endedAt records; an existing value in
+        // prior meta wins. See change: fix-ended-session-missing-endedat.
+        endedAt: meta?.endedAt ?? readJsonlMtime(sessionFile) ?? startedAt,
         ...(stats ? {
           model: stats.model,
           thinkingLevel: stats.thinkingLevel,

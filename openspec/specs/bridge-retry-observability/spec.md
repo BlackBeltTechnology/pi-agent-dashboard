@@ -3,9 +3,7 @@
 ## Purpose
 
 pi-coding-agent owns its provider-retry policy and exposes NO `auto_retry_*` events to extensions. When a provider call fails with a retryable error, pi fires `message_end` for the failed assistant message, sleeps through a provider backoff (5–60 s), then starts a fresh assistant `message_start` for the next attempt — all inside a single agent turn. The dashboard bridge cannot subscribe to pi's internal retry lifecycle, so this capability RECONSTRUCTS it by OBSERVING the message/agent event sequence, synthesizes `auto_retry_start` / `auto_retry_end` events for the dashboard, and keeps a user abort effective across a long backoff that outlives the persistent-abort scheduler.
-
 ## Requirements
-
 ### Requirement: Synthesize retry lifecycle from observed events
 
 The bridge SHALL synthesize `auto_retry_start` and `auto_retry_end` by observing pi's real
@@ -19,9 +17,10 @@ NOTHING and the retry surface was dead. The corrected rules are:
 
 - An assistant `message_end` with `stopReason: "error"` SHALL record a pending failure for the
   session. It SHALL NOT clear the chain.
-- An `agent_end` whose last message is an error SHALL be treated as **an attempt that ended
-  with another one coming**, NOT as terminal. It SHALL emit `auto_retry_start` for that attempt
-  and a **waiting signal**, and SHALL NOT clear the session's retry tracking.
+- An `agent_end` whose last **assistant** message is an error SHALL be treated as **an attempt
+  that ended with another one coming**, NOT as terminal. It SHALL emit the **waiting signal** for
+  that attempt — NOT `auto_retry_start`, which is emitted by the FOLLOWING `agent_start` when the
+  awaited attempt actually begins — and SHALL NOT clear the session's retry tracking.
 - `agent_settled` SHALL be the SOLE terminal signal. It SHALL close the chain with
   `auto_retry_end` and clear all per-session retry tracking.
 
@@ -43,6 +42,17 @@ pi's predicate is
 bridge SHALL honor the first two conditions (both settings-readable) when deciding whether to emit a
 waiting signal, and SHALL NOT replicate `_isRetryableError` — duplicating pi's regex classifier is
 forbidden. Retryability therefore remains observed, never predicted.
+
+**The failed-turn predicate reads the last ASSISTANT message.** The bridge SHALL determine
+whether an observed turn failed by inspecting the last message in `agent_end.data.messages`
+whose `role` is `"assistant"`, located by scanning the array backward from the end. It SHALL
+NOT assume the final array element is the assistant message — a turn can legitimately end with
+a trailing `toolResult`, in which case a bare `messages[length - 1]` read misses the error and
+the chain never arms, yielding no retry counting even though pi is retrying.
+
+This mirrors pi's own `_willRetryAfterAgentEnd` predicate, so the bridge's belief about whether
+a retry will occur cannot diverge from pi's actual behavior. The determination SHALL be
+structural — keyed on `role` and `stopReason` — and SHALL NOT inspect error message text.
 
 #### Scenario: Error agent_end emits a waiting signal instead of clearing the chain
 
@@ -112,6 +122,38 @@ forbidden. Retryability therefore remains observed, never predicted.
 - **WHEN** `agent_settled` follows immediately after the `agent_end`
 - **THEN** the chain SHALL close as terminal — because no further attempt was observed, NOT
   because a regex rejected the string
+
+#### Scenario: Error turn ending with a trailing toolResult still arms the chain
+
+- **GIVEN** an `agent_end` whose `messages` array ends with a `toolResult` entry
+- **AND** the last entry with `role: "assistant"` carries `stopReason: "error"`
+- **THEN** the bridge SHALL treat the turn as failed
+- **AND** SHALL emit a waiting signal carrying the attempt number and computed delay
+- **AND** SHALL NOT clear the session's pending failure or attempt counter
+
+#### Scenario: Trailing non-assistant entries do not suppress attempt counting
+
+- **GIVEN** a retry chain where every failed turn ends with a trailing `toolResult`
+- **WHEN** three such turns are observed in sequence
+- **THEN** the emitted attempt numbers SHALL be `2` then `3`
+- **AND** at least one `auto_retry_start` SHALL be synthesized
+- **AND** the attempt counter SHALL NOT remain at its initial value
+
+#### Scenario: Clean turn ending with a trailing toolResult closes the chain
+
+- **GIVEN** an active retry chain
+- **AND** an `agent_end` whose last `role: "assistant"` message has a `stopReason` other than `"error"`
+- **WHEN** the array's final element is a `toolResult`
+- **THEN** the bridge SHALL treat the turn as successful
+- **AND** SHALL record that disposition on the chain
+- **AND** the chain SHALL remain open until `agent_settled`, which closes it with
+  `auto_retry_end` carrying `success: true`
+
+#### Scenario: No assistant message present
+
+- **GIVEN** an `agent_end` whose `messages` array contains no entry with `role: "assistant"`
+- **THEN** the bridge SHALL NOT treat the turn as failed
+- **AND** SHALL NOT emit a waiting signal
 
 ### Requirement: Close the retry chain on success or terminal error
 
@@ -206,3 +248,4 @@ The bridge SHALL, on a user abort, re-invoke a raw abort at fixed intervals for 
 
 - WHEN the aborted turn's `agent_end` flips streaming to false during the scheduler window
 - THEN the persistent-abort scheduler breaks early and stops re-issuing aborts
+

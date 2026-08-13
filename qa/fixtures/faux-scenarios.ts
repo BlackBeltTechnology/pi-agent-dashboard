@@ -236,6 +236,20 @@ export const LONG_TRANSCRIPT_TAIL = "long-transcript complete";
 export const NOTIFY_PROBE_MESSAGE = "e2e notify probe";
 
 /**
+ * Per-level notification texts the `notify-levels` scenario emits, one per
+ * `NotifyLevel`. Distinguishable on purpose: the notifyMinLevel e2e asserts
+ * which SUBSET of them survives a given floor, so each must be independently
+ * greppable in the rendered transcript.
+ * See change: gate-notify-rows-by-level.
+ */
+export const NOTIFY_LEVEL_MESSAGES = {
+  info: "e2e notify level info",
+  success: "e2e notify level success",
+  warning: "e2e notify level warning",
+  error: "e2e notify level error",
+} as const;
+
+/**
  * Build a deliberately LONG, heterogeneous transcript (Step B e2e fixture).
  *
  * Each turn streams a thinking block + an assistant text reply + one DISTINCT
@@ -899,6 +913,62 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "subagent spawn complete" },
   },
 
+  // Inner scenario for `subagent-sustained`: several SLEEPING bash calls so the
+  // subagent stays alive for ~6 s. The parent's `Agent` tool call emits a
+  // `tool_execution_update` roughly every 250 ms for that whole window, which
+  // is the sustained-tick workload the collapse policy exists to bound.
+  // See change: collapse-superseded-tool-execution-updates (test-plan P2/F4).
+  "subagent-slow-inner": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 2 && echo tick-one" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 2 && echo tick-two" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 2 && echo tick-three" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText("slow inner complete")]),
+    ],
+    expect: { text: "slow inner complete" },
+  },
+
+  // Parent that spawns a LONG-RUNNING subagent (`subagent-slow-inner`), so the
+  // Agent tool call produces a sustained run of `tool_execution_update` ticks
+  // carrying the cumulative subagent timeline. Drives the L3 collapse
+  // scenarios: `storeTrim.collapsedUpdates` must move off zero, and the live
+  // timeline must keep advancing (collapse is retention-only).
+  // See change: collapse-superseded-tool-execution-updates (test-plan P2/F4).
+  "subagent-sustained": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "faux sustained subagent",
+            prompt: "[[faux:subagent-slow-inner]] run the sustained subagent probe",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("sustained subagent complete")]),
+    ],
+    expect: { text: "sustained subagent complete" },
+  },
+
+  // ── OpenSpec auto-attach locality gate (change:
+  // scope-openspec-auto-attach-to-session-cwd) ───────────────────────────────
+  // The verbatim incident shape: an openspec CLI invocation prefixed with a
+  // `cd` into ANOTHER repository. The detector must drop the match entirely,
+  // so the card never attaches and never auto-renames. The bash tool runs for
+  // real; detection happens on `tool_execution_start` regardless of its exit
+  // code.
+  "openspec-foreign-cd": {
+    script: [
+      fauxAssistantMessage(
+        [fauxToolCall("bash", { command: "cd /tmp && openspec new change repo-b-change || true" })],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("foreign openspec command done")]),
+    ],
+    expect: { toolName: "bash" },
+  },
+
   // ── auto-canvas driver scenarios (change: auto-canvas, Sections 6–8) ────
   // A `write` of a renderable markdown deliverable. The server-side detect
   // (write/edit only, gated by RENDERER_BY_EXT + canvasTypes) pushes a DOC
@@ -1024,6 +1094,53 @@ export const SCENARIOS: Record<string, Scenario> = {
         { stopReason: "toolUse" },
       ),
       fauxAssistantMessage([fauxText("notify sent")]),
+    ],
+    expect: { toolName: "e2e_notify" },
+  },
+  /**
+   * Four notifies, one per level, through the REAL `ctx.ui.notify` path (the
+   * `e2e_notify` fixture tool already accepts `{message, level}`). Drives the
+   * notifyMinLevel ladder end to end. See change: gate-notify-rows-by-level.
+   */
+  "notify-levels": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_notify", {
+            message: NOTIFY_LEVEL_MESSAGES.info,
+            level: "info",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_notify", {
+            message: NOTIFY_LEVEL_MESSAGES.success,
+            level: "success",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_notify", {
+            message: NOTIFY_LEVEL_MESSAGES.warning,
+            level: "warning",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_notify", {
+            message: NOTIFY_LEVEL_MESSAGES.error,
+            level: "error",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("all notify levels sent")]),
     ],
     expect: { toolName: "e2e_notify" },
   },
