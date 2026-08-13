@@ -19,6 +19,7 @@ import type { PendingResumeIntentRegistry } from "../pending/pending-resume-inte
 import type { PiGateway } from "../pi/pi-gateway.js";
 import { keeperOptsFromSpawnResult } from "../spawn-process/headless-pid-registry.js";
 import { spawnPiSession } from "../spawn-process/process-manager.js";
+import { armSpawnWatchdog } from "../spawn-process/spawn-register-watchdog.js";
 import type { SessionManager } from "./memory-session-manager.js";
 
 export interface SessionApiDeps {
@@ -214,6 +215,10 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
       const doSpawn = async () => {
         const config = loadConfig();
         const spawnResult = await spawnPiSession(cwd, { strategy: config.spawnStrategy });
+        // REST spawn has no browser socket; the reclaim must run regardless, or
+        // a duplicate refused for contention keeps writing the incumbent's
+        // transcript. See change: fix-duplicate-bridge-registration (D0/D2).
+        armSpawnWatchdog(cwd, config.spawnStrategy as any, spawnResult);
         if (spawnResult.process && spawnResult.pid) {
           browserGateway.headlessPidRegistry.register(
             spawnResult.pid,
@@ -304,6 +309,7 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
         const degradeResult = await spawnPiSession(session.cwd, {
           strategy: degradeConfig.spawnStrategy,
         });
+        armSpawnWatchdog(session.cwd, degradeConfig.spawnStrategy as any, degradeResult);
         if (degradeResult.process && degradeResult.pid) {
           browserGateway.headlessPidRegistry.register(
             degradeResult.pid,
@@ -344,6 +350,8 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
         mode,
         strategy: config.spawnStrategy,
       });
+      // REST resume — the exact path that minted the incident's duplicate.
+      armSpawnWatchdog(session.cwd, config.spawnStrategy as any, spawnResult);
       // Fork bookkeeping uses the spawn token (not cwd) so two concurrent
       // forks in the same cwd correlate correctly. See change:
       // spawn-correlation-token.

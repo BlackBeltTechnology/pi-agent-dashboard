@@ -234,6 +234,26 @@ export async function handleSendPrompt(
       console.error(`[dashboard] auto-resume failed: no session file for session ${msg.sessionId}`);
       return;
     }
+    // Third continue-spawn site, so it needs D5's file guard too: a stale
+    // zombie record whose sessionFile a live bridge already serves under
+    // another id would otherwise mint a second pi against that transcript —
+    // the incident's exact shape. See change:
+    // fix-duplicate-bridge-registration (D5).
+    if (promptSession.sessionFile) {
+      const liveHolder = ctx.piGateway.findLiveSessionBySessionFile?.(promptSession.sessionFile);
+      if (liveHolder && liveHolder !== msg.sessionId) {
+        console.error(
+          `[dashboard] refusing reopen of ${msg.sessionId}: session file already served by live session ${liveHolder}`,
+        );
+        emitCommandFeedback(
+          ctx,
+          msg.sessionId,
+          "error",
+          `Session file is already served by live session ${liveHolder}`,
+        );
+        return;
+      }
+    }
     const alreadyResuming = promptSession.resuming;
     pendingResumeRegistry.record(promptSession.cwd, {
       text: msg.text,
@@ -255,7 +275,8 @@ export async function handleSendPrompt(
       mode: "continue",
       strategy: autoResumeConfig.spawnStrategy,
     });
-    armSpawnWatchdog(promptSession.cwd, autoResumeConfig.spawnStrategy as any, spawnResult, ws);
+    // No browser socket on this path — the reclaim runs regardless.
+    armSpawnWatchdog(promptSession.cwd, autoResumeConfig.spawnStrategy as any, spawnResult);
     if (!spawnResult.success) {
       console.error(`[dashboard] auto-resume spawn failed: ${spawnResult.message}`);
       pendingResumeRegistry.consume(promptSession.cwd);

@@ -13,6 +13,7 @@ import {
   createContentionTracker,
   decideClaim,
   formatContentionLine,
+  formatPid,
   isSocketAlive,
   type ProbeableSocket,
   resolveProbe,
@@ -359,7 +360,18 @@ export function createPiGateway(
             newcomerPid,
           });
 
-          if (decision.outcome === "accept") return true;
+          if (decision.outcome === "accept") {
+            // A same-pid displacement replaces a LIVE incumbent with no probe
+            // and no refusal, so it is otherwise indistinguishable from an
+            // ordinary re-register. Log it: the pid is self-reported, and this
+            // is the one path that bypasses the contention rule.
+            if (decision.reason === "same-pid") {
+              console.error(
+                `[gateway] same-pid reconnect replaces incumbent: ${sessionId} pid=${formatPid(newcomerPid)}`,
+              );
+            }
+            return true;
+          }
 
           // Contended: probe the incumbent within the bounded window.
           const held = incumbent as WebSocket;
@@ -368,6 +380,11 @@ export function createPiGateway(
           // The world may have moved during the probe: if the incumbent gave up
           // the entry meanwhile, there is nothing left to contend.
           if (connections.get(sessionId) !== held) return !refused;
+
+          // The newcomer may itself have died during the probe window. Handing
+          // it the routing entry would point the map at a dead socket and wedge
+          // the session until the heartbeat grace path reaps it.
+          if (ws.readyState !== WebSocket.OPEN) return false;
 
           const resolved = resolveProbe(held, ponged);
           if (resolved.outcome === "displace") {
@@ -525,6 +542,8 @@ export function createPiGateway(
               console.error(`[gateway] session unregistered: ${msg.sessionId} (explicit)`);
               sessionManager.unregister(msg.sessionId);
               connections.delete(msg.sessionId);
+              // Session end is one of the four D4 clearing triggers.
+              contention.clear(msg.sessionId);
               const timer = heartbeatTimers.get(msg.sessionId);
               if (timer) {
                 clearTimeout(timer);

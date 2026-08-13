@@ -1928,6 +1928,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                     // creation via `--name`. See change: adopt-pi-074-080-features.
                     ...(opts.automationRun?.name ? { name: opts.automationRun.name } : {}),
                   });
+                  // Plugin/automation spawn: transport-less, reclaim required.
+                  armSpawnWatchdog(opts.cwd, "headless", result);
                   if (result.process && result.pid) {
                     browserGateway.headlessPidRegistry.register(
                       result.pid,

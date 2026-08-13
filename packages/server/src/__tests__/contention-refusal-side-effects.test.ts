@@ -153,6 +153,30 @@ describe("refused register has no side effects", () => {
     await until(() => killed.includes(9999), 9000);
   }, 25000);
 
+  // ── X11 (entry-point coverage) ────────────────────────────────────────────
+  it("X11: every continue-spawn entry point arms the watchdog", async () => {
+    // D0/D2 name the entry points explicitly. The REST resume path is the one
+    // that minted the incident's duplicate, and it has no browser socket — so
+    // a `ws`-requiring arm silently skipped it.
+    const { readFileSync } = await import("node:fs");
+    const sites = [
+      "packages/server/src/session/session-api.ts",
+      "packages/server/src/server.ts",
+      "packages/server/src/browser-handlers/session-action-handler.ts",
+    ];
+    for (const site of sites) {
+      const src = readFileSync(new URL(`../../../../${site}`, import.meta.url), "utf-8");
+      const spawns = (src.match(/await spawnPiSession\(/g) ?? []).length;
+      // Either the shared helper or the original inline `watchdog.arm(...)`
+      // block counts — both leave the watchdog armed for the reclaim.
+      const arms =
+        (src.match(/armSpawnWatchdog\(/g) ?? []).length +
+        (src.match(/watchdog\.arm\(/g) ?? []).length;
+      expect(spawns, `${site} has spawn sites`).toBeGreaterThan(0);
+      expect(arms, `${site} arms the watchdog for every spawn site`).toBeGreaterThanOrEqual(spawns);
+    }
+  }, 25000);
+
   it("X11: arming without a browser socket does not throw when the timeout fires", async () => {
     const errors: unknown[] = [];
     process.once("uncaughtException", (e) => errors.push(e));

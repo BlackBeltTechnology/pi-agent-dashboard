@@ -147,11 +147,13 @@ describe("session-file resume guard (REST)", () => {
 
   // ── X14 ───────────────────────────────────────────────────────────────────
   it("X14: once the holder's bridge is gone the same continue proceeds", async () => {
-    const before = await bridgeCount();
+    // A non-automation close deliberately leaves the map entry in place for the
+    // reconnect grace window, so `activeBridgeCount` does NOT drop here. The
+    // guard keys on D1 liveness, which follows `readyState` — wait for that.
     const holder = sockets.find((s) => s.readyState === WebSocket.OPEN)!;
     holder.close();
     for (let i = 0; i < 300; i++) {
-      if ((await bridgeCount()) < before) break;
+      if (holder.readyState === WebSocket.CLOSED) break;
       await delay(10);
     }
     await delay(50);
