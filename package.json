@@ -111,6 +111,7 @@
     "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
     "@earendil-works/pi-ai": "^0.75.5",
     "@playwright/test": "1.61.1",
+    "acorn": "^8.17.0",
     "jiti": "^2.7.0",
     "jsdom": "^29.0.2",
     "jsqr": "^1.4.0",

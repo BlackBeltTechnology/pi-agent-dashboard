@@ -1601,6 +1601,42 @@ Cross-refs:
 
 ---
 
+## Why does the dashboard server host die at startup with `NameTooLong` / `data:text/javascript`?
+
+jiti ESM fallback fails on Bun compiled binaries. One defect, two symptoms.
+
+Symptom A — async path:
+- Host dies at startup. Error: `ResolveMessage: NameTooLong while resolving package 'data:text/javascript;base64,…'`.
+- Seen on Bun single-file hosts. Built with `bun build --compile`.
+
+Symptom B — sync path:
+- Bare `SyntaxError`. Mentions `import.meta`. No `NameTooLong` text.
+- Same defect. jiti ESM fallback async-only. Sync load path surfaces as plain syntax error.
+
+Cause:
+- jiti transpiles TypeScript to CommonJS. Evaluates in a `vm` function wrapper.
+- Raw `import.meta` there is a `SyntaxError`.
+- jiti recovery: re-import module as native ESM. Uses `data:text/javascript;base64,…` specifier.
+- Node accepts that specifier. Bun compiled-binary resolver treats it as package name. Resolves against embedded filesystem. ~10 KB "name" exceeds filename limit.
+- jiti oversized-payload guard keys on `err.code === "ENAMETOOLONG"`. Bun throws `ResolveMessage` with no such `code`. Guard misses.
+
+Remedy:
+- Set `JITI_ESM_EVAL_TEMP_FILE=1`.
+- jiti writes fallback module to temp `.mjs` file. Imports by path instead of `data:` URL.
+
+Precondition:
+- Writable `os.tmpdir()` required. Sandboxed or read-only host may not provide one.
+
+`-ne` NOT acceptable workaround:
+- Disables bridge. Loses dashboard visibility. Exactly the unattended runs worth observing.
+
+First-party cause fixed as of change `fix-jiti-cjs-transpile-safety` (issue #408). Env var stays valid for older installs + any third-party module reintroducing the shape.
+
+Cross-refs:
+- openspec/changes/fix-jiti-cjs-transpile-safety/
+
+---
+
 ## How do I ensure bridge extension loads in packaged Electron?
 
 Bridge extension (`packages/extension/src/bridge.ts`) NOT bundled in DEB/DMG by default. Without it, pi sessions start but never connect to dashboard WebSocket gateway.
