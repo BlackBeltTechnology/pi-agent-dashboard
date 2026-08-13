@@ -575,3 +575,59 @@ describe("subscriptions/listen through the REAL route (not a mock hook)", () => 
     expect(h.registry.size).toBe(0);
   });
 });
+
+describe("the throttle is wired into the route", () => {
+  it("returns 429 with Retry-After after repeated auth failures", async () => {
+    const { app } = await harness();
+
+    let last = await app.inject({
+      method: "POST",
+      url: "/mcp",
+      headers: { authorization: "Bearer wrong", "mcp-protocol-version": V },
+      payload: rpc("tools/list"),
+    });
+    expect(last.statusCode).toBe(401);
+
+    for (let i = 0; i < 15; i += 1) {
+      last = await app.inject({
+        method: "POST",
+        url: "/mcp",
+        headers: { authorization: "Bearer wrong", "mcp-protocol-version": V },
+        payload: rpc("tools/list"),
+      });
+    }
+
+    expect(last.statusCode).toBe(429);
+    expect(Number(last.headers["retry-after"])).toBeGreaterThan(0);
+  });
+
+  it("a VALID credential is never throttled, however many requests it makes", async () => {
+    // The failure mode this guards against is a self-inflicted outage: a
+    // legitimate MCP session driving a fleet must not lock itself out.
+    const { app, tokens } = await harness();
+    const token = tokens.mintForSession("session-a");
+
+    for (let i = 0; i < 50; i += 1) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/mcp",
+        headers: authed(token),
+        payload: rpc("tools/list"),
+      });
+      expect(res.statusCode).toBe(200);
+    }
+  });
+
+  it("no tool runs while throttled", async () => {
+    const { app, invokeTool } = await harness();
+    for (let i = 0; i < 20; i += 1) {
+      await app.inject({
+        method: "POST",
+        url: "/mcp",
+        headers: { authorization: "Bearer wrong", "mcp-protocol-version": V },
+        payload: rpc("tools/call", { name: "list_sessions", arguments: {} }),
+      });
+    }
+    expect(invokeTool).not.toHaveBeenCalled();
+  });
+});

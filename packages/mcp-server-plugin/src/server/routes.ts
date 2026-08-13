@@ -24,6 +24,7 @@ import { type DispatchDeps, dispatchRpc, parseSubscriptionFilter } from "./dispa
 import { RPC_INVALID_PARAMS, RPC_METHOD_NOT_FOUND } from "./jsonrpc.js";
 import type { EventSource, StreamSink, SubscriptionRegistry } from "./streaming.js";
 import type { McpCaller } from "./tokens.js";
+import { AuthFailureThrottle } from "./rate-limit.js";
 
 /**
  * Methods that must answer 405 rather than reaching the SPA fallback.
@@ -58,6 +59,8 @@ export interface McpRouteDeps extends AuthDeps, DispatchDeps {
    * unsupported rather than advertised-and-broken.
    */
   streaming?: { registry: SubscriptionRegistry; source: EventSource };
+  /** Injectable for tests; a default instance is created when absent. */
+  throttle?: AuthFailureThrottle;
 }
 
 /**
@@ -165,6 +168,10 @@ function mountMcpRoutesInScope(fastify: FastifyInstance, deps: McpRouteDeps): vo
   // provide. Computed here rather than per request.
   const dispatchDeps: McpRouteDeps = { ...deps, streamingAvailable: hasStreaming(deps) };
 
+  // Brute-force control for the credential comparison below. Only FAILED
+  // attempts count, so legitimate traffic is never throttled.
+  const throttle = deps.throttle ?? new AuthFailureThrottle();
+
   for (const method of EXPLICITLY_REGISTERED_METHODS) {
     fastify.route({
       method,
@@ -185,10 +192,25 @@ function mountMcpRoutesInScope(fastify: FastifyInstance, deps: McpRouteDeps): vo
     url: "/mcp",
     bodyLimit: MCP_BODY_LIMIT_BYTES,
     handler: async (request: FastifyRequest, reply: FastifyReply) => {
+      // Throttle BEFORE the comparison, so a locked-out source cannot keep
+      // spending server CPU on `timingSafeEqual` scans.
+      const source = request.ip;
+      const verdict = throttle.check(source);
+      if (!verdict.allowed) {
+        deps.log.warn(`mcp: throttled ${source} after repeated authentication failures`);
+        reply
+          .code(429)
+          .header("retry-after", String(verdict.retryAfterSeconds))
+          .type("application/json")
+          .send({ error: "Too Many Requests", message: "Too many failed authentication attempts." });
+        return;
+      }
+
       // Auth FIRST, and from the header alone. `request.isAuthenticated` is
       // deliberately never consulted here (A4).
       const caller = authenticate(request.headers.authorization, deps);
       if (!caller) {
+        throttle.recordFailure(source);
         deps.log.warn("mcp: refused an unauthenticated request");
         reply.code(401).header("www-authenticate", "Bearer").type("application/json").send({
           error: "Unauthorized",
@@ -205,6 +227,11 @@ function mountMcpRoutesInScope(fastify: FastifyInstance, deps: McpRouteDeps): vo
         send(reply, parsed);
         return;
       }
+
+      // A valid credential clears any accumulated failures, so an operator who
+      // rotates a stale token recovers immediately instead of serving out a
+      // penalty earned by the old one.
+      throttle.recordSuccess(source);
 
       // `subscriptions/listen` is a long-lived response stream, so it cannot go
       // through the single-response path below. Handled here, where the reply
