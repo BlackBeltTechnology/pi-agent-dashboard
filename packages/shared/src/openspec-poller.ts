@@ -137,10 +137,13 @@ export function buildOpenSpecData(
  *   - `proposal`: `done` iff `proposal.md` exists, else `ready`.
  *   - `design`:   `done` iff the design evidence probe (R1/R2/R3) fires, else `ready`.
  *   - `specs`:    `done` iff ≥1 `specs/**\/*.md` per the specs evidence probe, else `ready`.
- *   - `tasks`:    `done` iff `totalTasks > 0`, else `blocked`. The CLI keys the
- *                 `tasks` artifact on whether tasks were authored, NOT on
- *                 completion (a 0/21 change still reports `tasks: done`); it
- *                 reports `blocked` when `totalTasks === 0`.
+ *   - `tasks`:    `done` iff `totalTasks > 0`. The CLI keys the `tasks`
+ *                 artifact on whether tasks were authored, NOT on completion
+ *                 (a 0/21 change still reports `tasks: done`). With no tasks
+ *                 authored it distinguishes prerequisites: `ready` when
+ *                 proposal + design + specs are all `done` (tasks are the next
+ *                 artifact to write), else `blocked`.
+ *                 See change: fix-optimistic-prompt-stuck-sending.
  *   - `isComplete`: `true` iff every artifact is `done`.
  *
  * Artifact order matches the CLI: proposal, design, specs, tasks. Probes are
@@ -163,7 +166,10 @@ export function deriveArtifactStatus(
     { id: "proposal", status: proposalDone ? "done" : "ready" },
     { id: "design", status: designDone ? "done" : "ready" },
     { id: "specs", status: specsDone ? "done" : "ready" },
-    { id: "tasks", status: tasksAuthored ? "done" : "blocked" },
+    {
+      id: "tasks",
+      status: tasksAuthored ? "done" : proposalDone && designDone && specsDone ? "ready" : "blocked",
+    },
   ];
   const isComplete = artifacts.every((a) => a.status === "done");
   return { artifacts, isComplete };

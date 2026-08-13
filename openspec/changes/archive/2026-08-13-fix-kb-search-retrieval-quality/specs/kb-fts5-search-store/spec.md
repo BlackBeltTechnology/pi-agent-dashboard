@@ -36,7 +36,9 @@ The `limit` option SHALL bound the number of distinct sources returned, not the 
 
 #### Scenario: Search latency budget
 - **WHEN** a search runs with default options over an index of ~22,000 chunks
-- **THEN** the search SHALL complete within 50 ms
+- **THEN** the MEDIAN search SHALL complete within 50 ms
+- **AND** the budget is stated as a median because the reserved `agents` lane is a second FTS query and `doc_type` is an unindexed column, so its cost is a full scan of the match set: measured 53.2 ms median / 84.8 ms p95 over a 31,121-chunk index, which scales to ~38 ms median / ~60 ms p95 at ~22,000 chunks
+- **AND** the p95 overage is accepted deliberately, because removing the lane would forfeit source-intent Recall@K 0.500 → 0.317
 
 ### Requirement: Document-type lane quota
 The store SHALL, by default, reserve a configurable share of the result page for `agents` document-type hits, interleaving a separately-ranked `agents` lane with the unrestricted lane, without requiring the caller to pass a `docType` filter. The quota SHALL be skipped when the caller supplies an explicit `docType` filter. When one lane yields fewer candidates than its share, the other lane SHALL fill the remaining slots.
@@ -60,7 +62,11 @@ The store SHALL, by default, reserve a configurable share of the result page for
 - **AND** a share of zero SHALL disable the quota entirely
 
 ### Requirement: Coverage-weighted reranking
-The store SHALL, by default, rerank the BM25 candidate pool by IDF-weighted coverage of the original query terms, using BM25 score as the tiebreak. Coverage SHALL be computed over the heading path and body of each candidate. Coverage reranking SHALL be individually disableable.
+The store SHALL support reranking the BM25 candidate pool by IDF-weighted coverage of the original query terms, using BM25 score as the tiebreak. Coverage SHALL be computed over the heading path and body of each candidate. Coverage reranking SHALL be individually enableable and SHALL be **disabled by default**.
+
+Default-off is a measured decision, not an omission. On the bundled golden sets coverage reranking is clearly beneficial for source-intent retrieval (P@5 0.337 → 0.394, MRR 0.198 → 0.254) and clearly harmful for markdown-intent retrieval (Recall@K 0.630 → 0.491). A corpus that is overwhelmingly `doc` chunks loses more than it gains, so the engine ships the trade OFF and exposes it to a deployment whose query mix differs. See `openspec/changes/fix-kb-search-retrieval-quality/measurements.md`.
+
+IDF SHALL be derived from the corpus document frequency of the query terms' **tokenizer-normalised** forms, because the full-text index stores stemmed terms and a raw-token lookup silently reports a document frequency of zero.
 
 #### Scenario: Broader coverage outranks concentrated matches
 - **WHEN** one candidate contains many distinct query terms once each and another repeats a single query term
@@ -74,10 +80,23 @@ The store SHALL, by default, rerank the BM25 candidate pool by IDF-weighted cove
 - **WHEN** coverage reranking is disabled
 - **THEN** candidates SHALL retain their BM25 ordering
 
+#### Scenario: Coverage rerank is off unless requested
+- **WHEN** a caller performs a search without selecting a reranking mode
+- **THEN** coverage reranking SHALL NOT be applied
+
+#### Scenario: Document frequency resolves the indexed term form
+- **WHEN** IDF is computed for a query term whose indexed form differs from the raw token
+- **THEN** the document frequency SHALL be looked up by the indexed (stemmed) form
+- **AND** a term genuinely absent from the corpus SHALL report a document frequency of zero
+
 ## MODIFIED Requirements
 
 ### Requirement: Query expansion
-The store SHALL expand the query before building the match according to `opts.queryExpansion`, which selects one of the modes `off` | `agent` | `synonym` | `prf` (default `prf`). Expansion has no model dependency and only ever appends terms to the original query. In `prf` mode the store SHALL perform pseudo-relevance feedback itself: it SHALL mine the top-ranked candidates of a first pass for terms absent from the query whose document frequency is at or below a configured corpus share, rank those candidates by frequency times IDF, append the highest-ranked terms, and re-retrieve. PRF expansion SHALL only be applied when coverage-weighted reranking is enabled, because expanding an OR-query without coverage reranking degrades precision.
+The store SHALL expand the query before building the match according to `opts.queryExpansion`, which selects one of the modes `off` | `agent` | `synonym` | `prf` (**default `off`**). Expansion has no model dependency and only ever appends terms to the original query. In `prf` mode the store SHALL perform pseudo-relevance feedback itself: it SHALL mine the top-ranked candidates of a first pass for terms absent from the query whose document frequency is at or below a configured corpus share, rank those candidates by frequency times IDF, append the highest-ranked terms, and re-retrieve. PRF expansion SHALL only be applied when coverage-weighted reranking is enabled, because expanding an OR-query without coverage reranking degrades precision.
+
+`prf` is implemented and opt-in rather than default, for the same measured reason as coverage reranking, on which it depends: it lifts source-intent precision (P@5 0.394 → 0.481) while markdown-intent Recall@K stays below the un-reranked baseline, and it costs roughly three times the search latency. See `openspec/changes/fix-kb-search-retrieval-quality/measurements.md`.
+
+PRF SHALL NOT mine feedback terms from a candidate set too small to constitute one, since the "top-ranked" documents would then be the entire result and the mined terms carry no discriminating signal.
 
 #### Scenario: Expansion off or agent is pass-through
 - **WHEN** queryExpansion is `off` or `agent`
@@ -96,6 +115,14 @@ The store SHALL expand the query before building the match according to `opts.qu
 #### Scenario: PRF requires coverage reranking
 - **WHEN** queryExpansion is `prf` and coverage-weighted reranking is disabled
 - **THEN** the store SHALL NOT apply PRF expansion and SHALL use the original query
+
+#### Scenario: Expansion is off unless requested
+- **WHEN** a caller performs a search without selecting an expansion mode
+- **THEN** the query SHALL be used unchanged
+
+#### Scenario: Feedback set too small to mine
+- **WHEN** the first pass returns fewer candidates than the minimum feedback-set size
+- **THEN** no feedback terms SHALL be appended
 
 #### Scenario: Ranking uses the original query terms
 - **WHEN** PRF expansion has appended terms
@@ -129,6 +156,10 @@ The store SHALL expose graph traversal from a named node and reverse lookup of n
 #### Scenario: Neighbors within depth
 - **WHEN** the caller requests neighbors of a node with a depth
 - **THEN** nodes reachable within that depth are returned, excluding the origin node
+
+#### Scenario: Neighbors filtered by relation
+- **WHEN** a relation type is supplied
+- **THEN** traversal follows only edges of that relation
 
 #### Scenario: Backlinks
 - **WHEN** the caller requests backlinks for a node

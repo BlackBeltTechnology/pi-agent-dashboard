@@ -77,8 +77,14 @@ export class ConnectionManager {
    * terminate a child that is itself occupying the queue.
    * `abort` is deliberately NOT here: dispatched early it would run ahead of
    * the `send_prompt` it cancels and silently lose the cancellation.
+   * `request_models` touches only the dashboard's own model catalogue (an
+   * auth reload + a provider refresh) — never pi's turn state — and that
+   * refresh is network-bound: serialized, a slow or
+   * hung refresh blocks the head of the queue and every later message —
+   * including `send_prompt` — never dispatches.
+   * See change: fix-optimistic-prompt-stuck-sending.
    */
-  private static readonly IMMEDIATE_TYPES = new Set(["prompt_response", "server_restarting", "kill_process"]);
+  private static readonly IMMEDIATE_TYPES = new Set(["prompt_response", "server_restarting", "kill_process", "request_models"]);
 
   private static readonly INITIAL_BACKOFF = 1000;
   private static readonly MAX_BACKOFF = 30000;

@@ -80,9 +80,9 @@ function makeHarness(initialState: Map<string, SessionState>) {
 
 const SID = "session-abc";
 
-function stateWithPendingPrompt(): SessionState {
+function stateWithPendingPrompt(status: "sending" | "sent" | "failed" = "sending"): SessionState {
   const s = createInitialState();
-  s.pendingPrompt = { text: "hello", images: undefined, status: "sending" };
+  s.pendingPrompt = { text: "hello", images: undefined, status };
   // Mutate a couple of other fields to confirm they ARE reset (regression
   // guard: we must not silently expand the carry-over set).
   (s as any).streamingText = "leftover stream";
@@ -90,21 +90,34 @@ function stateWithPendingPrompt(): SessionState {
 }
 
 describe("useMessageHandler — pendingPrompt across reset/replay", () => {
-  it("session_state_reset preserves pendingPrompt and resets other state", () => {
-    const initial = new Map<string, SessionState>([[SID, stateWithPendingPrompt()]]);
+  // #F4: a `sending` bubble is NOT carried — nothing in the rebuilt state can
+  // settle it. #F5: a settled bubble still carries (the point of
+  // `preserve-pending-prompt-across-replay`).
+  // See change: fix-optimistic-prompt-stuck-sending.
+  it("#F4 session_state_reset does NOT resurrect a sending pendingPrompt", () => {
+    const initial = new Map<string, SessionState>([[SID, stateWithPendingPrompt("sending")]]);
+    const { dispatch, getStates } = makeHarness(initial);
+
+    dispatch({ type: "session_state_reset", sessionId: SID });
+
+    expect(getStates().get(SID)!.pendingPrompt).toBeUndefined();
+  });
+
+  it("#F5 session_state_reset preserves a SENT pendingPrompt and resets other state", () => {
+    const initial = new Map<string, SessionState>([[SID, stateWithPendingPrompt("sent")]]);
     const { dispatch, getStates } = makeHarness(initial);
 
     dispatch({ type: "session_state_reset", sessionId: SID });
 
     const after = getStates().get(SID)!;
-    expect(after.pendingPrompt).toEqual({ text: "hello", images: undefined, status: "sending" });
+    expect(after.pendingPrompt).toEqual({ text: "hello", images: undefined, status: "sent" });
     // Other fields wiped to defaults.
     expect(after.streamingText).toBe(createInitialState().streamingText);
     expect(after.messages).toEqual(createInitialState().messages);
   });
 
-  it("event_replay (shouldReset, firstSeq===1) preserves pendingPrompt across the reset", () => {
-    const initial = new Map<string, SessionState>([[SID, stateWithPendingPrompt()]]);
+  it("#F5 event_replay (shouldReset, firstSeq===1) preserves a SENT pendingPrompt across the reset", () => {
+    const initial = new Map<string, SessionState>([[SID, stateWithPendingPrompt("sent")]]);
     const { dispatch, getStates } = makeHarness(initial);
 
     // Empty replay batch with firstSeq===1 would also work, but pass at least
@@ -119,7 +132,21 @@ describe("useMessageHandler — pendingPrompt across reset/replay", () => {
     });
 
     const after = getStates().get(SID)!;
-    expect(after.pendingPrompt).toEqual({ text: "hello", images: undefined, status: "sending" });
+    expect(after.pendingPrompt).toEqual({ text: "hello", images: undefined, status: "sent" });
+  });
+
+  it("#F4 event_replay (shouldReset) does NOT resurrect a sending pendingPrompt", () => {
+    const initial = new Map<string, SessionState>([[SID, stateWithPendingPrompt("sending")]]);
+    const { dispatch, getStates } = makeHarness(initial);
+
+    dispatch({
+      type: "event_replay",
+      sessionId: SID,
+      events: [{ seq: 1, event: { eventType: "noop_for_test", timestamp: 0, data: {} } as any }],
+      isLast: true,
+    });
+
+    expect(getStates().get(SID)!.pendingPrompt).toBeUndefined();
   });
 
   it("prompt_received{fresh:true} promotes pendingPrompt to sent", () => {

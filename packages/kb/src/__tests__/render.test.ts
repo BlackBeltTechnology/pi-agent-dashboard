@@ -55,11 +55,14 @@ describe("renderHits", () => {
     expect(leads).toEqual(["1", "2", "3"]);
   });
 
-  it("CLI form (leading:score, single-line) stays byte-identical to the legacy render", () => {
-    const h = hit({ akaPaths: ["x"], parent: { headingPath: "Parent H" } });
+  // The CLI shape is field-for-field the legacy one EXCEPT the breadcrumb, which
+  // is now the leaf heading (design D5, a deliberate breaking render change).
+  // See change: fix-kb-search-retrieval-quality.
+  it("CLI form (leading:score, single-line) keeps the legacy field order with a leaf heading", () => {
+    const h = hit({ headingPath: "A > B", akaPaths: ["x"], parent: { headingPath: "Parent H" } });
     const out = renderHits([h], { leading: "score", parentGlyph: "[parent: ", multiline: false });
-    const legacy = `${h.score.toFixed(2)}  ${h.path}  ::  ${h.headingPath}  (+${h.akaPaths!.length} dup)  [parent: ${h.parent!.headingPath}]\n      ${h.snippet.replace(/\s+/g, " ").slice(0, 160)}`;
-    expect(out).toBe(legacy);
+    const expected = `${h.score.toFixed(2)}  ${h.path}  ::  B  (+${h.akaPaths!.length} dup)  [parent: ${h.parent!.headingPath}]\n      ${h.snippet.replace(/\s+/g, " ").slice(0, 160)}`;
+    expect(out).toBe(expected);
   });
 });
 

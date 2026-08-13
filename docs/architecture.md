@@ -3439,3 +3439,68 @@ Caps (caps.ts): `maxActiveEmbedSessionsPerVisitor` + `maxActiveEmbedSessionsGlob
 `createEmbedLifecycleController` (embed-lifecycle-controller.ts) constructed in server.ts. Reaper `start()`/`stop()` tied to server lifecycle. Dormant when `enabled: false`.
 
 See change: add-embed-session-lifecycle.
+
+## Knowledge Base (KB)
+
+Markdown knowledge base backed by a single FTS5 table (`chunks`) over `node:sqlite`. Zero network, zero LLM — all ranking is mechanical. Backend `SqliteFtsStore` (`packages/kb/src/sqlite-store.ts`). Config layered project → global → defaults (`packages/kb/src/config.ts`).
+
+### KB retrieval pipeline
+
+`store.search()` post-processes one FTS5 BM25 pass with a staged pipeline. Stage order:
+
+1. **Body-hash collapse** (exact-content dedup) — byte-identical chunks collapse to one `KbHit`; alternate locations become `akaPaths`. Runs FIRST so `akaPaths` computes against the full candidate set.
+2. **Source dedup** — one hit per `(root, path)`; representative = best (lowest) BM25 score; suppressed remainder counted in `KbHit.suppressedSections`.
+3. **MMR** (`diversity`, lexical over bodies, config-gated, default on).
+4. **Coverage rerank** — opt-in, default off.
+5. **Lane interleave** — `agents` lane blended into the page.
+6. **Limit slice**.
+7. **Parent expand** (`expandParent`, default on) — attaches parent `headingPath` to each hit.
+
+Source dedup differs from body-hash dedup: body-hash answers "same content, two places"; source dedup answers "already showed this file". A file vendored under two roots collapses across roots first, then dedups by source.
+
+#### `limit` = distinct sources (BREAKING)
+
+`limit` bounds **distinct sources**, not chunks. Contract change for `kb_search`, `kb search`, `store.search()`. `store.search()` still returns `KbHit[]`; only cardinality semantics change.
+
+Source dedup shrinks one source to one slot, so a pool sized at `limit` starves the page. Fetch depth = `limit × 6` when source dedup on (`limit × 4` body-hash only), capped at 4000.
+
+#### Lane quota (`ranking.laneQuota`)
+
+`agents` chunks are 3.2% of the index and ~3× longer than `doc`, so BM25 length normalisation buries the per-file record layer ~30:1. Fix is engine-side: second FTS pass restricted to `doc_type='agents'` with a shallow pool, interleaved at `ranking.laneQuota` (default 0.5). Explicit `docType` bypasses the quota. Starved lane yields its slots to the other; a source taken by one lane is never repeated (when source dedup on).
+
+Swept over bundled fixtures; 0.5 = largest reserved share with no markdown-intent regression. See `measurements.md` sweep table.
+
+#### Coverage rerank + PRF — off by default
+
+Coverage rerank (`ranking.coverageRerank`) + RM3-style PRF (`queryExpansion.mode: "prf"`) implemented, tested, config-gated, **default off**. Measured a net regression on bundled fixtures (markdown-intent R@10 0.630 → 0.491; combined 0.566 → 0.524; latency ~4×). PRF applies only with coverage rerank on; expanding an OR-query deepens the dilution the rerank exists to cure. Do not present as active. See `measurements.md` D4.
+
+#### Condensed render
+
+Result render emits leaf heading, not breadcrumb, plus `(+N more sections)`. Full `headingPath` retained in `KbHit` and the JSON format, so `kb_get(path, section)` still addresses a section.
+
+#### `kb_get` path-only fetch
+
+Path-only fetch (`getChunk` without `headingPath`) returns first chunk plus `suppressedSections` count. Never a silent 1-of-N slice.
+
+#### Measured outcome (31,121-chunk index, K=10)
+
+| metric | baseline | shipped |
+|---|---|---|
+| combined R@10 | 0.363 | 0.566 (+56%) |
+| duplicate-slot share | 0.48 | 0.00 |
+| distinct sources/page | 5.2 | 10.0 |
+| render tokens/page | — | −32.8% |
+
+Reproduce + full variant table: `packages/kb/eval/` (`run-fixtures.ts`, `measure-render.ts`).
+
+#### Latency — budget met at median, not p95
+
+| config | median | p95 |
+|---|---|---|
+| baseline | 20.6 ms | 34.8 ms |
+| + source dedup | 25.5 ms | 38.2 ms |
+| + lane quota 0.5 | 53.2 ms | 84.8 ms |
+
+Lane quota is the cost: its `agents` lane is a second FTS query, and `doc_type` is an UNINDEXED FTS5 column — cannot be answered by an index, scans the full match set. Scaled 31,121 → ~22,000 chunks: ≈38 ms median (passes 50 ms budget), ≈60 ms p95 (fails).
+
+See change: fix-kb-search-retrieval-quality.

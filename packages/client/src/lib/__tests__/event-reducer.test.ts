@@ -1,6 +1,6 @@
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
-import { addInteractiveRequest, applyPromptReceived, type ChatMessage, createInitialState, deriveBannerState, dismissInteractiveRequest, extractAgentEndError, findLastUserPrompt, isCleanAgentEnd, type PendingPrompt, reduceEvent, resolveInteractiveRequest, type SessionState, toDisplayString } from "../chat/event-reducer.js";
+import { addInteractiveRequest, applyPromptReceived, applyPromptTimeout, carryPendingPrompt, type ChatMessage, createInitialState, deriveBannerState, dismissInteractiveRequest, extractAgentEndError, findLastUserPrompt, isCleanAgentEnd, type PendingPrompt, reduceEvent, resolveInteractiveRequest, type SessionState, toDisplayString } from "../chat/event-reducer.js";
 
 function applyEvents(events: DashboardEvent[]): SessionState {
   return events.reduce((s, e) => reduceEvent(s, e), createInitialState());
@@ -1207,9 +1207,66 @@ describe("applyPromptReceived", () => {
     expect(applyPromptReceived(state, false)).toBe(state);
   });
 
-  it("fresh:true is idempotent on an already-sent prompt", () => {
+  it("#E5 fresh:true is idempotent on an already-sent prompt", () => {
     const state: SessionState = { ...createInitialState(), pendingPrompt: { text: "hi", status: "sent" } };
     expect(applyPromptReceived(state, true)).toBe(state);
+  });
+
+  // A late ack must not resurrect a settled failure.
+  // See change: fix-optimistic-prompt-stuck-sending (test-plan #E4).
+  it("#E4 fresh:true is a no-op on a failed prompt", () => {
+    const state: SessionState = { ...createInitialState(), pendingPrompt: { text: "hi", status: "failed" } };
+    expect(applyPromptReceived(state, true)).toBe(state);
+    expect(state.pendingPrompt!.status).toBe("failed");
+  });
+
+  it("#E4 fresh:false is a no-op on a settled prompt (never drops the bubble)", () => {
+    const failed: SessionState = { ...createInitialState(), pendingPrompt: { text: "hi", status: "failed" } };
+    expect(applyPromptReceived(failed, false)).toBe(failed);
+    const sent: SessionState = { ...createInitialState(), pendingPrompt: { text: "hi", status: "sent" } };
+    expect(applyPromptReceived(sent, false)).toBe(sent);
+  });
+
+  it("#E7 fresh:true preserves text and images while promoting", () => {
+    const images: PendingPrompt["images"] = [{ data: "d", mimeType: "image/png" }];
+    const state: SessionState = { ...createInitialState(), pendingPrompt: { text: "hi", images, status: "sending" } };
+    const next = applyPromptReceived(state, true);
+    expect(next.pendingPrompt).toEqual({ text: "hi", images, status: "sent" });
+  });
+});
+
+// Safety-timeout settlement + reset/replay carry rules.
+// See change: fix-optimistic-prompt-stuck-sending (test-plan #X1/#X2/#F4/#F5).
+describe("applyPromptTimeout / carryPendingPrompt", () => {
+  it("#X1 marks a sending prompt failed, preserving the text, and sets lastError", () => {
+    const state: SessionState = { ...createInitialState(), pendingPrompt: { text: "hi", status: "sending" } };
+    const next = applyPromptTimeout(state, "no response");
+    expect(next.pendingPrompt).toEqual({ text: "hi", status: "failed" });
+    expect(next.lastError?.message).toBe("no response");
+  });
+
+  it("#X2 is a no-op on an already-failed prompt (never wipes it)", () => {
+    const state: SessionState = { ...createInitialState(), pendingPrompt: { text: "hi", status: "failed" } };
+    expect(applyPromptTimeout(state, "no response")).toBe(state);
+  });
+
+  it("#X2 is a no-op on a sent prompt and with no prompt at all", () => {
+    const sent: SessionState = { ...createInitialState(), pendingPrompt: { text: "hi", status: "sent" } };
+    expect(applyPromptTimeout(sent, "x")).toBe(sent);
+    const none = createInitialState();
+    expect(applyPromptTimeout(none, "x")).toBe(none);
+  });
+
+  it("#F4 does not carry a sending prompt across a reset", () => {
+    expect(carryPendingPrompt({ text: "hi", status: "sending" })).toBeUndefined();
+    expect(carryPendingPrompt(undefined)).toBeUndefined();
+  });
+
+  it("#F5 carries settled prompts unchanged", () => {
+    const sent: PendingPrompt = { text: "hi", status: "sent" };
+    const failed: PendingPrompt = { text: "hi", status: "failed" };
+    expect(carryPendingPrompt(sent)).toBe(sent);
+    expect(carryPendingPrompt(failed)).toBe(failed);
   });
 });
 
