@@ -26,6 +26,24 @@ function codeLines(yaml: string): string[] {
   return yaml.split("\n").filter((l) => !/^\s*#/.test(l));
 }
 
+describe("#X4 the ship enforcer keeps the anti-gaming check wired", () => {
+  // The "never raise the ceiling" property is enforced by a SEPARATE
+  // invocation. Documenting it without wiring it made the rule aspirational:
+  // the plain ratchet passes happily against a raised number.
+  const skill = fs.readFileSync(path.join(REPO_ROOT, ".pi", "skills", "ship-it", "SKILL.md"), "utf8");
+
+  it("invokes --check-baseline-diff in step 4.4", () => {
+    expect(skill).toMatch(/knip-ratchet\.mjs --check-baseline-diff origin\/develop/);
+  });
+
+  it("still invokes the plain ratchet and the config check", () => {
+    expect(skill).toMatch(/node scripts\/knip-config\.mjs/);
+    // A plain invocation, i.e. one NOT carrying the --check-baseline-diff flag:
+    // the two checks answer different questions and both must stay wired.
+    expect(skill).toMatch(/node scripts\/knip-ratchet\.mjs(?! --check-baseline-diff)/);
+  });
+});
+
 describe("#X1 ci.yml does not run the whole-graph scan", () => {
   const lines = codeLines(fs.readFileSync(workflow("ci.yml"), "utf8"));
 
@@ -52,6 +70,15 @@ describe("#X2/#X3 nightly.yml runs the ratchet", () => {
     // gates noise. Measured: unrooted 723 findings / 90 unused files vs rooted
     // 437 / 10.
     expect(lines.some((l) => l.includes("node scripts/knip-config.mjs"))).toBe(true);
+  });
+
+  it("#X4 diffs the baseline, so a raised ceiling is caught after it lands", () => {
+    // Against HEAD~1, not origin/develop: nightly runs ON develop, so
+    // origin/develop is this very tree and the comparison would be vacuous.
+    expect(lines.some((l) => l.includes("--check-baseline-diff HEAD~1"))).toBe(true);
+    // HEAD~1 needs more than a shallow single-commit checkout.
+    const job = yaml.slice(yaml.indexOf("\n  knip:"));
+    expect(job.slice(0, job.indexOf("\n  electron:"))).toMatch(/fetch-depth:\s*2/);
   });
 
   it("#X3 does not suppress the regression with continue-on-error", () => {

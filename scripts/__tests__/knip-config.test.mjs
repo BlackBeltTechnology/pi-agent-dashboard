@@ -13,7 +13,14 @@
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { describe, expect, it } from "vitest";
-import { deriveEntries, missingEntries, normalizeEntry, owningWorkspace, readWorkspacePackages } from "../knip-config.mjs";
+import {
+  deriveEntries,
+  globToRegExp,
+  missingEntries,
+  normalizeEntry,
+  owningWorkspace,
+  readWorkspacePackages,
+} from "../knip-config.mjs";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..", "..");
 const readJson = (p) => JSON.parse(readFileSync(join(REPO_ROOT, p), "utf8"));
@@ -45,6 +52,45 @@ describe("deriveEntries", () => {
   });
 });
 
+describe("globToRegExp", () => {
+  // Untested before, and broken twice over: chained .replace() let the `*` pass
+  // rewrite the `**/` replacement (collapsing "any depth" to "one segment"),
+  // and braces were never expanded at all. Both failed safe, but the "a glob
+  // subsumes this entry" branch was dead, so the first manifest entry relying
+  // on it would have failed CI for no reason.
+  it("expands brace alternation", () => {
+    const re = globToRegExp("scripts/**/*.{mjs,cjs,ts}");
+    expect(re.test("scripts/foo.mjs")).toBe(true);
+    expect(re.test("scripts/lib/deep/foo.ts")).toBe(true);
+    expect(re.test("scripts/foo.js")).toBe(false);
+    expect(re.test("scripts/foo.{mjs,cjs,ts}")).toBe(false);
+  });
+
+  it("lets **/ span any number of segments, including none", () => {
+    const re = globToRegExp("**/vitest.config.ts");
+    expect(re.test("vitest.config.ts")).toBe(true);
+    expect(re.test("packages/server/vitest.config.ts")).toBe(true);
+    expect(re.test("a/b/c/d/vitest.config.ts")).toBe(true);
+  });
+
+  it("handles a **/ on both sides", () => {
+    const re = globToRegExp("**/__tests__/**/*.test.{ts,tsx}");
+    expect(re.test("packages/client/src/__tests__/a.test.tsx")).toBe(true);
+    expect(re.test("packages/client/src/__tests__/deep/nested/a.test.ts")).toBe(true);
+    expect(re.test("packages/client/src/other/a.test.ts")).toBe(false);
+  });
+
+  it("does not let a single * cross a directory boundary", () => {
+    const re = globToRegExp("src/*.ts");
+    expect(re.test("src/a.ts")).toBe(true);
+    expect(re.test("src/nested/a.ts")).toBe(false);
+  });
+
+  it("treats a dot as a literal, not as any-char", () => {
+    expect(globToRegExp("src/index.ts").test("src/indexXts")).toBe(false);
+  });
+});
+
 describe("owningWorkspace", () => {
   it("attributes a root-declared path to the workspace that roots it", () => {
     // The ROOT manifest declares pi.extensions -> packages/extension/src/bridge.ts,
@@ -69,6 +115,22 @@ describe("the committed knip.json", () => {
     );
     const missing = missingEntries(broken, packages);
     expect(missing).toContainEqual({ workspace: "packages/flows-plugin", entry: "src/bridge/index.ts" });
+  });
+
+  it("accepts an entry that a configured GLOB subsumes", () => {
+    // The glob branch, exercised for real: a manifest entry that no exact
+    // string in knip.json matches, but a glob does.
+    const missing = missingEntries({ workspaces: { "packages/p": { entry: ["src/**/*.{ts,tsx}"] } } }, [
+      { dir: "packages/p", pkg: { "pi-dashboard-plugin": { bridge: "src/bridge/index.ts" } } },
+    ]);
+    expect(missing).toEqual([]);
+  });
+
+  it("still reports an entry no glob covers", () => {
+    const missing = missingEntries({ workspaces: { "packages/p": { entry: ["src/*.ts"] } } }, [
+      { dir: "packages/p", pkg: { "pi-dashboard-plugin": { bridge: "src/bridge/index.ts" } } },
+    ]);
+    expect(missing).toEqual([{ workspace: "packages/p", entry: "src/bridge/index.ts" }]);
   });
 
   it("#G4 names the package and the missing entry", () => {

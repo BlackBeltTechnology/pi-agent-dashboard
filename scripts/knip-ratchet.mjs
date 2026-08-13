@@ -36,20 +36,30 @@ export function countIssues(report) {
 
 /**
  * Compare current counts against the baseline, class by class.
- * Returns `{ ok, violations, missingBaseline }` — never throws, never mutates.
+ * Returns `{ ok, violations, missingBaseline, missingClasses }` — never throws,
+ * never mutates.
+ *
+ * A class whose baseline is absent or non-numeric is a HARD FAILURE, not a
+ * skip. Skipping it was a bypass of the very property this gate exists for:
+ * deleting `counts.exports` (or emptying `counts` entirely) left that class
+ * completely unmeasured while the command still exited 0. "Raising the ceiling
+ * is rejected" means nothing if the ceiling can simply be deleted.
  */
 export function ratchetDecision(baseline, current) {
-  if (!baseline || typeof baseline !== "object" || !baseline.counts) {
-    return { ok: false, missingBaseline: true, violations: [] };
+  if (!baseline || typeof baseline !== "object" || !baseline.counts || typeof baseline.counts !== "object") {
+    return { ok: false, missingBaseline: true, missingClasses: [], violations: [] };
+  }
+  const missingClasses = GATED_CLASSES.filter((cls) => typeof baseline.counts[cls] !== "number");
+  if (missingClasses.length > 0) {
+    return { ok: false, missingBaseline: false, missingClasses, violations: [] };
   }
   const violations = [];
   for (const cls of GATED_CLASSES) {
     const max = baseline.counts[cls];
     const now = current?.[cls] ?? 0;
-    if (typeof max !== "number") continue;
     if (now > max) violations.push({ class: cls, baseline: max, current: now, delta: now - max });
   }
-  return { ok: violations.length === 0, missingBaseline: false, violations };
+  return { ok: violations.length === 0, missingBaseline: false, missingClasses: [], violations };
 }
 
 /**
@@ -60,8 +70,15 @@ export function baselineIncreases(previous, next) {
   const raised = [];
   for (const cls of GATED_CLASSES) {
     const before = previous?.counts?.[cls];
+    if (typeof before !== "number") continue;
     const after = next?.counts?.[cls];
-    if (typeof before !== "number" || typeof after !== "number") continue;
+    // A DELETED class is the cheapest possible way to silence a regression, so
+    // it counts as raising the ceiling to infinity rather than as "nothing to
+    // compare".
+    if (typeof after !== "number") {
+      raised.push({ class: cls, from: before, to: null, removed: true });
+      continue;
+    }
     if (after > before) raised.push({ class: cls, from: before, to: after });
   }
   return raised;
@@ -109,7 +126,11 @@ function checkBaselineDiff(base) {
   }
   const raised = baselineIncreases(previous, readBaseline());
   for (const r of raised) {
-    console.error(`✗ knip-ratchet: baseline for "${r.class}" raised ${r.from} → ${r.to}`);
+    console.error(
+      r.removed
+        ? `✗ knip-ratchet: baseline class "${r.class}" (was ${r.from}) was DELETED — that class is now unmeasured`
+        : `✗ knip-ratchet: baseline for "${r.class}" raised ${r.from} → ${r.to}`,
+    );
   }
   if (raised.length > 0) {
     console.error("  The baseline is a debt ceiling. Remove the dead code; do not raise the ceiling.");
@@ -131,6 +152,11 @@ function main() {
   if (decision.missingBaseline) {
     console.error(`✗ knip-ratchet: no readable ${BASELINE_PATH}`);
     console.error("  Refusing to adopt the current counts as the baseline — that would gate nothing.");
+    process.exit(1);
+  }
+  if (decision.missingClasses.length > 0) {
+    console.error(`✗ knip-ratchet: ${BASELINE_PATH} has no number for: ${decision.missingClasses.join(", ")}`);
+    console.error("  An absent class is unmeasured, not unlimited. Restore it rather than deleting the ceiling.");
     process.exit(1);
   }
   for (const v of decision.violations) {

@@ -14,7 +14,16 @@ import { baselineIncreases, countIssues, GATED_CLASSES, ratchetDecision } from "
 
 const REPO_ROOT = resolve(import.meta.dirname, "..", "..");
 const committed = JSON.parse(readFileSync(join(REPO_ROOT, "knip-baseline.json"), "utf8"));
-const baseOf = (counts) => ({ counts });
+
+/**
+ * A COMPLETE baseline — every gated class present, defaulting to 0, with the
+ * caller's numbers layered on top. Completeness matters: a baseline missing a
+ * class is itself a hard failure (#R7), so a partial fixture would exercise
+ * that rule instead of the one under test.
+ */
+const baseOf = (counts) => ({
+  counts: { files: 0, exports: 0, types: 0, duplicates: 0, enumMembers: 0, ...counts },
+});
 
 describe("countIssues", () => {
   it("sums each class across the report", () => {
@@ -71,6 +80,28 @@ describe("ratchetDecision", () => {
     }
   });
 
+  it("#R7 refuses a baseline with a DELETED class instead of skipping it", () => {
+    // The cheap bypass: drop the class you are about to regress. Skipping a
+    // non-numeric baseline left that class entirely unmeasured while the
+    // command still exited 0.
+    const partial = { counts: { files: 10, types: 189, duplicates: 11, enumMembers: 0 } }; // no `exports`
+    const d = ratchetDecision(partial, { files: 10, exports: 99_999, types: 189, duplicates: 11, enumMembers: 0 });
+    expect(d.ok).toBe(false);
+    expect(d.missingClasses).toEqual(["exports"]);
+  });
+
+  it("#R7 refuses an emptied counts object", () => {
+    const d = ratchetDecision({ counts: {} }, { exports: 99_999 });
+    expect(d.ok).toBe(false);
+    expect(d.missingClasses).toEqual(GATED_CLASSES);
+  });
+
+  it("#R7 refuses a non-numeric ceiling", () => {
+    const d = ratchetDecision({ counts: { ...committed.counts, exports: "lots" } }, committed.counts);
+    expect(d.ok).toBe(false);
+    expect(d.missingClasses).toEqual(["exports"]);
+  });
+
   it("#R6 is deterministic on the same input", () => {
     const args = [baseOf({ exports: 227 }), { exports: 228 }];
     expect(ratchetDecision(...args)).toEqual(ratchetDecision(...args));
@@ -90,6 +121,13 @@ describe("baselineIncreases", () => {
   it("#R4 catches a raise hidden behind a lowering of another class", () => {
     const raised = baselineIncreases(baseOf({ files: 10, exports: 227 }), baseOf({ files: 2, exports: 300 }));
     expect(raised.map((r) => r.class)).toEqual(["exports"]);
+  });
+
+  it("#R7 treats a DELETED class as raising the ceiling, not as nothing to compare", () => {
+    // Raw objects, not baseOf(): the point is a key that is ABSENT, which a
+    // zero-filling helper would turn into a lowering.
+    const raised = baselineIncreases({ counts: { files: 10, exports: 227 } }, { counts: { files: 10 } });
+    expect(raised).toEqual([{ class: "exports", from: 227, to: null, removed: true }]);
   });
 });
 

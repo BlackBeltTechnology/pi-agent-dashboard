@@ -100,13 +100,65 @@ function toArray(v) {
   return typeof v === "string" ? [v] : [];
 }
 
+/**
+ * Compile a glob to an anchored RegExp.
+ *
+ * Written as a single left-to-right pass rather than chained `.replace()`
+ * calls, because chaining is what broke the previous version twice over:
+ *   - `**\/` was rewritten to `(.*\/)?` and then the LATER `*` pass rewrote the
+ *     `*` inside that replacement, collapsing it to `([^/]*\/)?` — "at most one
+ *     segment" instead of "any depth";
+ *   - `{mjs,cjs,ts}` was never expanded, so the braces stayed literal and the
+ *     pattern matched a filename literally called `.{mjs,cjs,ts}`.
+ * Both failed in the safe direction (reporting a rooted entry as missing), but
+ * the "a glob subsumes this entry" capability was dead either way.
+ */
+const escapeLiteral = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+// Double-star followed by a slash spans any depth; a bare double-star matches
+// anything; a single star stays within one path segment. Returns the last index
+// consumed. (Written as a line comment: the glob it documents would otherwise
+// close a block comment early.)
+function starToken(glob, i) {
+  if (glob[i + 1] !== "*") return { text: "[^/]*", next: i };
+  if (glob[i + 2] === "/") return { text: "(?:.*/)?", next: i + 2 };
+  return { text: ".*", next: i + 1 };
+}
+
+/** `{a,b}` → `(?:a|b)`. An unterminated brace stays literal. */
+function braceToken(glob, i) {
+  const end = glob.indexOf("}", i);
+  if (end === -1) return { text: "\\{", next: i };
+  const alts = glob
+    .slice(i + 1, end)
+    .split(",")
+    .map(escapeLiteral);
+  return { text: `(?:${alts.join("|")})`, next: end };
+}
+
+export function globToRegExp(glob) {
+  let out = "";
+  for (let i = 0; i < glob.length; i++) {
+    const c = glob[i];
+    if (c === "*" || c === "{") {
+      const { text, next } = c === "*" ? starToken(glob, i) : braceToken(glob, i);
+      out += text;
+      i = next;
+    } else if (c === "?") {
+      out += "[^/]";
+    } else {
+      out += escapeLiteral(c);
+    }
+  }
+  return new RegExp(`^${out}$`);
+}
+
 /** An entry is covered by an exact match or by a glob that subsumes it. */
 function covers(configured, entry) {
   if (configured.has(entry)) return true;
   for (const c of configured) {
-    if (!c.includes("*")) continue;
-    const re = new RegExp(`^${c.replace(/\./g, "\\.").replace(/\*\*\//g, "(.*/)?").replace(/\*/g, "[^/]*")}$`);
-    if (re.test(entry)) return true;
+    if (!c.includes("*") && !c.includes("{") && !c.includes("?")) continue;
+    if (globToRegExp(c).test(entry)) return true;
   }
   return false;
 }

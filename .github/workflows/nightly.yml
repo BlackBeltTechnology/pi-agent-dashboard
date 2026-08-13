@@ -112,7 +112,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          fetch-depth: 1
+          # depth 2 so the baseline can be diffed against the previous commit.
+          fetch-depth: 2
 
       - uses: pnpm/action-setup@v4
 
@@ -130,6 +131,13 @@ jobs:
 
       - name: Dead-code ratchet
         run: node scripts/knip-ratchet.mjs
+
+      # The ship enforcer rejects a raised ceiling on the way IN; this catches
+      # one that already landed. Compared against HEAD~1, not origin/develop —
+      # nightly runs ON develop, so origin/develop is this very tree and the
+      # comparison would be vacuous.
+      - name: Baseline was not raised
+        run: node scripts/knip-ratchet.mjs --check-baseline-diff HEAD~1
 
   # ── electron: full matrix against a per-leg Verdaccio ──────────────────────
   # Delegates to the shared build. registry_url triggers the Verdaccio

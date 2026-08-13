@@ -36,10 +36,32 @@ import { beforeAll, describe, expect, it } from "vitest";
 
 const REPO_ROOT = resolve(import.meta.dirname, "..", "..");
 const STATE_FILE = join(REPO_ROOT, ".pi-test-harness.json");
-const HARNESS_UP = existsSync(STATE_FILE);
 const EXEC_TIMEOUT_MS = 240_000;
 
 const project = () => JSON.parse(readFileSync(STATE_FILE, "utf8")).project;
+
+/**
+ * The state file is written by `test-up.sh` but NOT removed when the Docker
+ * daemon dies under a running harness, so its presence alone is a stale
+ * signal — it left this suite trying to `docker exec` into a container that no
+ * longer existed. The precondition is a RUNNING container, so ask Docker.
+ */
+function harnessRunning() {
+  if (!existsSync(STATE_FILE)) return false;
+  try {
+    const ids = execFileSync("docker", ["compose", "-p", project(), "ps", "-q"], {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      timeout: 30_000,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return ids.trim().length > 0;
+  } catch {
+    return false; // daemon down, or compose project gone
+  }
+}
+
+const HARNESS_UP = harnessRunning();
 
 function execInHarness(command) {
   return execFileSync("docker", ["compose", "-p", project(), "exec", "-T", "pi-dashboard", "bash", "-lc", command], {
