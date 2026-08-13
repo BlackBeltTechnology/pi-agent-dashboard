@@ -71,7 +71,7 @@ import { deleteDraft, readAllDrafts, writeDraft } from "./lib/state/draft-storag
 // SubagentPopoutPage no longer imported by the shell — it's registered via
 // the subagents-plugin's `shell-overlay-route` claim and mounted through
 // `<ShellOverlayRouteSlot>` below. See change: add-flow-agent-popout.
-import { createInitialState, deriveBannerState, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/chat/event-reducer.js";
+import { applyPromptTimeout, createInitialState, deriveBannerState, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/chat/event-reducer.js";
 import { decodeFolderPath, encodeFolderPath } from "./lib/util/folder-encoding.js";
 import { fetchActiveInits } from "./lib/git/git-api.js";
 import { refreshGitStatus } from "./lib/git/git-status-cache.js";
@@ -1094,20 +1094,21 @@ export default function App() {
   // `pendingPrompt` is idle-scoped now (only ever set for a fresh-turn send),
   // so it can never co-exist with a mid-turn queue entry — no pause logic
   // needed. See change: optimistic-prompt-progress.
-  usePendingPromptTimeout(!!selectedState.pendingPrompt, useCallback(() => {
+  // Arms only on `sending`: a `failed` bubble must never re-arm the timer and
+  // be wiped 30s later. See change: fix-optimistic-prompt-stuck-sending.
+  usePendingPromptTimeout(selectedState.pendingPrompt?.status === "sending", useCallback(() => {
     if (selectedId) {
       setSessionStates((prev) => {
         const next = new Map(prev);
         const current = next.get(selectedId);
-        if (current?.pendingPrompt) {
-          next.set(selectedId, {
-            ...current,
-            pendingPrompt: undefined,
-            lastError: {
-              message: t("session.noResponse", undefined, "No response from session — the prompt may not have been received."),
-              timestamp: Date.now(),
-            },
-          });
+        if (current) {
+          // Keeps the bubble with the user's text, marked failed, instead of
+          // silently dropping it. The `lastError` banner stays too.
+          const settled = applyPromptTimeout(
+            current,
+            t("session.noResponse", undefined, "No response from session — the prompt may not have been received."),
+          );
+          if (settled !== current) next.set(selectedId, settled);
         }
         return next;
       });
@@ -1845,7 +1846,7 @@ export default function App() {
             onAbort={handleAbort}
             onForceKill={handleForceKill}
             onStopAfterTurn={handleStopAfterTurn}
-            pendingPrompt={!!selectedState.pendingPrompt}
+            pendingPrompt={selectedState.pendingPrompt?.status}
             onCancelPending={handleCancelPending}
             sessionId={selectedId}
             draft={selectedDraft}

@@ -778,6 +778,19 @@ importers:
         specifier: ^3.9.0
         version: 3.10.0(react@19.2.7)
 
+  packages/mcp-server-plugin:
+    dependencies:
+      '@blackbelt-technology/dashboard-plugin-runtime':
+        specifier: ^0.7.0
+        version: link:../dashboard-plugin-runtime
+      '@blackbelt-technology/pi-dashboard-shared':
+        specifier: ^0.7.0
+        version: link:../shared
+    devDependencies:
+      fastify:
+        specifier: ^5.0.0
+        version: 5.10.0
+
   packages/mockup-loop:
     dependencies:
       '@axe-core/playwright':

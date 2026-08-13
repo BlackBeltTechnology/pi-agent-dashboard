@@ -24,6 +24,12 @@ export interface ConnectionManagerOptions {
   watchdogTimeout?: number;
   onMessage?: (data: unknown) => void | Promise<void>;
   onReconnect?: () => void;
+  /**
+   * Fired when the server terminally refuses this bridge's registration for a
+   * session id (another live bridge already serves it). Reconnection is NOT
+   * retried afterwards. See change: fix-duplicate-bridge-registration (D2).
+   */
+  onRegisterRejected?: (sessionId: string, reason: string) => void;
 }
 
 export class ConnectionManager {
@@ -38,6 +44,7 @@ export class ConnectionManager {
   private hasConnectedBefore = false;
   private onMessage?: (data: unknown) => void | Promise<void>;
   private onReconnect?: () => void;
+  private onRegisterRejected?: (sessionId: string, reason: string) => void;
 
   /**
    * Serialized inbound pump. `ws.onmessage` enqueues; a single drain loop
@@ -70,8 +77,14 @@ export class ConnectionManager {
    * terminate a child that is itself occupying the queue.
    * `abort` is deliberately NOT here: dispatched early it would run ahead of
    * the `send_prompt` it cancels and silently lose the cancellation.
+   * `request_models` touches only the dashboard's own model catalogue (an
+   * auth reload + a provider refresh) — never pi's turn state — and that
+   * refresh is network-bound: serialized, a slow or
+   * hung refresh blocks the head of the queue and every later message —
+   * including `send_prompt` — never dispatches.
+   * See change: fix-optimistic-prompt-stuck-sending.
    */
-  private static readonly IMMEDIATE_TYPES = new Set(["prompt_response", "server_restarting", "kill_process"]);
+  private static readonly IMMEDIATE_TYPES = new Set(["prompt_response", "server_restarting", "kill_process", "request_models"]);
 
   private static readonly INITIAL_BACKOFF = 1000;
   private static readonly MAX_BACKOFF = 30000;
@@ -109,6 +122,7 @@ export class ConnectionManager {
     );
     this.onMessage = options.onMessage;
     this.onReconnect = options.onReconnect;
+    this.onRegisterRejected = options.onRegisterRejected;
   }
 
   /**
@@ -361,6 +375,15 @@ export class ConnectionManager {
       this.lastMessageAt = Date.now();
       try {
         const parsed = JSON.parse(ev.data);
+        // A contention refusal is TERMINAL. The server closes us right after
+        // sending it, and every close otherwise looks transient, so without
+        // this the refused duplicate reconnects and re-registers forever while
+        // its pi keeps writing into the incumbent's transcript.
+        // See change: fix-duplicate-bridge-registration (D2).
+        if (parsed?.type === "register_rejected") {
+          this.handleRegisterRejected(parsed.sessionId, parsed.reason);
+          return;
+        }
         // Handler dispatch is SERIALIZED: `enqueueInbound` appends to a queue
         // drained by a single loop that awaits each handler to completion, so a
         // `set_model` can no longer be overtaken by a following `send_prompt`
@@ -419,6 +442,22 @@ export class ConnectionManager {
       clearInterval(this.watchdogTimer);
       this.watchdogTimer = null;
     }
+  }
+
+  /**
+   * Stop retrying for a session id the server refused, and surface the reason
+   * rather than dying silently.
+   */
+  private handleRegisterRejected(sessionId: string | undefined, reason: string | undefined): void {
+    console.error(
+      `[bridge] registration refused for session ${sessionId ?? "(unknown)"}: ` +
+        `${reason ?? "no reason given"} — not retrying`,
+    );
+    this.onRegisterRejected?.(sessionId ?? "", reason ?? "");
+    // Treat as an intentional close so `handleDisconnect` does not rearm the
+    // backoff loop when the server closes the socket behind this frame.
+    this.intentionalClose = true;
+    this.handleDisconnect();
   }
 
   private scheduleReconnect(): void {

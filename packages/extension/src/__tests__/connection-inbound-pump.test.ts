@@ -193,6 +193,37 @@ describe("inbound message pump — immediate lane", () => {
     cm.disconnect();
   });
 
+  // A hung `request_models` refresh used to wedge the pump forever, so the
+  // `send_prompt` behind it never dispatched and the composer's optimistic
+  // bubble hung at `sending`. `request_models` now rides the immediate lane.
+  // See change: fix-optimistic-prompt-stuck-sending.
+  it("dispatches request_models while the serialized lane is blocked", async () => {
+    const { entered, gate, cm } = await withParkedPump({ type: "request_models" });
+    expect(entered).toEqual(["park", "request_models"]);
+    gate.resolve();
+    await flush();
+    cm.disconnect();
+  });
+
+  it("a never-settling request_models does not block a later send_prompt", async () => {
+    const entered: string[] = [];
+    const { cm, ws } = connect({
+      onMessage: async (data: any) => {
+        entered.push(data.type);
+        // The real-world shape: a provider refresh that never resolves.
+        if (data.type === "request_models") await new Promise<void>(() => {});
+      },
+    });
+
+    ws.simulateMessage({ type: "request_models" });
+    await flush();
+    ws.simulateMessage({ type: "send_prompt", text: "hi" });
+    await flush();
+
+    expect(entered).toEqual(["request_models", "send_prompt"]);
+    cm.disconnect();
+  });
+
   // E5 — the restart quiesce signal takes effect immediately.
   it("applies the server_restarting quiesce window while the lane is blocked", async () => {
     const entered: string[] = [];

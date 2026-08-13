@@ -674,6 +674,76 @@ New package `packages/hermes-memory-plugin` (client + server + shared). Settings
 - Runtime caveat: hermes reads config once at extension load → edits apply to newly started sessions only ("applies to new sessions" notice in the UI), not running ones.
 - Structured logging: path + field count on read/write success, failure reason on error, NEVER field values (config may hold model/provider hints).
 
+### MCP Endpoint (`add-dashboard-mcp-server`)
+
+New plugin `packages/mcp-server-plugin/`. Headless — no client entry, `claims: []`. Mounts `POST /mcp` on `ctx.fastify`, the shared Fastify instance every plugin gets. Seven other plugins register routes the same way.
+
+**Protocol.** Implements MCP revision `2026-07-28` ONLY. No legacy `2025-06-18` / `2025-11-25`. Both reintroduce `initialize` + `Mcp-Session-Id`, the two mechanisms this endpoint exists to refuse. Unsupported version → `UnsupportedProtocolVersionError`. Stateless: no `initialize` handshake. No `Mcp-Session-Id` (never minted, never echoed, ignored on input). No `Last-Event-ID` resumption.
+
+`MCP-Protocol-Version` header required on EVERY POST. Must agree with `params._meta["io.modelcontextprotocol/protocolVersion"]`. Disagreement → `400 HeaderMismatch`. Check order observable:
+- absent header → `MissingHeader`
+- absent `_meta` → `MissingMeta`
+- non-string body version → `UnsupportedProtocolVersion`
+- only then judged supported
+
+**Method / error mapping.**
+- Unknown method → `404` + JSON-RPC `-32601`. Unknown tool → `404` + `-32601`.
+- Malformed body → `-32700` (unparseable) or `-32600` (valid JSON, not JSON-RPC).
+- Fastify body-parse failure normalised into JSON-RPC parse error.
+- Never `500`. Handler rejection → `-32603`, never an unhandled rejection.
+- Non-POST methods → `405` + `Allow: POST`.
+- Explicitly registered: GET, DELETE, PUT, PATCH, OPTIONS.
+- HEAD NOT registered. Fastify derives HEAD from GET. Returns same 405. Asserted in tests, not registered.
+- Reason: Fastify falls an unmatched method through to `setNotFoundHandler`. In `--dev`, that proxies Vite and returns 200 + SPA HTML. Conformance failure that looks like success.
+
+**Encapsulated scope.** Routes register inside a Fastify `register` scope, not on the shared instance. Load-bearing: `setErrorHandler` global on the instance called on. Call on `ctx.fastify` → replaces dashboard handler, breaks SPA fallback.
+
+**Auth boundary.** `createNetworkGuard` applied per-route. `/mcp` sits outside it, self-guards. Every request needs a bearer credential, INCLUDING loopback. No `isGenuinelyLocal` parameter exists. Handler reads `Authorization` directly, never `request.isAuthenticated` (global hooks set that for cookies + device tokens). Cookie-authenticated browser cannot reach `/mcp`.
+
+Two credential kinds resolve to one `McpCaller`:
+- session-scoped MCP tokens → `{ kind:"session", sessionId }`, has originating session
+- paired-device bearers → `{ kind:"device", deviceId }`, no originating session
+
+**Session tokens.** Opaque 256-bit. `mcp_` prefix. SHA-256 at rest. Plaintext returned once at mint. Constant-time compare. Flat-array scan, no membership-timing leak. No independent expiry — a token's lifetime IS its session's lifetime. IN-MEMORY only: no `mcp-tokens.json`. Registry dies with the plugin. All die on restart. Sessions re-mint when bridge re-registers. Revocation: `onSessionEnded` / bridge disconnect (primary), explicit `mcp/revoke-token`, process exit / plugin unload.
+
+**Minting.** `mcp/mint-token` over the session's own bridge WebSocket. Server attributes it to the session the CONNECTION registered as (`currentSessionId`), never `msg.sessionId`. `mcp/revoke-token` revokes by session.
+
+`plugin_pi_message.sessionId` a REQUIRED protocol field (`protocol.ts:593`), always present. `pi-gateway.ts` previously preferred it over the connection — a bridge could name any session and receive that session's credential. `plugin_pi_message` now excluded from body-sessionId precedence. Other message types keep prior behaviour.
+
+Guarantee stated exactly: "the session this connection registered as". Not spoofable per-message — what the self-target guard needs. NOT a claim about pi-gateway port authentication. `currentSessionId` itself set from the first `register` message. Pre-existing bridge trust model. Out of scope here.
+
+**Self-target guard.** Refuses a session-targeting tool call (`send_prompt`, `abort`) whose target equals the caller's own resolved session. Target normalised for equality (trim, one quote pair, lowercase) — bypass-proof. Catches DIRECT self-targeting only. Indirect A→B→A loop permitted, documented out of scope. Device callers have no originating session, structurally outside the guard.
+
+**Tool surface.** Curated allowlist over `ServerPluginContext`. 5 of 19 allowlisted (`sessionManager`, `sendToSession`, `spawnSession`, `abortSession`, `onEvent`), 14 denied. Partition total — future member fails `assertContextPartitionTotal`. Tools: `list_sessions`, `send_prompt`, `spawn_session`, `abort`. `abort` maps to `abortSession` (soft-only, false on a disconnected bridge), NOT `abortSpawnedRun`. `sessionId` an ordinary required argument (revision removed protocol sessions).
+
+**Streaming.** `subscriptions/listen`, a long-lived POST-response stream. `params.sessionIds[]` required; absent/empty/non-array → `-32602`. No subscribe-to-all. Filter applied per subscription before write. Authorisation re-checked per delivery. Revoked mid-stream → terminates it. Slow consumer → subscription TERMINATED at `MAX_BUFFERED_EVENTS` (1000) buffered events. Does NOT silently drop events. Subscription dies with its request.
+
+**Provisioning.** Writes `~/.pi/agent/mcp.json` key `pi-dashboard` on server start. HTTP `url` shape, not stdio `command` (iMCP writes `command`). `protocolVersion` pinned `2026-07-28` — never omitted, else legacy handshake. Merge-only. Atomic rename. Refuses unparseable file. Foreign shape under the reserved key → refuses the whole write, file untouched. Failure logged, never thrown — provisioning a convenience, not a precondition for serving `/mcp`.
+
+**Prerequisite.** `pi-mcp-adapter >= 2.20.0` for the local-pi path. Below that, "legacy remains the default", handshake silently degrades. Runtime probe reports floor + installed + failure mode (`absent` / `below-floor` / `unparseable`).
+
+**Config reference.** `MCP_BODY_LIMIT_BYTES` 1 MiB body cap. `MAX_BUFFERED_EVENTS` 1000 buffered events.
+
+```mermaid
+sequenceDiagram
+    participant C as MCP client
+    participant S as /mcp (encapsulated scope)
+    participant R as McpTokenRegistry
+    participant B as Bridge (session socket)
+    C->>S: POST /mcp (Authorization: Bearer, MCP-Protocol-Version)
+    S->>S: authenticate(header) → McpCaller
+    S->>S: resolveProtocolVersion(header, params._meta)
+    S->>S: dispatchRpc (method allowlist)
+    Note over S,R: session token kind
+    B->>S: mcp/mint-token (over session's own socket)
+    S->>R: mintForSession(sessionId from socket key)
+    R-->>B: plaintext token (once)
+```
+
+**Seam change.** `RegisterPiHandlerFn` widened to `(msg, sessionId)`. Gateway passes its socket key through `dispatchPluginPiMessage`. Additive — `(msg)`-only handlers still valid. `sessionId` from the socket key, never the message body — a plugin can attribute a bridge message as a trust decision.
+
+See change: add-dashboard-mcp-server.
+
 ### Bootstrap & First Run (R3, immutable bundle)
 
 pi/openspec/tsx are regular npm dependencies of `@blackbelt-technology/pi-dashboard-server`. There is no runtime install pyramid. All three arms (Electron, standalone `npm i -g`, bridge) start ready.
@@ -1891,6 +1961,172 @@ When pi continues a session via `--session <file>`, it reuses the same JSONL fil
 When the bridge extension is loaded multiple times (e.g., local project + global npm package), duplicate connections can create "ghost" sessions — active sessions with no sessionFile and no events. The server detects and removes these:
 - **Pi gateway**: When a `session_register` changes the connection's session ID, the old session is cleaned up if it has `source: "unknown"` or no `sessionFile`
 - **Event wiring**: When `session_register` arrives, any active sessions in the same cwd that have no sessionFile, no events, aren't connected, and were created within 30s are removed as ghosts
+
+### Bridge Connection Contention (one live bridge per session id)
+
+Change: `fix-duplicate-bridge-registration`. Two live bridges once claimed one
+`sessionId`; gateway map resolved last-writer-wins. Newcomer silently displaced
+incumbent. Every server→extension message — prompts included — delivered to the
+displaced socket. Session looked healthy everywhere; prompts vanished. Fix:
+gateway now enforces **one live bridge per session id** as an invariant.
+
+Decision logic in `packages/server/src/pi/bridge-contention.ts`. Kept out of
+`pi-gateway.ts` so the two-factor rule tests against synthetic sockets — the
+decisive "OPEN but not writable" state is not constructible from a real client
+socket. See change: `fix-duplicate-bridge-registration` (D1, D2, D4, D6).
+
+#### Claim point (D0)
+
+Real claim is the first-message identity block in `pi-gateway.ts` — NOT the
+`session_register` dispatch. `session_register` is itself that first message.
+`session_register` branch keeps `connections.set` as a no-op re-assert for the
+socket that already owns the id, and as the id-change path claim.
+
+Contention decision runs BEFORE every register side effect: watchdog clear,
+placeholder cleanup, `resetHeartbeat`, callbacks, `onEvent`. Refused newcomer
+reaching any would strip the incumbent's `sessionFile`, consume its spawn token,
+or reset its reconnect-grace timer. Refusal path short-circuits before all.
+
+Ownership gate after register. `session_heartbeat` and `model_update` name
+`msg.sessionId`. Without a gate, in-flight frames from a refused socket reset
+the incumbent's heartbeat or overwrite its `processMetrics`. Gate drops every
+message whose named id is not held by that socket (`connections.get(id) !==
+ws`).
+
+Id-change contention decision hoisted above the watchdog clear. `clearByCwd`
+would disarm a pending spawn watchdog before the register is refused.
+
+#### Two-factor contention rule (D1)
+
+On `session_register` for an id whose entry holds a different `OPEN` socket, the
+gateway probes the incumbent (WebSocket ping) and waits a bounded window
+(`CONTENTION_PROBE_WINDOW` = 5 s). Same two-factor rule the ping reaper already
+encodes:
+
+- **pong** → alive and serving → incumbent keeps; newcomer refused.
+- **no pong but TCP socket writable** → busy, not dead → incumbent keeps;
+  newcomer refused.
+- **neither** → dead → gateway terminates incumbent, clears entry, accepts
+  newcomer.
+
+Pong-only rule would be wrong. Pongs processed on same event loop the bridge
+blocks while running a tool; a busy bridge does not answer. Pong-only rule
+terminates the live working incumbent. Both factors demanded, not observed —
+rule deterministic, testable.
+
+**Same-pid reconnect exemption**: registering socket reporting same pid gateway
+recorded for incumbent = same pi reconnecting (previous close frame lost or in
+flight), not a duplicate. Gateway replaces the entry, never refuses. Self-reported
+pid used ONLY to AVOID a permanent refusal, never to justify one.
+
+**Placeholder incumbent** (`source: "unknown"`) never carries a recorded pid, so
+never satisfies same-pid exemption. Never a protected incumbent: a real register
+always displaces one. Closes the window.
+
+**Accepted residual — half-open incumbent undetectable.** Peer dead without a FIN
+leaves socket `OPEN` and writable, reads identical to busy, keeps the id.
+Neither reaper clears it (ping reaper keeps on `socketAlive`; heartbeat
+reschedules while `OPEN`). Id stranded until OS TCP timeout. Recovery: kill the
+losing keeper by verified pid, let survivor re-register. TCP keepalive on bridge
+sockets is the named follow-up. Known cost of never sacrificing a
+busy-but-live session, chosen deliberately.
+
+#### Terminal refusal (D2)
+
+Closing a refused socket is not enough. Bridge treats any close as transient and
+reconnects with backoff. No rejection message existed. Refused duplicate would
+loop forever, pi process alive writing into the same `.jsonl` as incumbent.
+
+New server→extension message `register_rejected` in
+`packages/shared/src/protocol.ts`. Sent BEFORE the close. Bridge stops retrying
+for that session id on receipt; surfaces the reason instead of dying silently.
+
+Refused register leaves the spawn-register watchdog armed. Watchdog reclaims the
+refused duplicate's pi by server-minted spawn token (`findPidsBySpawnToken`) —
+only processes this server spawned. Stops refused duplicate's pi writing into
+incumbent's `.jsonl`. `armSpawnWatchdog` arms EVERY spawn entry point (REST
+resume, WebSocket drag-to-resume, zombie reopen, headless reload), not just the
+WebSocket one. Browser transport optional — absent browser must not block the
+reclaim.
+
+Killing the refused newcomer by the pid it reports on the register message is
+rejected: server executing a kill on the word of an untrusted socket message.
+
+#### Identity-scoped teardown (D3)
+
+Every id-keyed cleanup fired by a closing socket — map delete, `onDisconnect`,
+`sessionManager.unregister`, automation finalize, `heartbeatTimers`/
+`heartbeatMeta` deletes — first confirms `connections.get(id) === ws`. Displaced
+or refused socket closing cannot raise a spurious disconnect on a live session,
+clear the incumbent's reconnect-grace timer, or finalize an automation run
+another socket serves.
+
+`stop()` terminates `wss.clients`, NOT `connections.values()`. `wss.close()` does
+not terminate clients; a socket outside the map would survive teardown and
+re-register against the fresh server. This is the half that made the incident
+survive two restarts.
+
+#### Prompt reporting (D4)
+
+With D0/D1 the map cannot hold a usurper; at prompt time exactly one owner, send
+is honest. "Contended" is a recorded event, not a live routing state. Record
+has explicit lifecycle, cleared by whichever comes first: refused spawn
+reclaimed, TTL expiry, incumbent disconnect, or session end. Incumbent alone
+insufficient trigger — healthy, may never disconnect, and D3 makes the refused
+socket's close a no-op for that id.
+
+`POST /api/session/:id/prompt` SHALL NOT return plain success while a contention
+record is live. Annotates the reason, distinguishable from the existing "no
+bridge" failure. Reports `delivered: true` — contended-but-delivered is the
+normal case. Annotates, does not fail.
+
+`sendToSession` returns `true` only for the socket the map holds for that id.
+
+#### Resume session-file guard (D5)
+
+Existing 409 (`session-api.ts`) keyed on session id only; did not prevent the
+incident — second keeper resumed the same session *file* under a different id.
+
+Both guard sites refuse a `continue` whose target `sessionFile` a live bridge
+already serves under ANY session id:
+- `packages/server/src/session/session-api.ts` (REST)
+- `packages/server/src/browser-handlers/session-action-handler.ts` (WebSocket
+drag-to-resume)
+
+Third site: `handleSendPrompt`'s zombie-reopen branch in
+`session-action-handler.ts` also spawns `mode:"continue"`, so it carries the
+same guard.
+
+All three call `piGateway.findLiveSessionBySessionFile`. Liveness is D1's
+two-factor definition (`isSocketAlive`), NOT raw `readyState`: a socket the
+gateway has not yet reaped, but whose transport is gone, does not block a
+resume. A TRUE half-open incumbent (`readyState OPEN`, transport still
+writable) reads as alive and DOES block the resume — the same accepted residual
+as D1, recovered by killing the losing keeper by pid.
+
+Fork exempt. Sessions with no `sessionFile` never match (placeholders store
+`undefined`). Lookup runs before the register-time `sessionFile` mutation
+(`event-wiring.ts`), which would already have nulled the key.
+
+#### Observability (D6)
+
+`/api/health` exposes:
+- `bridgeContentionCount` — cumulative, process lifetime; never reset by expiry.
+- `contendedSessionIds` — record lifecycle: reclaim / 60 s expiry / incumbent
+disconnect / session end.
+- `piGatewayPort`.
+
+Refusal log line `[gateway] contention refused: <id> incumbentPid=…
+newcomerPid=…`. Distinct from `[gateway] session registered:` so it is greppable
+as its own signal. Unknown pid renders `unknown`, never omitted.
+
+Refusal log line + health entry rate-limited to 1 per session id per 5 s
+(`CONTENTION_RATE_LIMIT`). Older bridge that ignores `register_rejected` keeps
+reconnecting; rate limit stops either surface flooding.
+
+Constants: probe window 5 s (`CONTENTION_PROBE_WINDOW`), contention record
+expiry 60 s (`CONTENTION_RECORD_TTL`), refusal rate limit 1/id/5 s
+(`CONTENTION_RATE_LIMIT`).
 
 ### On-Demand Session Loading (Server-Side)
 When a browser subscribes to a session whose events have been evicted from memory:
@@ -3273,3 +3509,68 @@ Caps (caps.ts): `maxActiveEmbedSessionsPerVisitor` + `maxActiveEmbedSessionsGlob
 `createEmbedLifecycleController` (embed-lifecycle-controller.ts) constructed in server.ts. Reaper `start()`/`stop()` tied to server lifecycle. Dormant when `enabled: false`.
 
 See change: add-embed-session-lifecycle.
+
+## Knowledge Base (KB)
+
+Markdown knowledge base backed by a single FTS5 table (`chunks`) over `node:sqlite`. Zero network, zero LLM — all ranking is mechanical. Backend `SqliteFtsStore` (`packages/kb/src/sqlite-store.ts`). Config layered project → global → defaults (`packages/kb/src/config.ts`).
+
+### KB retrieval pipeline
+
+`store.search()` post-processes one FTS5 BM25 pass with a staged pipeline. Stage order:
+
+1. **Body-hash collapse** (exact-content dedup) — byte-identical chunks collapse to one `KbHit`; alternate locations become `akaPaths`. Runs FIRST so `akaPaths` computes against the full candidate set.
+2. **Source dedup** — one hit per `(root, path)`; representative = best (lowest) BM25 score; suppressed remainder counted in `KbHit.suppressedSections`.
+3. **MMR** (`diversity`, lexical over bodies, config-gated, default on).
+4. **Coverage rerank** — opt-in, default off.
+5. **Lane interleave** — `agents` lane blended into the page.
+6. **Limit slice**.
+7. **Parent expand** (`expandParent`, default on) — attaches parent `headingPath` to each hit.
+
+Source dedup differs from body-hash dedup: body-hash answers "same content, two places"; source dedup answers "already showed this file". A file vendored under two roots collapses across roots first, then dedups by source.
+
+#### `limit` = distinct sources (BREAKING)
+
+`limit` bounds **distinct sources**, not chunks. Contract change for `kb_search`, `kb search`, `store.search()`. `store.search()` still returns `KbHit[]`; only cardinality semantics change.
+
+Source dedup shrinks one source to one slot, so a pool sized at `limit` starves the page. Fetch depth = `limit × 6` when source dedup on (`limit × 4` body-hash only), capped at 4000.
+
+#### Lane quota (`ranking.laneQuota`)
+
+`agents` chunks are 3.2% of the index and ~3× longer than `doc`, so BM25 length normalisation buries the per-file record layer ~30:1. Fix is engine-side: second FTS pass restricted to `doc_type='agents'` with a shallow pool, interleaved at `ranking.laneQuota` (default 0.5). Explicit `docType` bypasses the quota. Starved lane yields its slots to the other; a source taken by one lane is never repeated (when source dedup on).
+
+Swept over bundled fixtures; 0.5 = largest reserved share with no markdown-intent regression. See `measurements.md` sweep table.
+
+#### Coverage rerank + PRF — off by default
+
+Coverage rerank (`ranking.coverageRerank`) + RM3-style PRF (`queryExpansion.mode: "prf"`) implemented, tested, config-gated, **default off**. Measured a net regression on bundled fixtures (markdown-intent R@10 0.630 → 0.491; combined 0.566 → 0.524; latency ~4×). PRF applies only with coverage rerank on; expanding an OR-query deepens the dilution the rerank exists to cure. Do not present as active. See `measurements.md` D4.
+
+#### Condensed render
+
+Result render emits leaf heading, not breadcrumb, plus `(+N more sections)`. Full `headingPath` retained in `KbHit` and the JSON format, so `kb_get(path, section)` still addresses a section.
+
+#### `kb_get` path-only fetch
+
+Path-only fetch (`getChunk` without `headingPath`) returns first chunk plus `suppressedSections` count. Never a silent 1-of-N slice.
+
+#### Measured outcome (31,121-chunk index, K=10)
+
+| metric | baseline | shipped |
+|---|---|---|
+| combined R@10 | 0.363 | 0.566 (+56%) |
+| duplicate-slot share | 0.48 | 0.00 |
+| distinct sources/page | 5.2 | 10.0 |
+| render tokens/page | — | −32.8% |
+
+Reproduce + full variant table: `packages/kb/eval/` (`run-fixtures.ts`, `measure-render.ts`).
+
+#### Latency — budget met at median, not p95
+
+| config | median | p95 |
+|---|---|---|
+| baseline | 20.6 ms | 34.8 ms |
+| + source dedup | 25.5 ms | 38.2 ms |
+| + lane quota 0.5 | 53.2 ms | 84.8 ms |
+
+Lane quota is the cost: its `agents` lane is a second FTS query, and `doc_type` is an UNINDEXED FTS5 column — cannot be answered by an index, scans the full match set. Scaled 31,121 → ~22,000 chunks: ≈38 ms median (passes 50 ms budget), ≈60 ms p95 (fails).
+
+See change: fix-kb-search-retrieval-quality.

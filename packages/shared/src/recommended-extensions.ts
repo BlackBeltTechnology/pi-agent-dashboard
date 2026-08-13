@@ -475,6 +475,18 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 			"Provisioning panel + one-command installer",
 		],
 		dashboardPlugin: "apple-tools",
+		// NOTE: `piExtensions` names an extension but cannot express a VERSION
+		// floor, and `PluginRequirements` has no field for one. The dashboard MCP
+		// endpoint needs pi-mcp-adapter >= 2.20.0 (below that, "legacy remains the
+		// default" and the 2026-07-28 handshake silently degrades).
+		//
+		// Decision (task 11.4): the floor stays a DOCUMENTED prerequisite enforced
+		// by a runtime probe (`mcp-server-plugin/src/server/provisioning.ts`
+		// `probeAdapterVersion`), not a new manifest field. Adding one would change
+		// the manifest schema for every plugin and needs enforcement semantics
+		// nobody has specified — speculative for a single consumer, while the probe
+		// already reports at the moment the mismatch matters.
+		// See change: add-dashboard-mcp-server.
 		requires: { piExtensions: ["pi-mcp-adapter"] },
 	},
 	{

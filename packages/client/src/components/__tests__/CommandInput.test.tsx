@@ -151,21 +151,21 @@ describe("CommandInput autocomplete", () => {
 });
 
 describe("Pending prompt behavior", () => {
-  it("disables input when pendingPrompt is true", () => {
-    const { textarea } = renderInput({ pendingPrompt: true });
+  it("disables input when pendingPrompt is sending", () => {
+    const { textarea } = renderInput({ pendingPrompt: "sending" });
     expect(textarea.disabled).toBe(true);
   });
 
-  it("disables send button when pendingPrompt is true", () => {
-    const { container, textarea } = renderInput({ pendingPrompt: true });
+  it("disables send button when pendingPrompt is sending", () => {
+    const { container, textarea } = renderInput({ pendingPrompt: "sending" });
     fireEvent.change(textarea, { target: { value: "test" } });
     const sendBtn = container.querySelector('[data-testid="send-button"]') as HTMLButtonElement;
     expect(sendBtn.disabled).toBe(true);
   });
 
-  it("shows Stop button when pendingPrompt is true", () => {
+  it("shows Stop button when pendingPrompt is sending", () => {
     const onCancelPending = vi.fn();
-    const { container } = renderInput({ pendingPrompt: true, onCancelPending, sessionStatus: "idle" });
+    const { container } = renderInput({ pendingPrompt: "sending", onCancelPending, sessionStatus: "idle" });
     const stopBtn = container.querySelector('[data-testid="stop-button"]');
     expect(stopBtn).not.toBeNull();
   });
@@ -173,7 +173,7 @@ describe("Pending prompt behavior", () => {
   it("calls onCancelPending when Stop clicked during pending", () => {
     const onCancelPending = vi.fn();
     const onAbort = vi.fn();
-    const { container } = renderInput({ pendingPrompt: true, onCancelPending, onAbort, sessionStatus: "idle" });
+    const { container } = renderInput({ pendingPrompt: "sending", onCancelPending, onAbort, sessionStatus: "idle" });
     const stopBtn = container.querySelector('[data-testid="stop-button"]')!;
     fireEvent.click(stopBtn);
     expect(onCancelPending).toHaveBeenCalledOnce();
@@ -182,14 +182,40 @@ describe("Pending prompt behavior", () => {
 
   it("calls onCancelPending on Escape key during pending", () => {
     const onCancelPending = vi.fn();
-    const { textarea } = renderInput({ pendingPrompt: true, onCancelPending });
+    const { textarea } = renderInput({ pendingPrompt: "sending", onCancelPending });
     fireEvent.keyDown(textarea, { key: "Escape" });
     expect(onCancelPending).toHaveBeenCalledOnce();
   });
 
+  // The composer gate is status-aware: only `sending` is in flight.
+  // See change: fix-optimistic-prompt-stuck-sending (test-plan #E1/#E2/#E3).
+  it("#E2 disables textarea and send while pendingPrompt is 'sending'", () => {
+    const { container, textarea } = renderInput({ pendingPrompt: "sending", sessionStatus: "idle" });
+    fireEvent.change(textarea, { target: { value: "test" } });
+    expect(textarea.disabled).toBe(true);
+    const sendBtn = container.querySelector('[data-testid="send-button"]') as HTMLButtonElement;
+    expect(sendBtn.disabled).toBe(true);
+  });
+
+  it("#E1 keeps textarea and send ENABLED once pendingPrompt is 'sent'", () => {
+    const { container, textarea } = renderInput({ pendingPrompt: "sent", sessionStatus: "idle" });
+    fireEvent.change(textarea, { target: { value: "test" } });
+    expect(textarea.disabled).toBe(false);
+    const sendBtn = container.querySelector('[data-testid="send-button"]') as HTMLButtonElement;
+    expect(sendBtn.disabled).toBe(false);
+  });
+
+  it("#E3 keeps textarea and send ENABLED when pendingPrompt is 'failed'", () => {
+    const { container, textarea } = renderInput({ pendingPrompt: "failed", sessionStatus: "idle" });
+    fireEvent.change(textarea, { target: { value: "test" } });
+    expect(textarea.disabled).toBe(false);
+    const sendBtn = container.querySelector('[data-testid="send-button"]') as HTMLButtonElement;
+    expect(sendBtn.disabled).toBe(false);
+  });
+
   it("does not call onCancelPending on Escape when not pending", () => {
     const onCancelPending = vi.fn();
-    const { textarea } = renderInput({ pendingPrompt: false, onCancelPending });
+    const { textarea } = renderInput({ pendingPrompt: undefined, onCancelPending });
     fireEvent.keyDown(textarea, { key: "Escape" });
     expect(onCancelPending).not.toHaveBeenCalled();
   });
@@ -529,7 +555,7 @@ describe("CommandInput — history-nav gating (only-when-empty)", () => {
     const { textarea } = renderInput({
       draft: "text",
       onDraftChange,
-      pendingPrompt: true,
+      pendingPrompt: "sending",
       history: ["prev-prompt"],
     });
     setCaret(textarea, textarea.value.length);
@@ -906,9 +932,9 @@ import { afterEach } from "vitest";
 afterEach(() => cleanup());
 
 describe("CommandInput — input stays enabled mid-turn (mid-turn-prompt-queue)", () => {
-  it("disables textarea and send button when pendingPrompt && session is idle", () => {
+  it("disables textarea and send button when pendingPrompt is sending && session is idle", () => {
     const { textarea, container } = renderInput({
-      pendingPrompt: true,
+      pendingPrompt: "sending",
       sessionStatus: "idle",
     });
     expect((textarea as HTMLTextAreaElement).disabled).toBe(true);
@@ -916,9 +942,9 @@ describe("CommandInput — input stays enabled mid-turn (mid-turn-prompt-queue)"
     expect(sendBtn.disabled).toBe(true);
   });
 
-  it("keeps textarea and send button ENABLED when pendingPrompt && session is streaming", () => {
+  it("keeps textarea and send button ENABLED when pendingPrompt is sending && session is streaming", () => {
     const { textarea, container } = renderInput({
-      pendingPrompt: true,
+      pendingPrompt: "sending",
       sessionStatus: "streaming",
       draft: "hi",
       onDraftChange: vi.fn(),
@@ -931,12 +957,12 @@ describe("CommandInput — input stays enabled mid-turn (mid-turn-prompt-queue)"
 
   it("re-enables when pendingPrompt clears and session is idle", () => {
     const { textarea, rerender, container } = renderInput({
-      pendingPrompt: true,
+      pendingPrompt: "sending",
       sessionStatus: "idle",
     });
     expect((textarea as HTMLTextAreaElement).disabled).toBe(true);
     rerender(
-      <CommandInput commands={commands} onSend={vi.fn()} pendingPrompt={false} sessionStatus="idle" />,
+      <CommandInput commands={commands} onSend={vi.fn()} pendingPrompt={undefined} sessionStatus="idle" />,
     );
     expect((textarea as HTMLTextAreaElement).disabled).toBe(false);
     const sendBtn = container.querySelector('[data-testid="send-button"]') as HTMLButtonElement;

@@ -2,9 +2,10 @@
 // `kb agents <path>` nearest-applicable chain (design §6d). Pure-local,
 // deterministic, no LLM/embedding. The detect-don't-write rule: `dox init`
 // and `--fix` only fill PATH columns / prune orphans; the LLM authors purposes.
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync, appendFileSync } from "node:fs";
-import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+
 import { createHash } from "node:crypto";
+import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import type { KbStore } from "./types.js";
 
 // delta ②: exclude worktree checkouts, archived openspec proposals, and doc-example noise.
@@ -356,13 +357,19 @@ export interface DoxIssue {
   detail: string;
   // over-threshold discriminator: "bytes" = actionable (auto-injected per turn,
   // remedy = sidecar split); "rows" = informational (advisory, no injection cost).
-  arm?: "bytes" | "rows";
+  // missing discriminator: "source" = an undocumented .ts/.tsx (design D9), which
+  // is opt-in and never auto-fixed; markdown `missing` findings carry no arm.
+  arm?: "bytes" | "rows" | "source";
 }
 export interface DoxLintOptions {
   json?: boolean;
   fix?: boolean;
   cwd: string;
   stalenessFile?: string; // sidecar path (source-path → ack-hash)
+  /** Opt-in: report undocumented SOURCE files as `missing` (design D9). OFF by
+   *  default so an existing tree can adopt the arm incrementally instead of
+   *  red-walling CI with a large one-time finding count. */
+  sourceFileRows?: boolean;
 }
 export interface DoxLintResult {
   issues: DoxIssue[];
@@ -488,6 +495,22 @@ export function doxLint(opts: DoxLintOptions): DoxLintResult {
       const ownerRel = relative(cwd, owner) || "AGENTS.md";
       issues.push({ kind: "missing", agentsFile: ownerRel, path: md, detail: `no row for ${md}` });
       if (opts.fix) { appendFileSync(owner, `| \`${md}\` |  |\n`); fixed++; }
+    }
+  }
+
+  // missing rows, SOURCE arm (design D9): a .ts/.tsx in a covered area with no
+  // row in ANY ancestor AGENTS.md and no <file>.AGENTS.md sidecar is unreachable
+  // through the `agents` doc-type lane that retrieval depends on. Opt-in, and
+  // never auto-fixed: a blank purpose row is worse than an honest finding.
+  if (opts.sourceFileRows) {
+    for (const abs of sourceFiles(cwd)) {
+      const rel = relative(cwd, abs);
+      if (rowPaths.has(rel)) continue;
+      if (existsSync(join(cwd, `${rel}.AGENTS.md`))) continue;
+      const dir = rel.includes("/") ? rel.slice(0, rel.lastIndexOf("/")) : ".";
+      const owner = ownerOf(dir);
+      if (!owner) continue;
+      issues.push({ kind: "missing", arm: "source", agentsFile: relative(cwd, owner) || "AGENTS.md", path: rel, detail: `no row for source file ${rel}` });
     }
   }
 

@@ -20,6 +20,11 @@ export default defineConfig({
       "packages/shared",
       "packages/bus-client",
       "packages/document-converter",
+      // kb + kb-extension carry the retrieval contract (source dedup, lane quota,
+      // condensed render, kb_get truncation) and were previously collected by no
+      // project. See change: fix-kb-search-retrieval-quality.
+      "packages/kb",
+      "packages/kb-extension",
       "packages/session-distiller",
       "packages/server",
       "packages/extension",
@@ -39,6 +44,7 @@ export default defineConfig({
       "packages/subagents-plugin",
       "packages/goal-plugin",
       "packages/blackhole-plugin",
+      "packages/mcp-server-plugin",
       "scripts",
       // ship-it's pure decision helpers. Added by wire-local-review-gate: they
       // gate real ship decisions but were collected by no project before.

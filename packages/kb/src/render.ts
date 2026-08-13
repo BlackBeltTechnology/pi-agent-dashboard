@@ -20,14 +20,30 @@ export interface RenderOpts {
 
 const SNIPPET_MAX = 160;
 
+/** Leaf of a `A > B > C` breadcrumb. 47% of a rendered page was breadcrumb text
+ *  and 38% of that was a prefix repeated inside one file group, while the leaf
+ *  carries the discriminating token. Full `headingPath` stays in `KbHit` and in
+ *  the JSON format so `kb_get(path, section)` addressing still works.
+ *  See change: fix-kb-search-retrieval-quality (design D5). */
+function leafHeading(headingPath: string): string {
+  const parts = headingPath.split(" > ");
+  return parts[parts.length - 1] || headingPath;
+}
+
 /** Render hits to text. `rank` is a 1-based ordinal over the given (post-limit) list. */
 export function renderHits(hits: KbHit[], opts: RenderOpts): string {
   const { leading, parentGlyph, multiline } = opts;
   return hits
     .map((h, i) => {
       const lead = leading === "rank" ? String(i + 1) : h.score.toFixed(2);
-      const head = `${lead}  ${h.path}  ::  ${h.headingPath}`;
-      const dup = h.akaPaths && h.akaPaths.length ? `(+${h.akaPaths.length} dup)` : "";
+      const head = `${lead}  ${h.path}  ::  ${leafHeading(h.headingPath)}`;
+      const marks: string[] = [];
+      if (h.akaPaths?.length) marks.push(`(+${h.akaPaths.length} dup)`);
+      // Per-source match count from source-level dedup: a free relevance signal
+      // ("this file is the topic authority") in five tokens.
+      const sup = h.suppressedSections ?? 0;
+      if (sup > 0) marks.push(`(+${sup} more section${sup === 1 ? "" : "s"})`);
+      const dup = marks.join(" ");
       const snippet = h.snippet.replace(/\s+/g, " ").slice(0, SNIPPET_MAX);
       if (multiline) {
         const lines = [head];
