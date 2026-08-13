@@ -170,7 +170,10 @@ describe("no jiti-loaded module retains import.meta in code position", () => {
     }
   });
 
-  it("every discovered file transpiles cleanly", () => {
+  // Explicit timeout: this genuinely IS long-running — it runs jiti's real
+  // `transform()` over every discovered file (~400 today). ~2s on a warm dev
+  // machine, well past vitest's 5s default on a cold CI runner.
+  it("every discovered file transpiles cleanly", { timeout: 120_000 }, () => {
     const violations = files.filter((f) => checkFile(f).violates);
     expect(
       violations,
