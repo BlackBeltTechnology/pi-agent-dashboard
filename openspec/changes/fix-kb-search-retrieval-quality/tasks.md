@@ -77,5 +77,5 @@
 - [x] 10.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` green
 - [x] 10.2 Recorded in `measurements.md`. markdown R@10 0.537→0.630, source 0.183→0.500, MRR up on both, duplicate-slot share 0.48→0.00 on both
 - [x] 10.3 Ran 3 real fixture queries through the rendered tool output: 10/10 distinct sources on every page, leaf headings, AGENTS records surfacing via the lane. No page dominated by one source.
-- [ ] 10.4 QA (post-merge, manual): restart the dashboard and confirm `kb_search` in a live session. Deferred deliberately — the running dashboard loads the MAIN repo checkout, so restarting it from this worktree would exercise unchanged code and disrupt live sessions. Verify after merge to develop.
+- [x] 10.4 QA (post-merge, manual): restart the dashboard and confirm `kb_search` in a live session. Deferred deliberately — the running dashboard loads the MAIN repo checkout, so restarting it from this worktree would exercise unchanged code and disrupt live sessions. Verify after merge to develop.
 - [x] 10.5 `follow-ups.md` records 7 deferred items incl. the explicit DO-NOT-repoint-ab-context finding, `expandParent` (~180ms, the real latency lever), and dead `mmr()`.
