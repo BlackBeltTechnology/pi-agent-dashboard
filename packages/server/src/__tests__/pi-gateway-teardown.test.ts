@@ -7,7 +7,7 @@
  */
 import { describe, it, expect, vi } from "vitest";
 import { createPiGateway } from "../pi/pi-gateway.js";
-import type { SessionManager } from "../session-manager.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
 
 function fakeSessionManager(): SessionManager {
   return {} as unknown as SessionManager;
