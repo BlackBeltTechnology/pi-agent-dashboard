@@ -30,7 +30,7 @@ const baseProvider = {
 
 function renderCard(props: { health?: any; overrides?: Partial<typeof baseProvider> } = {}) {
   const provider = { ...baseProvider, ...(props.overrides ?? {}) };
-  render(
+  return render(
     <LlmProviderCard
       provider={provider}
       health={props.health}
@@ -76,6 +76,27 @@ describe("LlmProviderCard cached-health pill", () => {
   it("verbatim error line preserves the full multi-line error string", () => {
     renderCard({ health: { ok: false, status: 500, error: "line one\nline two", testedAt: 1 } });
     expect(screen.getByTestId("provider-error-line").textContent).toBe("line one\nline two");
+  });
+
+  it("a stale failed-Test result is cleared when the config changes externally (Discard)", async () => {
+    mockTestProvider.mockResolvedValue({ ok: false, status: 401, error: "bad key" });
+    const health = { ok: true, status: 200, modelCount: 5, testedAt: 1 };
+    const { rerender } = renderCard({ health });
+    // Test fails → error pill masks the cached-green health.
+    fireEvent.click(screen.getByTestId("test-provider-button"));
+    await waitFor(() => expect(screen.getByTestId("test-pill").getAttribute("data-state")).toBe("error"));
+    // External restore (Discard) changes the provider config prop → the stale
+    // test result is dropped and the pill falls back to cached health.
+    rerender(
+      <LlmProviderCard
+        provider={{ ...baseProvider, apiKey: "sk-restored" }}
+        health={health}
+        onChange={vi.fn()}
+        onRemove={vi.fn()}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId("test-pill").getAttribute("data-state")).toBe("ok"));
+    expect(screen.queryByTestId("provider-error-line")).toBeNull();
   });
 
   it("Test response updates the pill + error line live over cached health", async () => {

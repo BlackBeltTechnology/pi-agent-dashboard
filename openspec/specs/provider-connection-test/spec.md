@@ -72,18 +72,25 @@ The Settings \u2192 Providers \u2192 LLM Providers \u2192 **Add Provider** card 
 - **THEN** the button SHALL switch to a disabled loading state with a spinner and label `"Testing\u2026"`
 - **AND** the card SHALL display an inline status pill with text `"Testing\u2026"`
 
+The failure/success pill uses the single visual contract defined by the
+"Settings → Providers renders a health pill" requirement below (connected green /
+auth-error yellow with the HTTP status / unreachable red), with the verbatim
+`error` string on a monospace line beneath on failure.
+
 #### Scenario: Test succeeds
 - **WHEN** the server responds with `{ ok: true, modelCount: N, sample: [...] }`
 - **THEN** the status pill SHALL show a green check with text `"Connected \u00b7 N models"` (or `"Connected"` when `modelCount` is 0 or missing)
-- **AND** the pill SHALL persist until the user edits any field (baseUrl / apiKey / api), at which point the pill is cleared
+- **AND** the pill SHALL fall back to the row's cached health when the user edits a field (baseUrl / apiKey / api) or discards the edit
 
 #### Scenario: Test fails with HTTP status
 - **WHEN** the server responds with `{ ok: false, status: 401, error: "..." }`
-- **THEN** the status pill SHALL show a red cross with text `"401 \u2014 <first line of error>"`
+- **THEN** the status pill SHALL show a yellow pill reading the status code `"401"`
+- **AND** the verbatim `error` string SHALL render on a monospace line beneath the pill
 
 #### Scenario: Test fails with network error
 - **WHEN** the server responds with `{ ok: false, error: "fetch failed: ECONNREFUSED" }` (no `status`)
-- **THEN** the status pill SHALL show a red cross with text `"<error>"` (truncated to one line)
+- **THEN** the status pill SHALL show a red `"Unreachable"` pill
+- **AND** the verbatim `error` string SHALL render on a monospace line beneath the pill
 
 #### Scenario: Test works for already-saved providers
 - **WHEN** the user clicks Test on a non-new card (apiKey field shows the `***` placeholder)

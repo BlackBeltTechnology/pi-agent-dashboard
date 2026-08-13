@@ -654,7 +654,14 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
               setProviderHealth(refetched.health as Record<string, ProviderHealth>);
             }
           } catch {
-            // Keep the last-known health rather than clobbering it on a read error.
+            // Refetch failed: the just-saved providers' cached health is stale
+            // (their config changed), so drop it to not-tested rather than show
+            // a stale pill. See change: surface-provider-health-in-settings.
+            setProviderHealth((prev) => {
+              const next = { ...prev };
+              for (const p of saved) delete next[p.name];
+              return next;
+            });
           }
           return {};
         },
@@ -2670,6 +2677,14 @@ export function LlmProviderCard({ provider, health, onChange, onRemove }: {
 }) {
   const { t } = useI18n();
   const [testState, setTestState] = useState<TestState>({ kind: "idle" });
+
+  // Reset the live Test result when the provider's config changes from OUTSIDE
+  // this card (e.g. Discard restoring saved values). derivePillView prioritizes
+  // testState, so a stale failed-Test would otherwise mask the restored cached
+  // health. See change: surface-provider-health-in-settings.
+  useEffect(() => {
+    setTestState({ kind: "idle" });
+  }, [provider.baseUrl, provider.apiKey, provider.api]);
 
   const handleChange = (update: LlmProvider) => {
     // Any change to baseUrl / apiKey / api clears a stale test result.
