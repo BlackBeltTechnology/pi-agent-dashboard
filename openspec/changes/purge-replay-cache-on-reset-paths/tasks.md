@@ -59,7 +59,7 @@
 - [x] 8.2 `npm run quality:changed` clean on the touched files.
 - [ ] 8.3 `npm run build && curl -X POST http://localhost:8000/api/restart` (client change → build + restart).
 - [x] 8.4 Confirm `performServerSwitch` and `ServerSwitchDeps` are unmodified in the final diff — D3 asserts the switch coordinator is untouched.
-- [ ] 8.5 Run the `review-code` discipline skill on the diff before commit.
+- [x] 8.5 Run the `review-code` discipline skill on the diff before commit.
 
 ## 9. Documentation
 

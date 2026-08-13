@@ -142,8 +142,11 @@ export function createReplayPersister(
   }
 
   function resetBuffers(): void {
-    // Timers first: a surviving debounce would re-persist a discarded buffer
-    // under the NEW server's key (flush reads getServerKey() at fire time).
+    // Clear timers so no pending debounce fires against the new server's key
+    // (flush reads getServerKey() at fire time). The ordering is NOT itself
+    // load-bearing — both clears run in one synchronous tick, so no timer can
+    // fire between them; what neutralizes an already-queued callback is the
+    // buffer clear, since flush() early-returns on an empty buffer.
     for (const t of timers.values()) clearTimeout(t);
     timers.clear();
     buffers.clear();

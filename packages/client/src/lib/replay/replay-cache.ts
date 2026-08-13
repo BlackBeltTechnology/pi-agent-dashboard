@@ -74,8 +74,12 @@ export function deriveServerKey(wsUrl: string): string {
     const port = u.port || (secure ? "443" : "80");
     return `${u.hostname}:${port}`;
   } catch {
-    // Unparseable input: return it verbatim. Deterministic, and it can never
-    // alias a real `host:port` key.
+    // Unparseable input: return it verbatim. Deterministic. Unreachable in
+    // practice — every caller passes a scheme-prefixed URL built by
+    // `getInitialWsUrl` / `performServerSwitch`, so `new URL` does not throw.
+    // NOT alias-proof by construction: a bare `"box:8000"` reaching here would
+    // collide with `deriveServerKey("ws://box:8000")`. Left verbatim rather than
+    // namespaced because no such caller exists and the value is persisted.
     return wsUrl;
   }
 }

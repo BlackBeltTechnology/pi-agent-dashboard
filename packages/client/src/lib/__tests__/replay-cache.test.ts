@@ -15,6 +15,68 @@ function evt(seq: number): CachedEvent {
   };
 }
 
+/**
+ * Write a GENUINE pre-v3 entry: `schemaVersion: 2` and NO `serverKey` field.
+ *
+ * `put()` cannot produce this — it stamps `serverKey` unconditionally, whatever
+ * `schemaVersion` the cache was constructed with. A fixture built with a
+ * "v2-shaped writer" therefore still carries a matching key, and a hypothetical
+ * key-first `get()` would pass the key check and fall through to the schema
+ * branch anyway, so the ordering the test names would go unpinned.
+ * See change: purge-replay-cache-on-reset-paths.
+ */
+function openRawDb(factory: IDBFactory): Promise<IDBDatabase> {
+  return new Promise<IDBDatabase>((resolve, reject) => {
+    const req = factory.open("pi-dashboard-replay-cache", 1);
+    req.onupgradeneeded = () => {
+      const d = req.result;
+      if (!d.objectStoreNames.contains("sessions")) {
+        d.createObjectStore("sessions", { keyPath: "sessionId" });
+      }
+    };
+    req.onsuccess = () => { resolve(req.result); };
+    req.onerror = () => { reject(req.error); };
+  });
+}
+
+async function putPreV3Entry(factory: IDBFactory, sessionId: string): Promise<void> {
+  const db = await openRawDb(factory);
+  await new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("sessions", "readwrite");
+    // Deliberately omits `serverKey` — exactly what a v2 writer left behind.
+    tx.objectStore("sessions").put({
+      sessionId,
+      schemaVersion: 2,
+      maxSeq: 9,
+      payload: [evt(9)],
+      lastAccess: 1,
+    });
+    tx.oncomplete = () => { resolve(); };
+    tx.onerror = () => { reject(tx.error); };
+  });
+  db.close();
+}
+
+/**
+ * Read a record STRAIGHT out of the object store, bypassing `get()`.
+ *
+ * Deletion of a pre-v3 entry is invisible through `get()`: the entry has no
+ * `serverKey`, so any reader misses it whether or not it was purged. Only a raw
+ * read distinguishes "deleted" from "still there but missed".
+ * See change: purge-replay-cache-on-reset-paths.
+ */
+async function readRawEntry(factory: IDBFactory, sessionId: string): Promise<unknown> {
+  const db = await openRawDb(factory);
+  const record = await new Promise<unknown>((resolve, reject) => {
+    const tx = db.transaction("sessions", "readonly");
+    const req = tx.objectStore("sessions").get(sessionId);
+    req.onsuccess = () => { resolve(req.result); };
+    req.onerror = () => { reject(req.error); };
+  });
+  db.close();
+  return record;
+}
+
 /** Default server key for tests that don't exercise attribution. */
 const A = "a:8000";
 const B = "b:8000";
@@ -135,16 +197,17 @@ describe("replay-cache", () => {
   });
 
   it("purges an entry that predates server scoping (test-plan #E3)", async () => {
-    // v2-shaped writer: no serverKey on the entry.
-    const v2 = createReplayCache({ factory, schemaVersion: 2 });
-    await v2.put("s1", { maxSeq: 9, payload: [evt(9)] }, A);
+    // A REAL pre-v3 entry: schemaVersion 2 and NO serverKey field.
+    await putPreV3Entry(factory, "s1");
 
     const current = createReplayCache({ factory });
     expect(await current.get("s1", A)).toBeNull();
     // Deleted, not merely missed — proves the schema check runs BEFORE the key
-    // check. Key-first ordering would decline to delete (E2 rule) and leave an
-    // unattributable zombie entry forever.
-    expect(await v2.get("s1", A)).toBeNull();
+    // check. Key-first ordering would see `serverKey: undefined !== A`, decline
+    // to delete (E2 rule), and strand an unattributable zombie entry forever.
+    // Read RAW: with no serverKey on the entry, `get()` misses under either
+    // ordering, so only a direct store read can tell purged from merely missed.
+    expect(await readRawEntry(factory, "s1")).toBeUndefined();
   });
 
   it("does not refresh LRU age on a serverKey mismatch (test-plan #E6)", async () => {

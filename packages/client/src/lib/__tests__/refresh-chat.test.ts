@@ -143,6 +143,13 @@ describe("refreshChat", () => {
     // A failed invalidation must not swallow the refresh itself. The stale entry
     // surviving to the NEXT page load is the accepted residual (design D6) — but
     // the current page must still reset and full-replay.
+    //
+    // DEFENSIVE, not a live path: the production `dropPersisted`
+    // (`replayPersister.drop` → `cache.delete` → `safe()`) swallows every
+    // IndexedDB error and resolves, so a real delete failure reaches `refreshChat`
+    // as a SUCCESS, not a rejection — the D6 residual is absorbed upstream and is
+    // not observable here. This pins the contract for any future `dropPersisted`
+    // that does propagate.
     expect(d.resetSessionState).toHaveBeenCalledWith("s1");
     expect(d.subscribe).toHaveBeenCalledWith("s1");
   });
