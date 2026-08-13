@@ -95,6 +95,24 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   // the server via pluginServiceRegistry. See change: make-invoice-session-canonical.
   ctx.provide("invoicebot:resumeScopeEnv", sessionLink.resumeScopeEnv);
 
+  // Per-invoice automation fan-out enumerator. The automation plugin consumes
+  // this lazily at fire time (cross-plugin service seam) to expand a `scope:
+  // per-invoice` action into one scoped run per queued invoice. Reads the
+  // engine's `list` view filtered to the `queued` state and projects the ids.
+  // Never throws — an unreadable query yields an empty list (no fan-out).
+  // See change: wire-per-invoice-automation-drain.
+  ctx.provide("invoicebot:queuedInvoices", async (cwd: string): Promise<string[]> => {
+    try {
+      const result = await engine.query(cwd, { view: "list", state: "queued" });
+      const items = (result.details as { items?: Array<{ id?: unknown }> }).items;
+      if (!Array.isArray(items)) return [];
+      return items.map((i) => i.id).filter((id): id is string => typeof id === "string" && id.length > 0);
+    } catch (err) {
+      ctx.logger.warn(`invoicebot queued-invoice enumerate failed: ${err instanceof Error ? err.message : String(err)}`);
+      return [];
+    }
+  });
+
   // App-level InvoiceBot domain-event rebroadcast. The plugin BRIDGE entry
   // observes the declared `ib:*` bus channels in-session and forwards each as
   // a generic `plugin_pi_message` with messageType "ib_domain_event"; this

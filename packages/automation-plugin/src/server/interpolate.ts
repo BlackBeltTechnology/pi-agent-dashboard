@@ -12,13 +12,20 @@
  *   - A string that embeds `${{trigger}}` in other text stringifies the value
  *     at that boundary.
  *   - An absent value (`undefined`) resolves `${{trigger}}` to `""`.
+ *   - Single-brace `${name}` tokens resolve against an optional per-fire
+ *     variable map: a known name is replaced with its mapped string, an unknown
+ *     name (or no map) is left intact. Additive to and independent of the
+ *     double-brace trigger token. Per-invoice fan-out supplies `{ invoice_id }`.
  *   - Objects/arrays are walked recursively; other primitives pass through.
  *
- * See change: wire-flow-inputs-in-automation.
+ * See change: wire-flow-inputs-in-automation, wire-per-invoice-automation-drain.
  */
 
 const WHOLE = /^\$\{\{trigger\}\}$/;
 const EMBED = /\$\{\{trigger\}\}/g;
+// Single-brace `${name}` — an identifier NOT preceded/followed by a second
+// brace, so it never matches the double-brace `${{trigger}}` form.
+const NAMED = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
 
 function stringify(value: unknown): string {
   if (value === undefined || value === null) return "";
@@ -31,16 +38,29 @@ function stringify(value: unknown): string {
   }
 }
 
-/** Recursively resolve `${{trigger}}` in a payload value. */
-export function interpolate(value: unknown, triggerValue: unknown): unknown {
+/** Resolve known `${name}` tokens from `vars`; leave unknown names intact. */
+function resolveNamed(text: string, vars: Record<string, string> | undefined): string {
+  if (!vars) return text;
+  return text.replace(NAMED, (match, name: string) => (name in vars ? vars[name] : match));
+}
+
+/**
+ * Recursively resolve `${{trigger}}` (and, when `vars` is supplied, single-brace
+ * `${name}`) tokens in a payload value.
+ */
+export function interpolate(
+  value: unknown,
+  triggerValue: unknown,
+  vars?: Record<string, string>,
+): unknown {
   if (typeof value === "string") {
     if (WHOLE.test(value)) return triggerValue ?? "";
-    return value.replace(EMBED, () => stringify(triggerValue));
+    return resolveNamed(value.replace(EMBED, () => stringify(triggerValue)), vars);
   }
-  if (Array.isArray(value)) return value.map((v) => interpolate(v, triggerValue));
+  if (Array.isArray(value)) return value.map((v) => interpolate(v, triggerValue, vars));
   if (value && typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, interpolate(v, triggerValue)]),
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, interpolate(v, triggerValue, vars)]),
     );
   }
   return value;

@@ -226,6 +226,15 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
     spawnSession: (opts) => ctx.spawnSession(opts),
     abortSpawnedRun: (args) => ctx.abortSpawnedRun(args),
     resolveRegistry: () => collectActionRegistry(ctx.consumeAll(ACTION_CONTRIBUTION_PREFIX), { warn: (m) => ctx.logger.warn(m) }),
+    // Per-invoice fan-out enumerator, resolved LAZILY at fire time from the
+    // cross-plugin service seam so load order is irrelevant (the invoicebot
+    // plugin publishes it) and a re-publish is picked up live. Absent when the
+    // invoicebot plugin is not loaded → a `scope: per-invoice` fire is skipped.
+    // See change: wire-per-invoice-automation-drain.
+    enumerateQueued: (cwd: string) => {
+      const fn = ctx.consume<(cwd: string) => Promise<string[]>>("invoicebot:queuedInvoices");
+      return fn ? fn(cwd) : Promise.resolve(null);
+    },
     listScopes,
     config: pluginConfig,
     homeDir,
