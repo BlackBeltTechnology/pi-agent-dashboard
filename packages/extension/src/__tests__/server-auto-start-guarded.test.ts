@@ -34,7 +34,7 @@ function makeDeps(over: Partial<AutoStartDeps> = {}): AutoStartDeps {
     lockDir: dir,
     log: vi.fn(),
     readinessBudgetMs: BUDGET,
-    sleep: vi.fn().mockResolvedValue(undefined),
+    lossPollIntervalMs: 5,
     ...over,
   };
 }
@@ -140,16 +140,14 @@ describe("single-flight lock", () => {
     expect(loserLog.mock.calls[0]![0]).toContain(String(process.pid));
   });
 
-  it("X4: the loser waits the budget, then attaches to the holder's server", async () => {
+  it("X4: the loser waits for the holder, then attaches to its server", async () => {
     const holder = makeDeps({
       launchServer: vi.fn().mockImplementation(
         () => new Promise(r => setTimeout(() => r({ success: true, message: "ok" }), 20)),
       ),
     });
-    const sleep = vi.fn().mockResolvedValue(undefined);
     const loser = makeDeps({
-      sleep,
-      // first probe: nothing yet; after the budget: the holder's server is up.
+      // first probe: nothing yet; then the holder's server comes up.
       isDashboardRunning: vi.fn()
         .mockResolvedValueOnce({ running: false })
         .mockResolvedValue({ running: true }),
@@ -159,9 +157,32 @@ describe("single-flight lock", () => {
     const result = await autoStartServer(cfg, loser);
     await holderRun;
 
-    expect(sleep).toHaveBeenCalledWith(BUDGET);
     expect(loser.launchServer).not.toHaveBeenCalled();
     expect(result.server).toEqual({ host: "localhost", port: 8000, piPort: 9999 });
+  });
+
+  it("X4: the loser POLLS — it must not burn the whole budget when the holder is quick", async () => {
+    const holder = makeDeps({
+      launchServer: vi.fn().mockImplementation(
+        () => new Promise(r => setTimeout(() => r({ success: true, message: "ok" }), 20)),
+      ),
+    });
+    // Real timers, real (short) poll interval, and a REAL budget-sized clock:
+    // a blind `sleep(budget)` would make this take BUDGET ms.
+    const loser = makeDeps({
+      lossPollIntervalMs: 5,
+      isDashboardRunning: vi.fn().mockResolvedValue({ running: false }),
+    });
+
+    const holderRun = autoStartServer(cfg, holder);
+    const t0 = Date.now();
+    await autoStartServer(cfg, loser);
+    const elapsed = Date.now() - t0;
+    await holderRun;
+
+    // Bounded by the holder finishing (~20ms), not by the 30s budget.
+    expect(elapsed).toBeLessThan(BUDGET / 10);
+    expect(loser.launchServer).not.toHaveBeenCalled();
   });
 
   it("X5: the loser reports unavailable when the holder's spawn fails", async () => {

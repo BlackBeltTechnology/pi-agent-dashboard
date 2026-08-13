@@ -7,8 +7,10 @@ import { SPAWN_READINESS_BUDGET_MS } from "@blackbelt-technology/pi-dashboard-sh
 import { appendAutoStartLog, shouldRefuseWorktreeAutoStart } from "./autostart-guard.js";
 import {
   acquireAutoStartLock,
+  autoStartLockPath,
   defaultProbes,
   type LockProbes,
+  readLock,
   recordChildPid,
   releaseAutoStartLock,
 } from "./autostart-lock.js";
@@ -70,8 +72,17 @@ export interface AutoStartDeps {
   log?: (message: string) => void;
   /** Spawn readiness budget (lock staleness bound + the loser's wait). */
   readinessBudgetMs?: number;
-  /** Replace the loser's wait. */
-  sleep?: (ms: number) => Promise<void>;
+  /**
+   * Poll interval (ms) for the lock loser's bounded wait. Default 250.
+   *
+   * There is deliberately NO injectable `sleep` seam here: a stubbed
+   * immediately-resolving sleep turns the poll into a tight promise loop that
+   * starves the macrotask queue, so the holder's own timers never fire, the
+   * lock is never released, and the loser spins until the full budget elapses
+   * (30s per call — it stalled CI before this was understood). The wait must
+   * yield to real timers; shorten it with this interval instead.
+   */
+  lossPollIntervalMs?: number;
 }
 
 export interface AutoStartResult {
@@ -171,13 +182,35 @@ export async function autoStartServer(
   );
   if (!lock.acquired) {
     log(`lock held by session ${lock.holder?.sessionPid ?? "unknown"} — not spawning`);
-    // Wait out the holder's readiness budget, then attach (X4) or report
-    // unavailable (X5). Never spawn, never throw.
-    const sleep = deps.sleep ?? ((ms: number) => new Promise<void>(r => setTimeout(r, ms)));
-    await sleep(budgetMs);
-    const afterHolder = await deps.isDashboardRunning(config.port);
-    if (afterHolder.running) {
-      return { server: { host: "localhost", port: config.port, piPort: config.piPort } };
+    // Wait for the holder, bounded by its readiness budget, then attach (X4)
+    // or report unavailable (X5). Never spawn, never throw.
+    //
+    // POLL, do not sleep the whole budget: the budget is the holder's WORST
+    // case, and a holder that finishes in a second must not cost every other
+    // session 30 idle seconds. Two exits end the wait early — the dashboard
+    // answering, or the holder releasing its lock.
+    const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
+    const lockPath = autoStartLockPath(config.port, deps.lockDir);
+    const pollMs = Math.min(deps.lossPollIntervalMs ?? 250, budgetMs);
+    const deadline = probes.now() + budgetMs;
+
+    let holderGone = false;
+    while (probes.now() < deadline) {
+      const probe = await deps.isDashboardRunning(config.port);
+      if (probe.running) {
+        return { server: { host: "localhost", port: config.port, piPort: config.piPort } };
+      }
+      if (readLock(lockPath) === null) { holderGone = true; break; }
+      await sleep(pollMs);
+    }
+
+    // Holder released without a dashboard coming up, or the budget elapsed:
+    // one last look, then report unavailable.
+    if (holderGone) {
+      const afterHolder = await deps.isDashboardRunning(config.port);
+      if (afterHolder.running) {
+        return { server: { host: "localhost", port: config.port, piPort: config.piPort } };
+      }
     }
     return {};
   }
