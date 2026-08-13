@@ -19,110 +19,24 @@
     "unresolved": "off"
   },
   "workspaces": {
-    "packages/goal-plugin": {
+    ".": {
       "entry": [
-        "src/client/index.tsx",
-        "src/server/index.ts",
-        "src/bridge/index.ts",
-        "**/vitest.config.ts",
-        "**/__tests__/**/*.test.{ts,tsx}"
+        "scripts/**/*.{mjs,cjs,ts}",
+        "tests/e2e/**/*.spec.ts",
+        "tests/e2e-electron/**/*.spec.ts",
+        "qa/**/*.{ts,mjs}",
+        ".pi/skills/**/scripts/*.ts",
+        "public/sw.js",
+        "**/vitest.config.ts"
       ],
       "project": [
-        "src/**/*.{ts,tsx,mjs}"
+        "scripts/**",
+        "tests/**",
+        "qa/**",
+        ".pi/skills/**"
       ]
     },
-    "packages/mockup-loop": {
-      "entry": [
-        "src/extension.ts",
-        "**/vitest.config.ts",
-        "**/__tests__/**/*.test.{ts,tsx}"
-      ],
-      "project": [
-        "src/**/*.{ts,tsx,mjs}"
-      ]
-    },
-    "packages/authoring-toolkit": {
-      "entry": [
-        "**/vitest.config.ts",
-        "**/__tests__/**/*.test.{ts,tsx}"
-      ],
-      "project": [
-        "src/**/*.{ts,tsx,mjs}"
-      ]
-    },
-    "packages/session-distiller": {
-      "entry": [
-        "bin/distill.mjs",
-        "**/vitest.config.ts",
-        "**/__tests__/**/*.test.{ts,tsx}"
-      ],
-      "project": [
-        "src/**/*.{ts,tsx,mjs}"
-      ]
-    },
-    "packages/hermes-memory-plugin": {
-      "entry": [
-        "src/client/index.tsx",
-        "src/server/index.ts",
-        "**/vitest.config.ts",
-        "**/__tests__/**/*.test.{ts,tsx}"
-      ],
-      "project": [
-        "src/**/*.{ts,tsx,mjs}"
-      ]
-    },
-    "packages/dashboard-plugin-skill": {
-      "entry": [
-        "src/bin/scaffold.ts",
-        "src/index.ts",
-        "src/render.ts",
-        "**/vitest.config.ts",
-        "**/__tests__/**/*.test.{ts,tsx}"
-      ],
-      "project": [
-        "src/**/*.{ts,tsx,mjs}"
-      ]
-    },
-    "packages/extension": {
-      "entry": [
-        "src/bridge.ts",
-        "**/vitest.config.ts",
-        "**/__tests__/**/*.test.{ts,tsx}"
-      ],
-      "project": [
-        "src/**/*.{ts,tsx,mjs}"
-      ]
-    },
-    "packages/kb": {
-      "entry": [
-        "src/index.ts",
-        "**/vitest.config.ts",
-        "**/__tests__/**/*.test.{ts,tsx}"
-      ],
-      "project": [
-        "src/**/*.{ts,tsx,mjs}"
-      ]
-    },
-    "packages/code-review-toolkit": {
-      "entry": [
-        "**/vitest.config.ts",
-        "**/__tests__/**/*.test.{ts,tsx}"
-      ],
-      "project": [
-        "src/**/*.{ts,tsx,mjs}"
-      ]
-    },
-    "packages/roles-plugin": {
-      "entry": [
-        "src/index.tsx",
-        "**/vitest.config.ts",
-        "**/__tests__/**/*.test.{ts,tsx}"
-      ],
-      "project": [
-        "src/**/*.{ts,tsx,mjs}"
-      ]
-    },
-    "packages/shell": {
+    "packages/anti-slop": {
       "entry": [
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
@@ -143,6 +57,15 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
+    "packages/authoring-toolkit": {
+      "entry": [
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
     "packages/automation-plugin": {
       "entry": [
         "src/client/index.tsx",
@@ -155,8 +78,10 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
-    "packages/openspec-workflow": {
+    "packages/blackhole-plugin": {
       "entry": [
+        "src/client/index.tsx",
+        "src/server/index.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],
@@ -164,10 +89,9 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
-    "packages/document-converter": {
+    "packages/bus-client": {
       "entry": [
         "src/index.ts",
-        "src/schema.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],
@@ -175,60 +99,10 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
-    "packages/server": {
+    "packages/client": {
       "entry": [
-        "bin/pi-dashboard.mjs",
-        "src/cli.ts",
-        "**/vitest.config.ts",
-        "**/__tests__/**/*.test.{ts,tsx}"
-      ],
-      "project": [
-        "src/**/*.{ts,tsx,mjs}"
-      ]
-    },
-    "packages/shared": {
-      "entry": [
-        "**/vitest.config.ts",
-        "**/__tests__/**/*.test.{ts,tsx}"
-      ],
-      "project": [
-        "src/**/*.{ts,tsx,mjs}"
-      ]
-    },
-    "packages/demo-plugin": {
-      "entry": [
-        "src/client.tsx",
-        "**/vitest.config.ts",
-        "**/__tests__/**/*.test.{ts,tsx}"
-      ],
-      "project": [
-        "src/**/*.{ts,tsx,mjs}"
-      ]
-    },
-    "packages/eng-disciplines": {
-      "entry": [
-        "**/vitest.config.ts",
-        "**/__tests__/**/*.test.{ts,tsx}"
-      ],
-      "project": [
-        "src/**/*.{ts,tsx,mjs}"
-      ]
-    },
-    "packages/anti-slop": {
-      "entry": [
-        "**/vitest.config.ts",
-        "**/__tests__/**/*.test.{ts,tsx}"
-      ],
-      "project": [
-        "src/**/*.{ts,tsx,mjs}"
-      ]
-    },
-    "packages/flows-anthropic-bridge-plugin": {
-      "entry": [
-        "src/client.tsx",
-        "src/server/index.ts",
-        "src/bridge/index.ts",
-        "src/peer-probe.ts",
+        "src/chat-embed/index.ts",
+        "src/main.tsx",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],
@@ -269,10 +143,8 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
-    "packages/subagents-plugin": {
+    "packages/code-review-toolkit": {
       "entry": [
-        "src/client/index.tsx",
-        "src/server/index.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],
@@ -295,23 +167,11 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
-    "packages/flows-plugin": {
+    "packages/dashboard-plugin-skill": {
       "entry": [
-        "src/client/index.tsx",
-        "src/server/index.ts",
-        "src/bridge/index.ts",
-        "src/reducer.ts",
-        "**/vitest.config.ts",
-        "**/__tests__/**/*.test.{ts,tsx}"
-      ],
-      "project": [
-        "src/**/*.{ts,tsx,mjs}"
-      ]
-    },
-    "packages/kb-extension": {
-      "entry": [
-        "src/extension.ts",
+        "src/bin/scaffold.ts",
         "src/index.ts",
+        "src/render.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],
@@ -319,20 +179,9 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
-    "packages/video-transcription": {
+    "packages/demo-plugin": {
       "entry": [
-        "src/bin/transcribe.ts",
-        "**/vitest.config.ts",
-        "**/__tests__/**/*.test.{ts,tsx}"
-      ],
-      "project": [
-        "src/**/*.{ts,tsx,mjs}"
-      ]
-    },
-    "packages/blackhole-plugin": {
-      "entry": [
-        "src/client/index.tsx",
-        "src/server/index.ts",
+        "src/client.tsx",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],
@@ -342,6 +191,17 @@
     },
     "packages/distill-session-knowledge": {
       "entry": [
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/document-converter": {
+      "entry": [
+        "src/index.ts",
+        "src/schema.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],
@@ -362,9 +222,44 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
-    "packages/image-fit-extension": {
+    "packages/eng-disciplines": {
       "entry": [
-        "src/extension.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/extension": {
+      "entry": [
+        "src/bridge.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/flows-anthropic-bridge-plugin": {
+      "entry": [
+        "src/client.tsx",
+        "src/server/index.ts",
+        "src/bridge/index.ts",
+        "src/peer-probe.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/flows-plugin": {
+      "entry": [
+        "src/client/index.tsx",
+        "src/server/index.ts",
+        "src/bridge/index.ts",
+        "src/reducer.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],
@@ -381,8 +276,52 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
-    "packages/bus-client": {
+    "packages/goal-plugin": {
       "entry": [
+        "src/client/index.tsx",
+        "src/server/index.ts",
+        "src/bridge/index.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/hermes-memory-plugin": {
+      "entry": [
+        "src/client/index.tsx",
+        "src/server/index.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/image-fit-extension": {
+      "entry": [
+        "src/extension.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/kb": {
+      "entry": [
+        "src/index.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/kb-extension": {
+      "entry": [
+        "src/extension.ts",
         "src/index.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
@@ -402,10 +341,9 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
-    "packages/client": {
+    "packages/mcp-server-plugin": {
       "entry": [
-        "src/chat-embed/index.ts",
-        "src/main.tsx",
+        "src/server/index.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],
@@ -413,9 +351,9 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
-    "packages/video-production": {
+    "packages/mockup-loop": {
       "entry": [
-        "src/bin/veo.ts",
+        "src/extension.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],
@@ -433,21 +371,93 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
-    ".": {
+    "packages/openspec-workflow": {
       "entry": [
-        "scripts/**/*.{mjs,cjs,ts}",
-        "tests/e2e/**/*.spec.ts",
-        "tests/e2e-electron/**/*.spec.ts",
-        "qa/**/*.{ts,mjs}",
-        ".pi/skills/**/scripts/*.ts",
-        "public/sw.js",
-        "**/vitest.config.ts"
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
       ],
       "project": [
-        "scripts/**",
-        "tests/**",
-        "qa/**",
-        ".pi/skills/**"
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/roles-plugin": {
+      "entry": [
+        "src/index.tsx",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/server": {
+      "entry": [
+        "bin/pi-dashboard.mjs",
+        "src/cli.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/session-distiller": {
+      "entry": [
+        "bin/distill.mjs",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/shared": {
+      "entry": [
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/shell": {
+      "entry": [
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/subagents-plugin": {
+      "entry": [
+        "src/client/index.tsx",
+        "src/server/index.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/video-production": {
+      "entry": [
+        "src/bin/veo.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
+    "packages/video-transcription": {
+      "entry": [
+        "src/bin/transcribe.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
       ]
     }
   }
