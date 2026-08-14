@@ -19,7 +19,7 @@ import { createCanonicalSessionStore, defaultCanonicalStorePath } from "./canoni
 import { selectEngine } from "./engine/select.js";
 import { mountInvoiceBotRoutes } from "./routes.js";
 import { auditRoleModels, describeRoleAudit, readRoleMap } from "./role-models.js";
-import { createSessionLink, recordedSessionIdsFromDetails } from "./session-link.js";
+import { createSessionLink, recordedSessionIdsFromDetails, scopedAutomationName } from "./session-link.js";
 import { resolveSpawnModel } from "./spawn-model.js";
 
 export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
@@ -112,6 +112,15 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
       return [];
     }
   });
+
+  // Single source of truth for the per-invoice scoped session name
+  // (`invoicebot-scoped:<invoice_id>`). The automation plugin consumes this to
+  // stamp each per-invoice fan-out run under the scoped name the canonical-
+  // session resolution keys on, so the producer that holds the persisted
+  // greetings is adopted instead of a fresh detail session being spawned. The
+  // generic automation plugin carries no invoicebot naming of its own.
+  // See change: adopt-scoped-producer-session.
+  ctx.provide("invoicebot:scopedRunName", (invoiceId: string): string => scopedAutomationName(invoiceId));
 
   // App-level InvoiceBot domain-event rebroadcast. The plugin BRIDGE entry
   // observes the declared `ib:*` bus channels in-session and forwards each as

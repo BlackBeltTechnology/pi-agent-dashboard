@@ -240,6 +240,32 @@ describe("ensureScopedSession", () => {
     }
   });
 
+  it("§1c: a recorded shared `invoicebot-intake` producer is NOT adopted — resolution spawns a fresh scoped session", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ib-intake-guard-"));
+    try {
+      const file = join(dir, "intake.jsonl");
+      writeFileSync(file, "");
+      // A producer surfaced under the SHARED folder-automation name (not the
+      // scoped `invoicebot-scoped:<id>` name) is the global-never-adopted case.
+      // Even though it is recorded for the invoice and ended-restorable, the
+      // gate must reject it and fall through to a fresh scoped spawn.
+      ctx.addSession({ id: "intake-run", cwd: CWD, status: "ended", sessionFile: file, automationRun: { name: "invoicebot-intake", runId: "ri" } });
+      ctx.setRecordedIds(["intake-run"]);
+      const link = createSessionLink(ctx.deps);
+      const pending = link.ensureScopedSession(CWD, "inv-42");
+      await new Promise((r) => setTimeout(r, 0));
+      // NOT adopted → a fresh scoped session is spawned instead.
+      expect(ctx.spawns).toHaveLength(1);
+      expect(ctx.spawns[0].automationRun.name).toBe("invoicebot-scoped:inv-42");
+      const runId = ctx.spawns[0].automationRun.runId;
+      ctx.addSession({ id: "fresh-scoped", cwd: CWD, status: "active", automationRun: { name: "invoicebot-scoped:inv-42", runId } });
+      ctx.fire("fresh-scoped");
+      expect(await pending).toBe("fresh-scoped");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("spawns flow-less with scoped env, correlates by runId, emits no flow, and reuses the link", async () => {
     const link = createSessionLink(ctx.deps);
     const pending = link.ensureScopedSession(CWD, "inv 42");
