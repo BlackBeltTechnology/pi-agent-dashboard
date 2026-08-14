@@ -1,20 +1,46 @@
 /**
  * Provider REST API routes: read/write custom LLM providers (~/.pi/agent/providers.json).
  */
-import type { FastifyInstance } from "fastify";
-import { existsSync, readFileSync, writeFileSync, renameSync, mkdirSync } from "node:fs";
+
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, dirname } from "node:path";
-import type { NetworkGuard } from "./route-deps.js";
-import type { PiGateway } from "../pi/pi-gateway.js";
-import type { BrowserGateway } from "../pairing/browser-gateway.js";
-import { probeProvider, resolveProbeApiKey, type ProbeApi } from "../package/provider-probe.js";
+import { dirname, join } from "node:path";
+import type { FastifyInstance } from "fastify";
+import { collectDashboardOrigins, isSelfPointing } from "../model-proxy/recursion-guard.js";
 import { refreshModelRegistry } from "../model-proxy/registry-singleton.js";
-import { isSelfPointing, collectDashboardOrigins } from "../model-proxy/recursion-guard.js";
+import { type ProbeApi, type ProbeResult, probeProvider, resolveProbeApiKey } from "../package/provider-probe.js";
+import type { BrowserGateway } from "../pairing/browser-gateway.js";
+import type { PiGateway } from "../pi/pi-gateway.js";
 import { getTunnelUrl } from "../tunnel/tunnel.js";
+import { deleteProviderHealth, getAllProviderHealth, type ProviderHealth, retainProviderHealth, setProviderHealth } from "./provider-health-cache.js";
+import type { NetworkGuard } from "./route-deps.js";
 
 const REDACTED = "***";
 const CONFIG_PATH = join(homedir(), ".pi", "agent", "providers.json");
+
+function toHealth(result: ProbeResult): ProviderHealth {
+  return result.ok
+    ? { ok: true, status: result.status, modelCount: result.modelCount, testedAt: Date.now() }
+    : { ok: false, status: result.status, error: result.error, testedAt: Date.now() };
+}
+
+// Run probeProvider for a just-saved provider and cache the result. Resolves the
+// apiKey the same way the Test route does ($ENV / literal). Never throws.
+async function probeAndCacheProvider(name: string, entry: ProviderEntry): Promise<void> {
+  // An unprobeable config (blank baseUrl / no api type) must not leave a stale
+  // health entry from a prior save. Drop it so the row reads "not tested".
+  if (!entry.baseUrl || !entry.api) {
+    deleteProviderHealth(name);
+    return;
+  }
+  const resolved = resolveProbeApiKey({ apiKey: entry.apiKey, name, readProviders: readProvidersRaw });
+  if (!resolved.ok) {
+    setProviderHealth(name, { ok: false, error: resolved.error, testedAt: Date.now() });
+    return;
+  }
+  const result = await probeProvider({ baseUrl: entry.baseUrl, apiKey: resolved.key, api: entry.api as ProbeApi });
+  setProviderHealth(name, toHealth(result));
+}
 
 interface ProviderEntry {
   baseUrl: string;
@@ -57,7 +83,9 @@ export function registerProviderRoutes(fastify: FastifyInstance, deps: { network
     { preHandler: networkGuard },
     async () => {
       const providers = readProvidersRaw();
-      return { success: true, providers: redactProviders(providers) };
+      // Cached health only — never re-probes on read. See change:
+      // surface-provider-health-in-settings.
+      return { success: true, providers: redactProviders(providers), health: getAllProviderHealth() };
     },
   );
 
@@ -159,6 +187,12 @@ export function registerProviderRoutes(fastify: FastifyInstance, deps: { network
       // Eager-refresh model proxy registry so /v1/models reflects the change.
       refreshModelRegistry().catch(() => {});
 
+      // Probe each saved provider and cache its health so Settings → Providers
+      // renders the pill without a manual Test. Awaited (default) so the pill is
+      // correct on the next read. See change: surface-provider-health-in-settings.
+      retainProviderHealth(Object.keys(merged));
+      await Promise.all(Object.entries(merged).map(([name, entry]) => probeAndCacheProvider(name, entry)));
+
       return { success: true };
     },
   );
@@ -193,6 +227,10 @@ export function registerProviderRoutes(fastify: FastifyInstance, deps: { network
         readProviders: readProvidersRaw,
       });
       if (!resolved.ok) {
+        // A key-resolution failure is still a Test result: cache it so a prior
+        // green pill does not survive a now-failing config. See change:
+        // surface-provider-health-in-settings.
+        if (name) setProviderHealth(name, { ok: false, error: resolved.error, testedAt: Date.now() });
         return { ok: false, error: resolved.error };
       }
 
@@ -201,6 +239,9 @@ export function registerProviderRoutes(fastify: FastifyInstance, deps: { network
         apiKey: resolved.key,
         api,
       });
+      // Cache the Test result so the panel's pill reflects it. See change:
+      // surface-provider-health-in-settings.
+      if (name) setProviderHealth(name, toHealth(result));
       return result;
     },
   );

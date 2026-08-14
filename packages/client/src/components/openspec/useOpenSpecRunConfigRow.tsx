@@ -19,7 +19,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { useOpenSpecRunConfig } from "../../lib/state/OpenSpecRunConfigContext.js";
+import { useModelConfig } from "../../lib/state/ModelConfigContext.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
 import { ModelSelector } from "../settings/ModelSelector.js";
 import { ThinkingLevelSelector } from "../settings/ThinkingLevelSelector.js";
@@ -48,7 +48,7 @@ export function useOpenSpecRunConfigRow(
   options?: { timeoutMs?: number },
 ): UseOpenSpecRunConfigRow {
   const timeoutMs = options?.timeoutMs ?? RUN_CONFIG_CONFIRM_TIMEOUT_MS;
-  const cfg = useOpenSpecRunConfig();
+  const cfg = useModelConfig();
 
   // Draft selections. Start from the session values; keep tracking the session
   // while the user hasn't touched a control (scenario: session model changes
@@ -238,6 +238,7 @@ function OpenSpecRunConfigRowView({
               favorites={favorites}
               onToggleFavorite={onToggleFavorite}
               placeholder={i18nT("openspec.sessionModel", undefined, "session model")}
+              disabled={modelsUnavailable}
             />
             <ThinkingLevelSelector current={level} onSelect={onSelectLevel} />
           </fieldset>

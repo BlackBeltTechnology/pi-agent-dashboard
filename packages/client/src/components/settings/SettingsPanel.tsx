@@ -19,12 +19,21 @@ import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { listKnownServers } from "../../lib/api/known-servers-api.js";
-import { type TestProviderResult, testProvider } from "../../lib/api/providers-api.js";
+import { type ProviderHealth, type TestProviderResult, testProvider } from "../../lib/api/providers-api.js";
 import { type BlockEvent, getBlockEvents } from "../../lib/gateway/gateway-api.js";
-import { suggestTrustEntries } from "../../lib/gateway/gateway-config-ops.js";
+import {
+  type BindReachability,
+  collectTrustedEntries,
+  dedupeInterfaceOffers,
+  pendingEffectiveHost,
+  suggestTrustEntries,
+  type TrustSuggestion,
+  unreachableTrustedEntries,
+} from "../../lib/gateway/gateway-config-ops.js";
 import { fetchAutoInitWorktreePref, fetchAutoNameSessionsPref, setAutoInitWorktreePref, setAutoNameSessionsPref } from "../../lib/git/git-api.js";
 import { t as i18nT, LANGUAGE_OPTIONS, type Language, useI18n } from "../../lib/i18n/i18n.js";
 import { buildPiResourceFileUrl } from "../../lib/nav/route-builders.js";
+import { logRejection } from "../../lib/report-error.js";
 import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
 import { KnownServersSection } from "../connectivity/KnownServersSection.js";
@@ -51,7 +60,6 @@ import { PluginNotFoundNotice, PluginSettingsPage } from "./PluginSettingsPage.j
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
 import { RetrySettingsSection } from "./RetrySettingsSection.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
-import { logRejection } from "../../lib/report-error.js";
 
 interface ProviderConfig {
   clientId: string;
@@ -92,6 +100,12 @@ interface NetworkInterfaceInfo {
   address: string;
   netmask: string;
   cidr: string;
+  /** Human-meaningful name (`tailnet`), falling back to the device name. */
+  label?: string;
+  /** True for a `/32` NIC — it covers its own address only. */
+  pointToPoint?: boolean;
+  /** Trust offers this interface can honestly make; empty = unofferable. */
+  suggestions?: TrustSuggestion[];
 }
 
 interface Config {
@@ -146,6 +160,12 @@ interface Config {
   windowsGitSource?: "auto" | "host" | "bundled";
   /** Keeper log behavior — gates capture of pi stdout/stderr into keeper-<id>.log. Default off. See change: add-keeper-output-capture-toggle. */
   keeperLog?: { capturePiOutput?: boolean };
+  /**
+   * COMPUTED, never persisted. The bind host this process actually bound, the
+   * one the next start would bind, and the trusted entries that bind host
+   * cannot serve. See change: warn-unreachable-trusted-networks.
+   */
+  reachability?: BindReachability | null;
 }
 
 const DEFAULT_OPENSPEC_UI = {
@@ -320,6 +340,16 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
   const [config, setConfig] = useState<Config | null>(null);
   const [original, setOriginal] = useState<Config | null>(null);
   const [llmProviders, setLlmProviders] = useState<LlmProvider[]>([]);
+  /**
+   * Bind-vs-trust reachability, held OUTSIDE the editable config draft: it is
+   * computed server-side, must never enter `configPartial`, and is pushed over
+   * the WS independently of a config reload. Seeded from `GET /api/config`.
+   * See change: warn-unreachable-trusted-networks.
+   */
+  const [reachability, setReachability] = useState<BindReachability | null>(null);
+  // Cached per-provider health from GET /api/providers (`health[name]`), used to
+  // seed each row's pill. See change: surface-provider-health-in-settings.
+  const [providerHealth, setProviderHealth] = useState<Record<string, ProviderHealth>>({});
   // Detect upstream pi-model-proxy extension for ModelProxySection coexistence advisory.
   // See change: add-dashboard-model-proxy task 14.1.
   const installedTopLevel = useInstalledPackages("global");
@@ -496,6 +526,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
         if (configData.success) {
           setConfig(configData.data);
           setOriginal(JSON.parse(JSON.stringify(configData.data)));
+          setReachability(configData.data.reachability ?? null);
         }
         if (providersData?.success && providersData.providers) {
           const list: LlmProvider[] = Object.entries(providersData.providers).map(
@@ -508,6 +539,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
           );
           setLlmProviders(list);
           setOriginalLlmProviders(JSON.parse(JSON.stringify(list)));
+          if (providersData.health && typeof providersData.health === "object") {
+            setProviderHealth(providersData.health as Record<string, ProviderHealth>);
+          }
         }
       })
       .catch(() => setMessage({ type: "error", text: t("settings.failedLoad", undefined, "Failed to load settings") }))
@@ -562,6 +596,51 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     for (const s of draftSources.values()) if (s.isDirty) pages.add(s.page);
     return pages;
   }, [configPartial, llmChanged, draftSources]);
+
+  // ── Bind-vs-trust reachability ───────────────────────────────────────
+  // The predicate's input is the RESOLVED bind host, never `config.bindHost`:
+  // a container seeds no `bindHost` key, so the saved value reads `127.0.0.1`
+  // while the server actually binds `0.0.0.0` from `PI_DASHBOARD_HOST` — the
+  // advisory would then fire in every container that has a trusted network.
+  // An UNSAVED listen-interface edit outranks even the server's pending value,
+  // because that draft is what the next restart applies.
+  // See change: warn-unreachable-trusted-networks.
+  useEffect(() => {
+    if (!onMessage) return;
+    return onMessage((msg) => {
+      if (msg.type === "reachability_updated") setReachability(msg.reachability);
+    });
+  }, [onMessage]);
+
+  const pendingBindHost = useMemo(
+    () =>
+      pendingEffectiveHost({
+        draftBindHost:
+          config && original && config.bindHost !== original.bindHost ? config.bindHost : null,
+        pendingBindHost: reachability?.pendingBindHost,
+        resolvedBindHost: reachability?.resolvedBindHost,
+      }),
+    [config, original, reachability],
+  );
+
+  // Recomputed CLIENT-SIDE from the draft, so adding an entry or flipping the
+  // listen interface converges the advisory without a save or a reload.
+  const unreachableEntries = useMemo(
+    () => (config ? unreachableTrustedEntries(pendingBindHost, collectTrustedEntries(config)) : []),
+    [config, pendingBindHost],
+  );
+
+  // `--host` / `PI_DASHBOARD_HOST` outrank `config.bindHost`, so under either
+  // the inline remediation (which writes config.bindHost) cannot take effect.
+  const bindHostShadowedBy =
+    reachability?.bindHostSource === "flag" || reachability?.bindHostSource === "env"
+      ? reachability.bindHostSource
+      : null;
+
+  // A saved-but-unapplied bind host. Surfaced through the header's EXISTING
+  // Restart affordance rather than a new notice component.
+  const restartPendingForBindHost =
+    !!reachability && reachability.resolvedBindHost !== reachability.pendingBindHost;
 
   // Plugin draft state lives in the plugin component and dies on unmount, so
   // leaving a dirty plugin page must guard. Scoped to THIS page's sources —
@@ -639,6 +718,24 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
           const saved = validProviders.map(({ isNew, ...rest }) => rest);
           setLlmProviders(saved);
           setOriginalLlmProviders(JSON.parse(JSON.stringify(saved)));
+          // The PUT awaited a server-side probe per provider; refetch so each
+          // pill reflects the freshly cached health without a remount. See
+          // change: surface-provider-health-in-settings.
+          try {
+            const refetched = await fetch(`${getApiBase()}/api/providers`).then((r) => (r.ok ? r.json() : null));
+            if (refetched?.health && typeof refetched.health === "object") {
+              setProviderHealth(refetched.health as Record<string, ProviderHealth>);
+            }
+          } catch {
+            // Refetch failed: the just-saved providers' cached health is stale
+            // (their config changed), so drop it to not-tested rather than show
+            // a stale pill. See change: surface-provider-health-in-settings.
+            setProviderHealth((prev) => {
+              const next = { ...prev };
+              for (const p of saved) delete next[p.name];
+              return next;
+            });
+          }
           return {};
         },
       });
@@ -886,10 +983,23 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
           onClick={() => { setMessage(null); restart.run(); }}
           disabled={restarting || saving}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] text-sm font-medium disabled:opacity-50 border border-[var(--border-secondary)]"
-          title={t("settings.restartServer", undefined, "Restart server")}
+          title={
+            restartPendingForBindHost
+              ? t("settings.restartPendingBindHost", undefined, "Restart required — the saved listen interface is not the one this server bound")
+              : t("settings.restartServer", undefined, "Restart server")
+          }
+          data-testid="settings-restart-button"
+          data-restart-pending={restartPendingForBindHost ? "true" : "false"}
         >
           <Icon path={mdiRestart} size={0.6} />
           {restarting ? t("common.restarting", undefined, "Restarting...") : t("common.restart", undefined, "Restart")}
+          {restartPendingForBindHost && (
+            <span
+              data-testid="settings-restart-pending-dot"
+              aria-label={t("settings.restartPending", undefined, "Restart pending")}
+              className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-[var(--warn-fg,#e2b24a)]"
+            />
+          )}
         </button>
       </div>
 
@@ -1452,6 +1562,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                 <TrustedNetworksSection
                   bypassHosts={config.auth?.bypassHosts ?? []}
                   legacyTrustedNetworks={config.trustedNetworks ?? []}
+                  pendingBindHost={pendingBindHost}
+                  unreachable={unreachableEntries}
+                  bindHostShadowedBy={bindHostShadowedBy}
+                  onListenOnAllInterfaces={() => update((c) => { c.bindHost = "0.0.0.0"; })}
+                  onGoToServerPage={() => navigate("/settings/server")}
                   onChange={(nets) => update((c) => {
                     if (!c.auth) c.auth = { secret: "", providers: {} };
                     c.auth.bypassHosts = nets;
@@ -1475,10 +1590,21 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   <p className="text-xs text-[var(--text-tertiary)] mb-3">
                     {t("settings.llmProvidersDescription", undefined, "Register custom OpenAI-compatible API endpoints for model access.")}
                   </p>
-                  {llmProviders.map((provider, index) => (
+                  {llmProviders.map((provider, index) => {
+                    // Suppress cached health for a row edited since its last save:
+                    // the cache reflects the SAVED config, so showing it against
+                    // unsaved edits would be misleading. See change:
+                    // surface-provider-health-in-settings.
+                    const savedOriginal = originalLlmProviders.find((o) => o.name === provider.name);
+                    const rowDirty = provider.isNew || !savedOriginal
+                      || savedOriginal.baseUrl !== provider.baseUrl
+                      || savedOriginal.apiKey !== provider.apiKey
+                      || savedOriginal.api !== provider.api;
+                    return (
                     <LlmProviderCard
                       key={`${provider.name}-${index}`}
                       provider={provider}
+                      health={rowDirty ? undefined : providerHealth[provider.name]}
                       onChange={(updated) => {
                         setLlmProviders((prev) => prev.map((p, i) => (i === index ? updated : p)));
                       }}
@@ -1486,7 +1612,8 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                         setLlmProviders((prev) => prev.filter((_, i) => i !== index));
                       }}
                     />
-                  ))}
+                    );
+                  })}
                   <button
                     onClick={() => setLlmProviders((prev) => [...prev, { name: "", baseUrl: "", apiKey: "", api: "openai-completions", isNew: true }])}
                     className="flex items-center gap-1.5 text-sm text-[var(--accent-blue)] hover:text-blue-400 mt-1"
@@ -2063,13 +2190,120 @@ export function shouldShowLegacyHint(legacyTrustedNetworks: string[]): boolean {
   return legacyTrustedNetworks.length > 0;
 }
 
+/**
+ * "These trusted networks cannot reach this dashboard" advisory.
+ *
+ * Fills the silent quadrant: with a loopback or specific-NIC bind, a peer in an
+ * unreachable range is refused at the TCP layer, so no request handler runs, no
+ * block event is recorded, and `BlockEventTrustBanner` stays permanently blank.
+ *
+ * INDEPENDENT of that banner, not mutually exclusive with it — with
+ * `bindHost=10.0.0.5` and a trusted `192.168.1.0/24`, a peer at `10.0.0.9` IS
+ * accepted by the NIC, denied by the guard, and recorded. Both render; this one
+ * goes first, because it explains why block events may be MISSING for the
+ * unreachable range.
+ *
+ * A live region: the condition can arise while the section is already on screen
+ * (the user adds an entry, or a WS push moves `pendingBindHost`), so its
+ * appearance must be announced rather than silently painted.
+ *
+ * See change: warn-unreachable-trusted-networks.
+ */
+function UnreachableTrustedNetworksAdvisory({
+  pendingBindHost,
+  unreachable,
+  bindHostShadowedBy,
+  onListenOnAllInterfaces,
+  onGoToServerPage,
+}: {
+  pendingBindHost: string;
+  unreachable: string[];
+  /**
+   * `"flag"` / `"env"` when `--host` or `PI_DASHBOARD_HOST` decides the bind
+   * host. Both remediations write `config.bindHost`, which those two shadow —
+   * offering them there would hand the user a fix that silently does nothing.
+   */
+  bindHostShadowedBy?: "flag" | "env" | null;
+  onListenOnAllInterfaces?: () => void;
+  onGoToServerPage?: () => void;
+}) {
+  const { t } = useI18n();
+  if (unreachable.length === 0) return null;
+  const shadowed = bindHostShadowedBy === "flag" || bindHostShadowedBy === "env";
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      data-testid="unreachable-trusted-networks-advisory"
+      className="mb-2 rounded border border-[var(--warn-border,#4a3c14)] bg-[var(--warn-bg,#3a2e10)] px-2.5 py-2"
+    >
+      <p className="text-xs text-[var(--warn-body,var(--text-secondary))]">
+        {t(
+          "settings.unreachableTrustedNetworks",
+          { host: pendingBindHost, entries: unreachable.join(", ") },
+          `This dashboard listens on {host}, so devices in {entries} cannot reach it — these entries have no effect.`,
+        )}
+      </p>
+      {shadowed && (
+        <p className="mt-1.5 text-[11px] text-[var(--warn-body,var(--text-secondary))]" data-testid="unreachable-advisory-shadowed">
+          {bindHostShadowedBy === "flag"
+            ? t("settings.bindHostShadowedByFlag", undefined, "The listen interface comes from the --host flag, which overrides this setting. Restart the server with --host 0.0.0.0.")
+            : t("settings.bindHostShadowedByEnv", undefined, "The listen interface comes from PI_DASHBOARD_HOST, which overrides this setting. Set PI_DASHBOARD_HOST=0.0.0.0 and restart.")}
+        </p>
+      )}
+      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+        {!shadowed && onListenOnAllInterfaces && (
+          <button
+            type="button"
+            onClick={onListenOnAllInterfaces}
+            data-testid="unreachable-advisory-listen-all"
+            className="rounded border border-[var(--warn-border,#4a3c14)] px-2 py-0.5 text-[11px] font-semibold text-[var(--warn-fg,#e2b24a)] hover:bg-[var(--warn-bg,#3a2e10)] cursor-pointer"
+          >
+            {t("settings.listenOnAllInterfacesAction", undefined, "Listen on all interfaces (0.0.0.0)")}
+          </button>
+        )}
+        {!shadowed && onGoToServerPage && (
+          <button
+            type="button"
+            onClick={onGoToServerPage}
+            data-testid="unreachable-advisory-server-link"
+            className="text-[11px] underline text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
+          >
+            {t("settings.chooseListenInterfaceOnServer", undefined, "Choose a listen interface on the Server page")}
+          </button>
+        )}
+      </div>
+      <p className="mt-1.5 text-[11px] text-[var(--text-tertiary)]">
+        {t(
+          "settings.bindHostRestartNote",
+          undefined,
+          "Changing the listen interface is a Server setting and takes effect after a restart.",
+        )}
+      </p>
+    </div>
+  );
+}
+
 function TrustedNetworksSection({
   bypassHosts,
   legacyTrustedNetworks,
+  pendingBindHost,
+  unreachable = [],
+  bindHostShadowedBy,
+  onListenOnAllInterfaces,
+  onGoToServerPage,
   onChange,
 }: {
   bypassHosts: string[];
   legacyTrustedNetworks: string[];
+  /** Effective bind host of the NEXT start, draft included. */
+  pendingBindHost?: string;
+  /** Trusted entries that bind host cannot serve. */
+  unreachable?: string[];
+  /** `--host` / `PI_DASHBOARD_HOST` shadowing, when either governs. */
+  bindHostShadowedBy?: "flag" | "env" | null;
+  onListenOnAllInterfaces?: () => void;
+  onGoToServerPage?: () => void;
   onChange: (nets: string[]) => void;
 }) {
   const { t } = useI18n();
@@ -2096,12 +2330,25 @@ function TrustedNetworksSection({
     setLoading(true);
     try {
       const res = await fetch(`${getApiBase()}/api/network-interfaces`);
-      const data = await res.json();
-      if (data.success) setInterfaces(data.data);
-    } catch { /* ignore */ }
+      const data = res.ok ? await res.json() : null;
+      // A failed enumeration degrades the dropdown to empty; the section and
+      // the manual-entry field stay usable (#X5).
+      setInterfaces(data?.success ? data.data : []);
+    } catch { setInterfaces([]); }
     setLoading(false);
     setDropdownOpen(true);
   };
+
+  // One row per OFFER, not per interface. Dedupe lives here rather than in the
+  // endpoint: the listen-interface picker consumes the same payload one option
+  // per ADDRESS, so collapsing server-side would make a real bind address
+  // unselectable (Decision 12). Keyed on the suggestion value, so two tunnels
+  // that both resolve to `100.64.0.0/10` produce one row.
+  const offerRows = React.useMemo(() => dedupeInterfaceOffers(interfaces), [interfaces]);
+  const unofferable = React.useMemo(
+    () => interfaces.filter((i) => i.pointToPoint && (i.suggestions?.length ?? 0) === 0),
+    [interfaces],
+  );
 
   const addNetwork = (entry: string) => {
     const next = addTrustedEntry(bypassHosts, entry);
@@ -2125,6 +2372,17 @@ function TrustedNetworksSection({
       <p className="text-xs text-[var(--text-tertiary)] mb-2">
         {t("settings.trustedNetworksDescription", undefined, "Devices matching these networks or hosts can access the dashboard without authentication. Accepts exact IP, wildcard, or CIDR.")}
       </p>
+
+      {/* Reachability advisory FIRST — it explains why block events may be
+          missing for the unreachable range. The two are independent and may
+          coexist. See change: warn-unreachable-trusted-networks. */}
+      <UnreachableTrustedNetworksAdvisory
+        pendingBindHost={pendingBindHost ?? "127.0.0.1"}
+        unreachable={unreachable}
+        bindHostShadowedBy={bindHostShadowedBy}
+        onListenOnAllInterfaces={onListenOnAllInterfaces}
+        onGoToServerPage={onGoToServerPage}
+      />
 
       {/* Block-event "Trust this network?" banner (task 7.2). */}
       <BlockEventTrustBanner trusted={bypassHosts} onTrust={addNetwork} />
@@ -2156,20 +2414,55 @@ function TrustedNetworksSection({
           >
             {loading ? t("settings.detecting", undefined, "Detecting...") : t("settings.addLocalNetwork", undefined, "+ Add Local Network")}
           </button>
-          {dropdownOpen && interfaces.length > 0 && (
-            <div className="absolute left-0 top-full mt-1 z-50 min-w-[260px] bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-lg shadow-xl py-1">
-              {interfaces.map((iface) => (
+          {dropdownOpen && (offerRows.length > 0 || unofferable.length > 0) && (
+            <div
+              className="absolute left-0 top-full mt-1 z-50 min-w-[280px] bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-lg shadow-xl py-1"
+              data-testid="trusted-networks-dropdown"
+            >
+              {offerRows.map((row) => (
                 <button
-                  key={`${iface.name}-${iface.cidr}`}
-                  onClick={() => addNetwork(iface.cidr)}
-                  disabled={bypassHosts.includes(iface.cidr)}
+                  key={row.value}
+                  onClick={() => addNetwork(row.value)}
+                  disabled={bypassHosts.includes(row.value)}
+                  data-testid={`trusted-networks-offer-${row.value}`}
+                  data-wide={row.wide ? "true" : "false"}
+                  title={
+                    row.wide
+                      ? i18nT("settings.trustWholeRangeTitle", { range: row.value }, "Grants unauthenticated access to the whole {range} range")
+                      : undefined
+                  }
                   className={`w-full flex items-center justify-between px-3 py-1.5 text-xs text-left hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer ${
-                    bypassHosts.includes(iface.cidr) ? "opacity-40" : ""
-                  }`}
+                    bypassHosts.includes(row.value) ? "opacity-40" : ""
+                  } ${row.wide ? "text-[var(--warn-fg,#e2b24a)]" : ""}`}
                 >
-                  <span className="font-mono text-[var(--text-primary)]">{iface.cidr}</span>
-                  <span className="text-[var(--text-tertiary)] ml-2">{iface.name}</span>
+                  <span className={`font-mono ${row.wide ? "text-[var(--warn-fg,#e2b24a)]" : "text-[var(--text-primary)]"}`}>
+                    {row.value}
+                  </span>
+                  <span className="text-[var(--text-tertiary)] ml-2">
+                    {row.label}
+                    {row.wide ? ` · ${i18nT("settings.wideRange", undefined, "whole range")}` : ""}
+                  </span>
                 </button>
+              ))}
+              {/* A /32 in no recognised range is SHOWN, not omitted: the user has
+                  the device and legitimately wants it trusted, so the absence of
+                  an offer has to be legible rather than a silent hole.
+                  See change: warn-unreachable-trusted-networks. */}
+              {unofferable.map((iface) => (
+                <div
+                  key={`unofferable-${iface.address}`}
+                  data-testid={`trusted-networks-unofferable-${iface.name}`}
+                  className="w-full px-3 py-1.5 text-xs text-left opacity-60"
+                >
+                  <span className="text-[var(--text-tertiary)]">{iface.label ?? iface.name}</span>
+                  <span className="block text-[10px] text-[var(--text-tertiary)]">
+                    {i18nT(
+                      "settings.noTrustRangeForInterface",
+                      { address: iface.address },
+                      "No range can be derived for {address} — add an entry manually below.",
+                    )}
+                  </span>
+                </div>
               ))}
             </div>
           )}
@@ -2633,13 +2926,22 @@ type TestState =
   | { kind: "ok"; modelCount: number; sample: string[] }
   | { kind: "err"; status?: number; message: string };
 
-export function LlmProviderCard({ provider, onChange, onRemove }: {
+export function LlmProviderCard({ provider, health, onChange, onRemove }: {
   provider: LlmProvider;
+  health?: ProviderHealth;
   onChange: (p: LlmProvider) => void;
   onRemove: () => void;
 }) {
   const { t } = useI18n();
   const [testState, setTestState] = useState<TestState>({ kind: "idle" });
+
+  // Reset the live Test result when the provider's config changes from OUTSIDE
+  // this card (e.g. Discard restoring saved values). derivePillView prioritizes
+  // testState, so a stale failed-Test would otherwise mask the restored cached
+  // health. See change: surface-provider-health-in-settings.
+  useEffect(() => {
+    setTestState({ kind: "idle" });
+  }, [provider.baseUrl, provider.apiKey, provider.api]);
 
   const handleChange = (update: LlmProvider) => {
     // Any change to baseUrl / apiKey / api clears a stale test result.
@@ -2670,8 +2972,10 @@ export function LlmProviderCard({ provider, onChange, onRemove }: {
     if (result.ok) {
       setTestState({ kind: "ok", modelCount: result.modelCount, sample: result.sample ?? [] });
     } else {
-      const firstLine = (result.error ?? "Test failed").split("\n")[0].trim();
-      setTestState({ kind: "err", status: result.status, message: firstLine || "Test failed" });
+      // Keep the verbatim error for the monospace error line; the pill itself
+      // shows only the status code / Unreachable. See change:
+      // surface-provider-health-in-settings.
+      setTestState({ kind: "err", status: result.status, message: result.error ?? "Test failed" });
     }
   };
 
@@ -2751,55 +3055,94 @@ export function LlmProviderCard({ provider, onChange, onRemove }: {
             ))}
           </select>
         </div>
-        {testState.kind !== "idle" && <TestPill state={testState} />}
+        <HealthPill state={testState} health={health} />
       </div>
     </div>
   );
 }
 
-function TestPill({ state }: { state: TestState }) {
+// Normalized pill view derived from either a live Test result (`state`) or the
+// server-cached health. Four registers per the spec: connected / error (HTTP
+// status) / unreachable (no status) / not-tested.
+type PillView =
+  | { kind: "testing" }
+  | { kind: "ok"; modelCount: number; sample: string[] }
+  | { kind: "error"; status: number; error: string }
+  | { kind: "unreachable"; error: string }
+  | { kind: "not-tested" };
+
+function derivePillView(state: TestState, health?: ProviderHealth): PillView {
+  if (state.kind === "testing") return { kind: "testing" };
+  if (state.kind === "ok") return { kind: "ok", modelCount: state.modelCount, sample: state.sample };
+  if (state.kind === "err") {
+    return state.status !== undefined
+      ? { kind: "error", status: state.status, error: state.message }
+      : { kind: "unreachable", error: state.message };
+  }
+  // idle — fall back to the server-cached health.
+  if (!health) return { kind: "not-tested" };
+  if (health.ok) return { kind: "ok", modelCount: health.modelCount ?? 0, sample: [] };
+  return health.status !== undefined
+    ? { kind: "error", status: health.status, error: health.error ?? "" }
+    : { kind: "unreachable", error: health.error ?? "" };
+}
+
+function HealthPill({ state, health }: { state: TestState; health?: ProviderHealth }) {
   const { t } = useI18n();
-  if (state.kind === "testing") {
+  const view = derivePillView(state, health);
+
+  if (view.kind === "testing") {
     return (
-      <div
-        className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]"
-        data-testid="test-pill"
-        data-state="testing"
-      >
+      <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]" data-testid="test-pill" data-state="testing">
         <Icon path={mdiLoading} size={0.45} className="animate-spin" />
         {t("common.testing", undefined, "Testing...")}
       </div>
     );
   }
-  if (state.kind === "ok") {
-    const label = state.modelCount > 0
-      ? t("settings.connectedModels", { count: state.modelCount }, `Connected · ${state.modelCount} models`)
+
+  if (view.kind === "ok") {
+    const label = view.modelCount > 0
+      ? t("settings.connectedModels", { count: view.modelCount }, `Connected · ${view.modelCount} models`)
       : t("settings.connectedOnly", undefined, "Connected");
     return (
       <div
         className="flex items-center gap-1.5 text-xs text-green-400"
         data-testid="test-pill"
         data-state="ok"
-        title={state.sample.length > 0 ? i18nT("settings.sampleModels", { list: state.sample.join(", ") }, "Sample: {list}") : undefined}
+        title={view.sample.length > 0 ? i18nT("settings.sampleModels", { list: view.sample.join(", ") }, "Sample: {list}") : undefined}
       >
         <Icon path={mdiCheckCircle} size={0.5} />
         {label}
       </div>
     );
   }
-  if (state.kind === "err") {
-    const prefix = state.status ? `${state.status} — ` : "";
+
+  if (view.kind === "not-tested") {
     return (
-      <div
-        className="flex items-center gap-1.5 text-xs text-red-400"
-        data-testid="test-pill"
-        data-state="err"
-      >
-        <Icon path={mdiCloseCircle} size={0.5} />
-        <span className="truncate" title={`${prefix}${state.message}`}>{prefix}{state.message}</span>
+      <div className="flex items-center gap-1.5 text-xs text-[var(--text-tertiary)]" data-testid="test-pill" data-state="not-tested">
+        {t("settings.providerNotTested", undefined, "Not tested")}
       </div>
     );
   }
-  // idle — parent guards against rendering, but keep a safe default.
-  return null;
+
+  // error (yellow, HTTP status) or unreachable (red, no status) — both carry a
+  // verbatim error line beneath the pill.
+  const isError = view.kind === "error";
+  return (
+    <>
+      <div
+        className={`flex items-center gap-1.5 text-xs ${isError ? "text-yellow-400" : "text-red-400"}`}
+        data-testid="test-pill"
+        data-state={view.kind}
+      >
+        <Icon path={isError ? mdiAlert : mdiCloseCircle} size={0.5} />
+        {isError ? String(view.status) : t("settings.providerUnreachable", undefined, "Unreachable")}
+      </div>
+      {view.error && (
+        <div className="font-mono text-[11px] text-[var(--text-tertiary)] break-all whitespace-pre-wrap" data-testid="provider-error-line">
+          {view.error}
+        </div>
+      )}
+    </>
+  );
 }

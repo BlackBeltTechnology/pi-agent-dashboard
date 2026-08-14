@@ -1,6 +1,19 @@
 import { describe, it, expect, vi, afterEach } from "vitest";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { autoStartServer, type AutoStartDeps, type DiscoveredServer } from "../server-auto-start.js";
+
+/**
+ * Every spawn-path test takes the single-flight auto-start lock. Point it at a
+ * per-file temp dir: the production default is `~/.pi/dashboard`, which is
+ * SHARED across parallel vitest workers, so two workers in the spawn path
+ * contend for one real lockfile and the loser waits out the readiness budget
+ * (30s) — it stalled CI for over an hour. Also shorten the loser's poll.
+ * See change: fix-worktree-server-autostart-leak.
+ */
+const LOCK_DIR = mkdtempSync(join(tmpdir(), "auto-start-lock-"));
 
 function makeDeps(overrides: Partial<AutoStartDeps> = {}): AutoStartDeps {
   return {
@@ -8,6 +21,8 @@ function makeDeps(overrides: Partial<AutoStartDeps> = {}): AutoStartDeps {
     isDashboardRunning: vi.fn().mockResolvedValue({ running: false }),
     launchServer: vi.fn().mockResolvedValue({ success: true, message: "Server started" }),
     notify: vi.fn(),
+    lockDir: LOCK_DIR,
+    lossPollIntervalMs: 5,
     ...overrides,
   };
 }

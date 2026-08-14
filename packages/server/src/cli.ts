@@ -19,6 +19,7 @@
 // top-level module-resolution failure (missing `fastify` etc.) can be
 // caught and degraded into the recovery HTTP server instead of crashing
 // the process. The type-only import here is fully erased at runtime.
+import { SERVER_STARTUP_DEADLINE_MS } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { createServer as _CreateServerType, ServerConfig } from "./server.js";
 import {
   startRecoveryServer,
@@ -157,6 +158,11 @@ export function buildConfig(flags: Partial<ServerConfig>): ServerConfig {
     port: guardTempHomePort(resolvedPort, os.homedir(), os.tmpdir()),
     piPort: flags.piPort ?? (parseInt(process.env.PI_DASHBOARD_PI_PORT ?? "") || null) ?? fileConfig.piPort,
     host: flags.host ?? (process.env.PI_DASHBOARD_HOST || null) ?? fileConfig.bindHost,
+    // The `--host` FLAG, kept alongside the resolved value. `pendingBindHost`
+    // must re-resolve the same chain against the CURRENT config, and a flag
+    // wins on the next start too — so the flag has to survive resolution.
+    // See change: warn-unreachable-trusted-networks.
+    hostFlag: flags.host ?? null,
     dev: flags.dev ?? false,
     autoShutdown: fileConfig.autoShutdown,
     shutdownIdleSeconds: fileConfig.shutdownIdleSeconds,
@@ -277,7 +283,9 @@ async function runForeground(config: ServerConfig): Promise<void> {
   process.on("SIGTERM", onExitSignal);
   process.on("SIGINT", onExitSignal);
 
-  await server.start();
+  // Standalone server process: nobody else is watching this boot, so bound it.
+  // See change: fix-worktree-server-autostart-leak.
+  await server.start({ deadlineMs: SERVER_STARTUP_DEADLINE_MS });
 }
 
 

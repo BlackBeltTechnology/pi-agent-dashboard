@@ -572,11 +572,50 @@ export function clampSpawnRegisterTimeoutMs(v: unknown): number {
   return Math.max(5000, Math.min(120000, v));
 }
 
+/**
+ * Startup timing budgets shared by the bridge auto-start path and the
+ * dashboard server's own bounded startup. Single source of truth so the three
+ * values cannot drift apart.
+ *
+ * `SPAWN_READINESS_BUDGET_MS` (Clarification C1) is deliberately LARGER than
+ * the health poll: a slow cold start (jiti compile + plugin load) can exceed
+ * the health window without being dead. It bounds the auto-start lock's
+ * staleness and the lock loser's wait.
+ *
+ * `SERVER_STARTUP_DEADLINE_MS` (Clarification C4) is derived from the same
+ * constant, so it cannot drift from the budget. It is a MULTIPLE of it,
+ * because the two bound different things: the budget bounds how long a
+ * SPAWNER waits, while the deadline decides when a booting server is declared
+ * hung and killed. A cold start on a loaded CI runner (jiti compile + 12
+ * plugins) legitimately takes far longer than a spawner is willing to wait,
+ * and killing that boot would be a false positive — the failure mode this
+ * value must avoid, since a hang is bounded either way.
+ *
+ * They live in `config.ts` rather than a module of their own because the
+ * server and the extension resolve `@blackbelt-technology/pi-dashboard-shared`
+ * through the workspace link; a brand-new shared file is not resolvable from a
+ * git worktree until the tree is reinstalled, and a boot-time
+ * `Cannot find module` drops the server into recovery mode.
+ * See change: fix-worktree-server-autostart-leak.
+ */
+export const HEALTH_CHECK_TIMEOUT_MS = 10_000;
+export const SPAWN_READINESS_BUDGET_MS = HEALTH_CHECK_TIMEOUT_MS * 3;
+export const SERVER_STARTUP_DEADLINE_MS = SPAWN_READINESS_BUDGET_MS * 4;
+
+/**
+ * The shared production ports. Exported because the bridge's worktree
+ * auto-start refusal keys on them (`autostart-guard.ts`) and a silent desync
+ * between the two would let a worktree take the host's ports again.
+ * See change: fix-worktree-server-autostart-leak.
+ */
+export const DEFAULT_DASHBOARD_PORT = 8000;
+export const DEFAULT_GATEWAY_PORT = 9999;
+
 const DEFAULTS: DashboardConfig = {
   plugins: {},
   modelProxy: { ...DEFAULT_MODEL_PROXY },
-  port: 8000,
-  piPort: 9999,
+  port: DEFAULT_DASHBOARD_PORT,
+  piPort: DEFAULT_GATEWAY_PORT,
   bindHost: "127.0.0.1",
   autoStart: true,
   autoShutdown: false,

@@ -8,6 +8,7 @@ import { CanvasDriver } from "./components/canvas/CanvasDriver.js";
 import { ChatView, type ChatViewHandle } from "./components/chat/ChatView.js";
 import { ChatViewMenu } from "./components/chat/ChatViewMenu.js";
 import { CommandInput } from "./components/chat/CommandInput.js";
+import { ModelConfigProvider, type ModelConfigValue } from "./lib/state/ModelConfigContext.js";
 import { ConnectionStatusBanner } from "./components/connectivity/ConnectionStatusBanner.js";
 import { ServerSelector } from "./components/connectivity/ServerSelector.js";
 import { DirectorySettings, type DirectorySettingsPage } from "./components/DirectorySettings/DirectorySettings.js";
@@ -100,8 +101,9 @@ import { clearLoadingHistory, SUBSCRIBE_ACK_MS } from "./lib/replay/loading-hist
 import { extractUserPromptHistory } from "./lib/replay/message-history.js";
 import { rehydrateSession } from "./lib/replay/rehydrate-session.js";
 // Strategy A (reduce-session-replay-traffic): durable replay cursor.
-import { replayCache } from "./lib/replay/replay-cache.js";
+import { deriveServerKey, replayCache } from "./lib/replay/replay-cache.js";
 import { createReplayPersister } from "./lib/replay/replay-persist.js";
+import { refreshChat } from "./lib/chat/refresh-chat.js";
 import { deleteDraft, readAllDrafts, writeDraft } from "./lib/state/draft-storage.js";
 import { OpenSpecRunConfigProvider, type OpenSpecRunConfigValue } from "./lib/state/OpenSpecRunConfigContext.js";
 import { clearRecoveryOffer } from "./lib/state/recovery-offer-bus.js";
@@ -114,6 +116,7 @@ const NAV_TRACKER = { predecessor, popNav };
 import { applyPluginConfigUpdate, initPluginConfigs, PluginContextProvider, type SubagentStateSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
+import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { CommandInfo, DashboardSession, FileEntry, ImageContent, ModelInfo, OpenSpecData, OpenSpecGroup, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { GenericExtensionDialog } from "./components/extension-ui/GenericExtensionDialog.js";
 import { ToastSlot } from "./components/extension-ui/ToastSlot.js";
@@ -533,6 +536,10 @@ export default function App() {
   // See change: redesign-openspec-board.
   const [boardWorktreeForChange, setBoardWorktreeForChange] = useState<{ cwd: string; changeName: string } | null>(null);
   const [modelsMap, setModelsMap] = useState<Map<string, ModelInfo[]>>(new Map());
+  // Per-session provider refresh failures from the latest `models_list`; drives
+  // the model dropdown's footer notice.
+  // See change: upgrade-model-selector-primitives.
+  const [modelRefreshErrorsMap, setModelRefreshErrorsMap] = useState<Map<string, ProviderRefreshError[]>>(new Map());
   // Write-only: the last reader (StatusBar's deprecated `roles` prop) was
   // removed in `redesign-prompt-input`; roles UI lives in the roles settings
   // plugin. `setRolesMap` still consumes server role events. Full excision of
@@ -585,7 +592,17 @@ export default function App() {
   // Strategy A (reduce-session-replay-traffic): durable replay-cache writer +
   // "already rehydrated from IndexedDB" guard so reconnect re-subscribes don't
   // re-read (and clobber) live state. See change: reduce-session-replay-traffic.
-  const replayPersisterRef = useRef(createReplayPersister());
+  // Durable entries are scoped to the server that wrote them (`host:port`), so a
+  // colliding sessionId can never serve another server's history. The ref mirrors
+  // the derived key every render, so it is never stale relative to `wsUrl`; the
+  // persister reads it at FLUSH time and rehydrate at read time.
+  // See change: purge-replay-cache-on-reset-paths.
+  const serverKey = useMemo(() => deriveServerKey(wsUrl), [wsUrl]);
+  const serverKeyRef = useRef(serverKey);
+  serverKeyRef.current = serverKey;
+  const replayPersisterRef = useRef(
+    createReplayPersister(replayCache, undefined, () => serverKeyRef.current),
+  );
   const rehydratedRef = useRef(new Set<string>());
   // Per-session "history loading" flag: true between sending `subscribe`
   // and the first content / terminal / failure / timeout. Drives the
@@ -636,6 +653,10 @@ export default function App() {
           setFolderGitMap(new Map());
           setOpenspecGroupsMap(new Map());
           setTerminals(new Map());
+          // Per-session refresh failures are scoped to one server's bridges;
+          // a stale notice from server A must not render against server B.
+          // See change: upgrade-model-selector-primitives.
+          setModelRefreshErrorsMap(new Map());
           subscribedRef.current.clear();
           // Strategy A (reduce-session-replay-traffic): drop the replay-cursor
           // guards too. Otherwise switching back to a server that still has the
@@ -643,6 +664,13 @@ export default function App() {
           // with a stale maxSeq against the now-empty sessionStates map.
           maxSeqMapRef.current.clear();
           rehydratedRef.current.clear();
+          // Drop the replay buffers accumulated against the PREVIOUS server.
+          // `flush()` stamps entries with the key current at flush time, so a
+          // surviving buffer would be persisted under the new server's identity.
+          // Purely in-memory: the durable store is deliberately NOT purged, since
+          // entries are server-scoped and stay valid for a switch back.
+          // See change: purge-replay-cache-on-reset-paths.
+          replayPersisterRef.current.resetBuffers();
           // A recovery offer is scoped to one server boot; drop it so a
           // stale offer from server A can't reopen IDs on server B.
           // See change: reopen-sessions-after-shutdown.
@@ -749,6 +777,7 @@ export default function App() {
 
   // Sibling of `beginLoadingHistory` for the in-flight flag. Not a reuse:
   // `beginLoadingHistory` hard-codes its own setter and timers ref.
+  // Declared BEFORE `handleRefreshChat`, which lists it as a dependency.
   // See change: show-replay-in-flight-indicator.
   const beginReplayInFlight = useCallback((id: string) => {
     const existingTimer = replayInFlightTimersRef.current.get(id);
@@ -764,8 +793,35 @@ export default function App() {
     );
   }, []);
 
+  // Chat refresh: invalidate the durable entry BEFORE resetting in-memory state,
+  // so an interrupted refresh can't leave a reset view paired with a surviving
+  // cache entry (which rehydrates as authoritative on the next load). One shared
+  // callback for the header + mobile actions so the two cannot drift.
+  // See change: purge-replay-cache-on-reset-paths.
+  const handleRefreshChat = useCallback((sid: string) => {
+    void refreshChat(sid, {
+      dropPersisted: (id) => replayPersisterRef.current.drop(id),
+      resetSessionState: (id) =>
+        setSessionStates((prev) => {
+          const next = new Map(prev);
+          next.set(id, createInitialState());
+          return next;
+        }),
+      resetCursor: (id) => {
+        maxSeqMapRef.current.set(id, 0);
+      },
+      markSubscribed: (id) => {
+        subscribedRef.current.delete(id);
+        subscribedRef.current.add(id);
+      },
+      subscribe: (id) => send({ type: "subscribe", sessionId: id, lastSeq: 0 }),
+      beginLoadingHistory: (id) => beginLoadingHistory(id),
+      beginReplayInFlight: (id) => beginReplayInFlight(id),
+    }).catch(logRejection("App.handleRefreshChat"));
+  }, [send, beginLoadingHistory, beginReplayInFlight]);
+
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast },
   );
 
@@ -951,7 +1007,7 @@ export default function App() {
       // Reconnect re-subscribes already hold a live cursor → skip the cache read.
       if (!maxSeqMapRef.current.has(sid) && !rehydratedRef.current.has(sid)) {
         rehydratedRef.current.add(sid);
-        void rehydrateSession(sid, replayCache)
+        void rehydrateSession(sid, replayCache, serverKeyRef.current)
           .then((r) => {
             if (r) {
               setSessionStates((prev) => {
@@ -1128,10 +1184,17 @@ export default function App() {
   // change: pluginize-flows-via-registry.
 
   const selectedSession = selectedId ? sessions.get(selectedId) : undefined;
-  // Run-config context for the OpenSpec launch dialogs — sourced from the
-  // selected session's model/effort/models/favorites; setters emit the existing
-  // browser messages. See change: openspec-dialog-model-effort-selector.
-  const openSpecRunConfig = useMemo<OpenSpecRunConfigValue>(
+  // Shared navigation to Settings → Providers — the model-selector empty-state
+  // recovery link, consumed both directly (composer) and via ModelConfig (the
+  // shell-bound `ui:model-selector` primitive). See change: open-empty-model-selector.
+  const openProviderSettings = useCallback(() => navigate("/settings/providers"), [navigate]);
+  // Neutral model config for the selected session — sourced from
+  // `selectedState.model`/`thinkingLevel`, `modelsMap`, and `favoriteModels`;
+  // setters emit the existing browser messages. Consumed by the OpenSpec launch
+  // dialogs AND by the shell-bound `ui:model-selector` primitive.
+  // See changes: openspec-dialog-model-effort-selector,
+  // upgrade-model-selector-primitives (design D2).
+  const modelConfig = useMemo<ModelConfigValue>(
     () => ({
       model: selectedState.model ?? selectedSession?.model,
       models: selectedId ? modelsMap.get(selectedId) : undefined,
@@ -1151,9 +1214,10 @@ export default function App() {
       refreshModels: () => {
         if (selectedId) send({ type: "request_models", sessionId: selectedId });
       },
+      openProviderSettings,
       notify: (message) => showToast(message, "info"),
     }),
-    [selectedId, selectedState.model, selectedState.thinkingLevel, selectedSession?.model, selectedSession?.thinkingLevel, modelsMap, favoriteModels, send, showToast],
+    [selectedId, selectedState.model, selectedState.thinkingLevel, selectedSession?.model, selectedSession?.thinkingLevel, modelsMap, favoriteModels, send, showToast, openProviderSettings],
   );
   // Per-cwd OpenSpec workflow config — drives which action buttons render.
   // See change: redesign-session-card-and-composer (config-driven-workflow).
@@ -1590,19 +1654,7 @@ export default function App() {
           onDetachProposal: () => handleDetachProposal(selectedId),
           onSendPrompt: (text) => wrappedHandleSend(text),
           onReadArtifact: (changeName, artifactId) => openArtifact(selectedCwd!, changeName, artifactId),
-          onRefresh: () => {
-            setSessionStates((prev) => {
-              const next = new Map(prev);
-              next.set(selectedId, createInitialState());
-              return next;
-            });
-            maxSeqMapRef.current.set(selectedId, 0);
-            subscribedRef.current.delete(selectedId);
-            subscribedRef.current.add(selectedId);
-            send({ type: "subscribe", sessionId: selectedId, lastSeq: 0 });
-            beginLoadingHistory(selectedId);
-            beginReplayInFlight(selectedId);
-          },
+          onRefresh: () => handleRefreshChat(selectedId),
         } : undefined}
         commands={selectedCommands}
         onSendPrompt={wrappedHandleSend}
@@ -1613,19 +1665,7 @@ export default function App() {
         hasFileChanges={selectedState.hasFileChanges}
         onOpenDiffView={() => navigate(buildSessionDiffUrl(selectedId))}
         onOpenExtensionModulePicker={() => setExtensionModulePickerOpen(true)}
-        onRefresh={() => {
-          setSessionStates((prev) => {
-            const next = new Map(prev);
-            next.set(selectedId, createInitialState());
-            return next;
-          });
-          maxSeqMapRef.current.set(selectedId, 0);
-          subscribedRef.current.delete(selectedId);
-          subscribedRef.current.add(selectedId);
-          send({ type: "subscribe", sessionId: selectedId, lastSeq: 0 });
-          beginLoadingHistory(selectedId);
-          beginReplayInFlight(selectedId);
-        }}
+        onRefresh={() => handleRefreshChat(selectedId)}
       />
       {/* Mobile info strip */}
       {isMobile && selectedSession && (
@@ -1888,6 +1928,8 @@ export default function App() {
               send({ type: "set_thinking_level", sessionId: selectedId, level });
             }}
             onRefreshModels={() => selectedId && send({ type: "request_models", sessionId: selectedId })}
+            onOpenProviderSettings={openProviderSettings}
+            modelRefreshErrors={modelRefreshErrorsMap.get(selectedId)}
             contextUsage={selectedContextUsage}
           />
           {/* Plugin slot: content-inline-footer — contributions from flows-plugin (per-session inline footer) and other plugins. */}
@@ -2050,7 +2092,7 @@ export default function App() {
     <ApiContext.Provider value={apiBase}>
       <DisplayPrefsProvider value={displayPrefsContextValue}>
       <CommitDialogProvider onCommitted={(shortHash, cwd) => { showToast(`Committed ${shortHash}`, "success"); void refreshGitStatus(cwd); }}>
-      <OpenSpecRunConfigProvider value={openSpecRunConfig}>
+      <ModelConfigProvider value={modelConfig}>
       <PluginContextProvider
         registry={_pluginRegistry}
         sessions={allSessionsList}
@@ -2120,7 +2162,7 @@ export default function App() {
         </ErrorBoundary>
       </ShellSessionsProvider>
       </PluginContextProvider>
-      </OpenSpecRunConfigProvider>
+      </ModelConfigProvider>
       </CommitDialogProvider>
       </DisplayPrefsProvider>
     </ApiContext.Provider>

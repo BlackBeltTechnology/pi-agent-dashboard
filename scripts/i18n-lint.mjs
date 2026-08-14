@@ -39,7 +39,16 @@ function walk(dir) {
     if (e.isDirectory()) {
       // Skip build/test dirs, plus scaffold/demo packages that ship example
       // code rather than shipped UI (not user-facing).
-      if (/node_modules|__tests__|\.test\.|dist|templates|demo-plugin|dashboard-plugin-skill/.test(p))
+      //
+      // mcp-server-plugin is headless — it has no client entry and renders
+      // nothing. Its strings are JSON-RPC protocol messages sent to MCP
+      // clients, i.e. an API contract that MUST NOT be translated: a client
+      // parses them. See change: add-dashboard-mcp-server.
+      if (
+        /node_modules|__tests__|\.test\.|dist|templates|demo-plugin|dashboard-plugin-skill|mcp-server-plugin/.test(
+          p,
+        )
+      )
         continue;
       out.push(...walk(p));
     } else if (

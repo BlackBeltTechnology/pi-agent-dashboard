@@ -4,95 +4,98 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 
 | File | Purpose |
 |------|---------|
+| `README.md` | Docs for browser E2E. Prerequisites: Docker, `npx playwright install chromium`. Run via `npm run test:e2e`. → see `README.md.AGENTS.md` |
+| `anthropic-bridge-activation.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Asserts the flows-anthropic-bridge regression via… → see `anthropic-bridge-activation.spec.ts.AGENTS.md` |
+| `bind-reachability-advisory.spec.ts` | L3 for the bind-vs-trust advisory (test-plan F1–F19, X5, X6): visibility, draft convergence, remediation + page attribution, banner coexistence, restart signal, WS push/replay, dropdown offers. Merges `reachability` into the live `GET /api/config` and normalises the guard surface — the harness seeds its own trust entries. See change: warn-unreachable-trusted-networks. |
+| `blackhole-settings.spec.ts` | L3 spec (change: add-blackhole-plugin). Covers test-plan X3 + F1-F9 for `/settings/plugins/blackhole`. → see `blackhole-settings.spec.ts.AGENTS.md` |
+| `bridge-contention-health.spec.ts` | L3 (test-plan #F6). Asserts `/api/health` always carries `bridgeContentionCount` + `contendedSessionIds`, then provokes a refusal over the gateway port from `piGatewayPort` and polls the contended id appearing and clearing (no stuck badge); cumulative count never rolls back. See change: fix-duplicate-bridge-registration. |
 | `bus-client-goal-plugin-action.spec.ts` | L3/P1 (change: add-dashboard-bus-client-scripting). Drives `BusClient` from host against the harness (port… → see `bus-client-goal-plugin-action.spec.ts.AGENTS.md` |
-| `fixtures.ts` | The suite's `test`/`expect` entry point — EVERY spec imports from here, not `@playwright/test` (guard:… → see `fixtures.ts.AGENTS.md` |
-| `reap-core.ts` | Pure, side-effect-free reap logic, unit-tested at L1 in `scripts/__tests__/e2e-reap-core.test.mjs`:… → see `reap-core.ts.AGENTS.md` |
-| `session-reap.spec.ts` | L3 gate on the reap fixture itself, driven headless over `BusClient` (no browser page); port from… → see `session-reap.spec.ts.AGENTS.md` |
 | `chat-attachment-two-phase.spec.ts` | Two-phase attachment render E2E (change: fit-attachments-for-display)… → see `chat-attachment-two-phase.spec.ts.AGENTS.md` |
 | `chat-render-fx.spec.ts` | Browser E2E gate for `reduce-chat-render-cpu-umbrella` (umbrella-own surface not gated by… → see `chat-render-fx.spec.ts.AGENTS.md` |
 | `chat-render-perf.spec.ts` | ADVISORY opt-in perf probe for `reduce-chat-render-cpu-umbrella` (tasks 2.8/4.4/5.1). → see `chat-render-perf.spec.ts.AGENTS.md` |
 | `chat-transcript-virtualization.spec.ts` | Browser E2E gate for `virtualize-chat-transcript-tanstack` (Phase 2 Step B) + preserved `chat-scroll-lock`. → see `chat-transcript-virtualization.spec.ts.AGENTS.md` |
-| `notify-channel.spec.ts` | Playwright spec. Drives `[[faux:notify-probe]]` (→ `e2e_notify` fixture tool → `ctx.ui.notify`) and asserts… → see `notify-channel.spec.ts.AGENTS.md` |
-| `notify-min-level.spec.ts` | L3 spec (change: gate-notify-rows-by-level). Drives `[[faux:notify-levels]]` (four notifies, one per… → see `notify-min-level.spec.ts.AGENTS.md` |
-| `scroll-to-top.spec.ts` | Browser E2E gate for `fix-chat-scroll-to-top-estimate-drift` (the ONLY layer that reproduces the… → see `scroll-to-top.spec.ts.AGENTS.md` |
-| `severity-contrast.spec.ts` | L3 gate for `unify-message-severity-colors`. Sweeps 5 tiers × 9 themes × {light,dark} via `localStorage`… → see `severity-contrast.spec.ts.AGENTS.md` |
+| `csp.spec.ts` | Baseline CSP e2e (§7). Asserts a CSP header (report-only or enforce) present on `/` with… → see `csp.spec.ts.AGENTS.md` |
 | `ctx-running-render.spec.ts` | Browser E2E for `fix-ctx-running-render`. Drives `[[faux:ctx-batch-running]]` (single `ctx_batch_execute`… → see `ctx-running-render.spec.ts.AGENTS.md` |
 | `dashboard-slash.spec.ts` | Browser E2E: spawn session → `/dashboard:server-health` asserts bash card + "ran locally" footer + `ok=true`;… → see `dashboard-slash.spec.ts.AGENTS.md` |
-| `ended-session-endedat.spec.ts` | L3 for the evidence-based `endedAt` invariant (test-plan #F1, #F2); plants historical transcripts in the harness via `docker exec`. → see `ended-session-endedat.spec.ts.AGENTS.md` |
+| `directory-home.spec.ts` | L3 for the `/folder/:encodedCwd` directory home page (change: add-directory-home-page). → see `directory-home.spec.ts.AGENTS.md` |
 | `editor-pane.spec.ts` | Playwright E2E for internal Monaco editor pane (change: add-internal-monaco-editor-pane). → see `editor-pane.spec.ts.AGENTS.md` |
+| `empty-model-selector.spec.ts` | L3 for `open-empty-model-selector`. Proves the harness-feasible slice: composer `model-selector-button` is enabled + opens `model-dropdown` (regression guard for removing `disabled={!hasModels}`), and `/settings/providers` (the empty-state recovery link's destination) renders the `LLM Providers` surface. Genuinely-empty catalogue can't be forced in-harness (populated registry always seeded, per `list-models-registry-ready` V.3) → empty-state body / `awaitingRefresh` gate / reopen-to-retry / thin footer stay unit-proven in `ModelSelector.test.tsx`. |
+| `ended-session-endedat.spec.ts` | L3 for the evidence-based `endedAt` invariant (test-plan #F1, #F2); plants historical transcripts in the harness via `docker exec`. → see `ended-session-endedat.spec.ts.AGENTS.md` |
 | `enhance-tool-call-grouping.spec.ts` | Playwright spec for universal tool-call grouping (change: enhance-tool-call-grouping). 3 tests, faux model. → see `enhance-tool-call-grouping.spec.ts.AGENTS.md` |
 | `error-lifecycle.spec.ts` | Playwright spec. Single-card error-lifecycle surface end-to-end via faux model (no LLM). 4 tests. → see `error-lifecycle.spec.ts.AGENTS.md` |
 | `faux-ask.spec.ts` | Playwright spec. Sends `[[faux:ask-select]]` via `sendPrompt`. Asserts interactive select widget mounts (option button alpha visible). Needs `PI_E2E_SEED=1`. See change: add-e2e-faux-model-roundtrip. |
 | `faux-text.spec.ts` | Playwright spec. Sends `[[faux:plain-text]]` via `sendPrompt`. Asserts `PLAIN_TEXT_MARKER` text renders in message DOM. Needs `PI_E2E_SEED=1`. See change: add-e2e-faux-model-roundtrip. |
 | `faux-tool.spec.ts` | Playwright spec. Sends `[[faux:tool-read]]` via `sendPrompt`. Asserts read tool renderer mounts (path `src/example.ts` visible). Needs `PI_E2E_SEED=1`. See change: add-e2e-faux-model-roundtrip. |
-| `tool-collapse-narration.spec.ts` | Playwright spec for the semantic-first composition flip. `[[faux:poll-narrated]]` → 4 identical `echo… → see `tool-collapse-narration.spec.ts.AGENTS.md` |
-| `tmux-session-shutdown.spec.ts` | L3 gate for the tmux shutdown leak (test-plan #T2): spawn under the harness default `PI_SPAWN_STRATEGY=tmux`, `shutdown`, then assert the CONTAINER's process table (`/proc` + `tmux list-panes` via `docker exec`) — a vanished session RECORD is exactly what the bug already did. Session pid from `/api/sessions`; container by published `DASHBOARD_PORT`, never by name. See change: fix-tmux-session-shutdown-leak. |
-| `tool-burst.spec.ts` | Playwright spec for temporal burst grouping. Sends `[[faux:burst-heterogeneous]]` (3 distinct bash calls,… → see `tool-burst.spec.ts.AGENTS.md` |
-| `tool-created-files.spec.ts` | L3 spec (change: detect-tool-created-files, U1+U3). `spawnFreshGitSession` + `dirtyMarkdown(README.md)`… → see `tool-created-files.spec.ts.AGENTS.md` |
-| `directory-home.spec.ts` | L3 for the `/folder/:encodedCwd` directory home page (change: add-directory-home-page). → see `directory-home.spec.ts.AGENTS.md` |
-| `folder-membership-drag.spec.ts` | L3 for `drag-folders-across-workspaces` (test-plan #F11-#F13, #F16, #F18, #F20, #X6) — the scenarios needing… → see `folder-membership-drag.spec.ts.AGENTS.md` |
 | `file-mention-resolve.spec.ts` | L3 (change: server-side-file-mention-resolution, S19). Sends `[[faux:text-tildelink]]`; clicks the… → see `file-mention-resolve.spec.ts.AGENTS.md` |
 | `file-preview-survives-churn.spec.ts` | Playwright spec. Rendered-DOM regression for hoisted file-preview overlay. → see `file-preview-survives-churn.spec.ts.AGENTS.md` |
+| `fixtures.ts` | The suite's `test`/`expect` entry point — EVERY spec imports from here, not `@playwright/test` (guard:… → see `fixtures.ts.AGENTS.md` |
+| `flow-roundtrip.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Real pi-flows engine + faux agents. → see `flow-roundtrip.spec.ts.AGENTS.md` |
+| `folder-membership-drag.spec.ts` | L3 for `drag-folders-across-workspaces` (test-plan #F11-#F13, #F16, #F18, #F20, #X6) — the scenarios needing… → see `folder-membership-drag.spec.ts.AGENTS.md` |
 | `gateway-qr-selector.spec.ts` | Browser E2E for the Gateway single-QR network selector (change: add-gateway-qr-network-selector; automates… → see `gateway-qr-selector.spec.ts.AGENTS.md` |
 | `gateway-url-action.spec.ts` | L3 spec (change: config-override-oauth-redirect-base, D12/D13/D15). → see `gateway-url-action.spec.ts.AGENTS.md` |
-| `out-of-cwd-session-diffs.spec.ts` | L3 spec (change: opt-in-out-of-cwd-session-diffs). Faux `tool-write-out-of-cwd` (writes… → see `out-of-cwd-session-diffs.spec.ts.AGENTS.md` |
 | `git-panel.spec.ts` | Scenario 5.2 spec. Calls `ensureGitSession`. Asserts page-level `git-branch-btn` (title "Switch branch")… → see `git-panel.spec.ts.AGENTS.md` |
 | `global-setup.ts` | Playwright globalSetup. `PW_E2E_USE_RUNNING=1` → only verify `/api/health` (30s). → see `global-setup.ts.AGENTS.md` |
 | `global-teardown.ts` | Playwright globalTeardown. Managed (marker present, not fast path) → run `docker/test-down.sh` with… → see `global-teardown.ts.AGENTS.md` |
-| `helpers/openspec-board.ts` | OpenSpec-board drop-targeting E2E helpers. Fixture `/fixtures/openspec-board` (64 generated `board-card-NN`… → see `helpers/openspec-board.ts.AGENTS.md` |
 | `helpers/index.ts` | E2E helpers. `gotoDashboard(page)` navigates `/`, waits for `header-app-bar`, and arms a one-per-page… → see `helpers/index.ts.AGENTS.md` |
-| `inline-terminal-transcript.spec.ts` | L3 gate for `preserve-inline-terminal-transcript`: F1 exit-then-close keeps scrollback, F2/F3 untouched card… → see `inline-terminal-transcript.spec.ts.AGENTS.md` |
+| `helpers/openspec-board.ts` | OpenSpec-board drop-targeting E2E helpers. Fixture `/fixtures/openspec-board` (64 generated `board-card-NN`… → see `helpers/openspec-board.ts.AGENTS.md` |
 | `inline-screenshot.spec.ts` | Playwright E2E for inline agent screenshot artifacts (change: inline-agent-screenshot-artifacts, automates… → see `inline-screenshot.spec.ts.AGENTS.md` |
+| `inline-terminal-transcript.spec.ts` | L3 gate for `preserve-inline-terminal-transcript`: F1 exit-then-close keeps scrollback, F2/F3 untouched card… → see `inline-terminal-transcript.spec.ts.AGENTS.md` |
 | `kb-folder-slot.spec.ts` | Playwright spec. KB folder slot end-to-end in Docker harness. → see `kb-folder-slot.spec.ts.AGENTS.md` |
 | `large-session-replay.spec.ts` | L3 wire-level gate for `compact-warm-replay-stream` (#399): P1 zero superseded `message_update`, F5, F6… → see `large-session-replay.spec.ts.AGENTS.md` |
-| `list-models-registry-ready.spec.ts` | Playwright spec (L3). Live proof of the `list_models` registry-readiness discriminator. → see `list-models-registry-ready.spec.ts.AGENTS.md` |
 | `lifecycle.ts` | Shared E2E lifecycle module. Port dynamic: probes free port in managed mode; `PW_E2E_PORT` (default 18000) +… → see `lifecycle.ts.AGENTS.md` |
-| `model-proxy-oauth-filter.spec.ts` | Playwright spec (`request` fixture, no page). Model-proxy OAuth-incompatible filtering. → see `model-proxy-oauth-filter.spec.ts.AGENTS.md` |
+| `list-models-registry-ready.spec.ts` | Playwright spec (L3). Live proof of the `list_models` registry-readiness discriminator. → see `list-models-registry-ready.spec.ts.AGENTS.md` |
 | `mermaid-colorize.spec.ts` | Playwright spec. Mermaid default-node colorization end-to-end via faux model. → see `mermaid-colorize.spec.ts.AGENTS.md` |
+| `model-proxy-oauth-filter.spec.ts` | Playwright spec (`request` fixture, no page). Model-proxy OAuth-incompatible filtering. → see `model-proxy-oauth-filter.spec.ts.AGENTS.md` |
 | `navigation.spec.ts` | Scenario 5.6 spec. Registers `page.on(pageerror)`. `gotoDashboard`, clicks `settings-btn`, asserts… → see `navigation.spec.ts.AGENTS.md` |
+| `notify-channel.spec.ts` | Playwright spec. Drives `[[faux:notify-probe]]` (→ `e2e_notify` fixture tool → `ctx.ui.notify`) and asserts… → see `notify-channel.spec.ts.AGENTS.md` |
+| `notify-min-level.spec.ts` | L3 spec (change: gate-notify-rows-by-level). Drives `[[faux:notify-levels]]` (four notifies, one per… → see `notify-min-level.spec.ts.AGENTS.md` |
 | `oauth-redirect-base.spec.ts` | L3 spec (change: config-override-oauth-redirect-base, review of PR #409). → see `oauth-redirect-base.spec.ts.AGENTS.md` |
-| `openspec-locality-gate.spec.ts` | L3 spec (change: scope-openspec-auto-attach-to-session-cwd). Faux `openspec-foreign-cd` proves a `cd`-into-another-repo openspec command never attaches or renames the card (F2). F1 stays L1 — the client never hydrates `notifyLog`. |
 | `openspec-artifact-dialog.spec.ts` | L3 spec (change: openspec-artifact-dialog-desktop). Drives the non-mobile artifact dialog off the board… → see `openspec-artifact-dialog.spec.ts.AGENTS.md` |
 | `openspec-board-drop-contrast.spec.ts` | L3 spec (change: fix-openspec-board-drop-targeting). Marker + active-rail contrast on the LIVE drag… → see `openspec-board-drop-contrast.spec.ts.AGENTS.md` |
 | `openspec-board-drop-indicator.spec.ts` | L3 spec (change: fix-openspec-board-drop-targeting). Drag-time indication + cost:… → see `openspec-board-drop-indicator.spec.ts.AGENTS.md` |
 | `openspec-board-drop.spec.ts` | L3 spec (change: fix-openspec-board-drop-targeting). Drop resolution + commit:… → see `openspec-board-drop.spec.ts.AGENTS.md` |
-| `oversized-event-liveness.spec.ts` | Playwright E2E for the per-event size ceiling (change: bound-subagent-event-serialization). → see `oversized-event-liveness.spec.ts.AGENTS.md` |
+| `openspec-locality-gate.spec.ts` | L3 spec (change: scope-openspec-auto-attach-to-session-cwd). Faux `openspec-foreign-cd` proves a `cd`-into-another-repo openspec command never attaches or renames the card (F2). F1 stays L1 — the client never hydrates `notifyLog`. |
 | `optimistic-prompt.spec.ts` | Playwright E2E for optimistic-prompt-progress. Two faux round-trip tests. → see `optimistic-prompt.spec.ts.AGENTS.md` |
+| `out-of-cwd-session-diffs.spec.ts` | L3 spec (change: opt-in-out-of-cwd-session-diffs). Faux `tool-write-out-of-cwd` (writes… → see `out-of-cwd-session-diffs.spec.ts.AGENTS.md` |
+| `oversized-event-liveness.spec.ts` | Playwright E2E for the per-event size ceiling (change: bound-subagent-event-serialization). → see `oversized-event-liveness.spec.ts.AGENTS.md` |
 | `package-queue-visible.spec.ts` | Browser E2E gate for `unify-pi-core-into-package-queue` (D9 rewritten — visible queue). → see `package-queue-visible.spec.ts.AGENTS.md` |
 | `pairing-qr.spec.ts` | Browser E2E for the camera-scannable pairing QR (change: make-pairing-qr-camera-scannable). → see `pairing-qr.spec.ts.AGENTS.md` |
+| `plugin-settings-pages.spec.ts` | L3 spec (test-plan rows F1-F14, X1-X5, X7; change: plugin-settings-pages). → see `plugin-settings-pages.spec.ts.AGENTS.md` |
+| `popover-container-clip.spec.ts` | Browser E2E gate for `fix-popover-container-clip` (F5–F8, F11–F12). → see `popover-container-clip.spec.ts.AGENTS.md` |
 | `project-init-button.spec.ts` | Playwright E2E for the polymorphic Initialize button (Level 1). → see `project-init-button.spec.ts.AGENTS.md` |
 | `project-trust-headless-spawn.spec.ts` | L3 spec (test-plan #X4, change: adopt-pi-074-080-features). → see `project-trust-headless-spawn.spec.ts.AGENTS.md` |
-| `README.md` | Docs for browser E2E. Prerequisites: Docker, `npx playwright install chromium`. Run via `npm run test:e2e`. → see `README.md.AGENTS.md` |
+| `real-flow-regression.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests, D5 follow-up). → see `real-flow-regression.spec.ts.AGENTS.md` |
+| `reap-core.ts` | Pure, side-effect-free reap logic, unit-tested at L1 in `scripts/__tests__/e2e-reap-core.test.mjs`:… → see `reap-core.ts.AGENTS.md` |
 | `reasoning-auto-collapse.spec.ts` | Playwright E2E for reasoning-auto-collapse-timer. Two tests. → see `reasoning-auto-collapse.spec.ts.AGENTS.md` |
-| `reconcile-heal.spec.ts` | Playwright spec (task 5.1, change: fix-stuck-tool-card-on-dropped-event). → see `reconcile-heal.spec.ts.AGENTS.md` |
-| `plugin-settings-pages.spec.ts` | L3 spec (test-plan rows F1-F14, X1-X5, X7; change: plugin-settings-pages). → see `plugin-settings-pages.spec.ts.AGENTS.md` |
 | `recommended-local-name-match.spec.ts` | L3 spec (test-plan #F3, change: match-local-installs-by-package-name). → see `recommended-local-name-match.spec.ts.AGENTS.md` |
 | `recommended-requires.spec.ts` | Playwright E2E for recommended-extension `requires` probe (change:… → see `recommended-requires.spec.ts.AGENTS.md` |
+| `reconcile-heal.spec.ts` | Playwright spec (task 5.1, change: fix-stuck-tool-card-on-dropped-event). → see `reconcile-heal.spec.ts.AGENTS.md` |
 | `reducer-poisoned-cache-heal.spec.ts` | Playwright E2E for `fix-reducer-crash-undefined-toolname` (manual tasks 5.1+5.2). 2 tests, faux model. → see `reducer-poisoned-cache-heal.spec.ts.AGENTS.md` |
 | `replay-delta-on-reload.spec.ts` | Playwright spec. Strategy A: reload of seen session resubscribes lastSeq>0 (delta replay). → see `replay-delta-on-reload.spec.ts.AGENTS.md` |
 | `replay-in-flight-pill.spec.ts` | Playwright spec. Replay-in-flight pill: visible over a slowed multi-batch cold replay (F9/X6), overlays without reflow (F11), never paints on the warm empty-delta reload (F10). Delays server→client WS frames via `page.routeWebSocket`. See change: show-replay-in-flight-indicator. |
 | `replay-truncate.spec.ts` | Playwright spec. Strategy B: full replay in fresh browser context pre-truncates heavy (>200-line) tool result… → see `replay-truncate.spec.ts.AGENTS.md` |
 | `resource-activation-trust.spec.ts` | L3 spec (change: project-scope-disable-global-resources). → see `resource-activation-trust.spec.ts.AGENTS.md` |
+| `scroll-to-top.spec.ts` | Browser E2E gate for `fix-chat-scroll-to-top-estimate-drift` (the ONLY layer that reproduces the… → see `scroll-to-top.spec.ts.AGENTS.md` |
 | `session-context-injection.spec.ts` | Playwright spec. Spawns session, sends `[[faux:echo-system-context]]`, asserts rendered text contains… → see `session-context-injection.spec.ts.AGENTS.md` |
-| `blackhole-settings.spec.ts` | L3 spec (change: add-blackhole-plugin). Covers test-plan X3 + F1-F9 for `/settings/plugins/blackhole`. → see `blackhole-settings.spec.ts.AGENTS.md` |
-| `anthropic-bridge-activation.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Asserts the flows-anthropic-bridge regression via… → see `anthropic-bridge-activation.spec.ts.AGENTS.md` |
-| `flow-roundtrip.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Real pi-flows engine + faux agents. → see `flow-roundtrip.spec.ts.AGENTS.md` |
-| `real-flow-regression.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests, D5 follow-up). → see `real-flow-regression.spec.ts.AGENTS.md` |
-| `subagent-detail-dialog.spec.ts` | Playwright spec (change: fix-subagent-live-detail-reliability D4). → see `subagent-detail-dialog.spec.ts.AGENTS.md` Also carries F4 (the live subagent timeline advances ≥ 2 distinct states in a 10 s window — collapse is retention-only and never suppresses a broadcast). See change: collapse-superseded-tool-execution-updates. |
-| `subagent-inspector.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Drives `[[faux:subagent-spawn]]` — parent emits an `Agent` tool… → see `subagent-inspector.spec.ts.AGENTS.md` Also carries F3 (a completed subagent still renders after a page reload — the replay re-folds the COLLAPSED buffer) and P2 (collapse fires on a real sustained subagent run, asserted via `/api/health` `storeTrim.collapsedUpdates`; port comes from `baseURL`, never a hardcoded `:18000`). See change: collapse-superseded-tool-execution-updates. |
-| `session-tags.spec.ts` | E2E for change add-session-tags (task 7.2). Spawns a fresh git session (`spawnFreshGitSession`), selects it,… → see `session-tags.spec.ts.AGENTS.md` |
+| `session-reap.spec.ts` | L3 gate on the reap fixture itself, driven headless over `BusClient` (no browser page); port from… → see `session-reap.spec.ts.AGENTS.md` |
 | `session-spawn.spec.ts` | Scenario spec 5.1, authoritative WS round-trip. Clears onboarding gate, clicks `onboarding-step-2-cta` opens… → see `session-spawn.spec.ts.AGENTS.md` |
-| `csp.spec.ts` | Baseline CSP e2e (§7). Asserts a CSP header (report-only or enforce) present on `/` with… → see `csp.spec.ts.AGENTS.md` |
+| `session-tags.spec.ts` | E2E for change add-session-tags (task 7.2). Spawns a fresh git session (`spawnFreshGitSession`), selects it,… → see `session-tags.spec.ts.AGENTS.md` |
+| `severity-contrast.spec.ts` | L3 gate for `unify-message-severity-colors`. Sweeps 5 tiers × 9 themes × {light,dark} via `localStorage`… → see `severity-contrast.spec.ts.AGENTS.md` |
 | `skill-provenance.spec.ts` | L3 for the Resources skills grid (F1-F10, X7). Fulfils `/api/pi-resources` with crafted payloads and drives the… → see `skill-provenance.spec.ts.AGENTS.md` |
 | `smoke.spec.ts` | Smoke spec, wiring proof only. Asserts shell renders (title `PI Dashboard` + `header-app-bar`), no… → see `smoke.spec.ts.AGENTS.md` |
-| `popover-container-clip.spec.ts` | Browser E2E gate for `fix-popover-container-clip` (F5–F8, F11–F12). → see `popover-container-clip.spec.ts.AGENTS.md` |
 | `split-composer-overflow.spec.ts` | Browser E2E gate for `fix-split-composer-overflow`. Opens `split-toggle` at viewport 1280 (≥ md); asserts… → see `split-composer-overflow.spec.ts.AGENTS.md` |
+| `subagent-detail-dialog.spec.ts` | Playwright spec (change: fix-subagent-live-detail-reliability D4). → see `subagent-detail-dialog.spec.ts.AGENTS.md` Also carries F4 (the live subagent timeline advances ≥ 2 distinct states in a 10 s window — collapse is retention-only and never suppresses a broadcast). See change: collapse-superseded-tool-execution-updates. |
+| `subagent-inspector.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Drives `[[faux:subagent-spawn]]` — parent emits an `Agent` tool… → see `subagent-inspector.spec.ts.AGENTS.md` Also carries F3 (a completed subagent still renders after a page reload — the replay re-folds the COLLAPSED buffer) and P2 (collapse fires on a real sustained subagent run, asserted via `/api/health` `storeTrim.collapsedUpdates`; port comes from `baseURL`, never a hardcoded `:18000`). See change: collapse-superseded-tool-execution-updates. |
 | `superseded-heal.spec.ts` | Playwright spec (task 7.1, change: fix-stuck-tool-card-superseded-heal). → see `superseded-heal.spec.ts.AGENTS.md` |
 | `table-copy.spec.ts` | Playwright spec (change: fix-table-copy-empty-clipboard, automates manual task 5.1). → see `table-copy.spec.ts.AGENTS.md` |
-| `terminal.spec.ts` | Scenario 5.4 spec. `ensureGitSession`, clicks session card to select, clicks `open-inline-terminal-button`,… → see `terminal.spec.ts.AGENTS.md` |
 | `terminal-tab.spec.ts` | Terminal-as-tab spec (change: terminals-in-tabbed-panes). → see `terminal-tab.spec.ts.AGENTS.md` |
+| `terminal.spec.ts` | Scenario 5.4 spec. `ensureGitSession`, clicks session card to select, clicks `open-inline-terminal-button`,… → see `terminal.spec.ts.AGENTS.md` |
+| `tmux-session-shutdown.spec.ts` | L3 gate for the tmux shutdown leak (test-plan #T2): spawn under the harness default `PI_SPAWN_STRATEGY=tmux`, `shutdown`, then assert the CONTAINER's process table (`/proc` + `tmux list-panes` via `docker exec`) — a vanished session RECORD is exactly what the bug already did. Session pid from `/api/sessions`; container by published `DASHBOARD_PORT`, never by name. See change: fix-tmux-session-shutdown-leak. |
+| `tool-burst.spec.ts` | Playwright spec for temporal burst grouping. Sends `[[faux:burst-heterogeneous]]` (3 distinct bash calls,… → see `tool-burst.spec.ts.AGENTS.md` |
+| `tool-collapse-narration.spec.ts` | Playwright spec for the semantic-first composition flip. `[[faux:poll-narrated]]` → 4 identical `echo`… → see `tool-collapse-narration.spec.ts.AGENTS.md` |
+| `tool-created-files.spec.ts` | L3 spec (change: detect-tool-created-files, U1+U3). `spawnFreshGitSession` + `dirtyMarkdown(README.md)`… → see `tool-created-files.spec.ts.AGENTS.md` |
 | `tool-output-links.spec.ts` | Playwright E2E for tool-output file-link behaviour (change: selectable-tool-output-links). → see `tool-output-links.spec.ts.AGENTS.md` |
+| `tool-output-selection.spec.ts` | Playwright E2E for selectable tool-output links (task 3.2, change: selectable-tool-output-links). → see `tool-output-selection.spec.ts.AGENTS.md` |
 | `uncommitted-indicator-commit.spec.ts` | Playwright E2E for the uncommitted-indicator + commit-from-card feature (change:… → see `uncommitted-indicator-commit.spec.ts.AGENTS.md` |
 | `worktree-init-feedback.spec.ts` | Playwright E2E for friendly worktree-init feedback (Level 1, change: friendlier-worktree-init; automates… → see `worktree-init-feedback.spec.ts.AGENTS.md` |
-| `tool-output-selection.spec.ts` | Playwright E2E for selectable tool-output links (task 3.2, change: selectable-tool-output-links). → see `tool-output-selection.spec.ts.AGENTS.md` |
 | `zrok-v2-tunnel.spec.ts` | L3 (change: support-zrok-v2, F1/F2/F3). Stubs `/api/tunnel-status` (+`/api/tunnel-disconnect`) via… → see `zrok-v2-tunnel.spec.ts.AGENTS.md` |

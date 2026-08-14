@@ -1,8 +1,17 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  computeBindReachability,
+  formatBindReachabilityWarning,
+  initBindReachability,
+  resetBindReachability,
+  safeComputeBindReachability,
+  sameReachability,
+} from "../auth/bind-reachability-service.js";
+import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
 
 describe("config-api", () => {
   let testDir: string;
@@ -333,5 +342,132 @@ describe("config-api", () => {
       expect(fs.readFileSync(configFile, "utf-8")).toBe(before);
       expect(JSON.parse(fs.readFileSync(configFile, "utf-8")).gateways).toBeUndefined();
     });
+  });
+});
+
+// ── reachability: computed, never persisted, never unguarded ───────────
+// See change: warn-unreachable-trusted-networks.
+describe("reachability surface", () => {
+  let testDir: string;
+  let configFile: string;
+  let origHome: string;
+
+  beforeEach(() => {
+    testDir = path.join(os.tmpdir(), `test-reachability-${Date.now()}`);
+    fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
+    configFile = path.join(testDir, ".pi", "dashboard", "config.json");
+    origHome = process.env.HOME!;
+    process.env.HOME = testDir;
+    resetBindReachability();
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    resetBindReachability();
+    if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true });
+  });
+
+  it("#E30 strips an echoed `reachability` object from the written config", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ port: 8000, bindHost: "127.0.0.1" }));
+    const result = writeConfigPartial({
+      bindHost: "0.0.0.0",
+      reachability: {
+        resolvedBindHost: "127.0.0.1",
+        pendingBindHost: "127.0.0.1",
+        unreachable: ["192.168.1.0/24"],
+      },
+    });
+    expect(result.success).toBe(true);
+    const written = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+    expect(written.bindHost).toBe("0.0.0.0");
+    expect("reachability" in written).toBe(false);
+  });
+
+  it("#X1 degrades `reachability` to null instead of throwing", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ port: 8123, bindHost: "127.0.0.1" }));
+    // `safeComputeBindReachability` is the PRODUCTION isolation the route calls;
+    // deleting its try/catch fails this test. (An earlier version of this test
+    // wrapped the call in its own try/catch and therefore proved nothing.)
+    expect(safeComputeBindReachability(() => { throw new Error("boom"); })).toBeNull();
+
+    // …and the rest of the config is unaffected by that degradation.
+    const payload = { ...readConfigRedacted(), reachability: null };
+    expect(payload.port).toBe(8123);
+    expect(payload.reachability).toBeNull();
+  });
+
+  it("#X2 computes the topology facts only for the guarded surface", () => {
+    fs.writeFileSync(configFile, JSON.stringify({
+      port: 8000,
+      bindHost: "127.0.0.1",
+      auth: { bypassHosts: ["192.168.1.0/24"] },
+    }));
+    initBindReachability({ resolvedBindHost: "127.0.0.1", hostFlag: null });
+    const r = computeBindReachability(loadConfig);
+    expect(r.unreachable).toEqual(["192.168.1.0/24"]);
+    expect(r.resolvedBindHost).toBe("127.0.0.1");
+    // The unguarded `/api/health` counterpart is pinned in health-endpoint.test.ts.
+  });
+});
+
+// ── The startup warning names the link that actually decides ───────────
+// See change: warn-unreachable-trusted-networks.
+describe("formatBindReachabilityWarning", () => {
+  const base = { resolvedBindHost: "127.0.0.1", pendingBindHost: "127.0.0.1", unreachable: ["192.168.1.0/24"] };
+
+  it("is silent when every trusted entry is reachable", () => {
+    expect(formatBindReachabilityWarning({ ...base, unreachable: [], bindHostSource: "config" })).toBeNull();
+  });
+
+  it("suggests config.bindHost when the config is the deciding link", () => {
+    const line = formatBindReachabilityWarning({ ...base, bindHostSource: "config" });
+    expect(line).toContain("[bind-reachability]");
+    expect(line).toContain("127.0.0.1");
+    expect(line).toContain("192.168.1.0/24");
+    expect(line).toContain("bindHost");
+  });
+
+  it("suggests the FLAG when --host shadows the config", () => {
+    const line = formatBindReachabilityWarning({ ...base, bindHostSource: "flag" });
+    expect(line).toContain("--host 0.0.0.0");
+    // Must not tell the user to edit a setting the flag overrides.
+    expect(line).not.toContain("Settings → Server");
+  });
+
+  it("suggests the ENV VAR when PI_DASHBOARD_HOST shadows the config", () => {
+    const line = formatBindReachabilityWarning({ ...base, bindHostSource: "env" });
+    expect(line).toContain("PI_DASHBOARD_HOST=0.0.0.0");
+    expect(line).not.toContain("Settings → Server");
+  });
+});
+
+// ── Regression: the broadcast gate must watch the WHOLE published fact ─
+// Gating the `reachability_updated` push on `pendingBindHost` alone meant a
+// write that edited only the trusted entries sent nothing, leaving every other
+// connected browser on a stale advisory until it reloaded — contradicting the
+// protocol docstring and the server-bind-host spec's no-polling requirement.
+// Found by CodeRabbit on PR #483. See change: warn-unreachable-trusted-networks.
+describe("sameReachability (broadcast gate)", () => {
+  const base = {
+    resolvedBindHost: "127.0.0.1",
+    pendingBindHost: "127.0.0.1",
+    unreachable: ["192.168.1.0/24"],
+    bindHostSource: "config" as const,
+  };
+
+  it("is true for an identical fact — no needless broadcast", () => {
+    expect(sameReachability(base, { ...base, unreachable: [...base.unreachable] })).toBe(true);
+  });
+
+  it("is FALSE when only the unreachable set changed (the bind host standing still)", () => {
+    expect(sameReachability(base, { ...base, unreachable: ["192.168.1.0/24", "10.0.0.0/8"] })).toBe(false);
+    expect(sameReachability(base, { ...base, unreachable: [] })).toBe(false);
+    expect(sameReachability(base, { ...base, unreachable: ["10.0.0.0/8"] })).toBe(false);
+  });
+
+  it("is false when the bind host, the resolved host, or the deciding link changed", () => {
+    expect(sameReachability(base, { ...base, pendingBindHost: "0.0.0.0" })).toBe(false);
+    expect(sameReachability(base, { ...base, resolvedBindHost: "0.0.0.0" })).toBe(false);
+    expect(sameReachability(base, { ...base, bindHostSource: "env" })).toBe(false);
   });
 });

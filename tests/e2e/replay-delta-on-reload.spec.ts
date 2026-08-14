@@ -28,6 +28,9 @@ function parseSubscribe(payload: string): SubscribeFrame | null {
 }
 
 test.describe("Strategy A — delta replay on reload", () => {
+  // Also the happy-path regression for purge-replay-cache-on-reset-paths
+  // (test-plan #F7): server-scoped entries must not break the existing delta
+  // optimization for a normal single-server session.
   test("reload of a seen session resubscribes with lastSeq > 0", async ({ page }) => {
     const card = await spawnFreshGitSession(page);
     const sessionId = await card.getAttribute("data-session-id");
@@ -99,6 +102,76 @@ test.describe("Strategy A — delta replay on reload", () => {
     // only buffer had persisted `{maxSeq: <high>, payload: [1 stray row]}`, so
     // the delta subscribe skipped every earlier event and B rendered one row.
     await openSession(page, sessionB as string);
+    await expect(page.getByText(PLAIN_TEXT_MARKER).first()).toBeVisible({ timeout: 30_000 });
+  });
+
+  // --- change: purge-replay-cache-on-reset-paths ---
+
+  test("chat refresh then reload does not resurrect the pre-refresh view (purge-replay-cache test-plan #F1)", async ({
+    page,
+  }) => {
+    const card = await spawnFreshGitSession(page);
+    const sessionId = await card.getAttribute("data-session-id");
+    expect(sessionId).toBeTruthy();
+
+    await card.click();
+    await sendPrompt(page, "[[faux:plain-text]] go");
+    await expect(page.getByText(PLAIN_TEXT_MARKER).first()).toBeVisible({ timeout: 30_000 });
+
+    // Let the 1 s debounced writer persist a real entry (maxSeq > 0), so the
+    // pre-refresh state IS durably cached — otherwise the test proves nothing.
+    await page.waitForTimeout(1_800);
+
+    const subscribes: SubscribeFrame[] = [];
+    page.on("websocket", (ws: PWWebSocket) => {
+      ws.on("framesent", (frame) => {
+        const payload = typeof frame.payload === "string" ? frame.payload : frame.payload.toString("utf8");
+        const sub = parseSubscribe(payload);
+        if (sub) subscribes.push(sub);
+      });
+    });
+
+    // PROVE the durable entry exists before refreshing it away. Without this,
+    // the whole test is vacuous: if the write never landed, the post-refresh
+    // subscribe would carry `lastSeq: 0` for the trivial reason that there was
+    // never anything to purge, and the assertion below would pass regardless.
+    // A delta subscribe (lastSeq > 0) is only reachable from a cache hit.
+    await page.reload();
+    await byTestId(page, "headerAppBar").waitFor({ state: "visible" });
+    await openSession(page, sessionId as string);
+    await expect
+      .poll(
+        () => subscribes.filter((s) => s.sessionId === sessionId).some((s) => (s.lastSeq ?? 0) > 0),
+        { timeout: 30_000 },
+      )
+      .toBe(true);
+
+    // Only frames from here on describe the POST-refresh subscribe.
+    subscribes.length = 0;
+
+    // Refresh Chat, then reload BEFORE the next 1 s debounce could re-persist.
+    // The short settle lets the awaited durable delete land; it stays well under
+    // the debounce so nothing is written back.
+    await byTestId(page, "refreshChat").click();
+    await page.waitForTimeout(300);
+    await page.reload();
+    await byTestId(page, "headerAppBar").waitFor({ state: "visible" });
+    await openSession(page, sessionId as string);
+
+    // The refresh must have reached the DURABLE layer: with the entry gone, the
+    // post-reload subscribe is a FULL replay. A surviving entry would instead
+    // rehydrate at its maxSeq and delta-replay onto the stale base.
+    await expect
+      .poll(
+        () => {
+          const forSession = subscribes.filter((s) => s.sessionId === sessionId);
+          return forSession.length > 0 && forSession.every((s) => (s.lastSeq ?? 0) === 0);
+        },
+        { timeout: 30_000 },
+      )
+      .toBe(true);
+
+    // And the server's transcript still renders (refresh is not data loss).
     await expect(page.getByText(PLAIN_TEXT_MARKER).first()).toBeVisible({ timeout: 30_000 });
   });
 

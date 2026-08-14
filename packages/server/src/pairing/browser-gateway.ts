@@ -10,6 +10,7 @@ import type {
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { WebSocket, WebSocketServer } from "ws";
+import { getLastBindReachability } from "../auth/bind-reachability-service.js";
 import { type DirectoryService, hasOpenSpecDir, hasOpenSpecRoot } from "../directory-service.js";
 import type { PendingForkRegistry } from "../pending/pending-fork-registry.js";
 import type { EventStore } from "../persistence/memory-event-store.js";
@@ -560,6 +561,15 @@ export function createBrowserGateway(
           sendTo(ws, { type: "display_prefs_updated", prefs: displayPrefs });
         }
       }
+    }
+
+    // Replay the current bind-vs-trust reachability so a browser that was
+    // disconnected while `pendingBindHost` changed converges on connect rather
+    // than showing a stale advisory until the next reload (#X6).
+    // See change: warn-unreachable-trusted-networks.
+    {
+      const reachability = getLastBindReachability();
+      if (reachability) sendTo(ws, { type: "reachability_updated", reachability });
     }
 
     // Send OpenSpec data for every known directory — exactly one

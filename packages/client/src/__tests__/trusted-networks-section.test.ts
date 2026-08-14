@@ -6,12 +6,13 @@
  * the wire-up between the component and the SettingsPanel config object is covered
  * by simulating the onChange callback path.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   addTrustedEntry,
   removeTrustedEntry,
   shouldShowLegacyHint,
 } from "../components/settings/SettingsPanel.js";
+import { dedupeInterfaceOffers } from "../lib/gateway/gateway-config-ops.js";
 
 describe("addTrustedEntry (Trusted Networks section — pure add logic)", () => {
   it("appends a trimmed CIDR entry", () => {
@@ -154,5 +155,58 @@ describe("SettingsPanel source layout (task 3.6)", () => {
 
     // The old Security-tab textarea must be gone.
     expect(source).not.toMatch(/bypass-hosts-textarea/);
+  });
+});
+
+// ── Dropdown offer rows (test-plan #E26–#E27) ─────────────────────────
+// Deduplication is a DROPDOWN concern, keyed on the suggestion `value`.
+// `/api/network-interfaces` must keep one entry per address — the
+// listen-interface picker keys its options on `address`, so collapsing
+// server-side would make a real bind address unselectable (Decision 12).
+// See change: warn-unreachable-trusted-networks.
+describe("dedupeInterfaceOffers (Add Local Network dropdown rows)", () => {
+  it("#E26 collapses two NICs on one subnet into one row, labelled by the first", () => {
+    const rows = dedupeInterfaceOffers([
+      {
+        name: "en0",
+        label: "en0",
+        suggestions: [{ value: "192.168.10.0/24", label: "interface subnet 192.168.10.0/24", wide: false }],
+      },
+      {
+        name: "en7",
+        label: "en7",
+        suggestions: [{ value: "192.168.10.0/24", label: "interface subnet 192.168.10.0/24", wide: false }],
+      },
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].value).toBe("192.168.10.0/24");
+    expect(rows[0].label).toBe("en0");
+  });
+
+  it("#E27 collapses two /32 tunnels that both offer the CGNAT range", () => {
+    const rows = dedupeInterfaceOffers([
+      {
+        name: "utun4",
+        label: "tailnet",
+        pointToPoint: true,
+        suggestions: [{ value: "100.64.0.0/10", label: "tailnet CGNAT range", wide: true }],
+      },
+      {
+        name: "utun6",
+        label: "tailnet",
+        pointToPoint: true,
+        suggestions: [{ value: "100.64.0.0/10", label: "tailnet CGNAT range", wide: true }],
+      },
+    ]);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].value).toBe("100.64.0.0/10");
+    expect(rows[0].wide).toBe(true);
+  });
+
+  it("offers nothing for a /32 interface with no derivable range (#F15 source data)", () => {
+    const rows = dedupeInterfaceOffers([
+      { name: "utun9", label: "utun9", pointToPoint: true, suggestions: [] },
+    ]);
+    expect(rows).toEqual([]);
   });
 });

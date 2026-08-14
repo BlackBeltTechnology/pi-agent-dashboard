@@ -1,0 +1,3 @@
+# check-skill-frontmatter.mjs — index
+
+Skill frontmatter guard, run by ci.yml. Exit non-zero iff >=1 error; warnings never fail. Error: missing/empty/unparseable `description` (pi drops the skill). Warning: pi's 1024-char description / 64-char name / charset / hyphen limits, plus the repository's 400-char description budget — each finding labelled `pi` or `repository`. `ship-change`, `frontend-mockup-loop`, `anti-slop-frontend` are budget-exempt (wording locked by spec). Exports `analyzeSkillFile`, `analyzeRepository`, `collectSkillManifests`, `BUDGET_EXEMPT_SKILLS`. Replaces the pass/fail vitest guard. See change: fix-skill-discovery-parity.

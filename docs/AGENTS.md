@@ -26,6 +26,8 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `grammar-model-guidance.md` | Recommended LLM models for composer grammar check + latency/quality/cost tradeoffs. OpenRouter competition finals. LLM-only backend (LanguageTool removed). Model picked in Settings → Plugins → "Grammar & Spelling". Weak/reasoning models identified + avoided. Linked from GrammarSettings. See change: grammar-llm-only-with-explore, align-grammar-settings-design. |
 | `install-invoice-bot-extension.md` | Install `@blackbelt-technology/invoicebot` (local `../pi-invoice-bot`) as global pi extension. → see `install-invoice-bot-extension.md.AGENTS.md` |
 | `installation-windows.md` | Windows 10/11 install guide. 2 paths: Electron Setup.exe NSIS (per-user, bundled Node) + tarball/npm (advanced). Runtime layout `%USERPROFILE%\.pi-dashboard\` + `%USERPROFILE%\.pi\`. |
+| `knip-baseline.json` | (repo root) Knip dead-code baseline. Per-class debt counts, measured 2026-08-13. Debt ceiling, not target. → see `knip-baseline.json.AGENTS.md` |
+| `knip.json` | (repo root) Knip 6.32.2 whole-graph dead-code config. 38 workspaces. → see `knip.json.AGENTS.md` |
 | `migration/from-pi-model-proxy.md` | Migration guide `@blackbelt-technology/pi-model-proxy` → dashboard built-in proxy. → see `migration/from-pi-model-proxy.md.AGENTS.md` |
 | `perf-ws-broadcast-load.md` | WS broadcast load harness. Measures head-of-line blocking on single browser WS. `createDrainingWs` timing-aware fake socket drives real gateway. Test-only, regression-gated. |
 | `plan/electron-app.md` | Comprehensive Electron desktop-app plan. Bundle dashboard standalone macOS/Linux/Windows, zero prereqs,… → see `plan/electron-app.md.AGENTS.md` |
@@ -33,7 +35,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `playwright.electron.config.ts` | (repo root) Playwright config for Electron-E2E suite. testDir `tests/e2e-electron`, testMatch… → see `playwright.electron.config.ts.AGENTS.md` |
 | `plugin-claim-gates.md` | `predicate` vs `shouldRender` contract for plugin claims. See change: auto-hide-empty-session-subcards. |
 | `plugin-intent-protocol.md` | Server-driven plugin UI. Plugins emit JSON intent trees; clients render via local primitive registry. → see `plugin-intent-protocol.md.AGENTS.md` |
-| `plugin-ui-primitives.md` | Plugins access dashboard React primitives via runtime registry. `useUiPrimitive(key)` lookup. Keys `UI_PRIMITIVE_KEYS`. Shell → plugin flow, complements slot system. |
+| `plugin-ui-primitives.md` | Plugins access dashboard React primitives via runtime registry. `useUiPrimitive(key)` lookup. Keys `UI_PRIMITIVE_KEYS`. Shell → plugin flow, complements slot system. Documents `ui:thinking-level-selector`. Documents `UiModelSelectorProps.placeholder?`. Documents shell-bound wrapper registrations (`lib/plugins/shell-primitives.tsx`). See change: upgrade-model-selector-primitives. |
 | `pnpm-workspace.yaml` | (repo root) pnpm workspace + config source of truth (package.json `pnpm.*` ignored when this exists). → see `pnpm-workspace.yaml.AGENTS.md` |
 | `publishing-plugins.md` | Publish new plugin package to npm. Lockstep versioning (`sync-versions.js`). First publish seeds 0.0.1 via one-shot manual publish + revert; OIDC Trusted Publisher after. |
 | `release-process.md` | Cut release how-to. Promote CHANGELOG `[Unreleased]` → versioned, bump + tag; CI publishes npm + Electron + GitHub Release. Conventional Commits enforced by review only. |

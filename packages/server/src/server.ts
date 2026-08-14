@@ -3,6 +3,7 @@
  */
 
 import { existsSync } from "node:fs";
+import { runBoundedStartup } from "./lifecycle/bounded-startup.js";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -13,7 +14,6 @@ import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boo
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
 import type { AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import { liveCorsAllowedOrigins, liveTrustedNetworks } from "./config-snapshot.js";
 import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import {
@@ -31,6 +31,11 @@ import Fastify from "fastify";
 import { createFitWorkerPool } from "./attachments/fit-worker-pool.js";
 import { registerAuthPlugin, validateWsUpgrade } from "./auth/auth-plugin.js";
 import { registerBearerAuth } from "./auth/bearer-auth.js";
+import {
+  computeBindReachability,
+  formatBindReachabilityWarning,
+  initBindReachability,
+} from "./auth/bind-reachability-service.js";
 import { isCorsOriginAllowed } from "./auth/cors-origin.js";
 import { registerCsp, resolveCspMode } from "./auth/csp.js";
 import { ensureServerIdentity } from "./auth/identity.js";
@@ -40,6 +45,7 @@ import { mintSpawnToken } from "./auth/spawn-token.js";
 import { extractTicket, routeScopeForUrl, type WsRouteScope, WsTicketStore } from "./auth/ws-ticket.js";
 import { createCommitDraftRelay } from "./commit-draft-relay.js";
 import { writeConfigPartial } from "./config-api.js";
+import { liveCorsAllowedOrigins, liveTrustedNetworks } from "./config-snapshot.js";
 // pending-load-manager removed — server loads sessions directly via DirectoryService
 import { createDirectoryService, type DirectoryService } from "./directory-service.js";
 import { createEmbedLifecycleController } from "./embed-lifecycle/embed-lifecycle-controller.js";
@@ -130,6 +136,7 @@ import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry
 import { createIdleTimer } from "./spawn-process/idle-timer.js";
 import { spawnPiSession } from "./spawn-process/process-manager.js";
 import { removePid, writePid } from "./spawn-process/server-pid.js";
+import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
 import { createTerminalGateway, type TerminalGateway } from "./terminal/terminal-gateway.js";
 import { createTerminalManager, deriveTranscriptCapBytes, type TerminalManager } from "./terminal/terminal-manager.js";
 import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, ensureReservedName, getTunnelUrl, scavengeOrphanZrokProcesses } from "./tunnel/tunnel.js";
@@ -145,6 +152,12 @@ export interface ServerConfig {
    * port stays loopback. See change: configurable-bind-host.
    */
   host: string;
+  /**
+   * The raw `--host` flag, or `null`. Retained so `pendingBindHost` can
+   * re-resolve the full chain against the current config — a flag wins on the
+   * next start too. See change: warn-unreachable-trusted-networks.
+   */
+  hostFlag?: string | null;
   dev: boolean;
   autoShutdown: boolean;
   shutdownIdleSeconds: number;
@@ -190,7 +203,20 @@ export interface ServerConfig {
 }
 
 export interface DashboardServer {
-  start(): Promise<void>;
+  /**
+   * Boot the server. Always tears down already-opened listeners when a startup
+   * step fails. Pass `deadlineMs` to ALSO bound a startup that never settles —
+   * `cli.ts` does, for the standalone process. In-process callers own the
+   * lifetime themselves and default to no deadline.
+   */
+  start(opts?: { deadlineMs?: number | null }): Promise<void>;
+  /**
+   * @internal The raw startup body. `start()` wraps it in `runBoundedStartup`
+   * so a step that throws or hangs after `piGateway.start()` cannot leave the
+   * process resident holding the gateway port.
+   * See change: fix-worktree-server-autostart-leak.
+   */
+  _startCore(): Promise<void>;
   stop(): Promise<void>;
   /**
    * Flush pending session-metadata + preference writes WITHOUT tearing the
@@ -866,7 +892,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // createContext block below); consumed by wireEvents — `plugin_pi_message`
   // envelopes route to handlers by messageType; every `event_forward` fans
   // out to raw-event subscribers. See change: add-goal-continuation-plugin.
-  const pluginPiHandlers = new Map<string, Array<(msg: unknown) => void>>();
+  const pluginPiHandlers = new Map<string, Array<(msg: unknown, sessionId: string) => void>>();
   const pluginRawEventSubs = new Set<(sessionId: string, event: unknown) => void>();
   // Plugin session-end subscribers (ServerPluginContext.onSessionEnded). Fired
   // from sessionManager.onUnregister via wireEvents — the transport-independent
@@ -891,11 +917,38 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     for (const d of preferencesStore.getPinnedDirectories()) set.add(d);
     return [...set];
   });
-  function dispatchPluginPiMessage(messageType: string, msg: unknown): void {
+  // Host services consumed by mcp-server-plugin. Registered HERE because the
+  // plugin must verify a device bearer WITHOUT going through the global
+  // `onRequest` hook — `/mcp` deliberately does not trust
+  // `request.isAuthenticated`, so it needs the registry directly.
+  // See change: add-dashboard-mcp-server.
+  pluginServiceRegistry.set(
+    "host.verifyDeviceToken",
+    (token: string): string | null => pairedDeviceRegistry.verify(token),
+  );
+  // Prefers the BOUND port, falls back to the CONFIGURED one.
+  //
+  // Both halves are needed. Plugins consume this during `registerPlugin`, which
+  // runs before `fastify.listen`, so the bound address is still null then and a
+  // bound-only getter would silently yield nothing (mcp-server-plugin would
+  // provision a URL hardcoded to 8000 regardless of `--port`). `config.port` is
+  // known at load and is right for every case except `port: 0`, where the
+  // caller must read the getter again after listen to learn the real port.
+  pluginServiceRegistry.set("host.httpPort", (): number | null => {
+    const addr = fastify.server.address();
+    if (addr && typeof addr === "object") return addr.port;
+    return config.port || null;
+  });
+
+  // `sessionId` comes from the gateway's socket key, never from `msg`. A
+  // plugin that attributes a message to a session (e.g. minting a session-
+  // scoped credential) depends on that being unspoofable.
+  // See change: add-dashboard-mcp-server.
+  function dispatchPluginPiMessage(messageType: string, msg: unknown, sessionId: string): void {
     const arr = pluginPiHandlers.get(messageType);
     if (!arr) return;
     for (const h of arr) {
-      try { h(msg); } catch (err) { console.error("[plugin-pi-handler]", messageType, err); }
+      try { h(msg, sessionId); } catch (err) { console.error("[plugin-pi-handler]", messageType, err); }
     }
   }
   function dispatchPluginRawEvent(sessionId: string, event: unknown): void {
@@ -1290,6 +1343,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           spawnToken,
           ...(opts?.model ? { model: opts.model } : {}),
         });
+        // REST/goal spawn has no browser socket; the reclaim must run anyway.
+        // See change: fix-duplicate-bridge-registration (D0/D2).
+        armSpawnWatchdog(cwd, "headless", result);
         if (result.process && result.pid) {
           browserGateway.headlessPidRegistry.register(
             result.pid,
@@ -1330,6 +1386,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           ? { sessionFile: req.sessionFile, mode: "continue" as const }
           : {}),
       });
+      // REST resume — the path that minted the incident's duplicate.
+      armSpawnWatchdog(req.cwd, "headless", result);
       if (result.process && result.pid) {
         browserGateway.headlessPidRegistry.register(
           result.pid,
@@ -1794,7 +1852,28 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       return piGateway.address();
     },
 
-    async start() {
+    async start(opts: { deadlineMs?: number | null } = {}) {
+      // D1: bound + tear down. A failure after `piGateway.start()` must not
+      // leave this process holding the gateway port, and a startup that never
+      // settles must not linger forever. Teardown preserves the original error.
+      await runBoundedStartup({
+        deadlineMs: opts.deadlineMs ?? null,
+        core: () => server._startCore(),
+        teardown: async () => {
+          // Gateway FIRST — it is the port bound earliest and the one the
+          // captured zombie held. `stop()` also clears `pingTimer`, which is
+          // what actually lets the process exit.
+          try { piGateway.stop(); } catch { /* ignore */ }
+          if (secondFastify) {
+            try { await secondFastify.close(); } catch { /* ignore */ }
+            secondFastify = null;
+          }
+          try { await fastify.close(); } catch { /* ignore */ }
+        },
+      });
+    },
+
+    async _startCore() {
       // Clean up orphan headless processes from a previous server instance
       await browserGateway.headlessPidRegistry.cleanupOrphans();
 
@@ -1926,6 +2005,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                     // creation via `--name`. See change: adopt-pi-074-080-features.
                     ...(opts.automationRun?.name ? { name: opts.automationRun.name } : {}),
                   });
+                  // Plugin/automation spawn: transport-less, reclaim required.
+                  armSpawnWatchdog(opts.cwd, "headless", result);
                   if (result.process && result.pid) {
                     browserGateway.headlessPidRegistry.register(
                       result.pid,
@@ -2121,6 +2202,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       await fastify.listen({ port: config.port, host: config.host });
       writePid(process.pid);
       console.log(`Dashboard server running at http://${config.host}:${config.port}`);
+
+      // Bind-vs-trust reachability. A loopback or specific-NIC bind silently
+      // voids a trusted network outside its range: the TCP connection is
+      // refused before any handler runs, so no block event is ever recorded and
+      // the Settings banner stays blank. Operators who never open Settings get
+      // this line instead. Failure-isolated — never blocks startup.
+      // See change: warn-unreachable-trusted-networks.
+      try {
+        initBindReachability({ resolvedBindHost: config.host, hostFlag: config.hostFlag });
+        const warning = formatBindReachabilityWarning(computeBindReachability(loadConfig));
+        if (warning) console.warn(warning);
+      } catch { /* advisory only */ }
       console.log(`Pi gateway listening on port ${config.piPort}`);
 
       // ── Optional second port for model proxy (/v1/*) ──────────────
@@ -2376,6 +2469,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   mode: "continue",
                   strategy: resumeConfig.spawnStrategy,
                 });
+                // Cold-start recovery resume: no ws, reclaim still required.
+                armSpawnWatchdog(cand.cwd, resumeConfig.spawnStrategy as any, result);
                 if (result.process && result.pid) {
                   browserGateway.headlessPidRegistry.register(
                     result.pid,

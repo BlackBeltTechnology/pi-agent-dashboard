@@ -1,8 +1,8 @@
 import { cleanup, fireEvent, render, renderHook, screen } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import type { OpenSpecRunConfigValue } from "../../lib/state/OpenSpecRunConfigContext.js";
-import { useOpenSpecRunConfig } from "../../lib/state/OpenSpecRunConfigContext.js";
+import type { ModelConfigValue } from "../../lib/state/ModelConfigContext.js";
+import { useModelConfig } from "../../lib/state/ModelConfigContext.js";
 import { makeRunConfig, RunConfigHarness } from "../../test-support/runConfigHarness.js";
 import { useOpenSpecRunConfigRow } from "../openspec/useOpenSpecRunConfigRow.js";
 
@@ -28,7 +28,7 @@ function Host({
   );
 }
 
-function renderHost(value: OpenSpecRunConfigValue, props: React.ComponentProps<typeof Host>) {
+function renderHost(value: ModelConfigValue, props: React.ComponentProps<typeof Host>) {
   return render(
     <RunConfigHarness value={value}>
       <Host {...props} />
@@ -41,14 +41,14 @@ function selectModel(label: string) {
   fireEvent.click(screen.getByText(label));
 }
 
-describe("useOpenSpecRunConfig context", () => {
+describe("useModelConfig context", () => {
   it("throws when used outside the provider", () => {
-    expect(() => renderHook(() => useOpenSpecRunConfig())).toThrow(/OpenSpecRunConfigProvider/);
+    expect(() => renderHook(() => useModelConfig())).toThrow(/ModelConfigProvider/);
   });
 
   it("returns the session values inside the provider", () => {
     const value = makeRunConfig();
-    const { result } = renderHook(() => useOpenSpecRunConfig(), {
+    const { result } = renderHook(() => useModelConfig(), {
       wrapper: ({ children }) => <RunConfigHarness value={value}>{children}</RunConfigHarness>,
     });
     expect(result.current.model).toBe("anthropic/claude-sonnet-4-6");
@@ -196,7 +196,7 @@ describe("run-config row — bounded popover height (9th consumer surface)", () 
   }
 
   /** Render the row inside a `role="dialog"` panel, as the real Dialog does. */
-  function renderInDialog(value: OpenSpecRunConfigValue) {
+  function renderInDialog(value: ModelConfigValue) {
     const utils = render(
       <RunConfigHarness value={value}>
         {/* Mirrors packages/client-utils/src/Dialog.tsx:83-91 — the panel that

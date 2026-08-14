@@ -35,8 +35,39 @@ the const `UI_PRIMITIVE_KEYS`.
 | `UI_PRIMITIVE_KEYS.formatTokens` | `"ui:format-tokens"` | `(n: number) => string` |
 | `UI_PRIMITIVE_KEYS.formatDuration` | `"ui:format-duration"` | `(ms: number) => string` |
 | `UI_PRIMITIVE_KEYS.modelSelector` | `"ui:model-selector"` | `ComponentType<UiModelSelectorProps>` — model picker. provider filter. typeahead. emits `provider/id` label via `onSelect`. |
+| `UI_PRIMITIVE_KEYS.thinkingLevelSelector` | `"ui:thinking-level-selector"` | `ComponentType<UiThinkingLevelSelectorProps>` — thinking-level picker. contract `{ current?, onSelect, supportedLevels? }`. |
 
 Full prop types for each are in `packages/shared/src/dashboard-plugin/ui-primitives.ts`.
+
+## Shell-bound registrations
+
+Registration MAY be a wrapper.
+Wrapper injects session-scoped, shell-owned props.
+Injected props absent from public contract.
+Wrapper adds NO required prop.
+Wrapper re-times NO event.
+Plugin passes contract props only.
+Plugin cannot observe injected props.
+Wrappers live in `packages/client/src/lib/plugins/shell-primitives.tsx`.
+`main.tsx` registers them.
+
+`ui:model-selector` → `ModelSelectorPrimitive`.
+Contract: `{ current?, models?, onSelect, placeholder? }`.
+`placeholder?: string` optional, new.
+Three-prop call sites unchanged.
+Injects `favorites`, `onToggleFavorite`, `onRefresh` from `ModelConfigContext`.
+Plugin surface gets favorite stars.
+Plugin surface refreshes model list on dropdown open.
+No plugin wiring.
+No selected session → context absent → no favorites, no refresh.
+Caller's `models` list still renders.
+
+`ui:thinking-level-selector` → `ThinkingLevelSelectorPrimitive`.
+Wraps shell `ThinkingLevelSelector` verbatim.
+Per-model filtering shared: `max` opt-in.
+`FALLBACK_LEVELS` when `supportedLevels` absent/empty.
+`supportedLevels` caller-supplied.
+Primitive derives nothing — caller owns model→levels lookup.
 
 ## How a plugin consumes a primitive
 

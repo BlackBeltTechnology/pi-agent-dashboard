@@ -158,7 +158,24 @@ COPY packages ./packages
 # Faux model fixture (provider + scenario catalog). test-entrypoint.sh stages
 # these as a global auto-discovered pi extension under PI_E2E_SEED so UI-spawned
 # sessions drive a key-free faux model. See change: add-e2e-faux-model-roundtrip.
-COPY qa/fixtures ./qa/fixtures
+# qa/ in full (not just fixtures) because qa/scripts/*.mjs is part of the module
+# graph the dead-code oracle analyses.
+COPY qa ./qa
+# Dead-code oracle inputs. Knip's verdict is only reproducible against the SAME
+# tree: analysing a subset silently changes the counts, so every tree the
+# knip.json entries name must be present or the harness answers a different
+# question than the host does.
+# NOTE: `.pi/skills` ONLY — never `.pi/settings.json`, which pins a host
+# absolute path for its extension packages and would break container sessions.
+# playwright.config.ts roots tests/e2e/global-setup.ts, and Knip's
+# GitHub-Actions plugin reads .github/workflows/*.yml to root the scripts they
+# invoke (e.g. scripts/sync-versions.js). Without either, the container reported
+# 13 unused files / 233 exports against the host's 10 / 227.
+COPY knip.json knip-baseline.json playwright.config.ts ./
+COPY tests ./tests
+COPY public ./public
+COPY .github ./.github
+COPY .pi/skills ./.pi/skills
 COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
 COPY docker/scripts ./docker/scripts
 

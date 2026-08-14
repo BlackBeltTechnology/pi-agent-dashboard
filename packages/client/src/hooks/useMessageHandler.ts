@@ -9,6 +9,7 @@ import type {
   SpawnFailureCode,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { CommandInfo, DashboardSession, FileEntry, ModelInfo, OpenSpecData, OpenSpecGroup, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useCallback, useEffect, useRef } from "react";
@@ -72,6 +73,12 @@ export interface MessageHandlerSetters {
   setFolderGitMap: React.Dispatch<React.SetStateAction<Map<string, string | null>>>;
   setOpenspecGroupsMap: React.Dispatch<React.SetStateAction<Map<string, { groups: OpenSpecGroup[]; assignments: Record<string, string>; changeOrder?: Record<string, string[]> }>>>;
   setModelsMap: React.Dispatch<React.SetStateAction<Map<string, ModelInfo[]>>>;
+  /**
+   * Per-session provider refresh failures from the latest `models_list`.
+   * A later clean push clears the session's entry.
+   * See change: upgrade-model-selector-primitives.
+   */
+  setModelRefreshErrorsMap: React.Dispatch<React.SetStateAction<Map<string, ProviderRefreshError[]>>>;
   setRolesMap: React.Dispatch<React.SetStateAction<Map<string, RoleInfo>>>;
   setSpawnResult: React.Dispatch<React.SetStateAction<{ success: boolean; message: string } | null>>;
   setSessionOrderMap: React.Dispatch<React.SetStateAction<Map<string, string[]>>>;
@@ -169,7 +176,7 @@ export function useMessageHandler(
 ): (msg: ServerToBrowserMessage) => void {
   const {
     setSessions, setSessionStates, setSessionCommands,
-    setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult,
+    setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult,
     setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals,
     setDiscoveredServers, setSpawnErrors, setResumeErrors,
     setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap,
@@ -570,6 +577,29 @@ export function useMessageHandler(
         setModelsMap((prev) => {
           const next = new Map(prev);
           next.set(msg.sessionId, msg.models);
+          return next;
+        });
+        // Refresh failures are per-message, not sticky: a later clean push for
+        // the same session clears the footer notice.
+        // See change: upgrade-model-selector-primitives.
+        setModelRefreshErrorsMap((prev) => {
+          // Trust boundary: `msg` is bridge-supplied runtime data. Keep only
+          // well-formed entries so a malformed payload cannot reach the footer
+          // (React throws when handed an object as a text child).
+          const errs = Array.isArray(msg.refreshErrors)
+            ? msg.refreshErrors.filter(
+                (e): e is ProviderRefreshError =>
+                  !!e && typeof e.provider === "string" && typeof e.message === "string",
+              )
+            : undefined;
+          if (!errs || errs.length === 0) {
+            if (!prev.has(msg.sessionId)) return prev;
+            const next = new Map(prev);
+            next.delete(msg.sessionId);
+            return next;
+          }
+          const next = new Map(prev);
+          next.set(msg.sessionId, errs);
           return next;
         });
         const prevCfg = getPluginConfig("roles") as Record<string, unknown>;
@@ -1178,5 +1208,5 @@ export function useMessageHandler(
         break;
       }
     }
-  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setLoadingHistory, setReplayInFlight, setCanvasMap, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush]);
+  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setLoadingHistory, setReplayInFlight, setCanvasMap, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush]);
 }

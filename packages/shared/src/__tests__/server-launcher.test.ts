@@ -16,6 +16,8 @@ import {
   JitiNotFoundError,
   PortConflictError,
   EarlyExitError,
+  isPortConflictExitCode,
+  RECOVERY_PORT_CONFLICT_EXIT_CODE,
 } from "../server-launcher.js";
 import type { ChildProcess } from "node:child_process";
 import type { spawnNodeScript } from "../platform/node-spawn.js";
@@ -325,5 +327,45 @@ describe("launchDashboardServer — entry URL-wrapping", () => {
       cliPath: "C:\\srv\\cli.ts",
     }));
     expect(spawn.mock.calls[0]![0]!.entry).toBe("C:\\srv\\cli.ts");
+  });
+});
+
+/**
+ * Scenarios E11 / E12 — the parent must distinguish "the port was taken" from
+ * "the child crashed" using the child's exit code. Clarification C2: exit 2
+ * (the recovery path's EADDRINUSE) is the ONLY conflict code; there is no
+ * second normal-path code, because the normal path already surfaces conflicts
+ * through the probe-based `PortConflictError`.
+ * See change: fix-worktree-server-autostart-leak.
+ */
+describe("launchDashboardServer — port-conflict classification", () => {
+  function exitDuringPoll(code: number) {
+    const child = makeFakeChild();
+    let calls = 0;
+    return {
+      _spawnNodeScript: spawnSpy(() => child),
+      _isDashboardRunning: probeSpy(async () => {
+        calls++;
+        if (calls === 1) (child as unknown as { exitCode: number }).exitCode = code;
+        return { running: false };
+      }),
+    };
+  }
+
+  it("E11: child exits 2 (recovery EADDRINUSE) → classified as a port conflict", async () => {
+    await expect(launchDashboardServer(baseOpts(exitDuringPoll(2))))
+      .rejects.toBeInstanceOf(PortConflictError);
+  });
+
+  it("E12: child exits 1 for an unrelated reason → stays a generic early exit", async () => {
+    const err = await launchDashboardServer(baseOpts(exitDuringPoll(1))).catch(e => e);
+    expect(err).toBeInstanceOf(EarlyExitError);
+    expect(err).not.toBeInstanceOf(PortConflictError);
+  });
+
+  it("isPortConflictExitCode is the single classification predicate", () => {
+    expect(isPortConflictExitCode(RECOVERY_PORT_CONFLICT_EXIT_CODE)).toBe(true);
+    expect(isPortConflictExitCode(1)).toBe(false);
+    expect(isPortConflictExitCode(null)).toBe(false);
   });
 });

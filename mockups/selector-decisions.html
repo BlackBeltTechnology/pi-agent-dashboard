@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en" data-theme="studio">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Model Selector — decision board</title>
+<style>
+  html[data-theme="studio"] {
+    --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+    --bg-hover:rgba(255,255,255,.06); --text-primary:#e5e5e5; --text-secondary:#b0b0b0;
+    --text-tertiary:#808080; --text-muted:#585858; --border-primary:#252525; --border-secondary:#333;
+    --accent-blue:#3b82f6; --accent-yellow:#eab308; --accent-red:#ef4444; --accent-green:#22c55e;
+    --accent-purple:#a855f7; --shadow:rgba(0,0,0,.5); --pick:#3b82f6;
+  }
+  html[data-theme="light"] {
+    --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+    --bg-hover:rgba(0,0,0,.04); --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#777;
+    --text-muted:#aaa; --border-primary:#e0e0e0; --border-secondary:#ccc;
+    --accent-blue:#2563eb; --accent-yellow:#d97706; --accent-red:#dc2626; --accent-green:#16a34a;
+    --accent-purple:#9333ea; --shadow:rgba(0,0,0,.15); --pick:#2563eb;
+  }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg-primary); color:var(--text-primary);
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; padding:28px 40px 80px; }
+  .mono { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+  h1 { font-size:19px; margin:0 0 2px; }
+  .sub { color:var(--text-tertiary); font-size:13px; margin:0 0 22px; }
+  h2 { font-size:14px; margin:34px 0 4px; padding-bottom:6px; border-bottom:1px solid var(--border-secondary); }
+  .qhint { font-size:12px; color:var(--text-tertiary); margin:0 0 14px; }
+  .toolbar { display:flex; align-items:center; gap:10px; margin-bottom:8px; }
+  .lab { font-size:12px; color:var(--text-tertiary); text-transform:uppercase; letter-spacing:.05em; }
+  .seg { display:inline-flex; border:1px solid var(--border-secondary); border-radius:8px; overflow:hidden; }
+  .seg button { padding:6px 14px; font-size:12px; font-weight:500; cursor:pointer; border:0; background:transparent;
+    color:var(--text-tertiary); display:flex; align-items:center; gap:6px; }
+  .seg button.active { background:var(--bg-tertiary); color:var(--text-primary); }
+  .swatch { width:12px; height:12px; border-radius:50%; border:1px solid var(--border-secondary); }
+
+  .opts { display:flex; flex-wrap:wrap; gap:18px; align-items:flex-start; }
+  .opt { width:340px; border:1px solid var(--border-primary); border-radius:12px; overflow:hidden;
+    background:var(--bg-secondary); display:flex; flex-direction:column; }
+  .opt.rec { border-color:var(--pick); }
+  .ohead { padding:9px 12px; display:flex; align-items:center; gap:8px; border-bottom:1px solid var(--border-secondary); }
+  .badge { font-size:10px; font-weight:700; letter-spacing:.04em; padding:2px 7px; border-radius:20px;
+    background:var(--bg-surface); color:var(--text-secondary); text-transform:uppercase; }
+  .badge.rec { background:var(--pick); color:#fff; }
+  .otitle { font-size:13px; font-weight:600; }
+  .odesc { padding:10px 12px 4px; font-size:12px; color:var(--text-secondary); line-height:1.5; }
+  .odemo { padding:12px; }
+  .odoes { padding:6px 12px 12px; font-size:11px; color:var(--text-muted); line-height:1.5; }
+  .odoes b { color:var(--text-tertiary); }
+
+  /* mini popover / selector chrome */
+  .pop { width:300px; background:var(--bg-secondary); border:1px solid var(--border-secondary);
+    border-radius:8px; box-shadow:0 8px 24px var(--shadow); overflow:hidden; }
+  .filt { margin:6px; padding:6px 8px; font-size:12px; border-radius:5px; border:1px solid var(--border-primary);
+    background:var(--bg-tertiary); color:var(--text-muted); }
+  .ghead { padding:4px 12px; font-size:10px; text-transform:uppercase; letter-spacing:.08em;
+    color:var(--text-tertiary); background:var(--bg-primary); }
+  .row { display:flex; align-items:center; gap:8px; padding:5px 10px 5px 8px; color:var(--text-secondary); }
+  .star { color:var(--accent-yellow); font-size:12px; }
+  .row .meta { flex:1; min-width:0; }
+  .mname { font-size:12px; } .msub { font-size:10px; color:var(--text-muted); }
+  .tok { padding:1px 5px; border-radius:4px; background:var(--bg-tertiary); color:var(--text-muted); font-size:11px; }
+  .foot-full { border-top:1px solid var(--border-secondary); padding:8px 10px; display:flex; gap:6px;
+    font-size:11px; color:var(--text-muted); align-items:flex-start; }
+  .foot-full .dot { color:var(--accent-yellow); }
+  .foot-thin { border-top:1px solid var(--border-secondary); padding:7px 10px; display:flex; justify-content:space-between;
+    align-items:center; font-size:11px; color:var(--text-muted); }
+  .foot-thin a { color:var(--accent-blue); text-decoration:none; display:inline-flex; align-items:center; gap:4px; }
+  .perr { font-size:11px; color:var(--accent-red); padding:2px 12px 0; }
+  .perr.warn { color:var(--accent-yellow); }
+  .prow-wrap { border:1px solid var(--border-primary); border-radius:8px; background:var(--bg-tertiary); margin-bottom:8px; padding-bottom:2px; }
+  .prow-wrap .prow { border:0; background:transparent; margin:0; padding-bottom:4px; }
+  .empty-body { padding:18px 14px; text-align:center; }
+  .empty-body .t { font-size:13px; color:var(--text-secondary); margin:6px 0 3px; }
+  .empty-body .h { font-size:11px; color:var(--text-muted); }
+  .btn { display:inline-flex; align-items:center; gap:5px; margin-top:10px; padding:6px 12px; font-size:12px;
+    font-weight:500; border-radius:6px; border:0; cursor:pointer; color:#fff; background:var(--accent-blue); text-decoration:none; }
+  .btn.ghost { background:transparent; color:var(--text-secondary); border:1px solid var(--border-secondary); }
+  .spin { width:11px;height:11px;border:2px solid var(--text-muted);border-top-color:var(--accent-blue);
+    border-radius:50%;display:inline-block;animation:s .8s linear infinite; }
+  @keyframes s { to { transform:rotate(360deg); } }
+
+  /* provider settings rows */
+  .prow { display:flex; align-items:center; gap:10px; padding:10px 12px; border:1px solid var(--border-primary);
+    border-radius:8px; background:var(--bg-tertiary); margin-bottom:8px; }
+  .prow .pn { flex:1; } .prow .pn .nm { font-size:13px; } .prow .pn .u { font-size:11px; color:var(--text-muted); }
+  .pill { font-size:11px; padding:2px 8px; border-radius:20px; display:inline-flex; align-items:center; gap:5px; white-space:nowrap; }
+  .pill.ok { color:var(--accent-green); background:color-mix(in srgb,var(--accent-green) 15%,transparent); }
+  .pill.warn { color:var(--accent-yellow); background:color-mix(in srgb,var(--accent-yellow) 15%,transparent); }
+  .pill.err { color:var(--accent-red); background:color-mix(in srgb,var(--accent-red) 15%,transparent); }
+  .pill.idle { color:var(--text-muted); background:var(--bg-surface); }
+  .testbtn { font-size:11px; padding:4px 10px; border-radius:6px; border:1px solid var(--border-secondary);
+    background:var(--bg-surface); color:var(--text-secondary); cursor:pointer; }
+</style>
+</head>
+<body>
+  <h1>Model selector — decision board</h1>
+  <div class="sub">Every proposed idea + open question as a pickable option. Recommended = blue border. Toggle theme to check both.</div>
+  <div class="toolbar">
+    <span class="lab">Theme</span>
+    <div class="seg" id="seg">
+      <button data-t="studio" class="active"><span class="swatch" style="background:#0a0a0a"></span> Black</button>
+      <button data-t="light"><span class="swatch" style="background:#fff"></span> White</button>
+    </div>
+  </div>
+
+  <!-- ============ D1 ============ -->
+  <h2>D1 · Where does a per-provider refresh error show? (one provider fails, others resolve)</h2>
+  <p class="qhint">You have 3 providers; anthropic is unreachable. google + openai resolved. What does the picker do?</p>
+  <div class="opts">
+
+    <div class="opt">
+      <div class="ohead"><span class="badge">A</span><span class="otitle">Full footer (today)</span></div>
+      <div class="odesc">Selector names every failing provider inline.</div>
+      <div class="odemo">
+        <div class="pop">
+          <div class="ghead">google</div>
+          <div class="row"><span class="star">★</span><div class="meta"><div class="mname mono">Gemini Flash</div><div class="msub mono">google/gemini-flash</div></div><span class="tok">1M</span></div>
+          <div class="ghead">openai-codex</div>
+          <div class="row"><span class="star">★</span><div class="meta"><div class="mname mono">GPT-5.6 Sol</div><div class="msub mono">openai-codex/gpt-5.6-sol</div></div><span class="tok">272k</span></div>
+          <div class="foot-full"><span class="dot">●</span><span>couldn't reach <b>anthropic</b> — showing last known list</span></div>
+        </div>
+      </div>
+      <div class="odoes"><b>Does:</b> error lives in the picker, fires every open. <b>Con:</b> a permanently-broken provider nags forever; picker becomes a debug surface.</div>
+    </div>
+
+    <div class="opt rec">
+      <div class="ohead"><span class="badge rec">B · rec</span><span class="otitle">Thin hint → Settings</span></div>
+      <div class="odesc">Picker stays clean; one line links to where you fix it.</div>
+      <div class="odemo">
+        <div class="pop">
+          <div class="ghead">google</div>
+          <div class="row"><span class="star">★</span><div class="meta"><div class="mname mono">Gemini Flash</div><div class="msub mono">google/gemini-flash</div></div><span class="tok">1M</span></div>
+          <div class="ghead">openai-codex</div>
+          <div class="row"><span class="star">★</span><div class="meta"><div class="mname mono">GPT-5.6 Sol</div><div class="msub mono">openai-codex/gpt-5.6-sol</div></div><span class="tok">272k</span></div>
+          <div class="foot-thin"><span>⚠ 1 provider unavailable</span><a href="#">⚙ Providers</a></div>
+        </div>
+      </div>
+      <div class="odoes"><b>Does:</b> resolved models show normally; count + a plain ⚙ Providers link (no arrow, no names). Full detail lives in Settings. <b>Pattern:</b> like GitHub/Linear — a subtle icon+label as the click target, not a call-to-action arrow.</div>
+    </div>
+
+    <div class="opt">
+      <div class="ohead"><span class="badge">C</span><span class="otitle">Silent</span></div>
+      <div class="odesc">Failed provider's models just absent. No notice at all.</div>
+      <div class="odemo">
+        <div class="pop">
+          <div class="ghead">google</div>
+          <div class="row"><span class="star">★</span><div class="meta"><div class="mname mono">Gemini Flash</div><div class="msub mono">google/gemini-flash</div></div><span class="tok">1M</span></div>
+          <div class="ghead">openai-codex</div>
+          <div class="row"><span class="star">★</span><div class="meta"><div class="mname mono">GPT-5.6 Sol</div><div class="msub mono">openai-codex/gpt-5.6-sol</div></div><span class="tok">272k</span></div>
+        </div>
+      </div>
+      <div class="odoes"><b>Does:</b> nothing — models silently missing. <b>Con:</b> "where did my anthropic models go?" with zero signal. Rejected unless paired with Settings health.</div>
+    </div>
+  </div>
+
+  <!-- ============ D2 ============ -->
+  <h2>D2 · Settings → Providers health pill: what feeds it?</h2>
+  <p class="qhint">Each provider row gets a health pill. Where does the truth come from?</p>
+  <div class="opts">
+
+    <div class="opt">
+      <div class="ohead"><span class="badge">A</span><span class="otitle">On-demand only</span></div>
+      <div class="odesc">Pill blank until you click Test.</div>
+      <div class="odemo">
+        <div class="prow"><div class="pn"><div class="nm">anthropic</div><div class="u mono">api.anthropic.com</div></div><span class="pill idle">not tested</span><button class="testbtn">Test</button></div>
+        <div class="prow"><div class="pn"><div class="nm">google</div><div class="u mono">generativelanguage…</div></div><span class="pill idle">not tested</span><button class="testbtn">Test</button></div>
+      </div>
+      <div class="odoes"><b>Does:</b> Test → probe → pill. <b>Con:</b> a provider you never Tested shows no health; broken providers invisible until you click.</div>
+    </div>
+
+    <div class="opt rec">
+      <div class="ohead"><span class="badge rec">B · rec</span><span class="otitle">Auto-probe on save + manual Test</span></div>
+      <div class="odesc">Server auto-probes only on provider save; caches the result into the pill. The Test button is the manual re-probe on demand — no probe on panel open.</div>
+      <div class="odemo">
+        <div class="prow"><div class="pn"><div class="nm">anthropic</div><div class="u mono">api.anthropic.com</div></div><span class="pill err">✕ Unreachable</span><button class="testbtn">Test</button></div>
+        <div class="prow"><div class="pn"><div class="nm">google</div><div class="u mono">generativelanguage…</div></div><span class="pill ok">● 142 models</span><button class="testbtn">Test</button></div>
+      </div>
+      <div class="odoes"><b>Does:</b> save writes the pill; Test refreshes it. No panel-open probe, no timer. <b>Pro:</b> Test stays the explicit probe action (its whole job); pill reflects last save/Test; session-independent (works with 0 sessions).</div>
+    </div>
+
+    <div class="opt">
+      <div class="ohead"><span class="badge">C</span><span class="otitle">Background poll</span></div>
+      <div class="odesc">Timer re-probes every N min.</div>
+      <div class="odemo">
+        <div class="prow"><div class="pn"><div class="nm">anthropic</div><div class="u mono">api.anthropic.com</div></div><span class="pill warn">⚠ 401</span><button class="testbtn">Test</button></div>
+        <div class="prow"><div class="pn"><div class="nm">google</div><div class="u mono">generativelanguage…</div></div><span class="pill ok">● 142 models</span><button class="testbtn">Test</button></div>
+      </div>
+      <div class="odoes"><b>Does:</b> live health without opening panel. <b>Con:</b> scheduler + wasted probes; overkill for a settings screen nobody's watching.</div>
+    </div>
+  </div>
+
+  <!-- ============ D3 ============ -->
+  <h2>D3 · Test button result — what it reports</h2>
+  <p class="qhint">Route already returns <span class="mono">{ok,status,error,modelCount}</span>. How does the pill render each outcome?</p>
+  <div class="opts">
+    <div class="opt">
+      <div class="ohead"><span class="badge">✓</span><span class="otitle">Success</span></div>
+      <div class="odemo"><div class="prow-wrap"><div class="prow"><div class="pn"><div class="nm">google</div><div class="u mono">…</div></div><span class="pill ok">● Connected · 142 models</span><button class="testbtn">Test</button></div></div></div>
+      <div class="odoes"><b>ok:true, modelCount:142</b> → green, model count. No message line.</div>
+    </div>
+    <div class="opt">
+      <div class="ohead"><span class="badge">401</span><span class="otitle">Auth fail</span></div>
+      <div class="odemo"><div class="prow-wrap"><div class="prow"><div class="pn"><div class="nm">anthropic</div><div class="u mono">…</div></div><span class="pill warn">⚠ 401</span><button class="testbtn">Test</button></div><div class="perr warn mono">invalid x-api-key</div></div></div>
+      <div class="odoes"><b>ok:false, status:401</b> → yellow pill = code; the verbatim <span class="mono">error</span> string sits on a second line under the row. Fix key → retest.</div>
+    </div>
+    <div class="opt">
+      <div class="ohead"><span class="badge">✕</span><span class="otitle">Unreachable</span></div>
+      <div class="odemo"><div class="prow-wrap"><div class="prow"><div class="pn"><div class="nm">custom-llm</div><div class="u mono">…</div></div><span class="pill err">✕ Unreachable</span><button class="testbtn">Test</button></div><div class="perr mono">getaddrinfo ENOTFOUND api.custom-llm.io</div></div></div>
+      <div class="odoes"><b>ok:false, no status</b> (DNS/timeout) → red pill; the raw <span class="mono">error</span> string on the line below. Network/baseUrl wrong.</div>
+    </div>
+  </div>
+
+  <!-- ============ D4 ============ -->
+  <h2>D4 · Empty-selector recovery link — where does it point?</h2>
+  <p class="qhint">Genuinely-empty state offers a link. What does clicking it open?</p>
+  <div class="opts">
+    <div class="opt rec">
+      <div class="ohead"><span class="badge rec">A · rec</span><span class="otitle">Settings → Providers</span></div>
+      <div class="odemo">
+        <div class="pop"><div class="empty-body">⬚<div class="t">No models available</div><div class="h">No provider configured with usable credentials.</div><a class="btn" href="#">⚙ Open provider settings</a></div></div>
+      </div>
+      <div class="odoes"><b>Does:</b> opens the panel where you add a key + see health pills (D2). Same place the D1 hint links to — one destination.</div>
+    </div>
+    <div class="opt">
+      <div class="ohead"><span class="badge">B</span><span class="otitle">Model-proxy auth panel</span></div>
+      <div class="odemo">
+        <div class="pop"><div class="empty-body">⬚<div class="t">No models available</div><div class="h">No provider configured with usable credentials.</div><a class="btn" href="#">Configure providers</a></div></div>
+      </div>
+      <div class="odoes"><b>Does:</b> opens model-proxy auth. <b>Con:</b> two provider surfaces confuse; prefer the single Settings→Providers destination.</div>
+    </div>
+  </div>
+
+  <!-- ============ D5 ============ -->
+  <h2>D5 · Empty state — retry affordance (manual ↻ was removed; refresh only on open)</h2>
+  <p class="qhint">When empty-due-to-error, is there an inline Retry, or is "reopen to retry" enough?</p>
+  <div class="opts">
+    <div class="opt">
+      <div class="ohead"><span class="badge">A</span><span class="otitle">Inline Retry</span></div>
+      <div class="odemo">
+        <div class="pop"><div class="empty-body">⚠<div class="t">No models loaded</div><div class="h">Couldn't reach the configured provider.</div><a class="btn" href="#">↻ Retry</a><!-- D5-A --></div></div>
+      </div>
+      <div class="odoes"><b>Does:</b> re-fires request_models without closing. <b>Pro:</b> nice for transient errors. <b>Con:</b> a second refresh path besides open.</div>
+    </div>
+    <div class="opt rec">
+      <div class="ohead"><span class="badge rec">B · rec</span><span class="otitle">Reopen to retry</span></div>
+      <div class="odemo">
+        <div class="pop"><div class="empty-body">⚠<div class="t">No models loaded</div><div class="h">Couldn't reach provider. Close &amp; reopen to retry.</div><a class="btn ghost" href="#">⚙ Providers</a></div></div>
+      </div>
+      <div class="odoes"><b>Does:</b> no extra control — open is the ONLY refresh trigger (consistent with removing ↻). Link goes to Settings to actually fix it.</div>
+    </div>
+  </div>
+
+<script>
+  const seg = document.getElementById('seg');
+  seg.addEventListener('click', e => {
+    const b = e.target.closest('button'); if(!b) return;
+    document.documentElement.setAttribute('data-theme', b.dataset.t);
+    seg.querySelectorAll('button').forEach(x => x.classList.toggle('active', x===b));
+  });
+</script>
+</body>
+</html>

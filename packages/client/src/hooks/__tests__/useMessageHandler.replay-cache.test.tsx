@@ -21,6 +21,8 @@ function liveEvent(sessionId: string, seq: number): Extract<ServerToBrowserMessa
   };
 }
 
+const KEY = "a:8000";
+
 describe("useMessageHandler — Strategy A replay-cache invalidation", () => {
   let factory: IDBFactory;
   beforeEach(() => {
@@ -29,7 +31,7 @@ describe("useMessageHandler — Strategy A replay-cache invalidation", () => {
 
   it("session_state_reset purges the persisted cache entry", async () => {
     const cache = createReplayCache({ factory });
-    const persister = createReplayPersister(cache, 0);
+    const persister = createReplayPersister(cache, 0, () => KEY);
 
     const { result } = renderHook(() => {
       const maxSeqMapRef = useRef(new Map<string, number>());
@@ -63,12 +65,12 @@ describe("useMessageHandler — Strategy A replay-cache invalidation", () => {
     // Live events then accumulate into the durable buffer and persist.
     handle(liveEvent("s1", 2));
     await persister.flush("s1");
-    expect(await cache.get("s1")).not.toBeNull();
+    expect(await cache.get("s1", KEY)).not.toBeNull();
 
     // A server-side seq reset must purge the entry → next load full-replays.
     handle({ type: "session_state_reset", sessionId: "s1" } as ServerToBrowserMessage);
     // drop() fires cache.delete; give the microtask queue a tick.
     await persister.flush("s1");
-    expect(await cache.get("s1")).toBeNull();
+    expect(await cache.get("s1", KEY)).toBeNull();
   });
 });

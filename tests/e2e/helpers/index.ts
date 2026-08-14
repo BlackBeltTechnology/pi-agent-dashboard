@@ -35,6 +35,10 @@ export const TESTIDS = {
   folderSpawnSessionBtn: "folder-spawn-session-btn", // sidebar "New Session"
   // Composer send button (faux round-trip specs drive a prompt through it).
   sendButton: "send-button",
+  // Session-header "Refresh Chat" control (SessionHeader.tsx). Drives the
+  // durable replay-cache purge the reset-path specs assert against.
+  // See change: purge-replay-cache-on-reset-paths.
+  refreshChat: "refresh-chat",
   // Flow launch dialog submit (flow-roundtrip L3 spec drives a real pi-flows
   // run through it). Existing app testid on FlowLaunchDialog's Run button — no
   // new app testid added. See change: add-flow-plugin-e2e-tests.

@@ -257,10 +257,25 @@ export interface GitInfoUpdateMessage {
 
 // OpenSpecUpdateMessage removed — server polls directly via DirectoryService
 
+/**
+ * One provider that failed to refresh its catalogue. Degraded, not fatal:
+ * the last-known catalogue is still served alongside it.
+ * See change: upgrade-model-selector-primitives.
+ */
+export interface ProviderRefreshError {
+  provider: string;
+  message: string;
+}
+
 export interface ModelsListMessage {
   type: "models_list";
   sessionId: string;
   models: ModelInfo[];
+  /**
+   * Present only when at least one provider failed to refresh — omitted (never
+   * `[]`) on a clean refresh, and never populated by a bare abort.
+   */
+  refreshErrors?: ProviderRefreshError[];
 }
 
 /**
@@ -741,6 +756,22 @@ export interface HeartbeatAckMessage {
   type: "heartbeat_ack";
 }
 
+/**
+ * Sent by the gateway to a bridge whose `session_register` lost a contention
+ * for an already-served session id, immediately BEFORE the socket is closed.
+ *
+ * The refusal is terminal: the bridge SHALL stop retrying for `sessionId`
+ * rather than treating the close as a transient disconnect, and SHALL surface
+ * `reason` instead of failing silently.
+ *
+ * See change: fix-duplicate-bridge-registration (D2).
+ */
+export interface RegisterRejectedExtensionMessage {
+  type: "register_rejected";
+  sessionId: string;
+  reason: string;
+}
+
 export interface RequestFlowsRefreshMessage {
   type: "request_flows_refresh";
   sessionId: string;
@@ -961,6 +992,7 @@ export type ServerToExtensionMessage =
   | StopAfterTurnExtensionMessage
   | FlowControlExtensionMessage
   | HeartbeatAckMessage
+  | RegisterRejectedExtensionMessage
   | RequestFlowsRefreshMessage
   | CredentialsUpdatedMessage
   | FlowManagementExtensionMessage

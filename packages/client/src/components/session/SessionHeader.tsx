@@ -526,6 +526,7 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
       )}
       {onRefresh && (
         <button
+          data-testid="refresh-chat"
           onClick={() => { onRefresh(); setRefreshing(true); setTimeout(() => setRefreshing(false), 500); }}
           className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-0.5"
           title={i18nT("session.refreshChat", undefined, "Refresh chat")}

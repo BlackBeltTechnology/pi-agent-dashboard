@@ -1,0 +1,3 @@
+# package-routes.ts — index
+
+Extension/package management routes. Exports `registerPackageRoutes`. Endpoints: `GET /api/packages/search`, `GET /api/packages/readme`, `GET /api/packages/installed`, `POST /api/packages/{install,remove,update,move,check-updates}`. Uses `PackageManagerWrapper`; move returns phases based on `parseSourceKind`. `POST /api/packages/reset-to-npm {source,scope,cwd?}` resolves the published variant server-side (`resolvePublishedVariant`), validates the row is installed + resolvable, then invokes `wrapper.reset()`; 202 `{resetId,publishedSource,phases}`. `GET /installed` fills `publishedVariantSource/Version` via `attachPublishedVariants`. See change: reset-override-to-npm.

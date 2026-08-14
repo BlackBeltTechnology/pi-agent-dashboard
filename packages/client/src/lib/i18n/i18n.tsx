@@ -38,6 +38,7 @@ const en: Record<string, string> = {};
 
 const zhCN: Record<string, string> = {
   // --- Gateway / PairLanding / OpenSpec (task 2.2, change: make-all-ui-text-i18n) ---
+  "common.modelRefreshFailed": "无法连接 {providers} — 显示上次已知的列表",
   "common.none": "无",
   "common.open": "打开",
   "folders.addFolders": "添加文件夹",
@@ -1351,8 +1352,6 @@ const zhCN: Record<string, string> = {
   "common.pairingNeedsSecureRoad": "配对远程设备需要安全通道（网关或受公共信任的 TLS URL）。使用普通 http 局域网地址的浏览器无法配对——身份验证需要安全上下文。",
   "common.preferredModels": "首选模型",
   "common.recovered": "已恢复",
-  "common.refreshModels": "刷新模型",
-  "common.refreshingModels": "正在刷新…",
   "common.regenerate": "重新生成",
   "common.reloadFromDisk": "从磁盘重新加载",
   "common.reopen": "重新打开",
