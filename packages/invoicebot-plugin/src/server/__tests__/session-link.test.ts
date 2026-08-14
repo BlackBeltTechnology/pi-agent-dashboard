@@ -266,6 +266,49 @@ describe("ensureScopedSession", () => {
     }
   });
 
+  it("restore-scoped-session-spawn: an ENDED per-invoice producer run is NOT adopted — resolution spawns a PERSISTENT scoped session carrying the scoped env", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "ib-producer-lifecycle-"));
+    try {
+      // The per-invoice fan-out producer is a transient `flows.run
+      // invoicebot:process` run that TERMINATES on completion. It is recorded
+      // for the invoice and ended-restorable (its .jsonl exists), but it is
+      // NOT the invoice's held-open chat session, so it MUST NOT be adopted as
+      // canonical. It keeps the automation's own name (post-revert), so the
+      // scoped-gate rejects it and resolution falls through to a fresh,
+      // persistent scoped spawn carrying IB_TOOLSET/IB_INVOICE_ID.
+      const file = join(dir, "producer.jsonl");
+      writeFileSync(file, "");
+      ctx.addSession({
+        id: "producer-run",
+        cwd: CWD,
+        status: "ended",
+        sessionFile: file,
+        automationRun: { name: "invoicebot-intake", runId: "rp" },
+      });
+      ctx.setRecordedIds(["producer-run"]);
+      const link = createSessionLink(ctx.deps);
+      const pending = link.ensureScopedSession(CWD, "inv-99");
+      await new Promise((r) => setTimeout(r, 0));
+      // The dead producer is NOT adopted: a fresh persistent scoped session is
+      // spawned, flow-less, guarded, shown, and scoped by env.
+      expect(ctx.spawns).toHaveLength(1);
+      expect(ctx.spawns[0]).toMatchObject({
+        cwd: CWD,
+        guard: true,
+        env: { IB_TOOLSET: "scoped-invoice", IB_INVOICE_ID: "inv-99" },
+        automationRun: { name: "invoicebot-scoped:inv-99", visibility: "shown" },
+      });
+      const runId = ctx.spawns[0].automationRun.runId;
+      ctx.addSession({ id: "scoped-persistent", cwd: CWD, status: "active", automationRun: { name: "invoicebot-scoped:inv-99", runId } });
+      ctx.fire("scoped-persistent");
+      expect(await pending).toBe("scoped-persistent");
+      // the dead producer was never returned as canonical
+      expect(await pending).not.toBe("producer-run");
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
   it("spawns flow-less with scoped env, correlates by runId, emits no flow, and reuses the link", async () => {
     const link = createSessionLink(ctx.deps);
     const pending = link.ensureScopedSession(CWD, "inv 42");

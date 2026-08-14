@@ -83,7 +83,6 @@ function makeEngine(
   seen: Array<Record<string, unknown>>,
   enumerateQueued?: (cwd: string) => Promise<string[] | null>,
   warnings: string[] = [],
-  perInvoiceRunName?: (invoiceId: string) => string | undefined,
 ) {
   return createEngine({
     spawnSession: async (opts) => {
@@ -102,7 +101,6 @@ function makeEngine(
     }),
     readRoles: () => ({ fast: "anthropic/claude-haiku-4-5" }),
     ...(enumerateQueued ? { enumerateQueued } : {}),
-    ...(perInvoiceRunName ? { perInvoiceRunName } : {}),
     warn: (m) => warnings.push(m),
   });
 }
@@ -215,60 +213,26 @@ describe("per-invoice fan-out", () => {
   });
 });
 
-describe("per-invoice run naming (adopt-scoped-producer-session)", () => {
-  const scopedName = (id: string) => `invoicebot-scoped:${encodeURIComponent(id)}`;
-
-  it("surfaces each per-invoice fan-out run under the injected scoped name", async () => {
+describe("per-invoice run naming (restore-scoped-session-spawn)", () => {
+  // The per-invoice fan-out producer is a transient `flows.run` run that
+  // terminates on completion; it must NOT be surfaced under the consumer's
+  // scoped-session name (that adoption made the canonical scoped session a dead
+  // process). Each per-invoice run keeps the automation's OWN name so it is
+  // never adopted as an invoice's canonical session.
+  it("keeps the automation's own name for each per-invoice fan-out run", async () => {
     const spawnCalls: SpawnOpts[] = [];
     const seen: Array<Record<string, unknown>> = [];
-    const ids = ["inv-1", "inv 2"]; // includes a space to prove encodeURIComponent parity
-    const engine = makeEngine(spawnCalls, seen, async () => ids, [], scopedName);
+    const ids = ["inv-1", "inv 2"];
+    const engine = makeEngine(spawnCalls, seen, async () => ids);
     const automation = perInvoiceAutomation("drain", "parallel");
 
     await engine.fire(automation);
 
-    expect(spawnCalls.map((c) => c.automationRun?.name)).toEqual(ids.map(scopedName));
-    // the automation's own name is NOT used for a per-invoice run
-    for (const c of spawnCalls) expect(c.automationRun?.name).not.toBe("drain");
-  });
-
-  it("falls back to the automation name when no namer is injected", async () => {
-    const spawnCalls: SpawnOpts[] = [];
-    const seen: Array<Record<string, unknown>> = [];
-    // enumerator present, namer absent → per-invoice runs keep the automation name
-    const engine = makeEngine(spawnCalls, seen, async () => ["inv-1"]);
-    const automation = perInvoiceAutomation("drain", "parallel");
-
-    await engine.fire(automation);
-
-    expect(spawnCalls).toHaveLength(1);
-    expect(spawnCalls[0].automationRun?.name).toBe("drain");
-  });
-
-  it("a folder/global (non-per-invoice) fire keeps the automation name even when a namer is present", async () => {
-    const spawnCalls: SpawnOpts[] = [];
-    const seen: Array<Record<string, unknown>> = [];
-    const engine = makeEngine(spawnCalls, seen, async () => ["inv-1"], [], scopedName);
-    const dir = path.join(repo, ".pi", "automation", "plain");
-    fs.mkdirSync(dir, { recursive: true });
-    const automation: DiscoveredAutomation = {
-      name: "plain",
-      scope: "folder",
-      dir,
-      valid: true,
-      config: {
-        on: { kind: "schedule", cron: "* * * * *" },
-        action: { kind: "flows.run", payload: { flow: "invoicebot:process" } },
-        model: "@fast",
-        mode: "local",
-        sandbox: "workspace-write",
-        concurrency: "queue",
-      },
-    };
-
-    await engine.fire(automation);
-
-    expect(spawnCalls).toHaveLength(1);
-    expect(spawnCalls[0].automationRun?.name).toBe("plain");
+    expect(spawnCalls).toHaveLength(ids.length);
+    for (const c of spawnCalls) {
+      expect(c.automationRun?.name).toBe("drain");
+      // never a scoped session name
+      expect(c.automationRun?.name?.startsWith("invoicebot-scoped:")).toBe(false);
+    }
   });
 });
