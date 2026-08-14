@@ -270,6 +270,13 @@ export interface RunContext {
   emitEvent?: { eventType: string; data?: Record<string, unknown>; completion?: ActionCompletion };
   modelError?: string;
   sessionId?: string;
+  /**
+   * The invoice id this run is bound to, when it is a per-invoice run (set from
+   * the fan-out `FireContext`). Drives the one-in-flight refusal for a
+   * start-one-invoice request. Absent for a non-per-invoice run.
+   * See change: serve-and-start-queued-invoice.
+   */
+  invoiceId?: string;
   /** Wall-clock start, used by the undelivered-run bound. */
   startedAt: number;
   /**
@@ -310,6 +317,19 @@ export interface Engine {
    * `{ ok: false }`. See change: run-now-fans-out-per-invoice.
    */
   runNow(automation: DiscoveredAutomation): Promise<{ ok: boolean; runId?: string; error?: string }>;
+  /**
+   * Start EXACTLY ONE run bound to `invoiceId` through the same per-invoice run
+   * core the fan-out uses (so the run carries `IB_TOOLSET`/`IB_INVOICE_ID`).
+   * Refuses with `{ ok:false, reason:"in_flight" }` when a run bound to that
+   * invoice is already tracked (spawned, not yet finalized) — covering both a
+   * prior start-one-invoice call and a scheduler fan-out run — so two runs never
+   * process the same record. Does NOT enumerate the queue or fan out.
+   * See change: serve-and-start-queued-invoice.
+   */
+  runInvoice(
+    automation: DiscoveredAutomation,
+    invoiceId: string,
+  ): { ok: boolean; runId?: string; reason?: "in_flight"; error?: string };
   /**
    * Stop a `running` run: terminate its spawned process via the host hook
    * (hard-kill by sessionId, or by spawnToken during the spawn→register
@@ -677,6 +697,39 @@ export function createEngine(deps: EngineDeps): Engine {
     return first ? { ok: true, runId: first } : { ok: false, error: "run not started" };
   }
 
+  /** True when a tracked (spawned, not yet finalized) run is bound to `invoiceId`. */
+  function invoiceInFlight(invoiceId: string): boolean {
+    for (const q of pending.values()) {
+      if (q.some((c) => c.invoiceId === invoiceId)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * Start EXACTLY ONE run bound to `invoiceId` via the shared `startRunFor` core
+   * (same path the fan-out uses), refusing when that invoice already has a run in
+   * flight. The in-flight check and `startRunFor` run with no `await` between
+   * them, so `startRunFor`'s synchronous `enqueuePending` makes two same-tick
+   * calls mutually exclusive (the first enqueues before the second checks).
+   * See change: serve-and-start-queued-invoice.
+   */
+  function runInvoice(
+    automation: DiscoveredAutomation,
+    invoiceId: string,
+  ): { ok: boolean; runId?: string; reason?: "in_flight"; error?: string } {
+    if (invoiceInFlight(invoiceId)) {
+      log(`[engine] run-invoice ${invoiceId}: already in flight; refusing`);
+      return { ok: false, reason: "in_flight" };
+    }
+    const fireCtx: FireContext = {
+      firedAt: deps.now?.() ?? Date.now(),
+      vars: { invoice_id: invoiceId },
+      invoiceId,
+    };
+    const r = startRunFor(automation, fireCtx);
+    return r ? { ok: true, runId: r.runId } : { ok: false, error: "run not started" };
+  }
+
   const scheduler = createScheduler({
     registry,
     onFire: (automation, ctx) => {
@@ -734,6 +787,7 @@ export function createEngine(deps: EngineDeps): Engine {
           }
         : {}),
       ...(resolved.error ? { modelError: resolved.error } : {}),
+      ...(fireCtx?.invoiceId ? { invoiceId: fireCtx.invoiceId } : {}),
       startedAt: deps.now?.() ?? Date.now(),
       delivered: false,
     };
@@ -808,6 +862,7 @@ export function createEngine(deps: EngineDeps): Engine {
     startRunFor,
     fire: dispatchFire,
     runNow,
+    runInvoice,
 
     pendingForCwd(cwd: string): RunContext | undefined {
       return firstUndeliveredForCwd(cwd);

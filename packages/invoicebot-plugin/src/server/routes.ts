@@ -9,6 +9,8 @@
  *   POST /api/plugins/invoicebot/setup   → ib_setup  (action)
  *   POST /api/plugins/invoicebot/rules   → ib_rules  (action)
  *   GET  /api/plugins/invoicebot/blob    → stream a retained original document
+ *                                          (?handle= processed, ?invoice_id= queued)
+ *   POST /api/plugins/invoicebot/run-invoice → start ONE scoped run for a queued invoice
  *   POST /api/plugins/invoicebot/upload  → multipart ingest of raw invoice bytes
  *   POST /api/plugins/invoicebot/automation → enable/disable a schedule automation
  *   GET  /api/plugins/invoicebot/automation → list schedule automations + state
@@ -38,7 +40,7 @@ import {
   flipAutomationDisabled,
   listInvoicebotAutomations,
 } from "./automation-toggle.js";
-import { contentDispositionFor, contentTypeFor, resolveBlobPath } from "./blob.js";
+import { contentDispositionFor, contentTypeFor, resolveBlobPath, resolveInvoiceOriginalPath } from "./blob.js";
 import type { EngineResult, FlowRunSpec, IngestFile, IngestOutcome, InvoiceEngine } from "./engine/port.js";
 
 /** Per-file cap (bytes) enforced at the multipart boundary — matches the engine's 20 MB cap. */
@@ -80,6 +82,14 @@ export interface InvoiceBotRouteDeps {
   dispatchFlow: (args: { cwd: string; flow: FlowRunSpec; sessionId?: string; invoiceId?: string }) => Promise<string | undefined>;
   /** Bootstrap a usable invoice-scoped chat session. */
   ensureScopedSession?: (cwd: string, invoiceId: string) => Promise<string | undefined>;
+  /**
+   * Start ONE scoped run for exactly one queued invoice through the automation
+   * plugin's per-invoice fan-out core (cross-plugin `automation:runInvoice`
+   * service). Resolved lazily so plugin load order is irrelevant; `undefined`
+   * when the automation plugin has not published the service.
+   * See change: serve-and-start-queued-invoice.
+   */
+  runInvoice?: (cwd: string, invoiceId: string) => Promise<{ ok: boolean; runId?: string; reason?: string; error?: string } | undefined>;
 }
 
 /** Consequential ops the client MUST confirm first (api-contract §10). */
@@ -208,9 +218,15 @@ export function mountInvoiceBotRoutes(fastify: FastifyInstance, deps: InvoiceBot
   // Breaks the POST-envelope convention deliberately: the browser's native
   // PDF/image viewer needs a plain GET URL it can put in <iframe src>/<img src>
   // and issue Range against. Path-traversal-guarded via resolveBlobPath.
+  //
+  // Two resolution forms: `handle` serves a processed invoice's retained blob
+  // (unchanged); `invoice_id` serves a QUEUED invoice's landed original from the
+  // drop folder (it has no blob yet), confined to the engine state dir. `handle`
+  // wins when both are present. See change: serve-and-start-queued-invoice.
   fastify.get("/api/plugins/invoicebot/blob", async (req, reply) => {
     const q = (req.query ?? {}) as Record<string, unknown>;
-    const resolved = resolveBlobPath(q.cwd, q.handle);
+    const resolved =
+      q.handle !== undefined ? resolveBlobPath(q.cwd, q.handle) : resolveInvoiceOriginalPath(q.cwd, q.invoice_id);
     if (!resolved.ok) {
       const code = resolved.reason === "invalid-input" ? 400 : resolved.reason === "traversal" ? 403 : 404;
       req.log.info({ reason: resolved.reason, code }, "invoicebot blob rejected");
@@ -248,6 +264,45 @@ export function mountInvoiceBotRoutes(fastify: FastifyInstance, deps: InvoiceBot
       .header("Content-Range", `bytes ${start}-${end}/${size}`)
       .header("Content-Length", String(end - start + 1));
     return reply.send(createReadStream(abs, { start, end }));
+  });
+
+  // ── /run-invoice — start ONE scoped run for exactly one queued invoice ─────
+  // Reuses the SAME per-invoice fan-out core the scheduler + manual run-now
+  // share (via the automation plugin's `automation:runInvoice` service), so the
+  // run carries IB_TOOLSET=scoped-invoice + IB_INVOICE_ID and gets its own scoped
+  // session. Never a global/folder-level run, never a fan-out over other
+  // invoices. Refuses (409 / {ok:false,reason:"in_flight"}) when the invoice
+  // already has a run in flight. See change: serve-and-start-queued-invoice.
+  fastify.post("/api/plugins/invoicebot/run-invoice", async (req, reply) => {
+    const body = (req.body ?? {}) as Record<string, unknown>;
+    const cwdErr = badCwd(body.cwd);
+    if (cwdErr) { reply.code(400); return { error: cwdErr }; }
+    if (typeof body.invoice_id !== "string" || body.invoice_id.trim() === "") {
+      reply.code(400);
+      return { error: "invoice_id is required" };
+    }
+    if (!deps.runInvoice) {
+      req.log.warn("invoicebot run-invoice: automation:runInvoice service unavailable");
+      reply.code(503);
+      return { error: "run service unavailable" };
+    }
+    await ensureIntake(body.cwd as string);
+    const res = await deps.runInvoice(body.cwd as string, body.invoice_id);
+    if (!res) {
+      reply.code(503);
+      return { error: "run service unavailable" };
+    }
+    if (!res.ok) {
+      if (res.reason === "in_flight") {
+        req.log.info({ invoice_id: body.invoice_id, code: 409 }, "invoicebot run-invoice refused: in flight");
+        reply.code(409);
+        return { ok: false, reason: "in_flight" };
+      }
+      reply.code(400);
+      return { ok: false, error: res.error ?? "run not started" };
+    }
+    req.log.info({ invoice_id: body.invoice_id, runId: res.runId }, "invoicebot run-invoice started");
+    return { ok: true, ...(res.runId ? { runId: res.runId } : {}) };
   });
 
   // ── /automation (POST) — enable/disable a schedule automation in place ─────

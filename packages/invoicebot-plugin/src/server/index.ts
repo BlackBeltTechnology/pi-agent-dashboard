@@ -145,10 +145,24 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     });
   });
 
+  // Start ONE scoped run for a single queued invoice through the automation
+  // plugin's per-invoice fan-out core. Consumed LAZILY per request (mirrors how
+  // automation consumes `invoicebot:queuedInvoices`) so plugin load order is
+  // irrelevant — the automation plugin may publish the service after this one
+  // activates. Absent service ⇒ the route returns 503.
+  // See change: serve-and-start-queued-invoice.
+  const runInvoice = (cwd: string, invoiceId: string) => {
+    const fn = ctx.consume<
+      (cwd: string, invoiceId: string) => Promise<{ ok: boolean; runId?: string; reason?: string; error?: string }>
+    >("automation:runInvoice");
+    return fn ? fn(cwd, invoiceId) : Promise.resolve(undefined);
+  };
+
   mountInvoiceBotRoutes(ctx.fastify, {
     engine,
     dispatchFlow: sessionLink.dispatchFlow,
     ensureScopedSession: sessionLink.ensureScopedSession,
+    runInvoice,
   });
 
   ctx.logger.info(`invoicebot-plugin routes mounted (engine binding: ${binding})`);
