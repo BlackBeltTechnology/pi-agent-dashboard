@@ -29,7 +29,7 @@ const RESCAN_DEBOUNCE_MS = 15_000;
 import os from "node:os";
 import path from "node:path";
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
-import type { AutomationScope, Visibility } from "../shared/automation-types.js";
+import type { AutomationScope, DiscoveredAutomation, Visibility } from "../shared/automation-types.js";
 import {
   ACTION_CONTRIBUTION_PREFIX,
   type ActionRegistry,
@@ -242,6 +242,20 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
     warn: (m) => logger.warn(m),
   });
   engineRef = engine;
+
+  // Cross-plugin service: start EXACTLY ONE scoped run for a single queued
+  // invoice through the same per-invoice fan-out core the scheduler + manual
+  // run-now use. The reverse direction of `invoicebot:queuedInvoices`: a
+  // consumer (the invoicebot plugin's /run-invoice route) invokes this to start
+  // one invoice without a second dispatch path. Refuses `{ok:false,
+  // reason:"in_flight"}` when the invoice already has a run in flight.
+  // See change: serve-and-start-queued-invoice.
+  ctx.provide(
+    "automation:runInvoice",
+    async (cwd: string, invoiceId: string): Promise<{ ok: boolean; runId?: string; reason?: string; error?: string }> => {
+      return runInvoiceViaEngine(cwd, invoiceId);
+    },
+  );
 
   const watcher = createAutomationWatcher({
     onChange: () => engine.refresh(),
@@ -459,6 +473,32 @@ async function runNowViaEngine(
   ).find((a) => a.name === name && a.scope === scope && a.valid);
   if (!found) return { ok: false, error: `automation "${name}" not found or invalid in ${scope} scope` };
   return eng.runNow(found);
+}
+
+/**
+ * Start exactly ONE scoped run for a single queued invoice. Scans the folder
+ * scope for the workspace's `scope: per-invoice` automation (the intake drain)
+ * and delegates to the engine's start-one-invoice core (`runInvoice`), which
+ * enforces the one-in-flight refusal. Backs the `automation:runInvoice`
+ * cross-plugin service. See change: serve-and-start-queued-invoice.
+ */
+async function runInvoiceViaEngine(
+  cwd: string,
+  invoiceId: string,
+): Promise<{ ok: boolean; runId?: string; reason?: string; error?: string }> {
+  const eng = engineRef;
+  if (!eng) return { ok: false, error: "engine not ready" };
+  const base = path.resolve(cwd);
+  const { scanAutomations } = await import("./scanner.js");
+  const isPerInvoice = (a: DiscoveredAutomation): boolean =>
+    (a.config?.action?.payload as Record<string, unknown> | undefined)?.scope === "per-invoice";
+  const found = scanAutomations(
+    { repoRoot: base, scanFolder: true, scanGlobal: false },
+    eng.registry.kinds(),
+    eng.actionRegistry.ids(),
+  ).find((a) => a.valid && isPerInvoice(a));
+  if (!found) return { ok: false, error: "no per-invoice automation for workspace" };
+  return eng.runInvoice(found, invoiceId);
 }
 
 /** Stop a running run via the engine (terminate process + finalize idempotently). */

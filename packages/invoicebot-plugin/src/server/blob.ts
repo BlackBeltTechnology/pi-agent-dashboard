@@ -13,7 +13,7 @@
  * `blobs/` (or `blobs\`) segment is stripped before resolution so both the full
  * handle and a bare basename work. See change: serve-invoice-original-blob.
  */
-import { realpathSync, statSync } from "node:fs";
+import { readdirSync, realpathSync, statSync } from "node:fs";
 import { extname, resolve, sep } from "node:path";
 
 /** Outcome of {@link resolveBlobPath}. `abs` is a real, contained, regular-file path. */
@@ -55,6 +55,74 @@ export function resolveBlobPath(cwd: unknown, handle: unknown): BlobResolution {
   let realRoot: string;
   try {
     realRoot = realpathSync(root);
+  } catch {
+    return { ok: false, reason: "not-found" };
+  }
+  if (!isInside(realRoot, real)) return { ok: false, reason: "traversal" };
+
+  try {
+    if (!statSync(real).isFile()) return { ok: false, reason: "not-found" };
+  } catch {
+    return { ok: false, reason: "not-found" };
+  }
+
+  return { ok: true, abs: real };
+}
+
+/**
+ * Resolve a QUEUED invoice's landed original by `invoice_id` — the target of the
+ * queued row's `original_ref` (fallback `source_ref`), which the engine writes as
+ * `<dropFolder>/<content_hash>_<basename>` with the invoice id == content hash.
+ * The default drop folder is `<state>/drop`, so the original lives under the
+ * engine state dir; a landed file is located by the same `<id>_` prefix scan the
+ * engine's own `droppedExists(hash)` uses. No engine query exposes the ref, and
+ * the drop-file naming is deterministic, so this stays a pure state-dir read —
+ * consistent with the `handle` form's direct filesystem access.
+ *
+ * `invoice_id` is untrusted: it is rejected unless it is a bare token (no NUL, no
+ * path separator, no `..`), and the resolved real path is re-checked for
+ * containment inside the state dir (defeats symlink escape). Serves only an
+ * existing regular file; a consumed drop file maps to `not-found` (route → 404).
+ * See change: serve-and-start-queued-invoice.
+ */
+export function resolveInvoiceOriginalPath(cwd: unknown, invoiceId: unknown): BlobResolution {
+  if (typeof cwd !== "string" || cwd.trim() === "" || cwd.includes("\0")) {
+    return { ok: false, reason: "invalid-input" };
+  }
+  if (typeof invoiceId !== "string" || invoiceId.trim() === "" || invoiceId.includes("\0")) {
+    return { ok: false, reason: "invalid-input" };
+  }
+  // A content-hash id is a bare token. Any path separator, `.` segment, or `~`
+  // is a traversal attempt — reject before it can shape a filesystem read.
+  if (!/^[A-Za-z0-9_-]+$/.test(invoiceId)) {
+    return { ok: false, reason: "traversal" };
+  }
+
+  const stateRoot = resolve(cwd, ".pi/flows/invoicebot-state");
+  const dropDir = resolve(stateRoot, "drop");
+  const prefix = `${invoiceId}_`;
+
+  let entry: string | undefined;
+  try {
+    entry = readdirSync(dropDir).find((n) => n.startsWith(prefix));
+  } catch {
+    return { ok: false, reason: "not-found" };
+  }
+  if (!entry) return { ok: false, reason: "not-found" };
+
+  const target = resolve(dropDir, entry);
+  // Lexical containment (the entry name came from readdir, but re-assert).
+  if (!isInside(stateRoot, target)) return { ok: false, reason: "traversal" };
+
+  let real: string;
+  try {
+    real = realpathSync(target);
+  } catch {
+    return { ok: false, reason: "not-found" };
+  }
+  let realRoot: string;
+  try {
+    realRoot = realpathSync(stateRoot);
   } catch {
     return { ok: false, reason: "not-found" };
   }
