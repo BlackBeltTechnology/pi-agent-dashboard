@@ -70,6 +70,7 @@ import type { BrowserHandlerContext } from "../browser-handlers/handler-context.
 import { handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handleRemoveFollowupEntry, handleResumeSession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
 import { handleAcceptReplaceProposal, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleHideSession, handleListSessions, handleRemoveTagGlobally, handleRenameSession, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnhideSession } from "../browser-handlers/session-meta-handler.js";
 import { handleSubscribe } from "../browser-handlers/subscription-handler.js";
+import { ibDomainEventCache } from "../ib-domain-event-cache.js";
 import { handleCloseInlineTerminal, handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "../browser-handlers/terminal-handler.js";
 import { createPendingResumeRegistry, type PendingResumeRegistry } from "../pending/pending-resume-registry.js";
 import { createViewedSessionTracker, type ViewedSessionTracker } from "../session/viewed-session-tracker.js";
@@ -580,6 +581,15 @@ export function createBrowserGateway(
       for (const terminal of terminalManager.list()) {
         sendTo(ws, { type: "terminal_added", terminal });
       }
+    }
+
+    // Replay the latest cached InvoiceBot domain event per invoice so a board
+    // surface that connects/mounts AFTER a live delta converges on current
+    // truth instead of waiting for the next accidental delta. Marked
+    // `replay: true` so consumers apply it as an idempotent state-set and never
+    // double-apply it. See change: replay-invoice-domain-events.
+    for (const frame of ibDomainEventCache.getAll()) {
+      sendTo(ws, { ...frame, replay: true });
     }
 
     // Notify server of new connection (for mDNS peer list etc.)

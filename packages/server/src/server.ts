@@ -82,6 +82,7 @@ import { PiCoreChecker } from "./pi/pi-core-checker.js";
 import { PiCoreUpdater } from "./pi/pi-core-updater.js";
 import { createPiGateway, type PiGateway } from "./pi/pi-gateway.js";
 import { pluginIntentCache } from "./plugin-intent-cache.js";
+import { type IbDomainEventFrame, ibDomainEventCache } from "./ib-domain-event-cache.js";
 import { pluginSpawnToSessionOptions } from "./plugin-spawn-options.js";
 import { registerGuardedDir } from "./session-guard.js";
 import { registerAttachmentRoutes } from "./routes/attachment-routes.js";
@@ -883,6 +884,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // out to raw-event subscribers. See change: add-goal-continuation-plugin.
   const pluginPiHandlers = new Map<string, Array<(msg: unknown) => void>>();
   const pluginRawEventSubs = new Set<(sessionId: string, event: unknown) => void>();
+  // Rate-limited observability for the ib_domain_event broadcast path (1 line
+  // per sample). See change: replay-invoice-domain-events.
+  const IB_DOMAIN_EVENT_LOG_SAMPLE = 50;
+  let ibDomainEventBroadcasts = 0;
   // Plugin session-end subscribers (ServerPluginContext.onSessionEnded). Fired
   // from sessionManager.onUnregister via wireEvents — the transport-independent
   // death signal, even when no terminal pi event was forwarded.
@@ -921,6 +926,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     // owns GoalStore, unlike the goal plugin). C2a: subscribe here, never
     // reassign sessionManager.onUnregister. See change: add-goal-session-supervisor.
     if (goalSupervisor) void goalSupervisor.onDriverDeath(sessionId);
+    // Drop this session's cached domain events so a torn-down session's stale
+    // state never replays on a later browser connect.
+    // See change: replay-invoice-domain-events.
+    ibDomainEventCache.clearForSession(sessionId);
     for (const h of pluginSessionEndSubs) {
       try { h(sessionId); } catch (err) { console.error("[plugin-onSessionEnded]", err); }
     }
@@ -1886,6 +1895,21 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                     m.slot as Parameters<typeof pluginIntentCache.set>[2],
                     (m.intent ?? null) as Parameters<typeof pluginIntentCache.set>[3],
                   );
+                }
+                // Cache the latest ib_domain_event per entity so a browser that
+                // connects/mounts AFTER the delta converges via connect replay
+                // (mirrors plugin_intents above). Also emit a rate-limited success
+                // log: the happy path was previously unlogged, so an unlogged
+                // forward read as "zero events" in incident triage.
+                // See change: replay-invoice-domain-events.
+                if (m && m.type === "ib_domain_event") {
+                  try {
+                    ibDomainEventCache.set(msg as IbDomainEventFrame);
+                    if (ibDomainEventBroadcasts++ % IB_DOMAIN_EVENT_LOG_SAMPLE === 0) {
+                      const ev = (msg as IbDomainEventFrame).event;
+                      console.error(`[ib-domain-event] broadcast #${ibDomainEventBroadcasts} type=${ev?.eventType ?? "?"} session=${(msg as IbDomainEventFrame).sessionId ?? "?"}`);
+                    }
+                  } catch { /* caching/logging must never break the broadcast */ }
                 }
                 browserGateway.broadcast(msg as any);
               },
