@@ -104,6 +104,17 @@ describe("RetryTracker (observe-based, agent_end/agent_settled model)", () => {
     expect(ev.data.nextAttemptAt).toBeUndefined();
   });
 
+  it("degrades an overflowing exponential delay to unknown instead of Infinity", () => {
+    const t = new RetryTracker({ maxRetries: 3, baseDelayMs: Number.MAX_VALUE });
+    t.observeMessageEnd("s1", { ...errAssistant });
+    t.observeAgentEnd("s1", errAgentEnd);
+    t.observeAgentStart("s1");
+    t.observeMessageEnd("s1", { ...errAssistant });
+    const ev = t.observeAgentEnd("s1", errAgentEnd)!;
+    expect(ev.data.delayMs).toBe(0);
+    expect(ev.data.nextAttemptAt).toBeUndefined();
+  });
+
   it("closes with auto_retry_end{success:false,finalError} on a terminal error settle", () => {
     const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 2000 });
     t.observeMessageEnd("s1", { ...errAssistant });
@@ -356,6 +367,36 @@ describe("RetryTracker — terminal convergence", () => {
     expect(t.isRetrying("s1")).toBe(false);
     expect(t.observeAgentEnd("s1", okAgentEnd)).toBeNull();
     expect(t.observeAgentSettled("s1")).toBeNull();
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["non-string", 42 as unknown as string],
+  ])("does not close an active chain when message_end has a %s stopReason", (_label, stopReason) => {
+    const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 2000 });
+    t.observeMessageEnd("s1", { ...errAssistant });
+    t.observeAgentEnd("s1", errAgentEnd);
+    t.observeAgentStart("s1");
+
+    expect(t.observeMessageEnd("s1", { role: "assistant", stopReason })).toBeNull();
+    expect(t.isRetrying("s1")).toBe(true);
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["empty", ""],
+    ["non-string", 42 as unknown as string],
+  ])("does not mark agent_end with a %s stopReason as successful disposition", (_label, stopReason) => {
+    const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 2000 });
+    t.observeMessageEnd("s1", { ...errAssistant });
+    t.observeAgentEnd("s1", errAgentEnd);
+    t.observeAgentStart("s1");
+
+    expect(t.observeAgentEnd("s1", { messages: [{ role: "assistant", stopReason }] })).toBeNull();
+    expect(t.observeAgentSettled("s1")).toEqual({
+      eventType: "auto_retry_end",
+      data: { success: false, attempt: 1, finalError: ERR },
+    });
   });
 
   it("E2/X2 repeated assistant errors retain the latest provider error until exhaustion", () => {

@@ -3009,6 +3009,57 @@ describe("lastError extraction from agent_end", () => {
     expect(deriveBannerState(state)).toEqual({ variant: "hidden" });
   });
 
+  it.each([
+    ["missing", undefined],
+    ["non-string", 42],
+  ])("preserves retry/error state when message_end has a %s stopReason", (_label, stopReason) => {
+    const state = createInitialState();
+    state.lastError = { message: "503 overloaded", timestamp: 1000 };
+    state.retryState = {
+      attempt: 1,
+      maxAttempts: 3,
+      delayMs: 2000,
+      waiting: false,
+      reason: "503 overloaded",
+      startedAt: 1000,
+    };
+
+    const next = reduceEvent(state, {
+      eventType: "message_end",
+      timestamp: 2000,
+      data: { message: { role: "assistant", stopReason, content: [] } },
+    });
+
+    expect(next.lastError).toEqual(state.lastError);
+    expect(next.retryState).toEqual(state.retryState);
+  });
+
+  it("failed retry-end advances the lifecycle revision while preserving the displayed provider error", () => {
+    const state = createInitialState();
+    state.lastError = { message: "503 overloaded", timestamp: 1000 };
+
+    const next = reduceEvent(state, {
+      eventType: "auto_retry_end",
+      timestamp: 2000,
+      data: { success: false, attempt: 0, finalError: "retry dispatch failed" },
+    });
+
+    expect(next.lastError).toEqual({ message: "503 overloaded", timestamp: 2000 });
+  });
+
+  it("advances retry lifecycle revision when the failed event timestamp is unchanged", () => {
+    const state = createInitialState();
+    state.lastError = { message: "503 overloaded", timestamp: 1000 };
+
+    const next = reduceEvent(state, {
+      eventType: "auto_retry_end",
+      timestamp: 1000,
+      data: { success: false, attempt: 0, finalError: "retry dispatch failed" },
+    });
+
+    expect(next.lastError).toEqual({ message: "503 overloaded", timestamp: 1001 });
+  });
+
   it("failed retry updates lastError without a hidden intermediate frame", () => {
     let state = applyEvents([
       {
@@ -3267,7 +3318,7 @@ describe("auto_retry events (provider-retry-state)", () => {
     expect(state.lastError).toEqual({ message: "Rate limit exceeded", timestamp: 7000 });
   });
 
-  it("does not overwrite existing lastError on auto_retry_end failure", () => {
+  it("preserves the existing error message but advances its lifecycle revision on retry failure", () => {
     let state = createInitialState();
     state.lastError = { message: "earlier error", timestamp: 100 };
     state = reduceEvent(state, {
@@ -3281,7 +3332,7 @@ describe("auto_retry events (provider-retry-state)", () => {
       data: { success: false, finalError: "new error" },
     });
     expect(state.retryState).toBeUndefined();
-    expect(state.lastError).toEqual({ message: "earlier error", timestamp: 100 });
+    expect(state.lastError).toEqual({ message: "earlier error", timestamp: 7000 });
   });
 
   it("E1 agent_start preserves the active retry state and provider error", () => {

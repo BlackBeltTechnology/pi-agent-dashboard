@@ -23,6 +23,8 @@ export interface SessionActionDeps {
   sessions: Map<string, DashboardSession>;
   setSessions: React.Dispatch<React.SetStateAction<Map<string, DashboardSession>>>;
   setSessionStates: React.Dispatch<React.SetStateAction<Map<string, SessionState>>>;
+  /** Latest reducer state; stale UI callbacks must re-check retry eligibility. */
+  sessionStatesRef: React.MutableRefObject<Map<string, SessionState>>;
   setSpawningCwds: React.Dispatch<React.SetStateAction<Set<string>>>;
   setTerminals: React.Dispatch<React.SetStateAction<Map<string, TerminalSession>>>;
   clearSpawningCwd: (cwd: string) => void;
@@ -41,7 +43,7 @@ export interface SessionActionDeps {
 export function useSessionActions(deps: SessionActionDeps) {
   const {
     selectedId, send, navigate, setMobileOpen,
-    sessions, setSessions, setSessionStates, setSpawningCwds, setTerminals,
+    sessions, setSessions, setSessionStates, sessionStatesRef, setSpawningCwds, setTerminals,
     clearSpawningCwd, spawnTimeoutsRef, pendingTerminalCwdRef, terminals,
     pendingSpawnsRef,
   } = deps;
@@ -272,11 +274,15 @@ export function useSessionActions(deps: SessionActionDeps) {
   );
 
   const handleRetrySession = useCallback((sessionId: string) => {
+    // A click can race with recovery after the button rendered. Re-read the
+    // latest lifecycle through a stable ref before routing the hidden command.
+    const current = sessionStatesRef.current.get(sessionId);
+    if (!current?.lastError || current.retryState || current.retryCancelled || current.isStreaming) return;
     // Active settled sessions cannot use resume_session (that path safely
     // rejects live carriers). The hidden command is intercepted by the bridge
     // and starts a non-user custom turn via pi.sendMessage(triggerTurn:true).
     send({ type: "send_prompt", sessionId, text: "/__dashboard_retry" });
-  }, [send]);
+  }, [send, sessionStatesRef]);
 
   const handleResumeSession = useCallback((sessionId: string, mode: "continue" | "fork", entryId?: string) => {
     setSessions((prev) => {

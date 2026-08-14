@@ -91,6 +91,31 @@ describe("CommandHandler", () => {
     expect(pi.sendUserMessage).not.toHaveBeenCalled();
   });
 
+  it("reports a failed internal Retry dispatch without classifying it as abort", async () => {
+    const pi = createMockPi();
+    pi.sendMessage.mockImplementation(() => {
+      throw new Error("retry dispatch failed");
+    });
+    const eventSink = vi.fn();
+    const handler = createCommandHandler(pi as any, "s1", { eventSink });
+
+    await expect(handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "/__dashboard_retry",
+    } as ServerToExtensionMessage)).resolves.toBeUndefined();
+
+    expect(eventSink).toHaveBeenCalledWith({
+      type: "event_forward",
+      sessionId: "s1",
+      event: {
+        eventType: "auto_retry_end",
+        timestamp: expect.any(Number),
+        data: { success: false, attempt: 0, finalError: "retry dispatch failed" },
+      },
+    });
+  });
+
   it("should ignore messages for different sessionIds", async () => {
     const pi = createMockPi();
     const handler = createCommandHandler(pi as any, "s1");

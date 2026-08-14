@@ -1377,9 +1377,14 @@ export function reduceEvent(
         break;
       }
       if (data.success === false && typeof data.finalError === "string" && data.finalError.length > 0) {
-        if (!state.lastError) {
-          next.lastError = { message: data.finalError, timestamp: event.timestamp };
-        }
+        const previousRevision = state.lastError?.timestamp;
+        const observedRevision = Number.isFinite(event.timestamp) ? event.timestamp : 0;
+        const nextRevision = typeof previousRevision === "number" && Number.isFinite(previousRevision)
+          ? Math.max(observedRevision, previousRevision + 1)
+          : observedRevision;
+        next.lastError = state.lastError
+          ? { ...state.lastError, timestamp: nextRevision }
+          : { message: data.finalError, timestamp: nextRevision };
       }
       break;
     }
@@ -1621,14 +1626,13 @@ export function reduceEvent(
     case "message_end": {
       const msg = data.message as any;
       if (msg?.role === "assistant") {
-        // Confirmed-good clear: an assistant message that completed with a
-        // terminal SUCCESS stop (pi-ai `"stop"`; `"end_turn"` accepted too)
-        // clears the persistent error anchor. Mid-turn / non-success stops
-        // (`toolUse`, `error`, `aborted`, `length`) do NOT clear — the turn can
-        // still error afterward, and clearing on them would flicker / drop the
-        // anchor across an interactive pause.
-        // See change: unify-error-retry-lifecycle.
-        if (!state.retryCancelled && msg.stopReason !== "error" && msg.stopReason !== "aborted") {
+        // Any structurally valid non-error, non-aborted assistant completion
+        // confirms provider recovery, including pi-owned continuation without
+        // a user message. Missing/non-string runtime data proves no disposition
+        // and must preserve the unresolved lifecycle.
+        // See change: fix-retry-error-lifecycle.
+        const stopReason = typeof msg.stopReason === "string" ? msg.stopReason : undefined;
+        if (!state.retryCancelled && stopReason && stopReason !== "error" && stopReason !== "aborted") {
           next.lastError = undefined;
           next.retryState = undefined;
         }

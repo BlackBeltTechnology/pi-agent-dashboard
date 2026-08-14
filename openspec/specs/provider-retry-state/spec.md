@@ -131,45 +131,41 @@ unrepresentable there by construction.
 - **THEN** the mark SHALL be an MDI icon / token-driven indicator
 - **AND** no emoji SHALL be used
 
-### Requirement: Bridge synthesizes auto_retry_start from observed message_end
+### Requirement: Bridge synthesizes retry lifecycle from observed attempts
 
-The bridge SHALL maintain a per-session retry tracker. Retry detection SHALL be derived from
-OBSERVED pi behavior, NOT from a regex classifier. The bridge SHALL NOT test any
-`RETRYABLE_PATTERN` / copy of pi's internal `_isRetryableError`.
+The bridge SHALL maintain a per-session retry tracker. Retry detection SHALL derive from typed live pi events, not a copied provider-error regex or transcript inspection.
 
-The observed sequence is one full `agent_start` … `agent_end` cycle per attempt, terminated by
-a single `agent_settled`. An error `agent_end` therefore means "another attempt is coming" and
-SHALL produce both `auto_retry_start` for the completed attempt and a waiting signal; only
-`agent_settled` terminates the chain. See capability `bridge-retry-observability` for the full
-rules.
+Pi emits one full `agent_start` … `agent_end` cycle per attempt. An errored assistant completion records the failure. Error `agent_end` arms the next attempt and emits `auto_retry_waiting`; the matching `agent_start` emits `auto_retry_start`. The first structurally valid assistant completion whose stop reason is neither `error` nor `aborted` closes the chain successfully. Native `agent_settled` closes any unresolved chain with its retained disposition.
 
-`maxAttempts` and `delayMs` SHALL be derived read-only from pi's retry settings, defaulting to
-`3` and `2000`, and SHALL be `0` when the settings cannot be read. The `-1` sentinels are
-REMOVED. The bridge SHALL NOT write pi's settings.
+`maxAttempts` and `delayMs` SHALL derive read-only from pi retry settings. Unknown, non-positive, or non-finite computed delay SHALL be represented as `0`; the bridge SHALL NOT pass non-finite delay values to timers. Ordinary retry attempt numbers SHALL be non-negative. `attempt: -1` remains reserved exclusively for the user-abort cancellation event. The bridge SHALL NOT write pi settings.
 
-#### Scenario: Error agent_end triggers synthesized retry events
+#### Scenario: Error agent_end enters retry waiting
 
-- **GIVEN** the bridge forwarded a `message_end` with `stopReason: "error"` and
-  `errorMessage: "overloaded"`
-- **WHEN** the matching `agent_end` is observed and no `agent_settled` terminates the chain
-- **THEN** the bridge SHALL forward an `event_forward` with
-  `event.eventType === "auto_retry_start"`
-- **AND** the synthesized event SHALL have `data.attempt >= 1`, `data.maxAttempts === 3`,
-  `data.delayMs > 0`, `data.errorMessage === "overloaded"`
+- **GIVEN** the bridge observed an assistant `message_end` with `stopReason: "error"` and `errorMessage: "overloaded"`
+- **WHEN** the matching error `agent_end` arms another attempt within the retry budget
+- **THEN** the bridge SHALL forward `auto_retry_waiting` with attempt, policy-derived delay, and `errorMessage: "overloaded"`
+- **AND** it SHALL retain the chain
 
-#### Scenario: Waiting signal covers pi's sleep
+#### Scenario: Matching agent_start enters retry in flight
 
-- **GIVEN** the bridge observed an error `agent_end`
-- **WHEN** pi is sleeping before the next attempt
-- **THEN** the dashboard SHALL have received a waiting signal for that session
-- **AND** the surface SHALL show a pending retry rather than a silent settled error
+- **GIVEN** an error `agent_end` armed retry attempt N
+- **WHEN** the matching `agent_start` arrives
+- **THEN** the bridge SHALL forward `auto_retry_start` for attempt N
+- **AND** the waiting state SHALL become in flight
 
-#### Scenario: Successful message_end clears the tracker and synthesizes auto_retry_end
+#### Scenario: Successful message_end closes the tracker
 
-- **GIVEN** the bridge previously synthesized `auto_retry_start` for session X
-- **WHEN** the bridge forwards a subsequent `message_end` with `stopReason: "end_turn"`
-- **THEN** the bridge SHALL forward a synthesized `auto_retry_end { success: true, attempt: <last attempt> }`
-- **AND** the retry tracker SHALL clear its in-flight flag for session X
+- **GIVEN** retry attempt N is active
+- **WHEN** the bridge observes a structurally valid non-error, non-aborted assistant `message_end`
+- **THEN** it SHALL forward `auto_retry_end { success: true, attempt: N }`
+- **AND** it SHALL clear the retry chain
+
+#### Scenario: Invalid delay never reaches reconciliation timer
+
+- **GIVEN** retry delay arithmetic produces a non-finite number
+- **WHEN** the bridge emits waiting state or schedules floor-pi reconciliation
+- **THEN** it SHALL use the unknown-delay fallback
+- **AND** it SHALL NOT pass `Infinity` or `NaN` to `setTimeout`
 
 ### Requirement: Automatic continuation closes the observed retry chain on assistant recovery
 

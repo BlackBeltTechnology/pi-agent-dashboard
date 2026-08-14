@@ -32,3 +32,4 @@
 - [x] 5.2 Run `openspec validate fix-retry-error-lifecycle --strict` and resolve any artifact/spec mismatch.
 - [x] 5.3 Update nearest source-tree `AGENTS.md` rows for changed behavior or new test files, then run the relevant documentation lint if available.
 - [x] 5.4 Run the `review-code` discipline on the scoped diff, fix every blocking finding, and re-run only the affected related test target after each fix.
+- [x] 5.5 Run the complete `npm test` suite once with `set -o pipefail` and `tee`, then inspect the saved log. Local Node 24 run: 14 out-of-scope filesystem-activation failures plus one out-of-scope ChatView timer leak; changed retry targets remain green. Merge stays gated on the clean CI toolchain run.

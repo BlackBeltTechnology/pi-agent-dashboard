@@ -512,14 +512,28 @@ export function createCommandHandler(
           }
 
           if (parsed.type === "retry") {
-            pi.sendMessage(
-              {
-                customType: "pi-dashboard:retry",
-                content: "Continue the interrupted response without repeating the user's request.",
-                display: false,
-              },
-              { triggerTurn: true },
-            );
+            try {
+              pi.sendMessage(
+                {
+                  customType: "pi-dashboard:retry",
+                  content: "Continue the interrupted response without repeating the user's request.",
+                  display: false,
+                },
+                { triggerTurn: true },
+              );
+            } catch (error) {
+              const finalError = errText(error);
+              console.error("[dashboard] Internal Retry dispatch failed:", finalError);
+              options?.eventSink?.({
+                type: "event_forward",
+                sessionId,
+                event: {
+                  eventType: "auto_retry_end",
+                  timestamp: Date.now(),
+                  data: { success: false, attempt: 0, finalError },
+                },
+              });
+            }
             return undefined;
           }
 

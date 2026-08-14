@@ -108,7 +108,8 @@ export class RetryTracker {
   /** `delayMs = baseDelayMs · 2^(attempt-1)`; 0 when the base is unknown. */
   private delayFor(attempt: number): number {
     if (this.settings.baseDelayMs <= 0 || attempt < 1) return 0;
-    return this.settings.baseDelayMs * 2 ** (attempt - 1);
+    const delayMs = this.settings.baseDelayMs * 2 ** (attempt - 1);
+    return Number.isFinite(delayMs) ? delayMs : 0;
   }
 
   /**
@@ -162,11 +163,14 @@ export class RetryTracker {
       return null;
     }
 
+    const stopReason = message.stopReason;
+    if (typeof stopReason !== "string" || stopReason.length === 0) return null;
+
     const chain = this.chains.get(sessionId);
     if (!chain) return null;
     this.chains.delete(sessionId);
 
-    if (message.stopReason === "aborted") {
+    if (stopReason === "aborted") {
       this.cancelled.add(sessionId);
       return { eventType: "auto_retry_end", data: { success: false, attempt: -1 } };
     }
@@ -214,8 +218,10 @@ export class RetryTracker {
     // a turn that never succeeded.
     // See change: raw-error-render-and-retry-authority.
     if (lastMsg === undefined) return null;
+    const stopReason = lastMsg.stopReason;
+    if (typeof stopReason !== "string" || stopReason.length === 0) return null;
 
-    if (lastMsg.stopReason === "aborted") {
+    if (stopReason === "aborted") {
       const existing = this.chains.get(sessionId);
       if (!existing) return null;
       this.chains.delete(sessionId);
@@ -223,7 +229,7 @@ export class RetryTracker {
       return { eventType: "auto_retry_end", data: { success: false, attempt: -1 } };
     }
 
-    const isError = lastMsg.stopReason === "error";
+    const isError = stopReason === "error";
     if (!isError) {
       // `message_end` normally closes success first. Keep this disposition as
       // a fallback for event sources that omit message_end.

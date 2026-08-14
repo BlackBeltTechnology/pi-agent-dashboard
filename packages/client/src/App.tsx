@@ -490,6 +490,8 @@ export default function App() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sessions, setSessions] = useState<Map<string, DashboardSession>>(new Map());
   const [sessionStates, setSessionStates] = useState<Map<string, SessionState>>(new Map());
+  const sessionStatesRef = useRef(sessionStates);
+  sessionStatesRef.current = sessionStates;
   // Per-session dashboard-local `/view` preview rows. Lives separately from
   // event-reducer state so the reducer never sees them. Merged with
   // `state.messages` by timestamp when passing to ChatView.
@@ -1246,7 +1248,7 @@ export default function App() {
 
   const sessionActions = useSessionActions({
     selectedId, send, navigate, setMobileOpen,
-    sessions, setSessions, setSessionStates, setSpawningCwds, setTerminals,
+    sessions, setSessions, setSessionStates, sessionStatesRef, setSpawningCwds, setTerminals,
     clearSpawningCwd, spawnTimeoutsRef, pendingTerminalCwdRef, terminals,
     pendingSpawnsRef,
   });
@@ -1799,8 +1801,8 @@ export default function App() {
               a chevron that COLLAPSES while retrying (component-local — it never
               clears `retryState`, so the session Stop stays mounted), and a real
               ✕ once retrying stops. Settled provider errors offer one-shot
-              Retry via continue-resume; success, abort, or removal hides the
-              surface.
+              Retry via a hidden non-user turn on the active bridge; success,
+              abort, or removal hides the surface.
               See change: error-banner-observe-only, fix-retry-error-lifecycle. */}
           <SessionBanner
             state={deriveBannerState(selectedState)}

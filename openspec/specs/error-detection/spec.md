@@ -14,7 +14,7 @@ The event reducer SHALL inspect `agent_end` events for error information. When `
 
 There SHALL be NO usage-limit / `USAGE_LIMIT_PATTERN` synth source. Billing / quota errors are ordinary errors: they reach `lastError` via path (1) or (2) with no special classification, and the `SessionBanner` renders them as an ordinary settled error (no `limit-exceeded` variant — see `session-status-banner`).
 
-The command-handler's synth on user abort does not carry a `finalError` field. Subsequent `agent_end` events surface the real provider error via path (1) when pi emits `stopReason: "error"` with the real `errorMessage`.
+The command-handler's synth on user abort does not carry a `finalError` field. It installs cancellation suppression before aborting pi; delayed `agent_end` or retry events from that cancelled chain SHALL NOT restore `lastError`. A later explicit run releases suppression and may establish its own provider error normally.
 
 Transient retryable errors that pi-coding-agent retries internally SHALL NOT set `lastError` while the retry is in flight; they are surfaced via `SessionState.retryState` instead (see `provider-retry-state`). Once pi settles with a terminal `agent_end` error, `lastError` is set via path (1).
 
@@ -39,22 +39,23 @@ Transient retryable errors that pi-coding-agent retries internally SHALL NOT set
 - **AND** NO `USAGE_LIMIT_PATTERN` test SHALL be performed anywhere in the reducer
 - **AND** the `SessionBanner` SHALL render the ordinary settled-error card (NOT a `limit-exceeded` variant)
 
-#### Scenario: User abort no longer sets lastError to "Aborted by user"
+#### Scenario: User abort clears and suppresses the cancelled chain
 - **WHEN** the user aborts a retry-in-flight session
 - **AND** the bridge synthesizes `auto_retry_end { success: false, attempt: -1 }` with NO `finalError`
-- **THEN** `SessionState.lastError` SHALL NOT be set by this synth (reducer requires `typeof data.finalError === "string"`)
-- **AND** if pi subsequently emits `agent_end` with a real provider `errorMessage`, `lastError` SHALL be set to that real message
-- **AND** if pi does not emit `agent_end` with `stopReason: "error"`, `lastError` SHALL remain undefined and the unified banner SHALL transition to `hidden`
+- **THEN** `SessionState.lastError` and retry presentation SHALL clear
+- **AND** delayed `agent_end` or retry events from that cancelled chain SHALL NOT restore `lastError`
+- **AND** a later explicit run MAY establish a new provider error after cancellation suppression is released
 
 #### Scenario: auto_retry_end with finalError populates lastError early when undefined
 - **WHEN** `SessionState.lastError` is undefined
 - **AND** an `auto_retry_end` event arrives with `data: { success: false, finalError: "Rate limit exceeded" }`
 - **THEN** `SessionState.lastError` SHALL be set to `{ message: "Rate limit exceeded", timestamp: <event.timestamp> }`
 
-#### Scenario: auto_retry_end finalError does not overwrite existing lastError
-- **WHEN** `SessionState.lastError` is already set to a previous error
-- **AND** an `auto_retry_end` event arrives with `success: false` and a `finalError`
-- **THEN** `SessionState.lastError` SHALL NOT be overwritten
+#### Scenario: auto_retry_end finalError preserves the displayed error and advances lifecycle identity
+- **WHEN** `SessionState.lastError` is already set to a previous provider error
+- **AND** an `auto_retry_end` event arrives with `success: false` and a non-empty `finalError`
+- **THEN** the existing displayed error message SHALL remain unchanged
+- **AND** its timestamp SHALL advance to the retry-end event timestamp so one-shot Retry becomes available for the new settled lifecycle
 
 ### Requirement: Error state cleared on confirmed-good response
 
@@ -192,39 +193,36 @@ A pending automatic retry SHALL NOT show the Retry control because pi already ow
 
 ### Requirement: Error banner in chat view
 
-Terminal errors SHALL be surfaced via the unified `SessionBanner` component (see capability `session-status-banner`). The previous `ErrorBanner` component and the inline `lastError` block in `ChatView` are REMOVED. The banner SHALL render the error as the persistent anchor of the composed error-lifecycle surface, in the `error` sub-state for generic terminal errors (whose `lastError.message` does NOT match `USAGE_LIMIT_PATTERN`) and in the `limit-exceeded` sub-state for terminal billing/quota errors.
+Terminal provider errors SHALL be surfaced by the unified `SessionBanner` component (see capability `session-status-banner`). Billing, quota, and generic provider failures use the same ordinary error state; the dashboard SHALL NOT classify `lastError.message` with `USAGE_LIMIT_PATTERN` or render a `limit-exceeded` variant.
 
-The unified banner SHALL preserve the user-facing capabilities of the prior `ErrorBanner`:
+The unified banner SHALL provide:
 
-- Display of the error message with truncation+toggle on long strings (default threshold 240 characters).
-- Copy-to-clipboard control writing the full untruncated `lastError.message` via `navigator.clipboard.writeText`.
-- Dismiss action (semantics per `session-status-banner` "Banner actions dispatch through existing handlers": aborts when the surface carries a retrying/retryable state, dismisses-only when terminal).
-- Retry action (on the `error` sub-state only — NOT on `limit-exceeded`) that re-sends the last user-authored prompt for the session via `send_prompt`.
+- Error text with long-message truncation and expansion.
+- Copy-to-clipboard for the full untruncated `lastError.message`.
+- Settled-only one-shot Retry, which triggers the hidden non-user turn on the existing active bridge without replaying prior user input.
+- A clear-only X while settled.
+- Collapse/Expand only while automatic retry is pending; pending state SHALL NOT expose Retry or X.
 
-The `data-testid` attributes `error-banner` and `error-banner-dismiss` SHALL be preserved on the `SessionBanner` element when rendered in `error` or `limit-exceeded` sub-state, so existing integration tests continue to work.
+The `data-testid` attributes `error-banner`, `error-banner-retry`, and `error-banner-dismiss` SHALL identify the settled surface and actions.
 
-#### Scenario: Error banner shown after non-billing terminal error
-- **WHEN** `SessionState.lastError` is set with a message that does NOT match `USAGE_LIMIT_PATTERN` (e.g. `"tool execution failed"`)
-- **THEN** the unified `SessionBanner` SHALL be visible in `error` sub-state
-- **AND** the banner SHALL include a Retry and a Dismiss action
+#### Scenario: Settled provider error exposes Retry and X
+- **WHEN** `SessionState.lastError` is set and no retry sub-status is active
+- **THEN** the unified `SessionBanner` SHALL show Retry, Copy, and a clear-only X
 - **AND** the DOM element SHALL carry `data-testid="error-banner"`
 
-#### Scenario: Limit-exceeded banner shown after USAGE_LIMIT terminal error
-- **WHEN** `SessionState.lastError` is set with a message matching `USAGE_LIMIT_PATTERN` (e.g. `"monthly_spending_cap"`)
-- **THEN** the unified `SessionBanner` SHALL be visible in `limit-exceeded` sub-state
-- **AND** the banner SHALL NOT include a Retry action
-- **AND** the banner SHALL include a Dismiss action
-- **AND** the banner SHALL display a "Session stopped automatically." hint
-- **AND** the DOM element SHALL carry `data-testid="error-banner"`
+#### Scenario: Pending retry exposes only retry-phase controls
+- **WHEN** `SessionState.retryState` is active
+- **THEN** the banner SHALL show the provider retry status with Collapse/Expand
+- **AND** Retry and X SHALL be absent until the retry lifecycle settles
 
 #### Scenario: Error banner does NOT auto-clear on new turn
 - **WHEN** a new `agent_start` event arrives while `lastError` is set
 - **THEN** `lastError` SHALL remain set
-- **AND** the unified banner SHALL remain visible until a confirmed non-error response (per "Error state cleared on confirmed-good response")
+- **AND** the unified banner SHALL remain visible until a confirmed non-error assistant completion
 
 #### Scenario: Error message is copyable
-- **WHEN** the unified banner is visible in `error` or `limit-exceeded` sub-state
-- **THEN** a copy control SHALL be present that writes the full untruncated `lastError.message` to the clipboard via `navigator.clipboard.writeText`
+- **WHEN** the unified banner is visible
+- **THEN** a copy control SHALL write the full untruncated `lastError.message` to the clipboard via `navigator.clipboard.writeText`
 
 ### Requirement: Error indicator on session card
 The session card in the sidebar SHALL show a red status dot when the session has an active error.
@@ -234,5 +232,5 @@ The session card in the sidebar SHALL show a red status dot when the session has
 - **THEN** the session card status dot SHALL be red
 
 #### Scenario: Red dot cleared when error dismissed
-- **WHEN** `lastError` is cleared (by new turn or user dismiss)
+- **WHEN** `lastError` is cleared by confirmed recovery, user dismiss, abort, or session removal
 - **THEN** the session card status dot SHALL return to its normal color

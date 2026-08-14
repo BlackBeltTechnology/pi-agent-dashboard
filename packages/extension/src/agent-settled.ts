@@ -21,7 +21,10 @@ export const FLOOR_RETRY_GRACE_MS = 1000;
 /** Delay before a floor-pi waiting attempt is reconciled as terminal when no
  * matching agent_start arrives. */
 export function floorRetryReconcileDelay(delayMs: number): number {
-  return (delayMs > 0 ? delayMs : FLOOR_RETRY_UNKNOWN_DELAY_MS) + FLOOR_RETRY_GRACE_MS;
+  const observedDelay = Number.isFinite(delayMs) && delayMs > 0
+    ? delayMs
+    : FLOOR_RETRY_UNKNOWN_DELAY_MS;
+  return observedDelay + FLOOR_RETRY_GRACE_MS;
 }
 
 /** Parse a semver-ish string to `[major, minor, patch]`, ignoring any
