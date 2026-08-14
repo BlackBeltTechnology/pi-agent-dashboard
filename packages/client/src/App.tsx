@@ -105,7 +105,6 @@ import { deriveServerKey, replayCache } from "./lib/replay/replay-cache.js";
 import { createReplayPersister } from "./lib/replay/replay-persist.js";
 import { refreshChat } from "./lib/chat/refresh-chat.js";
 import { deleteDraft, readAllDrafts, writeDraft } from "./lib/state/draft-storage.js";
-import { OpenSpecRunConfigProvider, type OpenSpecRunConfigValue } from "./lib/state/OpenSpecRunConfigContext.js";
 import { clearRecoveryOffer } from "./lib/state/recovery-offer-bus.js";
 import { decodeFolderPath, encodeFolderPath } from "./lib/util/folder-encoding.js";
 
