@@ -235,6 +235,13 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
       const fn = ctx.consume<(cwd: string) => Promise<string[]>>("invoicebot:queuedInvoices");
       return fn ? fn(cwd) : Promise.resolve(null);
     },
+    // Per-invoice run name, resolved LAZILY from the same cross-plugin seam: the
+    // invoicebot plugin publishes its scoped-session name so a per-invoice
+    // fan-out run is surfaced as `invoicebot-scoped:<id>` and adopted as the
+    // invoice's canonical session. Absent ⇒ the automation's own name is used.
+    // See change: adopt-scoped-producer-session.
+    perInvoiceRunName: (invoiceId: string) =>
+      ctx.consume<(invoiceId: string) => string>("invoicebot:scopedRunName")?.(invoiceId),
     listScopes,
     config: pluginConfig,
     homeDir,

@@ -245,6 +245,15 @@ export interface EngineDeps {
    * with an unresolved token). See change: wire-per-invoice-automation-drain.
    */
   enumerateQueued?: (cwd: string) => Promise<string[] | null>;
+  /**
+   * Per-invoice run name: for a fire bound to a single invoice, surface the
+   * spawned run's `automationRun.name` under a consumer-provided identity so a
+   * consumer's own session resolution can recognise (and adopt) the producer.
+   * Injected (cross-plugin service seam) so this generic plugin carries no
+   * consumer-specific naming. Absent / undefined return ⇒ the automation's own
+   * name is used. See change: adopt-scoped-producer-session.
+   */
+  perInvoiceRunName?: (invoiceId: string) => string | undefined;
   config: () => EngineConfig;
   homeDir?: string;
   readRoles?: () => Record<string, string>;
@@ -716,6 +725,13 @@ export function createEngine(deps: EngineDeps): Engine {
     // one invoice (IB_TOOLSET/IB_INVOICE_ID). See change:
     // wire-per-invoice-automation-drain.
     const spawnEnv = resolveScopedEnv(automation, fireCtx);
+    // A fire bound to a single invoice surfaces its run under the injected
+    // per-invoice name (the consumer's scoped-session identity) so the consumer
+    // adopts THIS producer as the invoice's canonical session instead of
+    // spawning a fresh one. Folder/global fires keep the automation's own name.
+    // See change: adopt-scoped-producer-session.
+    const runName =
+      (fireCtx?.invoiceId ? deps.perInvoiceRunName?.(fireCtx.invoiceId) : undefined) ?? automation.name;
 
     const ctx: RunContext = {
       key: automationKey(automation),
@@ -745,7 +761,7 @@ export function createEngine(deps: EngineDeps): Engine {
         ...(resolved.model ? { model: resolved.model } : {}),
         mode: automation.config.mode,
         sandbox: automation.config.sandbox,
-        automationRun: { name: automation.name, runId: rec.runId, visibility: vis },
+        automationRun: { name: runName, runId: rec.runId, visibility: vis },
         ...(spawnEnv ? { env: spawnEnv } : {}),
       })
       .then((res) => {

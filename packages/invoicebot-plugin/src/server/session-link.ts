@@ -91,7 +91,7 @@ const DEFAULT_SPAWN_BIND_TIMEOUT_MS = 15_000;
 const RESUME_REPOINT_TTL_MS = 60_000;
 const SCOPED_AUTOMATION_PREFIX = "invoicebot-scoped:";
 
-function scopedAutomationName(invoiceId: string): string {
+export function scopedAutomationName(invoiceId: string): string {
   return `${SCOPED_AUTOMATION_PREFIX}${encodeURIComponent(invoiceId)}`;
 }
 
