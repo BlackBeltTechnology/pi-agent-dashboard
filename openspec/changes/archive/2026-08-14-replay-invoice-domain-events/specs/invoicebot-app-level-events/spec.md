@@ -16,6 +16,14 @@ a live frame by an additive `replay: true` field (absent/false on live frames), 
 a consumer applies it as an idempotent state-set and never double-applies it. A
 dropped browser connection SHALL NOT corrupt server state.
 
+#### Scenario: Reconnecting client resumes the live stream
+
+- **WHEN** a browser disconnects and reconnects
+- **THEN** it SHALL be replayed the latest cached domain event per entity marked
+  `replay: true`
+- **AND** it SHALL then begin receiving subsequently-forwarded live events on the
+  app-level channel
+
 #### Scenario: Reconnecting client receives the latest cached state
 
 - **WHEN** a browser connects (first connect or reconnect)
