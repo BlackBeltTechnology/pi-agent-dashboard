@@ -229,9 +229,12 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
     echo "[test-entrypoint] PI_E2E_SEED: staged notify driver → ${NOTIFY_EXT_DIR}"
   fi
 
-  # Also seed pi's own settings.json defaultModel (read at pi startup) so the
-  # faux model is selected even before the bridge gate runs. Merge — never
-  # clobber existing keys. No-op when already set.
+  # Also seed pi's own settings.json default model (read at pi startup) so the
+  # faux model is selected even before the bridge gate runs. pi 0.84 resolves
+  # the default model from the SPLIT pair `defaultProvider` + `defaultModel`, not
+  # the legacy combined `"provider/model"` string; seed the split pair so the
+  # faux model resolves at pi startup rather than depending on the bridge to
+  # correct it afterwards. Merge — never clobber existing keys. No-op when set.
   SETTINGS="${PI_DIR}/agent/settings.json"
   if [ ! -f "${SETTINGS}" ] || ! grep -q '"defaultModel"' "${SETTINGS}" 2>/dev/null; then
     node -e '
@@ -239,11 +242,12 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
       const p = process.argv[1];
       let cfg = {};
       try { cfg = JSON.parse(fs.readFileSync(p, "utf8")); } catch { cfg = {}; }
-      if (!cfg.defaultModel) cfg.defaultModel = "faux/faux-1";
+      if (!cfg.defaultProvider) cfg.defaultProvider = "faux";
+      if (!cfg.defaultModel) cfg.defaultModel = "faux-1";
       fs.mkdirSync(require("node:path").dirname(p), { recursive: true });
       fs.writeFileSync(p, JSON.stringify(cfg, null, 2) + "\n");
     ' "${SETTINGS}"
-    echo "[test-entrypoint] PI_E2E_SEED: seeded defaultModel → settings.json"
+    echo "[test-entrypoint] PI_E2E_SEED: seeded defaultProvider + defaultModel → settings.json"
   fi
 
   # --- Faux role-preset: every role -> faux/faux-1 (change: add-flow-plugin-e2e-tests) ---
