@@ -2626,6 +2626,141 @@ An `inFlightSwitchKey` ref guards against duplicate clicks; the clicked dropdown
 - Already-known servers show "Already added" badge in discovery results
 - Electron loading page shows known servers as fallback when primary server is unreachable
 
+## Bridge↔Server Connection — transport & identity (designed)
+
+> **Status:** designed, not implemented — openspec change `add-pi-gateway-transport-identity`. Source of truth: `openspec/changes/add-pi-gateway-transport-identity/design.md`. Prior research: `docs/research/bridge-transport-and-identity.md`.
+
+> Forward-looking. Sections above describe today's TCP + mDNS path (`pi-gateway.ts`, `mdns-discovery.ts`) and stay authoritative. This section documents the planned model only; today's content untouched.
+
+### A. Endpoint resolution ladder (planned)
+
+Explicit beats discovered. Always. Precedence, highest first:
+
+1. `PI_DASHBOARD_SOCKET` — explicit local socket path — **PINNED**
+2. `PI_DASHBOARD_URL` — explicit remote endpoint — **PINNED**
+3. config: pinned instance identity — **PINNED**
+4. HOME-derived rendezvous record (default local)
+5. paired remote dashboards (remote-join)
+6. mDNS — MAY SUGGEST, MAY NEVER OVERRIDE 1–5
+
+PINNED = explicit human choice. Nothing automatic replaces it. Pinned + unreachable = visible retrying failure, not silent migration. This inverts the hijack: today explicit `PI_DASHBOARD_URL` can be silently overridden; only defence is remembering `PI_DASHBOARD_NO_MDNS`.
+
+Absent rendezvous record ⇒ report no local dashboard. Does NOT fall through to discovery. Deletes the stale-advertisement failure class: today a stale mDNS answer resolves to a real, live, wrong server.
+
+**Rendezvous record** = `home-lock.ts` metadata sidecar, HOME-derived path. `LockMetadata { httpPort, piPort, identity, pid, ppid, startedAt, version, url, hostname }`. `piPort` = where to dial. `identity` = who it must be.
+
+No selection algorithm. Selector exists: `home-lock.ts` asserts one dashboard instance per `<canonicalHomedir>/.pi/`; a pi process inherits HOME. Coexisting instances use distinct HOMEs (isolated-verification precedent: temp HOME, non-8000 ports, `PI_DASHBOARD_NO_MDNS=1`).
+
+```mermaid
+flowchart TD
+    A["1 · PI_DASHBOARD_SOCKET"] -->|"PINNED"| D["dial"]
+    B["2 · PI_DASHBOARD_URL"] -->|"PINNED"| D
+    C["3 · config pinned instance identity"] -->|"PINNED"| D
+    R["4 · HOME-derived rendezvous record<br/>(default local)"] --> D
+    P["5 · paired remote dashboard<br/>(remote-join)"] --> D
+    M["6 · mDNS / discovery"] -.->|"MAY SUGGEST<br/>MAY NEVER OVERRIDE 1–5"| H["suggests to a human"]
+    D --> V{"identity verifies?"}
+    V -->|"✓"| REG["register"]
+    V -->|"✗"| REF["refuse"]
+```
+
+### B. Per-platform dial table (planned)
+
+| | POSIX | Windows | Remote |
+|---|---|---|---|
+| address | `ws+unix:///<HOME>/.pi/dashboard/gateway.sock:/` | `ws://127.0.0.1:<piPort>` | `wss://host/…` |
+| address source | HOME path | HOME sidecar → `piPort` | pairing record |
+| who may connect | socket mode `0600` (kernel) | `X-Pi-Local-Token` (`auth/local-token.ts`) | ws-ticket from device bearer |
+| server proves self | own socket | `identity` from sidecar | Ed25519 fingerprint challenge |
+| network-reachable | impossible, nothing listens | no, loopback-pinned | yes, by design |
+| protocol above | identical WebSocket | identical | identical |
+
+Protocol identical on all three. `session_register`, `ping`/`pong`, contention, send ring, every `ExtensionToServerMessage` — unchanged. Only dial destination differs. The change is an address, not a protocol.
+
+Verified experimentally before adopting: `ws+unix://` preserves `ping`/`pong`, `terminate()`, `wss.clients`, `readyState`. `bridge-contention.ts` uses WebSocket ping/pong frames as its liveness oracle for the duplicate-registration probe — survives unmodified. A ping-less transport (QUIC, raw stream) would force re-founding that subsystem.
+
+- **POSIX auth** = socket ownership. Mode `0600` in `0700` directory. Kernel enforces. No token to mint, leak, rotate, replay. Matches `0600` convention of `paired-devices.json` + `identity.key`. `--host 0.0.0.0` exposure becomes unrepresentable — nothing listens.
+- **Windows auth** = `local-token.ts`. 32-byte secret at `~/.pi/dashboard/local/token`, header `X-Pi-Local-Token`, verify `crypto.timingSafeEqual`. Loopback bind pinned to `127.0.0.1` regardless of `--host`. Known pre-existing gap: `chmod` is a no-op on Windows; owner-only property rests on inherited NTFS ACLs. Must be verified on a real Windows host, not reasoned about.
+- **Remote auth** = paired device. Reuses `pairing/pairing.ts` (one-time code, 8-digit confirm), `paired-devices.ts` (hash-only bearer registry, revocable, `0600`), `bearer-auth.ts`, `ws-ticket.ts` (single-use, ~15s, scoped upgrade ticket — durable bearer never rides the WebSocket). New `bridge` value in `WsRouteScope` (today `"browser" | "terminal" | "live"`, `packages/server/src/auth/ws-ticket.ts:22`). Remote bridge pins server Ed25519 fingerprint at pairing; refuses any endpoint that cannot answer the nonce challenge. Makes the hijack class unrepresentable, not merely guarded.
+
+Stale sockets fail closed. Bind unlinks pre-existing socket file. Client dialing a leftover path gets `ENOENT`/`ECONNREFUSED` immediately, definitively.
+
+Server may listen on both transports. `WebSocketServer({ noServer: true })`, one upgrade handler shared by a UDS listener + optional TCP listener. Transport = per-bridge property, not per-server mode. TCP listener does not bind by default.
+
+### C. Stickiness (planned)
+
+Three separate pieces of state. Separateness matters:
+
+- `pinned` — endpoint was explicit human choice; nothing automatic may replace it
+- `boundTo` — `identity` actually registered with; reconnect always targets this
+- `verify` — candidate must prove that identity before becoming `boundTo`
+
+Today none exist. `connection.ts:334` `updateUrl(newUrl)` mutates `this.url` ambiently. That ambient mutation IS the hijack — see `openspec/changes/fix-bridge-mdns-migration-hijack`.
+
+Re-target requires ALL of: current endpoint unpinned, current endpoint failed, candidate identity verifies. Otherwise bridge keeps retrying `X` and surfaces the failure.
+
+```mermaid
+stateDiagram-v2
+    [*] --> Resolving
+    Resolving --> Connecting
+    Connecting --> Registered
+    Registered --> Dropped
+    Dropped --> Connecting: same instance always
+    Registered --> Registered: discovered candidate, REFUSED + logged
+    Dropped --> Evaluating: unpinned AND repeated failure
+    Evaluating --> Connecting: verify ✓ → rebind
+    Evaluating --> Registered: verify ✗ → keep current
+    Registered --> Moving: explicit move command
+    Moving --> Registered: pinned = true
+```
+
+### D. Explicit session move (planned)
+
+Commands:
+- `/dashboard connect <instance>` — instance = socket path | port | identity | `default`
+- `/dashboard connect --list` — rendezvous records visible under this HOME
+- `/dashboard where` — current endpoint, identity, pinned?
+
+Stickiness (C) makes automatic re-targeting hard. Move command is the escape valve — the only manual recovery for a bridge attached to the wrong instance (the 23-hour hijack has none today).
+
+Order matters: register with target BEFORE closing origin. Session never orphaned mid-move. Then `session_moved` to origin — the ONLY new protocol message — origin card reads *moved*, not *crashed*. Move sets `pinned = true`; explicit choice must survive the next reconnect.
+
+Primitives exist, no parallel path:
+- `ConnectionManager.updateUrl()` (`connection.ts:334`) — re-target
+- `pi.registerCommand("__dashboard_reload", …)` (`bridge.ts:1367`) — command template
+
+```mermaid
+sequenceDiagram
+    participant U as user
+    participant B as bridge
+    participant T as target instance
+    participant O as origin instance
+    U->>B: /dashboard connect <target>
+    B->>T: session_register
+    T-->>B: registered
+    B->>O: session_moved
+    O-->>B: ack
+    B->>B: pinned = true
+```
+
+### E. Two session sources — scope limit (planned)
+
+Dashboard learns about a session from two places:
+
+| Source | Mechanism | Travels with a move? |
+|---|---|---|
+| LIVE | bridge WebSocket events | yes |
+| HISTORY / card metadata / resume | `session/session-scanner.ts` reads `~/.pi/agent/sessions/**/*.jsonl` via `resolvePiSessionsDir()` — LOCAL filesystem | only within one HOME |
+
+Consequence table:
+
+| Move | live | history | outcome |
+|---|---|---|---|
+| same-HOME (worktree ↔ main, isolated ↔ live) | follows | follows — both scan same files | complete |
+| cross-host / remote-join | follows | does NOT — remote cannot read local `.jsonl`; `/api/session/:id/resume` cannot respawn a pi on another machine | live-only |
+
+Bounds the remote-join feature. OPEN QUESTION, not solved by this change. Directions — stream history over the bridge at register, proxy from origin dashboard, accept live-only remote sessions — differ enough in cost to need their own change.
+
 ## Provider Authentication
 
 The dashboard supports browser-based authentication with pi's LLM providers, enabling login from phones, tablets, or remote tunnel access without needing terminal access.
