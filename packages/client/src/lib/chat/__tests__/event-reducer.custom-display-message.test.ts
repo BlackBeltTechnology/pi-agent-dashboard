@@ -25,6 +25,15 @@ function customEnd(content: unknown, display: boolean, entryId?: string, ts = 10
   };
 }
 
+/** A message_end carrying an ib-greeting (change: replace-replayed-greeting). */
+function greetingEnd(content: unknown, display: boolean, entryId?: string, ts = 1000): DashboardEvent {
+  return {
+    eventType: "message_end",
+    timestamp: ts,
+    data: { message: { role: "custom", customType: "ib-greeting", content, display }, ...(entryId ? { entryId } : {}) },
+  };
+}
+
 describe("custom display-message rendering", () => {
   it("T1: a custom display message becomes one assistant row with its content", () => {
     let s = createInitialState();
@@ -91,5 +100,40 @@ describe("custom display-message rendering", () => {
     const toolIdx = s.messages.findIndex((m) => m.role === "toolResult" && m.toolCallId === "t1");
     expect(textIdx).toBeGreaterThanOrEqual(0);
     expect(toolIdx).toBeGreaterThan(textIdx);
+  });
+});
+
+describe("ib-greeting singleton replacement (change: replace-replayed-greeting)", () => {
+  it("T4: a newer greeting replaces the prior greeting in place", () => {
+    let s = createInitialState();
+    s = reduceEvent(s, greetingEnd("A", true, "g1"));
+    expect(s.messages).toHaveLength(1);
+    expect(s.messages[0].id).toBe("custom-ib-greeting");
+    expect(s.messages[0].content).toBe("A");
+
+    s = reduceEvent(s, greetingEnd("B", true, "g2"));
+    expect(s.messages).toHaveLength(1); // replaced, not appended
+    expect(s.messages[0].id).toBe("custom-ib-greeting");
+    expect(s.messages[0].content).toBe("B");
+    expect(s.messages[0].entryId).toBe("g2");
+  });
+
+  it("T5: unrelated custom messages are not collapsed", () => {
+    let s = createInitialState();
+    s = reduceEvent(s, greetingEnd("A", true, "g1"));
+    s = reduceEvent(s, customEnd("note-one", true, "c1"));
+    s = reduceEvent(s, greetingEnd("B", true, "g2"));
+    // One greeting row (latest) + one separate x-note row.
+    expect(s.messages).toHaveLength(2);
+    const greeting = s.messages.find((m) => m.id === "custom-ib-greeting");
+    const note = s.messages.find((m) => m.id === "custom-c1");
+    expect(greeting?.content).toBe("B");
+    expect(note?.content).toBe("note-one");
+  });
+
+  it("T6: a hidden greeting produces no row", () => {
+    let s = createInitialState();
+    s = reduceEvent(s, greetingEnd("secret", false, "g1"));
+    expect(s.messages).toHaveLength(0);
   });
 });

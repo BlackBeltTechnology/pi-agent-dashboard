@@ -1,9 +1,7 @@
 ## Purpose
 
 Loads session events on demand when a browser subscribes to a session whose events have been evicted from the in-memory buffer. The server reads session files directly from disk without requiring a bridge connection.
-
-## ADDED Requirements
-
+## Requirements
 ### Requirement: On-demand session loading via server
 When a browser subscribes to a session whose events are not in memory, the server SHALL load the session directly from pi's session file on disk using `SessionManager.open(sessionFile).getBranch()`, without routing through a bridge.
 
@@ -52,8 +50,6 @@ The subscription handler SHALL detect when a browser's `lastSeq` exceeds the ser
 #### Scenario: Valid lastSeq returns delta
 - **WHEN** a browser subscribes with `lastSeq: 50` and the server has events up to seq `100`
 - **THEN** the server SHALL replay events with seq 51–100 without sending `session_state_reset`
-
-
 
 ### Requirement: Replay accepts a caller-supplied contextWindow override
 The system SHALL allow callers of `replayEntriesAsEvents(sessionId, entries, knownContextWindow?)` to supply an optional `knownContextWindow` value. When provided, every synthesized `stats_update.contextUsage.contextWindow` field SHALL be set to that value; when omitted, the system SHALL fall back to `inferContextWindow(currentModel)`.
@@ -160,3 +156,37 @@ Until the upstream flush lands, the live multi-client path (server in-memory eve
 #### Scenario: Custom flush-marker is the preferred upstream resolution
 - **WHEN** the upstream flush fix is implemented in `@earendil-works/pi-coding-agent`
 - **THEN** it SHOULD flush on an opt-in `type:"custom"` flush-marker entry (writable from pi-flows via `appendEntry`, excluded from LLM context by `buildSessionContext`), rather than by injecting any `message` entry
+
+### Requirement: Replay emits a singleton current greeting
+A persisted `custom_message` entry with `customType:"ib-greeting"` SHALL replay as a
+singleton current-state overlay, not as chat history. For a session whose JSONL contains
+one or more such display-flagged entries, `replayEntriesAsEvents` SHALL emit exactly one
+`message_start` + `message_end` pair carrying the LATEST entry's content, positioned at
+the slot of the FIRST greeting entry so the greeting stays the opener. Earlier greeting
+entries SHALL NOT emit any event. Greeting entries whose `display` is falsy or absent
+SHALL be ignored. Non-greeting `custom_message` entries (`customType` other than
+`"ib-greeting"`) SHALL still each replay their own `message_start` + `message_end` pair,
+unchanged. The emitted greeting events SHALL carry `customType:"ib-greeting"` and the
+latest entry's `entryId`, so the reducer rebuilds the same singleton row live and replay.
+
+#### Scenario: Three historical greetings replay as one latest greeting
+- **WHEN** a session JSONL contains three `type:"custom_message"` entries with
+  `customType:"ib-greeting"`, `display:true`, and content A, B, C in order
+- **THEN** replay SHALL emit exactly one `message_start` and one `message_end` for the
+  greeting
+- **AND** both SHALL carry content C (the latest)
+- **AND** the emitted events SHALL carry `entryId` equal to the latest greeting's id
+
+#### Scenario: Unrelated custom messages replay unchanged
+- **WHEN** a session JSONL contains two `ib-greeting` entries and one
+  `type:"custom_message"` entry with `customType:"x-note"`, all `display:true`
+- **THEN** replay SHALL emit one greeting pair (latest greeting content) plus one
+  `x-note` pair
+- **AND** the `x-note` pair SHALL carry the `x-note` entry's content and `entryId`
+
+#### Scenario: No greeting leaves replay unchanged
+- **WHEN** a session JSONL contains display-flagged custom messages but no
+  `customType:"ib-greeting"` entry
+- **THEN** replay SHALL emit a pair for every display-flagged custom message exactly as
+  before, and no greeting singleton handling SHALL apply
+

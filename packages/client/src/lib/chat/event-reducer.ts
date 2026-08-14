@@ -1742,7 +1742,13 @@ export function reduceEvent(
               .join("")
           : String(msg.content ?? "");
         const entryId = data.entryId as string | undefined;
-        const customId = `custom-${entryId ?? next.messages.length}`;
+        // Singleton current-state overlay (ib-greeting): a newer greeting
+        // REPLACES the prior in place via a stable id, so the opener row keeps
+        // its position and only its content/entryId advance. Non-greeting
+        // custom messages keep per-entry ids (never collapsed). See change:
+        // replace-replayed-greeting.
+        const isGreeting = msg.customType === "ib-greeting";
+        const customId = isGreeting ? "custom-ib-greeting" : `custom-${entryId ?? next.messages.length}`;
         const existingIdx = next.messages.findLastIndex((m) => m.id === customId);
         if (existingIdx !== -1) {
           next.messages = [...next.messages];
