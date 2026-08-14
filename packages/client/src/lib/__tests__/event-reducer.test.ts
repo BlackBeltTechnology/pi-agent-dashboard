@@ -2983,7 +2983,7 @@ describe("lastError extraction from agent_end", () => {
     expect(state.lastError).toBeUndefined();
   });
 
-  it("does NOT clear lastError on a mid-turn tool_use message_end", () => {
+  it("E4 clears retry and error on any non-error, non-aborted assistant completion", () => {
     let state = applyEvents([
       {
         eventType: "agent_end",
@@ -2991,15 +2991,73 @@ describe("lastError extraction from agent_end", () => {
         data: { messages: [{ role: "assistant", stopReason: "error", errorMessage: "boom", content: [] }] },
       },
     ]);
-    state = reduceEvent(state, { eventType: "agent_start", timestamp: 2000, data: {} });
+    state.retryState = {
+      attempt: 1,
+      maxAttempts: 3,
+      delayMs: 2000,
+      waiting: false,
+      reason: "boom",
+      startedAt: 2000,
+    };
     state = reduceEvent(state, {
       eventType: "message_end",
       timestamp: 2100,
       data: { message: { role: "assistant", stopReason: "tool_use", content: [{ type: "text", text: "calling tool" }] } },
     });
-    // Mid-turn stop must not clear — the turn can still error afterward.
-    expect(state.lastError).toBeDefined();
-    expect(state.lastError!.message).toBe("boom");
+    expect(state.lastError).toBeUndefined();
+    expect(state.retryState).toBeUndefined();
+    expect(deriveBannerState(state)).toEqual({ variant: "hidden" });
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["non-string", 42],
+  ])("preserves retry/error state when message_end has a %s stopReason", (_label, stopReason) => {
+    const state = createInitialState();
+    state.lastError = { message: "503 overloaded", timestamp: 1000 };
+    state.retryState = {
+      attempt: 1,
+      maxAttempts: 3,
+      delayMs: 2000,
+      waiting: false,
+      reason: "503 overloaded",
+      startedAt: 1000,
+    };
+
+    const next = reduceEvent(state, {
+      eventType: "message_end",
+      timestamp: 2000,
+      data: { message: { role: "assistant", stopReason, content: [] } },
+    });
+
+    expect(next.lastError).toEqual(state.lastError);
+    expect(next.retryState).toEqual(state.retryState);
+  });
+
+  it("failed retry-end advances the lifecycle revision while preserving the displayed provider error", () => {
+    const state = createInitialState();
+    state.lastError = { message: "503 overloaded", timestamp: 1000 };
+
+    const next = reduceEvent(state, {
+      eventType: "auto_retry_end",
+      timestamp: 2000,
+      data: { success: false, attempt: 0, finalError: "retry dispatch failed" },
+    });
+
+    expect(next.lastError).toEqual({ message: "503 overloaded", timestamp: 2000 });
+  });
+
+  it("advances retry lifecycle revision when the failed event timestamp is unchanged", () => {
+    const state = createInitialState();
+    state.lastError = { message: "503 overloaded", timestamp: 1000 };
+
+    const next = reduceEvent(state, {
+      eventType: "auto_retry_end",
+      timestamp: 1000,
+      data: { success: false, attempt: 0, finalError: "retry dispatch failed" },
+    });
+
+    expect(next.lastError).toEqual({ message: "503 overloaded", timestamp: 1001 });
   });
 
   it("failed retry updates lastError without a hidden intermediate frame", () => {
@@ -3231,6 +3289,19 @@ describe("auto_retry events (provider-retry-state)", () => {
     expect(state.lastError).toBeUndefined();
   });
 
+  it("E4 successful retry-end clears a stale error even when retryState is already absent", () => {
+    let state = createInitialState();
+    state.lastError = { message: "stale provider error", timestamp: 100 };
+    state = reduceEvent(state, {
+      eventType: "auto_retry_end",
+      timestamp: 6000,
+      data: { success: true, attempt: 2 },
+    });
+    expect(state.retryState).toBeUndefined();
+    expect(state.lastError).toBeUndefined();
+    expect(deriveBannerState(state)).toEqual({ variant: "hidden" });
+  });
+
   it("clears retryState and surfaces lastError on auto_retry_end with failure", () => {
     let state = createInitialState();
     state = reduceEvent(state, {
@@ -3247,7 +3318,7 @@ describe("auto_retry events (provider-retry-state)", () => {
     expect(state.lastError).toEqual({ message: "Rate limit exceeded", timestamp: 7000 });
   });
 
-  it("does not overwrite existing lastError on auto_retry_end failure", () => {
+  it("preserves the existing error message but advances its lifecycle revision on retry failure", () => {
     let state = createInitialState();
     state.lastError = { message: "earlier error", timestamp: 100 };
     state = reduceEvent(state, {
@@ -3261,18 +3332,20 @@ describe("auto_retry events (provider-retry-state)", () => {
       data: { success: false, finalError: "new error" },
     });
     expect(state.retryState).toBeUndefined();
-    expect(state.lastError).toEqual({ message: "earlier error", timestamp: 100 });
+    expect(state.lastError).toEqual({ message: "earlier error", timestamp: 7000 });
   });
 
-  it("agent_start defensively clears stale retryState", () => {
+  it("E1 agent_start preserves the active retry state and provider error", () => {
     let state = createInitialState();
+    state.lastError = { message: "x", timestamp: 4000 };
     state = reduceEvent(state, {
-      eventType: "auto_retry_start",
+      eventType: "auto_retry_waiting",
       timestamp: 5000,
       data: { attempt: 1, maxAttempts: 3, delayMs: 2000, errorMessage: "x" },
     });
     state = reduceEvent(state, { eventType: "agent_start", timestamp: 6000, data: {} });
-    expect(state.retryState).toBeUndefined();
+    expect(state.retryState?.waiting).toBe(true);
+    expect(state.lastError?.message).toBe("x");
   });
 
   it("agent_end PRESERVES retryState while still extracting lastError (per-attempt, not terminal)", () => {
@@ -3308,83 +3381,95 @@ describe("auto_retry events (provider-retry-state)", () => {
     expect(state.retryState).toBeUndefined();
   });
 
-  it("auto_retry_end without prior retryState is a no-op", () => {
+  it("E6 a failed retry-end finalError establishes the second provider-error path", () => {
     let state = createInitialState();
     state = reduceEvent(state, {
       eventType: "auto_retry_end",
       timestamp: 6000,
-      data: { success: false, finalError: "stale" },
+      data: { success: false, attempt: 3, finalError: "503 overloaded" },
+    });
+    expect(state.retryState).toBeUndefined();
+    expect(state.lastError).toEqual({ message: "503 overloaded", timestamp: 6000 });
+    expect(deriveBannerState(state)).toEqual({ error: { kind: "error", message: "503 overloaded" } });
+  });
+
+  it("X8 a duplicate late retry-end without finalError is hidden and idempotent", () => {
+    let state = createInitialState();
+    state = reduceEvent(state, {
+      eventType: "auto_retry_end",
+      timestamp: 6000,
+      data: { success: false, attempt: 2 },
     });
     expect(state.retryState).toBeUndefined();
     expect(state.lastError).toBeUndefined();
+    expect(deriveBannerState(state)).toEqual({ variant: "hidden" });
   });
 
-  // Defense-in-depth guard against (yellow + red) banner overlap.
-  // See change: fix-retry-banner-stuck-on-limit-exceeded.
-  describe("auto_retry_start defensive guard against banner overlap", () => {
-    it("drops auto_retry_start when lastError is fresh same-turn (≤1500ms, not streaming)", () => {
-      let state = createInitialState();
-      state.lastError = { message: "...quota exhausted...", timestamp: 1_000_000 };
-      state.isStreaming = false;
-      state = reduceEvent(state, {
-        eventType: "auto_retry_start",
-        timestamp: 1_000_500, // 500ms later
-        data: { attempt: 1, maxAttempts: -1, delayMs: -1, errorMessage: "429" },
-      });
-      expect(state.retryState).toBeUndefined();
-      expect(state.lastError).toEqual({ message: "...quota exhausted...", timestamp: 1_000_000 });
+  it("X3 abort retry-end clears retry and error and installs cancellation suppression", () => {
+    let state = createInitialState();
+    state.lastError = { message: "503", timestamp: 100 };
+    state.retryState = {
+      attempt: 2,
+      maxAttempts: 3,
+      delayMs: 4000,
+      waiting: true,
+      reason: "503",
+      startedAt: 100,
+    };
+    state = reduceEvent(state, {
+      eventType: "auto_retry_end",
+      timestamp: 200,
+      data: { success: false, attempt: -1 },
     });
+    expect(state.retryState).toBeUndefined();
+    expect(state.lastError).toBeUndefined();
+    expect(state.retryCancelled).toBe(true);
+  });
 
-    it("does NOT drop auto_retry_start when lastError is stale carry-over (>1500ms old)", () => {
-      let state = createInitialState();
-      state.lastError = { message: "earlier turn", timestamp: 1_000_000 };
-      state.isStreaming = false;
-      state = reduceEvent(state, {
-        eventType: "auto_retry_start",
-        timestamp: 1_010_000, // 10s later
-        data: { attempt: 1, maxAttempts: -1, delayMs: -1, errorMessage: "rate limit" },
-      });
-      expect(state.retryState).toBeDefined();
-      expect(state.retryState!.reason).toBe("rate limit");
-      expect(state.lastError).toEqual({ message: "earlier turn", timestamp: 1_000_000 });
-    });
+  it("X4 late retry and provider-error events after abort cannot reopen the banner", () => {
+    let state = createInitialState();
+    state.retryCancelled = true;
+    const lateEvents = [
+      { eventType: "auto_retry_waiting", data: { attempt: 2, errorMessage: "late" } },
+      { eventType: "auto_retry_start", data: { attempt: 2, errorMessage: "late" } },
+      { eventType: "agent_end", data: { messages: [{ role: "assistant", stopReason: "error", errorMessage: "late" }] } },
+      { eventType: "auto_retry_end", data: { success: false, finalError: "late" } },
+    ];
+    for (const [index, late] of lateEvents.entries()) {
+      state = reduceEvent(state, { ...late, timestamp: 300 + index } as DashboardEvent);
+    }
+    expect(state.retryState).toBeUndefined();
+    expect(state.lastError).toBeUndefined();
+    expect(deriveBannerState(state)).toEqual({ variant: "hidden" });
+  });
 
-    it("does NOT drop auto_retry_start when streaming (isStreaming=true)", () => {
-      let state = createInitialState();
-      state.lastError = { message: "fresh but mid-stream", timestamp: 1_000_000 };
-      state.isStreaming = true;
-      state = reduceEvent(state, {
-        eventType: "auto_retry_start",
-        timestamp: 1_000_500,
-        data: { attempt: 1, maxAttempts: -1, delayMs: -1, errorMessage: "x" },
-      });
-      expect(state.retryState).toBeDefined();
+  it("X4 a new explicit user run releases cancellation suppression", () => {
+    let state = createInitialState();
+    state.retryCancelled = true;
+    state = reduceEvent(state, {
+      eventType: "message_start",
+      timestamp: 500,
+      data: { message: { role: "user", content: "try again" } },
     });
+    expect(state.retryCancelled).toBeUndefined();
+    state = reduceEvent(state, {
+      eventType: "agent_end",
+      timestamp: 600,
+      data: { messages: [{ role: "assistant", stopReason: "error", errorMessage: "new failure" }] },
+    });
+    expect(state.lastError?.message).toBe("new failure");
+  });
 
-    it("does NOT drop auto_retry_start when lastError is undefined", () => {
-      let state = createInitialState();
-      state.lastError = undefined;
-      state.isStreaming = false;
-      state = reduceEvent(state, {
-        eventType: "auto_retry_start",
-        timestamp: 5000,
-        data: { attempt: 1, maxAttempts: -1, delayMs: -1, errorMessage: "x" },
-      });
-      expect(state.retryState).toBeDefined();
+  it("typed auto_retry_start is accepted even beside a fresh provider error", () => {
+    let state = createInitialState();
+    state.lastError = { message: "fresh", timestamp: 1_000_000 };
+    state = reduceEvent(state, {
+      eventType: "auto_retry_start",
+      timestamp: 1_000_001,
+      data: { attempt: 1, maxAttempts: 3, delayMs: 2000, errorMessage: "fresh" },
     });
-
-    it("does NOT drop auto_retry_start when lastError is exactly at the boundary (1500ms old)", () => {
-      // Boundary case: with `<=` semantics, exactly 1500ms drops; 1501ms keeps.
-      let state = createInitialState();
-      state.lastError = { message: "boundary", timestamp: 1_000_000 };
-      state.isStreaming = false;
-      state = reduceEvent(state, {
-        eventType: "auto_retry_start",
-        timestamp: 1_001_501, // 1501ms later
-        data: { attempt: 1, maxAttempts: -1, delayMs: -1, errorMessage: "x" },
-      });
-      expect(state.retryState).toBeDefined();
-    });
+    expect(state.retryState?.waiting).toBe(false);
+    expect(state.lastError?.message).toBe("fresh");
   });
 });
 
@@ -3501,11 +3586,10 @@ describe("error-lifecycle: composed surface end-to-end", () => {
     expect(bannerHas(s)).toEqual({ error: true, retry: true });
     expect(s.retryState!.waiting).toBe(true);
 
-    // 3. The retry attempt starts — agent_start defensively clears retryState,
-    //    then the deferred auto_retry_start re-sets it in flight. lastError
-    //    persists throughout.
+    // 3. The retry attempt starts — the waiting retry state remains until the
+    //    typed auto_retry_start flips it in flight. lastError persists.
     s = reduceEvent(s, { eventType: "agent_start", timestamp: 3010, data: {} });
-    expect(s.retryState).toBeUndefined();
+    expect(s.retryState?.waiting).toBe(true);
     s = reduceEvent(s, {
       eventType: "auto_retry_start",
       timestamp: 3011,

@@ -490,6 +490,8 @@ export default function App() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sessions, setSessions] = useState<Map<string, DashboardSession>>(new Map());
   const [sessionStates, setSessionStates] = useState<Map<string, SessionState>>(new Map());
+  const sessionStatesRef = useRef(sessionStates);
+  sessionStatesRef.current = sessionStates;
   // Per-session dashboard-local `/view` preview rows. Lives separately from
   // event-reducer state so the reducer never sees them. Merged with
   // `state.messages` by timestamp when passing to ChatView.
@@ -1246,7 +1248,7 @@ export default function App() {
 
   const sessionActions = useSessionActions({
     selectedId, send, navigate, setMobileOpen,
-    sessions, setSessions, setSessionStates, setSpawningCwds, setTerminals,
+    sessions, setSessions, setSessionStates, sessionStatesRef, setSpawningCwds, setTerminals,
     clearSpawningCwd, spawnTimeoutsRef, pendingTerminalCwdRef, terminals,
     pendingSpawnsRef,
   });
@@ -1257,7 +1259,7 @@ export default function App() {
     // honest-mid-turn-queue-surface.
     handleAbort, handleForceKill, handleStopAfterTurn, handleCancelPending, handleRespondToUi, handleSend,
     handleSelect, handleRenameSession, handleShutdownSession, handleKillProcess,
-    handleSendPromptToSession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
+    handleSendPromptToSession, handleRetrySession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
     handleHideSession, handleUnhideSession, handleSetSessionTags, removeTagGlobally,
     handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle,
     handleOpenInlineTerminal, handleCloseInlineTerminal,
@@ -1798,11 +1800,14 @@ export default function App() {
               abort entry point). The trailing control's icon states its action:
               a chevron that COLLAPSES while retrying (component-local — it never
               clears `retryState`, so the session Stop stays mounted), and a real
-              ✕ once retrying stops. The surface also clears itself on a
-              confirmed-good resume.
-              See change: error-banner-observe-only, raw-error-render-and-retry-authority. */}
+              ✕ once retrying stops. Settled provider errors offer one-shot
+              Retry via a hidden non-user turn on the active bridge; success,
+              abort, or removal hides the surface.
+              See change: error-banner-observe-only, fix-retry-error-lifecycle. */}
           <SessionBanner
             state={deriveBannerState(selectedState)}
+            retryRevision={selectedState.lastError?.timestamp}
+            onRetry={selectedId ? () => handleRetrySession(selectedId) : undefined}
             onDismiss={selectedId ? () => {
               setSessionStates((prev) => {
                 const next = new Map(prev);

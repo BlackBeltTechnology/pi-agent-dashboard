@@ -90,6 +90,9 @@ interface Chain {
 
 export class RetryTracker {
   private chains = new Map<string, Chain>();
+  /** Suppresses delayed events from a user-cancelled chain until settle or a
+   * deliberate new user run releases the session. */
+  private cancelled = new Set<string>();
   private readonly settings: RetrySettings;
 
   constructor(settings?: Partial<RetrySettings>) {
@@ -105,7 +108,8 @@ export class RetryTracker {
   /** `delayMs = baseDelayMs · 2^(attempt-1)`; 0 when the base is unknown. */
   private delayFor(attempt: number): number {
     if (this.settings.baseDelayMs <= 0 || attempt < 1) return 0;
-    return this.settings.baseDelayMs * 2 ** (attempt - 1);
+    const delayMs = this.settings.baseDelayMs * 2 ** (attempt - 1);
+    return Number.isFinite(delayMs) ? delayMs : 0;
   }
 
   /**
@@ -115,6 +119,7 @@ export class RetryTracker {
    * emit nothing.
    */
   observeAgentStart(sessionId: string): SyntheticRetryEvent | null {
+    if (this.cancelled.has(sessionId)) return null;
     const chain = this.chains.get(sessionId);
     if (!chain?.armed) return null;
     chain.armed = false;
@@ -130,21 +135,50 @@ export class RetryTracker {
   }
 
   /**
-   * Process a `message_end`. An error assistant message records the pending
-   * error text and opens/keeps the chain; anything else is a no-op here
-   * (`agent_settled` decides success). Never clears the chain.
+   * Process an assistant `message_end`. Errors open/refresh the chain. The
+   * first non-error completion closes an active chain immediately — matching
+   * pi's own automatic-continuation success signal without requiring a user
+   * message. Aborted completions terminate the chain but are never success.
    */
   observeMessageEnd(
     sessionId: string,
     message: ObservedAssistantMessage | undefined | null,
   ): SyntheticRetryEvent | null {
-    if (message?.role !== "assistant") return null;
-    if (message.stopReason !== "error") return null;
-    const err = typeof message.errorMessage === "string" ? message.errorMessage : "";
+    if (this.cancelled.has(sessionId) || message?.role !== "assistant") return null;
+
+    if (message.stopReason === "error") {
+      const err = typeof message.errorMessage === "string" ? message.errorMessage : "";
+      const chain = this.chains.get(sessionId);
+      if (chain) {
+        chain.errorMessage = err;
+        chain.lastEndWasError = true;
+      } else {
+        this.chains.set(sessionId, {
+          attempt: 0,
+          errorMessage: err,
+          armed: false,
+          lastEndWasError: true,
+        });
+      }
+      return null;
+    }
+
+    const stopReason = message.stopReason;
+    if (typeof stopReason !== "string" || stopReason.length === 0) return null;
+
     const chain = this.chains.get(sessionId);
-    if (chain) chain.errorMessage = err;
-    else this.chains.set(sessionId, { attempt: 0, errorMessage: err, armed: false, lastEndWasError: true });
-    return null;
+    if (!chain) return null;
+    this.chains.delete(sessionId);
+
+    if (stopReason === "aborted") {
+      this.cancelled.add(sessionId);
+      return { eventType: "auto_retry_end", data: { success: false, attempt: -1 } };
+    }
+
+    return {
+      eventType: "auto_retry_end",
+      data: { success: true, attempt: chain.attempt },
+    };
   }
 
   /**
@@ -157,6 +191,7 @@ export class RetryTracker {
     sessionId: string,
     agentEndData: { messages?: unknown } | undefined | null,
   ): SyntheticRetryEvent | null {
+    if (this.cancelled.has(sessionId)) return null;
     const messages = agentEndData?.messages;
     // Match pi's own `_willRetryAfterAgentEnd`: the retry decision keys off the
     // last ASSISTANT message (found by its structured `role`), NOT merely the
@@ -183,12 +218,21 @@ export class RetryTracker {
     // a turn that never succeeded.
     // See change: raw-error-render-and-retry-authority.
     if (lastMsg === undefined) return null;
+    const stopReason = lastMsg.stopReason;
+    if (typeof stopReason !== "string" || stopReason.length === 0) return null;
 
-    const isError = lastMsg.stopReason === "error";
+    if (stopReason === "aborted") {
+      const existing = this.chains.get(sessionId);
+      if (!existing) return null;
+      this.chains.delete(sessionId);
+      this.cancelled.add(sessionId);
+      return { eventType: "auto_retry_end", data: { success: false, attempt: -1 } };
+    }
+
+    const isError = stopReason === "error";
     if (!isError) {
-      // A non-error agent_end closes an active chain SUCCESSFULLY, but the
-      // chain stays open until `agent_settled` terminates it. Record the
-      // disposition so the settle emits success.
+      // `message_end` normally closes success first. Keep this disposition as
+      // a fallback for event sources that omit message_end.
       const existing = this.chains.get(sessionId);
       if (existing) existing.lastEndWasError = false;
       return null;
@@ -234,6 +278,10 @@ export class RetryTracker {
    * all per-session tracking. No active chain → nothing.
    */
   observeAgentSettled(sessionId: string): SyntheticRetryEvent | null {
+    if (this.cancelled.delete(sessionId)) {
+      this.chains.delete(sessionId);
+      return null;
+    }
     const chain = this.chains.get(sessionId);
     if (!chain) return null;
     this.chains.delete(sessionId);
@@ -250,15 +298,30 @@ export class RetryTracker {
   }
 
   /**
-   * Notify the tracker of a user abort. Clears the chain so a subsequent
-   * `agent_settled` does not double-emit `auto_retry_end`.
+   * Notify the tracker of a user abort. Clear the active chain and suppress
+   * delayed events until settle or a deliberate new user run.
    */
   noteAbort(sessionId: string): void {
     this.chains.delete(sessionId);
+    this.cancelled.add(sessionId);
   }
 
-  /** Test-only / bridge-coordination: is a retry chain currently active? */
+  /** A new explicit user run is independent from any cancelled or floor-pi
+   * chain left without a native terminal settle. */
+  noteExplicitRun(sessionId: string): void {
+    this.cancelled.delete(sessionId);
+    this.chains.delete(sessionId);
+  }
+
+  /** Bridge coordination: is a retry chain currently active? */
   isRetrying(sessionId: string): boolean {
     return this.chains.has(sessionId);
+  }
+
+  /** Floor-pi reconciliation: true only while the specified attempt is still
+   * armed and has not produced its matching agent_start. */
+  isAwaitingRetry(sessionId: string, attempt: number): boolean {
+    const chain = this.chains.get(sessionId);
+    return chain?.armed === true && chain.attempt === attempt;
   }
 }

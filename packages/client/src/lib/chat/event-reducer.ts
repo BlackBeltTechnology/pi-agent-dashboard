@@ -342,8 +342,11 @@ export interface SessionState {
    * inputs. See change: surface-input-streaming-behavior.
    */
   pendingInputBehavior?: "steer" | "followUp";
-  /** Last LLM provider error (set from agent_end, cleared on agent_start or dismiss) */
+  /** Last LLM provider error. Persists through retry; clears on recovery, abort, dismissal, or removal. */
   lastError?: { message: string; timestamp: number };
+  /** Cancellation tombstone for an aborted retry chain. Suppresses delayed
+   * provider/retry events until settle or a deliberate user run. */
+  retryCancelled?: boolean;
   /**
    * Non-error notice: the model returned only reasoning, no answer
    * (empty-actionable turn surfaced by the bridge guard). Set from the
@@ -1239,12 +1242,9 @@ export function reduceEvent(
       next.status = "streaming";
       next.streamingText = "";
       next.pendingPrompt = undefined;
-      // lastError is NOT cleared here. The error anchor persists across the
-      // start of a retry/continuation turn and clears only on a confirmed
-      // non-error response (message_end end_turn / clean agent_end). This
-      // removes the optimistic-clear desync where the error vanished before
-      // the retry was confirmed good. See change: unify-error-retry-lifecycle.
-      next.retryState = undefined;
+      // lastError and retryState persist across pi-owned continuation. The
+      // typed auto_retry_start updates waiting → in-flight; the first non-error
+      // assistant completion clears both. See change: fix-retry-error-lifecycle.
       // A fresh turn clears any stale empty-actionable notice.
       // See change: fix-gemini-subagent-silent-tool-schema-failure.
       next.notice = undefined;
@@ -1275,14 +1275,15 @@ export function reduceEvent(
       next.streamingText = "";
       next.currentTool = undefined;
       next.pendingPrompt = undefined;
-      const errorMsg = extractAgentEndError(data);
-      if (errorMsg) {
-        next.lastError = { message: errorMsg, timestamp: event.timestamp };
-      } else if (isCleanAgentEnd(data)) {
-        // Confirmed-good clear: a terminal agent_end whose last message is a
-        // non-error stop clears the persistent error anchor.
-        // See change: unify-error-retry-lifecycle.
-        next.lastError = undefined;
+      if (!state.retryCancelled) {
+        const errorMsg = extractAgentEndError(data);
+        if (errorMsg) {
+          next.lastError = { message: errorMsg, timestamp: event.timestamp };
+        } else if (isCleanAgentEnd(data)) {
+          // Fallback recovery for sources that omit message_end.
+          next.lastError = undefined;
+          next.retryState = undefined;
+        }
       }
       // retryState is NOT cleared here: pi fires one agent_end PER attempt, so
       // clearing would wipe the waiting/in-flight state between every attempt.
@@ -1292,6 +1293,14 @@ export function reduceEvent(
     }
 
     case "agent_settled": {
+      // Floor-pi emits a compatibility settle after every agent_end. While the
+      // bridge still observes pi as busy, this is not terminal: preserve retry
+      // and abort suppression so Retry cannot overlap an automatic attempt.
+      if (data.retryPending === true) {
+        next.isStreaming = false;
+        next.status = "ended";
+        break;
+      }
       // The single terminal signal that resolves `"idle"`. The bridge
       // guarantees exactly one per run (real on pi ≥ 0.80.4, synthesized
       // synchronously after `agent_end` on floor pi), so this arm needs no
@@ -1305,6 +1314,7 @@ export function reduceEvent(
       // matching auto_retry_end (bridge-synthesized before this settle) already
       // set lastError on failure. See change: retry-forever-with-stop-control.
       next.retryState = undefined;
+      next.retryCancelled = undefined;
       break;
     }
 
@@ -1314,6 +1324,7 @@ export function reduceEvent(
       // countdown. No fresh-error guard here — this signal is EXPECTED to arrive
       // right after an error agent_end (which sets lastError).
       // See change: retry-forever-with-stop-control.
+      if (state.retryCancelled) break;
       const attempt = typeof data.attempt === "number" ? data.attempt : 1;
       const maxAttempts = typeof data.maxAttempts === "number" ? data.maxAttempts : 0;
       const delayMs = typeof data.delayMs === "number" ? data.delayMs : 0;
@@ -1332,23 +1343,7 @@ export function reduceEvent(
     }
 
     case "auto_retry_start": {
-      // Defensive guard: drop the event when a fresh same-turn lastError is
-      // already set and the session is not streaming. This prevents the
-      // (yellow + red) banner-overlap state if any future bridge ordering
-      // bug ever delivers an `auto_retry_start` AFTER `agent_end` for the
-      // same terminal turn. Existing carry-over behavior (stale red from a
-      // prior turn + fresh yellow on a new turn) is preserved because by
-      // the time the new turn's `auto_retry_start` arrives, `agent_start`
-      // has already cleared `lastError` (so the guard's first precondition
-      // is false). See change: fix-retry-banner-stuck-on-limit-exceeded.
-      const FRESH_ERROR_WINDOW_MS = 1500;
-      if (
-        state.lastError &&
-        !state.isStreaming &&
-        event.timestamp - state.lastError.timestamp <= FRESH_ERROR_WINDOW_MS
-      ) {
-        break;
-      }
+      if (state.retryCancelled) break;
       const attempt = typeof data.attempt === "number" ? data.attempt : 1;
       const maxAttempts = typeof data.maxAttempts === "number" ? data.maxAttempts : 0;
       const delayMs = typeof data.delayMs === "number" ? data.delayMs : 0;
@@ -1367,14 +1362,29 @@ export function reduceEvent(
     }
 
     case "auto_retry_end": {
-      // No-op if no retry was tracked (covers stale events / multi-call turns).
-      if (!state.retryState) {
+      const attempt = typeof data.attempt === "number" ? data.attempt : undefined;
+      if (attempt === -1) {
+        next.retryState = undefined;
+        next.lastError = undefined;
+        next.retryCancelled = true;
         break;
       }
+      if (state.retryCancelled) break;
+
       next.retryState = undefined;
-      // Surface terminal error early when no other lastError has fired yet.
-      if (data.success === false && typeof data.finalError === "string" && !state.lastError) {
-        next.lastError = { message: data.finalError, timestamp: event.timestamp };
+      if (data.success === true) {
+        next.lastError = undefined;
+        break;
+      }
+      if (data.success === false && typeof data.finalError === "string" && data.finalError.length > 0) {
+        const previousRevision = state.lastError?.timestamp;
+        const observedRevision = Number.isFinite(event.timestamp) ? event.timestamp : 0;
+        const nextRevision = typeof previousRevision === "number" && Number.isFinite(previousRevision)
+          ? Math.max(observedRevision, previousRevision + 1)
+          : observedRevision;
+        next.lastError = state.lastError
+          ? { ...state.lastError, timestamp: nextRevision }
+          : { message: data.finalError, timestamp: nextRevision };
       }
       break;
     }
@@ -1438,6 +1448,7 @@ export function reduceEvent(
       }
       if (msg?.role === "user") {
         next.pendingPrompt = undefined;
+        next.retryCancelled = undefined;
         let text = "";
         let images: ChatImage[] | undefined;
         if (Array.isArray(msg.content)) {
@@ -1615,15 +1626,15 @@ export function reduceEvent(
     case "message_end": {
       const msg = data.message as any;
       if (msg?.role === "assistant") {
-        // Confirmed-good clear: an assistant message that completed with a
-        // terminal SUCCESS stop (pi-ai `"stop"`; `"end_turn"` accepted too)
-        // clears the persistent error anchor. Mid-turn / non-success stops
-        // (`toolUse`, `error`, `aborted`, `length`) do NOT clear — the turn can
-        // still error afterward, and clearing on them would flicker / drop the
-        // anchor across an interactive pause.
-        // See change: unify-error-retry-lifecycle.
-        if (CONFIRMED_GOOD_STOP_REASONS.has(msg.stopReason)) {
+        // Any structurally valid non-error, non-aborted assistant completion
+        // confirms provider recovery, including pi-owned continuation without
+        // a user message. Missing/non-string runtime data proves no disposition
+        // and must preserve the unresolved lifecycle.
+        // See change: fix-retry-error-lifecycle.
+        const stopReason = typeof msg.stopReason === "string" ? msg.stopReason : undefined;
+        if (!state.retryCancelled && stopReason && stopReason !== "error" && stopReason !== "aborted") {
           next.lastError = undefined;
+          next.retryState = undefined;
         }
         // Reasoning reconstruction on REPLAY. Live turns build `thinking` rows
         // from thinking_start/delta/end events (see message_update), but the

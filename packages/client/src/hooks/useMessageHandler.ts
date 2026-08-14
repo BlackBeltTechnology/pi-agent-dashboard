@@ -390,6 +390,24 @@ export function useMessageHandler(
           }
           return next;
         });
+        // `session_removed` is the confirmed clean-shutdown / force-kill
+        // boundary. Preserve transcript/statistics, but no retry or provider
+        // error can remain actionable after the process is gone.
+        setSessionStates((prev) => {
+          const existing = prev.get(msg.sessionId);
+          if (!existing) return prev;
+          const next = new Map(prev);
+          next.set(msg.sessionId, {
+            ...existing,
+            status: "ended",
+            isStreaming: false,
+            currentTool: undefined,
+            retryState: undefined,
+            lastError: undefined,
+            retryCancelled: undefined,
+          });
+          return next;
+        });
         break;
 
       case "session_state_reset":
