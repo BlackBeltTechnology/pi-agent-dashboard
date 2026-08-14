@@ -845,11 +845,18 @@ export interface RecoveryDismissMessage {
  * payload verbatim. One envelope carries any lifecycle domain event, so new
  * `ib_*` kinds add no protocol member. Additive — the per-session `event`
  * stream is unchanged. See change: surface-invoice-domain-events-app-level.
+ *
+ * `replay` marks a frame the server replayed from its latest-per-invoice cache
+ * on connect (absent/false on live frames). A consumer MUST treat a
+ * `replay: true` frame as an idempotent state-set (converge to it), never as an
+ * incremental delta, so counters/animations driven by live deltas are not
+ * double-applied. See change: replay-invoice-domain-events.
  */
 export interface IbDomainEventMessage {
   type: "ib_domain_event";
   sessionId: string;
   event: { eventType: string; data: unknown };
+  replay?: boolean;
 }
 
 /**
