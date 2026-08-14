@@ -637,10 +637,16 @@ export function createEngine(deps: EngineDeps): Engine {
    * Fan-out-aware MANUAL run-now. Mirrors `dispatchFire`'s per-invoice fan-out but
    * FORCE-STARTS each run directly via `startRunFor` (Run-now deliberately
    * ignores the concurrency gate that gates scheduled fires). A non-per-invoice
-   * automation starts exactly one run, unchanged. An empty queue starts no run
-   * (success, no id); a missing/failed enumerator skips (failure). Returns the
-   * FIRST started run's id so the route contract holds.
-   * See change: run-now-fans-out-per-invoice.
+   * automation starts exactly one run, unchanged.
+   *
+   * Because run-now is an explicit operator action it ALWAYS issues a settling
+   * run id: on an EMPTY queue it starts ONE idle run (no invoice bound) that
+   * settles on the empty pick, rather than the silent no-op the SCHEDULER path
+   * (`dispatchFire`) does. Two consecutive empty run-nows each mint a distinct
+   * run id (the run store issues a fresh id per `startRunFor`). A missing/failed
+   * enumerator is genuinely unavailable → failure (not "empty"). Returns the
+   * started run's id (the first, when it fans out) so the route contract holds.
+   * See change: run-now-fans-out-per-invoice, settle-idle-run-now-and-add-run-now-control.
    */
   async function runNow(
     automation: DiscoveredAutomation,
@@ -656,8 +662,11 @@ export function createEngine(deps: EngineDeps): Engine {
       return { ok: false, error: `per-invoice run-now unavailable: ${res.reason}` };
     }
     if (res.contexts.length === 0) {
-      log(`[engine] run-now per-invoice fan-out for ${key}: no queued invoices; no run`);
-      return { ok: true };
+      // Manual run-now on an empty pick: issue ONE idle settling run so the
+      // operator's click always yields a run id. The scheduler still skips.
+      log(`[engine] run-now per-invoice fan-out for ${key}: empty queue; starting one idle settling run`);
+      const r = startRunFor(automation);
+      return r ? { ok: true, runId: r.runId } : { ok: false, error: "run not started" };
     }
     log(`[engine] run-now per-invoice fan-out for ${key}: ${res.contexts.length} queued invoice(s)`);
     let first: string | undefined;

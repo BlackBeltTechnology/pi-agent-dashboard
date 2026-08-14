@@ -339,7 +339,7 @@ function AutomationCard({
     <li
       data-testid={`automation-def-${a.name}`}
       onClick={onSelect}
-      className={`relative isolate flex overflow-hidden rounded border ${
+      className={`auto-row relative isolate flex overflow-hidden rounded border ${
         selected ? "border-blue-500/60 bg-blue-500/5" : "border-[var(--border-secondary)]"
       }`}
     >
@@ -397,7 +397,7 @@ function AutomationCard({
               <CardBtn testid={`stop-${a.name}`} onClick={() => onStop(runningRun!)} label={t("stop", undefined, "⏹ Stop")} danger />
             ) : (
               <>
-                <CardBtn testid={`run-now-${a.name}`} onClick={onRunNow} label={t("runNow", undefined, "▶ Run now")} />
+                <CardBtn testid="automation-run-now" onClick={onRunNow} label={t("runNow", undefined, "▶ Run now")} />
                 <CardBtn testid={`toggle-${a.name}`} onClick={onToggle} label={disabled ? t("enable", undefined, "Enable") : t("disable", undefined, "Disable")} />
               </>
             )

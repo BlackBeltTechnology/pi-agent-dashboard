@@ -130,7 +130,7 @@ describe("run-now per-invoice fan-out", () => {
     expect(res.runId).toBeTruthy();
   });
 
-  it("empty queue starts no run and reports success with no id", async () => {
+  it("empty queue starts ONE idle settling run and returns its id (manual always settles)", async () => {
     const spawnCalls: SpawnOpts[] = [];
     const seen: Array<Record<string, unknown>> = [];
     const engine = makeEngine(spawnCalls, seen, async () => []);
@@ -138,8 +138,40 @@ describe("run-now per-invoice fan-out", () => {
 
     const res = await engine.runNow(automation);
 
+    // one idle run, no invoice bound (no scoped env)
+    expect(spawnCalls).toHaveLength(1);
+    expect(spawnCalls[0].env).toBeUndefined();
+    expect(res.ok).toBe(true);
+    expect(res.runId).toBeTruthy();
+    expect(res.runId).toBe(spawnCalls[0].automationRun?.runId);
+  });
+
+  it("two consecutive empty run-nows each return a distinct run id", async () => {
+    const spawnCalls: SpawnOpts[] = [];
+    const seen: Array<Record<string, unknown>> = [];
+    const engine = makeEngine(spawnCalls, seen, async () => []);
+    const automation = perInvoiceAutomation("drain", "queue");
+
+    const first = await engine.runNow(automation);
+    const second = await engine.runNow(automation);
+
+    expect(first.ok).toBe(true);
+    expect(second.ok).toBe(true);
+    expect(first.runId).toBeTruthy();
+    expect(second.runId).toBeTruthy();
+    expect(second.runId).not.toBe(first.runId);
+    expect(spawnCalls).toHaveLength(2);
+  });
+
+  it("SCHEDULER fire on an empty queue still starts no run (unchanged)", async () => {
+    const spawnCalls: SpawnOpts[] = [];
+    const seen: Array<Record<string, unknown>> = [];
+    const engine = makeEngine(spawnCalls, seen, async () => []);
+    const automation = perInvoiceAutomation("drain", "queue");
+
+    await engine.fire(automation);
+
     expect(spawnCalls).toHaveLength(0);
-    expect(res).toEqual({ ok: true });
   });
 
   it("missing enumerator starts no run and reports failure (never a literal-token run)", async () => {
