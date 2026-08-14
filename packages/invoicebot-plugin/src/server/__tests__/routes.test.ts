@@ -86,6 +86,19 @@ describe("cwd + selector validation", () => {
     expect(calls).toEqual([{ method: "query", cwd: cwdA, args: expect.objectContaining({ view: "pending" }) }]);
   });
 
+  it("query passes through the current-greeting selector + extra args verbatim (lock)", async () => {
+    // Change: replace-replayed-greeting — lock that the generic query route
+    // does NOT whitelist/reshape the view selector; a new engine selector and
+    // any extra args reach engine.query unchanged.
+    const { status, json } = await post("query", { cwd: cwdA, view: "current-greeting", session_id: "sess-x" });
+    expect(status).toBe(200);
+    expect(json.ok).toBe(true);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].method).toBe("query");
+    expect(calls[0].cwd).toBe(cwdA);
+    expect(calls[0].args).toEqual({ cwd: cwdA, view: "current-greeting", session_id: "sess-x" });
+  });
+
   it("missing cwd → 400, no engine call", async () => {
     const { status, json } = await post("query", { view: "pending" });
     expect(status).toBe(400);
