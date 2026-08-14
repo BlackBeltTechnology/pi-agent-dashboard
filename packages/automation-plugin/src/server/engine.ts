@@ -600,7 +600,22 @@ export function createEngine(deps: EngineDeps): Engine {
    * payload resolves per invoice and the spawn is scoped by env), or a `skip`
    * verdict when fan-out is impossible: no enumerator wired, or enumeration
    * threw. An empty queue is `skip: false` with an empty `contexts` list.
-   * See change: wire-per-invoice-automation-drain, run-now-fans-out-per-invoice.
+   *
+   * PER-INVOICE SINGLE-FLIGHT: an invoice with a live (tracked, not yet
+   * finalized) run is filtered OUT here via the shared `invoiceInFlight`
+   * predicate, so the scheduler fan-out (`dispatchFire`) and the folder-level
+   * manual run-now (`runNow`) never dispatch a SECOND processing run for an
+   * invoice that already has one. An invoice stays `queued` in the store until a
+   * run claims its file, so without this filter two fires seconds/minutes apart
+   * each start a run for the same record and the concurrent writers collide.
+   * The guard is the SAME mechanism the single-invoice `runInvoice` entry point
+   * uses (both read the `pending` registry), so the two dispatch paths cannot
+   * drift. The registry self-heals: every terminal path (completion, session
+   * death, stop, and the reaper backstops) calls `finishAndRelease` →
+   * `removePending`, so a dead/stranded run releases its invoice and the invoice
+   * becomes dispatchable again — the guard never strands a record.
+   * See change: wire-per-invoice-automation-drain, run-now-fans-out-per-invoice,
+   * single-flight-per-invoice-dispatch.
    */
   async function perInvoiceFanout(
     automation: DiscoveredAutomation,
@@ -616,7 +631,17 @@ export function createEngine(deps: EngineDeps): Engine {
     } catch (e) {
       return { skip: true, reason: `per-invoice enumerate failed for ${key}: ${e instanceof Error ? e.message : String(e)}` };
     }
-    const contexts = (ids ?? []).map<FireContext>((id) => ({
+    // Drop any queued id that already has a live bound run (single-flight). This
+    // filter and the subsequent context build run synchronously (no await), and
+    // `runner.fire`/`startRunFor` enqueue into `pending` synchronously too, so a
+    // prior fire's runs are already tracked before the next fire maps here.
+    const allIds = ids ?? [];
+    const liveIds = allIds.filter((id) => !invoiceInFlight(id));
+    const skipped = allIds.length - liveIds.length;
+    if (skipped > 0) {
+      log(`[engine] per-invoice single-flight for ${key}: ${skipped} invoice(s) already in flight; not re-dispatched`);
+    }
+    const contexts = liveIds.map<FireContext>((id) => ({
       firedAt: baseCtx?.firedAt ?? deps.now?.() ?? Date.now(),
       ...(baseCtx?.value !== undefined ? { value: baseCtx.value } : {}),
       vars: { ...(baseCtx?.vars ?? {}), invoice_id: id },
@@ -697,7 +722,17 @@ export function createEngine(deps: EngineDeps): Engine {
     return first ? { ok: true, runId: first } : { ok: false, error: "run not started" };
   }
 
-  /** True when a tracked (spawned, not yet finalized) run is bound to `invoiceId`. */
+  /**
+   * THE per-invoice single-flight predicate: true when a tracked (spawned, not
+   * yet finalized) run is bound to `invoiceId`. Reads the `pending` registry,
+   * the single source of truth for live runs. Consulted by BOTH dispatch paths
+   * — the scheduler/run-now fan-out (`perInvoiceFanout` filters on it) and the
+   * single-invoice `runInvoice` entry point — so an invoice with a live
+   * processing run is never dispatched a second time. `pending` self-heals: every
+   * terminal path (`finishAndRelease` → `removePending`) releases the invoice, so
+   * a dead run makes its invoice dispatchable again (no permanent stranding).
+   * See change: single-flight-per-invoice-dispatch.
+   */
   function invoiceInFlight(invoiceId: string): boolean {
     for (const q of pending.values()) {
       if (q.some((c) => c.invoiceId === invoiceId)) return true;

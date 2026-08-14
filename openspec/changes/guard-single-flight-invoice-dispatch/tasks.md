@@ -8,6 +8,6 @@
 - [x] Unit test release after `onSessionDeath`, then scheduler redispatch of the same queued invoice.
 - [x] Unit test cross-path sharing: scheduler blocks `runInvoice`; `runInvoice` blocks scheduler fan-out.
 - [x] Run focused automation tests and `tsc --noEmit`.
-- [ ] Run scoped automation-plugin test suite; record any clean-base-reproducing unrelated failure.
-- [ ] Run `npm run build`.
-- [ ] Manual/QA: observe a queued invoice with a live scoped process run is not redispatched on the next scheduler fire, then is eligible after that run dies.
+- [x] Run scoped automation-plugin test suite; record any clean-base-reproducing unrelated failure.
+- [x] Run `npm run build`.
+- [x] Manual/QA: observe a queued invoice with a live scoped process run is not redispatched on the next scheduler fire, then is eligible after that run dies.
