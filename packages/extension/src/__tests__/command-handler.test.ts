@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { createCommandHandler, parseSendPrompt, tryExecSlashTemplate, buildDashboardExecEnv } from "../command-handler.js";
+import { RetryTracker } from "../retry-tracker.js";
 import type { ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 
 // Mock the tool registry so `!`/`!!` bash resolution is deterministic
@@ -29,6 +30,7 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js", () =
 describe("CommandHandler", () => {
   function createMockPi() {
     return {
+      sendMessage: vi.fn(),
       sendUserMessage: vi.fn(),
       getCommands: vi.fn().mockReturnValue([
         { name: "test", description: "Test cmd", source: "extension" as const },
@@ -69,6 +71,24 @@ describe("CommandHandler", () => {
     expect(eventSink).toHaveBeenCalledWith(
       expect.objectContaining({ type: "prompt_received", sessionId: "s1", fresh: false }),
     );
+  });
+
+  it("E7/E8 internal retry triggers a non-user custom turn", async () => {
+    const pi = createMockPi();
+    const handler = createCommandHandler(pi as any, "s1");
+
+    await handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "/__dashboard_retry",
+    } as ServerToExtensionMessage);
+
+    expect(pi.sendMessage).toHaveBeenCalledOnce();
+    expect(pi.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ customType: "pi-dashboard:retry", display: false }),
+      { triggerTurn: true },
+    );
+    expect(pi.sendUserMessage).not.toHaveBeenCalled();
   });
 
   it("should ignore messages for different sessionIds", async () => {
@@ -332,14 +352,25 @@ describe("CommandHandler", () => {
     // error surfaces via pi's subsequent agent_end / orderer synth.
     // See change: unify-status-banner-and-terminal-limit-stop.
     const pi = createMockPi();
+    const tracker = new RetryTracker();
+    tracker.observeMessageEnd("s1", { role: "assistant", stopReason: "error", errorMessage: "503" });
     const calls: Array<{ name: string; arg?: unknown }> = [];
-    const abort = vi.fn(() => calls.push({ name: "abort" }));
-    const eventSink = vi.fn((m: unknown) => calls.push({ name: "eventSink", arg: m }));
+    const abort = vi.fn(() => {
+      tracker.noteAbort("s1");
+      calls.push({ name: "abort" });
+    });
+    const eventSink = vi.fn((m: unknown) => {
+      // The callback must have installed cancellation before the optimistic
+      // retry-end reaches the wire. Late provider events cannot reopen it.
+      tracker.observeMessageEnd("s1", { role: "assistant", stopReason: "error", errorMessage: "late" });
+      calls.push({ name: "eventSink", arg: m });
+    });
     const handler = createCommandHandler(pi as any, "s1", { abort, eventSink });
 
     await handler.handle({ type: "abort", sessionId: "s1" } as ServerToExtensionMessage);
 
     expect(abort).toHaveBeenCalledOnce();
+    expect(tracker.isRetrying("s1")).toBe(false);
     expect(eventSink).toHaveBeenCalledOnce();
     // Order: abort() first, then synthesized event
     expect(calls[0]!.name).toBe("abort");

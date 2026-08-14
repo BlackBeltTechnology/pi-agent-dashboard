@@ -189,33 +189,28 @@ when `lastError` clears and `retryState` is undefined.
 
 ### Requirement: Banner is observe-only: no abort control
 
-The banner SHALL NOT render any session-abort control. The always-present session Stop (outside
-the banner) is the sole abort entry point, and it ends pi's retry chain. There SHALL be NO
-"Stop retrying" control in the banner.
+The banner SHALL NOT render a session-abort control. The always-present session Stop outside the banner is the sole abort entry point and ends pi's retry chain. A trailing state-clearing dismiss SHALL be offered only for a settled provider error. While a retry is active, the trailing control SHALL be view-only Collapse/Expand.
 
-A trailing control SHALL be present in every visible state, but WHICH control is offered depends
-on whether a retry is pending — see *Trailing control states its own action*. A state-clearing
-dismiss (`error-banner-dismiss`, `mdiClose`, invoking the clear-only `onDismiss`) SHALL be
-offered ONLY when no retry is pending (`retryState` undefined). While a retry IS pending the
-trailing control collapses the surface instead; collapse is view-only and SHALL NOT invoke
-`onDismiss`, write `SessionState`, or influence the retry loop. The surface ALSO clears via its
-own lifecycle: when `retryState` clears and `lastError` clears (a confirmed-good resume).
+A settled provider error SHALL offer a one-shot Retry action through the supplied retry callback. Retry SHALL continue the session without replaying input. The banner SHALL hide after confirmed recovery or user abort.
 
-An earlier revision withheld the dismiss control during a retry while ALSO removing the collapse
-pill, leaving the surface with NEITHER affordance. The fix is the phase-appropriate control above
-— collapse while retrying, dismiss once settled — NOT a dismiss in every state: a dismiss that
-clears `retryState` unmounts the session Stop and strands the user in a retry they can neither
-see nor stop.
+#### Scenario: Pending retry uses external session Stop
 
-The settled surface SHALL NOT render a Retry control. The removed `findLastUserPrompt` →
-`send_prompt` re-send SHALL NOT return, and no replacement re-drive SHALL be introduced: the
-dashboard has no mechanism to re-run a settled turn without appending input.
+- **GIVEN** the surface carries a retry sub-status
+- **THEN** the banner SHALL not render an abort or Stop retrying control
+- **AND** the external session Stop SHALL remain available
 
-#### Scenario: No abort control in the banner while retrying
+#### Scenario: Settled error actions are Retry, Copy, and Dismiss
 
-- **GIVEN** the surface carries a `retry` sub-status
-- **THEN** the banner SHALL NOT render a Stop retrying control
-- **AND** the banner SHALL render the retry status sub-line, Copy, and a collapse control
+- **GIVEN** `lastError` is set and no retry sub-status is active
+- **THEN** the banner SHALL render Retry and Copy actions
+- **AND** it SHALL render the state-clearing dismiss X
+- **AND** no abort command SHALL be dispatched by Dismiss
+
+#### Scenario: Missing retry callback omits Retry only
+
+- **GIVEN** a settled provider error is rendered without a retry callback
+- **THEN** Retry SHALL be absent
+- **AND** Copy and the dismiss X SHALL remain available
 
 #### Scenario: Session Stop ends a pending retry
 
@@ -232,43 +227,72 @@ dashboard has no mechanism to re-run a settled turn without appending input.
 
 ### Requirement: Trailing control states its own action
 
-The surface's trailing control SHALL be present in every visible state, and its icon, accessible
-label and test id SHALL identify the action it actually performs. A control that does not close
-the surface SHALL NOT be rendered as a close (✕) affordance.
+The surface's trailing control SHALL be present in every visible state, and its icon, accessible label, and test id SHALL identify the action it performs. A control that does not close the surface SHALL NOT be rendered as a close affordance.
 
 | Phase | Icon | Label | Test id | Effect |
 |---|---|---|---|---|
 | retry pending, expanded | `mdiChevronUp` | Collapse | `error-banner-collapse` | collapse to the compact row |
 | retry pending, collapsed | `mdiChevronDown` | Show error | `error-banner-expand` | restore the full card |
-| settled (no retry) | `mdiClose` | Dismiss | `error-banner-dismiss` | clear the surface |
+| settled provider error | `mdiClose` | Dismiss | `error-banner-dismiss` | clear the settled error surface |
 
-While a retry is pending the control SHALL collapse the surface using component-local state. It
-SHALL NOT invoke the dismiss callback and SHALL NOT mutate `SessionState` — in particular it
-SHALL NOT clear `retryState`, on which the session abort control's visibility depends.
+While a retry is pending the trailing control SHALL collapse the surface using component-local state. It SHALL NOT invoke the dismiss callback or mutate retry/error state. The surface SHALL clear automatically when a resumed attempt produces a confirmed non-error assistant completion.
 
-Once retrying stops, the surface SHALL re-expand automatically if it was collapsed, and the
-control SHALL become a real dismiss that clears the surface.
+Once retrying stops with a provider error, the surface SHALL re-expand, render Retry plus the trailing dismiss X, and retain Copy. Retry SHALL disable after its first activation and remain disabled until error/retry lifecycle state changes, preventing duplicate turn requests. When the user aborts an active retry chain or the session is confirmed terminated, the entire surface SHALL hide; no X-only post-abort or post-termination card SHALL remain. Every terminal state SHALL therefore be either dismissible (provider error) or hidden (success/abort/termination); the component SHALL NOT render a terminal banner with only a retry-phase control or no closing path.
 
-The surface SHALL clear itself with no user action on a confirmed-good resume. The banner SHALL
-NOT offer any control that purports to stop retrying; the session abort already ends the chain.
+#### Scenario: Collapse control while retry is waiting
 
-#### Scenario: Collapse control while a retry is waiting
-- **GIVEN** `retryState` is set with `waiting: true`
+- **GIVEN** a retry sub-status is waiting
 - **THEN** the surface SHALL render `error-banner-collapse`
-- **AND** it SHALL NOT render `error-banner-dismiss`
+- **AND** it SHALL not render `error-banner-dismiss` or Retry
 
-#### Scenario: Collapse control while an attempt is in flight
-- **GIVEN** `retryState` is set with `waiting: false`
+#### Scenario: Collapse control while retry attempt is in flight
+
+- **GIVEN** a retry sub-status is in flight
 - **THEN** the surface SHALL render `error-banner-collapse`
-- **AND** it SHALL NOT render `error-banner-dismiss`
+- **AND** it SHALL not render `error-banner-dismiss` or Retry
 
-#### Scenario: Collapsing does not clear retry state
+#### Scenario: Collapsing does not change lifecycle state
+
 - **GIVEN** a retry is pending
-- **WHEN** the user activates the collapse control
-- **THEN** the dismiss callback SHALL NOT be invoked
-- **AND** no abort, cancel or stop command SHALL be dispatched
+- **WHEN** the user activates Collapse
+- **THEN** no dismiss, abort, Retry, or stop command SHALL be dispatched
+- **AND** the attempt status SHALL remain available in the compact row
+
+#### Scenario: Settled provider error shows Retry and X
+
+- **GIVEN** `lastError` is set and no retry sub-status is active
+- **THEN** the expanded surface SHALL render Retry, Copy, and `error-banner-dismiss`
+- **AND** the trailing icon SHALL be `mdiClose`
+
+#### Scenario: Successful automatic continuation removes the surface
+
+- **GIVEN** the surface is visible for a pending retry
+- **WHEN** the resumed attempt produces a confirmed non-error assistant completion
+- **THEN** the surface SHALL become hidden without user action
+
+#### Scenario: User abort removes the surface
+
+- **GIVEN** the surface is visible for a pending retry
+- **WHEN** the user activates the session Stop control
+- **THEN** the surface SHALL become hidden
+- **AND** it SHALL not reappear as a settled or X-only card for the cancelled chain
+
+#### Scenario: Confirmed session termination removes the surface
+
+- **GIVEN** the surface is visible for retry or error state
+- **WHEN** the session is confirmed removed after clean shutdown or process kill
+- **THEN** the surface SHALL become hidden
+- **AND** no X-only post-termination card SHALL remain
+
+#### Scenario: Terminal provider error cannot remain stuck in retry presentation
+
+- **GIVEN** the surface was expanded or collapsed while retrying
+- **WHEN** retrying stops and the provider error remains
+- **THEN** the surface SHALL re-expand with Retry, Copy, and `error-banner-dismiss`
+- **AND** no collapse-only terminal presentation SHALL remain
 
 #### Scenario: Collapsed row keeps the attempt status and can be re-expanded
+
 - **GIVEN** the surface was collapsed while retrying attempt 2
 - **THEN** the collapsed row SHALL show the attempt status
 - **AND** it SHALL render `error-banner-expand`
@@ -277,6 +301,7 @@ NOT offer any control that purports to stop retrying; the session abort already 
 - **AND** the attempt status SHALL read attempt 3
 
 #### Scenario: Dismiss control on a settled error
+
 - **GIVEN** `lastError` is set AND `retryState` is undefined
 - **THEN** the surface SHALL render `error-banner-dismiss`
 - **AND** it SHALL NOT render `error-banner-collapse`
@@ -284,12 +309,14 @@ NOT offer any control that purports to stop retrying; the session abort already 
 - **THEN** the dismiss callback SHALL be invoked
 
 #### Scenario: A collapsed surface re-expands when retrying stops
+
 - **GIVEN** the surface is collapsed while a retry is pending
 - **WHEN** `retryState` clears while `lastError` remains
 - **THEN** the surface SHALL render expanded
 - **AND** it SHALL render `error-banner-dismiss`
 
 #### Scenario: No stop-retrying affordance exists
+
 - **WHEN** the surface is rendered in any state
 - **THEN** no control labelled or acting as "stop retrying" SHALL be present
 

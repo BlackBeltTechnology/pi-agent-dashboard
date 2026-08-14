@@ -271,6 +271,13 @@ export function useSessionActions(deps: SessionActionDeps) {
     [send, setSessionStates],
   );
 
+  const handleRetrySession = useCallback((sessionId: string) => {
+    // Active settled sessions cannot use resume_session (that path safely
+    // rejects live carriers). The hidden command is intercepted by the bridge
+    // and starts a non-user custom turn via pi.sendMessage(triggerTurn:true).
+    send({ type: "send_prompt", sessionId, text: "/__dashboard_retry" });
+  }, [send]);
+
   const handleResumeSession = useCallback((sessionId: string, mode: "continue" | "fork", entryId?: string) => {
     setSessions((prev) => {
       const next = new Map(prev);
@@ -452,7 +459,7 @@ export function useSessionActions(deps: SessionActionDeps) {
   return {
     handleAbort, handleForceKill, handleStopAfterTurn, handleCancelPending, handleRespondToUi, handleFlowAction, handleSend,
     handleSelect, handleRenameSession, handleShutdownSession, handleKillProcess,
-    handleSendPromptToSession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
+    handleSendPromptToSession, handleRetrySession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
     handleHideSession, handleUnhideSession, handleSetSessionTags, removeTagGlobally,
     handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle,
     handleOpenInlineTerminal, handleCloseInlineTerminal,

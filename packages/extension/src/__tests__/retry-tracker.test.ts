@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { settleFollowUp } from "../agent-settled.js";
 import { RetryTracker } from "../retry-tracker.js";
 
 /**
@@ -329,7 +330,107 @@ describe("RetryTracker — arms on the last ASSISTANT message, not the last arra
       const t = new RetryTracker({ maxRetries: 20, baseDelayMs: 2000 });
       t.observeAgentEnd("s1", { messages: [{ ...errAssistantMsg }] });
       t.observeAgentEnd("s1", payload as { messages?: unknown } | null);
-      expect(t.observeAgentSettled("s1")!.data.success).toBe(false);
+      const end = t.observeAgentSettled("s1")!;
+      expect(end.data.success).toBe(false);
+      expect(end.data.finalError).toBe(ERR);
     }
+  });
+});
+
+describe("RetryTracker — terminal convergence", () => {
+  it("E1/X1 automatic continuation succeeds on clean assistant message_end without a user message", () => {
+    const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 2000 });
+    t.observeMessageEnd("s1", { ...errAssistant });
+    t.observeAgentEnd("s1", errAgentEnd);
+    t.observeAgentStart("s1");
+
+    const end = t.observeMessageEnd("s1", {
+      role: "assistant",
+      stopReason: "toolUse",
+    });
+
+    expect(end).toEqual({
+      eventType: "auto_retry_end",
+      data: { success: true, attempt: 1 },
+    });
+    expect(t.isRetrying("s1")).toBe(false);
+    expect(t.observeAgentEnd("s1", okAgentEnd)).toBeNull();
+    expect(t.observeAgentSettled("s1")).toBeNull();
+  });
+
+  it("E2/X2 repeated assistant errors retain the latest provider error until exhaustion", () => {
+    const t = new RetryTracker({ maxRetries: 1, baseDelayMs: 2000 });
+    t.observeMessageEnd("s1", { ...errAssistant });
+    t.observeAgentEnd("s1", errAgentEnd);
+    t.observeAgentStart("s1");
+    t.observeMessageEnd("s1", {
+      role: "assistant",
+      stopReason: "error",
+      errorMessage: "504: second failure",
+    });
+    expect(
+      t.observeAgentEnd("s1", {
+        messages: [{ role: "assistant", stopReason: "error", errorMessage: "504: second failure" }],
+      }),
+    ).toBeNull();
+
+    expect(t.observeAgentSettled("s1")).toEqual({
+      eventType: "auto_retry_end",
+      data: { success: false, attempt: 2, finalError: "504: second failure" },
+    });
+  });
+
+  it("E3 aborted assistant completion is neither recovery nor another retry", () => {
+    const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 2000 });
+    t.observeMessageEnd("s1", { ...errAssistant });
+    t.observeAgentEnd("s1", errAgentEnd);
+    t.observeAgentStart("s1");
+
+    expect(t.observeMessageEnd("s1", { role: "assistant", stopReason: "aborted" })).toEqual({
+      eventType: "auto_retry_end",
+      data: { success: false, attempt: -1 },
+    });
+    expect(t.observeAgentEnd("s1", { messages: [{ role: "assistant", stopReason: "aborted" }] })).toBeNull();
+    expect(t.observeAgentStart("s1")).toBeNull();
+    expect(t.observeAgentSettled("s1")?.data.success).not.toBe(true);
+  });
+
+  it("X3/X4 abort tombstone suppresses delayed cancelled-chain events", () => {
+    const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 2000 });
+    t.observeMessageEnd("s1", { ...errAssistant });
+    t.observeAgentEnd("s1", errAgentEnd);
+    t.noteAbort("s1");
+
+    expect(t.observeAgentStart("s1")).toBeNull();
+    expect(t.observeMessageEnd("s1", { ...errAssistant })).toBeNull();
+    expect(t.observeAgentEnd("s1", errAgentEnd)).toBeNull();
+    expect(t.observeAgentSettled("s1")).toBeNull();
+    expect(t.isRetrying("s1")).toBe(false);
+  });
+
+  it("floor-pi compatibility settles do not terminate a multi-attempt tracker chain", () => {
+    const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 2000 });
+    t.observeMessageEnd("s1", { ...errAssistant });
+    t.observeAgentEnd("s1", errAgentEnd);
+    expect(settleFollowUp("agent_end", false, 1000)?.eventType).toBe("agent_settled");
+    // The bridge forwards floor compatibility settles to the client only; it
+    // must not feed them into RetryTracker because one is emitted per attempt.
+    expect(t.isRetrying("s1")).toBe(true);
+    expect(t.observeAgentStart("s1")?.eventType).toBe("auto_retry_start");
+
+    t.observeMessageEnd("s1", { ...errAssistant, errorMessage: "second" });
+    expect(t.observeAgentEnd("s1", { messages: [{ ...errAssistant, errorMessage: "second" }] })?.data.attempt).toBe(2);
+    expect(t.isRetrying("s1")).toBe(true);
+  });
+
+  it("X4 a new explicit run releases abort suppression", () => {
+    const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 2000 });
+    t.noteAbort("s1");
+    t.observeMessageEnd("s1", { ...errAssistant });
+    expect(t.isRetrying("s1")).toBe(false);
+
+    t.noteExplicitRun("s1");
+    t.observeMessageEnd("s1", { ...errAssistant });
+    expect(t.isRetrying("s1")).toBe(true);
   });
 });

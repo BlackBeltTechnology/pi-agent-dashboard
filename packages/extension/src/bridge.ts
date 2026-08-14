@@ -17,7 +17,7 @@ import type { FlowInfo, ImageContent } from "@blackbelt-technology/pi-dashboard-
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Loader } from "@earendil-works/pi-tui";
 import { AbortLatch } from "./abort-latch.js";
-import { nativeAgentSettledSupported, settleFollowUp } from "./agent-settled.js";
+import { floorRetryReconcileDelay, markFloorSettle, nativeAgentSettledSupported, settleFollowUp, synthesizeAgentSettledEvent } from "./agent-settled.js";
 import { isUnderArtifactRoot, resolveArtifactRoots } from "./artifact-roots.js";
 import {
   MAX_PER_MESSAGE_BYTES as ATTACH_MAX_PER_MESSAGE_BYTES,
@@ -1214,17 +1214,12 @@ function initBridge(pi: ExtensionAPI) {
       // turn. Cleared on the next user prompt (noteUserPrompt) or terminal
       // agent_end. See change: unify-error-retry-lifecycle.
       abortLatch.request(sessionId);
+      // Install retry cancellation BEFORE invoking pi: abort() can dispatch
+      // terminal events synchronously, and those belong to the cancelled chain.
+      retryTracker.noteAbort(sessionId);
       if (cachedCtx?.abort) {
         cachedCtx.abort();
       }
-      // Clear retry attempt counter so a subsequent agent_end does not
-      // double-emit auto_retry_end{success:true}. See change:
-      // fix-provider-retry-infinite-loop.
-      retryTracker.noteAbort(sessionId);
-      // pi's eventual terminal agent_end still surfaces the real provider
-      // errorMessage through the reducer's own agent_end error path; the
-      // observe-based tracker only synthesizes retry lifecycle events, never
-      // the settled error. See change: simplify-error-retry-single-card.
     },
     /**
      * Raw cachedCtx.abort() only. Used by the persistent-abort scheduler
@@ -1352,8 +1347,9 @@ function initBridge(pi: ExtensionAPI) {
     onSteerSent: recordSteerSent,
     onFollowupSent: bufferFollowupSend,
     isStreaming: () => getBridgeState().isAgentStreaming === true,
-    // Clear the abort latch when a new user prompt is dispatched, before pi
-    // can fire agent_start for it. See change: unify-error-retry-lifecycle.
+    // Clear only the abort latch before prompt routing. A streaming follow-up
+    // may be buffered rather than start a run, so retry cancellation is released
+    // only by the observed user message_start below.
     noteUserPrompt: () => abortLatch.clear(sessionId),
   });
 
@@ -1521,6 +1517,7 @@ function initBridge(pi: ExtensionAPI) {
       cachedCtx = ctx;
       // Don't send events before session_start has established the correct session ID
       if (!sessionReady) return;
+      let floorRetryWaiting: { attempt: number; delayMs: number } | undefined;
       // Track agent streaming state (survives reconnect/reload)
       if (eventType === "agent_start") {
         getBridgeState().isAgentStreaming = true;
@@ -1539,7 +1536,11 @@ function initBridge(pi: ExtensionAPI) {
         // it). See change: retry-forever-with-stop-control (design D4).
         const retryStart = retryTracker.observeAgentStart(sessionId);
         if (retryStart) {
-          setTimeout(() => sendSyntheticRetryEvent(retryStart.eventType, retryStart.data), 0);
+          setTimeout(() => {
+            if (retryTracker.isRetrying(sessionId)) {
+              sendSyntheticRetryEvent(retryStart.eventType, retryStart.data);
+            }
+          }, 0);
         }
       }
       if (eventType === "agent_settled") {
@@ -1550,6 +1551,7 @@ function initBridge(pi: ExtensionAPI) {
         // fires it after agent_end, and this handler re-runs for that synth.
         // See changes: adopt-pi-074-080-features (A.1), retry-forever-with-stop-control.
         getBridgeState().isAgentStreaming = false;
+        abortLatch.clear(sessionId);
         const retryEnd = retryTracker.observeAgentSettled(sessionId);
         if (retryEnd) {
           sendSyntheticRetryEvent(retryEnd.eventType, retryEnd.data);
@@ -1557,10 +1559,6 @@ function initBridge(pi: ExtensionAPI) {
       }
       if (eventType === "agent_end") {
         getBridgeState().isAgentStreaming = false;
-        // Abort latch settle: the turn terminally ended — clear the latch so a
-        // later, unrelated turn is not aborted. See change:
-        // unify-error-retry-lifecycle.
-        abortLatch.clear(sessionId);
         // Provider-retry synthesis: an error agent_end means an attempt just
         // failed and (optimistically) another is coming — emit the WAITING
         // signal (attempt + computed delay + nextAttemptAt) so the surface
@@ -1570,6 +1568,15 @@ function initBridge(pi: ExtensionAPI) {
         const trackerSynth = retryTracker.observeAgentEnd(sessionId, event as any);
         if (trackerSynth) {
           sendSyntheticRetryEvent(trackerSynth.eventType, trackerSynth.data);
+          if (
+            trackerSynth.eventType === "auto_retry_waiting" &&
+            typeof trackerSynth.data.attempt === "number"
+          ) {
+            floorRetryWaiting = {
+              attempt: trackerSynth.data.attempt,
+              delayMs: typeof trackerSynth.data.delayMs === "number" ? trackerSynth.data.delayMs : 0,
+            };
+          }
         }
         // Automatic session topic-naming: attempt on each terminal turn until
         // the first success (or a permanent lockout). Non-blocking; all errors
@@ -1717,6 +1724,7 @@ function initBridge(pi: ExtensionAPI) {
           // See change: unify-error-retry-lifecycle.
           if (role === "user") {
             abortLatch.clear(sessionId);
+            retryTracker.noteExplicitRun(sessionId);
             // A deliberate new user turn resets the empty-actionable guard's
             // consecutive-continuation counter, so a stale count from a prior
             // (possibly aborted) empty-actionable chain never shortens the next
@@ -1894,14 +1902,48 @@ function initBridge(pi: ExtensionAPI) {
       const msg = mapEventToProtocol(sessionId, event);
       connection.send(msg);
 
-      // Floor-pi settle synthesis: pi < 0.80.4 never emits `agent_settled`, so
-      // synthesize one synchronously right after each forwarded `agent_end`.
-      // The dashboard then receives exactly one terminal settle on every pi.
-      // Native pi returns null here (its real settle arrives on its own).
-      // See change: adopt-pi-074-080-features (A.1).
+      // Floor-pi settle synthesis: pi < 0.80.4 never emits `agent_settled`.
+      // Per-attempt agent_end gets retryPending compatibility state; exhaustion,
+      // disabled/non-retryable timeout, success, or abort gets terminal state.
+      // Native pi returns null here and forwards its real settle above.
+      // See changes: adopt-pi-074-080-features, fix-retry-error-lifecycle.
       const synthSettle = settleFollowUp(eventType, piEmitsNativeSettled, Date.now());
       if (synthSettle) {
-        connection.send({ type: "event_forward", sessionId, event: synthSettle });
+        if (floorRetryWaiting) {
+          // A typed waiting signal is the floor-pi proof that this agent_end is
+          // per-attempt. Keep the client lifecycle pending immediately.
+          connection.send({
+            type: "event_forward",
+            sessionId,
+            event: markFloorSettle(synthSettle, false),
+          });
+
+          // A non-retryable provider error can look waiting because extensions
+          // cannot call pi's private classifier. If the matching agent_start
+          // never arrives by the observed delay plus grace, converge terminal.
+          const expected = floorRetryWaiting;
+          setTimeout(() => {
+            if (!isActive() || !sessionReady) return;
+            if (!retryTracker.isAwaitingRetry(sessionId, expected.attempt)) return;
+            abortLatch.clear(sessionId);
+            const retryEnd = retryTracker.observeAgentSettled(sessionId);
+            if (retryEnd) {
+              sendSyntheticRetryEvent(retryEnd.eventType, retryEnd.data);
+            }
+            connection.send({
+              type: "event_forward",
+              sessionId,
+              event: synthesizeAgentSettledEvent(Date.now()),
+            });
+          }, floorRetryReconcileDelay(expected.delayMs));
+        } else {
+          abortLatch.clear(sessionId);
+          const retryEnd = retryTracker.observeAgentSettled(sessionId);
+          if (retryEnd) {
+            sendSyntheticRetryEvent(retryEnd.eventType, retryEnd.data);
+          }
+          connection.send({ type: "event_forward", sessionId, event: synthSettle });
+        }
       }
     }));
   }

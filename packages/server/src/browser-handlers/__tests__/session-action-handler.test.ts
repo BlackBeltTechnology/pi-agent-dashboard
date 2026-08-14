@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserHandlerContext } from "../handler-context.js";
 import {
+  handleSendPrompt,
   handleStopAfterTurn,
   handleSubagentResyncRequest,
   isSessionProcessGone,
@@ -57,6 +58,41 @@ describe("shouldReopenDashboardZombie", () => {
   });
   it("leaves an already-ended session to the caller's ended path", () => {
     expect(shouldReopenDashboardZombie({ ...base, status: "ended" }, true)).toBe(false);
+  });
+});
+
+describe("handleSendPrompt retry routing", () => {
+  it("forwards the hidden retry command to an already-active bridge instead of resume", async () => {
+    const sent: { sessionId: string; msg: unknown }[] = [];
+    const ctx = {
+      sessionManager: {
+        get: () => ({ id: "s1", status: "active", source: "tui", cwd: "/repo" }),
+      },
+      piGateway: {
+        isSessionConnected: () => true,
+        sendToSession(sessionId: string, msg: unknown) {
+          sent.push({ sessionId, msg });
+          return true;
+        },
+      },
+      headlessPidRegistry: { getPid: () => undefined },
+    } as unknown as BrowserHandlerContext;
+
+    await handleSendPrompt(
+      { type: "send_prompt", sessionId: "s1", text: "/__dashboard_retry" },
+      ctx,
+    );
+
+    expect(sent).toEqual([{
+      sessionId: "s1",
+      msg: {
+        type: "send_prompt",
+        sessionId: "s1",
+        text: "/__dashboard_retry",
+        images: undefined,
+        delivery: undefined,
+      },
+    }]);
   });
 });
 

@@ -10,6 +10,8 @@
 import { describe, expect, it } from "vitest";
 import {
   NATIVE_AGENT_SETTLED_FLOOR,
+  floorRetryReconcileDelay,
+  markFloorSettle,
   nativeAgentSettledSupported,
   settleFollowUp,
   synthesizeAgentSettledEvent,
@@ -68,6 +70,29 @@ describe("settleFollowUp", () => {
   it("other events never synthesize", () => {
     expect(settleFollowUp("agent_start", false, 100)).toBeNull();
     expect(settleFollowUp("turn_end", false, 100)).toBeNull();
+  });
+});
+
+describe("floor retry reconciliation", () => {
+  it("waits through the observed delay plus grace", () => {
+    expect(floorRetryReconcileDelay(4000)).toBe(5000);
+    expect(floorRetryReconcileDelay(0)).toBe(3000);
+  });
+});
+
+describe("markFloorSettle", () => {
+  it("X9 marks a busy floor-pi settle as retry-pending compatibility", () => {
+    const event = synthesizeAgentSettledEvent(42);
+    expect(markFloorSettle(event, false)).toEqual({
+      eventType: "agent_settled",
+      timestamp: 42,
+      data: { retryPending: true },
+    });
+  });
+
+  it("leaves a truly idle floor-pi settle terminal", () => {
+    const event = synthesizeAgentSettledEvent(42);
+    expect(markFloorSettle(event, true)).toBe(event);
   });
 });
 

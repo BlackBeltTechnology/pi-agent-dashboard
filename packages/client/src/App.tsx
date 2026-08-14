@@ -1257,7 +1257,7 @@ export default function App() {
     // honest-mid-turn-queue-surface.
     handleAbort, handleForceKill, handleStopAfterTurn, handleCancelPending, handleRespondToUi, handleSend,
     handleSelect, handleRenameSession, handleShutdownSession, handleKillProcess,
-    handleSendPromptToSession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
+    handleSendPromptToSession, handleRetrySession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
     handleHideSession, handleUnhideSession, handleSetSessionTags, removeTagGlobally,
     handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle,
     handleOpenInlineTerminal, handleCloseInlineTerminal,
@@ -1798,11 +1798,14 @@ export default function App() {
               abort entry point). The trailing control's icon states its action:
               a chevron that COLLAPSES while retrying (component-local — it never
               clears `retryState`, so the session Stop stays mounted), and a real
-              ✕ once retrying stops. The surface also clears itself on a
-              confirmed-good resume.
-              See change: error-banner-observe-only, raw-error-render-and-retry-authority. */}
+              ✕ once retrying stops. Settled provider errors offer one-shot
+              Retry via continue-resume; success, abort, or removal hides the
+              surface.
+              See change: error-banner-observe-only, fix-retry-error-lifecycle. */}
           <SessionBanner
             state={deriveBannerState(selectedState)}
+            retryRevision={selectedState.lastError?.timestamp}
+            onRetry={selectedId ? () => handleRetrySession(selectedId) : undefined}
             onDismiss={selectedId ? () => {
               setSessionStates((prev) => {
                 const next = new Map(prev);

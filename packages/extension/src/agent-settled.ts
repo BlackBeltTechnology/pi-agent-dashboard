@@ -3,14 +3,11 @@
  *
  * pi ≥ 0.80.4 emits `agent_settled` exactly once per run (in the `finally` of
  * `_runAgentPrompt`, AFTER the retry/compact/continue loop drains). Floor pi
- * (0.78.0–0.80.3) never emits it. The bridge guarantees the dashboard receives
- * exactly ONE terminal `agent_settled` per run on every supported pi:
- *
- *   • native present (≥ 0.80.4): forward pi's real `agent_settled`, no synth.
- *   • native absent  (< 0.80.4): synthesize one `agent_settled` synchronously
- *     immediately after each forwarded `agent_end`.
- *
- * The reducer then keys `status:"idle"` off ONE signal with no version branch.
+ * (0.78.0–0.80.3) never emits it. Native pi forwards its real terminal settle.
+ * Floor pi emits a compatibility settle after each `agent_end`; the bridge marks
+ * per-attempt settles `retryPending:true` and later sends an unmarked terminal
+ * settle when no matching retry start arrives or the retry budget is exhausted.
+ * The reducer therefore distinguishes compatibility from terminal convergence.
  *
  * Pure decision logic lives here so it is unit-testable without instantiating
  * the bridge. See change: adopt-pi-074-080-features.
@@ -18,6 +15,14 @@
 
 /** pi version at/above which `agent_settled` is emitted natively. */
 export const NATIVE_AGENT_SETTLED_FLOOR = "0.80.4";
+export const FLOOR_RETRY_UNKNOWN_DELAY_MS = 2000;
+export const FLOOR_RETRY_GRACE_MS = 1000;
+
+/** Delay before a floor-pi waiting attempt is reconciled as terminal when no
+ * matching agent_start arrives. */
+export function floorRetryReconcileDelay(delayMs: number): number {
+  return (delayMs > 0 ? delayMs : FLOOR_RETRY_UNKNOWN_DELAY_MS) + FLOOR_RETRY_GRACE_MS;
+}
 
 /** Parse a semver-ish string to `[major, minor, patch]`, ignoring any
  * pre-release / build suffix. Missing / non-numeric parts read as 0. */
@@ -48,9 +53,19 @@ export interface SettleEvent {
   data: Record<string, unknown>;
 }
 
-/** Build a synthetic `agent_settled` (floor pi, emitted after `agent_end`). */
+/** Build a synthetic terminal `agent_settled` for floor pi. */
 export function synthesizeAgentSettledEvent(timestamp: number): SettleEvent {
   return { eventType: "agent_settled", timestamp, data: {} };
+}
+
+/** Mark a floor-pi settle as per-attempt compatibility rather than terminal.
+ * The reducer preserves retry/cancellation state for this shape. */
+export function markFloorSettle(
+  event: SettleEvent,
+  terminal: boolean,
+): SettleEvent {
+  if (terminal) return event;
+  return { ...event, data: { ...event.data, retryPending: true } };
 }
 
 /**

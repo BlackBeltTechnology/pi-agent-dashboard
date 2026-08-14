@@ -9,7 +9,7 @@
  * See change: adopt-pi-074-080-features (A.1 — F1, F2, F3, X2).
  */
 import { describe, expect, it } from "vitest";
-import { createInitialState, reduceEvent, type SessionState } from "../chat/event-reducer.js";
+import { createInitialState, deriveBannerState, reduceEvent, type SessionState } from "../chat/event-reducer.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 let clock = 1000;
@@ -84,6 +84,35 @@ describe("F3: agent_end side-effects preserved (deferred only status:idle)", () 
   });
 });
 
+describe("X9: floor-pi per-attempt compatibility settle", () => {
+  it("preserves pending retry through compatibility settle, then converges on success", () => {
+    let s = createInitialState();
+    s.status = "ended";
+    s.lastError = { message: "503", timestamp: 1 };
+    s.retryState = { attempt: 1, maxAttempts: 3, delayMs: 2000, waiting: true, reason: "503", startedAt: 1 };
+
+    s = reduceEvent(s, ev("agent_settled", { retryPending: true }));
+    expect(s.status).toBe("ended");
+    expect(s.retryState?.waiting).toBe(true);
+    expect(deriveBannerState(s)).toMatchObject({ error: { message: "503" }, retry: { attempt: 1 } });
+
+    s = reduceEvent(s, ev("auto_retry_start", { attempt: 1, maxAttempts: 3, delayMs: 2000, errorMessage: "503" }));
+    s = reduceEvent(s, ev("agent_start"));
+    s = reduceEvent(s, ev("message_end", { message: { role: "assistant", stopReason: "stop", content: [] } }));
+    s = reduceEvent(s, ev("agent_settled"));
+    expect(s.status).toBe("idle");
+    expect(deriveBannerState(s)).toEqual({ variant: "hidden" });
+  });
+
+  it("preserves abort suppression across a nonterminal compatibility settle", () => {
+    let s = createInitialState();
+    s.retryCancelled = true;
+    s = reduceEvent(s, ev("agent_settled", { retryPending: true }));
+    expect(s.retryCancelled).toBe(true);
+    expect(deriveBannerState(s)).toEqual({ variant: "hidden" });
+  });
+});
+
 describe("X2: illegal agent_settled with no preceding agent_end", () => {
   it("resolves idle and clears streaming without crashing", () => {
     let s = createInitialState();
@@ -99,5 +128,50 @@ describe("X2: illegal agent_settled with no preceding agent_end", () => {
     const s = reduceEvent(createInitialState(), ev("agent_settled"));
     expect(s.status).toBe("idle");
     expect(s.isStreaming).toBe(false);
+  });
+});
+
+describe("terminal retry convergence", () => {
+  it("E5/X2 exhaustion clears retryState and retains the provider error as settled", () => {
+    let s = createInitialState();
+    s.retryState = { attempt: 3, maxAttempts: 3, delayMs: 8000, waiting: false, reason: "503", startedAt: 1 };
+    s.lastError = { message: "503 final", timestamp: 2 };
+
+    s = reduceEvent(s, ev("agent_settled"));
+
+    expect(s.status).toBe("idle");
+    expect(s.retryState).toBeUndefined();
+    expect(s.lastError?.message).toBe("503 final");
+  });
+
+  it("E5 settle with no new assistant disposition keeps the retained failure", () => {
+    const s = fold(
+      [ev("agent_settled")],
+      {
+        ...createInitialState(),
+        retryState: { attempt: 2, maxAttempts: 3, delayMs: 4000, waiting: true, reason: "429", startedAt: 1 },
+        lastError: { message: "429 retained", timestamp: 2 },
+      },
+    );
+    expect(s.retryState).toBeUndefined();
+    expect(s.lastError?.message).toBe("429 retained");
+  });
+
+  it("E4 settle after successful automatic continuation remains hidden", () => {
+    let s = createInitialState();
+    s.retryState = { attempt: 1, maxAttempts: 3, delayMs: 2000, waiting: false, reason: "503", startedAt: 1 };
+    s.lastError = { message: "503", timestamp: 2 };
+    s = reduceEvent(s, ev("message_end", { message: { role: "assistant", stopReason: "stop", content: [] } }));
+    s = reduceEvent(s, ev("agent_settled"));
+    expect(s.retryState).toBeUndefined();
+    expect(s.lastError).toBeUndefined();
+  });
+
+  it("X3 settle releases abort suppression without restoring the cancelled error", () => {
+    let s = createInitialState();
+    s.retryCancelled = true;
+    s = reduceEvent(s, ev("agent_settled"));
+    expect(s.retryCancelled).toBeUndefined();
+    expect(s.lastError).toBeUndefined();
   });
 });

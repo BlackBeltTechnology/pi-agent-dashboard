@@ -114,3 +114,25 @@ describe("useSessionActions — idle-scoped optimistic pendingPrompt", () => {
     expect(settled.lastError?.message).toBe("no response");
   });
 });
+
+describe("useSessionActions — settled provider Retry", () => {
+  it("E7/E8 sends one hidden retry command without replaying a user prompt or changing messages", () => {
+    const state = idle();
+    state.lastError = { message: "503 overloaded", timestamp: 1 };
+    const states = new Map([["s1", state]]);
+    const beforeMessages = states.get("s1")!.messages;
+    const { actions, send, getStates } = setup("s1", states);
+
+    actions.handleRetrySession("s1");
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "/__dashboard_retry",
+    });
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ text: "503 overloaded" }));
+    expect(getStates().get("s1")!.messages).toBe(beforeMessages);
+    expect(getStates().get("s1")!.retryState).toBeUndefined();
+  });
+});

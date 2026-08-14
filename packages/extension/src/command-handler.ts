@@ -203,6 +203,7 @@ export type ParsedPrompt =
   | { type: "shutdown" }
   | { type: "reload" }
   | { type: "new" }
+  | { type: "retry" }
   | { type: "mgmt"; event: string; data: Record<string, unknown> }
   | { type: "slash"; text: string }
   | { type: "passthrough"; text: string };
@@ -254,7 +255,13 @@ export function parseSendPrompt(text: string): ParsedPrompt {
     return { type: "new" };
   }
 
-  // 4d. Check /model <provider/id>
+  // 4d. Dashboard-internal settled-error retry. Hidden from command lists;
+  // triggers a non-user custom turn through pi.sendMessage.
+  if (text === "/__dashboard_retry") {
+    return { type: "retry" };
+  }
+
+  // 4e. Check /model <provider/id>
   if (text.startsWith("/model ")) {
     const modelStr = text.slice(7).trim();
     const slashIdx = modelStr.indexOf("/");
@@ -501,6 +508,18 @@ export function createCommandHandler(
                 data: { command: "/new", status: "completed" },
               },
             });
+            return undefined;
+          }
+
+          if (parsed.type === "retry") {
+            pi.sendMessage(
+              {
+                customType: "pi-dashboard:retry",
+                content: "Continue the interrupted response without repeating the user's request.",
+                display: false,
+              },
+              { triggerTurn: true },
+            );
             return undefined;
           }
 

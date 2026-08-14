@@ -16,6 +16,10 @@ interface Props {
    * surface; a confirmed-good resume clears it on its own.
    */
   onDismiss?: () => void;
+  /** One-shot continue-resume. Rendered only for a settled provider error. */
+  onRetry?: () => void;
+  /** Lifecycle identity for settled Retry. A new error timestamp re-enables the one-shot control. */
+  retryRevision?: number;
   /** Override clock for tests. Defaults to Date.now. */
   now?: () => number;
   /** Character cutoff before collapsing the error message. Defaults to 240. */
@@ -108,20 +112,36 @@ function CollapsedRetryRow({
   );
 }
 
-/** The card's action row: show-more toggle + Copy. */
+/** The card's action row: settled Retry + show-more toggle + Copy. */
 function ExpandedActions({
   isLong,
   expanded,
   onToggleExpand,
   headerText,
+  onRetry,
+  retryDisabled,
 }: {
   isLong: boolean;
   expanded: boolean;
   onToggleExpand: () => void;
   headerText: string;
+  onRetry?: () => void;
+  retryDisabled: boolean;
 }) {
   return (
     <>
+      {onRetry && (
+        <button
+          type="button"
+          data-testid="error-banner-retry"
+          onClick={onRetry}
+          disabled={retryDisabled}
+          title={i18nT("session.retryContinueSession", undefined, "Retry by continuing session")}
+          className="rounded border border-[var(--severity-error-border)] px-2 py-1 text-xs font-medium text-[var(--severity-error-fg)] hover:bg-[var(--bg-hover)] disabled:cursor-wait disabled:opacity-50"
+        >
+          {i18nT("common.retry", undefined, "Retry")}
+        </button>
+      )}
       {isLong && (
         <button
           type="button"
@@ -158,14 +178,16 @@ function ExpandedActions({
  *     chevron that COLLAPSES (component-local; `onDismiss` is not called and
  *     `retryState` is never written, so the session Stop stays mounted). Once
  *     retrying stops it is a real ✕ that clears the surface.
- *   - The surface also clears itself on a confirmed-good resume (retryState +
- *     lastError both clear). There is NO Retry control.
+ *   - The surface clears itself on confirmed-good resume. A settled provider
+ *     error offers one-shot Retry by continuing the session, plus Copy and X.
  *
  * Mounted sticky above the command input.
  */
 export function SessionBanner({
   state,
   onDismiss,
+  onRetry,
+  retryRevision,
   now = Date.now,
   collapseThreshold = 240,
 }: Props) {
@@ -175,6 +197,7 @@ export function SessionBanner({
 
   const [expanded, setExpanded] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
+  const [retryRequested, setRetryRequested] = useState(false);
   const [, forceTick] = useState(0);
 
   // Collapsing exists to keep the session Stop mounted during a live loop. Once
@@ -184,6 +207,12 @@ export function SessionBanner({
   useEffect(() => {
     if (!retrying && collapsed) setCollapsed(false);
   }, [retrying, collapsed]);
+
+  // A new error/retry phase can offer Retry again. Within one settled phase the
+  // control is one-shot so rapid clicks cannot enqueue duplicate runs.
+  useEffect(() => {
+    setRetryRequested(false);
+  }, [retryRevision, error?.message, retrying]);
 
   // Re-render once per second while a retry is pending so the countdown ticks.
   useEffect(() => {
@@ -230,6 +259,12 @@ export function SessionBanner({
       expanded={expanded}
       onToggleExpand={() => setExpanded((v) => !v)}
       headerText={headerText}
+      onRetry={retrying || !onRetry ? undefined : () => {
+        if (retryRequested) return;
+        setRetryRequested(true);
+        onRetry();
+      }}
+      retryDisabled={retryRequested}
     />
   );
 
