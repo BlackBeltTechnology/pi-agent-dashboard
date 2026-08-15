@@ -134,10 +134,6 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
         "priority": 100,
         "claims": [
             {
-                "slot": "content-view",
-                "component": "CostView"
-            },
-            {
                 "slot": "command-route",
                 "component": "CostView",
                 "command": "cost"
@@ -155,7 +151,6 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
         "configSchema": "./src/configSchema.json"
     },
     claims: [
-      { pluginId: "cost-estimator", priority: 100, slot: "content-view", Component: CostView },
       { pluginId: "cost-estimator", priority: 100, slot: "command-route", command: "cost", Component: CostView },
       { pluginId: "cost-estimator", priority: 100, slot: "settings-section", config: {"tab":"general"}, Component: CostSettings },
     ],
@@ -413,4 +408,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "32c5b47f88e2f274ff1cc969f98fdbcb800a38c21b1783f245f67d2cce9bb588";
+export const PLUGIN_REGISTRY_HASH = "4544ec8f44947cd7f82b48f8233d8a77936cb45a8198b2ca1181c221ca0ae5cc";
