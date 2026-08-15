@@ -68,6 +68,22 @@ export function pidPathFor(
     : `${sockPathFor(sessionsDir, sessionId, platform)}.pid`;
 }
 
+/**
+ * Path of the keeper's *pi-PID* sidecar (distinct from the keeper `.pid`).
+ * Written by `keeper.cjs` after pi is spawned; read by discovery to fill an
+ * absent `piPid`. The suffix ends in `-pid` (NOT `.pid`) so the keeper-sidecar
+ * discovery scans never match it. See change: fix-keeper-session-identity-and-reattach.
+ */
+export function piPidPathFor(
+  sessionsDir: string,
+  sessionId: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  return platform === "win32"
+    ? path.join(sessionsDir, `pi-rpc-${sessionId}.pi-pid`)
+    : `${sockPathFor(sessionsDir, sessionId, platform)}.pi-pid`;
+}
+
 function keeperLogPath(sessionsDir: string, sessionId: string): string {
   return path.join(sessionsDir, `keeper-${sessionId}.log`);
 }
@@ -90,6 +106,19 @@ export interface KeeperEntry {
   sessionId: string;
   keeperPid: number;
   sockPath: string;
+  /**
+   * Pi's PID, read from the keeper's post-spawn pi-PID sidecar and surfaced
+   * ONLY when the sidecar is present, parseable, AND names a live process.
+   * Optional by construction: keepers spawned before this change (or whose
+   * sidecar write failed) have none. Fills an absent registry `piPid` during
+   * reconciliation; it never arbitrates against a live capture.
+   *
+   * DELIBERATELY OPTIONAL on both this declaration and the registry's
+   * `KeeperWriter.discoverExistingKeepers` return type: an optional field keeps
+   * structurally-compatible test fakes valid under TypeScript return covariance
+   * (requiring it would break them). See change: fix-keeper-session-identity-and-reattach.
+   */
+  piPid?: number;
 }
 
 export interface KeeperManager {
@@ -179,7 +208,19 @@ export function createKeeperManager(opts: KeeperManagerOptions = {}): KeeperMana
   const keeperPath = opts.keeperPath ?? defaultKeeperPath();
   const nodeBinary = opts.nodeBinary ?? process.execPath;
   const platform = opts.platform ?? process.platform;
-  const isPiAlive = opts.isPiAliveForSession ?? (() => true);
+  // Default probe reads the pi-PID sidecar and tests that PID for liveness.
+  // ABSENCE MAPS TO ALIVE (never dead): this gates a destructive branch
+  // (`if (!isPiAlive) { killKeeper; unlink }`), the sidecar write is allowed
+  // to fail without tearing pi down, and pre-change keepers have no sidecar
+  // at all — so a missing file must not SIGTERM a healthy keeper. Only a
+  // present, parseable, non-live PID returns false.
+  // See change: fix-keeper-session-identity-and-reattach (Decision 4).
+  const isPiAlive =
+    opts.isPiAliveForSession ??
+    ((sessionId: string): boolean => {
+      const piPid = readPidSidecar(piPidPathFor(sessionsDir, sessionId, platform));
+      return piPid === null ? true : isProcessAlive(piPid);
+    });
   const spawnDetached = opts.spawnDetached ?? defaultSpawnDetached;
   const createConnection = opts.createConnection ?? net.createConnection;
 
@@ -358,6 +399,11 @@ export function createKeeperManager(opts: KeeperManagerOptions = {}): KeeperMana
     // the .sock; on Windows it's named `pi-rpc-<sid>.pid`.
     const isWin = platform === "win32";
     for (const name of names) {
+      // Never treat a pi-PID sidecar as a keeper sidecar. Belt-and-braces
+      // beyond the `-pid` suffix already dodging the scan patterns below, so a
+      // future rename cannot silently reintroduce a phantom keeper whose
+      // sessionId is `<sid>.pi`. See change: fix-keeper-session-identity-and-reattach.
+      if (name.endsWith(".pi-pid")) continue;
       let sessionId: string | null = null;
       if (isWin) {
         const m = name.match(/^pi-rpc-(.+)\.pid$/);
@@ -372,10 +418,14 @@ export function createKeeperManager(opts: KeeperManagerOptions = {}): KeeperMana
       const sockPath = sockPathFor(sessionsDir, sessionId, platform);
       const keeperPid = readPidSidecar(pidFile);
 
+      const piPidFile = piPidPathFor(sessionsDir, sessionId, platform);
+
       if (!keeperPid || !isProcessAlive(keeperPid)) {
-        // Stale keeper sidecar: clean it up. Best-effort socket unlink too.
+        // Stale keeper sidecar: clean it up. Best-effort socket + pi-PID
+        // sidecar unlink too so no stale file outlives the dead keeper.
         unlinkQuiet(pidFile);
         if (!isWin) unlinkQuiet(sockPath);
+        unlinkQuiet(piPidFile);
         continue;
       }
 
@@ -384,11 +434,18 @@ export function createKeeperManager(opts: KeeperManagerOptions = {}): KeeperMana
         try { killPidWithGroup(keeperPid, "SIGTERM"); } catch { /* ignore */ }
         unlinkQuiet(pidFile);
         if (!isWin) unlinkQuiet(sockPath);
+        unlinkQuiet(piPidFile);
         continue;
       }
 
+      // Live keeper: surface pi's PID from the sidecar ONLY when it names a
+      // live process. A missing / unparseable / dead PID leaves piPid unset;
+      // the registry then logs it as unavailable and leaves the entry alone.
+      const sidecarPiPid = readPidSidecar(piPidFile);
+      const piPid = sidecarPiPid !== null && isProcessAlive(sidecarPiPid) ? sidecarPiPid : undefined;
+
       tracked.set(sessionId, keeperPid);
-      result.push({ sessionId, keeperPid, sockPath });
+      result.push({ sessionId, keeperPid, sockPath, piPid });
     }
     return result;
   }

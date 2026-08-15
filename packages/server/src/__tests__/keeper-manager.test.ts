@@ -330,3 +330,99 @@ describe("KeeperManager.discoverExistingKeepers", () => {
     killSpy.mockRestore();
   });
 });
+
+// See change: fix-keeper-session-identity-and-reattach.
+// discoverExistingKeepers surfaces pi's PID from the pi-PID sidecar (live only),
+// ignores pi-PID sidecars as keeper sidecars, and the default liveness probe
+// maps an absent/unparseable sidecar to alive and only a present-dead PID to dead.
+import { piPidPathFor } from "../rpc-keeper/keeper-manager.js";
+
+describe("KeeperManager pi-PID sidecar discovery", () => {
+  it("E12: a pi-PID sidecar is never treated as a keeper sidecar (no phantom)", async () => {
+    mkdirSync(sessionsDir, { recursive: true });
+    const sid = "sess-phantom";
+    // Only a pi-PID sidecar present — no keeper .pid. Must not be discovered.
+    writeFileSync(piPidPathFor(sessionsDir, sid), String(process.pid));
+    const km = createKeeperManager(baseOpts({ isPiAliveForSession: () => true }));
+    const r = await km.discoverExistingKeepers();
+    expect(r).toEqual([]);
+    // No session id of the form "<sid>.pi" (or any pi-derived id) is emitted.
+    expect(r.some((e) => e.sessionId.endsWith(".pi"))).toBe(false);
+  });
+
+  it("E14: live pi-PID sidecar surfaces piPid on the discovery result", async () => {
+    mkdirSync(sessionsDir, { recursive: true });
+    const sid = "sess-live-pi";
+    writeFileSync(pidPathFor(sessionsDir, sid), String(process.pid));
+    writeFileSync(piPidPathFor(sessionsDir, sid), String(process.pid)); // live
+    const km = createKeeperManager(baseOpts({ isPiAliveForSession: () => true }));
+    const r = await km.discoverExistingKeepers();
+    expect(r).toHaveLength(1);
+    expect(r[0].piPid).toBe(process.pid);
+  });
+
+  it("X4: a dead pi-PID sidecar is not surfaced (piPid undefined)", async () => {
+    mkdirSync(sessionsDir, { recursive: true });
+    const sid = "sess-dead-pi";
+    writeFileSync(pidPathFor(sessionsDir, sid), String(process.pid));
+    writeFileSync(piPidPathFor(sessionsDir, sid), String(KNOWN_DEAD_PID));
+    const km = createKeeperManager(baseOpts({ isPiAliveForSession: () => true }));
+    const r = await km.discoverExistingKeepers();
+    expect(r).toHaveLength(1);
+    expect(r[0].piPid).toBeUndefined();
+  });
+
+  it("X3: healthy keeper with NO pi-PID sidecar survives the default scan", async () => {
+    mkdirSync(sessionsDir, { recursive: true });
+    const sid = "sess-no-sidecar";
+    const pidFile = pidPathFor(sessionsDir, sid);
+    writeFileSync(pidFile, String(process.pid));
+    // Default probe (no injection): absent sidecar → alive → keeper survives.
+    const killSpy = vi.spyOn(process, "kill").mockImplementation(() => true);
+    const km = createKeeperManager(baseOpts());
+    const r = await km.discoverExistingKeepers();
+    expect(r).toHaveLength(1);
+    expect(r[0].sessionId).toBe(sid);
+    expect(r[0].piPid).toBeUndefined();
+    expect(existsSync(pidFile)).toBe(true); // not unlinked
+    // No SIGTERM to the keeper.
+    const target = process.platform === "win32" ? process.pid : -process.pid; // platform-branch-ok
+    expect(killSpy.mock.calls.filter((c) => c[0] === target && c[1] === "SIGTERM")).toHaveLength(0);
+    killSpy.mockRestore();
+  });
+
+  it("X2: default liveness probe returns alive when the pi-PID sidecar is absent", async () => {
+    // Probe is exercised through discoverExistingKeepers: an absent sidecar
+    // must NOT classify pi as dead (which would SIGTERM the keeper).
+    mkdirSync(sessionsDir, { recursive: true });
+    const sid = "sess-probe-absent";
+    writeFileSync(pidPathFor(sessionsDir, sid), String(process.pid));
+    const km = createKeeperManager(baseOpts()); // default probe
+    const r = await km.discoverExistingKeepers();
+    expect(r).toHaveLength(1); // survived → probe returned alive
+  });
+
+  it("E9: only a padded valid live PID is accepted; every other partition is rejected", async () => {
+    mkdirSync(sessionsDir, { recursive: true });
+    const partitions: Array<{ sid: string; write?: string; expectPiPid: number | undefined }> = [
+      { sid: "p-absent", expectPiPid: undefined },                 // no sidecar
+      { sid: "p-empty", write: "", expectPiPid: undefined },
+      { sid: "p-abc", write: "abc", expectPiPid: undefined },
+      { sid: "p-zero", write: "0", expectPiPid: undefined },
+      { sid: "p-neg", write: "-1", expectPiPid: undefined },
+      { sid: "p-padded", write: `  ${process.pid}  `, expectPiPid: process.pid }, // padded valid + live
+      { sid: "p-max", write: String(KNOWN_DEAD_PID), expectPiPid: undefined },     // above real pids / not alive
+    ];
+    for (const p of partitions) {
+      writeFileSync(pidPathFor(sessionsDir, p.sid), String(process.pid));
+      if (p.write !== undefined) writeFileSync(piPidPathFor(sessionsDir, p.sid), p.write);
+    }
+    const km = createKeeperManager(baseOpts({ isPiAliveForSession: () => true }));
+    const r = await km.discoverExistingKeepers();
+    for (const p of partitions) {
+      const entry = r.find((e) => e.sessionId === p.sid);
+      expect(entry, `partition ${p.sid} should be discovered`).toBeDefined();
+      expect(entry!.piPid, `partition ${p.sid}`).toBe(p.expectPiPid);
+    }
+  });
+});

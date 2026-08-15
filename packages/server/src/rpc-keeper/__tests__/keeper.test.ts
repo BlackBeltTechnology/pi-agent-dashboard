@@ -17,6 +17,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, unlink
 import net from "node:net";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { piPidPathFor as piPidPathForKM } from "../keeper-manager.js";
 
 const KEEPER_PATH = path.resolve(__dirname, "..", "keeper.cjs");
 const FIXTURES_DIR = path.resolve(__dirname, "fixtures");
@@ -46,6 +47,12 @@ function pidPathIn(home: string, sid: string): string {
 function keeperLogIn(home: string, sid: string): string {
   return path.join(sessionsDirIn(home), `keeper-${sid}.log`);
 }
+// Pi-PID sidecar path (post-spawn). See change: fix-keeper-session-identity-and-reattach.
+function piPidPathIn(home: string, sid: string): string {
+  return process.platform === "win32"
+    ? path.join(sessionsDirIn(home), `pi-rpc-${sid}.pi-pid`)
+    : `${sockPathIn(home, sid)}.pi-pid`;
+}
 
 function makeSessionId(): string {
   // Short ID to keep total UDS path comfortably under 104 bytes even on
@@ -71,6 +78,7 @@ interface SpawnedKeeper {
 // Convenience accessors that route through the keeper's own home.
 function sockPathFor(s: SpawnedKeeper): string { return sockPathIn(s.home, s.sessionId); }
 function pidPathFor(s: SpawnedKeeper): string { return pidPathIn(s.home, s.sessionId); }
+function piPidPathFor(s: SpawnedKeeper): string { return piPidPathIn(s.home, s.sessionId); }
 function keeperLogFor(s: SpawnedKeeper): string { return keeperLogIn(s.home, s.sessionId); }
 
 interface SpawnKeeperOpts {
@@ -466,6 +474,105 @@ describe.skipIf(process.platform === "win32")("rpc-keeper (Unix UDS)", () => {
 
     await killAndAwait(k);
   }, 10_000);
+
+  // ── pi-PID sidecar lifecycle ──────────────────────────────────────────────
+  // See change: fix-keeper-session-identity-and-reattach.
+
+  it("path parity: keeper-manager's piPidPathFor resolves to the file the real keeper writes", async () => {
+    // keeper.cjs (CJS, cannot import the TS helper) and keeper-manager's
+    // piPidPathFor are two implementations of the same convention. If they
+    // diverge, discovery reads absent → piPid undefined → the cwd-FIFO
+    // degradation this change fixes. Assert the TS helper points exactly at
+    // the file the real keeper wrote. See change: fix-keeper-session-identity-and-reattach.
+    const k = track(await spawnKeeper());
+    await readyKeeper(k);
+    await waitFor(() => existsSync(piPidPathFor(k)));
+    const tsHelperPath = piPidPathForKM(sessionsDirIn(k.home), k.sessionId);
+    expect(tsHelperPath).toBe(piPidPathFor(k));
+    expect(existsSync(tsHelperPath)).toBe(true);
+    await killAndAwait(k);
+  }, 10_000);
+
+  it("E13: keeper's own .pid sidecar stays a bare keeper-PID integer", async () => {
+    const k = track(await spawnKeeper());
+    await readyKeeper(k);
+    const raw = readFileSync(pidPathFor(k), "utf8");
+    expect(raw.trim()).toBe(String(k.child.pid));
+    expect(raw.trim()).toMatch(/^\d+$/); // parseable by the orphan-cleanup reader
+    await killAndAwait(k);
+  }, 10_000);
+
+  it("E18: the .pi-pid sidecar exists before the 'keeper ready' log line", async () => {
+    const k = track(await spawnKeeper());
+    await waitFor(() => existsSync(keeperLogFor(k)) && readFileSync(keeperLogFor(k), "utf8").includes("keeper ready"));
+    // By the time 'keeper ready' is written, the post-spawn .pi-pid write has
+    // already run (code orders 3b before the crash-window ready log).
+    expect(existsSync(piPidPathFor(k))).toBe(true);
+    const piPid = Number(readFileSync(piPidPathFor(k), "utf8").trim());
+    expect(Number.isFinite(piPid) && piPid > 0).toBe(true);
+    expect(piPid).not.toBe(k.child.pid); // pi's PID, not the keeper's
+    await killAndAwait(k);
+  }, 10_000);
+
+  it("E17: SIGTERM unlinks socket, own .pid AND .pi-pid", async () => {
+    const k = track(await spawnKeeper());
+    await readyKeeper(k);
+    await waitFor(() => existsSync(piPidPathFor(k)));
+    expect(existsSync(sockPathFor(k))).toBe(true);
+    expect(existsSync(pidPathFor(k))).toBe(true);
+    expect(existsSync(piPidPathFor(k))).toBe(true);
+
+    const result = await killAndAwait(k, "SIGTERM");
+    expect(result.code).toBe(0);
+    expect(existsSync(sockPathFor(k))).toBe(false);
+    expect(existsSync(pidPathFor(k))).toBe(false);
+    expect(existsSync(piPidPathFor(k))).toBe(false);
+  }, 10_000);
+
+  it("X1: a failed .pi-pid write is logged and non-fatal (pi stays alive, own .pid intact)", async () => {
+    // Make ONLY the pi-PID write fail: pre-create a directory at its path so
+    // writeFileSync throws EISDIR. Socket bind + own .pid write + pi spawn are
+    // unaffected (different paths).
+    const sessionId = makeSessionId();
+    const home = makeShortHome();
+    mkdirSync(sessionsDirIn(home), { recursive: true });
+    mkdirSync(piPidPathIn(home, sessionId), { recursive: true });
+
+    const k = track(await spawnKeeper({ sessionId, home }));
+    await readyKeeper(k); // keeper survived the crash window → still running
+
+    // pi is alive: a forwarded line reaches the mock-pi log.
+    await writeLineToKeeper(k, '{"type":"prompt","message":"x1-alive","id":"1"}');
+    await waitFor(() => existsSync(k.mockPiLog) && readFileSync(k.mockPiLog, "utf8").includes("x1-alive"));
+
+    const klog = readFileSync(keeperLogFor(k), "utf8");
+    expect(klog).toMatch(/cannot write pi-PID sidecar/);
+    // Own .pid sidecar unaffected (bare keeper integer).
+    expect(readFileSync(pidPathFor(k), "utf8").trim()).toBe(String(k.child.pid));
+    // No regular .pi-pid FILE was written (the path is still the directory).
+    expect(existsSync(path.join(piPidPathIn(home, sessionId), "placeholder-never-created"))).toBe(false);
+
+    await killAndAwait(k);
+  }, 10_000);
+
+  it("X6: pi spawn failure writes no .pi-pid and the keeper exits non-zero", async () => {
+    // Scrubbed PATH + PI_KEEPER_PI_CMD pointing at a non-existent binary →
+    // child_process.spawn emits ENOENT → keeper shutdown(1).
+    const k = track(
+      await spawnKeeper({
+        noPathShim: true,
+        extraEnv: { PI_KEEPER_PI_CMD: JSON.stringify(["/does/not/exist/pi-xyz"]) },
+      }),
+    );
+    const result = await Promise.race([
+      k.exited,
+      new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((_, reject) =>
+        setTimeout(() => reject(new Error("keeper did not exit within 3s")), 3000),
+      ),
+    ]);
+    expect(result.code).not.toBe(0);
+    expect(existsSync(piPidPathFor(k))).toBe(false);
+  }, 8_000);
 });
 
 describe.skipIf(process.platform !== "win32")("rpc-keeper (Windows named pipe)", () => {
