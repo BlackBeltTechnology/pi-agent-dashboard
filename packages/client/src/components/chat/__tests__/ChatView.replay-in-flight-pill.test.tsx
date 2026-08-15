@@ -21,6 +21,7 @@ import { ChatView } from "../ChatView.js";
 
 const defaultToolContext: ToolContext = {};
 const PILL = "replay-in-flight-pill";
+const SCRIM = "replay-in-flight-scrim";
 
 beforeAll(() => {
   Element.prototype.scrollTo = () => {};
@@ -74,7 +75,11 @@ describe("ChatView replay-in-flight pill", () => {
     const pill = screen.getByTestId(PILL);
     expect(pill.getAttribute("role")).toBe("status");
     expect(pill.getAttribute("aria-busy")).toBe("true");
-    expect(pill.getAttribute("aria-label")).toBeTruthy();
+    // The accessible name is DERIVED from the visible text. A redundant
+    // `aria-label` duplicating it must not be set — it would override identical
+    // content for no benefit. See change: fix-replay-pill-a11y-and-collision.
+    expect(pill.hasAttribute("aria-label")).toBe(false);
+    expect(pill.textContent?.trim()).toBeTruthy();
   });
 
   it("F2 disappears when the terminal batch clears the flag", () => {
@@ -104,6 +109,9 @@ describe("ChatView replay-in-flight pill", () => {
     });
     expect(screen.getByTestId("chat-history-skeleton")).toBeTruthy();
     expect(screen.queryByTestId(PILL)).toBeNull();
+    // The scrim is subject to the SAME exclusivity: a scrim beside the skeleton
+    // would dim an empty transcript. See change: fix-replay-pill-a11y-and-collision.
+    expect(screen.queryByTestId(SCRIM)).toBeNull();
 
     // First content batch lands: loadingHistory clears, messages present.
     React.act(() => {
@@ -116,6 +124,7 @@ describe("ChatView replay-in-flight pill", () => {
     });
     expect(screen.queryByTestId("chat-history-skeleton")).toBeNull();
     expect(screen.getByTestId(PILL)).toBeTruthy();
+    expect(screen.getByTestId(SCRIM)).toBeTruthy();
   });
 
   it("F4 an empty session shows the placeholder and never the pill", () => {
@@ -256,6 +265,117 @@ describe("ChatView replay-in-flight pill", () => {
     React.act(() => {
       vi.advanceTimersByTime(REPLAY_PILL_DELAY_MS);
     });
+    expect(screen.getByTestId(PILL)).toBeTruthy();
+  });
+
+  // ── Scrim + label composition ────────────────────────────────────────────
+  // See change: fix-replay-pill-a11y-and-collision.
+  //
+  // Geometry is deliberately NOT asserted here: jsdom has no layout engine, so
+  // every getBoundingClientRect() returns zeros and a non-occlusion assertion
+  // would pass vacuously. The real overlap check lives in
+  // tests/e2e/replay-in-flight-pill.spec.ts (design D6). What IS assertable at
+  // this level are the class/attribute proxies for those properties.
+
+  it("G1 the scrim is inert: pointer-events-none and aria-hidden", () => {
+    renderChat({ replayInFlight: true });
+    React.act(() => {
+      vi.advanceTimersByTime(REPLAY_PILL_DELAY_MS);
+    });
+
+    const scrim = screen.getByTestId(SCRIM);
+    // Without these the scrim silently swallows selection and clicks over the
+    // tail message while rendering identically — invisible to a screenshot.
+    expect(scrim.className).toContain("pointer-events-none");
+    expect(scrim.getAttribute("aria-hidden")).toBe("true");
+    // One status must contribute exactly one node to the accessibility tree.
+    expect(scrim.getAttribute("role")).toBeNull();
+  });
+
+  it("G2 the scrim and the label appear and clear together", () => {
+    const { rerender } = renderChat({ replayInFlight: true });
+    expect(screen.queryByTestId(SCRIM)).toBeNull();
+    expect(screen.queryByTestId(PILL)).toBeNull();
+
+    React.act(() => {
+      vi.advanceTimersByTime(REPLAY_PILL_DELAY_MS);
+    });
+    expect(screen.getByTestId(SCRIM)).toBeTruthy();
+    expect(screen.getByTestId(PILL)).toBeTruthy();
+
+    // A scrim left behind would permanently dim the transcript tail.
+    React.act(() => {
+      rerender(
+        <ThemeProvider>
+          <ChatView sessionId="s1" state={stateWithMessages()} toolContext={defaultToolContext} replayInFlight={false} />
+        </ThemeProvider>,
+      );
+    });
+    expect(screen.queryByTestId(SCRIM)).toBeNull();
+    expect(screen.queryByTestId(PILL)).toBeNull();
+  });
+
+  it("G3 the label carries the position, stacking and token classes it needs", () => {
+    renderChat({ replayInFlight: true });
+    React.act(() => {
+      vi.advanceTimersByTime(REPLAY_PILL_DELAY_MS);
+    });
+
+    const cls = screen.getByTestId(PILL).className;
+    // Centred above the scroll-to-bottom control's ~16..51px band, and ABOVE the
+    // scrim in stacking order. Separation is by layout, not paint order.
+    expect(cls).toContain("bottom-16");
+    expect(cls).toContain("left-1/2");
+    expect(cls).toContain("z-20");
+    // SC 1.4.11 boundary: --border-strong on --bg-surface, not the 1.42:1
+    // --border-subtle hairline on --bg-tertiary that shipped originally.
+    expect(cls).toContain("border-[var(--border-strong)]");
+    expect(cls).toContain("bg-[var(--bg-surface)]");
+    expect(cls).not.toContain("--border-subtle");
+    expect(cls).not.toContain("--bg-tertiary");
+    // The scrim must paint UNDER the scroll controls (z-10).
+    expect(screen.getByTestId(SCRIM).className).toContain("z-0");
+  });
+
+  it("G4 the scroll-to-bottom control keeps its resting position while the indicator shows", () => {
+    // The spec pins the scroll controls' resting position as independent of
+    // replay state. This is the render-level half; G5 in the e2e spec asserts
+    // the actual boxes.
+    //
+    // The button only mounts once `showScrollButton` is true, which happens
+    // only from a real scroll event. jsdom reports 0 for every scroll metric,
+    // so an unforced render leaves the button ABSENT and a guarded assertion
+    // would never execute — exactly the vacuous test design D6 warns about.
+    // So the scroll geometry is stubbed and a scroll event dispatched, and the
+    // button's presence is asserted BEFORE its class.
+    const { container } = renderChat({ replayInFlight: true });
+    React.act(() => {
+      vi.advanceTimersByTime(REPLAY_PILL_DELAY_MS);
+    });
+
+    const scroller = container.querySelector('[data-testid="chat-scroll-container"]') as HTMLElement;
+    expect(scroller).toBeTruthy();
+    // Far from the bottom: scrollHeight - scrollTop - clientHeight = 900 ≫ the
+    // 50px SCROLL_THRESHOLD, so handleScroll arms the button.
+    for (const [prop, value] of [
+      ["scrollHeight", 2_000],
+      ["clientHeight", 1_000],
+      ["scrollTop", 100],
+    ] as const) {
+      Object.defineProperty(scroller, prop, { configurable: true, value });
+    }
+    React.act(() => {
+      scroller.dispatchEvent(new Event("scroll", { bubbles: false }));
+    });
+
+    const bottomBtn = container.querySelector('[data-testid="scroll-to-bottom"]');
+    expect(bottomBtn, "scroll-to-bottom did not render — the assertion below would be vacuous").not.toBeNull();
+    // Unchanged from before the change: bottom-4, centred, z-10. The label at
+    // z-20/bottom-16 clears it by layout; the button must not have been moved
+    // up or restyled to make room.
+    expect((bottomBtn as Element).className).toContain("bottom-4");
+    expect((bottomBtn as Element).className).toContain("z-10");
+    // And it coexists with the indicator rather than being suppressed by it.
     expect(screen.getByTestId(PILL)).toBeTruthy();
   });
 

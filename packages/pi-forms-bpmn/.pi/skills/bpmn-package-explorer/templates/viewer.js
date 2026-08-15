@@ -15,6 +15,7 @@
     panelPath: document.getElementById('panel-path'),
     panelBody: document.getElementById('panel-body'),
     panelClose: document.getElementById('panel-close'),
+    panelResize: document.getElementById('panel-resize'),
     zoomIn: document.getElementById('zoom-in'),
     zoomOut: document.getElementById('zoom-out'),
     zoomReset: document.getElementById('zoom-reset'),
@@ -261,6 +262,45 @@
   els.zoomReset.onclick = function () { if (state.viewer) state.viewer.get('canvas').zoom('fit-viewport'); };
   els.panelClose.onclick = closePanel;
   els.diagnostics.querySelector('.dismiss').onclick = function () { els.diagnostics.classList.add('hidden'); };
+
+  // ── panel resize (drag the seam to set --panel-w) ───────────────────────
+  (function wirePanelResize() {
+    var handle = els.panelResize;
+    if (!handle) return;
+    var MIN = 240; // keep in sync with #panel min-width
+    function clamp(px) { return Math.max(MIN, Math.min(px, window.innerWidth - 120)); }
+    function setWidth(px) {
+      document.documentElement.style.setProperty('--panel-w', clamp(px) + 'px');
+      if (state.viewer) { try { state.viewer.get('canvas').resized(); } catch (e) {} }
+    }
+    function onMove(clientX) { setWidth(window.innerWidth - clientX); }
+    function startDrag(getX) {
+      handle.classList.add('dragging');
+      document.body.classList.add('panel-resizing');
+      function move(ev) { onMove(getX(ev)); }
+      function up() {
+        handle.classList.remove('dragging');
+        document.body.classList.remove('panel-resizing');
+        window.removeEventListener('mousemove', move);
+        window.removeEventListener('mouseup', up);
+        window.removeEventListener('touchmove', tmove);
+        window.removeEventListener('touchend', up);
+      }
+      function tmove(ev) { if (ev.touches[0]) onMove(ev.touches[0].clientX); }
+      window.addEventListener('mousemove', move);
+      window.addEventListener('mouseup', up);
+      window.addEventListener('touchmove', tmove, { passive: true });
+      window.addEventListener('touchend', up);
+    }
+    handle.addEventListener('mousedown', function (e) { e.preventDefault(); startDrag(function (ev) { return ev.clientX; }); });
+    handle.addEventListener('touchstart', function (e) { if (e.touches[0]) startDrag(function () { return 0; }); }, { passive: true });
+    // keyboard: arrow keys nudge the split for accessibility.
+    handle.addEventListener('keydown', function (e) {
+      var cur = els.panel.getBoundingClientRect().width;
+      if (e.key === 'ArrowLeft') { setWidth(cur + 24); e.preventDefault(); }
+      else if (e.key === 'ArrowRight') { setWidth(cur - 24); e.preventDefault(); }
+    });
+  })();
 
   // Load the OpenForms renderer only when vendored (avoids a 404 / console error).
   function loadFormRenderer(data) {

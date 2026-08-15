@@ -117,3 +117,78 @@ describe("--table-stripe token", () => {
     expect(css).toContain("--table-stripe: rgba(0, 0, 0, 0.035);");
   });
 });
+
+// --border-strong exists solely to give an overlay surface a boundary that
+// meets WCAG 2.1 SC 1.4.11 (3:1) against the transcript background. Defined in
+// BOTH index.css theme blocks: a token present in only one falls back to an
+// invalid value and the border silently disappears in the other theme.
+// See change: fix-replay-pill-a11y-and-collision.
+describe("--border-strong overlay-boundary token", () => {
+  /** WCAG relative luminance of a #rrggbb colour. */
+  function luminance(hex: string): number {
+    const ch = [1, 3, 5].map((i) => {
+      const c = Number.parseInt(hex.slice(i, i + 2), 16) / 255;
+      return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * ch[0] + 0.7152 * ch[1] + 0.0722 * ch[2];
+  }
+  const contrast = (a: string, b: string) => {
+    const [hi, lo] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+    return (hi + 0.05) / (lo + 0.05);
+  };
+
+  /** Value of `name` inside the block starting at `blockIdx`, read from index.css. */
+  function tokenIn(blockIdx: number, name: string): string | null {
+    const close = css.indexOf("\n}", blockIdx);
+    const block = css.slice(blockIdx, close);
+    return new RegExp(`${name}:\\s*([^;]+);`).exec(block)?.[1].trim() ?? null;
+  }
+
+  const rootIdx = css.indexOf(":root {");
+  const lightIdx = css.indexOf('[data-theme="light"]');
+
+  it("is declared in the :root (dark) block", () => {
+    expect(tokenIn(rootIdx, "--border-strong")).toBe("#808080");
+  });
+
+  it("is declared in the [data-theme=\"light\"] block", () => {
+    expect(tokenIn(lightIdx, "--border-strong")).toBe("#777777");
+  });
+
+  it("clears the SC 1.4.11 3:1 floor against --bg-primary in the dark theme", () => {
+    const border = tokenIn(rootIdx, "--border-strong");
+    const bg = tokenIn(rootIdx, "--bg-primary");
+    expect(contrast(border as string, bg as string)).toBeGreaterThanOrEqual(3);
+  });
+
+  it("clears the SC 1.4.11 3:1 floor against --bg-primary in the light theme", () => {
+    const border = tokenIn(lightIdx, "--border-strong");
+    const bg = tokenIn(lightIdx, "--bg-primary");
+    expect(contrast(border as string, bg as string)).toBeGreaterThanOrEqual(3);
+  });
+});
+
+// The replay-in-flight indicator must stop animating under
+// `prefers-reduced-motion: reduce` while staying rendered. Scoped through the
+// label's data-testid because the spinner is a Tailwind utility on an <Icon>
+// SVG, not a stable authored class.
+// See change: fix-replay-pill-a11y-and-collision.
+describe("replay-in-flight indicator reduced-motion rule", () => {
+  const idx = css.indexOf('[data-testid="replay-in-flight-pill"] .animate-spin');
+
+  it("declares a reduced-motion rule scoped to the indicator", () => {
+    expect(idx).toBeGreaterThanOrEqual(0);
+  });
+
+  it("sits inside a prefers-reduced-motion: reduce block and zeroes the animation", () => {
+    const block = css.lastIndexOf("@media (prefers-reduced-motion: reduce)", idx);
+    expect(block).toBeGreaterThanOrEqual(0);
+    expect(css.slice(idx, css.indexOf("}", idx))).toContain("animation: none");
+  });
+
+  it("does not hide the indicator (reducing motion must not remove the status)", () => {
+    const rule = css.slice(idx, css.indexOf("}", idx));
+    expect(rule).not.toContain("display: none");
+    expect(rule).not.toContain("visibility: hidden");
+  });
+});

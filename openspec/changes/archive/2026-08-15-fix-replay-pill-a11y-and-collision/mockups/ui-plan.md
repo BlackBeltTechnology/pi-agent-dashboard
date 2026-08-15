@@ -76,7 +76,7 @@ C as first drawn moved the scroll-to-bottom button up while the band showed,
 which made a control jump when a replay ended. The specified design drops that:
 the scrim is pinned to the bottom, the label rides centred *above* the scroll
 controls, and the controls keep their resting position. Verified at 375px and
-1440px in both themes — zero box intersection, 16px clearance, nothing moves
+1440px in both themes — zero box intersection, ~13px clearance, nothing moves
 conditionally.
 
 C's cost, accepted deliberately: the scrim veils the bottom edge of the last

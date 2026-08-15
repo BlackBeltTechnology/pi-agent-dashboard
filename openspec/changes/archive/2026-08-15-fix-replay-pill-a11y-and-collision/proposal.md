@@ -43,7 +43,7 @@ this change, with the live A/B/C comparison in `mockups/index.html`.
 - Because the label sits above the scroll controls and the scroll controls keep
   their resting position, nothing moves when a replay ends and no control can be
   occluded at any viewport width. Verified in the mockup at 375/1440 in both
-  themes: 16px clearance, zero box intersection.
+  themes: ~13px clearance (label at 64px, button spanning ~16..51px), zero box intersection.
 - Restyle the label onto `--bg-surface` with a hairline border in a new
   `--border-strong` token, raising its boundary to **5.01:1** dark / **4.48:1**
   light and clearing the SC 1.4.11 floor. Label text moves to `--text-primary`.

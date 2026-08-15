@@ -1,0 +1,106 @@
+# Default rate card — OVERRIDE PER PROJECT.
+#
+# Day rates in EUR, net, per productive 8-hour man-day.
+# Anchored on the local offer corpus:
+#   - Huawei WMS (enterprise, international): 600 EUR/day blended
+#   - Sunbloom (SME, Hungary):                423 EUR/day
+#   - Nearshore CEE market bands 2025/26:     senior 30-70 EUR/h => ~240-560 EUR/day
+#
+# To override: copy this file into the project, edit, and pass --rates <file>,
+# or set `rates_file: ./rates.yaml` in the estimate input.
+
+rates:
+  # --- Blended (use when the client only wants one number) ---
+  - role: Blended
+    day_rate: 480
+
+  # --- Product & analysis ---
+  - role: Product Owner / BA
+    seniority: senior
+    day_rate: 520
+  - role: Product Owner / BA
+    seniority: mid
+    day_rate: 400
+  - role: Product Owner / BA
+    seniority: junior
+    day_rate: 280
+
+  # --- Architecture ---
+  - role: Architect
+    seniority: senior
+    day_rate: 680
+  - role: Architect
+    seniority: mid
+    day_rate: 520
+
+  # --- Design ---
+  - role: UX / UI Designer
+    seniority: senior
+    day_rate: 480
+  - role: UX / UI Designer
+    seniority: mid
+    day_rate: 380
+  - role: UX / UI Designer
+    seniority: junior
+    day_rate: 260
+
+  # --- Engineering ---
+  - role: Frontend Developer
+    seniority: senior
+    day_rate: 520
+  - role: Frontend Developer
+    seniority: mid
+    day_rate: 400
+  - role: Frontend Developer
+    seniority: junior
+    day_rate: 260
+
+  - role: Backend Developer
+    seniority: senior
+    day_rate: 560
+  - role: Backend Developer
+    seniority: mid
+    day_rate: 420
+  - role: Backend Developer
+    seniority: junior
+    day_rate: 280
+
+  - role: Data / Integration Engineer
+    seniority: senior
+    day_rate: 600
+  - role: Data / Integration Engineer
+    seniority: mid
+    day_rate: 460
+
+  # --- Quality ---
+  - role: QA / Test Automation
+    seniority: senior
+    day_rate: 440
+  - role: QA / Test Automation
+    seniority: mid
+    day_rate: 340
+  - role: QA / Test Automation
+    seniority: junior
+    day_rate: 240
+
+  # --- Platform & security ---
+  - role: DevOps / SRE
+    seniority: senior
+    day_rate: 600
+  - role: DevOps / SRE
+    seniority: mid
+    day_rate: 460
+  - role: Security Engineer
+    seniority: senior
+    day_rate: 700
+
+  # --- Leadership ---
+  - role: Tech Lead
+    seniority: senior
+    day_rate: 640
+  - role: Project Manager
+    seniority: senior
+    day_rate: 520
+  - role: Project Manager
+    seniority: mid
+    day_rate: 400

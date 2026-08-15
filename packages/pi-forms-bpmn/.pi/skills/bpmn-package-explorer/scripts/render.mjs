@@ -2,12 +2,13 @@
 //
 // Builds a directory that presents the shell, the package artifacts and the
 // single shared asset root under ONE origin — the asset root as a SYMLINK, so
-// the multi-megabyte payload is never duplicated per package (serve_mockup
+// the multi-megabyte payload is never duplicated per package (the CORS server
 // follows symlinks). Asset URLs in the shell are RELATIVE, so they survive an
 // ephemeral port not known at generation time.
 //
 //   node scripts/render.mjs <packageDir> [outDir]
-//   → assembles a render root and prints its path (serve it with serve_mockup)
+//   → assembles a render root and prints its path (serve it with
+//     scripts/serve.mjs — CORS-enabled, required for the opaque-origin canvas)
 
 import { mkdtempSync, mkdirSync, readdirSync, copyFileSync, writeFileSync, readFileSync, existsSync, symlinkSync, statSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';

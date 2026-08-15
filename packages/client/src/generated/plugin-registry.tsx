@@ -3,6 +3,7 @@
 import { AppleToolsSettings } from "@blackbelt-technology/pi-dashboard-apple-tools";
 import { FolderAutomationSection, AutomationBoard, AutomationRunMonitor, AutomationBadge, isAutomationRun, AutomationSettings, catalog as automation_catalog } from "@blackbelt-technology/pi-dashboard-automation-plugin";
 import { BlackholeSettings, catalog as blackhole_catalog } from "@blackbelt-technology/pi-dashboard-blackhole-plugin";
+import { CostView, CostSettings } from "@blackbelt-technology/pi-dashboard-cost-estimator";
 import { SessionFlowActionsClaim, shouldRenderFlowsSubcard, FlowDashboardClaim, FlowYamlPreviewClaim, isFlowYamlPreviewActive, FlowWriteToolRenderer, FlowAgentsToolRenderer, FlowsSettings, FlowInputWiringClaim, catalog as flows_catalog } from "@blackbelt-technology/pi-dashboard-flows-plugin";
 import { GoalChip, hasGoal, GoalControl, FolderGoalsSection, GoalsBoardClaim, GoalDetailClaim, GoalPluginSettings, catalog as goal_catalog } from "@blackbelt-technology/pi-dashboard-goal-plugin";
 import { HermesMemorySettings, catalog as hermes_memory_catalog } from "@blackbelt-technology/pi-dashboard-hermes-memory-plugin";
@@ -125,6 +126,39 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
       { pluginId: "blackhole", priority: 100, slot: "settings-section", tab: "general", Component: BlackholeSettings },
     ],
     catalog: blackhole_catalog,
+  },
+  {
+    manifest: {
+        "id": "cost-estimator",
+        "displayName": "Cost",
+        "priority": 100,
+        "claims": [
+            {
+                "slot": "content-view",
+                "component": "CostView"
+            },
+            {
+                "slot": "command-route",
+                "component": "CostView",
+                "command": "cost"
+            },
+            {
+                "slot": "settings-section",
+                "component": "CostSettings",
+                "config": {
+                    "tab": "general"
+                }
+            }
+        ],
+        "client": "./src/client/index.tsx",
+        "server": "./src/server/index.ts",
+        "configSchema": "./src/configSchema.json"
+    },
+    claims: [
+      { pluginId: "cost-estimator", priority: 100, slot: "content-view", Component: CostView },
+      { pluginId: "cost-estimator", priority: 100, slot: "command-route", command: "cost", Component: CostView },
+      { pluginId: "cost-estimator", priority: 100, slot: "settings-section", config: {"tab":"general"}, Component: CostSettings },
+    ],
   },
   {
     manifest: {
@@ -379,4 +413,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "cc167a4e37911198c8827653b6d4e213494f7e43fe6c66f166a679a7f5a7fbc0";
+export const PLUGIN_REGISTRY_HASH = "32c5b47f88e2f274ff1cc969f98fdbcb800a38c21b1783f245f67d2cce9bb588";

@@ -26,6 +26,7 @@ export default defineConfig({
       "packages/kb",
       "packages/kb-extension",
       "packages/session-distiller",
+      "packages/cost-estimator",
       "packages/server",
       "packages/extension",
       "packages/image-fit-extension",

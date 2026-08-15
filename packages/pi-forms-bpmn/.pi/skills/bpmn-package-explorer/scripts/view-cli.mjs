@@ -3,7 +3,7 @@
 // .bpmn is laid out into a separate render artifact; the source is never touched.
 //
 //   node scripts/view-cli.mjs <file.bpmn|file.dmn> [renderOutDir]
-//   → prints the render-root path (serve it with serve_mockup) or the refusal
+//   → prints the render-root path (serve it with scripts/serve.mjs — CORS) or the refusal
 
 import { assembleStandalone } from './render.mjs';
 

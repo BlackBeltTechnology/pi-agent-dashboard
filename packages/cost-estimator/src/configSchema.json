@@ -1,0 +1,56 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "title": "Cost estimator",
+  "description": "Seat plans and rates used to turn measured session telemetry into money. The token meter is theoretical when capacity is bought on a subscription; these values give the real cash figure.",
+  "properties": {
+    "gapCapMinutes": {
+      "type": "integer",
+      "title": "Break threshold (minutes)",
+      "description": "A gap longer than this counts as a break, not work.",
+      "default": 15,
+      "minimum": 1,
+      "maximum": 120
+    },
+    "hoursPerDay": {
+      "type": "number",
+      "title": "Productive hours per man-day",
+      "default": 8,
+      "minimum": 1,
+      "maximum": 24
+    },
+    "seatPlan": {
+      "type": "string",
+      "title": "Seat plan",
+      "description": "Subscription actually paid for. Drives the real cost and the leverage ratio.",
+      "default": "anthropic-max-20x",
+      "enum": [
+        "metered",
+        "anthropic-pro",
+        "anthropic-max-5x",
+        "anthropic-max-20x",
+        "openai-plus",
+        "openai-pro-5x",
+        "openai-pro-20x",
+        "glm-lite",
+        "glm-pro",
+        "glm-max",
+        "custom"
+      ]
+    },
+    "seatMonthlyUsd": {
+      "type": "number",
+      "title": "Custom seat price (USD/seat/month)",
+      "description": "Used when seat plan is 'custom'.",
+      "default": 0,
+      "minimum": 0
+    },
+    "seats": {
+      "type": "integer",
+      "title": "Seats",
+      "default": 1,
+      "minimum": 1
+    }
+  },
+  "additionalProperties": false
+}

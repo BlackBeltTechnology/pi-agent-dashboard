@@ -21,7 +21,14 @@ import { isUnsafeTestHomeScan } from "../auth/test-env-guard.js";
  */
 export interface KeeperWriter {
   writeRpcToSockPath(sockPath: string, line: string): Promise<boolean>;
-  discoverExistingKeepers(): Promise<Array<{ sessionId: string; keeperPid: number; sockPath: string }>>;
+  /**
+   * `piPid` is optional and present only when the keeper's pi-PID sidecar named
+   * a live process. Kept optional so structurally-compatible test fakes stay
+   * valid under return covariance. See change: fix-keeper-session-identity-and-reattach.
+   */
+  discoverExistingKeepers(): Promise<
+    Array<{ sessionId: string; keeperPid: number; sockPath: string; piPid?: number }>
+  >;
 }
 
 /** Default PID file path */
@@ -437,6 +444,19 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
       for (const entry of entries.values()) {
         if (entry.cwd === cwd && !entry.sessionId) {
           entry.sessionId = sessionId;
+          // Positional-resolution observability (HS-4): report ONLY when
+          // cwd-FIFO — which matches on arrival order, not identity — resolved
+          // a KEEPER-mode entry, i.e. positional matching decided a keeper
+          // session's identity. Same keeper-mode predicate that gates capture
+          // (Decision 2). A non-keeper match is silent. The line reports that a
+          // keeper session was resolved positionally; it cannot say the
+          // resolution was correct (nothing here knows the true owner).
+          // See change: fix-keeper-session-identity-and-reattach (Decision 5).
+          if (entry.keeperPid !== undefined) {
+            console.error(
+              `[keeper-identity] positional cwd-FIFO resolution session=${sessionId} cwd=${cwd} entryPid=${entry.pid}`,
+            );
+          }
           return true;
         }
       }
@@ -520,15 +540,40 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
       try {
         const live = await keeperWriter.discoverExistingKeepers();
         for (const k of live) {
-          // Reattach to any existing entry whose spawn-time PID matches
-          // the keeper PID (set when the previous server instance ran
-          // spawnHeadlessViaKeeper). Defensive: do not blow away entries
-          // that already have keeperPid set.
+          // Associate the discovery result with its registry entry by KEEPER
+          // PID — never by k.sessionId, which is the keeper transport id
+          // (spawn argv UUID), not pi's session UUID (task 1.3).
           const existing = entries.get(k.keeperPid);
-          if (existing && existing.keeperPid === undefined) {
+          if (!existing) continue;
+
+          // Reattach keeper transport info to a freshly-reclaimed entry that
+          // does not yet carry it. Defensive: do not blow away a live set.
+          if (existing.keeperPid === undefined) {
             existing.keeperPid = k.keeperPid;
             existing.keeperSockPath = k.sockPath;
             persist();
+          }
+
+          // pi-PID reconciliation (Decisions 3 + 5). Reclaim restores
+          // keeperPid from disk, so the entry ALWAYS has keeperPid here — the
+          // old `keeperPid === undefined` guard skipped exactly this, the
+          // primary population this change targets (task 1.3, task 5.6). The
+          // sidecar FILLS an absent piPid; it never arbitrates against a live
+          // capture. One [keeper-identity] line per keeper records the outcome.
+          if (existing.piPid === undefined && k.piPid !== undefined) {
+            existing.piPid = k.piPid;
+            persist();
+            console.error(
+              `[keeper-identity] recorded piPid=${k.piPid} keeperPid=${k.keeperPid} session=${k.sessionId}`,
+            );
+          } else if (existing.piPid !== undefined) {
+            console.error(
+              `[keeper-identity] unchanged piPid=${existing.piPid} keeperPid=${k.keeperPid} session=${k.sessionId}`,
+            );
+          } else {
+            console.error(
+              `[keeper-identity] unavailable keeperPid=${k.keeperPid} session=${k.sessionId}`,
+            );
           }
         }
         // Report the live keeper sessionIds so cold-start recovery can gate on

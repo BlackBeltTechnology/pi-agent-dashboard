@@ -1,0 +1,420 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Pi Runtime picker — mockup v2</title>
+<style>
+:root{
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+  --bg-hover:rgba(255,255,255,.06); --bg-code:#1a1a1a;
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+  --border-primary:#252525; --border-secondary:#333; 
+  --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-yellow:#eab308; --accent-red:#ef4444;
+  --accent-purple:#a855f7; --link:#60a5fa;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg-primary);color:var(--text-primary);
+  font:13px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif}
+code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.wrap{max-width:900px;margin:0 auto;padding:24px 16px 80px}
+h1{font-size:15px;margin:0 0 2px;font-weight:600}
+.sub{color:var(--text-tertiary);font-size:12px;margin-bottom:20px}
+
+.states{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:22px;padding:8px;
+  border:1px dashed var(--border-secondary);border-radius:8px;background:var(--bg-secondary)}
+.states b{font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);
+  align-self:center;margin-right:4px}
+.states button{font:inherit;font-size:11px;padding:5px 11px;border-radius:999px;cursor:pointer;
+  background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border-secondary)}
+.states button[aria-pressed="true"]{background:var(--accent-blue);border-color:var(--accent-blue);color:#fff}
+
+.section{border:1px solid var(--border-primary);border-radius:10px;background:var(--bg-secondary);
+  overflow:hidden;margin-bottom:18px}
+.sechead{display:flex;align-items:center;gap:10px;padding:12px 14px;border-bottom:1px solid var(--border-primary)}
+.sechead h2{font-size:13px;margin:0;font-weight:600;flex:1}
+.sechead .hint{font-size:11px;color:var(--text-tertiary)}
+.body{padding:14px}
+
+/* consumer summary — two lanes */
+.lanes{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+@media(max-width:640px){.lanes{grid-template-columns:1fr}}
+.lane{padding:10px 12px;border-radius:8px;background:var(--bg-tertiary);
+  border:1px solid var(--border-secondary);border-left-width:3px}
+.lane.spawn{border-left-color:var(--accent-blue)}
+.lane.imp{border-left-color:var(--accent-purple)}
+.lane .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.07em;color:var(--text-tertiary)}
+.lane .who{font-size:10.5px;color:var(--text-muted);margin-top:1px}
+.lane .val{font-size:13px;font-weight:600;margin-top:5px;display:flex;align-items:center;gap:7px;flex-wrap:wrap}
+.lane .path{font-size:10.5px;color:var(--text-tertiary);margin-top:4px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+.linkbar{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--text-secondary);
+  margin-bottom:10px;padding:7px 10px;border-radius:7px;background:var(--bg-code);
+  border:1px solid var(--border-primary)}
+.linkbar input{accent-color:var(--accent-blue);width:15px;height:15px;margin:0}
+.linkbar .note{color:var(--text-muted);font-size:11px}
+
+/* matrix */
+.mhead{display:grid;grid-template-columns:1fr 86px 86px;gap:10px;padding:0 12px 7px;
+  font-size:9.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--text-muted)}
+.mhead b{text-align:center;font-weight:600}
+.mhead b.sp{color:#93bbfd}
+.mhead b.im{color:#d8b4fe}
+.cards{display:flex;flex-direction:column;gap:8px}
+.card{display:grid;grid-template-columns:1fr 86px 86px;gap:10px;align-items:center;
+  padding:11px 12px;border:1px solid var(--border-secondary);border-radius:8px;
+  background:var(--bg-tertiary);position:relative}
+.card:hover{background:var(--bg-surface)}
+.card[data-disabled="1"]{opacity:.55}
+.card[data-disabled="1"] .cell{cursor:not-allowed}
+.card .title{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.card .name{font-weight:600;font-size:13px}
+.card .path{font-size:10.5px;color:var(--text-tertiary);margin-top:4px;word-break:break-all}
+.card .why{font-size:11px;color:var(--text-secondary);margin-top:5px}
+.cell{display:flex;flex-direction:column;align-items:center;gap:5px;cursor:pointer;
+  padding:6px 0;border-radius:6px;min-height:44px;justify-content:center}
+.cell:hover{background:var(--bg-hover)}
+.cell input{width:16px;height:16px;margin:0;accent-color:var(--accent-blue)}
+.cell.im input{accent-color:var(--accent-purple)}
+.cell .ver{font-family:ui-monospace,monospace;font-size:11px;font-weight:600}
+.ver.bad{color:var(--accent-red)} .ver.warn{color:var(--accent-yellow)} .ver.ok{color:var(--text-primary)}
+.card[data-spawn="1"]{border-color:var(--accent-blue)}
+.card[data-import="1"]{box-shadow:inset 3px 0 0 var(--accent-purple)}
+.cell .clab{display:none;font-size:9.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--text-muted)}
+
+/* narrow: stack meta above a two-up cell row, columns get inline labels */
+@media(max-width:680px){
+  .mhead{display:none}
+  .card{grid-template-columns:1fr;gap:0}
+  .card .meta{margin-bottom:9px}
+  .card .cell{flex-direction:row;justify-content:flex-start;gap:9px;padding:9px 10px;
+    border:1px solid var(--border-secondary);border-radius:7px;margin-top:6px;background:var(--bg-code)}
+  .cell .clab{display:inline}
+  .cell .ver{margin-left:auto}
+  .card[data-spawn="1"] .cell.sp{border-color:var(--accent-blue)}
+  .card[data-import="1"] .cell.im{border-color:var(--accent-purple)}
+}
+
+.pill{font-size:10px;padding:1px 7px;border-radius:999px;border:1px solid;line-height:1.6;white-space:nowrap}
+.p-blue{color:#93bbfd;border-color:rgba(59,130,246,.45);background:rgba(59,130,246,.12)}
+.p-green{color:#86efac;border-color:rgba(34,197,94,.45);background:rgba(34,197,94,.12)}
+.p-amber{color:#fde047;border-color:rgba(234,179,8,.45);background:rgba(234,179,8,.12)}
+.p-red{color:#fca5a5;border-color:rgba(239,68,68,.45);background:rgba(239,68,68,.12)}
+.p-gray{color:var(--text-tertiary);border-color:var(--border-secondary);background:var(--bg-surface)}
+.p-purple{color:#d8b4fe;border-color:rgba(168,85,247,.45);background:rgba(168,85,247,.12)}
+
+.note{display:flex;gap:9px;padding:9px 11px;border-radius:7px;font-size:11.5px;margin-top:10px;
+  border:1px solid;line-height:1.5}
+.note .ico{flex:none}
+.n-info{background:rgba(59,130,246,.10);border-color:rgba(59,130,246,.35);color:#bcd4fb}
+.n-warn{background:rgba(234,179,8,.10);border-color:rgba(234,179,8,.35);color:#f3e39a}
+.n-err{background:rgba(239,68,68,.10);border-color:rgba(239,68,68,.35);color:#f3b4b4}
+
+.adv{margin-top:12px;border-top:1px solid var(--border-primary);padding-top:11px}
+.adv summary{cursor:pointer;font-size:11.5px;color:var(--text-tertiary);list-style:none}
+.adv summary::-webkit-details-marker{display:none}
+.adv summary::before{content:"▸ ";color:var(--text-muted)}
+.adv[open] summary::before{content:"▾ "}
+.row{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+input[type=text]{flex:1;min-width:200px;background:var(--bg-code);border:1px solid var(--border-secondary);
+  color:var(--text-primary);border-radius:6px;padding:8px 9px;font-family:ui-monospace,monospace;font-size:11.5px}
+button.btn{font:inherit;font-size:11.5px;padding:9px 13px;border-radius:6px;cursor:pointer;min-height:38px;
+  background:var(--bg-surface);border:1px solid var(--border-secondary);color:var(--text-primary)}
+button.btn:hover{background:var(--bg-hover)}
+button.btn.primary{background:var(--accent-blue);border-color:var(--accent-blue);color:#fff}
+button.btn:disabled{opacity:.45;cursor:not-allowed}
+
+.bar{display:flex;align-items:center;gap:10px;padding:11px 14px;flex-wrap:wrap;
+  border-top:1px solid var(--border-primary);background:var(--bg-tertiary)}
+.bar .msg{font-size:11.5px;color:var(--text-tertiary);flex:1;min-width:180px}
+.sess{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--text-secondary);
+  padding:8px 11px;border-radius:7px;background:var(--bg-code);border:1px solid var(--border-primary);margin-top:10px;flex-wrap:wrap}
+
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.6);display:none;align-items:center;justify-content:center;padding:20px;z-index:20}
+.scrim.on{display:flex}
+.modal{background:var(--bg-secondary);border:1px solid var(--border-secondary);border-radius:10px;max-width:470px;width:100%}
+.modal h3{margin:0;padding:14px;font-size:13px;border-bottom:1px solid var(--border-primary)}
+.modal .mb{padding:14px;font-size:12px;color:var(--text-secondary)}
+.modal .mf{display:flex;justify-content:flex-end;gap:8px;padding:12px 14px;border-top:1px solid var(--border-primary)}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:4px 12px;margin:10px 0;font-size:11.5px}
+.kv dt{color:var(--text-muted)} .kv dd{margin:0;font-family:ui-monospace,monospace;word-break:break-all}
+.hide{display:none !important}
+.legend{font-size:11px;color:var(--text-muted);margin-top:26px;border-top:1px solid var(--border-primary);padding-top:14px}
+.legend b{color:var(--text-secondary);font-weight:600}
+.legend ul{margin:6px 0 0;padding-left:18px} .legend li{margin:4px 0}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Settings ▸ General</h1>
+  <div class="sub">Mockup v2 — “Pi runtime”. Two independent consumers over one candidate list, linked by default.</div>
+
+  <div class="states">
+    <b>State</b>
+    <button data-state="linked" aria-pressed="true">Linked (default)</button>
+    <button data-state="unlinked">Unlinked</button>
+    <button data-state="diverged">Deliberate mismatch</button>
+    <button data-state="pinned">Pinned override</button>
+    <button data-state="electron">Electron host</button>
+    <button data-state="scanning">Scanning</button>
+  </div>
+
+  <div class="section">
+    <div class="sechead">
+      <h2>Pi runtime</h2>
+      <span class="hint">Which <span class="mono">pi</span> the dashboard uses</span>
+      <button class="btn" id="rescan">Rescan</button>
+    </div>
+
+    <div class="body">
+
+      <div class="lanes">
+        <div class="lane spawn">
+          <div class="lbl">Sessions spawn</div>
+          <div class="who">the <span class="mono">pi</span> process your sessions run</div>
+          <div class="val"><span id="sp-ver">0.81.2</span><span class="pill p-gray" id="sp-src">auto · bundled</span></div>
+          <div class="path mono" id="sp-path">…/Resources/app/node_modules/@earendil-works/pi-coding-agent</div>
+        </div>
+        <div class="lane imp">
+          <div class="lbl">Server imports</div>
+          <div class="who"><span class="mono">pi-coding-agent</span> loaded as a library</div>
+          <div class="val"><span id="im-ver">0.81.2</span><span class="pill p-gray" id="im-src">auto · bundled</span></div>
+          <div class="path mono" id="im-path">…/Resources/app/node_modules/@earendil-works/pi-coding-agent</div>
+        </div>
+      </div>
+
+      <div class="note n-err hide" id="note-skew">
+        <span class="ico">✕</span>
+        <div><b>These disagree.</b> Sessions run <span class="mono">0.79.0</span>, the server library is
+          <span class="mono">0.81.2</span>. Package installs, model lists and skill discovery are computed
+          from the library and may not match what your sessions can actually do.
+          <a href="#" style="color:var(--link)" id="relink">Re-link to 0.81.2</a></div>
+      </div>
+
+      <label class="linkbar">
+        <input type="checkbox" id="link" checked />
+        <span><b>Keep both in sync</b></span>
+        <span class="note-x" style="color:var(--text-muted);font-size:11px">
+          — one choice sets spawn and import together. Uncheck to select them independently.</span>
+      </label>
+
+      <div class="mhead">
+        <span>Install</span><b class="sp">Spawn</b><b class="im">Import</b>
+      </div>
+
+      <div class="cards" id="cards">
+
+        <div class="card" data-key="auto" data-spawn="1" data-import="1">
+          <div class="meta">
+            <div class="title"><span class="name">Automatic</span>
+              <span class="pill p-blue">recommended</span>
+              <span class="pill p-gray">→ <span class="mono">bundled</span></span></div>
+            <div class="why">Let the resolver decide: bundled → managed → PATH. Survives upgrades
+              without you touching anything.</div>
+          </div>
+          <label class="cell sp"><input type="radio" name="spawn" checked /><span class="clab">Spawn</span><span class="ver ok">0.81.2</span></label>
+          <label class="cell im"><input type="radio" name="imp" checked /><span class="clab">Import</span><span class="ver ok">0.81.2</span></label>
+        </div>
+
+        <div class="card" data-key="bundled">
+          <div class="meta">
+            <div class="title"><span class="name">Shipped with the app</span>
+              <span class="pill p-purple">electron bundle</span>
+              <span class="pill p-green">meets floor</span></div>
+            <div class="path mono">…/Pi Dashboard.app/Contents/Resources/app/node_modules/@earendil-works/pi-coding-agent</div>
+            <div class="why">Tested against this dashboard build. Read-only.</div>
+          </div>
+          <label class="cell sp"><input type="radio" name="spawn" /><span class="clab">Spawn</span><span class="ver ok">0.81.2</span></label>
+          <label class="cell im"><input type="radio" name="imp" /><span class="clab">Import</span><span class="ver ok">0.81.2</span></label>
+        </div>
+
+        <div class="card" data-key="global">
+          <div class="meta">
+            <div class="title"><span class="name">Global npm install</span>
+              <span class="pill p-gray mono">npm -g</span>
+              <span class="pill p-amber">below recommended</span></div>
+            <div class="path mono">/Users/robson/.nvm/versions/node/v22.14.0/bin/pi</div>
+            <div class="why">The same <span class="mono">pi</span> your terminal runs.</div>
+          </div>
+          <label class="cell sp"><input type="radio" name="spawn" /><span class="clab">Spawn</span><span class="ver warn">0.79.0</span></label>
+          <label class="cell im"><input type="radio" name="imp" /><span class="clab">Import</span><span class="ver warn">0.79.0</span></label>
+        </div>
+
+        <div class="card" data-key="managed">
+          <div class="meta">
+            <div class="title"><span class="name">Dashboard-managed install</span>
+              <span class="pill p-gray mono">~/.pi-dashboard</span>
+              <span class="pill p-green">meets floor</span></div>
+            <div class="path mono">/Users/robson/.pi-dashboard/node/bin/pi</div>
+            <div class="why">Private copy the dashboard installs and updates for itself.</div>
+          </div>
+          <label class="cell sp"><input type="radio" name="spawn" /><span class="clab">Spawn</span><span class="ver ok">0.81.2</span></label>
+          <label class="cell im"><input type="radio" name="imp" /><span class="clab">Import</span><span class="ver ok">0.81.2</span></label>
+        </div>
+
+        <div class="card" data-key="repo" data-disabled="1">
+          <div class="meta">
+            <div class="title"><span class="name">Workspace <span class="mono">node_modules</span></span>
+              <span class="pill p-red">unsupported</span></div>
+            <div class="path mono">~/Project/pi-agent-dashboard/node_modules/@earendil-works/pi-coding-agent</div>
+            <div class="why">Below the minimum <span class="mono">0.74.0</span> — the bridge extension
+              will not load. Update it to select it.</div>
+          </div>
+          <label class="cell sp"><input type="radio" name="spawn" disabled /><span class="clab">Spawn</span><span class="ver bad">0.71.4</span></label>
+          <label class="cell im"><input type="radio" name="imp" disabled /><span class="clab">Import</span><span class="ver bad">0.71.4</span></label>
+        </div>
+
+      </div>
+
+      <div class="note n-info" id="note-scope">
+        <span class="ico">i</span>
+        <div><b>Spawn</b> changes affect newly started sessions only — running sessions keep their binary.
+          <b>Import</b> changes need a server restart, offered on apply.</div>
+      </div>
+
+      <div class="note n-warn hide" id="note-electron">
+        <span class="ico">!</span>
+        <div><b>Leaving the app bundle.</b> The desktop app ships a tested <span class="mono">pi</span>.
+          Point outside it and app updates no longer update <span class="mono">pi</span> — version skew
+          becomes yours to manage.</div>
+      </div>
+
+      <div class="sess hide" id="sess">
+        <span class="pill p-amber">3 running</span>
+        <span>3 sessions are still on <span class="mono">pi 0.79.0</span>.</span>
+        <button class="btn" style="margin-left:auto">Show them</button>
+      </div>
+
+      <details class="adv">
+        <summary>Advanced — custom paths</summary>
+        <div class="row">
+          <input type="text" placeholder="Spawn: /absolute/path/to/pi" />
+          <button class="btn" disabled>Use</button>
+        </div>
+        <div class="row">
+          <input type="text" placeholder="Import: /absolute/path/to/@earendil-works/pi-coding-agent" />
+          <button class="btn" disabled>Use</button>
+        </div>
+        <div class="note n-info" style="margin-top:9px">
+          <span class="ico">i</span>
+          <div>Writes <span class="mono">pi</span> and <span class="mono">pi-coding-agent</span> overrides to
+            <span class="mono">~/.pi/dashboard/tool-overrides.json</span> — the same file the
+            <b>Tools</b> section below edits.</div>
+        </div>
+      </details>
+
+    </div>
+
+    <div class="bar">
+      <span class="msg" id="barmsg">No pending changes.</span>
+      <button class="btn" id="revert" disabled>Revert to automatic</button>
+      <button class="btn primary" id="apply" disabled>Apply</button>
+    </div>
+  </div>
+
+  <div class="legend">
+    <b>Design notes — what changed from v1 and why</b>
+    <ul>
+      <li><b>Two consumers, one candidate list.</b> You asked for independent selection; duplicating the whole list twice doubles the scroll and hides divergence. A two-column matrix gives the same freedom and makes a mismatch a <i>single glance</i> — two dots on different rows.</li>
+      <li><b>Linked by default.</b> The 95% case is one decision. Unchecking “Keep both in sync” is the deliberate act that unlocks mismatching, so divergence is always chosen, never stumbled into.</li>
+      <li><b>The two lanes at the top name the consumer, not the tool.</b> “Sessions spawn” / “Server imports” — nobody should need to know that <span class="mono">pi</span> and <span class="mono">pi-coding-agent</span> are separate registry entries to use this.</li>
+      <li><b>Colour encodes the consumer</b> (blue = spawn, purple = import) and is carried by the lane border, the column header, the radio accent, and the selected-card ring — so the matrix reads without the header row.</li>
+      <li><b>Asymmetric apply semantics are stated</b>: spawn takes effect for new sessions, import needs a server restart.</li>
+      <li><b>Below-floor rows render disabled with the reason</b>, in both columns. Hiding makes users hunt.</li>
+      <li><b>44px cells.</b> Each radio sits in a full-height labelled hit area, not a bare 16px input.</li>
+    </ul>
+  </div>
+</div>
+
+<div class="scrim" id="scrim">
+  <div class="modal">
+    <h3>Apply runtime change?</h3>
+    <div class="mb">
+      <dl class="kv">
+        <dt>Spawn</dt><dd>0.81.2 bundled → 0.79.0 npm -g</dd>
+        <dt>Import</dt><dd>unchanged — 0.81.2 bundled</dd>
+      </dl>
+      <div class="note n-warn" style="margin:0">
+        <span class="ico">!</span>
+        <div>Spawn and import will disagree. This is supported, but package installs and model lists
+          are computed from the <b>import</b> side and may not match what sessions can run.</div>
+      </div>
+      <p style="margin:12px 0 0">New sessions use it immediately. 3 running sessions are unaffected.
+        No server restart needed (import unchanged).</p>
+    </div>
+    <div class="mf">
+      <button class="btn" id="cancel">Cancel</button>
+      <button class="btn primary" id="confirm">Apply</button>
+    </div>
+  </div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s), $$=s=>Array.from(document.querySelectorAll(s));
+const CARDS=()=> $$('#cards .card');
+const DATA={auto:{v:'0.81.2',src:'auto · bundled',p:'…/Resources/app/node_modules/@earendil-works/pi-coding-agent',cls:'p-gray'},
+ bundled:{v:'0.81.2',src:'pinned · bundled',p:'…/Pi Dashboard.app/Contents/Resources/app/node_modules/@earendil-works/pi-coding-agent',cls:'p-blue'},
+ global:{v:'0.79.0',src:'pinned · npm -g',p:'/Users/robson/.nvm/versions/node/v22.14.0/bin/pi',cls:'p-amber'},
+ managed:{v:'0.81.2',src:'pinned · managed',p:'/Users/robson/.pi-dashboard/node/bin/pi',cls:'p-blue'},
+ repo:{v:'0.71.4',src:'unsupported',p:'~/Project/pi-agent-dashboard/node_modules',cls:'p-red'}};
+let spawnKey='auto', importKey='auto', dirty=false;
+
+function render(){
+  CARDS().forEach(c=>{
+    c.dataset.spawn = c.dataset.key===spawnKey?'1':'0';
+    c.dataset.import = c.dataset.key===importKey?'1':'0';
+    c.querySelector('.cell.sp input').checked = c.dataset.key===spawnKey;
+    c.querySelector('.cell.im input').checked = c.dataset.key===importKey;
+  });
+  const s=DATA[spawnKey], i=DATA[importKey];
+  $('#sp-ver').textContent=s.v; $('#sp-src').textContent=s.src; $('#sp-src').className='pill '+s.cls; $('#sp-path').textContent=s.p;
+  $('#im-ver').textContent=i.v; $('#im-src').textContent=i.src; $('#im-src').className='pill '+i.cls; $('#im-path').textContent=i.p;
+  const skew = s.v!==i.v;
+  $('#note-skew').classList.toggle('hide',!skew);
+  $('#sess').classList.toggle('hide',!skew);
+  $('#note-electron').classList.toggle('hide', spawnKey!=='global' && importKey!=='global');
+  $('#apply').disabled=!dirty;
+  $('#revert').disabled = spawnKey==='auto' && importKey==='auto';
+  $('#barmsg').innerHTML = dirty
+    ? 'Pending — spawn <b>'+DATA[spawnKey].v+'</b>, import <b>'+DATA[importKey].v+'</b>. Nothing is written until you apply.'
+    : (spawnKey==='auto'&&importKey==='auto' ? 'No pending changes.' : 'Pinned manually — automatic resolution is bypassed.');
+}
+function pick(key,which){
+  if(DATA[key].cls==='p-red') return;
+  if($('#link').checked){spawnKey=key;importKey=key;}
+  else if(which==='sp') spawnKey=key; else importKey=key;
+  dirty=true; render();
+}
+CARDS().forEach(c=>{
+  c.querySelector('.cell.sp').addEventListener('click',()=>pick(c.dataset.key,'sp'));
+  c.querySelector('.cell.im').addEventListener('click',()=>pick(c.dataset.key,'im'));
+});
+$('#link').addEventListener('change',e=>{ if(e.target.checked && importKey!==spawnKey){importKey=spawnKey;dirty=true;} render(); });
+$('#relink').addEventListener('click',e=>{e.preventDefault();spawnKey=importKey;dirty=true;$('#link').checked=true;render();});
+$('#apply').addEventListener('click',()=>$('#scrim').classList.add('on'));
+$('#cancel').addEventListener('click',()=>$('#scrim').classList.remove('on'));
+$('#confirm').addEventListener('click',()=>{$('#scrim').classList.remove('on');dirty=false;render();});
+$('#revert').addEventListener('click',()=>{spawnKey='auto';importKey='auto';dirty=true;$('#link').checked=true;render();});
+$('#rescan').addEventListener('click',()=>{
+  $$('#cards .ver').forEach(v=>{v.dataset.o=v.dataset.o||v.textContent;v.textContent='…'});
+  $('#barmsg').textContent='Reading package.json from 5 candidate locations…';
+  setTimeout(()=>{$$('#cards .ver').forEach(v=>v.textContent=v.dataset.o);render();},1100);
+});
+const STATES={
+  linked:()=>{spawnKey=importKey='auto';dirty=false;$('#link').checked=true;},
+  unlinked:()=>{spawnKey=importKey='auto';dirty=false;$('#link').checked=false;},
+  diverged:()=>{spawnKey='global';importKey='bundled';dirty=false;$('#link').checked=false;},
+  pinned:()=>{spawnKey=importKey='managed';dirty=false;$('#link').checked=true;},
+  electron:()=>{spawnKey=importKey='global';dirty=true;$('#link').checked=true;},
+  scanning:()=>{spawnKey=importKey='auto';dirty=false;$('#link').checked=true;}
+};
+$$('.states button').forEach(b=>b.addEventListener('click',()=>{
+  $$('.states button').forEach(x=>x.setAttribute('aria-pressed','false'));
+  b.setAttribute('aria-pressed','true'); STATES[b.dataset.state](); render();
+  if(b.dataset.state==='scanning') $('#rescan').click();
+}));
+render();
+</script>
+</body>
+</html>

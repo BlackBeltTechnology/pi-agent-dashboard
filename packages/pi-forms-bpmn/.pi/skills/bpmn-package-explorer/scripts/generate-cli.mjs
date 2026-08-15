@@ -3,7 +3,7 @@
 // a render root ready to serve. Fails loudly; stops before serving on any error.
 //
 //   node scripts/generate-cli.mjs <packageDir> [renderOutDir]
-//   → prints the render-root path on success (serve it with serve_mockup)
+//   → prints the render-root path on success (serve it with scripts/serve.mjs — CORS)
 
 import { buildPackage, WorkflowError } from './generate.mjs';
 import { assembleRenderRoot } from './render.mjs';

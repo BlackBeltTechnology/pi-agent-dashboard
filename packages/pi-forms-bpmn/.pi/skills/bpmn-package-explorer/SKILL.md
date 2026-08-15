@@ -55,13 +55,17 @@ mechanical steps, each failing loudly:
 4. **Validate the manifest** — `node scripts/generate-cli.mjs <packageDir>`
    runs the envelope check, manifest validation, layout + guard, and assembles a
    render root; it **stops before serving** on any error.
-5. **Serve + canvas** — serve the printed render-root path with `serve_mockup`
-   and open the URL on the canvas (never `file://`).
+5. **Serve + canvas** — serve the printed render-root path with
+   `node scripts/serve.mjs <renderRoot> [port]` (CORS-enabled) and open the
+   printed URL on the canvas (never `file://`). Do **not** use `serve_mockup`
+   for canvas display: it omits `Access-Control-Allow-Origin`, so the viewer's
+   `fetch('package-data.json')` fails in the opaque-origin sandbox (“Failed to
+   fetch” → blank diagram).
 
 ## Display / view workflow
 
-- Package: `node scripts/generate-cli.mjs <packageDir>` → `serve_mockup` →
-  `canvas`.
+- Package: `node scripts/generate-cli.mjs <packageDir>` → `node scripts/serve.mjs
+  <renderRoot>` → `canvas`.
 - Standalone file (no manifest): `node scripts/view-cli.mjs <file.bpmn|.dmn>`.
   A file with DI renders as authored; a semantics-only `.bpmn` is laid out into a
   **separate** render artifact (the source is never overwritten). A DI-less file
@@ -80,11 +84,13 @@ or **404s**, it is almost always one of these, not a viewer bug:
   under the `/live/<id>/` prefix → 404. Keep every path in the render root
   **relative** (`./vendor/...`). Serve the render root with `serve_mockup` (never
   `file://`) and open the returned URL on the canvas.
-- **ES-module `<script type="module">` without CORS.** In the opaque-origin
-  iframe a module is fetched with `Origin: null`, so the server must send
-  `Access-Control-Allow-Origin: *` or the module is blocked. The vendored viewers
-  use classic scripts to avoid this; if you add a module entry, the static server
-  must set CORS headers.
+- **Missing CORS on the static server → “Failed to load package: Failed to
+  fetch”.** In the opaque-origin iframe every runtime request carries
+  `Origin: null`: the viewer's `fetch('package-data.json')` (and any
+  `<script type="module">`) is rejected unless the server answers with
+  `Access-Control-Allow-Origin: *`. `serve_mockup` does NOT set it, so serve
+  canvas render roots with `node scripts/serve.mjs <renderRoot>` (this skill's
+  CORS server) rather than `serve_mockup`.
 - **Self-verify** by iframing your served render root with
   `sandbox="allow-scripts"` and screenshotting before trusting the canvas — that
   reproduces the exact dashboard sandbox.
