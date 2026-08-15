@@ -8,8 +8,11 @@ import { BASE_URL } from "./lifecycle.js";
  * Scenario mapping (test-plan.md):
  *   F9  — the pill is visible while a real MULTI-BATCH replay streams and is
  *         gone once the transcript settles.
- *   F11 — the pill OVERLAYS the list: the last message row's box is unchanged
- *         across both the appear and the disappear transition.
+ *   F11 — the pill OVERLAYS the list: an anchor row's box is unchanged both
+ *         while the pill is up with batches still landing, and across the
+ *         disappear transition. The anchor is pinned by `data-index` with the
+ *         bottom-pin released, so the two samples measure the SAME element and
+ *         a legitimate scroll cannot masquerade as a reflow.
  *   X6  — a stalled transfer keeps the pill up for the whole stall; it clears
  *         only when the transcript completes.
  *   F10 — the warm rehydrate → `subscribe { lastSeq }` → empty-delta reload
@@ -154,25 +157,47 @@ test.describe("replay-in-flight pill", () => {
       // mid-transfer, not merely pre-transfer. This is what makes F9 about a
       // multi-batch replay rather than a single terminal frame.
       await expect(page2.locator(".chat-cv").getByText(/\S/).first()).toBeVisible({ timeout: 120_000 });
-      const boxAtAppear = await lastRowBox(page2);
+
+      // F11 needs the SAME element measured at both instants. Two things would
+      // otherwise make the comparison meaningless:
+      //   1. "the last row" is a different element at each sample — the tail
+      //      marker rides the terminal batch, so at the appear sample it does
+      //      not exist yet and a marker-based lookup falls back to whatever row
+      //      happens to be last. Comparing those two measures row alignment,
+      //      not the indicator. So the anchor is pinned by `data-index`.
+      //   2. with the bottom-pin armed, every arriving batch legitimately moves
+      //      the rendered rows. So the pin is released first (a real wheel
+      //      gesture, which `cancelDescent` honours) and the anchor is chosen
+      //      from the rows already painted. New content then lands BELOW it and
+      //      the anchor must not move at all — which lets `y` be pinned too,
+      //      the axis an in-flow insertion would actually shift.
+      await page2.locator(".chat-cv").first().hover();
+      await page2.mouse.wheel(0, -400);
+      const anchorIndex = await page2.locator(".chat-cv [data-index]").last().getAttribute("data-index");
+      expect(anchorIndex, "no virtualized row to anchor on").not.toBeNull();
+      const anchor = page2.locator(`.chat-cv [data-index="${anchorIndex}"]`);
+      const boxAtAppear = await anchor.boundingBox();
       expect(boxAtAppear).not.toBeNull();
 
       // X6: the pill survives a multi-second stall rather than flickering out.
       await page2.waitForTimeout(2_500);
       await expect(pill).toBeVisible();
 
+      // F11a: batches are still landing and the indicator is still up — the
+      // anchor has not budged, so the indicator is not occupying list space.
+      expect(await anchor.boundingBox()).toEqual(boxAtAppear);
+
       // The terminal batch lands → the flag clears → the pill goes.
       await expect(pill).toHaveCount(0, { timeout: 180_000 });
-      await expect(page2.getByText(LONG_TRANSCRIPT_TAIL).last()).toBeVisible({ timeout: 60_000 });
 
-      // F11: the row the pill overlays keeps its geometry across the clear.
-      // `y` is deliberately NOT pinned across the two samples — replay rows are
-      // still landing between them, so a `y` delta measures content growth, not
-      // the pill. `x`/`width`/`height` are what an in-flow insertion would move.
-      const boxAtClear = await lastRowBox(page2);
-      expect(boxAtClear?.x).toBeCloseTo(boxAtAppear?.x as number, 0);
-      expect(boxAtClear?.width).toBeCloseTo(boxAtAppear?.width as number, 0);
-      expect(boxAtClear?.height).toBeCloseTo(boxAtAppear?.height as number, 0);
+      // F11b: removing the indicator did not reflow the list either.
+      expect(await anchor.boundingBox()).toEqual(boxAtAppear);
+
+      // The transcript really did complete — the pill cleared on the terminal
+      // batch, not on a stall. Re-arm the bottom-pin first, since F11 released
+      // it and the tail is now below the viewport.
+      await page2.locator(`[data-testid="${SCROLL_BOTTOM}"]`).click();
+      await expect(page2.getByText(LONG_TRANSCRIPT_TAIL).last()).toBeVisible({ timeout: 60_000 });
     } finally {
       await ctx2.close();
     }
@@ -278,17 +303,3 @@ test.describe("replay-in-flight pill", () => {
     await expect(page.locator(`[data-testid="${PILL}"]`)).toHaveCount(0);
   });
 });
-
-/**
- * Bounding box of the last rendered assistant text row. The transcript has no
- * per-row testid, so the faux tail marker is the row handle.
- */
-async function lastRowBox(page: Page) {
-  const rows = page.getByText(LONG_TRANSCRIPT_TAIL);
-  if ((await rows.count()) === 0) {
-    const any = page.locator(".chat-cv [data-index]");
-    if ((await any.count()) === 0) return null;
-    return await any.last().boundingBox();
-  }
-  return await rows.last().boundingBox();
-}
