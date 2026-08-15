@@ -3,9 +3,9 @@
  * Preserves current dev/prod mode unless --dev or --prod is given.
  *
  * Invoke:
- *   npx tsx ./scripts/restart-server.ts             # restart, keep mode
- *   npx tsx ./scripts/restart-server.ts --dev       # restart in dev
- *   npx tsx ./scripts/restart-server.ts --prod      # restart in production
+ *   npx tsx .pi/skills/implement/scripts/restart-server.ts          # restart, keep mode
+ *   npx tsx .pi/skills/implement/scripts/restart-server.ts --dev    # restart in dev
+ *   npx tsx .pi/skills/implement/scripts/restart-server.ts --prod   # restart in production
  *
  * Cross-platform — Node built-ins only.
  */
