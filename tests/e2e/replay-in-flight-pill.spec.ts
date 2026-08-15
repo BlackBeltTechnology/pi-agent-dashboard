@@ -57,6 +57,19 @@ function intersects(a: Box, b: Box): boolean {
 }
 
 /**
+ * Close the OpenSpec Propose dialog if selecting the card happened to open it.
+ * Its backdrop covers the viewport, so leaving it up makes every later click
+ * time out on "subtree intercepts pointer events" rather than on anything this
+ * spec is about.
+ */
+async function dismissProposeDialog(page: Page): Promise<void> {
+  const overlay = page.locator('[data-testid="propose-dialog-overlay"]');
+  if (!(await overlay.isVisible().catch(() => false))) return;
+  await page.keyboard.press("Escape");
+  await expect(overlay).toBeHidden({ timeout: 5_000 });
+}
+
+/**
  * Serialize server→client frames with a fixed inter-frame gap, so a multi-batch
  * replay is genuinely spread over time instead of arriving in one clump.
  */
@@ -115,6 +128,7 @@ test.describe("replay-in-flight pill", () => {
     expect(sessionId).toBeTruthy();
 
     await card.click();
+    await dismissProposeDialog(page);
     const composer = page.getByPlaceholder(/message/i).first();
     await composer.waitFor({ state: "visible", timeout: 60_000 });
     await composer.fill("warmup");
@@ -173,6 +187,10 @@ test.describe("replay-in-flight pill", () => {
     expect(sessionId).toBeTruthy();
 
     await card.click();
+    // A card click lands on the card's centre, which on a single-card dashboard
+    // can be its OpenSpec "Propose" action. The dialog's backdrop then
+    // intercepts every later click, including the composer's send button.
+    await dismissProposeDialog(page);
     const composer = page.getByPlaceholder(/message/i).first();
     await composer.waitFor({ state: "visible", timeout: 60_000 });
     await composer.fill("warmup");
@@ -240,6 +258,7 @@ test.describe("replay-in-flight pill", () => {
     expect(sessionId).toBeTruthy();
 
     await card.click();
+    await dismissProposeDialog(page);
     await sendPrompt(page, "[[faux:plain-text]] go");
     await expect(page.getByText(PLAIN_TEXT_MARKER).first()).toBeVisible({ timeout: 45_000 });
 
