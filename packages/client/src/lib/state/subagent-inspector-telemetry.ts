@@ -39,11 +39,35 @@ interface AgentRecord {
 
 const agents = new Map<string, AgentRecord>();
 
+/**
+ * Bound on retained per-agent records. A dashboard tab lives for days, so an
+ * unbounded map would be a slow leak; the share is an aggregate, so dropping
+ * the OLDEST FINISHED records costs only history, never a live measurement.
+ */
+const MAX_RECORDS = 512;
+
+/** Evict oldest-inserted FINISHED records until the map fits the bound. */
+function evictToBound(): void {
+  if (agents.size <= MAX_RECORDS) return;
+  for (const [id, rec] of agents) {
+    if (agents.size <= MAX_RECORDS) break;
+    if (rec.endedAt !== undefined) agents.delete(id);
+  }
+}
+
 /** A subagent is running (or was observed running) at `now`. */
 export function noteSubagentRunning(agentId: string, now: number = Date.now()): void {
-  if (!agents.has(agentId)) {
-    agents.set(agentId, { startedAt: now, mounted: 0, openMs: 0 });
+  const existing = agents.get(agentId);
+  if (existing) {
+    // A reused agentId observed running again starts a FRESH run; without this
+    // the share silently undercounts every run after the first.
+    if (existing.endedAt !== undefined) {
+      agents.set(agentId, { startedAt: now, mounted: 0, openMs: 0 });
+    }
+    return;
   }
+  agents.set(agentId, { startedAt: now, mounted: 0, openMs: 0 });
+  evictToBound();
 }
 
 /** A subagent reached a terminal status; closes any still-open view window. */

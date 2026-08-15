@@ -24,6 +24,7 @@
  *
  * See change: reduce-subagent-details-payload.
  */
+import { TERMINAL_CHANNELS } from "./subagent-frame-buffer.js";
 
 /**
  * Statuses whose frames are stripped. An ALLOWLIST on purpose — a new
@@ -86,7 +87,20 @@ function isSubagentStripEnabled(): boolean {
  * at an explicit allowlist of CALL SITES (bus forward, buffered-frame flush,
  * the `tool_execution_update` carrier) rather than inside `sendEventForward` —
  * the resync reply calls that directly for a RUNNING agent and MUST stay fat.
+ *
+ * `channel`, when known, is a SECOND independent terminal guard: a frame on
+ * `subagents:completed`/`subagents:failed` is never stripped whatever its
+ * `details.status` says. The status allowlist alone would trust the producer to
+ * have flipped `status` before emitting on a terminal channel; a producer that
+ * emitted its last `running` snapshot there would lose that timeline forever —
+ * the single highest-severity failure mode in this design. Both signals have to
+ * be wrong for that to happen now.
  */
-export function stripForForward(data: Record<string, unknown>): Record<string, unknown> {
-  return isSubagentStripEnabled() ? stripSubagentEntries(data) : data;
+export function stripForForward(
+  data: Record<string, unknown>,
+  channel?: string,
+): Record<string, unknown> {
+  if (!isSubagentStripEnabled()) return data;
+  if (channel !== undefined && TERMINAL_CHANNELS.has(channel)) return data;
+  return stripSubagentEntries(data);
 }

@@ -33,7 +33,7 @@ export function flushBufferedSubagentFrames(
   const drained = buffer.drain();
   for (const { channel, data } of drained) {
     try {
-      send(channel, stripForForward(data));
+      send(channel, stripForForward(data, channel));
     } catch {
       /* keep flushing */
     }

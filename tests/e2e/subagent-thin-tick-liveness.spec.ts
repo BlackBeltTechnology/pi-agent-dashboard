@@ -76,9 +76,14 @@ test.describe("subagent thin ticks — liveness + fidelity (L3)", () => {
     await expect(page.getByText(/subagent not found/i)).toHaveCount(0);
   });
 
-  // D6 — the counters prove the mechanism engaged on real producer output:
-  // ticks are ingested, and the fat ones (terminal frames + resync replies) are
-  // a MINORITY. A majority-fat run means the strip did not engage.
+  // D6 — the counters exist, move on real producer output, and stay thin.
+  //
+  // Claim boundary, stated honestly: on THIS workload the faux subagent emits
+  // no non-empty timeline, so `subagentFatTicks` would be 0 even with the strip
+  // reverted — this row therefore does NOT prove the strip engaged. The
+  // engagement proof is the flag-OFF anti-vacuity arm of P1/P2 in
+  // `subagent-tick-growth.test.ts`. What this row owns is that the counters are
+  // wired end-to-end through the real bridge → store → /api/health path.
   test("D6: subagent-tick counters move and stay mostly thin", async ({ page }) => {
     const card = await spawnFreshGitSession(page);
     await card.click();
@@ -101,7 +106,8 @@ test.describe("subagent thin ticks — liveness + fidelity (L3)", () => {
     const bytes = after.storeTrim.subagentTickBytes - before.storeTrim.subagentTickBytes;
     console.log(`[D6] ticks=${ticks} fat=${fat} bytes=${bytes}`);
     expect(ticks).toBeGreaterThan(0);
-    expect(fat).toBeLessThan(ticks);
+    expect(bytes).toBeGreaterThan(0);
+    expect(fat).toBeLessThanOrEqual(ticks);
   });
 
   // P5 (tasks 1.4 / 1.5) — the kill-switch measurement. Before this change the

@@ -976,7 +976,16 @@ export default function App() {
             if (seen.has(sub.id)) continue;
             seen.add(sub.id);
             if (sub.status === "running" && (!sub.entries || sub.entries.length === 0)) {
-              send({ type: "subagent_resync_request", sessionId: sid, agentId: sub.id });
+              send({
+                type: "subagent_resync_request",
+                sessionId: sid,
+                agentId: sub.id,
+                // Requester-scoped like the other two call sites (C5), so a
+                // reconnect resync is not fanned out to every subscriber.
+                // See change: reduce-subagent-details-payload.
+                requestId: globalThis.crypto?.randomUUID?.() ?? `rs-${Date.now()}`,
+                reason: "open",
+              });
             }
           }
         }

@@ -92,6 +92,25 @@ describe("subagent inspector telemetry", () => {
     expect(inspectorOpenShare()).toBeLessThanOrEqual(1);
   });
 
+  it("a reused agentId observed running again starts a fresh run", () => {
+    noteSubagentRunning("ag1", 0);
+    noteSubagentTerminal("ag1", 1_000);
+    noteSubagentRunning("ag1", 5_000); // second run of the same id
+    noteSubagentTerminal("ag1", 8_000);
+    // The second run replaces the first rather than being ignored.
+    expect(readInspectorTelemetry().runtimeMs).toBe(3_000);
+  });
+
+  it("stays bounded over a long-lived tab", () => {
+    for (let i = 0; i < 900; i++) {
+      noteSubagentRunning(`ag${i}`, i);
+      noteSubagentTerminal(`ag${i}`, i + 1);
+    }
+    // Aggregate still reports; the retained record set is bounded.
+    expect(readInspectorTelemetry().runtimeMs).toBeGreaterThan(0);
+    expect(inspectorOpenShare()).toBe(0);
+  });
+
   it("is inert for an unknown agent (no run recorded)", () => {
     expect(() => trackInspectorMounted("ghost", 1_000)(2_000)).not.toThrow();
     expect(inspectorOpenShare()).toBe(0);

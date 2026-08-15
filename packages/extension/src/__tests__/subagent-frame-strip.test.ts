@@ -11,7 +11,7 @@
  */
 import { describe, expect, it } from "vitest";
 import { SubagentFrameBuffer } from "../subagent-frame-buffer.js";
-import { NON_TERMINAL_STATUSES, stripSubagentEntries } from "../subagent-frame-strip.js";
+import { NON_TERMINAL_STATUSES, stripForForward, stripSubagentEntries } from "../subagent-frame-strip.js";
 
 function frame(status: string, entryCount = 12): Record<string, unknown> {
   return {
@@ -137,6 +137,39 @@ describe("stripSubagentEntries", () => {
       const out = stripSubagentEntries(input);
       expect(out).not.toBe(input);
       expect(out.details).not.toBe(input.details);
+    });
+  });
+
+  // A SECOND, independent terminal guard. The status allowlist trusts the
+  // producer to have flipped `details.status` before emitting on a terminal
+  // channel; this guard means both signals must be wrong to lose a timeline.
+  describe("stripForForward: terminal CHANNEL guard", () => {
+    it("never strips a frame on subagents:completed, whatever the status says", () => {
+      const stillRunning = frame("running"); // producer emitted a stale status
+      expect(entriesOf(stripForForward(stillRunning, "subagents:completed"))).toHaveLength(12);
+    });
+
+    it("never strips a frame on subagents:failed, whatever the status says", () => {
+      expect(entriesOf(stripForForward(frame("running"), "subagents:failed"))).toHaveLength(12);
+    });
+
+    it("still strips on the non-terminal channels", () => {
+      expect(entriesOf(stripForForward(frame("running"), "subagents:started"))).toBeUndefined();
+      expect(entriesOf(stripForForward(frame("running"), "subagents:created"))).toBeUndefined();
+    });
+
+    it("falls back to the status allowlist when no channel is known", () => {
+      expect(entriesOf(stripForForward(frame("running")))).toBeUndefined();
+      expect(entriesOf(stripForForward(frame("completed")))).toHaveLength(12);
+    });
+
+    it("PI_DASHBOARD_SUBAGENT_STRIP=0 forwards everything unstripped", () => {
+      process.env.PI_DASHBOARD_SUBAGENT_STRIP = "0";
+      try {
+        expect(entriesOf(stripForForward(frame("running"), "subagents:started"))).toHaveLength(12);
+      } finally {
+        delete process.env.PI_DASHBOARD_SUBAGENT_STRIP;
+      }
     });
   });
 

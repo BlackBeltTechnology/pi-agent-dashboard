@@ -38,7 +38,7 @@ export const SUBAGENT_CHANNELS = new Set<string>([
 ]);
 
 /** Channels that terminate a subagent run (drop it from the resync snapshots). */
-const TERMINAL_CHANNELS = new Set<string>(["subagents:completed", "subagents:failed"]);
+export const TERMINAL_CHANNELS = new Set<string>(["subagents:completed", "subagents:failed"]);
 
 export interface SubagentFrameStats {
   /** Frames forwarded live (ready path). */

@@ -73,7 +73,7 @@ function makeDeps(over: Partial<EventBusForwardingDeps> = {}) {
       },
       // Identity by default: this suite characterises FORWARDING, not the
       // strip. See change: reduce-subagent-details-payload.
-      stripForForward: (data) => data,
+      stripForForward: (data: Record<string, unknown>) => data,
     },
     ...over,
   };

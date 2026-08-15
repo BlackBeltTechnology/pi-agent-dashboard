@@ -63,11 +63,20 @@ export interface TrimStats {
   /**
    * Cumulative subagent-tick telemetry. ADDITIVE `/api/health` fields, never
    * reset on read, mirroring `collapsedUpdates`. `subagentTickBytes` is the
-   * serialized size of every ingested subagent-carrying event;
-   * `subagentTickFatBytes` is the part of it that arrived WITH a timeline. The
-   * ratio is the live read on whether the bridge strip is actually in force —
-   * the spec's ≤ 2x bound is a growth curve a cumulative counter cannot assert,
-   * so this is a health signal, not the gate.
+   * size of every INGESTED subagent-carrying event; `subagentTickFatBytes` is
+   * the part that arrived WITH a timeline. The ratio is the live read on
+   * whether the bridge strip is in force — the spec's ≤ 2x bound is a growth
+   * curve a cumulative counter cannot assert, so this is a health signal, not
+   * the gate.
+   *
+   * Three deliberate imprecisions, so the number is not over-read:
+   *  - counted at INGEST, before the retention collapse, so a later-subsumed
+   *    tick is still counted;
+   *  - sizes come from `measureBytes`, which short-circuits at the ceiling —
+   *    a bounded estimate, not an exact serialized length;
+   *  - a terminal tick is counted once PER CARRIER (`subagent_completed` and
+   *    `tool_execution_end` are both fat), so these are per-carrier counts,
+   *    not per-logical-tick.
    * See change: reduce-subagent-details-payload (D6).
    */
   subagentTicks: number;
