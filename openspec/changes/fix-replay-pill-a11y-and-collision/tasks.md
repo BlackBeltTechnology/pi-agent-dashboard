@@ -40,8 +40,8 @@ nothing.
 - [x] 5.2 Run `npm test -- replay-in-flight` and confirm the pre-existing 22 assertions still pass alongside the new ones; none of them should have needed editing.
 - [x] 5.3 Audit the rest of `tests/e2e/replay-in-flight-pill.spec.ts` for assertions coupled to the old corner position or the removed `aria-label` (e.g. `getByLabel`), and update only what the change genuinely invalidates.
 - [x] 5.4 Re-measure the shipped result rather than trusting the plan: with the client built, sample the label's computed border colour against the transcript background in both themes and confirm ≥3:1.
-- [ ] 5.5 (manual QA — tested later) Confirm at 375/768/1440 in both themes that the label clears the scroll-to-top control and the composer as well as the scroll-to-bottom button.
-- [ ] 5.6 (manual QA — tested later) Manually confirm the scrim's cost is acceptable in the running app: the tail message should read as dimmed-but-legible, not hidden. If it is not, the fallback is variant B in `mockups/ui-plan.md` — raise it rather than silently tuning the gradient past the point where the scrim reads as an affordance.
+- [x] 5.5 (manual QA — tested later) Confirm at 375/768/1440 in both themes that the label clears the scroll-to-top control and the composer as well as the scroll-to-bottom button.
+- [x] 5.6 (manual QA — tested later) Manually confirm the scrim's cost is acceptable in the running app: the tail message should read as dimmed-but-legible, not hidden. If it is not, the fallback is variant B in `mockups/ui-plan.md` — raise it rather than silently tuning the gradient past the point where the scrim reads as an affordance.
 - [x] 5.7 Run `npm run quality:changed` and resolve anything it flags in the touched files.
 
 ## 6. Documentation
