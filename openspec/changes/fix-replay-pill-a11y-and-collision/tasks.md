@@ -19,7 +19,7 @@ nothing.
 
 - [x] 3.1 In `ChatView.tsx:1432-1444`, split the single pill into two siblings rendered under the *same* existing `showReplayPill && state.messages.length > 0` condition, so they can never diverge.
 - [x] 3.2 Add the scrim: `absolute inset-x-0 bottom-0` at ~112px tall, a gradient from `--bg-primary` to transparent, plus `pointer-events-none` and `aria-hidden="true"`. Give it its own `data-testid` for assertions. It must sit below the scroll controls in stacking order.
-- [x] 3.3 Move the label to `absolute bottom-16 left-1/2 -translate-x-1/2 z-20`, clearing the scroll-to-bottom control's 16..48px band by one spacing step at every viewport width.
+- [x] 3.3 Move the label to `absolute bottom-16 left-1/2 -translate-x-1/2 z-20`, clearing the scroll-to-bottom control (which spans ~16..51px) by ~13px at every viewport width, since both are centred.
 - [x] 3.4 On the label, replace `bg-[var(--bg-tertiary)]` with `bg-[var(--bg-surface)]` and `border-[var(--border-subtle)]` with `border-[var(--border-strong)]`.
 - [x] 3.5 Change the label's icon and text colour from `text-[var(--text-secondary)]` to `text-[var(--text-primary)]`. Leave `text-[11px]` and `shadow-lg` alone — text contrast already passes AA and is not a defect.
 - [x] 3.6 Remove the `aria-label` prop from the label (`ChatView.tsx:1437`). Leave `data-testid`, `role="status"`, and `aria-busy="true"` exactly as they are — the spec pins them and the e2e selectors depend on them.

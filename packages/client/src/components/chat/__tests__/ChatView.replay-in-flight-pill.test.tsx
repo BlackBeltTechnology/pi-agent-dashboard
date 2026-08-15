@@ -322,7 +322,7 @@ describe("ChatView replay-in-flight pill", () => {
     });
 
     const cls = screen.getByTestId(PILL).className;
-    // Centred above the scroll-to-bottom control's 16..48px band, and ABOVE the
+    // Centred above the scroll-to-bottom control's ~16..51px band, and ABOVE the
     // scrim in stacking order. Separation is by layout, not paint order.
     expect(cls).toContain("bottom-16");
     expect(cls).toContain("left-1/2");
@@ -337,16 +337,46 @@ describe("ChatView replay-in-flight pill", () => {
     expect(screen.getByTestId(SCRIM).className).toContain("z-0");
   });
 
-  it("G4 the scroll controls are not restyled or repositioned by the indicator", () => {
+  it("G4 the scroll-to-bottom control keeps its resting position while the indicator shows", () => {
     // The spec pins the scroll controls' resting position as independent of
-    // replay state. This is the render-level half; the e2e spec asserts the
-    // actual boxes.
+    // replay state. This is the render-level half; G5 in the e2e spec asserts
+    // the actual boxes.
+    //
+    // The button only mounts once `showScrollButton` is true, which happens
+    // only from a real scroll event. jsdom reports 0 for every scroll metric,
+    // so an unforced render leaves the button ABSENT and a guarded assertion
+    // would never execute — exactly the vacuous test design D6 warns about.
+    // So the scroll geometry is stubbed and a scroll event dispatched, and the
+    // button's presence is asserted BEFORE its class.
     const { container } = renderChat({ replayInFlight: true });
     React.act(() => {
       vi.advanceTimersByTime(REPLAY_PILL_DELAY_MS);
     });
+
+    const scroller = container.querySelector('[data-testid="chat-scroll-container"]') as HTMLElement;
+    expect(scroller).toBeTruthy();
+    // Far from the bottom: scrollHeight - scrollTop - clientHeight = 900 ≫ the
+    // 50px SCROLL_THRESHOLD, so handleScroll arms the button.
+    for (const [prop, value] of [
+      ["scrollHeight", 2_000],
+      ["clientHeight", 1_000],
+      ["scrollTop", 100],
+    ] as const) {
+      Object.defineProperty(scroller, prop, { configurable: true, value });
+    }
+    React.act(() => {
+      scroller.dispatchEvent(new Event("scroll", { bubbles: false }));
+    });
+
     const bottomBtn = container.querySelector('[data-testid="scroll-to-bottom"]');
-    if (bottomBtn) expect(bottomBtn.className).toContain("bottom-4");
+    expect(bottomBtn, "scroll-to-bottom did not render — the assertion below would be vacuous").not.toBeNull();
+    // Unchanged from before the change: bottom-4, centred, z-10. The label at
+    // z-20/bottom-16 clears it by layout; the button must not have been moved
+    // up or restyled to make room.
+    expect((bottomBtn as Element).className).toContain("bottom-4");
+    expect((bottomBtn as Element).className).toContain("z-10");
+    // And it coexists with the indicator rather than being suppressed by it.
+    expect(screen.getByTestId(PILL)).toBeTruthy();
   });
 
   it("F8d no A-armed timer resurrects the pill later on B's timeline", () => {

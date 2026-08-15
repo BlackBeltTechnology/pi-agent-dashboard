@@ -197,8 +197,10 @@ test.describe("replay-in-flight pill", () => {
     await expect(page.getByTestId("send-button")).toBeEnabled({ timeout: 120_000 });
     await composer.fill("");
     await sendPrompt(page, "[[faux:long-transcript]] go");
+    // Settling on the tail marker is the real precondition for the second
+    // context's cold replay — no fixed sleep, which would only be a flake
+    // source on a cold container.
     await expect(page.getByText(LONG_TRANSCRIPT_TAIL).last()).toBeVisible({ timeout: 180_000 });
-    await page.waitForTimeout(1_000);
 
     // Same cold-replay-over-a-stalled-socket setup as F9/X6 — a second context
     // with an empty IndexedDB — so the indicator is up long enough to measure.

@@ -1440,8 +1440,11 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
 
       Both are rendered under the SAME condition so a scrim can never be left
       dimming the transcript after its label has gone. The label sits at 64px
-      (`bottom-16`); the scroll-to-bottom button occupies 16..48px — separated
-      by LAYOUT, not paint order, at every viewport width. Do NOT reposition the
+      (`bottom-16`); the scroll-to-bottom button is `bottom-4` + `p-2` around a
+      0.8 icon, so it spans roughly 16..51px — ~13px of clearance, separated by
+      LAYOUT, not paint order. Both are centred (`left-1/2 -translate-x-1/2`),
+      so the clearance is purely vertical and therefore identical at every
+      viewport width rather than lucky at one. Do NOT reposition the
       scroll controls below: their resting position must not depend on replay
       state. See change: fix-replay-pill-a11y-and-collision.
     */}
