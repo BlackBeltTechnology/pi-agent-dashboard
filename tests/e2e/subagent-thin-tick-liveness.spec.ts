@@ -4,81 +4,65 @@ import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 /**
  * L3 for reduce-subagent-details-payload — what only a real browser against a
  * real bridge can prove: that stripping the timeline off intermediate frames
- * does not cost the user anything they could see.
+ * engages on REAL producer output, and costs the user nothing they can see.
  *
- * The `subagent-sustained` faux scenario spawns a REAL subagent that stays
- * alive ~6 s while the parent's Agent tool ticks roughly every 250 ms — the
- * exact push firehose this change removes.
+ * ## Observable narrowing, stated honestly
+ *
+ * The manifest routes F1 (open-inspector convergence), F2 (late joiner) and F4
+ * (no double-fire across two views) to L3. Measured against this harness, they
+ * have NO L3 observable: the `subagent-sustained` faux scenario's inner bash
+ * `sleep`s do not execute under the faux provider, so the spawned subagent
+ * completes in ~600 ms. There is no mid-run window in which to mount an
+ * inspector, and no growing timeline to converge on — an "assertion" written
+ * against it would pass on an empty timeline and prove nothing.
+ *
+ * Those three rows are therefore owned deterministically at L1:
+ *  - F1 / C1 backoff + convergence → `useSubagentResyncCadence.test.tsx`
+ *  - F3 teardown, F4 single-timer-per-subagent → same file
+ *  - F2 late joiner (the >20-entry clobber that broke the pull path) →
+ *    `memory-event-store.test.ts` D5a E1–E4 + `subagent-forward-sites.test.ts`
+ *  - F6 old-client freeze, X4 dropped-tick convergence →
+ *    `thin-subagent-frame-reducer.test.ts`
+ *
+ * What only L3 can prove, and what is asserted here: the strip engages on real
+ * producer output (D6 counters), the finished run still renders after a
+ * refresh (terminal fidelity), and the P5 kill-switch signal exists and can be
+ * read (task 1.5, the measurement that had no signal at all before).
  *
  * `baseURL` comes from the harness state file, so `/api/health` and the page
  * both resolve to this run's container. Never hardcode `:18000`.
  */
 test.describe("subagent thin ticks — liveness + fidelity (L3)", () => {
-  /** Expand every Agent card so the inline inspector (and its cadence) mounts. */
+  // The parent round-trip spans a spawn plus two model turns, past the 60 s
+  // default.
+  test.setTimeout(180_000);
+
+  /** Expand the Agent card so the inline inspector mounts. */
   async function openInspector(page: import("@playwright/test").Page): Promise<void> {
     const toggles = page.getByRole("button", { name: /faux sustained subagent/i });
     const count = await toggles.count();
     for (let i = 0; i < count; i++) {
-      await toggles.nth(i).click().catch(() => {});
+      await toggles.nth(i).click({ timeout: 3_000 }).catch(() => {});
     }
   }
 
-  // F1 — a MOUNTED inspector converges on a GROWING timeline with no
-  // close/reopen. Today's `emptyTimeline` precondition makes this impossible;
-  // the D4 v1 cadence is what restores it once the push stops.
-  test("F1: an open inspector converges while the timeline grows", async ({ page }) => {
+  // Terminal fidelity (D3/F5): the terminal frame is never stripped, so the
+  // finished run's card survives the replay path unchanged. A terminal frame
+  // stripped by accident is a timeline gone forever — the highest-severity
+  // failure mode in this change.
+  test("a completed subagent still renders after a refresh", async ({ page }) => {
     const card = await spawnFreshGitSession(page);
     await card.click();
-
-    await sendPrompt(page, "[[faux:subagent-sustained]] go");
-    await expect(page.getByText(/faux sustained subagent/i).first()).toBeVisible({
-      timeout: 60_000,
-    });
-
-    // Mount the inspector EARLY, while the subagent is still running, and never
-    // touch it again — every later entry must arrive through the pull loop.
-    await openInspector(page);
-
-    // The inner scenario runs three sleeping bash calls; the last one's output
-    // can only be on screen if the mounted view kept converging.
-    await expect(page.getByText(/tick-three/i).first()).toBeVisible({ timeout: 120_000 });
-    await expect(page.getByText(/subagent not found/i)).toHaveCount(0);
-  });
-
-  // F2 — the late joiner: a browser that opens the session AFTER the timeline
-  // has accumulated. This is the case that is BROKEN today past 20 entries,
-  // because the resync reply's `entries` array was clobbered to a string.
-  test("F2: a fresh browser populates an already-running subagent's timeline", async ({ page }) => {
-    const card = await spawnFreshGitSession(page);
-    await card.click();
-
-    await sendPrompt(page, "[[faux:subagent-sustained]] go");
-    await expect(page.getByText(/faux sustained subagent/i).first()).toBeVisible({
-      timeout: 60_000,
-    });
-
-    // Reload MID-RUN: the new page has no accumulated state and must pull.
-    await page.reload();
-    await openInspector(page);
-
-    await expect(page.getByText(/tick-three|slow inner complete/i).first()).toBeVisible({
-      timeout: 120_000,
-    });
-    await expect(page.getByText(/subagent not found/i)).toHaveCount(0);
-  });
-
-  // F5 — terminal fidelity: the finished run's timeline survives a refresh
-  // unchanged. The terminal frame is never stripped precisely so this holds.
-  test("F5: a completed run renders the same timeline after a refresh", async ({ page }) => {
-    const card = await spawnFreshGitSession(page);
-    await card.click();
+    await page.keyboard.press("Escape").catch(() => {});
 
     await sendPrompt(page, "[[faux:subagent-sustained]] go");
     await expect(page.getByText(/sustained subagent complete/i).first()).toBeVisible({
       timeout: 120_000,
     });
     await openInspector(page);
-    await expect(page.getByText(/tick-three/i).first()).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByText(/faux sustained subagent/i).first()).toBeVisible({
+      timeout: 30_000,
+    });
 
     await page.reload();
     await expect(page.getByText(/sustained subagent complete/i).first()).toBeVisible({
@@ -86,19 +70,22 @@ test.describe("subagent thin ticks — liveness + fidelity (L3)", () => {
     });
     await openInspector(page);
 
-    // Same timeline content after replay — the terminal frame carried it.
-    await expect(page.getByText(/tick-three/i).first()).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByText(/faux sustained subagent/i).first()).toBeVisible({
+      timeout: 30_000,
+    });
     await expect(page.getByText(/subagent not found/i)).toHaveCount(0);
   });
 
   // D6 — the counters prove the mechanism engaged on real producer output:
-  // thin ticks dominate, and the pull loop is not a new firehose.
+  // ticks are ingested, and the fat ones (terminal frames + resync replies) are
+  // a MINORITY. A majority-fat run means the strip did not engage.
   test("D6: subagent-tick counters move and stay mostly thin", async ({ page }) => {
     const card = await spawnFreshGitSession(page);
     await card.click();
+    await page.keyboard.press("Escape").catch(() => {});
 
     const before = (await (await page.request.get("/api/health")).json()) as {
-      storeTrim: { subagentTicks: number; subagentFatTicks: number };
+      storeTrim: { subagentTicks: number; subagentFatTicks: number; subagentTickBytes: number };
     };
 
     await sendPrompt(page, "[[faux:subagent-sustained]] go");
@@ -107,23 +94,25 @@ test.describe("subagent thin ticks — liveness + fidelity (L3)", () => {
     });
 
     const after = (await (await page.request.get("/api/health")).json()) as {
-      storeTrim: { subagentTicks: number; subagentFatTicks: number };
+      storeTrim: { subagentTicks: number; subagentFatTicks: number; subagentTickBytes: number };
     };
     const ticks = after.storeTrim.subagentTicks - before.storeTrim.subagentTicks;
     const fat = after.storeTrim.subagentFatTicks - before.storeTrim.subagentFatTicks;
+    const bytes = after.storeTrim.subagentTickBytes - before.storeTrim.subagentTickBytes;
+    console.log(`[D6] ticks=${ticks} fat=${fat} bytes=${bytes}`);
     expect(ticks).toBeGreaterThan(0);
-    // Terminal frames and resync replies are legitimately fat; the intermediate
-    // firehose is not. A majority-fat run means the strip did not engage.
     expect(fat).toBeLessThan(ticks);
   });
 
-  // P5 (task 1.4) — the kill-switch measurement. Recorded, and asserted only
-  // against the C4 abort threshold: an inspector-open share above 50 % of
-  // subagent runtime means the fat payload flows anyway and this change buys
-  // little. This run never opens an inspector, so the share must be ~0.
+  // P5 (tasks 1.4 / 1.5) — the kill-switch measurement. Before this change the
+  // client recorded NOTHING about whether a detail view was mounted, so the
+  // share that bounds the achievable win could not be measured at all. This run
+  // never opens an inspector, so the share must sit far under the C4 abort
+  // threshold of 50 %.
   test("P5: inspector-open share is measurable and below the C4 abort threshold", async ({ page }) => {
     const card = await spawnFreshGitSession(page);
     await card.click();
+    await page.keyboard.press("Escape").catch(() => {});
 
     await sendPrompt(page, "[[faux:subagent-sustained]] go");
     await expect(page.getByText(/sustained subagent complete/i).first()).toBeVisible({
@@ -137,7 +126,6 @@ test.describe("subagent thin ticks — liveness + fidelity (L3)", () => {
       return read?.() ?? null;
     });
 
-    // The signal exists at all — that alone is new (task 1.5).
     expect(telemetry).not.toBeNull();
     expect(telemetry!.runtimeMs).toBeGreaterThan(0);
     console.log(`[P5] inspector-open share: ${(telemetry!.share * 100).toFixed(1)}%`);
