@@ -1,15 +1,19 @@
 ## ADDED Requirements
 
-### Requirement: A subagent tick SHALL NOT re-send the full cumulative timeline
+### Requirement: An intermediate subagent tick SHALL NOT carry the cumulative timeline
 
-A `tool_execution_update` carrying `subagent_*` progress SHALL NOT restate the
-entire accumulated timeline on every tick. The payload SHALL carry only what the
-consumer cannot already derive from state it holds.
+A forwarded `subagent_*` / `tool_execution_update` frame describing a subagent
+in a NON-terminal state SHALL NOT carry `details.entries`. The timeline SHALL be
+delivered on demand, and on terminal frames.
 
 Rationale: retention was bounded by
 `collapse-superseded-tool-execution-updates` (36 → 2 retained ticks per
 `toolCallId`), but average bytes/event ROSE (1240 → 1350 B) because the cost is
-concentrated in the surviving payloads. Count and size are independent levers.
+concentrated in the surviving payloads. The timeline is pull-consumed (it
+renders only in an expanded inspector) but was push-fanned-out on every tick.
+
+Every frame SHALL remain an idempotent FULL snapshot of the state it describes,
+preserving latest-supersedes semantics at every hop.
 
 #### Scenario: A long-running subagent's tick size stays flat
 
@@ -20,27 +24,59 @@ concentrated in the surviving payloads. Count and size are independent levers.
 - **AND** the bound SHALL be asserted against the serialized bytes actually
   broadcast, not against the in-memory object
 
-#### Scenario: A reduced payload folds to the same state as a full payload
+#### Scenario: A run that dies without a terminal frame degrades predictably
 
-- **GIVEN** a session recorded under the full-payload producer
-- **AND** the same session recorded under the reduced-payload producer
-- **WHEN** each is folded by the client reducer, live and via replay
-- **THEN** both SHALL yield the same rendered subagent state, preserving the
-  accumulative merge, the `entries` empty-array overwrite guard, and first-wins
-  `type`/`description`
+- **GIVEN** a subagent run whose process is killed before any terminal frame is
+  emitted
+- **WHEN** its session is later replayed
+- **THEN** the stored stream SHALL yield scalar subagent state with no mid-run
+  timeline
+- **AND** this degradation SHALL be documented and asserted by a test, since it
+  is a REGRESSION against the prior behaviour where fat intermediate ticks
+  replayed a partial timeline
 
-#### Scenario: A late joiner folds correctly from EMPTY state
+#### Scenario: The timeline is served on demand from retained state
 
-- **GIVEN** a consumer holding NO prior state for a subagent already mid-run
+- **GIVEN** a consumer holding NO timeline for a subagent that is still running
   (a reconnect, a replay, or a browser opened after the run started)
-- **WHEN** it folds the reduced-payload stream from empty
-- **THEN** it SHALL reach the same rendered state as a consumer that folded the
-  full-payload stream from the beginning
-- **AND** a delta that references state the consumer never received SHALL be
-  recoverable, not silently dropped
+- **WHEN** it requests a resync for that subagent
+- **THEN** it SHALL receive a FULL timeline snapshot reflecting current state
+- **AND** the snapshot SHALL be subject to the same truncation ceilings as
+  today's full-payload frames
 
-#### Scenario: The dashboard stays correct against an old producer
+#### Scenario: An open inspector keeps receiving timeline updates
 
-- **GIVEN** a `pi-dashboard-subagents` version that still sends full payloads
-- **WHEN** it runs against a dashboard expecting reduced payloads
+- **GIVEN** a subagent detail view mounted for a RUNNING subagent
+- **WHEN** the subagent appends entries to its timeline
+- **THEN** the rendered timeline SHALL converge to current state without
+  requiring the user to close and reopen the view
+
+#### Scenario: A terminal frame still carries the full timeline
+
+- **GIVEN** a subagent reaching any terminal state — `completed`, `failed`,
+  `aborted`, or an early-error exit
+- **WHEN** the terminal frame is forwarded
+- **THEN** it SHALL carry the full `details.entries` timeline unchanged
+- **AND** a replay of the finished run SHALL render the same timeline as before
+  this change
+
+#### Scenario: A reduced stream folds to the same terminal state
+
+- **GIVEN** a session recorded before this change
+- **AND** the same session recorded after it
+- **WHEN** each is folded by the client reducer, live and via replay
+- **THEN** both SHALL yield the same rendered subagent state AT AND AFTER the
+  terminal frame, preserving the accumulative merge, the `entries` empty-array
+  overwrite guard, and first-wins `type`/`description`
+- **AND** mid-run, the reduced stream MAY render scalar state only until a
+  resync is served — that difference SHALL be recoverable, never a silent
+  permanent loss
+
+#### Scenario: The dashboard stays correct against every producer version
+
+- **GIVEN** any published `pi-dashboard-subagents` version, all of which send
+  full cumulative payloads
+- **WHEN** it runs against a dashboard implementing this requirement
 - **THEN** the subagent timeline SHALL still render correctly
+- **AND** no producer change, capability flag, or version negotiation SHALL be
+  required, because the reduction happens downstream of the producer
