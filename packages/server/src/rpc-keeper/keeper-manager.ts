@@ -377,6 +377,12 @@ export function createKeeperManager(opts: KeeperManagerOptions = {}): KeeperMana
   function readPidSidecar(p: string): number | null {
     try {
       const raw = readFileSync(p, "utf8").trim();
+      // The sidecar contract is a BARE decimal integer. `Number.parseInt` is
+      // too lenient — it accepts numeric prefixes ("123junk"→123, "1e3"→1,
+      // "12.5"→12), which could surface a wrong pid or make discovery SIGTERM a
+      // live keeper. Reject anything that is not pure digits as unparseable.
+      // See change: fix-keeper-session-identity-and-reattach (CodeRabbit hardening).
+      if (!/^\d+$/.test(raw)) return null;
       const n = Number.parseInt(raw, 10);
       return Number.isFinite(n) && n > 0 ? n : null;
     } catch {

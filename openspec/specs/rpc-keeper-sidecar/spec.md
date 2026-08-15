@@ -129,7 +129,7 @@ assume the two id spaces are interchangeable.
 - **THEN** the server SHALL record that PID on the entry
 
 The server SHALL emit a diagnostic per discovered keeper recording whether the pi PID was
-recorded, corrected, left unchanged, or unavailable.
+recorded, left unchanged, or unavailable.
 
 #### Scenario: Both keeper and pi alive across server restart
 

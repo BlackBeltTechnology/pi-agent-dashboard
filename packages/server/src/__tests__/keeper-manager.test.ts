@@ -408,6 +408,9 @@ describe("KeeperManager pi-PID sidecar discovery", () => {
       { sid: "p-absent", expectPiPid: undefined },                 // no sidecar
       { sid: "p-empty", write: "", expectPiPid: undefined },
       { sid: "p-abc", write: "abc", expectPiPid: undefined },
+      { sid: "p-suffix", write: "123junk", expectPiPid: undefined },   // numeric prefix — parseInt would take 123
+      { sid: "p-exp", write: "1e3", expectPiPid: undefined },          // exponent notation
+      { sid: "p-dec", write: "12.5", expectPiPid: undefined },         // decimal notation
       { sid: "p-zero", write: "0", expectPiPid: undefined },
       { sid: "p-neg", write: "-1", expectPiPid: undefined },
       { sid: "p-padded", write: `  ${process.pid}  `, expectPiPid: process.pid }, // padded valid + live
