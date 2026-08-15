@@ -895,10 +895,17 @@ export function handleSubagentResyncRequest(
   msg: Extract<BrowserToServerMessage, { type: "subagent_resync_request" }>,
   ctx: BrowserHandlerContext,
 ): void {
+  // Requester-scoped delivery (C5): remember who asked, and pass the token to
+  // the bridge so it can echo it on the reply. A client that sends no token
+  // still works — its reply takes the ordinary broadcast path.
+  // See change: reduce-subagent-details-payload.
+  if (msg.requestId) ctx.recordResyncRequester?.(msg.requestId, ctx.ws);
   ctx.piGateway.sendToSession(msg.sessionId, {
     type: "subagent_resync_request",
     sessionId: msg.sessionId,
     agentId: msg.agentId,
+    ...(msg.requestId ? { requestId: msg.requestId } : {}),
+    ...(msg.reason ? { reason: msg.reason } : {}),
   });
 }
 

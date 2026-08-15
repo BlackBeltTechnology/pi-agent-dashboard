@@ -1708,6 +1708,20 @@ export interface SubagentResyncRequestBrowserMessage {
   type: "subagent_resync_request";
   sessionId: string;
   agentId: string;
+  /**
+   * Correlation token so the reply is delivered to THIS connection instead of
+   * fanning out to every subscriber of the session. Optional: an older client
+   * omits it and the reply falls back to the broadcast path.
+   * See change: reduce-subagent-details-payload (C5).
+   */
+  requestId?: string;
+  /**
+   * Why this resync fired: `"open"` = the user opened/expanded the inspector,
+   * `"cadence"` = the D4 v1 open-inspector pull loop. Counted separately by the
+   * bridge so the pull loop is provably not a new firehose.
+   * See change: reduce-subagent-details-payload (D6, task 9.4).
+   */
+  reason?: "open" | "cadence";
 }
 
 /**

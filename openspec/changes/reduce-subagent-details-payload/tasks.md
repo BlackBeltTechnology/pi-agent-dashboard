@@ -3,13 +3,13 @@ which is the source of truth for automated-vs-manual. `F7` (perceived cadence
 latency) is `manual-only` and is deliberately NOT folded here — it defers to
 post-merge manual verification.
 
-## 0. Resolve the test-plan clarifications (blocks the marked tasks)
+## 0. Resolve the test-plan clarifications (RESOLVED — binding)
 
-- [ ] 0.1 **C1** — fix the D4 v1 cadence interval (fixed 2 s / fixed 5 s / backoff by timeline size). Blocks the latency half of 5.1 and the rate gate in 5.6.
-- [ ] 0.2 **C2** — decide the P3 soak gate: recorded-only, no-regression-vs-baseline, or an absolute target. Blocks 10.3 being a gate rather than a report.
-- [ ] 0.3 **C3** — decide what a resync for a buffer-evicted RUNNING agent returns. Blocks 7.2.
-- [ ] 0.4 **C4** — name the inspector-open-share number that ABORTS the change. Blocks 1.4 being a kill switch rather than a datapoint.
-- [ ] 0.5 **C5** — decide whether resync fan-out stays session-wide or becomes requester-scoped. Blocks 5.6's metric definition.
+- [x] 0.1 **C1** — cadence is **backoff scaled by timeline size**: base 2 s, ×2 per idle tick, 30 s ceiling, reset on entry growth.
+- [x] 0.2 **C2** — P3 soak is **recorded-only, no gate**. The ≤ 2x per-tick bound (P1) is the only perf gate.
+- [x] 0.3 **C3** — a resync for a buffer-evicted RUNNING agent returns an explicit **`resyncNoop`**; the client keeps its last state. `maxAgents` stays 64 + counter.
+- [x] 0.4 **C4** — **abort the change if inspector-open share > 50 %** of subagent runtime.
+- [x] 0.5 **C5** — resync delivery becomes **requester-scoped** (in scope). P4 measures per-subscriber bytes.
 
 ## 1. Measure first — including the kill switch (D1)
 
@@ -56,7 +56,8 @@ post-merge manual verification.
 - [ ] 5.3 **[F3]** Test lifecycle teardown: on unmount and on terminal status the interval is cleared and zero further resync requests are emitted.
 - [ ] 5.4 **[F4]** Test the popout: the same subagent open in BOTH the inline inspector and the popout route does not double-fire resync per cadence tick.
 - [ ] 5.5 **[F2]** Test the late joiner: a browser opening a session whose subagent already has 40 entries populates the timeline on expand — the case that is BROKEN today past 20 entries.
-- [ ] 5.6 **[P4]** Measure cadence cost: resync replies are stored fat and never collapse (`resolveUpdateDetails` requires `data.partialResult.details`, `memory-event-store.ts:193-199`) and fan out to every session subscriber. Assert reply bytes/s does not exceed the push bytes/s removed; escalate to D4 v2 if it does. (Metric definition blocked on **C1**, **C5**.)
+- [ ] 5.6 **[P4]** Measure cadence cost: resync replies are stored fat and never collapse (`resolveUpdateDetails` requires `data.partialResult.details`, `memory-event-store.ts:193-199`). Assert **per-subscriber** reply bytes/s does not exceed the push bytes/s removed; escalate to D4 v2 if it does.
+- [ ] 5.7 **[C5]** Make resync delivery requester-scoped: route the reply to the requesting browser connection only, instead of fanning out to every subscriber of the session (`browser-gateway.ts` / `session-action-handler.ts`). Test that a second subscriber receives no copy.
 
 ## 6. Prove the remaining downstream mechanisms are unaffected (D5)
 

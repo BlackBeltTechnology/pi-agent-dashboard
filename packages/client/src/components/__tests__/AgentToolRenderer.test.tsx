@@ -122,10 +122,14 @@ describe("AgentToolRenderer — expand + popout", () => {
       />
     ));
     fireEvent.click(screen.getByTitle(/Expand to inspect/i));
+    // `requestId` is the requester-scoping correlation token (a fresh uuid per
+    // request). See change: reduce-subagent-details-payload (C5).
     expect(send).toHaveBeenCalledWith({
       type: "subagent_resync_request",
       sessionId: "sess_42",
       agentId: "abc123",
+      requestId: expect.any(String),
+      reason: "open",
     });
   });
 

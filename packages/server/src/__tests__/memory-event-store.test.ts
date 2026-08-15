@@ -542,6 +542,11 @@ describe("memory-event-store", () => {
         evictedSessions: 0,
         // Additive. See change: collapse-superseded-tool-execution-updates.
         collapsedUpdates: 0,
+        // Additive. See change: reduce-subagent-details-payload (D6).
+        subagentTicks: 0,
+        subagentTickBytes: 0,
+        subagentFatTicks: 0,
+        subagentTickFatBytes: 0,
       });
     });
 
@@ -962,6 +967,101 @@ describe("memory-event-store", () => {
       expect(measureBytes(pair, 100_000)).toBeGreaterThanOrEqual(
         Buffer.byteLength(JSON.stringify(pair)),
       );
+    });
+  });
+
+  // See change: reduce-subagent-details-payload (D5a).
+  //
+  // A resync reply is delivered as `subagent_started` with `{id, details}` and
+  // matches NEITHER `toolName === "Agent"` NOR `tool_execution_update/end`, so
+  // it falls through to the generic pass where any array > 20 items becomes the
+  // string "[array truncated]" — which the reducer then ignores, rendering no
+  // timeline at all. The pull path this change leans on is broken today past 20
+  // entries; these tests pin the type gate that fixes it.
+  describe("D5a: subagent_* carrier engages the timeline type gate", () => {
+    const CEIL = 20_000;
+
+    /** The resync-reply shape: `subagent_started` with `data.details.entries`. */
+    function startedEvent(entries: unknown[], eventType = "subagent_started"): DashboardEvent {
+      return {
+        eventType,
+        timestamp: Date.now(),
+        data: {
+          id: "ag1",
+          details: { agentId: "ag1", description: "explore", entries },
+        },
+      };
+    }
+
+    function toolEntry(i: number, outputSize: number): unknown {
+      return {
+        kind: "tool",
+        toolName: "Read",
+        input: { file_path: `/src/file-${i}.ts` },
+        output: "X".repeat(outputSize),
+        ts: 1000 + i,
+      };
+    }
+
+    it("E1: entries length exactly 20 stays an Array (boundary — clobber must not fire)", () => {
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
+      store.insertEvent("s1", startedEvent(Array.from({ length: 20 }, (_, i) => toolEntry(i, 20))));
+      const kept = (store.getEvent("s1", 1) as any).data.details.entries;
+      expect(Array.isArray(kept)).toBe(true);
+      expect(kept).toHaveLength(20);
+    });
+
+    it("E2: entries length 21 stays an Array, NOT the string '[array truncated]'", () => {
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
+      store.insertEvent("s1", startedEvent(Array.from({ length: 21 }, (_, i) => toolEntry(i, 20))));
+      const kept = (store.getEvent("s1", 1) as any).data.details.entries;
+      expect(kept).not.toBe("[array truncated]");
+      expect(Array.isArray(kept)).toBe(true);
+      expect(kept).toHaveLength(21);
+    });
+
+    it("E3: over-ceiling entries reduce to head + sentinel + tail, still an Array", () => {
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
+      const entries = Array.from({ length: 30 }, (_, i) => toolEntry(i, 1500));
+      store.insertEvent("s1", startedEvent(entries));
+      const stored = (store.getEvent("s1", 1) as any).data;
+      expect(stored.__truncated).toBeUndefined();
+      const kept = stored.details.entries as any[];
+      expect(Array.isArray(kept)).toBe(true);
+      expect(kept[0].input.file_path).toBe("/src/file-0.ts"); // head kept
+      expect(kept[kept.length - 1].input.file_path).toBe("/src/file-29.ts"); // tail kept
+      expect(kept.some((e) => e.kind === "text" && /steps hidden/.test(e.text))).toBe(true);
+      expect(Buffer.byteLength(JSON.stringify(stored))).toBeLessThanOrEqual(CEIL);
+    });
+
+    it("D6: counts subagent ticks, splitting fat from thin", () => {
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
+      // A thin tick: the strip landed, no timeline on the wire.
+      store.insertEvent("s1", {
+        eventType: "subagent_started",
+        timestamp: Date.now(),
+        data: { id: "ag1", details: { agentId: "ag1", status: "running", toolUses: 2 } },
+      });
+      // A fat tick: a terminal frame or a resync reply.
+      store.insertEvent("s1", startedEvent(Array.from({ length: 5 }, (_, i) => toolEntry(i, 100))));
+      // Not a subagent carrier — must not be counted at all.
+      store.insertEvent("s1", { eventType: "message_start", timestamp: Date.now(), data: { a: 1 } });
+
+      const stats = store.getTrimStats();
+      expect(stats.subagentTicks).toBe(2);
+      expect(stats.subagentFatTicks).toBe(1);
+      expect(stats.subagentTickFatBytes).toBeGreaterThan(0);
+      expect(stats.subagentTickBytes).toBeGreaterThan(stats.subagentTickFatBytes);
+      // Never reset on read.
+      expect(store.getTrimStats().subagentTicks).toBe(2);
+    });
+
+    it("E4: a non-subagent/non-tool event carrying details.entries still does NOT match", () => {
+      // Shape alone must never match the timeline reducer.
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
+      store.insertEvent("s1", startedEvent(Array.from({ length: 25 }, (_, i) => toolEntry(i, 20)), "some_other_event"));
+      const kept = (store.getEvent("s1", 1) as any).data.details.entries;
+      expect(kept).toBe("[array truncated]");
     });
   });
 });

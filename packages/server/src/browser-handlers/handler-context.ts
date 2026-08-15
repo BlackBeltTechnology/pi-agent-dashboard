@@ -99,6 +99,13 @@ export interface BrowserHandlerContext {
    * See change: fix-recovery-offer-bridge-liveness-gate.
    */
   isRecoveryLivenessPending?(sessionId: string): boolean;
+  /**
+   * Remember that THIS connection asked for a subagent resync, so the bridge's
+   * reply is delivered back to it instead of fanned out to every subscriber of
+   * the session. Absent → the reply falls back to the broadcast path.
+   * See change: reduce-subagent-details-payload (C5).
+   */
+  recordResyncRequester?(requestId: string, ws: WebSocket): void;
   /** Send message to a specific WebSocket */
   sendTo(ws: WebSocket, msg: ServerToBrowserMessage): void;
   /** Broadcast to all connected browsers */

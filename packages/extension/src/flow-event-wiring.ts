@@ -50,6 +50,13 @@ export interface EventBusForwardingDeps {
     isSubagentChannel: (channel: string) => boolean;
     markForwarded: (channel: string, data: Record<string, unknown>) => void;
     buffer: (channel: string, data: Record<string, unknown>) => boolean;
+    /**
+     * Drop the cumulative `details.entries` timeline from a NON-terminal
+     * subagent frame before it goes on the wire. MUST clone — the buffer
+     * retains frames by reference, so the fat pull source stays fat.
+     * See change: reduce-subagent-details-payload (D2).
+     */
+    stripForForward: (data: Record<string, unknown>) => Record<string, unknown>;
   };
 }
 
@@ -69,7 +76,9 @@ export function forwardBusEvent(
     const eventData = (data && typeof data === "object" ? data : {}) as Record<string, unknown>;
     if (deps.subagent.isSubagentChannel(channel)) {
       if (deps.isSessionReady() && deps.isActive() && deps.isConnected()) {
-        deps.sendEventForward(channel, eventData);
+        // Buffer the FAT frame, forward the thin one. The strip clones, so the
+        // retained snapshot (the resync source) keeps its full timeline.
+        deps.sendEventForward(channel, deps.subagent.stripForForward(eventData));
         deps.subagent.markForwarded(channel, eventData);
       } else if (!deps.subagent.buffer(channel, eventData)) {
         console.warn(
