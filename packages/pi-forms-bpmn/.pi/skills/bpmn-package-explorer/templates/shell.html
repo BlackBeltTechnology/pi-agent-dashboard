@@ -29,9 +29,18 @@
 
   /* Side panel sits BESIDE the canvas (never overlays it). Its own dmn-js
      watermark renders at its lower-right, so panel chrome keeps clear of it. */
-  #panel { flex: 0 0 var(--panel-w); max-width: 100%; border-left: 1px solid #dfe6ee;
+  #panel { flex: 0 0 var(--panel-w); max-width: 100%; min-width: 240px; border-left: 1px solid #dfe6ee;
            background: #fff; display: none; flex-direction: column; position: relative; }
   #panel.open { display: flex; }
+
+  /* Drag handle straddling the panel's left seam — resizes the canvas/panel
+     split by adjusting --panel-w. Sits above panel chrome but below overlays. */
+  #panel-resize { position: absolute; left: -4px; top: 0; bottom: 0; width: 9px;
+                  cursor: col-resize; z-index: 50; touch-action: none; }
+  #panel-resize::before { content: ''; position: absolute; left: 3px; top: 0; bottom: 0;
+                          width: 3px; background: transparent; transition: background .12s; }
+  #panel-resize:hover::before, #panel-resize.dragging::before { background: rgba(31,119,180,.35); }
+  body.panel-resizing { cursor: col-resize; user-select: none; }
   #panel header { display: flex; align-items: center; gap: 8px; padding: 10px 12px;
                   border-bottom: 1px solid #eef2f6; font-size: 14px; }
   #panel header .title { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -97,6 +106,7 @@
   @media (max-width: 767px) {
     #panel { flex-basis: 100%; }
     body.panel-open #canvas { display: none; }
+    #panel-resize { display: none; }
     #diagnostics { right: 12px; }
   }
 </style>
@@ -123,6 +133,7 @@
     </div>
   </div>
   <aside id="panel" aria-label="Artifact panel">
+    <div id="panel-resize" role="separator" aria-orientation="vertical" aria-label="Resize panel" tabindex="0"></div>
     <header>
       <span class="title" id="panel-title"></span>
       <button class="close" id="panel-close">Close</button>
