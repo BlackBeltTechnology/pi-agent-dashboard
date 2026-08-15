@@ -1431,25 +1431,42 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       )}
     </div>
     {/*
-      Replay-in-flight pill. OVERLAYS the list (absolutely positioned sibling,
-      like the scroll buttons) rather than inserting a row, so it cannot perturb
-      scroll anchoring. Indeterminate by design — no count, total, or percentage.
-      Mutually exclusive with the loading skeleton, which only renders while the
-      message list is empty. See change: show-replay-in-flight-indicator.
+      Replay-in-flight indicator: a decorative tail scrim + a centred label.
+      Both OVERLAY the list (absolutely positioned siblings, like the scroll
+      buttons) rather than inserting a row or trailing padding, so they cannot
+      perturb scroll anchoring. Indeterminate by design — no count, total, or
+      percentage. Mutually exclusive with the loading skeleton, which only
+      renders while the message list is empty.
+
+      Both are rendered under the SAME condition so a scrim can never be left
+      dimming the transcript after its label has gone. The label sits at 64px
+      (`bottom-16`); the scroll-to-bottom button is `bottom-4` + `p-2` around a
+      0.8 icon, so it spans roughly 16..51px — ~13px of clearance, separated by
+      LAYOUT, not paint order. Both are centred (`left-1/2 -translate-x-1/2`),
+      so the clearance is purely vertical and therefore identical at every
+      viewport width rather than lucky at one. Do NOT reposition the
+      scroll controls below: their resting position must not depend on replay
+      state. See change: fix-replay-pill-a11y-and-collision.
     */}
     {showReplayPill && state.messages.length > 0 && (
-      <div
-        data-testid="replay-in-flight-pill"
-        role="status"
-        aria-busy="true"
-        aria-label={i18nT("status.loadingHistoryInFlight", undefined, "Loading earlier messages…")}
-        className="absolute bottom-4 right-4 z-10 flex items-center gap-1.5 rounded-full bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] px-3 py-1 shadow-lg"
-      >
-        <Icon path={mdiLoading} size={0.6} className="animate-spin text-[var(--text-secondary)]" />
-        <span className="text-[11px] text-[var(--text-secondary)]">
-          {i18nT("status.loadingHistoryInFlight", undefined, "Loading earlier messages…")}
-        </span>
-      </div>
+      <>
+        <div
+          data-testid="replay-in-flight-scrim"
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-28 bg-gradient-to-t from-[var(--bg-primary)] to-transparent"
+        />
+        <div
+          data-testid="replay-in-flight-pill"
+          role="status"
+          aria-busy="true"
+          className="absolute bottom-16 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 rounded-full bg-[var(--bg-surface)] border border-[var(--border-strong)] px-3 py-1 shadow-lg"
+        >
+          <Icon path={mdiLoading} size={0.6} className="animate-spin text-[var(--text-primary)]" />
+          <span className="text-[11px] text-[var(--text-primary)]">
+            {i18nT("status.loadingHistoryInFlight", undefined, "Loading earlier messages…")}
+          </span>
+        </div>
+      </>
     )}
     {showScrollTopButton && (
       <button

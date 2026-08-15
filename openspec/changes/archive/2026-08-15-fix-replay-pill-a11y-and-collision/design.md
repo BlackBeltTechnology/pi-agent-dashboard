@@ -62,9 +62,10 @@ The indicator becomes two elements:
 - a **label** — `absolute bottom-16 left-1/2 -translate-x-1/2 z-20`, carrying the
   existing testid/role/aria-busy contract.
 
-The scroll controls **keep their resting position**. The label sits at 64px, the
-scroll-to-bottom button occupies 16..48px: 16px of clearance, at every width,
-because neither position depends on the viewport. Verified in the mockup —
+The scroll controls **keep their resting position**. The label sits at 64px; the
+scroll-to-bottom button is `bottom-4` + `p-2` around a 0.8 icon, so it spans
+roughly 16..51px: ~13px of clearance, at every width, because both are centred
+and neither position depends on the viewport. Verified in the mockup —
 375px and 1440px, both themes, zero box intersection.
 
 *Alternatives rejected:*
