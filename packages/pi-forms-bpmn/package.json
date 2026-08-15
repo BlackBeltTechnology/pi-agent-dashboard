@@ -1,7 +1,7 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-forms-bpmn",
   "version": "0.7.0",
-  "description": "Two pi skills bundled together: openforms-mui (render/author OpenForms FormSchemaJSON as themed, accessible MUI) and bpmn-package-explorer (generate/view vendor-neutral BPMN 2.0 + DMN process packages). Ships canvas-webapp for rendering either on the pi-dashboard canvas (sandboxed opaque-origin iframe + CORS static-serve recipe).",
+  "description": "Two pi skills bundled together: openforms-mui (render/author OpenForms FormSchemaJSON as themed, accessible MUI) and bpmn-package-explorer (generate/view vendor-neutral BPMN 2.0 + DMN process packages). Rendering either on the pi-dashboard canvas is documented by the dashboard extension's own canvas-webapp skill.",
   "type": "module",
   "repository": {
     "type": "git",
@@ -30,8 +30,7 @@
   "pi": {
     "skills": [
       ".pi/skills/openforms-mui",
-      ".pi/skills/bpmn-package-explorer",
-      ".pi/skills/canvas-webapp"
+      ".pi/skills/bpmn-package-explorer"
     ]
   },
   "scripts": {

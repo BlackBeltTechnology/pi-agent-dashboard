@@ -517,13 +517,12 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 			"OpenForms FormSchemaJSON as themed, accessible MUI (14 field types, " +
 			"conditional logic, calculated fields); bpmn-package-explorer generates " +
 			"and views vendor-neutral BPMN 2.0 + DMN process packages (buildless, " +
-			"offline, vendored bpmn.io viewers). Ships canvas-webapp for rendering " +
-			"either on the dashboard canvas.",
+			"offline, vendored bpmn.io viewers). Canvas rendering is documented by " +
+			"the dashboard extension's own canvas-webapp skill.",
 		status: "optional",
 		unlocks: [
 			"openforms-mui skill (OpenForms schema \u2192 MUI form renderer/author)",
 			"bpmn-package-explorer skill (generate/view BPMN 2.0 + DMN packages)",
-			"canvas-webapp skill (render a web app on the dashboard canvas)",
 		],
 	},
 ];

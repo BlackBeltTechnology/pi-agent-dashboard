@@ -38,9 +38,3 @@ offline operation.
 
 Optional OpenForms form rendering inside a BPMN user task follows the OpenForms
 Apache 2.0 attribution above.
-
-================================================================================
-canvas-webapp
-================================================================================
-Original documentation skill (MIT, this package). Describes rendering a web app
-on the pi-dashboard canvas.
