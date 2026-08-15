@@ -51,6 +51,11 @@
   --border-primary: #252525;   /* main borders */
   --border-secondary: #333333; /* subtle dividers */
   --border-subtle: rgba(255, 255, 255, 0.06);
+  /* Perceivable boundary for an overlay surface floating on --bg-primary.
+     Exists to satisfy WCAG 2.1 SC 1.4.11 (3:1 non-text contrast): measures
+     5.01:1 against --bg-primary. No other border token qualifies
+     (--border-secondary is 1.57:1). See change: fix-replay-pill-a11y-and-collision. */
+  --border-strong: #808080;
 
   /* Sidebar directory rail: the gray vertical line that represents the folder
      owning a session list, + the drag-grip dots that ride it in an opaque
@@ -166,6 +171,9 @@
   --border-primary: #e0e0e0;
   --border-secondary: #cccccc;
   --border-subtle: rgba(0, 0, 0, 0.06);
+  /* WCAG 2.1 SC 1.4.11 overlay boundary — 4.48:1 against light --bg-primary.
+     See change: fix-replay-pill-a11y-and-collision. */
+  --border-strong: #777777;
   --rail-directory: rgba(0, 0, 0, 0.18);
   --grip-dot: #8a8a8a;
 
@@ -916,3 +924,13 @@ mark.markdown-search-highlight-active {
    viewer while pages keep their authored (light) colour. Overrides pdf_viewer.css's
    default light gutter. See change: pdf-preview-continuous-scroll. */
 .pdfViewerContainer { background: var(--bg-canvas); }
+
+/* ── Replay-in-flight indicator: reduced motion ───────────────
+   The spinner is a Tailwind `animate-spin` utility on an <Icon> SVG, so the
+   rule is scoped through the label's data-testid rather than a class that
+   could change. The label stays RENDERED — reducing motion must not remove
+   the status. See change: fix-replay-pill-a11y-and-collision. */
+@media (prefers-reduced-motion: reduce) {
+  [data-testid="replay-in-flight-pill"] .animate-spin,
+  [data-testid="replay-in-flight-pill"] svg { animation: none; }
+}
