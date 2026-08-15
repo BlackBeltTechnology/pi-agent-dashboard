@@ -63,10 +63,6 @@
     "configSchema": "./src/configSchema.json",
     "claims": [
       {
-        "slot": "content-view",
-        "component": "CostView"
-      },
-      {
         "slot": "command-route",
         "component": "CostView",
         "command": "cost"

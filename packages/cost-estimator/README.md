@@ -88,11 +88,15 @@ portability is gone.**
 
 | Slot | Component | Purpose |
 |---|---|---|
-| `content-view` | `CostView` | Steering hours, meter-equivalent, actual subscription cost, leverage, per-project table |
-| `command-route` | `CostView` | Opens the same view via the `cost` command |
+| `command-route` | `CostView` | `cost` command → steering hours, meter-equivalent, actual subscription cost, leverage, per-project table |
 | `settings-section` | `CostSettings` | Seat plan, seat count, break threshold |
 
 Server route: `GET /api/cost-estimator/telemetry` (read-only, 60s cache).
+
+No `content-view` claim. `forSession()` keeps every predicate-less claim, so an
+unpredicated `content-view` claim replaces `ChatView` for every session, always,
+with no chrome to dismiss it. `CostView` is a global report — the `cost`
+command-route is its entry point.
 
 ## Tests
 

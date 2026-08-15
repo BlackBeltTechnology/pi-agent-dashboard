@@ -36,7 +36,7 @@ CLI bins keep the shorter `pi-estimate*` stem by choice — they are typed by ha
 | File | Purpose |
 |------|---------|
 | `README.md` | Package overview. Skill + zero-dep engine + dashboard plugin. Documents the four delivery modes, the subscription-vs-metered cost basis, the load-bearing dependency split, plugin slots, and the CLI entry points. |
-| `package.json` | Manifest. `pi.skills` exposes `.pi/skills/software-cost-estimator`; `pi-dashboard-plugin` claims `content-view`/`command-route`/`settings-section` (id `cost-estimator`, server + configSchema). Bins `pi-estimate`, `pi-estimate-calibrate`, `pi-estimate-calibrate-sessions` → `bin/*.mjs`. Deps: dashboard-plugin-runtime, pi-dashboard-shared, pi-dashboard-session-distiller. NO local vitest — root supplies v4. |
+| `package.json` | Manifest. `pi.skills` exposes `.pi/skills/software-cost-estimator`; `pi-dashboard-plugin` claims `command-route`/`settings-section` (id `cost-estimator`, server + configSchema). NO `content-view` claim — `forSession()` keeps predicate-less claims, so one would replace `ChatView` for every session with no chrome to dismiss it; guarded by `src/__tests__/manifest-claims.test.ts`. See change: drop-cost-content-view-claim. Bins `pi-estimate`, `pi-estimate-calibrate`, `pi-estimate-calibrate-sessions` → `bin/*.mjs`. Deps: dashboard-plugin-runtime, pi-dashboard-shared, pi-dashboard-session-distiller. NO local vitest — root supplies v4. |
 | `tsconfig.json` | Extends `tsconfig.base.json`; `rootDir` src, `outDir` dist, `jsx` react-jsx. |
 | `vitest.config.ts` | Vitest project config. `include` `src/**/__tests__/**/*.test.ts`, node env, forks pool, `maxWorkers` "50%". Registered in the ROOT `vitest.config.ts` projects list. |
 
@@ -48,7 +48,7 @@ CLI bins keep the shorter `pi-estimate*` stem by choice — they are typed by ha
 - `src/bin/` — CLI implementations (estimate, calibrate, calibrate-sessions)
 - `src/client/` — dashboard plugin client (`CostView`, `CostSettings`)
 - `src/server/` — dashboard plugin server (`GET /api/cost-estimator/telemetry`, 60s cache)
-- `src/__tests__/` — 43 vitest tests
+- `src/__tests__/` — 68 vitest tests, incl. `manifest-claims.test.ts` (no predicate-less `content-view` claim; `cost` command-route survives)
 - `.pi/skills/software-cost-estimator/` — the skill: SKILL.md, references/, assets/
 
 ## Origin
