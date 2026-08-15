@@ -828,6 +828,8 @@ importers:
 
   packages/openspec-workflow: {}
 
+  packages/pi-forms-bpmn: {}
+
   packages/roles-plugin:
     dependencies:
       '@blackbelt-technology/dashboard-plugin-runtime':

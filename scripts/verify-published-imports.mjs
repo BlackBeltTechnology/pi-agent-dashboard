@@ -81,6 +81,37 @@ export const ALLOWLIST = [
     reason:
       "Returns E404 on the npm registry. Legacy pre-rescope name reached only through a guarded dynamic-import fallback; declaring it would write an unresolvable dependency into a published manifest.",
   },
+  // pi-forms-bpmn ships the openforms-mui skill, whose `.pi/skills/openforms-mui/tools`
+  // directory is a SELF-CONTAINED Vite library with its OWN package.json. These
+  // specifiers are declared there and installed at runtime into `tools/node_modules`
+  // by `scripts/ensure-openforms-deps.mjs` (a guarded postinstall) — NOT by the
+  // workspace-root manifest, which deliberately omits them so the plugin install
+  // stays lean. This checker reads only the workspace-root manifest, so it cannot
+  // see the nested declarations. Each entry is a genuine declared+installed dep of
+  // the nested library, not an undeclared consumer break.
+  ...[
+    "react",
+    "react-dom",
+    "@mui/material",
+    "@mui/x-date-pickers",
+    "@fontsource/roboto",
+    "@hookform/resolvers",
+    "react-hook-form",
+    "zod",
+    "dayjs",
+    "axe-core",
+    "vite",
+    "@vitejs/plugin-react",
+    "vitest",
+    "@testing-library/react",
+    "@testing-library/jest-dom",
+    "@testing-library/user-event",
+  ].map((specifier) => ({
+    workspace: "packages/pi-forms-bpmn",
+    specifier,
+    reason:
+      "Declared in the nested .pi/skills/openforms-mui/tools/package.json (a self-contained Vite library) and installed at runtime by scripts/ensure-openforms-deps.mjs; the workspace-root manifest deliberately omits it.",
+  })),
 ];
 
 const finding = (severity, rule, workspace, file, specifier, message) => ({

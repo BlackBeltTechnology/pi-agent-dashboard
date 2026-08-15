@@ -51,6 +51,14 @@ const pidPath = isWindows
   ? path.join(SESSIONS_DIR, `pi-rpc-${sessionId}.pid`)
   : `${sockPath}.pid`;
 
+// Pi-PID sidecar: written AFTER pi is spawned (pidPath is written before pi
+// exists). Suffix ends in `-pid`, NOT `.pid`, so the keeper-sidecar discovery
+// scans (`^(.+)\.rpc\.sock\.pid$` / `^pi-rpc-(.+)\.pid$`) cannot match it and
+// invent a phantom keeper. See change: fix-keeper-session-identity-and-reattach.
+const piPidPath = isWindows
+  ? path.join(SESSIONS_DIR, `pi-rpc-${sessionId}.pi-pid`)
+  : `${sockPath}.pi-pid`;
+
 const logPath = path.join(SESSIONS_DIR, `keeper-${sessionId}.log`);
 
 // ---------------------------------------------------------------------------
@@ -97,6 +105,10 @@ function shutdown(exitCode, reason) {
   // virtual and need not be unlinked; on Unix we unlink the socket file.
   if (!isWindows) unlinkQuiet(sockPath);
   unlinkQuiet(pidPath);
+  // Unlink pi-PID sidecar in the same path that unlinks the socket + own
+  // .pid so a dead keeper never leaves a file that outlives the process it
+  // names. See change: fix-keeper-session-identity-and-reattach.
+  unlinkQuiet(piPidPath);
 
   // Defence in depth: SIGKILL piChild before exiting. The implicit contract
   // "pi reads stdin EOF on keeper exit and shuts down voluntarily" only
@@ -358,6 +370,22 @@ async function main() {
 
   // 3. Spawn pi.
   piChild = spawnPi();
+
+  // 3b. Record pi's PID in a post-spawn sidecar so server-side discovery can
+  // fill an absent piPid for reclaimed / cwd-FIFO-linked registry entries.
+  // Written only after a successful spawn (pi's PID is unknowable at the
+  // pidPath write above). Failure is non-fatal: pi is running and must not
+  // be torn down over a diagnostic file — a missing sidecar degrades repair
+  // to a no-op, which is today's behaviour. On a spawn failure piChild.pid
+  // is undefined and no sidecar is written.
+  // See change: fix-keeper-session-identity-and-reattach.
+  if (piChild && typeof piChild.pid === "number") {
+    try {
+      fs.writeFileSync(piPidPath, String(piChild.pid), "utf8");
+    } catch (e) {
+      log(`WARN: cannot write pi-PID sidecar ${piPidPath}: ${e && e.message}`);
+    }
+  }
 
   // 4. Crash-detection window: emit the "keeper ready" marker once pi has
   // survived the crash window. The crash-on-early-exit decision itself is
