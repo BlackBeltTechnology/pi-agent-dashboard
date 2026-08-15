@@ -131,6 +131,7 @@ const BUNDLED_PLUGINS = [
   "blackhole-plugin",
   "mcp-server-plugin",
   "apple-tools",
+  "cost-estimator",
 ];
 const BUNDLED_PLUGINS_DIR = path.join(SERVER_BUNDLE, "resources", "plugins");
 mkdirSync(BUNDLED_PLUGINS_DIR, { recursive: true });

@@ -223,6 +223,9 @@ importers:
       '@blackbelt-technology/pi-dashboard-client-utils':
         specifier: ^0.7.0
         version: link:../client-utils
+      '@blackbelt-technology/pi-dashboard-cost-estimator':
+        specifier: ^0.7.0
+        version: link:../cost-estimator
       '@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin':
         specifier: ^0.7.0
         version: link:../flows-anthropic-bridge-plugin
@@ -428,6 +431,18 @@ importers:
         version: 19.2.7(react@19.2.7)
 
   packages/code-review-toolkit: {}
+
+  packages/cost-estimator:
+    dependencies:
+      '@blackbelt-technology/dashboard-plugin-runtime':
+        specifier: ^0.7.0
+        version: link:../dashboard-plugin-runtime
+      '@blackbelt-technology/pi-dashboard-session-distiller':
+        specifier: ^0.7.0
+        version: link:../session-distiller
+      '@blackbelt-technology/pi-dashboard-shared':
+        specifier: ^0.7.0
+        version: link:../shared
 
   packages/dashboard-plugin-runtime:
     dependencies:
