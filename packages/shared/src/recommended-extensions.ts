@@ -508,6 +508,24 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 		// duration probing; both are probed on PATH via the shared ToolRegistry.
 		requires: { binaries: ["ffmpeg", "ffprobe"] },
 	},
+	{
+		id: "@blackbelt-technology/pi-dashboard-forms-bpmn",
+		source: "npm:@blackbelt-technology/pi-dashboard-forms-bpmn",
+		displayName: "pi-dashboard-forms-bpmn",
+		fallbackDescription:
+			"Two bundled pi skills (not merged): openforms-mui renders/authors an " +
+			"OpenForms FormSchemaJSON as themed, accessible MUI (14 field types, " +
+			"conditional logic, calculated fields); bpmn-package-explorer generates " +
+			"and views vendor-neutral BPMN 2.0 + DMN process packages (buildless, " +
+			"offline, vendored bpmn.io viewers). Ships canvas-webapp for rendering " +
+			"either on the dashboard canvas.",
+		status: "optional",
+		unlocks: [
+			"openforms-mui skill (OpenForms schema \u2192 MUI form renderer/author)",
+			"bpmn-package-explorer skill (generate/view BPMN 2.0 + DMN packages)",
+			"canvas-webapp skill (render a web app on the dashboard canvas)",
+		],
+	},
 ];
 
 /**

@@ -8,7 +8,7 @@ import {
 } from "../recommended-extensions.js";
 
 describe("RECOMMENDED_EXTENSIONS manifest", () => {
-	it("contains exactly the nineteen expected entries", () => {
+	it("contains exactly the twenty expected entries", () => {
 		const ids = RECOMMENDED_EXTENSIONS.map((e) => e.id).sort();
 		expect(ids).toEqual(
 			[
@@ -32,6 +32,7 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 				"@blackbelt-technology/pi-dashboard-authoring-toolkit",
 				"@blackbelt-technology/pi-dashboard-apple-tools",
 				"@blackbelt-technology/pi-dashboard-video-transcription",
+				"@blackbelt-technology/pi-dashboard-forms-bpmn",
 			].sort(),
 		);
 	});
@@ -172,6 +173,7 @@ describe("getRecommendedByStatus", () => {
 				"@blackbelt-technology/pi-dashboard-authoring-toolkit",
 				"@blackbelt-technology/pi-dashboard-apple-tools",
 				"@blackbelt-technology/pi-dashboard-video-transcription",
+				"@blackbelt-technology/pi-dashboard-forms-bpmn",
 			].sort(),
 		);
 	});

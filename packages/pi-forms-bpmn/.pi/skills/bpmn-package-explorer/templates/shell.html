@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BPMN Package Explorer</title>
+
+<!-- Vendored bundles, loaded by relative URL from the render root (single
+     origin, port-agnostic). No bundler, no install, no network. -->
+<link rel="stylesheet" href="assets/bpmn-js/diagram-js.css" />
+<link rel="stylesheet" href="assets/bpmn-js/bpmn.css" />
+<link rel="stylesheet" href="assets/bpmn-js/bpmn-font/css/bpmn.css" />
+<link rel="stylesheet" href="assets/dmn-js/diagram-js.css" />
+<link rel="stylesheet" href="assets/dmn-js/dmn-js-shared.css" />
+<link rel="stylesheet" href="assets/dmn-js/dmn-js-drd.css" />
+<link rel="stylesheet" href="assets/dmn-js/dmn-js-decision-table.css" />
+<link rel="stylesheet" href="assets/dmn-js/dmn-js-literal-expression.css" />
+
+<style>
+  :root { --panel-w: 400px; --wm-reserve: 190px; }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; height: 100%; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #1a2b3c; }
+  #app { display: flex; height: 100vh; width: 100vw; overflow: hidden; }
+
+  /* Main canvas mount. bpmn.io watermark renders at bottom:15px;right:15px
+     INSIDE this element, so we never place chrome over its lower-right. */
+  #canvas { position: relative; flex: 1 1 auto; min-width: 0; background: #fbfcfe; }
+  #canvas .djs-container { height: 100%; }
+
+  /* Side panel sits BESIDE the canvas (never overlays it). Its own dmn-js
+     watermark renders at its lower-right, so panel chrome keeps clear of it. */
+  #panel { flex: 0 0 var(--panel-w); max-width: 100%; border-left: 1px solid #dfe6ee;
+           background: #fff; display: none; flex-direction: column; position: relative; }
+  #panel.open { display: flex; }
+  #panel header { display: flex; align-items: center; gap: 8px; padding: 10px 12px;
+                  border-bottom: 1px solid #eef2f6; font-size: 14px; }
+  #panel header .title { font-weight: 600; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  #panel .artifact-path { font-size: 12px; color: #6b7c8f; padding: 4px 12px; }
+  #panel-body { flex: 1; overflow: auto; position: relative;
+                /* reserve lower-right for the dmn-js / mount watermark */
+                padding-bottom: var(--wm-reserve); }
+  #panel .close { cursor: pointer; border: 1px solid #cdd7e1; background: #fff; border-radius: 6px; padding: 2px 8px; }
+
+  /* Overlays do not intercept diagram clicks: the CONTAINER is click-through and
+     only the interactive chrome (buttons, select, links) captures pointer events.
+     Without this, an overlay sitting over a flow node would swallow its click. */
+  .controls, #switcher, #legend, .attribution, #diagnostics { pointer-events: none; }
+  .controls button, #switcher select, #legend a, .attribution a,
+  #diagnostics .dismiss, #diagnostics a { pointer-events: auto; }
+
+  /* Controls — top-left, clear of the lower-right watermark. */
+  .controls { position: absolute; top: 12px; left: 12px; z-index: 40; display: flex; gap: 6px; }
+  .controls button { cursor: pointer; border: 1px solid #cdd7e1; background: #fff; border-radius: 6px; padding: 4px 10px; font-size: 13px; }
+
+  /* Return control (drill-down) — its own row below the toolbar, so it never
+     sits under the participant switcher. */
+  #return-zone { position: absolute; top: 48px; left: 12px; z-index: 41; }
+  #return-zone button { cursor: pointer; border: 1px solid #cdd7e1; background: #fff; border-radius: 6px; padding: 4px 10px; font-size: 13px; }
+
+  /* Participant switcher — top-center-left. */
+  #switcher { position: absolute; top: 12px; left: 140px; z-index: 40; }
+  #switcher select { padding: 4px 8px; border: 1px solid #cdd7e1; border-radius: 6px; background: #fff; font-size: 13px; }
+
+  /* Legend — TOP-right, explicitly clear of the lower-right watermark. */
+  #legend { position: absolute; top: 12px; right: 12px; z-index: 40; background: rgba(255,255,255,.94);
+            border: 1px solid #dfe6ee; border-radius: 8px; padding: 8px 10px; font-size: 12px; max-width: 220px; }
+  #legend h4 { margin: 0 0 6px; font-size: 12px; }
+  #legend .row { display: flex; align-items: center; gap: 6px; margin: 3px 0; }
+  #legend .swatch { width: 14px; height: 14px; border-radius: 3px; display: inline-block; }
+
+  /* Diagnostics — TOP band, dismissible, clear of every watermark region. */
+  #diagnostics { position: absolute; top: 56px; left: 12px; right: 240px; z-index: 45;
+                 background: #fff8e1; border: 1px solid #f2d675; border-radius: 8px; padding: 8px 12px; font-size: 13px; }
+  #diagnostics.hidden { display: none; }
+  #diagnostics ul { margin: 6px 0 0; padding-left: 18px; }
+  #diagnostics .dismiss { float: right; cursor: pointer; border: none; background: transparent; font-size: 16px; }
+
+  /* Attribution footer — bottom-LEFT, never the watermark's lower-right. */
+  .attribution { position: absolute; bottom: 6px; left: 10px; z-index: 30; font-size: 11px; color: #8595a6; }
+  .attribution a { color: #5b6b7d; }
+
+  /* Role markers — distinguishable WITHOUT colour alone (pattern + border). */
+  .role-marker .djs-visual > :nth-child(1) { stroke-width: 3px !important; }
+  .role-0 .djs-visual > :nth-child(1) { stroke: #1f77b4 !important; stroke-dasharray: 0 !important; }
+  .role-1 .djs-visual > :nth-child(1) { stroke: #d62728 !important; stroke-dasharray: 6 3 !important; }
+  .role-2 .djs-visual > :nth-child(1) { stroke: #2ca02c !important; stroke-dasharray: 2 3 !important; }
+  .role-3 .djs-visual > :nth-child(1) { stroke: #9467bd !important; stroke-dasharray: 10 4 2 4 !important; }
+
+  /* Form mount styling is SCOPED to the panel, so MUI-style resets cannot
+     reach diagram-js canvas rendering. */
+  #panel-body .form-mount { padding: 12px; }
+  #panel-body .placeholder { margin: 16px; padding: 16px; border: 1px dashed #b9c6d4; border-radius: 8px; color: #55697c; }
+
+  /* Narrow viewport: the panel REPLACES the canvas rather than overlaying it,
+     so exactly one watermark-bearing mount is shown at a time (structural
+     compliance, not "leave a strip uncovered"). */
+  @media (max-width: 767px) {
+    #panel { flex-basis: 100%; }
+    body.panel-open #canvas { display: none; }
+    #diagnostics { right: 12px; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="canvas">
+    <div class="controls">
+      <button id="zoom-in" title="Zoom in">+</button>
+      <button id="zoom-out" title="Zoom out">−</button>
+      <button id="zoom-reset" title="Fit to viewport">Fit</button>
+    </div>
+    <div id="switcher" hidden><select id="switcher-select" aria-label="Participant"></select></div>
+    <div id="return-zone"></div>
+    <div id="legend" hidden></div>
+    <div id="diagnostics" class="hidden">
+      <button class="dismiss" title="Dismiss">×</button>
+      <strong>Diagnostics</strong>
+      <ul id="diag-list"></ul>
+    </div>
+    <div class="attribution">
+      Diagrams by <a href="https://bpmn.io" target="_blank" rel="noopener">bpmn.io</a>
+      <span id="of-attribution" hidden> · Forms: OpenForms (Apache 2.0)</span>
+    </div>
+  </div>
+  <aside id="panel" aria-label="Artifact panel">
+    <header>
+      <span class="title" id="panel-title"></span>
+      <button class="close" id="panel-close">Close</button>
+    </header>
+    <div class="artifact-path" id="panel-path"></div>
+    <div id="panel-body"></div>
+  </aside>
+</div>
+
+<script src="assets/bpmn-js/bpmn-navigated-viewer.production.min.js"></script>
+<script src="assets/dmn-js/dmn-viewer.production.min.js"></script>
+<!-- The OpenForms renderer is loaded dynamically by viewer.js ONLY when the
+     package-data flag says it is vendored, so an absent renderer never 404s. -->
+<script src="viewer.js"></script>
+</body>
+</html>

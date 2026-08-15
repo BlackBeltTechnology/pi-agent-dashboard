@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:collaboration id="Collaboration_1">
+    <bpmn:participant id="Participant_customer" name="Customer" processRef="Process_customer"/>
+    <bpmn:participant id="Participant_shop" name="Shop" processRef="Process_shop"/>
+  </bpmn:collaboration>
+  <bpmn:process id="Process_customer" isExecutable="false">
+    <bpmn:startEvent id="Start_order"><bpmn:outgoing>Flow_c1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:userTask id="Task_place" name="Place order"><bpmn:incoming>Flow_c1</bpmn:incoming><bpmn:outgoing>Flow_c2</bpmn:outgoing></bpmn:userTask>
+    <bpmn:endEvent id="End_c"><bpmn:incoming>Flow_c2</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_c1" sourceRef="Start_order" targetRef="Task_place"/>
+    <bpmn:sequenceFlow id="Flow_c2" sourceRef="Task_place" targetRef="End_c"/>
+  </bpmn:process>
+  <bpmn:process id="Process_shop" isExecutable="false">
+    <bpmn:startEvent id="Start_recv"><bpmn:outgoing>Flow_s1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:serviceTask id="Service_fulfil" name="Fulfil"><bpmn:incoming>Flow_s1</bpmn:incoming><bpmn:outgoing>Flow_s2</bpmn:outgoing></bpmn:serviceTask>
+    <bpmn:endEvent id="End_s"><bpmn:incoming>Flow_s2</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_s1" sourceRef="Start_recv" targetRef="Service_fulfil"/>
+    <bpmn:sequenceFlow id="Flow_s2" sourceRef="Service_fulfil" targetRef="End_s"/>
+  </bpmn:process>
+</bpmn:definitions>

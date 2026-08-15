@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_lanes" isExecutable="false">
+    <bpmn:laneSet id="LaneSet_1">
+      <bpmn:lane id="Lane_sales" name="Sales"><bpmn:flowNodeRef>Task_quote</bpmn:flowNodeRef></bpmn:lane>
+      <bpmn:lane id="Lane_finance" name="Finance"><bpmn:flowNodeRef>Task_invoice</bpmn:flowNodeRef></bpmn:lane>
+    </bpmn:laneSet>
+    <bpmn:startEvent id="Start_l"><bpmn:outgoing>Flow_l1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:userTask id="Task_quote" name="Quote"><bpmn:incoming>Flow_l1</bpmn:incoming><bpmn:outgoing>Flow_l2</bpmn:outgoing></bpmn:userTask>
+    <bpmn:userTask id="Task_invoice" name="Invoice"><bpmn:incoming>Flow_l2</bpmn:incoming><bpmn:outgoing>Flow_l3</bpmn:outgoing></bpmn:userTask>
+    <bpmn:endEvent id="End_l"><bpmn:incoming>Flow_l3</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_l1" sourceRef="Start_l" targetRef="Task_quote"/>
+    <bpmn:sequenceFlow id="Flow_l2" sourceRef="Task_quote" targetRef="Task_invoice"/>
+    <bpmn:sequenceFlow id="Flow_l3" sourceRef="Task_invoice" targetRef="End_l"/>
+  </bpmn:process>
+</bpmn:definitions>

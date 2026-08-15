@@ -1,0 +1,46 @@
+@blackbelt-technology/pi-dashboard-forms-bpmn
+Copyright (c) BlackBelt Technology
+
+This package bundles three pi skills. Third-party attributions follow.
+
+================================================================================
+openforms-mui
+================================================================================
+A clean-room re-implementation of the OpenForms FormSchemaJSON contract as an
+MUI runtime. NO upstream renderer or builder source is vendored — the TypeScript
+types and diagnostics were derived from the published schema reference and
+observed semantics.
+
+  Upstream schema contract: OpenForms (github.com/henriquefps/open-forms)
+  Upstream license:         Apache License 2.0
+  Pinned reference version: 1.0.7
+
+Runtime dependencies (installed on demand under
+.pi/skills/openforms-mui/tools/node_modules) carry their own licenses:
+React, @mui/material, @mui/x-date-pickers, @emotion/*, react-hook-form, zod,
+dayjs, @fontsource/roboto. See each package for terms.
+
+================================================================================
+bpmn-package-explorer
+================================================================================
+Vendors the pre-built bpmn.io viewers and a Node layout bundle for buildless,
+offline operation.
+
+  bpmn-js, dmn-js  — bpmn.io License (MIT + watermark obligation)
+                     Full text: .pi/skills/bpmn-package-explorer/assets/LICENSE.bpmn-io.txt
+  bpmn-auto-layout — see vendored bundle provenance in
+                     .pi/skills/bpmn-package-explorer/assets/VENDORED.md
+
+  WATERMARK OBLIGATION (bpmn.io License): the source displaying the bpmn.io
+  watermark linking to https://bpmn.io MUST NOT be removed, changed, or visually
+  overlapped. The vendored viewers keep it fully visible in every rendered
+  diagram. Do not disable it.
+
+Optional OpenForms form rendering inside a BPMN user task follows the OpenForms
+Apache 2.0 attribution above.
+
+================================================================================
+canvas-webapp
+================================================================================
+Original documentation skill (MIT, this package). Describes rendering a web app
+on the pi-dashboard canvas.
