@@ -10,7 +10,7 @@ import type { Field, RepeaterField as RepeaterFieldType } from "../schema/types.
 import { emptyValueFor } from "../validation/empty.js";
 import { useOpenForms } from "./context.js";
 import { FieldShell } from "./FieldShell.js";
-import { FieldRenderer } from "./FieldRenderer.js";
+import { getFieldRenderer } from "./renderer-registry.js";
 
 /** Build one empty row object with every child key present (payload contract). */
 export function emptyRepeaterRow(field: RepeaterFieldType): Record<string, unknown> {
@@ -41,6 +41,8 @@ export function RepeaterFieldWidget({ field, name }: { field: RepeaterFieldType;
   const childFields: Field[] = (field.rows ?? []).flatMap((r) =>
     r.columns.flatMap((c) => c.fields),
   );
+  // Resolved at render time, not imported — breaks the renderer↔repeater cycle.
+  const FieldRendererImpl = getFieldRenderer();
 
   return (
     <FieldShell field={field}>
@@ -52,7 +54,7 @@ export function RepeaterFieldWidget({ field, name }: { field: RepeaterFieldType;
           <Card key={item.id} variant="outlined">
             <CardContent>
               {childFields.map((child, ci) => (
-                <FieldRenderer key={`${child.key}-${ci}`} field={child} namePrefix={`${name}.${index}.`} inRepeater />
+                <FieldRendererImpl key={`${child.key}-${ci}`} field={child} namePrefix={`${name}.${index}.`} inRepeater />
               ))}
               {!readOnly && (
                 <Box sx={{ mt: 1 }}>
