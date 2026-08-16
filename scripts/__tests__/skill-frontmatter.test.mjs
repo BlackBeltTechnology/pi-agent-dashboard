@@ -119,7 +119,6 @@ describe('wording-locked exemption (E14)', () => {
     // Trigger-rich descriptions exempted rather than reworded — the phrasing IS
     // their discovery surface. Pinned like the rest, so a later edit re-opens
     // the budget question instead of silently inheriting the exemption.
-    'manage-flows': '151320713231c1057eae8d86dbfe9522cbf14fc5f1a9286c622ecb703ee1c48e',
     'software-cost-estimator': 'cddd4a1fc1dd4a227a8dbbc2217c0a1b32e6ffafb163d045516562441f13817d',
     'bpmn-package-explorer': '775e4f136a3be2ae1aef4833091b0d6eee231d6a69baace9033110a807e9fd15',
     'openforms-mui': '3852d183c0ca0f53b37177d6b8ee7ca236a6082a916a360289144616b358d7e0',

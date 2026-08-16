@@ -50,7 +50,7 @@ export const REPO_DESCRIPTION_BUDGET = 400;
  * `skill-frontmatter-validity` requirement "The three previously-broken skills
  * load". The budget yields to that requirement rather than silently overriding it.
  *
- * The four entries after the original three carry deliberately trigger-rich
+ * The three entries after the original three carry deliberately trigger-rich
  * descriptions — that phrasing IS their discovery surface, so trimming them to
  * the budget would change which prompts auto-load them. Exempted rather than
  * reworded, which is the honest trade: the budget exists to bound context cost,
@@ -60,7 +60,6 @@ export const BUDGET_EXEMPT_SKILLS = new Set([
   "ship-change",
   "frontend-mockup-loop",
   "anti-slop-frontend",
-  "manage-flows",
   "software-cost-estimator",
   "bpmn-package-explorer",
   "openforms-mui",
