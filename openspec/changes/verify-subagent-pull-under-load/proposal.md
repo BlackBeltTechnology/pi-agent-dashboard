@@ -31,8 +31,10 @@ The four:
   replaying the session.
 - A measurement harness for **P4** (N inspectors held open; resync replies/s and
   per-subscriber reply bytes/s vs the push bytes/s removed) and a representative
-  **P5** reading, both appended to the parent change's `heap-evidence.md`
-  lineage.
+  **P5** reading. Both land in THIS change's own
+  `openspec/changes/verify-subagent-pull-under-load/heap-evidence.md`, which
+  cross-references the parent's archived evidence rather than writing into it —
+  an archived change is a record, not a working artifact.
 - If **P4** shows the cadence costs more than the push it replaced, escalate to
   the parent design's **D4 v2** (client declares a watched `agentId`; the bridge
   stops stripping for that one agent) rather than widening the cadence.

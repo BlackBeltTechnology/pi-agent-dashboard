@@ -16,14 +16,19 @@ import {
 
 function makeCtx() {
   const sent: { sessionId: string; msg: unknown }[] = [];
+  // A concrete `ws` identity: requester-scoped routing asserts that THIS
+  // connection was registered, which an undefined `ws` would satisfy vacuously.
+  // See change: reduce-subagent-details-payload.
+  const ws = { id: "ws-fixture" };
   const ctx = {
+    ws,
     piGateway: {
       sendToSession(sessionId: string, msg: unknown) {
         sent.push({ sessionId, msg });
       },
     },
   } as unknown as BrowserHandlerContext;
-  return { ctx, sent };
+  return { ctx, sent, ws };
 }
 
 // A crash/OOM/kill-9 can leave a session record stuck at status "active" while
@@ -127,14 +132,15 @@ describe("handleSubagentResyncRequest", () => {
   // fields arrive unvalidated. See change: reduce-subagent-details-payload (C5).
   describe("untrusted requestId / reason", () => {
     it("registers the requester and forwards both fields when they are valid", () => {
-      const { ctx, sent } = makeCtx();
+      const { ctx, sent, ws } = makeCtx();
       const recorded: Array<[string, unknown]> = [];
       ctx.recordResyncRequester = (id, ws) => recorded.push([id, ws]);
       handleSubagentResyncRequest(
         { type: "subagent_resync_request", sessionId: "s1", agentId: "a1", requestId: "r1", reason: "cadence" },
         ctx,
       );
-      expect(recorded).toEqual([["r1", ctx.ws]]);
+      expect(recorded).toEqual([["r1", ws]]);
+      expect(recorded[0][1]).toBeDefined();
       expect(sent[0].msg).toEqual({
         type: "subagent_resync_request",
         sessionId: "s1",

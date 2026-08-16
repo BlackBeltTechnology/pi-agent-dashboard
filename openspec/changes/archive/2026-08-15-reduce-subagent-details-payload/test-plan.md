@@ -64,7 +64,7 @@ Resolved by the user at ship-it time. These are now binding.
 
 | id | requirement | technique | level | disposition | fault | trigger | expected observable |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------|
-| X1 *(NOT VERIFIED — deferred to `verify-subagent-pull-under-load`)* | R-crash | fault-injection (abort) | L3 | automated | pi process killed mid-run, no terminal frame emitted | session replayed afterwards | scalar subagent state, no mid-run timeline, no corrupt/blank render — the documented REGRESSION, pinned |
+| X1 *(NOT VERIFIED — deferred to `verify-subagent-pull-under-load`)* | R-crash | fault-injection (abort) | L3 | automated | pi process killed mid-run, no terminal frame emitted | session replayed afterward | scalar subagent state, no mid-run timeline, no corrupt/blank render — the documented REGRESSION, pinned |
 | X2 | D4 / bridge liveness | fault-injection (unavailable) | L1 | automated | `sessionReady === false` or `isActive() === false` (`bridge.ts:980`) | resync request arrives | retryable no-op; never a wrong or permanently-empty render |
 | X3 | D2 buffer bound | BVA (over capacity) | L1 | automated | 65 concurrent subagents against `maxAgents = 64` (drop-oldest) | resync for the EVICTED still-running agent | explicit **`resyncNoop`** (**C3**); the client keeps its last rendered state — never blank, never corrupt |
 | X4 | R-thin (full-snapshot invariant) | fault-injection (drop) | L3 | automated | WS back-pressure drops a thin tick (`droppedFramesTotal`) | next tick arrives | state converges from the next full snapshot — a dropped thin tick leaves NO permanent hole |
