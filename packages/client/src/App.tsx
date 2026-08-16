@@ -983,7 +983,9 @@ export default function App() {
                 // Requester-scoped like the other two call sites (C5), so a
                 // reconnect resync is not fanned out to every subscriber.
                 // See change: reduce-subagent-details-payload.
-                requestId: globalThis.crypto?.randomUUID?.() ?? `rs-${Date.now()}`,
+                requestId:
+                  globalThis.crypto?.randomUUID?.() ??
+                  `rs-${Date.now()}-${Math.random().toString(36).slice(2)}`,
                 reason: "open",
               });
             }

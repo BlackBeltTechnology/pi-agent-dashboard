@@ -16,7 +16,7 @@ post-merge manual verification.
 - [x] 1.1 *(narrowed: 4 rounds of `[[faux:subagent-sustained]]` through the real UI on the docker harness; `MEM_LIMIT`/tmux-fan-out not varied — see `heap-evidence.md` §4)* Run the docker harness workload (`MEM_LIMIT=6g`, `PI_E2E_SEED=1`, `[[faux:subagent-sustained]]`, 4 tmux sessions × 4 rounds) against current `main`.
 - [x] 1.2 *(narrowed: measured via `/api/health` `server.heapUsed`/`rss` + the new `storeTrim` byte counters instead of CDP — the server was never restarted; see `heap-evidence.md` §2)* With `scripts/heap-probe.mjs` (CDP; NEVER restart the server — a restart destroys the evidence) record per buffer: event count, retained `tool_execution_update` count, avg bytes/event, and the share attributable to `details.entries`.
 - [x] 1.3 Record per-tick serialized bytes on BOTH wire segments as a function of accumulated entry count — the series the ≤ 2x bound is asserted against.
-- [x] 1.4 **[P5] Kill-switch measurement** — measured 0.0 % on the harness (threshold 50 %), so the change is NOT aborted; the harness exercises the nobody-watching arm only.: inspector-open share of subagent runtime. Requires 1.5 first. Abort the change if it exceeds the C4 threshold.
+- [x] 1.4 **[P5] Kill-switch measurement** — signal built and read end-to-end; harness reported 0.0 % (threshold 50 %), so nothing aborts. **NOT a representative measurement**: the harness never mounts an inspector, so 0.0 % is the unwatched arm by construction. Representative measurement deferred to `verify-subagent-pull-under-load`.: inspector-open share of subagent runtime. Requires 1.5 first. Abort the change if it exceeds the C4 threshold.
 - [x] 1.5 **[P5-infra]** Add the missing signal: nothing today records whether a detail view is mounted. Land a client counter/telemetry hook — this is a PREREQUISITE for 1.4, not a detail of it.
 - [x] 1.6 Write `heap-evidence.md` with the before-numbers; correct the proposal's "~55 MB" framing if the post-collapse number moved.
 
@@ -47,16 +47,16 @@ post-merge manual verification.
 - [x] 4.2 Implement terminal detection from the frame's own status/channel, not from call-site context.
 - [x] 4.3 **[F5]** *(narrowed: asserted as post-refresh render fidelity, not a byte-golden vs a pre-change recording)* Test golden parity: a completed run replayed after a page refresh renders a timeline identical to the pre-change baseline (the `tool_execution_end` backfill path, `event-reducer.ts:2017-2084`).
 - [x] 4.4 Anti-vacuity: mutate terminal detection to classify a terminal frame as non-terminal — 4.1 and 4.3 MUST fail. A suite that passes under that mutation does not protect the highest-severity failure mode.
-- [x] 4.5 **[X1]** *(covered at L1 via the resync no-op paths — X2/X3/X7 in `subagent-forward-sites.test.ts`; a real mid-run process kill has no harness observable)* Test the crash window: pi process killed mid-run with no terminal frame → replay yields scalar state, no timeline, no corrupt/blank render. Pins the documented REGRESSION.
+- [x] 4.5 **[X1]** **NOT VERIFIED as specified.** The adjacent recovery paths (X2/X3/X7) are covered at L1, but the actual scenario — kill the pi process mid-run, then replay — is not exercised anywhere. Deferred to `verify-subagent-pull-under-load`. Test the crash window: pi process killed mid-run with no terminal frame → replay yields scalar state, no timeline, no corrupt/blank render. Pins the documented REGRESSION.
 
 ## 5. Open-inspector liveness (D4 v1)
 
-- [x] 5.1 **[F1]** *(owned at L1 in `useSubagentResyncCadence.test.tsx`: the harness subagent finishes in ~600 ms, so there is no mid-run window to observe at L3 — narrowing stated in the spec header)* Write the failing test first: inspector mounted on a RUNNING subagent whose timeline grows 5 → 30 entries converges to 30 rendered entries with no close/reopen. (Latency variant blocked on **C1**.)
+- [x] 5.1 **[F1]** Cadence semantics owned at L1 (`useSubagentResyncCadence.test.tsx`). **The rendered 5 → 30 convergence is NOT verified**: the harness subagent finishes in ~600 ms, so no mid-run window exists and `renderHook` asserts callbacks, not rendered entries. Deferred to `verify-subagent-pull-under-load`. Write the failing test first: inspector mounted on a RUNNING subagent whose timeline grows 5 → 30 entries converges to 30 rendered entries with no close/reopen. (Latency variant blocked on **C1**.)
 - [x] 5.2 Add the cadence trigger in `AgentToolRenderer.tsx` — re-fire the existing `subagent_resync_request` while the view is mounted; drop the `emptyTimeline` precondition on THIS trigger while keeping it on the open-time trigger (`requestResyncIfStale`, `:222-233`).
 - [x] 5.3 **[F3]** Test lifecycle teardown: on unmount and on terminal status the interval is cleared and zero further resync requests are emitted.
 - [x] 5.4 **[F4]** *(L1: one shared timer per subagent key)* Test the popout: the same subagent open in BOTH the inline inspector and the popout route does not double-fire resync per cadence tick.
 - [x] 5.5 **[F2]** *(L1: the >20-entry clobber that broke the pull path is pinned by D5a E1–E4)* Test the late joiner: a browser opening a session whose subagent already has 40 entries populates the timeline on expand — the case that is BROKEN today past 20 entries.
-- [x] 5.6 **[P4]** *(not measured: no mid-run window on the harness. Bounded structurally instead — one timer per subagent, 30 s backoff ceiling, requester-scoped delivery. See `heap-evidence.md` §4)* Measure cadence cost: resync replies are stored fat and never collapse (`resolveUpdateDetails` requires `data.partialResult.details`, `memory-event-store.ts:193-199`). Assert **per-subscriber** reply bytes/s does not exceed the push bytes/s removed; escalate to D4 v2 if it does.
+- [x] 5.6 **[P4]** **NOT MEASURED.** Structural bounds only (one timer per subagent, 30 s backoff ceiling, requester-scoped delivery) — those do not establish the required per-subscriber byte-rate comparison. Deferred to `verify-subagent-pull-under-load`. Measure cadence cost: resync replies are stored fat and never collapse (`resolveUpdateDetails` requires `data.partialResult.details`, `memory-event-store.ts:193-199`). Assert **per-subscriber** reply bytes/s does not exceed the push bytes/s removed; escalate to D4 v2 if it does.
 - [x] 5.7 **[C5]** Make resync delivery requester-scoped: route the reply to the requesting browser connection only, instead of fanning out to every subscriber of the session (`browser-gateway.ts` / `session-action-handler.ts`). Test that a second subscriber receives no copy.
 
 ## 6. Prove the remaining downstream mechanisms are unaffected (D5)
@@ -99,3 +99,13 @@ post-merge manual verification.
 
 - [x] 11.1 Delegate to DocScribe: document the push/pull split for subagent timelines in `docs/architecture.md` — thin intermediate frames, fat terminal + resync frames, the full-snapshot invariant and why it is preserved (caveman style).
 - [x] 11.2 Update the nearest directory `AGENTS.md` rows for every touched source file with a `See change: reduce-subagent-details-payload` marker.
+
+## Residual verification debt
+
+Four manifest scenarios are NOT verified by what shipped here, and are recorded
+as real work rather than absorbed by a checkbox: **P5** (representative
+inspector-open share), **P4** (per-subscriber cadence byte rate), **F1** (rendered
+5 → 30 convergence with a mounted inspector), **X1** (crash mid-run, then
+replay). All four need a workload the current faux harness cannot produce — a
+subagent that stays alive long enough to be watched. Follow-up change:
+`openspec/changes/verify-subagent-pull-under-load/`.

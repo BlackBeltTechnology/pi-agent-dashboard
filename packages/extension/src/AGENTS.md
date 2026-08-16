@@ -45,8 +45,8 @@ Files in this directory. One row per source file.
 | `prompt-bus.ts` | Prompt dispatch bus — first-response-wins adapter routing + cross-adapter dismissal. → see `prompt-bus.ts.AGENTS.md` |
 | `prompt-expander.ts` | Expand prompt templates from disk for dashboard slash commands (`pi.sendUserMessage` skips expansion). → see `prompt-expander.ts.AGENTS.md` |
 | `provider-register.ts` | Register custom LLM providers + auto-discovered models from `~/.pi/agent/providers.json`. → see `provider-register.ts.AGENTS.md` |
-| `subagent-frame-buffer.ts` | Pure class `SubagentFrameBuffer` + `SUBAGENT_CHANNELS` set. Makes running-subagent timeline reconcilable. → see `subagent-frame-buffer.ts.AGENTS.md` |
 | `subagent-forward-sites.ts` | The two subagent forward paths that call `sendEventForward` directly, extracted so strip PLACEMENT is testable. Exports `flushBufferedSubagentFrames` (strips drained frames), `serveSubagentResync` (sends the retained snapshot UNSTRIPPED, echoes `__resyncRequestId`, returns undefined on not-ready/unknown/evicted → `resyncNoop`). See change: reduce-subagent-details-payload. |
+| `subagent-frame-buffer.ts` | Pure class `SubagentFrameBuffer` + `SUBAGENT_CHANNELS` set. Makes running-subagent timeline reconcilable. → see `subagent-frame-buffer.ts.AGENTS.md` |
 | `subagent-frame-strip.ts` | Drops `details.entries` from `queued`/`running` subagent frames on the forward path. Exports `stripSubagentEntries`, `stripForForward`, `NON_TERMINAL_STATUSES`. ALLOWLIST not `!terminal` (`"stopped"` must survive); CLONES because the buffer retains frames by reference. Rollback flag `PI_DASHBOARD_SUBAGENT_STRIP=0`. See change: reduce-subagent-details-payload. |
 | `retry-tracker.ts` | Pure helper class `RetryTracker` synthesizes `auto_retry_start` / `auto_retry_end` by OBSERVING pi's own… → see `retry-tracker.ts.AGENTS.md` |
 | `role-manager.ts` | Manages session model roles. Registers six `roles:*` handlers… → see `role-manager.ts.AGENTS.md` |

@@ -899,13 +899,20 @@ export function handleSubagentResyncRequest(
   // the bridge so it can echo it on the reply. A client that sends no token
   // still works — its reply takes the ordinary broadcast path.
   // See change: reduce-subagent-details-payload.
-  if (msg.requestId) ctx.recordResyncRequester?.(msg.requestId, ctx.ws);
+  // The WS path casts parsed JSON straight to the message union, so these two
+  // fields are untrusted: validate their RUNTIME shape before they reach the
+  // registry or the bridge. A malformed token degrades to fan-out delivery
+  // rather than poisoning the registry.
+  const requestId =
+    typeof msg.requestId === "string" && msg.requestId.length > 0 ? msg.requestId : undefined;
+  const reason = msg.reason === "open" || msg.reason === "cadence" ? msg.reason : undefined;
+  if (requestId) ctx.recordResyncRequester?.(requestId, ctx.ws);
   ctx.piGateway.sendToSession(msg.sessionId, {
     type: "subagent_resync_request",
     sessionId: msg.sessionId,
     agentId: msg.agentId,
-    ...(msg.requestId ? { requestId: msg.requestId } : {}),
-    ...(msg.reason ? { reason: msg.reason } : {}),
+    ...(requestId ? { requestId } : {}),
+    ...(reason ? { reason } : {}),
   });
 }
 

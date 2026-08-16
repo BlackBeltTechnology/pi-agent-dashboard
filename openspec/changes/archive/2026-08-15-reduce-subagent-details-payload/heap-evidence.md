@@ -60,7 +60,12 @@ detail view was mounted. Read out of the page via
 `__piSubagentInspectorTelemetry()`.
 
 - Measured share on the harness workload (no inspector opened): **0.0 %**.
-- **C4 abort threshold: > 50 %.** Not reached → the change is NOT aborted.
+- **C4 abort threshold: > 50 %.** Not reached → nothing aborts.
+- **This is NOT a representative measurement.** The harness never mounts an
+  inspector, so 0.0 % is the unwatched arm by construction, not evidence about
+  real sessions. What this run proves is that the SIGNAL exists and is readable
+  end-to-end; the representative number is deferred to
+  `verify-subagent-pull-under-load`.
 
 Honest caveat: the harness's subagents complete in ~600 ms, so this run
 exercises the "nobody is watching" arm only. The share for real human sessions

@@ -1,7 +1,13 @@
 # subagent-details-payload Specification
 
 ## Purpose
-TBD - created by archiving change reduce-subagent-details-payload. Update Purpose after archive.
+
+Bound the size of a subagent progress tick. An intermediate tick is O(1) in
+timeline length rather than linear: the cumulative `details.entries[]` timeline
+is stripped from frames describing a non-terminal subagent, and recovered on
+demand through the existing resync pull path. Terminal frames and resync replies
+carry the full timeline, so a finished run replays exactly as before. Mid-run
+replay yields scalar state until a resync is served.
 ## Requirements
 ### Requirement: An intermediate subagent tick SHALL NOT carry the cumulative timeline
 

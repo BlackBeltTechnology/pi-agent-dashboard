@@ -101,13 +101,28 @@ describe("subagent inspector telemetry", () => {
     expect(readInspectorTelemetry().runtimeMs).toBe(3_000);
   });
 
-  it("stays bounded over a long-lived tab", () => {
+  it("stays bounded over a long-lived tab WITHOUT losing the aggregate", () => {
+    // 900 finished agents, each a 10 ms run; every other one fully watched.
+    // Eviction drops per-agent detail, never the totals — otherwise the share
+    // would silently become a "recent 512 records" number.
     for (let i = 0; i < 900; i++) {
-      noteSubagentRunning(`ag${i}`, i);
-      noteSubagentTerminal(`ag${i}`, i + 1);
+      const start = i * 100;
+      noteSubagentRunning(`ag${i}`, start);
+      if (i % 2 === 0) trackInspectorMounted(`ag${i}`, start)(start + 10);
+      noteSubagentTerminal(`ag${i}`, start + 10);
     }
-    // Aggregate still reports; the retained record set is bounded.
-    expect(readInspectorTelemetry().runtimeMs).toBeGreaterThan(0);
+    const t = readInspectorTelemetry();
+    expect(t.runtimeMs).toBe(900 * 10);
+    expect(t.inspectorOpenMs).toBe(450 * 10);
+    expect(t.share).toBeCloseTo(0.5);
+  });
+
+  it("does not accrue open time for an already-terminal subagent", () => {
+    noteSubagentRunning("ag1", 0);
+    noteSubagentTerminal("ag1", 1_000);
+    // A user opening the inspector on a FINISHED run must not inflate the share.
+    trackInspectorMounted("ag1", 2_000)(9_000);
+    expect(readInspectorTelemetry().inspectorOpenMs).toBe(0);
     expect(inspectorOpenShare()).toBe(0);
   });
 

@@ -45,14 +45,14 @@ Resolved by the user at ship-it time. These are now binding.
 | P1 | R-flat (spec bound) | threshold on growth curve | L1 | automated | one subagent, timeline grown 10 → 100 entries, ticks captured at both points | `bytes(tick@100) / bytes(tick@10) ≤ 2.0`, measured on the **serialized broadcast payload** (JSON string), not the in-memory object | per-tick |
 | P2 | R-flat anti-vacuity | mutation | L1 | automated | same as P1 with the strip flag **OFF** | P1's assertion MUST fail (expected ratio ≈ 8–10x) | per-tick |
 | P3 | proposal heap claim | soak (GC floor) | L2 | automated | docker harness, `MEM_LIMIT=6g`, `PI_E2E_SEED=1`, `[[faux:subagent-sustained]]`, 4 tmux sessions × 4 rounds | heapUsed GC floor + avg bytes/event vs pre-change baseline — **recorded, no gate (C2a)**: appended to `heap-evidence.md`, never fails the build | ≥ 60 s post-workload |
-| P4 | D4 v1 cadence cost | rate comparison | L2 | automated | same workload with N inspectors held open | resync replies/s and **per-subscriber** reply bytes/s (requester-scoped, **C5**) vs the push bytes/s removed — must not exceed it; backoff schedule per **C1** | steady state |
-| P5 | D1 kill switch | measurement | L2 | automated | representative session workload | inspector-open share of subagent runtime — **abort the change if > 50 % (C4)** | full run |
+| P4 *(NOT MEASURED — deferred to `verify-subagent-pull-under-load`)* | D4 v1 cadence cost | rate comparison | L2 | automated | same workload with N inspectors held open | resync replies/s and **per-subscriber** reply bytes/s (requester-scoped, **C5**) vs the push bytes/s removed — must not exceed it; backoff schedule per **C1** | steady state |
+| P5 *(signal built; representative share NOT measured — deferred)* | D1 kill switch | measurement | L2 | automated | representative session workload | inspector-open share of subagent runtime — **abort the change if > 50 % (C4)** | full run |
 
 ### Frontend-quirk
 
 | id | requirement | technique | level | disposition | input | trigger | expected observable (invariant) |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------------------|
-| F1 | R-live | state-convergence | L3 | automated | subagent running, inspector mounted, timeline grows 5 → 30 entries | entries appended while the view stays open | rendered entry count **converges to 30** with no close/reopen, within one backoff window of the current step (**C1**: base 2 s, ×2 per idle tick, 30 s ceiling, reset on growth) |
+| F1 *(cadence owned at L1; rendered convergence NOT verified — deferred)* | R-live | state-convergence | L3 | automated | subagent running, inspector mounted, timeline grows 5 → 30 entries | entries appended while the view stays open | rendered entry count **converges to 30** with no close/reopen, within one backoff window of the current step (**C1**: base 2 s, ×2 per idle tick, 30 s ceiling, reset on growth) |
 | F2 | R-pull (late joiner) | state-transition | L3 | automated | subagent already running with 40 accumulated entries; browser opens the session fresh | user expands the subagent inspector | timeline populates (resync + head-tail budget) — does NOT stay empty. This is the case that is BROKEN today (>20 entries) |
 | F3 | D4 v1 lifecycle | state-transition (teardown) | L1 | automated | cadence trigger active for a running subagent | view unmounts / subagent reaches terminal | interval cleared; zero further `subagent_resync_request` emitted |
 | F4 | D4 v1 duplication | state-transition (illegal edge) | L3 | automated | same subagent open in BOTH the inline inspector and the popout route | both mounted simultaneously | resync requests are not double-fired per cadence tick |
@@ -64,7 +64,7 @@ Resolved by the user at ship-it time. These are now binding.
 
 | id | requirement | technique | level | disposition | fault | trigger | expected observable |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------|
-| X1 | R-crash | fault-injection (abort) | L3 | automated | pi process killed mid-run, no terminal frame emitted | session replayed afterwards | scalar subagent state, no mid-run timeline, no corrupt/blank render — the documented REGRESSION, pinned |
+| X1 *(NOT VERIFIED — deferred to `verify-subagent-pull-under-load`)* | R-crash | fault-injection (abort) | L3 | automated | pi process killed mid-run, no terminal frame emitted | session replayed afterwards | scalar subagent state, no mid-run timeline, no corrupt/blank render — the documented REGRESSION, pinned |
 | X2 | D4 / bridge liveness | fault-injection (unavailable) | L1 | automated | `sessionReady === false` or `isActive() === false` (`bridge.ts:980`) | resync request arrives | retryable no-op; never a wrong or permanently-empty render |
 | X3 | D2 buffer bound | BVA (over capacity) | L1 | automated | 65 concurrent subagents against `maxAgents = 64` (drop-oldest) | resync for the EVICTED still-running agent | explicit **`resyncNoop`** (**C3**); the client keeps its last rendered state — never blank, never corrupt |
 | X4 | R-thin (full-snapshot invariant) | fault-injection (drop) | L3 | automated | WS back-pressure drops a thin tick (`droppedFramesTotal`) | next tick arrives | state converges from the next full snapshot — a dropped thin tick leaves NO permanent hole |

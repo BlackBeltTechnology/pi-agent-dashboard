@@ -955,7 +955,7 @@ export function createMemoryEventStore(
       | undefined;
     if (!details || typeof details !== "object") return;
     if (typeof details.agentId !== "string" && !event.eventType.startsWith("subagent_")) return;
-    const bytes = measureBytes(data, DEFAULT_MAX_EVENT_DATA_SIZE);
+    const bytes = measureBytes(data, maxEventDataSize);
     subagentTicksTotal += 1;
     subagentTickBytesTotal += bytes;
     if (Array.isArray(details.entries) && details.entries.length > 0) {

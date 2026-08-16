@@ -73,10 +73,13 @@ export function stripSubagentEntries(data: Record<string, unknown>): Record<stri
 }
 
 /**
- * Rollback switch (D2). `PI_DASHBOARD_SUBAGENT_STRIP=0` forwards frames
- * unstripped and behaviour is byte-identical to pre-change: no producer,
- * protocol, or store rollback exists to do. Read per call so a session does not
- * have to restart to flip it.
+ * Rollback switch (D2), PARTIAL by design. `PI_DASHBOARD_SUBAGENT_STRIP=0`
+ * forwards frames unstripped, so the WIRE PAYLOAD returns to its pre-change
+ * shape. It does not revert the rest of the change: the `subagent_*` truncation
+ * gate, the resync cadence, requester-scoped delivery, and the additive
+ * `storeTrim` counters stay active — each is a bug fix or additive telemetry
+ * that does not depend on the strip. Read per call so a session does not have
+ * to restart to flip it.
  */
 function isSubagentStripEnabled(): boolean {
   return process.env.PI_DASHBOARD_SUBAGENT_STRIP !== "0";

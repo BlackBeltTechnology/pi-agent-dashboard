@@ -46,12 +46,23 @@ const agents = new Map<string, AgentRecord>();
  */
 const MAX_RECORDS = 512;
 
+/**
+ * Totals from evicted records. The bound drops per-agent DETAIL, never the
+ * aggregate — folding an evicted record into these counters first is what keeps
+ * the share a whole-session number instead of a recent-512 window.
+ */
+let evictedRuntimeMs = 0;
+let evictedOpenMs = 0;
+
 /** Evict oldest-inserted FINISHED records until the map fits the bound. */
 function evictToBound(): void {
   if (agents.size <= MAX_RECORDS) return;
   for (const [id, rec] of agents) {
     if (agents.size <= MAX_RECORDS) break;
-    if (rec.endedAt !== undefined) agents.delete(id);
+    if (rec.endedAt === undefined) continue;
+    evictedRuntimeMs += rec.endedAt - rec.startedAt;
+    evictedOpenMs += rec.openMs;
+    agents.delete(id);
   }
 }
 
@@ -91,7 +102,9 @@ export function trackInspectorMounted(
   now: number = Date.now(),
 ): (at?: number) => void {
   const rec = agents.get(agentId);
-  if (!rec) return () => {};
+  // A terminal record accrues no more open time: opening the inspector on a
+  // FINISHED subagent must not inflate the share with post-terminal viewing.
+  if (!rec || rec.endedAt !== undefined) return () => {};
   if (rec.mounted === 0) rec.openedAt = now;
   rec.mounted += 1;
   let released = false;
@@ -108,8 +121,8 @@ export function trackInspectorMounted(
 
 /** Current aggregate reading. Pure; safe to call at any time. */
 export function readInspectorTelemetry(now: number = Date.now()): InspectorTelemetry {
-  let runtimeMs = 0;
-  let inspectorOpenMs = 0;
+  let runtimeMs = evictedRuntimeMs;
+  let inspectorOpenMs = evictedOpenMs;
   for (const rec of agents.values()) {
     runtimeMs += (rec.endedAt ?? now) - rec.startedAt;
     inspectorOpenMs += rec.openMs + (rec.openedAt !== undefined ? now - rec.openedAt : 0);
@@ -126,6 +139,8 @@ export function inspectorOpenShare(now: number = Date.now()): number {
 /** Drop every recorded agent (tests, session switch). */
 export function resetInspectorTelemetry(): void {
   agents.clear();
+  evictedRuntimeMs = 0;
+  evictedOpenMs = 0;
 }
 
 // Readable from a harness/Playwright run without any UI affordance.
