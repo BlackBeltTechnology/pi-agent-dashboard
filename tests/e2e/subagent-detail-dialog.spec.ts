@@ -24,6 +24,10 @@ test.describe("subagent detail dialog (D4)", () => {
   test("popout never opens a new browser tab; opens a ui:dialog when agentId resolves", async ({ page, context }) => {
     const card = await spawnFreshGitSession(page);
     await card.click();
+    // A card-centre click can land on the card's OpenSpec "Propose" affordance,
+    // leaving a modal overlay that intercepts the composer's send button. Not a
+    // product assertion — just dismiss a stray modal before prompting.
+    await page.keyboard.press("Escape").catch(() => {});
 
     await sendPrompt(page, "[[faux:subagent-spawn]] go");
 

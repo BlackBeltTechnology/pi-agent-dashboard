@@ -23,7 +23,13 @@ import { SubagentDetailView } from "@blackbelt-technology/pi-dashboard-subagents
 import { mdiChevronDown, mdiChevronUp, mdiOpenInNew } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSubagentResyncCadence } from "../../hooks/useSubagentResyncCadence.js";
+import {
+  noteSubagentRunning,
+  noteSubagentTerminal,
+  trackInspectorMounted,
+} from "../../lib/state/subagent-inspector-telemetry.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { AgentCardShell } from "../session/AgentCardShell.js";
 import { formatDuration } from "../session/agent-card-utils.js";
@@ -176,6 +182,11 @@ function CardControls({
   );
 }
 
+/** Correlation token so a resync reply comes back to THIS browser only (C5). */
+function newResyncRequestId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `rs-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export function AgentToolRenderer({ args, status, result, toolDetails, context }: ToolRendererProps) {
   const details = toolDetails as AgentDetails | undefined;
   const [expanded, setExpanded] = useState(false);
@@ -228,7 +239,7 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
     // no entry yet (sub === undefined) — that is exactly the not-found case.
     const running = details?.status === "running" || details?.status === "queued" || sub?.status === "running";
     if (running && emptyTimeline) {
-      context.send({ type: "subagent_resync_request", sessionId, agentId });
+      context.send({ type: "subagent_resync_request", sessionId, agentId, requestId: newResyncRequestId(), reason: "open" });
     }
   };
 
@@ -237,6 +248,43 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
     setDetailOpen(true);
     requestResyncIfStale();
   };
+
+  // P5 kill-switch signal (D1): record how much of this subagent's runtime has
+  // a detail view mounted. Nothing else in the client knows a view is mounted,
+  // and that share bounds the achievable win of stripping.
+  // See change: reduce-subagent-details-payload (task 1.5).
+  const inspectorOpen = expanded || detailOpen;
+  const liveStatus = details?.status;
+  useEffect(() => {
+    if (!agentId) return;
+    if (liveStatus === "running" || liveStatus === "queued") noteSubagentRunning(agentId);
+    else if (liveStatus) noteSubagentTerminal(agentId);
+  }, [agentId, liveStatus]);
+  useEffect(() => {
+    if (!agentId || !inspectorOpen) return;
+    const release = trackInspectorMounted(agentId);
+    return () => release();
+  }, [agentId, inspectorOpen]);
+
+  // Open-inspector liveness (D4 v1). Intermediate frames no longer carry the
+  // timeline, so a MOUNTED view pulls it on a backoff cadence. Deliberately
+  // WITHOUT the `emptyTimeline` precondition above — that precondition is why a
+  // view watching a growing timeline never re-fires today. One timer per
+  // subagent, so inline + popout mounted together do not double-fire.
+  // See change: reduce-subagent-details-payload (F1, F3, F4).
+  const sub = agentId ? session?.subagents.get(agentId) : undefined;
+  useSubagentResyncCadence({
+    key: agentId && sessionId && (expanded || detailOpen) ? `${sessionId}:${agentId}` : undefined,
+    running: details?.status === "running" || details?.status === "queued" || sub?.status === "running",
+    entryCount: sub?.entries?.length ?? 0,
+    onResync: () => {
+      if (agentId && sessionId && context?.send) {
+        // The token makes the reply requester-scoped instead of fanned out to
+        // every viewer of this session (C5).
+        context.send({ type: "subagent_resync_request", sessionId, agentId, requestId: newResyncRequestId(), reason: "cadence" });
+      }
+    },
+  });
 
   // Toggle the inline expanded body; when expanding, resync if stale so the
   // inline timeline hydrates the same way the popout does (previously the

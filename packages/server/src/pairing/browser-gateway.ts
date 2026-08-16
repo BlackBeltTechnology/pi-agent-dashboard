@@ -74,6 +74,7 @@ import { handleSubscribe } from "../browser-handlers/subscription-handler.js";
 import { handleCloseInlineTerminal, handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "../browser-handlers/terminal-handler.js";
 import { createPendingResumeRegistry, type PendingResumeRegistry } from "../pending/pending-resume-registry.js";
 import { createViewedSessionTracker, type ViewedSessionTracker } from "../session/viewed-session-tracker.js";
+import { ResyncRequesterRegistry, resyncRequestIdOf } from "./subagent-resync-routing.js";
 import type { TerminalManager } from "../terminal/terminal-manager.js";
 
 
@@ -296,6 +297,8 @@ export function createBrowserGateway(
   // Track which browser is viewing which session (for unread state machine).
   // See change: session-card-unread-stripes.
   const viewedSessionTracker = createViewedSessionTracker();
+  /** requestId → the browser awaiting that subagent-resync reply (C5). */
+  const resyncRequesters = new ResyncRequesterRegistry<WebSocket>();
 
   // Track pending interactive UI requests per session for replay on reconnect
   const pendingUiRequests = new Map<string, Map<string, { requestId: string; method: string; params: Record<string, unknown> }>>();
@@ -618,6 +621,8 @@ export function createBrowserGateway(
           pendingClientCorrelations,
           pendingWorktreeBaseRegistry,
           isRecoveryLivenessPending: gateway.isRecoveryLivenessPending,
+          recordResyncRequester: (requestId, requesterWs) =>
+            resyncRequesters.record(requestId, requesterWs),
           sendTo, broadcast, getSubscribers, replayPendingUiRequests, replayNotifyLog,
           broadcastEvent: gateway.broadcastEvent,
           trackUiRequest: trackUiRequest,
@@ -1010,6 +1015,9 @@ export function createBrowserGateway(
       console.error(`[browser-gw] browser client disconnected (remaining: ${subscriptions.size - 1})`);
       subscriptions.delete(ws);
       replayingSessions.delete(ws);
+      // A disconnected requester can never receive its reply; drop its tokens
+      // so the map cannot accumulate them. See change: reduce-subagent-details-payload.
+      resyncRequesters.forget(ws);
       // Drop this ws from every viewed-session entry so disconnected browsers
       // don't hold sessions in the viewed state. See change: session-card-unread-stripes.
       viewedSessionTracker.unviewAll(ws);
@@ -1061,6 +1069,21 @@ export function createBrowserGateway(
         seq,
         event,
       };
+      // Requester-scoped resync delivery (C5): a reply carrying a known
+      // correlation token goes to the ONE connection that asked, so a cadence
+      // of fat replies is not multiplied by the number of viewers. An unknown
+      // or expired token falls through to the ordinary fan-out below.
+      // See change: reduce-subagent-details-payload.
+      const requestId = resyncRequestIdOf(event?.data as Record<string, unknown> | undefined);
+      if (requestId) {
+        const requester = resyncRequesters.take(requestId);
+        if (requester && subscribers.includes(requester)) {
+          if (!replayingSessions.get(requester)?.has(sessionId)) {
+            sendTo(requester, msg, { sessionId, seq });
+          }
+          return;
+        }
+      }
       for (const ws of subscribers) {
         // Skip WebSockets that are mid-replay for this session
         const replaying = replayingSessions.get(ws);

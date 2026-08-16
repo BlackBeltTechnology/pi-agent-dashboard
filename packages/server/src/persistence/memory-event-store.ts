@@ -60,6 +60,29 @@ export interface TrimStats {
    * See change: collapse-superseded-tool-execution-updates (D9).
    */
   collapsedUpdates: number;
+  /**
+   * Cumulative subagent-tick telemetry. ADDITIVE `/api/health` fields, never
+   * reset on read, mirroring `collapsedUpdates`. `subagentTickBytes` is the
+   * size of every INGESTED subagent-carrying event; `subagentTickFatBytes` is
+   * the part that arrived WITH a timeline. The ratio is the live read on
+   * whether the bridge strip is in force — the spec's ≤ 2x bound is a growth
+   * curve a cumulative counter cannot assert, so this is a health signal, not
+   * the gate.
+   *
+   * Three deliberate imprecisions, so the number is not over-read:
+   *  - counted at INGEST, before the retention collapse, so a later-subsumed
+   *    tick is still counted;
+   *  - sizes come from `measureBytes`, which short-circuits at the ceiling —
+   *    a bounded estimate, not an exact serialized length;
+   *  - a terminal tick is counted once PER CARRIER (`subagent_completed` and
+   *    `tool_execution_end` are both fat), so these are per-carrier counts,
+   *    not per-logical-tick.
+   * See change: reduce-subagent-details-payload (D6).
+   */
+  subagentTicks: number;
+  subagentTickBytes: number;
+  subagentFatTicks: number;
+  subagentTickFatBytes: number;
 }
 
 /**
@@ -75,6 +98,10 @@ export const EMPTY_TRIM_STATS: TrimStats = {
   trimmedEvents: { total: 0, toolExecutionEnd: 0, bySession: {} },
   evictedSessions: 0,
   collapsedUpdates: 0,
+  subagentTicks: 0,
+  subagentTickBytes: 0,
+  subagentFatTicks: 0,
+  subagentTickFatBytes: 0,
 };
 
 export interface CollapseProbe {
@@ -596,9 +623,16 @@ interface SubagentTimeline {
  * TYPE-scoped detector (D1). Returns the resolved `details` + its `entries[]`
  * ONLY when the event is a subagent-carrying tool event — `data.toolName ===
  * "Agent"`, OR eventType `tool_execution_update`/`tool_execution_end` with a
- * `details.agentId` — AND an array sits at `data.partialResult.details.entries`
- * (live) or `data.details.entries` (started/end). Shape alone (a bare array)
- * MUST NOT match.
+ * `details.agentId`, OR a `subagent_*` eventType (the resync-reply carrier) —
+ * AND an array sits at `data.partialResult.details.entries` (live) or
+ * `data.details.entries` (started/end). Shape alone (a bare array) MUST NOT
+ * match.
+ *
+ * The `subagent_*` arm is D5a of reduce-subagent-details-payload: a resync
+ * reply arrives as `subagent_started` with `{id, details}`, matching neither
+ * of the tool arms, so it took the generic pass where an array > 20 items was
+ * clobbered to the string "[array truncated]" and the reducer rendered no
+ * timeline at all. See change: reduce-subagent-details-payload.
  */
 function locateSubagentTimeline(event: DashboardEvent): SubagentTimeline | undefined {
   const data = event.data as Record<string, unknown> | undefined;
@@ -617,7 +651,8 @@ function locateSubagentTimeline(event: DashboardEvent): SubagentTimeline | undef
   const isUpdateOrEnd =
     event.eventType === "tool_execution_update" || event.eventType === "tool_execution_end";
   const hasAgentId = typeof details.agentId === "string";
-  if (!isAgentTool && !(isUpdateOrEnd && hasAgentId)) return undefined;
+  const isSubagentCarrier = event.eventType.startsWith("subagent_");
+  if (!isAgentTool && !isSubagentCarrier && !(isUpdateOrEnd && hasAgentId)) return undefined;
   return { details, entries: details.entries as unknown[], underPartialResult };
 }
 
@@ -893,6 +928,41 @@ export function createMemoryEventStore(
   const trimmedEventsBySession = new Map<string, number>();
   let evictedSessionsTotal = 0;
   let collapsedUpdatesTotal = 0;
+  // Subagent-tick byte telemetry (D6). Additive, never reset on read.
+  // See change: reduce-subagent-details-payload.
+  let subagentTicksTotal = 0;
+  let subagentTickBytesTotal = 0;
+  let subagentFatTicksTotal = 0;
+  let subagentTickFatBytesTotal = 0;
+
+  /**
+   * Count one ingested subagent-carrying event, splitting fat (carries a
+   * timeline) from thin. Measured on the STORED event, which is what the live
+   * broadcast sends — so broadcast bytes == counted bytes.
+   * See change: reduce-subagent-details-payload (D6).
+   */
+  function countSubagentTick(event: DashboardEvent): void {
+    const isSubagentCarrier =
+      event.eventType.startsWith("subagent_") ||
+      event.eventType === "tool_execution_update" ||
+      event.eventType === "tool_execution_end";
+    if (!isSubagentCarrier) return;
+    const data = event.data as Record<string, unknown> | undefined;
+    if (!data || typeof data !== "object") return;
+    const pr = data.partialResult as Record<string, unknown> | undefined;
+    const details = (pr && typeof pr === "object" ? pr.details : data.details) as
+      | Record<string, unknown>
+      | undefined;
+    if (!details || typeof details !== "object") return;
+    if (typeof details.agentId !== "string" && !event.eventType.startsWith("subagent_")) return;
+    const bytes = measureBytes(data, maxEventDataSize);
+    subagentTicksTotal += 1;
+    subagentTickBytesTotal += bytes;
+    if (Array.isArray(details.entries) && details.entries.length > 0) {
+      subagentFatTicksTotal += 1;
+      subagentTickFatBytesTotal += bytes;
+    }
+  }
   // P1 find-cost probe. Reset per insert; distinct from collapsedUpdatesTotal.
   let lastEntriesExamined = 0;
   let maxEntriesExamined = 0;
@@ -1057,6 +1127,7 @@ export function createMemoryEventStore(
       const seq = buf.nextSeq++;
       lastEntriesExamined = 0;
       const stored: StoredEvent = { seq, event: truncateEventData(event) };
+      countSubagentTick(stored.event);
       buf.events.push(stored);
       // Collapse superseded updates AFTER truncation (so the `{__truncated}`
       // placeholder is already resolved) and BEFORE trim/evict, so the shed
@@ -1160,6 +1231,10 @@ export function createMemoryEventStore(
         },
         evictedSessions: evictedSessionsTotal,
         collapsedUpdates: collapsedUpdatesTotal,
+        subagentTicks: subagentTicksTotal,
+        subagentTickBytes: subagentTickBytesTotal,
+        subagentFatTicks: subagentFatTicksTotal,
+        subagentTickFatBytes: subagentTickFatBytesTotal,
       };
     },
 

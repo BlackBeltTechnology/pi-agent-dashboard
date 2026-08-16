@@ -139,7 +139,7 @@ function readSessionRecord(jsonlPath: string, gapCap: number): SessionRecord | n
   let toolErrors = 0;
   let corrections = 0;
 
-  for (const entry of events as Array<Record<string, unknown>>) {
+  for (const entry of events as unknown as Array<Record<string, unknown>>) {
     if (entry.type !== "message") continue;
 
     const stamp = typeof entry.timestamp === "string" ? Date.parse(entry.timestamp) : NaN;

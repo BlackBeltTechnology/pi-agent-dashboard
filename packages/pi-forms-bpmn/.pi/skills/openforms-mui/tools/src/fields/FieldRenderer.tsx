@@ -20,6 +20,7 @@ import { useOpenForms } from "./context.js";
 import { FieldShell } from "./FieldShell.js";
 import { labelWithMarker } from "./label.js";
 import { MatrixFieldWidget } from "./MatrixField.js";
+import { registerFieldRenderer } from "./renderer-registry.js";
 import { RepeaterFieldWidget } from "./RepeaterField.js";
 import { FileFieldWidget } from "./FileField.js";
 import { SignatureCanvas } from "./SignatureCanvas.js";
@@ -326,3 +327,7 @@ export function FieldRenderer({ field, namePrefix = "", inRepeater, revealed }: 
 
   return null;
 }
+
+// Register at module load so container widgets (repeater, matrix) can resolve
+// the renderer at RENDER time instead of importing it — see renderer-registry.
+registerFieldRenderer(FieldRenderer);

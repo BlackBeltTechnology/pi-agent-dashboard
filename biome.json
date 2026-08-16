@@ -15,7 +15,9 @@
       "!**/plugin-registry.generated.*",
       "!openspec/changes/archive/**",
       "!**/*.css",
-      "!**/__tests__/fixtures/**"
+      "!**/__tests__/fixtures/**",
+      "!**/*.production.min.js",
+      "!packages/pi-forms-bpmn/.pi/skills/**/assets/**"
     ]
   },
   "formatter": {

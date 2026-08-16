@@ -69,6 +69,8 @@ import { handleSessionChange as _handleSessionChange, replaySessionEntries as _r
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 import { detectSessionSource } from "./source-detector.js";
 import { SubagentFrameBuffer } from "./subagent-frame-buffer.js";
+import { flushBufferedSubagentFrames, serveSubagentResync } from "./subagent-forward-sites.js";
+import { stripForForward } from "./subagent-frame-strip.js";
 import { inlineToolResultImages } from "./tool-result-image-inliner.js";
 import { createTuiPromptAdapter } from "./tui-prompt-adapter.js";
 import { classifyTurnActionability } from "./turn-actionability.js";
@@ -979,17 +981,25 @@ function initBridge(pi: ExtensionAPI) {
         // agentSessionId (from a deep-link route); resync() resolves both.
         // See change: resolve-subagent-inspector-by-session-id (D3/D4).
         const requestedId = (msg as { agentId?: unknown }).agentId;
-        if (typeof requestedId === "string" && requestedId.length > 0 && sessionReady && isActive()) {
-          const snap = subagentFrameBuffer.resync(requestedId);
-          if (snap) {
-            const resolvedAgentId = SubagentFrameBuffer.agentIdOf(snap.data) ?? requestedId;
-            sendEventForward("subagents:started", snap.data);
-            console.log(
-              `[dashboard] served subagent resync for id=${requestedId} (resolved agentId=${resolvedAgentId})`,
-            );
-          } else {
-            console.log(`[dashboard] subagent resync no-op (unknown/finished) id=${requestedId}`);
-          }
+        if (typeof requestedId === "string" && requestedId.length > 0) {
+          // The reply is NEVER stripped: it IS the pull model's answer and
+          // carries the full timeline for a RUNNING agent — exactly the shape a
+          // strip inside `sendEventForward` would have destroyed.
+          // See change: reduce-subagent-details-payload (X6).
+          const echoId = (msg as { requestId?: unknown }).requestId;
+          const resolvedAgentId = serveSubagentResync(
+            subagentFrameBuffer,
+            requestedId,
+            sendEventForward,
+            () => sessionReady && isActive(),
+            typeof echoId === "string" && echoId.length > 0 ? echoId : undefined,
+            (msg as { reason?: "open" | "cadence" }).reason,
+          );
+          console.log(
+            resolvedAgentId
+              ? `[dashboard] served subagent resync for id=${requestedId} (resolved agentId=${resolvedAgentId})`
+              : `[dashboard] subagent resync no-op (unknown/finished/not-ready) id=${requestedId}`,
+          );
         }
         return;
       }
@@ -1899,7 +1909,15 @@ function initBridge(pi: ExtensionAPI) {
         } catch { /* non-fatal */ }
       }
 
+      // The `tool_execution_update` carrier is structurally disjoint from the
+      // EventBus path (pi core event → `pi.on()` → `connection.send`), but one
+      // `snapshotDetails()` object feeds both — so stripping one carrier only
+      // is a half-fix. `tool_execution_end` is terminal and stays fat.
+      // See change: reduce-subagent-details-payload (D2, task 3.8).
       const msg = mapEventToProtocol(sessionId, event);
+      if (eventType === "tool_execution_update") {
+        msg.event.data = stripForForward(msg.event.data as Record<string, unknown>);
+      }
       connection.send(msg);
 
       // Floor-pi settle synthesis: pi < 0.80.4 never emits `agent_settled`.
@@ -2038,13 +2056,13 @@ function initBridge(pi: ExtensionAPI) {
   // right after `sessionReady` flips true on (re-)register, in emission order.
   // See change: fix-subagent-live-detail-reliability.
   function flushPendingSubagentFrames(): void {
-    const drained = subagentFrameBuffer.drain();
-    if (drained.length === 0) return;
-    for (const { channel, data } of drained) {
-      try { sendEventForward(channel, data); } catch { /* keep flushing */ }
-    }
+    // Drained intermediate frames are stripped too: this path calls
+    // `sendEventForward` directly, so a bus-path-only strip would leak every
+    // buffered frame fat. See change: reduce-subagent-details-payload (X5).
+    const flushed = flushBufferedSubagentFrames(subagentFrameBuffer, sendEventForward);
+    if (flushed === 0) return;
     console.log(
-      `[dashboard] flushed ${drained.length} buffered subagent frame(s) on re-register` +
+      `[dashboard] flushed ${flushed} buffered subagent frame(s) on re-register` +
         ` (forwarded=${subagentFrameBuffer.stats.forwarded} buffered=${subagentFrameBuffer.stats.buffered}` +
         ` flushed=${subagentFrameBuffer.stats.flushed})`,
     );
@@ -2068,6 +2086,7 @@ function initBridge(pi: ExtensionAPI) {
         isSubagentChannel: (channel) => SubagentFrameBuffer.isSubagentChannel(channel),
         markForwarded: (channel, data) => subagentFrameBuffer.markForwarded(channel, data),
         buffer: (channel, data) => subagentFrameBuffer.buffer(channel, data),
+        stripForForward,
       },
     },
   );

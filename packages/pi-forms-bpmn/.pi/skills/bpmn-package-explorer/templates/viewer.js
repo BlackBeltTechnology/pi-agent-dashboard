@@ -75,6 +75,13 @@
   }
   function xmlHasDI(xml) { return /<(\w+:)?BPMNDiagram[\s>]/.test(xml) || /<bpmndi:/.test(xml); }
 
+  // A navigation promise fired from a DOM handler has no caller to await it, so
+  // own its rejection here: surface through the existing diagnostic channel
+  // rather than leaving an unhandled rejection in the page.
+  function failSoft(p) {
+    if (p && typeof p.catch === 'function') p.catch(function (err) { diag([String(err)]); });
+  }
+
   // ── main bpmn mount ─────────────────────────────────────────────────────
   function mountProcess(file, push) {
     return fetchText(file).then(function (xml) {
@@ -106,8 +113,8 @@
       var id = e.element.id;
       var b = byElement[id];
       if (!b) return; // 7.11 unbound element is inert
-      if (b.kind === 'process') return drillDown(b, e.element.name || id);
-      openPanel(b, e.element.name || id);
+      if (b.kind === 'process') { failSoft(drillDown(b, e.element.name || id)); return; }
+      failSoft(openPanel(b, e.element.name || id));
     });
   }
 
@@ -183,7 +190,7 @@
     }
     state.navStack.push({ file: state.currentFile, callerName: state.currentFile });
     addReturnControl(callerName);
-    mountProcess(binding.ref, true);
+    failSoft(mountProcess(binding.ref, true));
   }
   function addReturnControl(callerName) {
     var existing = document.getElementById('return-control');
@@ -195,7 +202,7 @@
       var prev = state.navStack.pop();
       if (!prev) return;
       if (!state.navStack.length) btn.remove();
-      mountProcess(prev.file, false);
+      failSoft(mountProcess(prev.file, false));
     };
     document.getElementById('return-zone').appendChild(btn);
   }
@@ -216,7 +223,7 @@
     els.switcherSelect.onchange = function () {
       state.navStack = [];
       var rc = document.getElementById('return-control'); if (rc) rc.remove();
-      mountProcess(els.switcherSelect.value, false);
+      failSoft(mountProcess(els.switcherSelect.value, false));
     };
   }
 

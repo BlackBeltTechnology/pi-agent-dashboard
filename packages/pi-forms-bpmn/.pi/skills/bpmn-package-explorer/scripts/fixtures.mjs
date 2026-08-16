@@ -137,4 +137,9 @@ async function main() {
   console.log(`\nAll ${files.length} fixtures match their recorded outcomes.`);
 }
 
-main();
+// Owned rejection: this is the script's entry point, so a rejected `main()` must
+// exit non-zero with a message rather than float as an unhandled rejection.
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

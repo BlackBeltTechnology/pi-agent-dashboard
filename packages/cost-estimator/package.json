@@ -88,9 +88,16 @@
   "scripts": {
     "test": "vitest run"
   },
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  },
   "dependencies": {
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-session-distiller": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.7.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "react": "^19.0.0"
   }
 }
