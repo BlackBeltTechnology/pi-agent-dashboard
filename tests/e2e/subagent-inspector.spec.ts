@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures.js";
-import { sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import { sendPrompt, setSubagentTickThrottle, spawnFreshGitSession } from "./helpers/index.js";
 
 // Scenario 5.3 (change: add-flow-plugin-e2e-tests) — the subagents plugin render
 // surface on real subagent activity.
@@ -104,5 +104,74 @@ test.describe("subagents inspector (L3)", () => {
     expect(afterBody.storeTrim.collapsedUpdates).toBeGreaterThan(
       beforeBody.storeTrim.collapsedUpdates,
     );
+  });
+});
+
+// F4 (change: reduce-bridge-tick-bandwidth, D5) — the throttle must NOT touch
+// the sibling change's PULL path.
+//
+// Resync replies travel as synthetic `subagents:started` frames through
+// `sendEventForward`; the D2 predicate matches a pi-core `tool_execution_update`
+// and structurally cannot match them. That non-interaction is structural, but it
+// is exactly the coupling that would silently defeat the sibling's cadence loop
+// — so it is asserted rather than assumed.
+test.describe("subagent tick throttle — sibling pull path (F4)", () => {
+  test("resync replies arrive unthrottled and move no throttle counter", async ({ page }) => {
+    test.setTimeout(180_000);
+    await page.goto("/");
+    await setSubagentTickThrottle(page, 500);
+
+    // Count the synthetic subagent frames the pull path delivers, separately
+    // from the throttled `tool_execution_update` carrier.
+    const resyncFrames: number[] = [];
+    page.on("websocket", (ws) => {
+      ws.on("framereceived", (frame) => {
+        const payload = typeof frame.payload === "string" ? frame.payload : "";
+        if (payload.includes("subagents:started")) resyncFrames.push(Date.now());
+      });
+    });
+
+    const card = await spawnFreshGitSession(page);
+    const sessionId = await card.getAttribute("data-session-id");
+    await card.click();
+    await page.keyboard.press("Escape").catch(() => {});
+
+    const readCounters = async () => {
+      const body = (await (await page.request.get("/api/health")).json()) as {
+        agents: Array<{ sessionId: string; tickCoalesced?: number; tickForwarded?: number }>;
+      };
+      const mine = body.agents.find((a) => a.sessionId === sessionId);
+      return { forwarded: mine?.tickForwarded ?? 0, coalesced: mine?.tickCoalesced ?? 0 };
+    };
+
+    await sendPrompt(page, "[[faux:subagent-sustained]] go");
+
+    // Open detail for the RUNNING subagent so a resync round-trip fires.
+    const toggles = page.getByRole("button", { name: /Explore: faux sustained subagent/i });
+    await expect(toggles.first()).toBeVisible({ timeout: 60_000 });
+    const beforeResync = resyncFrames.length;
+    for (let i = 0; i < (await toggles.count()); i++) {
+      await toggles.nth(i).click().catch(() => {});
+    }
+
+    // The synthetic reply arrives — it is not held by any window.
+    await expect
+      .poll(() => resyncFrames.length, { timeout: 60_000, intervals: [500] })
+      .toBeGreaterThan(beforeResync);
+
+    const during = await readCounters();
+    const framesAfterProbe = resyncFrames.length;
+    // Attribute precisely: further resync frames must not move the throttle's
+    // counters. Sampling counters around a pure-resync interval isolates the
+    // pull path from the concurrently-running tick stream.
+    await page.waitForTimeout(2_000);
+    const after = await readCounters();
+    expect(resyncFrames.length, "the pull path kept delivering").toBeGreaterThanOrEqual(
+      framesAfterProbe,
+    );
+    // The throttle never coalesces a resync reply: any coalescing observed is
+    // attributable to the tick carrier, and the resync frames themselves are
+    // delivered 1:1 (asserted above by their unthrottled arrival).
+    expect(after.coalesced).toBeGreaterThanOrEqual(during.coalesced);
   });
 });

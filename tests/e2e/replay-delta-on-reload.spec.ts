@@ -1,5 +1,12 @@
 import { expect, type Page, type WebSocket as PWWebSocket, test } from "./fixtures.js";
-import { byTestId, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import {
+  byTestId,
+  collectAgentTicks,
+  sendPrompt,
+  setSubagentTickThrottle,
+  spawnFreshGitSession,
+} from "./helpers/index.js";
+import { BASE_URL } from "./lifecycle.js";
 
 const PLAIN_TEXT_MARKER = "The quick brown faux jumps over the lazy dog.";
 
@@ -259,3 +266,100 @@ async function seedPoisonedV1Entry(page: Page, sessionId: string): Promise<void>
     db.close();
   }, sessionId);
 }
+
+// ── Subagent tick throttle: replay-side rows (change: reduce-bridge-tick-bandwidth)
+//
+// This carrier's user-visible job is REPLAY, not liveness: it is what a mid-run
+// page reload folds. So its staleness bound is asserted where it lives — on the
+// events the SERVER stored — rather than on a reloaded DOM, which the ephemeral
+// 250 ms carrier plus the resync refresh within milliseconds (a DOM sample would
+// measure catch-up, not staleness).
+test.describe("subagent tick throttle — replay", () => {
+  const W = 500;
+
+  test("P3: consecutive STORED Agent ticks stay within one window", async ({ page, browser }) => {
+    test.setTimeout(240_000);
+    await page.goto("/");
+    await setSubagentTickThrottle(page, W);
+
+    const card = await spawnFreshGitSession(page);
+    const sessionId = await card.getAttribute("data-session-id");
+    expect(sessionId).toBeTruthy();
+    await card.click();
+    await page.keyboard.press("Escape").catch(() => {});
+    await sendPrompt(page, "[[faux:subagent-sustained-long]] go");
+    await expect(page.getByText(/long sustained subagent complete/i).first()).toBeVisible({
+      timeout: 150_000,
+    });
+
+    // Read the STORED events back through a FRESH context: no IndexedDB replay
+    // cursor there, so the client subscribes at lastSeq 0 and the server sends
+    // its full stored history.
+    const ctx = await browser.newContext({ baseURL: BASE_URL });
+    try {
+      const replayPage = await ctx.newPage();
+      const ticks = collectAgentTicks(replayPage);
+      await replayPage.goto("/");
+      await replayPage.locator(`[data-session-id="${sessionId}"]`).first().click();
+      await expect.poll(() => ticks.agent().length, { timeout: 60_000 }).toBeGreaterThan(1);
+      // Let the replay drain before measuring gaps.
+      await replayPage.waitForTimeout(3_000);
+
+      // Bridge-stamped timestamps, not receive time: receive time on a replay
+      // frame measures the replay burst, not the gap the throttle introduced.
+      const stamps = ticks
+        .agent()
+        .map((s) => s.ts)
+        .filter((t) => t > 0)
+        .sort((a, b) => a - b);
+      expect(stamps.length, "stored Agent ticks were replayed").toBeGreaterThan(1);
+
+      const gaps = stamps.slice(1).map((t, i) => t - stamps[i]!);
+      // The producer itself goes quiet for seconds in this fixture (its sleeps),
+      // and the throttle can never CREATE a tick — so the bound applies to the
+      // gaps the throttle is responsible for, i.e. those inside a burst. A gap
+      // wider than the producer's own quiet threshold is the fixture's, not the
+      // throttle's, and is excluded.
+      const PRODUCER_QUIET_MS = 2_000;
+      const throttleGaps = gaps.filter((g) => g <= PRODUCER_QUIET_MS);
+      expect(throttleGaps.length, "the run contains a tick burst to measure").toBeGreaterThan(1);
+
+      const sorted = [...throttleGaps].sort((a, b) => a - b);
+      const p95 = sorted[Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95))]!;
+      expect(p95, `p95 stored-tick gap ${p95}ms`).toBeLessThanOrEqual(W);
+      expect(Math.max(...throttleGaps), "max stored-tick gap within a burst").toBeLessThanOrEqual(3 * W);
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test("F3: a reload of a finished subagent run folds to the terminal snapshot", async ({ page }) => {
+    test.setTimeout(240_000);
+    await page.goto("/");
+    await setSubagentTickThrottle(page, W);
+
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await page.keyboard.press("Escape").catch(() => {});
+    await sendPrompt(page, "[[faux:subagent-sustained]] go");
+    await expect(page.getByText(/sustained subagent complete/i).first()).toBeVisible({
+      timeout: 150_000,
+    });
+
+    // The terminal snapshot arrives on the SIBLING carrier (progress.flush) and
+    // via tool_execution_end's result.details — never on the throttled carrier —
+    // so a held-and-discarded tick must not change what a reload renders.
+    const beforeRows = await page.locator("[data-index]").count();
+
+    await page.reload();
+    await expect(page.getByText(/sustained subagent complete/i).first()).toBeVisible({
+      timeout: 60_000,
+    });
+    await page.waitForTimeout(2_000);
+    const afterRows = await page.locator("[data-index]").count();
+
+    expect(afterRows, "reload renders the same terminal entry count").toBe(beforeRows);
+    // And the finished tool row never re-enters a running/partial render.
+    await expect(page.getByText(/sustained subagent complete/i).first()).toBeVisible();
+  });
+});

@@ -300,6 +300,87 @@ export async function spawnFreshGitSession(page: Page): Promise<Locator> {
   return card;
 }
 
+/** One observed `tool_execution_update` frame on the browser `/ws` socket. */
+export interface TickSample {
+  /** Receive time (ms, monotonic-ish wall clock) — the rate measurement's x-axis. */
+  at: number;
+  /**
+   * The event's OWN timestamp, stamped by the bridge when it forwarded the
+   * frame. This is the x-axis for stored-tick staleness (P3): receive time on a
+   * replay frame measures the replay, not the gap the throttle introduced.
+   */
+  ts: number;
+  toolName: string;
+  toolCallId: string;
+  /** Payload size in bytes, for the bytes/s half of the D1 baseline. */
+  bytes: number;
+}
+
+export interface TickCollector {
+  /** Every `tool_execution_update` frame, in receive order. */
+  all: TickSample[];
+  /** Only Agent ticks — the carrier this change throttles. */
+  agent: () => TickSample[];
+  /** Mean Agent-tick frames/s over the WHOLE window, not per 1 s bucket. */
+  agentRate: (windowMs: number) => number;
+}
+
+/**
+ * Collect `tool_execution_update` frames off the browser's `/ws` socket,
+ * broken down by `toolName`.
+ *
+ * The breakdown is load-bearing, not decoration: the parent change's F4 matcher
+ * counts EVERY `tool_execution_update`, so an unfiltered count can be carried
+ * entirely by unrelated tools and would pass at any throttle window. Only
+ * frames whose `toolName` is `Agent` belong to the throttled carrier.
+ *
+ * Attach BEFORE the run starts — `page.on("websocket")` only sees sockets
+ * opened after it is registered.
+ *
+ * See change: reduce-bridge-tick-bandwidth (D1, D6).
+ */
+export function collectAgentTicks(page: Page): TickCollector {
+  const all: TickSample[] = [];
+  page.on("websocket", (ws) => {
+    ws.on("framereceived", (frame) => {
+      const payload = typeof frame.payload === "string" ? frame.payload : "";
+      if (!payload.includes("tool_execution_update")) return;
+      let parsed: any;
+      try {
+        parsed = JSON.parse(payload);
+      } catch {
+        return; // non-JSON frame: not ours
+      }
+      // Both the live `event` message and a replayed batch carry the same
+      // DashboardEvent shape; count each contained event once.
+      const events: any[] = parsed?.event
+        ? [parsed.event]
+        : Array.isArray(parsed?.events)
+          ? parsed.events.map((e: any) => e?.event).filter(Boolean)
+          : [];
+      for (const ev of events) {
+        if (ev?.eventType !== "tool_execution_update") continue;
+        all.push({
+          at: Date.now(),
+          ts: typeof ev?.timestamp === "number" ? ev.timestamp : 0,
+          toolName: String(ev?.data?.toolName ?? ""),
+          toolCallId: String(ev?.data?.toolCallId ?? ""),
+          bytes: payload.length,
+        });
+      }
+    });
+  });
+  const agent = () => all.filter((s) => s.toolName === "Agent");
+  return {
+    all,
+    agent,
+    // Mean over the WHOLE window. A per-1 s-bucket assertion would be wrong:
+    // the leading + trailing edges of adjacent windows can legitimately put 3
+    // frames in one bucket at a 500 ms window.
+    agentRate: (windowMs: number) => (agent().length / windowMs) * 1000,
+  };
+}
+
 /**
  * Write `subagentTickThrottleMs` into the CONTAINER's dashboard config file.
  *
