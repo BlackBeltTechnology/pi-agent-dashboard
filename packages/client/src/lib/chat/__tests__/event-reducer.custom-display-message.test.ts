@@ -136,4 +136,41 @@ describe("ib-greeting singleton replacement (change: replace-replayed-greeting)"
     s = reduceEvent(s, greetingEnd("secret", false, "g1"));
     expect(s.messages).toHaveLength(0);
   });
+
+  // Change: harden-greeting-collapse-latest. The rendered greeting must always
+  // be the NEWEST regardless of event ARRIVAL order. A live/replay race delivers
+  // events out of timestamp order: the newest greeting (live) can land BEFORE a
+  // stale replay snapshot whose latest greeting is one state behind. Without a
+  // monotonicity guard the stable-id collapse blindly replaces in place, so the
+  // stale replay clobbers the newer live greeting and the head shows one behind.
+  it("T7: a stale (older-ts) greeting arriving AFTER a newer one does NOT overwrite it", () => {
+    let s = createInitialState();
+    // Newest greeting arrives first (live tick), ts=2000.
+    s = reduceEvent(s, greetingEnd("B", true, "g2", 2000));
+    expect(s.messages[0].content).toBe("B");
+    // Stale replay snapshot (taken before B persisted) arrives late, ts=1000.
+    s = reduceEvent(s, greetingEnd("A", true, "g1", 1000));
+    expect(s.messages).toHaveLength(1);
+    expect(s.messages[0].id).toBe("custom-ib-greeting");
+    // NEWEST wins: content stays B, not the stale A.
+    expect(s.messages[0].content).toBe("B");
+    expect(s.messages[0].entryId).toBe("g2");
+  });
+
+  it("T8: a newer (higher-ts) greeting still replaces an older shown one", () => {
+    let s = createInitialState();
+    s = reduceEvent(s, greetingEnd("A", true, "g1", 1000));
+    s = reduceEvent(s, greetingEnd("B", true, "g2", 2000));
+    expect(s.messages).toHaveLength(1);
+    expect(s.messages[0].content).toBe("B");
+    expect(s.messages[0].entryId).toBe("g2");
+  });
+
+  it("T9: an equal-ts greeting replaces in place (idempotent re-replay tolerant)", () => {
+    let s = createInitialState();
+    s = reduceEvent(s, greetingEnd("A", true, "g1", 1500));
+    s = reduceEvent(s, greetingEnd("A2", true, "g1b", 1500));
+    expect(s.messages).toHaveLength(1);
+    expect(s.messages[0].content).toBe("A2");
+  });
 });
