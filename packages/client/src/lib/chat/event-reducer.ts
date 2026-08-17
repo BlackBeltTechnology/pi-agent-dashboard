@@ -1751,10 +1751,26 @@ export function reduceEvent(
         const customId = isGreeting ? "custom-ib-greeting" : `custom-${entryId ?? next.messages.length}`;
         const existingIdx = next.messages.findLastIndex((m) => m.id === customId);
         if (existingIdx !== -1) {
+          // Monotonicity guard (change: harden-greeting-collapse-latest). The
+          // greeting is a singleton overlay collapsed by a STABLE id, so the
+          // replace-in-place is blind to arrival order. A live/replay race can
+          // deliver a STALE replay-snapshot greeting AFTER the newest live one
+          // (the snapshot was taken one state behind, but its events land
+          // late); a blind replace would then clobber the newer greeting and
+          // leave the head one state behind. Only advance when the incoming
+          // greeting is not older than the shown one — the NEWEST always wins
+          // regardless of arrival order. Equal ts still replaces (idempotent
+          // re-replay of the same state). Non-greeting customs keep per-entry
+          // ids, so they never collapse and are unaffected.
+          const shownTs = next.messages[existingIdx].timestamp;
+          if (isGreeting && typeof shownTs === "number" && event.timestamp < shownTs) {
+            break;
+          }
           next.messages = [...next.messages];
           next.messages[existingIdx] = {
             ...next.messages[existingIdx],
             content,
+            ...(isGreeting ? { timestamp: event.timestamp } : {}),
             ...(entryId ? { entryId } : {}),
           };
         } else {
