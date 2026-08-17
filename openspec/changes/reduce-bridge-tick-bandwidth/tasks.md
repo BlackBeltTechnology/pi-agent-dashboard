@@ -6,8 +6,13 @@
 
 ## 2. Measure the baseline (D1 — gate)
 
-- [ ] 2.1 Record Agent-tick frames/s and bytes/s on `tool_execution_update`, broken down by `toolName`, and on the `subagents:*` carrier, over the streaming fixture with the throttle OFF
-- [ ] 2.2 Write the measurement up in `openspec/changes/reduce-bridge-tick-bandwidth/measurement.md`; if the Agent-tick rate is already ≤ 2 Hz, STOP and correct the proposal's benefit framing instead of building the throttle
+- [x] 2.1 Record Agent-tick frames/s and bytes/s on `tool_execution_update`, broken down by `toolName`, and on the `subagents:*` carrier, over the streaming fixture with the throttle OFF
+- [x] 2.2 Write the measurement up in `openspec/changes/reduce-bridge-tick-bandwidth/measurement.md`; if the Agent-tick rate is already ≤ 2 Hz, STOP and correct the proposal's benefit framing instead of building the throttle
+
+> **BLOCKED — see `SHIP_IT_BLOCKED.md` + `measurement.md`.** Task 2.2's STOP
+> branch was taken: the measured Agent-tick rate is ~0.36 frames/s, two orders of
+> magnitude below the 2 Hz gate. §5 and §6 are NOT completable as written; §3/§4
+> are implemented and green but rest on a premise the measurement falsified.
 
 ## 3. Throttle unit (TDD — tests before implementation)
 
@@ -35,8 +40,8 @@
 
 - [x] 4.1 Add the `tickForwarded` / `tickCoalesced` / `tickDiscardedAtTerminal` / `tickDroppedNotReady` counters to the bridge and build the bridge→server transport so they land on `/api/health` (no such transport exists today; `SubagentFrameBuffer.stats` is only `console.log`ged at `bridge.ts:2046-2050`)
 - [x] 4.2 Update the exact-shape `/api/health` assertions in the server tests in the same commit as 4.1
-- [ ] 4.3 E2E: counters reach `/api/health` (test-plan #X7) — input: a subagent run with the throttle ON · trigger: `GET /api/health` after the run · observable: throttle counters present and non-zero, existing health fields unchanged. See `tests/e2e/bridge-contention-health.spec.ts` (test-plan: automated)
-- [ ] 4.4 E2E: predicate tripwire (test-plan #X8) — input: a session running only non-subagent tools (Bash streaming) · trigger: `GET /api/health` · observable: `tickForwarded`/`tickCoalesced` stay 0. See `tests/e2e/bridge-contention-health.spec.ts` (test-plan: automated)
+- [x] 4.3 E2E: counters reach `/api/health` (test-plan #X7) — input: a subagent run with the throttle ON · trigger: `GET /api/health` after the run · observable: throttle counters present and non-zero, existing health fields unchanged. See `tests/e2e/bridge-contention-health.spec.ts` (test-plan: automated)
+- [x] 4.4 E2E: predicate tripwire (test-plan #X8) — input: a session running only non-subagent tools (Bash streaming) · trigger: `GET /api/health` · observable: `tickForwarded`/`tickCoalesced` stay 0. See `tests/e2e/bridge-contention-health.spec.ts` (test-plan: automated)
 
 ## 5. Wire and rendered behaviour (E2E)
 

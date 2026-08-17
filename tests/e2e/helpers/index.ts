@@ -400,8 +400,8 @@ export async function setSubagentTickThrottle(page: Page, ms: number): Promise<v
   // Read back through the same surface the bridge reads, so a silently-dropped
   // unknown key fails the setup rather than the (then-vacuous) measurement.
   const readBack = await page.request.get("/api/config");
-  const body = (await readBack.json()) as Record<string, unknown>;
-  const cfg = (body.config ?? body) as Record<string, unknown>;
+  const body = (await readBack.json()) as { data?: Record<string, unknown> };
+  const cfg = (body.data ?? {}) as Record<string, unknown>;
   expect(cfg.subagentTickThrottleMs, "config did not retain subagentTickThrottleMs").toBe(ms);
 }
 
