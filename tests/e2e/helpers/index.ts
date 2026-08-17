@@ -301,6 +301,30 @@ export async function spawnFreshGitSession(page: Page): Promise<Locator> {
 }
 
 /**
+ * Write `subagentTickThrottleMs` into the CONTAINER's dashboard config file.
+ *
+ * The bridge reads `~/.pi/dashboard/config.json` once per bridge init, and no
+ * env override exists for it (deliberate — the config surface stays single-
+ * sourced). `PUT /api/config` is a shallow partial merge onto that same file,
+ * so this is literally "the harness writes the dashboard config file into the
+ * container". Call it BEFORE `spawnFreshGitSession()`: only a session spawned
+ * after the write picks the value up; an already-running bridge keeps the old
+ * one.
+ *
+ * See change: reduce-bridge-tick-bandwidth (task 1.3, D4).
+ */
+export async function setSubagentTickThrottle(page: Page, ms: number): Promise<void> {
+  const res = await page.request.put("/api/config", { data: { subagentTickThrottleMs: ms } });
+  expect(res.ok(), `PUT /api/config subagentTickThrottleMs=${ms} failed: ${res.status()}`).toBe(true);
+  // Read back through the same surface the bridge reads, so a silently-dropped
+  // unknown key fails the setup rather than the (then-vacuous) measurement.
+  const readBack = await page.request.get("/api/config");
+  const body = (await readBack.json()) as Record<string, unknown>;
+  const cfg = (body.config ?? body) as Record<string, unknown>;
+  expect(cfg.subagentTickThrottleMs, "config did not retain subagentTickThrottleMs").toBe(ms);
+}
+
+/**
  * Type a prompt into the selected session's composer and submit it.
  *
  * Precondition: a session card is already selected (so CommandInput renders).

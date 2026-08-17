@@ -280,6 +280,35 @@ function buildLongTranscript(turns = 120): FauxResponseStep[] {
 }
 
 /**
+ * Steps for `subagent-streaming-inner`: pure token streaming, no sleeps.
+ *
+ * At the faux provider's default `FAUX_TPS=50`, ~50 streamed tokens cost ~1 s of
+ * wall clock and produce ~50 inner `message_update` deltas. `messages` blocks of
+ * `wordsPerMessage` words therefore span ~`messages * wordsPerMessage / 50`
+ * seconds while ticking continuously — the streaming burst P1/P2 measure. The
+ * default (12 x 60 = 720 words) targets ~14 s, comfortably past the >= 10 s
+ * measurement window with margin for a slower runner.
+ * See change: reduce-bridge-tick-bandwidth (task 1.2).
+ */
+function buildStreamingBurst(messages = 12, wordsPerMessage = 60): FauxResponseStep[] {
+  const steps: FauxResponseStep[] = [];
+  for (let i = 0; i < messages; i++) {
+    const words = Array.from({ length: wordsPerMessage }, (_, w) => `stream-${i}-${w}`).join(" ");
+    // A trivial (non-sleeping) tool call is what keeps the inner agent loop
+    // running to the next streamed block — same continuation device as
+    // `buildLongTranscript`. `echo` returns instantly, so it adds no idle.
+    steps.push(
+      fauxAssistantMessage(
+        [fauxText(words), fauxToolCall("bash", { command: `echo stream-${i}` })],
+        { stopReason: "toolUse" },
+      ),
+    );
+  }
+  steps.push(fauxAssistantMessage([fauxText("streaming inner complete")]));
+  return steps;
+}
+
+/**
  * Tail marker for the `scroll-top-heavy` scenario (change: fix-chat-scroll-to-
  * top-estimate-drift). The scroll-to-top e2e waits for it to know the transcript
  * settled at the bottom before climbing.
@@ -949,6 +978,76 @@ export const SCENARIOS: Record<string, Scenario> = {
       fauxAssistantMessage([fauxText("sustained subagent complete")]),
     ],
     expect: { text: "sustained subagent complete" },
+  },
+
+  // Inner scenario for `subagent-sustained-long`: the ~6 s `subagent-slow-inner`
+  // extended past 10 s of wall clock. F1/P3 need a window of at least 10 s to
+  // sample a 500 ms cadence with any margin, and `subagent-slow-inner` cannot
+  // supply it. Sleep-heavy on purpose: this is the SUSTAINED (not streaming)
+  // shape, and it doubles as F5's quiet-producer guard — the > 2 s gaps are the
+  // stretches during which no cadence floor may be asserted.
+  // See change: reduce-bridge-tick-bandwidth (task 1.1).
+  "subagent-slow-inner-long": {
+    script: [
+      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 3 && echo long-tick-one" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 3 && echo long-tick-two" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 3 && echo long-tick-three" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 3 && echo long-tick-four" })], { stopReason: "toolUse" }),
+      fauxAssistantMessage([fauxText("long inner complete")]),
+    ],
+    expect: { text: "long inner complete" },
+  },
+
+  // Parent spawning the >= 10 s inner run. Same shape as `subagent-sustained`,
+  // longer window. See change: reduce-bridge-tick-bandwidth (task 1.1).
+  "subagent-sustained-long": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "faux long sustained subagent",
+            prompt: "[[faux:subagent-slow-inner-long]] run the long sustained subagent probe",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("long sustained subagent complete")]),
+    ],
+    expect: { text: "long sustained subagent complete" },
+  },
+
+  // Inner scenario for `subagent-streaming`: STREAMING-heavy, minimal idle. The
+  // faux provider streams at `FAUX_TPS` (default 50 tok/s), and every inner
+  // `message_update` delta drives one producer `pushUpdate` -> one parent
+  // `tool_execution_update`. So token volume, not sleeping, sets the tick rate
+  // here — which is exactly the burst this change throttles. `subagent-slow-
+  // inner` is ~50 % asleep and under-represents it, so P1/P2 would measure the
+  // fixture rather than the throttle.
+  // See change: reduce-bridge-tick-bandwidth (task 1.2).
+  "subagent-streaming-inner": {
+    script: buildStreamingBurst(),
+    expect: { text: "streaming inner complete" },
+  },
+
+  // Parent spawning the streaming-heavy inner run. Drives P1 (throttled rate
+  // <= 2.2 frames/s) and P2 (throttle OFF is >= 4x that).
+  // See change: reduce-bridge-tick-bandwidth (task 1.2).
+  "subagent-streaming": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "faux streaming subagent",
+            prompt: "[[faux:subagent-streaming-inner]] run the streaming subagent probe",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("streaming subagent complete")]),
+    ],
+    expect: { text: "streaming subagent complete" },
   },
 
   // ── OpenSpec auto-attach locality gate (change:

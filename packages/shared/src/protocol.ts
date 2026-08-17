@@ -158,6 +158,19 @@ export interface ProcessMetrics {
    * alone can hide a burst. See change: serialize-bridge-message-pump.
    */
   refusedInboundFrames?: number;
+  /**
+   * Subagent-tick throttle counters (change: reduce-bridge-tick-bandwidth, D6).
+   * Cumulative for the bridge's lifetime. `tickForwarded`/`tickCoalesced`
+   * describe the throttle's visible work; `tickDiscardedAtTerminal` and
+   * `tickDroppedNotReady` are its ONLY two information-loss modes and are
+   * otherwise entirely invisible in production. Ride the existing heartbeat
+   * metrics transport rather than a new one, and land on `/api/health` both
+   * per-session (via `agents[]`) and summed.
+   */
+  tickForwarded?: number;
+  tickCoalesced?: number;
+  tickDiscardedAtTerminal?: number;
+  tickDroppedNotReady?: number;
 }
 
 export interface SessionHeartbeatMessage {
