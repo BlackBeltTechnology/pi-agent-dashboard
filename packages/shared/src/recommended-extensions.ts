@@ -525,6 +525,106 @@ export const RECOMMENDED_EXTENSIONS: readonly RecommendedExtension[] = [
 			"bpmn-package-explorer skill (generate/view BPMN 2.0 + DMN packages)",
 		],
 	},
+	{
+		id: "@blackbelt-technology/pi-dashboard-cost-estimator",
+		source: "npm:@blackbelt-technology/pi-dashboard-cost-estimator",
+		displayName: "pi-dashboard-cost-estimator",
+		fallbackDescription:
+			"Software cost & effort estimation from use cases, functional and " +
+			"non-functional requirements, and a tech stack. Sizes with Use Case " +
+			"Points + COCOMO II, distributes effort across 11 roles, compares four " +
+			"delivery modes, and runs a Beta-PERT Monte Carlo plus an NPV/ROI " +
+			"business case. Calibrates agent cost from real pi session telemetry.",
+		status: "optional",
+		unlocks: [
+			"software-cost-estimator skill (estimate cost/effort from requirements)",
+			"Cost dashboard plugin (content view + settings) and pi-estimate CLI",
+		],
+		dashboardPlugin: "cost-estimator",
+	},
+	{
+		id: "@blackbelt-technology/pi-dashboard-code-review-toolkit",
+		source: "npm:@blackbelt-technology/pi-dashboard-code-review-toolkit",
+		displayName: "pi-dashboard-code-review-toolkit",
+		fallbackDescription:
+			"Code-review workflow skills: code-review (AI-powered review with " +
+			"severity labels via the CodeRabbit CLI) and autofix (review and apply " +
+			"CodeRabbit PR review-thread feedback with per-change approval).",
+		status: "optional",
+		unlocks: [
+			"code-review / autofix skills (CodeRabbit-backed review + safe autofix)",
+		],
+	},
+	{
+		id: "@blackbelt-technology/pi-dashboard-openspec-workflow",
+		source: "npm:@blackbelt-technology/pi-dashboard-openspec-workflow",
+		displayName: "pi-dashboard-openspec-workflow",
+		fallbackDescription:
+			"OpenSpec-lifecycle helper skills: spec-coherence-check (sweep active " +
+			"proposals for staleness/conflicts), pre-scaffold-openspec-coherence-check " +
+			"(guard before scaffolding), fix-worktree-opsx-skills-not-created, and " +
+			"reverse-spec-from-code.",
+		status: "optional",
+		unlocks: [
+			"spec-coherence-check / pre-scaffold-coherence / reverse-spec-from-code skills",
+		],
+	},
+	{
+		id: "@blackbelt-technology/pi-dashboard-distill-session-knowledge",
+		source: "npm:@blackbelt-technology/pi-dashboard-distill-session-knowledge",
+		displayName: "pi-dashboard-distill-session-knowledge",
+		fallbackDescription:
+			"Pi skill that offline-mines pi session JSONL logs into reusable, " +
+			"verified knowledge (skills, memory, docs).",
+		status: "optional",
+		unlocks: [
+			"distill-session-knowledge skill (mine session logs into skills/memory/docs)",
+		],
+	},
+	{
+		id: "@blackbelt-technology/pi-dashboard-frontend-patterns",
+		source: "npm:@blackbelt-technology/pi-dashboard-frontend-patterns",
+		displayName: "pi-dashboard-frontend-patterns",
+		fallbackDescription:
+			"Frontend implementation-pattern skills: accessibility-a11y (WCAG, " +
+			"keyboard nav, focus, ARIA), component-architecture, " +
+			"responsive-mobile-first, tailwind-shadcn, typescript-strict, and " +
+			"zod-react-hook-form.",
+		status: "optional",
+		unlocks: [
+			"accessibility-a11y / component-architecture / responsive-mobile-first / tailwind-shadcn / typescript-strict / zod-react-hook-form skills",
+		],
+	},
+	{
+		id: "@blackbelt-technology/pi-dashboard-video-production",
+		source: "npm:@blackbelt-technology/pi-dashboard-video-production",
+		displayName: "pi-dashboard-video-production",
+		fallbackDescription:
+			"TypeScript port of the veo-generator + veo-showreel-production-kit " +
+			"skills. Parses a scripted shot package (shots/*.md) and renders one mp4 " +
+			"clip per camera cut with the Google Veo 3.1 API, plus storyboard " +
+			"first-frame generation. Exposes the pi-veo CLI. Needs a Gemini API key.",
+		status: "optional",
+		unlocks: [
+			"veo-showreel-production-kit / veo-generator skills",
+			"pi-veo CLI (render Veo 3.1 clips from a shot package)",
+		],
+	},
+	{
+		id: "@blackbelt-technology/pi-dashboard-nano-banana",
+		source: "npm:@blackbelt-technology/pi-dashboard-nano-banana",
+		displayName: "pi-dashboard-nano-banana",
+		fallbackDescription:
+			"TypeScript port of the nano-banana-imagegen skill. Generate and edit " +
+			"images with Google Gemini image models via the nano-banana CLI, with " +
+			"GEMINI_API_KEY resolution, output-path handling, and batch generation. " +
+			"Exposes the pi-nano-banana CLI.",
+		status: "optional",
+		unlocks: [
+			"nano-banana-imagegen skill (text-to-image + image editing via Gemini)",
+			"pi-nano-banana CLI",
+		],
+	},
 ];
 
 /**

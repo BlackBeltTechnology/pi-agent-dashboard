@@ -139,6 +139,28 @@ describe("GET /api/health — shape", () => {
     expect(typeof storeTrim.evictedSessions).toBe("number");
   });
 
+  // Same additive contract for the subagent-tick byte counters: surfaced on
+  // /api/health via the store's exported TrimStats, nothing pre-existing moved.
+  // See change: reduce-subagent-details-payload (D6, task 9.2).
+  it("storeTrim gains the subagent-tick byte counters additively", async () => {
+    delete process.env.DASHBOARD_STARTER;
+    handle = await createTestServer();
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = (await res.json()) as Record<string, unknown>;
+    const storeTrim = body.storeTrim as Record<string, unknown>;
+    for (const field of [
+      "subagentTicks",
+      "subagentTickBytes",
+      "subagentFatTicks",
+      "subagentTickFatBytes",
+    ]) {
+      expect(typeof storeTrim[field]).toBe("number");
+      expect(storeTrim[field]).toBe(0);
+    }
+    expect(typeof storeTrim.collapsedUpdates).toBe("number");
+    expect(typeof storeTrim.evictedSessions).toBe("number");
+  });
+
   // X6: the `??` fallback the route takes when no event store is wired. It is
   // the store's explicitly-typed EMPTY_TRIM_STATS, not an inline literal —
   // `a ?? b` does not check `b` against `A`, so an inline literal could silently

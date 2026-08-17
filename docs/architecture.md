@@ -196,6 +196,119 @@ TypeScript type definitions shared across all components:
 - Removes only the bridge's own subscriptions.
 - Restores nothing. Bridge never replaces a host function.
 
+### Subagent Timeline Push/Pull Split (change: reduce-subagent-details-payload)
+
+**Why thin ticks.**
+
+- Producer builds ONE `snapshotDetails()` object.
+- Feeds BOTH carriers: `subagents:*` EventBus frame + pi-core `tool_execution_update`.
+- `entries[]` append-only → tick size grows linearly with run length.
+- Long run = fat intermediate ticks.
+- Solution: strip timeline from intermediate ticks.
+- Push terminal frame fat.
+- Pull full timeline on demand.
+
+**Strip module.**
+
+- File: `packages/extension/src/subagent-frame-strip.ts`.
+- Exports `stripSubagentEntries`, `stripForForward`, `NON_TERMINAL_STATUSES`.
+- Strips `details.entries` on FORWARD path when frame status `queued` or `running`.
+
+**Allowlist, never negation.**
+
+- `NON_TERMINAL_STATUSES` = explicit allowlist.
+- Never `!terminal`.
+- `AgentStatus` also has `stopped`; negation would strip it and lose that run's timeline.
+- `stopped` counts as terminal: never stripped.
+
+**Strip clones.**
+
+- Strip CLONES data.
+- `SubagentFrameBuffer` retains frames BY REFERENCE.
+- Mutating strip would corrupt the pull source.
+- Fat snapshot survives intact for resync.
+
+**Call-site allowlist.**
+
+- Strip applied at explicit call sites.
+- NEVER inside `sendEventForward`.
+- Sites: EventBus forward path (`flow-event-wiring.ts` `forwardBusEvent`).
+- Sites: buffered-frame flush + resync reply (`packages/extension/src/subagent-forward-sites.ts` — `flushBufferedSubagentFrames` strips, `serveSubagentResync` does NOT).
+- Sites: `tool_execution_update` carrier in `bridge.ts`.
+- Strip inside `sendEventForward` would strip the resync reply.
+- EventBus-only strip would leak every frame drained by the buffer.
+
+**Terminal frames never stripped.**
+
+- `completed`/`failed`/`aborted`/`stopped`/`error` forward full.
+- Terminal frame = durable record behind `tool_execution_end` backfill.
+- Second independent terminal guard: `stripForForward(data, channel)` never strips when `channel` in `TERMINAL_CHANNELS` (`subagents:completed`, `subagents:failed`).
+- Guard fires regardless of `details.status`.
+- Both signals must be wrong to lose a timeline.
+
+**Full-snapshot invariant preserved.**
+
+- Every frame still an idempotent FULL snapshot.
+- Latest-supersedes.
+- No delta encoding.
+- No wire key.
+- No version negotiation.
+- No producer change.
+- Dropped thin tick leaves no permanent hole.
+
+**Pull path.**
+
+- Client requests `subagent_resync_request`.
+- Bridge answers from retained fat snapshot as synthetic `subagents:started` frame.
+
+**Server resync locator.**
+
+- `locateSubagentTimeline` (`packages/server/src/persistence/memory-event-store.ts`) now also matches `subagent_*` eventTypes carrying `details.entries`.
+- Before: resync reply fell to generic pass.
+- Before: any array > 20 items became string `"[array truncated]"`.
+- Before: reducer rendered no timeline.
+- Head-tail budget now applies: head + `⋯ N steps hidden ⋯` sentinel + tail.
+- `DEFAULT_MAX_EVENT_DATA_SIZE` = 262144.
+
+**Open-inspector liveness.**
+
+- File: `packages/client/src/hooks/useSubagentResyncCadence.ts`.
+- Mounted detail view re-fires `subagent_resync_request` on backoff cadence.
+- Base 2000 ms, doubles per idle tick, ceiling 30000 ms, resets on entry growth.
+- ONE timer per subagent → inline inspector + popout do not double-fire.
+- No `emptyTimeline` precondition on this trigger (open-time trigger keeps it).
+
+**Requester-scoped delivery.**
+
+- Request carries `requestId`.
+- Bridge echoes it on reply as `__resyncRequestId`.
+- Server routes reply to that one connection (`packages/server/src/pairing/subagent-resync-routing.ts`, `ResyncRequesterRegistry`, TTL 30000 ms).
+- Unknown/expired token falls back to normal broadcast.
+
+**Counters.**
+
+- `storeTrim.subagentTicks` / `subagentTickBytes` / `subagentFatTicks` / `subagentTickFatBytes` on `/api/health` (additive).
+- Bridge `SubagentFrameStats.resyncCadence` counts pull-loop requests.
+
+**Rollback. PARTIAL, not total.**
+
+- One flag: `PI_DASHBOARD_SUBAGENT_STRIP=0` forwards unstripped.
+- Flag disables STRIPPING ONLY.
+- Wire payload returns to pre-change shape: intermediate ticks fat again.
+- These stay ACTIVE under the flag: `locateSubagentTimeline` `subagent_*` gate.
+- Stay active: resync cadence in `useSubagentResyncCadence.ts`.
+- Stay active: requester-scoped routing (`requestId` / `__resyncRequestId`).
+- Stay active: additive `storeTrim` subagent-tick counters.
+- Each of those is additive or a bug fix. None depends on the strip.
+- No producer, protocol, or store rollback exists to do.
+
+**Known regression, stated deliberately.**
+
+- Run dying with NO terminal frame (crash/kill) leaves only thin ticks in store.
+- Recovery needs a LIVE bridge with agent still in the 64-slot `SubagentFrameBuffer`.
+- Evicted or post-reset agents answer `resyncNoop`.
+- Client keeps its last rendered state.
+
 ### Retry Lifecycle (change: retry-forever-with-stop-control)
 
 Pi owns the retry loop. Dashboard configures + observes + renders it. Attempts fire sequentially; each produces ONE complete `agent_start` … `agent_end` event cycle. Final attempt produces ONE `agent_settled` event terminal marker.

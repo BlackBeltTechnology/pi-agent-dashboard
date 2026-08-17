@@ -443,6 +443,13 @@ importers:
       '@blackbelt-technology/pi-dashboard-shared':
         specifier: ^0.7.0
         version: link:../shared
+    devDependencies:
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.17
+      react:
+        specifier: ^19.0.0
+        version: 19.2.7
 
   packages/dashboard-plugin-runtime:
     dependencies:

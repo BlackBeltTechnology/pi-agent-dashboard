@@ -85,7 +85,7 @@ export default async function registerPlugin(ctx: ServerPluginContext): Promise<
     try {
       records = scanSessions({ gapCapMinutes: gapCap });
     } catch (error) {
-      ctx.logger.error({ err: error }, "cost-estimator: session scan failed");
+      ctx.logger.error("cost-estimator: session scan failed", error);
       return { ok: false, error: "session scan failed", projects: [], measured: null, subscription: null };
     }
 

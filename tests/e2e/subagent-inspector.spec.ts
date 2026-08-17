@@ -18,6 +18,10 @@ test.describe("subagents inspector (L3)", () => {
   test("spawned subagent renders its inspector surface", async ({ page }) => {
     const card = await spawnFreshGitSession(page);
     await card.click();
+    // A card-centre click can land on the card's OpenSpec "Propose" affordance,
+    // leaving a modal overlay that intercepts the composer's send button. Not a
+    // product assertion — just dismiss a stray modal before prompting.
+    await page.keyboard.press("Escape").catch(() => {});
 
     await sendPrompt(page, "[[faux:subagent-spawn]] go");
 

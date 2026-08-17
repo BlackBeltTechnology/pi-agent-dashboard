@@ -1055,6 +1055,18 @@ export interface SubagentResyncRequestExtensionMessage {
   type: "subagent_resync_request";
   sessionId: string;
   agentId: string;
+  /**
+   * Correlation token from the requesting browser, echoed by the bridge onto
+   * the reply frame (`__resyncRequestId`) so the server can route the reply to
+   * that one connection. See change: reduce-subagent-details-payload (C5).
+   */
+  requestId?: string;
+  /**
+   * Why this resync fired — `"open"` (user opened the inspector) or
+   * `"cadence"` (the D4 v1 pull loop). Counted separately by the bridge.
+   * See change: reduce-subagent-details-payload (D6, task 9.4).
+   */
+  reason?: "open" | "cadence";
 }
 
 

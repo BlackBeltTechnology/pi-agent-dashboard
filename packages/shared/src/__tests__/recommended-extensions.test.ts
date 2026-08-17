@@ -8,10 +8,11 @@ import {
 } from "../recommended-extensions.js";
 
 describe("RECOMMENDED_EXTENSIONS manifest", () => {
-	it("contains exactly the twenty expected entries", () => {
+	it("contains exactly the expected entries", () => {
 		const ids = RECOMMENDED_EXTENSIONS.map((e) => e.id).sort();
 		expect(ids).toEqual(
 			[
+				"@blackbelt-technology/pi-dashboard-cost-estimator",
 				"pi-anthropic-messages",
 				"pi-agent-browser",
 				"@blackbelt-technology/pi-dashboard-subagents",
@@ -33,6 +34,12 @@ describe("RECOMMENDED_EXTENSIONS manifest", () => {
 				"@blackbelt-technology/pi-dashboard-apple-tools",
 				"@blackbelt-technology/pi-dashboard-video-transcription",
 				"@blackbelt-technology/pi-dashboard-forms-bpmn",
+				"@blackbelt-technology/pi-dashboard-code-review-toolkit",
+				"@blackbelt-technology/pi-dashboard-openspec-workflow",
+				"@blackbelt-technology/pi-dashboard-distill-session-knowledge",
+				"@blackbelt-technology/pi-dashboard-frontend-patterns",
+				"@blackbelt-technology/pi-dashboard-video-production",
+				"@blackbelt-technology/pi-dashboard-nano-banana",
 			].sort(),
 		);
 	});
@@ -174,6 +181,13 @@ describe("getRecommendedByStatus", () => {
 				"@blackbelt-technology/pi-dashboard-apple-tools",
 				"@blackbelt-technology/pi-dashboard-video-transcription",
 				"@blackbelt-technology/pi-dashboard-forms-bpmn",
+				"@blackbelt-technology/pi-dashboard-cost-estimator",
+				"@blackbelt-technology/pi-dashboard-code-review-toolkit",
+				"@blackbelt-technology/pi-dashboard-openspec-workflow",
+				"@blackbelt-technology/pi-dashboard-distill-session-knowledge",
+				"@blackbelt-technology/pi-dashboard-frontend-patterns",
+				"@blackbelt-technology/pi-dashboard-video-production",
+				"@blackbelt-technology/pi-dashboard-nano-banana",
 			].sort(),
 		);
 	});
