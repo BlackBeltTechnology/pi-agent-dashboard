@@ -3,8 +3,16 @@
 ### Requirement: A bandwidth reduction SHALL preserve a live-looking subagent cadence
 
 Any reduction of `tool_execution_update` wire traffic SHALL hold the rendered
-subagent timeline at or above **1 rendered update per 2 s** (0.5 Hz) for the
-duration of a running subagent.
+subagent timeline at or above **1 rendered update per 2 s** (0.5 Hz) **for as
+long as the producer emits updates at or above that rate**.
+
+The floor is conditional because the producer has no heartbeat: `pushUpdate` has
+a single call site on the subagent's session-event subscription, so a quiet
+subagent (an inner sleep, a non-streaming think) emits nothing and no throttle
+can create ticks. The obligation on a reduction is therefore twofold — it SHALL
+NOT delay an update by more than its declared window, and it SHALL NOT drop an
+update that has no successor — where the run's terminal event counts as a
+successor, since it carries the authoritative final state.
 
 That floor is the acceptance threshold; a design may declare a higher one, never
 a lower. It is stated as a number here so the requirement is falsifiable rather
@@ -12,23 +20,54 @@ than left implicit in an emitter's default. It is deliberately distinct from the
 existing F4 frame-count assertion (≥ 2 frames per 10 s window), which is a
 non-vacuity floor on the transport, not a UX cadence.
 
-Rationale: the collapse in `collapse-superseded-tool-execution-updates` is
-retention-only precisely so the live stream stays intact. Throttling the wire
-re-opens the question that change closed, so the guarantee must be restated
-where the throttle lives.
+**Per-carrier falsifiability.** The rendered timeline is fed by TWO carriers —
+`tool_execution_update` (durable: persisted and replayed) and the `subagents:*`
+`event_forward` frames (ephemeral, producer-throttled to 250 ms). A reduction
+applied to ONE carrier SHALL be asserted on THAT carrier's own frames, not on
+the rendered DOM alone: the untouched carrier would otherwise hold the observed
+cadence and the requirement would pass at any throttle value. A DOM-level
+assertion is admissible only in a window where the reduced carrier is
+demonstrably the only feed.
 
-#### Scenario: Throttled ticks still advance the rendered timeline
+#### Scenario: Throttled ticks still advance at the floor on their own carrier
 
-- **GIVEN** a subagent running continuously for at least 10 s
+- **GIVEN** a subagent whose producer emits `tool_execution_update` ticks at a
+  measured rate of at least 1 Hz for at least 10 s
 - **AND** bridge tick throttling active
-- **WHEN** the rendered subagent timeline is observed over that window
-- **THEN** it SHALL advance at least **5 times** (≥ 1 per 2 s)
-- **AND** the browser SHALL receive at least 2 `tool_execution_update` frames,
-  so the existing F4 scenario remains non-vacuous
+- **WHEN** the `tool_execution_update` frames received by the browser whose
+  `toolName` is `Agent` are counted over that window
+- **THEN** at least **5** SHALL arrive (≥ 1 per 2 s)
+- **AND** at least 2 SHALL arrive, so the existing F4 scenario remains
+  non-vacuous and is not carried by frames from unrelated tools
 
-#### Scenario: The throttle never suppresses the terminal state
+#### Scenario: The stored tick sequence stays within one window of the producer
 
-- **GIVEN** a subagent whose final tick carries its completed state
-- **WHEN** the throttle coalesces or drops intermediate ticks
-- **THEN** the terminal state SHALL still reach the client
-- **AND** a page reload SHALL fold to that same terminal state
+- **GIVEN** a running subagent emitting ticks faster than the throttle window
+- **WHEN** the server's stored events for that run are inspected
+- **THEN** the gap between consecutive stored Agent ticks SHALL be within one
+  window at p95 and within three windows at the maximum (scheduling jitter and
+  GC pauses make an exact per-pair bound untestable), so a mid-run replay folds
+  to a state at most one window stale in the typical case
+
+The assertion is made on the STORE, not on the reloaded DOM: once a reloaded
+page is live, the ephemeral carrier and the resync pull refresh the timeline
+within milliseconds, so a DOM sample measures catch-up rather than replay
+staleness.
+
+#### Scenario: No tick is delivered after the run's terminal event
+
+- **GIVEN** a subagent run that ends while a coalesced tick is still pending
+- **WHEN** the terminal `tool_execution_end` for that `toolCallId` is forwarded
+- **THEN** no tick the throttle is holding for that `toolCallId` SHALL reach the
+  client afterwards
+- **AND** a page reload SHALL fold to the terminal state
+
+The guarantee is scoped to frames the throttle holds. A producer emitting an
+update AFTER its own terminal event is out of contract upstream, and suppressing
+that would require an unbounded set of ended `toolCallId`s.
+
+#### Scenario: Non-subagent tool updates are not throttled
+
+- **GIVEN** a non-subagent tool streaming partial results
+- **WHEN** its `tool_execution_update` events fire
+- **THEN** every one SHALL be forwarded, unthrottled and uncoalesced
