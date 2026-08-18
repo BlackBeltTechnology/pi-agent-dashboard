@@ -1,0 +1,323 @@
+<!doctype html>
+<html lang="en" data-mode="light">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Setup tab — colour repair</title>
+<style>
+/* Tokens verbatim from packages/client/src/index.css */
+[data-mode="dark"]{
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e;
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+  --border-primary:#252525; --border-secondary:#333333;
+  --accent-blue:#3b82f6; --accent-red:#ef4444; --accent-green:#22c55e; --accent-orange:#f97316;
+  --accent-primary:#3b82f6;
+  /* ── PROPOSED, currently undefined in index.css ── */
+  --accent:#3b82f6;          /* border / ring (non-text, 5.01:1 vs bg-secondary) */
+  --accent-soft:#1d3a63;     /* soft fill behind --text-primary (9.07:1) */
+  --accent-solid:#2563eb;    /* solid fill behind white (5.17:1) */
+  --accent-text:#60a5fa;     /* link text on page bg (7.79:1) */
+}
+[data-mode="light"]{
+  --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0;
+  --text-primary:#1a1a1a; --text-secondary:#444444; --text-tertiary:#777777; --text-muted:#aaaaaa;
+  --border-primary:#e0e0e0; --border-secondary:#cccccc;
+  --accent-blue:#3b82f6; --accent-red:#ef4444; --accent-green:#22c55e; --accent-orange:#f97316;
+  --accent-primary:#2563eb;
+  /* ── PROPOSED ── */
+  --accent:#2563eb;          /* 4.95:1 vs bg-secondary */
+  --accent-soft:#dbeafe;     /* 14.27:1 behind --text-primary */
+  --accent-solid:#2563eb;    /* 5.17:1 behind white */
+  --accent-text:#1d4ed8;     /* 6.70:1 on page bg */
+}
+[data-mode]{
+  --severity-error-bg:color-mix(in srgb, var(--accent-red) 10%, var(--bg-tertiary));
+  --severity-error-fg:color-mix(in srgb, var(--accent-red) 46%, var(--text-primary));
+  --severity-error-border:color-mix(in srgb, var(--accent-red) 40%, transparent);
+  --severity-success-bg:color-mix(in srgb, var(--accent-green) 10%, var(--bg-tertiary));
+  --severity-success-fg:color-mix(in srgb, var(--accent-green) 46%, var(--text-primary));
+  --severity-success-border:color-mix(in srgb, var(--accent-green) 40%, transparent);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg-primary);color:var(--text-primary);
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px;line-height:1.5}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em}
+.wrap{max-width:1100px;margin:0 auto;padding:24px 16px 72px}
+.topbar{display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;
+  border-bottom:1px solid var(--border-primary);padding-bottom:16px;margin-bottom:8px}
+h1{font-size:18px;margin:0;font-weight:650}
+.sub{color:var(--text-secondary);font-size:12.5px;margin-top:4px}
+.toggle{display:flex;gap:4px;background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:8px;padding:3px}
+.toggle button{min-height:44px;padding:0 16px;border-radius:6px;border:0;cursor:pointer;background:transparent;
+  color:var(--text-secondary);font-size:13px;font-weight:600;font-family:inherit}
+.toggle button[aria-pressed="true"]{background:var(--accent-solid);color:#fff}
+button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-secondary);margin:32px 0 6px;font-weight:700}
+.lede{color:var(--text-secondary);font-size:12.5px;margin:0 0 14px;max-width:78ch}
+.cols{display:grid;gap:18px;grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.panel{border:1px solid var(--border-primary);border-radius:12px;background:var(--bg-primary);overflow:hidden}
+.panel>header{padding:10px 14px;border-bottom:1px solid var(--border-primary);
+  font-size:11.5px;font-weight:700;text-transform:uppercase;letter-spacing:.06em}
+.h-bad{background:var(--severity-error-bg);color:var(--severity-error-fg)}
+.h-good{background:var(--severity-success-bg);color:var(--severity-success-fg)}
+.pad{padding:14px}
+.seclabel{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;margin:0 0 7px}
+.chips{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:14px}
+.chip{border-radius:7px;padding:0 13px;min-height:44px;display:inline-flex;align-items:center;gap:5px;
+  font-size:12.5px;cursor:pointer;font-family:inherit;border:1px solid}
+.tabs{display:flex;gap:3px;border-bottom:1px solid var(--border-primary);margin-bottom:12px}
+.tab{border:0;border-bottom:2px solid transparent;background:transparent;cursor:pointer;
+  padding:0 13px;min-height:44px;font-size:12.5px;font-weight:500;font-family:inherit}
+.step{display:flex;gap:10px;padding:9px 0;border-bottom:1px solid var(--border-primary)}
+.step:last-of-type{border-bottom:0}
+.num{flex:0 0 auto;width:20px;height:20px;margin-top:2px;border-radius:999px;border:1px solid var(--border-primary);
+  background:var(--bg-secondary);display:flex;align-items:center;justify-content:center;font-size:10.5px;font-weight:700}
+.sm{flex:1;min-width:0}
+.st{font-size:12.5px;color:var(--text-primary);margin-bottom:5px}
+.pill{display:inline-block;margin-left:6px;border-radius:4px;padding:1px 6px;font-size:10px;border:1px solid}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+input{flex:1 1 170px;min-width:0;min-height:44px;border-radius:6px;border:1px solid var(--border-primary);
+  background:var(--bg-secondary);padding:6px 10px;font-size:12.5px;color:var(--text-primary);
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.act{min-height:44px;padding:0 14px;border-radius:6px;cursor:pointer;font-size:12.5px;font-weight:600;
+  font-family:inherit;border:1px solid}
+.foot{display:flex;gap:8px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--border-primary);
+  margin-top:14px;padding-top:12px}
+.spacer{flex:1}
+.lnk{font-size:12px;text-decoration:underline;cursor:pointer}
+
+/* ══ BEFORE — literals copied verbatim from the source class strings ══ */
+.bad-seclabel{color:var(--text-muted)}
+.bad-chip-off{border-color:var(--border-primary);background:var(--bg-secondary);color:var(--text-muted)}
+.bad-chip-on{border-color:#3b82f6;background:#1d3a63;color:var(--text-primary)}
+.bad-tab-off{color:var(--text-muted)}
+.bad-tab-on{border-bottom-color:#3b82f6;color:var(--text-primary)}
+.bad-num{color:var(--text-muted)}
+.bad-pill{border-color:var(--border-primary);color:var(--text-muted)}
+.bad-act{border-color:#3b82f6;background:#1d3a63;color:var(--text-primary)}
+.bad-foot{border-color:var(--border-primary);background:transparent;color:var(--text-muted)}
+.bad-done{border-color:#3b82f6;background:#3b82f6;color:#fff}
+.bad-lnk{color:#3b82f6}
+
+/* ══ AFTER — proposed tokens ══ */
+.ok-seclabel{color:var(--text-secondary)}
+.ok-chip-off{border-color:var(--border-secondary);background:var(--bg-secondary);color:var(--text-secondary)}
+.ok-chip-on{border-color:var(--accent);background:var(--accent-soft);color:var(--text-primary);font-weight:600}
+.ok-tab-off{color:var(--text-secondary)}
+.ok-tab-on{border-bottom-color:var(--accent);color:var(--text-primary);font-weight:650}
+.ok-num{color:var(--text-secondary)}
+.ok-pill{border-color:var(--border-secondary);color:var(--text-secondary)}
+.ok-act{border-color:var(--accent);background:var(--accent-soft);color:var(--text-primary)}
+.ok-foot{border-color:var(--border-secondary);background:transparent;color:var(--text-secondary)}
+.ok-done{border-color:var(--accent-solid);background:var(--accent-solid);color:#fff}
+.ok-lnk{color:var(--accent-text)}
+
+.ratio{display:inline-block;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700;margin-left:6px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;vertical-align:middle}
+.r-bad{background:var(--severity-error-bg);color:var(--severity-error-fg);border:1px solid var(--severity-error-border)}
+.r-ok{background:var(--severity-success-bg);color:var(--severity-success-fg);border:1px solid var(--severity-success-border)}
+table{width:100%;border-collapse:collapse;font-size:12px;margin-top:8px}
+th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--border-primary);vertical-align:top}
+th{color:var(--text-secondary);font-size:10.5px;text-transform:uppercase;letter-spacing:.05em}
+td code{color:var(--text-primary)}
+.note{display:flex;gap:9px;border-radius:8px;padding:10px 12px;border:1px solid;font-size:12px;margin-top:14px}
+.n-err{background:var(--severity-error-bg);border-color:var(--severity-error-border);color:var(--severity-error-fg)}
+.n-ok{background:var(--severity-success-bg);border-color:var(--severity-success-border);color:var(--severity-success-fg)}
+.note .body{color:var(--text-secondary);font-weight:400}
+.note>div>b:first-child{display:block;margin-bottom:2px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div>
+      <h1>Setup tab — colour repair</h1>
+      <div class="sub">Light mode is where it breaks. Toggle to compare. BEFORE reproduces the shipped class strings verbatim.</div>
+    </div>
+    <div class="toggle" role="group" aria-label="Colour mode">
+      <button type="button" id="b-light" aria-pressed="true">Light</button>
+      <button type="button" id="b-dark" aria-pressed="false">Dark</button>
+    </div>
+  </div>
+
+  <h2>Root cause</h2>
+  <p class="lede">
+    <code>--accent</code> and <code>--accent-soft</code> are <b>never defined</b> in
+    <code>index.css</code> — not in <code>:root</code>, not in <code>[data-theme="light"]</code>.
+    All 14 usages fall back to the hardcoded literal baked into the class string
+    (<code>var(--accent-soft,#1d3a63)</code>), so a dark-navy fill is painted in
+    <b>both</b> themes while the text on top stays theme-aware. In light mode that is
+    near-black on dark navy.
+  </p>
+
+  <table>
+    <tr><th>Cause</th><th>Element</th><th>Now (light)</th><th>Fix</th></tr>
+    <tr><td><b>A</b> <code>--accent-soft</code> undefined</td><td>selected provider / mode chip, step action button</td>
+        <td><span class="ratio r-bad">1.52:1</span></td><td><span class="ratio r-ok">14.27:1</span></td></tr>
+    <tr><td><b>B</b> <code>--text-muted</code> below floor</td><td>unselected chips, inactive tabs, footer, step numbers</td>
+        <td><span class="ratio r-bad">2.23:1</span></td><td><span class="ratio r-ok">9.33:1</span></td></tr>
+    <tr><td><b>C</b> <code>--accent</code> undefined</td><td>primary button fill, “Open admin console” link</td>
+        <td><span class="ratio r-bad">3.68:1</span></td><td><span class="ratio r-ok">5.17–6.70:1</span></td></tr>
+  </table>
+
+  <h2>Side by side</h2>
+  <div class="cols">
+
+    <!-- ───────── BEFORE ───────── -->
+    <div class="panel">
+      <header class="h-bad">Before — 13 of 15 controls fail AA</header>
+      <div class="pad">
+        <div class="tabs">
+          <button class="tab bad-tab-on">Setup</button>
+          <button class="tab bad-tab-off">Access &amp; QR <span class="ratio r-bad">2.32</span></button>
+          <button class="tab bad-tab-off">Security</button>
+        </div>
+
+        <p class="seclabel bad-seclabel">Provider <span class="ratio r-bad">2.32</span></p>
+        <div class="chips">
+          <button class="chip bad-chip-off">zrok</button>
+          <button class="chip bad-chip-off">ngrok</button>
+          <button class="chip bad-chip-off">tailscale <span class="ratio r-bad">2.23</span></button>
+          <button class="chip bad-chip-on">zerotier <span class="ratio r-bad">1.52</span></button>
+        </div>
+
+        <p class="seclabel bad-seclabel">Mode</p>
+        <div class="chips">
+          <button class="chip bad-chip-off">Public</button>
+          <button class="chip bad-chip-on">Private <span class="ratio r-bad">1.52</span></button>
+        </div>
+
+        <p class="seclabel bad-seclabel">Setup</p>
+        <div class="step">
+          <span class="num bad-num">1</span>
+          <div class="sm">
+            <div class="st">Install the zrok client <span class="pill bad-pill">copy</span></div>
+            <div class="row"><input value="brew install openziti/tap/zrok" readonly aria-label="Install command" /></div>
+          </div>
+        </div>
+        <div class="step">
+          <span class="num bad-num">2</span>
+          <div class="sm">
+            <div class="st">Enable this environment <span class="pill bad-pill">runs server-side</span></div>
+            <div class="row">
+              <input value="ey9Kd2f0aXNz" aria-label="zrok enable token" />
+              <button class="act bad-act">Authenticate <span class="ratio r-bad">1.52</span></button>
+            </div>
+          </div>
+        </div>
+        <div class="step">
+          <span class="num bad-num">3</span>
+          <div class="sm">
+            <div class="st">Authorize this node</div>
+            <a class="lnk bad-lnk">Open admin console <span class="ratio r-bad">3.68</span></a>
+          </div>
+        </div>
+
+        <div class="foot">
+          <span class="spacer"></span>
+          <button class="act bad-foot" style="min-height:30px">Disconnect <span class="ratio r-bad">2.32</span></button>
+          <button class="act bad-done" style="min-height:30px">Done <span class="ratio r-bad">3.68</span></button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ───────── AFTER ───────── -->
+    <div class="panel">
+      <header class="h-good">After — every control clears AA</header>
+      <div class="pad">
+        <div class="tabs">
+          <button class="tab ok-tab-on">Setup</button>
+          <button class="tab ok-tab-off">Access &amp; QR <span class="ratio r-ok">9.33</span></button>
+          <button class="tab ok-tab-off">Security</button>
+        </div>
+
+        <p class="seclabel ok-seclabel">Provider <span class="ratio r-ok">9.74</span></p>
+        <div class="chips">
+          <button class="chip ok-chip-off">zrok</button>
+          <button class="chip ok-chip-off">ngrok</button>
+          <button class="chip ok-chip-off">tailscale <span class="ratio r-ok">9.33</span></button>
+          <button class="chip ok-chip-on">zerotier <span class="ratio r-ok">14.27</span></button>
+        </div>
+
+        <p class="seclabel ok-seclabel">Mode</p>
+        <div class="chips">
+          <button class="chip ok-chip-off">Public</button>
+          <button class="chip ok-chip-on">Private <span class="ratio r-ok">14.27</span></button>
+        </div>
+
+        <p class="seclabel ok-seclabel">Setup</p>
+        <div class="step">
+          <span class="num ok-num">1</span>
+          <div class="sm">
+            <div class="st">Install the zrok client <span class="pill ok-pill">copy</span></div>
+            <div class="row"><input value="brew install openziti/tap/zrok" readonly aria-label="Install command" /></div>
+          </div>
+        </div>
+        <div class="step">
+          <span class="num ok-num">2</span>
+          <div class="sm">
+            <div class="st">Enable this environment <span class="pill ok-pill">runs server-side</span></div>
+            <div class="row">
+              <input value="ey9Kd2f0aXNz" aria-label="zrok enable token" />
+              <button class="act ok-act">Authenticate <span class="ratio r-ok">14.27</span></button>
+            </div>
+          </div>
+        </div>
+        <div class="step">
+          <span class="num ok-num">3</span>
+          <div class="sm">
+            <div class="st">Authorize this node</div>
+            <a class="lnk ok-lnk">Open admin console <span class="ratio r-ok">6.70</span></a>
+          </div>
+        </div>
+
+        <div class="foot">
+          <span class="spacer"></span>
+          <button class="act ok-foot">Disconnect <span class="ratio r-ok">9.74</span></button>
+          <button class="act ok-done">Done <span class="ratio r-ok">5.17</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>Proposed token additions</h2>
+  <p class="lede">Four tokens, defined once per theme. No component class changes for cause A and C —
+    the existing <code>var(--accent-soft,…)</code> call sites simply stop hitting their fallback.</p>
+  <table>
+    <tr><th>Token</th><th>Dark</th><th>Light</th><th>Used for</th><th>Floor</th></tr>
+    <tr><td><code>--accent</code></td><td><code>#3b82f6</code></td><td><code>#2563eb</code></td><td>border, ring, focus</td><td>3:1 non-text ✓</td></tr>
+    <tr><td><code>--accent-soft</code></td><td><code>#1d3a63</code></td><td><code>#dbeafe</code></td><td>soft fill behind <code>--text-primary</code></td><td>9.07 / 14.27 ✓</td></tr>
+    <tr><td><code>--accent-solid</code></td><td><code>#2563eb</code></td><td><code>#2563eb</code></td><td>solid fill behind white</td><td>5.17 ✓</td></tr>
+    <tr><td><code>--accent-text</code></td><td><code>#60a5fa</code></td><td><code>#1d4ed8</code></td><td>link text on page bg</td><td>7.79 / 6.70 ✓</td></tr>
+  </table>
+
+  <div class="note n-err">
+    <span aria-hidden="true">✕</span>
+    <div><b>Dark mode is not exempt.</b><span class="body">The primary button is white on
+      <code>--accent-primary #3b82f6</code> = <b>3.68:1</b> in <b>both</b> themes. It fails AA for
+      14px semibold text everywhere, which is why <code>--accent-solid</code> is <code>#2563eb</code>
+      in dark too, not just light.</span></div>
+  </div>
+
+  <div class="note n-ok">
+    <span aria-hidden="true">✓</span>
+    <div><b>In scope for this change.</b><span class="body">Pre-existing, 14 call sites,
+      9 of them in <code>Gateway/</code>. Folded in rather than deferred because the new
+      reserved-name control is a step <b>on this tab</b> — shipping step 3 into a surface
+      whose selected state measures 1.52:1 would build the fix and the defect in the same
+      place. Spec delta: <code>theme-system</code>. The repo-wide <code>--text-muted</code>
+      audit stays out of scope.</span></div>
+  </div>
+
+</div>
+<script>
+  var root=document.documentElement,l=document.getElementById('b-light'),d=document.getElementById('b-dark');
+  function set(m){root.setAttribute('data-mode',m);
+    l.setAttribute('aria-pressed',String(m==='light'));d.setAttribute('aria-pressed',String(m==='dark'));}
+  l.addEventListener('click',function(){set('light');});
+  d.addEventListener('click',function(){set('dark');});
+</script>
+</body>
+</html>

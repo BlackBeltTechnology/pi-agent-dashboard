@@ -1,0 +1,449 @@
+<!doctype html>
+<html lang="en" data-mode="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Gateway — zrok reserved name</title>
+<style>
+/* ─────────────────────────────────────────────────────────────
+   Tokens copied VERBATIM from packages/client/src/index.css.
+   No component rule below uses a raw hex — every value is var(--…).
+   ───────────────────────────────────────────────────────────── */
+:root, [data-mode="dark"] {
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e;
+  --bg-surface:#2a2a2a; --bg-hover:rgba(255,255,255,.06); --bg-code:#1a1a1a;
+  --bg-overlay:rgba(0,0,0,.6);
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080;
+  --text-muted:#585858; --text-faint:#3a3a3a;
+  --border-primary:#252525; --border-secondary:#333333;
+  --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-yellow:#eab308;
+  --accent-red:#ef4444; --accent-orange:#f97316; --accent-primary:#3b82f6;
+  --accent-soft:#1d3a63;
+}
+[data-mode="light"] {
+  --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0;
+  --bg-surface:#e0e0e0; --bg-hover:rgba(0,0,0,.04); --bg-code:#f5f5f5;
+  --bg-overlay:rgba(0,0,0,.3);
+  --text-primary:#1a1a1a; --text-secondary:#444444; --text-tertiary:#777777;
+  --text-muted:#aaaaaa; --text-faint:#d0d0d0;
+  --border-primary:#e0e0e0; --border-secondary:#cccccc;
+  --accent-primary:#2563eb; --accent-soft:#dbeafe;
+}
+/* severity ramp — derived exactly as index.css does */
+:root, [data-mode] {
+  --severity-error-bg:color-mix(in srgb, var(--accent-red) 10%, var(--bg-tertiary));
+  --severity-error-fg:color-mix(in srgb, var(--accent-red) 46%, var(--text-primary));
+  --severity-error-border:color-mix(in srgb, var(--accent-red) 40%, transparent);
+  --severity-warning-bg:color-mix(in srgb, var(--accent-orange) 10%, var(--bg-tertiary));
+  --severity-warning-fg:color-mix(in srgb, var(--accent-orange) 46%, var(--text-primary));
+  --severity-warning-border:color-mix(in srgb, var(--accent-orange) 40%, transparent);
+  --severity-success-bg:color-mix(in srgb, var(--accent-green) 10%, var(--bg-tertiary));
+  --severity-success-fg:color-mix(in srgb, var(--accent-green) 46%, var(--text-primary));
+  --severity-success-border:color-mix(in srgb, var(--accent-green) 40%, transparent);
+  --severity-neutral-bg:var(--bg-tertiary);
+  --severity-neutral-fg:var(--text-secondary);
+  --severity-neutral-border:var(--border-primary);
+}
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg-primary); color:var(--text-primary);
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  font-size:14px; line-height:1.5;
+}
+code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.wrap{max-width:1180px;margin:0 auto;padding:24px 16px 72px}
+.topbar{
+  display:flex;flex-wrap:wrap;gap:12px;align-items:center;justify-content:space-between;
+  border-bottom:1px solid var(--border-primary);padding-bottom:16px;margin-bottom:24px;
+}
+h1{font-size:18px;margin:0;font-weight:650;letter-spacing:-.01em}
+.sub{color:var(--text-secondary);font-size:12.5px;margin-top:4px}
+.toggle{display:flex;gap:4px;background:var(--bg-secondary);border:1px solid var(--border-primary);border-radius:8px;padding:3px}
+.toggle button{
+  min-height:44px;padding:0 16px;border-radius:6px;border:0;cursor:pointer;
+  background:transparent;color:var(--text-secondary);font-size:13px;font-weight:600;font-family:inherit;
+}
+.toggle button[aria-pressed="true"]{background:var(--accent-primary);color:#fff}
+.toggle button:focus-visible,a:focus-visible,button:focus-visible,input:focus-visible{
+  outline:2px solid var(--accent-primary);outline-offset:2px
+}
+h2{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-secondary);
+   margin:36px 0 12px;font-weight:700}
+.grid{display:grid;gap:20px;grid-template-columns:repeat(auto-fit,minmax(330px,1fr))}
+
+/* ── dialog shell — mirrors the shipped Gateway dialog ── */
+.dlg{background:var(--bg-primary);border:1px solid var(--border-primary);border-radius:12px;
+     box-shadow:0 10px 30px var(--bg-overlay);overflow:hidden}
+.dlg-hd{display:flex;align-items:center;justify-content:space-between;padding:14px 18px 0}
+.dlg-hd h3{margin:0;font-size:16px;font-weight:650}
+.tabs{display:flex;gap:4px;border-bottom:1px solid var(--border-primary);padding:0 18px;margin-top:10px}
+.tab{border:0;border-bottom:2px solid transparent;background:transparent;cursor:pointer;
+     padding:10px 14px;font-size:12.5px;font-weight:500;color:var(--text-secondary);font-family:inherit;min-height:44px}
+.tab[aria-selected="true"]{border-bottom-color:var(--accent-primary);color:var(--text-primary)}
+.dlg-bd{padding:14px 18px 18px}
+.seclabel{font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.06em;
+          color:var(--text-secondary);margin:0 0 8px}
+
+/* ── numbered step row — shipped pattern ── */
+.step{display:flex;gap:10px;border-bottom:1px solid var(--border-primary);padding:10px 0}
+.step:last-child{border-bottom:0}
+.num{flex:0 0 auto;width:20px;height:20px;margin-top:2px;border-radius:999px;
+     border:1px solid var(--border-primary);background:var(--bg-secondary);
+     display:flex;align-items:center;justify-content:center;
+     font-size:10.5px;font-weight:700;color:var(--text-secondary)}
+.step-main{flex:1;min-width:0}
+.step-title{font-size:12.5px;color:var(--text-primary);margin-bottom:4px}
+.chip{display:inline-block;margin-left:6px;border:1px solid var(--border-secondary);border-radius:4px;
+      padding:1px 6px;font-size:10px;color:var(--text-secondary);vertical-align:middle}
+.row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+label.fld{display:block;font-size:11.5px;color:var(--text-secondary);margin-bottom:4px;font-weight:500}
+.hint{font-size:11px;color:var(--text-secondary);margin-top:5px}
+input[type=text]{
+  flex:1 1 190px;min-width:0;min-height:44px;border-radius:6px;
+  border:1px solid var(--border-primary);background:var(--bg-secondary);
+  padding:6px 10px;font-size:12.5px;color:var(--text-primary);
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace;
+}
+input[type=text]::placeholder{color:var(--text-secondary)}
+input[aria-invalid="true"]{border-color:var(--severity-error-border);
+  box-shadow:inset 0 0 0 1px var(--severity-error-border)}
+.btn{min-height:44px;padding:0 14px;border-radius:6px;cursor:pointer;font-size:12.5px;
+     font-weight:600;font-family:inherit;border:1px solid var(--border-primary);
+     background:var(--bg-secondary);color:var(--text-primary)}
+.btn-primary{border-color:var(--accent-primary);background:var(--accent-soft);color:var(--text-primary)}
+.btn-primary[disabled]{opacity:.5;cursor:not-allowed}
+.btn-danger{border-color:var(--severity-error-border);color:var(--severity-error-fg);
+            background:var(--severity-error-bg)}
+.btn-solid{background:var(--accent-primary);color:#fff;border-color:var(--accent-primary)}
+.btn-ghost{background:transparent;color:var(--text-secondary)}
+
+/* ── status blocks: color is never the only channel (icon + text + border) ── */
+.note{display:flex;gap:8px;align-items:flex-start;border-radius:8px;padding:9px 11px;
+      margin-top:8px;border:1px solid;font-size:11.5px;line-height:1.45}
+.note .ico{flex:0 0 auto;font-size:12px;line-height:1.35;font-weight:700}
+.note b{display:block;margin-bottom:1px}
+.note code{font-size:11px;word-break:break-all}
+.n-ok{background:var(--severity-success-bg);border-color:var(--severity-success-border);color:var(--severity-success-fg)}
+.n-err{background:var(--severity-error-bg);border-color:var(--severity-error-border);color:var(--severity-error-fg)}
+.n-warn{background:var(--severity-warning-bg);border-color:var(--severity-warning-border);color:var(--severity-warning-fg)}
+.n-neutral{background:var(--severity-neutral-bg);border-color:var(--severity-neutral-border);color:var(--severity-neutral-fg)}
+.note .body{color:var(--text-secondary);font-weight:400}
+
+.preview{margin-top:7px;font-size:11.5px;color:var(--text-secondary)}
+.preview code{color:var(--text-primary)}
+
+/* ── footer ── */
+.foot{display:flex;align-items:center;gap:8px;flex-wrap:wrap;
+      border-top:1px solid var(--border-primary);padding:12px 18px;background:var(--bg-primary)}
+.spacer{flex:1}
+
+/* ── annotation card ── */
+.card{border:1px solid var(--border-primary);border-radius:12px;background:var(--bg-secondary);padding:14px 16px}
+.card h4{margin:0 0 8px;font-size:12.5px;font-weight:650;color:var(--text-primary)}
+.defect{display:flex;gap:9px;padding:7px 0;border-bottom:1px dashed var(--border-primary);font-size:11.5px;color:var(--text-secondary)}
+.defect:last-child{border-bottom:0}
+.sev{flex:0 0 auto;border-radius:4px;padding:1px 6px;font-size:10px;font-weight:700;height:fit-content}
+.sev4{background:var(--severity-error-bg);color:var(--severity-error-fg);border:1px solid var(--severity-error-border)}
+.sev3{background:var(--severity-warning-bg);color:var(--severity-warning-fg);border:1px solid var(--severity-warning-border)}
+.sev2{background:var(--severity-neutral-bg);color:var(--severity-neutral-fg);border:1px solid var(--severity-neutral-border)}
+.cite{color:var(--text-secondary);font-size:11px;font-style:italic}
+.caption{font-size:12px;color:var(--text-secondary);margin:0 0 10px}
+.tagline{display:inline-block;border:1px solid var(--border-secondary);border-radius:4px;
+         padding:1px 7px;font-size:10px;color:var(--text-secondary);margin-left:8px;vertical-align:middle}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+@media (max-width:520px){ .row{flex-direction:column;align-items:stretch} .btn{width:100%} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div>
+      <h1>Gateway — zrok reserved name</h1>
+      <div class="sub">Mockup for <code>add-zrok-custom-reserved-name</code>. Tokens copied from <code>index.css</code>; no raw hex in component rules.</div>
+    </div>
+    <div class="toggle" role="group" aria-label="Colour mode">
+      <button type="button" id="b-dark" aria-pressed="true">Dark</button>
+      <button type="button" id="b-light" aria-pressed="false">Light</button>
+    </div>
+  </div>
+
+  <!-- ══════════════ BEFORE ══════════════ -->
+  <h2>Before — what ships today</h2>
+  <div class="grid">
+    <div class="dlg">
+      <div class="dlg-hd"><h3>Gateway</h3></div>
+      <div class="tabs">
+        <button class="tab" aria-selected="true">Setup</button>
+        <button class="tab" aria-selected="false">Access &amp; QR</button>
+        <button class="tab" aria-selected="false">Security</button>
+      </div>
+      <div class="dlg-bd">
+        <p class="seclabel">Setup</p>
+        <div class="step">
+          <span class="num">1</span>
+          <div class="step-main">
+            <div class="step-title">Install the zrok client <span class="chip">copy</span></div>
+            <div class="row"><input type="text" value="brew install openziti/tap/zrok" readonly aria-label="Install command" /></div>
+          </div>
+        </div>
+        <div class="step">
+          <span class="num">2</span>
+          <div class="step-main">
+            <div class="step-title">Enable this environment <span class="chip">runs server-side</span></div>
+            <div class="row">
+              <input type="text" placeholder="zrok enable token" aria-label="zrok enable token" />
+              <button class="btn btn-primary" disabled>Authenticate</button>
+            </div>
+            <p class="hint">Placeholder is the only label — no persistent field label.</p>
+          </div>
+        </div>
+        <div class="note n-neutral" style="margin-top:12px">
+          <span class="ico" aria-hidden="true">◦</span>
+          <div><b>The guide stops here.</b><span class="body">There is no step for choosing your URL. A persistent name is reachable only by hand-editing <code>~/.pi/dashboard/config.json</code>.</span></div>
+        </div>
+      </div>
+      <div class="foot">
+        <span class="spacer"></span>
+        <button class="btn btn-ghost" style="min-height:30px">Disconnect</button>
+        <button class="btn btn-ghost" style="min-height:30px">Forget reserved URL</button>
+        <button class="btn btn-solid" style="min-height:30px">Done</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h4>Defects — cited, severity-ranked</h4>
+      <div class="defect"><span class="sev sev4">4</span><div><b>D1 · Destructive action, no confirm.</b> “Forget reserved URL” destroys a URL you may have shared, in one click, with no undo. <span class="cite">Rubric #8 — destructive actions must be reversible or confirm-gated (Nielsen H3/H5).</span></div></div>
+      <div class="defect"><span class="sev sev4">4</span><div><b>D2 · Silent fallback.</b> When a reserved name is taken or invalid, the connect still succeeds on a random URL. Only a <code>console.warn</code> records why. <span class="cite">Rubric #7 — every state-changing action shows status (Nielsen H1, visibility of system status).</span></div></div>
+      <div class="defect"><span class="sev sev3">3</span><div><b>D3 · Capability invisible.</b> Nothing shows or sets the reserved name. <span class="cite">Nielsen H6 — recognition rather than recall.</span></div></div>
+      <div class="defect"><span class="sev sev3">3</span><div><b>D4 · Shown out of context.</b> “Forget reserved URL” renders for ngrok / tailscale / zerotier, which have no zrok name. <span class="cite">Rubric #11 — nothing on screen may fail to serve the current goal (H8).</span></div></div>
+      <div class="defect"><span class="sev sev3">3</span><div><b>D5 · Equal weight, unequal risk.</b> “Disconnect” (recoverable) and “Forget reserved URL” (irreversible) are styled identically. <span class="cite">Rubric #6 — one dominant action; Von Restorff.</span></div></div>
+      <div class="defect"><span class="sev sev2">2</span><div><b>D6 · Placeholder-only labels.</b> <span class="cite">Rubric #13 — every input needs a persistent label.</span></div></div>
+      <div class="defect"><span class="sev sev2">2</span><div><b>D7 · Target size.</b> Footer actions are ~30px tall. <span class="cite">Rubric #2 — ≥24px AA, primary ≥44px.</span></div></div>
+      <div class="note n-warn" style="margin-top:12px">
+        <span class="ico" aria-hidden="true">▲</span>
+        <div><b>Observed live, not hypothetical.</b><span class="body">The running dashboard is serving <code>nsdfook2l23d.shares.zrok.io</code> — a random ephemeral token, not a <code>pi-dash-&lt;hex&gt;</code> reserved name. That is D2 happening right now.</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══════════════ AFTER ══════════════ -->
+  <h2>After — step 3 in the shipped step pattern</h2>
+  <p class="caption">Adapts the existing numbered-step layout (Nielsen H4 consistency, Jakob’s Law) rather than introducing a parallel control. Every state below is the same component.</p>
+
+  <div class="grid">
+
+    <!-- idle -->
+    <div class="dlg">
+      <div class="dlg-bd">
+        <p class="seclabel">Setup <span class="tagline">state · idle</span></p>
+        <div class="step">
+          <span class="num">3</span>
+          <div class="step-main">
+            <div class="step-title">Choose your public URL <span class="chip">optional</span></div>
+            <label class="fld" for="i1">Reserved name</label>
+            <div class="row">
+              <input id="i1" type="text" placeholder="robson-home-mac" aria-describedby="h1" />
+              <button class="btn btn-primary" disabled>Reserve</button>
+            </div>
+            <p class="hint" id="h1">Lowercase letters, numbers and hyphens. Up to 63 characters.</p>
+            <div class="note n-neutral">
+              <span class="ico" aria-hidden="true">◦</span>
+              <div><b>Currently ephemeral.</b><span class="body">Your URL changes on every reconnect. Reserve a name to keep it stable.</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- typing valid -->
+    <div class="dlg">
+      <div class="dlg-bd">
+        <p class="seclabel">Setup <span class="tagline">state · valid</span></p>
+        <div class="step">
+          <span class="num">3</span>
+          <div class="step-main">
+            <div class="step-title">Choose your public URL <span class="chip">optional</span></div>
+            <label class="fld" for="i2">Reserved name</label>
+            <div class="row">
+              <input id="i2" type="text" value="robson-home-mac" aria-describedby="h2" />
+              <button class="btn btn-primary">Reserve</button>
+            </div>
+            <p class="preview" id="h2">Your URL will be <code>https://robson-home-mac.shares.zrok.io</code></p>
+            <div class="note n-neutral">
+              <span class="ico" aria-hidden="true">◦</span>
+              <div><b>Names are global.</b><span class="body">zrok names are unique across all accounts. Reserving claims this one for you.</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- invalid -->
+    <div class="dlg">
+      <div class="dlg-bd">
+        <p class="seclabel">Setup <span class="tagline">state · invalid</span></p>
+        <div class="step">
+          <span class="num">3</span>
+          <div class="step-main">
+            <div class="step-title">Choose your public URL <span class="chip">optional</span></div>
+            <label class="fld" for="i3">Reserved name</label>
+            <div class="row">
+              <input id="i3" type="text" value="robson_home_mac" aria-invalid="true" aria-describedby="h3" />
+              <button class="btn btn-primary" disabled>Reserve</button>
+            </div>
+            <div class="note n-err" id="h3" role="alert">
+              <span class="ico" aria-hidden="true">✕</span>
+              <div><b>Underscores aren’t allowed.</b><span class="body">Use hyphens instead — try <code>robson-home-mac</code>.</span></div>
+            </div>
+            <p class="hint">Checked when you leave the field, not on every keystroke.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- taken -->
+    <div class="dlg">
+      <div class="dlg-bd">
+        <p class="seclabel">Setup <span class="tagline">state · taken</span></p>
+        <div class="step">
+          <span class="num">3</span>
+          <div class="step-main">
+            <div class="step-title">Choose your public URL <span class="chip">optional</span></div>
+            <label class="fld" for="i4">Reserved name</label>
+            <div class="row">
+              <input id="i4" type="text" value="dashboard" aria-invalid="true" aria-describedby="h4" />
+              <button class="btn btn-primary">Reserve</button>
+            </div>
+            <div class="note n-err" id="h4" role="alert">
+              <span class="ico" aria-hidden="true">✕</span>
+              <div><b>“dashboard” is already taken.</b><span class="body">zrok names are shared across every account. Pick something more specific — <code>robson-home-mac</code> is free-form and likely available.</span></div>
+            </div>
+            <p class="hint">Your typed name is kept so you can edit rather than retype.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- reserved ok -->
+    <div class="dlg">
+      <div class="dlg-bd">
+        <p class="seclabel">Setup <span class="tagline">state · reserved</span></p>
+        <div class="step">
+          <span class="num">3</span>
+          <div class="step-main">
+            <div class="step-title">Choose your public URL <span class="chip">reserved</span></div>
+            <div class="note n-ok">
+              <span class="ico" aria-hidden="true">✓</span>
+              <div><b>Reserved — your URL is now stable.</b><span class="body"><code>https://robson-home-mac.shares.zrok.io</code> survives restarts and reconnects.</span></div>
+            </div>
+            <div class="row" style="margin-top:10px">
+              <button class="btn">Replace…</button>
+              <button class="btn btn-danger">Release…</button>
+            </div>
+            <p class="hint">“Release” is the old “Forget reserved URL”, renamed to say what it does and shown only for zrok.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- replace confirm -->
+    <div class="dlg">
+      <div class="dlg-bd">
+        <p class="seclabel">Setup <span class="tagline">state · confirm</span></p>
+        <div class="step">
+          <span class="num">3</span>
+          <div class="step-main">
+            <div class="step-title">Replace your reserved URL</div>
+            <div class="note n-warn" role="alert">
+              <span class="ico" aria-hidden="true">▲</span>
+              <div><b>This releases <code>robson-home-mac</code>.</b><span class="body">Anyone using <code>https://robson-home-mac.shares.zrok.io</code> loses access, and the name returns to the global pool. This cannot be undone.</span></div>
+            </div>
+            <label class="fld" for="i6" style="margin-top:10px">New reserved name</label>
+            <div class="row">
+              <input id="i6" type="text" value="robson-laptop" />
+            </div>
+            <div class="row" style="margin-top:10px">
+              <button class="btn btn-danger">Replace and release old name</button>
+              <button class="btn btn-ghost">Cancel</button>
+            </div>
+            <p class="hint">The old name is released only after the new one is successfully reserved.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ══════════════ DEGRADED ══════════════ -->
+  <h2>After — the degraded banner (defect D2)</h2>
+  <p class="caption">Warning, not error: the tunnel works, it is simply not the URL you configured. Severity matches reality (Nielsen H9 — plain language, cause + fix).</p>
+
+  <div class="grid">
+    <div class="dlg">
+      <div class="dlg-hd"><h3>Gateway</h3></div>
+      <div class="tabs">
+        <button class="tab" aria-selected="false">Setup</button>
+        <button class="tab" aria-selected="true">Access &amp; QR</button>
+        <button class="tab" aria-selected="false">Security</button>
+      </div>
+      <div class="dlg-bd">
+        <div class="note n-warn" role="status">
+          <span class="ico" aria-hidden="true">▲</span>
+          <div>
+            <b>Using a temporary URL, not your reserved name.</b>
+            <span class="body">You configured <code>robson-home-mac</code>, but it is held by another zrok account, so this session fell back to <code>nsdfook2l23d.shares.zrok.io</code>. This URL changes on every reconnect.</span>
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn btn-primary">Choose a different name</button>
+          <button class="btn btn-ghost">Keep temporary URL</button>
+        </div>
+        <p class="hint">Shown only when a name is configured. An intentionally ephemeral tunnel is never flagged.</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h4>Why this is a state, not an error toast</h4>
+      <div class="defect"><span class="sev sev2">·</span><div>The connect <b>succeeded</b> — every layer honestly returns <code>{ ok: true, url }</code>. Reporting a failure would be a lie. <span class="cite">Nielsen H9 — errors must state the real cause.</span></div></div>
+      <div class="defect"><span class="sev sev2">·</span><div>Derived from <b>stored-name vs effective-name</b>, so a watchdog recycle re-renders the same banner instead of firing a new notification each cycle. <span class="cite">Rubric #7 without alarm fatigue.</span></div></div>
+      <div class="defect"><span class="sev sev2">·</span><div>Offers both exits — fix it or accept it. <span class="cite">Nielsen H3 — user control and freedom.</span></div></div>
+      <div class="defect"><span class="sev sev2">·</span><div>Colour is never the only channel: icon + bold cause + border. <span class="cite">Rubric #4 / WCAG 1.4.1.</span></div></div>
+    </div>
+  </div>
+
+  <!-- ══════════════ FOOTER ══════════════ -->
+  <h2>After — footer (defects D1, D4, D5, D7)</h2>
+  <div class="grid">
+    <div class="dlg">
+      <div class="dlg-bd"><p class="caption" style="margin:0">The irreversible action moves out of the always-on footer and into the zrok step that owns it. What remains is one recoverable action and one dominant primary.</p></div>
+      <div class="foot">
+        <span class="spacer"></span>
+        <button class="btn btn-ghost">Disconnect</button>
+        <button class="btn btn-solid">Done</button>
+      </div>
+    </div>
+    <div class="card">
+      <h4>What changed and why</h4>
+      <div class="defect"><span class="sev sev4">D1</span><div>“Forget reserved URL” leaves the footer; releasing is confirm-gated and names the exact URL destroyed. <span class="cite">Rubric #8.</span></div></div>
+      <div class="defect"><span class="sev sev3">D4</span><div>Release lives in the zrok step, so it cannot render for ngrok / tailscale / zerotier. <span class="cite">Rubric #11.</span></div></div>
+      <div class="defect"><span class="sev sev3">D5</span><div>One dominant primary (“Done”) and one recoverable secondary. <span class="cite">Rubric #6.</span></div></div>
+      <div class="defect"><span class="sev sev2">D7</span><div>All controls ≥44px tall. <span class="cite">Rubric #2 / WCAG 2.5.5.</span></div></div>
+    </div>
+  </div>
+
+</div>
+<script>
+  var root = document.documentElement,
+      d = document.getElementById('b-dark'),
+      l = document.getElementById('b-light');
+  function set(mode){
+    root.setAttribute('data-mode', mode);
+    d.setAttribute('aria-pressed', String(mode === 'dark'));
+    l.setAttribute('aria-pressed', String(mode === 'light'));
+  }
+  d.addEventListener('click', function(){ set('dark'); });
+  l.addEventListener('click', function(){ set('light'); });
+</script>
+</body>
+</html>
