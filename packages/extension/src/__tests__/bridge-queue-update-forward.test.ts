@@ -5,7 +5,7 @@
  *
  * See change: add-followup-edit-and-steer-cancel.
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { isSubagentTick, SubagentTickThrottle } from "../subagent-tick-throttle.js";
 
 // We don't test the full bridge here (too much wiring) — we drive the

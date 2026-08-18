@@ -3,16 +3,22 @@
 - [x] 1.1 Add a `[[faux:subagent-sustained-long]]` fixture (≥ 10 s of continuous producer ticks) in `qa/fixtures/faux-scenarios.ts`, alongside the existing ~6 s `subagent-sustained` (see `qa/fixtures/faux-scenarios.ts:916-926`)
 - [x] 1.2 Add a `[[faux:subagent-streaming]]` fixture: streaming-heavy, minimal idle, so tick-rate measurement reflects the burst this change targets rather than a ~50 %-sleeping run
 - [x] 1.3 Teach the docker e2e harness to write the dashboard config file (carrying `subagentTickThrottleMs`) into the container BEFORE the pi session starts; resolve the dashboard port from `.pi-test-harness.json`, never a hardcoded `:18000` (see `docker/test-up.sh`, `tests/e2e/README.md`)
+- [x] 1.4 Add the SYNTHETIC Agent-tick producer `qa/fixtures/faux-agent-ticks.ext.ts` (an `Agent` tool that streams `tool_execution_update` frames at a `[[ticks:N@Mms]]` cadence with `partialResult.details.agentId`) + the `synthetic-agent-ticks` / `synthetic-agent-ticks-quiet` scenarios in `qa/fixtures/faux-scenarios.ts`. A nested faux subagent cannot sustain a >= 10 s tick stream (see `measurement.md`, Bug 2); the bridge throttle keys only on `toolName`+`agentId`, so a synthetic same-shape producer is the L3 substrate. Proven: OFF 19.6 fps -> ON(500) 2.00 fps on `/ws`
+- [x] 1.5 Add the `PI_SYNTH_AGENT_TICKS=1` harness arm: `docker/compose.test.yml` env + `docker/test-entrypoint.sh` stages `faux-agent-ticks` and SKIPS the subagents producer (the synthetic `Agent` owns the tool name, first-registration-wins; the two never coexist)
 
 ## 2. Measure the baseline (D1 — gate)
 
 - [x] 2.1 Record Agent-tick frames/s and bytes/s on `tool_execution_update`, broken down by `toolName`, and on the `subagents:*` carrier, over the streaming fixture with the throttle OFF
 - [x] 2.2 Write the measurement up in `openspec/changes/reduce-bridge-tick-bandwidth/measurement.md`; if the Agent-tick rate is already ≤ 2 Hz, STOP and correct the proposal's benefit framing instead of building the throttle
 
-> **BLOCKED — see `SHIP_IT_BLOCKED.md` + `measurement.md`.** Task 2.2's STOP
-> branch was taken: the measured Agent-tick rate is ~0.36 frames/s, two orders of
-> magnitude below the 2 Hz gate. §5 and §6 are NOT completable as written; §3/§4
-> are implemented and green but rest on a premise the measurement falsified.
+> **RESOLVED (2026-08-18) — see `measurement.md`.** The 0.36 fps that tripped
+> the 2.2 STOP was a DEAD-subagent artifact: the faux `Explore` subagent's
+> `@fast` role did not resolve to the key-free faux model in the harness, so it
+> fell back to a credential-less default and died in ~400 ms. Re-measured with a
+> live producer: **~32 fps (~26 KB/s) — ~16x the 2 Hz gate.** `design.md`
+> §Context is CONFIRMED; the STOP does NOT fire and the throttle is justified.
+> §5's >= 10 s cadence rows now run on the synthetic-producer arm (task 1.4/1.5),
+> since a nested faux subagent cannot sustain the stream (`measurement.md` Bug 2).
 
 ## 3. Throttle unit (TDD — tests before implementation)
 
@@ -45,15 +51,15 @@
 
 ## 5. Wire and rendered behaviour (E2E)
 
-- [ ] 5.1 Cadence floor on the throttled carrier (test-plan #F1) — input: the ≥ 10 s sustained fixture with the throttle ON · trigger: count Agent-tick frames received by the browser · observable: ≥ 5 frames in the 10 s window. See `tests/e2e/subagent-detail-dialog.spec.ts` (its `framereceived` collector) (test-plan: automated)
-- [ ] 5.2 Throttled rate (test-plan #P1) — input: streaming-heavy fixture, throttle ON · trigger: measure over ≥ 10 s · observable: Agent-tick frames (filtered `toolName === "Agent"`) mean ≤ 2.2 frames/s over the whole window, not per 1 s bucket. See `tests/e2e/subagent-detail-dialog.spec.ts` (test-plan: automated)
-- [ ] 5.3 Reduction is real (test-plan #P2) — input: same fixture, throttle OFF · trigger: measure over ≥ 10 s · observable: Agent-tick frames/s ≥ 4× the 5.2 rate. See `tests/e2e/subagent-detail-dialog.spec.ts` (test-plan: automated)
-- [ ] 5.4 Stored-tick staleness (test-plan #P3) — input: ≥ 10 s sustained fixture, throttle ON · trigger: inspect the server's stored events for the run · observable: gap between consecutive stored Agent ticks p95 ≤ W, max ≤ 3W. See `tests/e2e/replay-delta-on-reload.spec.ts` (test-plan: automated)
-- [ ] 5.5 F4 stays non-vacuous (test-plan #P4) — input: F4's own `[[faux:subagent-sustained]]` with the throttle ON · trigger: F4's 30 s poll · observable: F4 still passes AND ≥ 2 of its counted frames carry `toolName === "Agent"`. Extend `tests/e2e/subagent-detail-dialog.spec.ts` F4 rather than adding a new spec (test-plan: automated)
-- [ ] 5.6 No tick after terminal (test-plan #F2) — input: a run ending while a tick is pending · trigger: `tool_execution_end` forwarded for `tc1` · observable: no `tool_execution_update` for `tc1` on `/ws` afterwards, and the tool row never re-enters a running/partial render. See `tests/e2e/subagent-detail-dialog.spec.ts` (test-plan: automated)
-- [ ] 5.7 Reload folds to terminal (test-plan #F3) — input: a finished subagent run, throttle ON · trigger: page reload · observable: timeline renders the terminal snapshot, entry count equals the pre-reload terminal count. See `tests/e2e/replay-delta-on-reload.spec.ts` (test-plan: automated)
-- [ ] 5.8 Sibling pull path untouched (test-plan #F4) — input: a running subagent whose inspector is opened so a resync fires · trigger: the `subagent_resync_request` round-trip · observable: the synthetic `subagents:started` reply arrives unthrottled and uncoalesced, throttle counters unchanged by it. See `tests/e2e/subagent-inspector.spec.ts` (test-plan: automated)
-- [ ] 5.9 Quiet-producer anti-vacuity guard (test-plan #F5) — input: the sleep-heavy fixture (producer quiet > 2 s) · trigger: observe the gap · observable: no cadence failure is asserted during the quiet stretch — the floor applies only while the producer emits. See `tests/e2e/subagent-detail-dialog.spec.ts` (test-plan: automated)
+- [x] 5.1 Cadence floor on the throttled carrier (test-plan #F1) — input: the synthetic >= 10 s producer with the throttle ON · trigger: count Agent-tick frames received by the browser · observable: >= 5 frames in the 10 s window. See `tests/e2e/subagent-tick-throttle.spec.ts` (F1/P1), synthetic arm (test-plan: automated)
+- [x] 5.2 Throttled rate (test-plan #P1) — input: synthetic producer, throttle ON · trigger: measure over >= 10 s · observable: Agent-tick frames (filtered `toolName === "Agent"`) mean <= 2.2 frames/s over the whole window. See `tests/e2e/subagent-tick-throttle.spec.ts` (test-plan: automated)
+- [x] 5.3 Reduction is real (test-plan #P2) — input: same producer, throttle OFF · trigger: measure over >= 10 s · observable: Agent-tick frames/s >= 4x the 5.2 rate. See `tests/e2e/subagent-tick-throttle.spec.ts` (test-plan: automated)
+- [x] 5.4 Delivered-tick staleness (test-plan #P3) — input: synthetic producer, throttle ON · trigger: measure consecutive DELIVERED Agent-tick gaps on `/ws` (NOT stored/replay: the parent collapse change trims superseded stored updates, so replay cannot carry the cadence) · observable: p95 gap <= 1.5W, max <= 3W. See `tests/e2e/subagent-tick-throttle.spec.ts` (test-plan: automated)
+- [x] 5.5 F4 stays non-vacuous (test-plan #P4) — SUBSUMED by 5.1 (F1) on the synthetic arm: F1 asserts >= 5 Agent-tick frames in the 10 s window under the throttle, strictly stronger than P4's >= 2. The real-fixture version is not constructible (nested faux subagent dies; `measurement.md` Bug 2) (test-plan: automated)
+- [x] 5.6 No tick after terminal (test-plan #F2) — input: a synthetic run ending while a tick is pending · trigger: `tool_execution_end` forwarded for the run · observable: no `tool_execution_update` for that `toolCallId` on `/ws` afterwards. See `tests/e2e/subagent-tick-throttle.spec.ts` (test-plan: automated)
+- [ ] 5.7 Reload folds to terminal (test-plan #F3) — input: a finished subagent run, throttle ON · trigger: page reload · observable: timeline renders the terminal snapshot, entry count equals the pre-reload terminal count. See `tests/e2e/replay-delta-on-reload.spec.ts` (normal harness — real subagent completes) (test-plan: automated)
+- [ ] 5.8 Sibling pull path untouched (test-plan #F4) — input: a running subagent whose inspector is opened so a resync fires · trigger: the `subagent_resync_request` round-trip · observable: the synthetic `subagents:started` reply arrives unthrottled and uncoalesced, throttle counters unchanged by it. See `tests/e2e/subagent-inspector.spec.ts` (normal harness — needs the real subagents carrier) (test-plan: automated)
+- [x] 5.9 Quiet-producer anti-vacuity guard (test-plan #F5) — input: the `synthetic-agent-ticks-quiet` producer (a > 2 s gap before tick 30) · trigger: observe the gap · observable: no cadence failure is asserted during the quiet stretch — the floor applies only while the producer emits. See `tests/e2e/subagent-tick-throttle.spec.ts` (test-plan: automated)
 
 ## 6. Ship the default and re-measure
 

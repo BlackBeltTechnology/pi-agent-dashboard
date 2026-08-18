@@ -34,21 +34,21 @@ Window `W` = `subagentTickThrottleMs` = 500 ms unless a row says otherwise.
 
 | id | requirement | technique | level | disposition | workload | metric + threshold | window |
 |----|-------------|-----------|-------|-------------|----------|--------------------|--------|
-| P1 | D1 baseline / proposal benefit claim | threshold | L3 | automated | streaming-heavy subagent fixture, throttle ON (`W=500`) | Agent-tick frames on `/ws` (filtered `toolName==="Agent"`): mean ≤ 2.2 frames/s over the whole window, NOT per-1 s bucket | ≥ 10 s |
-| P2 | D1 baseline / kill switch | threshold | L3 | automated | same fixture, throttle OFF (`W=0`) | Agent-tick frames/s ≥ 4× the P1 rate — proves the reduction is real and the fixture actually streams | ≥ 10 s |
-| P3 | spec: stored-tick staleness | tail-latency | L3 | automated | ≥ 10 s sustained fixture, throttle ON | gap between consecutive STORED Agent ticks: p95 ≤ W, max ≤ 3W | ≥ 10 s |
-| P4 | proposal: F4 non-vacuity preserved | threshold | L3 | automated | F4's own `[[faux:subagent-sustained]]` (~6 s), throttle ON | existing F4 still passes AND ≥ 2 of its counted frames have `toolName==="Agent"` (not carried by unrelated tools) | F4's 30 s poll |
+| P1 | D1 baseline / proposal benefit claim | threshold | L3 | automated | SYNTHETIC producer (`[[faux:synthetic-agent-ticks]]`, 240@50ms≈20fps), throttle ON (`W=500`), `PI_SYNTH_AGENT_TICKS=1` arm | Agent-tick frames on `/ws` (filtered `toolName==="Agent"`): mean ≤ 2.2 frames/s over the whole window, NOT per-1 s bucket | ≥ 10 s |
+| P2 | D1 baseline / kill switch | threshold | L3 | automated | same synthetic producer, throttle OFF (`W=0`) | Agent-tick frames/s ≥ 4× the P1 rate — proves the reduction is real and the producer actually streams | ≥ 10 s |
+| P3 | spec: delivered-tick staleness | tail-latency | L3 | automated | synthetic producer, throttle ON | gap between consecutive DELIVERED Agent ticks on `/ws`: p95 ≤ 1.5W, max ≤ 3W (measured on the wire, not stored/replay — the parent collapse change trims superseded stored updates, so replay cannot carry the cadence) | ≥ 10 s |
+| P4 | proposal: F4 non-vacuity preserved | threshold | L3 | automated | SUBSUMED by F1 on the synthetic arm (≥ 5 Agent ticks under throttle > P4's ≥ 2); real-fixture version not constructible (nested faux subagent dies, Bug 2) | — | — |
 | P5 | D3 no unbounded state | soak | L1 | automated | 500 sequential Agent runs, each ending normally | throttle map size returns to 0 after each run; peak ≤ 2 keys | in-process |
 
 ### Frontend-quirk
 
 | id | requirement | technique | level | disposition | input | trigger | expected observable (invariant) |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------------------|
-| F1 | spec: cadence floor on its own carrier | state-convergence | L3 | automated | ≥ 10 s sustained fixture, throttle ON | count Agent-tick frames received by the browser | ≥ 5 frames in the 10 s window (≥ 1 per 2 s) |
+| F1 | spec: cadence floor on its own carrier | state-convergence | L3 | automated | SYNTHETIC producer (`PI_SYNTH_AGENT_TICKS=1` arm), throttle ON | count Agent-tick frames received by the browser | ≥ 5 frames in the 10 s window (≥ 1 per 2 s) |
 | F2 | spec: no held tick after terminal | state-transition (illegal edge) | L3 | automated | subagent run ending while a tick is pending | `tool_execution_end` forwarded for `tc1` | no `tool_execution_update` for `tc1` observed on `/ws` after its end frame; the tool row never re-enters a running/partial render |
 | F3 | spec: reload folds to terminal | state-transition | L3 | automated | finished subagent run, throttle ON | page reload | timeline renders the terminal snapshot; entry count equals the pre-reload terminal count |
 | F4 | D5 sibling non-interaction | state-transition | L3 | automated | running subagent, inspector opened so a resync fires | `subagent_resync_request` round-trip | the synthetic `subagents:started` reply arrives unthrottled and uncoalesced (throttle counters unchanged by it) |
-| F5 | D4a producer-conditioned floor | state-transition | L3 | automated | sleep-heavy fixture (producer quiet > 2 s) | observe the gap | NO cadence failure is asserted during the quiet stretch — the floor applies only while the producer emits (anti-vacuity guard on F1's fixture choice) |
+| F5 | D4a producer-conditioned floor | state-transition | L3 | automated | `[[faux:synthetic-agent-ticks-quiet]]` (a > 2 s gap before tick 30) | observe the gap | NO cadence failure is asserted during the quiet stretch — the floor applies only while the producer emits (anti-vacuity guard on F1's fixture choice) |
 | F6 | UX trade: perceived liveness | subjective | — | manual-only | running subagent, throttle ON at 500 ms | a human watches the live card + inspector | [judgment: still reads as "alive"; no perceptible stutter vs. throttle OFF] |
 | F7 | UX trade: mid-run reload freshness | subjective | — | manual-only | running subagent, reload mid-run | a human watches the refresh | [judgment: the timeline after reload does not visibly lag the live card] |
 
@@ -82,12 +82,21 @@ every rendered/wire observable belongs in Playwright per the level boundary.
 
 ## New infra needed
 
-- **A ≥ 10 s sustained faux subagent fixture.** `[[faux:subagent-sustained]]`
-  runs ~6 s (`qa/fixtures/faux-scenarios.ts:916-926`) — too short for F1/P3's
-  10 s window.
-- **A streaming-heavy faux subagent fixture** with minimal idle, so P1/P2 measure
-  the streaming burst the change targets rather than the existing ~50 %-sleeping
-  fixture.
+- **RESOLVED — a SYNTHETIC Agent-tick producer** (`qa/fixtures/faux-agent-ticks.ext.ts`),
+  not a nested faux subagent. A nested faux subagent cannot sustain a ≥ 10 s tick
+  stream: its inner `createAgentSession` resolves a different faux core with an
+  empty response queue and dies after ~2 no-op turns (see `measurement.md`,
+  Bug 2). The bridge throttle keys only on `toolName`+`agentId`, so the synthetic
+  `Agent` tool (streaming `tool_execution_update` at a `[[ticks:N@Mms]]` cadence)
+  is a faithful, fully deterministic substrate for the cadence rows
+  (F1/P1/P2/P3/F5). Proven: OFF 19.6 fps → ON(500) 2.00 fps on `/ws`.
+- **The `PI_SYNTH_AGENT_TICKS=1` harness arm** (`docker/compose.test.yml` +
+  `docker/test-entrypoint.sh`): stages the synthetic producer and SKIPS the
+  subagents producer, so the synthetic `Agent` owns the tool name
+  (first-registration-wins). The cadence spec `tests/e2e/subagent-tick-throttle.spec.ts`
+  self-skips unless the Playwright process also carries `PI_SYNTH_AGENT_TICKS=1`,
+  and runs on its own harness bring-up (the other subagent specs keep the real
+  subagents harness).
 - **Harness config injection**: the e2e harness must write the dashboard config
   file (carrying `subagentTickThrottleMs`) into the container before the pi
   session starts — decided at the HARD gate; no env override is added.

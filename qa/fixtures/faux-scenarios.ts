@@ -1050,6 +1050,49 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "streaming subagent complete" },
   },
 
+  // Parent that spawns the SYNTHETIC Agent-tick producer (qa/fixtures/faux-
+  // agent-ticks.ext.ts, registered as the `Agent` tool under
+  // PI_SYNTH_AGENT_TICKS=1). The `[[ticks:N@Mms]]` sentinel sets the source
+  // cadence: 240 ticks @ 50 ms ≈ 12 s of 20 fps — a deterministic ≥ 10 s
+  // Agent-tick stream the throttle L3 rows (F1/P1/P2/P3/P4) assert against,
+  // with no nested faux subagent. See change: reduce-bridge-tick-bandwidth.
+  "synthetic-agent-ticks": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "synthetic agent ticks",
+            prompt: "[[ticks:240@50]] stream synthetic agent ticks",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("synthetic ticks scenario complete")]),
+    ],
+    expect: { text: "synthetic ticks scenario complete" },
+  },
+
+  // A quiet-producer variant for F5: a > 2 s gap before tick index 30, so the
+  // cadence floor may not be asserted across that stretch.
+  // See change: reduce-bridge-tick-bandwidth (F5).
+  "synthetic-agent-ticks-quiet": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "synthetic agent ticks (quiet)",
+            prompt: "[[ticks:120@50+gap2500@30]] stream synthetic agent ticks with a quiet gap",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("synthetic ticks scenario complete")]),
+    ],
+    expect: { text: "synthetic ticks scenario complete" },
+  },
+
   // ── OpenSpec auto-attach locality gate (change:
   // scope-openspec-auto-attach-to-session-cwd) ───────────────────────────────
   // The verbatim incident shape: an openspec CLI invocation prefixed with a
