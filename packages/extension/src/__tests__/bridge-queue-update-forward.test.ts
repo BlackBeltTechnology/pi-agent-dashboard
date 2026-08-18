@@ -166,4 +166,53 @@ describe("bridge forward loop — non-subagent events pass 1:1 (E10)", () => {
       vi.useRealTimers();
     }
   });
+
+  // D5 sibling non-interaction (test-plan #F4). Owns the claim that used to be an
+  // L3 e2e (`subagent-inspector` resync round-trip): the throttle must NEVER
+  // touch the sibling PULL carrier. That carrier is a DIFFERENT event type
+  // (`subagents:started`/resync replies, forwarded outside the
+  // `tool_execution_update` site), so `isSubagentTick` is never even consulted
+  // for it. The L3 version is structurally unconstructible in the harness (the
+  // faux subagent dies in ~400 ms, before an inspector-open can trigger a
+  // resync; and the synthetic Agent-tick producer emits no `subagents:*`), so
+  // the invariant is proven here at L1 instead. See change:
+  // reduce-bridge-tick-bandwidth (test-plan F4, L1-owned).
+  it("resync / subagents:* sibling frames pass 1:1 and move no throttle counter", () => {
+    vi.useFakeTimers();
+    try {
+      const sent: any[] = [];
+      const throttle = new SubagentTickThrottle<any>({
+        windowMs: 500,
+        send: (m) => sent.push(m),
+        canSend: () => true,
+      });
+      const forward = (eventType: string, event: any) => {
+        if (eventType === "tool_execution_update" && isSubagentTick(event)) {
+          if (throttle.offer(event.toolCallId, event, "S1")) sent.push(event);
+          return;
+        }
+        sent.push(event);
+      };
+
+      // A resync reply burst on the sibling carrier, all inside one window. These
+      // carry an `agentId` (like a real `subagents:started`) to prove it is the
+      // EVENT TYPE, not the payload shape, that keeps them off the throttle.
+      for (let i = 0; i < 12; i++) {
+        forward("subagents:started", {
+          kind: "subagents:started",
+          i,
+          toolName: "Agent",
+          partialResult: { details: { agentId: "a1" } },
+        });
+      }
+
+      expect(sent).toHaveLength(12);
+      expect(sent.every((e) => e.kind === "subagents:started")).toBe(true);
+      expect(throttle.size).toBe(0);
+      expect(throttle.stats.tickForwarded).toBe(0);
+      expect(throttle.stats.tickCoalesced).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
