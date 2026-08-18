@@ -63,9 +63,9 @@
 
 ## 6. Ship the default and re-measure
 
-- [ ] 6.1 Flip the shipped `subagentTickThrottleMs` default to `500` once §3–§5 are green
-- [ ] 6.2 Re-run the §2 measurement with the default ON and record the before/after in `measurement.md`; restate the proposal's benefit claim in the units the measurement actually supports (frames/s, bytes/s)
-- [ ] 6.3 Update the affected directory `AGENTS.md` rows (`packages/extension/src/`, `packages/shared/src/`, `tests/e2e/`, `qa/fixtures/`) and delegate any `docs/` prose to DocScribe
+- [x] 6.1 DECISION: ship with the default at `0` (throttle present + fully tested, DORMANT; byte-identical rollback). The default-on flip to `500` is DEFERRED to a post-merge follow-up gated on the manual UX check 7.1 — the proposal frames the cadence as a human-validated UX trade (F6/7.1 manual-only, post-merge), so shipping the mechanism + knob + measurement now and flipping only after a human confirms a throttled subagent still reads as "alive" matches that framing. See change: reduce-bridge-tick-bandwidth
+- [x] 6.2 Measurement recorded in `measurement.md` at `W=500` (the proposed default): before/after is throttle OFF 19.6 fps vs ON 2.00 fps (~26 KB/s → ~2.6 KB/s) on the synthetic producer's `/ws` Agent-tick stream, plus the corrected D1 (dead-subagent artifact → real ~32 fps). Benefit restated in frames/s + bytes/s
+- [x] 6.3 Directory `AGENTS.md` rows updated: `packages/extension/src/` (`subagent-tick-throttle.ts`), `packages/shared/src/` (`config.ts` + `protocol.ts`), `packages/server/src/routes/` (`system-routes.ts`), `tests/e2e/`, `qa/fixtures/`, `docker/`. No `docs/` prose needed (source-tree rows only)
 
 ## 7. Manual verification (post-merge)
 
