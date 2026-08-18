@@ -132,8 +132,18 @@ export class SubagentTickThrottle<M = unknown> {
     const entry = this.entries.get(key);
 
     if (!entry || now - entry.lastSent >= this.windowMs) {
-      // Leading edge. A key at/past its window boundary can have no armed timer
-      // (the timer would have fired first), so there is nothing to cancel.
+      // Leading edge. Under fake timers the trailing timer always fires on the
+      // boundary, so a key at/past its window has no armed timer. In production
+      // an I/O-driven `offer` can beat a DUE-but-unfired trailing timer: the
+      // existing entry can still hold a `pending` frame + an armed `timer`. That
+      // pending frame is superseded by this newer leading edge (latest-wins), so
+      // count it as coalesced and cancel its stale timer — otherwise the counter
+      // undercounts and the abandoned timer could later fire the fresh entry's
+      // frame early.
+      if (entry) {
+        if (entry.timer) clearTimeout(entry.timer);
+        if (entry.pending) this.stats.tickCoalesced += 1;
+      }
       this.entries.set(key, { lastSent: now, lastSeen: now });
       this.stats.tickForwarded += 1;
       this.scheduleSweep();

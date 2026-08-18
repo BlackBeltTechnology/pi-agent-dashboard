@@ -980,42 +980,13 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "sustained subagent complete" },
   },
 
-  // Inner scenario for `subagent-sustained-long`: the ~6 s `subagent-slow-inner`
-  // extended past 10 s of wall clock. F1/P3 need a window of at least 10 s to
-  // sample a 500 ms cadence with any margin, and `subagent-slow-inner` cannot
-  // supply it. Sleep-heavy on purpose: this is the SUSTAINED (not streaming)
-  // shape, and it doubles as F5's quiet-producer guard — the > 2 s gaps are the
-  // stretches during which no cadence floor may be asserted.
-  // See change: reduce-bridge-tick-bandwidth (task 1.1).
-  "subagent-slow-inner-long": {
-    script: [
-      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 3 && echo long-tick-one" })], { stopReason: "toolUse" }),
-      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 3 && echo long-tick-two" })], { stopReason: "toolUse" }),
-      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 3 && echo long-tick-three" })], { stopReason: "toolUse" }),
-      fauxAssistantMessage([fauxToolCall("bash", { command: "sleep 3 && echo long-tick-four" })], { stopReason: "toolUse" }),
-      fauxAssistantMessage([fauxText("long inner complete")]),
-    ],
-    expect: { text: "long inner complete" },
-  },
-
-  // Parent spawning the >= 10 s inner run. Same shape as `subagent-sustained`,
-  // longer window. See change: reduce-bridge-tick-bandwidth (task 1.1).
-  "subagent-sustained-long": {
-    script: [
-      fauxAssistantMessage(
-        [
-          fauxToolCall("Agent", {
-            subagent_type: "Explore",
-            description: "faux long sustained subagent",
-            prompt: "[[faux:subagent-slow-inner-long]] run the long sustained subagent probe",
-          }),
-        ],
-        { stopReason: "toolUse" },
-      ),
-      fauxAssistantMessage([fauxText("long sustained subagent complete")]),
-    ],
-    expect: { text: "long sustained subagent complete" },
-  },
+  // NOTE: the `subagent-slow-inner-long` / `subagent-sustained-long` fixtures
+  // (task 1.1) were REMOVED. A nested faux subagent cannot sustain a >= 10 s
+  // tick stream in the harness (its inner `createAgentSession` resolves an empty
+  // faux response queue and dies after ~2 no-op turns; see measurement.md Bug 2),
+  // so F1/P3/F5 could never run on them. Those cadence rows now use the synthetic
+  // `faux-agent-ticks.ext.ts` producer (`synthetic-agent-ticks`[-quiet]).
+  // See change: reduce-bridge-tick-bandwidth.
 
   // Inner scenario for `subagent-streaming`: STREAMING-heavy, minimal idle. The
   // faux provider streams at `FAUX_TPS` (default 50 tok/s), and every inner

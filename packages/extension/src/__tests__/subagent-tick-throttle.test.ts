@@ -144,6 +144,31 @@ describe("SubagentTickThrottle — window semantics", () => {
     });
   });
 
+  it("E3b: a leading edge past the window counts a still-held pending as coalesced and cancels its stale timer", () => {
+    withFakeTimers(() => {
+      const h = makeHarness();
+      h.tick("tc1", "A"); // leading at t=0
+      h.setClock(100);
+      h.tick("tc1", "B"); // held; trailing timer armed for t=500
+      expect(vi.getTimerCount()).toBe(2); // trailing + idle sweep
+
+      // Advance the CLOCK past the window WITHOUT firing the trailing timer:
+      // the production race where an I/O-driven `offer` beats a due-but-unfired
+      // timer. `setClock` (unlike `advance`) does not run pending timers.
+      h.setClock(600);
+      h.tick("tc1", "C"); // leading edge (600 - 0 >= 500)
+
+      expect(h.sent).toEqual(["A", "C"]); // C forwarded synchronously
+      expect(h.throttle.stats.tickForwarded).toBe(2);
+      expect(h.throttle.stats.tickCoalesced).toBe(1); // B, superseded, is counted (was the undercount bug)
+      expect(vi.getTimerCount()).toBe(1); // stale trailing timer cancelled; only the idle sweep remains
+
+      // The abandoned timer must not resurrect a frame: firing everything sends nothing more.
+      h.advance(1000);
+      expect(h.sent).toEqual(["A", "C"]);
+    });
+  });
+
   it("E7: two concurrent runs are throttled independently, with no cross-suppression", () => {
     withFakeTimers(() => {
       const h = makeHarness();
