@@ -185,7 +185,7 @@ flowchart TD
 - Server process-manager
   - `toolPaths.pi` → `resolvePiCommand()` shortcut
   - derives PATH from `dirname(pi)`, `dirname(node)` for spawn env
-  - tmux: injects PATH export into tmux command
+  - tmux: PATH via spawn env; resolved pi via `piInvocation` argv seam
 - Bridge server-launcher
   - `toolPaths.serverCli` → CLI path (fallback: `__dirname` relative)
   - `toolPaths.node` → spawn binary
@@ -240,15 +240,24 @@ Auto-handles nvm, volta, homebrew — wherever tools live, parent dirs end up on
 
 ### tmux PATH injection
 
-tmux sessions start in new shell not inheriting server's env. Fix: prepend resolved PATH to tmux command:
+tmux sessions start in new shell not inheriting server's env. PATH reaches pane two ways: spawn env (`execFileSync(..., { env })`, derived from `dirname(pi)`, `dirname(node)`) + `piInvocation` argv param.
+
+Builder returns argv (`string[]`), not shell string. `cwd` travels as literal `-c <cwd>` element — no `cd <cwd> &&` prefix (tmux `-c` sets pane working directory). Invocation via `buildSafeArgv` + `execFileSync` with `shell: false`; never `execSync(cmd)`. No dashboard-side shell sees tokens — kills `$(...)` / backtick / `$VAR` expansion.
 
 ```typescript
-function buildTmuxCommand(cwd, sessionExists, options, resolvedPath) {
-  const pathExport = `export PATH="${resolvedPath}:$PATH" && `;
-  const piCmd = `${pathExport}cd ${safeCwd} && pi`;
-  // ...
+function buildTmuxCommand(cwd, sessionExists, options, piInvocation = ["pi"]) {
+  const paneCommand = [
+    ...piInvocation.map(shellEscape), // resolved pi argv — Persisted Tool Paths seam
+    ...sessionFlagsToArgv(options ?? {}).map(shellEscape),
+  ].join(" ");
+  const argv = sessionExists
+    ? ["tmux", "new-window", "-t", "pi-dashboard", "-c", cwd, paneCommand]
+    : ["tmux", "new-session", "-d", "-s", "pi-dashboard", "-c", cwd, paneCommand];
+  return argv;
 }
 ```
+
+`piInvocation: string[]` = resolved pi argv (default `["pi"]`); future `toolPaths.pi` resolution flows in here. `shellEscape` retained — tmux runs pane command through its own shell; WSL routes `wsl.exe --exec <tmux argv>` (`.exe` bypasses cmd.exe, `--exec` bypasses WSL default shell).
 
 ## Platform-Specific Considerations
 
