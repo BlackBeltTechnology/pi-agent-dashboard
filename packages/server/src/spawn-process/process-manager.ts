@@ -18,7 +18,6 @@
 
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import type { SpawnFailureCode } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { loadConfig, type SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/config.js";
@@ -453,11 +452,21 @@ export async function spawnPiSession(
 
 export function spawnTmux(cwd: string, options?: SessionOptions): SpawnResult {
   const exists = dashboardSessionExists();
-  const cmd = buildTmuxCommand(cwd, exists, options);
+  // Carry the registry-resolved pi argv into the pane so tmux sessions honour
+  // the SELECTED runtime instead of the shell's first PATH `pi`. Without this,
+  // the picker's divergence banner and "new sessions use it immediately" would
+  // describe a selection the default interactive path ignores.
+  // See change: select-pi-runtime-install (design D9).
+  const piCmd = resolvePiCommand();
+  if (!piCmd) {
+    return { success: false, code: "PI_NOT_FOUND", message: `pi binary not found. Checked: ${MANAGED_BIN} and system PATH.` };
+  }
+  const cmd = buildTmuxCommand(cwd, exists, options, piCmd);
   // Pass env explicitly so PI_DASHBOARD_SPAWN_TOKEN reaches the tmux pane's
   // pi process (tmux inherits the caller's env into new windows/sessions).
+  // argv0 re-adds the Electron-as-node flag when piCmd[0] is the Electron binary.
   // See change: spawn-correlation-token.
-  const env = buildSpawnEnv(process.env, { spawnToken: options?.spawnToken });
+  const env = buildSpawnEnv(process.env, { spawnToken: options?.spawnToken, argv0: piCmd[0] });
   try {
     const { argv, spawnOptions } = buildSafeArgv(cmd[0], cmd.slice(1));
     execFileSync(argv[0], argv.slice(1), { stdio: "ignore", env, ...spawnOptions });

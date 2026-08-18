@@ -1,14 +1,17 @@
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import type { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
+import { execFileSync, execSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   buildHeadlessArgs,
   buildSpawnEnv,
   buildTmuxCommand,
+  resetResolver,
   type SessionOptions,
+  setResolver,
   spawnPiSession,
   spawnTmux,
   spawnWslTmux,
 } from "../spawn-process/process-manager.js";
-import { execFileSync, execSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 
 // Mock the exec module but keep the REAL buildSafeArgv (its win32/cmd branch
 // logic is what the WSL argv-shape assertion depends on) and the real
@@ -335,6 +338,40 @@ describe("Process Manager", () => {
   });
 
   describe("spawnTmux: argv execution without a shell", () => {
+    // spawnTmux now resolves the pi runtime and carries its argv into the pane
+    // (change: select-pi-runtime-install, D9), so a deterministic resolver is
+    // needed or the PI_NOT_FOUND guard trips before execFileSync.
+    beforeEach(() => {
+      setResolver({
+        resolvePi: () => ["/usr/bin/node", "/opt/pi/dist/cli.js"],
+        resolveNode: () => "/usr/bin/node",
+        which: () => null,
+        buildSpawnEnv: (env: NodeJS.ProcessEnv) => env,
+      } as unknown as ToolResolver);
+    });
+    afterEach(() => resetResolver());
+
+    it("D9: carries the registry-resolved pi argv into the pane, not a bare `pi`", () => {
+      const result = spawnTmux("/work", undefined);
+      expect(result.success).toBe(true);
+      const [, args] = mockExecFileSync.mock.calls[0];
+      // The pane command is the LAST argv element; it must reference the
+      // resolved cli.js, so tmux honours the SELECTED runtime.
+      expect(args![args!.length - 1]).toContain("/opt/pi/dist/cli.js");
+    });
+
+    it("D9: returns PI_NOT_FOUND when the runtime cannot be resolved", () => {
+      setResolver({
+        resolvePi: () => null,
+        resolveNode: () => "/usr/bin/node",
+        which: () => null,
+        buildSpawnEnv: (env: NodeJS.ProcessEnv) => env,
+      } as unknown as ToolResolver);
+      const result = spawnTmux("/work");
+      expect(result.success).toBe(false);
+      expect(result.code).toBe("PI_NOT_FOUND");
+    });
+
     it("E8: calls execFileSync (not execSync) with the buildSafeArgv argv and shell:false", () => {
       const cwd = "/tmp/$(id)";
       const result = spawnTmux(cwd, undefined);
@@ -385,6 +422,17 @@ describe("Process Manager", () => {
   });
 
   describe("spawn env/stdio invariants (both sites)", () => {
+    // spawnTmux resolves the pi runtime first (D9); give it a deterministic one.
+    beforeEach(() => {
+      setResolver({
+        resolvePi: () => ["/usr/bin/node", "/opt/pi/dist/cli.js"],
+        resolveNode: () => "/usr/bin/node",
+        which: () => null,
+        buildSpawnEnv: (env: NodeJS.ProcessEnv) => env,
+      } as unknown as ToolResolver);
+    });
+    afterEach(() => resetResolver());
+
     it("X3: passes stdio:ignore and a buildSpawnEnv env carrying the token", () => {
       spawnTmux("/p", { spawnToken: "tok-1" });
       spawnWslTmux("/p", { spawnToken: "tok-1" });
