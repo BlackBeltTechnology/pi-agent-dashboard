@@ -29,6 +29,9 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/exec.js", async (imp
   return {
     ...actual,
     execSync: vi.fn().mockImplementation(() => { throw new Error("tmux not found"); }),
+    // spawnTmux/spawnWslTmux now invoke execFileSync (argv, shell:false), not
+    // execSync — stub it to throw too so the TMUX_MISSING mapping is exercised.
+    execFileSync: vi.fn().mockImplementation(() => { throw new Error("tmux not found"); }),
     spawnSync: vi.fn().mockReturnValue({ status: 1, stdout: "", stderr: "" }),
     buildSafeArgv: vi.fn().mockImplementation((cmd: string, args: string[]) => ({
       argv: [cmd, ...args],
