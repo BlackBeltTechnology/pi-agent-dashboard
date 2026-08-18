@@ -11,6 +11,8 @@
  *     the loaded ES module alongside the Resolution.
  */
 import { pathToFileURL } from "node:url";
+import { invalidatePiCandidatesCache } from "../pi-installs/candidates.js";
+import { OverridesStore } from "./overrides.js";
 import {
   type ExecutorResolution,
   ModuleResolutionError,
@@ -19,10 +21,9 @@ import {
   type StrategyCtx,
   type ToolDefinition,
   type ToolListEntry,
-  UnknownToolError,
   type TriedEntry,
+  UnknownToolError,
 } from "./types.js";
-import { OverridesStore } from "./overrides.js";
 
 /**
  * Minimal platform-environment snapshot injected into strategies.
@@ -266,6 +267,11 @@ export class ToolRegistry {
 
   /** Drop cached Resolution(s). Next resolve() re-runs strategies. */
   rescan(name?: string): void {
+    // The pi enumeration cache holds per-LOCATION intermediates the registry
+    // cache does not (it holds one winning Resolution per tool), so it needs
+    // its own invalidation on the same signal.
+    // See change: select-pi-runtime-install (design D3).
+    invalidatePiCandidatesCache();
     if (name === undefined) {
       this.cache.clear();
       this.moduleCache.clear();
@@ -282,6 +288,27 @@ export class ToolRegistry {
     this.overrides.set(name, overridePath);
     this.cache.delete(name);
     this.moduleCache.delete(name);
+  }
+
+  /**
+   * Set and/or clear several overrides in ONE persist (`null` clears).
+   * Every named tool's cached Resolution is invalidated afterwards.
+   *
+   * Two sequential `setOverride` calls are two writes with a crash window
+   * between them, which can leave the pi spawn consumer pinned and the pi
+   * import consumer not — the exact mismatch the picker forbids while linked.
+   * See change: select-pi-runtime-install (design D7).
+   */
+  setOverrides(changes: Record<string, string | null>): void {
+    for (const name of Object.keys(changes)) {
+      if (!this.definitions.has(name)) throw new UnknownToolError(name);
+    }
+    this.overrides.setMany(changes);
+    for (const name of Object.keys(changes)) {
+      this.cache.delete(name);
+      this.moduleCache.delete(name);
+    }
+    invalidatePiCandidatesCache();
   }
 
   /** Clear a path override. Invalidates the target's cache. */

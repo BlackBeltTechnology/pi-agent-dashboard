@@ -237,28 +237,53 @@ export function buildInteractivePiArgs(options?: SessionOptions): string[] {
 }
 
 /**
- * Build a tmux shell command string to run pi in a new tmux window/session.
- * Kept as a string (not argv) because tmux is invoked via `execSync(cmd)`.
+ * Build the tmux invocation as an ARGV ARRAY (never a shell string).
+ *
+ * Two shells exist on this path and only one goes away (design D9):
+ *
+ * 1. The DASHBOARD-side shell is removed. The tmux CLI is now invoked without
+ *    a shell, so `cwd` travels as a literal `-c <cwd>` argv element. The
+ *    redundant `cd <cwd> &&` prefix is dropped entirely — tmux `-c` already
+ *    sets the pane cwd — which is what actually closes the pre-existing
+ *    command injection through a workspace path containing `$(…)`.
+ *    See change: fix-tmux-cwd-command-injection.
+ *
+ * 2. The PANE COMMAND is still a shell string, because tmux runs its
+ *    `shell-command` argument through a shell of its own. Every value
+ *    interpolated into that one argv element is therefore still
+ *    `shellEscape`d — now in a clean context with no enclosing double quotes,
+ *    where single-quoting is sound. Removing the escaping here would break
+ *    "each flag value SHALL reach pi as a single literal argument".
+ *
+ * `piInvocation` is the pi command embedded in the pane. Native tmux passes
+ * the registry-resolved argv (`[node, cli.js]`) so the selected runtime is
+ * honoured and the spawn does not depend on a shebang finding node on the
+ * pane's PATH. `wsl-tmux` passes bare `["pi"]` so resolution happens inside
+ * the WSL namespace — a host-resolved Windows path is not executable there.
  */
-export function buildTmuxCommand(cwd: string, sessionExists: boolean, options?: SessionOptions): string {
-  const safeCwd = shellEscape(cwd);
-  const flags = sessionFlagsToArgv(options ?? {})
+export function buildTmuxCommand(
+  cwd: string,
+  sessionExists: boolean,
+  options?: SessionOptions,
+  piInvocation: string[] = ["pi"],
+): string[] {
+  const paneCommand = [...piInvocation, ...sessionFlagsToArgv(options ?? {})]
     .map(shellEscape)
     .join(" ");
-  const piCmd = flags ? `cd ${safeCwd} && pi ${flags}` : `cd ${safeCwd} && pi`;
   // Per-window token. `execSync(cmd, { env })` only sets the tmux CLIENT's env;
   // once a `pi-dashboard` server is running, `new-window` inherits the SERVER's
   // environment, so every later window carried the FIRST spawn's token (three
   // concurrent panes were measured sharing one). `-e` scopes it to this window,
-  // which is what makes the token a usable identity at all.
+  // which is what makes the token a usable identity at all. As an argv element
+  // it needs no escaping.
   // See change: fix-tmux-session-shutdown-leak (design D5).
   const tokenEnv = options?.spawnToken
-    ? ` -e PI_DASHBOARD_SPAWN_TOKEN=${shellEscape(options.spawnToken)}`
-    : "";
-  if (sessionExists) {
-    return `tmux new-window -t pi-dashboard${tokenEnv} -c ${safeCwd} "${piCmd}"`;
-  }
-  return `tmux new-session -d -s pi-dashboard${tokenEnv} -c ${safeCwd} "${piCmd}"`;
+    ? ["-e", `PI_DASHBOARD_SPAWN_TOKEN=${options.spawnToken}`]
+    : [];
+  const head = sessionExists
+    ? ["tmux", "new-window", "-t", "pi-dashboard"]
+    : ["tmux", "new-session", "-d", "-s", "pi-dashboard"];
+  return [...head, ...tokenEnv, "-c", cwd, paneCommand];
 }
 
 // ── Availability probes (isolated, one place) ───────────────────────────────
@@ -433,13 +458,23 @@ export async function spawnPiSession(
 
 function spawnTmux(cwd: string, options?: SessionOptions): SpawnResult {
   const exists = dashboardSessionExists();
-  const cmd = buildTmuxCommand(cwd, exists, options);
+  // Carry the registry-resolved pi argv into the pane so tmux sessions honour
+  // the selected runtime instead of the shell's first PATH `pi`.
+  // See change: select-pi-runtime-install (design D9).
+  const piCmd = resolvePiCommand();
+  if (!piCmd) {
+    return { success: false, code: "PI_NOT_FOUND", message: `pi binary not found. Checked: ${MANAGED_BIN} and system PATH.` };
+  }
+  const argv = buildTmuxCommand(cwd, exists, options, piCmd);
   // Pass env explicitly so PI_DASHBOARD_SPAWN_TOKEN reaches the tmux pane's
   // pi process (tmux inherits the caller's env into new windows/sessions).
   // See change: spawn-correlation-token.
-  const env = buildSpawnEnv(process.env, { spawnToken: options?.spawnToken });
+  const env = buildSpawnEnv(process.env, { spawnToken: options?.spawnToken, argv0: piCmd[0] });
   try {
-    execSync(cmd, { stdio: "ignore", env });
+    // No shell: argv elements travel literally.
+    const r = spawnSync(argv[0], argv.slice(1), { stdio: "ignore", env });
+    if (r.error) throw r.error;
+    if (r.status !== 0) throw new Error(`tmux exited ${r.status}`);
     return {
       success: true,
       dashboardSpawned: true,
@@ -452,9 +487,14 @@ function spawnTmux(cwd: string, options?: SessionOptions): SpawnResult {
 
 function spawnWslTmux(cwd: string, options?: SessionOptions): SpawnResult {
   try {
-    const cmd = `wsl ${buildTmuxCommand(cwd, false, options)}`;
+    // Bare `pi`: resolution must happen INSIDE the WSL namespace, where a
+    // host-resolved Windows path is not executable.
+    // See change: select-pi-runtime-install (design D9).
+    const argv = ["wsl", ...buildTmuxCommand(cwd, false, options, ["pi"])];
     const env = buildSpawnEnv(process.env, { spawnToken: options?.spawnToken });
-    execSync(cmd, { stdio: "ignore", env });
+    const r = spawnSync(argv[0], argv.slice(1), { stdio: "ignore", env });
+    if (r.error) throw r.error;
+    if (r.status !== 0) throw new Error(`wsl tmux exited ${r.status}`);
     return { success: true, dashboardSpawned: true, message: "Pi session spawned via WSL tmux" };
   } catch (err: any) {
     return { success: false, code: "TMUX_MISSING", message: `Failed to spawn via WSL tmux (wsl-tmux mechanism): ${err.message}` };

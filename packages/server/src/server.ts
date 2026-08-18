@@ -3,7 +3,6 @@
  */
 
 import { existsSync } from "node:fs";
-import { runBoundedStartup } from "./lifecycle/bounded-startup.js";
 import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
@@ -59,6 +58,7 @@ import { createGoalStatusProjector } from "./goal/goal-status-projector.js";
 import { createGoalStore } from "./goal/goal-store.js";
 import { createGoalSupervisor, type GoalDriverSpawnRequest, type GoalSupervisor } from "./goal/goal-supervisor.js";
 import { createGoalVerdictAccumulator } from "./goal/goal-verdict-accumulator.js";
+import { runBoundedStartup } from "./lifecycle/bounded-startup.js";
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
 import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
 import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
@@ -110,6 +110,7 @@ import { registerPairingRoutes } from "./routes/pairing-routes.js";
 import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
 import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
 import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
+import { registerPiRuntimeRoutes } from "./routes/pi-runtime-routes.js";
 import { registerPluginActivationRoutes } from "./routes/plugin-activation-routes.js";
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
 import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
@@ -1454,6 +1455,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   registerDoctorRoutes(fastify);
   registerToolRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
+  // Pi runtime discovery + atomic dual selection. See change: select-pi-runtime-install.
+  registerPiRuntimeRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
 
   // /api/bootstrap/* routes removed under change:
   // eliminate-electron-runtime-install (task 3.4). pi-core in-place

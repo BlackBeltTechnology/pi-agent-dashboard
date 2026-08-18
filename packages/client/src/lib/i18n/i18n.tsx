@@ -37,6 +37,35 @@ const detectInitialLanguage = (): Language => {
 const en: Record<string, string> = {};
 
 const zhCN: Record<string, string> = {
+  "piRuntime.outsideBundle": "此安装位于应用包之外。随包提供的 pi 是经过测试的；选择其他版本被允许但不受支持。",
+
+  "common.advanced": "高级",
+  "piRuntime.title": "Pi 运行时",
+  "piRuntime.loading": "正在加载 pi 安装…",
+  "piRuntime.loadFailed": "无法加载 pi 安装。",
+  "piRuntime.laneSpawn": "会话启动",
+  "piRuntime.laneImport": "服务器导入",
+  "piRuntime.keepInSync": "保持两者同步",
+  "piRuntime.automatic": "自动",
+  "piRuntime.pinned": "已固定",
+  "piRuntime.unresolved": "无法解析",
+  "piRuntime.unknownVersion": "版本未知",
+  "piRuntime.unknownVersionWarning": "版本未知 — 未做最低版本检查",
+  "piRuntime.belowFloor": "低于支持的最低 pi 版本 {minimum}。",
+  "piRuntime.readOnlyRow": "只读：显示解析链当前解析到的位置。",
+  "piRuntime.colSpawn": "启动",
+  "piRuntime.colImport": "导入",
+  "piRuntime.applyNote": "更改启动项仅影响新启动的会话。更改导入项需要重启服务器。",
+  "piRuntime.wslNote": "WSL 会话在 WSL 内部解析 pi，不受此选择影响。",
+  "piRuntime.restartServer": "重启服务器以加载新的 pi",
+  "piRuntime.advancedNote": "自定义路径写入 ~/.pi/dashboard/tool-overrides.json — 与工具部分编辑的是同一个文件。",
+  "piRuntime.customSpawn": "自定义启动入口 (pi)",
+  "piRuntime.customImport": "自定义导入入口 (pi-coding-agent)",
+  "piRuntime.confirmMismatch": "这会让会话和服务器停留在不同的 pi 安装上。仍要应用吗？",
+  "piRuntime.confirmApply": "应用此 pi 运行时选择？",
+  "piRuntime.sessionsOnPrevious": "{count} 个运行中的会话仍在 pi {version} 上。",
+  "piRuntime.sessionsUnknownRuntime": "{count} 个运行中的会话的 pi 运行时未知。",
+
   // --- Gateway / PairLanding / OpenSpec (task 2.2, change: make-all-ui-text-i18n) ---
   "common.modelRefreshFailed": "无法连接 {providers} — 显示上次已知的列表",
   "common.none": "无",

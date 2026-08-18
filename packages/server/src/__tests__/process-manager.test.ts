@@ -7,84 +7,118 @@ import { buildHeadlessArgs, buildSpawnEnv, buildTmuxCommand, type SessionOptions
 // owned by platform/spawn-mechanism.ts `selectMechanism`.
 
 describe("Process Manager", () => {
+  // `buildTmuxCommand` returns an ARGV ARRAY, not a shell string. The pane
+  // command is the LAST element and is the only shell-interpreted part.
+  // See change: select-pi-runtime-install / fix-tmux-cwd-command-injection (D9).
+  const pane = (argv: string[]): string => argv[argv.length - 1];
+
   describe("buildTmuxCommand", () => {
     it("should create new session when no pi-dashboard session exists", () => {
-      const cmd = buildTmuxCommand("/home/user/project", false);
-      expect(cmd).toContain("new-session");
-      expect(cmd).toContain("pi-dashboard");
+      const argv = buildTmuxCommand("/home/user/project", false);
+      expect(argv).toContain("new-session");
+      expect(argv).toContain("pi-dashboard");
     });
 
     it("should create new window when pi-dashboard session exists", () => {
-      const cmd = buildTmuxCommand("/home/user/project", true);
-      expect(cmd).toContain("new-window");
+      expect(buildTmuxCommand("/home/user/project", true)).toContain("new-window");
     });
 
     it("should not set PI_DASHBOARD_SPAWNED env var", () => {
-      const cmd = buildTmuxCommand("/home/user/project", false);
-      expect(cmd).not.toContain("PI_DASHBOARD_SPAWNED");
+      expect(buildTmuxCommand("/home/user/project", false).join(" ")).not.toContain(
+        "PI_DASHBOARD_SPAWNED",
+      );
     });
 
-    it("should shell-escape cwd with spaces", () => {
-      const cmd = buildTmuxCommand("/home/user/my project", false);
-      expect(cmd).toContain("'/home/user/my project'");
-      expect(cmd).not.toContain('cd /home/user/my project &&');
+    it("X5: returns an argv array with no `cd <cwd> &&` prefix; cwd is a literal -c element", () => {
+      const argv = buildTmuxCommand("/home/user/my project", false);
+      expect(Array.isArray(argv)).toBe(true);
+      expect(argv.join(" ")).not.toContain("cd ");
+      // The cwd travels VERBATIM — no quoting, because there is no shell.
+      expect(argv[argv.indexOf("-c") + 1]).toBe("/home/user/my project");
     });
 
-    it("should shell-escape cwd with semicolons to prevent injection", () => {
-      const cmd = buildTmuxCommand("/tmp/test; rm -rf /", false);
-      expect(cmd).toContain("'/tmp/test; rm -rf /'");
+    it("X1/X2/X3 (unit half): an adversarial cwd is one literal argv element", () => {
+      for (const evil of [
+        "/tmp/$(touch /tmp/pwned)",
+        "/tmp/`whoami`",
+        '/tmp/a"b\'c;d e',
+      ]) {
+        const argv = buildTmuxCommand(evil, false);
+        expect(argv).toContain(evil);
+        // It appears ONLY as the -c value, never spliced into the pane command.
+        expect(pane(argv)).not.toContain(evil);
+      }
     });
 
-    it("should shell-escape cwd with backticks to prevent injection", () => {
-      const cmd = buildTmuxCommand("/tmp/`whoami`", false);
-      expect(cmd).toContain("'/tmp/`whoami`'");
-    });
-
-    it("should shell-escape sessionFile with special characters", () => {
-      const cmd = buildTmuxCommand("/home/user/project", true, {
+    it("should shell-escape sessionFile with special characters inside the pane command", () => {
+      const argv = buildTmuxCommand("/home/user/project", true, {
         sessionFile: "/path/to/my session; cat /etc/passwd",
         mode: "continue",
       });
-      expect(cmd).toContain("--session '/path/to/my session; cat /etc/passwd'");
+      expect(pane(argv)).toContain("--session '/path/to/my session; cat /etc/passwd'");
     });
 
-    it("should not double-quote safe paths", () => {
-      const cmd = buildTmuxCommand("/home/user/project", false);
-      // Safe path should not be wrapped in single quotes
-      expect(cmd).toContain("cd /home/user/project &&");
+    it("X4: a flag value with $(…), backticks and quotes reaches pi as ONE literal argument", () => {
+      const evil = '$(touch /tmp/pwned)`whoami`"x\'y';
+      const argv = buildTmuxCommand("/p", false, { sessionFile: evil, mode: "fork" });
+      const p = pane(argv);
+      // Single-quoted, in a context with no enclosing double quotes, so the
+      // shell tmux runs the pane command through cannot expand any of it.
+      expect(p).toContain(shellEscape(evil));
+      expect(p).not.toContain("$(touch /tmp/pwned)`whoami`\"x'y");
     });
 
     it("should include --session flag for continue mode", () => {
-      const cmd = buildTmuxCommand("/home/user/project", true, {
+      const argv = buildTmuxCommand("/home/user/project", true, {
         sessionFile: "/path/to/session.jsonl",
         mode: "continue",
       });
-      expect(cmd).toContain("--session /path/to/session.jsonl");
-      expect(cmd).not.toContain("--fork");
+      expect(pane(argv)).toContain("--session /path/to/session.jsonl");
+      expect(pane(argv)).not.toContain("--fork");
     });
 
     it("should include --fork flag for fork mode", () => {
-      const cmd = buildTmuxCommand("/home/user/project", true, {
+      const argv = buildTmuxCommand("/home/user/project", true, {
         sessionFile: "/path/to/session.jsonl",
         mode: "fork",
       });
-      expect(cmd).toContain("--fork /path/to/session.jsonl");
-      expect(cmd).not.toContain("--session");
+      expect(pane(argv)).toContain("--fork /path/to/session.jsonl");
+      expect(pane(argv)).not.toContain("--session");
     });
 
     it("should not include session flags when no options provided", () => {
-      const cmd = buildTmuxCommand("/home/user/project", false);
-      expect(cmd).not.toContain("--session");
-      expect(cmd).not.toContain("--fork");
+      const p = pane(buildTmuxCommand("/home/user/project", false));
+      expect(p).not.toContain("--session");
+      expect(p).not.toContain("--fork");
     });
 
     it("should create new session for continue mode when no tmux session exists", () => {
-      const cmd = buildTmuxCommand("/home/user/project", false, {
+      const argv = buildTmuxCommand("/home/user/project", false, {
         sessionFile: "/path/to/session.jsonl",
         mode: "continue",
       });
-      expect(cmd).toContain("new-session");
-      expect(cmd).toContain("--session /path/to/session.jsonl");
+      expect(argv).toContain("new-session");
+      expect(pane(argv)).toContain("--session /path/to/session.jsonl");
+    });
+
+    it("X7: a node-wrapped invocation carries BOTH elements into the pane", () => {
+      const argv = buildTmuxCommand("/p", false, undefined, [
+        "/usr/bin/node",
+        "/opt/pi/dist/cli.js",
+      ]);
+      expect(pane(argv)).toBe("/usr/bin/node /opt/pi/dist/cli.js");
+    });
+
+    it("X8: wsl-tmux embeds bare `pi` so WSL resolves it in its own namespace", () => {
+      // `spawnWslTmux` passes ["pi"] — the builder's default — and no
+      // host-resolved path may leak in.
+      const argv = buildTmuxCommand("/p", false, undefined, ["pi"]);
+      expect(pane(argv)).toBe("pi");
+      expect(argv.join(" ")).not.toContain("cli.js");
+    });
+
+    it("defaults to bare `pi` when no invocation is supplied", () => {
+      expect(pane(buildTmuxCommand("/p", false))).toBe("pi");
     });
   });
 
@@ -194,21 +228,21 @@ describe("Process Manager", () => {
     });
 
     it("buildTmuxCommand includes --fork in the pi command", () => {
-      const cmd = buildTmuxCommand("/project", false, { sessionFile: "/s/abc.jsonl", mode: "fork" });
-      expect(cmd).toContain("pi --fork /s/abc.jsonl");
+      const argv = buildTmuxCommand("/project", false, { sessionFile: "/s/abc.jsonl", mode: "fork" });
+      expect(pane(argv)).toBe("pi --fork /s/abc.jsonl");
     });
 
     it("buildTmuxCommand includes --session in the pi command", () => {
-      const cmd = buildTmuxCommand("/project", false, { sessionFile: "/s/abc.jsonl", mode: "continue" });
-      expect(cmd).toContain("pi --session /s/abc.jsonl");
+      const argv = buildTmuxCommand("/project", false, { sessionFile: "/s/abc.jsonl", mode: "continue" });
+      expect(pane(argv)).toBe("pi --session /s/abc.jsonl");
     });
 
     it("buildTmuxCommand with special-character sessionFile still shell-escapes", () => {
-      const cmd = buildTmuxCommand("/project", false, {
+      const argv = buildTmuxCommand("/project", false, {
         sessionFile: "/s/with space.jsonl",
         mode: "fork",
       });
-      expect(cmd).toContain("--fork '/s/with space.jsonl'");
+      expect(pane(argv)).toContain("--fork '/s/with space.jsonl'");
     });
   });
 });
@@ -231,26 +265,31 @@ describe("Process Manager", () => {
  */
 describe("buildTmuxCommand: per-window spawn token", () => {
   const TOKEN = "fe487887-9973-4805-ab90-17f3d889ef68";
+  const paneOf = (argv: string[]): string => argv[argv.length - 1];
 
   it("passes the token with -e on a new window", () => {
-    const cmd = buildTmuxCommand("/home/user/project", true, { spawnToken: TOKEN });
-    expect(cmd).toContain(`-e PI_DASHBOARD_SPAWN_TOKEN=${TOKEN}`);
-    // Before the `-e`, i.e. as a tmux flag rather than part of the pane command.
-    expect(cmd.indexOf("-e PI_DASHBOARD_SPAWN_TOKEN")).toBeLessThan(cmd.indexOf('"cd '));
+    const argv = buildTmuxCommand("/home/user/project", true, { spawnToken: TOKEN });
+    const i = argv.indexOf("-e");
+    expect(argv[i + 1]).toBe(`PI_DASHBOARD_SPAWN_TOKEN=${TOKEN}`);
+    // As a tmux flag rather than part of the pane command.
+    expect(i).toBeLessThan(argv.length - 1);
+    expect(paneOf(argv)).not.toContain("PI_DASHBOARD_SPAWN_TOKEN");
   });
 
   it("passes the token with -e on a new session too", () => {
-    const cmd = buildTmuxCommand("/home/user/project", false, { spawnToken: TOKEN });
-    expect(cmd).toContain(`-e PI_DASHBOARD_SPAWN_TOKEN=${TOKEN}`);
+    const argv = buildTmuxCommand("/home/user/project", false, { spawnToken: TOKEN });
+    expect(argv[argv.indexOf("-e") + 1]).toBe(`PI_DASHBOARD_SPAWN_TOKEN=${TOKEN}`);
   });
 
   it("omits -e entirely when there is no token", () => {
-    expect(buildTmuxCommand("/home/user/project", true)).not.toContain("-e ");
+    expect(buildTmuxCommand("/home/user/project", true)).not.toContain("-e");
   });
 
-  it("shell-escapes a token containing shell metacharacters", () => {
-    const cmd = buildTmuxCommand("/p", true, { spawnToken: "a; rm -rf /" });
-    expect(cmd).toContain("'a; rm -rf /'");
-    expect(cmd).not.toContain("=a; rm -rf /");
+  it("a token containing shell metacharacters travels as ONE literal argv element", () => {
+    // No dashboard-side shell any more, so the token needs no escaping — but
+    // it must not be splittable either.
+    const argv = buildTmuxCommand("/p", true, { spawnToken: "a; rm -rf /" });
+    expect(argv).toContain("PI_DASHBOARD_SPAWN_TOKEN=a; rm -rf /");
+    expect(paneOf(argv)).not.toContain("rm -rf");
   });
 });
