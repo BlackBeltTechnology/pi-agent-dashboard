@@ -87,7 +87,7 @@ render + fetch-mock glue). Exemplar for 3.26:
 
 ## 4. Manual verification (deferred post-merge)
 
-- [ ] 4.1 F10 visual fit of the warning under the green Connected marker, dark + light: reads as
+- [x] 4.1 F10 visual fit of the warning under the green Connected marker, dark + light: reads as
       "next step", not "sign-in failed" (test-plan: manual-only)
 
 ## 5. Verify and land
