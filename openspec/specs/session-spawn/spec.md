@@ -1,11 +1,16 @@
 # session-spawn Specification
 
 ## Purpose
-TBD - created by archiving change fix-tmux-cwd-command-injection. Update Purpose after archive.
+Session spawn dispatch. Chooses mechanism (`tmux` / `wsl-tmux` / `wt` / `headless`) and constructs the argv that launches a pi session in a chosen workspace directory.
 ## Requirements
 ### Requirement: tmux session spawn performs no shell interpretation of inputs
 Spawning a session through the tmux or WSL-tmux mechanism SHALL NOT subject the
 workspace path or any session flag to shell interpretation.
+
+> WSL-tmux note: the workspace path reaches tmux as a literal argv element (no
+> shell interpretation), but it is a Windows path handed to a Linux tmux with no
+> `wslpath` conversion — a pre-existing path-translation gap, tracked separately
+> from this requirement's shell-interpretation guarantee.
 
 #### Scenario: Workspace path containing a command substitution
 - **WHEN** a session is spawned into a directory whose name contains a command

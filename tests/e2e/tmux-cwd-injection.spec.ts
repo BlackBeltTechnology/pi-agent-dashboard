@@ -143,15 +143,22 @@ test.describe("tmux cwd command injection (L3)", () => {
 
     await withBus((client) => spawnResult(client, hostile));
 
-    // Allow the pane to materialize (tmux sets `-c` before running `pi`).
-    await new Promise((r) => setTimeout(r, 1_500));
-
-    // The injection did NOT fire: the substitution never ran.
+    // The injection did NOT fire: the substitution never ran. `spawn_result`
+    // already means tmux was invoked, so this needs no wait.
     expect(fileExists(container, sentinel), "command substitution executed").toBe(false);
 
-    // A tmux pane opened in the LITERAL directory name.
-    const paths = panePaths(container);
+    // Poll for the pane — `spawn_result` does not mean the pane is registered.
+    let paths: string[] = [];
+    const deadline = Date.now() + 30_000;
+    while (Date.now() < deadline) {
+      paths = panePaths(container);
+      if (paths.includes(hostile)) break;
+      await new Promise((r) => setTimeout(r, 500));
+    }
     expect(paths, "no pane opened in the literal hostile directory").toContain(hostile);
+
+    // Re-check after the pane exists: nothing ran during pane startup either.
+    expect(fileExists(container, sentinel), "command substitution executed").toBe(false);
   });
 
   test("T2: -c alone sets the pane cwd for a quote/separator-bearing dir", async () => {
