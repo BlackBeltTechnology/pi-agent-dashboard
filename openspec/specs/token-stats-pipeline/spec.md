@@ -1,8 +1,10 @@
+# token-stats-pipeline Specification
+
 ## Purpose
 
 End-to-end pipeline for extracting, forwarding, accumulating, and displaying per-turn token usage statistics from pi sessions.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Stats extraction from turn_end events
 The bridge extension SHALL extract token usage stats from `turn_end` events by reading `event.message.usage`. The extracted data SHALL include: `tokensIn` (input tokens), `tokensOut` (output tokens), `cost` (from `usage.cost.total`), per-turn breakdown (`turnUsage` with input, output, cacheRead, cacheWrite), and optionally `contextUsage` from `ctx.getContextUsage()`.

@@ -56,6 +56,7 @@
     "test": "HOME=$(mktemp -d -t pi-test-XXXXXX) NODE_OPTIONS=\"--localstorage-file=$(mktemp -t pi-test-ls-XXXXXX)\" vitest run",
     "test:watch": "HOME=$(mktemp -d -t pi-test-XXXXXX) NODE_OPTIONS=\"--localstorage-file=$(mktemp -t pi-test-ls-XXXXXX)\" vitest",
     "test:ci-scenarios": "RUN_CI_SCENARIOS=1 HOME=$(mktemp -d -t pi-test-XXXXXX) NODE_OPTIONS=\"--localstorage-file=$(mktemp -t pi-test-ls-XXXXXX)\" vitest run --project scripts",
+    "spec:validate": "openspec validate --specs --no-interactive",
     "generate:plugin-registry": "node scripts/generate-plugin-registry.mjs",
     "i18n:parity": "node scripts/i18n-parity.mjs",
     "i18n:lint": "node scripts/i18n-lint.mjs",

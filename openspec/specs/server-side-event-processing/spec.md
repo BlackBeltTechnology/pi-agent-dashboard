@@ -1,3 +1,11 @@
+# server-side-event-processing Specification
+
+## Purpose
+
+Moves work off the bridge and onto the server by deriving state from forwarded events server-side: OpenSpec activity detection and stats extraction from `turn_end` events. Defines where the shared utilities live so bridge and server cannot drift into two implementations.
+
+## Requirements
+
 ### Requirement: Server-side OpenSpec activity detection from forwarded events
 The server SHALL detect OpenSpec activity by inspecting `event_forward` messages with `eventType: "tool_execution_start"`. It SHALL call `detectOpenSpecActivity()` (from `src/shared/openspec-activity-detector.ts`) with the event's `toolName` and `args` data fields.
 

@@ -1,4 +1,10 @@
-## MODIFIED Requirements
+# file-read-api Specification
+
+## Purpose
+
+Exposes a server endpoint for reading a pi resource file, so the client can display file content referenced by a session without shelling out or reaching into the filesystem itself.
+
+## Requirements
 
 ### Requirement: Pi resource file endpoint
 The server SHALL expose `GET /api/pi-resource-file?path=<absolutePath>` for reading pi resource files that may reside outside session working directories.

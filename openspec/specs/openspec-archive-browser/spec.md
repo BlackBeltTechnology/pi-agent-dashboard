@@ -1,4 +1,10 @@
-## ADDED Requirements
+# openspec-archive-browser Specification
+
+## Purpose
+
+Lets the user read archived OpenSpec changes from the dashboard. Defines the archive listing endpoint and artifact detection, the two-level browse-and-navigate view, and the filtering model: group sections with a pill row, pill selection narrowing entries, the search input acting as the unified name-substring filter, per-entry group assignment, date sub-grouping preserved within groups, and a manage-groups link reusing the shared manager component.
+
+## Requirements
 
 ### Requirement: Archive listing endpoint
 The server SHALL expose `GET /api/openspec-archive?cwd=<path>` that returns all archived changes for the given directory.

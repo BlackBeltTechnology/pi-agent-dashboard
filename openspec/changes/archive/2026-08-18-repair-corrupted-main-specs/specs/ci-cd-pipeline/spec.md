@@ -9,8 +9,8 @@ The `ci` job in `.github/workflows/ci.yml` SHALL run
 main spec under `openspec/specs/**` is invalid.
 
 The repo already gates the openspec **version** (`scripts/verify-release-deps.mjs`)
-but has never gated spec **content**. In that blind spot 85 of 531 main specs
-drifted into unparseable states, hiding 413 requirement blocks. This gate closes
+but has never gated spec **content**. In that blind spot 80 of 546 main specs
+drifted into unparseable states, hiding 384 requirement blocks. This gate closes
 the loop: a change that archives into a corrupt main spec fails on `develop`
 instead of accumulating undetected.
 

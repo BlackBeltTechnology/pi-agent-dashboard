@@ -1,4 +1,10 @@
-## ADDED Requirements
+# electron-app-icons Specification
+
+## Purpose
+
+Defines the desktop application's icon set: one master icon, the per-platform variants each OS requires, macOS tray template icons, and refreshed PWA icons. Requires generation via a script so every variant stays derived from the master rather than hand-edited into drift.
+
+## Requirements
 
 ### Requirement: Master app icon
 A centered 1024×1024 PNG master icon SHALL exist at `packages/electron/resources/icon.png` featuring the π glyph optically centered on the dark navy rounded-rectangle background.

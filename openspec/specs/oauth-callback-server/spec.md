@@ -1,3 +1,11 @@
+# oauth-callback-server Specification
+
+## Purpose
+
+Handles OAuth redirects for the dashboard by running a temporary local callback server. Requires auth-code handlers to declare their registered redirect URI, opens the system browser from the authorize endpoint, and lets the browser client detect completion — replacing the removed popup relay mechanism.
+
+## Requirements
+
 ### Requirement: Temporary callback server for OAuth redirects
 The system SHALL start a temporary HTTP server on the provider's registered callback port when an auth-code OAuth flow is initiated. The server SHALL receive the authorization code, exchange it for tokens, save credentials, and shut down.
 

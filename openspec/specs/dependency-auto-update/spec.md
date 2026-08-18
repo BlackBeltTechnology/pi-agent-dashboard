@@ -1,4 +1,10 @@
-## ADDED Requirements
+# dependency-auto-update Specification
+
+## Purpose
+
+Keeps the dashboard's pi packages current without the user having to watch for releases: a periodic outdated check, a notification when updates exist, and an execution path that performs the update on request.
+
+## Requirements
 
 ### Requirement: Periodic outdated check
 The Electron app SHALL check for newer versions of pi and openspec on launch and every 24 hours while running.

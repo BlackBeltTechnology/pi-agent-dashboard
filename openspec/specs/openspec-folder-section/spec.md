@@ -1,4 +1,10 @@
-## ADDED Requirements
+# openspec-folder-section Specification
+
+## Purpose
+
+The OpenSpec surface on a folder group header: the change list with status, linked sessions, task counters, and per-change actions (refresh, specs browser, archive, spawn, spawn-with-attach, worktree spawn). Defines the organisation model — group sections, pill row, name-substring filter, per-row group picker, drag-and-drop reassignment, an always-present ungrouped drop target — plus the row layout, linked-session status and selection indicators, unfiltered header count, pending-poll spinner, and empty-state messaging.
+
+## Requirements
 
 ### Requirement: Folder group header shows OpenSpec section
 Each folder group in the session list SHALL render a `FolderOpenSpecSection` component in the folder header, below git info and above editor/spawn buttons, when OpenSpec data for that directory is either `initialized: true` or `pending: true`.

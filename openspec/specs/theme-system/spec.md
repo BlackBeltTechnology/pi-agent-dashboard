@@ -1,4 +1,10 @@
-## ADDED Requirements
+# theme-system Specification
+
+## Purpose
+
+The CSS-custom-property foundation the themes are built on: theme variables, a three-state theme preference, persistence, and the toggle UI. Also carries the migration contract — components read CSS variables rather than hard-coded colours — and the specific contrast and inheritance rules that break otherwise: sidebar action button contrast, the syntax highlighter stripping token backgrounds, and the diff view inheriting the active syntax theme in both light and dark mode.
+
+## Requirements
 
 ### Requirement: CSS custom properties for theming
 The dashboard SHALL define CSS custom properties on `:root` for all color values used across components. Dark values SHALL be the default. Light values SHALL be defined under `[data-theme="light"]`.

@@ -1,4 +1,10 @@
-## ADDED Requirements
+# pi-branding Specification
+
+## Purpose
+
+Places the pi logo in the sidebar header.
+
+## Requirements
 
 ### Requirement: Pi logo in sidebar header
 The sidebar header SHALL display a Pi brand element (π symbol) instead of the "Sessions" text. The brand element SHALL link to `/` (home route).

@@ -1,4 +1,10 @@
-## ADDED Requirements
+# image-paste Specification
+
+## Purpose
+
+Lets the user paste images from the clipboard into a message. Defines the size limit, preview thumbnails, how images are attached when the message is sent, and per-surface ownership of paste state so two input surfaces cannot fight over the same pasted image.
+
+## Requirements
 
 ### Requirement: Clipboard image paste
 Prompt input surfaces — the chat input AND the OpenSpec Explore dialog — SHALL detect image content in clipboard paste events and extract images for attachment. Supported MIME types SHALL include `image/png`, `image/jpeg`, `image/gif`, and `image/webp`. Paste handling SHALL be implemented via a single shared `useImagePaste()` hook so behavior is identical across surfaces.

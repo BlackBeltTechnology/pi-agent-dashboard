@@ -1,4 +1,10 @@
-## ADDED Requirements
+# pinned-directories Specification
+
+## Purpose
+
+Lets the user pin directories so they stay visible in the sidebar independently of whether a session is running there. Defines persistence, the WebSocket protocol, the REST endpoint, and delivery of the initial pinned state when a browser connects.
+
+## Requirements
 
 ### Requirement: Pinned directory persistence
 The server SHALL store an ordered list of pinned directory paths in `preferences.json` under the `pinnedDirectories` key as a `string[]`. Array position SHALL determine display order at the top level of the sidebar. The list SHALL survive server restarts.

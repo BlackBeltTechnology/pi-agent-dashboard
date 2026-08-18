@@ -287,6 +287,10 @@ function main() {
     // gating. Archived changes are excluded: they are immutable history.
     const active = listMarkdown()
       .filter((f) => !f.startsWith("openspec/changes/archive/"))
+      // `listMarkdown` reads the git index, which still lists a file deleted in
+      // the working tree. Reading one throws ENOENT and takes the whole gate
+      // down. See change: repair-corrupted-main-specs.
+      .filter((f) => fs.existsSync(path.join(ROOT, f)))
       .map((f) => ({
         status: "M",
         path: f,

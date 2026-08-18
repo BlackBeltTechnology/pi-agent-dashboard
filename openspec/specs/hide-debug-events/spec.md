@@ -1,3 +1,11 @@
+# hide-debug-events Specification
+
+## Purpose
+
+Keeps debug-level events and debug tool calls out of the chat view by default, so an ordinary session reads as a conversation rather than a trace, with a Settings toggle for when the detail is wanted.
+
+## Requirements
+
 ### Requirement: Debug events are hidden by default
 The ChatView SHALL NOT render `rawEvent` role messages (e.g., `tool_call`, `tool_result`, `turn_start`) when the debug events toggle is off.
 

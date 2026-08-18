@@ -1,4 +1,10 @@
-## ADDED Requirements
+# theme-gallery Specification
+
+## Purpose
+
+Defines the selectable visual themes: the theme definitions themselves, runtime application, the picker UI, per-theme syntax highlighting, and persistence of the user's choice.
+
+## Requirements
 
 ### Requirement: Theme definitions
 The client SHALL define 9 named color themes, each with dark and light CSS variable maps: Base, Dracula, Nord, GitHub, Catppuccin, Tokyo Night, Rosé Pine, Solarized, and Gruvbox. Each theme definition SHALL include values for all CSS custom properties used by the application (`--bg-*`, `--text-*`, `--border-*`, `--accent-*`, `--shadow-*`, `--link`, `--link-hover`). The Base theme values SHALL match the existing `:root` and `[data-theme="light"]` CSS values exactly. Themes adapted from palettes that publish only a dark variant (e.g. Dracula) SHALL hand-tune accent colors for the light variant so contrast against light backgrounds remains readable; themes whose source publishes both variants (e.g. Tokyo Night Night/Day, Rosé Pine Main/Dawn, Solarized, Gruvbox) SHALL use the official light variant.

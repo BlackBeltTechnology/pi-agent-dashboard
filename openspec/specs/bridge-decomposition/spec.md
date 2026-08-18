@@ -1,4 +1,10 @@
-## ADDED Requirements
+# bridge-decomposition Specification
+
+## Purpose
+
+Splits the bridge extension's monolithic entry point into focused modules — session sync, model tracking, and flow event wiring — each with a defined boundary. Exists so the extension that runs inside every pi session stays reviewable and each concern can be tested without booting the whole bridge.
+
+## Requirements
 
 ### Requirement: Session sync extraction
 bridge.ts SHALL delegate `sendStateSync()`, `replaySessionEntries()`, and `handleSessionChange()` to a `session-sync` module.

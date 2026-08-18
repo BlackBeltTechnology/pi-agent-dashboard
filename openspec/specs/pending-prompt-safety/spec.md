@@ -1,3 +1,9 @@
+# pending-prompt-safety Specification
+
+## Purpose
+
+Prevents a session from being stuck showing a prompt that will never be answered. Clears `pendingPrompt` on `agent_end` and applies a safety timeout so a lost or dropped response cannot leave the session waiting indefinitely.
+
 ## Requirements
 
 ### Requirement: pendingPrompt cleared on agent_end

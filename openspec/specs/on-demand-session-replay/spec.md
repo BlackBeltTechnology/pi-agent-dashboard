@@ -1,8 +1,10 @@
+# on-demand-session-replay Specification
+
 ## Purpose
 
 Loads session events on demand when a browser subscribes to a session whose events have been evicted from the in-memory buffer. The server reads session files directly from disk without requiring a bridge connection.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: On-demand session loading via server
 When a browser subscribes to a session whose events are not in memory, the server SHALL load the session directly from pi's session file on disk using `SessionManager.open(sessionFile).getBranch()`, without routing through a bridge.
@@ -52,8 +54,6 @@ The subscription handler SHALL detect when a browser's `lastSeq` exceeds the ser
 #### Scenario: Valid lastSeq returns delta
 - **WHEN** a browser subscribes with `lastSeq: 50` and the server has events up to seq `100`
 - **THEN** the server SHALL replay events with seq 51–100 without sending `session_state_reset`
-
-
 
 ### Requirement: Replay accepts a caller-supplied contextWindow override
 The system SHALL allow callers of `replayEntriesAsEvents(sessionId, entries, knownContextWindow?)` to supply an optional `knownContextWindow` value. When provided, every synthesized `stats_update.contextUsage.contextWindow` field SHALL be set to that value; when omitted, the system SHALL fall back to `inferContextWindow(currentModel)`.

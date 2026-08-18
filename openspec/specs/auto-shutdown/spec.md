@@ -1,4 +1,10 @@
-## MODIFIED Requirements
+# auto-shutdown Specification
+
+## Purpose
+
+Lets a dashboard server that nobody is using exit on its own instead of lingering forever: it shuts down when no pi sessions are connected and the idle window elapses. Requires the heartbeat timeout to be sleep-aware so a laptop suspend is not mistaken for an idle timeout.
+
+## Requirements
 
 ### Requirement: Idle shutdown when no pi sessions connected
 The server SHALL automatically shut down after a configurable idle period when no pi extension WebSocket connections exist AND no terminal PTY sessions are alive. Before exiting, the idle timer callback SHALL verify that (1) no pi connections currently exist, (2) no terminal PTYs are alive (`terminalManager.list().length === 0`), and (3) real wall-clock time since the last connection is at least `shutdownIdleSeconds`. If any check fails, the timer SHALL restart instead of exiting.
@@ -41,8 +47,6 @@ A user-spawned terminal running a long process (e.g. `cargo build`, `npm install
 #### Scenario: Sleep/wake false idle prevention
 - **WHEN** the idle countdown fires after laptop wake and a pi session has reconnected since the timer was started
 - **THEN** the server SHALL restart the idle countdown instead of exiting
-
-## ADDED Requirements
 
 ### Requirement: Sleep-aware heartbeat timeout
 The pi-gateway heartbeat timeout SHALL detect when the system has been sleeping. When the heartbeat timeout fires and the elapsed real time since the timer was set exceeds twice the expected timeout duration, the server SHALL reset the heartbeat timer once instead of unregistering the session, giving the extension time to reconnect.

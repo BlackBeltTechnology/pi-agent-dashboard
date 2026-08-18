@@ -66,6 +66,14 @@ nothing observable.
 - **AND** the requirement count from `openspec show` SHALL equal the file's
   `### Requirement:` count, including those that followed the deleted header
 
+#### Scenario: Delta header following an existing Requirements section is deleted
+
+- **WHEN** a spec already has a conforming `## Requirements` section and a delta
+  header appears **later** in the file (e.g. `interactive-renderers`)
+- **THEN** the delta header SHALL be deleted, not promoted
+- **AND** the requirements beneath it SHALL re-parent into the existing section
+- **AND** the file SHALL NOT gain a second `## Requirements`
+
 #### Scenario: Suffixed delta header is handled
 
 - **WHEN** a delta header carries trailing text (e.g.
@@ -114,7 +122,7 @@ h1, or alter a spec it previously repaired.
 
 #### Scenario: Conforming specs are never touched
 
-- **WHEN** the tool runs over the 446 already-valid specs
+- **WHEN** the tool runs over the 466 already-valid specs
 - **THEN** none of them SHALL be modified
 
 ### Requirement: Repair tool re-validates after writing
@@ -148,7 +156,7 @@ derived from its own requirement text.
 
 The inserted placeholder is scaffolding that makes the structural repair
 scriptable; it is not the deliverable. This requirement deliberately does not
-govern the 111 pre-existing specs carrying the archive's own `TBD - created by
+govern the 119 pre-existing specs carrying the archive's own `TBD - created by
 archiving change` placeholder, which parse and validate.
 
 #### Scenario: No repair placeholder survives
@@ -162,26 +170,49 @@ archiving change` placeholder, which parse and validate.
 - **THEN** the inserted body SHALL contain `TODO(repair):`
 - **AND** the spec SHALL parse successfully so later phases can proceed
 
-### Requirement: Retired capabilities are deleted rather than repaired
+### Requirement: Retired capabilities are tombstoned or deleted, never repaired
 
-A main spec whose every requirement is retired — carrying zero current
-requirements — SHALL be deleted rather than structurally repaired, provided each
-retired requirement's successor capability exists as a live spec.
+A main spec carrying zero current requirements SHALL NOT be structurally
+repaired, because repairing it would publish a capability the project no longer
+has. It SHALL instead be either **tombstoned** or **deleted**, and in both cases
+every named successor capability SHALL first be confirmed to exist as a live
+spec.
 
-Repairing such a file would publish a capability the project no longer has.
+A spec whose `## Purpose` already carries an authored deprecation pointer
+(`**DEPRECATED** — see <successor>`) SHALL be tombstoned rather than deleted:
+that pointer is deliberate documentation, and live specs may still lead a reader
+to the old capability name. A spec with no authored pointer whose every
+requirement is retired SHALL be deleted.
 
-#### Scenario: Fully retired capability is removed
+A tombstone SHALL carry exactly one requirement stating the capability is retired
+and naming its successor. An empty `## Requirements` section is not sufficient —
+a zero-requirement spec fails validation.
+
+#### Scenario: Deprecated spec with an authored pointer is tombstoned
+
+- **WHEN** a zero-requirement spec's `## Purpose` names a successor capability
+- **THEN** the spec SHALL be retained with one requirement recording the
+  retirement and the successor
+- **AND** `openspec validate <capability>` SHALL report it valid
+
+#### Scenario: Fully retired capability with no authored pointer is removed
 
 - **WHEN** a spec's `### Requirement:` count equals its `**Reason**:` count and
-  every named successor exists under `openspec/specs/`
+  its Purpose carries no successor pointer
 - **THEN** the spec directory SHALL be deleted
 - **AND** `openspec validate --specs` SHALL NOT report it
 
-#### Scenario: Successor verification precedes deletion
+#### Scenario: Successor verification precedes either disposition
 
 - **WHEN** a retired spec names a successor capability
 - **THEN** that successor SHALL be confirmed to exist and carry the behaviour
-  before the retired spec is deleted
+  before the retired spec is deleted or tombstoned
+
+#### Scenario: A tombstone is never mistaken for live behaviour
+
+- **WHEN** a tombstone requirement is read
+- **THEN** its text SHALL state that the capability is retired
+- **AND** SHALL NOT describe behaviour the system currently implements
 
 ### Requirement: Whole spec tree validates
 
@@ -197,5 +228,5 @@ Repairing such a file would publish a capability the project no longer has.
 #### Scenario: Recovered requirements become visible
 
 - **WHEN** the repaired tree is queried via `openspec show`
-- **THEN** the 413 previously hidden requirement blocks SHALL be reported
+- **THEN** the 384 previously hidden requirement blocks SHALL be reported
 - **AND** `interactive-renderers` SHALL report 5 requirements rather than 3

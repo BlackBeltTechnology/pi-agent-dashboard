@@ -566,7 +566,7 @@ sequenceDiagram
 
 **Relationship to existing capabilities:**
 - `interactive-ui-dialogs` / `ui-proxy` / PromptBus — handle one-shot `ctx.ui.*` dialogs (request/response, awaited). The extension-ui-system handles persistent push-based descriptors (no awaiting). Orthogonal mechanisms; both ship.
-- `extension-ui-forwarding` (catch-all `pi.events.emit` forwarding) — kept for arbitrary extension events; the new system is the *declarative* path for UI specifically.
+- `extension-ui-forwarding` (catch-all `pi.events.emit` forwarding) — kept for arbitrary extension events; the new system is the *declarative* path for UI specifically. Runtime behaviour stands. No authored spec — file removed (0-byte placeholder since initial commit). See change: repair-corrupted-main-specs.
 - pi-flows: in Phase 3 pi-flows itself adopts the system to surface registered workflows (breadcrumb), gates, and cards (agent-metric) for any flow-using extension automatically.
 
 **No-dashboard fallback:** When no bridge is connected, `ui:list-modules` is never emitted; extension listeners are dormant; slash commands fall back to existing text-output behavior. Extensions remain pi-runnable in pure-pi mode without code changes.
@@ -3282,6 +3282,28 @@ The two broken cells map to existing repo invariants:
 `packages/shared/src/__tests__/no-bash-on-windows.test.ts` parses every workflow YAML, computes per-step Windows reachability from each step's `if:` filter (small grammar: `matrix.platform == 'X'`, `matrix.platform != 'X'`, `&&`, `||`, `!(...)`, parens), and fails when any `shell: bash` step is reachable on a Windows runner. Failure messages cite this change name + the offending file:line + step name. Unrecognised `if:` expressions fail closed.
 
 See change: `eliminate-bash-on-windows-runners`.
+
+## OpenSpec main-spec integrity
+
+Main specs live at `openspec/specs/<capability>/spec.md`.
+
+Parse contract: needs h2 `## Purpose` + h2 `## Requirements`. `MarkdownParser.parseSpec` throws otherwise.
+
+`findSection` matches title exactly, case-insensitive. `## ADDED Requirements` != `## Requirements`.
+
+Delta headers (`## ADDED|MODIFIED|REMOVED|RENAMED Requirements`) valid ONLY in `openspec/changes/<name>/specs/<cap>/spec.md`. Never in main specs.
+
+Archive path once copied delta specs to main verbatim. Result: 80 of 546 specs unparseable, 384 requirement blocks invisible to validate/list/show/archive.
+
+Fix tool: `node scripts/repair-main-specs.mjs` (`--dry-run`, `--specs-dir <path>`). Idempotent. Refuses `## REMOVED Requirements` — retired requirements never promote; handle manually (delete, tombstone, or restore).
+
+Gate: `npm run spec:validate` = `openspec validate --specs --no-interactive`. Runs as step "Validate OpenSpec main specs" in `ci` job in `.github/workflows/ci.yml`. Exit non-zero on any invalid spec.
+
+Before pushing an archive: run `npm run spec:validate` locally. Corrupt archive blocks `develop` otherwise.
+
+Retired capability with zero current requirements: tombstone (keep spec, one requirement naming successor) when it carries an authored `**DEPRECATED**` pointer, else delete. Zero-requirement spec does NOT validate.
+
+See change: repair-corrupted-main-specs.
 
 ## Electron Server Lifecycle
 

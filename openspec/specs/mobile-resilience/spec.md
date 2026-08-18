@@ -1,4 +1,10 @@
-## ADDED Requirements
+# mobile-resilience Specification
+
+## Purpose
+
+Makes the dashboard usable on a phone and on a flaky network. Covers responsive breakpoints and the mobile navigation shell, touch-friendly interactions and a reliable swipe-back gesture, mobile placements for the workspace dropdown, markdown preview, OpenSpec commands and attach/detach, collapsed tool calls, horizontally scrollable code blocks, disabled pull-to-refresh, and the connectivity contract: WebSocket auto-reconnect, a connection status indicator, and an offline queue for outgoing messages.
+
+## Requirements
 
 ### Requirement: Responsive layout breakpoints
 The web client SHALL adapt its layout based on a mobile predicate evaluated as `viewport width < 768px OR viewport height < 600px`. The three layouts are:

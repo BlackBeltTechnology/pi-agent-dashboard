@@ -1,6 +1,10 @@
 # Marketing Site
 
-## ADDED Requirements
+## Purpose
+
+Defines the public marketing site: its source location, theming with no flash of unstyled content, the hero and storytelling animations, the argument sections (TUI versus GUI, remote delegation, a newcomer-friendly introduction), the features grid, a latest-release surface that auto-syncs, GitHub Pages deployment, a Playwright screenshot pipeline, and the performance and accessibility budgets it must meet.
+
+## Requirements
 
 ### Requirement: Public marketing site source
 

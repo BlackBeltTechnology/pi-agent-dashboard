@@ -1,0 +1,81 @@
+cohort	spec	reqs	deltaHeadings
+A	app-decomposition	8	ADDED Requirements | ADDED Requirements
+A	ascii-table-detection	4	ADDED Requirements
+A	auth-bypass-url-list	2	ADDED Requirements
+A	auto-shutdown	2	MODIFIED Requirements | ADDED Requirements
+A	bridge-decomposition	3	ADDED Requirements
+A	bridge-heartbeat-watchdog	2	ADDED Requirements
+A	browser-gateway-decomposition	9	ADDED Requirements | ADDED Requirements
+A	bundled-node-runtime	3	ADDED Requirements
+A	chat-refresh	1	ADDED Requirements
+A	command-autocomplete	4	ADDED Requirements
+A	command-executor	12	ADDED Requirements | ADDED Requirements — Tool Modules
+A	dependency-auto-update	3	ADDED Requirements
+A	dependency-installer	7	ADDED Requirements
+A	dev-build-on-reload	1	ADDED Requirements
+A	directory-path-display	3	ADDED Requirements
+A	electron-app-icons	5	ADDED Requirements
+A	event-reducer-decomposition	2	ADDED Requirements
+A	file-read-api	1	MODIFIED Requirements
+A	flow-browser-protocol	1	ADDED Requirements
+A	flow-card-launcher	6	ADDED Requirements
+A	flow-list-protocol	4	ADDED Requirements
+A	flow-server-state	2	ADDED Requirements
+A	fork-from-message	8	ADDED Requirements
+A	git-branch-selector	4	ADDED Requirements
+A	image-paste	5	ADDED Requirements
+A	inline-image-tool-results	2	ADDED Requirements
+A	interactive-ui-dialogs	21	ADDED Requirements
+A	json-file-persistence	1	ADDED Requirements
+A	markdown-fuzzy-search	4	ADDED Requirements
+A	marketing-site	13	ADDED Requirements
+A	mdi-icon-system	7	ADDED Requirements
+A	meta-package	5	ADDED Requirements
+A	mobile-resilience	14	ADDED Requirements
+A	multiselect-dialog	6	ADDED Requirements
+A	openspec-archive-browser	11	ADDED Requirements
+A	openspec-change-state	2	ADDED Requirements
+A	openspec-folder-section	24	ADDED Requirements
+A	optional-static-serving	2	ADDED Requirements
+A	package-remove	1	ADDED Requirements
+A	package-search	2	ADDED Requirements
+A	package-update	2	ADDED Requirements
+A	persistence-migration	6	ADDED Requirements
+A	pi-branding	1	ADDED Requirements
+A	pinned-directories	4	ADDED Requirements
+A	placeholder-spawn-card	6	ADDED Requirements
+A	process-manager	8	MODIFIED Requirements
+A	qr-code-dialog	5	ADDED Requirements
+A	server-decomposition	4	ADDED Requirements
+A	session-list-decomposition	3	ADDED Requirements
+A	session-process-tracker	1	MODIFIED Requirements
+A	session-reload-on-package-change	1	ADDED Requirements
+A	sleek-card-design	4	ADDED Requirements
+A	sleek-chat-design	3	ADDED Requirements
+A	specs-browser	3	ADDED Requirements
+A	terminal-emulator	14	ADDED Requirements
+A	theme-gallery	5	ADDED Requirements
+A	theme-system	9	ADDED Requirements
+A	token-stats-bar	14	ADDED Requirements
+A	ws-ping-pong	3	ADDED Requirements
+A	zoomable-mermaid	6	ADDED Requirements
+B	dialog-portal	2	
+B	extension-ui-forwarding	0	
+B	hide-debug-events	3	
+B	known-servers	9	
+B	mdns-discovery	5	
+B	oauth-callback-server	5	
+B	server-side-event-processing	3	
+C	dashboard-command-context	4	ADDED Requirements
+C	developer-workflow	1	ADDED Requirements
+C	on-demand-session-replay	8	ADDED Requirements
+C	server-session-reader	3	ADDED Requirements
+C	token-stats-pipeline	4	ADDED Requirements
+D	pending-prompt-safety	2	
+D	pwa-install-prompt	5	
+D	repo-hygiene	1	
+D	spawn-error-persistence	5	
+E	interactive-renderers	5	ADDED Requirements
+F	openspec-polling	0	
+F	session-history-sync	0	
+G	event-persistence	9	REMOVED Requirements
