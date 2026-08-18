@@ -41,6 +41,10 @@ import type { MetaPersistence } from "../persistence/meta-persistence.js";
 import type { PreferencesStore } from "../persistence/preferences-store.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
 import {
+  consumerDivergenceMessage,
+  piRuntimeSnapshot,
+} from "../pi/pi-runtime.js";
+import {
   type BootstrapCompatibility,
   computeCompatibility,
   readCurrentPiVersion,
@@ -59,6 +63,28 @@ import { startTunnelWatchdog, stopTunnelWatchdog } from "../tunnel/tunnel-watchd
 import { buildNetworkInterfaceList } from "./network-interfaces.js";
 import type { NetworkGuard } from "./route-deps.js";
 
+/**
+ * `/api/health` → `piRuntime`.
+ *
+ * SECURITY: `/api/health` has NO `preHandler` guard — it is reachable
+ * unauthenticated. This shape therefore carries VERSIONS ONLY and never a
+ * filesystem path; the paths live on the guarded `GET /api/pi/installs`.
+ * Adding a path field here would disclose the operator's install layout to any
+ * caller that can reach the port.
+ *
+ * See change: select-pi-runtime-install (design D5).
+ */
+export interface PiDivergenceHealth {
+  /** The two pi CONSUMERS resolve to different installs. */
+  consumerDiverged: boolean;
+  /** Message naming BOTH versions; null when not diverged. */
+  consumerMessage: string | null;
+  spawnVersion: string | null;
+  moduleVersion: string | null;
+  /** >1 distinct pi version across every enumerated install — a DIFFERENT question. */
+  installSetDiverged: boolean;
+  installSetVersions: string[];
+}
 /**
  * Enrich each plugin status with `bridgeLoadedFrom` by classifying the
  * plugin's resolved bridge path against the live pi settings.json.
@@ -172,6 +198,44 @@ export function registerSystemRoutes(
   const serverPkgJsonPath = path.join(path.dirname(fileURLToPath(import.meta.url)), "../../package.json");
   const COMPAT_CACHE_MS = 30_000;
   let compatCache: { at: number; value: BootstrapCompatibility | null } | null = null;
+  // Pi runtime divergence, on the SAME 30s cache as `compatibility`: the
+  // snapshot does a registry resolve + filesystem enumeration and must not run
+  // on every health poll.
+  //
+  // Two divergence predicates are reported under DISTINCT labels and never
+  // conflated (design D5): `piConsumerDivergence` asks "do the two pi consumers
+  // resolve to the same install", `piInstallSetDivergence` asks "is there more
+  // than one pi version anywhere on this box". A user with one unused old
+  // install has the latter and not the former.
+  // See change: select-pi-runtime-install.
+  let piDivergenceCache: { at: number; value: PiDivergenceHealth | null } | null = null;
+  const readPiDivergence = (): PiDivergenceHealth | null => {
+    const now = Date.now();
+    if (piDivergenceCache && now - piDivergenceCache.at < COMPAT_CACHE_MS) {
+      return piDivergenceCache.value;
+    }
+    let value: PiDivergenceHealth | null = null;
+    try {
+      const snap = piRuntimeSnapshot();
+      value = {
+        consumerDiverged: snap.consumerDiverged,
+        consumerMessage: consumerDivergenceMessage(snap),
+        spawnVersion: snap.spawn.version,
+        moduleVersion: snap.module.version,
+        installSetDiverged: snap.installSetDiverged,
+        installSetVersions: snap.installSetVersions,
+      };
+    } catch (err) {
+      // Health must stay up, so this degrades to `null` rather than throwing —
+      // but a PERSISTENT enumeration failure would otherwise be invisible, with
+      // `piRuntime: null` indistinguishable from "nothing to report".
+      fastify.log.debug({ err }, "pi runtime divergence snapshot failed");
+      value = null;
+    }
+    piDivergenceCache = { at: now, value };
+    return value;
+  };
+
   const readCompatibility = (): BootstrapCompatibility | null => {
     const now = Date.now();
     if (compatCache && now - compatCache.at < COMPAT_CACHE_MS) return compatCache.value;
@@ -593,6 +657,9 @@ export function registerSystemRoutes(
       // unresolvable. Drives the Settings → General advisory. See change:
       // restore-pi-version-skew-surface.
       compatibility: readCompatibility(),
+      // Pi runtime divergence, under two distinct labels (see readPiDivergence).
+      // See change: select-pi-runtime-install (design D5).
+      piRuntime: readPiDivergence(),
       // Per-hop dropped-frame counters (observability for silently-dropped
       // WS frames). `serverToBrowser` = frames the fanout skipped under
       // back-pressure; `bridgeToServer` = the max bridge ring-buffer eviction

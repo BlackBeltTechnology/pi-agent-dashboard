@@ -19,11 +19,18 @@ import {
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ANTHROPIC_PEER_SOURCE,
+  IMPORT_FAILURE_PREFIX,
+  useAnthropicPeerProbe,
+} from "../../hooks/useAnthropicPeerProbe.js";
 import { useAsyncAction } from "../../hooks/useAsyncAction.js";
+import { usePackageOperations } from "../../hooks/usePackageOperations.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { Toast, type ToastVariant, useToast } from "../primitives/Toast.js";
 import { logRejection } from "../../lib/report-error.js";
+import { InlineMessage } from "../primitives/InlineMessage.js";
+import { Toast, type ToastVariant, useToast } from "../primitives/Toast.js";
 
 // ── Fetch helpers ────────────────────────────────────────────────────────────
 
@@ -75,6 +82,9 @@ export function ProviderAuthSection() {
   const [handlerIds, setHandlerIds] = useState<Set<string> | null>(null);
   const [loading, setLoading] = useState(true);
   const { messages, showToast, dismissToast } = useToast();
+  // One probe read for the whole section — per-row hooks would fan out one
+  // /api/health fetch per provider. See change: warn-missing-anthropic-messages-peer.
+  const { peerMissing, peerReason } = useAnthropicPeerProbe();
 
   const refresh = useCallback(async () => {
     try {
@@ -103,7 +113,7 @@ export function ProviderAuthSection() {
       <div className="space-y-2">
         <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">{i18nT("gateway.subscriptionsOauth", undefined, "Subscriptions (OAuth)")}</h3>
         {oauthProviders.map((p) => (
-          <OAuthProviderRow key={p.id} provider={p} supported={handlerIds === null ? true : handlerIds.has(p.id)} onChanged={refresh} showToast={showToast} />
+          <OAuthProviderRow key={p.id} provider={p} supported={handlerIds === null ? true : handlerIds.has(p.id)} onChanged={refresh} showToast={showToast} peerMissing={p.id === "anthropic" && peerMissing} peerReason={peerReason} />
         ))}
       </div>
 
@@ -120,7 +130,7 @@ export function ProviderAuthSection() {
 
 // ── OAuth Provider Row ───────────────────────────────────────────────────────
 
-function OAuthProviderRow({ provider, supported, onChanged, showToast }: { provider: ProviderAuthStatus; supported: boolean; onChanged: () => void; showToast: (text: string, variant?: ToastVariant) => void }) {
+function OAuthProviderRow({ provider, supported, onChanged, showToast, peerMissing = false, peerReason }: { provider: ProviderAuthStatus; supported: boolean; onChanged: () => void; showToast: (text: string, variant?: ToastVariant) => void; peerMissing?: boolean; peerReason?: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deviceModal, setDeviceModal] = useState<DeviceCodeResponse | null>(null);
@@ -336,6 +346,9 @@ function OAuthProviderRow({ provider, supported, onChanged, showToast }: { provi
         </div>
       )}
 
+      {/* Bridge peer hint — only on the authenticated Anthropic OAuth row. */}
+      <AnthropicPeerHint show={peerMissing && provider.authenticated} reason={peerReason} />
+
       {error && (
         <div className="flex items-center gap-1 mt-1 text-xs text-red-400">
           <Icon path={mdiAlert} size={0.45} />
@@ -343,6 +356,89 @@ function OAuthProviderRow({ provider, supported, onChanged, showToast }: { provi
         </div>
       )}
     </div>
+  );
+}
+
+// ── Anthropic bridge-peer hint ───────────────────────────────────────────────
+
+/**
+ * Inline advisory under the Connected marker when the bridge's probe reports
+ * the `@pi/anthropic-messages` peer unresolved. Copy leads with the next step,
+ * not with a failure (the OAuth sign-in itself succeeded).
+ *
+ * See change: warn-missing-anthropic-messages-peer.
+ */
+function AnthropicPeerHint({ show, reason }: { show: boolean; reason?: string }) {
+  const { install, statusFor, messageFor } = usePackageOperations("global", undefined);
+  // Explicit latch: `statusFor(source) === "success"` auto-clears after 3 s and
+  // would silently revert to the warning + Install button (D6b). Released when
+  // the probe reports the peer resolving (i.e. `show` goes false).
+  const [installed, setInstalled] = useState(false);
+  const status = statusFor(ANTHROPIC_PEER_SOURCE);
+  const message = messageFor(ANTHROPIC_PEER_SOURCE);
+
+  useEffect(() => {
+    if (status === "success") setInstalled(true);
+  }, [status]);
+  useEffect(() => {
+    if (!show) setInstalled(false);
+  }, [show]);
+
+  if (!show) return null;
+
+  if (installed) {
+    return (
+      <InlineMessage
+        severity="info"
+        icon={mdiCheck}
+        testId="anthropic-peer-hint"
+        title={i18nT("providers.anthropicPeerInstalled", undefined, "Peer installed — applies on the next pi session start")}
+      />
+    );
+  }
+
+  // An import failure means the package IS installed; installing again is wrong,
+  // so both the control AND the copy switch away from "install this".
+  const importFailed = typeof reason === "string" && reason.startsWith(IMPORT_FAILURE_PREFIX);
+  const pending = status === "queued" || status === "running";
+
+  return (
+    <InlineMessage
+      severity="warning"
+      icon={mdiAlert}
+      testId="anthropic-peer-hint"
+      title={importFailed
+        ? i18nT("providers.anthropicPeerImportFailedTitle", undefined, "The Anthropic peer package is installed but failed to load")
+        : i18nT("providers.anthropicPeerMissingTitle", undefined, "One more step: install the Anthropic peer package")}
+      actions={
+        importFailed ? undefined : (
+          <button
+            type="button"
+            onClick={() => install(ANTHROPIC_PEER_SOURCE)}
+            disabled={pending}
+            className="focus-ring px-2 py-1 text-[11px] rounded border border-current bg-transparent disabled:opacity-60"
+          >
+            {pending
+              ? i18nT("common.installing", undefined, "Installing…")
+              : i18nT("providers.installPeer", undefined, "Install peer")}
+          </button>
+        )
+      }
+    >
+      <div>
+        {importFailed
+          ? i18nT("providers.anthropicPeerImportFailedBody", undefined, "Claude is connected, but the bridge could not import")
+          : i18nT("providers.anthropicPeerMissingBody", undefined, "Claude is connected, but the bridge cannot resolve")}{" "}
+        <code className="font-mono">@blackbelt-technology/pi-anthropic-messages</code>
+        {i18nT(
+          "providers.anthropicPeerMissingBody2",
+          undefined,
+          ", so flows stay in waiting_peers and tool calls fall back.",
+        )}
+      </div>
+      {reason && <div className="mt-0.5 opacity-80">{reason}</div>}
+      {message && <div className="mt-0.5 opacity-80">{message}</div>}
+    </InlineMessage>
   );
 }
 

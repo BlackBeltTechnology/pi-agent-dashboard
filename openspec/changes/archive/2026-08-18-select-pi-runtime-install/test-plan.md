@@ -48,9 +48,9 @@ Clarifications resolved before writing (no open markers):
 
 | id | requirement | technique | level | disposition | input | trigger | expected observable (invariant) |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------------------|
-| F1 | Sync enabled by default | state-transition | L3 | automated | no overrides; both chains resolve to one install | open Settings → General | "Keep both in sync" is checked; both lanes show the same version |
-| F2 | Unconfigured install whose chains disagree | state-transition | L3 | automated | no overrides; chains resolve to different installs | open Settings → General | sync unchecked AND divergence surfaced; UI does not claim agreement |
-| F3 | Pre-existing single-consumer override opens diverged | state-transition | L3 | automated | `pi` override set, `pi-coding-agent` unset, versions differ | open Settings → General | sync unchecked, divergence banner naming both versions, existing pin not overwritten on open |
+| F1 | Sync enabled by default | state-transition | L3 | automated | no overrides; both chains resolve to one install | open Settings → Developer | "Keep both in sync" is checked; both lanes show the same version |
+| F2 | Unconfigured install whose chains disagree | state-transition | L3 | automated | no overrides; chains resolve to different installs | open Settings → Developer | sync unchecked AND divergence surfaced; UI does not claim agreement |
+| F3 | Pre-existing single-consumer override opens diverged | state-transition | L3 | automated | `pi` override set, `pi-coding-agent` unset, versions differ | open Settings → Developer | sync unchecked, divergence banner naming both versions, existing pin not overwritten on open |
 | F4 | Linked selection sets both consumers | decision-table | L3 | automated | sync checked | select a candidate row | both lanes converge to that candidate's version |
 | F5 | Divergence cannot be created while linked | state-transition (illegal edge) | L3 | automated | sync checked | attempt any selection in either column | no reachable UI action produces differing lanes |
 | F6 | Unlinked selection permits a mismatch | decision-table | L3 | automated | sync unchecked | select candidate A in spawn only | spawn lane changes, import lane unchanged, divergence banner appears |
@@ -83,7 +83,7 @@ Clarifications resolved before writing (no open markers):
 | X10 | Enumeration survives an unreadable candidate location | fault-injection | L1 | automated | candidate dir present but `package.json` unreadable (permissions) | enumeration runs | that entry reports null version; other candidates still returned; no throw |
 | X11 | Enumeration survives a subprocess failure | fault-injection (abort) | L1 | automated | `npm root -g` exits non-zero | enumeration runs | npm-global candidate reported absent; remaining candidates still returned |
 | X12 | Malformed override file degrades safely | fault-injection | L1 | automated | corrupt `tool-overrides.json` | open the runtime section | treated as no overrides; section renders Automatic; no throw |
-| X13 | Discovery endpoint failure degrades the section | fault-injection (abort) | L3 | automated | `GET /api/pi/installs` returns 500 | open Settings → General | section shows an error state; the rest of Settings still renders |
+| X13 | Discovery endpoint failure degrades the section | fault-injection (abort) | L3 | automated | `GET /api/pi/installs` returns 500 | open Settings → Developer | section shows an error state; the rest of Settings still renders |
 
 ---
 

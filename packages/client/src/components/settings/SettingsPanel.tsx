@@ -56,6 +56,9 @@ import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
 import { DiagnosticsSection } from "./DiagnosticsSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
 import { ModelSelector } from "./ModelSelector.js";
+// Curated pi-install picker; sits directly above the raw Tools escape hatch.
+// See change: select-pi-runtime-install (design D12).
+import { PiRuntimeSection } from "./PiRuntimeSection.js";
 import { PluginNotFoundNotice, PluginSettingsPage } from "./PluginSettingsPage.js";
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
 import { RetrySettingsSection } from "./RetrySettingsSection.js";
@@ -1758,6 +1761,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   />
                 </Section>
                 <DiagnosticsSection />
+                <PiRuntimeSection />
                 <ToolsSection />
                 <SpawnFailuresSection />
                 {/* See change: auto-canvas (task 5.2). */}

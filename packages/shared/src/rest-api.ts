@@ -961,3 +961,59 @@ export interface SetOpenSpecChangeOrderRequest {
   order: string[];
 }
 export type SetOpenSpecChangeOrderResponse = ApiResponse<void>;
+
+// ── Pi runtime selection ──────────────────────────────────────────────────
+// GET /api/pi/installs · POST /api/pi/runtime.
+// See change: select-pi-runtime-install.
+
+/** One discoverable pi install, with per-consumer usage. */
+export interface PiInstallEntry {
+  key: string;
+  label: string;
+  /** Package directory, or null when this location holds no pi. */
+  pkgDir: string | null;
+  /** File the `pi` (spawn) override would be set to. */
+  spawnEntry: string | null;
+  /** File the `pi-coding-agent` (import) override would be set to. */
+  moduleEntry: string | null;
+  version: string | null;
+  /** False ONLY when a KNOWN version is below the floor. */
+  meetsFloor: boolean;
+  /** True when the version is unreadable, so no floor check was possible. */
+  floorUnknown: boolean;
+  /** The synthesised "currently resolved" row — displayed, never selectable. */
+  readOnly: boolean;
+  usedBy: { spawn: boolean; module: boolean };
+}
+
+/** What one pi consumer currently resolves to. */
+export interface PiConsumerState {
+  path: string | null;
+  pkgDir: string | null;
+  version: string | null;
+  candidateKey: string | null;
+  pinned: boolean;
+}
+
+export interface PiInstallsResponse {
+  installs: PiInstallEntry[];
+  spawn: PiConsumerState;
+  module: PiConsumerState;
+  /** Both consumers resolve to the same install (realpath'd package dir). */
+  inSync: boolean;
+  /** CONSUMER divergence — distinct from `installSetDiverged`. */
+  consumerDiverged: boolean;
+  /** Message naming BOTH versions; null when not diverged. */
+  divergenceMessage: string | null;
+  /** INSTALL-SET divergence — >1 distinct version across enumerated installs. */
+  installSetDiverged: boolean;
+  installSetVersions: string[];
+  /** Compatibility floor used for `meetsFloor`. */
+  floor: string;
+}
+
+/** `null` for a consumer selects Automatic (clears its override). */
+export interface SetPiRuntimeRequest {
+  spawn?: string | null;
+  module?: string | null;
+}

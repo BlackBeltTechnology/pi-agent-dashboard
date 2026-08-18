@@ -4,7 +4,7 @@
 
 `pi` resolves from several independent locations that can each hold a different version — the Electron app bundle, the dashboard-managed install under `~/.pi-dashboard/`, a global npm/nvm install on `PATH`, and a workspace `node_modules/`. Today the dashboard picks one via a fixed strategy chain (`packages/shared/src/tool-registry/definitions.ts` → `piExecutorDef`) and the user has no visibility into what was chosen or why.
 
-The escape hatch that does exist is unusable in practice. Settings → General → **Tools** exposes a free-text absolute-path input on a collapsed `pi` row. To use it you must already know:
+The escape hatch that does exist is unusable in practice. Settings → Developer → **Tools** exposes a free-text absolute-path input on a collapsed `pi` row. To use it you must already know:
 
 1. that a better install exists,
 2. its exact absolute path,
@@ -26,7 +26,7 @@ A fourth problem is invisible until you look at how sessions actually start. `bu
 
 - **New endpoint `GET /api/pi/installs`.** Returns, per candidate: a stable key, a human label, the package directory, the spawn entry, the module entry, the version read from `package.json`, whether it satisfies `piCompatibility.minimum`, and which of the two consumers currently uses it. Cached; invalidated by the existing tool-registry rescan.
 
-- **New Settings → General → "Pi runtime" section**, placed directly above the existing **Tools** section. Two consumer lanes (*Sessions spawn* / *Server imports*) over one candidate list rendered as a two-column selection matrix, with a **"Keep both in sync"** checkbox that is **checked by default**. Selecting a row while linked sets both consumers; unchecking is the deliberate act that permits a mismatch. `Automatic` is itself a selectable row that displays what it currently resolves to, so automatic resolution is never a black box and reverting is one click.
+- **New Settings → Developer → "Pi runtime" section**, placed directly above the existing **Tools** section. Two consumer lanes (*Sessions spawn* / *Server imports*) over one candidate list rendered as a two-column selection matrix, with a **"Keep both in sync"** checkbox that is **checked by default**. Selecting a row while linked sets both consumers; unchecking is the deliberate act that permits a mismatch. `Automatic` is itself a selectable row that displays what it currently resolves to, so automatic resolution is never a black box and reverting is one click.
 
 - **Deliberate mismatch is supported, never accidental.** When the two consumers resolve to different versions the section shows a persistent divergence banner naming both versions, explaining that package installs and model lists are computed from the *import* side, and offering a one-click re-link. The apply-confirmation dialog restates the mismatch before it is written.
 

@@ -180,11 +180,15 @@ The `Automatic` row and each candidate's "used by" marker require mapping a reso
 
 The floor gets **one** reader. `readPiFloor` (returns `null` when absent) and the server's `readPiCompatibility` (falls back to `minimum: "0.6.7"`) disagree on the missing-file case: a packaged deployment without `packages/server/package.json` would silently disable floor gating in the picker while `/api/health` reported `0.6.7`. The promoted reader is the single implementation and its missing-file behaviour is stated explicitly rather than differing per caller.
 
-### D12. Section placement: Settings → General, above Tools
+### D12. Section placement: immediately above Tools — which is now the Developer tab
 
-`SettingsPanel.tsx` renders `<ToolsSection />` at line ~1761 in the General tab. The new section goes immediately above it.
+The new section goes immediately above `<ToolsSection />` in `SettingsPanel.tsx`.
 
-**Why:** the picker is the curated front door and Tools is the raw escape hatch; front door first. Adjacency also makes the "same underlying file" relationship legible. `PiVersionAdvisory` (line ~1144) stays where it is — it answers "should you upgrade", a different question from "which install".
+**Correction, found during implementation:** this decision originally said "Settings → General", which was true when it was written. `ToolsSection` has since moved to the **Developer** page (Advanced group) under change `reorganize-settings-pages-and-descriptions`; the line number quoted here still matched, but the tab around it did not. The picker follows Tools.
+
+**Why:** the picker is the curated front door and Tools is the raw escape hatch; front door first. Adjacency is the load-bearing half of that rationale — it makes the "same underlying `tool-overrides.json`" relationship legible, and splitting the two across pages would leave two places to edit one file with nothing on screen saying so. Discoverability on General was the other half and is deliberately traded away: a user who needs to pin a pi install is already in the same territory as the Tools overrides.
+
+`PiVersionAdvisory` stays where it is — it answers "should you upgrade", a different question from "which install".
 
 ## Risks / Trade-offs
 
@@ -217,10 +221,41 @@ The floor gets **one** reader. `readPiFloor` (returns `null` when absent) and th
 
 **Rollback:** the feature is additive and default-inert. With no override set the strategy chain behaves exactly as before, so reverting the client section alone is safe. A user who has pinned a selection can clear it from the Tools section, which is unchanged, or by deleting `~/.pi/dashboard/tool-overrides.json`.
 
-## Open Questions
+## Open Questions — RESOLVED
 
-- Should the `Automatic` row show the *resolved* version only, or also which strategy won (`bare-import`, `managed`, `where`)? The strategy name is already in `Resolution.tried`; showing it makes auto fully transparent but adds jargon to the primary row.
-- Should the running-session count (D8) offer a bulk "restart these sessions on the new runtime" action, or stay purely informational in this change?
-- Does the import-side restart offer belong in the apply dialog, or should the section defer to the existing restart affordance elsewhere in Settings?
-- Should the validator (D6) be extended to every tool's override rather than just the two pi entries? Broader safety, but a larger behaviour change to a shipped endpoint.
-- Should the WSL-tmux path (`buildTmuxCommand` under `wsl-tmux`) translate the resolved Windows path to a WSL path, or is embedding the resolved path only correct for native tmux? D9 covers native tmux; the WSL variant crosses a filesystem-namespace boundary and may need `wslpath` translation or an explicit carve-out.
+Each answered during implementation; recorded here rather than left open.
+
+- **Should the `Automatic` row show the resolved version only, or also which strategy won?**
+  → **Version + location only.** The row already renders `<version> · <path>`, which
+  answers "what am I actually on" without teaching the reader what `bare-import`
+  means. The strategy name stays available where jargon is expected: `Resolution.tried`
+  is on `GET /api/tools/:name` and in the diagnostics export.
+
+- **Should the running-session count offer a bulk "restart these sessions"?**
+  → **Informational only in this change.** Restarting live sessions is destructive and
+  irreversible in a way the picker is not; folding it in would make one confirm-dialog
+  cover two very different blast radii. The count names the exposure; acting on it stays
+  a per-session decision. Sessions with an unrecorded `piVersion` are reported separately
+  and never folded into the count.
+
+- **Does the import-side restart offer belong in the apply dialog, or should it defer to
+  the existing restart affordance?**
+  → **In the section, after a successful apply — not in the dialog.** The dialog fires
+  BEFORE the write, when the restart is still hypothetical; offering it there would ask
+  the user to consent to two things at once. The offer renders only when the import
+  consumer actually changed, and delegates to the existing `POST /api/restart`.
+
+- **Should the validator be extended to every tool's override?**
+  → **No — `pi` and `pi-coding-agent` only.** The two pi entries are the ones this change
+  makes newly and discoverably writable. Broadening it would change shipped behaviour for
+  `openspec`, `npm`, `node`, `git` and `zrok` overrides that nothing here touches, and the
+  validator's "must not be a directory" rule is a pi-consumer fact, not a universal one.
+  A regression test asserts a non-pi tool's override is still unvalidated.
+
+- **Should the WSL-tmux path translate the resolved Windows path to a WSL path?**
+  → **No translation — WSL resolves `pi` itself.** `spawnWslTmux` passes bare `["pi"]`, so
+  the pane resolves pi inside the WSL namespace. `wslpath` translation was rejected: a
+  translated host path points at a Windows-side install whose Node and native modules are
+  the wrong platform, so it would resolve to a binary that cannot run. Making WSL installs
+  selectable needs enumeration inside the WSL namespace, which is out of scope; the UI
+  states that WSL sessions are not covered by the selection.
