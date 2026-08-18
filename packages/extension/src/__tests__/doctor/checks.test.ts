@@ -1,7 +1,10 @@
 /**
- * Doctor `_lib/checks` tests: tier-1/tier-2 peer probing, name-skew detection,
- * pi-install enumeration + divergence, and floor reading — all against
- * hermetic tmp fixtures (no network, no global state).
+ * Doctor `_lib/checks` tests: tier-1/tier-2 peer probing and name-skew
+ * detection — all against hermetic tmp fixtures (no network, no global state).
+ *
+ * Pi-install enumeration, divergence and floor reading moved with the helpers
+ * to `packages/shared/src/pi-installs/__tests__/installs.test.ts`
+ * (change: select-pi-runtime-install).
  *
  * See change: add-modular-doctor-skill (tasks 2.1, 3.2, 3.3, 7.1).
  */
@@ -11,10 +14,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
 	detectNameSkew,
-	enumeratePiInstalls,
-	piVersionDivergence,
 	probePeer,
-	readPiFloor,
 } from "../../../.pi/skills/doctor/_lib/checks.js";
 
 let root: string;
@@ -81,41 +81,5 @@ describe("detectNameSkew", () => {
 		expect(res.resolvedName).toBe("@blackbelt-technology/pi-anthropic-messages");
 		expect(res.staleNames).toEqual(["@pi/anthropic-messages"]);
 		expect(res.tier).toBe("tier-2");
-	});
-});
-
-describe("enumeratePiInstalls + divergence", () => {
-	it("reads each install version and flags divergence", () => {
-		const a = path.join(root, "cli");
-		const b = path.join(root, "repo");
-		writePkg(a, "@earendil-works/pi-coding-agent", "0.80.3");
-		writePkg(b, "@earendil-works/pi-coding-agent", "0.80.2");
-		const installs = enumeratePiInstalls({ cli: a, repo: b, missing: path.join(root, "nope") });
-		expect(installs.find((i) => i.location === "cli")?.version).toBe("0.80.3");
-		expect(installs.find((i) => i.location === "missing")?.version).toBeNull();
-		const div = piVersionDivergence(installs);
-		expect(div.diverged).toBe(true);
-		expect(div.versions.sort()).toEqual(["0.80.2", "0.80.3"]);
-	});
-
-	it("no divergence when all versions match", () => {
-		const a = path.join(root, "a");
-		const b = path.join(root, "b");
-		writePkg(a, "pi", "0.80.3");
-		writePkg(b, "pi", "0.80.3");
-		expect(piVersionDivergence(enumeratePiInstalls({ a, b })).diverged).toBe(false);
-	});
-});
-
-describe("readPiFloor", () => {
-	it("reads piCompatibility.minimum from a server package.json", () => {
-		const p = path.join(root, "package.json");
-		writeFileSync(p, JSON.stringify({ piCompatibility: { minimum: "0.78.0" } }));
-		expect(readPiFloor(p)).toBe("0.78.0");
-	});
-	it("returns null when absent", () => {
-		const p = path.join(root, "package.json");
-		writeFileSync(p, JSON.stringify({}));
-		expect(readPiFloor(p)).toBeNull();
 	});
 });

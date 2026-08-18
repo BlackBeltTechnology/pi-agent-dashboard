@@ -2,6 +2,35 @@
 // Hungarian catalog covering the full post-migration key set. Machine-seeded;
 // grouped by structured key for human review.
 export const huCatalog: Record<string, string> = {
+  "piRuntime.outsideBundle": "Ez a telepítés az alkalmazáscsomagon kívül van. A csomagolt pi a tesztelt; másik választása megengedett, de nem támogatott.",
+
+  "common.advanced": "Speciális",
+  "piRuntime.title": "Pi futtatókörnyezet",
+  "piRuntime.loading": "Pi telepítések betöltése…",
+  "piRuntime.loadFailed": "A pi telepítések nem tölthetők be.",
+  "piRuntime.laneSpawn": "Munkamenetek indítása",
+  "piRuntime.laneImport": "Szerver importok",
+  "piRuntime.keepInSync": "Mindkettő szinkronban tartása",
+  "piRuntime.automatic": "Automatikus",
+  "piRuntime.pinned": "rögzítve",
+  "piRuntime.unresolved": "nem feloldható",
+  "piRuntime.unknownVersion": "ismeretlen verzió",
+  "piRuntime.unknownVersionWarning": "ismeretlen verzió — nincs minimumellenőrzés",
+  "piRuntime.belowFloor": "A támogatott minimális pi verzió ({minimum}) alatt van.",
+  "piRuntime.readOnlyRow": "Csak olvasható: azt mutatja, amit a lánc jelenleg feloldd.",
+  "piRuntime.colSpawn": "Indítás",
+  "piRuntime.colImport": "Import",
+  "piRuntime.applyNote": "Az indítás módosítása csak az újonnan indított munkamenetekre hat. Az import módosítása szerver újraindítást igényel.",
+  "piRuntime.wslNote": "A WSL munkamenetek a pi-t a WSL-en belül oldják fel, ezekre a választás nem vonatkozik.",
+  "piRuntime.restartServer": "Szerver újraindítása az új pi betöltéséhez",
+  "piRuntime.advancedNote": "Az egyéni útvonalak a ~/.pi/dashboard/tool-overrides.json fájlba kerülnek — ugyanabba, amit az Eszközök szakasz szerkeszt.",
+  "piRuntime.customSpawn": "Egyéni indítási belépési pont (pi)",
+  "piRuntime.customImport": "Egyéni import belépési pont (pi-coding-agent)",
+  "piRuntime.confirmMismatch": "Ezzel a munkamenetek és a szerver KÜLÖNBÖZŐ pi telepítésen maradnak. Mégis alkalmazza?",
+  "piRuntime.confirmApply": "Alkalmazza ezt a pi futtatókörnyezet-választást?",
+  "piRuntime.sessionsOnPrevious": "{count} futó munkamenet még a pi {version} verzión van.",
+  "piRuntime.sessionsUnknownRuntime": "{count} futó munkamenet ismeretlen pi futtatókörnyezettel.",
+
   // --- Zone 1 batch 3 (lint cleanup) ---
   "common.howToUpgrade": "Hogyan frissíts",
   "common.modelRefreshFailed": "nem sikerült elérni: {providers} — a legutóbb ismert lista látható",

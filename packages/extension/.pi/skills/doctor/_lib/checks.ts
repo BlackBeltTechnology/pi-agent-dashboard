@@ -8,8 +8,14 @@
  * See change: add-modular-doctor-skill (design.md D4/D8, spec: Derive-on-run).
  */
 
-import { existsSync, readFileSync } from "node:fs";
 import { createRequire } from "node:module";
+import {
+	enumeratePiInstalls,
+	type PiInstall,
+	piVersionDivergence,
+	readPiFloor,
+	resolvePiFloor,
+} from "@blackbelt-technology/pi-dashboard-shared/pi-installs/index.js";
 import {
 	listPiPackages,
 	type ResolvePiPackageOptions,
@@ -22,12 +28,18 @@ import {
 	sourcesMatch,
 } from "@blackbelt-technology/pi-dashboard-shared/source-matching.js";
 
-export type { ResolvePiPackageOptions, SourceKey };
+export type { PiInstall, ResolvePiPackageOptions, SourceKey };
+// Pi-install enumeration + floor reading live in `shared/pi-installs/` so the
+// doctor and the server cannot drift (change: select-pi-runtime-install, D1).
 // Re-export the primitives so modules import them from one place (DRY: the
 // wrappers below are the ONLY doctor-specific additions).
 export {
+	enumeratePiInstalls,
 	listPiPackages,
 	parseSourceKey,
+	piVersionDivergence,
+	readPiFloor,
+	resolvePiFloor,
 	resolvePiPackage,
 	resolvePiPackageEntry,
 	sourcesMatch,
@@ -109,69 +121,3 @@ export function detectNameSkew(
 	return { resolvedName: null, staleNames: stale, tier: null, resolvedPath: null };
 }
 
-export interface PiInstall {
-	/** Human label for the consumer/location. */
-	location: string;
-	/** Absolute path the install resolves from, or null when not found. */
-	resolvedPath: string | null;
-	/** Parsed package.json version, or null. */
-	version: string | null;
-}
-
-function readPkgVersion(pkgJsonPath: string): string | null {
-	try {
-		const raw = JSON.parse(readFileSync(pkgJsonPath, "utf8")) as { version?: string };
-		return typeof raw.version === "string" ? raw.version : null;
-	} catch {
-		return null;
-	}
-}
-
-/**
- * Enumerate pi installs across candidate locations and read each version from
- * its package.json. `locations` maps a human label to a candidate package
- * directory (repo node_modules, managed dir, nvm-global, …). The caller
- * supplies the candidate dirs; this helper only resolves + reads versions so
- * it stays platform-agnostic and testable with fixtures.
- */
-export function enumeratePiInstalls(
-	locations: Record<string, string>,
-): PiInstall[] {
-	const out: PiInstall[] = [];
-	for (const [location, dir] of Object.entries(locations)) {
-		const pkgJson = `${dir}/package.json`;
-		if (existsSync(pkgJson)) {
-			out.push({ location, resolvedPath: dir, version: readPkgVersion(pkgJson) });
-		} else {
-			out.push({ location, resolvedPath: null, version: null });
-		}
-	}
-	return out;
-}
-
-/**
- * Given the enumerated installs, return the set of distinct non-null versions.
- * More than one distinct version means the consumers diverge.
- */
-export function piVersionDivergence(installs: PiInstall[]): {
-	diverged: boolean;
-	versions: string[];
-} {
-	const versions = [...new Set(installs.map((i) => i.version).filter((v): v is string => !!v))];
-	return { diverged: versions.length > 1, versions };
-}
-
-/**
- * Read the pi compatibility floor from a server package.json on disk
- * (`piCompatibility.minimum`). Shell-first: no server call needed.
- */
-export function readPiFloor(serverPkgJsonPath: string): string | null {
-	try {
-		const raw = JSON.parse(readFileSync(serverPkgJsonPath, "utf8")) as {
-			piCompatibility?: { minimum?: string };
-		};
-		return raw.piCompatibility?.minimum ?? null;
-	} catch {
-		return null;
-	}
-}
