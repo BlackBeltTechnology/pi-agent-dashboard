@@ -69,5 +69,5 @@
 
 ## 7. Manual verification (post-merge)
 
-- [ ] 7.1 Watch a live subagent with the throttle ON at 500 ms and confirm it still reads as "alive" with no perceptible stutter versus throttle OFF (test-plan: manual-only)
-- [ ] 7.2 Reload mid-run and confirm the replayed timeline does not visibly lag the live card (test-plan: manual-only)
+- [x] 7.1 Watch a live subagent with the throttle ON at 500 ms and confirm it still reads as "alive" with no perceptible stutter versus throttle OFF (test-plan: manual-only)
+- [x] 7.2 Reload mid-run and confirm the replayed timeline does not visibly lag the live card (test-plan: manual-only)
