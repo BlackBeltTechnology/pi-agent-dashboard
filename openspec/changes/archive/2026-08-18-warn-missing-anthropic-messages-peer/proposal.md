@@ -75,9 +75,9 @@ moment the operator believes setup is finished, so it is the right moment to say
   Follows the established `usePluginEnabledSet` shape.
 - `packages/client/src/hooks/usePackageOperations.ts` — existing consumer for the install action
   and its per-source `statusFor` / `messageFor` state. No signature change.
-- Peer specifier constants are imported from the bridge plugin's `peer-probe.ts` (`PEER_AM`,
-  `PEER_AM_LEGACY`) rather than re-declared client-side.
-- Tests: `packages/client/src/__tests__/ProviderAuthSection.test.tsx` — hint shown only when
+- The peer probe key is imported from the bridge plugin's `peer-probe.ts` (`PEER_AM_LEGACY`) and the
+  install source from the shipped `RECOMMENDED_EXTENSIONS` entry, rather than re-declared client-side.
+- Tests: `packages/client/src/__tests__/ProviderAuthSection.peer-hint.test.tsx` — hint shown only when
   authenticated + probe says missing; hidden when signed out, when the probe says ok, when
   `waiting_peers` is caused by `pi-flows`, and on every fail-open shape; hidden for other OAuth
   providers and API-key rows; install enqueues the scoped source; failure surfaces; post-install

@@ -1,7 +1,11 @@
 # anthropic-peer-hint Specification
 
 ## Purpose
-TBD - created by archiving change warn-missing-anthropic-messages-peer. Update Purpose after archive.
+Surface, inline on the authenticated Anthropic OAuth row, when the `flows-anthropic-bridge` peer
+probe reports the `@pi/anthropic-messages` peer as unresolved — with a one-click install — so an
+operator who has connected Claude but is missing the bridge peer sees the remaining step instead of
+silently landing in `waiting_peers`. The signal is derived strictly from the bridge probe on
+`/api/health`; every other shape fails open (renders nothing).
 ## Requirements
 ### Requirement: Missing-peer hint on the authenticated Anthropic OAuth row
 The `anthropic` OAuth provider row in Provider Authentication SHALL render an inline advisory hint

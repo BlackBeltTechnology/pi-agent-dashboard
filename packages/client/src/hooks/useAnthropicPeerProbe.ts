@@ -60,20 +60,24 @@ function derive(body: unknown): AnthropicPeerProbeState {
 export function useAnthropicPeerProbe(): AnthropicPeerProbeState {
   const [state, setState] = useState<AnthropicPeerProbeState>({ peerMissing: false });
   const mountedRef = useRef(true);
+  // Generation guard: focus + poll + package-event can fire overlapping reads,
+  // and a slower earlier response must never overwrite a newer one.
+  const readIdRef = useRef(0);
 
   const read = useCallback(async () => {
+    const readId = ++readIdRef.current;
+    const fresh = () => mountedRef.current && readId === readIdRef.current;
     try {
       const res = await fetch(`${getApiBase()}/api/health`);
       if (!res.ok) {
-        if (mountedRef.current) setState({ peerMissing: false });
+        if (fresh()) setState({ peerMissing: false });
         return;
       }
       const body = await res.json();
-      if (!mountedRef.current) return;
-      setState(derive(body));
+      if (fresh()) setState(derive(body));
     } catch {
       // Fail-open: a failed read is never evidence of a missing peer.
-      if (mountedRef.current) setState({ peerMissing: false });
+      if (fresh()) setState({ peerMissing: false });
     }
   }, []);
 
