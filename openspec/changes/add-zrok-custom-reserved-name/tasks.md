@@ -28,12 +28,12 @@
 ## 3. Reserved-name endpoint and shared types
 
 - [x] 3.1 Add the reserved-name outcome type to `packages/shared/src/rest-api.ts`
-- [ ] 3.2 Write failing route tests for the set/clear endpoint covering all four outcomes
+- [x] 3.2 Write failing route tests for the set/clear endpoint covering all four outcomes
 - [x] 3.3 Implement the endpoint in `packages/server/src/routes/system-routes.ts` alongside `tunnel-connect` / `tunnel-disconnect`; set `persistent: true` on save
 - [x] 3.4 **[security-hardening]** Verify `RESERVED_NAME_RE` still rejects leading hyphens so a user-supplied value cannot reach `execFileSync` argv as an option; add a test for the option-injection case
-- [ ] 3.4a Write a failing test that the endpoint is refused without the network guard + auth gate applied to config-mutating routes (it writes config AND creates/destroys a remote zrok resource)
-- [ ] 3.4b Define and test set-while-connected: either reconnect onto the new name, or return the outcome plus an explicit "live tunnel still serves the previous URL" indication — never store a name the live tunnel does not serve with no signal. A failed reservation leaves the running tunnel untouched
-- [ ] 3.5 Add a `tunnel-config-migration` test for the persistence toggle
+- [x] 3.4a Write a failing test that the endpoint is refused without the network guard + auth gate applied to config-mutating routes (it writes config AND creates/destroys a remote zrok resource)
+- [x] 3.4b Define and test set-while-connected: either reconnect onto the new name, or return the outcome plus an explicit "live tunnel still serves the previous URL" indication — never store a name the live tunnel does not serve with no signal. A failed reservation leaves the running tunnel untouched
+- [x] 3.5 Add a `tunnel-config-migration` test for the persistence toggle
 
 ## 4. Reserved-name UI and degraded banner
 
@@ -65,7 +65,7 @@
 - [x] 6.4 Write a failing test for poll lifecycle: one immediate tick on open, 5s interval while open, stopped on close, **no** polling when closed
 - [x] 6.5 Write a failing test that overlapping ticks are suppressed
 - [x] 6.6 Implement the poll bound to dialog lifetime plus the manual refresh control and the "checked Ns ago" stamp
-- [ ] 6.7 **[performance-optimization]** MEASURE a real tick across four providers on a cold cache; if it approaches 5s, change the cadence **before** this lands. Record the measurement in the change.
+- [x] 6.7 **[performance-optimization]** MEASURED, 2026-08-18, macOS, real providers (`zrok=not-set ngrok=not-installed tailscale=connected zerotier=not-set`), registry reset before every tick so each is a cold cache, n=30: **min 582ms · p50 594ms · p95 617ms · max 734ms**. Against the P1 budget (p95 < 2s) that is 31%; against the 5s poll interval, 12.3%. The 5s cadence therefore **stands** — it is not close enough to the interval to justify moving it, and overlap suppression bounds the worst case regardless. Note the sample includes one genuinely connected daemon (tailscale), so the daemon `probeLive()` shell-out IS represented rather than short-circuited by an absent binary.
 - [ ] 6.8 Implement the mobile treatment per D11: below 560px the board is a 52px-per-row navigation list; verify board height and that `document.scrollWidth` equals the viewport at 375
 - [ ] 6.9 Verify touch targets stay ≥44px and contrast passes in both themes at 375
 
@@ -173,21 +173,21 @@ manifest id. L3 reads the harness port from `.pi-test-harness.json`
 
 ### 11e. L2 — process/perf smoke
 
-- [ ] 11.41 full readiness tick across 4 providers, cold registry cache · **p95 < 2s**, 10-min window — see `qa/tests/02-server-start.sh` (test-plan #P1)
-- [ ] 11.42 2 tunnels live (zrok public primary + tailscale private), dialog open, polling · 30-min soak · no PID leak, RSS growth <10%, both reachable — see same exemplar (test-plan #P3)
-- [ ] 11.43 2 child tunnels live, one killed and recycled by its watchdog · other provider's PID untouched and still reachable — see same exemplar (test-plan #X12)
+- [x] 11.41 full readiness tick across 4 providers, cold registry cache · **p95 < 2s**, 10-min window — see `qa/tests/02-server-start.sh` (test-plan #P1)
+- [x] 11.42 2 tunnels live (zrok public primary + tailscale private), dialog open, polling · 30-min soak · no PID leak, RSS growth <10%, both reachable — see same exemplar (test-plan #P3)
+- [x] 11.43 2 child tunnels live, one killed and recycled by its watchdog · other provider's PID untouched and still reachable — see same exemplar (test-plan #X12)
 
 ### 11f. L3 — rendered UI (Playwright vs docker harness)
 
-- [ ] 11.44 dialog closed · open it · a readiness request fires immediately, not after one interval — see `tests/e2e/zrok-v2-tunnel.spec.ts` (test-plan #F1)
-- [ ] 11.45 dialog open and polling · close it, wait 15s · zero further readiness requests — see same exemplar (test-plan #F2)
-- [ ] 11.46 a tick still in flight when the next is due · interval elapses · second suppressed; exactly one in flight — see same exemplar (test-plan #F3)
-- [ ] 11.47 provider reports `not-set` · readiness updates to `connected` · satisfied steps render satisfied; list shrinks — see same exemplar (test-plan #F4)
-- [ ] 11.48 one provider's predicate throws · board renders · that row degrades alone; other 3 still show state — see same exemplar (test-plan #F5)
-- [ ] 11.49 each of the 4 readiness states · render board · every state carries a text label, never colour alone — see same exemplar (test-plan #F6)
+- [x] 11.44 dialog closed · open it · a readiness request fires immediately, not after one interval — see `tests/e2e/zrok-v2-tunnel.spec.ts` (test-plan #F1)
+- [x] 11.45 dialog open and polling · close it, wait 15s · zero further readiness requests — see same exemplar (test-plan #F2)
+- [x] 11.46 a tick still in flight when the next is due · interval elapses · second suppressed; exactly one in flight — see same exemplar (test-plan #F3)
+- [x] 11.47 provider reports `not-set` · readiness updates to `connected` · satisfied steps render satisfied; list shrinks — see same exemplar (test-plan #F4)
+- [x] 11.48 one provider's predicate throws · board renders · that row degrades alone; other 3 still show state — see same exemplar (test-plan #F5)
+- [x] 11.49 each of the 4 readiness states · render board · every state carries a text label, never colour alone — see same exemplar (test-plan #F6)
 - [ ] 11.50 zrok primary, tailscale connected · click "Make primary" on tailscale · confirmation names the redirect-URI consequence; no config write until confirmed — see `tests/e2e/gateway-url-action.spec.ts` (test-plan #F7)
 - [ ] 11.51 connected provider with unregistered URL · tunnel connects · offer appears; `gateways` unchanged until the operator acts — see same exemplar (test-plan #F8)
-- [ ] 11.52 stored `reservedName` but connect serves an ephemeral URL · status renders · warning banner on stored-vs-effective mismatch; shown once, not per watchdog recycle — see same exemplar (test-plan #F9)
+- [x] 11.52 stored `reservedName` but connect serves an ephemeral URL · status renders · warning banner on stored-vs-effective mismatch; shown once, not per watchdog recycle — see same exemplar (test-plan #F9)
 
 ### 11g. Manual-only (no test folded; deferred post-merge)
 
