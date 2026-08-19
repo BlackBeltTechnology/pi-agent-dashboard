@@ -75,7 +75,19 @@ function readRecord(dir: string): RunRecord | null {
  * addressable without the caller supplying the parent id.
  * See change: add-automation-concurrent-spawn.
  */
+/**
+ * A run id is a store key of the form `YYYY-MM-DD-HHMMSS-<name>-<seq>` (child
+ * ids share the shape). It becomes a path segment, so it MUST NOT contain a
+ * path separator or a `..` traversal. Reject anything else before it reaches
+ * `path.join` (a user-supplied `runId` arrives on the `/result` + `/stop`
+ * routes). See change: add-automation-concurrent-spawn.
+ */
+export function isSafeRunId(runId: string): boolean {
+  return /^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(runId) && !runId.includes("..");
+}
+
 export function resolveRunDir(scopeBase: string, runId: string): string | null {
+  if (!isSafeRunId(runId)) return null;
   const top = runDir(scopeBase, runId);
   if (fs.existsSync(path.join(top, "run.json"))) return top;
   const root = runsRootFor(scopeBase);

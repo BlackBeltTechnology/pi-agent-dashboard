@@ -11,6 +11,7 @@ import {
   countFindings,
   finishParentRun,
   finishRun,
+  isSafeRunId,
   listRuns,
   listStaleRunningRuns,
   makeRunId,
@@ -155,6 +156,15 @@ describe("run-store — parent/child layout", () => {
     pruneRuns(base, "nightly", 100);
     expect(resolveRunDir(base, liveParent.runId)).not.toBeNull();
     expect(resolveRunDir(base, child.runId)).not.toBeNull();
+  });
+
+  it("rejects a path-traversal runId (no fs walk, returns null)", () => {
+    startParentRun(base, "nightly");
+    for (const bad of ["../escape", "..", "a/b", "a\\b", "../../etc/passwd"]) {
+      expect(isSafeRunId(bad)).toBe(false);
+      expect(resolveRunDir(base, bad)).toBeNull();
+    }
+    expect(isSafeRunId("2026-06-19-nightly-00001")).toBe(true);
   });
 
   it("X15: the stale sweep enumerates nested children", () => {
