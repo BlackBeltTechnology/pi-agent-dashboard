@@ -2,12 +2,17 @@
 
 Stage: apply   Generated: 2026-08-19
 
-## ⚠ Clarifications needed (2)
+## ⚠ Clarifications RESOLVED (2)
 
-- [ ] **C1** — Batch removal blocks the event loop (`removeWorktree` uses `execSync`, so a 50-item batch is 50–100 sequential git invocations in one handler, on a server also hosting two WebSocket servers). Scenario **P1** needs a threshold to assert against: is the budget (a) no bridge/browser WS heartbeat missed for the batch duration, (b) a hard p95 wall-clock ceiling per batch, or (c) explicitly "no budget — batches are rare, blocking is accepted"? Without a number P1 cannot assert a boundary.
-- [ ] **C2** — Blocked scenario **X6**: when the branch delete succeeds but `git worktree remove` already reported success and the *response write* fails (client disconnects mid-request), is the branch deletion expected to have happened anyway (no compensation), or is any rollback expected? The spec defines the happy and refused paths but not the abandoned-caller path.
+- [x] **C1** — RESOLVED: option (c) **no budget** — batches are rare, blocking is accepted. Scenario **P1** is DROPPED (task 9.2 dropped) rather than weakened to an exit-0 assertion.
+- [x] **C2** — RESOLVED: **no compensation** — the branch delete happens anyway; X6 asserts the deletion completed and no unhandled rejection escapes when the caller aborts.
 
-> Resolve before the blocked scenarios (marked below) can be authored.
+<details><summary>original wording</summary>
+
+- **C1** — Batch removal blocks the event loop (`removeWorktree` uses `execSync`, so a 50-item batch is 50–100 sequential git invocations in one handler, on a server also hosting two WebSocket servers). Scenario **P1** needs a threshold to assert against: is the budget (a) no bridge/browser WS heartbeat missed for the batch duration, (b) a hard p95 wall-clock ceiling per batch, or (c) explicitly "no budget — batches are rare, blocking is accepted"? Without a number P1 cannot assert a boundary.
+- **C2** — Blocked scenario **X6**: when the branch delete succeeds but `git worktree remove` already reported success and the *response write* fails (client disconnects mid-request), is the branch deletion expected to have happened anyway (no compensation), or is any rollback expected? The spec defines the happy and refused paths but not the abandoned-caller path.
+
+</details>
 
 ---
 
@@ -65,7 +70,7 @@ Stage: apply   Generated: 2026-08-19
 | X2 | worktree-lifecycle: a blocked item reports its own sessions | fault-injection (abort) | L1 | automated | item 2 has 2 active sessions under its path | batch post without force for that item | item 2 reports `active_sessions` **with its own `sessionIds`**; items 1+3 still process; the item code union admits a non-`RemoveCode` value |
 | X3 | worktree-lifecycle: batch replicates the cwdMissing broadcast | fault-injection (abort) | L1 | automated | a successfully removed batch item with 2 sessions registered under its path | batch post that succeeds for that item | both sessions are updated with `cwdMissing: true` and a `sessionUpdated` broadcast is emitted per session — asserted against the gateway spy, matching the single endpoint's behaviour |
 | X4 | design D5: refused branch delete must not trigger a force-retry | state-transition | L1 | automated | a worktree whose branch is unmerged, removed with `deleteBranch: true` | the removal succeeds and the branch delete is refused | response is a **success** carrying `branchDeleted: false` + `branchDeleteCode: "unmerged"`; it does NOT carry a `RemoveCode` of `branch_not_merged`; a client keyed on `RemoveCode` does not auto-tick `--force` |
-| X5 | design D8: a vanished directory is not surfaced as a raw 400 | fault-injection (abort) | L3 | automated | a row whose directory is deleted out-of-band after the list was fetched (TOCTOU) | activate `✕` and confirm | the client treats the resulting `cwd_invalid` as "already gone" — the row leaves the list and no raw 400 error is rendered |
+| X5 | design D8: a vanished directory is not surfaced as a raw 400 | fault-injection (abort) | L3 | automated | a row whose directory is deleted out-of-band after the list was fetched (TOCTOU) | activate `✕` and confirm | the client treats the resulting `cwd_invalid` as "already gone" — the confirm dialog dismisses and no raw 400 error is rendered; per design D8 the registration survives, so the row CONVERTS to a prune candidate (`✕` replaced by the prune affordance, excluded from selection) rather than leaving the list |
 | X6 | worktree-lifecycle: caller abandons the request mid-removal | fault-injection (abort) | L1 | automated | client disconnects after `git worktree remove` succeeds but before the response is written, with `deleteBranch: true` | abort the HTTP request mid-handler | [NEEDS CLARIFICATION: observable — see C2. Is the branch delete expected to have happened, with no compensation?] |
 | X7 | worktree-lifecycle: prune is a no-op when nothing is stale | fault-injection (delay) | L1 | automated | every registration's directory exists | `POST /api/git/worktree/prune` | succeeds reporting 0 pruned; no registration is removed |
 | X8 | worktree-lifecycle: prune clears a vanished registration | fault-injection (abort) | L1 | automated | one registration whose directory was deleted outside git | `POST /api/git/worktree/prune` | that registration is gone from `git worktree list`; the response reports the pruned count |

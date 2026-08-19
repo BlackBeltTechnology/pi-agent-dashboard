@@ -1,3 +1,3 @@
 # CloseWorktreeDialog.tsx — index
 
-Confirms worktree removal. Handles `active_sessions` guard: shuts listed sessions down then retries with `--force`. `--force` toggle for `dirty_worktree` / `branch_not_merged`. See change: add-worktree-lifecycle-actions.
+Confirms worktree removal. Handles `active_sessions` guard: shuts listed sessions down then retries with `--force`. `--force` toggle for `dirty_worktree` / `branch_not_merged`. See change: add-worktree-lifecycle-actions. Gains optional `deleteBranch` prop threaded into the POST body (`attempt()` posted `{cwd, force}` only, so the manage surface's intent was silently dropped). Treats `cwd_invalid` as "already gone" — closes + fires `onRemoved` instead of rendering a raw 400; the TOCTOU and two-dialogs-same-cwd races land here. See change: manage-worktrees-filter-cleanup.

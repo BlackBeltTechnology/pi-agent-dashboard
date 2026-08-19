@@ -9,16 +9,22 @@
  *
  * See change: add-worktree-spawn-dialog.
  */
-import { describe, it, expect } from "vitest";
+
+import { execSync } from "node:child_process";
+import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
+import { addWorktree, listWorktrees } from "../git-worktree/git-operations.js";
 import {
-  slugifyBranch,
-  localNameOf,
-  resolveCheckoutLocalName,
-  parsePorcelainWorktrees,
-  resolveDefaultBase,
   ensureWorktreeExcludeLine,
   isOrphanWorktreePath,
   isSameWorktreePath,
+  localNameOf,
+  parsePorcelainWorktrees,
+  resolveCheckoutLocalName,
+  resolveDefaultBase,
+  slugifyBranch,
 } from "../git-worktree/git-worktree.js";
 
 describe("localNameOf", () => {
@@ -393,3 +399,83 @@ describe("isOrphanWorktreePath", () => {
   });
 });
 
+
+// ── per-entry directory existence (change: manage-worktrees-filter-cleanup) ──
+
+describe("listWorktrees exists field", () => {
+  function makeRepo(): string {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "git-wt-exists-")));
+    const git = (cmd: string, cwd = dir) =>
+      execSync(`git ${cmd}`, { cwd, stdio: ["pipe", "pipe", "pipe"], encoding: "utf-8" });
+    git("-c init.defaultBranch=main init");
+    git("config user.email test@test.com");
+    git("config user.name Test");
+    writeFileSync(join(dir, "README.md"), "init\n");
+    git("add .");
+    git("commit -m init");
+    return dir;
+  }
+
+  // test-plan #E15
+  it("reports exists:false for a registration whose directory was deleted", () => {
+    const repo = makeRepo();
+    try {
+      const a = addWorktree({ cwd: repo, base: "main", newBranch: "feat/a" });
+      const b = addWorktree({ cwd: repo, base: "main", newBranch: "feat/b" });
+      expect(a.ok && b.ok).toBe(true);
+      if (!a.ok || !b.ok) return;
+      rmSync(b.path, { recursive: true, force: true });
+
+      const entries = listWorktrees(repo);
+      expect(entries).toHaveLength(3);
+      const byPath = new Map(entries.map((e) => [e.path, e]));
+      expect(byPath.get(repo)?.exists).toBe(true);
+      expect(byPath.get(a.path)?.exists).toBe(true);
+      expect(byPath.get(b.path)?.exists).toBe(false);
+
+      // Every other field keeps its pre-change shape.
+      const main = byPath.get(repo);
+      expect(main).toMatchObject({
+        path: repo, branch: "main", bare: false, detached: false, isMain: true,
+      });
+      expect(typeof main?.sha).toBe("string");
+      expect(byPath.get(a.path)).toMatchObject({ branch: "feat/a", isMain: false });
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  });
+
+  // test-plan #P2 — the statSync-per-entry cost stays in the noise of the
+  // `git worktree list` execSync the call already pays.
+  it("adds negligible wall-clock over the git invocation itself", () => {
+    const repo = makeRepo();
+    try {
+      for (let i = 0; i < 50; i++) {
+        const add = addWorktree({ cwd: repo, base: "main", newBranch: `feat/p${i}` });
+        expect(add.ok).toBe(true);
+      }
+      const median = (xs: number[]) => xs.slice().sort((x, y) => x - y)[Math.floor(xs.length / 2)];
+      const time = (fn: () => void) => {
+        const t = performance.now();
+        fn();
+        return performance.now() - t;
+      };
+      const withStat: number[] = [];
+      const gitOnly: number[] = [];
+      for (let i = 0; i < 20; i++) {
+        gitOnly.push(time(() => {
+          execSync("git worktree list --porcelain", {
+            cwd: repo, stdio: ["pipe", "pipe", "pipe"], encoding: "utf-8",
+          });
+        }));
+        withStat.push(time(() => { listWorktrees(repo); }));
+      }
+      const entries = listWorktrees(repo);
+      expect(entries.length).toBeGreaterThanOrEqual(51);
+      // The added statSync work must not double the cost of the git call.
+      expect(median(withStat)).toBeLessThan(median(gitOnly) * 2);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
+  }, 120_000);
+});
