@@ -47,8 +47,9 @@ adding a new overlay is instructed here rather than re-deriving (or re-breaking)
 #### Scenario: Layer order is total and unambiguous
 - **GIVEN** any two portaled overlays on the same screen
 - **WHEN** both are open
-- **THEN** their relative paint order is fully determined by their layer tokens
+- **THEN** their relative paint order across DISTINCT layers is fully determined by their layer tokens
 - **AND** no two distinct layer roles resolve to the same numeric value
+- **AND** two overlays SHARING one layer token break the tie by portal-mount order (later mount on top) — the token fixes the cross-layer order; within a single layer, mount/DOM order decides
 
 ### Requirement: Box-escaping overlays SHALL portal to a top-level layer root
 
@@ -66,10 +67,12 @@ actually prevents underlap; the layer token then orders it against the other por
 Where a component renders differently by form factor, ALL forms SHALL portal — a component MUST NOT
 portal on one breakpoint and render inline on another, because the inline form is the defect class.
 
-A portaled overlay is positioned `position: fixed` from its trigger's viewport rect. It SHALL re-measure
-that rect while open on scroll (including scroll of an ANCESTOR scroll container, e.g. the sidebar list)
-and on resize, so the panel tracks its trigger and never detaches. (A capture-phase window `scroll`
-listener observes inner-scroller events, which do not bubble.)
+An ANCHORED portaled overlay (menu, popover, dropdown, folder flyout) is positioned `position: fixed`
+from its trigger's viewport rect, and SHALL re-measure that rect while open on scroll (including scroll of
+an ANCESTOR scroll container, e.g. the sidebar list) and on resize, so the panel tracks its trigger and
+never detaches (a capture-phase window `scroll` listener observes inner-scroller events, which do not
+bubble). A NON-ANCHORED overlay (dialog, toast, lightbox) has no trigger — it positions by its own layout
+(viewport-centered or corner-fixed); the trigger-rect rule does not apply to it.
 
 **Migration boundary (bounded, tracked exception).** This rule is normative for every overlay this
 capability introduces or modifies, and for every NEW overlay authored after it lands. A finite,

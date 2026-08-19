@@ -19,6 +19,7 @@
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, relative, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 
 export const SCAN_DIR = "packages/client/src";
 export const BASELINE_PATH = "scripts/z-layer-baseline.json";
@@ -105,5 +106,6 @@ function main() {
   console.log(`z-layer-lint: ok (${curTotal} raw-z occurrences; baseline ${baseTotal}).`);
 }
 
-// Run only as a CLI, not when imported by tests.
-if (import.meta.url === `file://${process.argv[1]}`) main();
+// Run only as a CLI, not when imported by tests. `pathToFileURL` (not a raw
+// `file://` concat) makes the guard correct on Windows paths too.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();
