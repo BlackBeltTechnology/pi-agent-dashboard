@@ -18,16 +18,16 @@ import type { GatewayAuthMode, GatewayRecord } from "@blackbelt-technology/pi-da
 import { mdiPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useCallback, useEffect, useState } from "react";
-import { getConfig, putConfig } from "../../lib/gateway/gateway-api.js";
 import {
   buildGatewayAddPatch,
   buildGatewayFixPatch,
   buildGatewayRemovePatch,
   computeGatewayStatus,
-  validateGatewayDraft,
   type GatewayConfigShape,
   type GatewayValidationCode,
+  validateGatewayDraft,
 } from "../../lib/gateway/gateway-action.js";
+import { getConfig, putConfig } from "../../lib/gateway/gateway-api.js";
 import { suggestTrustEntries } from "../../lib/gateway/gateway-config-ops.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 

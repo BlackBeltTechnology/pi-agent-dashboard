@@ -19,6 +19,7 @@ import { getGitSourceReadout } from "@blackbelt-technology/pi-dashboard-shared/p
 import { classifyBridgeSource } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
 import { RESTART_QUIESCE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
 import type { NetworkInterface, ReservedNameResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { resolveTunnelPlan } from "@blackbelt-technology/pi-dashboard-shared/tunnel-concurrency.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import {
@@ -56,12 +57,11 @@ import { spawnRestart } from "../spawn-process/restart-helper.js";
 import { readSpawnFailures } from "../spawn-process/spawn-failure-log.js";
 import { systemOpenCapability } from "../system-open-capability.js";
 import { connectResolvedProviders, createTunnel, deleteTunnel, disconnectResolvedProviders, ensureReservedName, getProviderReadiness, getTunnelStatus, getTunnelUrl, releaseShare, setPrimaryProvider } from "../tunnel/tunnel.js";
-import { resolveTunnelPlan } from "@blackbelt-technology/pi-dashboard-shared/tunnel-concurrency.js";
-import { reserveName } from "../tunnel-providers/zrok.js";
 import { blockEvents } from "../tunnel/tunnel-block-events.js";
 import { collectEndpoints } from "../tunnel/tunnel-endpoints.js";
 import { runEnrollStep } from "../tunnel/tunnel-enroll.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "../tunnel/tunnel-watchdog.js";
+import { reserveNameAsync } from "../tunnel-providers/zrok.js";
 import { buildNetworkInterfaceList } from "./network-interfaces.js";
 import type { NetworkGuard } from "./route-deps.js";
 
@@ -508,14 +508,38 @@ export function registerSystemRoutes(
     },
   );
 
+  // Deliberately UNGATED, as before this change — the client reads it to render
+  // the tunnel indicator before any auth exists.
   fastify.get("/api/tunnel-status", async () => {
-    // Config is passed in so an active-but-not-at-the-requested-name tunnel is
-    // reported as degraded rather than as an ordinary success.
-    return getTunnelStatus({
+    const status = getTunnelStatus({
       reservedName: config.tunnelReservedName,
       persistent: config.tunnelPersistent,
     });
+    // `degraded.configuredName` is, BY DEFINITION, a reserved name the operator
+    // owns that does NOT appear in the served URL — so unlike `url` it is not
+    // already public. Emitting it here would disclose it to an unauthenticated
+    // caller whenever no auth gate is installed, which is exactly the
+    // deployment shape a tunnel creates. The degraded FLAG is kept (the
+    // indicator needs it); the name is redacted and served from the gated
+    // `/api/tunnel-readiness`-adjacent surfaces the dialog already uses.
+    if (status.status === "active" && status.degraded) {
+      return { ...status, degraded: { configuredName: "", ...(status.degraded.effectiveName ? { effectiveName: status.degraded.effectiveName } : {}) } };
+    }
+    return status;
   });
+
+  // The gated twin of `/api/tunnel-status` — same projection, but allowed to
+  // name the configured reserved name. The Gateway dialog reads this one.
+  fastify.get(
+    "/api/tunnel-status-detail",
+    { preHandler: networkGuard },
+    async () => {
+      return getTunnelStatus({
+        reservedName: config.tunnelReservedName,
+        persistent: config.tunnelPersistent,
+      });
+    },
+  );
 
   fastify.post("/api/tunnel-connect", async () => {
     const status = getTunnelStatus();
@@ -637,7 +661,10 @@ export function registerSystemRoutes(
       // `reserveName` rejects it as `invalid`; asserting it here too keeps the
       // route honest if that ever changes.
       const requested = String(body.name);
-      const outcome = reserveName(requested);
+      // ASYNC: the sync twin blocks the event loop for up to 30s, freezing every
+      // WebSocket heartbeat and session event in the dashboard while the zrok
+      // control plane is slow.
+      const outcome = await reserveNameAsync(requested);
       if (outcome.status !== "ok") {
         // A failed reservation is inert by construction: nothing was released,
         // nothing persisted, and any running tunnel is untouched.

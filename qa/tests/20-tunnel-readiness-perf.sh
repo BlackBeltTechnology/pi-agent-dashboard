@@ -26,7 +26,7 @@ BASE="http://127.0.0.1:${PORT}"
 SAMPLES=${PI_QA_READINESS_SAMPLES:-20}
 BUDGET_MS=2000
 
-if ! curl -fsS "${BASE}/api/health" >/dev/null 2>&1; then
+if ! curl -fsS --max-time 15 --connect-timeout 5 "${BASE}/api/health" >/dev/null 2>&1; then
   echo "SKIP: no dashboard server on ${BASE} (start one, or set PI_QA_PORT)"
   exit 0
 fi
@@ -39,7 +39,9 @@ trap 'rm -f "$tmp" "$body"' EXIT
 # catch-all, so an unknown /api path returns 200 text/html in ~1ms — which would
 # make every latency assertion below pass against a server that does not have
 # this endpoint at all. Verify the payload SHAPE before trusting any timing.
-probe_ct=$(curl -s -o "$body" -w '%{content_type}' "${BASE}/api/tunnel-readiness" 2>/dev/null || echo "")
+# Bounded: an unbounded probe against a wedged server hangs the QA run forever.
+CURL_BOUND=(--max-time 15 --connect-timeout 5)
+probe_ct=$(curl -s "${CURL_BOUND[@]}" -o "$body" -w '%{content_type}' "${BASE}/api/tunnel-readiness" 2>/dev/null || echo "")
 case "$probe_ct" in
   application/json*) ;;
   *)
@@ -49,8 +51,14 @@ case "$probe_ct" in
     exit 1
     ;;
 esac
-if ! grep -q '"providers"' "$body"; then
-  echo "FAIL: readiness response carried no \"providers\" array:"
+# An ARRAY, not merely the key: `{"providers":null}` would satisfy a key check
+# while carrying no board at all.
+if ! node -e '
+  const b = require("node:fs").readFileSync(process.argv[1], "utf8");
+  let j; try { j = JSON.parse(b); } catch { process.exit(2); }
+  process.exit(Array.isArray(j?.data?.providers) ? 0 : 3);
+' "$body"; then
+  echo "FAIL: readiness response carried no providers ARRAY:"
   head -c 200 "$body"; echo
   exit 1
 fi
@@ -58,7 +66,7 @@ fi
 echo "Sampling ${SAMPLES} readiness ticks against ${BASE}…"
 for _ in $(seq 1 "${SAMPLES}"); do
   # %{time_total} is seconds with microsecond resolution; convert to ms.
-  t=$(curl -fsS -o /dev/null -w '%{time_total}' "${BASE}/api/tunnel-readiness" 2>/dev/null || echo "")
+  t=$(curl -fsS "${CURL_BOUND[@]}" -o /dev/null -w '%{time_total}' "${BASE}/api/tunnel-readiness" 2>/dev/null || echo "")
   if [ -z "$t" ]; then
     echo "FAIL: /api/tunnel-readiness did not respond"
     exit 1
@@ -109,7 +117,7 @@ echo "=== Test: concurrent-tunnel soak (P3) ==="
 SOAK_MIN=${PI_QA_SOAK_MINUTES:-30}
 RSS_GROWTH_PCT=10
 
-pid_of_server() { curl -fsS "${BASE}/api/health" | sed -n 's/.*"pid":\([0-9]*\).*/\1/p'; }
+pid_of_server() { curl -fsS "${CURL_BOUND[@]}" "${BASE}/api/health" | sed -n 's/.*"pid":\([0-9]*\).*/\1/p'; }
 rss_kb() { ps -o rss= -p "$1" 2>/dev/null | tr -d ' '; }
 child_pids() { ls "${HOME}/.pi/dashboard"/*.pid 2>/dev/null | wc -l | tr -d ' '; }
 
@@ -118,19 +126,19 @@ SRV=$(pid_of_server)
 
 RSS0=$(rss_kb "$SRV")
 PIDS0=$(child_pids)
-URLS0=$(curl -fsS "${BASE}/api/tunnel/endpoints" | grep -o 'https\?://[^"]*' | sort -u)
+URLS0=$(curl -fsS "${CURL_BOUND[@]}" "${BASE}/api/tunnel/endpoints" | grep -o 'https\?://[^"]*' | sort -u)
 echo "start: rss=${RSS0}KB pidfiles=${PIDS0}"
 echo "$URLS0" | sed 's/^/  reachable: /'
 
 END=$(( $(date +%s) + SOAK_MIN * 60 ))
 while [ "$(date +%s)" -lt "$END" ]; do
-  curl -fsS -o /dev/null "${BASE}/api/tunnel-readiness" || true
+  curl -fsS "${CURL_BOUND[@]}" -o /dev/null "${BASE}/api/tunnel-readiness" || true
   sleep 5
 done
 
 RSS1=$(rss_kb "$SRV")
 PIDS1=$(child_pids)
-URLS1=$(curl -fsS "${BASE}/api/tunnel/endpoints" | grep -o 'https\?://[^"]*' | sort -u)
+URLS1=$(curl -fsS "${CURL_BOUND[@]}" "${BASE}/api/tunnel/endpoints" | grep -o 'https\?://[^"]*' | sort -u)
 echo "end:   rss=${RSS1}KB pidfiles=${PIDS1}"
 
 # A PID-file leak is the failure mode per-provider naming exists to prevent.
@@ -155,3 +163,34 @@ if [ "$URLS0" != "$URLS1" ]; then
 fi
 
 echo "PASS: concurrent-tunnel soak"
+
+# ── X12: a watchdog recycle must not disturb the OTHER provider ──────
+echo "=== Test: watchdog recycle isolation (X12) ==="
+mapfile -t PIDFILES < <(ls "${HOME}/.pi/dashboard"/*.pid 2>/dev/null)
+if [ "${#PIDFILES[@]}" -lt 2 ]; then
+  echo "SKIP: X12 needs two CHILD-model tunnels live (zrok + ngrok); found ${#PIDFILES[@]} pid file(s)."
+  echo "      Daemon providers (tailscale/zerotier) carry no pid file by design,"
+  echo "      so a zrok+tailscale pair cannot exercise this arm."
+  exit 0
+fi
+
+VICTIM="${PIDFILES[0]}"; OTHER="${PIDFILES[1]}"
+OTHER_PID_BEFORE=$(cat "$OTHER")
+echo "killing $(basename "$VICTIM") ($(cat "$VICTIM")); watching $(basename "$OTHER") (${OTHER_PID_BEFORE})"
+kill "$(cat "$VICTIM")" 2>/dev/null || true
+
+# Give the watchdog a full interval plus slack to notice and recycle.
+sleep 90
+
+OTHER_PID_AFTER=$(cat "$OTHER" 2>/dev/null || echo "")
+if [ "$OTHER_PID_AFTER" != "$OTHER_PID_BEFORE" ]; then
+  echo "FAIL: the OTHER provider's pid changed ${OTHER_PID_BEFORE} → ${OTHER_PID_AFTER:-gone}."
+  echo "      One provider's recycle reaped another's process — the exact failure"
+  echo "      per-provider pid naming exists to prevent."
+  exit 1
+fi
+if ! kill -0 "$OTHER_PID_BEFORE" 2>/dev/null; then
+  echo "FAIL: the other provider's process ${OTHER_PID_BEFORE} is gone after the recycle"
+  exit 1
+fi
+echo "PASS: recycle isolation — the other provider's pid is untouched and alive"

@@ -175,3 +175,45 @@ describe("destructive-replace gating", () => {
     expect(reservedNameUrl("robson-home-mac")).toBe("https://robson-home-mac.shares.zrok.io");
   });
 });
+
+/**
+ * The resync-on-`stored`-change effect and the outcome state can fight.
+ *
+ * A successful set calls `onStoredChange`, which returns as a NEW `stored`. If
+ * that echo is treated as an external change the component clears `submitted`
+ * and discards the outcome it is currently rendering — losing `tunnelStopped`,
+ * which is the one thing the operator needs to read after a replace, and
+ * blanking the reason for `taken`/`write-failed` too.
+ *
+ * The state function is what makes the distinction checkable: an outcome whose
+ * name matches the draft must survive a `stored` that now equals it.
+ */
+describe("a stored echo must not discard the outcome being rendered", () => {
+  it("keeps the tunnelStopped signal when stored catches up to the name just set", () => {
+    const s = reservedNameStepState({
+      stored: "new-name", // the echo of our own successful set
+      draft: "new-name",
+      submitted: true,
+      outcome: { status: "ok", name: "new-name", tunnelStopped: true },
+    });
+    expect(s).toEqual({
+      kind: "reserved",
+      name: "new-name",
+      liveUrlUnchanged: undefined,
+      tunnelStopped: true,
+    });
+  });
+
+  it("still surfaces a rejection while nothing is stored", () => {
+    // `taken` and `write-failed` never update `stored`, so an unconditional
+    // resync on every render would blank their reason entirely.
+    const s = reservedNameStepState({
+      stored: undefined,
+      draft: "robson-home-mac",
+      submitted: true,
+      outcome: { status: "write-failed", name: "robson-home-mac", message: "could not write" },
+    });
+    expect(s.kind).toBe("write-failed");
+    expect(s.kind === "write-failed" && s.message).toBe("could not write");
+  });
+});

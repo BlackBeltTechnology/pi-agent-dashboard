@@ -153,6 +153,26 @@ export function deriveEndpoints(
 
 // ── Provider ────────────────────────────────────────────────────────
 
+/**
+ * The local port `tailscale serve`/`funnel` is proxying, read from the daemon's
+ * own config rather than from this process's memory.
+ *
+ * `serve status --json` maps handler targets like `http://127.0.0.1:8000`; the
+ * port in that target is the authoritative one for a daemon we did not start.
+ */
+export function servedPort(serveStatusJson: unknown): number | undefined {
+  const web = (serveStatusJson as { Web?: Record<string, unknown> } | null)?.Web ?? {};
+  for (const host of Object.values(web)) {
+    const handlers = (host as { Handlers?: Record<string, unknown> } | null)?.Handlers ?? {};
+    for (const handler of Object.values(handlers)) {
+      const proxy = (handler as { Proxy?: string } | null)?.Proxy;
+      const m = proxy ? /:(\d{1,5})(?:\/|$)/.exec(proxy) : null;
+      if (m) return Number(m[1]);
+    }
+  }
+  return undefined;
+}
+
 export class TailscaleProvider implements TunnelProvider {
   readonly id = "tailscale" as const;
   readonly kind = "daemon" as const;
@@ -269,12 +289,12 @@ export class TailscaleProvider implements TunnelProvider {
     return isBackendRunning(await this.statusJsonAsync());
   }
 
-  private async statusJsonAsync(): Promise<any> {
+  private async statusJsonAsync(): Promise<unknown> {
     const r = await this.runAsync(["status", "--json"]);
     try { return JSON.parse(r.stdout); } catch { return null; }
   }
 
-  private async serveStatusJsonAsync(): Promise<any> {
+  private async serveStatusJsonAsync(): Promise<unknown> {
     const r = await this.runAsync(["serve", "status", "--json"]);
     try { return JSON.parse(r.stdout); } catch { return null; }
   }
@@ -283,10 +303,19 @@ export class TailscaleProvider implements TunnelProvider {
     const status = await this.statusJsonAsync();
     if (!isBackendRunning(status)) return [];
     const serve = await this.serveStatusJsonAsync();
-    // A serve/funnel config with no port bound is not a live tunnel; the port
-    // argument only shapes the URL, so any positive port derives the same host.
-    const endpoints = deriveEndpoints(status, serve, this.lastPort ?? 0, this.lastMode ?? "private");
-    return endpoints;
+    // Only `connect()` records `lastPort`, and the whole point of probeLive is
+    // to report daemons brought up OUTSIDE this process — which have none. A
+    // fabricated `:0` URL is worse than no URL: it is an endpoint the board
+    // would display and an operator could try to open. So a port is derived
+    // from the daemon's own serve config, and when none can be, liveness is
+    // reported through an endpoint-free marker rather than a fake address.
+    const port = servedPort(serve) ?? this.lastPort;
+    if (port === undefined) {
+      // Backend is running and serving, but we cannot name the address. Report
+      // LIVE with no endpoint rather than inventing one.
+      return [{ kind: "magicdns", url: "", tls: false }];
+    }
+    return deriveEndpoints(status, serve, port, this.lastMode ?? "private");
   }
 
   /** Remembered so `probeLive()` can rebuild the same URL shape a connect produced. */

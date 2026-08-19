@@ -167,7 +167,10 @@ export class ZeroTierProvider implements TunnelProvider {
     return isNetworkAuthorized(await this.listNetworksAsync(), this.networkId);
   }
 
-  private async listNetworksAsync(): Promise<any> {
+  // `unknown`: the payload is handed straight to `parseAssignedIpv4`/
+  // `isNetworkAuthorized`, which own its shape. The surrounding sync twin
+  // predates this and still uses `any`; not widening that here.
+  private async listNetworksAsync(): Promise<unknown> {
     const r = await this.runAsync(["-j", "listnetworks"]);
     try { return JSON.parse(r.stdout); } catch { return null; }
   }
@@ -176,7 +179,12 @@ export class ZeroTierProvider implements TunnelProvider {
     if (!this.networkId) return [];
     const ip = parseAssignedIpv4(await this.listNetworksAsync(), this.networkId);
     if (!ip) return [];
-    return [deriveMeshEndpoint(ip, this.lastPort ?? 0)];
+    // ZeroTier is a mesh: the node has an IP, but the PORT is the dashboard's
+    // own listener, which only `connect()` knows. `http://<ip>:0` is not an
+    // address — it is a plausible-looking lie the board would render. Report
+    // liveness with no URL instead, and let a real connect supply the port.
+    if (this.lastPort === undefined) return [{ kind: "mesh", url: "", tls: false }];
+    return [deriveMeshEndpoint(ip, this.lastPort)];
   }
 
   /** Remembered so `probeLive()` can rebuild the same URL a connect produced. */

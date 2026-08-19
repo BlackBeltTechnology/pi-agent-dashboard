@@ -13,7 +13,7 @@
  * about. See change: add-zrok-custom-reserved-name (D1).
  */
 import type { ReservedNameResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { setReservedName } from "../../lib/gateway/gateway-api.js";
 import {
   needsReplaceConfirm,
@@ -59,6 +59,25 @@ export function GatewayReservedName({
   const [confirming, setConfirming] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  // `useState(stored ?? "")` runs only on mount, but `stored` changes AFTER a
+  // release — from this component and from the dialog's own release control.
+  // Without this the field keeps showing a name that no longer exists, and a
+  // later blur would try to re-reserve a name the operator just gave away.
+  //
+  // It must NOT fire for the change this component itself just caused: a
+  // successful set calls `onStoredChange`, which comes straight back as a new
+  // `stored`. Clearing `submitted` there would discard the outcome we are
+  // currently rendering — including `tunnelStopped`, the one thing the operator
+  // needs to read after a replace.
+  // Keyed on `stored` ONLY. Depending on the outcome would re-run the effect
+  // the moment a result arrives and wipe the very state being rendered.
+  const selfSetRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    if (stored !== undefined && stored === selfSetRef.current) return;
+    setDraft(stored ?? "");
+    setSubmitted(false);
+  }, [stored]);
+
   const state = reservedNameStepState({ stored, draft, outcome, submitted, confirming });
 
   const commit = useCallback(
@@ -69,7 +88,13 @@ export function GatewayReservedName({
         setOutcome(result);
         setSubmitted(true);
         setConfirming(false);
-        if (result.status === "ok") onStoredChange?.(name === null ? undefined : result.name);
+        if (result.status === "ok") {
+          // Remember what WE set, so the `stored` echo coming back through the
+          // parent is not mistaken for an external change and does not discard
+          // the outcome we are about to render (notably `tunnelStopped`).
+          selfSetRef.current = name === null ? undefined : result.name;
+          onStoredChange?.(name === null ? undefined : result.name);
+        }
       } catch (e) {
         setOutcome({
           status: "taken",
@@ -95,7 +120,11 @@ export function GatewayReservedName({
       setConfirming(true);
       return;
     }
-    if (reservedNameStepState({ stored, draft, submitted: false }).kind === "typing-valid") void commit(trimmed);
+    // Judge the TRIMMED value: `commit` sends the trimmed name, so validating
+    // the raw draft would reject "  ok-name  " while sending a valid one.
+    if (reservedNameStepState({ stored, draft: trimmed, submitted: false }).kind === "typing-valid") {
+      void commit(trimmed);
+    }
   }, [draft, stored, commit]);
 
   const { message, tone } = messageFor(state);

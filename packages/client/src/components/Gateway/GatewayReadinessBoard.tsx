@@ -55,6 +55,12 @@ export function GatewayReadinessBoard({
 
   const tick = useCallback(async () => {
     if (!shouldTick(stateRef.current)) return;
+    // Mark in-flight on the REF synchronously. `setState` does not refresh the
+    // ref until the next render, so two calls in the same frame — the immediate
+    // tick plus a fast Refresh click — would both observe `inFlight: false` and
+    // both fire. `disabled={state.inFlight}` is render-bound too, so it does
+    // not close that window either.
+    stateRef.current = onTickStart(stateRef.current);
     setState((s) => onTickStart(s));
     try {
       const providers = await getProviderReadiness();

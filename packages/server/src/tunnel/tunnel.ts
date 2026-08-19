@@ -9,17 +9,7 @@
  * behaviour is byte-identical. See change: add-tunnel-providers.
  */
 import type { TunnelStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
-import {
-  _resetBinaryCache,
-  _setBinaryAvailable,
-  detectZrokBinary,
-  ensureReservedName,
-  loadZrokEnv,
-  mintReservedName,
-  releaseShare,
-  type ZrokEnv,
-  zrokRuntime,
-} from "../tunnel-providers/zrok.js";
+import { resolveTunnelPlan } from "@blackbelt-technology/pi-dashboard-shared/tunnel-concurrency.js";
 import type {
   ProviderReadiness,
   TunnelProvider,
@@ -28,9 +18,18 @@ import type {
 import { NgrokProvider } from "../tunnel-providers/ngrok.js";
 import { TailscaleProvider } from "../tunnel-providers/tailscale.js";
 import { ZeroTierProvider } from "../tunnel-providers/zerotier.js";
-import { ZrokProvider } from "../tunnel-providers/zrok.js";
+import {
+  _resetBinaryCache,
+  _setBinaryAvailable,
+  detectZrokBinary,
+  ensureReservedName,
+  loadZrokEnv,
+  mintReservedName,
+  releaseShare,
+  type ZrokEnv,ZrokProvider, 
+  zrokRuntime
+} from "../tunnel-providers/zrok.js";
 import { evaluateReadiness } from "./tunnel-readiness.js";
-import { resolveTunnelPlan } from "@blackbelt-technology/pi-dashboard-shared/tunnel-concurrency.js";
 import { getTunnelWatchdogStatus } from "./tunnel-watchdog.js";
 
 export type { TunnelStatus, ZrokEnv };
@@ -351,7 +350,9 @@ export function liveTunnelOrigins(): string[] {
     try {
       const status = provider.status();
       if (!status.active) continue;
-      for (const e of status.endpoints) out.push(e.url);
+      // A liveness marker carries no URL (a daemon we did not start whose port
+      // we cannot name). It is a valid readiness signal but not an origin.
+      for (const e of status.endpoints) if (e.url) out.push(e.url);
     } catch {
       // A throwing provider must not deny every OTHER provider's origin.
     }

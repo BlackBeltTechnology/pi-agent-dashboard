@@ -4,17 +4,18 @@
  * Test plan rows: G13, G14, G15, G16, G17, G18, G19, G20, G21.
  * Change: config-override-oauth-redirect-base.
  */
-import { describe, expect, it } from "vitest";
+
 import type { GatewayRecord } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { describe, expect, it } from "vitest";
 import {
   buildGatewayAddPatch,
   buildGatewayFixPatch,
   buildGatewayModeOffer,
   buildGatewayRemovePatch,
   computeGatewayStatus,
+  type GatewayConfigShape,
   isUnregisteredGatewayUrl,
   validateGatewayDraft,
-  type GatewayConfigShape,
 } from "../gateway/gateway-action.js";
 import { suggestTrustEntries } from "../gateway/gateway-config-ops.js";
 

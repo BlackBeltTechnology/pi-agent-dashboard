@@ -7,10 +7,10 @@ import { useMobile } from "../../hooks/useMobile.js";
 import { useToolFullResult } from "../../hooks/useToolFullResult.js";
 import type { ChatImage } from "../../lib/chat/event-reducer.js";
 import { TRUNCATION_MARKER_PREFIX } from "../../lib/chat/event-reducer.js";
-import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { getSummary } from "../../lib/chat/tool-summary.js";
-import { ElapsedBadge } from "../session/ElapsedBadge.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
+import { ElapsedBadge } from "../session/ElapsedBadge.js";
 import { getToolRenderer, type ToolContext } from "../tool-renderers/index.js";
 
 /**

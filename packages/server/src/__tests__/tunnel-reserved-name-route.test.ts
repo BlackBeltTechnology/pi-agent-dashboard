@@ -26,7 +26,7 @@ const calls: string[] = [];
 
 vi.mock("../tunnel-providers/zrok.js", async (orig) => ({
   ...(await orig<any>()),
-  reserveName: (...a: unknown[]) => {
+  reserveNameAsync: async (...a: unknown[]) => {
     calls.push("reserveName");
     return reserveNameMock(a[0]);
   },
@@ -199,6 +199,10 @@ describe("release ordering (X1/X2)", () => {
     reserveNameMock.mockReturnValue({ status: "ok", name: "new-name" });
     app = await makeApp(makeConfig({ tunnelReservedName: "old-name", tunnelPersistent: true }));
     await app.inject({ method: "POST", url: "/api/tunnel-reserved-name", payload: { name: "new-name" } });
+    // Presence FIRST: `indexOf` returns -1 for a missing entry, so an ordering
+    // assertion alone passes when the step never ran at all.
+    expect(calls).toContain("reserveName");
+    expect(calls).toContain("releaseShare");
     expect(calls.indexOf("reserveName")).toBeLessThan(calls.indexOf("releaseShare"));
     expect(releaseShareMock).toHaveBeenCalledWith("old-name");
   });
@@ -208,6 +212,9 @@ describe("release ordering (X1/X2)", () => {
     getTunnelStatusMock.mockReturnValue({ status: "active", url: "https://old-name.shares.zrok.io", serverOs: "darwin" });
     app = await makeApp(makeConfig({ tunnelReservedName: "old-name", tunnelPersistent: true }));
     await app.inject({ method: "POST", url: "/api/tunnel-reserved-name", payload: { name: "new-name" } });
+    expect(calls).toContain("stopTunnelWatchdog");
+    expect(calls).toContain("deleteTunnel");
+    expect(calls).toContain("releaseShare");
     // `delete name` must never run against a running share.
     expect(calls.indexOf("deleteTunnel")).toBeLessThan(calls.indexOf("releaseShare"));
     expect(calls.indexOf("stopTunnelWatchdog")).toBeLessThan(calls.indexOf("deleteTunnel"));
@@ -216,6 +223,8 @@ describe("release ordering (X1/X2)", () => {
   it("X2 (clear): the same ordering holds on the clear path", async () => {
     app = await makeApp(makeConfig({ tunnelReservedName: "old-name", tunnelPersistent: true }));
     await app.inject({ method: "POST", url: "/api/tunnel-reserved-name", payload: { name: null } });
+    expect(calls).toContain("deleteTunnel");
+    expect(calls).toContain("releaseShare");
     expect(calls.indexOf("deleteTunnel")).toBeLessThan(calls.indexOf("releaseShare"));
     expect(releaseShareMock).toHaveBeenCalledWith("old-name");
   });

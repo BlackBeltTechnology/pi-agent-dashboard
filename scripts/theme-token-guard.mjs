@@ -183,8 +183,16 @@ function writeBaseline(found) {
   let current = null;
   try {
     current = loadBaseline();
-  } catch {
-    // No baseline yet — the first write establishes it.
+  } catch (err) {
+    // ONLY a missing file means "no baseline yet". Swallowing every error made
+    // the refuses-to-grow guard trivially bypassable: corrupt the baseline JSON
+    // and `--write` would happily adopt today's numbers, which is precisely the
+    // direction the ratchet forbids.
+    if (err?.code !== "ENOENT") {
+      console.error(`\u2717 theme-token-guard: existing baseline could not be read \u2014 ${err?.message ?? err}`);
+      console.error("      Refusing to overwrite it. Repair or delete it deliberately.");
+      process.exit(1);
+    }
   }
   const grown = current ? grownEntries(found, current) : [];
   if (grown.length > 0) {

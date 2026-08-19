@@ -145,7 +145,13 @@ describe("7.2/X13: getTunnelUrl resolves the PRIMARY, and never auto-promotes", 
 
 describe("liveTunnelOrigins reflects real provider state", () => {
   it("is empty when nothing has connected", () => {
-    tunnel._resetProviderSingletons();
+    // Re-seed rather than reset-and-hope: `_resetProviderSingletons()` alone
+    // drops the fakes, so the next read would rebuild REAL providers and the
+    // assertion would depend on which tunnelling CLIs the machine happens to
+    // have running.
+    for (const id of ["zrok", "ngrok", "tailscale", "zerotier"] as const) {
+      tunnel._setProviderSingleton(id, fakeProvider(id, null));
+    }
     expect(tunnel.liveTunnelOrigins()).toEqual([]);
   });
 

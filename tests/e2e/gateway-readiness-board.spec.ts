@@ -35,10 +35,19 @@ const BOARD: Readiness[] = [
   { provider: "zerotier", state: "disconnected", endpoints: [] },
 ];
 
+/**
+ * Stubs BOTH status routes.
+ *
+ * `/api/tunnel-status` is ungated and redacts `degraded.configuredName` — a
+ * reserved name the operator owns but is not serving is not already-public.
+ * The dialog therefore reads the gated `/api/tunnel-status-detail`, which is
+ * allowed to name it, so a spec that stubs only the first sees no banner.
+ */
 async function stubTunnelStatus(page: Page, body: Record<string, unknown>): Promise<void> {
-  await page.route("**/api/tunnel-status", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) }),
-  );
+  const fulfil = (route: { fulfill: (r: object) => Promise<void> }) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+  await page.route("**/api/tunnel-status", fulfil);
+  await page.route("**/api/tunnel-status-detail", fulfil);
 }
 
 /**
@@ -48,14 +57,16 @@ async function stubTunnelStatus(page: Page, body: Record<string, unknown>): Prom
  * close, suppresses overlap" is a statement about request volume over time,
  * not about rendered text.
  */
-function stubReadiness(
+async function stubReadiness(
   page: Page,
   providers: Readiness[],
   opts: { delayMs?: number } = {},
-): { count: () => number; inFlight: () => number } {
+): Promise<{ count: () => number; inFlight: () => number }> {
   let count = 0;
   let inFlight = 0;
-  void page.route("**/api/tunnel-readiness", async (route) => {
+  // AWAITED: an unawaited registration races the first navigation, so an early
+  // tick can escape the stub and hit the real (guarded, 403) endpoint.
+  await page.route("**/api/tunnel-readiness", async (route) => {
     count += 1;
     inFlight += 1;
     if (opts.delayMs) await new Promise((r) => setTimeout(r, opts.delayMs));
@@ -81,7 +92,7 @@ test.describe("gateway readiness board", () => {
   // F1 — a tick fires IMMEDIATELY, not after one interval.
   test("F1: opening the Setup tab fires a readiness request at once", async ({ page }) => {
     await stubTunnelStatus(page, { status: "active", url: "https://x.shares.zrok.io", serverOs: "linux" });
-    const readiness = stubReadiness(page, BOARD);
+    const readiness = await stubReadiness(page, BOARD);
     await gotoDashboard(page);
     await openSetupTab(page);
 
@@ -94,7 +105,7 @@ test.describe("gateway readiness board", () => {
   // F6 — every state carries TEXT, never colour alone (WCAG 1.4.1).
   test("F6: each of the four states renders a distinct text label", async ({ page }) => {
     await stubTunnelStatus(page, { status: "active", url: "https://x.shares.zrok.io", serverOs: "linux" });
-    stubReadiness(page, BOARD);
+    await stubReadiness(page, BOARD);
     await gotoDashboard(page);
     await openSetupTab(page);
 
@@ -116,7 +127,7 @@ test.describe("gateway readiness board", () => {
   // F5 — one provider degrading must not blank the board.
   test("F5: a stale row degrades alone; the other three still show their state", async ({ page }) => {
     await stubTunnelStatus(page, { status: "active", url: "https://x.shares.zrok.io", serverOs: "linux" });
-    stubReadiness(page, [
+    await stubReadiness(page, [
       { provider: "zrok", state: "connected", endpoints: [] },
       { provider: "ngrok", state: "not-installed", endpoints: [] },
       { provider: "tailscale", state: "not-set", endpoints: [] },
@@ -163,7 +174,7 @@ test.describe("gateway readiness board", () => {
   // spawning ~4 subprocesses server-side every 5s for the life of the page.
   test("F2: leaving the Setup tab stops readiness requests entirely", async ({ page }) => {
     await stubTunnelStatus(page, { status: "active", url: "https://x.shares.zrok.io", serverOs: "linux" });
-    const readiness = stubReadiness(page, BOARD);
+    const readiness = await stubReadiness(page, BOARD);
     await gotoDashboard(page);
     await openSetupTab(page);
     await expect.poll(() => readiness.count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
@@ -183,7 +194,7 @@ test.describe("gateway readiness board", () => {
   test("F3: a tick still in flight suppresses the next one", async ({ page }) => {
     await stubTunnelStatus(page, { status: "active", url: "https://x.shares.zrok.io", serverOs: "linux" });
     // Each response takes longer than the poll interval.
-    const readiness = stubReadiness(page, BOARD, { delayMs: 7_000 });
+    const readiness = await stubReadiness(page, BOARD, { delayMs: 7_000 });
     await gotoDashboard(page);
     await openSetupTab(page);
 
@@ -198,7 +209,7 @@ test.describe("gateway readiness board", () => {
   // The manual refresh is the escape hatch from a 5s cadence.
   test("the manual refresh control forces a tick", async ({ page }) => {
     await stubTunnelStatus(page, { status: "active", url: "https://x.shares.zrok.io", serverOs: "linux" });
-    const readiness = stubReadiness(page, BOARD);
+    const readiness = await stubReadiness(page, BOARD);
     await gotoDashboard(page);
     await openSetupTab(page);
     await expect.poll(() => readiness.count(), { timeout: 10_000 }).toBeGreaterThanOrEqual(1);
@@ -219,7 +230,7 @@ test.describe("degraded persistence banner (F9)", () => {
       serverOs: "linux",
       degraded: { configuredName: "robson-home-mac", effectiveName: "xk3n2p9q" },
     });
-    stubReadiness(page, BOARD);
+    await stubReadiness(page, BOARD);
     await gotoDashboard(page);
     await openSetupTab(page);
 
@@ -236,7 +247,7 @@ test.describe("degraded persistence banner (F9)", () => {
       url: "https://robson-home-mac.shares.zrok.io",
       serverOs: "linux",
     });
-    stubReadiness(page, BOARD);
+    await stubReadiness(page, BOARD);
     await gotoDashboard(page);
     await openSetupTab(page);
 

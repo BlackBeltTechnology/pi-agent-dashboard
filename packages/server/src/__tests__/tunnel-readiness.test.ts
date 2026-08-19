@@ -133,7 +133,7 @@ describe("readiness reflects out-of-dashboard installs", () => {
   it("X7/X8: invalidates the provider's OWN memo before probing the binary", async () => {
     const invalidateBinaryCache = vi.fn();
     let installed = false;
-    await evaluateProvider(
+    const r = await evaluateProvider(
       stub({
         invalidateBinaryCache: () => {
           invalidateBinaryCache();
@@ -143,6 +143,10 @@ describe("readiness reflects out-of-dashboard installs", () => {
       }),
     );
     expect(invalidateBinaryCache).toHaveBeenCalledTimes(1);
+    // The ORDER is the claim, and only the resulting state pins it: if
+    // `detectBinary` ran first it would read the stale `false` and the row
+    // would be `not-installed`, which is the regression this guards.
+    expect(r.state).not.toBe("not-installed");
   });
 
   it("also runs the registry rescan — the two caches are different caches", async () => {
@@ -284,5 +288,41 @@ describe("a misclassification is diagnosable", () => {
     expect(
       (await evaluateProvider(stub({ kind: "daemon", probeLive: async () => [] }))).reason,
     ).toContain("probeLive");
+  });
+});
+
+/**
+ * A daemon brought up outside this process has no port context of its own, and
+ * only `connect()` records one. Emitting `http://<ip>:0` there would be worse
+ * than emitting nothing: it is an address the board renders and an operator can
+ * click. Liveness is therefore reportable WITHOUT an address.
+ */
+describe("liveness without an address", () => {
+  it("reports connected from an endpoint-free liveness marker", async () => {
+    const r = await evaluateProvider(
+      stub({
+        id: "zerotier",
+        kind: "daemon",
+        probeLive: async () => [{ kind: "mesh", url: "", tls: false }],
+      }),
+    );
+    expect(r.state).toBe("connected");
+  });
+
+  it("a marker is not mistaken for a real origin", async () => {
+    const tunnel = await import("../tunnel/tunnel.js");
+    tunnel._resetProviderSingletons();
+    tunnel._setProviderSingleton("zerotier", {
+      id: "zerotier",
+      kind: "daemon",
+      supportsMode: () => true,
+      detectBinary: () => true,
+      isEnrolled: () => true,
+      connect: async () => ({ endpoints: [] }),
+      disconnect: async () => {},
+      status: () => ({ active: true, endpoints: [{ kind: "mesh", url: "", tls: false }] }),
+    } as any);
+    // An empty URL must never reach the CORS allowlist.
+    expect(tunnel.liveTunnelOrigins()).not.toContain("");
   });
 });

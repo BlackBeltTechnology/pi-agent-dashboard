@@ -24,9 +24,12 @@ type Outcome = {
 };
 
 async function stubTunnelStatus(page: Page, body: Record<string, unknown>): Promise<void> {
-  await page.route("**/api/tunnel-status", (route) =>
-    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) }),
-  );
+  const fulfil = (route: { fulfill: (r: object) => Promise<void> }) =>
+    route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
+  await page.route("**/api/tunnel-status", fulfil);
+  // The dialog reads the GATED twin, which alone may name a configured-but-
+  // unserved reserved name.
+  await page.route("**/api/tunnel-status-detail", fulfil);
 }
 
 async function stubConfig(page: Page, tunnel: Record<string, unknown>): Promise<void> {
@@ -56,9 +59,13 @@ async function stubReadiness(page: Page): Promise<void> {
 }
 
 /** Stub the set/clear endpoint and capture what the client sent. */
-function stubSetName(page: Page, outcome: Outcome): { body: () => any } {
-  let captured: any = null;
-  void page.route("**/api/tunnel-reserved-name", async (route) => {
+async function stubSetName(
+  page: Page,
+  outcome: Outcome,
+): Promise<{ body: () => { name?: string | null } | null }> {
+  let captured: { name?: string | null } | null = null;
+  // AWAITED — an unawaited route registration races the first navigation.
+  await page.route("**/api/tunnel-reserved-name", async (route) => {
     captured = route.request().postDataJSON();
     await route.fulfill({
       status: 200,
@@ -91,7 +98,7 @@ test.describe("gateway reserved-name control", () => {
     await stubTunnelStatus(page, { status: "inactive", serverOs: "linux" });
     await stubConfig(page, { provider: "zrok", mode: "public", zrok: {} });
     await stubReadiness(page);
-    const set = stubSetName(page, { status: "ok", name: "robson-home-mac" });
+    const set = await stubSetName(page, { status: "ok", name: "robson-home-mac" });
     await gotoDashboard(page);
     await openSetupTab(page);
 
@@ -107,7 +114,7 @@ test.describe("gateway reserved-name control", () => {
     await stubTunnelStatus(page, { status: "inactive", serverOs: "linux" });
     await stubConfig(page, { provider: "zrok", mode: "public", zrok: {} });
     await stubReadiness(page);
-    const set = stubSetName(page, { status: "ok", name: "unused" });
+    const set = await stubSetName(page, { status: "ok", name: "unused" });
     await gotoDashboard(page);
     await openSetupTab(page);
 
@@ -127,7 +134,7 @@ test.describe("gateway reserved-name control", () => {
     await stubTunnelStatus(page, { status: "inactive", serverOs: "linux" });
     await stubConfig(page, { provider: "zrok", mode: "public", zrok: {} });
     await stubReadiness(page);
-    stubSetName(page, {
+    await stubSetName(page, {
       status: "taken",
       name: "dashboard",
       message: "“dashboard” is reserved on another zrok account. The zrok namespace is shared across all accounts.",
@@ -146,7 +153,7 @@ test.describe("gateway reserved-name control", () => {
     await stubTunnelStatus(page, { status: "inactive", serverOs: "linux" });
     await stubConfig(page, { provider: "zrok", mode: "public", zrok: {} });
     await stubReadiness(page);
-    stubSetName(page, {
+    await stubSetName(page, {
       status: "write-failed",
       name: "robson-home-mac",
       message: "Reserved with zrok but could not write it to the dashboard config.",
@@ -165,7 +172,7 @@ test.describe("gateway reserved-name control", () => {
     await stubTunnelStatus(page, { status: "inactive", serverOs: "linux" });
     await stubConfig(page, { provider: "zrok", mode: "public", zrok: { reservedName: "old-name" } });
     await stubReadiness(page);
-    const set = stubSetName(page, { status: "ok", name: "new-name" });
+    const set = await stubSetName(page, { status: "ok", name: "new-name" });
     await gotoDashboard(page);
     await openSetupTab(page);
 
@@ -189,7 +196,7 @@ test.describe("gateway reserved-name control", () => {
     await stubTunnelStatus(page, { status: "inactive", serverOs: "linux" });
     await stubConfig(page, { provider: "zrok", mode: "public", zrok: { reservedName: "old-name" } });
     await stubReadiness(page);
-    const set = stubSetName(page, { status: "ok", name: "new-name" });
+    const set = await stubSetName(page, { status: "ok", name: "new-name" });
     await gotoDashboard(page);
     await openSetupTab(page);
 
@@ -209,7 +216,7 @@ test.describe("gateway reserved-name control", () => {
     await stubTunnelStatus(page, { status: "active", url: "https://old-name.shares.zrok.io", serverOs: "linux" });
     await stubConfig(page, { provider: "zrok", mode: "public", zrok: { reservedName: "old-name" } });
     await stubReadiness(page);
-    stubSetName(page, { status: "ok", name: "new-name", tunnelStopped: true });
+    await stubSetName(page, { status: "ok", name: "new-name", tunnelStopped: true });
     await gotoDashboard(page);
     await openSetupTab(page);
 

@@ -52,6 +52,7 @@ import {
   isDnsSafeReservedName,
   mintReservedName,
   reserveName,
+  reserveNameAsync,
 } from "../tunnel-providers/zrok.js";
 
 /** Make `zrok create name` fail with the given stderr. */
@@ -253,5 +254,37 @@ describe("degraded reconciliation", () => {
     const r = reconcileDegraded("https://example.invalid/", { reservedName: "n", persistent: true });
     expect(r).toEqual({ configuredName: "n" });
     expect(r?.effectiveName).toBeUndefined();
+  });
+});
+
+/**
+ * The async twin exists because `execFileSync` blocks the event loop for up to
+ * 30s, and the reserved-name route runs on a request thread — a slow zrok
+ * control plane would otherwise freeze every WebSocket heartbeat and session
+ * event in the dashboard, not just the one request.
+ *
+ * Two twins can drift, and a drift here is silent: the operator would get a
+ * different reason from the endpoint than from a connect. So the contract is
+ * pinned as AGREEMENT, case by case, rather than re-testing one of them.
+ */
+describe("reserveNameAsync agrees with reserveName", () => {
+  it.each([
+    ["invalid (empty)", ""],
+    ["invalid (leading hyphen)", "-lead"],
+    ["invalid (underscore)", "has_underscore"],
+    ["invalid (too long)", `a${"b".repeat(63)}`],
+  ])("%s: both twins reject identically, and neither invokes zrok", async (_label, name) => {
+    const sync = reserveName(name);
+    execFileSyncMock.mockClear();
+    const async = await reserveNameAsync(name);
+    expect(async.status).toBe(sync.status);
+    expect(async.status).toBe("invalid");
+    // The validation short-circuit must hold on BOTH paths: a name we can
+    // reject is a reservation attempt not worth making on the operator's account.
+    expect(execFileSyncMock).not.toHaveBeenCalled();
+  });
+
+  it("does not block: it returns a promise, not a resolved value", () => {
+    expect(reserveNameAsync("robson-home-mac")).toBeInstanceOf(Promise);
   });
 });

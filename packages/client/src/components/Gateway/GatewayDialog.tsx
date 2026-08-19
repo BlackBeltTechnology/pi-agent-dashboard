@@ -13,7 +13,7 @@ import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { TunnelMode } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { disconnectTunnel, getConfig, getTunnelStatus, putConfig } from "../../lib/gateway/gateway-api.js";
+import { disconnectTunnel, getConfig, getTunnelStatusDetail, putConfig } from "../../lib/gateway/gateway-api.js";
 import type { GatewayProviderId } from "../../lib/gateway/gateway-providers.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { GatewayEndpoints } from "./GatewayEndpoints.js";
@@ -55,7 +55,9 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
       });
     // The degraded signal is a server-side reconciliation of stored-vs-served
     // name, so it is read from status rather than recomputed here.
-    void getTunnelStatus()
+    // The GATED twin: the ungated `/api/tunnel-status` redacts the configured
+    // name, and a banner that cannot name it says nothing useful.
+    void getTunnelStatusDetail()
       .then((s) => setDegraded(s?.status === "active" ? s.degraded : undefined))
       .catch(() => {
         /* absence of a status is not a degradation */

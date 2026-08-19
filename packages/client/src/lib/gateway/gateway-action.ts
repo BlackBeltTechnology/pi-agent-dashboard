@@ -375,6 +375,10 @@ export function buildGatewayModeOffer(input: { url: string; isPrimary: boolean }
  * the action. Nothing here writes.
  */
 export function isUnregisteredGatewayUrl(config: GatewayConfigShape, url: string): boolean {
-  const normalized = url.trim().replace(/\/+$/, "");
-  return !(config.gateways ?? []).some((g) => g.url === normalized);
+  // BOTH sides are normalized. Normalizing only the incoming URL means a stored
+  // record written with a trailing slash never matches, so the offer to
+  // register it reappears forever after it has already been registered.
+  const norm = (u: string) => u.trim().replace(/\/+$/, "");
+  const normalized = norm(url);
+  return !(config.gateways ?? []).some((g) => norm(g.url) === normalized);
 }

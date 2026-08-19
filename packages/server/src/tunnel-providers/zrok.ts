@@ -10,7 +10,7 @@
 import fs from "node:fs";
 import { CONFIG_FILE } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
-import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { execFile, execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import type {
   ProviderEndpoints,
   ProviderStatus,
@@ -214,6 +214,82 @@ export function mintReservedName(existing?: string): string | null {
  * Release is the caller's decision and MUST follow a successful reservation,
  * so a failed replace can never leave the user holding neither name.
  */
+/**
+ * Async twin of {@link reserveName}, for the REQUEST path.
+ *
+ * `execFileSync` blocks the Node event loop for the whole call — up to its 30s
+ * ceiling. Calling the sync version from a Fastify handler therefore freezes
+ * every WebSocket heartbeat, session event and poll in the dashboard whenever
+ * the zrok control plane is slow or unreachable: a single user action stalls
+ * the entire process, not just its own request.
+ *
+ * The classification, the ordering contract (this never releases anything) and
+ * the outcome vocabulary are identical; only the exec is non-blocking.
+ */
+export async function reserveNameAsync(existing?: string): Promise<ReservedNameOutcome> {
+  const name = existing ?? generateReservedName();
+  if (!isDnsSafeReservedName(name)) return invalidOutcome(name);
+
+  const failure = await new Promise<string | null>((resolve) => {
+    execFile(
+      getZrokBinary(),
+      ["create", "name", "-n", "public", name],
+      { timeout: 30_000 },
+      (err: (Error & { stderr?: string }) | null, _stdout: unknown, stderr: string | Buffer) =>
+        resolve(err ? String(stderr ?? err.stderr ?? err.message ?? err) : null),
+    );
+  });
+
+  if (failure !== null) {
+    const classified = classifyOutcomeFromStderr(name, failure);
+    if (classified) return classified;
+  }
+  return persistOutcome(name);
+}
+
+/** Shared by both twins so the two cannot drift in what they say. */
+function invalidOutcome(name: string): ReservedNameOutcome {
+  return {
+    status: "invalid",
+    name,
+    message:
+      "Use 1\u201363 letters, digits or hyphens, starting with a letter or digit (no leading hyphen, no underscores).",
+  };
+}
+
+/** `null` means "treat as success" (already reserved by THIS account). */
+function classifyOutcomeFromStderr(name: string, stderr: string): ReservedNameOutcome | null {
+  switch (classifyCreateNameError(stderr)) {
+    case "exists-mine":
+      return null;
+    case "taken":
+      return {
+        status: "taken",
+        name,
+        cause: "another-account",
+        message: `\u201c${name}\u201d is reserved on another zrok account. The zrok namespace is shared across all accounts, so short names are often gone \u2014 try a more specific one.`,
+      };
+    default:
+      return {
+        status: "taken",
+        name,
+        cause: "unknown",
+        message: `Could not reserve \u201c${name}\u201d. zrok reported: ${stderr.trim().slice(0, 200) || "no output"}`,
+      };
+  }
+}
+
+function persistOutcome(name: string): ReservedNameOutcome {
+  if (!saveReservedName(name)) {
+    return {
+      status: "write-failed",
+      name,
+      message: `Reserved \u201c${name}\u201d with zrok but could not write it to the dashboard config, so it would be lost on restart. Check permissions on ${CONFIG_FILE}.`,
+    };
+  }
+  return { status: "ok", name };
+}
+
 export function reserveName(existing?: string): ReservedNameOutcome {
   // `??`, NOT `||`: an EMPTY string is a user who submitted nothing, not a user
   // asking us to generate one. `||` would treat "" as absent and silently mint
