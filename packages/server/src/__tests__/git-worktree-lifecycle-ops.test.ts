@@ -531,6 +531,50 @@ describe("removeWorktree({ deleteBranch: true })", () => {
   });
 });
 
+describe("removeWorktree shell safety", () => {
+  let repo: string;
+  beforeEach(() => { repo = makeRepo(); });
+  afterEach(() => rmSync(repo, { recursive: true, force: true }));
+
+  // The batch endpoint accepts up to 50 caller-supplied paths per request, so
+  // the removal path must never build a shell string out of one.
+  it("passes the worktree path as an argv element, never through a shell", () => {
+    const dir = join(repo, "wt&pwned");
+    git(`worktree add ${JSON.stringify(dir)} -b feat/amp`, repo);
+    expect(existsSync(dir)).toBe(true);
+
+    const shellCalls: string[] = [];
+    const argvCalls: Array<[string, string[]]> = [];
+    const realExec = platformExec.execSync;
+    const realExecFile = platformExec.execFileSync;
+    const spy = vi.spyOn(platformExec, "execSync").mockImplementation(((cmd: any, opts: any) => {
+      shellCalls.push(String(cmd));
+      return realExec(cmd, opts);
+    }) as any);
+    const fileSpy = vi.spyOn(platformExec, "execFileSync").mockImplementation(((
+      f: any, a: any, o: any,
+    ) => {
+      argvCalls.push([String(f), (a ?? []) as string[]]);
+      return realExecFile(f, a, o);
+    }) as any);
+    try {
+      const result = removeWorktree({ cwd: dir });
+      expect(result.ok).toBe(true);
+    } finally {
+      spy.mockRestore();
+      fileSpy.mockRestore();
+    }
+
+    const removeCall = argvCalls.find(([f, a]) => f === "git" && a[0] === "worktree" && a[1] === "remove");
+    expect(removeCall, `argv calls: ${JSON.stringify(argvCalls)}`).toBeDefined();
+    // The path is its own argv element — no shell ever parsed the `&`.
+    expect(removeCall?.[1].at(-1)).toBe(dir);
+    expect(shellCalls.filter((c) => /worktree remove/.test(c))).toEqual([]);
+    expect(existsSync(dir)).toBe(false);
+    expect(existsSync(join(repo, "pwned"))).toBe(false);
+  });
+});
+
 describe("pruneWorktrees", () => {
   let repo: string;
   beforeEach(() => { repo = makeRepo(); });

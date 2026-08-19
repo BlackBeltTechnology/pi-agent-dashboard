@@ -954,11 +954,15 @@ export function removeWorktree(opts: {
   if (!mainPath) return { ok: false, code: "not_a_worktree" };
   // Capture the branch BEFORE removal — it is unrecoverable afterwards.
   const branch = deleteBranch ? branchOfWorktree(mainPath, cwd) : null;
-  const args = ["git", "worktree", "remove"];
+  const args = ["worktree", "remove"];
   if (force) args.push("--force");
   args.push(cwd);
   try {
-    execSync(args.map(shellEscape).join(" "), {
+    // ARGV form, never a shell string. `cwd` is caller-supplied (and the batch
+    // endpoint accepts up to 50 of them per request); `shellEscape` is POSIX
+    // single-quoting, which cmd.exe treats as literal characters, so a path
+    // containing `&` would become a command separator on Windows.
+    execFileSync("git", args, {
       cwd: mainPath,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
