@@ -10,7 +10,7 @@
  *
  * See change: add-tunnel-providers.
  */
-import type { TunnelStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { ReservedNameResult, TunnelStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { getApiBase } from "../api/api-context.js";
 import { fetchJsonResponse } from "../api/fetch-json.js";
 import { t } from "../i18n/i18n.js";
@@ -106,4 +106,28 @@ export async function disconnectTunnel(opts?: { forget?: boolean }): Promise<voi
     body: JSON.stringify({ forget: opts?.forget === true }),
   });
   if (!res.ok) throw new Error(t("err.disconnectTunnelFailed", undefined, "Failed to disconnect tunnel"));
+}
+
+/**
+ * Set, replace or clear the zrok reserved name — independently of connecting.
+ *
+ * `name: null` clears (release + forget); a string sets or replaces. The
+ * response is a TYPED outcome rather than a bare ok/fail, because `taken`,
+ * `invalid` and `write-failed` are three different things a user acts on
+ * differently. Rejections arrive as a 200 with a non-`ok` status: they are
+ * answers, not transport errors. See change: add-zrok-custom-reserved-name.
+ */
+export async function setReservedName(name: string | null): Promise<ReservedNameResult> {
+  const res = await fetch(`${getApiBase()}/api/tunnel-reserved-name`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ name }),
+  });
+  const body = (await res.json().catch(() => null)) as
+    | { success?: boolean; data?: ReservedNameResult; error?: string }
+    | null;
+  if (!res.ok || !body?.success || !body.data) {
+    throw new Error(body?.error ?? t("err.reservedNameFailed", undefined, "Failed to set the reserved name"));
+  }
+  return body.data;
 }

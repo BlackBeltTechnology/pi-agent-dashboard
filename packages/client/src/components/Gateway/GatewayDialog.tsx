@@ -13,12 +13,13 @@ import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { TunnelMode } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { disconnectTunnel, getConfig, putConfig } from "../../lib/gateway/gateway-api.js";
+import { disconnectTunnel, getConfig, getTunnelStatus, putConfig } from "../../lib/gateway/gateway-api.js";
 import type { GatewayProviderId } from "../../lib/gateway/gateway-providers.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { GatewayEndpoints } from "./GatewayEndpoints.js";
 import { GatewayPairQR } from "./GatewayPairQR.js";
 import { GatewayProviderSection } from "./GatewayProviderSection.js";
+import { GatewayDegradedBanner, GatewayReservedName } from "./GatewayReservedName.js";
 import { GatewaySetupGuide } from "./GatewaySetupGuide.js";
 
 type Tab = "setup" | "access" | "security";
@@ -32,16 +33,31 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reservedName, setReservedNameState] = useState<string | undefined>();
+  const [degraded, setDegraded] = useState<{ configuredName: string; effectiveName?: string } | undefined>();
 
   useEffect(() => {
     void getConfig()
       .then((cfg) => {
-        const tunnel = (cfg.tunnel as { provider?: GatewayProviderId; mode?: TunnelMode }) ?? {};
+        const tunnel =
+          (cfg.tunnel as {
+            provider?: GatewayProviderId;
+            mode?: TunnelMode;
+            zrok?: { reservedName?: string };
+          }) ?? {};
         if (tunnel.provider) setProvider(tunnel.provider);
         if (tunnel.mode) setMode(tunnel.mode);
+        setReservedNameState(tunnel.zrok?.reservedName);
       })
       .catch(() => {
         /* keep defaults on load failure */
+      });
+    // The degraded signal is a server-side reconciliation of stored-vs-served
+    // name, so it is read from status rather than recomputed here.
+    void getTunnelStatus()
+      .then((s) => setDegraded(s?.status === "active" ? s.degraded : undefined))
+      .catch(() => {
+        /* absence of a status is not a degradation */
       });
   }, []);
 
@@ -96,6 +112,17 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
               disabled={saving}
             />
             <div className="h-px bg-[var(--border)]" />
+            <GatewayDegradedBanner degraded={degraded} />
+            {provider === "zrok" && (
+              <>
+                <GatewayReservedName
+                  stored={reservedName}
+                  onStoredChange={setReservedNameState}
+                  disabled={saving}
+                />
+                <div className="h-px bg-[var(--border)]" />
+              </>
+            )}
             <GatewaySetupGuide provider={provider} />
           </div>
         )}
@@ -157,19 +184,39 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
         >
           {t("gateway.disconnect", undefined, "Disconnect")}
         </button>
-        {/* v2 (support-zrok-v2): release a reserved name (stable URL) + clear it. */}
-        <button
-          type="button"
-          data-testid="gateway-forget-reserved"
-          onClick={() =>
-            void disconnectTunnel({ forget: true }).catch((e) =>
-              setError(e instanceof Error ? e.message : t("gateway.err.disconnectFailed", undefined, "disconnect failed")),
-            )
-          }
-          className="rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--danger,#ef4444)]"
-        >
-          {t("gateway.forgetReserved", undefined, "Forget reserved URL")}
-        </button>
+        {/* Releasing a reserved name is IRREVERSIBLE: the name returns to zrok's
+            global pool and anyone may claim it. Confirm-gated, zrok-only, and
+            the copy names the exact URL being destroyed rather than "the
+            reserved URL". See change: add-zrok-custom-reserved-name (4.4). */}
+        {provider === "zrok" && reservedName && (
+          <button
+            type="button"
+            data-testid="gateway-forget-reserved"
+            onClick={() => {
+              if (
+                !globalThis.confirm?.(
+                  t(
+                    "gateway.confirmRelease",
+                    { url: `https://${reservedName}.shares.zrok.io` },
+                    `Release https://${reservedName}.shares.zrok.io? The name returns to zrok's global pool and anyone may claim it. Anyone you shared that URL with will no longer reach this dashboard.`,
+                  ),
+                )
+              ) {
+                return;
+              }
+              void disconnectTunnel({ forget: true })
+                .then(() => setReservedNameState(undefined))
+                .catch((e) =>
+                  setError(
+                    e instanceof Error ? e.message : t("gateway.err.disconnectFailed", undefined, "disconnect failed"),
+                  ),
+                );
+            }}
+            className="rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--severity-error-fg)]"
+          >
+            {t("gateway.releaseReserved", undefined, "Release reserved URL")}
+          </button>
+        )}
         {dirty ? (
           <button
             type="button"

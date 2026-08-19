@@ -17,33 +17,33 @@
 
 ## 2. Reserved-name engine — typed outcomes
 
-- [ ] 2.1 Write failing unit tests in `packages/server/src/tunnel-providers/zrok.test.ts` for each `mintReservedName` outcome: `ok`, `taken`, `invalid`, `write-failed`
-- [ ] 2.2 Pin the stderr classification against **captured real zrok output** for both branches (`already exist` mine vs another account); assert the neither-branch case yields an honest-but-vague message, not a guess
-- [ ] 2.3 Change `mintReservedName` to return a typed outcome instead of `null`; keep the `pi-dash-<8 hex>` fallback behaviour for the no-name-supplied path
-- [ ] 2.4 Write a failing test that changing a name releases the OLD reservation **only after** the new one succeeds (a failed replace must leave the original intact)
-- [ ] 2.5 Implement release-on-change in `saveReservedName`; verify repeated edits cannot accumulate orphaned reservations
-- [ ] 2.5a Write a failing test that a release NEVER runs against a name whose share is still live — tear the share down first, mirroring the shipped forget path which calls `deleteTunnel()` before `releaseShare()` (`system-routes.ts:522`). Covers both clear and the old name during replace
-- [ ] 2.6 **[doubt-driven-review]** Stress-test the irreversibility of release before it stands — decide inline release vs the deferred-release open question in design.md
+- [x] 2.1 Write failing unit tests in `packages/server/src/tunnel-providers/zrok.test.ts` for each `mintReservedName` outcome: `ok`, `taken`, `invalid`, `write-failed`
+- [x] 2.2 Pin the stderr classification against **captured real zrok output** for both branches (`already exist` mine vs another account); assert the neither-branch case yields an honest-but-vague message, not a guess
+- [x] 2.3 Change `mintReservedName` to return a typed outcome instead of `null`; keep the `pi-dash-<8 hex>` fallback behaviour for the no-name-supplied path
+- [x] 2.4 Write a failing test that changing a name releases the OLD reservation **only after** the new one succeeds (a failed replace must leave the original intact)
+- [x] 2.5 Implement release-on-change in `saveReservedName`; verify repeated edits cannot accumulate orphaned reservations
+- [x] 2.5a Write a failing test that a release NEVER runs against a name whose share is still live — tear the share down first, mirroring the shipped forget path which calls `deleteTunnel()` before `releaseShare()` (`system-routes.ts:522`). Covers both clear and the old name during replace
+- [x] 2.6 **[doubt-driven-review]** Stress-test the irreversibility of release before it stands — decide inline release vs the deferred-release open question in design.md
 
 ## 3. Reserved-name endpoint and shared types
 
-- [ ] 3.1 Add the reserved-name outcome type to `packages/shared/src/rest-api.ts`
+- [x] 3.1 Add the reserved-name outcome type to `packages/shared/src/rest-api.ts`
 - [ ] 3.2 Write failing route tests for the set/clear endpoint covering all four outcomes
-- [ ] 3.3 Implement the endpoint in `packages/server/src/routes/system-routes.ts` alongside `tunnel-connect` / `tunnel-disconnect`; set `persistent: true` on save
-- [ ] 3.4 **[security-hardening]** Verify `RESERVED_NAME_RE` still rejects leading hyphens so a user-supplied value cannot reach `execFileSync` argv as an option; add a test for the option-injection case
+- [x] 3.3 Implement the endpoint in `packages/server/src/routes/system-routes.ts` alongside `tunnel-connect` / `tunnel-disconnect`; set `persistent: true` on save
+- [x] 3.4 **[security-hardening]** Verify `RESERVED_NAME_RE` still rejects leading hyphens so a user-supplied value cannot reach `execFileSync` argv as an option; add a test for the option-injection case
 - [ ] 3.4a Write a failing test that the endpoint is refused without the network guard + auth gate applied to config-mutating routes (it writes config AND creates/destroys a remote zrok resource)
 - [ ] 3.4b Define and test set-while-connected: either reconnect onto the new name, or return the outcome plus an explicit "live tunnel still serves the previous URL" indication — never store a name the live tunnel does not serve with no signal. A failed reservation leaves the running tunnel untouched
 - [ ] 3.5 Add a `tunnel-config-migration` test for the persistence toggle
 
 ## 4. Reserved-name UI and degraded banner
 
-- [ ] 4.1 Write failing component tests for Gateway Setup step 3: idle, typing-valid, invalid, taken, write-failed, reserved, replace-confirm
-- [ ] 4.2 Add the reserved-name input to `GatewayDialog.tsx` as step 3, mirroring `RESERVED_NAME_RE` client-side for inline feedback before the round trip
-- [ ] 4.3 Validate on blur, not per keystroke; error text must state a fix
-- [ ] 4.4 Rename `Forget reserved URL` to a zrok-only, confirm-gated `Release` that names the exact URL being destroyed
-- [ ] 4.5 Write a failing test for the degraded banner: stored `reservedName` ≠ effective name in the live URL while `active` ⇒ warning banner
-- [ ] 4.6 Implement the banner as a reconciliation (D2) — `TunnelStatus` stays `active | inactive | unavailable`
-- [ ] 4.7 Route all new strings through `t(...)` following `gateway.forgetReserved`
+- [x] 4.1 Write failing component tests for Gateway Setup step 3: idle, typing-valid, invalid, taken, write-failed, reserved, replace-confirm
+- [x] 4.2 Add the reserved-name input to `GatewayDialog.tsx` as step 3, mirroring `RESERVED_NAME_RE` client-side for inline feedback before the round trip
+- [x] 4.3 Validate on blur, not per keystroke; error text must state a fix
+- [x] 4.4 Rename `Forget reserved URL` to a zrok-only, confirm-gated `Release` that names the exact URL being destroyed
+- [x] 4.5 Write a failing test for the degraded banner: stored `reservedName` ≠ effective name in the live URL while `active` ⇒ warning banner
+- [x] 4.6 Implement the banner as a reconciliation (D2) — `TunnelStatus` stays `active | inactive | unavailable`
+- [x] 4.7 Route all new strings through `t(...)` following `gateway.forgetReserved`
 
 ## 5. Per-provider readiness — server
 
@@ -121,18 +121,18 @@ manifest id. L3 reads the harness port from `.pi-test-harness.json`
 
 ### 11a. L1 — reserved name, outcomes and lifecycle
 
-- [ ] 11.1 name `a` (1 char, min) · POST set-name · `ok`, name persisted, `persistent=true` — see `packages/shared/src/__tests__/tunnel-provider.test.ts` (test-plan #E1)
-- [ ] 11.2 name of exactly 63 chars · POST set-name · `ok`, persisted verbatim — see same exemplar (test-plan #E2)
-- [ ] 11.3 name of 64 chars · POST set-name · `invalid`, config unchanged, no `zrok create name` executed — see same exemplar (test-plan #E3)
-- [ ] 11.4 name `""` · POST set-name · `invalid`, distinct from the clear path — see same exemplar (test-plan #E4)
-- [ ] 11.5 name `-lead` · POST set-name · `invalid`; argv never receives a leading-hyphen token — see same exemplar (test-plan #E5)
-- [ ] 11.6 name `has_underscore` · POST set-name · `invalid` naming the charset rule — see same exemplar (test-plan #E6)
-- [ ] 11.7 stderr `name already exists` without another/different-account/owned-by · classify · reuse-mine, NOT `taken` — see same exemplar (test-plan #E7)
-- [ ] 11.8 stderr `already exists (owned by another account)` · classify · `taken` — see same exemplar (test-plan #E8)
-- [ ] 11.9 stderr matching neither branch (`connection refused`) · classify · honest-but-vague, not silently reuse-mine — see same exemplar (test-plan #E9)
+- [x] 11.1 name `a` (1 char, min) · POST set-name · `ok`, name persisted, `persistent=true` — see `packages/shared/src/__tests__/tunnel-provider.test.ts` (test-plan #E1)
+- [x] 11.2 name of exactly 63 chars · POST set-name · `ok`, persisted verbatim — see same exemplar (test-plan #E2)
+- [x] 11.3 name of 64 chars · POST set-name · `invalid`, config unchanged, no `zrok create name` executed — see same exemplar (test-plan #E3)
+- [x] 11.4 name `""` · POST set-name · `invalid`, distinct from the clear path — see same exemplar (test-plan #E4)
+- [x] 11.5 name `-lead` · POST set-name · `invalid`; argv never receives a leading-hyphen token — see same exemplar (test-plan #E5)
+- [x] 11.6 name `has_underscore` · POST set-name · `invalid` naming the charset rule — see same exemplar (test-plan #E6)
+- [x] 11.7 stderr `name already exists` without another/different-account/owned-by · classify · reuse-mine, NOT `taken` — see same exemplar (test-plan #E7)
+- [x] 11.8 stderr `already exists (owned by another account)` · classify · `taken` — see same exemplar (test-plan #E8)
+- [x] 11.9 stderr matching neither branch (`connection refused`) · classify · honest-but-vague, not silently reuse-mine — see same exemplar (test-plan #E9)
 - [ ] 11.10 `zrok create name` fails for the NEW name during replace · user replaces · old reservation intact, stored name unchanged, no orphaned release — see same exemplar (test-plan #X1)
 - [ ] 11.11 a share is live on the name being released · clear or replace · `deleteTunnel()` before `delete name`; never issued against a running share — see same exemplar (test-plan #X2)
-- [ ] 11.12 disk write fails after a successful remote reservation · POST set-name · `write-failed` surfaced, not a misleading `ok` — see same exemplar (test-plan #X3)
+- [x] 11.12 disk write fails after a successful remote reservation · POST set-name · `write-failed` surfaced, not a misleading `ok` — see same exemplar (test-plan #X3)
 - [ ] 11.13 request without network guard / auth gate · POST set-name · refused; nothing reserved, released or persisted — see `packages/server/src/__tests__/config-api.test.ts` (test-plan #X4)
 - [ ] 11.14 tunnel live on URL A · set name B · reconnect onto B, or explicit "still serving A until reconnected"; never a silent divergence — see same exemplar (test-plan #X5)
 - [ ] 11.15 tunnel live; new reservation returns `taken` · POST set-name · running tunnel undisturbed — see same exemplar (test-plan #X6)
