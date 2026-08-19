@@ -348,6 +348,13 @@ export interface DashboardConfig {
   devBuildOnReload: boolean;
   auth?: AuthConfig;
   defaultModel: string;
+  /**
+   * Default thinking level applied to brand-new startup sessions alongside
+   * `defaultModel`. Empty string means "do not override" — the bridge leaves
+   * pi's own thinking-level resolution intact (mirrors `defaultModel: ""`).
+   * See change: add-default-thinking-level.
+   */
+  defaultThinkingLevel: string;
   memoryLimits: MemoryLimitsConfig;
   /** OpenSpec background polling behavior (interval, concurrency, change detection, jitter) */
   openspec: OpenSpecPollConfig;
@@ -639,6 +646,7 @@ const DEFAULTS: DashboardConfig = {
   },
   devBuildOnReload: false,
   defaultModel: "",
+  defaultThinkingLevel: "",
   memoryLimits: { ...DEFAULT_MEMORY_LIMITS },
   openspec: { ...DEFAULT_OPENSPEC_POLL },
   sessions: { ...DEFAULT_SESSIONS },
@@ -1063,6 +1071,8 @@ export function loadConfig(): DashboardConfig {
       tunnel: normalizeTunnelConfig(parsed.tunnel, defaults.tunnel),
       devBuildOnReload: parsed.devBuildOnReload ?? defaults.devBuildOnReload,
       defaultModel: typeof parsed.defaultModel === "string" ? parsed.defaultModel : defaults.defaultModel,
+      defaultThinkingLevel:
+        typeof parsed.defaultThinkingLevel === "string" ? parsed.defaultThinkingLevel : defaults.defaultThinkingLevel,
       auth: parseAuthConfig(parsed.auth),
       memoryLimits: parseMemoryLimits(parsed.memoryLimits),
       openspec: parseOpenSpecPollConfig(parsed.openspec),
