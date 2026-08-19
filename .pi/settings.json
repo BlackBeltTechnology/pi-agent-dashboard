@@ -23,5 +23,8 @@
       "Write(/tmp/**)",
       "Edit(/tmp/**)"
     ]
-  }
+  },
+  "skills": [
+    "-skills/nano-banana-imagegen/SKILL.md"
+  ]
 }
