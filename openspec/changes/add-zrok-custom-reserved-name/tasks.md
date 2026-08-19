@@ -81,7 +81,7 @@
 - [x] 7.5 Write a failing recycle test: restarting one provider leaves every other provider's PID untouched
 - [x] 7.6 Write a failing two-tunnel test asserting the OAuth redirect URI derives from the **primary only**
 - [x] 7.7 Write a failing test that a disconnected primary falls back exactly as today, with **no** silent promotion of another live tunnel
-- [ ] 7.8 Implement the confirm-gated primary switch (D10), stating inline that switching re-mints the redirect URI
+- [x] 7.8 Implement the confirm-gated primary switch (D10), stating inline that switching re-mints the redirect URI
 
 ## 8. CORS
 
@@ -185,8 +185,8 @@ manifest id. L3 reads the harness port from `.pi-test-harness.json`
 - [x] 11.47 provider reports `not-set` · readiness updates to `connected` · satisfied steps render satisfied; list shrinks — see same exemplar (test-plan #F4)
 - [x] 11.48 one provider's predicate throws · board renders · that row degrades alone; other 3 still show state — see same exemplar (test-plan #F5)
 - [x] 11.49 each of the 4 readiness states · render board · every state carries a text label, never colour alone — see same exemplar (test-plan #F6)
-- [ ] 11.50 zrok primary, tailscale connected · click "Make primary" on tailscale · confirmation names the redirect-URI consequence; no config write until confirmed — see `tests/e2e/gateway-url-action.spec.ts` (test-plan #F7)
-- [ ] 11.51 connected provider with unregistered URL · tunnel connects · offer appears; `gateways` unchanged until the operator acts — see same exemplar (test-plan #F8)
+- [x] 11.50 zrok primary, tailscale connected · click "Make primary" on tailscale · confirmation names the redirect-URI consequence; no config write until confirmed — see `tests/e2e/gateway-primary-offer.spec.ts` (test-plan #F7)
+- [x] 11.51 connected provider with unregistered URL · tunnel connects · offer appears; `gateways` unchanged until the operator acts — see `tests/e2e/gateway-primary-offer.spec.ts` (test-plan #F8)
 - [x] 11.52 stored `reservedName` but connect serves an ephemeral URL · status renders · warning banner on stored-vs-effective mismatch; shown once, not per watchdog recycle — see same exemplar (test-plan #F9)
 
 ### 11g. Manual-only (no test folded; deferred post-merge)

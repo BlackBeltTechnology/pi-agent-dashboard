@@ -15,7 +15,8 @@
 import type { ProviderReadiness } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 import { READINESS_POLL_INTERVAL_MS } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getProviderReadiness } from "../../lib/gateway/gateway-api.js";
+import type { GatewayConfigShape } from "../../lib/gateway/gateway-action.js";
+import { getConfig, getProviderReadiness } from "../../lib/gateway/gateway-api.js";
 import {
   INITIAL_POLL_STATE,
   onClose,
@@ -29,6 +30,7 @@ import {
   shouldTick,
 } from "../../lib/gateway/readiness-poll.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+import { GatewayProviderActions } from "./GatewayProviderActions.js";
 
 const SEVERITY_COLOR = {
   success: "var(--severity-success-fg)",
@@ -48,6 +50,17 @@ export function GatewayReadinessBoard({
   const { t } = useI18n();
   const [state, setState] = useState(INITIAL_POLL_STATE);
   const [now, setNow] = useState(() => Date.now());
+  // Config backs the registration offer (is this URL already a gateway?) and
+  // the primary-switch copy. Re-read on demand, NOT on every readiness tick —
+  // the tick runs every 5s and the config does not change under it.
+  const [config, setConfig] = useState<GatewayConfigShape>({});
+  const refreshConfig = useCallback(() => {
+    void getConfig()
+      .then((c) => setConfig(c as GatewayConfigShape))
+      .catch(() => {
+        /* an unreadable config offers nothing; it must not blank the board */
+      });
+  }, []);
   // Read inside the interval callback so the scheduler never closes over a
   // stale `inFlight` — the whole point of overlap suppression.
   const stateRef = useRef(state);
@@ -76,6 +89,7 @@ export function GatewayReadinessBoard({
       return;
     }
     setState((s) => onOpen(s));
+    refreshConfig();
     // The ref is refreshed on RENDER, and this effect runs before React has
     // re-rendered with `open: true` — so without this line `shouldTick` reads a
     // stale `open: false`, suppresses the first tick, and the board shows
@@ -90,9 +104,13 @@ export function GatewayReadinessBoard({
       clearInterval(stamp);
       setState((s) => onClose(s));
     };
-  }, [open, tick]);
+  }, [open, tick, refreshConfig]);
 
   const age = secondsSinceCheck(state, now);
+  // The badge tracks the PERSISTED primary, not the dialog's unsaved provider
+  // selection — otherwise clicking a row would relabel the primary before any
+  // write, which is exactly the one-click switch D10 forbids.
+  const effectivePrimary = (config as { tunnel?: { provider?: string } }).tunnel?.provider ?? primary;
 
   return (
     <div data-testid="gateway-readiness-board">
@@ -123,8 +141,10 @@ export function GatewayReadinessBoard({
           <ReadinessRow
             key={p.provider}
             readiness={p}
-            isPrimary={p.provider === primary}
+            isPrimary={p.provider === effectivePrimary}
             onSelect={onSelectProvider}
+            config={config}
+            onConfigChange={refreshConfig}
           />
         ))}
       </ul>
@@ -136,10 +156,14 @@ function ReadinessRow({
   readiness,
   isPrimary,
   onSelect,
+  config,
+  onConfigChange,
 }: {
   readiness: ProviderReadiness;
   isPrimary: boolean;
   onSelect?: (id: string) => void;
+  config: GatewayConfigShape;
+  onConfigChange: () => void;
 }) {
   const { t } = useI18n();
   const severity = readinessSeverity(readiness.state);
@@ -184,6 +208,14 @@ function ReadinessRow({
           ›
         </span>
       </button>
+      {/* OUTSIDE the row button: a nested <button> is invalid HTML and the
+          browser drops it, which would silently delete both actions. */}
+      <GatewayProviderActions
+        readiness={readiness}
+        isPrimary={isPrimary}
+        config={config}
+        onConfigChange={onConfigChange}
+      />
     </li>
   );
 }
