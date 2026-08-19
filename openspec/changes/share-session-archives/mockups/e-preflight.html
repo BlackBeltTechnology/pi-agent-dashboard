@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>E · Resume preflight</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="app.css">
+<script src="nav.js"></script>
+</head>
+<body>
+<div class="shell">
+  <div data-chrome data-title="Resume preflight" data-sub="Model unavailable or too small · X19, E38"></div>
+  <div class="stack-loose">
+    <div>
+      <h3 class="h-sec">Recorded model available and sufficient — no dialog at all</h3>
+      <div class="card card-pad">
+        <div class="callout callout-success">
+          <span class="glyph" aria-hidden="true">✓</span>
+          <div><strong>Resumes straight away</strong>
+          <span class="body">claude-opus-4-8 is configured here and its 1M window covers the 269 644 recorded tokens. Spec E37 requires no prompt, and an “everything is fine” confirmation is exactly the extraneous load <b>H8</b> warns about.</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <h3 class="h-sec">Recorded model unavailable</h3>
+      <div class="scrim">
+        <div class="card card-pad dialog" role="dialog" aria-modal="true" aria-labelledby="pf-title" aria-describedby="pf-lede">
+          <h2 id="pf-title">Choose a model to resume on</h2>
+          <p class="lede" id="pf-lede">
+            This session ran on <b>claude-opus-4-8</b>, which isn’t configured on this machine.
+            It used <b>269 644</b> tokens, so the replacement needs a window at least that large.
+          </p>
+
+          <div class="opt" data-selected="true" role="button" tabindex="0">
+            <span style="margin-top:2px" aria-hidden="true">◉</span>
+            <div style="flex:1">
+              <div class="t">claude-sonnet-4-5 <span class="chip chip-success" style="margin-left:4px"><span class="glyph" aria-hidden="true">✓</span> fits</span></div>
+              <div class="d">1M window · closest available to the recorded model</div>
+            </div>
+          </div>
+
+          <div class="opt" role="button" tabindex="0">
+            <span style="margin-top:2px" aria-hidden="true">○</span>
+            <div style="flex:1">
+              <div class="t">deepseek-v4-pro <span class="chip chip-success" style="margin-left:4px"><span class="glyph" aria-hidden="true">✓</span> fits</span></div>
+              <div class="d">1M window · different architecture family</div>
+            </div>
+          </div>
+
+          <div class="opt" aria-disabled="true">
+            <span style="margin-top:2px" aria-hidden="true">⊘</span>
+            <div style="flex:1">
+              <div class="t">claude-haiku-4-5 <span class="chip chip-error" style="margin-left:4px"><span class="glyph" aria-hidden="true">▲</span> too small</span></div>
+              <div class="d">200k window is below the 269 644 tokens this session already used</div>
+            </div>
+          </div>
+
+          <div class="dialog-actions">
+            <button class="btn btn-quiet" type="button">Cancel</button>
+            <button class="btn btn-primary" type="button">Resume on Sonnet 4.5</button>
+          </div>
+        </div>
+      </div>
+      <div class="note">
+        Insufficient models are <b>shown and disabled with the number stated</b>, not hidden — hiding
+        leaves the user hunting for a model they know they have (<b>H9</b>). The closest sufficient
+        option is pre-selected so the system absorbs the research (<b>Tesler’s Law</b>), the button is an
+        outcome verb (<b>NN/g ui-copy</b>), and Cancel stays available but subordinate (<b>H3</b>).
+      </div>
+    </div>
+
+    <div>
+      <h3 class="h-sec">Nothing configured is large enough</h3>
+      <div class="scrim">
+        <div class="card card-pad dialog" role="dialog" aria-modal="true" aria-labelledby="pf2-title">
+          <h2 id="pf2-title">No configured model can hold this session</h2>
+          <p class="lede">It used <b>269 644</b> tokens. Your largest configured window is <b>200 000</b> (claude-haiku-4-5).</p>
+          <div class="callout callout-info">
+            <span class="glyph" aria-hidden="true">◆</span>
+            <div><span class="body">You can still read the full transcript. Only resuming needs a model that fits.</span></div>
+          </div>
+          <div class="dialog-actions">
+            <button class="btn btn-quiet" type="button">Cancel</button>
+            <button class="btn" type="button">Open read-only</button>
+            <button class="btn btn-primary" type="button">Add a model…</button>
+          </div>
+        </div>
+      </div>
+      <div class="note">A refusal always offers a forward path (<b>H3</b>).</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

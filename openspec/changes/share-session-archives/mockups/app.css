@@ -1,0 +1,202 @@
+/* Component primitives — every value references a token from tokens.css.
+   Recipes are copied from ui-contract.md "Component invariants". */
+
+/* ---------- shell ---------- */
+.shell { max-width: 1100px; margin: 0 auto; padding: 16px; }
+.topbar {
+  display: flex; align-items: center; gap: 12px; margin-bottom: 16px;
+  padding-bottom: 12px; border-bottom: 1px solid var(--border-primary);
+}
+.topbar h1 { font-size: 18px; margin: 0; font-weight: 600; letter-spacing: -0.01em; }
+.topbar .sub { color: var(--text-secondary); font-size: 11px; }
+.spacer { flex: 1; }
+
+/* ---------- card ---------- */
+.card {
+  border-radius: 12px;
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-secondary);
+  box-shadow: inset 0 1px 0 var(--elevation-rim), 0 4px 8px var(--shadow-card);
+}
+.card-pad { padding: 16px; }
+.panel {
+  border-radius: 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-subtle);
+}
+
+/* ---------- chips ---------- */
+/* 11px, not 10px: a chip here carries the rule name — essential information.
+   ui-contract.md forbids anything below 11px from being the sole carrier of a
+   state, an error, or an action label. */
+.chip {
+  display: inline-flex; align-items: center; gap: 4px;
+  border-radius: 999px; padding: 2px 8px;
+  font-size: 11px; line-height: 16px;
+  background: var(--bg-tertiary); color: var(--text-secondary);
+  border: 1px solid var(--border-subtle);
+  white-space: nowrap;
+}
+.chip .glyph { font-size: 10px; line-height: 1; }
+.chip-info    { background: var(--severity-info-bg);    color: var(--severity-info-fg);    border-color: var(--severity-info-border); }
+.chip-warning { background: var(--severity-warning-bg); color: var(--severity-warning-fg); border-color: var(--severity-warning-border); }
+.chip-error   { background: var(--severity-error-bg);   color: var(--severity-error-fg);   border-color: var(--severity-error-border); }
+.chip-success { background: var(--severity-success-bg); color: var(--severity-success-fg); border-color: var(--severity-success-border); }
+.chip-neutral { background: var(--severity-neutral-bg); color: var(--severity-neutral-fg); border-color: var(--severity-neutral-border); }
+
+/* ---------- callouts ---------- */
+.callout {
+  display: flex; gap: 10px; align-items: flex-start;
+  border-radius: 6px; padding: 10px 12px; border: 1px solid;
+  font-size: 12px;
+}
+.callout .glyph { flex: none; font-size: 12px; line-height: 18px; }
+.callout .body { color: var(--warn-body); }
+.callout strong { display: block; margin-bottom: 2px; }
+.callout-warning { background: var(--severity-warning-bg); border-color: var(--severity-warning-border); color: var(--severity-warning-fg); }
+.callout-error   { background: var(--severity-error-bg);   border-color: var(--severity-error-border);   color: var(--severity-error-fg); }
+.callout-success { background: var(--severity-success-bg); border-color: var(--severity-success-border); color: var(--severity-success-fg); }
+.callout-info    { background: var(--severity-info-bg);    border-color: var(--severity-info-border);    color: var(--severity-info-fg); }
+
+/* ---------- buttons (targets >= 24px; primary >= 44px wide, 32px tall) ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 32px; min-width: 44px; padding: 6px 12px;
+  border-radius: 6px; font-size: 13px; font-family: inherit;
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-tertiary); color: var(--text-primary);
+  cursor: pointer;
+}
+.btn:hover { background: var(--bg-hover); }
+.btn-primary {
+  background: var(--accent-primary-strong); border-color: var(--accent-primary-strong);
+  color: var(--on-accent); font-weight: 500;
+}
+.btn-safe {
+  background: var(--severity-success-bg); border-color: var(--severity-success-border);
+  color: var(--severity-success-fg); font-weight: 500;
+}
+.btn-risky {
+  background: transparent; border-color: var(--severity-error-border);
+  color: var(--severity-error-fg);
+}
+.btn-quiet { background: transparent; border-color: transparent; color: var(--text-secondary); }
+.btn-quiet:hover { color: var(--text-primary); background: var(--bg-hover); }
+.btn[disabled] { opacity: .5; cursor: not-allowed; }
+.btn-sm { min-height: 26px; padding: 3px 9px; font-size: 12px; }
+
+/* ---------- forms ---------- */
+.field { display: block; margin-bottom: 16px; max-width: 520px; }
+.field > label { display: block; font-size: 12px; margin-bottom: 4px; color: var(--text-secondary); font-weight: 500; }
+.field .hint { font-size: 11px; color: var(--text-secondary); margin-top: 4px; }
+.field .optional { color: var(--text-tertiary); font-weight: 400; }
+.input {
+  width: 100%; min-height: 32px; padding: 6px 10px;
+  border-radius: 4px; border: 1px solid var(--border-secondary);
+  background: var(--bg-tertiary); color: var(--text-primary);
+  font-size: 13px; font-family: inherit;
+}
+.input.mono { font-family: var(--mono); font-size: 12px; }
+.input[aria-invalid="true"] { border-color: var(--severity-error-border); }
+.field-error { display: flex; gap: 5px; font-size: 11px; color: var(--severity-error-fg); margin-top: 4px; }
+
+/* ---------- code / evidence ---------- */
+.code {
+  font-family: var(--mono); font-size: 11.5px; line-height: 1.7;
+  background: var(--bg-code); border: 1px solid var(--border-subtle);
+  border-radius: 6px; padding: 10px 12px; overflow-x: auto;
+  color: var(--text-secondary);
+}
+/* Line numbers are informational — findings cite them ("line 412"), so they must
+   clear 4.5:1. They are separated from the code by a gutter rule rather than by
+   dimming, which is what pushed the old --text-faint under the floor. */
+.code .ln {
+  color: var(--text-secondary); user-select: none; display: inline-block;
+  width: 34px; margin-right: 8px; padding-right: 6px; opacity: .85;
+  border-right: 1px solid var(--border-subtle); text-align: right;
+}
+.mark {
+  background: var(--severity-error-bg); color: var(--severity-error-fg);
+  border-bottom: 2px solid var(--severity-error-border); border-radius: 2px; padding: 0 2px;
+}
+.path { font-family: var(--mono); font-size: 11px; color: var(--text-secondary); }
+
+/* ---------- progress ---------- */
+.bar { height: 6px; border-radius: 999px; background: var(--bg-surface); overflow: hidden; }
+.bar > span { display: block; height: 100%; background: var(--accent-primary); border-radius: 999px; }
+
+/* ---------- dialog ---------- */
+.scrim {
+  position: relative; background: var(--bg-overlay);
+  border-radius: 10px; padding: 28px 16px; display: flex; justify-content: center;
+}
+.dialog { width: 100%; max-width: 460px; }
+.dialog h2 { margin: 0 0 4px; font-size: 15px; font-weight: 600; }
+.dialog .lede { margin: 0 0 14px; font-size: 12px; color: var(--text-secondary); }
+.dialog-actions { display: flex; gap: 8px; justify-content: flex-end; margin-top: 16px; }
+
+/* ---------- option rows ---------- */
+.opt {
+  display: flex; gap: 10px; align-items: flex-start;
+  padding: 10px 12px; border-radius: 6px;
+  border: 1px solid var(--border-secondary); background: var(--bg-tertiary);
+  cursor: pointer; margin-bottom: 8px;
+}
+.opt[data-selected="true"] { border-color: var(--accent-primary); background: var(--neon-bg-tint); }
+.opt[aria-disabled="true"] { opacity: .55; cursor: not-allowed; }
+.opt .t { font-size: 13px; }
+.opt .d { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+
+/* ---------- misc ---------- */
+.row { display: flex; align-items: center; gap: 8px; }
+.wrap { display: flex; flex-wrap: wrap; gap: 6px; }
+.stack-tight > * + * { margin-top: 6px; }
+.stack > * + * { margin-top: 12px; }
+.stack-loose > * + * { margin-top: 20px; }
+.muted { color: var(--text-secondary); }
+.dim { color: var(--text-secondary); }
+.h-sec { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-secondary); margin: 0 0 8px; }
+.divider { height: 1px; background: var(--border-primary); margin: 16px 0; }
+.count {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 18px; height: 18px; padding: 0 5px; border-radius: 999px;
+  background: var(--severity-warning-bg); color: var(--severity-warning-fg);
+  border: 1px solid var(--severity-warning-border);
+  font-size: 10px; font-weight: 600;
+}
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; border: 0;
+}
+.note {
+  font-size: 11px; color: var(--text-secondary); border-left: 2px solid var(--border-secondary);
+  padding-left: 10px; margin-top: 10px;
+}
+.note b { color: var(--text-primary); font-weight: 600; }
+
+/* nav */
+.surfnav { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 16px; }
+.surfnav a {
+  font-size: 11px; padding: 4px 10px; border-radius: 999px; text-decoration: none;
+  color: var(--text-secondary); background: var(--bg-tertiary); border: 1px solid var(--border-subtle);
+  min-height: 24px; display: inline-flex; align-items: center;
+}
+.surfnav a:hover { background: var(--bg-hover); color: var(--text-primary); }
+.surfnav a[aria-current="page"] { background: var(--accent-primary-strong); border-color: var(--accent-primary-strong); color: var(--on-accent); }
+
+@media (max-width: 640px) {
+  .shell { padding: 12px; }
+  .dialog-actions { flex-direction: column-reverse; }
+  .dialog-actions .btn { width: 100%; }
+  .field { max-width: none; }
+
+  /* The evidence block exists so the reviewer SEES the match (H6, recognition
+     over recall). Horizontal scroll would push the masked secret off-canvas on
+     a phone, defeating the surface's whole purpose — so wrap instead of scroll,
+     trading some code fidelity for the thing the task actually needs. */
+  /* pre-wrap must sit on the ROWS, not the container — on the container it also
+     renders the source newlines between the row elements as blank lines. */
+  .code { overflow-x: visible; }
+  .code > div { white-space: pre-wrap; overflow-wrap: anywhere; }
+  .code .ln { width: auto; min-width: 26px; }
+}
