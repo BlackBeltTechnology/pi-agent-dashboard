@@ -57,9 +57,12 @@ export function writeAutomation(input: WriteAutomationInput): WriteAutomationRes
   const config: AutomationConfig = { ...input.config };
   let promptPath: string | undefined;
 
-  if (config.action.kind === "prompt") {
-    // Normalize the prompt path to the durable sibling file and write it.
-    config.action = { kind: "prompt", prompt: "./prompt.md" };
+  // Single `action:` prompt normalization: durable sibling prompt.md. The
+  // fan-out `actions:` form is serialized verbatim (per-entry `count`
+  // preserved). See change: add-automation-concurrent-spawn.
+  if (config.action?.kind === "prompt") {
+    const count = config.action.count;
+    config.action = { kind: "prompt", prompt: "./prompt.md", ...(count !== undefined ? { count } : {}) };
     promptPath = path.join(dir, "prompt.md");
     fs.writeFileSync(promptPath, (input.promptBody ?? "").trim() + "\n");
   }
