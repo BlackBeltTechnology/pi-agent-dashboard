@@ -2,12 +2,17 @@
 
 Stage: apply   Generated: 2026-08-19
 
-## ⚠ Clarifications needed (2)
+## ⚠ Clarifications RESOLVED (2)
 
-- [ ] **C1** — Batch removal blocks the event loop (`removeWorktree` uses `execSync`, so a 50-item batch is 50–100 sequential git invocations in one handler, on a server also hosting two WebSocket servers). Scenario **P1** needs a threshold to assert against: is the budget (a) no bridge/browser WS heartbeat missed for the batch duration, (b) a hard p95 wall-clock ceiling per batch, or (c) explicitly "no budget — batches are rare, blocking is accepted"? Without a number P1 cannot assert a boundary.
-- [ ] **C2** — Blocked scenario **X6**: when the branch delete succeeds but `git worktree remove` already reported success and the *response write* fails (client disconnects mid-request), is the branch deletion expected to have happened anyway (no compensation), or is any rollback expected? The spec defines the happy and refused paths but not the abandoned-caller path.
+- [x] **C1** — RESOLVED: option (c) **no budget** — batches are rare, blocking is accepted. Scenario **P1** is DROPPED (task 9.2 dropped) rather than weakened to an exit-0 assertion.
+- [x] **C2** — RESOLVED: **no compensation** — the branch delete happens anyway; X6 asserts the deletion completed and no unhandled rejection escapes when the caller aborts.
 
-> Resolve before the blocked scenarios (marked below) can be authored.
+<details><summary>original wording</summary>
+
+- **C1** — Batch removal blocks the event loop (`removeWorktree` uses `execSync`, so a 50-item batch is 50–100 sequential git invocations in one handler, on a server also hosting two WebSocket servers). Scenario **P1** needs a threshold to assert against: is the budget (a) no bridge/browser WS heartbeat missed for the batch duration, (b) a hard p95 wall-clock ceiling per batch, or (c) explicitly "no budget — batches are rare, blocking is accepted"? Without a number P1 cannot assert a boundary.
+- **C2** — Blocked scenario **X6**: when the branch delete succeeds but `git worktree remove` already reported success and the *response write* fails (client disconnects mid-request), is the branch deletion expected to have happened anyway (no compensation), or is any rollback expected? The spec defines the happy and refused paths but not the abandoned-caller path.
+
+</details>
 
 ---
 

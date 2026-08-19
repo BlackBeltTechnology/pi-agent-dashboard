@@ -4,9 +4,10 @@
  *
  * See change: add-worktree-lifecycle-actions.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { execSync } from "node:child_process";
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import * as platformExec from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import Fastify, { type FastifyInstance } from "fastify";
@@ -318,5 +319,274 @@ describe("GET /api/git/worktree/diff-stat", () => {
     const res = await app.inject({ method: "GET", url: "/api/git/worktree/diff-stat" });
     expect(res.statusCode).toBe(400);
     expect(res.json()).toMatchObject({ success: false, code: "cwd_invalid" });
+  });
+});
+
+// ── deleteBranch / main-worktree guard (change: manage-worktrees-filter-cleanup) ──
+
+describe("POST /api/git/worktree/remove — branch delete + main guard", () => {
+  let app: FastifyInstance;
+  let repo: string;
+  beforeEach(() => { repo = makeRepo(); });
+  afterEach(async () => {
+    rmSync(repo, { recursive: true, force: true });
+    if (app) await app.close();
+  });
+
+  // test-plan #X4 — an unmerged branch must NOT surface as a RemoveCode, or
+  // CloseWorktreeDialog keys on it and auto-ticks --force to retry.
+  it("reports a refused branch delete as 200 + branchDeleteCode, never branch_not_merged", async () => {
+    app = await makeApp();
+    const add = addWorktree({ cwd: repo, base: "main", newBranch: "feat/unmerged-route" });
+    expect(add.ok).toBe(true);
+    if (!add.ok) return;
+    writeFileSync(join(add.path, "work.txt"), "w");
+    git("add .", add.path);
+    git("commit -m work", add.path);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/git/worktree/remove",
+      payload: { cwd: add.path, deleteBranch: true },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toMatchObject({
+      success: true,
+      data: { removed: true, branchDeleted: false, branchDeleteCode: "unmerged" },
+    });
+    expect(body.code).not.toBe("branch_not_merged");
+    expect(JSON.stringify(body)).not.toContain("branch_not_merged");
+  });
+
+  // test-plan #E14
+  it("rejects the main worktree's own path without running git worktree remove", async () => {
+    app = await makeApp();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/git/worktree/remove",
+      payload: { cwd: repo },
+    });
+    expect(res.json()).toMatchObject({ success: false, code: "is_main_worktree" });
+    expect(res.statusCode).not.toBe(500);
+    // The repo is untouched — a real `git worktree remove` would have failed loudly.
+    expect(existsSync(join(repo, ".git"))).toBe(true);
+  });
+});
+
+// ── /remove-batch ──────────────────────────────────────────────────
+
+describe("POST /api/git/worktree/remove-batch", () => {
+  let app: FastifyInstance;
+  let repo: string;
+  beforeEach(() => { repo = makeRepo(); });
+  afterEach(async () => {
+    rmSync(repo, { recursive: true, force: true });
+    if (app) await app.close();
+  });
+
+  function addThree(): string[] {
+    return ["a", "b", "c"].map((n) => {
+      const add = addWorktree({ cwd: repo, base: "main", newBranch: `feat/${n}` });
+      if (!add.ok) throw new Error(`addWorktree failed for ${n}`);
+      return add.path;
+    });
+  }
+
+  // test-plan #X1
+  it("reports per-item results in input order and never aborts on first failure", async () => {
+    app = await makeApp();
+    const [p1, p2, p3] = addThree();
+    writeFileSync(join(p2, "untracked.txt"), "dirty");
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/git/worktree/remove-batch",
+      payload: { items: [{ cwd: p1 }, { cwd: p2 }, { cwd: p3 }] },
+    });
+    expect(res.statusCode).toBe(200);
+    const results = res.json().data.results;
+    expect(results).toHaveLength(3);
+    expect(results.map((r: any) => r.cwd)).toEqual([p1, p2, p3]);
+    expect(results[0]).toMatchObject({ ok: true, code: "ok" });
+    expect(results[1]).toMatchObject({ ok: false, code: "dirty_worktree" });
+    expect(results[2]).toMatchObject({ ok: true, code: "ok" });
+    expect(existsSync(p1)).toBe(false);
+    expect(existsSync(p2)).toBe(true);
+    expect(existsSync(p3)).toBe(false);
+  });
+
+  // test-plan #X2
+  it("blocks only the item with active sessions, carrying its own sessionIds", async () => {
+    const [p1, p2, p3] = addThree();
+    const sessions = ["s1", "s2"].map((id) => ({
+      id, cwd: p2, source: "dashboard", status: "active", startedAt: Date.now(),
+    })) as any as DashboardSession[];
+    app = await makeApp({ sessions });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/git/worktree/remove-batch",
+      payload: { items: [{ cwd: p1 }, { cwd: p2 }, { cwd: p3 }] },
+    });
+    const results = res.json().data.results;
+    expect(results[1]).toMatchObject({ ok: false, code: "active_sessions" });
+    expect(results[1].sessionIds.sort()).toEqual(["s1", "s2"]);
+    expect(results[0]).toMatchObject({ ok: true });
+    expect(results[2]).toMatchObject({ ok: true });
+  });
+
+  // test-plan #X10
+  it("rejects an out-of-repo / invalid item per row while the rest still process", async () => {
+    app = await makeApp();
+    const [p1, , p3] = addThree();
+    const outside = realpathSync(mkdtempSync(join(tmpdir(), "outside-")));
+    const marker = join(outside, "keep.txt");
+    writeFileSync(marker, "keep");
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/git/worktree/remove-batch",
+      payload: { items: [{ cwd: p1 }, { cwd: "" }, { cwd: p3 }] },
+    });
+    const results = res.json().data.results;
+    expect(results[1]).toMatchObject({ ok: false, code: "cwd_invalid" });
+    expect(results[0]).toMatchObject({ ok: true });
+    expect(results[2]).toMatchObject({ ok: true });
+    expect(existsSync(marker)).toBe(true);
+    rmSync(outside, { recursive: true, force: true });
+  });
+
+  // test-plan #X3
+  it("stamps cwdMissing + broadcasts once per session under a removed item", async () => {
+    const [p1] = addThree();
+    const gateway = makeStubGateway();
+    const sessions = ["s1", "s2"].map((id) => ({
+      id, cwd: p1, source: "dashboard", status: "active", startedAt: Date.now(),
+    })) as any as DashboardSession[];
+    app = await makeApp({ sessions, gateway });
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/git/worktree/remove-batch",
+      payload: { items: [{ cwd: p1, force: true }] },
+    });
+    expect(res.json().data.results[0]).toMatchObject({ ok: true });
+    expect(gateway.broadcasts).toHaveLength(2);
+    expect(gateway.broadcasts.map((b) => b.id).sort()).toEqual(["s1", "s2"]);
+    for (const b of gateway.broadcasts) expect(b.updates).toMatchObject({ cwdMissing: true });
+  });
+
+  // test-plan #E11
+  it("rejects a malformed body with 400 and runs zero git commands", async () => {
+    app = await makeApp();
+    const [p1] = addThree();
+    for (const payload of [{}, { items: null }, { items: "abc" }, { items: {} }]) {
+      const res = await app.inject({
+        method: "POST", url: "/api/git/worktree/remove-batch", payload,
+      });
+      expect(res.statusCode, JSON.stringify(payload)).toBe(400);
+      expect(res.json()).toMatchObject({ success: false, code: "items_invalid" });
+    }
+    // Nothing was removed.
+    expect(existsSync(p1)).toBe(true);
+  });
+
+  // test-plan #E5
+  it("accepts the empty batch and a single-item batch", async () => {
+    app = await makeApp();
+    const empty = await app.inject({
+      method: "POST", url: "/api/git/worktree/remove-batch", payload: { items: [] },
+    });
+    expect(empty.statusCode).toBe(200);
+    expect(empty.json().data.results).toEqual([]);
+
+    const [p1] = addThree();
+    const one = await app.inject({
+      method: "POST", url: "/api/git/worktree/remove-batch", payload: { items: [{ cwd: p1 }] },
+    });
+    expect(one.json().data.results).toHaveLength(1);
+    expect(one.json().data.results[0]).toMatchObject({ ok: true });
+  });
+
+  // test-plan #E6
+  it("processes 50 items and rejects 51 with the stable cap code", async () => {
+    app = await makeApp();
+    // 50 non-existent-but-shaped items: the cap is checked BEFORE any git runs,
+    // so the boundary is observable without creating 50 real worktrees.
+    const fifty = Array.from({ length: 50 }, (_, i) => ({ cwd: join(repo, `.worktrees/x${i}`) }));
+    const ok = await app.inject({
+      method: "POST", url: "/api/git/worktree/remove-batch", payload: { items: fifty },
+    });
+    expect(ok.statusCode).toBe(200);
+    expect(ok.json().data.results).toHaveLength(50);
+
+    const over = await app.inject({
+      method: "POST",
+      url: "/api/git/worktree/remove-batch",
+      payload: { items: [...fifty, { cwd: join(repo, ".worktrees/x50") }] },
+    });
+    expect(over.statusCode).toBe(400);
+    expect(over.json()).toMatchObject({ success: false, code: "batch_too_large" });
+    expect(over.json().data).toBeUndefined();
+  });
+});
+
+// ── /prune + guard coverage ────────────────────────────────────────
+
+describe("POST /api/git/worktree/prune", () => {
+  let app: FastifyInstance;
+  let repo: string;
+  beforeEach(() => { repo = makeRepo(); });
+  afterEach(async () => {
+    rmSync(repo, { recursive: true, force: true });
+    if (app) await app.close();
+  });
+
+  it("prunes stale registrations and reports the count", async () => {
+    app = await makeApp();
+    const add = addWorktree({ cwd: repo, base: "main", newBranch: "feat/stale" });
+    if (!add.ok) return;
+    rmSync(add.path, { recursive: true, force: true });
+    const res = await app.inject({
+      method: "POST", url: "/api/git/worktree/prune", payload: { cwd: repo },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.pruned).toBeGreaterThan(0);
+  });
+
+  // test-plan #X9
+  it("both new endpoints sit behind networkGuard and respond when it allows", async () => {
+    const denied = Fastify({ logger: false });
+    const gitCalls: string[] = [];
+    const realExec = platformExec.execSync;
+    const spy = vi.spyOn(platformExec, "execSync").mockImplementation(((cmd: any, opts: any) => {
+      gitCalls.push(String(cmd));
+      return realExec(cmd, opts);
+    }) as any);
+    try {
+      registerGitRoutes(denied, {
+        networkGuard: async (_req: any, reply: any) => {
+          reply.code(403);
+          return reply.send({ success: false, code: "forbidden" });
+        },
+      } as any);
+      await denied.ready();
+      for (const url of ["/api/git/worktree/remove-batch", "/api/git/worktree/prune"]) {
+        const res = await denied.inject({ method: "POST", url, payload: { cwd: repo, items: [] } });
+        expect(res.statusCode, url).toBe(403);
+      }
+      expect(gitCalls).toEqual([]);
+      await denied.close();
+    } finally {
+      spy.mockRestore();
+    }
+
+    // Guard allows → both endpoints exist (not 404).
+    app = await makeApp();
+    for (const url of ["/api/git/worktree/remove-batch", "/api/git/worktree/prune"]) {
+      const res = await app.inject({ method: "POST", url, payload: { cwd: repo, items: [] } });
+      expect(res.statusCode, url).not.toBe(404);
+    }
   });
 });

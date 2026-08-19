@@ -3,7 +3,7 @@
  */
 
 import fs from "node:fs";
-import { join } from "node:path";
+import { join, resolve as pathResolve } from "node:path";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
@@ -27,7 +27,9 @@ import {
   orphanCleanup,
   pushBranch,
   readHead,
+  pruneWorktrees,
   removeWorktree,
+  resolveMainPath,
   resolveConfigRoot,
   stashPop,
   worktreeDiffStat,
@@ -592,7 +594,25 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
   // ── Worktree lifecycle endpoints (remove / merge / push / pr / diff-stat) ──────────────────
   // See change: add-worktree-lifecycle-actions.
 
-  fastify.post<{ Body: { cwd?: string; force?: boolean } }>(
+  /** True when `cwd` resolves to the repo's OWN main worktree (not removable). */
+  function isMainWorktree(cwd: string): boolean {
+    const mainPath = resolveMainPath(cwd);
+    return mainPath != null && pathResolve(mainPath) === pathResolve(cwd);
+  }
+
+  /**
+   * Optimistic stamp: every session under a removed path gets `cwdMissing: true`
+   * plus a `sessionUpdated` broadcast. Shared by the single + batch endpoints.
+   */
+  function stampCwdMissing(cwd: string): void {
+    if (!sessionManager || !browserGateway) return;
+    for (const id of sessionsUnder(cwd, sessionManager.listAll())) {
+      sessionManager.update(id, { cwdMissing: true });
+      browserGateway.broadcastSessionUpdated(id, { cwdMissing: true });
+    }
+  }
+
+  fastify.post<{ Body: { cwd?: string; force?: boolean; deleteBranch?: boolean } }>(
     "/api/git/worktree/remove",
     { preHandler: networkGuard },
     async (request, reply) => {
@@ -602,7 +622,17 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         reply.code(400);
         return { success: false, code: validated.code, error: validated.message } satisfies ApiResponse;
       }
+      // Removing the main worktree is a clean rejection, not a 500 from git.
+      if (isMainWorktree(validated.cwd)) {
+        reply.code(400);
+        return {
+          success: false,
+          code: "is_main_worktree",
+          error: "is_main_worktree",
+        } satisfies ApiResponse;
+      }
       const force = body.force === true;
+      const deleteBranch = body.deleteBranch === true;
       if (sessionManager) {
         const activeIds = activeSessionsUnder(validated.cwd, sessionManager.listAll());
         if (activeIds.length > 0 && !force) {
@@ -615,7 +645,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
           } satisfies ApiResponse;
         }
       }
-      const result = removeWorktree({ cwd: validated.cwd, force });
+      const result = removeWorktree({ cwd: validated.cwd, force, deleteBranch });
       // Trace every call so failed clicks leave a breadcrumb in
       // ~/.pi/dashboard/server.log (the request itself is not
       // otherwise logged by fastify in default config).
@@ -638,15 +668,77 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
           ...(result.stderr ? { stderr: result.stderr } : {}),
         } satisfies ApiResponse;
       }
-      // Optimistic stamp: every session under the removed path gets cwdMissing: true.
-      if (sessionManager && browserGateway) {
-        const ids = sessionsUnder(validated.cwd, sessionManager.listAll());
-        for (const id of ids) {
-          sessionManager.update(id, { cwdMissing: true });
-          browserGateway.broadcastSessionUpdated(id, { cwdMissing: true });
-        }
+      stampCwdMissing(validated.cwd);
+      return { success: true, data: result.data } satisfies ApiResponse;
+    },
+  );
+
+  // ── Batch removal + prune (change: manage-worktrees-filter-cleanup) ──
+
+  /** Max items per `remove-batch`; `removeWorktree` is execSync-blocking. */
+  const REMOVE_BATCH_CAP = 50;
+
+  fastify.post<{ Body: { items?: Array<{ cwd?: string; force?: boolean; deleteBranch?: boolean }> } }>(
+    "/api/git/worktree/remove-batch",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const items = (request.body ?? {}).items;
+      if (!Array.isArray(items)) {
+        reply.code(400);
+        return { success: false, code: "items_invalid", error: "items must be an array" } satisfies ApiResponse;
       }
-      return { success: true, data: { removed: true } } satisfies ApiResponse;
+      if (items.length > REMOVE_BATCH_CAP) {
+        reply.code(400);
+        return {
+          success: false,
+          code: "batch_too_large",
+          error: `at most ${REMOVE_BATCH_CAP} items per batch`,
+        } satisfies ApiResponse;
+      }
+      // Per-item containment + removal; never abort on first failure (design D4).
+      const results = items.map((item) => {
+        const validated = validateCwd(item?.cwd);
+        if (!validated.ok) return { cwd: item?.cwd ?? "", ok: false, code: "cwd_invalid" };
+        if (isMainWorktree(validated.cwd)) {
+          return { cwd: validated.cwd, ok: false, code: "is_main_worktree" };
+        }
+        const force = item.force === true;
+        if (sessionManager) {
+          const activeIds = activeSessionsUnder(validated.cwd, sessionManager.listAll());
+          if (activeIds.length > 0 && !force) {
+            return { cwd: validated.cwd, ok: false, code: "active_sessions", sessionIds: activeIds };
+          }
+        }
+        const result = removeWorktree({
+          cwd: validated.cwd,
+          force,
+          deleteBranch: item.deleteBranch === true,
+        });
+        if (!result.ok) {
+          return { cwd: validated.cwd, ok: false, code: result.code, ...(result.stderr ? { stderr: result.stderr } : {}) };
+        }
+        stampCwdMissing(validated.cwd);
+        return { cwd: validated.cwd, ok: true, code: "ok", ...result.data };
+      });
+      return { success: true, data: { results } } satisfies ApiResponse;
+    },
+  );
+
+  fastify.post<{ Body: { cwd?: string } }>(
+    "/api/git/worktree/prune",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const validated = validateCwd((request.body ?? {}).cwd);
+      if (!validated.ok) {
+        reply.code(400);
+        return { success: false, code: validated.code, error: validated.message } satisfies ApiResponse;
+      }
+      const result = pruneWorktrees(validated.cwd);
+      if (!result.ok) {
+        reply.code(result.code === "not_a_worktree" ? 400 : 500);
+        return { success: false, code: result.code, error: result.code } satisfies ApiResponse;
+      }
+      return { success: true, data: result.data } satisfies ApiResponse;
     },
   );
 

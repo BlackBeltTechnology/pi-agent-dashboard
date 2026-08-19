@@ -9,14 +9,16 @@
  *
  * See change: add-worktree-lifecycle-actions.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { execSync } from "node:child_process";
+import * as platformExec from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
   addWorktree,
   mergeWorktree,
+  pruneWorktrees,
   pushBranch,
   removeWorktree,
   resolveDefaultBase,
@@ -359,5 +361,138 @@ describe("pushBranch", () => {
     git(`remote add origin ${bareRemote}`, repo);
     const result = pushBranch({ cwd: repo });
     expect(result.ok).toBe(true);
+  });
+});
+
+// ── deleteBranch + prune (change: manage-worktrees-filter-cleanup) ──
+
+describe("removeWorktree({ deleteBranch: true })", () => {
+  let repo: string;
+  beforeEach(() => { repo = makeRepo(); });
+  afterEach(() => rmSync(repo, { recursive: true, force: true }));
+
+  function branchExists(name: string): boolean {
+    try {
+      git(`rev-parse --verify refs/heads/${name}`, repo);
+      return true;
+    } catch { return false; }
+  }
+
+  // test-plan #E16
+  it("deletes a merged branch, refuses an unmerged one — removal succeeds either way", () => {
+    const merged = addWorktree({ cwd: repo, base: "main", newBranch: "feat/merged" });
+    expect(merged.ok).toBe(true);
+    if (!merged.ok) return;
+    expect(branchExists("feat/merged")).toBe(true);
+
+    const mergedResult = removeWorktree({ cwd: merged.path, deleteBranch: true });
+    expect(mergedResult.ok).toBe(true);
+    if (!mergedResult.ok) return;
+    expect(mergedResult.data.branchDeleted).toBe(true);
+    expect(mergedResult.data.branchDeleteCode).toBe("deleted");
+    expect(branchExists("feat/merged")).toBe(false);
+
+    const unmerged = addWorktree({ cwd: repo, base: "main", newBranch: "feat/unmerged" });
+    if (!unmerged.ok) return;
+    writeFileSync(join(unmerged.path, "extra.txt"), "work\n");
+    git("add .", unmerged.path);
+    git("commit -m work", unmerged.path);
+
+    const unmergedResult = removeWorktree({ cwd: unmerged.path, deleteBranch: true });
+    // Removal still succeeds — only the branch delete is refused.
+    expect(unmergedResult.ok).toBe(true);
+    if (!unmergedResult.ok) return;
+    expect(existsSync(unmerged.path)).toBe(false);
+    expect(unmergedResult.data.branchDeleted).toBe(false);
+    expect(unmergedResult.data.branchDeleteCode).toBe("unmerged");
+    expect(branchExists("feat/unmerged")).toBe(true);
+  });
+
+  // test-plan #X6 — C2: no compensation. The branch delete happens regardless
+  // of whether the caller is still around to read the response.
+  it("completes the branch delete even when the caller abandons the request", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const add = addWorktree({ cwd: repo, base: "main", newBranch: "feat/abandoned" });
+      if (!add.ok) return;
+      // The op is synchronous: an abandoned caller cannot interrupt it, so the
+      // delete is observably complete with no rollback.
+      const result = removeWorktree({ cwd: add.path, deleteBranch: true });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.data.branchDeleted).toBe(true);
+      expect(branchExists("feat/abandoned")).toBe(false);
+      await new Promise((r) => setTimeout(r, 10));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  // test-plan #E8 — assert on the command spy, not the outcome.
+  it("never invokes `git branch` when the entry has no branch", () => {
+    const detached = addWorktree({ cwd: repo, base: "main", newBranch: "feat/det" });
+    if (!detached.ok) return;
+    // Detach HEAD inside the worktree → porcelain reports `detached`, branch null.
+    git("checkout --detach", detached.path);
+
+    const calls: string[] = [];
+    const realExec = platformExec.execSync;
+    const spy = vi.spyOn(platformExec, "execSync").mockImplementation(((cmd: any, opts: any) => {
+      calls.push(String(cmd));
+      return realExec(cmd, opts);
+    }) as any);
+    try {
+      const result = removeWorktree({ cwd: detached.path, deleteBranch: true });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.data.branchDeleted).toBe(false);
+      expect(result.data.branchDeleteCode).toBe("no_branch");
+    } finally {
+      spy.mockRestore();
+    }
+    expect(calls.some((c) => /\bgit branch\b/.test(c))).toBe(false);
+  });
+});
+
+describe("pruneWorktrees", () => {
+  let repo: string;
+  beforeEach(() => { repo = makeRepo(); });
+  afterEach(() => rmSync(repo, { recursive: true, force: true }));
+
+  function registrationPaths(): string[] {
+    return git("worktree list --porcelain", repo)
+      .split(/\r?\n/)
+      .filter((l) => l.startsWith("worktree "))
+      .map((l) => l.slice("worktree ".length));
+  }
+
+  // test-plan #X8
+  it("clears a registration whose directory was deleted outside git", () => {
+    const add = addWorktree({ cwd: repo, base: "main", newBranch: "feat/stale" });
+    if (!add.ok) return;
+    rmSync(add.path, { recursive: true, force: true });
+    expect(registrationPaths()).toContain(add.path);
+
+    const result = pruneWorktrees(repo);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.pruned).toBeGreaterThan(0);
+    expect(registrationPaths()).not.toContain(add.path);
+  });
+
+  // test-plan #X7
+  it("is a no-op when every registration's directory exists", () => {
+    const add = addWorktree({ cwd: repo, base: "main", newBranch: "feat/live" });
+    if (!add.ok) return;
+    const before = registrationPaths();
+
+    const result = pruneWorktrees(repo);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data.pruned).toBe(0);
+    expect(registrationPaths()).toEqual(before);
   });
 });
