@@ -364,7 +364,7 @@ function CopyFallbackModal({ text, onClose }: { text: string; onClose: () => voi
   return (
     <DialogPortal>
       <div
-        className="fixed inset-0 bg-black/60 flex items-center justify-center z-[80]"
+        className="fixed inset-0 bg-black/60 flex items-center justify-center z-dialog"
         onClick={onClose}
         data-testid="diagnostics-copy-modal"
       >

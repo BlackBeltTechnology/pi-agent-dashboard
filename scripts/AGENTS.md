@@ -12,6 +12,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/knip-config.test.mjs` | Entry-point rooting for the dead-code oracle (test-plan #G1, #G2, #G4, #D1, #P2). → see `__tests__/knip-config.test.mjs.AGENTS.md` |
 | `__tests__/knip-harness.test.mjs` | Docker-harness reproducibility for the dead-code oracle (test-plan #H1). → see `__tests__/knip-harness.test.mjs.AGENTS.md` |
 | `__tests__/knip-ratchet.test.mjs` | Per-class dead-code ratchet (test-plan #R1-#R6). Load-bearing case is #R2: a scalar total lets one deleted… → see `__tests__/knip-ratchet.test.mjs.AGENTS.md` |
+| `__tests__/z-layer-lint.test.mjs` | Overlay z-index ratchet tests (test-plan #E4/#E5): `extractRawZ` matches raw numeric z but not word `z-<layer>` utilities; `ratchetDecision` rejects a NEW raw-z / increased count, allows shrinking. See change: add-overlay-layering-system. |
 | `__tests__/knip-scan.test.mjs` | Live whole-workspace Knip scan assertions (test-plan #G3, #G5, #G6, #D2, #D3, #P1). → see `__tests__/knip-scan.test.mjs.AGENTS.md` |
 | `__tests__/mutation-journal.test.mjs` | Vitest crash-safety tests for the mutation-harness journal (test-plan #E1-#E8, #X1-#X13). → see `__tests__/mutation-journal.test.mjs.AGENTS.md` |
 | `__tests__/nightly-verdaccio-publish.test.mjs` | Vitest unit tests for scripts/nightly-verdaccio-publish.mjs pure helpers: nextPatch (0.6.1→0.6.2, ignores… → see `__tests__/nightly-verdaccio-publish.test.mjs.AGENTS.md` |
@@ -38,6 +39,8 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `lib/smoke-spawn-session.mjs` | Test helper: connects dashboard browser WS (`/ws`), sends spawn_session for cwd, waits for… → see `lib/smoke-spawn-session.mjs.AGENTS.md` |
 | `knip-config.mjs` | Derives Knip entry points from the project's own manifest conventions and fails when `knip.json` does not… → see `knip-config.mjs.AGENTS.md` |
 | `knip-ratchet.mjs` | Per-class dead-code ratchet for `ship-it` step 4.4 and the nightly job. → see `knip-ratchet.mjs.AGENTS.md` |
+| `z-layer-lint.mjs` | Overlay z-index ratchet (spec overlay-layering). Freezes raw numeric `z-[NNNN]`/`z-<n>` in `packages/client/src` (excl. tests) as `z-layer-baseline.json`; FAILS on a NEW occurrence outside the `z-<layer>` token utilities. Baseline = migration backlog, may only shrink. `--write-baseline` regenerates. Exports `extractRawZ`/`scanRawZ`/`ratchetDecision`. Wired into `quality:changed` + `z-layer:lint`. See change: add-overlay-layering-system. |
+| `z-layer-baseline.json` | Frozen baseline for `z-layer-lint.mjs` — the current raw-z occurrences (Tier-B inline popovers + FilePreviewOverlay + in-flow decorations) permitted until migrated. See change: add-overlay-layering-system. |
 | `maybe-patch-package.cjs` | postinstall guard: runs patch-package only when module resolvable + patches/ dir exists. → see `maybe-patch-package.cjs.AGENTS.md` |
 | `measure-replay-compaction.mjs` | Measures the `compact-warm-replay-stream` (#399) win: events / bytes / batches / wall time, before vs after… → see `measure-replay-compaction.mjs.AGENTS.md` |
 | `migrate-child-process-imports.sh` | One-shot sed migration: rewrites `from "node:child_process"` to platform/exec wrapper. → see `migrate-child-process-imports.sh.AGENTS.md` |

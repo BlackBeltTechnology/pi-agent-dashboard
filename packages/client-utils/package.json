@@ -25,6 +25,10 @@
       "types": "./src/DialogPortal.tsx",
       "default": "./src/DialogPortal.tsx"
     },
+    "./LayerPortal": {
+      "types": "./src/LayerPortal.tsx",
+      "default": "./src/LayerPortal.tsx"
+    },
     "./escape-stack": {
       "types": "./src/escape-stack.ts",
       "default": "./src/escape-stack.ts"

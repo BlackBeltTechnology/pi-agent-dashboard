@@ -44,7 +44,7 @@ export function ResourceTrustDialog({ cwd, message, options, onChoose, onDismiss
   return (
     <DialogPortal>
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+        className="fixed inset-0 z-dialog flex items-center justify-center bg-black/60"
         onClick={dismiss}
         data-testid="resource-trust-backdrop"
       >

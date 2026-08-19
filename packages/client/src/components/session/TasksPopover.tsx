@@ -132,7 +132,7 @@ export function TasksPopover({ cwd, change, onClose }: Props) {
   return (
     <DialogPortal>
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/40"
+        className="fixed inset-0 z-dialog flex items-center justify-center bg-black/40"
         onClick={onClose}
         data-testid="tasks-popover-backdrop"
       >

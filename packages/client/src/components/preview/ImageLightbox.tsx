@@ -55,7 +55,7 @@ export function ImageLightbox({ src, alt, onClose, fallbackSrc }: Props) {
     <DialogPortal>
       <div
         data-testid="lightbox-backdrop"
-        className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/80 cursor-zoom-out"
+        className="fixed inset-0 z-lightbox flex items-center justify-center bg-black/80 cursor-zoom-out"
       >
         <div
           className="relative max-w-[90vw] max-h-[90vh] cursor-grab active:cursor-grabbing"
