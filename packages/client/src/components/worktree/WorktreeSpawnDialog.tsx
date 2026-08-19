@@ -208,6 +208,23 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
     return [...data.localBranches, ...data.remoteBranches];
   }, [data]);
 
+  // Pre-submit fork collision check. Fork runs `git worktree add -b <name>`,
+  // which git refuses when <name> already exists locally — surfacing only as
+  // a post-submit `branch_exists`/`branch_in_use` error. The branch list is
+  // already loaded, so detect it up front and route to the action that
+  // actually works:
+  //   holder === null -> branch lingers with no worktree -> reuse as checkout
+  //   holder !== null -> branch is held by a worktree -> spawn into it
+  //                      (checkout would fail with branch_in_use)
+  // See change: warn-fork-branch-collision-before-submit.
+  const forkCollision = useMemo<{ name: string; holder: WorktreeEntry | null } | null>(() => {
+    if (!data || sourceMode !== "fork") return null;
+    const name = newBranch.trim();
+    if (!name) return null;
+    if (!data.localBranches.some((b) => b.name === name)) return null;
+    return { name, holder: data.worktrees.find((w) => w.branch === name) ?? null };
+  }, [data, sourceMode, newBranch]);
+
   // Fork needs a new branch name + base; checkout needs only a branch
   // ref. See change: worktree-checkout-existing-branch.
   const canSubmitFork =
@@ -537,6 +554,43 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
                     placeholder="feat/dark-mode"
                     className="w-full mt-0.5 px-2 py-1 text-sm rounded border border-[var(--border-subtle)] bg-[var(--bg-tertiary)] font-mono"
                   />
+                  {/* Advisory (does NOT disable submit, mirroring the
+                      orphan-path warning). See change:
+                      warn-fork-branch-collision-before-submit. */}
+                  {forkCollision && (
+                    <div
+                      className="mt-1 p-2 rounded border border-yellow-500/40 bg-yellow-500/5 text-[11px]"
+                      data-testid="worktree-fork-collision"
+                    >
+                      <p className="text-yellow-300">
+                        {forkCollision.holder
+                          ? `Branch "${forkCollision.name}" already exists and is checked out at ${forkCollision.holder.path}.`
+                          : `Branch "${forkCollision.name}" already exists with no worktree — forking it will fail.`}
+                      </p>
+                      <div className="mt-1 flex items-center gap-2">
+                        {forkCollision.holder ? (
+                          <button
+                            type="button"
+                            onClick={() => handleSpawnExisting(forkCollision.holder as WorktreeEntry)}
+                            data-testid="worktree-collision-spawn"
+                            className="px-2 py-0.5 text-[11px] rounded border border-yellow-500/40 text-yellow-200 hover:bg-yellow-500/10"
+                          >
+                            {i18nT("git.spawnIntoThatWorktree", undefined, "Spawn into that worktree →")}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={submitting}
+                            onClick={handleReuseAsCheckout}
+                            data-testid="worktree-collision-checkout"
+                            className="px-2 py-0.5 text-[11px] rounded border border-yellow-500/40 text-yellow-200 hover:bg-yellow-500/10 disabled:opacity-50"
+                          >
+                            {i18nT("git.checkOutThisBranchInstead", undefined, "Check out this branch instead →")}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </label>
               )}
             </>

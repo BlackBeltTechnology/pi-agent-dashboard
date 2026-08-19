@@ -504,6 +504,93 @@ describe("WorktreeSpawnDialog — create form", () => {
   });
 });
 
+// Pre-submit fork collision detection. `git worktree add -b <name>` fails
+// when <name> already exists locally; the dialog already knows the branch
+// list, so it warns BEFORE submit and routes to the action that works.
+// See change: warn-fork-branch-collision-before-submit.
+describe("WorktreeSpawnDialog — fork branch-collision pre-check", () => {
+  it("warns before submit when the typed branch exists locally with no worktree", async () => {
+    defaultMocks({ localBranches: ["main", "develop", "os/add-zrok"] });
+    render(<WorktreeSpawnDialog cwd="/repo" onSpawn={() => {}} onCancel={() => {}} />);
+    await enterFork();
+    fireEvent.change(screen.getByTestId("worktree-new-branch-input"), {
+      target: { value: "os/add-zrok" },
+    });
+    const warn = await waitFor(() => screen.getByTestId("worktree-fork-collision"));
+    expect(warn.textContent).toContain("os/add-zrok");
+    // No submit happened — this is a pure pre-check.
+    expect(createWorktree).not.toHaveBeenCalled();
+  });
+
+  it("stays silent for a branch name that does not exist locally", async () => {
+    defaultMocks({ localBranches: ["main", "develop"] });
+    render(<WorktreeSpawnDialog cwd="/repo" onSpawn={() => {}} onCancel={() => {}} />);
+    await enterFork();
+    fireEvent.change(screen.getByTestId("worktree-new-branch-input"), {
+      target: { value: "feat/brand-new" },
+    });
+    await waitFor(() => screen.getByTestId("worktree-path-input"));
+    expect(screen.queryByTestId("worktree-fork-collision")).toBeNull();
+  });
+
+  it("offers reuse-as-checkout when the colliding branch has no worktree", async () => {
+    defaultMocks({ localBranches: ["main", "os/add-zrok"] });
+    createWorktree.mockResolvedValue({
+      ok: true,
+      path: "/repo/.worktrees/os-add-zrok",
+      branch: "os/add-zrok",
+      excludeAppended: false,
+    });
+    const onSpawn = vi.fn();
+    render(<WorktreeSpawnDialog cwd="/repo" onSpawn={onSpawn} onCancel={() => {}} />);
+    await enterFork();
+    fireEvent.change(screen.getByTestId("worktree-new-branch-input"), {
+      target: { value: "os/add-zrok" },
+    });
+    const btn = await waitFor(() => screen.getByTestId("worktree-collision-checkout"));
+    fireEvent.click(btn);
+
+    await waitFor(() => expect(onSpawn).toHaveBeenCalled());
+    const call = createWorktree.mock.calls.at(-1)?.[0];
+    expect(call).toEqual(expect.objectContaining({ cwd: "/repo", base: "os/add-zrok" }));
+    expect(call).not.toHaveProperty("newBranch");
+  });
+
+  it("offers spawn-into-worktree (not checkout) when the branch is already checked out", async () => {
+    defaultMocks({
+      localBranches: ["main", "os/taken"],
+      worktrees: [
+        { path: "/repo", branch: "main", isMain: true },
+        { path: "/repo/.worktrees/os-taken", branch: "os/taken", isMain: false },
+      ],
+    });
+    const onSpawn = vi.fn();
+    render(<WorktreeSpawnDialog cwd="/repo" onSpawn={onSpawn} onCancel={() => {}} />);
+    await enterFork();
+    fireEvent.change(screen.getByTestId("worktree-new-branch-input"), {
+      target: { value: "os/taken" },
+    });
+    const warn = await waitFor(() => screen.getByTestId("worktree-fork-collision"));
+    expect(warn.textContent).toContain("/repo/.worktrees/os-taken");
+    // Checking out a branch held by another worktree would fail with
+    // branch_in_use, so that affordance MUST NOT be offered here.
+    expect(screen.queryByTestId("worktree-collision-checkout")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("worktree-collision-spawn"));
+    expect(createWorktree).not.toHaveBeenCalled();
+    expect(onSpawn).toHaveBeenCalledWith("/repo/.worktrees/os-taken", undefined);
+  });
+
+  it("does not warn in checkout mode (picking an existing branch is the point)", async () => {
+    defaultMocks({ localBranches: ["main", "os/add-zrok"] });
+    render(<WorktreeSpawnDialog cwd="/repo" onSpawn={() => {}} onCancel={() => {}} />);
+    await waitFor(() => screen.getByTestId("worktree-source-checkout"));
+    fireEvent.click(screen.getByTestId("worktree-source-checkout"));
+    await waitFor(() => screen.getByTestId("worktree-path-input"));
+    expect(screen.queryByTestId("worktree-fork-collision")).toBeNull();
+  });
+});
+
 describe("WorktreeSpawnDialog — load-error path", () => {
   it("renders load error when fetchGitHead rejects", async () => {
     defaultMocks();
