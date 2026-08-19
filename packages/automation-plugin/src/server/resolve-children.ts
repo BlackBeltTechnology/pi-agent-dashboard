@@ -25,7 +25,7 @@ export interface ChildSpec {
 }
 
 /** Derive a readable label for a child's action row. */
-export function actionLabelFor(action: AutomationAction): string {
+function actionLabelFor(action: AutomationAction): string {
   if (action.skill) return action.skill;
   const flow = action.payload?.flow;
   if (typeof flow === "string" && flow.length > 0) return `${action.kind}:${flow}`;
