@@ -389,6 +389,10 @@ describe("removeWorktree({ deleteBranch: true })", () => {
     const mergedResult = removeWorktree({ cwd: merged.path, deleteBranch: true });
     expect(mergedResult.ok).toBe(true);
     if (!mergedResult.ok) return;
+    // `data` is optional on LifecycleSuccess — assert it is present rather
+    // than optional-chaining, which would pass on a missing payload.
+    expect(mergedResult.data).toBeDefined();
+    if (!mergedResult.data) return;
     expect(mergedResult.data.branchDeleted).toBe(true);
     expect(mergedResult.data.branchDeleteCode).toBe("deleted");
     expect(branchExists("feat/merged")).toBe(false);
@@ -403,6 +407,8 @@ describe("removeWorktree({ deleteBranch: true })", () => {
     // Removal still succeeds — only the branch delete is refused.
     expect(unmergedResult.ok).toBe(true);
     if (!unmergedResult.ok) return;
+    expect(unmergedResult.data).toBeDefined();
+    if (!unmergedResult.data) return;
     expect(existsSync(unmerged.path)).toBe(false);
     expect(unmergedResult.data.branchDeleted).toBe(false);
     expect(unmergedResult.data.branchDeleteCode).toBe("unmerged");
@@ -423,6 +429,8 @@ describe("removeWorktree({ deleteBranch: true })", () => {
       const result = removeWorktree({ cwd: add.path, deleteBranch: true });
       expect(result.ok).toBe(true);
       if (!result.ok) return;
+      expect(result.data).toBeDefined();
+      if (!result.data) return;
       expect(result.data.branchDeleted).toBe(true);
       expect(branchExists("feat/abandoned")).toBe(false);
       await new Promise((r) => setTimeout(r, 10));
@@ -449,6 +457,8 @@ describe("removeWorktree({ deleteBranch: true })", () => {
       const result = removeWorktree({ cwd: detached.path, deleteBranch: true });
       expect(result.ok).toBe(true);
       if (!result.ok) return;
+      expect(result.data).toBeDefined();
+      if (!result.data) return;
       expect(result.data.branchDeleted).toBe(false);
       expect(result.data.branchDeleteCode).toBe("no_branch");
     } finally {
@@ -480,6 +490,8 @@ describe("pruneWorktrees", () => {
     const result = pruneWorktrees(repo);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    expect(result.data).toBeDefined();
+    if (!result.data) return;
     expect(result.data.pruned).toBeGreaterThan(0);
     expect(registrationPaths()).not.toContain(add.path);
   });
@@ -493,6 +505,8 @@ describe("pruneWorktrees", () => {
     const result = pruneWorktrees(repo);
     expect(result.ok).toBe(true);
     if (!result.ok) return;
+    expect(result.data).toBeDefined();
+    if (!result.data) return;
     expect(result.data.pruned).toBe(0);
     expect(registrationPaths()).toEqual(before);
   });

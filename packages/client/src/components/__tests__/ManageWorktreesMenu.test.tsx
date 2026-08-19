@@ -40,12 +40,7 @@ describe("folderIsGitRepo gating", () => {
 describe("FolderActionsMenu empty groups", () => {
   function renderMenu(items: FolderMenuItem[]) {
     render(
-      <FolderActionsMenu
-        items={items}
-        open
-        onClose={() => {}}
-        anchorRef={{ current: document.createElement("div") } as any}
-      />,
+      <FolderActionsMenu cwd="/repo" items={items} open onOpenChange={() => {}} />,
     );
   }
 
