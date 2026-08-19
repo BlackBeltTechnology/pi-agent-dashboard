@@ -830,8 +830,8 @@ function shellEscape(arg: string): string {
 
 import {
   type BranchDeleteCode,
-  mapBranchDeleteStderr,
   type MergeCode,
+  mapBranchDeleteStderr,
   mapMergeStderr,
   mapPrStderr,
   mapPushStderr,

@@ -7,8 +7,6 @@ import { join, resolve as pathResolve } from "node:path";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
-import { activeSessionsUnder, sessionsUnder } from "../session/active-sessions-in-cwd.js";
-import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import {
   addWorktree,
   addWorktreeFromPr,
@@ -25,21 +23,23 @@ import {
   listWorktrees,
   mergeWorktree,
   orphanCleanup,
+  pruneWorktrees,
   pushBranch,
   readHead,
-  pruneWorktrees,
   removeWorktree,
-  resolveMainPath,
   resolveConfigRoot,
+  resolveMainPath,
   stashPop,
   worktreeDiffStat,
 } from "../git-worktree/git-operations.js";
-import type { SessionManager } from "../session/memory-session-manager.js";
-import { safeRealpathSync } from "../resolve-path.js";
 import { evaluateGate, type GateResult, hookDefHash, type InitProgress, readInitHook, runInitHook, type WorktreeInitHook } from "../git-worktree/worktree-init.js";
 import { mapInitStderrToHint } from "../git-worktree/worktree-init-errors.js";
 import type { WorktreeInitRegistry } from "../git-worktree/worktree-init-registry.js";
 import { isTrusted, recordTrust } from "../git-worktree/worktree-init-trust.js";
+import type { BrowserGateway } from "../pairing/browser-gateway.js";
+import { safeRealpathSync } from "../resolve-path.js";
+import { activeSessionsUnder, sessionsUnder } from "../session/active-sessions-in-cwd.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 export interface GitRoutesDeps {

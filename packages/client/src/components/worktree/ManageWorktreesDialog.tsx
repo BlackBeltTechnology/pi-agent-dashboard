@@ -19,12 +19,12 @@
 
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import React, { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   fetchWorktrees,
   pruneWorktrees,
-  removeWorktreeBatch,
   type RemoveBatchItemResult,
+  removeWorktreeBatch,
   type WorktreeEntry,
 } from "../../lib/git/git-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";

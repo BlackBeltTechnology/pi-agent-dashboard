@@ -8,11 +8,11 @@
  *
  * See change: manage-worktrees-filter-cleanup.
  */
-import React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { WorktreeList, isInTree, suppressPathLine } from "../worktree/WorktreeList.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import type { WorktreeEntry } from "../../lib/git/git-api.js";
+import { isInTree, suppressPathLine, WorktreeList } from "../worktree/WorktreeList.js";
 
 afterEach(() => cleanup());
 

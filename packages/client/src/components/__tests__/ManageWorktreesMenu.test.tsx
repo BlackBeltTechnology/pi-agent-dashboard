@@ -9,9 +9,9 @@
  *
  * See change: manage-worktrees-filter-cleanup.
  */
-import React from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { FolderActionsMenu, type FolderMenuItem } from "../folder/FolderActionsMenu.js";
 import { folderIsGitRepo } from "../session/SessionList.js";
 

@@ -32,10 +32,10 @@ import {
   type WorktreeEntry,
 } from "../../lib/git/git-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { WorktreeList } from "./WorktreeList.js";
+import { logRejection } from "../../lib/report-error.js";
 import { BranchCombobox } from "./BranchCombobox.js";
 import { PrCombobox } from "./PrCombobox.js";
-import { logRejection } from "../../lib/report-error.js";
+import { WorktreeList } from "./WorktreeList.js";
 
 // Ternary source toggle (change: worktree-checkout-existing-branch),
 // widening the binary "branch"/"pr" toggle introduced by

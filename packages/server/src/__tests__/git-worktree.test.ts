@@ -9,21 +9,22 @@
  *
  * See change: add-worktree-spawn-dialog.
  */
-import { describe, it, expect } from "vitest";
+
 import { execSync } from "node:child_process";
 import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, it } from "vitest";
 import { addWorktree, listWorktrees } from "../git-worktree/git-operations.js";
 import {
-  slugifyBranch,
-  localNameOf,
-  resolveCheckoutLocalName,
-  parsePorcelainWorktrees,
-  resolveDefaultBase,
   ensureWorktreeExcludeLine,
   isOrphanWorktreePath,
   isSameWorktreePath,
+  localNameOf,
+  parsePorcelainWorktrees,
+  resolveCheckoutLocalName,
+  resolveDefaultBase,
+  slugifyBranch,
 } from "../git-worktree/git-worktree.js";
 
 describe("localNameOf", () => {

@@ -18,16 +18,23 @@
  * Setup drives the REST API (deterministic); assertions drive the DOM.
  */
 import { expect, type Page, test } from "./fixtures.js";
-import { byTestId, ensureGitSession, FIXTURE_GIT, gotoDashboard, pinDirectory } from "./helpers/index.js";
+import { ensureGitSession, FIXTURE_GIT, gotoDashboard, pinDirectory } from "./helpers/index.js";
+
+interface ApiResult {
+  status: number;
+  success?: boolean;
+  error?: string;
+  data?: Record<string, unknown>;
+}
 
 /** Thin API caller in page context (same origin as the dashboard). */
-async function api<T = any>(page: Page, path: string, init?: RequestInit): Promise<any> {
+async function api(page: Page, path: string, init?: RequestInit): Promise<ApiResult> {
   return page.evaluate(
     async ([p, i]) => {
-      const res = await fetch(p as string, (i ?? undefined) as any);
+      const res = await fetch(p as string, (i ?? undefined) as RequestInit | undefined);
       return { status: res.status, ...(await res.json().catch(() => ({}))) };
     },
-    [path, init ? JSON.parse(JSON.stringify(init)) : null] as const,
+    [path, init ? (JSON.parse(JSON.stringify(init)) as RequestInit) : null] as const,
   );
 }
 

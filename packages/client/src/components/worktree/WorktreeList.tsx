@@ -26,18 +26,18 @@
  */
 
 import { slugifyBranch } from "@blackbelt-technology/pi-dashboard-shared/git-worktree-helpers.js";
-import React, { useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type { WorktreeEntry } from "../../lib/git/git-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 
 // ── path helpers ───────────────────────────────────────────────────
 
 /** Normalise Windows separators so every path predicate is comparable. */
-export function normalisePath(p: string): string {
+function normalisePath(p: string): string {
   return p.replace(/\\/g, "/").replace(/\/+$/, "");
 }
 
-export function basenameOf(p: string): string {
+function basenameOf(p: string): string {
   const n = normalisePath(p);
   const i = n.lastIndexOf("/");
   return i === -1 ? n : n.slice(i + 1);
@@ -67,7 +67,7 @@ export function suppressPathLine(entry: WorktreeEntry, mainPath: string | null):
  * reordering relocates leading punctuation and renders `.worktrees/x` as
  * `worktrees/x.`, corrupting the identifier the user reads (design D7).
  */
-export function elidePath(path: string, maxLen = 48): string {
+function elidePath(path: string, maxLen = 48): string {
   const n = normalisePath(path);
   if (n.length <= maxLen) return n;
   const segments = n.split("/");
@@ -86,7 +86,7 @@ export function elidePath(path: string, maxLen = 48): string {
 }
 
 /** The constant `.worktrees/` prefix carries no per-row information. */
-export function stripWorktreesPrefix(path: string, mainPath: string | null): string {
+function stripWorktreesPrefix(path: string, mainPath: string | null): string {
   if (!mainPath) return normalisePath(path);
   const prefix = `${normalisePath(mainPath)}/.worktrees/`;
   const n = normalisePath(path);
@@ -95,14 +95,14 @@ export function stripWorktreesPrefix(path: string, mainPath: string | null): str
 
 // ── filtering ──────────────────────────────────────────────────────
 
-export interface RowModel {
+interface RowModel {
   entry: WorktreeEntry;
   inTree: boolean;
   /** `exists === false` exactly — `undefined` means "unknown, treat as present". */
   missing: boolean;
 }
 
-export function buildRows(entries: WorktreeEntry[]): { rows: RowModel[]; mainPath: string | null } {
+function buildRows(entries: WorktreeEntry[]): { rows: RowModel[]; mainPath: string | null } {
   const mainPath = entries.find((e) => e.isMain)?.path ?? null;
   const rows = entries.map((entry) => ({
     entry,
@@ -113,16 +113,16 @@ export function buildRows(entries: WorktreeEntry[]): { rows: RowModel[]; mainPat
 }
 
 /** Default predicate: `isMain || (!detached && inTree)` (design D2). */
-export function matchesDefault(row: RowModel): boolean {
+function matchesDefault(row: RowModel): boolean {
   return row.entry.isMain || (!row.entry.detached && row.inTree);
 }
 
-export interface Reveal {
+interface Reveal {
   detached: boolean;
   outOfTree: boolean;
 }
 
-export function isVisible(row: RowModel, reveal: Reveal, query: string): boolean {
+function isVisible(row: RowModel, reveal: Reveal, query: string): boolean {
   // An explicit text query searches EVERY entry and overrides the default
   // predicate — otherwise searching for a hidden row silently returns nothing.
   if (query.trim() !== "") {
@@ -139,7 +139,7 @@ export function isVisible(row: RowModel, reveal: Reveal, query: string): boolean
 }
 
 /** Rows hidden by default, per axis. A dual-group row is counted by BOTH. */
-export function hiddenCounts(rows: RowModel[]): { detached: number; outOfTree: number } {
+function hiddenCounts(rows: RowModel[]): { detached: number; outOfTree: number } {
   const hidden = rows.filter((r) => !matchesDefault(r));
   return {
     detached: hidden.filter((r) => r.entry.detached).length,
@@ -236,117 +236,21 @@ export function WorktreeList({
       </div>
 
       <div className="rounded border border-[var(--border-subtle)] overflow-hidden">
-        {visible.map((row) => {
-          const { entry } = row;
-          const testId = `worktree-row-${entry.isMain ? "main" : encodeURIComponent(entry.path)}`;
-          const branchLabel = entry.detached
-            ? i18nT("worktree.detachedParen", undefined, "(detached)")
-            : (entry.branch ?? i18nT("worktree.noBranch", undefined, "(none)"));
-          const showPath = !suppressPathLine(entry, mainPath);
-          const pathLabel = elidePath(stripWorktreesPrefix(entry.path, mainPath));
-          const failure = failures?.[entry.path];
-
-          const identity = (
-            <>
-              <span className="text-xs text-[var(--text-primary)] truncate">{branchLabel}</span>
-              {entry.isMain && (
-                <span className="ml-2 text-[9px] uppercase tracking-wider text-[var(--text-secondary)] border border-[var(--border-subtle)] rounded-full px-1.5 py-px">
-                  {i18nT("worktree.main", undefined, "main")}
-                </span>
-              )}
-              {row.missing && (
-                <span className="ml-2 text-[9px] uppercase tracking-wider text-[var(--text-secondary)] border border-[var(--border-subtle)] rounded-full px-1.5 py-px" data-testid="worktree-row-missing">
-                  {i18nT("worktree.missing", undefined, "missing")}
-                </span>
-              )}
-            </>
-          );
-
-          if (mode === "spawn") {
-            return (
-              <button
-                key={entry.path}
-                type="button"
-                data-testid={testId}
-                onClick={() => onSpawn?.(entry.path, entry)}
-                className="w-full text-left px-3 py-2 hover:bg-[var(--bg-tertiary)] border-b border-[var(--border-subtle)] last:border-b-0"
-              >
-                <div className="flex items-center">{identity}</div>
-                {showPath && (
-                  <div className="text-[11px] text-[var(--text-secondary)] truncate">{pathLabel}</div>
-                )}
-              </button>
-            );
-          }
-
-          // Manage mode: a plain container, NOT a <button> — a checkbox and a ✕
-          // cannot legally nest inside one (design D9).
-          return (
-            <div
-              key={entry.path}
-              data-testid={testId}
-              className="flex items-start gap-2 px-3 py-2 border-b border-[var(--border-subtle)] last:border-b-0"
-            >
-              {!entry.isMain && !row.missing && (
-                <input
-                  type="checkbox"
-                  data-testid={`worktree-select-${encodeURIComponent(entry.path)}`}
-                  aria-label={i18nT("worktree.selectWorktree", undefined, "Select worktree")}
-                  checked={selectedSet.has(entry.path)}
-                  onChange={() => toggle(entry.path)}
-                  className="mt-0.5 min-w-[24px] min-h-[24px] sm:min-w-[24px] max-sm:min-w-[44px] max-sm:min-h-[44px]"
-                />
-              )}
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center">{identity}</div>
-                {showPath && (
-                  <div className="text-[11px] text-[var(--text-secondary)] truncate">{pathLabel}</div>
-                )}
-                {failure && (
-                  // Cause + recovery conveyed by icon + text + border, never colour alone.
-                  <div
-                    data-testid={`worktree-row-failure-${encodeURIComponent(entry.path)}`}
-                    className="mt-1 flex items-center gap-2 text-[11px] text-[var(--text-secondary)] border border-[var(--border-subtle)] rounded px-2 py-1"
-                  >
-                    <span aria-hidden="true">⚠</span>
-                    <span>{failure.message ?? failure.code}</span>
-                    {failure.onRetry && (
-                      <button
-                        type="button"
-                        onClick={failure.onRetry}
-                        className="underline min-h-[24px]"
-                        data-testid={`worktree-row-retry-${encodeURIComponent(entry.path)}`}
-                      >
-                        {i18nT("common.retry", undefined, "Retry")}
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-              {row.missing ? (
-                <button
-                  type="button"
-                  onClick={onPrune}
-                  data-testid={`worktree-prune-${encodeURIComponent(entry.path)}`}
-                  className="text-[11px] text-[var(--text-secondary)] underline min-h-[24px] max-sm:min-h-[44px]"
-                >
-                  {i18nT("worktree.pruneStaleRegistrations", undefined, "Prune stale registrations")}
-                </button>
-              ) : entry.isMain ? null : (
-                <button
-                  type="button"
-                  onClick={() => onRemove?.(entry)}
-                  disabled={pendingSet.has(entry.path)}
-                  data-testid={`worktree-remove-${encodeURIComponent(entry.path)}`}
-                  aria-label={i18nT("worktree.removeWorktree", undefined, "Remove worktree")}
-                  className="text-[var(--text-secondary)] min-w-[24px] min-h-[24px] max-sm:min-w-[44px] max-sm:min-h-[44px] disabled:opacity-60"
-                >
-                  ✕
-                </button>
-              )}
-            </div>
-          );
-        })}
+        {visible.map((row) => (
+          <WorktreeRow
+            key={row.entry.path}
+            row={row}
+            mode={mode}
+            mainPath={mainPath}
+            selected={selectedSet.has(row.entry.path)}
+            pending={pendingSet.has(row.entry.path)}
+            failure={failures?.[row.entry.path]}
+            onToggle={toggle}
+            onSpawn={onSpawn}
+            onRemove={onRemove}
+            onPrune={onPrune}
+          />
+        ))}
       </div>
 
       {mode === "manage" && (
@@ -397,6 +301,144 @@ export function WorktreeList({
             </button>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+// ── row ────────────────────────────────────────────────────────────
+
+interface WorktreeRowProps {
+  row: RowModel;
+  mode: "spawn" | "manage";
+  mainPath: string | null;
+  selected: boolean;
+  pending: boolean;
+  failure?: { code: string; message?: string; onRetry?: () => void };
+  onToggle: (path: string) => void;
+  onSpawn?: (path: string, entry: WorktreeEntry) => void;
+  onRemove?: (entry: WorktreeEntry) => void;
+  onPrune?: () => void;
+}
+
+function WorktreeRow({
+  row,
+  mode,
+  mainPath,
+  selected,
+  pending,
+  failure,
+  onToggle,
+  onSpawn,
+  onRemove,
+  onPrune,
+}: WorktreeRowProps) {
+  const { entry } = row;
+  const testId = `worktree-row-${entry.isMain ? "main" : encodeURIComponent(entry.path)}`;
+  const branchLabel = entry.detached
+    ? i18nT("worktree.detachedParen", undefined, "(detached)")
+    : (entry.branch ?? i18nT("worktree.noBranch", undefined, "(none)"));
+  const showPath = !suppressPathLine(entry, mainPath);
+  const pathLabel = elidePath(stripWorktreesPrefix(entry.path, mainPath));
+
+  const identity = (
+    <>
+      <span className="text-xs text-[var(--text-primary)] truncate">{branchLabel}</span>
+      {entry.isMain && (
+        <span className="ml-2 text-[9px] uppercase tracking-wider text-[var(--text-secondary)] border border-[var(--border-subtle)] rounded-full px-1.5 py-px">
+          {i18nT("worktree.main", undefined, "main")}
+        </span>
+      )}
+      {row.missing && (
+        <span
+          className="ml-2 text-[9px] uppercase tracking-wider text-[var(--text-secondary)] border border-[var(--border-subtle)] rounded-full px-1.5 py-px"
+          data-testid="worktree-row-missing"
+        >
+          {i18nT("worktree.missing", undefined, "missing")}
+        </span>
+      )}
+    </>
+  );
+
+  const pathLine = showPath ? (
+    <div className="text-[11px] text-[var(--text-secondary)] truncate">{pathLabel}</div>
+  ) : null;
+
+  if (mode === "spawn") {
+    return (
+      <button
+        type="button"
+        data-testid={testId}
+        onClick={() => onSpawn?.(entry.path, entry)}
+        className="w-full text-left px-3 py-2 hover:bg-[var(--bg-tertiary)] border-b border-[var(--border-subtle)] last:border-b-0"
+      >
+        <div className="flex items-center">{identity}</div>
+        {pathLine}
+      </button>
+    );
+  }
+
+  // Manage mode: a plain container, NOT a <button> — a checkbox and a ✕ cannot
+  // legally nest inside one (design D9).
+  return (
+    <div
+      data-testid={testId}
+      className="flex items-start gap-2 px-3 py-2 border-b border-[var(--border-subtle)] last:border-b-0"
+    >
+      {!entry.isMain && !row.missing && (
+        <input
+          type="checkbox"
+          data-testid={`worktree-select-${encodeURIComponent(entry.path)}`}
+          aria-label={i18nT("worktree.selectWorktree", undefined, "Select worktree")}
+          checked={selected}
+          onChange={() => onToggle(entry.path)}
+          className="mt-0.5 min-w-[24px] min-h-[24px] max-sm:min-w-[44px] max-sm:min-h-[44px]"
+        />
+      )}
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center">{identity}</div>
+        {pathLine}
+        {failure && (
+          // Cause + recovery conveyed by icon + text + border, never colour alone.
+          <div
+            data-testid={`worktree-row-failure-${encodeURIComponent(entry.path)}`}
+            className="mt-1 flex items-center gap-2 text-[11px] text-[var(--text-secondary)] border border-[var(--border-subtle)] rounded px-2 py-1"
+          >
+            <span aria-hidden="true">⚠</span>
+            <span>{failure.message ?? failure.code}</span>
+            {failure.onRetry && (
+              <button
+                type="button"
+                onClick={failure.onRetry}
+                className="underline min-h-[24px]"
+                data-testid={`worktree-row-retry-${encodeURIComponent(entry.path)}`}
+              >
+                {i18nT("common.retry", undefined, "Retry")}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+      {row.missing ? (
+        <button
+          type="button"
+          onClick={onPrune}
+          data-testid={`worktree-prune-${encodeURIComponent(entry.path)}`}
+          className="text-[11px] text-[var(--text-secondary)] underline min-h-[24px] max-sm:min-h-[44px]"
+        >
+          {i18nT("worktree.pruneStaleRegistrations", undefined, "Prune stale registrations")}
+        </button>
+      ) : entry.isMain ? null : (
+        <button
+          type="button"
+          onClick={() => onRemove?.(entry)}
+          disabled={pending}
+          data-testid={`worktree-remove-${encodeURIComponent(entry.path)}`}
+          aria-label={i18nT("worktree.removeWorktree", undefined, "Remove worktree")}
+          className="text-[var(--text-secondary)] min-w-[24px] min-h-[24px] max-sm:min-w-[44px] max-sm:min-h-[44px] disabled:opacity-60"
+        >
+          ✕
+        </button>
       )}
     </div>
   );

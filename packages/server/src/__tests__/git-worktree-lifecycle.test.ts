@@ -5,17 +5,17 @@
  *
  * See change: add-worktree-lifecycle-actions.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
   BRANCH_DELETE_CODES,
   mapBranchDeleteStderr,
-  REMOVE_CODES,
-  mapRemoveStderr,
   mapMergeStderr,
-  mapPushStderr,
   mapPrStderr,
+  mapPushStderr,
+  mapRemoveStderr,
   parsePrUrl,
   parseShortstat,
+  REMOVE_CODES,
 } from "../git-worktree/git-worktree-lifecycle.js";
 
 describe("mapRemoveStderr", () => {

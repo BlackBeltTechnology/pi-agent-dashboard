@@ -4,17 +4,18 @@
  *
  * See change: add-worktree-lifecycle-actions.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { execSync } from "node:child_process";
-import * as platformExec from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { existsSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
 import { tmpdir } from "node:os";
-import Fastify, { type FastifyInstance } from "fastify";
-import { registerGitRoutes } from "../routes/git-routes.js";
-import { addWorktree } from "../git-worktree/git-operations.js";
-import type { SessionManager } from "../session/memory-session-manager.js";
+import { join } from "node:path";
+import * as platformExec from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import Fastify, { type FastifyInstance } from "fastify";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { addWorktree } from "../git-worktree/git-operations.js";
+import { registerGitRoutes } from "../routes/git-routes.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
 
 function git(cmd: string, cwd: string) {
   execSync(`git ${cmd}`, { cwd, stdio: ["pipe", "pipe", "pipe"] });

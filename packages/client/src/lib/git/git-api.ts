@@ -477,7 +477,7 @@ async function postLifecycle<T = unknown>(
  * Outcome of the optional post-removal `git branch -d`. Disjoint from the
  * removal's own error codes — a refused branch delete is still a 200.
  */
-export type BranchDeleteCode =
+type BranchDeleteCode =
   | "deleted"
   | "unmerged"
   | "no_branch"

@@ -9,12 +9,13 @@
  *
  * See change: add-worktree-lifecycle-actions.
  */
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
 import { execSync } from "node:child_process";
-import * as platformExec from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import * as platformExec from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   addWorktree,
   mergeWorktree,
