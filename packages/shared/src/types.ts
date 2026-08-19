@@ -592,13 +592,18 @@ export interface ModelInfo {
   /**
    * Confidence of `reasoning`/`vision`: `"catalog"` when the bridge's
    * `enrichModelMetadata()` probe resolved the model against pi's registry
-   * (real capabilities); `"fallback"` when it force-defaulted
-   * (`input:["text","image"]`, `reasoning:false`) because the provider
-   * reported no capability data. Drives confident-badge vs `?`-badge in the
-   * selector. Absent = old bridge that sent no capability fields (render no
-   * badge, NOT `?`). See change: enrich-model-selector-capabilities-favorites.
+   * (real capabilities); `"endpoint"` when the custom provider itself
+   * advertised every projected field in its model list (also confirmed, but
+   * self-reported by the proxy rather than pi's bundled catalog);
+   * `"fallback"` when it force-defaulted (`input:["text","image"]`,
+   * `reasoning:false`) because the provider reported no capability data for at
+   * least one field. Drives confident-badge vs `?`-badge in the selector. A
+   * mixed-tier model reports its WEAKEST tier, so a floor value is never shown
+   * as confirmed. Absent = old bridge that sent no capability fields (render no
+   * badge, NOT `?`). See changes: enrich-model-selector-capabilities-favorites,
+   * fix-custom-provider-model-metadata.
    */
-  metadataSource?: "catalog" | "fallback";
+  metadataSource?: "catalog" | "endpoint" | "fallback";
   /**
    * Thinking levels this model supports, derived from pi 0.72+'s per-model
    * `thinkingLevelMap`. Keys whose value is non-null (string | true) are

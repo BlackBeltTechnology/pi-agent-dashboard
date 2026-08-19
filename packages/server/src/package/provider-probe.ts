@@ -12,6 +12,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+  type DiscoveredModelRecord,
+  mapAdvertisedModels,
+} from "@blackbelt-technology/pi-dashboard-shared/provider-model-metadata.js";
 
 const CONFIG_PATH = join(homedir(), ".pi", "agent", "providers.json");
 const REDACTED = "***";
@@ -208,6 +212,46 @@ export async function listProviderModelIds(input: ProbeInput): Promise<string[]>
       return [];
     }
     return extractModelIds(body);
+  } catch {
+    clearTimeout(timer);
+    return [];
+  }
+}
+
+/**
+ * Metadata-preserving model discovery: fetch the provider's model list and
+ * return a record per model carrying the id AND every capability field the
+ * provider advertised (mapped by RESPONSE SHAPE — see the shared mapper).
+ *
+ * Deliberately a SEPARATE function from `listProviderModelIds`: the Test button
+ * (`probeProvider`) genuinely wants ids only, and widening one shared helper
+ * would re-couple two consumers with different needs. Returns [] on any
+ * failure (never throws) so one unreachable provider cannot break the
+ * catalogue.
+ *
+ * See change: fix-custom-provider-model-metadata (design D1).
+ */
+export async function listProviderModels(input: ProbeInput): Promise<DiscoveredModelRecord[]> {
+  let req: ProbeRequest;
+  try {
+    req = buildProbeRequest(input);
+  } catch {
+    return [];
+  }
+  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(req.url, { method: "GET", headers: req.headers, signal: controller.signal });
+    clearTimeout(timer);
+    if (!response.ok) return [];
+    let body: unknown = null;
+    try {
+      body = await response.json();
+    } catch {
+      return [];
+    }
+    return mapAdvertisedModels(body);
   } catch {
     clearTimeout(timer);
     return [];
