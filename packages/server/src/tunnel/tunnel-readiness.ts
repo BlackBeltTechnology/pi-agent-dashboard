@@ -49,7 +49,7 @@ const TIMED_OUT = Symbol("timed-out");
  * 4s timer per provider per 5s tick would keep the event loop hot for the life
  * of the dialog.
  */
-export async function withBound<T>(
+async function withBound<T>(
   fn: () => T | Promise<T>,
   ms: number = READINESS_PREDICATE_TIMEOUT_MS,
 ): Promise<T | typeof TIMED_OUT> {
@@ -65,8 +65,6 @@ export async function withBound<T>(
     if (timer) clearTimeout(timer);
   }
 }
-
-export { TIMED_OUT };
 
 /**
  * Evaluate one provider.

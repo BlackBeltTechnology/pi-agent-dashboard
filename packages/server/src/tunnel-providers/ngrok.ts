@@ -49,7 +49,7 @@ function getNgrokBinary(): string {
  * needs a supported entry point rather than the test-only
  * `_resetNgrokBinaryCache`. See change: add-zrok-custom-reserved-name (D6.2).
  */
-export function invalidateNgrokBinaryCache(): void {
+function invalidateNgrokBinaryCache(): void {
   ngrokAvailable = null;
   ngrokBinaryPath = null;
 }

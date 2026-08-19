@@ -74,7 +74,7 @@ export function _resetBinaryCache(): void {
  * than the test-only `_resetBinaryCache`, whose name says it must not be wired
  * into production paths. See change: add-zrok-custom-reserved-name (D6.2).
  */
-export function invalidateZrokBinaryCache(): void {
+function invalidateZrokBinaryCache(): void {
   zrokAvailable = null;
   zrokBinaryPath = null;
 }

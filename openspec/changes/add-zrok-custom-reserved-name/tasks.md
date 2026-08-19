@@ -76,9 +76,9 @@
 - [x] 7.1c Write a failing test for the **multi-mode** provider: tailscale supports BOTH `public` and `private` (`tunnel-provider.ts:108`), so an enabled tailscale with no `tunnel.tailscale.mode` is a per-provider config error — no mode can be inferred — while the primary still connects
 - [x] 7.1b Write a failing test that an unsupported mode on a NON-primary disables only that provider, while an unsupported mode on the primary still refuses the connect as today
 - [x] 7.2 Write a failing test that `tunnel.provider` now means *primary* and `getTunnelUrl()` returns the primary's URL
-- [ ] 7.3 Replace zrok-hardcoded delegation in `packages/server/src/tunnel/tunnel.ts` with a per-provider runtime registry
-- [ ] 7.4 Give each **`kind:"child"`** provider (zrok, ngrok) its own runtime instance, **per-provider PID file** and watchdog in `tunnel-core.ts` — per-provider naming from the first commit. Daemon providers (tailscale, zerotier) carry NO PID file and NO watchdog, per the shipped "child vs daemon lifecycle" scenario
-- [ ] 7.5 Write a failing recycle test: restarting one provider leaves every other provider's PID untouched
+- [x] 7.3 Replace zrok-hardcoded delegation in `packages/server/src/tunnel/tunnel.ts` with a per-provider runtime registry
+- [x] 7.4 Give each **`kind:"child"`** provider (zrok, ngrok) its own runtime instance, **per-provider PID file** and watchdog in `tunnel-core.ts` — per-provider naming from the first commit. Daemon providers (tailscale, zerotier) carry NO PID file and NO watchdog, per the shipped "child vs daemon lifecycle" scenario
+- [x] 7.5 Write a failing recycle test: restarting one provider leaves every other provider's PID untouched
 - [ ] 7.6 Write a failing two-tunnel test asserting the OAuth redirect URI derives from the **primary only**
 - [x] 7.7 Write a failing test that a disconnected primary falls back exactly as today, with **no** silent promotion of another live tunnel
 - [ ] 7.8 Implement the confirm-gated primary switch (D10), stating inline that switching re-mints the redirect URI
@@ -102,15 +102,15 @@
 
 ## 10. Verification
 
-- [ ] 10.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` — full suite green
+- [x] 10.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` — full suite green
 - [ ] 10.2 **[review-code]** Review the diff: server, shared types, theme layer and client in one change
-- [ ] 10.3 `npm run quality:changed` — Biome clean on changed files
+- [x] 10.3 `npm run quality:changed` — Biome clean on changed files
 - [ ] 10.4 Manual QA: reserve a name, connect, confirm the URL matches; take a name known to be taken and confirm the stated reason
 - [ ] 10.5 Manual QA: run zrok (primary, public) and tailscale (`tunnel.tailscale.mode=private`) concurrently; confirm both reachable, redirect URI from the primary only
 - [ ] 10.5a Manual QA: open a screen from EACH bundled plugin (automation, flows) after the accent ramp lands and confirm no unintended restyle
 - [ ] 10.6 Manual QA: install a provider from a terminal with the dialog open; confirm readiness updates without a restart
 - [ ] 10.7 Manual QA: Gateway Setup tab in light AND dark at 375 and 1440 — no control below AA, no horizontal overflow. Explicitly re-measure the 4 repointed white-on-accent buttons in DARK, which is where `--accent` would have left them at 3.68:1
-- [ ] 10.8 Confirm `openspec validate add-zrok-custom-reserved-name` still passes
+- [x] 10.8 Confirm `openspec validate add-zrok-custom-reserved-name` still passes
 
 ## 11. Test scenarios folded from test-plan.md
 

@@ -335,12 +335,12 @@ describe("F8: the offer appears but never writes", () => {
   });
 
   it("stops offering once the URL is registered", () => {
-    const config = { gateways: [{ url: "https://x.shares.zrok.io", authModes: ["pairing" as const] }] };
+    const config = { gateways: [{ url: "https://x.shares.zrok.io", authModes: ["pairing" as const], wrote: {} }] };
     expect(isUnregisteredGatewayUrl(config, "https://x.shares.zrok.io")).toBe(false);
   });
 
   it("ignores a trailing slash, which would otherwise offer the same URL forever", () => {
-    const config = { gateways: [{ url: "https://x.shares.zrok.io", authModes: ["pairing" as const] }] };
+    const config = { gateways: [{ url: "https://x.shares.zrok.io", authModes: ["pairing" as const], wrote: {} }] };
     expect(isUnregisteredGatewayUrl(config, "https://x.shares.zrok.io/")).toBe(false);
   });
 });
