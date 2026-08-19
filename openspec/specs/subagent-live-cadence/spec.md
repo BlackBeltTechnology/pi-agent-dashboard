@@ -43,19 +43,23 @@ demonstrably the only feed.
 - **AND** at least 2 SHALL arrive, so the existing F4 scenario remains
   non-vacuous and is not carried by frames from unrelated tools
 
-#### Scenario: The stored tick sequence stays within one window of the producer
+#### Scenario: Delivered ticks stay within one window of the producer
 
 - **GIVEN** a running subagent emitting ticks faster than the throttle window
-- **WHEN** the server's stored events for that run are inspected
-- **THEN** the gap between consecutive stored Agent ticks SHALL be within one
-  window at p95 and within three windows at the maximum (scheduling jitter and
-  GC pauses make an exact per-pair bound untestable), so a mid-run replay folds
-  to a state at most one window stale in the typical case
+- **WHEN** the Agent-tick frames DELIVERED to the client over the wire are
+  inspected
+- **THEN** the gap between consecutive delivered Agent ticks SHALL be within
+  1.5 windows at p95 and within three windows at the maximum (scheduling jitter
+  and GC pauses make an exact per-pair bound untestable), so a mid-run view is
+  at most ~one window stale in the typical case
 
-The assertion is made on the STORE, not on the reloaded DOM: once a reloaded
-page is live, the ephemeral carrier and the resync pull refresh the timeline
-within milliseconds, so a DOM sample measures catch-up rather than replay
-staleness.
+The assertion is made on the DELIVERED wire, NOT on the server's stored events:
+the parent collapse change (`collapse-superseded-tool-execution-updates`) trims
+superseded stored `tool_execution_update`s, so the stored sequence cannot carry
+the cadence — a reload replays only a bounded handful of Agent ticks. The
+throttle's staleness guarantee lives on the wire: its trailing timer delivers a
+frame every ≤ one window while the producer is active, which bounds how stale a
+mid-run view can get.
 
 #### Scenario: No tick is delivered after the run's terminal event
 

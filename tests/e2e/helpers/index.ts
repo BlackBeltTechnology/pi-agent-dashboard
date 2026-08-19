@@ -312,6 +312,9 @@ export interface TickSample {
   ts: number;
   toolName: string;
   toolCallId: string;
+  /** Owning session id, so a measurement can isolate its OWN run's frames when
+   * a previous session's producer is still streaming. */
+  sessionId: string;
   /** Payload size in bytes, for the bytes/s half of the D1 baseline. */
   bytes: number;
 }
@@ -358,6 +361,7 @@ export function collectAgentTicks(page: Page): TickCollector {
         : Array.isArray(parsed?.events)
           ? parsed.events.map((e: any) => e?.event).filter(Boolean)
           : [];
+      const frameSessionId = String(parsed?.sessionId ?? "");
       for (const ev of events) {
         if (ev?.eventType !== "tool_execution_update") continue;
         all.push({
@@ -365,6 +369,7 @@ export function collectAgentTicks(page: Page): TickCollector {
           ts: typeof ev?.timestamp === "number" ? ev.timestamp : 0,
           toolName: String(ev?.data?.toolName ?? ""),
           toolCallId: String(ev?.data?.toolCallId ?? ""),
+          sessionId: frameSessionId,
           bytes: payload.length,
         });
       }

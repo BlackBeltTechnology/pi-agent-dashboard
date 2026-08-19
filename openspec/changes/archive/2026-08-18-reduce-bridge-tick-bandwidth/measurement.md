@@ -109,7 +109,7 @@ Date: 2026-08-17 · Harness: `docker/test-up.sh`, port `18170`.
 The inter-arrival "burst then silence" reading below was the death of a
 `claude-opus-4-8` subagent, not the shape of a live carrier:
 
-```
+```text
 streaming        : [0, 0, 0, 0, 1, 2, 4, 257]
 sustained-long   : [0, 0, 0, 0, 1, 5, 5, 244]
 ```

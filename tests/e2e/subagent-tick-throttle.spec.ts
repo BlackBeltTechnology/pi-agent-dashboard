@@ -64,16 +64,20 @@ test.describe("subagent tick throttle — wire cadence (synthetic producer)", ()
 
     const ticks = collectAgentTicks(page);
     const card = await spawnFreshGitSession(page);
+    const sessionId = await card.getAttribute("data-session-id");
     await card.click();
     await page.keyboard.press("Escape").catch(() => {});
     await sendPrompt(page, STREAM);
 
     // Readiness is the first Agent tick on the wire (the synthetic tool renders
-    // no subagent card, so there is no DOM text to await).
-    await expect.poll(() => ticks.agent().length, { timeout: 60_000 }).toBeGreaterThan(0);
-    const start = ticks.agent()[0]!.at;
+    // no subagent card, so there is no DOM text to await). Filter by THIS
+    // session so a prior test's still-streaming producer cannot inflate the
+    // count (the shared harness runs one container).
+    const mine = () => ticks.agent().filter((s) => s.sessionId === sessionId);
+    await expect.poll(() => mine().length, { timeout: 60_000 }).toBeGreaterThan(0);
+    const start = mine()[0]!.at;
     await page.waitForTimeout(MEASURE_MS);
-    const inWindow = ticks.agent().filter((s) => s.at - start <= MEASURE_MS);
+    const inWindow = mine().filter((s) => s.at - start <= MEASURE_MS);
 
     // F1 — the floor, on the throttled carrier's OWN frames: >= 5 in the 10 s
     // window (>= 1 per 2 s). At W=500 a 20 fps source yields ~20.
@@ -101,18 +105,19 @@ test.describe("subagent tick throttle — wire cadence (synthetic producer)", ()
 
     const measure = async (windowValue: number): Promise<number> => {
       await setSubagentTickThrottle(page, windowValue);
-      const seen = ticks.agent().length;
       const card = await spawnFreshGitSession(page);
+      const sessionId = await card.getAttribute("data-session-id");
       await card.click();
       await page.keyboard.press("Escape").catch(() => {});
       await sendPrompt(page, STREAM);
-      await expect.poll(() => ticks.agent().length, { timeout: 60_000 }).toBeGreaterThan(seen);
-      const start = ticks.agent()[seen]!.at;
+      // Isolate THIS run's frames by session id. Slicing by index alone is not
+      // enough: the previous run's ~12 s producer can still be streaming into
+      // this ~10 s window, and those frames carry a different sessionId.
+      const mine = () => ticks.agent().filter((s) => s.sessionId === sessionId);
+      await expect.poll(() => mine().length, { timeout: 60_000 }).toBeGreaterThan(0);
+      const start = mine()[0]!.at;
       await page.waitForTimeout(MEASURE_MS);
-      const inWindow = ticks
-        .agent()
-        .slice(seen)
-        .filter((s) => s.at - start <= MEASURE_MS);
+      const inWindow = mine().filter((s) => s.at - start <= MEASURE_MS);
       return (inWindow.length / MEASURE_MS) * 1000;
     };
 
@@ -183,6 +188,7 @@ test.describe("subagent tick throttle — wire cadence (synthetic producer)", ()
 
     const ticks = collectAgentTicks(page);
     const card = await spawnFreshGitSession(page);
+    const sessionId = await card.getAttribute("data-session-id");
     await card.click();
     await page.keyboard.press("Escape").catch(() => {});
     // The `-quiet` sentinel inserts a > 2 s gap before tick index 30, so there
@@ -190,8 +196,10 @@ test.describe("subagent tick throttle — wire cadence (synthetic producer)", ()
     await sendPrompt(page, QUIET);
     await expect(page.getByText(DONE).first()).toBeVisible({ timeout: 120_000 });
 
-    const agent = ticks.agent();
-    expect(agent.length, "the quiet fixture still produced ticks").toBeGreaterThan(0);
+    const agent = ticks.agent().filter((s) => s.sessionId === sessionId);
+    // >= 2 ticks so there is at least one gap to measure — else `Math.max` over
+    // an empty array is `-Infinity` and the failure message misleads.
+    expect(agent.length, "the quiet fixture produced a measurable tick sequence").toBeGreaterThan(1);
 
     // The anti-vacuity guard, stated positively: this fixture DOES contain a gap
     // wider than the floor, which is exactly why F1 must not run on it. The
@@ -221,14 +229,17 @@ test.describe("subagent tick throttle — wire cadence (synthetic producer)", ()
     // every delivered gap is one the throttle is responsible for.
     const ticks = collectAgentTicks(page);
     const card = await spawnFreshGitSession(page);
+    const sessionId = await card.getAttribute("data-session-id");
     await card.click();
     await page.keyboard.press("Escape").catch(() => {});
     await sendPrompt(page, STREAM);
 
-    await expect.poll(() => ticks.agent().length, { timeout: 60_000 }).toBeGreaterThan(0);
-    const start = ticks.agent()[0]!.at;
+    // Isolate THIS run's frames (shared harness: a prior producer may still stream).
+    const mine = () => ticks.agent().filter((s) => s.sessionId === sessionId);
+    await expect.poll(() => mine().length, { timeout: 60_000 }).toBeGreaterThan(0);
+    const start = mine()[0]!.at;
     await page.waitForTimeout(MEASURE_MS);
-    const window = ticks.agent().filter((s) => s.at - start <= MEASURE_MS);
+    const window = mine().filter((s) => s.at - start <= MEASURE_MS);
     expect(window.length, "a delivered tick stream to measure").toBeGreaterThan(10);
 
     const gaps = window.slice(1).map((s, i) => s.at - window[i]!.at);

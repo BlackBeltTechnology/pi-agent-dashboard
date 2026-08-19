@@ -55,15 +55,29 @@ interface TickPlan {
   gapAt: number;
 }
 
+// Hard bounds so a hostile/typo'd sentinel cannot wedge the loop. `\d+` with
+// enough digits makes `Number()` return `Infinity` (unbounded loop), and a `0`
+// interval spins the event loop; clamp both.
+const MAX_TICKS = 100_000;
+const MAX_INTERVAL_MS = 60_000;
+const MAX_GAP_MS = 600_000;
+
+function clampInt(raw: string | undefined, fallback: number, min: number, max: number): number {
+  if (raw === undefined) return fallback;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, Math.trunc(n)));
+}
+
 /** Parse the cadence plan from the prompt sentinel, or fall back to defaults. */
 export function parseTickPlan(prompt: string | undefined): TickPlan {
   const m = prompt ? SENTINEL.exec(prompt) : null;
   if (!m) return { count: 240, intervalMs: 50, gapMs: 0, gapAt: -1 };
   return {
-    count: Number(m[1]),
-    intervalMs: Number(m[2]),
-    gapMs: m[3] ? Number(m[3]) : 0,
-    gapAt: m[4] ? Number(m[4]) : -1,
+    count: clampInt(m[1], 240, 0, MAX_TICKS),
+    intervalMs: clampInt(m[2], 50, 1, MAX_INTERVAL_MS),
+    gapMs: m[3] ? clampInt(m[3], 0, 0, MAX_GAP_MS) : 0,
+    gapAt: m[4] ? clampInt(m[4], -1, 0, MAX_TICKS) : -1,
   };
 }
 
@@ -115,7 +129,12 @@ export default function fauxAgentTicks(pi: ExtensionAPI): void {
 
       for (let i = 0; i < plan.count; i++) {
         if (signal?.aborted) break;
-        if (plan.gapAt === i && plan.gapMs > 0) await sleep(plan.gapMs, signal);
+        if (plan.gapAt === i && plan.gapMs > 0) {
+          await sleep(plan.gapMs, signal);
+          // `sleep` also resolves on abort — re-check so an abort DURING the quiet
+          // gap does not emit one extra tick.
+          if (signal?.aborted) break;
+        }
         onUpdate?.({
           content: [{ type: "text", text: `(running… ${i})` }],
           details: details(agentId, subagentType, "running", i, Date.now() - started),

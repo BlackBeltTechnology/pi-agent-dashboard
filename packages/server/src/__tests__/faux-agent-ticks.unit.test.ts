@@ -51,4 +51,26 @@ describe("parseTickPlan", () => {
     expect(plan.gapMs).toBe(0);
     expect(plan.gapAt).toBe(-1);
   });
+
+  it("clamps hostile/typo'd values so the producer loop cannot wedge", () => {
+    // A digit string long enough to overflow to Infinity must not become an
+    // unbounded `count`: a non-finite parse falls back to the sane default
+    // (bounded), and a 0 interval is floored to 1 so it cannot spin the loop.
+    const huge = "9".repeat(400); // Number(huge) === Infinity
+    const plan = parseTickPlan(`[[ticks:${huge}@0]] x`);
+    expect(Number.isFinite(plan.count)).toBe(true);
+    expect(plan.count).toBe(240); // Infinity -> bounded fallback
+    expect(plan.intervalMs).toBe(1); // floored off 0
+
+    // A large-but-finite count is capped at MAX_TICKS.
+    expect(parseTickPlan("[[ticks:5000000@50]] x").count).toBe(100_000);
+
+    // An in-range value is untouched; an over-cap gap is clamped.
+    expect(parseTickPlan("[[ticks:240@50+gap9999999@30]] x")).toEqual({
+      count: 240,
+      intervalMs: 50,
+      gapMs: 600_000, // MAX_GAP_MS
+      gapAt: 30,
+    });
+  });
 });

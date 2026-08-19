@@ -171,16 +171,27 @@ test.describe("subagent tick throttle — health counters (L3)", () => {
       .toBeGreaterThan(0);
 
     const after = (await (await page.request.get("/api/health")).json()) as {
+      agents: Array<{ sessionId: string } & Partial<ThrottleCounters>>;
       subagentTickThrottle: ThrottleCounters;
       pid: number;
     };
-    expect(after.subagentTickThrottle.tickForwarded).toBeGreaterThan(
-      before.subagentTickThrottle.tickForwarded,
-    );
+    // Assert on the tested session's OWN per-session counters, NOT the summed
+    // `subagentTickThrottle` roll-up: the sum spans only `listActive()`
+    // sessions, so a sibling session ending between the two reads can lower it
+    // and fail spuriously. The per-session counters are stable for this run.
+    const mine = after.agents.find((a) => a.sessionId === sessionId);
+    expect(mine, "the tested session is present in /api/health").toBeTruthy();
+    expect(mine?.tickForwarded ?? 0).toBeGreaterThan(0);
     // A streaming subagent at ~50 events/s against a 500 ms window MUST have
     // coalesced; a zero here means the predicate never matched.
-    expect(after.subagentTickThrottle.tickCoalesced).toBeGreaterThan(0);
-    // Existing health fields unchanged by the additive block.
+    expect(mine?.tickCoalesced ?? 0).toBeGreaterThan(0);
+    // The additive aggregate block still exists and is well-typed; pid unchanged.
+    expect(Object.keys(after.subagentTickThrottle).sort()).toEqual([
+      "tickCoalesced",
+      "tickDiscardedAtTerminal",
+      "tickDroppedNotReady",
+      "tickForwarded",
+    ]);
     expect(after.pid).toBe(before.pid);
   });
 
