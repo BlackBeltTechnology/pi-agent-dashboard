@@ -14,35 +14,37 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-const reserveNameMock = vi.fn();
-const releaseShareMock = vi.fn(() => true);
+const reserveNameMock = vi.fn((_name?: unknown) => ({}) as any);
+const releaseShareMock = vi.fn((_name?: string) => true);
 const deleteTunnelMock = vi.fn(async () => {});
 const stopWatchdogMock = vi.fn();
-const getTunnelStatusMock = vi.fn(() => ({ status: "inactive", serverOs: "darwin" }) as any);
-const writeConfigPartialMock = vi.fn(() => ({ success: true }) as any);
+const getTunnelStatusMock = vi.fn((_cfg?: unknown) => ({ status: "inactive", serverOs: "darwin" }) as any);
+const writeConfigPartialMock = vi.fn((_partial?: unknown) => ({ success: true }) as any);
 
 /** Order-sensitive: every side effect appends here, so ordering is assertable. */
 const calls: string[] = [];
 
 vi.mock("../tunnel-providers/zrok.js", async (orig) => ({
   ...(await orig<any>()),
-  reserveName: (...a: any[]) => {
+  reserveName: (...a: unknown[]) => {
     calls.push("reserveName");
-    return reserveNameMock(...a);
+    return reserveNameMock(a[0]);
   },
 }));
 
 vi.mock("../tunnel/tunnel.js", async (orig) => ({
   ...(await orig<any>()),
-  releaseShare: (...a: any[]) => {
+  releaseShare: (...a: unknown[]) => {
     calls.push("releaseShare");
-    return releaseShareMock(...a);
+    return releaseShareMock(a[0] as string);
   },
-  deleteTunnel: (...a: any[]) => {
+  deleteTunnel: (..._a: unknown[]) => {
     calls.push("deleteTunnel");
-    return deleteTunnelMock(...(a as []));
+    return deleteTunnelMock();
   },
-  getTunnelStatus: (...a: any[]) => getTunnelStatusMock(...(a as [])),
+  // The ARG matters: the route must pass the zrok config through so an
+  // active-but-not-at-the-requested-name tunnel is reported as degraded.
+  getTunnelStatus: (...a: unknown[]) => getTunnelStatusMock(a[0]),
   getTunnelUrl: () => null,
   createTunnel: async () => null,
   ensureReservedName: () => undefined,
@@ -64,9 +66,9 @@ vi.mock("../tunnel/tunnel-watchdog.js", async (orig) => ({
 
 vi.mock("../config-api.js", async (orig) => ({
   ...(await orig<any>()),
-  writeConfigPartial: (...a: any[]) => {
+  writeConfigPartial: (...a: unknown[]) => {
     calls.push("writeConfigPartial");
-    return writeConfigPartialMock(...a);
+    return writeConfigPartialMock(a[0]);
   },
 }));
 
