@@ -219,6 +219,8 @@ export class TailscaleProvider implements TunnelProvider {
     }
     const endpoints = deriveEndpoints(this.statusJson(), this.serveStatusJson(), port, mode);
     this.lastEndpoints = endpoints;
+    this.lastPort = port;
+    this.lastMode = mode;
     return { endpoints };
   }
 
@@ -233,4 +235,33 @@ export class TailscaleProvider implements TunnelProvider {
     const active = this.lastEndpoints.length > 0;
     return { active, endpoints: this.lastEndpoints };
   }
+
+  /**
+   * Ask the DAEMON whether a tunnel is live, rather than asking our own memory.
+   *
+   * `status()` reports `lastEndpoints`, which records only whether THIS server
+   * process completed a `connect()`. A tailnet brought up in a terminal reads
+   * `disconnected` forever under that rule, and one that died reads
+   * `connected` forever — both are precisely what the readiness board exists
+   * to report. This re-derives endpoints from `tailscale status` +
+   * `serve status` on every call, so it is correct in both directions.
+   *
+   * Returns ENDPOINTS, not a boolean: a daemon connected outside the dashboard
+   * has an empty `lastEndpoints` and the readiness report still owes some.
+   *
+   * See change: add-zrok-custom-reserved-name (D6.1).
+   */
+  async probeLive(): Promise<TunnelEndpoint[]> {
+    const status = this.statusJson();
+    if (!isBackendRunning(status)) return [];
+    const serve = this.serveStatusJson();
+    // A serve/funnel config with no port bound is not a live tunnel; the port
+    // argument only shapes the URL, so any positive port derives the same host.
+    const endpoints = deriveEndpoints(status, serve, this.lastPort ?? 0, this.lastMode ?? "private");
+    return endpoints;
+  }
+
+  /** Remembered so `probeLive()` can rebuild the same URL shape a connect produced. */
+  private lastPort?: number;
+  private lastMode?: TunnelMode;
 }

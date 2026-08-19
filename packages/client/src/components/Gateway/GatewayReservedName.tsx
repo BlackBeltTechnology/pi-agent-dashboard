@@ -116,7 +116,7 @@ export function GatewayReservedName({
           onBlur={onBlur}
           aria-invalid={state.kind === "invalid" || state.kind === "taken"}
           aria-describedby="gateway-reserved-msg"
-          className="flex-1 rounded border border-[var(--border)] bg-[var(--bg-tertiary)] px-2 py-1.5 text-[12.5px] text-[var(--text-primary)]"
+          className="flex-1 rounded border border-[var(--border-primary)] bg-[var(--bg-tertiary)] px-2 py-1.5 text-[12.5px] text-[var(--text-primary)]"
         />
         {stored && (
           <button
@@ -136,7 +136,7 @@ export function GatewayReservedName({
                 void commit(null);
               }
             }}
-            className="rounded border border-[var(--border)] px-2.5 py-1.5 text-[12px] text-[var(--text-secondary)] hover:text-[var(--severity-error-fg)]"
+            className="rounded border border-[var(--border-primary)] px-2.5 py-1.5 text-[12px] text-[var(--text-secondary)] hover:text-[var(--severity-error-fg)]"
           >
             {t("gateway.reserved.release", undefined, "Release")}
           </button>
@@ -174,7 +174,7 @@ export function GatewayReservedName({
                 setConfirming(false);
                 setDraft(state.current);
               }}
-              className="rounded border border-[var(--border)] px-2.5 py-1 text-[11.5px] text-[var(--text-secondary)]"
+              className="rounded border border-[var(--border-primary)] px-2.5 py-1 text-[11.5px] text-[var(--text-secondary)]"
             >
               {t("common.cancel", undefined, "Cancel")}
             </button>

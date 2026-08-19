@@ -74,7 +74,7 @@ export function _resetBinaryCache(): void {
  * than the test-only `_resetBinaryCache`, whose name says it must not be wired
  * into production paths. See change: add-zrok-custom-reserved-name (D6.2).
  */
-export function invalidateBinaryCache(): void {
+export function invalidateZrokBinaryCache(): void {
   zrokAvailable = null;
   zrokBinaryPath = null;
 }
@@ -322,6 +322,16 @@ export class ZrokProvider implements TunnelProvider {
   }
   detectBinary(): boolean {
     return detectZrokBinary();
+  }
+  /**
+   * Drop the module-scope binary memo so the NEXT `detectBinary()` re-resolves.
+   * Readiness calls this before probing, because `ToolRegistry.rescan()` cannot
+   * reach a memo this module holds. See change: add-zrok-custom-reserved-name.
+   */
+  invalidateBinaryCache(): void {
+    // Module-scope function, deliberately named differently from this method so
+    // the call cannot be misread as recursion.
+    invalidateZrokBinaryCache();
   }
   isEnrolled(): boolean {
     return loadZrokEnv() !== null;

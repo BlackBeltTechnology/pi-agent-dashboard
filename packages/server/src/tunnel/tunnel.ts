@@ -20,6 +20,15 @@ import {
   type ZrokEnv,
   zrokRuntime,
 } from "../tunnel-providers/zrok.js";
+import type {
+  ProviderReadiness,
+  TunnelProvider,
+} from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
+import { NgrokProvider } from "../tunnel-providers/ngrok.js";
+import { TailscaleProvider } from "../tunnel-providers/tailscale.js";
+import { ZeroTierProvider } from "../tunnel-providers/zerotier.js";
+import { ZrokProvider } from "../tunnel-providers/zrok.js";
+import { evaluateReadiness } from "./tunnel-readiness.js";
 import { getTunnelWatchdogStatus } from "./tunnel-watchdog.js";
 
 export type { TunnelStatus, ZrokEnv };
@@ -130,4 +139,92 @@ export function getTunnelStatus(zrokConfig?: { reservedName?: string; persistent
     return { status: "inactive", serverOs };
   }
   return { status: "unavailable", serverOs };
+}
+
+// ── Provider registry (concurrency + readiness) ─────────────────────
+
+/**
+ * One runtime per provider, keyed by id.
+ *
+ * `tunnel.ts` previously delegated to zrok BY NAME (`getTunnelUrl()` →
+ * `zrokRuntime.getTunnelUrl()`) and `ChildTunnelRuntime` cached a single
+ * `tunnelUrl`, so running two providers at once was not a config change but an
+ * unfinished abstraction. This registry finishes it.
+ *
+ * Only `kind: "child"` providers get a `ChildTunnelRuntime`: the shipped
+ * "child vs daemon lifecycle" requirement already states that daemon providers
+ * skip the PID-file and watchdog paths entirely, being driven by idempotent
+ * commands against a daemon the server does not own.
+ *
+ * See change: add-zrok-custom-reserved-name (D5).
+ */
+export function knownProviders(opts?: { zerotierNetworkId?: string }): TunnelProvider[] {
+  return [
+    new ZrokProvider(),
+    new NgrokProvider(),
+    new TailscaleProvider(),
+    new ZeroTierProvider({ networkId: opts?.zerotierNetworkId }),
+  ];
+}
+
+/**
+ * Readiness for every known provider.
+ *
+ * Costs a subprocess per provider, so it is invoked only from the dialog-bound
+ * poll — never as a background service.
+ */
+export async function getProviderReadiness(opts?: {
+  zerotierNetworkId?: string;
+  timeoutMs?: number;
+}): Promise<ProviderReadiness[]> {
+  return evaluateReadiness(knownProviders(opts), { timeoutMs: opts?.timeoutMs });
+}
+
+/**
+ * Origins of every CURRENTLY connected tunnel, across all providers.
+ *
+ * Feeds the CORS allowlist and nothing else. Emphatically NOT a redirect-base
+ * resolver: `resolveRedirectBase()` must keep returning a single origin (the
+ * primary's), or the minted OAuth URI and the session cookie's `Secure` flag
+ * could describe different origins — the invariant `auth.ts` exists to hold.
+ *
+ * Recomputed per call so the allowance follows tunnels as they come and go.
+ * See change: add-zrok-custom-reserved-name (D4).
+ */
+export function liveTunnelOrigins(): string[] {
+  const out: string[] = [];
+  for (const provider of activeProviders.values()) {
+    try {
+      const status = provider.status();
+      if (!status.active) continue;
+      for (const e of status.endpoints) out.push(e.url);
+    } catch {
+      // A throwing provider must not deny every other provider's origin.
+    }
+  }
+  const primary = zrokRuntime.getTunnelUrl();
+  if (primary) out.push(primary);
+  return out;
+}
+
+/**
+ * Providers this process has actually connected, keyed by id.
+ *
+ * Registered on connect and removed on disconnect, so `liveTunnelOrigins()`
+ * reflects reality rather than configuration: a provider that is enabled but
+ * not running contributes no origin.
+ */
+const activeProviders = new Map<string, TunnelProvider>();
+
+export function registerActiveProvider(p: TunnelProvider): void {
+  activeProviders.set(p.id, p);
+}
+
+export function unregisterActiveProvider(id: string): void {
+  activeProviders.delete(id);
+}
+
+/** Test seam — drops every registration without touching provider state. */
+export function _resetActiveProviders(): void {
+  activeProviders.clear();
 }

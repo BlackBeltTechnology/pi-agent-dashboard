@@ -131,3 +131,93 @@ export function providerSupportsMode(provider: TunnelProviderId, mode: TunnelMod
 export function usesChildLifecycle(kind: TunnelKind): boolean {
   return kind === "child";
 }
+
+// ── Readiness ────────────────────────────────────────────────────────
+
+/**
+ * What a provider's readiness board reports, per provider.
+ *
+ * The four states compose the three predicates the seam already declares —
+ * `detectBinary()`, `isEnrolled()` and liveness — so this taxonomy invents no
+ * new detection. Before it existed, `detectBinary` and `isEnrolled` had exactly
+ * one consumer each (connect-time preconditions in `tunnel-core.ts`) and
+ * nothing surfaced them, so the provider chips rendered from a hardcoded static
+ * list and looked identical whether a provider was installed or absent.
+ *
+ * See change: add-zrok-custom-reserved-name (D6).
+ */
+export type ProviderReadinessState = "not-installed" | "not-set" | "disconnected" | "connected";
+
+export interface ProviderReadiness {
+  provider: TunnelProviderId;
+  state: ProviderReadinessState;
+  /**
+   * Endpoints backing a `connected` state. A daemon brought up outside this
+   * process has an empty `lastEndpoints`, so a report that owes endpoints must
+   * take them from `probeLive()` rather than from `status()`.
+   */
+  endpoints: TunnelEndpoint[];
+  /**
+   * The answer is not current: a predicate exceeded {@link READINESS_PREDICATE_TIMEOUT_MS}
+   * or threw. The `state` is still the honest false-branch value, and the rest
+   * of the board is unaffected — one hung CLI must never blank every row.
+   */
+  stale?: boolean;
+  /**
+   * Which predicate produced this state, so a misclassification is diagnosable
+   * rather than requiring a bisect of three shell-outs.
+   */
+  reason?: string;
+}
+
+/**
+ * Per-predicate bound, deliberately SHORTER than the 5s poll interval.
+ *
+ * Provider CLI calls carry 30s exec timeouts, so an unbounded predicate would
+ * outlive its own tick and, under overlap suppression, stall the board
+ * indefinitely. 4s leaves headroom for a legitimately slow cold CLI while
+ * guaranteeing a hung provider cannot survive into the next tick.
+ */
+export const READINESS_PREDICATE_TIMEOUT_MS = 4_000;
+
+/** Poll cadence while the Gateway dialog is open. Never runs in the background. */
+export const READINESS_POLL_INTERVAL_MS = 5_000;
+
+/**
+ * Live liveness probe for `kind: "daemon"` providers.
+ *
+ * `status().active` is in-memory state recording only whether THIS server
+ * process completed a `connect()`. A daemon brought up in a terminal therefore
+ * reads `disconnected` forever, and a daemon that died reads `connected`
+ * forever — both are exactly what the readiness board exists to report. So
+ * daemon providers query the daemon itself, and return ENDPOINTS rather than a
+ * bare boolean: a daemon connected outside the dashboard has no cached
+ * endpoints and the report still owes some.
+ *
+ * `status()` keeps its meaning for the tunnel lifecycle; this ADDS to the seam
+ * rather than redefining it. See change: add-zrok-custom-reserved-name (D6.1).
+ */
+export interface DaemonLivenessProbe {
+  probeLive(): Promise<TunnelEndpoint[]>;
+}
+
+export function hasLivenessProbe(p: unknown): p is DaemonLivenessProbe {
+  return typeof (p as DaemonLivenessProbe)?.probeLive === "function";
+}
+
+/**
+ * Invalidate a provider-local binary memo.
+ *
+ * `ToolRegistry.rescan()` clears the REGISTRY's cache; it cannot reach a memo a
+ * provider module holds at module scope. zrok and ngrok both hold one, so an
+ * install or removal performed in a terminal is invisible for the life of the
+ * process without this. The test-only `_resetBinaryCache` is not a substitute:
+ * its name says it must not be wired into a production path.
+ */
+export interface BinaryCacheInvalidation {
+  invalidateBinaryCache(): void;
+}
+
+export function hasBinaryCacheInvalidation(p: unknown): p is BinaryCacheInvalidation {
+  return typeof (p as BinaryCacheInvalidation)?.invalidateBinaryCache === "function";
+}

@@ -55,7 +55,7 @@ import type { SessionManager } from "../session/memory-session-manager.js";
 import { spawnRestart } from "../spawn-process/restart-helper.js";
 import { readSpawnFailures } from "../spawn-process/spawn-failure-log.js";
 import { systemOpenCapability } from "../system-open-capability.js";
-import { createTunnel, deleteTunnel, ensureReservedName, getTunnelStatus, getTunnelUrl, releaseShare } from "../tunnel/tunnel.js";
+import { createTunnel, deleteTunnel, ensureReservedName, getProviderReadiness, getTunnelStatus, getTunnelUrl, releaseShare } from "../tunnel/tunnel.js";
 import { reserveName } from "../tunnel-providers/zrok.js";
 import { blockEvents } from "../tunnel/tunnel-block-events.js";
 import { collectEndpoints } from "../tunnel/tunnel-endpoints.js";
@@ -481,6 +481,32 @@ export function registerSystemRoutes(
   );
 
   // Tunnel endpoints
+  /**
+   * Per-provider readiness for the Gateway board.
+   *
+   * Shells out per provider (~4 subprocesses per call), so it is polled ONLY
+   * while the dialog is open — there is no background evaluation and no push
+   * channel. Guarded like the other config-adjacent routes: it discloses which
+   * tunnelling tools the operator has installed and enrolled.
+   *
+   * A throwing or hung provider degrades its own row only; the board never
+   * blanks because one CLI stalled. See change: add-zrok-custom-reserved-name.
+   */
+  fastify.get(
+    "/api/tunnel-readiness",
+    { preHandler: networkGuard },
+    async () => {
+      const providers = await getProviderReadiness({
+        zerotierNetworkId: (config.tunnelConfig as { zerotier?: { networkId?: string } } | undefined)?.zerotier
+          ?.networkId,
+      });
+      return {
+        success: true,
+        data: { providers, checkedAt: new Date().toISOString() },
+      } satisfies ApiResponse;
+    },
+  );
+
   fastify.get("/api/tunnel-status", async () => {
     // Config is passed in so an active-but-not-at-the-requested-name tunnel is
     // reported as degraded rather than as an ordinary success.

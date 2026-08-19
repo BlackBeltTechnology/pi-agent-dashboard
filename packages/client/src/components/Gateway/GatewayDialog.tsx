@@ -92,7 +92,7 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <Dialog open onClose={onClose} title={t("gateway.title", undefined, "Gateway")} size="lg" testId="gateway-dialog">
-      <div className="mb-3 flex gap-1 border-b border-[var(--border)]">
+      <div className="mb-3 flex gap-1 border-b border-[var(--border-primary)]">
         <TabButton id="setup" label={t("gateway.tab.setup", undefined, "Setup")} />
         <TabButton id="access" label={t("gateway.tab.access", undefined, "Access & QR")} />
         <TabButton id="security" label={t("gateway.tab.security", undefined, "Security")} />
@@ -111,7 +111,7 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
               }}
               disabled={saving}
             />
-            <div className="h-px bg-[var(--border)]" />
+            <div className="h-px bg-[var(--border-primary)]" />
             <GatewayDegradedBanner degraded={degraded} />
             {provider === "zrok" && (
               <>
@@ -120,7 +120,7 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
                   onStoredChange={setReservedNameState}
                   disabled={saving}
                 />
-                <div className="h-px bg-[var(--border)]" />
+                <div className="h-px bg-[var(--border-primary)]" />
               </>
             )}
             <GatewaySetupGuide provider={provider} />
@@ -129,7 +129,7 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
         {tab === "access" && (
           <div className="space-y-4">
             <GatewayPairQR />
-            <div className="h-px bg-[var(--border)]" />
+            <div className="h-px bg-[var(--border-primary)]" />
             <GatewayEndpoints />
           </div>
         )}
@@ -157,7 +157,7 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
                 onClose();
                 navigate("/settings/security");
               }}
-              className="rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]"
+              className="rounded border border-[var(--border-primary)] px-3 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]"
             >
               {t("gateway.openSecurity", undefined, "Open Security →")}
             </button>
@@ -165,7 +165,7 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
         )}
       </div>
 
-      <div className="mt-4 flex items-center gap-2 border-t border-[var(--border)] pt-3">
+      <div className="mt-4 flex items-center gap-2 border-t border-[var(--border-primary)] pt-3">
         <span className="flex-1" />
         {error && (
           <span className="text-xs text-[var(--danger,#ef4444)]" data-testid="gateway-dialog-error">
@@ -180,7 +180,7 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
               setError(e instanceof Error ? e.message : t("gateway.err.disconnectFailed", undefined, "disconnect failed")),
             )
           }
-          className="rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--danger,#ef4444)]"
+          className="rounded border border-[var(--border-primary)] px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--danger,#ef4444)]"
         >
           {t("gateway.disconnect", undefined, "Disconnect")}
         </button>
@@ -212,7 +212,7 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
                   ),
                 );
             }}
-            className="rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--severity-error-fg)]"
+            className="rounded border border-[var(--border-primary)] px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--severity-error-fg)]"
           >
             {t("gateway.releaseReserved", undefined, "Release reserved URL")}
           </button>

@@ -173,6 +173,7 @@ export function buildConfig(flags: Partial<ServerConfig>): ServerConfig {
     tunnelReservedName: fileConfig.tunnel.zrok?.reservedName,
     tunnelPersistent: fileConfig.tunnel.zrok?.persistent,
     tunnelWatchdog: fileConfig.tunnel.watchdog,
+    tunnelConfig: fileConfig.tunnel,
     authConfig: fileConfig.auth,
     maxEventsPerSession: fileConfig.memoryLimits.maxEventsPerSession,
     maxStringFieldSize: fileConfig.memoryLimits.maxStringFieldSize,

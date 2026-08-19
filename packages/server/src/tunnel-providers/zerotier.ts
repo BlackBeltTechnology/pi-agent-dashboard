@@ -122,6 +122,7 @@ export class ZeroTierProvider implements TunnelProvider {
     this.run(["join", this.networkId]);
     const ip = parseAssignedIpv4(this.listNetworks(), this.networkId);
     // No IP yet ⇒ node not authorized in the controller (out-of-band step).
+    this.lastPort = port;
     this.lastEndpoints = ip ? [deriveMeshEndpoint(ip, port)] : [];
     return { endpoints: this.lastEndpoints };
   }
@@ -136,4 +137,28 @@ export class ZeroTierProvider implements TunnelProvider {
   status(): ProviderStatus {
     return { active: this.lastEndpoints.length > 0, endpoints: this.lastEndpoints };
   }
+
+  /**
+   * Ask the DAEMON, not our own memory.
+   *
+   * `status()` reads `lastEndpoints`, set only when THIS process ran
+   * `connect()`. A node joined and authorized out of band reads `disconnected`
+   * forever; one that left the network reads `connected` forever. Both are what
+   * the readiness board exists to report, so liveness is re-derived from
+   * `zerotier-cli -j listnetworks` on every call.
+   *
+   * An assigned mesh IPv4 IS the liveness signal here: ZeroTier hands one out
+   * only once the controller has authorized the node.
+   *
+   * See change: add-zrok-custom-reserved-name (D6.1).
+   */
+  async probeLive(): Promise<TunnelEndpoint[]> {
+    if (!this.networkId) return [];
+    const ip = parseAssignedIpv4(this.listNetworks(), this.networkId);
+    if (!ip) return [];
+    return [deriveMeshEndpoint(ip, this.lastPort ?? 0)];
+  }
+
+  /** Remembered so `probeLive()` can rebuild the same URL a connect produced. */
+  private lastPort?: number;
 }

@@ -47,15 +47,15 @@
 
 ## 5. Per-provider readiness — server
 
-- [ ] 5.1 Write a failing readiness truth-table test per provider covering all four states from `detectBinary()` / `isEnrolled()` / liveness — liveness is `status().active` for `kind:"child"` and `probeLive()` for `kind:"daemon"` (see 5.4-5.5)
-- [ ] 5.2 Write a failing test that a **throwing** predicate degrades only its own provider and never blanks the board
-- [ ] 5.3 Write a failing test that a stale tool-registry cache is refreshed — `rescan(name)` runs before `detectBinary()` so a terminal install is seen without a restart
-- [ ] 5.4 Write a failing test that a `kind:"daemon"` provider started OUTSIDE the dashboard reports `connected`, and one that died reports `disconnected` — `status().active` (in-memory `lastEndpoints`) cannot satisfy either
-- [ ] 5.5 Add `probeLive()` to the daemon providers (tailscale backend state, zerotier network authorization); readiness uses it instead of `status().active` for `kind:"daemon"`. It SHALL return reachable **endpoints**, not a bare boolean — a daemon connected outside the dashboard has an empty `lastEndpoints` and the report still owes endpoints
-- [ ] 5.6 Write a failing test that install/removal is detected for **both** memoizing providers — `registry.rescan()` clears neither zrok's `zrokAvailable` (`zrok.ts:38`) nor ngrok's `ngrokAvailable` (`ngrok.ts:27`); add a public invalidation entry point to each (not the test-only `_resetBinaryCache`)
-- [ ] 5.7 Write a failing test that a HUNG predicate (not just a throwing one) degrades only its own provider: bound every predicate below the poll interval, mark it `stale`, return the providers that answered
-- [ ] 5.8 Implement the readiness endpoint returning four-state readiness for every known provider
-- [ ] 5.9 **[observability-instrumentation]** Make a misclassification diagnosable — log which predicate produced each state
+- [x] 5.1 Write a failing readiness truth-table test per provider covering all four states from `detectBinary()` / `isEnrolled()` / liveness — liveness is `status().active` for `kind:"child"` and `probeLive()` for `kind:"daemon"` (see 5.4-5.5)
+- [x] 5.2 Write a failing test that a **throwing** predicate degrades only its own provider and never blanks the board
+- [x] 5.3 Write a failing test that a stale tool-registry cache is refreshed — `rescan(name)` runs before `detectBinary()` so a terminal install is seen without a restart
+- [x] 5.4 Write a failing test that a `kind:"daemon"` provider started OUTSIDE the dashboard reports `connected`, and one that died reports `disconnected` — `status().active` (in-memory `lastEndpoints`) cannot satisfy either
+- [x] 5.5 Add `probeLive()` to the daemon providers (tailscale backend state, zerotier network authorization); readiness uses it instead of `status().active` for `kind:"daemon"`. It SHALL return reachable **endpoints**, not a bare boolean — a daemon connected outside the dashboard has an empty `lastEndpoints` and the report still owes endpoints
+- [x] 5.6 Write a failing test that install/removal is detected for **both** memoizing providers — `registry.rescan()` clears neither zrok's `zrokAvailable` (`zrok.ts:38`) nor ngrok's `ngrokAvailable` (`ngrok.ts:27`); add a public invalidation entry point to each (not the test-only `_resetBinaryCache`)
+- [x] 5.7 Write a failing test that a HUNG predicate (not just a throwing one) degrades only its own provider: bound every predicate below the poll interval, mark it `stale`, return the providers that answered
+- [x] 5.8 Implement the readiness endpoint returning four-state readiness for every known provider
+- [x] 5.9 **[observability-instrumentation]** Make a misclassification diagnosable — log which predicate produced each state
 
 ## 6. Readiness UI — board, steps, poll
 
@@ -71,25 +71,25 @@
 
 ## 7. Concurrency — per-provider runtimes
 
-- [ ] 7.1 Add `tunnel.<id>.enabled` to `packages/shared/src/config.ts`; write a test that an existing single-provider config behaves identically (absent ⇒ false)
-- [ ] 7.1a Add `tunnel.<id>.mode` — a single top-level `mode` cannot express `zrok` primary + `zerotier` enabled (PROVIDER_MODES: zerotier private-only, zrok/ngrok public-only). Default to the provider's sole supported mode when it has exactly one
-- [ ] 7.1c Write a failing test for the **multi-mode** provider: tailscale supports BOTH `public` and `private` (`tunnel-provider.ts:108`), so an enabled tailscale with no `tunnel.tailscale.mode` is a per-provider config error — no mode can be inferred — while the primary still connects
-- [ ] 7.1b Write a failing test that an unsupported mode on a NON-primary disables only that provider, while an unsupported mode on the primary still refuses the connect as today
-- [ ] 7.2 Write a failing test that `tunnel.provider` now means *primary* and `getTunnelUrl()` returns the primary's URL
+- [x] 7.1 Add `tunnel.<id>.enabled` to `packages/shared/src/config.ts`; write a test that an existing single-provider config behaves identically (absent ⇒ false)
+- [x] 7.1a Add `tunnel.<id>.mode` — a single top-level `mode` cannot express `zrok` primary + `zerotier` enabled (PROVIDER_MODES: zerotier private-only, zrok/ngrok public-only). Default to the provider's sole supported mode when it has exactly one
+- [x] 7.1c Write a failing test for the **multi-mode** provider: tailscale supports BOTH `public` and `private` (`tunnel-provider.ts:108`), so an enabled tailscale with no `tunnel.tailscale.mode` is a per-provider config error — no mode can be inferred — while the primary still connects
+- [x] 7.1b Write a failing test that an unsupported mode on a NON-primary disables only that provider, while an unsupported mode on the primary still refuses the connect as today
+- [x] 7.2 Write a failing test that `tunnel.provider` now means *primary* and `getTunnelUrl()` returns the primary's URL
 - [ ] 7.3 Replace zrok-hardcoded delegation in `packages/server/src/tunnel/tunnel.ts` with a per-provider runtime registry
 - [ ] 7.4 Give each **`kind:"child"`** provider (zrok, ngrok) its own runtime instance, **per-provider PID file** and watchdog in `tunnel-core.ts` — per-provider naming from the first commit. Daemon providers (tailscale, zerotier) carry NO PID file and NO watchdog, per the shipped "child vs daemon lifecycle" scenario
 - [ ] 7.5 Write a failing recycle test: restarting one provider leaves every other provider's PID untouched
 - [ ] 7.6 Write a failing two-tunnel test asserting the OAuth redirect URI derives from the **primary only**
-- [ ] 7.7 Write a failing test that a disconnected primary falls back exactly as today, with **no** silent promotion of another live tunnel
+- [x] 7.7 Write a failing test that a disconnected primary falls back exactly as today, with **no** silent promotion of another live tunnel
 - [ ] 7.8 Implement the confirm-gated primary switch (D10), stating inline that switching re-mints the redirect URI
 
 ## 8. CORS
 
-- [ ] 8.1 Write a failing test that every **connected** tunnel origin is CORS-allowed
-- [ ] 8.2 Write a failing test that a disconnected provider's origin stops being allowed
-- [ ] 8.2a Write a test that the pre-existing `*.share(s).zrok.io` wildcard (`cors-origin.ts:58`) is UNCHANGED — a disconnected zrok origin stays allowed by it; scope 8.2 to providers with no standing wildcard
-- [ ] 8.3 Implement the allowlist in `packages/server/src/auth/cors-origin.ts` against all live tunnel origins, recomputed as tunnels come and go, adding allowances without removing any
-- [ ] 8.4 **[security-hardening]** Confirm the widened allowlist does not widen the redirect base — the two must stay separate resolutions
+- [x] 8.1 Write a failing test that every **connected** tunnel origin is CORS-allowed
+- [x] 8.2 Write a failing test that a disconnected provider's origin stops being allowed
+- [x] 8.2a Write a test that the pre-existing `*.share(s).zrok.io` wildcard (`cors-origin.ts:58`) is UNCHANGED — a disconnected zrok origin stays allowed by it; scope 8.2 to providers with no standing wildcard
+- [x] 8.3 Implement the allowlist in `packages/server/src/auth/cors-origin.ts` against all live tunnel origins, recomputed as tunnels come and go, adding allowances without removing any
+- [x] 8.4 **[security-hardening]** Confirm the widened allowlist does not widen the redirect base — the two must stay separate resolutions
 
 ## 9. Gateway-URL registration offer
 
@@ -139,27 +139,27 @@ manifest id. L3 reads the harness port from `.pi-test-harness.json`
 
 ### 11b. L1 — readiness
 
-- [ ] 11.16 `detectBinary`=false · evaluate · `not-installed`; `isEnrolled` and liveness never invoked — see `packages/shared/src/__tests__/tunnel-provider.test.ts` (test-plan #E10)
-- [ ] 11.17 `detectBinary`=true, `isEnrolled`=false · evaluate · `not-set` — see same exemplar (test-plan #E11)
-- [ ] 11.18 child provider, enrolled, `status().active`=false · evaluate · `disconnected` — see same exemplar (test-plan #E12)
-- [ ] 11.19 zrok binary installed after `zrokAvailable` memoized · next evaluation · reports new state; not via the test-only `_resetBinaryCache` — see same exemplar (test-plan #X7)
-- [ ] 11.20 same for **ngrok**'s `ngrokAvailable` memo · next evaluation · reports new state — see same exemplar (test-plan #X8)
-- [ ] 11.21 `zerotier-cli` stalls 30s · readiness tick · marked `stale` at the 4s bound; other 3 returned without waiting — see same exemplar (test-plan #X9)
-- [ ] 11.22 daemon live but this process never connected (`lastEndpoints` empty) · tick · `connected` via `probeLive()` with probe endpoints, NOT `disconnected` — see same exemplar (test-plan #X10)
-- [ ] 11.23 daemon connected by this process, then dies · tick · `disconnected`, not `connected` from stale endpoints — see same exemplar (test-plan #X11)
-- [ ] 11.24 one provider stubbed to hang · single tick · tick returns; 4s bound; hung provider `stale` — see same exemplar (test-plan #P2)
+- [x] 11.16 `detectBinary`=false · evaluate · `not-installed`; `isEnrolled` and liveness never invoked — see `packages/shared/src/__tests__/tunnel-provider.test.ts` (test-plan #E10)
+- [x] 11.17 `detectBinary`=true, `isEnrolled`=false · evaluate · `not-set` — see same exemplar (test-plan #E11)
+- [x] 11.18 child provider, enrolled, `status().active`=false · evaluate · `disconnected` — see same exemplar (test-plan #E12)
+- [x] 11.19 zrok binary installed after `zrokAvailable` memoized · next evaluation · reports new state; not via the test-only `_resetBinaryCache` — see same exemplar (test-plan #X7)
+- [x] 11.20 same for **ngrok**'s `ngrokAvailable` memo · next evaluation · reports new state — see same exemplar (test-plan #X8)
+- [x] 11.21 `zerotier-cli` stalls 30s · readiness tick · marked `stale` at the 4s bound; other 3 returned without waiting — see same exemplar (test-plan #X9)
+- [x] 11.22 daemon live but this process never connected (`lastEndpoints` empty) · tick · `connected` via `probeLive()` with probe endpoints, NOT `disconnected` — see same exemplar (test-plan #X10)
+- [x] 11.23 daemon connected by this process, then dies · tick · `disconnected`, not `connected` from stale endpoints — see same exemplar (test-plan #X11)
+- [x] 11.24 one provider stubbed to hang · single tick · tick returns; 4s bound; hung provider `stale` — see same exemplar (test-plan #P2)
 
 ### 11c. L1 — config, concurrency, CORS
 
-- [ ] 11.25 `zrok/public` primary + `zerotier.enabled`, mode unset · resolve · zerotier defaults `private`; top-level mode not applied — see `packages/shared/src/__tests__/config.test.ts` (test-plan #E13)
-- [ ] 11.26 `tailscale.enabled`, mode unset · resolve · per-provider config error (two modes, none inferable); primary still connects — see same exemplar (test-plan #E14)
-- [ ] 11.27 non-primary `zerotier.mode=public` · connect · zerotier alone disabled; others connect — see same exemplar (test-plan #E15)
-- [ ] 11.28 primary `zrok.mode=private` · connect · whole connect refused, as before — see same exemplar (test-plan #E16)
-- [ ] 11.29 legacy bare `tunnel.reservedToken`, no provider · resolve · `{zrok, public}`; v1 token never passed to v2 — see same exemplar (test-plan #E17)
-- [ ] 11.30 primary not connected, another tunnel is · mint redirect URI · falls back as today, no silent promotion — see same exemplar (test-plan #X13)
-- [ ] 11.31 daemon provider enabled · connect · no child PID file, no watchdog, per the shipped child-vs-daemon rule — see same exemplar (test-plan #X14)
-- [ ] 11.32 tailscale connected then disconnected · request with its origin · allowed while connected, rejected after — see `packages/server/src/__tests__/cors.test.ts` (test-plan #E25)
-- [ ] 11.33 zrok disconnected · request from `*.shares.zrok.io` · still allowed; pre-existing wildcard untouched — see same exemplar (test-plan #E26)
+- [x] 11.25 `zrok/public` primary + `zerotier.enabled`, mode unset · resolve · zerotier defaults `private`; top-level mode not applied — see `packages/shared/src/__tests__/config.test.ts` (test-plan #E13)
+- [x] 11.26 `tailscale.enabled`, mode unset · resolve · per-provider config error (two modes, none inferable); primary still connects — see same exemplar (test-plan #E14)
+- [x] 11.27 non-primary `zerotier.mode=public` · connect · zerotier alone disabled; others connect — see same exemplar (test-plan #E15)
+- [x] 11.28 primary `zrok.mode=private` · connect · whole connect refused, as before — see same exemplar (test-plan #E16)
+- [x] 11.29 legacy bare `tunnel.reservedToken`, no provider · resolve · `{zrok, public}`; v1 token never passed to v2 — see same exemplar (test-plan #E17)
+- [x] 11.30 primary not connected, another tunnel is · mint redirect URI · falls back as today, no silent promotion — see same exemplar (test-plan #X13)
+- [x] 11.31 daemon provider enabled · connect · no child PID file, no watchdog, per the shipped child-vs-daemon rule — see same exemplar (test-plan #X14)
+- [x] 11.32 tailscale connected then disconnected · request with its origin · allowed while connected, rejected after — see `packages/server/src/__tests__/cors.test.ts` (test-plan #E25)
+- [x] 11.33 zrok disconnected · request from `*.shares.zrok.io` · still allowed; pre-existing wildcard untouched — see same exemplar (test-plan #E26)
 
 ### 11d. L1 — gateway registration and theme
 
