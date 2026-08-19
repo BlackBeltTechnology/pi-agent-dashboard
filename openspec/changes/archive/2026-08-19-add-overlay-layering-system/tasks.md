@@ -99,5 +99,5 @@ tasks below are folded from `test-plan.md` (ids `test-plan #E*/F*`).
       "refused: worktree", fs.watch tests fail on `develop` too) and unrelated to this change.
 - [x] 8.4 `npm run build` succeeds; new `z-<layer>` utilities emitted into the bundle CSS.
 - [x] 8.5 E2E spec green vs the docker harness (`TEST_COPY_MODE=1` bring-up; F3 + F4 pass).
-- [ ] 8.6 (test-plan #F5, manual-only) Manual smoke: folder-actions menu + a dialog/toast/lightbox paint
+- [x] 8.6 (test-plan #F5, manual-only) Manual smoke: folder-actions menu + a dialog/toast/lightbox paint
       above siblings at 375 / 768 / 1440. (test-plan: manual-only)
