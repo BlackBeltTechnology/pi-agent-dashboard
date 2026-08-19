@@ -17,8 +17,37 @@
  *
  * Setup drives the REST API (deterministic); assertions drive the DOM.
  */
+import { execFileSync } from "node:child_process";
 import { expect, type Page, test } from "./fixtures.js";
 import { ensureGitSession, FIXTURE_GIT, gotoDashboard, pinDirectory } from "./helpers/index.js";
+import { DASHBOARD_PORT } from "./lifecycle.js";
+
+/**
+ * Resolve the harness container by the dashboard port it publishes —
+ * `test-up.sh` hash-derives a per-worktree compose project, so the name is not
+ * knowable here but the port is. Same pattern as `tmux-session-shutdown.spec.ts`.
+ */
+function resolveContainer(): string {
+  const out = execFileSync(
+    "docker",
+    ["ps", "--filter", `publish=${DASHBOARD_PORT}`, "--format", "{{.Names}}"],
+    { encoding: "utf8" },
+  ).trim();
+  const name = out.split("\n").filter(Boolean)[0];
+  if (!name) throw new Error(`no running container publishes port ${DASHBOARD_PORT}`);
+  return name;
+}
+
+/**
+ * Delete a worktree directory OUT-OF-BAND, leaving its git registration
+ * behind. `orphan-cleanup` cannot do this — it refuses a registered worktree
+ * with `not_orphan`, which is exactly the state these scenarios need.
+ */
+function deleteDirOutOfBand(absPath: string): void {
+  execFileSync("docker", ["exec", resolveContainer(), "sh", "-c", `rm -rf '${absPath}'`], {
+    encoding: "utf8",
+  });
+}
 
 interface ApiResult {
   status: number;
@@ -42,29 +71,54 @@ function post(body: unknown): RequestInit {
   return { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } as RequestInit;
 }
 
-async function createWorktree(page: Page, branch: string): Promise<string> {
-  const res = await api(page, "/api/git/worktree/create", post({ cwd: FIXTURE_GIT, base: "main", newBranch: branch }));
-  expect(res.success, `create ${branch}: ${JSON.stringify(res)}`).toBe(true);
-  return res.data.path as string;
-}
-
 async function listWorktrees(page: Page): Promise<Array<{ path: string; exists?: boolean }>> {
   const res = await api(page, `/api/git/worktrees?cwd=${encodeURIComponent(FIXTURE_GIT)}`);
-  return res.data?.worktrees ?? [];
+  return (res.data?.worktrees ?? []) as Array<{ path: string; exists?: boolean }>;
+}
+
+/** The fixture's default branch is not assumed — read it off the main entry. */
+async function baseBranch(page: Page): Promise<string> {
+  const entries = await listWorktrees(page);
+  const main = entries.find((e) => (e as { isMain?: boolean }).isMain);
+  const branch = (main as { branch?: string | null } | undefined)?.branch;
+  if (!branch) throw new Error(`could not resolve the fixture's base branch: ${JSON.stringify(entries)}`);
+  return branch;
+}
+
+/**
+ * Every worktree this spec creates, so `afterEach` can clear it. Specs share
+ * ONE container, so a leftover `.worktrees/<name>` from a previous run makes
+ * the next `create` fail `path_exists` — the spec must be re-runnable.
+ */
+const created = new Set<string>();
+const branchesCreated = new Set<string>();
+
+async function createWorktree(page: Page, name: string): Promise<string> {
+  const base = await baseBranch(page);
+  // Unique per run: the fixture repo persists across spec runs in one container.
+  const branch = `${name}-${Date.now().toString(36)}${Math.random().toString(36).slice(2, 6)}`;
+  const res = await api(page, "/api/git/worktree", post({ cwd: FIXTURE_GIT, base, newBranch: branch }));
+  expect(res.success, `create ${branch}: ${JSON.stringify(res)}`).toBe(true);
+  const path = res.data?.path as string;
+  created.add(path);
+  branchesCreated.add(branch);
+  return path;
 }
 
 /** Open the folder actions menu for the fixture repo and return the menu root. */
 async function openFolderMenu(page: Page) {
-  const group = page.locator('[data-testid="sortable-pinned-group"]').filter({ hasText: "sample-git" }).first();
-  await group.locator('[data-testid="folder-actions-menu-btn"]').first().click();
-  return page.locator('[data-testid="folder-actions-menu"]').first();
+  await page.locator(`[data-testid="folder-actions-menu-${FIXTURE_GIT}"]`).first().click();
+  return page.locator(`[data-testid="folder-actions-menu-panel-${FIXTURE_GIT}"]`).first();
 }
 
 async function openManageDialog(page: Page) {
   const menu = await openFolderMenu(page);
-  await menu.getByText("Manage worktrees").click();
+  await menu.locator('[data-testid="folder-menu-item-manage-worktrees"]').click();
   const dialog = page.locator('[data-testid="manage-worktrees-dialog"]');
   await expect(dialog).toBeVisible();
+  // The list fetches async — never count rows before the fetch settles.
+  await expect(dialog.locator('[data-testid="manage-worktrees-loading"]')).toHaveCount(0, { timeout: 20_000 });
+  await expect(dialog.locator('[data-testid="worktree-row-main"]')).toHaveCount(1, { timeout: 20_000 });
   return dialog;
 }
 
@@ -74,12 +128,30 @@ test.beforeEach(async ({ page }) => {
   await pinDirectory(page, FIXTURE_GIT);
 });
 
+test.afterEach(() => {
+  // Best-effort teardown IN the container: force-remove anything this test
+  // created, drop its branch, then prune the registrations left by the
+  // out-of-band directory deletions. Never fails the test.
+  const container = resolveContainer();
+  const cmds: string[] = [];
+  for (const p of created) cmds.push(`git -C ${FIXTURE_GIT} worktree remove --force '${p}' 2>/dev/null || true`);
+  for (const b of branchesCreated) cmds.push(`git -C ${FIXTURE_GIT} branch -D '${b}' 2>/dev/null || true`);
+  cmds.push(`git -C ${FIXTURE_GIT} worktree prune || true`);
+  try {
+    execFileSync("docker", ["exec", container, "sh", "-c", cmds.join("; ")], { encoding: "utf8" });
+  } catch {
+    // teardown is advisory
+  }
+  created.clear();
+  branchesCreated.clear();
+});
+
 // test-plan #F4
 test("folder menu offers manage-worktrees independently of live sessions", async ({ page }) => {
   const menu = await openFolderMenu(page);
   // The `directory` group holds it — not gated on any session existing.
   const directoryGroup = menu.locator('[data-testid="folder-menu-group-directory"]');
-  await expect(directoryGroup).toContainText("Manage worktrees");
+  await expect(directoryGroup.locator('[data-testid="folder-menu-item-manage-worktrees"]')).toHaveCount(1);
 });
 
 // test-plan #X13 + #F3
@@ -88,6 +160,9 @@ test("removes a session-less worktree and the list converges without a refresh",
   const dialog = await openManageDialog(page);
 
   const rows = dialog.locator('[data-testid^="worktree-row-"]');
+  for (const p of paths) {
+    await expect(dialog.locator(`[data-testid="worktree-row-${encodeURIComponent(p)}"]`)).toHaveCount(1);
+  }
   const before = await rows.count();
   expect(before).toBeGreaterThanOrEqual(4); // main + 3
 
@@ -106,14 +181,39 @@ test("removes a session-less worktree and the list converges without a refresh",
 
 // test-plan #X11 — the escalation is INHERITED, not reimplemented.
 test("removing a worktree with active sessions runs the same escalation flow", async ({ page }) => {
+  // Spawning a real pi session + ending it is well past the 60 s default.
+  test.setTimeout(180_000);
   const path = await createWorktree(page, "e2e-sessions");
-  // Spawn a session inside the worktree so the server's guard fires.
-  const spawn = await api(page, "/api/session/spawn", post({ cwd: path }));
-  expect(spawn.success, JSON.stringify(spawn)).toBe(true);
+  // Spawn a REAL session inside the worktree so the server's guard fires.
+  // There is no REST spawn endpoint (spawning is over the browser WS bus), so
+  // this drives the same sidebar affordance a user would: pin the worktree,
+  // then spawn into it.
+  await pinDirectory(page, path);
+  // Scope the spawn button to the WORKTREE's own folder cluster — an unscoped
+  // `.first()` would spawn into the fixture repo instead.
+  const body = page.locator(`[data-testid="folder-body-${path}"]`);
+  await expect(body).toBeVisible({ timeout: 30_000 });
+  await body.locator('[data-testid="folder-spawn-session-btn"]').first().click();
+  // Wait until the server actually reports an ACTIVE session under that path —
+  // the guard keys on that, not on the click.
+  await expect
+    .poll(
+      async () => {
+        const res = await api(page, "/api/sessions");
+        const sessions = (res.data?.sessions ?? res.data ?? []) as Array<{ cwd?: string; status?: string }>;
+        return sessions.filter((x) => x.cwd === path && x.status !== "ended").length;
+      },
+      { timeout: 90_000 },
+    )
+    .toBeGreaterThan(0);
 
   const dialog = await openManageDialog(page);
   await dialog.locator(`[data-testid="worktree-remove-${encodeURIComponent(path)}"]`).click();
   const close = page.locator('[data-testid="close-worktree-dialog"]');
+  await expect(close).toBeVisible();
+  // Confirm once — the server's `active_sessions` guard fires on THAT post,
+  // not on opening the dialog.
+  await close.getByRole("button", { name: /remove|close worktree/i }).last().click();
   await expect(close.locator('[data-testid="close-active-sessions"]')).toBeVisible({ timeout: 20_000 });
 
   await close.getByRole("button", { name: /end .* session/i }).click();
@@ -132,30 +232,40 @@ test("a directory deleted out-of-band reads as already gone, never a raw 400", a
   await expect(row).toBeVisible();
 
   // Delete the directory behind the client's back — the list is now stale.
-  const del = await api(page, "/api/git/worktree/cleanup-orphan", post({ cwd: FIXTURE_GIT, path }));
-  expect(del.status).toBeLessThan(500);
+  deleteDirOutOfBand(path);
 
   await dialog.locator(`[data-testid="worktree-remove-${encodeURIComponent(path)}"]`).click();
   const close = page.locator('[data-testid="close-worktree-dialog"]');
-  if (await close.count()) {
-    await close.getByRole("button", { name: /remove|close worktree/i }).last().click();
-  }
-  // Treated as "already gone": the row leaves, and no raw 400 is rendered.
-  await expect(row).toHaveCount(0, { timeout: 15_000 });
+  await expect(close).toBeVisible();
+  await close.getByRole("button", { name: /remove|close worktree/i }).last().click();
+
+  // The server 400s `cwd_invalid` (validateCwd rejects a nonexistent path
+  // before git runs). "Already gone" means the confirm dialog DISMISSES and no
+  // raw 400 surfaces — it must not become a dead end.
+  await expect(close).toHaveCount(0, { timeout: 15_000 });
   await expect(dialog).not.toContainText("400");
   await expect(dialog).not.toContainText("cwd_invalid");
+
+  // Per design D8 the registration still exists, so the row does NOT vanish —
+  // it converts to a prune candidate: the `✕` is replaced by a prune
+  // affordance and the row is excluded from selection.
+  await expect(row).toHaveCount(1);
+  await expect(dialog.locator(`[data-testid="worktree-remove-${encodeURIComponent(path)}"]`)).toHaveCount(0, { timeout: 15_000 });
+  await expect(dialog.locator(`[data-testid="worktree-prune-${encodeURIComponent(path)}"]`)).toHaveCount(1);
+  await expect(dialog.locator(`[data-testid="worktree-select-${encodeURIComponent(path)}"]`)).toHaveCount(0);
 });
 
 // test-plan #X12 — prune is repo-GLOBAL; the copy must not imply one row.
 test("prune clears every stale registration and says so", async ({ page }) => {
   const a = await createWorktree(page, "e2e-stale-a");
   const b = await createWorktree(page, "e2e-stale-b");
-  for (const p of [a, b]) {
-    await api(page, "/api/git/worktree/cleanup-orphan", post({ cwd: FIXTURE_GIT, path: p }));
-  }
+  for (const p of [a, b]) deleteDirOutOfBand(p);
   const dialog = await openManageDialog(page);
-  // Both render as missing rows carrying the prune affordance.
-  await expect(dialog.locator('[data-testid="worktree-row-missing"]')).toHaveCount(2);
+  // Both of THIS test's rows render as missing, carrying the prune affordance.
+  // Asserted per-row, not as a global count — the container is shared.
+  for (const p of [a, b]) {
+    await expect(dialog.locator(`[data-testid="worktree-prune-${encodeURIComponent(p)}"]`)).toHaveCount(1);
+  }
 
   await dialog.locator(`[data-testid="worktree-prune-${encodeURIComponent(a)}"]`).click();
 

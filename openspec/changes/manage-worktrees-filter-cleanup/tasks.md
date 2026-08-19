@@ -47,7 +47,7 @@
 
 - [x] 5.1 Add `deleteBranch?: boolean` to `removeWorktree()` params in `packages/client/src/lib/git/git-api.ts` and widen its success type to carry `branchDeleted` + `branchDeleteCode`
 - [x] 5.2 Add `removeWorktreeBatch(items)` returning the per-item result array, and `pruneWorktrees({ cwd })`, both via the existing `postLifecycle` helper
-- [ ] 5.3 Update `packages/client/src/lib/git/AGENTS.md` and `git-api.ts.AGENTS.md` rows with the new exports
+- [x] 5.3 Update `packages/client/src/lib/git/AGENTS.md` and `git-api.ts.AGENTS.md` rows with the new exports
 
 ## 6. Client — shared `WorktreeList` component
 
@@ -81,12 +81,12 @@
 
 - [x] 8.1 Author the menu-gating tests in `packages/client/src/components/__tests__/SessionList.worktree-per-change.test.tsx` (see its existing folder-menu item assertions). Triple: a folder that is not a git repository · build the folder menu items · no manage-worktrees item present (test-plan #F5)
 - [x] 8.2 Author the empty-group regression test in the same file. Triple: a folder for which no workspace-group item applies · open the menu · the workspace group heading does not render — guards the MODIFIED folder-actions-menu delta against dropping this (test-plan #F6)
-- [ ] 8.3 Author the session-independence e2e in `tests/e2e/` (see an existing spec for harness glue; read `dashboardPort` from `.pi-test-harness.json`, never hardcode `:18000`). Triple: a git-repo folder with zero live sessions · open the folder actions menu · the `directory` group contains the manage-worktrees item (test-plan #F4)
-- [ ] 8.4 Author the session-less removal e2e in `tests/e2e/`. Triple: a worktree with no entry in the session map · open the manage surface, activate `✕`, confirm · `CloseWorktreeDialog` opens, the removal completes, and no `active_sessions` guard fires (test-plan #X13)
-- [ ] 8.5 Author the escalation-inheritance e2e in `tests/e2e/`. Triple: a worktree with 2 active sessions removed from the manage surface · activate `✕` then "End N sessions and remove worktree" · the same escalation flow runs as from `WorktreeActionsMenu` — sessions end, removal retries, worktree is gone (test-plan #X11)
-- [ ] 8.6 Author the list-convergence e2e in `tests/e2e/`. Triple: manage dialog open with 3 removable rows · remove one and let the response settle · the list converges to 2 rows without a manual refresh and no row stays permanently pending (test-plan #F3)
-- [ ] 8.7 Author the TOCTOU e2e in `tests/e2e/`. Triple: a row whose directory is deleted out-of-band after the list was fetched · activate `✕` and confirm · the client treats the resulting `cwd_invalid` as "already gone", the row leaves the list, and no raw 400 is rendered (test-plan #X5)
-- [ ] 8.8 Author the repo-global prune e2e in `tests/e2e/`. Triple: two stale registrations, prune activated from the affordance on one row · activate prune · both stale registrations are cleared and the surfaced copy conveys a repo-global count rather than implying only that row (test-plan #X12)
+- [x] 8.3 Author the session-independence e2e in `tests/e2e/` (see an existing spec for harness glue; read `dashboardPort` from `.pi-test-harness.json`, never hardcode `:18000`). Triple: a git-repo folder with zero live sessions · open the folder actions menu · the `directory` group contains the manage-worktrees item (test-plan #F4)
+- [x] 8.4 Author the session-less removal e2e in `tests/e2e/`. Triple: a worktree with no entry in the session map · open the manage surface, activate `✕`, confirm · `CloseWorktreeDialog` opens, the removal completes, and no `active_sessions` guard fires (test-plan #X13)
+- [x] 8.5 Author the escalation-inheritance e2e in `tests/e2e/`. Triple: a worktree with 2 active sessions removed from the manage surface · activate `✕` then "End N sessions and remove worktree" · the same escalation flow runs as from `WorktreeActionsMenu` — sessions end, removal retries, worktree is gone (test-plan #X11)
+- [x] 8.6 Author the list-convergence e2e in `tests/e2e/`. Triple: manage dialog open with 3 removable rows · remove one and let the response settle · the list converges to 2 rows without a manual refresh and no row stays permanently pending (test-plan #F3)
+- [x] 8.7 Author the TOCTOU e2e in `tests/e2e/`. **Scenario corrected during apply**: X5's "the row leaves the list" contradicts design D8 (the registration survives, so the row converts to a prune candidate). The spec asserts the real guarantee — the confirm dialog dismisses, no raw 400/`cwd_invalid` surfaces, and the row's `✕` is replaced by a prune affordance with the row excluded from selection. Triple: a row whose directory is deleted out-of-band after the list was fetched · activate `✕` and confirm · the client treats the resulting `cwd_invalid` as "already gone", the row leaves the list, and no raw 400 is rendered (test-plan #X5)
+- [x] 8.8 Author the repo-global prune e2e in `tests/e2e/`. Triple: two stale registrations, prune activated from the affordance on one row · activate prune · both stale registrations are cleared and the surfaced copy conveys a repo-global count rather than implying only that row (test-plan #X12)
 - [x] 8.9 Register the `manage-worktrees` item in the menu-item builder in `packages/client/src/components/session/SessionList.tsx`, opening a `Dialog size="lg"` hosting `<WorktreeList mode="manage" />`, gated on the folder being a git repository (design D3)
 - [x] 8.10 Wire per-row `✕` to `CloseWorktreeDialog(cwd)` — passing `allSessions` + `onShutdownSession` through — so `active_sessions` and `dirty_worktree` escalations are inherited unchanged. The dialog is NOT reusable strictly as-is: its `attempt()` posts `{ cwd, force }` only, so `deleteBranch` needs a new optional prop threaded into the POST body
 - [x] 8.11 Handle `cwd_invalid` inside `CloseWorktreeDialog` itself as "already gone" rather than rendering a raw 400 — the two-dialogs-same-cwd race lands there, not only in the bulk bar
@@ -94,21 +94,21 @@
 - [x] 8.13 Reuse `CloseWorktreeDialog`'s escalation logic for per-row batch recovery rather than reimplementing it; retries MUST carry the original `deleteBranch` intent and the per-item `sessionIds` from the batch response
 - [x] 8.14 Implement partial-failure rendering: a top summary linking to each failure plus an inline strip at each failing row carrying cause and a recovery action, conveyed by icon + text + border (not colour alone)
 - [x] 8.15 Add `Prune stale registrations` as a subordinate footer control reporting the pruned count; copy MUST convey that prune is repo-global (it clears every stale registration, not just the row whose affordance was used)
-- [ ] 8.16 Verify tasks 8.1–8.8 pass
+- [x] 8.16 Verify tasks 8.1–8.8 pass
 
 ## 9. Cross-cutting verification
 
-- [ ] 9.1 Author the contrast e2e in `tests/e2e/` (see an existing spec for harness glue). Triple: the manage list rendered with the real token stylesheet · measure computed contrast of branch and path text against their background in dark and light · every row text run measures ≥ 4.5:1 in BOTH themes and no row text resolves to `--text-muted` or `--text-tertiary` (test-plan #F7)
+- [x] 9.1 Author the contrast e2e in `tests/e2e/` (see an existing spec for harness glue). Triple: the manage list rendered with the real token stylesheet · measure computed contrast of branch and path text against their background in dark and light · every row text run measures ≥ 4.5:1 in BOTH themes and no row text resolves to `--text-muted` or `--text-tertiary` (test-plan #F7)
 - [x] 9.2 DROPPED — C1 resolved to "no budget" (batches are rare, blocking accepted), so test-plan #P1 is dropped rather than weakened to an exit-0 assertion
-- [ ] 9.3 Author the Windows separator smoke in `qa/tests/*.ps1`. Triple: a real Windows runner with a repo containing one `.worktrees/` entry · run the dashboard and fetch the worktree list, asserting classification at the process level · the in-tree entry is classified in-tree on Windows path separators. If the qa matrix has no Windows target, record that this stays unverified rather than silently dropping it (test-plan #X14)
+- [x] 9.3 Author the Windows separator smoke in `qa/tests/*.ps1`. Triple: a real Windows runner with a repo containing one `.worktrees/` entry · run the dashboard and fetch the worktree list, asserting classification at the process level · the in-tree entry is classified in-tree on Windows path separators. If the qa matrix has no Windows target, record that this stays unverified rather than silently dropping it (test-plan #X14)
 - [ ] 9.4 Manually verify the chip affordance reads as an action (test-plan: manual-only). A human reads `+ detached 5` and confirms it means "click to add these", not "5 are currently shown" (test-plan #F9)
 - [ ] 9.5 Manually verify the two-line row at 375px with the longest real fixture paths (test-plan: manual-only). A human confirms branch and path are both readable with no ambiguous truncation (test-plan #F10)
 
 ## 10. Docs and quality gates
 
-- [ ] 10.1 Add `WorktreeList.tsx` to `packages/client/src/components/worktree/AGENTS.md` and create its `WorktreeList.tsx.AGENTS.md` sidecar; update the `WorktreeSpawnDialog.tsx` row to note §1 is now delegated
-- [ ] 10.2 Update `packages/server/src/routes/git-routes.ts.AGENTS.md` and `git-operations.ts.AGENTS.md` rows for the two new endpoints, `deleteBranch`, and the `exists` field
-- [ ] 10.3 Delegate to DocScribe: update the worktree-lifecycle section of `docs/architecture.md` from "5 endpoints under `/api/git/worktree/*`" to 7, and note the session-less removal path
-- [ ] 10.4 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and confirm no `FAIL`
-- [ ] 10.5 Run `npm run quality:changed` and clear any new Biome findings
+- [x] 10.1 Add `WorktreeList.tsx` to `packages/client/src/components/worktree/AGENTS.md` and create its `WorktreeList.tsx.AGENTS.md` sidecar; update the `WorktreeSpawnDialog.tsx` row to note §1 is now delegated
+- [x] 10.2 Update `packages/server/src/routes/git-routes.ts.AGENTS.md` and `git-operations.ts.AGENTS.md` rows for the two new endpoints, `deleteBranch`, and the `exists` field
+- [x] 10.3 Delegate to DocScribe: update the worktree-lifecycle section of `docs/architecture.md` from "5 endpoints under `/api/git/worktree/*`" to 7, and note the session-less removal path
+- [x] 10.4 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and confirm no `FAIL`
+- [x] 10.5 Run `npm run quality:changed` and clear any new Biome findings
 - [ ] 10.6 Final isolated-environment QA per the `isolated-ui-verification` skill (never the live :8000 server): default view hides the harness rows, chips reveal them with correct counts, `✕` removes a session-less worktree, bulk remove reports per-row failures, both themes at 375/768/1440
