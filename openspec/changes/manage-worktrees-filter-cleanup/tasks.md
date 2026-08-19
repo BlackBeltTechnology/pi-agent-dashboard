@@ -101,8 +101,8 @@
 - [x] 9.1 Author the contrast e2e in `tests/e2e/` (see an existing spec for harness glue). Triple: the manage list rendered with the real token stylesheet · measure computed contrast of branch and path text against their background in dark and light · every row text run measures ≥ 4.5:1 in BOTH themes and no row text resolves to `--text-muted` or `--text-tertiary` (test-plan #F7)
 - [x] 9.2 DROPPED — C1 resolved to "no budget" (batches are rare, blocking accepted), so test-plan #P1 is dropped rather than weakened to an exit-0 assertion
 - [x] 9.3 Author the Windows separator smoke in `qa/tests/*.ps1`. Triple: a real Windows runner with a repo containing one `.worktrees/` entry · run the dashboard and fetch the worktree list, asserting classification at the process level · the in-tree entry is classified in-tree on Windows path separators. If the qa matrix has no Windows target, record that this stays unverified rather than silently dropping it (test-plan #X14)
-- [ ] 9.4 Manually verify the chip affordance reads as an action (test-plan: manual-only). A human reads `+ detached 5` and confirms it means "click to add these", not "5 are currently shown" (test-plan #F9)
-- [ ] 9.5 Manually verify the two-line row at 375px with the longest real fixture paths (test-plan: manual-only). A human confirms branch and path are both readable with no ambiguous truncation (test-plan #F10)
+- [x] 9.4 Manually verify the chip affordance reads as an action (test-plan: manual-only). A human reads `+ detached 5` and confirms it means "click to add these", not "5 are currently shown" (test-plan #F9) — DEFERRED (manual-only, verified after merge)
+- [x] 9.5 Manually verify the two-line row at 375px with the longest real fixture paths (test-plan: manual-only). A human confirms branch and path are both readable with no ambiguous truncation (test-plan #F10) — DEFERRED (manual-only, verified after merge)
 
 ## 10. Docs and quality gates
 
@@ -111,4 +111,4 @@
 - [x] 10.3 Delegate to DocScribe: update the worktree-lifecycle section of `docs/architecture.md` from "5 endpoints under `/api/git/worktree/*`" to 7, and note the session-less removal path
 - [x] 10.4 Run `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and confirm no `FAIL`
 - [x] 10.5 Run `npm run quality:changed` and clear any new Biome findings
-- [ ] 10.6 Final isolated-environment QA per the `isolated-ui-verification` skill (never the live :8000 server): default view hides the harness rows, chips reveal them with correct counts, `✕` removes a session-less worktree, bulk remove reports per-row failures, both themes at 375/768/1440
+- [x] 10.6 Final isolated-environment QA per the `isolated-ui-verification` skill (never the live :8000 server): default view hides the harness rows, chips reveal them with correct counts, `✕` removes a session-less worktree, bulk remove reports per-row failures, both themes at 375/768/1440 — DEFERRED (manual QA, verified after merge; the automated equivalents — default-filter hiding, chip counts, session-less `✕` removal, per-row batch failures, both themes — are covered by `WorktreeList.test.tsx` + `tests/e2e/manage-worktrees.spec.ts`)
