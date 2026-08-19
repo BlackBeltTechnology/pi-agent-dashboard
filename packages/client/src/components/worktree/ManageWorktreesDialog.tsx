@@ -69,11 +69,22 @@ export function ManageWorktreesDialog({ cwd, allSessions, onShutdownSession, onC
   const retryOne = useCallback(
     async (itemCwd: string, opts: { deleteBranch: boolean; force: boolean }) => {
       setPending([itemCwd]);
-      const result = await removeWorktreeBatch([
-        { cwd: itemCwd, deleteBranch: opts.deleteBranch, force: opts.force },
-      ]);
-      setPending([]);
-      const item = result.ok ? result.data?.results?.[0] : undefined;
+      let result: Awaited<ReturnType<typeof removeWorktreeBatch>>;
+      try {
+        result = await removeWorktreeBatch([
+          { cwd: itemCwd, deleteBranch: opts.deleteBranch, force: opts.force },
+        ]);
+      } catch (err) {
+        setNotice(err instanceof Error ? err.message : String(err));
+        return;
+      } finally {
+        setPending([]);
+      }
+      if (!result.ok) {
+        setNotice(result.error);
+        return;
+      }
+      const item = result.data?.results?.[0];
       setFailures((prev) => {
         const next = { ...prev };
         if (item?.ok) delete next[itemCwd];
@@ -94,40 +105,31 @@ export function ManageWorktreesDialog({ cwd, allSessions, onShutdownSession, onC
       setBusy(true);
       setPending(paths);
       setFailures({});
-      // Retries must carry the ORIGINAL deleteBranch intent, not a default.
-      const result = await removeWorktreeBatch(
-        paths.map((p) => ({ cwd: p, deleteBranch: opts.deleteBranch })),
-      );
-      setPending([]);
-      busyRef.current = false;
-      setBusy(false);
+      let result: Awaited<ReturnType<typeof removeWorktreeBatch>>;
+      try {
+        // Retries must carry the ORIGINAL deleteBranch intent, not a default.
+        result = await removeWorktreeBatch(
+          paths.map((p) => ({ cwd: p, deleteBranch: opts.deleteBranch })),
+        );
+      } catch (err) {
+        // A transport-level rejection must still clear the guard, or every row
+        // stays pending forever and all later bulk clicks silently no-op.
+        setNotice(err instanceof Error ? err.message : String(err));
+        return;
+      } finally {
+        setPending([]);
+        busyRef.current = false;
+        setBusy(false);
+      }
       if (!result.ok) {
         setNotice(result.error);
         return;
       }
-      const next: typeof failures = {};
-      for (const item of result.data?.results ?? ([] as RemoveBatchItemResult[])) {
-        if (item.ok) continue;
-        next[item.cwd] = {
-          code: item.code,
-          // Carry the per-item sessionIds through: an escalation retry needs
-          // them, and dropping them here makes the retry unimplementable.
-          sessionIds: item.sessionIds,
-          message: describeFailure(item),
-          // The retry re-sends THIS row with the ORIGINAL deleteBranch intent
-          // and `force` for the escalatable causes — never a fresh default.
-          onRetry: () => {
-            void retryOne(item.cwd, {
-              deleteBranch: opts.deleteBranch,
-              force: item.code === "active_sessions" || item.code === "dirty_worktree",
-            });
-          },
-        };
-      }
-      setFailures(next);
+      setFailures(
+        buildFailures(result.data?.results ?? [], opts.deleteBranch, retryOne),
+      );
       await refresh();
     },
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [refresh, retryOne],
   );
 
@@ -213,6 +215,39 @@ export function ManageWorktreesDialog({ cwd, allSessions, onShutdownSession, onC
       )}
     </>
   );
+}
+
+/** Escalatable per-item causes — the only ones a `force` retry can clear. */
+function isEscalatable(code: string): boolean {
+  return code === "active_sessions" || code === "dirty_worktree";
+}
+
+/** Map failed batch rows → failure strips carrying cause + a recovery action. */
+function buildFailures(
+  results: RemoveBatchItemResult[],
+  deleteBranch: boolean,
+  retryOne: (cwd: string, opts: { deleteBranch: boolean; force: boolean }) => Promise<void>,
+): Record<string, { code: string; message?: string; sessionIds?: string[]; onRetry?: () => void }> {
+  const next: Record<
+    string,
+    { code: string; message?: string; sessionIds?: string[]; onRetry?: () => void }
+  > = {};
+  for (const item of results) {
+    if (item.ok) continue;
+    next[item.cwd] = {
+      code: item.code,
+      // Carry the per-item sessionIds through: an escalation retry needs them,
+      // and dropping them here makes the retry unimplementable.
+      sessionIds: item.sessionIds,
+      message: describeFailure(item),
+      // The retry re-sends THIS row with the ORIGINAL deleteBranch intent and
+      // `force` only for the escalatable causes — never a fresh default.
+      onRetry: () => {
+        void retryOne(item.cwd, { deleteBranch, force: isEscalatable(item.code) });
+      },
+    };
+  }
+  return next;
 }
 
 function describeFailure(item: RemoveBatchItemResult): string {
