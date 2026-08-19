@@ -1735,7 +1735,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
           </div>
         )}
       </div>
-      <div ref={listRef} className="flex-1 overflow-y-auto">
+      <div ref={listRef} data-testid="session-list-scroll" className="flex-1 overflow-y-auto">
       {filteredSessions.length === 0 && pinnedGroups.length === 0 && (workspaces?.length ?? 0) === 0 ? (
         <div className="p-4 text-sm text-[var(--text-tertiary)]">{t("sessionList.noActiveSessions", undefined, "No active sessions")}</div>
       ) : (

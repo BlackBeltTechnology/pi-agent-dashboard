@@ -25,9 +25,37 @@
   line-height: 1.5;
 }
 
+/* ── Overlay layer scale (z-index) ────────────────────────────────
+   Single source of truth for stacking order. Portaled overlays
+   reference a layer UTILITY (z-popover, z-dialog, …) — never a raw
+   z-[NNNN], which carries no ordering intent and cannot be reasoned
+   about against the other overlays. In-flow, non-portaled decorations
+   (sticky headers, scrollbar shims) keep a small local z-* and are
+   out of scope. Ascending = paints later = on top.
+   See openspec spec overlay-layering. See change: add-overlay-layering-system. */
+@utility z-base { z-index: var(--z-base); }
+@utility z-raised { z-index: var(--z-raised); }
+@utility z-sidebar { z-index: var(--z-sidebar); }
+@utility z-overlay { z-index: var(--z-overlay); }
+@utility z-popover { z-index: var(--z-popover); }
+@utility z-dialog { z-index: var(--z-dialog); }
+@utility z-toast { z-index: var(--z-toast); }
+@utility z-lightbox { z-index: var(--z-lightbox); }
+
 /* ── Theme Variables ─────────────────────────────────────────── */
 
 :root {
+  /* Overlay layer scale — see the @utility block above for the rule.
+     One ascending, gap-spaced scale, inherited by every theme. */
+  --z-base: 0;
+  --z-raised: 10;
+  --z-sidebar: 20;
+  --z-overlay: 30;
+  --z-popover: 40;
+  --z-dialog: 50;
+  --z-toast: 60;
+  --z-lightbox: 70;
+
   /* Backgrounds — wider contrast gaps for dark mode */
   --bg-primary: #0a0a0a;       /* page background */
   --bg-secondary: #141414;     /* panels, sidebar, expanded areas */

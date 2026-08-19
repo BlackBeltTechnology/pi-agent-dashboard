@@ -197,7 +197,7 @@ function CascadeDialogView({
   );
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[var(--bg-overlay)]"
+      className="fixed inset-0 z-dialog flex items-center justify-center bg-[var(--bg-overlay)]"
       data-testid="plugins-cascade-dialog"
       role="dialog"
       aria-modal="true"
