@@ -179,18 +179,19 @@ function grownEntries(found, current) {
   return grown;
 }
 
-function writeBaseline(found) {
+function writeBaseline(found, { bootstrap = false } = {}) {
   let current = null;
   try {
     current = loadBaseline();
   } catch (err) {
-    // ONLY a missing file means "no baseline yet". Swallowing every error made
-    // the refuses-to-grow guard trivially bypassable: corrupt the baseline JSON
-    // and `--write` would happily adopt today's numbers, which is precisely the
-    // direction the ratchet forbids.
-    if (err?.code !== "ENOENT") {
-      console.error(`\u2717 theme-token-guard: existing baseline could not be read \u2014 ${err?.message ?? err}`);
-      console.error("      Refusing to overwrite it. Repair or delete it deliberately.");
+    // A missing OR malformed baseline is a HARD ERROR, never an implicit
+    // "adopt whatever we measure today" — same rule knip-ratchet states for
+    // itself. Otherwise `rm scripts/theme-token-baseline.json && --write`
+    // recreates a LARGER baseline and the shrink-only ratchet is bypassed by
+    // two commands. Bootstrapping is a deliberate, separate act.
+    if (!bootstrap) {
+      console.error(`\u2717 theme-token-guard: baseline could not be read \u2014 ${err?.message ?? err}`);
+      console.error("      Refusing to write. Repair it, or pass --bootstrap to establish a NEW one deliberately.");
       process.exit(1);
     }
   }
@@ -212,7 +213,7 @@ function writeBaseline(found) {
 function main() {
   const found = scan();
   if (process.argv.includes("--write")) {
-    writeBaseline(found);
+    writeBaseline(found, { bootstrap: process.argv.includes("--bootstrap") });
     return;
   }
 

@@ -13,11 +13,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const execFileSyncMock = vi.fn();
+/** Async exec. Invokes the callback with no error so a reservation "succeeds". */
+const execFileMock = vi.fn(
+  (_bin: string, _args: string[], _opts: unknown, cb: (e: null, o: string, s: string) => void) => cb(null, "", ""),
+);
 const whichMock = vi.fn((_name: string) => "/usr/local/bin/zrok2");
 
+// BOTH exec surfaces are mocked. The async twin uses `execFile`, so asserting
+// only on `execFileSync` would let an async validation regression through — the
+// exact vacuity this suite exists to prevent elsewhere.
 vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/exec.js", async (importOriginal) => {
   const actual = await importOriginal<any>();
-  return { ...actual, execFileSync: (...a: any[]) => execFileSyncMock(...a) };
+  return {
+    ...actual,
+    execFileSync: (...a: any[]) => execFileSyncMock(...a),
+    execFile: (bin: string, args: string[], opts: unknown, cb: (e: null, o: string, s: string) => void) =>
+      execFileMock(bin, args, opts, cb),
+  };
 });
 
 vi.mock("@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js", async (importOriginal) => {
@@ -67,6 +79,10 @@ function failWith(stderr: string) {
 beforeEach(() => {
   execFileSyncMock.mockReset();
   execFileSyncMock.mockReturnValue("");
+  execFileMock.mockReset();
+  execFileMock.mockImplementation(
+    (_bin: string, _args: string[], _opts: unknown, cb: (e: null, o: string, s: string) => void) => cb(null, "", ""),
+  );
   writeShouldFail = false;
   vi.spyOn(console, "warn").mockImplementation(() => {});
 });
@@ -276,15 +292,35 @@ describe("reserveNameAsync agrees with reserveName", () => {
   ])("%s: both twins reject identically, and neither invokes zrok", async (_label, name) => {
     const sync = reserveName(name);
     execFileSyncMock.mockClear();
+    execFileMock.mockClear();
     const async = await reserveNameAsync(name);
     expect(async.status).toBe(sync.status);
     expect(async.status).toBe("invalid");
     // The validation short-circuit must hold on BOTH paths: a name we can
-    // reject is a reservation attempt not worth making on the operator's account.
+    // reject is a reservation attempt not worth making on the operator's
+    // account. Asserting `execFileSync` alone would miss the async arm, which
+    // is the one this case actually exercises.
     expect(execFileSyncMock).not.toHaveBeenCalled();
+    expect(execFileMock).not.toHaveBeenCalled();
   });
 
-  it("does not block: it returns a promise, not a resolved value", () => {
-    expect(reserveNameAsync("robson-home-mac")).toBeInstanceOf(Promise);
+  it("does not block: it returns a promise, not a resolved value", async () => {
+    const p = reserveNameAsync("robson-home-mac");
+    expect(p).toBeInstanceOf(Promise);
+    await p;
+  });
+
+  it("a VALID name does reach zrok on the async path (the short-circuit is not universal)", async () => {
+    execFileMock.mockClear();
+    const r = await reserveNameAsync("robson-home-mac");
+    expect(r.status).toBe("ok");
+    expect(execFileMock).toHaveBeenCalledWith(
+      expect.any(String),
+      ["create", "name", "-n", "public", "robson-home-mac"],
+      expect.anything(),
+      expect.any(Function),
+    );
+    // And never the blocking twin — that was the whole point of adding it.
+    expect(execFileSyncMock).not.toHaveBeenCalled();
   });
 });

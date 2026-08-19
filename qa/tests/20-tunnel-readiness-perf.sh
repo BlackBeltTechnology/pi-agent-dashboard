@@ -19,11 +19,27 @@ echo "=== Test: readiness tick latency (P1) ==="
 PORT="${PI_QA_PORT:-8000}"
 BASE="http://127.0.0.1:${PORT}"
 
-# ── P1: p95 < 2s per tick, cold registry cache ──────────────────────
+# ── P1: p95 < 2s per tick ───────────────────────────────────────────
 # The budget is per TICK across all known providers. Sampled over a window
 # rather than once: a single sample cannot distinguish a slow tick from a slow
 # machine, and p95 is the number the spec fixes.
+#
+# HONEST SCOPE, stated rather than implied. The spec records P1 as a COLD-cache
+# measurement over a 10-minute window. This script cannot reset the server's
+# in-process provider memo over HTTP, so what it measures by default is the
+# WARM-cache steady state — a strictly weaker check, and a sequential sample
+# rather than a timed window.
+#
+#   - Cold-cache p95 is measured at the unit level instead, where the registry
+#     can actually be reset per tick (see the 6.7 measurement recorded in
+#     tasks.md: p95 617ms over 30 cold ticks).
+#   - Set PI_QA_WINDOW_MINUTES to sample over a real duration; the default is a
+#     quick sequential probe suitable for a smoke run.
+#
+# Claiming the full contract here while measuring the easy half is exactly the
+# vacuous-gate failure this file's own content-type check exists to prevent.
 SAMPLES=${PI_QA_READINESS_SAMPLES:-20}
+WINDOW_MIN=${PI_QA_WINDOW_MINUTES:-0}
 BUDGET_MS=2000
 
 if ! curl -fsS --max-time 15 --connect-timeout 5 "${BASE}/api/health" >/dev/null 2>&1; then
@@ -63,8 +79,15 @@ if ! node -e '
   exit 1
 fi
 
-echo "Sampling ${SAMPLES} readiness ticks against ${BASE}…"
-for _ in $(seq 1 "${SAMPLES}"); do
+if [ "${WINDOW_MIN}" != "0" ]; then
+  echo "Sampling readiness ticks against ${BASE} over ${WINDOW_MIN}min (warm cache)…"
+  WINDOW_END=$(( $(date +%s) + WINDOW_MIN * 60 ))
+else
+  echo "Sampling ${SAMPLES} readiness ticks against ${BASE} (warm cache, sequential)…"
+  WINDOW_END=0
+fi
+
+sample_once() {
   # %{time_total} is seconds with microsecond resolution; convert to ms.
   t=$(curl -fsS "${CURL_BOUND[@]}" -o /dev/null -w '%{time_total}' "${BASE}/api/tunnel-readiness" 2>/dev/null || echo "")
   if [ -z "$t" ]; then
@@ -72,7 +95,16 @@ for _ in $(seq 1 "${SAMPLES}"); do
     exit 1
   fi
   awk -v t="$t" 'BEGIN { printf "%.0f\n", t * 1000 }' >> "$tmp"
-done
+}
+
+if [ "${WINDOW_END}" != "0" ]; then
+  while [ "$(date +%s)" -lt "${WINDOW_END}" ]; do
+    sample_once
+    sleep 5
+  done
+else
+  for _ in $(seq 1 "${SAMPLES}"); do sample_once; done
+fi
 
 read -r P50 P95 MAX <<EOF
 $(sort -n "$tmp" | awk '
@@ -84,7 +116,7 @@ $(sort -n "$tmp" | awk '
   }')
 EOF
 
-echo "readiness tick: p50=${P50}ms p95=${P95}ms max=${MAX}ms (budget p95 < ${BUDGET_MS}ms)"
+echo "readiness tick (warm cache): p50=${P50}ms p95=${P95}ms max=${MAX}ms (budget p95 < ${BUDGET_MS}ms)"
 if [ "${P95}" -ge "${BUDGET_MS}" ]; then
   echo "FAIL: p95 ${P95}ms exceeds the ${BUDGET_MS}ms budget."
   echo "      A tick that approaches the 5s poll interval means the CADENCE must move,"
