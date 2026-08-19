@@ -302,6 +302,15 @@ export interface DashboardConfig {
   autoStart: boolean;
   autoShutdown: boolean;
   shutdownIdleSeconds: number;
+  /**
+   * Coalescing window (ms) the bridge applies to subagent `Agent` ticks on the
+   * `tool_execution_update` carrier. `0` disables the throttle entirely and is
+   * the byte-identical rollback path. Only Agent updates carrying a
+   * `details.agentId` are affected; every other tool forwards 1:1.
+   * Non-numeric / negative values fall back to the default.
+   * See change: reduce-bridge-tick-bandwidth (D2/D3/D4).
+   */
+  subagentTickThrottleMs: number;
   spawnStrategy: SpawnStrategy;
   tunnel: {
     enabled: boolean;
@@ -614,6 +623,9 @@ const DEFAULTS: DashboardConfig = {
   autoStart: true,
   autoShutdown: false,
   shutdownIdleSeconds: 300,
+  // Rollout default `0` (off). Flipped to 500 once the throttle's suites are
+  // green. See change: reduce-bridge-tick-bandwidth (D4, task 6.1).
+  subagentTickThrottleMs: 0,
   spawnStrategy: "headless",
   tunnel: {
     enabled: true,
@@ -1041,6 +1053,12 @@ export function loadConfig(): DashboardConfig {
       autoStart: parsed.autoStart ?? defaults.autoStart,
       autoShutdown: parsed.autoShutdown ?? defaults.autoShutdown,
       shutdownIdleSeconds: parsed.shutdownIdleSeconds ?? defaults.shutdownIdleSeconds,
+      subagentTickThrottleMs:
+        typeof parsed.subagentTickThrottleMs === "number" &&
+        Number.isFinite(parsed.subagentTickThrottleMs) &&
+        parsed.subagentTickThrottleMs >= 0
+          ? parsed.subagentTickThrottleMs
+          : defaults.subagentTickThrottleMs,
       spawnStrategy,
       tunnel: normalizeTunnelConfig(parsed.tunnel, defaults.tunnel),
       devBuildOnReload: parsed.devBuildOnReload ?? defaults.devBuildOnReload,
@@ -1131,6 +1149,7 @@ export function ensureConfig(): void {
     autoStart: DEFAULTS.autoStart,
     autoShutdown: DEFAULTS.autoShutdown,
     shutdownIdleSeconds: DEFAULTS.shutdownIdleSeconds,
+    subagentTickThrottleMs: DEFAULTS.subagentTickThrottleMs,
     spawnStrategy: DEFAULTS.spawnStrategy,
     tunnel: DEFAULTS.tunnel,
     devBuildOnReload: DEFAULTS.devBuildOnReload,

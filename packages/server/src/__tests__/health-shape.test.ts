@@ -161,6 +161,34 @@ describe("GET /api/health — shape", () => {
     expect(typeof storeTrim.evictedSessions).toBe("number");
   });
 
+  // The throttle's counters are additive on the SAME response: nothing that
+  // shipped before moved, and the four fields are present (all-zero on a fresh
+  // server with no bridge). Asserted in the same commit as the transport, so a
+  // shape drift between bridge heartbeat and route can never land silently.
+  // See change: reduce-bridge-tick-bandwidth (D6, task 4.2).
+  it("gains the subagent-tick throttle counters additively", async () => {
+    delete process.env.DASHBOARD_STARTER;
+    handle = await createTestServer();
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = (await res.json()) as Record<string, unknown>;
+
+    const throttle = body.subagentTickThrottle as Record<string, unknown>;
+    expect(throttle).toBeDefined();
+    expect(Object.keys(throttle).sort()).toEqual([
+      "tickCoalesced",
+      "tickDiscardedAtTerminal",
+      "tickDroppedNotReady",
+      "tickForwarded",
+    ]);
+    for (const v of Object.values(throttle)) expect(v).toBe(0);
+
+    // Pre-existing fields unchanged (the additive half of the contract).
+    expect(typeof body.pid).toBe("number");
+    expect(typeof body.storeTrim).toBe("object");
+    expect(typeof body.droppedFrames).toBe("object");
+    expect(Array.isArray(body.agents)).toBe(true);
+  });
+
   // X6: the `??` fallback the route takes when no event store is wired. It is
   // the store's explicitly-typed EMPTY_TRIM_STATS, not an inline literal —
   // `a ?? b` does not check `b` against `A`, so an inline literal could silently

@@ -672,6 +672,24 @@ export function registerSystemRoutes(
           0,
         ),
       },
+      // Subagent-tick throttle counters, summed across active bridges. Rides
+      // the heartbeat `processMetrics` transport, so the per-session breakdown
+      // is already in `agents[]` above and this block is the session-agnostic
+      // roll-up. `tickDiscardedAtTerminal` + `tickDroppedNotReady` are the
+      // throttle's only two information-loss modes; they sit here beside the
+      // other silent-loss counters for exactly that reason.
+      // See change: reduce-bridge-tick-bandwidth (D6).
+      subagentTickThrottle: activeSessions.reduce(
+        (acc, s) => {
+          const m = s.processMetrics as Record<string, number | undefined> | undefined;
+          acc.tickForwarded += m?.tickForwarded ?? 0;
+          acc.tickCoalesced += m?.tickCoalesced ?? 0;
+          acc.tickDiscardedAtTerminal += m?.tickDiscardedAtTerminal ?? 0;
+          acc.tickDroppedNotReady += m?.tickDroppedNotReady ?? 0;
+          return acc;
+        },
+        { tickForwarded: 0, tickCoalesced: 0, tickDiscardedAtTerminal: 0, tickDroppedNotReady: 0 },
+      ),
       // Notify-log cap evictions (silent transcript loss on a chatty emitter),
       // surfaced beside the other silent-loss counters.
       // See change: split-notify-from-prompt-request.

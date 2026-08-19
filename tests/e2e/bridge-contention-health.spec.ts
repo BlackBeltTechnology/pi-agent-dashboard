@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures.js";
+import { sendPrompt, setSubagentTickThrottle, spawnFreshGitSession } from "./helpers/index.js";
 
 // test-plan #F6 (L3) — change: fix-duplicate-bridge-registration (D6).
 //
@@ -109,5 +110,114 @@ test.describe("bridge contention health surface (L3)", () => {
     // The cumulative counter is NOT rolled back by the clear.
     const after = await health(request);
     expect(after.bridgeContentionCount!).toBeGreaterThanOrEqual(during.bridgeContentionCount!);
+  });
+});
+
+// ── D6 counter transport (change: reduce-bridge-tick-bandwidth) ─────────────
+//
+// The throttle's two information-loss modes (`tickDiscardedAtTerminal`,
+// `tickDroppedNotReady`) are otherwise entirely invisible in production, and
+// without a transport every counter assertion would be stuck at L1. The
+// counters ride the existing heartbeat `processMetrics` transport, so they land
+// on `/api/health` both summed (`subagentTickThrottle`) and per-session (spread
+// into `agents[]`).
+interface ThrottleCounters {
+  tickForwarded: number;
+  tickCoalesced: number;
+  tickDiscardedAtTerminal: number;
+  tickDroppedNotReady: number;
+}
+
+test.describe("subagent tick throttle — health counters (L3)", () => {
+  test("X7: counters reach /api/health after a throttled subagent run", async ({ page }) => {
+    test.setTimeout(240_000);
+    await page.goto("/");
+    await setSubagentTickThrottle(page, 500);
+
+    const before = (await (await page.request.get("/api/health")).json()) as {
+      subagentTickThrottle: ThrottleCounters;
+      pid: number;
+    };
+    // The field exists and is well-typed even before anything ticked — a
+    // missing field is exactly the stuck-zero an operator cannot distinguish
+    // from a healthy quiet system.
+    expect(Object.keys(before.subagentTickThrottle).sort()).toEqual([
+      "tickCoalesced",
+      "tickDiscardedAtTerminal",
+      "tickDroppedNotReady",
+      "tickForwarded",
+    ]);
+
+    const card = await spawnFreshGitSession(page);
+    const sessionId = await card.getAttribute("data-session-id");
+    await card.click();
+    await page.keyboard.press("Escape").catch(() => {});
+    await sendPrompt(page, "[[faux:subagent-streaming]] go");
+    await expect(page.getByText(/streaming subagent complete/i).first()).toBeVisible({
+      timeout: 150_000,
+    });
+
+    // Counters ride the heartbeat, so they arrive on its interval, not instantly.
+    await expect
+      .poll(
+        async () => {
+          const body = (await (await page.request.get("/api/health")).json()) as {
+            agents: Array<{ sessionId: string } & Partial<ThrottleCounters>>;
+          };
+          return body.agents.find((a) => a.sessionId === sessionId)?.tickForwarded ?? 0;
+        },
+        { timeout: 60_000, intervals: [2_000] },
+      )
+      .toBeGreaterThan(0);
+
+    const after = (await (await page.request.get("/api/health")).json()) as {
+      agents: Array<{ sessionId: string } & Partial<ThrottleCounters>>;
+      subagentTickThrottle: ThrottleCounters;
+      pid: number;
+    };
+    // Assert on the tested session's OWN per-session counters, NOT the summed
+    // `subagentTickThrottle` roll-up: the sum spans only `listActive()`
+    // sessions, so a sibling session ending between the two reads can lower it
+    // and fail spuriously. The per-session counters are stable for this run.
+    const mine = after.agents.find((a) => a.sessionId === sessionId);
+    expect(mine, "the tested session is present in /api/health").toBeTruthy();
+    expect(mine?.tickForwarded ?? 0).toBeGreaterThan(0);
+    // A streaming subagent at ~50 events/s against a 500 ms window MUST have
+    // coalesced; a zero here means the predicate never matched.
+    expect(mine?.tickCoalesced ?? 0).toBeGreaterThan(0);
+    // The additive aggregate block still exists and is well-typed; pid unchanged.
+    expect(Object.keys(after.subagentTickThrottle).sort()).toEqual([
+      "tickCoalesced",
+      "tickDiscardedAtTerminal",
+      "tickDroppedNotReady",
+      "tickForwarded",
+    ]);
+    expect(after.pid).toBe(before.pid);
+  });
+
+  test("X8: predicate tripwire — a non-subagent session moves no throttle counter", async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    await page.goto("/");
+    await setSubagentTickThrottle(page, 500);
+
+    const card = await spawnFreshGitSession(page);
+    const sessionId = await card.getAttribute("data-session-id");
+    await card.click();
+    await page.keyboard.press("Escape").catch(() => {});
+    // A run with NO subagent at all: only ordinary streaming tool output.
+    await sendPrompt(page, "[[faux:burst-heterogeneous]] go");
+    await page.waitForTimeout(15_000);
+
+    const body = (await (await page.request.get("/api/health")).json()) as {
+      agents: Array<{ sessionId: string } & Partial<ThrottleCounters>>;
+    };
+    const mine = body.agents.find((a) => a.sessionId === sessionId);
+    expect(mine, "the session reported process metrics").toBeTruthy();
+    // Asserted PER-SESSION, not on the summed block: the harness shares one
+    // container, and a concurrent subagent run elsewhere would move the sum.
+    expect(mine?.tickForwarded ?? 0, "a mis-scoped predicate shows up as movement here").toBe(0);
+    expect(mine?.tickCoalesced ?? 0).toBe(0);
   });
 });

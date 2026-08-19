@@ -108,6 +108,14 @@ services:
       # unchanged. See change: config-override-oauth-redirect-base.
       PI_E2E_OAUTH: "${PI_E2E_OAUTH:-}"
       PI_E2E_OAUTH_BASE: "${PI_E2E_OAUTH_BASE:-}"
+      # Throttle-cadence arm (change: reduce-bridge-tick-bandwidth). When "1",
+      # test-entrypoint stages the SYNTHETIC Agent-tick producer
+      # (qa/fixtures/faux-agent-ticks.ext.ts) and SKIPS the real subagents
+      # producer, so the synthetic `Agent` tool owns the tool name and drives a
+      # deterministic ≥ 10 s tick stream for the L3 cadence rows. The two never
+      # coexist (first-registration-wins). Requires PI_E2E_SEED=1. Unset =
+      # harness unchanged (real subagents).
+      PI_SYNTH_AGENT_TICKS: "${PI_SYNTH_AGENT_TICKS:-}"
 
     volumes:
       # Path-parity: host CWD as the read-only overlay lower layer. The

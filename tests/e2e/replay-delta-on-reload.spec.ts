@@ -1,5 +1,10 @@
 import { expect, type Page, type WebSocket as PWWebSocket, test } from "./fixtures.js";
-import { byTestId, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import {
+  byTestId,
+  sendPrompt,
+  setSubagentTickThrottle,
+  spawnFreshGitSession,
+} from "./helpers/index.js";
 
 const PLAIN_TEXT_MARKER = "The quick brown faux jumps over the lazy dog.";
 
@@ -259,3 +264,49 @@ async function seedPoisonedV1Entry(page: Page, sessionId: string): Promise<void>
     db.close();
   }, sessionId);
 }
+
+// ── Subagent tick throttle: replay-side rows (change: reduce-bridge-tick-bandwidth)
+//
+// This carrier's user-visible job is REPLAY, not liveness: it is what a mid-run
+// page reload folds. So its staleness bound is asserted where it lives — on the
+// events the SERVER stored — rather than on a reloaded DOM, which the ephemeral
+// 250 ms carrier plus the resync refresh within milliseconds (a DOM sample would
+// measure catch-up, not staleness).
+test.describe("subagent tick throttle — replay", () => {
+  const W = 500;
+
+  // P3 (consecutive STORED Agent ticks within one window) moved to
+  // tests/e2e/subagent-tick-throttle.spec.ts: it needs the synthetic Agent-tick
+  // producer (PI_SYNTH_AGENT_TICKS=1 arm) to sustain a stored tick stream.
+  // See change: reduce-bridge-tick-bandwidth.
+
+  test("F3: a reload of a finished subagent run folds to the terminal snapshot", async ({ page }) => {
+    test.setTimeout(240_000);
+    await page.goto("/");
+    await setSubagentTickThrottle(page, W);
+
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await page.keyboard.press("Escape").catch(() => {});
+    await sendPrompt(page, "[[faux:subagent-sustained]] go");
+    await expect(page.getByText(/sustained subagent complete/i).first()).toBeVisible({
+      timeout: 150_000,
+    });
+
+    // The terminal snapshot arrives on the SIBLING carrier (progress.flush) and
+    // via tool_execution_end's result.details — never on the throttled carrier —
+    // so a held-and-discarded tick must not change what a reload renders.
+    const beforeRows = await page.locator("[data-index]").count();
+
+    await page.reload();
+    await expect(page.getByText(/sustained subagent complete/i).first()).toBeVisible({
+      timeout: 60_000,
+    });
+    await page.waitForTimeout(2_000);
+    const afterRows = await page.locator("[data-index]").count();
+
+    expect(afterRows, "reload renders the same terminal entry count").toBe(beforeRows);
+    // And the finished tool row never re-enters a running/partial render.
+    await expect(page.getByText(/sustained subagent complete/i).first()).toBeVisible();
+  });
+});

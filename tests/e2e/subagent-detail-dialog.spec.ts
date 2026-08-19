@@ -138,3 +138,9 @@ test.describe("subagent detail dialog (D4)", () => {
     expect(updateFrames.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+// The subagent-tick throttle cadence rows (F1/P1/P2/F2/F5/P3/P4) moved to
+// tests/e2e/subagent-tick-throttle.spec.ts — they require the synthetic
+// Agent-tick producer on the PI_SYNTH_AGENT_TICKS=1 harness arm, because a
+// nested faux subagent cannot sustain a >= 10 s tick stream (see change
+// reduce-bridge-tick-bandwidth measurement.md, Bug 2).

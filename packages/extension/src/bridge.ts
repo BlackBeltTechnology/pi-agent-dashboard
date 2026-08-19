@@ -68,9 +68,10 @@ import { launchServer } from "./server-launcher.js";
 import { handleSessionChange as _handleSessionChange, replaySessionEntries as _replaySessionEntries, sendStateSync as _sendStateSync, consumeSpawnToken, filterByEnabledModels } from "./session-sync.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 import { detectSessionSource } from "./source-detector.js";
-import { SubagentFrameBuffer } from "./subagent-frame-buffer.js";
 import { flushBufferedSubagentFrames, serveSubagentResync } from "./subagent-forward-sites.js";
+import { SubagentFrameBuffer } from "./subagent-frame-buffer.js";
 import { stripForForward } from "./subagent-frame-strip.js";
+import { isSubagentTick, SubagentTickThrottle } from "./subagent-tick-throttle.js";
 import { inlineToolResultImages } from "./tool-result-image-inliner.js";
 import { createTuiPromptAdapter } from "./tui-prompt-adapter.js";
 import { classifyTurnActionability } from "./turn-actionability.js";
@@ -343,6 +344,24 @@ function initBridge(pi: ExtensionAPI) {
   // latest snapshot of each running subagent for the resync responder (D2).
   // See change: fix-subagent-live-detail-reliability.
   const subagentFrameBuffer = new SubagentFrameBuffer();
+
+  // Bound the Agent-tick rate on the `tool_execution_update` carrier. That
+  // carrier has no throttle anywhere on its path, so its rate is the
+  // subagent's raw session-event rate; the sibling `subagents:*` carrier is
+  // already coalesced to 250 ms by the producer and is what paces the LIVE
+  // render, so this window costs replay staleness, not liveness.
+  //
+  // `windowMs` comes from the shared dashboard config, read once here at
+  // bridge init (`0` = disabled, the byte-identical rollback path). `send` and
+  // `canSend` deliberately resolve `connection` / `sessionReady` / `sessionId`
+  // at CALL time: all three can move while a frame is held, and a captured
+  // reference would send over a dead connection or under a stale session.
+  // See change: reduce-bridge-tick-bandwidth (D2/D3/D4).
+  const subagentTickThrottle = new SubagentTickThrottle<unknown>({
+    windowMs: loadConfig().subagentTickThrottleMs,
+    send: (msg) => connection.send(msg),
+    canSend: (frameSessionId) => isActive() && sessionReady && frameSessionId === sessionId,
+  });
 
   // Bridge-owned queue structures with TWO different ownership models:
   //
@@ -1915,10 +1934,26 @@ function initBridge(pi: ExtensionAPI) {
       // is a half-fix. `tool_execution_end` is terminal and stays fat.
       // See change: reduce-subagent-details-payload (D2, task 3.8).
       const msg = mapEventToProtocol(sessionId, event);
+      let heldByThrottle = false;
       if (eventType === "tool_execution_update") {
         msg.event.data = stripForForward(msg.event.data as Record<string, unknown>);
+        // Agent ticks only (allowlist predicate) — every other tool's update
+        // stream forwards 1:1. `offer` returns false when it has taken
+        // ownership of the frame and will send (or discard) it later.
+        // See change: reduce-bridge-tick-bandwidth (D2).
+        if (isSubagentTick(event) && typeof event.toolCallId === "string") {
+          heldByThrottle = !subagentTickThrottle.offer(event.toolCallId, msg, sessionId);
+        }
       }
-      connection.send(msg);
+      if (eventType === "tool_execution_end" && typeof event.toolCallId === "string") {
+        // Terminal: DISCARD any held tick rather than flushing it. This carrier
+        // never carries terminal state, so a held frame is a strictly stale
+        // intermediate snapshot; flushing it would race the overwrite that
+        // visibly re-opens a finished tool row. Runs before the send so no held
+        // frame can interleave after the end event.
+        subagentTickThrottle.onTerminal(event.toolCallId);
+      }
+      if (!heldByThrottle) connection.send(msg);
 
       // Floor-pi settle synthesis: pi < 0.80.4 never emits `agent_settled`.
       // Per-attempt agent_end gets retryPending compatibility state; exhaustion,
@@ -2706,6 +2741,10 @@ function initBridge(pi: ExtensionAPI) {
           ...collectMetrics(),
           droppedBufferedFrames: connection.getDroppedBufferedCount(),
           refusedInboundFrames: connection.getDroppedInboundCount(),
+          // Subagent-tick throttle counters ride the same transport, so the
+          // throttle's two information-loss modes are observable in production
+          // instead of only at L1. See change: reduce-bridge-tick-bandwidth (D6).
+          ...subagentTickThrottle.stats,
         },
       });
     }, HEARTBEAT_INTERVAL);
@@ -2760,6 +2799,11 @@ function initBridge(pi: ExtensionAPI) {
     // new/fork/resumed session's subagents are unrelated to the outgoing one.
     // See change: fix-subagent-live-detail-reliability.
     subagentFrameBuffer.reset();
+    // Same disposal point for the tick throttle: clear every armed trailing
+    // timer and drop every held frame, so nothing from the outgoing session
+    // can fire against the new one.
+    // See change: reduce-bridge-tick-bandwidth (D3).
+    subagentTickThrottle.reset();
     // Clear the stop-after-turn latch so a new/fork/resumed session does not
     // inherit the previous session's pending graceful-stop and shut down on
     // its first turn_end. See change: adopt-pi-071-072-073-features.
@@ -2843,6 +2887,8 @@ function initBridge(pi: ExtensionAPI) {
     // Drop retained subagent frames/snapshots on shutdown.
     // See change: fix-subagent-live-detail-reliability.
     subagentFrameBuffer.reset();
+    // See change: reduce-bridge-tick-bandwidth (D3).
+    subagentTickThrottle.reset();
 
     // Best-effort: remove this session's pasted ask_user attachments.
     // See change: add-ask-user-input-multiline-paste.
