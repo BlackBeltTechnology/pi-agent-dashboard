@@ -107,6 +107,14 @@ export interface CreateAutomationDialogProps {
 type VisibilityChoice = "default" | Visibility;
 type ModelMode = "role" | "model";
 
+/** One additional (non-primary) fan-out action entry drafted in the editor. */
+interface AdditionalActionDraft {
+  actionId: string;
+  count: number;
+  skill: string;
+  payload: Record<string, string>;
+}
+
 const DEFAULT_ROLE_KEYS = ["fast", "planning", "coding", "compact", "vision", "research"];
 
 /** Trigger category → leading icon for the level-1 pills. */
@@ -179,6 +187,18 @@ export function CreateAutomationDialog({
   const initialModel = initialConfig?.model ?? "@fast";
   const initialModelMode: ModelMode = initialModel.startsWith("@") ? "role" : "model";
 
+  // Fan-out: the first action entry is the "primary" (drives the existing
+  // single-action editor); any further entries are additional. On submit we
+  // write `actions:` when >1 entry, else the single `action:` block.
+  // See change: add-automation-concurrent-spawn.
+  const initialPrimary = initialConfig?.action ?? initialConfig?.actions?.[0];
+  const initialExtras: AdditionalActionDraft[] = (initialConfig?.actions?.slice(1) ?? []).map((a) => ({
+    actionId: normalizeActionId(a.kind),
+    count: a.count ?? 1,
+    skill: a.skill ?? "",
+    payload: coercePayload(a.payload),
+  }));
+
   const [name, setName] = useState(initialName ?? "");
   const [scope, setScope] = useState<AutomationScope>(initialScope ?? "folder");
   const [categories, setCategories] = useState<TriggerCategoryDescriptor[]>([
@@ -200,18 +220,20 @@ export function CreateAutomationDialog({
   );
 
   const [actionId, setActionId] = useState<string>(
-    normalizeActionId(initialConfig?.action.kind ?? "core.prompt"),
+    normalizeActionId(initialPrimary?.kind ?? "core.prompt"),
   );
+  const [primaryCount, setPrimaryCount] = useState<number>(initialPrimary?.count ?? 1);
+  const [extraEntries, setExtraEntries] = useState<AdditionalActionDraft[]>(initialExtras);
   const [actions, setActions] = useState<ActionDescriptor[]>(BUILTIN_ACTIONS);
   const [actionSearch, setActionSearch] = useState("");
   const [actionPayload, setActionPayload] = useState<Record<string, string>>(() =>
-    coercePayload(initialConfig?.action.payload),
+    coercePayload(initialPrimary?.payload),
   );
   // Object payload written by a contributed `automation-action-editor` (e.g.
   // flows-plugin's input wiring). Persisted as `payload.inputs`. Kept separate
   // from the string-map above. See change: wire-flow-inputs-in-automation.
   const [actionInputs, setActionInputs] = useState<Record<string, unknown>>(() =>
-    extractInputs(initialConfig?.action.payload),
+    extractInputs(initialPrimary?.payload),
   );
   // File-trigger folder path (`on.path`). See change: wire-flow-inputs-in-automation.
   const [filePath, setFilePath] = useState<string>(
@@ -219,7 +241,7 @@ export function CreateAutomationDialog({
   );
   const [openSources, setOpenSources] = useState<Record<string, boolean>>({ core: true });
   const [promptBody, setPromptBody] = useState(initialPromptBody ?? "");
-  const [skill, setSkill] = useState(initialConfig?.action.skill ?? "");
+  const [skill, setSkill] = useState(initialPrimary?.skill ?? "");
 
   const [modelMode, setModelMode] = useState<ModelMode>(initialModelMode);
   const [roleValue, setRoleValue] = useState(initialModelMode === "role" ? initialModel : "@fast");
@@ -337,32 +359,46 @@ export function CreateAutomationDialog({
       : isFile
         ? { kind: "file", path: filePath.trim(), events: selectedEvents, settle: "rename-only" }
         : { kind: mapCategoryToKind(category), events: selectedEvents };
-    let actionBlock: AutomationConfig["action"];
-    if (actionId === "core.prompt") {
-      actionBlock = { kind: "prompt", prompt: "./prompt.md" };
-    } else if (actionId === "core.skill") {
-      actionBlock = { kind: "skill", skill: skill.trim().startsWith("$") ? skill.trim() : `$${skill.trim()}` };
-    } else {
-      const payload: Record<string, unknown> = { ...actionPayload };
-      if (Object.keys(actionInputs).length > 0) payload.inputs = actionInputs;
-      actionBlock = { kind: actionId, payload };
-    }
-    const config: AutomationConfig = {
-      on: onBlock,
-      action: actionBlock,
-      model,
-      mode,
-      sandbox,
-      concurrency,
-      ...(visibility !== "default" ? { visibility } : {}),
-    };
+    const primaryBlock = toActionBlock(actionId, {
+      skill,
+      payload: actionPayload,
+      inputs: actionInputs,
+      count: primaryCount,
+    });
+    // Single entry → `action:`; more than one → `actions:` (fan-out).
+    // See change: add-automation-concurrent-spawn.
+    const config: AutomationConfig =
+      extraEntries.length === 0
+        ? {
+            on: onBlock,
+            action: primaryBlock,
+            model,
+            mode,
+            sandbox,
+            concurrency,
+            ...(visibility !== "default" ? { visibility } : {}),
+          }
+        : {
+            on: onBlock,
+            actions: [
+              primaryBlock,
+              ...extraEntries.map((e) =>
+                toActionBlock(e.actionId, { skill: e.skill, payload: e.payload, inputs: {}, count: e.count }),
+              ),
+            ],
+            model,
+            mode,
+            sandbox,
+            concurrency,
+            ...(visibility !== "default" ? { visibility } : {}),
+          };
     setBusy(true);
     const body = {
       scope,
       ...(scope === "folder" && cwd ? { cwd } : {}),
       name: name.trim(),
       config,
-      ...(actionId === "core.prompt" ? { promptBody } : {}),
+      ...(extraEntries.length === 0 && actionId === "core.prompt" ? { promptBody } : {}),
     };
     const res = editing ? await updateAutomation(body) : await createAutomation(body);
     setBusy(false);
@@ -663,6 +699,92 @@ export function CreateAutomationDialog({
               />
             </>
           )}
+          <Field label={t("fieldCount", undefined, "Spawn count")}>
+            <input
+              type="number"
+              min={1}
+              value={primaryCount}
+              onChange={(e) => setPrimaryCount(Math.max(1, Number(e.target.value) || 1))}
+              data-testid="create-action-count"
+              className="input w-24"
+            />
+          </Field>
+
+          {/* Additional fan-out action entries (writes `actions:` when present). */}
+          <div className="space-y-2" data-testid="extra-actions">
+            {extraEntries.map((entry, i) => (
+              <div key={i} data-testid={`extra-action-${i}`} className="rounded border border-[var(--border-secondary)] p-2 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
+                    {t("actionEntry", { n: i + 2 }, `Action ${i + 2}`)}
+                  </span>
+                  <button
+                    type="button"
+                    data-testid={`remove-action-entry-${i}`}
+                    onClick={() => setExtraEntries((prev) => prev.filter((_, j) => j !== i))}
+                    className="text-[10px] text-[var(--danger,#ef4444)]"
+                  >
+                    {t("remove", undefined, "Remove")}
+                  </button>
+                </div>
+                <Field label={t("fieldAction", undefined, "Action")}>
+                  <select
+                    value={entry.actionId}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setExtraEntries((prev) => prev.map((x, j) => (j === i ? { ...x, actionId: v } : x)));
+                    }}
+                    data-testid={`entry-action-${i}`}
+                    className="input font-mono"
+                  >
+                    {actions.map((a) => (
+                      <option key={a.id} value={a.id} disabled={!a.available}>
+                        {a.id}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                {entry.actionId === "core.skill" && (
+                  <Field label={t("fieldSkill", undefined, "Skill ($skill-name)")}>
+                    <input
+                      type="text"
+                      value={entry.skill}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setExtraEntries((prev) => prev.map((x, j) => (j === i ? { ...x, skill: v } : x)));
+                      }}
+                      data-testid={`entry-skill-${i}`}
+                      className="input font-mono"
+                    />
+                  </Field>
+                )}
+                <Field label={t("fieldCount", undefined, "Spawn count")}>
+                  <input
+                    type="number"
+                    min={1}
+                    value={entry.count}
+                    onChange={(e) => {
+                      const v = Math.max(1, Number(e.target.value) || 1);
+                      setExtraEntries((prev) => prev.map((x, j) => (j === i ? { ...x, count: v } : x)));
+                    }}
+                    data-testid={`entry-count-${i}`}
+                    className="input w-24"
+                  />
+                </Field>
+              </div>
+            ))}
+            <button
+              type="button"
+              data-testid="add-action-entry"
+              onClick={() =>
+                setExtraEntries((prev) => [...prev, { actionId: "core.skill", count: 1, skill: "", payload: {} }])
+              }
+              className="text-[11px] px-2 py-1 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)]"
+            >
+              {t("addAction", undefined, "+ Add action")}
+            </button>
+          </div>
+
           <Field label={t("fieldModel", undefined, "Model")}>
             <div className="flex gap-1 mb-1">
               <button
@@ -821,6 +943,26 @@ export function CreateAutomationDialog({
       </div>
     </div>
   );
+}
+
+/** Build one `AutomationAction` from an editor entry's draft state. */
+function toActionBlock(
+  actionId: string,
+  draft: { skill: string; payload: Record<string, string>; inputs: Record<string, unknown>; count: number },
+): AutomationConfig["action"] & object {
+  let block: NonNullable<AutomationConfig["action"]>;
+  if (actionId === "core.prompt") {
+    block = { kind: "prompt", prompt: "./prompt.md" };
+  } else if (actionId === "core.skill") {
+    const s = draft.skill.trim();
+    block = { kind: "skill", skill: s.startsWith("$") ? s : `$${s}` };
+  } else {
+    const payload: Record<string, unknown> = { ...draft.payload };
+    if (Object.keys(draft.inputs).length > 0) payload.inputs = draft.inputs;
+    block = { kind: actionId, payload };
+  }
+  if (draft.count > 1) block.count = draft.count;
+  return block;
 }
 
 /** UI category id → on-disk `on.kind` (scheduled → schedule). */

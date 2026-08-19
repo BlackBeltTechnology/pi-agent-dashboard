@@ -31,6 +31,12 @@
       "type": "string",
       "default": "",
       "description": "Fallback provider/model id used when an automation's `@role` cannot be resolved at spawn time. Empty means the shell's default model is used."
+    },
+    "maxConcurrentSpawns": {
+      "type": "integer",
+      "default": 4,
+      "minimum": 1,
+      "description": "Settings default cap on how many child sessions one automation fire may spawn concurrently. A per-automation `maxConcurrentSpawns` in `automation.yaml` overrides this. Excess resolved children are truncated with a warning on the parent run, not failed."
     }
   }
 }

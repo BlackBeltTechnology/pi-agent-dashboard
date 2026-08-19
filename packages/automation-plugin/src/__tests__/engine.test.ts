@@ -5,14 +5,25 @@
  *  - effective visibility passed on the spawn stamp (§5.x)
  * See change: add-automation-plugin.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { createEngine, buildRunPrompt, buildRunDispatch, effectiveVisibility } from "../server/engine.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ActionRegistry } from "../server/action-registry.js";
-import { listRuns, startRun as storeStartRun } from "../server/run-store.js";
-import type { DiscoveredAutomation } from "../shared/automation-types.js";
+import { buildRunDispatch, buildRunPrompt, createEngine, effectiveVisibility } from "../server/engine.js";
+import { listRuns, readChildRuns, startRun as storeStartRun } from "../server/run-store.js";
+import type { DiscoveredAutomation, RunRecord } from "../shared/automation-types.js";
+
+/** The single parent occurrence for `name` (fan-out model: one fire = one parent). */
+function parentRun(repoBase: string, name: string, runId?: string): RunRecord {
+  const runs = listRuns(repoBase, name);
+  return (runId ? runs.find((r) => r.runId === runId) : runs[0])!;
+}
+/** Child records of the parent occurrence for `name`. */
+function children(repoBase: string, name: string, runId?: string): RunRecord[] {
+  return readChildRuns(repoBase, parentRun(repoBase, name, runId));
+}
 
 let repo: string;
 beforeEach(() => {
@@ -212,25 +223,25 @@ describe("engine run lifecycle", () => {
     const a = promptAutomation("nightly", "Find regressions.");
     const { runId } = engine.startRunFor(a)!;
 
-    // Simulate the run session registering + ending.
+    // Simulate the (single) child session registering + ending.
     engine.onSessionRegistered("sess-1", repo);
     engine.onSessionEnded("sess-1", "Found 1 regression in auth.");
 
-    const runs = listRuns(repo, "nightly");
-    const done = runs.find((x) => x.runId === runId)!;
-    expect(done.status).toBe("done");
-    const md = fs.readFileSync(path.join(done.dir, "result.md"), "utf-8");
+    const parent = parentRun(repo, "nightly", runId);
+    expect(parent.status).toBe("done");
+    const child = readChildRuns(repo, parent)[0]!;
+    const md = fs.readFileSync(path.join(child.dir, "result.md"), "utf-8");
     expect(md).toContain("Found 1 regression");
   });
 
-  it("empty findings auto-archive on session end", () => {
+  it("empty findings auto-archive on session end (child archived)", () => {
     const calls: any[] = [];
     const engine = makeEngine(calls);
     engine.startRunFor(promptAutomation("nightly", "x"));
     engine.onSessionRegistered("sess-1", repo);
     engine.onSessionEnded("sess-1", "   ");
-    const runs = listRuns(repo, "nightly");
-    expect(runs[0]!.archived).toBe(true);
+    expect(children(repo, "nightly")[0]!.archived).toBe(true);
+    expect(parentRun(repo, "nightly").status).toBe("done");
   });
 
   it("unresolved @role → spawn with default model + run recorded error on end", () => {
@@ -241,9 +252,8 @@ describe("engine run lifecycle", () => {
     expect(calls[0].model).toBe("anthropic/claude-sonnet-4-5"); // fell back to default
     engine.onSessionRegistered("sess-1", repo);
     engine.onSessionEnded("sess-1", "result");
-    const runs = listRuns(repo, "nightly");
-    expect(runs[0]!.status).toBe("error");
-    expect(runs[0]!.error).toContain("@fast");
+    expect(parentRun(repo, "nightly").status).toBe("error");
+    expect(children(repo, "nightly")[0]!.error).toContain("@fast");
   });
 
   it("isolates concurrent runs in the same cwd (no context overwrite)", () => {
@@ -256,18 +266,17 @@ describe("engine run lifecycle", () => {
     const r2 = engine.startRunFor(a)!;
     expect(r1.runId).not.toBe(r2.runId);
 
-    // FIFO register binding: first register → r1, second → r2.
+    // FIFO register binding: first register → r1's child, second → r2's child.
     engine.onSessionRegistered("sessA", repo);
     engine.onSessionRegistered("sessB", repo);
-    // End out of order — results must land on the right run records.
+    // End out of order — results must land on the right child records.
     engine.onSessionEnded("sessB", "findings B");
     engine.onSessionEnded("sessA", "findings A");
 
-    const runs = listRuns(repo, "par");
-    const recA = runs.find((x) => x.runId === r1.runId)!;
-    const recB = runs.find((x) => x.runId === r2.runId)!;
-    expect(fs.readFileSync(path.join(recA.dir, "result.md"), "utf-8")).toContain("findings A");
-    expect(fs.readFileSync(path.join(recB.dir, "result.md"), "utf-8")).toContain("findings B");
+    const cA = children(repo, "par", r1.runId)[0]!;
+    const cB = children(repo, "par", r2.runId)[0]!;
+    expect(fs.readFileSync(path.join(cA.dir, "result.md"), "utf-8")).toContain("findings A");
+    expect(fs.readFileSync(path.join(cB.dir, "result.md"), "utf-8")).toContain("findings B");
   });
 
   it("releases the runner slot when a spawn promise rejects (no deadlock)", async () => {
@@ -306,21 +315,23 @@ describe("engine run lifecycle", () => {
     const a: DiscoveredAutomation = { ...base, config: { ...base.config!, concurrency: "parallel" } };
     const r1 = engine.startRunFor(a)!;
     const r2 = engine.startRunFor(a)!;
+    // Correlation is by CHILD run id (children own the session stamp).
+    const c1 = children(repo, "par", r1.runId)[0]!.runId;
+    const c2 = children(repo, "par", r2.runId)[0]!.runId;
 
-    // Lookup by runId returns the right pending context.
-    expect(engine.pendingForRunId(r1.runId)!.runId).toBe(r1.runId);
-    expect(engine.pendingForRunId(r2.runId)!.runId).toBe(r2.runId);
+    // Lookup by child runId returns the right pending context.
+    expect(engine.pendingForRunId(c1)!.runId).toBe(c1);
+    expect(engine.pendingForRunId(c2)!.runId).toBe(c2);
 
-    // Bind sessions to runs by runId (the order is intentionally "wrong" for
-    // FIFO: r2 first). Each prompt must still land on its own run.
-    engine.onSessionRegisteredForRun("sessB", r2.runId);
-    engine.onSessionRegisteredForRun("sessA", r1.runId);
+    // Bind sessions to children by runId (order intentionally "wrong" for FIFO:
+    // c2 first). Each prompt must still land on its own child.
+    engine.onSessionRegisteredForRun("sessB", c2);
+    engine.onSessionRegisteredForRun("sessA", c1);
     engine.onSessionEnded("sessA", "findings A");
     engine.onSessionEnded("sessB", "findings B");
 
-    const runs = listRuns(repo, "par");
-    const recA = runs.find((x) => x.runId === r1.runId)!;
-    const recB = runs.find((x) => x.runId === r2.runId)!;
+    const recA = children(repo, "par", r1.runId)[0]!;
+    const recB = children(repo, "par", r2.runId)[0]!;
     expect(fs.readFileSync(path.join(recA.dir, "result.md"), "utf-8")).toContain("findings A");
     expect(fs.readFileSync(path.join(recB.dir, "result.md"), "utf-8")).toContain("findings B");
   });
@@ -329,9 +340,10 @@ describe("engine run lifecycle", () => {
     const calls: any[] = [];
     const engine = makeEngine(calls);
     const { runId } = engine.startRunFor(promptAutomation("once", "x"))!;
-    expect(engine.pendingForRunId(runId)).toBeDefined();
-    engine.onSessionRegisteredForRun("sess-1", runId);
-    expect(engine.pendingForRunId(runId)).toBeUndefined();
+    const child = children(repo, "once", runId)[0]!.runId;
+    expect(engine.pendingForRunId(child)).toBeDefined();
+    engine.onSessionRegisteredForRun("sess-1", child);
+    expect(engine.pendingForRunId(child)).toBeUndefined();
   });
 
   // Engine with an injected termination hook (records its call args).
@@ -357,26 +369,25 @@ describe("engine run lifecycle", () => {
   // Let the async spawn `.then` run so ctx.spawnToken is captured.
   const flushSpawn = async () => { await Promise.resolve(); await Promise.resolve(); };
 
-  it("stopRun terminates the session by sessionId and finalizes once; later end is a no-op", async () => {
+  it("stopRun (parent) cascades to the child by sessionId and finalizes once; later end is a no-op", async () => {
     const terminations: any[] = [];
     const { engine } = makeStoppableEngine(terminations);
     const { runId } = engine.startRunFor(promptAutomation("nightly", "x"))!;
     await flushSpawn();
-    engine.onSessionRegisteredForRun("sess-1", runId);
+    engine.onSessionRegistered("sess-1", repo);
 
     expect(await engine.stopRun(runId)).toBe(true);
     expect(terminations).toEqual([{ sessionId: "sess-1", spawnToken: "tok-1" }]);
-    const runs = listRuns(repo, "nightly");
-    const rec = runs.find((r) => r.runId === runId)!;
-    expect(rec.status).toBe("error");
-    expect(rec.error).toContain("stopped");
-    expect(rec.archived).toBeUndefined();
+    const parent = parentRun(repo, "nightly", runId);
+    expect(parent.status).toBe("stopped");
+    const child = readChildRuns(repo, parent)[0]!;
+    expect(child.status).toBe("stopped");
+    expect(child.error).toContain("stopped");
+    expect(child.archived).toBeUndefined();
 
     // A later agent_end for that session must NOT re-finalize or duplicate.
     engine.onSessionEnded("sess-1", "late findings");
-    const after = listRuns(repo, "nightly");
-    expect(after).toHaveLength(1);
-    expect(after[0]!.status).toBe("error");
+    expect(parentRun(repo, "nightly", runId).status).toBe("stopped");
     expect(terminations).toHaveLength(1);
   });
 
@@ -390,13 +401,13 @@ describe("engine run lifecycle", () => {
     expect(await engine.stopRun(runId)).toBe(true);
     expect(terminations).toEqual([{ spawnToken: "tok-prereg" }]);
 
-    // The late register must find no pending ctx → no prompt delivery, no zombie.
-    engine.onSessionRegisteredForRun("late-sess", runId);
-    expect(engine.pendingForRunId(runId)).toBeUndefined();
+    // The late register must find no pending child → no prompt delivery, no zombie.
+    const childId = children(repo, "nightly", runId)[0]!.runId;
+    engine.onSessionRegisteredForRun("late-sess", childId);
+    expect(engine.pendingForRunId(childId)).toBeUndefined();
     engine.onSessionEnded("late-sess", "orphan output");
-    const runs = listRuns(repo, "nightly");
-    expect(runs).toHaveLength(1);
-    expect(runs[0]!.status).toBe("error"); // stopped, not overwritten by the orphan
+    const parent = parentRun(repo, "nightly", runId);
+    expect(parent.status).toBe("stopped"); // stopped, not overwritten by the orphan
     expect(terminations).toHaveLength(1);
   });
 
@@ -405,18 +416,15 @@ describe("engine run lifecycle", () => {
     const { engine } = makeStoppableEngine(terminations, "tok-done");
     const { runId } = engine.startRunFor(promptAutomation("nightly", "x"))!;
     await flushSpawn();
-    engine.onSessionRegisteredForRun("sess-done", runId);
+    engine.onSessionRegistered("sess-done", repo);
     engine.onSessionEnded("sess-done", "Found regressions.");
 
     expect(terminations).toEqual([{ sessionId: "sess-done", spawnToken: "tok-done", graceful: true }]);
-    const runs = listRuns(repo, "nightly");
-    expect(runs).toHaveLength(1);
-    expect(runs.find((r) => r.runId === runId)!.status).toBe("done");
+    expect(parentRun(repo, "nightly", runId).status).toBe("done");
 
     // A subsequent end signal must not re-finalize or re-terminate.
     engine.onSessionEnded("sess-done", "duplicate");
     expect(terminations).toHaveLength(1);
-    expect(listRuns(repo, "nightly")).toHaveLength(1);
   });
 
   it("stopRun on an unknown/finalized run is a no-op returning false", async () => {
@@ -460,7 +468,7 @@ describe("session-death finalize + stale-run reaper", () => {
     const key = "folder:pull";
     const runId = engine.runner.activeRunId(key)!;
     expect(runId).toBeTruthy();
-    engine.onSessionRegisteredForRun("sess-1", runId);
+    engine.onSessionRegistered("sess-1", repo);
 
     // A second fire is dropped by skip while the run is active.
     engine.runner.fire(a);
@@ -468,9 +476,9 @@ describe("session-death finalize + stale-run reaper", () => {
 
     // Session dies before any terminal event crosses the bridge.
     engine.onSessionDeath("sess-1", "");
-    const rec = listRuns(repo, "pull").find((r) => r.runId === runId)!;
-    expect(rec.status).toBe("error");
-    expect(rec.error).toContain("session ended before completion");
+    const parent = parentRun(repo, "pull", runId);
+    expect(parent.status).toBe("error");
+    expect(readChildRuns(repo, parent)[0]!.error).toContain("session ended before completion");
     expect(engine.runner.activeRunId(key)).toBeNull();
 
     // Slot freed → the next fire is no longer wedged.
@@ -482,28 +490,27 @@ describe("session-death finalize + stale-run reaper", () => {
   it("3.1: session death WITH a buffered result finalizes done", () => {
     const engine = makeEngine([]);
     const { runId } = engine.startRunFor(promptAutomation("pull", "x"))!;
-    engine.onSessionRegisteredForRun("sess-1", runId);
+    engine.onSessionRegistered("sess-1", repo);
     engine.onSessionDeath("sess-1", "- partial finding before teardown");
-    const rec = listRuns(repo, "pull").find((r) => r.runId === runId)!;
-    expect(rec.status).toBe("done");
-    expect(fs.readFileSync(path.join(rec.dir, "result.md"), "utf-8")).toContain("partial finding");
+    const parent = parentRun(repo, "pull", runId);
+    expect(parent.status).toBe("done");
+    const child = readChildRuns(repo, parent)[0]!;
+    expect(fs.readFileSync(path.join(child.dir, "result.md"), "utf-8")).toContain("partial finding");
   });
 
   it("3.2: a forwarded completion / agent_end after session-death finalize is a no-op", () => {
     const engine = makeEngine([]);
     const { runId } = engine.startRunFor(promptAutomation("pull", "x"))!;
-    engine.onSessionRegisteredForRun("sess-1", runId);
+    engine.onSessionRegistered("sess-1", repo);
     engine.onSessionDeath("sess-1", "");
     expect(listRuns(repo, "pull")).toHaveLength(1);
-    expect(listRuns(repo, "pull")[0]!.status).toBe("error");
+    expect(parentRun(repo, "pull", runId).status).toBe("error");
 
     // Late agent_end for that session must not re-finalize or duplicate.
     engine.onSessionEnded("sess-1", "late findings");
     // A second death signal is likewise a no-op.
     engine.onSessionDeath("sess-1", "more late findings");
-    const after = listRuns(repo, "pull");
-    expect(after).toHaveLength(1);
-    expect(after[0]!.status).toBe("error");
+    expect(parentRun(repo, "pull", runId).status).toBe("error");
   });
 
   it("onSessionDeath for an unknown/finalized session is a no-op", () => {
@@ -520,28 +527,26 @@ describe("session-death finalize + stale-run reaper", () => {
     await flushSpawn();
     const key = "folder:pull";
     const runId = engine.runner.activeRunId(key)!;
-    engine.onSessionRegisteredForRun("sess-1", runId);
-    const started = listRuns(repo, "pull").find((r) => r.runId === runId)!.startedAt;
+    engine.onSessionRegistered("sess-1", repo);
+    const started = readChildRuns(repo, parentRun(repo, "pull", runId))[0]!.startedAt;
 
     // Healthy: within maxAge → untouched.
     nowRef.v = started + 500;
     engine.reapStaleRuns();
-    expect(listRuns(repo, "pull").find((r) => r.runId === runId)!.status).toBe("running");
+    expect(parentRun(repo, "pull", runId).status).toBe("running");
     expect(engine.runner.activeRunId(key)).toBe(runId);
 
-    // Overdue: beyond maxAge → reaped to error + slot freed.
+    // Overdue: beyond maxAge → the child is reaped → parent error + slot freed.
     nowRef.v = started + 1001;
     engine.reapStaleRuns();
-    const rec = listRuns(repo, "pull").find((r) => r.runId === runId)!;
-    expect(rec.status).toBe("error");
-    expect(rec.error).toContain("max age");
+    const parent = parentRun(repo, "pull", runId);
+    expect(parent.status).toBe("error");
+    expect(readChildRuns(repo, parent)[0]!.error).toContain("max age");
     expect(engine.runner.activeRunId(key)).toBeNull();
 
     // A terminal signal after reap is a no-op.
     engine.onSessionEnded("sess-1", "late");
-    const after = listRuns(repo, "pull");
-    expect(after).toHaveLength(1);
-    expect(after[0]!.status).toBe("error");
+    expect(parentRun(repo, "pull", runId).status).toBe("error");
   });
 
   it("4.1: reaper clears a pre-existing on-disk running orphan with no live context", () => {
@@ -563,5 +568,272 @@ describe("session-death finalize + stale-run reaper", () => {
     nowRef.v = orphan.startedAt + 10_000_000;
     engine.reapStaleRuns();
     expect(listRuns(repo, "pull").find((r) => r.runId === orphan.runId)!.status).toBe("running");
+  });
+});
+
+// ── Fan-out: parent aggregate, isolation, stop cascade, reaper ──────────────
+// See change: add-automation-concurrent-spawn.
+describe("engine fan-out", () => {
+  const flushSpawn = async () => { await Promise.resolve(); await Promise.resolve(); };
+
+  function fanoutAutomation(name: string, count: number, concurrency: "skip" | "queue" | "parallel" = "skip"): DiscoveredAutomation {
+    const dir = path.join(repo, ".pi", "automation", name);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "prompt.md"), "do it");
+    return {
+      name, scope: "folder", dir, valid: true,
+      config: {
+        on: { kind: "schedule", cron: "* * * * *" },
+        action: { kind: "prompt", prompt: "./prompt.md", count },
+        model: "@fast", mode: "local", sandbox: "workspace-write", concurrency,
+      },
+    };
+  }
+
+  it("4.6: over-bound fire records a truncation warning naming the bound + count not spawned", () => {
+    const engine = makeEngine([]); // default bound 4
+    const r = engine.startRunFor(fanoutAutomation("wide", 10))!;
+    const parent = parentRun(repo, "wide", r.runId);
+    expect(parent.children).toHaveLength(4);
+    expect(parent.warning).toContain("4");
+    expect(parent.warning).toContain("6");
+  });
+
+  it("4.7: parent aggregates done with summed findings", () => {
+    const engine = makeEngine([]);
+    const r = engine.startRunFor(fanoutAutomation("agg", 3))!;
+    const kids = children(repo, "agg", r.runId);
+    engine.onSessionRegisteredForRun("s0", kids[0]!.runId);
+    engine.onSessionRegisteredForRun("s1", kids[1]!.runId);
+    engine.onSessionRegisteredForRun("s2", kids[2]!.runId);
+    engine.onSessionEnded("s0", "- a\n- b");           // 2
+    engine.onSessionEnded("s1", "prose, no bullets");  // 0
+    engine.onSessionEnded("s2", "- a\n- b\n- c\n- d\n- e"); // 5
+    const parent = parentRun(repo, "agg", r.runId);
+    expect(parent.status).toBe("done");
+    expect(parent.findings).toBe(7);
+  });
+
+  it("4.8: parent aggregates error when any child errors", () => {
+    const engine = makeEngine([]);
+    const r = engine.startRunFor(fanoutAutomation("anyerr", 3))!;
+    const kids = children(repo, "anyerr", r.runId);
+    engine.onSessionRegisteredForRun("s0", kids[0]!.runId);
+    engine.onSessionRegisteredForRun("s1", kids[1]!.runId);
+    engine.onSessionRegisteredForRun("s2", kids[2]!.runId);
+    engine.onSessionEnded("s0", "- x");
+    engine.onSessionDeath("s1", "");   // error (no buffered result)
+    engine.onSessionEnded("s2", "- y");
+    expect(parentRun(repo, "anyerr", r.runId).status).toBe("error");
+  });
+
+  it("4.9: parent aggregates stopped when every child was stopped", async () => {
+    const engine = makeEngine([]);
+    const r = engine.startRunFor(fanoutAutomation("allstop", 3))!;
+    const kids = children(repo, "allstop", r.runId);
+    kids.forEach((k, i) => engine.onSessionRegisteredForRun(`s${i}`, k.runId));
+    await engine.stopRun(r.runId); // parent stop cascades to all
+    expect(parentRun(repo, "allstop", r.runId).status).toBe("stopped");
+  });
+
+  it("4.10: parent aggregates done for mixed stopped/done (no error)", async () => {
+    const engine = makeEngine([]);
+    const r = engine.startRunFor(fanoutAutomation("mixed", 3))!;
+    const kids = children(repo, "mixed", r.runId);
+    kids.forEach((k, i) => engine.onSessionRegisteredForRun(`s${i}`, k.runId));
+    engine.onSessionEnded("s0", "- x");
+    await engine.stopRun(kids[1]!.runId); // one child stopped
+    engine.onSessionEnded("s2", "- y");
+    expect(parentRun(repo, "mixed", r.runId).status).toBe("done");
+  });
+
+  it("4.11: parent stays running until the last child finalizes", () => {
+    const engine = makeEngine([]);
+    const r = engine.startRunFor(fanoutAutomation("last", 3))!;
+    const kids = children(repo, "last", r.runId);
+    kids.forEach((k, i) => engine.onSessionRegisteredForRun(`s${i}`, k.runId));
+    engine.onSessionEnded("s0", "- x");
+    engine.onSessionEnded("s1", "- y");
+    expect(parentRun(repo, "last", r.runId).status).toBe("running");
+    engine.onSessionEnded("s2", "- z");
+    expect(parentRun(repo, "last", r.runId).status).toBe("done");
+  });
+
+  it("4.12: a child spawn failure is isolated from its siblings", async () => {
+    let n = 0;
+    const engine = createEngine({
+      spawnSession: async () => {
+        n++;
+        return n === 2 ? { success: false, message: "spawn boom" } : { success: true, spawnToken: `t${n}` };
+      },
+      listScopes: () => [{ base: repo, scope: "folder" }],
+      config: () => ({ defaultVisibility: "hidden", retention: 100, defaultModel: "m", scanFolder: true, scanGlobal: false, maxRunAgeMs: 30 * 60 * 1000 }),
+      readRoles: () => ({ fast: "m" }),
+      warn: () => {},
+    });
+    const r = engine.startRunFor(fanoutAutomation("iso", 3))!;
+    const kidIds = children(repo, "iso", r.runId).map((k) => k.runId);
+    await flushSpawn();
+    const after = children(repo, "iso", r.runId);
+    expect(after[1]!.status).toBe("error"); // 2nd spawn failed
+    expect(after[0]!.status).toBe("running");
+    expect(after[2]!.status).toBe("running");
+    // Siblings finalize on their own signals; parent errors (one child errored).
+    engine.onSessionRegisteredForRun("s0", kidIds[0]!);
+    engine.onSessionRegisteredForRun("s2", kidIds[2]!);
+    engine.onSessionEnded("s0", "- x");
+    engine.onSessionEnded("s2", "- y");
+    expect(parentRun(repo, "iso", r.runId).status).toBe("error");
+  });
+
+  it("4.14: a child session death finalizes only that child", () => {
+    const engine = makeEngine([]);
+    const r = engine.startRunFor(fanoutAutomation("death", 3))!;
+    const kids = children(repo, "death", r.runId);
+    kids.forEach((k, i) => engine.onSessionRegisteredForRun(`s${i}`, k.runId));
+    engine.onSessionDeath("s1", "- buffered"); // done via buffered
+    const after = children(repo, "death", r.runId);
+    expect(after[1]!.status).toBe("done");
+    expect(after[0]!.status).toBe("running");
+    expect(after[2]!.status).toBe("running");
+    expect(parentRun(repo, "death", r.runId).status).toBe("running");
+  });
+
+  it("4.15: parent finalization is idempotent against a late child signal", () => {
+    const engine = makeEngine([]);
+    const r = engine.startRunFor(fanoutAutomation("idem", 2))!;
+    const kids = children(repo, "idem", r.runId);
+    engine.onSessionRegisteredForRun("s0", kids[0]!.runId);
+    engine.onSessionRegisteredForRun("s1", kids[1]!.runId);
+    engine.onSessionEnded("s0", "- a");
+    engine.onSessionEnded("s1", "- b");
+    const before = JSON.stringify(parentRun(repo, "idem", r.runId));
+    engine.onSessionEnded("s1", "late duplicate");
+    expect(JSON.stringify(parentRun(repo, "idem", r.runId))).toBe(before);
+  });
+
+  it("F3: every child of a fire is stamped with one effective visibility", () => {
+    const calls: any[] = [];
+    const engine = makeEngine(calls);
+    const base = fanoutAutomation("vis", 3);
+    const withVis: DiscoveredAutomation = { ...base, config: { ...base.config!, visibility: "shown" } };
+    engine.startRunFor(withVis);
+    expect(calls).toHaveLength(3);
+    expect(calls.every((c) => c.automationRun.visibility === "shown")).toBe(true);
+  });
+
+  it("4.17: all children spawn regardless of concurrency policy", async () => {
+    const calls: any[] = [];
+    const engine = makeEngine(calls);
+    const r = engine.startRunFor(fanoutAutomation("wide4", 4, "skip"))!;
+    const kids = children(repo, "wide4", r.runId);
+    expect(kids).toHaveLength(4);
+    expect(kids.every((k) => k.status === "running")).toBe(true);
+    await flushSpawn();
+    expect(calls).toHaveLength(4);
+  });
+
+  it("5.5/X10: a stop inside the spawn window aborts on token arrival", async () => {
+    const terminations: any[] = [];
+    let resolveSpawn!: (v: { success: boolean; spawnToken?: string }) => void;
+    const engine = createEngine({
+      spawnSession: () => new Promise((res) => { resolveSpawn = res; }),
+      abortSpawnedRun: async (a) => { terminations.push(a); return true; },
+      listScopes: () => [{ base: repo, scope: "folder" }],
+      config: () => ({ defaultVisibility: "hidden", retention: 100, defaultModel: "m", scanFolder: true, scanGlobal: false, maxRunAgeMs: 30 * 60 * 1000 }),
+      readRoles: () => ({ fast: "m" }),
+      warn: () => {},
+    });
+    const r = engine.startRunFor(fanoutAutomation("win", 1))!;
+    // spawn has NOT resolved: no sessionId, no spawnToken yet.
+    expect(await engine.stopRun(r.runId)).toBe(true);
+    resolveSpawn({ success: true, spawnToken: "tok-w" });
+    await flushSpawn();
+    expect(terminations).toContainEqual({ spawnToken: "tok-w" });
+    expect(parentRun(repo, "win", r.runId).status).toBe("stopped");
+  });
+
+  it("5.6/X11: a stop racing a child's session-end finalizes each once", async () => {
+    const engine = makeEngine([]);
+    const r = engine.startRunFor(fanoutAutomation("race", 2))!;
+    const kids = children(repo, "race", r.runId);
+    engine.onSessionRegisteredForRun("s0", kids[0]!.runId);
+    engine.onSessionRegisteredForRun("s1", kids[1]!.runId);
+    engine.onSessionEnded("s0", "- a");        // child0 done
+    await engine.stopRun(r.runId);             // cascades to the live child1 only
+    engine.onSessionEnded("s1", "late");       // no-op, already stopped
+    const parent = parentRun(repo, "race", r.runId);
+    expect(parent.status).toBe("done");        // [done, stopped] → done
+    expect(typeof parent.endedAt).toBe("number");
+    const after = children(repo, "race", r.runId);
+    expect(after[0]!.status).toBe("done");
+    expect(after[1]!.status).toBe("stopped");
+  });
+});
+
+// ── Fan-out reaper (child-aware) ────────────────────────────────────────────
+// See change: add-automation-concurrent-spawn.
+describe("engine fan-out reaper", () => {
+  function fanoutAutomation(name: string, count: number): DiscoveredAutomation {
+    const dir = path.join(repo, ".pi", "automation", name);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "prompt.md"), "do it");
+    return {
+      name, scope: "folder", dir, valid: true,
+      config: {
+        on: { kind: "schedule", cron: "* * * * *" },
+        action: { kind: "prompt", prompt: "./prompt.md", count },
+        model: "@fast", mode: "local", sandbox: "workspace-write", concurrency: "skip",
+      },
+    };
+  }
+  function ageRecordOnDisk(dir: string, startedAt: number): void {
+    const file = path.join(dir, "run.json");
+    const rec = JSON.parse(fs.readFileSync(file, "utf-8"));
+    rec.startedAt = startedAt;
+    fs.writeFileSync(file, `${JSON.stringify(rec, null, 2)}\n`);
+  }
+  function reaperEngine(nowRef: { v: number }, maxRunAgeMs = 1000) {
+    return createEngine({
+      spawnSession: async () => ({ success: true, spawnToken: "tok" }),
+      abortSpawnedRun: async () => true,
+      listScopes: () => [{ base: repo, scope: "folder" }],
+      config: () => ({ defaultVisibility: "hidden", retention: 100, scanFolder: true, scanGlobal: false, maxRunAgeMs }),
+      readRoles: () => ({ fast: "m" }),
+      now: () => nowRef.v,
+      warn: () => {},
+    });
+  }
+
+  it("4.19/X12: a stale child is reaped without touching a live sibling", () => {
+    const nowRef = { v: Date.now() };
+    const engine = reaperEngine(nowRef, 1000);
+    const r = engine.startRunFor(fanoutAutomation("reap2", 2))!;
+    const kids = children(repo, "reap2", r.runId);
+    engine.onSessionRegisteredForRun("s0", kids[0]!.runId);
+    engine.onSessionRegisteredForRun("s1", kids[1]!.runId);
+    // Age only child A on disk.
+    ageRecordOnDisk(kids[0]!.dir, nowRef.v - 10_000);
+    engine.reapStaleRuns();
+    const after = children(repo, "reap2", r.runId);
+    expect(after[0]!.status).toBe("error"); // reaped
+    expect(after[1]!.status).toBe("running");
+    expect(parentRun(repo, "reap2", r.runId).status).toBe("running");
+    // Sibling terminates → parent finalizes.
+    engine.onSessionEnded("s1", "- x");
+    expect(parentRun(repo, "reap2", r.runId).status).toBe("error");
+  });
+
+  it("4.20/X13: the reaper never orphan-finalizes a live parent", () => {
+    const nowRef = { v: Date.now() };
+    const engine = reaperEngine(nowRef, 1000);
+    const r = engine.startRunFor(fanoutAutomation("liveparent", 2))!;
+    const kids = children(repo, "liveparent", r.runId);
+    engine.onSessionRegisteredForRun("s0", kids[0]!.runId);
+    engine.onSessionRegisteredForRun("s1", kids[1]!.runId);
+    // Age the PARENT record; children stay fresh.
+    ageRecordOnDisk(parentRun(repo, "liveparent", r.runId).dir, nowRef.v - 10_000);
+    engine.reapStaleRuns();
+    expect(parentRun(repo, "liveparent", r.runId).status).toBe("running");
   });
 });
