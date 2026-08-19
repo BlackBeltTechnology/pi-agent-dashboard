@@ -1,3 +1,5 @@
+import Icon from "@mdi/react";
+import { mdiArrowCollapseVertical } from "@mdi/js";
 import React from "react";
 import { type CompactionState, deriveCompactionBadge } from "../../lib/chat/event-reducer.js";
 
@@ -27,11 +29,14 @@ export function ContextUsageBar({ tokens, contextWindow, compact, compaction }: 
   const hasData = tokens != null && contextWindow != null && contextWindow > 0;
   const pct = hasData ? Math.min(100, (tokens / contextWindow) * 100) : 0;
   const badge = deriveCompactionBadge(compaction);
+  const badgeTitle = badge
+    ? `Compacted (${badge.label})${badge.reductionText ? ` ${badge.reductionText} tokens` : ""}`
+    : "";
 
   return (
-    <div className={compact ? "flex items-center w-16" : "flex items-center gap-2"} data-testid="context-usage-bar">
+    <div className={compact ? "flex items-center gap-1 w-16" : "flex items-center gap-2"} data-testid="context-usage-bar">
       <div
-        className="h-1.5 flex-1 rounded-full bg-gray-300 dark:bg-gray-600 overflow-hidden"
+        className="h-1.5 flex-1 min-w-0 rounded-full bg-gray-300 dark:bg-gray-600 overflow-hidden"
         title={hasData ? `${Math.round(pct)}% context used (${tokens.toLocaleString()} / ${contextWindow.toLocaleString()})` : "No context data"}
       >
         {hasData && (
@@ -47,11 +52,23 @@ export function ContextUsageBar({ tokens, contextWindow, compact, compaction }: 
           {Math.round(pct)}%
         </span>
       )}
-      {badge && (
+      {/* Compact rows get an icon-only marker: the text pill squeezed the fixed
+          w-16 bar to a stub and "manual" alone read as a mode toggle rather than
+          a compaction event. Detail lives in the tooltip. */}
+      {badge && compact && (
+        <span
+          className="flex-shrink-0 text-[var(--text-tertiary)]"
+          data-testid="compaction-badge"
+          title={badgeTitle}
+        >
+          <Icon path={mdiArrowCollapseVertical} size={0.45} />
+        </span>
+      )}
+      {badge && !compact && (
         <span
           className="flex-shrink-0 inline-flex items-center gap-0.5 px-1 py-0 text-[10px] rounded-full bg-amber-500/15 text-amber-300 border border-amber-500/30 tabular-nums whitespace-nowrap"
           data-testid="compaction-badge"
-          title={`Context compacted (${badge.label})${badge.reductionText ? ` ${badge.reductionText} tokens` : ""}`}
+          title={badgeTitle}
         >
           {badge.reductionText ? `${badge.label} ${badge.reductionText}` : badge.label}
         </span>
