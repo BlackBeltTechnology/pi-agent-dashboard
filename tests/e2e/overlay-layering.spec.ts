@@ -34,41 +34,59 @@ test.describe("overlay layering", () => {
     await page.setViewportSize({ width: 1440, height: 900 });
   });
 
-  test("F3 folder-actions menu paints above the isolate session cards (no underlap)", async ({
+  test("F3 folder-actions menu paints above the sidebar content it overlaps (no underlap)", async ({
     page,
   }) => {
-    await ensureGitSession(page); // pins FIXTURE_GIT + spawns a card under the folder header
-    const card = page.getByTestId("sessionCardDesktop").first();
+    // pins FIXTURE_GIT + spawns a card under the folder header; returns the card locator
+    const card = (await ensureGitSession(page)).first();
     await expect(card).toBeVisible({ timeout: 30_000 });
 
     const panel = await openFolderMenu(page);
-
     const pBox = await panel.boundingBox();
     const cBox = await card.boundingBox();
     expect(pBox, "panel has a box").not.toBeNull();
     expect(cBox, "card has a box").not.toBeNull();
+    const testid = `folder-actions-menu-panel-${CWD}`;
 
-    // Intersection of panel and card rects — the region where underlap showed.
-    const x1 = Math.max(pBox!.x, cBox!.x);
-    const y1 = Math.max(pBox!.y, cBox!.y);
-    const x2 = Math.min(pBox!.x + pBox!.width, cBox!.x + cBox!.width);
-    const y2 = Math.min(pBox!.y + pBox!.height, cBox!.y + cBox!.height);
-    expect(x2, "panel and a card overlap horizontally").toBeGreaterThan(x1);
-    expect(y2, "panel and a card overlap vertically").toBeGreaterThan(y1);
+    // `elementFromPoint` at a viewport point returns the TOPMOST painted node.
+    // If the point falls inside the portaled panel, the returned node must be
+    // the panel (or a descendant) — otherwise sidebar content is painting over
+    // it: an underlap. Pre-fix the inline-absolute panel was trapped in the
+    // folder row's stacking context and lost to later `isolate` siblings.
+    const topmostIsPanel = (x: number, y: number) =>
+      page.evaluate(
+        ({ x, y, testid }) => {
+          const el = document.elementFromPoint(x, y);
+          const panelEl = document.querySelector(`[data-testid="${testid}"]`);
+          return !!(el && panelEl && (panelEl === el || panelEl.contains(el)));
+        },
+        { x, y, testid },
+      );
 
-    const px = (x1 + x2) / 2;
-    const py = (y1 + y2) / 2;
-    // The topmost element at the overlap point must belong to the menu panel —
-    // i.e. the menu paints ABOVE the card, not behind it.
-    const topmostInPanel = await page.evaluate(
-      ({ x, y, testid }) => {
-        const el = document.elementFromPoint(x, y);
-        const panelEl = document.querySelector(`[data-testid="${testid}"]`);
-        return !!(el && panelEl && (panelEl === el || panelEl.contains(el)));
-      },
-      { x: px, y: py, testid: `folder-actions-menu-panel-${CWD}` },
-    );
-    expect(topmostInPanel, "menu is topmost at the overlap point (no underlap)").toBe(true);
+    // Sample the panel's own area (25/50/75% height at horizontal centre). The
+    // panel visibly overlaps the folder body (automations/KB subcards, the
+    // "New Session" button) — real sidebar siblings. It must be topmost at each.
+    const cx = pBox!.x + pBox!.width / 2;
+    for (const frac of [0.25, 0.5, 0.75]) {
+      const y = pBox!.y + pBox!.height * frac;
+      expect(await topmostIsPanel(cx, y), `panel topmost at ${Math.round(frac * 100)}% height`).toBe(
+        true,
+      );
+    }
+
+    // If the panel geometrically overlaps the isolate session card, assert the
+    // panel wins there too (the exact original regression). Conditional: the
+    // short menu may not reach the card in a single-session fixture.
+    const oy1 = Math.max(pBox!.y, cBox!.y);
+    const oy2 = Math.min(pBox!.y + pBox!.height, cBox!.y + cBox!.height);
+    const ox1 = Math.max(pBox!.x, cBox!.x);
+    const ox2 = Math.min(pBox!.x + pBox!.width, cBox!.x + cBox!.width);
+    if (oy2 > oy1 && ox2 > ox1) {
+      expect(
+        await topmostIsPanel((ox1 + ox2) / 2, (oy1 + oy2) / 2),
+        "panel is topmost where it overlaps the isolate card",
+      ).toBe(true);
+    }
   });
 
   test("F4 portaled panel stays anchored to its trigger when the sidebar scrolls", async ({

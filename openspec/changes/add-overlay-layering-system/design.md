@@ -20,15 +20,21 @@ desktop panel is trapped inside the folder row's context and cannot rise above a
 no matter the number. The portal escapes all ancestor contexts, so the mobile path works. Therefore the
 fix is **portaling**, and the number is only a within-layer tiebreak.
 
-```
-INLINE (broken)                         PORTALED (correct)
-─────────────────                       ──────────────────
-<body>                                  <body>
- └ card-list (stacking ctx)              ├ card-list (stacking ctx)
-    ├ folder-row                         │   └ folder-row → trigger only
-    │   └ panel  absolute z-50  ◀─trap   └ #layer-root
-    └ session-card  transform ─▶paints       └ panel  z=popover  ◀─ above everything
-        OVER the panel
+```mermaid
+flowchart TB
+  subgraph INLINE ["INLINE (broken)"]
+    body1["body"] --> cl1["card-list (stacking ctx)"]
+    cl1 --> fr1["folder-row"]
+    fr1 --> panel1["panel: absolute z-50 (TRAPPED)"]
+    cl1 --> sc1["session-card: transform/isolate"]
+    sc1 -. paints OVER .-> panel1
+  end
+  subgraph PORTALED ["PORTALED (correct)"]
+    body2["body"] --> cl2["card-list (stacking ctx)"]
+    cl2 --> fr2["folder-row → trigger only"]
+    body2 --> lr["layer root (body)"]
+    lr --> panel2["panel: fixed z-popover (ABOVE everything)"]
+  end
 ```
 
 ## Decisions
