@@ -12,7 +12,15 @@ The service SHALL assign every member exactly one of the roles `admin`, `member`
 - **THEN** every management and proxy route rejects the request
 
 ### Requirement: Admin can grant and revoke access
-An admin SHALL be able to change another member's role, and the change SHALL take effect on that member's next request.
+An admin SHALL be able to change another member's role, and the change SHALL take effect on that member's next request. Revocation SHALL cancel every key the member holds and SHALL withdraw every account they contributed.
+
+#### Scenario: Revocation cancels every key the member holds
+- **WHEN** a member holding keys on several machines is revoked
+- **THEN** every one of their keys is rejected at the next request, not merely the most recently issued — a forgotten laptop must not retain access
+
+#### Scenario: Revocation withdraws the accounts they contributed
+- **WHEN** a member who had shared accounts with the team is revoked
+- **THEN** those accounts leave every other member's pool, so the team stops spending the subscription of someone with no remaining relationship to it
 
 #### Scenario: Revocation takes effect without waiting
 - **WHEN** an admin sets a member's role to `revoked` while that member has sessions running

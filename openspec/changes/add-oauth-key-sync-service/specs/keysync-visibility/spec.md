@@ -23,7 +23,11 @@ Clearing the `shared` flag SHALL remove the account from every other member's se
 
 #### Scenario: In-flight requests are unaffected, subsequent ones are
 - **WHEN** an owner unshares an account while another member has a request in flight on it
-- **THEN** the in-flight request completes, and that member's next request selects a different account
+- **THEN** the in-flight request completes, and that member's next request selects a different account — withdrawal is bounded by the duration of one request rather than instantaneous, which is the honest form of the guarantee
+
+#### Scenario: A rotation in progress does not move onto a withdrawn account
+- **WHEN** an account is unshared while another member's request is mid-rotation after a 429
+- **THEN** the remaining rotation attempts select from the recomputed pool and never land on the withdrawn account
 
 #### Scenario: Unsharing the last available account
 - **WHEN** an owner unshares an account that was the only one available to another member

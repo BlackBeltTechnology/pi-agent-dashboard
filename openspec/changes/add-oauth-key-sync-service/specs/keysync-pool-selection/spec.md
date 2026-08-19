@@ -19,7 +19,15 @@ Ordering SHALL NOT distinguish a member's own accounts from accounts shared by o
 - **THEN** selection applies the same ordering rule to both, with no implicit preference for ownership
 
 ### Requirement: Account health states govern eligibility
-Each account SHALL hold state `ok`, `cooling`, or `dead`, and selection SHALL consider only accounts in `ok`.
+Each account SHALL hold state `ok`, `cooling`, or `dead`. When rotation is enabled, selection SHALL consider only accounts in `ok`. When rotation is disabled, selection is confined to the member's primary and SHALL attempt it even while `cooling` — with no alternative to move to, skipping on a cooldown estimate would strand the member for the length of a guess.
+
+#### Scenario: Cooling primary is attempted when rotation is off
+- **WHEN** rotation is disabled and the member's primary account is `cooling`
+- **THEN** the request is still forwarded on that account rather than failed on the strength of a cooldown estimate
+
+#### Scenario: Dead primary is not attempted when rotation is off
+- **WHEN** rotation is disabled and the member's primary account is `dead`
+- **THEN** the service returns an error distinguishable from a rate limit, so a retrying client does not hammer an account that has no usable token
 
 #### Scenario: Cooling account is skipped
 - **WHEN** an account is `cooling` and its cooldown has not elapsed
@@ -38,7 +46,15 @@ When no account in a member's pool is eligible, the service SHALL return an erro
 
 #### Scenario: All accounts cooling
 - **WHEN** every account in a member's pool is `cooling`
-- **THEN** the service returns a rate-limit response carrying the earliest cooldown expiry across the pool
+- **THEN** the service returns a rate-limit response carrying the earliest cooldown expiry across the pool, rather than optimistically spending a request on the least-recently-cooled account
+
+#### Scenario: An implausible retry-after is clamped
+- **WHEN** an upstream 429 carries a `retry-after` far beyond the configured ceiling
+- **THEN** the cooldown applied is the ceiling, so one hostile or erroneous header cannot remove an account from the pool for days
+
+#### Scenario: Selection order differs between members
+- **WHEN** two members whose pools contain the same shared accounts are rate-limited at the same moment
+- **THEN** their rotation walks do not traverse those accounts in the same order, so a team-wide event does not concentrate every retry on the same upstream account first
 
 #### Scenario: No accounts at all
 - **WHEN** a member has no accounts and none are shared

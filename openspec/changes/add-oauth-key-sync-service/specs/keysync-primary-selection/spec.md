@@ -7,9 +7,17 @@ The service SHALL record, per member and per provider, at most one primary accou
 - **WHEN** a member marks an account primary for a provider where another account was already primary
 - **THEN** exactly one account remains primary for that member and provider
 
-#### Scenario: Primary must be in the member's pool
-- **WHEN** a member attempts to mark an account that is neither theirs nor shared as primary
-- **THEN** the request is rejected
+#### Scenario: Primary must be an account the member owns
+- **WHEN** a member attempts to mark an account they do not own as primary
+- **THEN** the request is rejected, whether or not that account is shared with them
+
+#### Scenario: A shared account may be rotated to but not pinned
+- **WHEN** a member's pool contains a teammate's shared account
+- **THEN** selection may rotate onto it after the member's own accounts are exhausted, but it cannot be set as their primary
+
+#### Scenario: Rotation off confines traffic to owned accounts
+- **WHEN** rotation is disabled and a member issues a request
+- **THEN** the account selected is one the member owns, so disabling rotation provably ends all cross-account traffic
 
 ### Requirement: A healthy primary is preferred
 Selection SHALL choose the member's primary account whenever that account is in state `ok`.
