@@ -26,7 +26,7 @@
  */
 
 import { slugifyBranch } from "@blackbelt-technology/pi-dashboard-shared/git-worktree-helpers.js";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { WorktreeEntry } from "../../lib/git/git-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 
@@ -184,6 +184,15 @@ export function WorktreeList({
   const { rows, mainPath } = useMemo(() => buildRows(entries), [entries]);
   const visible = useMemo(() => rows.filter((r) => isVisible(r, reveal, query)), [rows, reveal, query]);
   const counts = useMemo(() => hiddenCounts(rows), [rows]);
+
+  // Drop selected paths that no longer exist in the list. Without this, a
+  // successful bulk removal leaves ghost selections: the bulk bar keeps
+  // offering "Remove N worktrees" for paths already gone, and re-sending them
+  // yields a wall of `cwd_invalid` failures linking to rows that are not there.
+  useEffect(() => {
+    const live = new Set(entries.map((e) => e.path));
+    setSelected((prev) => (prev.every((p) => live.has(p)) ? prev : prev.filter((p) => live.has(p))));
+  }, [entries]);
 
   const anyMissing = rows.some((r) => r.missing);
   /** The main row and vanished rows are never selectable or removable. */

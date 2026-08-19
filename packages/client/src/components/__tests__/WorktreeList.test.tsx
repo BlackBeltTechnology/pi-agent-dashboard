@@ -226,6 +226,35 @@ describe("WorktreeList manage mode", () => {
     expect(screen.queryByTestId(`worktree-select-${id("gone")}`)).toBeNull();
   });
 
+  // Review finding: a successful bulk removal must not leave ghost selections.
+  it("drops selected paths that leave the entry list", () => {
+    const base = [
+      entry({ path: MAIN, branch: "main", isMain: true }),
+      entry({ path: `${MAIN}/.worktrees/feat-a`, branch: "feat-a" }),
+      entry({ path: `${MAIN}/.worktrees/feat-b`, branch: "feat-b" }),
+    ];
+    const onRemoveSelected = vi.fn();
+    const { rerender } = render(
+      <WorktreeList entries={base} mode="manage" onRemoveSelected={onRemoveSelected} />,
+    );
+    fireEvent.click(screen.getByTestId("worktree-select-all"));
+    fireEvent.click(screen.getByTestId("worktree-remove-selected"));
+    expect(onRemoveSelected.mock.calls[0][0]).toHaveLength(2);
+
+    // feat-a is gone after the batch; the selection must shrink with it.
+    rerender(
+      <WorktreeList
+        entries={base.filter((e) => !e.path.endsWith("feat-a"))}
+        mode="manage"
+        onRemoveSelected={onRemoveSelected}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("worktree-remove-selected"));
+    const resent = onRemoveSelected.mock.calls[1][0] as string[];
+    expect(resent).toEqual([`${MAIN}/.worktrees/feat-b`]);
+    expect(resent).not.toContain(`${MAIN}/.worktrees/feat-a`);
+  });
+
   // test-plan #F1 — interactive elements cannot legally nest in a <button>.
   it("uses a non-button row container with both controls as separate tab stops", () => {
     const entries = [

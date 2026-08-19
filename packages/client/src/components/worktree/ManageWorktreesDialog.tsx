@@ -19,7 +19,7 @@
 
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   fetchWorktrees,
   pruneWorktrees,
@@ -41,18 +41,57 @@ interface Props {
 export function ManageWorktreesDialog({ cwd, allSessions, onShutdownSession, onClose }: Props) {
   const [entries, setEntries] = useState<WorktreeEntry[] | null>(null);
   const [closing, setClosing] = useState<WorktreeEntry | null>(null);
-  const [failures, setFailures] = useState<Record<string, { code: string; message?: string }>>({});
+  const [failures, setFailures] = useState<
+    Record<string, { code: string; message?: string; sessionIds?: string[]; onRetry?: () => void }>
+  >({});
   const [pending, setPending] = useState<string[]>([]);
   const [notice, setNotice] = useState<string | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const busyRef = useRef(false);
 
   const refresh = useCallback(async () => {
-    setEntries(await fetchWorktrees(cwd));
+    // `fetchWorktrees` THROWS on `success:false`. Unguarded this leaves the
+    // dialog on "Loading…" forever with an unhandled rejection — reachable
+    // whenever the menu gate's "unknown repo-ness" guess is wrong.
+    try {
+      setEntries(await fetchWorktrees(cwd));
+      setLoadError(null);
+    } catch (err) {
+      setEntries([]);
+      setLoadError(err instanceof Error ? err.message : String(err));
+    }
   }, [cwd]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
+  /** Re-send ONE previously-failed row, preserving the original intent. */
+  const retryOne = useCallback(
+    async (itemCwd: string, opts: { deleteBranch: boolean; force: boolean }) => {
+      setPending([itemCwd]);
+      const result = await removeWorktreeBatch([
+        { cwd: itemCwd, deleteBranch: opts.deleteBranch, force: opts.force },
+      ]);
+      setPending([]);
+      const item = result.ok ? result.data?.results?.[0] : undefined;
+      setFailures((prev) => {
+        const next = { ...prev };
+        if (item?.ok) delete next[itemCwd];
+        else if (item) next[itemCwd] = { ...next[itemCwd], code: item.code, message: describeFailure(item) };
+        return next;
+      });
+      await refresh();
+    },
+    [refresh],
+  );
+
   const onRemoveSelected = useCallback(
     async (paths: string[], opts: { deleteBranch: boolean }) => {
+      // Re-entrancy guard: a double-click would otherwise fire overlapping
+      // batches over the same paths.
+      if (busyRef.current) return;
+      busyRef.current = true;
+      setBusy(true);
       setPending(paths);
       setFailures({});
       // Retries must carry the ORIGINAL deleteBranch intent, not a default.
@@ -60,22 +99,36 @@ export function ManageWorktreesDialog({ cwd, allSessions, onShutdownSession, onC
         paths.map((p) => ({ cwd: p, deleteBranch: opts.deleteBranch })),
       );
       setPending([]);
+      busyRef.current = false;
+      setBusy(false);
       if (!result.ok) {
         setNotice(result.error);
         return;
       }
-      const next: Record<string, { code: string; message?: string }> = {};
+      const next: typeof failures = {};
       for (const item of result.data?.results ?? ([] as RemoveBatchItemResult[])) {
         if (item.ok) continue;
         next[item.cwd] = {
           code: item.code,
+          // Carry the per-item sessionIds through: an escalation retry needs
+          // them, and dropping them here makes the retry unimplementable.
+          sessionIds: item.sessionIds,
           message: describeFailure(item),
+          // The retry re-sends THIS row with the ORIGINAL deleteBranch intent
+          // and `force` for the escalatable causes — never a fresh default.
+          onRetry: () => {
+            void retryOne(item.cwd, {
+              deleteBranch: opts.deleteBranch,
+              force: item.code === "active_sessions" || item.code === "dirty_worktree",
+            });
+          },
         };
       }
       setFailures(next);
       await refresh();
     },
-    [refresh],
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [refresh, retryOne],
   );
 
   const onPrune = useCallback(async () => {
@@ -127,6 +180,11 @@ export function ManageWorktreesDialog({ cwd, allSessions, onShutdownSession, onC
             </ul>
           </div>
         )}
+        {loadError && (
+          <p className="text-xs text-[var(--text-secondary)]" data-testid="manage-worktrees-error">
+            <span aria-hidden="true">⚠</span> {loadError}
+          </p>
+        )}
         {entries == null ? (
           <p className="text-xs text-[var(--text-secondary)]" data-testid="manage-worktrees-loading">
             {i18nT("common.loading2", undefined, "Loading…")}
@@ -139,7 +197,7 @@ export function ManageWorktreesDialog({ cwd, allSessions, onShutdownSession, onC
             onRemoveSelected={onRemoveSelected}
             onPrune={onPrune}
             failures={failures}
-            pending={pending}
+            pending={busy ? entries.map((e) => e.path) : pending}
           />
         )}
       </Dialog>

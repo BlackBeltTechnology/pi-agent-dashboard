@@ -441,6 +441,9 @@ describe("POST /api/git/worktree/remove-batch", () => {
   it("rejects an out-of-repo / invalid item per row while the rest still process", async () => {
     app = await makeApp();
     const [p1, , p3] = addThree();
+    // A real directory OUTSIDE the repo, actually TARGETED by the batch — a
+    // bad item that is merely `""` would leave the marker untouched under any
+    // implementation, making the assertion vacuous.
     const outside = realpathSync(mkdtempSync(join(tmpdir(), "outside-")));
     const marker = join(outside, "keep.txt");
     writeFileSync(marker, "keep");
@@ -448,13 +451,26 @@ describe("POST /api/git/worktree/remove-batch", () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/git/worktree/remove-batch",
-      payload: { items: [{ cwd: p1 }, { cwd: "" }, { cwd: p3 }] },
+      payload: { items: [{ cwd: p1 }, { cwd: outside }, { cwd: p3 }] },
     });
     const results = res.json().data.results;
-    expect(results[1]).toMatchObject({ ok: false, code: "cwd_invalid" });
+    // Not a worktree → rejected per row, never removed.
+    expect(results[1].ok).toBe(false);
+    expect(results[1].code).toBe("not_a_worktree");
+    // The surrounding items still process — no abort on first failure.
     expect(results[0]).toMatchObject({ ok: true });
     expect(results[2]).toMatchObject({ ok: true });
+    // Nothing outside the repo was touched.
     expect(existsSync(marker)).toBe(true);
+    expect(existsSync(outside)).toBe(true);
+
+    // A structurally invalid cwd is rejected too, with its own code.
+    const bad = await app.inject({
+      method: "POST",
+      url: "/api/git/worktree/remove-batch",
+      payload: { items: [{ cwd: "" }] },
+    });
+    expect(bad.json().data.results[0]).toMatchObject({ ok: false, code: "cwd_invalid" });
     rmSync(outside, { recursive: true, force: true });
   });
 
