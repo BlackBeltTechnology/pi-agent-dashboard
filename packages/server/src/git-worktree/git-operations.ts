@@ -4,7 +4,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { type ChildProcess, execFileAsync, execFileSync, execSync, spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { type ChildProcess, execFileAsync, execFileSync, execSync, spawn, spawnSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { gitStatusV2 } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type { GitChangedFile, GitCommitResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { GitStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -521,15 +521,18 @@ export function pruneWorktrees(
   const mainPath = self.resolveMainPath(cwd);
   if (!mainPath) return { ok: false, code: "not_a_worktree" };
   try {
-    // `--verbose` writes its "Removing <name>: <reason>" lines to STDERR,
-    // not stdout — `2>&1` is what makes the count observable.
-    const out = execSync("git worktree prune --verbose 2>&1", {
+    // ARGV form, no shell. `--verbose` writes its "Removing <name>: <reason>"
+    // lines to STDERR, so both streams are captured and scanned rather than
+    // redirecting with `2>&1`, which would require a shell.
+    const res = spawnSync("git", ["worktree", "prune", "--verbose"], {
       cwd: mainPath,
       encoding: "utf-8",
-      stdio: ["pipe", "pipe", "pipe"],
       timeout: GIT_TIMEOUT,
     });
-    const pruned = String(out)
+    if (res.status !== 0) {
+      return { ok: false, code: "git_failed", stderr: String(res.stderr ?? "") };
+    }
+    const pruned = `${String(res.stdout ?? "")}\n${String(res.stderr ?? "")}`
       .split(/\r?\n/)
       .filter((l) => /^Removing /.test(l.trim())).length;
     return { ok: true, data: { pruned } };
@@ -998,7 +1001,8 @@ export function removeWorktree(opts: {
  */
 function branchOfWorktree(mainPath: string, cwd: string): string | null {
   try {
-    const stdout = execSync("git worktree list --porcelain", {
+    // ARGV form, no shell — nothing here needs one.
+    const stdout = execFileSync("git", ["worktree", "list", "--porcelain"], {
       cwd: mainPath,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
