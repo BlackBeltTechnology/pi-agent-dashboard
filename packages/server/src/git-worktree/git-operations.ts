@@ -4,7 +4,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { type ChildProcess, execFileAsync, execSync, spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { type ChildProcess, execFileAsync, execFileSync, execSync, spawn, spawnSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { gitStatusV2 } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type { GitChangedFile, GitCommitResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { GitStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -499,7 +499,47 @@ export function resolveGitDir(cwd: string): string | null {
 /** List all worktrees of the repository containing `cwd`. */
 export function listWorktrees(cwd: string): WorktreeEntry[] {
   const stdout = run("git worktree list --porcelain", cwd);
-  return parsePorcelainWorktrees(stdout);
+  // `exists` reports whether the registration still has a directory on disk.
+  // One `statSync` per entry; the cost is noise next to the `execSync` above.
+  // See change: manage-worktrees-filter-cleanup.
+  return parsePorcelainWorktrees(stdout).map((entry) => ({
+    ...entry,
+    exists: fs.existsSync(entry.path),
+  }));
+}
+
+/**
+ * `git worktree prune` in the resolved main worktree. Repo-global: clears
+ * EVERY stale registration, not just one. Returns the pruned count parsed
+ * from `--verbose` output.
+ *
+ * See change: manage-worktrees-filter-cleanup.
+ */
+export function pruneWorktrees(
+  cwd: string,
+): LifecycleSuccess<{ pruned: number }> | LifecycleFailure<"not_a_worktree" | "git_failed"> {
+  const mainPath = self.resolveMainPath(cwd);
+  if (!mainPath) return { ok: false, code: "not_a_worktree" };
+  try {
+    // ARGV form, no shell. `--verbose` writes its "Removing <name>: <reason>"
+    // lines to STDERR, so both streams are captured and scanned rather than
+    // redirecting with `2>&1`, which would require a shell.
+    const res = spawnSync("git", ["worktree", "prune", "--verbose"], {
+      cwd: mainPath,
+      encoding: "utf-8",
+      timeout: GIT_TIMEOUT,
+    });
+    if (res.status !== 0) {
+      return { ok: false, code: "git_failed", stderr: String(res.stderr ?? "") };
+    }
+    const pruned = `${String(res.stdout ?? "")}\n${String(res.stderr ?? "")}`
+      .split(/\r?\n/)
+      .filter((l) => /^Removing /.test(l.trim())).length;
+    return { ok: true, data: { pruned } };
+  } catch (err: any) {
+    const stderr = String(err?.stderr ?? err?.message ?? "");
+    return { ok: false, code: "git_failed", stderr };
+  }
 }
 
 export type AddWorktreeError =
@@ -792,7 +832,9 @@ function shellEscape(arg: string): string {
 // See change: add-worktree-lifecycle-actions.
 
 import {
+  type BranchDeleteCode,
   type MergeCode,
+  mapBranchDeleteStderr,
   mapMergeStderr,
   mapPrStderr,
   mapPushStderr,
@@ -902,15 +944,25 @@ export function sweepResidualWorktreeDir(mainPath: string, cwd: string): boolean
 export function removeWorktree(opts: {
   cwd: string;
   force?: boolean;
-}): LifecycleSuccess<{ removed: true }> | LifecycleFailure<RemoveCode> {
-  const { cwd, force } = opts;
+  /** Also `git branch -d <branch>` after a successful removal (never `-D`). */
+  deleteBranch?: boolean;
+}):
+  | LifecycleSuccess<{ removed: true; branchDeleted: boolean; branchDeleteCode?: BranchDeleteCode }>
+  | LifecycleFailure<RemoveCode> {
+  const { cwd, force, deleteBranch } = opts;
   const mainPath = resolveMainPath(cwd);
   if (!mainPath) return { ok: false, code: "not_a_worktree" };
-  const args = ["git", "worktree", "remove"];
+  // Capture the branch BEFORE removal — it is unrecoverable afterwards.
+  const branch = deleteBranch ? branchOfWorktree(mainPath, cwd) : null;
+  const args = ["worktree", "remove"];
   if (force) args.push("--force");
   args.push(cwd);
   try {
-    execSync(args.map(shellEscape).join(" "), {
+    // ARGV form, never a shell string. `cwd` is caller-supplied (and the batch
+    // endpoint accepts up to 50 of them per request); `shellEscape` is POSIX
+    // single-quoting, which cmd.exe treats as literal characters, so a path
+    // containing `&` would become a command separator on Windows.
+    execFileSync("git", args, {
       cwd: mainPath,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
@@ -923,7 +975,51 @@ export function removeWorktree(opts: {
   // Belt-and-suspenders: git reported success but a live kb handle may have
   // recreated the dir. Sweep it, guarded to `.worktrees/`.
   sweepResidualWorktreeDir(mainPath, cwd);
-  return { ok: true, data: { removed: true } };
+  if (!deleteBranch) return { ok: true, data: { removed: true, branchDeleted: false } };
+  if (branch == null) {
+    return { ok: true, data: { removed: true, branchDeleted: false, branchDeleteCode: "no_branch" } };
+  }
+  try {
+    // ARGV form, never a shell string: `shellEscape` is POSIX single-quoting,
+    // which cmd.exe treats as literal characters — so a valid branch name
+    // containing `&` would become a command separator on Windows.
+    execFileSync("git", ["branch", "-d", branch], {
+      cwd: mainPath,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: GIT_TIMEOUT,
+    });
+  } catch (err: any) {
+    const stderr = String(err?.stderr ?? err?.message ?? "");
+    return {
+      ok: true,
+      data: { removed: true, branchDeleted: false, branchDeleteCode: mapBranchDeleteStderr(stderr) },
+    };
+  }
+  return { ok: true, data: { removed: true, branchDeleted: true, branchDeleteCode: "deleted" } };
+}
+
+/**
+ * Branch checked out in the worktree at `cwd`, per the main worktree's
+ * porcelain registration. `null` for detached / bare / unregistered entries.
+ */
+function branchOfWorktree(mainPath: string, cwd: string): string | null {
+  try {
+    // ARGV form, no shell — nothing here needs one.
+    const stdout = execFileSync("git", ["worktree", "list", "--porcelain"], {
+      cwd: mainPath,
+      encoding: "utf-8",
+      stdio: ["pipe", "pipe", "pipe"],
+      timeout: GIT_TIMEOUT,
+    });
+    const target = path.resolve(cwd);
+    for (const entry of parsePorcelainWorktrees(String(stdout))) {
+      if (path.resolve(entry.path) === target) return entry.branch;
+    }
+  } catch {
+    // fall through — treated as no_branch
+  }
+  return null;
 }
 
 const BASE_FALLBACKS = ["develop", "main", "master"] as const;

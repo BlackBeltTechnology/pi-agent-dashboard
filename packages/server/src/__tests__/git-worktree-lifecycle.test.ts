@@ -5,14 +5,17 @@
  *
  * See change: add-worktree-lifecycle-actions.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-  mapRemoveStderr,
+  BRANCH_DELETE_CODES,
+  mapBranchDeleteStderr,
   mapMergeStderr,
-  mapPushStderr,
   mapPrStderr,
+  mapPushStderr,
+  mapRemoveStderr,
   parsePrUrl,
   parseShortstat,
+  REMOVE_CODES,
 } from "../git-worktree/git-worktree-lifecycle.js";
 
 describe("mapRemoveStderr", () => {
@@ -157,5 +160,42 @@ describe("parseShortstat", () => {
   });
   it("returns zeros on empty", () => {
     expect(parseShortstat("")).toEqual({ filesChanged: 0, insertions: 0, deletions: 0 });
+  });
+});
+
+// ── BranchDeleteCode disjointness (change: manage-worktrees-filter-cleanup) ──
+
+describe("BranchDeleteCode vs RemoveCode", () => {
+  // test-plan #E7
+  it("the two code namespaces are disjoint", () => {
+    const removes = new Set<string>(REMOVE_CODES);
+    const intersection = BRANCH_DELETE_CODES.filter((c) => removes.has(c));
+    expect(intersection).toEqual([]);
+  });
+
+  it("keeps `git_failed` a RemoveCode only — the branch-delete generic is `delete_failed`", () => {
+    expect(REMOVE_CODES).toContain("git_failed");
+    expect(BRANCH_DELETE_CODES).not.toContain("git_failed");
+    expect(BRANCH_DELETE_CODES).toContain("delete_failed");
+  });
+
+  it("never reuses `branch_not_merged` — that RemoveCode makes the client auto-force", () => {
+    expect(REMOVE_CODES).toContain("branch_not_merged");
+    expect(BRANCH_DELETE_CODES).not.toContain("branch_not_merged");
+    expect(BRANCH_DELETE_CODES).toContain("unmerged");
+  });
+});
+
+describe("mapBranchDeleteStderr", () => {
+  it("unmerged on git's not-fully-merged wording", () => {
+    expect(mapBranchDeleteStderr("error: the branch 'feat/x' is not fully merged"))
+      .toBe("unmerged");
+  });
+  it("branch_gone when the branch no longer exists", () => {
+    expect(mapBranchDeleteStderr("error: branch 'feat/x' not found."))
+      .toBe("branch_gone");
+  });
+  it("delete_failed as the catch-all — never git_failed", () => {
+    expect(mapBranchDeleteStderr("fatal: something unexpected")).toBe("delete_failed");
   });
 });
