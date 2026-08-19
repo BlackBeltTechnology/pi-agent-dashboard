@@ -53,7 +53,7 @@ export function GenericExtensionDialog({ module, rows, onDispatch, onClose }: Pr
 
   return (
     <DialogPortal>
-      <div className="fixed inset-0 z-50 flex items-center justify-center" data-testid="extension-ui-dialog">
+      <div className="fixed inset-0 z-dialog flex items-center justify-center" data-testid="extension-ui-dialog">
         <div className="absolute inset-0 bg-[var(--bg-overlay)]" onClick={onClose} />
         <div className="relative bg-[var(--bg-secondary)] border border-[var(--border-secondary)] rounded-lg shadow-xl w-[95vw] max-w-3xl max-h-[85vh] flex flex-col">
           <ModuleHeader module={module} onClose={onClose} />

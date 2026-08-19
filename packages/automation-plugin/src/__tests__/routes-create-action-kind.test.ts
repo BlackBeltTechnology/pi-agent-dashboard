@@ -4,11 +4,12 @@
  * that /list would later mark invalid. Registered ids + built-in aliases
  * pass. See change: register-plugin-automation-events.
  */
-import { describe, it, expect, afterEach } from "vitest";
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import Fastify from "fastify";
+import { afterEach, describe, expect, it } from "vitest";
 import { mountAutomationRoutes } from "../server/routes.js";
 import type { AutomationConfig } from "../shared/automation-types.js";
 
@@ -76,6 +77,46 @@ describe("action.kind validation on write", () => {
       payload: { scope: "folder", cwd: tmp, name: "sk", config: cfg },
     });
     expect(res.statusCode).toBe(200);
+    await app.close();
+  });
+
+  // E24 — see change: add-automation-concurrent-spawn.
+  for (const url of ["/api/plugins/automation/create", "/api/plugins/automation/update"]) {
+    it(`400 for an unknown \`actions:\` entry naming the index (${url})`, async () => {
+      tmp = fs.mkdtempSync(path.join(os.tmpdir(), "routes-kind-"));
+      const app = await appWith();
+      const config = {
+        on: { kind: "schedule", cron: "0 9 * * *" },
+        actions: [{ kind: "flows.run", payload: { flow: "x" } }, { kind: "bogus.kind" }],
+        model: "@fast",
+        mode: "worktree",
+        sandbox: "workspace-write",
+        concurrency: "skip",
+      } as unknown as AutomationConfig;
+      const res = await app.inject({ method: "POST", url, payload: { scope: "folder", cwd: tmp, name: "fan", config } });
+      expect(res.statusCode).toBe(400);
+      expect(res.json().error).toContain("actions[1]");
+      // Nothing persisted that /list would later mark invalid.
+      expect(fs.existsSync(path.join(tmp, ".pi", "automation", "fan", "automation.yaml"))).toBe(false);
+      await app.close();
+    });
+  }
+
+  // E25 — see change: add-automation-concurrent-spawn.
+  it("/create succeeds for an `actions:`-only config (no `action:` block)", async () => {
+    tmp = fs.mkdtempSync(path.join(os.tmpdir(), "routes-kind-"));
+    const app = await appWith();
+    const config = {
+      on: { kind: "schedule", cron: "0 9 * * *" },
+      actions: [{ kind: "flows.run", payload: { flow: "a" } }, { kind: "core.skill", payload: { skill: "b" } }],
+      model: "@fast",
+      mode: "worktree",
+      sandbox: "workspace-write",
+      concurrency: "skip",
+    } as unknown as AutomationConfig;
+    const res = await app.inject({ method: "POST", url: "/api/plugins/automation/create", payload: { scope: "folder", cwd: tmp, name: "fanonly", config } });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(true);
     await app.close();
   });
 

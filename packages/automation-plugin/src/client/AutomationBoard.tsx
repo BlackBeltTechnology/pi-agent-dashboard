@@ -55,6 +55,7 @@ const STATUS_LABEL: Record<RunRecord["status"], string> = {
   running: "running",
   done: "done",
   error: "error",
+  stopped: "stopped",
 };
 
 interface EditTarget {
@@ -77,6 +78,8 @@ export function AutomationBoard({ params, onBack }: AutomationBoardProps): React
   const [editTarget, setEditTarget] = useState<EditTarget | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
+  // Which parent occurrences are expanded to show their child rows.
+  const [expandedRuns, setExpandedRuns] = useState<Set<string>>(new Set());
   const [openResult, setOpenResult] = useState<{ runId: string; text: string } | null>(null);
 
   useEffect(() => {
@@ -97,6 +100,13 @@ export function AutomationBoard({ params, onBack }: AutomationBoardProps): React
   }, [cwd, reloadKey, invalidRoute]);
 
   const refresh = () => setReloadKey((k) => k + 1);
+  const toggleExpanded = (runId: string) =>
+    setExpandedRuns((prev) => {
+      const next = new Set(prev);
+      if (next.has(runId)) next.delete(runId);
+      else next.add(runId);
+      return next;
+    });
 
   const visibleRuns = useMemo(() => {
     const filtered = showAll ? runs : runs.filter((r) => !r.archived);
@@ -259,26 +269,74 @@ export function AutomationBoard({ params, onBack }: AutomationBoardProps): React
         ) : (
           <table className="w-full text-xs">
             <tbody>
-              {visibleRuns.map((r) => (
-                <tr key={r.runId} data-testid={`automation-run-${r.runId}`} className="relative isolate border-b border-[var(--border-secondary)]/40">
-                  <td className="py-1 pr-2"><span className={statusClass(r.status)}>{STATUS_LABEL[r.status]}</span></td>
-                  <td className="py-1 pr-2 font-mono">{r.runId}</td>
-                  <td className="py-1 pr-2 text-[var(--text-muted)]">{relativeTime(r.startedAt)}</td>
-                  <td className="py-1 pr-2 text-[var(--text-muted)]" data-testid={`run-findings-${r.runId}`}>
-                    {findingsLabel(r)}
-                  </td>
-                  <td className="py-1 pr-2">
-                    {r.archived && (
-                      <span className="text-[10px] text-[var(--text-muted)]" data-testid={`run-archived-${r.runId}`}>{t("archived", undefined, "archived")}</span>
-                    )}
-                  </td>
-                  <td className="py-1">
-                    <button type="button" data-testid={`run-result-${r.runId}`} onClick={() => void onViewResult(r)} className="text-[10px] text-[var(--accent,#6366f1)] underline">
-                      {runLinkLabel(r.status)}
-                    </button>
-                  </td>
-                </tr>
-              ))}
+              {visibleRuns.flatMap((r) => {
+                const kids = r.childRuns ?? [];
+                const isParent = kids.length > 0;
+                const expanded = expandedRuns.has(r.runId);
+                const rows: React.ReactElement[] = [
+                  <tr key={r.runId} data-testid={`automation-run-${r.runId}`} className="relative isolate border-b border-[var(--border-secondary)]/40">
+                    <td className="py-1 pr-2">
+                      {isParent && (
+                        <button
+                          type="button"
+                          data-testid={`run-expand-${r.runId}`}
+                          onClick={() => toggleExpanded(r.runId)}
+                          className="mr-1 text-[10px] text-[var(--text-muted)]"
+                          aria-expanded={expanded}
+                        >
+                          {expanded ? "▾" : "▸"}
+                        </button>
+                      )}
+                      <span className={statusClass(r.status)}>{STATUS_LABEL[r.status]}</span>
+                    </td>
+                    <td className="py-1 pr-2 font-mono">
+                      {r.runId}
+                      {isParent && (
+                        <span className="ml-1 text-[10px] text-[var(--text-muted)]" data-testid={`run-child-count-${r.runId}`}>
+                          ({kids.length})
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-1 pr-2 text-[var(--text-muted)]">{relativeTime(r.startedAt)}</td>
+                    <td className="py-1 pr-2 text-[var(--text-muted)]" data-testid={`run-findings-${r.runId}`}>
+                      {findingsLabel(r)}
+                    </td>
+                    <td className="py-1 pr-2">
+                      {r.warning ? (
+                        <span className="text-[10px] text-[#fcd34d]" data-testid={`run-warning-${r.runId}`}>{r.warning}</span>
+                      ) : r.archived ? (
+                        <span className="text-[10px] text-[var(--text-muted)]" data-testid={`run-archived-${r.runId}`}>{t("archived", undefined, "archived")}</span>
+                      ) : null}
+                    </td>
+                    <td className="py-1">
+                      {!isParent && (
+                        <button type="button" data-testid={`run-result-${r.runId}`} onClick={() => void onViewResult(r)} className="text-[10px] text-[var(--accent,#6366f1)] underline">
+                          {runLinkLabel(r.status)}
+                        </button>
+                      )}
+                    </td>
+                  </tr>,
+                ];
+                if (isParent && expanded) {
+                  for (const child of kids) {
+                    rows.push(
+                      <tr key={child.runId} data-testid={`automation-child-run-${child.runId}`} className="border-b border-[var(--border-secondary)]/20 bg-[var(--bg-subtle,rgba(0,0,0,0.03))]">
+                        <td className="py-1 pr-2 pl-4"><span className={statusClass(child.status)}>{STATUS_LABEL[child.status]}</span></td>
+                        <td className="py-1 pr-2 text-[11px]" data-testid={`child-action-${child.runId}`}>{child.actionLabel ?? child.runId}</td>
+                        <td className="py-1 pr-2 text-[var(--text-muted)]">{relativeTime(child.startedAt)}</td>
+                        <td className="py-1 pr-2 text-[var(--text-muted)]" data-testid={`child-findings-${child.runId}`}>{findingsLabel(child)}</td>
+                        <td className="py-1 pr-2" />
+                        <td className="py-1">
+                          <button type="button" data-testid={`child-result-${child.runId}`} onClick={() => void onViewResult(child)} className="text-[10px] text-[var(--accent,#6366f1)] underline">
+                            {runLinkLabel(child.status)}
+                          </button>
+                        </td>
+                      </tr>,
+                    );
+                  }
+                }
+                return rows;
+              })}
             </tbody>
           </table>
         )}
@@ -365,7 +423,7 @@ function AutomationCard({
             <span data-testid={`automation-summary-${a.name}`}>{summary}</span>
             {next && <span>{t("cardNext", undefined, "next:")} {next.toLocaleString()}</span>}
             <span>{t("cardModel", undefined, "model:")} {cfg?.model ?? "?"}</span>
-            <span>{t("cardAction", undefined, "action:")} {cfg?.action.kind ?? "?"}</span>
+            <span>{t("cardAction", undefined, "action:")} {actionSummary(cfg)}</span>
             <span data-testid={`automation-mode-${a.name}`}>{t("cardMode", undefined, "mode:")} {cfg?.mode ?? "?"}</span>
           </div>
         ) : (
@@ -441,6 +499,13 @@ const CardBtn = React.forwardRef<
   );
 });
 
+/** Action summary for a card: single kind, or "N actions" for a fan-out. */
+function actionSummary(cfg: AutomationConfig | undefined): string {
+  if (!cfg) return "?";
+  if (cfg.actions && cfg.actions.length > 0) return `${cfg.actions.length} actions`;
+  return cfg.action?.kind ?? "?";
+}
+
 function triggerSummary(cfg: AutomationConfig): string {
   if (cfg.on.kind === "schedule") return `schedule: ${cfg.on.cron ?? "?"}`;
   const events = (cfg.on.events as string[] | undefined) ?? [];
@@ -479,6 +544,8 @@ function statusClass(status: RunRecord["status"]): string {
       return base + "bg-[rgba(234,179,8,0.16)] text-[#fcd34d]";
     case "error":
       return base + "bg-[rgba(239,68,68,0.15)] text-[var(--danger,#ef4444)]";
+    case "stopped":
+      return base + "bg-[rgba(148,163,184,0.18)] text-[var(--text-secondary)]";
     default:
       return base + "bg-[var(--bg-subtle,rgba(0,0,0,0.06))] text-[var(--text-secondary)]";
   }

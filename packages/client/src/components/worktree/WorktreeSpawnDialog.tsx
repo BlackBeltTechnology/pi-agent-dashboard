@@ -32,9 +32,10 @@ import {
   type WorktreeEntry,
 } from "../../lib/git/git-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { logRejection } from "../../lib/report-error.js";
 import { BranchCombobox } from "./BranchCombobox.js";
 import { PrCombobox } from "./PrCombobox.js";
-import { logRejection } from "../../lib/report-error.js";
+import { WorktreeList } from "./WorktreeList.js";
 
 // Ternary source toggle (change: worktree-checkout-existing-branch),
 // widening the binary "branch"/"pr" toggle introduced by
@@ -439,26 +440,12 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
         <h4 className="text-xs uppercase tracking-wider text-[var(--text-muted)] mb-2">
           {i18nT("worktree.existingWorktreesOfThisRepo", undefined, "Existing worktrees of this repo")}
         </h4>
-        <div className="rounded border border-[var(--border-subtle)] overflow-hidden">
-          {data.worktrees.map((wt) => (
-            <button
-              key={wt.path}
-              type="button"
-              onClick={() => handleSpawnExisting(wt)}
-              data-testid={`worktree-row-${wt.isMain ? "main" : encodeURIComponent(wt.path)}`}
-              className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-[var(--bg-tertiary)] border-b border-[var(--border-subtle)] last:border-b-0 disabled:opacity-60"
-            >
-              <span className="text-[11px] text-[var(--text-tertiary)]">
-                {wt.detached ? "(detached)" : wt.branch ?? "(none)"}
-              </span>
-              <span className="text-[11px] text-[var(--text-muted)] truncate flex-1">{wt.path}</span>
-              {wt.isMain && (
-                <span className="text-[9px] uppercase tracking-wider text-[var(--text-muted)] border border-[var(--border-subtle)] rounded-full px-1.5 py-px">main</span>
-              )}
-              <span className="text-[11px] text-blue-400">{i18nT("session.session2", undefined, "+Session →")}</span>
-            </button>
-          ))}
-        </div>
+        {/* §1 is delegated to the shared list (change: manage-worktrees-filter-cleanup). */}
+        <WorktreeList
+          entries={data.worktrees}
+          mode="spawn"
+          onSpawn={(_path, entry) => handleSpawnExisting(entry)}
+        />
       </section>
 
       {/* ── create new ─────────────────────────────────────────────── */}

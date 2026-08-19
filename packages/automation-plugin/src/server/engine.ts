@@ -21,9 +21,9 @@ import path from "node:path";
 import type {
   AutomationScope,
   DiscoveredAutomation,
-  RunMode,
+  RunMode,RunStatus, 
   Sandbox,
-  Visibility,
+  Visibility
 } from "../shared/automation-types.js";
 import {
   type ActionCompletion,
@@ -35,9 +35,17 @@ import { fileTrigger } from "./file-trigger.js";
 import { interpolate } from "./interpolate.js";
 import { resolveModel } from "./model-resolver.js";
 import {
+  DEFAULT_MAX_CONCURRENT_SPAWNS,
+  effectiveBound,
+  resolveChildren,
+} from "./resolve-children.js";
+import {
   listStaleRunningRuns,
+  finishParentRun as storeFinishParentRun,
   finishRun as storeFinishRun,
-  startRun as storeStartRun,
+  setSessionId as storeSetSessionId,
+  startChildRun as storeStartChildRun,
+  startParentRun as storeStartParentRun,
 } from "./run-store.js";
 import { createRunner, type Runner } from "./runner.js";
 import { scanAutomations } from "./scanner.js";
@@ -60,7 +68,8 @@ export function buildRunPrompt(
   /** Per-fire resolved payload (overrides the static `action.payload`). */
   resolvedPayload?: Record<string, unknown>,
 ): string {
-  const action = automation.config!.action;
+  const action = automation.config?.action;
+  if (!action) return "";
   const payload = resolvedPayload ?? action.payload ?? {};
   const reg = actionRegistry?.get(normalizeActionKind(action.kind));
   if (reg) {
@@ -99,7 +108,8 @@ export function buildRunDispatch(
   /** Per-fire context; its `value` resolves `${{trigger}}` in the payload. */
   ctx?: FireContext,
 ): RunDispatch {
-  const action = automation.config!.action;
+  const action = automation.config?.action;
+  if (!action) return { kind: "prompt", text: "" };
   // Central per-fire substitution: resolve `${{trigger}}` in the whole payload
   // ONCE, so no action needs its own interpolation logic.
   const payload = interpolate(action.payload ?? {}, ctx?.value) as Record<string, unknown>;
@@ -158,6 +168,12 @@ export interface EngineConfig {
    * finalize-automation-run-on-session-death.
    */
   maxRunAgeMs: number;
+  /**
+   * Settings-default cap on concurrent child spawns per fire, used when an
+   * automation declares no `maxConcurrentSpawns`. See change:
+   * add-automation-concurrent-spawn.
+   */
+  maxConcurrentSpawns?: number;
 }
 
 export interface EngineDeps {
@@ -217,6 +233,32 @@ export interface RunContext {
    */
   spawnToken?: string;
   delivered: boolean;
+  /** Parent occurrence run id this child belongs to. */
+  parentRunId: string;
+  /** Human label of the action this child dispatches. */
+  actionLabel: string;
+  /**
+   * Set when a stop landed during the spawn→register window (no sessionId, no
+   * token yet). The spawn continuation aborts immediately with the freshly
+   * returned token when it observes this. See change:
+   * add-automation-concurrent-spawn (decision 7a).
+   */
+  stopRequested?: boolean;
+  /** Idempotency guard: true once this child has been finalized. */
+  finalized?: boolean;
+}
+
+/** Per-parent finalization counter (decision 4). */
+interface ParentState {
+  parentRunId: string;
+  key: string;
+  scopeBase: string;
+  name: string;
+  remaining: number;
+  statuses: RunStatus[];
+  findings: number;
+  warning?: string;
+  finalized: boolean;
 }
 
 export interface Engine {
@@ -298,6 +340,9 @@ export function createEngine(deps: EngineDeps): Engine {
   // match by sessionId. Mirrors the server-side pending-automation-run
   // registry's FIFO-per-cwd semantics. See change: add-automation-plugin.
   const pending = new Map<string, RunContext[]>();
+  // parentRunId → per-parent finalization counter. A parent finalizes exactly
+  // once when its counter reaches zero. See change: add-automation-concurrent-spawn.
+  const parents = new Map<string, ParentState>();
 
   function enqueuePending(ctx: RunContext): void {
     const q = pending.get(ctx.cwd) ?? [];
@@ -350,17 +395,21 @@ export function createEngine(deps: EngineDeps): Engine {
       } catch {
         continue;
       }
+      // `listStaleRunningRuns` returns child + legacy-flat running records only
+      // (never a parent), so the reaper never orphan-finalizes a parent that
+      // still has live children — the parent finalizes solely via the child
+      // counter. See change: add-automation-concurrent-spawn.
       for (const rec of stale) {
         const ctx = findByRunId(rec.runId);
         if (ctx) {
-          // Live wedged run — finalize + free the concurrency slot.
-          finishAndRelease(ctx, {
+          // Live wedged child — finalize it (decrements its parent counter).
+          finalizeChild(ctx, {
             status: "error",
             error: "run exceeded max age",
             result: "_(run exceeded max age)_",
           });
         } else {
-          // Pre-existing on-disk orphan (no live lock held) — clear the record.
+          // Pre-existing on-disk orphan (no live context) — clear the record.
           storeFinishRun(s.base, rec.runId, {
             status: "error",
             error: "run exceeded max age",
@@ -374,16 +423,84 @@ export function createEngine(deps: EngineDeps): Engine {
       }
     }
   }
-  function finishAndRelease(ctx: RunContext, fin: { status: "done" | "error"; result?: string; error?: string }): void {
+
+  /** Aggregate child outcomes into a parent status (decision 4). */
+  function aggregateStatus(statuses: RunStatus[]): RunStatus {
+    if (statuses.some((s) => s === "error")) return "error";
+    if (statuses.length > 0 && statuses.every((s) => s === "stopped")) return "stopped";
+    return "done";
+  }
+
+  /** Finalize the parent occurrence once its child counter reaches zero. Owns
+   *  the single `runner.completeRun(key)` call for the whole fire (decision 4a). */
+  function finalizeParent(parent: ParentState): void {
+    if (parent.finalized) return;
+    parent.finalized = true;
     const cfg = deps.config();
-    storeFinishRun(ctx.scopeBase, ctx.runId, {
+    storeFinishParentRun(parent.scopeBase, parent.parentRunId, {
+      status: aggregateStatus(parent.statuses),
+      findings: parent.findings,
+      ...(parent.warning ? { warning: parent.warning } : {}),
+      retention: cfg.retention,
+    });
+    parents.delete(parent.parentRunId);
+    runner.completeRun(parent.key);
+    log(`[engine] parent run ${parent.parentRunId} finalized (${parent.key})`);
+  }
+
+  /**
+   * Finalize ONE child record and decrement its parent counter. Does NOT call
+   * `runner.completeRun` — only parent finalization does (decision 4a). Idempotent
+   * via `ctx.finalized`.
+   */
+  function finalizeChild(
+    ctx: RunContext,
+    fin: { status: RunStatus; result?: string; error?: string },
+  ): void {
+    if (ctx.finalized) return;
+    ctx.finalized = true;
+    const cfg = deps.config();
+    const rec = storeFinishRun(ctx.scopeBase, ctx.runId, {
       status: fin.status,
       ...(fin.result !== undefined ? { result: fin.result } : {}),
       ...(fin.error ? { error: fin.error } : {}),
       retention: cfg.retention,
     });
     removePending(ctx);
-    runner.completeRun(ctx.key);
+    const findings = rec?.findings ?? 0;
+    const parent = parents.get(ctx.parentRunId);
+    if (parent) {
+      parent.remaining -= 1;
+      parent.statuses.push(fin.status);
+      parent.findings += findings;
+      if (parent.remaining <= 0) finalizeParent(parent);
+    } else {
+      // Defensive: a child with no tracked parent releases the slot directly.
+      runner.completeRun(ctx.key);
+    }
+  }
+
+  /**
+   * Stop ONE child: terminate its process then finalize it `stopped`. When the
+   * child is still in the spawn→register window (no sessionId, no token), record
+   * `stopRequested` so the spawn continuation aborts on token arrival
+   * (decision 7a) — do NOT finalize yet, or the parent counter would drop a
+   * child that later registers and runs on.
+   */
+  async function stopChild(ctx: RunContext): Promise<void> {
+    if (ctx.finalized) return;
+    if (ctx.sessionId || ctx.spawnToken) {
+      if (deps.abortSpawnedRun) {
+        await deps.abortSpawnedRun({
+          ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+          ...(ctx.spawnToken ? { spawnToken: ctx.spawnToken } : {}),
+        });
+      }
+      finalizeChild(ctx, { status: "stopped", result: "_(stopped by user)_", error: "stopped by user" });
+      return;
+    }
+    // Spawn window: no handle yet — defer the kill to the spawn continuation.
+    ctx.stopRequested = true;
   }
 
   function scopeBaseFor(a: DiscoveredAutomation): string {
@@ -419,27 +536,29 @@ export function createEngine(deps: EngineDeps): Engine {
   const REAP_INTERVAL_MS = 60_000;
   let reapTimer: ReturnType<typeof setInterval> | null = null;
 
-  function startRunFor(automation: DiscoveredAutomation, fireCtx?: FireContext): { runId: string } | null {
-    if (!automation.valid || !automation.config) return null;
-    const cfg = deps.config();
-    const scopeBase = scopeBaseFor(automation);
-    const runCwd = scopeBase; // phase-1: run in the scope base (local mode)
-    const vis = effectiveVisibility(automation, cfg.defaultVisibility);
-
-    const resolved = resolveModel(automation.config.model, {
-      defaultModel: cfg.defaultModel,
-      ...(deps.readRoles ? { readRoles: deps.readRoles } : {}),
+  /** Spawn one child session for a resolved child spec. */
+  function spawnChild(
+    parent: ParentState,
+    childAutomation: DiscoveredAutomation,
+    actionLabel: string,
+    runCwd: string,
+    resolved: ReturnType<typeof resolveModel>,
+    vis: Visibility,
+    fireCtx: FireContext | undefined,
+  ): void {
+    const childRec = storeStartChildRun(parent.scopeBase, parent.parentRunId, parent.name, {
+      actionLabel,
     });
-
-    const rec = storeStartRun(scopeBase, automation.name);
-    const dispatch = buildRunDispatch(automation, resolveRegistry(), fireCtx);
+    const dispatch = buildRunDispatch(childAutomation, resolveRegistry(), fireCtx);
     const promptText = dispatch.kind === "prompt" ? dispatch.text : "";
 
     const ctx: RunContext = {
-      key: automationKey(automation),
-      runId: rec.runId,
-      scopeBase,
-      automation,
+      key: parent.key,
+      runId: childRec.runId,
+      parentRunId: parent.parentRunId,
+      actionLabel,
+      scopeBase: parent.scopeBase,
+      automation: childAutomation,
       cwd: normalize(runCwd),
       promptText,
       ...(dispatch.kind === "event"
@@ -460,30 +579,97 @@ export function createEngine(deps: EngineDeps): Engine {
       .spawnSession({
         cwd: runCwd,
         ...(resolved.model ? { model: resolved.model } : {}),
-        mode: automation.config.mode,
-        sandbox: automation.config.sandbox,
-        automationRun: { name: automation.name, runId: rec.runId, visibility: vis },
+        mode: childAutomation.config!.mode,
+        sandbox: childAutomation.config!.sandbox,
+        automationRun: { name: parent.name, runId: childRec.runId, visibility: vis },
       })
       .then((res) => {
         if (!res.success) {
-          warn(`[engine] spawn failed for ${ctx.key}: ${res.message ?? "unknown"}`);
-          finishAndRelease(ctx, { status: "error", error: res.message ?? "spawn failed" });
+          warn(`[engine] spawn failed for ${ctx.key}/${ctx.runId}: ${res.message ?? "unknown"}`);
+          finalizeChild(ctx, { status: "error", error: res.message ?? "spawn failed" });
           return;
         }
-        // Capture the process handle so Stop can kill the run even before its
+        // Capture the process handle so Stop can kill the child even before its
         // session registers. See change: fix-automation-stop-zombie-runs.
         if (res.spawnToken) ctx.spawnToken = res.spawnToken;
+        // Spawn-window guard (decision 7a): a stop landed before the token
+        // arrived — abort now with the freshly returned token + finalize stopped.
+        if (ctx.stopRequested && !ctx.finalized) {
+          if (deps.abortSpawnedRun) {
+            void deps.abortSpawnedRun({
+              ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+              ...(res.spawnToken ? { spawnToken: res.spawnToken } : {}),
+            });
+          }
+          finalizeChild(ctx, {
+            status: "stopped",
+            result: "_(stopped by user)_",
+            error: "stopped by user",
+          });
+        }
       })
       .catch((e) => {
-        // A rejected spawn promise MUST still finish the run + release the
-        // runner slot, else skip/queue automations deadlock (the prior run
-        // stays "active" forever). See change: add-automation-plugin (CR).
-        warn(`[engine] spawn threw for ${ctx.key}: ${e instanceof Error ? e.message : String(e)}`);
-        finishAndRelease(ctx, { status: "error", error: e instanceof Error ? e.message : String(e) });
+        // A rejected spawn promise MUST still finalize the child + decrement the
+        // parent, else the fire never completes. See change: add-automation-plugin (CR).
+        warn(`[engine] spawn threw for ${ctx.key}/${ctx.runId}: ${e instanceof Error ? e.message : String(e)}`);
+        finalizeChild(ctx, { status: "error", error: e instanceof Error ? e.message : String(e) });
       });
 
-    log(`[engine] started run ${rec.runId} (${ctx.key}) model=${resolved.model || "(default)"}`);
-    return { runId: rec.runId };
+    log(`[engine] started child run ${childRec.runId} (${ctx.key}) model=${resolved.model || "(default)"}`);
+  }
+
+  function startRunFor(automation: DiscoveredAutomation, fireCtx?: FireContext): { runId: string } | null {
+    if (!automation.valid || !automation.config) return null;
+    const cfg = deps.config();
+    const scopeBase = scopeBaseFor(automation);
+    const runCwd = scopeBase; // phase-1: run in the scope base (local mode)
+    const vis = effectiveVisibility(automation, cfg.defaultVisibility);
+
+    // Resolve the model ONCE for the whole fire (decision 4.1).
+    const resolved = resolveModel(automation.config.model, {
+      defaultModel: cfg.defaultModel,
+      ...(deps.readRoles ? { readRoles: deps.readRoles } : {}),
+    });
+
+    const bound = effectiveBound(
+      automation,
+      cfg.maxConcurrentSpawns ?? DEFAULT_MAX_CONCURRENT_SPAWNS,
+    );
+    const { specs, truncated } = resolveChildren(automation, bound);
+    if (specs.length === 0) return null; // defensive: schema forbids this
+    const warning =
+      truncated > 0
+        ? `bounded to ${bound} concurrent spawn(s); ${truncated} child(ren) not spawned`
+        : undefined;
+
+    const parentRec = storeStartParentRun(scopeBase, automation.name, {
+      ...(warning ? { warning } : {}),
+    });
+    const parent: ParentState = {
+      parentRunId: parentRec.runId,
+      key: automationKey(automation),
+      scopeBase,
+      name: automation.name,
+      remaining: specs.length,
+      statuses: [],
+      findings: 0,
+      ...(warning ? { warning } : {}),
+      finalized: false,
+    };
+    parents.set(parent.parentRunId, parent);
+
+    for (const spec of specs) {
+      // Per-child automation view so `buildRunDispatch` reads THIS child's
+      // action (decision 4.2).
+      const childAutomation: DiscoveredAutomation = {
+        ...automation,
+        config: { ...automation.config, action: spec.action, actions: undefined },
+      };
+      spawnChild(parent, childAutomation, spec.actionLabel, runCwd, resolved, vis, fireCtx);
+    }
+
+    log(`[engine] started parent run ${parentRec.runId} (${parent.key}) children=${specs.length}`);
+    return { runId: parentRec.runId };
   }
 
   return {
@@ -536,6 +722,8 @@ export function createEngine(deps: EngineDeps): Engine {
       if (!ctx) return;
       ctx.sessionId = sessionId;
       ctx.delivered = true;
+      // Persist the child's sessionId on disk for the monitor link (decision 4c).
+      storeSetSessionId(ctx.scopeBase, ctx.runId, sessionId);
       log(`[engine] delivering action to run ${ctx.runId} (session ${sessionId})`);
     },
 
@@ -544,39 +732,38 @@ export function createEngine(deps: EngineDeps): Engine {
       if (!ctx) return;
       ctx.sessionId = sessionId;
       ctx.delivered = true;
+      // Persist the child's sessionId on disk for the monitor link (decision 4c).
+      storeSetSessionId(ctx.scopeBase, ctx.runId, sessionId);
       log(`[engine] delivering action to run ${ctx.runId} (session ${sessionId})`);
     },
 
     async stopRun(runId: string): Promise<boolean> {
-      // Find the live pending context for this run (any state). A run already
-      // finalized has been removed from `pending`, so this returns false and
-      // the call is a no-op — idempotent against a prior stop or agent_end.
-      const ctx = findByRunId(runId);
-      if (!ctx) return false;
-      // Terminate the actual process (immediate hard-kill — the failure mode
-      // is a surviving pi, not a stuck turn). Kills by sessionId when linked,
-      // else by spawnToken (the spawn→register window). Attempt the kill
-      // BEFORE finalizing so we never finalize a still-running process.
-      if (deps.abortSpawnedRun) {
-        await deps.abortSpawnedRun({
-          ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
-          ...(ctx.spawnToken ? { spawnToken: ctx.spawnToken } : {}),
-        });
+      // Parent stop: cascade to every live child (decision 7). The child
+      // counter finalizes the parent once the last child terminates.
+      const parent = parents.get(runId);
+      if (parent) {
+        const children = [...pending.values()]
+          .flat()
+          .filter((c) => c.parentRunId === runId && !c.finalized);
+        if (children.length === 0) return false;
+        await Promise.all(children.map((c) => stopChild(c)));
+        log(`[engine] parent run ${runId} stop cascaded to ${children.length} child(ren)`);
+        return true;
       }
-      // Finalize once. A non-empty result marker keeps the stopped run out of
-      // the auto-archive (empty) bucket so it stays visible in Triage.
-      // removePending makes the later onSessionEnded a no-op (findBySession
-      // won't find it) — idempotent vs the agent_end capture path.
-      finishAndRelease(ctx, { status: "error", result: "_(stopped by user)_", error: "stopped by user" });
+      // Child (or legacy flat) stop: terminate only that run. A run already
+      // finalized was removed from `pending`, so this is a no-op — idempotent.
+      const ctx = findByRunId(runId);
+      if (!ctx || ctx.finalized) return false;
+      await stopChild(ctx);
       log(`[engine] run ${ctx.runId} stopped (${ctx.key})`);
       return true;
     },
 
     onSessionEnded(sessionId: string, result: string): void {
       const found = findBySession(sessionId);
-      if (!found) return;
+      if (!found || found.finalized) return;
       const spawnToken = found.spawnToken;
-      finishAndRelease(found, {
+      finalizeChild(found, {
         status: found.modelError ? "error" : "done",
         result,
         ...(found.modelError ? { error: found.modelError } : {}),
@@ -598,17 +785,17 @@ export function createEngine(deps: EngineDeps): Engine {
 
     onSessionDeath(sessionId: string, result?: string): void {
       const found = findBySession(sessionId);
-      if (!found) return; // unknown or already finalized — idempotent no-op
+      if (!found || found.finalized) return; // unknown or already finalized — no-op
       const spawnToken = found.spawnToken;
       const buffered = (result ?? "").trim();
       if (buffered.length > 0) {
-        finishAndRelease(found, {
+        finalizeChild(found, {
           status: found.modelError ? "error" : "done",
           result: buffered,
           ...(found.modelError ? { error: found.modelError } : {}),
         });
       } else {
-        finishAndRelease(found, {
+        finalizeChild(found, {
           status: "error",
           error: found.modelError ?? "session ended before completion",
           result: "_(session ended before completion)_",
@@ -630,6 +817,7 @@ export function createEngine(deps: EngineDeps): Engine {
         reapTimer = null;
       }
       pending.clear();
+      parents.clear();
     },
   };
 }

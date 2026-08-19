@@ -5,12 +5,13 @@
  * assert what lands in result.md (and auto-archive on empty).
  * See change: fix-automation-result-capture.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { afterEach, beforeEach, expect, it } from "vitest";
 import { extractAssistantText } from "../server/index.js";
-import { startRun, finishRun } from "../server/run-store.js";
+import { finishRun, startChildRun, startParentRun, startRun } from "../server/run-store.js";
 
 let base: string;
 beforeEach(() => {
@@ -73,4 +74,21 @@ it("no assistant output -> empty result.md -> auto-archived", () => {
     "utf-8",
   );
   expect(md).toBe("");
+});
+
+// X2 — per-child result isolation under the parent run dir.
+// See change: add-automation-concurrent-spawn.
+
+it("X2: each child writes its own result.md under the parent, none overwriting", () => {
+  const parent = startParentRun(base, "pong");
+  const kids = [0, 1, 2].map((i) =>
+    startChildRun(base, parent.runId, "pong", { actionLabel: `a${i}` }),
+  );
+  kids.forEach((k, i) => finishRun(base, k.runId, { status: "done", result: `- finding ${i}` }));
+  const texts = kids.map((k) => fs.readFileSync(path.join(k.dir, "result.md"), "utf-8"));
+  expect(texts[0]).toContain("finding 0");
+  expect(texts[1]).toContain("finding 1");
+  expect(texts[2]).toContain("finding 2");
+  // Distinct files, none overwritten.
+  expect(new Set(kids.map((k) => k.dir)).size).toBe(3);
 });

@@ -642,6 +642,127 @@ describe("SettingsPanel", () => {
   });
 });
 
+// Default thinking level control paired with the Default Model (Sessions page).
+// See change: add-default-thinking-level.
+describe("SettingsPanel default thinking level", () => {
+  const MODELS = [
+    { provider: "openai", id: "gpt-4o", supportedThinkingLevels: ["off", "medium", "high", "xhigh"] },
+    { provider: "anthropic", id: "claude", supportedThinkingLevels: ["off", "low", "medium"] },
+  ];
+
+  function openThinkingDropdown() {
+    const selector = screen.getByTestId("thinking-level-selector");
+    fireEvent.click(within(selector).getByTestId("thinking-level-button"));
+    return within(selector).getByTestId("thinking-level-dropdown");
+  }
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    fetchAutoInitWorktreePref.mockResolvedValue(false);
+    setAutoInitWorktreePref.mockResolvedValue(true);
+    setPath("/settings/sessions");
+  });
+  afterEach(() => cleanup());
+
+  // F1: control renders inside the Default Model callout when a model is selected.
+  it("renders the thinking-level control beside the Default Model selector", async () => {
+    global.fetch = mockFetchConfig({ defaultModel: "openai/gpt-4o" });
+    render(<SettingsPanel availableModels={MODELS} />);
+    await waitFor(() => screen.getByText("Default model"));
+    expect(screen.getByTestId("thinking-level-selector")).toBeTruthy();
+  });
+
+  // F2: levels filter to the selected model's supported levels.
+  it("filters selectable levels to the selected model", async () => {
+    global.fetch = mockFetchConfig({ defaultModel: "anthropic/claude" });
+    render(<SettingsPanel availableModels={MODELS} />);
+    await waitFor(() => screen.getByText("Default model"));
+    const dropdown = openThinkingDropdown();
+    const labels = Array.from(dropdown.querySelectorAll("button")).map((b) => b.textContent);
+    expect(labels).toEqual(["off", "low", "medium"]);
+  });
+
+  // F3: levels re-derive when the Default Model changes.
+  it("re-derives selectable levels when the Default Model changes", async () => {
+    global.fetch = mockFetchConfig({ defaultModel: "openai/gpt-4o" });
+    render(<SettingsPanel availableModels={MODELS} />);
+    await waitFor(() => screen.getByText("Default model"));
+
+    // Model A (gpt-4o) offers xhigh.
+    let dropdown = openThinkingDropdown();
+    expect(Array.from(dropdown.querySelectorAll("button")).map((b) => b.textContent)).toContain("xhigh");
+
+    // Close the thinking dropdown (toggle) before touching the ModelSelector.
+    fireEvent.click(within(screen.getByTestId("thinking-level-selector")).getByTestId("thinking-level-button"));
+
+    // Switch the Default Model to claude (no xhigh) via the ModelSelector.
+    fireEvent.click(screen.getByTestId("model-selector-button"));
+    const rows = screen.getAllByTestId("model-row");
+    const claudeRow = rows.find((r) => r.textContent?.includes("claude"))!;
+    fireEvent.click(claudeRow);
+
+    dropdown = openThinkingDropdown();
+    const labels = Array.from(dropdown.querySelectorAll("button")).map((b) => b.textContent);
+    expect(labels).not.toContain("xhigh");
+    expect(labels).toEqual(["off", "low", "medium"]);
+  });
+
+  // F4: locked to off when no model — persists nothing.
+  it("locks to off and persists nothing when no Default Model is selected", async () => {
+    let putBody: any;
+    global.fetch = vi.fn().mockImplementation((url: string, options?: any) => {
+      if (url === "/api/config" && options?.method === "PUT") {
+        putBody = JSON.parse(options.body);
+        return Promise.resolve({ json: () => Promise.resolve({ success: true }) });
+      }
+      if (url === "/api/config") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: { ...mockConfig, defaultModel: "" } }) });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    });
+    render(<SettingsPanel availableModels={MODELS} />);
+    await waitFor(() => screen.getByText("Default model"));
+
+    const dropdown = openThinkingDropdown();
+    const labels = Array.from(dropdown.querySelectorAll("button")).map((b) => b.textContent);
+    expect(labels).toEqual(["off"]);
+
+    // Clicking the locked `off` is a persistence no-op — no Save Bar appears.
+    fireEvent.click(dropdown.querySelector("button")!);
+    expect(screen.queryByTestId("settings-save-bar")).toBeNull();
+    expect(putBody).toBeUndefined();
+  });
+
+  // F5: selecting a supported level persists it in the PUT partial.
+  it("includes defaultThinkingLevel in the save payload when a level is selected", async () => {
+    let putBody: any;
+    global.fetch = vi.fn().mockImplementation((url: string, options?: any) => {
+      if (url === "/api/config" && options?.method === "PUT") {
+        putBody = JSON.parse(options.body);
+        return Promise.resolve({ json: () => Promise.resolve({ success: true }) });
+      }
+      if (url === "/api/config") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: { ...mockConfig, defaultModel: "openai/gpt-4o" } }) });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    });
+    render(<SettingsPanel availableModels={MODELS} />);
+    await waitFor(() => screen.getByText("Default model"));
+
+    const dropdown = openThinkingDropdown();
+    const highBtn = Array.from(dropdown.querySelectorAll("button")).find((b) => b.textContent === "high")!;
+    fireEvent.click(highBtn);
+
+    await waitFor(() => screen.getByTestId("save-btn"));
+    fireEvent.click(screen.getAllByTestId("save-btn")[0]);
+
+    await waitFor(() => {
+      expect(putBody).toBeTruthy();
+      expect(putBody.defaultThinkingLevel).toBe("high");
+    });
+  });
+});
+
 // Resources nav group (global-scope per-type card pages).
 // See change: resources-card-tabs.
 describe("SettingsPanel Resources group", () => {
