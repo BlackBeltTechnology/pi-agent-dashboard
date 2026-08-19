@@ -228,6 +228,13 @@ function initBridge(pi: ExtensionAPI) {
       const found = cachedModelRegistry.find(provider, modelId);
       if (found) {
         (pi as any).setModel(found).then(() => {
+          // Apply the configured default thinking level alongside the default
+          // model. setModel preserves the current level, so an explicit call is
+          // required. pi.setThinkingLevel is synchronous and clamps the level to
+          // the model's capabilities. Empty value = "do not override".
+          // See change: add-default-thinking-level.
+          const level = freshConfig.defaultThinkingLevel;
+          if (level) (pi as any).setThinkingLevel?.(level);
           setTimeout(() => sendModelUpdateIfChanged(), 50);
         }).catch(() => {});
         return null; // applied

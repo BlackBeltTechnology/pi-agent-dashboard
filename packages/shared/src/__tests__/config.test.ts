@@ -163,6 +163,26 @@ describe("loadConfig", () => {
     expect(config.defaultModel).toBe("");
   });
 
+  // defaultThinkingLevel — mirrors defaultModel "do not override" semantics.
+  // See change: add-default-thinking-level.
+  it("should return defaultThinkingLevel when set", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ defaultThinkingLevel: "high" }));
+    const config = loadConfig();
+    expect(config.defaultThinkingLevel).toBe("high");
+  });
+
+  it("should default defaultThinkingLevel to empty string when missing", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ port: 3000 }));
+    const config = loadConfig();
+    expect(config.defaultThinkingLevel).toBe("");
+  });
+
+  it("should default defaultThinkingLevel to empty string when not a string", () => {
+    fs.writeFileSync(configFile, JSON.stringify({ defaultThinkingLevel: 3 }));
+    const config = loadConfig();
+    expect(config.defaultThinkingLevel).toBe("");
+  });
+
   it("should return auth undefined when no auth key", () => {
     fs.writeFileSync(configFile, JSON.stringify({ port: 3000 }));
     const config = loadConfig();
@@ -719,6 +739,20 @@ describe("loadConfig gitWorktreeEnabled", () => {
     );
     const c = loadConfig();
     expect(c.gitWorktreeEnabled).toBe(false);
+    expect(c.port).toBe(1234);
+    expect(c.defaultModel).toBe("gpt-4");
+  });
+
+  it("preserves sibling fields when defaultThinkingLevel is set alongside them", () => {
+    // Partial-merge shape: a config carrying port + defaultModel plus
+    // defaultThinkingLevel keeps all three intact. See change:
+    // add-default-thinking-level.
+    fs.writeFileSync(
+      configFile,
+      JSON.stringify({ port: 1234, defaultModel: "gpt-4", defaultThinkingLevel: "low" }),
+    );
+    const c = loadConfig();
+    expect(c.defaultThinkingLevel).toBe("low");
     expect(c.port).toBe(1234);
     expect(c.defaultModel).toBe("gpt-4");
   });

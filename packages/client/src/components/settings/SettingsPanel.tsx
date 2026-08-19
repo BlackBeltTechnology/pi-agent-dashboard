@@ -56,6 +56,7 @@ import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
 import { DiagnosticsSection } from "./DiagnosticsSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
 import { ModelSelector } from "./ModelSelector.js";
+import { ThinkingLevelSelector } from "./ThinkingLevelSelector.js";
 // Curated pi-install picker; sits directly above the raw Tools escape hatch.
 // See change: select-pi-runtime-install (design D12).
 import { PiRuntimeSection } from "./PiRuntimeSection.js";
@@ -143,6 +144,8 @@ interface Config {
   };
   devBuildOnReload: boolean;
   defaultModel: string;
+  /** Default thinking level for brand-new sessions. "" = do not override. See change: add-default-thinking-level. */
+  defaultThinkingLevel: string;
   /** Display name for the PWA app label. See change: add-dynamic-pwa-manifest-naming. */
   dashboardName?: string;
   auth?: AuthConfig;
@@ -195,7 +198,7 @@ const CONFIG_FIELD_PAGE: Record<string, string> = {
   tunnel: "server", memoryLimits: "server",
   spawnStrategy: "sessions", reattachPlacement: "sessions", reopenSessionsAfterShutdown: "sessions", completedFirst: "sessions",
   questionFirst: "sessions", askUserPromptTimeoutSeconds: "sessions", spawnRegisterTimeoutMs: "sessions",
-  gitWorktreeEnabled: "sessions", dashboardName: "general", defaultModel: "sessions",
+  gitWorktreeEnabled: "sessions", dashboardName: "general", defaultModel: "sessions", defaultThinkingLevel: "sessions",
   windowsGitSource: "sessions", autoStart: "sessions",
   trustedNetworks: "security", auth: "security",
   modelProxy: "providers",
@@ -256,6 +259,7 @@ function computeConfigPartial(config: Config, original: Config): Record<string, 
   }
   if (config.devBuildOnReload !== original.devBuildOnReload) partial.devBuildOnReload = config.devBuildOnReload;
   if (config.defaultModel !== original.defaultModel) partial.defaultModel = config.defaultModel;
+  if (config.defaultThinkingLevel !== original.defaultThinkingLevel) partial.defaultThinkingLevel = config.defaultThinkingLevel;
   if ((config.dashboardName ?? "") !== (original.dashboardName ?? "")) {
     const trimmed = (config.dashboardName ?? "").trim();
     partial.dashboardName = trimmed.length > 0 ? trimmed : "";
@@ -324,7 +328,7 @@ function resolveSettingsPage(raw: string | undefined | null): string | null {
 const BACK_SENTINEL = "@@back";
 
 export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd }: {
-  availableModels?: Array<{ provider: string; id: string }>;
+  availableModels?: Array<{ provider: string; id: string; supportedThinkingLevels?: string[] }>;
   /** Currently-selected session's cwd — backs the canvas-types project scope. */
   selectedCwd?: string;
   /** WS bus subscribe (from App) used to correlate the confirm:"ws" restart. */
@@ -1309,11 +1313,32 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   <div className="rounded border px-3 py-2.5 bg-[var(--severity-info-bg)] border-[var(--severity-info-border)]">
                     <div className="flex items-center justify-between">
                       <label className="text-sm font-medium text-[var(--severity-info-fg)]">{t("settings.defaultModel", undefined, "Default model")}</label>
-                      <ModelSelector
-                        current={config.defaultModel || undefined}
-                        models={availableModels}
-                        onSelect={(v) => update((c) => { c.defaultModel = v; })}
-                      />
+                      <div className="flex items-center gap-2">
+                        <ModelSelector
+                          current={config.defaultModel || undefined}
+                          models={availableModels}
+                          onSelect={(v) => update((c) => { c.defaultModel = v; })}
+                        />
+                        {(() => {
+                          // Thinking-level control paired with the Default Model. Levels
+                          // derive from the selected model's supportedThinkingLevels (same
+                          // source the composer uses). No model selected → locked to `off`:
+                          // only `off` renders and selection is a persistence no-op (the
+                          // field stays "", never a spurious `off`). See change:
+                          // add-default-thinking-level.
+                          const selected = config.defaultModel
+                            ? availableModels?.find((m) => `${m.provider}/${m.id}` === config.defaultModel)
+                            : undefined;
+                          const locked = !config.defaultModel;
+                          return (
+                            <ThinkingLevelSelector
+                              current={config.defaultThinkingLevel || "off"}
+                              supportedLevels={locked ? ["off"] : selected?.supportedThinkingLevels}
+                              onSelect={(v) => { if (!locked) update((c) => { c.defaultThinkingLevel = v; }); }}
+                            />
+                          );
+                        })()}
+                      </div>
                     </div>
                     <p className="mt-1 text-xs text-[var(--text-tertiary)]">
                       {i18nT("settings.hint.defaultModel", undefined, "Applied only to brand-new sessions. A resumed session keeps the model it was started with. Leave empty to use pi's own default.")}

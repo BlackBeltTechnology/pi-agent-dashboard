@@ -2407,11 +2407,11 @@ export default function App() {
         )}
         {settingsMatch && <SettingsPanel availableModels={(() => {
           const seen = new Set<string>();
-          const models: Array<{ provider: string; id: string }> = [];
+          const models: Array<{ provider: string; id: string; supportedThinkingLevels?: string[] }> = [];
           for (const list of modelsMap.values()) {
             for (const m of list) {
               const key = `${m.provider}/${m.id}`;
-              if (!seen.has(key)) { seen.add(key); models.push(m); }
+              if (!seen.has(key)) { seen.add(key); models.push({ provider: m.provider, id: m.id, supportedThinkingLevels: m.supportedThinkingLevels }); }
             }
           }
           return models;
