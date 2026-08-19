@@ -120,7 +120,7 @@ function NetworkSelector({
             }}
             className={`flex cursor-pointer items-center gap-2 rounded border px-2 py-1.5 ${
               isSel
-                ? "border-[var(--accent,#3b82f6)] bg-[var(--bg-secondary)]"
+                ? "border-[var(--accent)] bg-[var(--bg-secondary)]"
                 : "border-transparent hover:bg-[var(--bg-secondary)]"
             }`}
           >
@@ -140,7 +140,7 @@ function NetworkSelector({
               className={`rounded border px-1.5 py-px text-[9.5px] ${
                 isPairing
                   ? "border-[#23502f] bg-[var(--green-soft,#132d1c)] text-[#5dd67f]"
-                  : "border-[var(--border)] text-[var(--text-muted)]"
+                  : "border-[var(--border)] text-[var(--text-secondary)]"
               }`}
             >
               {isPairing ? t("gateway.pair.pairing", undefined, "pairing") : t("gateway.pair.link", undefined, "link")}
@@ -243,13 +243,13 @@ function CopyString({ text }: { text: string }) {
     }
   };
   return (
-    <div className="relative mt-3 break-all rounded border border-[var(--border)] bg-[var(--bg-secondary)] p-2 font-mono text-[10.5px] text-[var(--text-muted)]">
+    <div className="relative mt-3 break-all rounded border border-[var(--border)] bg-[var(--bg-secondary)] p-2 font-mono text-[10.5px] text-[var(--text-secondary)]">
       <span data-testid="gateway-pair-copystring">{text}</span>
       <button
         type="button"
         onClick={() => void copy()}
         data-testid="gateway-pair-copy-btn"
-        className="absolute right-1 top-1 rounded border border-[var(--border)] bg-[var(--bg-secondary)] px-1.5 py-0.5 text-[9.5px] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+        className="absolute right-1 top-1 rounded border border-[var(--border)] bg-[var(--bg-secondary)] px-1.5 py-0.5 text-[9.5px] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
       >
         <Icon path={copied ? mdiCheck : mdiContentCopy} size={0.5} />
       </button>
@@ -332,7 +332,7 @@ export function GatewayPairQR({ endpoints: providedEps }: { endpoints?: TunnelEn
 
   return (
     <div data-testid="gateway-pair-qr">
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
         {t("gateway.pair.connectDevice", undefined, "Connect a device")}
         {pairingPayload && (
           <span className="ml-2 font-semibold normal-case text-[var(--amber,#d29922)]">
@@ -362,7 +362,7 @@ export function GatewayPairQR({ endpoints: providedEps }: { endpoints?: TunnelEn
             <div className="shrink-0">
               <QrCanvas text={qrText} />
               {pairingPayload && (
-                <p className="mt-1.5 text-center text-[11px] text-[var(--text-muted)]">
+                <p className="mt-1.5 text-center text-[11px] text-[var(--text-secondary)]">
                   {t("gateway.pair.oneTime", undefined, "one-time")} ·{" "}
                   <b className="font-mono text-[var(--amber,#d29922)]">{secondsLeft}s</b>
                   <br />
@@ -380,7 +380,7 @@ export function GatewayPairQR({ endpoints: providedEps }: { endpoints?: TunnelEn
             <>
               <CopyString text={copyStr} />
 
-              <p className="mt-2 text-[10.5px] text-[var(--text-muted)]">
+              <p className="mt-2 text-[10.5px] text-[var(--text-secondary)]">
                 {t(
                   "gateway.pair.pairingNote",
                   undefined,
@@ -391,7 +391,7 @@ export function GatewayPairQR({ endpoints: providedEps }: { endpoints?: TunnelEn
           ) : (
             <div className="mt-3" data-testid="gateway-link-note">
               <code className="break-all font-mono text-[11px] text-[var(--text-secondary)]">{selected?.url}</code>
-              <p className="mt-1 text-[10.5px] text-[var(--text-muted)]">
+              <p className="mt-1 text-[10.5px] text-[var(--text-secondary)]">
                 {t(
                   "gateway.pair.linkNote",
                   undefined,
@@ -405,7 +405,7 @@ export function GatewayPairQR({ endpoints: providedEps }: { endpoints?: TunnelEn
             type="button"
             data-testid="gateway-pair-regenerate"
             onClick={() => void load()}
-            className="mt-3 flex items-center gap-1.5 text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+            className="mt-3 flex items-center gap-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
           >
             <Icon path={mdiRefresh} size={0.6} /> {t("gateway.pair.regenerate", undefined, "Regenerate")}
           </button>

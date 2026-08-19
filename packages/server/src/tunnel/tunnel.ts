@@ -72,15 +72,59 @@ export function getTunnelUrl(): string | null {
   return zrokRuntime.getTunnelUrl();
 }
 
-/** Get the current tunnel status for the REST endpoint. */
-export function getTunnelStatus(): TunnelStatus {
+/**
+ * The reserved name a zrok URL actually serves.
+ *
+ * v2 URLs are `https://<name>.shares.zrok.io`, v1 `https://<t>.share.zrok.io`.
+ * A URL we cannot parse yields `null`, which is treated as "unknown", never as
+ * "mismatched" — a parse gap must not manufacture a warning banner.
+ */
+export function effectiveReservedName(url: string): string | null {
+  return /^(?:https?:\/\/)?([a-z0-9-]+)\.shares?\.zrok\.io\b/i.exec(url)?.[1] ?? null;
+}
+
+/**
+ * Reconcile the CONFIGURED reserved name against the one actually being served.
+ *
+ * This is the safety net for the window set-time validation cannot cover: a
+ * name released or hijacked between being set and being connected. It is a pure
+ * comparison on every call, so the watchdog recycling a degraded tunnel keeps
+ * producing the same signal instead of a new event per cycle (D2).
+ *
+ * A tunnel that was never configured to be persistent is NOT degraded — serving
+ * an ephemeral URL is exactly what was asked for.
+ */
+export function reconcileDegraded(
+  url: string,
+  cfg: { reservedName?: string; persistent?: boolean },
+): { configuredName: string; effectiveName?: string } | undefined {
+  if (cfg.persistent !== true || !cfg.reservedName) return undefined;
+  const effective = effectiveReservedName(url);
+  if (effective === cfg.reservedName) return undefined;
+  return effective
+    ? { configuredName: cfg.reservedName, effectiveName: effective }
+    : { configuredName: cfg.reservedName };
+}
+
+/**
+ * Get the current tunnel status for the REST endpoint.
+ *
+ * `zrokConfig` is passed in rather than read here so this stays a pure
+ * projection over runtime + config and remains directly testable.
+ */
+export function getTunnelStatus(zrokConfig?: { reservedName?: string; persistent?: boolean }): TunnelStatus {
   const serverOs = process.platform;
   const url = zrokRuntime.getTunnelUrl();
   if (url) {
     const wd = getTunnelWatchdogStatus();
-    return wd
-      ? { status: "active", url, serverOs, watchdog: wd }
-      : { status: "active", url, serverOs };
+    const degraded = zrokConfig ? reconcileDegraded(url, zrokConfig) : undefined;
+    return {
+      status: "active",
+      url,
+      serverOs,
+      ...(wd ? { watchdog: wd } : {}),
+      ...(degraded ? { degraded } : {}),
+    };
   }
   if (detectZrokBinary()) {
     return { status: "inactive", serverOs };

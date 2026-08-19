@@ -209,7 +209,7 @@ export function AutomationBoard({ params, onBack }: AutomationBoardProps): React
           )}
         </div>
         <div className="flex items-center gap-3">
-          <button type="button" data-testid="automation-create-btn" onClick={() => setCreating(true)} className="text-xs px-2 py-1 rounded bg-[var(--accent,#6366f1)] text-white">
+          <button type="button" data-testid="automation-create-btn" onClick={() => setCreating(true)} className="text-xs px-2 py-1 rounded bg-[var(--accent-solid)] text-white">
             {t("createAutomation", undefined, "+ Create Automation")}
           </button>
           <label className="flex items-center gap-1 text-xs text-[var(--text-secondary)]">
@@ -310,7 +310,7 @@ export function AutomationBoard({ params, onBack }: AutomationBoardProps): React
                     </td>
                     <td className="py-1">
                       {!isParent && (
-                        <button type="button" data-testid={`run-result-${r.runId}`} onClick={() => void onViewResult(r)} className="text-[10px] text-[var(--accent,#6366f1)] underline">
+                        <button type="button" data-testid={`run-result-${r.runId}`} onClick={() => void onViewResult(r)} className="text-[10px] text-[var(--accent-text)] underline">
                           {runLinkLabel(r.status)}
                         </button>
                       )}
@@ -327,7 +327,7 @@ export function AutomationBoard({ params, onBack }: AutomationBoardProps): React
                         <td className="py-1 pr-2 text-[var(--text-muted)]" data-testid={`child-findings-${child.runId}`}>{findingsLabel(child)}</td>
                         <td className="py-1 pr-2" />
                         <td className="py-1">
-                          <button type="button" data-testid={`child-result-${child.runId}`} onClick={() => void onViewResult(child)} className="text-[10px] text-[var(--accent,#6366f1)] underline">
+                          <button type="button" data-testid={`child-result-${child.runId}`} onClick={() => void onViewResult(child)} className="text-[10px] text-[var(--accent-text)] underline">
                             {runLinkLabel(child.status)}
                           </button>
                         </td>
@@ -442,7 +442,7 @@ function AutomationCard({
                 e.stopPropagation();
                 onViewResult(lastRun);
               }}
-              className="text-[10px] text-[var(--accent,#6366f1)] underline"
+              className="text-[10px] text-[var(--accent-text)] underline"
             >
               {runLinkLabel(lastRun.status)} ▸
             </button>

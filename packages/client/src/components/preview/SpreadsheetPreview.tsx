@@ -101,7 +101,7 @@ export function SpreadsheetPreview({ target }: Props) {
               data-active={i === active ? "1" : "0"}
               className={`px-2 py-0.5 rounded text-xs whitespace-nowrap ${
                 i === active
-                  ? "bg-[var(--accent)] text-white"
+                  ? "bg-[var(--accent-solid)] text-white"
                   : "text-[var(--text-muted)] hover:bg-[var(--bg-surface)]"
               }`}
             >

@@ -64,7 +64,7 @@ export function BashOutputCard({ command, output, exitCode, excludeFromContext, 
           <div className="px-3 pb-2 text-xs">
             <button
               onClick={() => setShowFull((v) => !v)}
-              className="text-[var(--accent)] hover:underline"
+              className="text-[var(--accent-text)] hover:underline"
               data-testid="bash-show-full-output"
             >
               {showFull

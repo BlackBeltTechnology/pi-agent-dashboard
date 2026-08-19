@@ -312,12 +312,64 @@ export interface TunnelWatchdogPublicStatus {
   recycleCount: number;
 }
 
+/**
+ * A tunnel that is active, but NOT at the reserved name the operator asked for.
+ *
+ * Deliberately a field on `active` rather than a fourth `degraded` status: the
+ * tunnel genuinely works, and `TunnelStatus` is the shared shape every provider
+ * and every existing consumer reads. It is a RECONCILIATION — derived by
+ * comparing the stored `tunnel.zrok.reservedName` against the name actually
+ * present in the live URL — which is what keeps a watchdog recycle from
+ * emitting a fresh notification every cycle: the same mismatch yields the same
+ * signal. See change: add-zrok-custom-reserved-name (D2).
+ */
+export interface TunnelDegraded {
+  /** The name configured but not served. */
+  configuredName: string;
+  /** The name the live URL actually carries, when one can be parsed from it. */
+  effectiveName?: string;
+}
+
 export type TunnelStatus =
-  | { status: "active"; url: string; serverOs: string; watchdog?: TunnelWatchdogPublicStatus }
+  | {
+      status: "active";
+      url: string;
+      serverOs: string;
+      watchdog?: TunnelWatchdogPublicStatus;
+      degraded?: TunnelDegraded;
+    }
   | { status: "inactive"; serverOs: string }
   | { status: "unavailable"; serverOs: string };
 
 export type TunnelStatusResponse = ApiResponse<TunnelStatus>;
+
+// ── Reserved-name configuration ──────────────────────────────────
+
+/**
+ * Why a zrok reserved-name request did or did not take effect.
+ *
+ * The point of the type is that `taken`, `invalid` and `write-failed` are
+ * DIFFERENT things a user can act on differently, where the previous bare
+ * `null` made all three arrive as a green tunnel at an unrequested URL.
+ */
+export type ReservedNameStatus = "ok" | "taken" | "invalid" | "write-failed";
+
+export interface ReservedNameResult {
+  status: ReservedNameStatus;
+  /** The name that was attempted (echoed so a stale client cannot mis-attribute a reason). */
+  name: string;
+  /** Human-readable reason. Present for every non-`ok` status. */
+  message?: string;
+  /**
+   * Set when a tunnel was already live and still serves its previous URL: the
+   * stored name now differs from what is being served until a reconnect. Never
+   * omitted when that divergence exists — a silent divergence is the exact
+   * defect this endpoint removes.
+   */
+  liveUrlUnchanged?: string;
+}
+
+export type ReservedNameResponse = ApiResponse<ReservedNameResult>;
 
 // ── Pi Resources ────────────────────────────────────────────────────
 

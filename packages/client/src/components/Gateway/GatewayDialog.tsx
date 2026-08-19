@@ -66,8 +66,8 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
       onClick={() => setTab(id)}
       className={`border-b-2 px-3.5 py-2.5 text-[12.5px] font-medium ${
         tab === id
-          ? "border-[var(--accent,#3b82f6)] text-[var(--text-primary)]"
-          : "border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+          ? "border-[var(--accent)] text-[var(--text-primary)]"
+          : "border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
       }`}
     >
       {label}
@@ -153,7 +153,7 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
               setError(e instanceof Error ? e.message : t("gateway.err.disconnectFailed", undefined, "disconnect failed")),
             )
           }
-          className="rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--danger,#ef4444)]"
+          className="rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--danger,#ef4444)]"
         >
           {t("gateway.disconnect", undefined, "Disconnect")}
         </button>
@@ -166,7 +166,7 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
               setError(e instanceof Error ? e.message : t("gateway.err.disconnectFailed", undefined, "disconnect failed")),
             )
           }
-          className="rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--danger,#ef4444)]"
+          className="rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--danger,#ef4444)]"
         >
           {t("gateway.forgetReserved", undefined, "Forget reserved URL")}
         </button>
@@ -176,7 +176,7 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
             data-testid="gateway-save"
             disabled={saving}
             onClick={() => void save()}
-            className="rounded bg-[var(--accent,#3b82f6)] px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
+            className="rounded bg-[var(--accent-solid)] px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
           >
             {saving ? t("gateway.saving", undefined, "Saving…") : t("gateway.save", undefined, "Save")}
           </button>
@@ -185,7 +185,7 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
             type="button"
             data-testid="gateway-done"
             onClick={onClose}
-            className="rounded bg-[var(--accent,#3b82f6)] px-4 py-1.5 text-sm font-semibold text-white"
+            className="rounded bg-[var(--accent-solid)] px-4 py-1.5 text-sm font-semibold text-white"
           >
             {t("gateway.done", undefined, "Done")}
           </button>

@@ -129,13 +129,13 @@ export function GatewayUrlManager() {
 
   return (
     <div data-testid="gateway-url-manager">
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
         {t("gateway.url.title", undefined, "Gateway URLs")}
       </p>
 
       <div className="flex flex-col gap-1.5">
         {gateways.length === 0 ? (
-          <p className="text-xs text-[var(--text-muted)]">
+          <p className="text-xs text-[var(--text-secondary)]">
             {t("gateway.url.empty", undefined, "No gateway URL configured yet.")}
           </p>
         ) : (
@@ -149,7 +149,7 @@ export function GatewayUrlManager() {
                 className="flex items-center gap-2 rounded-md border border-[var(--border)] bg-[var(--bg-secondary)] px-2.5 py-1.5"
               >
                 <code className="flex-1 truncate font-mono text-[11.5px] text-[var(--text-secondary)]">{g.url}</code>
-                <span className="text-[10px] text-[var(--text-muted)]">
+                <span className="text-[10px] text-[var(--text-secondary)]">
                   {g.authModes.map((m) => MODE_LABEL[m]).join(", ")}
                 </span>
                 <span
@@ -225,12 +225,12 @@ export function GatewayUrlManager() {
                   />
                   <span className={blocked ? "opacity-50" : undefined}>{MODE_LABEL[m]}</span>
                   {blocked && (
-                    <span className="text-[10.5px] text-[var(--text-muted)]" data-testid={`gateway-url-mode-${m}-reason`}>
+                    <span className="text-[10.5px] text-[var(--text-secondary)]" data-testid={`gateway-url-mode-${m}-reason`}>
                       {ERROR_COPY[m === "pairing" ? "insecure-pairing" : "insecure-oauth"]}
                     </span>
                   )}
                   {!blocked && m === "trusted-network" && !validation.secure && url.trim().length > 0 && (
-                    <span className="text-[10.5px] text-[var(--text-muted)]">
+                    <span className="text-[10.5px] text-[var(--text-secondary)]">
                       {t("gateway.url.httpNeedsTrust", undefined, "required for a http:// gateway")}
                     </span>
                   )}
@@ -279,7 +279,7 @@ export function GatewayUrlManager() {
               data-testid="gateway-url-save"
               disabled={busy || !validation.ok}
               onClick={() => void add()}
-              className="rounded bg-[var(--accent,#3b82f6)] px-3 py-1 text-[12px] font-semibold text-white disabled:opacity-50"
+              className="rounded bg-[var(--accent-solid)] px-3 py-1 text-[12px] font-semibold text-white disabled:opacity-50"
             >
               {busy ? t("gateway.saving", undefined, "Saving…") : t("gateway.url.save", undefined, "Add gateway")}
             </button>

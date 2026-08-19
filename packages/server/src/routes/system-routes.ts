@@ -18,7 +18,7 @@ import { whichSync } from "@blackbelt-technology/pi-dashboard-shared/platform/bi
 import { getGitSourceReadout } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import { classifyBridgeSource } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
 import { RESTART_QUIESCE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
-import type { NetworkInterface } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { NetworkInterface, ReservedNameResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import {
@@ -56,6 +56,7 @@ import { spawnRestart } from "../spawn-process/restart-helper.js";
 import { readSpawnFailures } from "../spawn-process/spawn-failure-log.js";
 import { systemOpenCapability } from "../system-open-capability.js";
 import { createTunnel, deleteTunnel, ensureReservedName, getTunnelStatus, getTunnelUrl, releaseShare } from "../tunnel/tunnel.js";
+import { reserveName } from "../tunnel-providers/zrok.js";
 import { blockEvents } from "../tunnel/tunnel-block-events.js";
 import { collectEndpoints } from "../tunnel/tunnel-endpoints.js";
 import { runEnrollStep } from "../tunnel/tunnel-enroll.js";
@@ -481,11 +482,17 @@ export function registerSystemRoutes(
 
   // Tunnel endpoints
   fastify.get("/api/tunnel-status", async () => {
-    return getTunnelStatus();
+    // Config is passed in so an active-but-not-at-the-requested-name tunnel is
+    // reported as degraded rather than as an ordinary success.
+    return getTunnelStatus({
+      reservedName: config.tunnelReservedName,
+      persistent: config.tunnelPersistent,
+    });
   });
 
   fastify.post("/api/tunnel-connect", async () => {
     const status = getTunnelStatus();
+
     if (status.status === "active") return { ok: true, url: status.url };
     if (status.status === "unavailable") return { ok: false, error: "zrok not installed" };
     // v2: resolve the reserved NAME (stored or minted-when-persistent) and
@@ -514,6 +521,100 @@ export function registerSystemRoutes(
     }
     return { ok: false, error: "Failed to create tunnel" };
   });
+
+  /**
+   * Set, replace or clear the zrok reserved name — independently of connecting.
+   *
+   * The whole point is WHEN the user finds out. Previously the only way to run
+   * on a chosen name was to hand-edit config.json, and the only report of a
+   * failed reservation was a `console.warn` on the server while the UI showed a
+   * green tunnel at a URL the user never picked. This validates while they are
+   * still looking at the input and returns the typed reason.
+   *
+   * `networkGuard` is NOT optional here despite the route looking read-shaped
+   * from the client: it writes persisted config AND creates or destroys a
+   * remote resource on the operator's zrok account.
+   *
+   * Ordering is load-bearing in two directions:
+   *  - the OLD name is released only AFTER the new reservation succeeds, so a
+   *    failed replace can never leave the user holding neither name;
+   *  - a live share is torn down BEFORE `delete name`, mirroring the forget
+   *    path, so a reservation is never pulled out from under a running tunnel.
+   *
+   * See change: add-zrok-custom-reserved-name (D1).
+   */
+  fastify.post(
+    "/api/tunnel-reserved-name",
+    { preHandler: networkGuard },
+    async (req, reply) => {
+      const body = (req.body ?? {}) as { name?: string | null };
+      const previous = config.tunnelReservedName;
+      const live = getTunnelStatus({
+        reservedName: config.tunnelReservedName,
+        persistent: config.tunnelPersistent,
+      });
+      const liveUrl = live.status === "active" ? live.url : undefined;
+
+      // ── Clear ────────────────────────────────────────────────────
+      if (body.name === null || body.name === undefined) {
+        if (previous) {
+          // Tear the share down first: `delete name` against a running share
+          // would strip the reservation from under a live tunnel.
+          if (liveUrl) {
+            stopTunnelWatchdog();
+            await deleteTunnel(config.port);
+          }
+          releaseShare(previous);
+        }
+        const written = writeConfigPartial({
+          tunnel: { zrok: { reservedName: undefined, persistent: false } },
+        });
+        if (!written.success) {
+          return reply.code(500).send({
+            success: false,
+            error: written.error ?? "failed to clear reserved name",
+          } satisfies ApiResponse);
+        }
+        config.tunnelReservedName = undefined;
+        config.tunnelPersistent = false;
+        return { success: true, data: { status: "ok", name: previous ?? "" } } satisfies ApiResponse<ReservedNameResult>;
+      }
+
+      // ── Set / replace ────────────────────────────────────────────
+      const requested = String(body.name);
+      const outcome = reserveName(requested);
+      if (outcome.status !== "ok") {
+        // A failed reservation is inert by construction: nothing was released,
+        // nothing persisted, and any running tunnel is untouched.
+        return {
+          success: true,
+          data: { status: outcome.status, name: outcome.name, message: outcome.message },
+        } satisfies ApiResponse<ReservedNameResult>;
+      }
+
+      // Reservation succeeded and `reserveName` already persisted the name with
+      // `persistent: true`. Only NOW may the old reservation be released.
+      if (previous && previous !== outcome.name) {
+        if (liveUrl) {
+          stopTunnelWatchdog();
+          await deleteTunnel(config.port);
+        }
+        releaseShare(previous);
+      }
+      config.tunnelReservedName = outcome.name;
+      config.tunnelPersistent = true;
+
+      return {
+        success: true,
+        data: {
+          status: "ok",
+          name: outcome.name,
+          // Never store a name the live tunnel does not serve without saying so.
+          ...(liveUrl && previous !== outcome.name ? { liveUrlUnchanged: liveUrl } : {}),
+        },
+      } satisfies ApiResponse<ReservedNameResult>;
+    },
+  );
 
   fastify.post("/api/tunnel-disconnect", async (req, reply) => {
     // Pass port so orphan zrok processes bound to this endpoint are also

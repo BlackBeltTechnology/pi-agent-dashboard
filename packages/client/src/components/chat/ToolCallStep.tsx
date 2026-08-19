@@ -231,7 +231,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
               ) : showFull ? (
                 <button
                   onClick={() => setShowFull(false)}
-                  className="text-[var(--accent)] hover:underline"
+                  className="text-[var(--accent-text)] hover:underline"
                   data-testid="tool-collapse-output"
                 >
                   {i18nT("common.collapseOutput", undefined, "Collapse output")}
@@ -240,7 +240,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
                 <button
                   onClick={async () => { await fullResult.fetchFull(); setShowFull(true); }}
                   disabled={fullResult.loading}
-                  className="text-[var(--accent)] hover:underline disabled:opacity-50"
+                  className="text-[var(--accent-text)] hover:underline disabled:opacity-50"
                   data-testid="tool-show-full-output"
                 >
                   {fullResult.loading ? i18nT("common.loading2", undefined, "Loading…") : i18nT("common.showFullOutput", undefined, "Show full output")}

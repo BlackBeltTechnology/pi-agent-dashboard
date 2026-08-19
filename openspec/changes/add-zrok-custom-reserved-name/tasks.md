@@ -1,19 +1,19 @@
 ## 1. Theme tokens — repair the surface before building on it
 
-- [ ] 1.1 Write a failing test asserting `--accent`, `--accent-soft`, `--accent-solid` and `--accent-text` are declared in both `:root` and `[data-theme="light"]` in `packages/client/src/index.css`
-- [ ] 1.2 Write a failing contrast test for each token's role floor: `--accent-soft` behind `--text-primary` (≥4.5:1), `--accent-solid` behind white (≥4.5:1), `--accent-text` on page bg (≥4.5:1), `--accent` as border (≥3:1 non-text), in BOTH themes
-- [ ] 1.3 Declare the four tokens per theme per the D8 table; confirm `--accent-solid` is `#2563eb` in dark too (white on `#3b82f6` is 3.68:1 in both themes)
-- [ ] 1.4 Verify tests 1.1–1.2 pass and that causes A and C required no component change (existing `var(--accent-soft, …)` call sites stop hitting their fallback)
-- [ ] 1.5 Write a failing guard test that rejects NEWLY added/modified `var(--token, <literal>)` fallbacks for themed paints, against an enumerated baseline of the 72 (19 files) that already exist
-- [ ] 1.6 Implement the guard as a ratchet (baseline only shrinks); verify it passes on an unmodified tree and fails on a newly added fallback binding
-- [ ] 1.6a Baseline the **undeclared-token** arm too — `--border` (9 files), `--danger` (8), `--success`, `--accent-fg`, `--bg-input`, `--border-focus` are undeclared TODAY. Without a baseline this arm fails on the untouched tree, contradicting 1.6
-- [ ] 1.7 Strip the inline fallback literals from the **11 fallback-form occurrences in 7 files** (6 `Gateway/` + `ProcessList.tsx`). Scope by exact token — `--accent-blue`/`--accent-primary`/etc. are ALREADY declared (index.css:67-73) and must not be touched
-- [ ] 1.7a **Repoint all 6 white-on-accent sites to `--accent-solid`** — 4 that already paint it (`GatewayDialog.tsx:179`, `GatewayDialog.tsx:188`, `GatewayPage.tsx:140`, `GatewayUrlManager.tsx:282`) and 2 that would NEWLY start (`SpreadsheetPreview.tsx:104`, `PptxPreview.tsx:77`). Declaring `--accent:#3b82f6` leaves white on it at 3.68:1. Write the failing contrast test FIRST
-- [ ] 1.7c Declare `--accent-fg` or repoint `PptxPreview.tsx:77` off it — it currently reads `var(--accent-fg,#fff)` against a token this change otherwise leaves undeclared and baselined
-- [ ] 1.7b Raise the Gateway's failing `--text-muted` usages to `--text-secondary`
-- [ ] 1.8 **[doubt-driven-review]** Verify the **9 bare `var(--accent)` occurrences in 7 non-Gateway files** (`BashOutputCard`, `ToolCallStep`×2, `FallbackPreview`×2, `SpreadsheetPreview`, `TruncationBanner`, `ThinkingLevelSelector`, `PptxPreview`) — these paint NOTHING today and will START painting. Screenshot each before/after in both themes
-- [ ] 1.8a **[doubt-driven-review]** Handle the PLUGIN blast radius: `--accent` is declared at `:root`, so `automation-plugin` and `flows-plugin` (**12 fallback-form occurrences / 4 files**, written against `#6366f1`, `#0969da`, `#f59e0b`) get repainted. Decide per-site: repoint, or keep the plugin's own token. Do not silently restyle two plugins
-- [ ] 1.9 Verify `ProcessList.tsx:136` (the only non-Gateway fallback site) did not depend on the dark-navy literal
+- [x] 1.1 Write a failing test asserting `--accent`, `--accent-soft`, `--accent-solid` and `--accent-text` are declared in both `:root` and `[data-theme="light"]` in `packages/client/src/index.css`
+- [x] 1.2 Write a failing contrast test for each token's role floor: `--accent-soft` behind `--text-primary` (≥4.5:1), `--accent-solid` behind white (≥4.5:1), `--accent-text` on page bg (≥4.5:1), `--accent` as border (≥3:1 non-text), in BOTH themes
+- [x] 1.3 Declare the four tokens per theme per the D8 table; confirm `--accent-solid` is `#2563eb` in dark too (white on `#3b82f6` is 3.68:1 in both themes)
+- [x] 1.4 Verify tests 1.1–1.2 pass and that causes A and C required no component change (existing `var(--accent-soft, …)` call sites stop hitting their fallback)
+- [x] 1.5 Write a failing guard test that rejects NEWLY added/modified `var(--token, <literal>)` fallbacks for themed paints, against an enumerated baseline of the 72 (19 files) that already exist
+- [x] 1.6 Implement the guard as a ratchet (baseline only shrinks); verify it passes on an unmodified tree and fails on a newly added fallback binding
+- [x] 1.6a Baseline the **undeclared-token** arm too — `--border` (9 files), `--danger` (8), `--success`, `--accent-fg`, `--bg-input`, `--border-focus` are undeclared TODAY. Without a baseline this arm fails on the untouched tree, contradicting 1.6
+- [x] 1.7 Strip the inline fallback literals from the **11 fallback-form occurrences in 7 files** (6 `Gateway/` + `ProcessList.tsx`). Scope by exact token — `--accent-blue`/`--accent-primary`/etc. are ALREADY declared (index.css:67-73) and must not be touched
+- [x] 1.7a **Repoint all 6 white-on-accent sites to `--accent-solid`** — 4 that already paint it (`GatewayDialog.tsx:179`, `GatewayDialog.tsx:188`, `GatewayPage.tsx:140`, `GatewayUrlManager.tsx:282`) and 2 that would NEWLY start (`SpreadsheetPreview.tsx:104`, `PptxPreview.tsx:77`). Declaring `--accent:#3b82f6` leaves white on it at 3.68:1. Write the failing contrast test FIRST
+- [x] 1.7c Declare `--accent-fg` or repoint `PptxPreview.tsx:77` off it — it currently reads `var(--accent-fg,#fff)` against a token this change otherwise leaves undeclared and baselined
+- [x] 1.7b Raise the Gateway's failing `--text-muted` usages to `--text-secondary`
+- [x] 1.8 **[doubt-driven-review]** Verify the **9 bare `var(--accent)` occurrences in 7 non-Gateway files** (`BashOutputCard`, `ToolCallStep`×2, `FallbackPreview`×2, `SpreadsheetPreview`, `TruncationBanner`, `ThinkingLevelSelector`, `PptxPreview`) — these paint NOTHING today and will START painting. Screenshot each before/after in both themes
+- [x] 1.8a **[doubt-driven-review]** Handle the PLUGIN blast radius: `--accent` is declared at `:root`, so `automation-plugin` and `flows-plugin` (**12 fallback-form occurrences / 4 files**, written against `#6366f1`, `#0969da`, `#f59e0b`) get repainted. Decide per-site: repoint, or keep the plugin's own token. Do not silently restyle two plugins
+- [x] 1.9 Verify `ProcessList.tsx:136` (the only non-Gateway fallback site) did not depend on the dark-navy literal
 
 ## 2. Reserved-name engine — typed outcomes
 
@@ -165,11 +165,11 @@ manifest id. L3 reads the harness port from `.pi-test-harness.json`
 
 - [ ] 11.34 URL `http://10.147.20.4:8000` · build mode offer · pairing+oauth unavailable with reasons; trusted-network required with CIDR — see `packages/client/src/lib/__tests__/gateway-action.test.ts` (test-plan #E18)
 - [ ] 11.35 `https://` URL of a NON-primary provider · build mode offer · `oauth` unavailable citing sign-in origin; `auth.redirectBaseUrl` unwritten — see same exemplar (test-plan #E19)
-- [ ] 11.36 each of the 4 accent tokens, both themes · compute contrast per role · soft ≥4.5:1 under text-primary, solid ≥4.5:1 under white, text ≥4.5:1 on bg, accent ≥3:1 as border — see `packages/client/src/lib/__tests__/themes.test.ts` (test-plan #E20)
-- [ ] 11.37 the 6 white-on-accent sites in **dark** · compute contrast · ≥4.5:1; fails if any still binds `--accent` (3.68:1) — see same exemplar (test-plan #E21)
-- [ ] 11.38 unmodified tree (72 baselined bindings, 19 files) · run guard · passes — see same exemplar (test-plan #E22)
-- [ ] 11.39 one NEW out-of-baseline `var(--x,#fff)` · run guard · fails, naming binding + file — see same exemplar (test-plan #E23)
-- [ ] 11.40 a repaired entry removed from baseline, then reintroduced · run guard · fails; baseline only shrinks — see same exemplar (test-plan #E24)
+- [x] 11.36 each of the 4 accent tokens, both themes · compute contrast per role · soft ≥4.5:1 under text-primary, solid ≥4.5:1 under white, text ≥4.5:1 on bg, accent ≥3:1 as border — see `packages/client/src/lib/__tests__/themes.test.ts` (test-plan #E20)
+- [x] 11.37 the 6 white-on-accent sites in **dark** · compute contrast · ≥4.5:1; fails if any still binds `--accent` (3.68:1) — see same exemplar (test-plan #E21)
+- [x] 11.38 unmodified tree (72 baselined bindings, 19 files) · run guard · passes — see same exemplar (test-plan #E22)
+- [x] 11.39 one NEW out-of-baseline `var(--x,#fff)` · run guard · fails, naming binding + file — see same exemplar (test-plan #E23)
+- [x] 11.40 a repaired entry removed from baseline, then reintroduced · run guard · fails; baseline only shrinks — see same exemplar (test-plan #E24)
 
 ### 11e. L2 — process/perf smoke
 
