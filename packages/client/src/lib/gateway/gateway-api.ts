@@ -11,6 +11,7 @@
  * See change: add-tunnel-providers.
  */
 import type { ReservedNameResult, TunnelStatus } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { ProviderReadiness } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 import { getApiBase } from "../api/api-context.js";
 import { fetchJsonResponse } from "../api/fetch-json.js";
 import { t } from "../i18n/i18n.js";
@@ -130,4 +131,17 @@ export async function setReservedName(name: string | null): Promise<ReservedName
     throw new Error(body?.error ?? t("err.reservedNameFailed", undefined, "Failed to set the reserved name"));
   }
   return body.data;
+}
+
+/**
+ * Per-provider readiness for the Gateway board.
+ *
+ * Costs a subprocess per provider server-side, so only the dialog-bound poll
+ * calls it — never a background timer. See change: add-zrok-custom-reserved-name.
+ */
+export async function getProviderReadiness(): Promise<ProviderReadiness[]> {
+  const res = await fetch(`${getApiBase()}/api/tunnel-readiness`);
+  if (!res.ok) throw new Error(t("err.readinessFailed", undefined, "Failed to read provider readiness"));
+  const body = (await res.json()) as { success?: boolean; data?: { providers?: ProviderReadiness[] } };
+  return body?.data?.providers ?? [];
 }

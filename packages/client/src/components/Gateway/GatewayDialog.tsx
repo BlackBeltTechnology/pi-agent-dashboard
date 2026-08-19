@@ -19,6 +19,7 @@ import { useI18n } from "../../lib/i18n/i18n.js";
 import { GatewayEndpoints } from "./GatewayEndpoints.js";
 import { GatewayPairQR } from "./GatewayPairQR.js";
 import { GatewayProviderSection } from "./GatewayProviderSection.js";
+import { GatewayReadinessBoard } from "./GatewayReadinessBoard.js";
 import { GatewayDegradedBanner, GatewayReservedName } from "./GatewayReservedName.js";
 import { GatewaySetupGuide } from "./GatewaySetupGuide.js";
 
@@ -101,6 +102,15 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
       <div className="max-h-[60vh] overflow-y-auto pr-1">
         {tab === "setup" && (
           <div className="space-y-4">
+            {/* Polling is bound to `tab === "setup"`, not merely to the dialog:
+                a tick shells out per provider, so it must not run while the
+                operator is reading the QR or Security panes. */}
+            <GatewayReadinessBoard
+              open={tab === "setup"}
+              primary={provider}
+              onSelectProvider={(id) => setProvider(id as GatewayProviderId)}
+            />
+            <div className="h-px bg-[var(--border-primary)]" />
             <GatewayProviderSection
               provider={provider}
               mode={mode}

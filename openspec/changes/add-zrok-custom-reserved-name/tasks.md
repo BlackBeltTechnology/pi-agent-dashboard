@@ -59,15 +59,15 @@
 
 ## 6. Readiness UI — board, steps, poll
 
-- [ ] 6.1 Write failing component tests: every state renders a **text label**, never colour alone (WCAG 1.4.1)
-- [ ] 6.2 Replace the hardcoded chip list in `GatewayProviderSection.tsx` with readiness-driven rows
-- [ ] 6.3 Drive `GatewaySetupGuide.tsx` content from readiness — a satisfied step renders as satisfied, not as outstanding work
-- [ ] 6.4 Write a failing test for poll lifecycle: one immediate tick on open, 5s interval while open, stopped on close, **no** polling when closed
-- [ ] 6.5 Write a failing test that overlapping ticks are suppressed
-- [ ] 6.6 Implement the poll bound to dialog lifetime plus the manual refresh control and the "checked Ns ago" stamp
+- [x] 6.1 Write failing component tests: every state renders a **text label**, never colour alone (WCAG 1.4.1)
+- [x] 6.2 Replace the hardcoded chip list in `GatewayProviderSection.tsx` with readiness-driven rows
+- [x] 6.3 Drive `GatewaySetupGuide.tsx` content from readiness — a satisfied step renders as satisfied, not as outstanding work
+- [x] 6.4 Write a failing test for poll lifecycle: one immediate tick on open, 5s interval while open, stopped on close, **no** polling when closed
+- [x] 6.5 Write a failing test that overlapping ticks are suppressed
+- [x] 6.6 Implement the poll bound to dialog lifetime plus the manual refresh control and the "checked Ns ago" stamp
 - [ ] 6.7 **[performance-optimization]** MEASURE a real tick across four providers on a cold cache; if it approaches 5s, change the cadence **before** this lands. Record the measurement in the change.
-- [ ] 6.8 Implement the mobile treatment per D11: below 560px the board is a 52px-per-row navigation list; verify board height and that `document.scrollWidth` equals the viewport at 375
-- [ ] 6.9 Verify touch targets stay ≥44px and contrast passes in both themes at 375
+- [x] 6.8 Implement the mobile treatment per D11: below 560px the board is a 52px-per-row navigation list; verify board height and that `document.scrollWidth` equals the viewport at 375
+- [x] 6.9 Verify touch targets stay ≥44px and contrast passes in both themes at 375
 
 ## 7. Concurrency — per-provider runtimes
 
@@ -93,12 +93,12 @@
 
 ## 9. Gateway-URL registration offer
 
-- [ ] 9.1 Write failing tests for the scheme→mode eligibility table (D9): `https:` allows all three; `http:` mesh allows trusted-network only, with CIDR required
-- [ ] 9.2 Implement the offer — `Add gateway URL…` appears only while a connected provider's URL is unregistered; the row shows `✓ in gateway URLs` once registered
-- [ ] 9.3 Render ineligible modes **disabled with their reason**, never hidden
-- [ ] 9.3a Write a failing test that `oauth` is UNAVAILABLE when registering a non-primary URL — `gateway-action.ts:144` writes `auth.redirectBaseUrl`, which would move the sign-in origin off the primary and bypass the 7.8 confirm gate
-- [ ] 9.3b Write a test that registering with only `trusted-network`/`pairing` never touches `auth.redirectBaseUrl`
-- [ ] 9.4 Write a test that no gateway record is ever created without an explicit auth-mode choice
+- [x] 9.1 Write failing tests for the scheme→mode eligibility table (D9): `https:` allows all three; `http:` mesh allows trusted-network only, with CIDR required
+- [x] 9.2 Implement the offer — `Add gateway URL…` appears only while a connected provider's URL is unregistered; the row shows `✓ in gateway URLs` once registered
+- [x] 9.3 Render ineligible modes **disabled with their reason**, never hidden
+- [x] 9.3a Write a failing test that `oauth` is UNAVAILABLE when registering a non-primary URL — `gateway-action.ts:144` writes `auth.redirectBaseUrl`, which would move the sign-in origin off the primary and bypass the 7.8 confirm gate
+- [x] 9.3b Write a test that registering with only `trusted-network`/`pairing` never touches `auth.redirectBaseUrl`
+- [x] 9.4 Write a test that no gateway record is ever created without an explicit auth-mode choice
 
 ## 10. Verification
 
@@ -163,8 +163,8 @@ manifest id. L3 reads the harness port from `.pi-test-harness.json`
 
 ### 11d. L1 — gateway registration and theme
 
-- [ ] 11.34 URL `http://10.147.20.4:8000` · build mode offer · pairing+oauth unavailable with reasons; trusted-network required with CIDR — see `packages/client/src/lib/__tests__/gateway-action.test.ts` (test-plan #E18)
-- [ ] 11.35 `https://` URL of a NON-primary provider · build mode offer · `oauth` unavailable citing sign-in origin; `auth.redirectBaseUrl` unwritten — see same exemplar (test-plan #E19)
+- [x] 11.34 URL `http://10.147.20.4:8000` · build mode offer · pairing+oauth unavailable with reasons; trusted-network required with CIDR — see `packages/client/src/lib/__tests__/gateway-action.test.ts` (test-plan #E18)
+- [x] 11.35 `https://` URL of a NON-primary provider · build mode offer · `oauth` unavailable citing sign-in origin; `auth.redirectBaseUrl` unwritten — see same exemplar (test-plan #E19)
 - [x] 11.36 each of the 4 accent tokens, both themes · compute contrast per role · soft ≥4.5:1 under text-primary, solid ≥4.5:1 under white, text ≥4.5:1 on bg, accent ≥3:1 as border — see `packages/client/src/lib/__tests__/themes.test.ts` (test-plan #E20)
 - [x] 11.37 the 6 white-on-accent sites in **dark** · compute contrast · ≥4.5:1; fails if any still binds `--accent` (3.68:1) — see same exemplar (test-plan #E21)
 - [x] 11.38 unmodified tree (72 baselined bindings, 19 files) · run guard · passes — see same exemplar (test-plan #E22)
@@ -179,12 +179,12 @@ manifest id. L3 reads the harness port from `.pi-test-harness.json`
 
 ### 11f. L3 — rendered UI (Playwright vs docker harness)
 
-- [ ] 11.44 dialog closed · open it · a readiness request fires immediately, not after one interval — see `tests/e2e/zrok-v2-tunnel.spec.ts` (test-plan #F1)
-- [ ] 11.45 dialog open and polling · close it, wait 15s · zero further readiness requests — see same exemplar (test-plan #F2)
-- [ ] 11.46 a tick still in flight when the next is due · interval elapses · second suppressed; exactly one in flight — see same exemplar (test-plan #F3)
+- [x] 11.44 dialog closed · open it · a readiness request fires immediately, not after one interval — see `tests/e2e/zrok-v2-tunnel.spec.ts` (test-plan #F1)
+- [x] 11.45 dialog open and polling · close it, wait 15s · zero further readiness requests — see same exemplar (test-plan #F2)
+- [x] 11.46 a tick still in flight when the next is due · interval elapses · second suppressed; exactly one in flight — see same exemplar (test-plan #F3)
 - [ ] 11.47 provider reports `not-set` · readiness updates to `connected` · satisfied steps render satisfied; list shrinks — see same exemplar (test-plan #F4)
 - [ ] 11.48 one provider's predicate throws · board renders · that row degrades alone; other 3 still show state — see same exemplar (test-plan #F5)
-- [ ] 11.49 each of the 4 readiness states · render board · every state carries a text label, never colour alone — see same exemplar (test-plan #F6)
+- [x] 11.49 each of the 4 readiness states · render board · every state carries a text label, never colour alone — see same exemplar (test-plan #F6)
 - [ ] 11.50 zrok primary, tailscale connected · click "Make primary" on tailscale · confirmation names the redirect-URI consequence; no config write until confirmed — see `tests/e2e/gateway-url-action.spec.ts` (test-plan #F7)
 - [ ] 11.51 connected provider with unregistered URL · tunnel connects · offer appears; `gateways` unchanged until the operator acts — see same exemplar (test-plan #F8)
 - [ ] 11.52 stored `reservedName` but connect serves an ephemeral URL · status renders · warning banner on stored-vs-effective mismatch; shown once, not per watchdog recycle — see same exemplar (test-plan #F9)
