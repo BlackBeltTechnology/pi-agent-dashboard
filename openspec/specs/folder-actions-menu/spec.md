@@ -71,9 +71,10 @@ gated on the folder being a git repository rather than on any session state.
 
 #### Scenario: Top-level folder outside a workspace
 
-- **WHEN** the folder actions menu opens for a top-level folder outside any workspace
+- **WHEN** the folder actions menu opens for a top-level folder outside any workspace **that is a git repository**
 - **THEN** the workspace group SHALL contain an add-to-workspace item
 - **AND** the directory group SHALL contain pin, urgency sort, directory settings, and manage worktrees
+- **AND** for a folder that is NOT a git repository the same groups SHALL appear WITHOUT the manage-worktrees item
 
 #### Scenario: Workspace-owned folder omits what does not apply
 

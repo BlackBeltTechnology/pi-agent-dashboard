@@ -40,7 +40,7 @@ interface Props {
 
 export function ManageWorktreesDialog({ cwd, allSessions, onShutdownSession, onClose }: Props) {
   const [entries, setEntries] = useState<WorktreeEntry[] | null>(null);
-  const [closing, setClosing] = useState<WorktreeEntry | null>(null);
+  const [closing, setClosing] = useState<{ path: string } | null>(null);
   const [failures, setFailures] = useState<
     Record<string, { code: string; message?: string; sessionIds?: string[]; onRetry?: () => void }>
   >({});
@@ -126,7 +126,9 @@ export function ManageWorktreesDialog({ cwd, allSessions, onShutdownSession, onC
         return;
       }
       setFailures(
-        buildFailures(result.data?.results ?? [], opts.deleteBranch, retryOne),
+        buildFailures(result.data?.results ?? [], opts.deleteBranch, retryOne, (p) =>
+          setClosing({ path: p }),
+        ),
       );
       await refresh();
     },
@@ -195,7 +197,7 @@ export function ManageWorktreesDialog({ cwd, allSessions, onShutdownSession, onC
           <WorktreeList
             entries={entries}
             mode="manage"
-            onRemove={(entry) => setClosing(entry)}
+            onRemove={(entry) => setClosing({ path: entry.path })}
             onRemoveSelected={onRemoveSelected}
             onPrune={onPrune}
             failures={failures}
@@ -217,9 +219,17 @@ export function ManageWorktreesDialog({ cwd, allSessions, onShutdownSession, onC
   );
 }
 
-/** Escalatable per-item causes — the only ones a `force` retry can clear. */
-function isEscalatable(code: string): boolean {
-  return code === "active_sessions" || code === "dirty_worktree";
+/**
+ * Causes a plain `force` retry CAN clear: the removal itself was refused over
+ * working-tree / branch state, and `--force` is the endpoint's own recovery.
+ *
+ * `active_sessions` is deliberately EXCLUDED. Forcing past it would rip the
+ * worktree out from under live pi sessions without ending them — the escalation
+ * contract is "end N sessions, THEN remove", which `CloseWorktreeDialog` owns.
+ * That row routes to the dialog instead of retrying here.
+ */
+function isForceRetryable(code: string): boolean {
+  return code === "dirty_worktree" || code === "branch_not_merged";
 }
 
 /** Map failed batch rows → failure strips carrying cause + a recovery action. */
@@ -227,6 +237,7 @@ function buildFailures(
   results: RemoveBatchItemResult[],
   deleteBranch: boolean,
   retryOne: (cwd: string, opts: { deleteBranch: boolean; force: boolean }) => Promise<void>,
+  escalate: (cwd: string) => void,
 ): Record<string, { code: string; message?: string; sessionIds?: string[]; onRetry?: () => void }> {
   const next: Record<
     string,
@@ -240,11 +251,16 @@ function buildFailures(
       // and dropping them here makes the retry unimplementable.
       sessionIds: item.sessionIds,
       message: describeFailure(item),
-      // The retry re-sends THIS row with the ORIGINAL deleteBranch intent and
-      // `force` only for the escalatable causes — never a fresh default.
-      onRetry: () => {
-        void retryOne(item.cwd, { deleteBranch, force: isEscalatable(item.code) });
-      },
+      // `active_sessions` cannot be cleared by a retry at all — it needs the
+      // awaited session-shutdown flow, so hand the row to CloseWorktreeDialog.
+      // Everything else re-sends with the ORIGINAL deleteBranch intent and
+      // `force` only where force is the endpoint's own recovery.
+      onRetry:
+        item.code === "active_sessions"
+          ? () => escalate(item.cwd)
+          : () => {
+              void retryOne(item.cwd, { deleteBranch, force: isForceRetryable(item.code) });
+            },
     };
   }
   return next;

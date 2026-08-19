@@ -447,11 +447,23 @@ describe("removeWorktree({ deleteBranch: true })", () => {
     // Detach HEAD inside the worktree → porcelain reports `detached`, branch null.
     git("checkout --detach", detached.path);
 
+    // Spy BOTH exec surfaces: the branch delete runs through `execFileSync`
+    // (argv form), so watching only `execSync` would make this assertion
+    // vacuous — it could never observe a `git branch` call in the first place.
     const calls: string[] = [];
     const realExec = platformExec.execSync;
+    const realExecFile = platformExec.execFileSync;
     const spy = vi.spyOn(platformExec, "execSync").mockImplementation(((cmd: any, opts: any) => {
       calls.push(String(cmd));
       return realExec(cmd, opts);
+    }) as any);
+    const fileSpy = vi.spyOn(platformExec, "execFileSync").mockImplementation(((
+      file: any,
+      args: any,
+      opts: any,
+    ) => {
+      calls.push(`${String(file)} ${(args ?? []).join(" ")}`);
+      return realExecFile(file, args, opts);
     }) as any);
     try {
       const result = removeWorktree({ cwd: detached.path, deleteBranch: true });
@@ -463,8 +475,59 @@ describe("removeWorktree({ deleteBranch: true })", () => {
       expect(result.data.branchDeleteCode).toBe("no_branch");
     } finally {
       spy.mockRestore();
+      fileSpy.mockRestore();
     }
+    // Guard against the spy itself going blind: it must have observed SOMETHING.
+    expect(calls.length).toBeGreaterThan(0);
     expect(calls.some((c) => /\bgit branch\b/.test(c))).toBe(false);
+  });
+
+  // Security: `shellEscape` is POSIX single-quoting, which cmd.exe treats as
+  // literal characters — a branch name containing `&` would become a command
+  // separator if this were built as a shell string.
+  it("passes the branch name as an argv element, never through a shell", () => {
+    const nasty = "feat/x&echo_pwned";
+    const add = addWorktree({ cwd: repo, base: "main", newBranch: nasty });
+    console.log("DEBUG add:", JSON.stringify(add));
+    expect(add.ok).toBe(true);
+    if (!add.ok) return;
+
+    // Record BOTH surfaces so the assertion is falsifiable either way.
+    const shellCalls: string[] = [];
+    const argvCalls: Array<[string, string[]]> = [];
+    const realExec = platformExec.execSync;
+    const realExecFile = platformExec.execFileSync;
+    const spy = vi.spyOn(platformExec, "execSync").mockImplementation(((cmd: any, opts: any) => {
+      shellCalls.push(String(cmd));
+      return realExec(cmd, opts);
+    }) as any);
+    const fileSpy = vi.spyOn(platformExec, "execFileSync").mockImplementation(((
+      file: any,
+      args: any,
+      opts: any,
+    ) => {
+      argvCalls.push([String(file), (args ?? []) as string[]]);
+      return realExecFile(file, args, opts);
+    }) as any);
+    try {
+      const result = removeWorktree({ cwd: add.path, deleteBranch: true });
+      expect(result.ok).toBe(true);
+      expect(result.ok && result.data?.branchDeleted).toBe(true);
+    } finally {
+      spy.mockRestore();
+      fileSpy.mockRestore();
+    }
+
+    // The delete ran in ARGV form, with the branch as its own element — so no
+    // shell ever parsed the `&`.
+    const branchDelete = argvCalls.find(([f, a]) => f === "git" && a[0] === "branch");
+    expect(branchDelete, `argv calls: ${JSON.stringify(argvCalls)}`).toBeDefined();
+    expect(branchDelete?.[1]).toEqual(["branch", "-d", nasty]);
+    // ...and it was NOT built as a shell string.
+    expect(shellCalls.filter((c) => /git branch/.test(c))).toEqual([]);
+    // The injected fragment never executed as a command.
+    expect(branchExists(nasty)).toBe(false);
+    expect(existsSync(join(repo, "echo_pwned"))).toBe(false);
   });
 });
 

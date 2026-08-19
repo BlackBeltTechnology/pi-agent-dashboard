@@ -4,7 +4,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { type ChildProcess, execFileAsync, execSync, spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { type ChildProcess, execFileAsync, execFileSync, execSync, spawn } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { gitStatusV2 } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type { GitChangedFile, GitCommitResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { GitStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -973,7 +973,10 @@ export function removeWorktree(opts: {
     return { ok: true, data: { removed: true, branchDeleted: false, branchDeleteCode: "no_branch" } };
   }
   try {
-    execSync(["git", "branch", "-d", branch].map(shellEscape).join(" "), {
+    // ARGV form, never a shell string: `shellEscape` is POSIX single-quoting,
+    // which cmd.exe treats as literal characters — so a valid branch name
+    // containing `&` would become a command separator on Windows.
+    execFileSync("git", ["branch", "-d", branch], {
       cwd: mainPath,
       encoding: "utf-8",
       stdio: ["pipe", "pipe", "pipe"],
