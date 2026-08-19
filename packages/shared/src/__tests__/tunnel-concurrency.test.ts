@@ -9,8 +9,8 @@
  * zrok+zerotier) and primary fallback (never silently promote a live tunnel).
  */
 import { describe, expect, it } from "vitest";
-import { PROVIDER_KIND, usesChildLifecycle } from "../tunnel-provider.js";
 import { primaryOf, resolveTunnelPlan, soleMode } from "../tunnel-concurrency.js";
+import { PROVIDER_KIND, usesChildLifecycle } from "../tunnel-provider.js";
 
 describe("single-provider configs are unchanged (the migration-free property)", () => {
   it("resolves to exactly the primary when nothing else opts in", () => {

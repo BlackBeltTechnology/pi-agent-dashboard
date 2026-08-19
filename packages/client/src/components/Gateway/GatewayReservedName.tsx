@@ -18,10 +18,30 @@ import { setReservedName } from "../../lib/gateway/gateway-api.js";
 import {
   needsReplaceConfirm,
   RESERVED_NAME_MAX,
+  type ReservedNameStepState,
   reservedNameStepState,
   reservedNameUrl,
 } from "../../lib/gateway/reserved-name.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
+
+/**
+ * The step's inline message and its severity tone.
+ *
+ * Extracted so the component stays a render function: `taken` and
+ * `write-failed` are errors (something the operator must resolve), `invalid` is
+ * advisory (they are still typing), everything else is neutral.
+ */
+function messageFor(state: ReservedNameStepState): { message: string | null; tone: string } {
+  switch (state.kind) {
+    case "taken":
+    case "write-failed":
+      return { message: state.message, tone: "var(--severity-error-fg)" };
+    case "invalid":
+      return { message: state.message, tone: "var(--severity-warning-fg)" };
+    default:
+      return { message: null, tone: "var(--text-secondary)" };
+  }
+}
 
 export function GatewayReservedName({
   stored,
@@ -78,14 +98,7 @@ export function GatewayReservedName({
     if (reservedNameStepState({ stored, draft, submitted: false }).kind === "typing-valid") void commit(trimmed);
   }, [draft, stored, commit]);
 
-  const message =
-    state.kind === "invalid" || state.kind === "taken" || state.kind === "write-failed" ? state.message : null;
-  const tone =
-    state.kind === "write-failed" || state.kind === "taken"
-      ? "var(--severity-error-fg)"
-      : state.kind === "invalid"
-        ? "var(--severity-warning-fg)"
-        : "var(--text-secondary)";
+  const { message, tone } = messageFor(state);
 
   return (
     <div className="space-y-2" data-testid="gateway-reserved-name">

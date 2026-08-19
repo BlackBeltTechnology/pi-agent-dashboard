@@ -163,41 +163,48 @@ export function loadBaseline(path = BASELINE_PATH) {
   return { fallback: raw.fallback ?? {}, undeclared: raw.undeclared ?? {} };
 }
 
-function main() {
-  const write = process.argv.includes("--write");
-  const found = scan();
+/**
+ * `--write` may only SHRINK. Without this the ratchet is advisory: anyone (or
+ * CI) could adopt today's numbers and re-bless a regression, which is the one
+ * direction the spec forbids.
+ */
+function grownEntries(found, current) {
+  const grown = [];
+  for (const arm of ["fallback", "undeclared"]) {
+    for (const [key, n] of Object.entries(found[arm])) {
+      const allowed = current[arm][key] ?? 0;
+      if (n > allowed) grown.push(`[${arm}] ${key}: ${n} > ${allowed}`);
+    }
+  }
+  return grown;
+}
 
-  if (write) {
-    // `--write` may only SHRINK. Without this the ratchet is advisory: anyone
-    // (or CI) could adopt today's numbers and re-bless a regression, which is
-    // the one direction the spec forbids.
-    let current = null;
-    try {
-      current = loadBaseline();
-    } catch {
-      // No baseline yet — the first write establishes it.
-    }
-    if (current) {
-      const grown = [];
-      for (const arm of ["fallback", "undeclared"]) {
-        for (const [key, n] of Object.entries(found[arm])) {
-          const allowed = current[arm][key] ?? 0;
-          if (n > allowed) grown.push(`[${arm}] ${key}: ${n} > ${allowed}`);
-        }
-      }
-      if (grown.length > 0) {
-        console.error("✗ theme-token-guard: --write refuses to GROW the baseline. Fix the binding instead:");
-        for (const g of grown) console.error(`    ${g}`);
-        process.exit(1);
-      }
-    }
-    writeFileSync(
-      BASELINE_PATH,
-      `${JSON.stringify({ fallback: found.fallback, undeclared: found.undeclared }, null, 2)}\n`,
-    );
-    console.log(
-      `✓ theme-token-guard: baseline written — ${total(found.fallback)} fallback, ${total(found.undeclared)} undeclared`,
-    );
+function writeBaseline(found) {
+  let current = null;
+  try {
+    current = loadBaseline();
+  } catch {
+    // No baseline yet — the first write establishes it.
+  }
+  const grown = current ? grownEntries(found, current) : [];
+  if (grown.length > 0) {
+    console.error("\u2717 theme-token-guard: --write refuses to GROW the baseline. Fix the binding instead:");
+    for (const g of grown) console.error(`    ${g}`);
+    process.exit(1);
+  }
+  writeFileSync(
+    BASELINE_PATH,
+    `${JSON.stringify({ fallback: found.fallback, undeclared: found.undeclared }, null, 2)}\n`,
+  );
+  console.log(
+    `\u2713 theme-token-guard: baseline written \u2014 ${total(found.fallback)} fallback, ${total(found.undeclared)} undeclared`,
+  );
+}
+
+function main() {
+  const found = scan();
+  if (process.argv.includes("--write")) {
+    writeBaseline(found);
     return;
   }
 

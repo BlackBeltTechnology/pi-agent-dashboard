@@ -18,9 +18,9 @@
  */
 import {
   PROVIDER_MODES,
+  providerSupportsMode,
   type TunnelMode,
   type TunnelProviderId,
-  providerSupportsMode,
 } from "./tunnel-provider.js";
 
 /** One entry of the resolved run-set. */
@@ -102,31 +102,46 @@ export function resolveTunnelPlan(tunnel: TunnelBlock | undefined): ResolvedTunn
   for (const id of Object.keys(PROVIDER_MODES) as TunnelProviderId[]) {
     if (id === primaryId) continue;
     if (tunnel?.[id]?.enabled !== true) continue;
-
-    // Non-primary providers never inherit the top-level mode — that field
-    // describes the primary, and applying it here is what makes "zrok public
-    // primary + zerotier" resolve zerotier to an illegal public mode.
-    const configured = tunnel[id]?.mode ?? soleMode(id);
-    if (!configured) {
-      errors.push({
-        provider: id,
-        kind: "no-mode",
-        message: `${id} supports ${PROVIDER_MODES[id].join(" and ")}; set tunnel.${id}.mode to choose one.`,
-      });
-      continue;
-    }
-    if (!providerSupportsMode(id, configured)) {
-      errors.push({
-        provider: id,
-        kind: "unsupported-mode",
-        message: `${id} does not support mode ${configured} (supports ${PROVIDER_MODES[id].join(", ")}).`,
-      });
-      continue;
-    }
-    providers.push({ provider: id, mode: configured, primary: false });
+    const resolved = resolveExtra(id, tunnel[id]?.mode);
+    if ("error" in resolved) errors.push(resolved.error);
+    else providers.push(resolved.entry);
   }
 
   return { providers, errors, refuseConnect };
+}
+
+/**
+ * Resolve ONE non-primary provider.
+ *
+ * A non-primary never inherits the top-level `mode` — that field describes the
+ * primary, and applying it here is exactly what would resolve zerotier to an
+ * illegal `public` under a zrok-public primary. A fault here disables this
+ * provider alone and never the connect.
+ */
+function resolveExtra(
+  id: TunnelProviderId,
+  configuredMode: TunnelMode | undefined,
+): { entry: ResolvedTunnelProvider } | { error: TunnelResolutionError } {
+  const mode = configuredMode ?? soleMode(id);
+  if (!mode) {
+    return {
+      error: {
+        provider: id,
+        kind: "no-mode",
+        message: `${id} supports ${PROVIDER_MODES[id].join(" and ")}; set tunnel.${id}.mode to choose one.`,
+      },
+    };
+  }
+  if (!providerSupportsMode(id, mode)) {
+    return {
+      error: {
+        provider: id,
+        kind: "unsupported-mode",
+        message: `${id} does not support mode ${mode} (supports ${PROVIDER_MODES[id].join(", ")}).`,
+      },
+    };
+  }
+  return { entry: { provider: id, mode, primary: false } };
 }
 
 /**

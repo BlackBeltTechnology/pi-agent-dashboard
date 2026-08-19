@@ -36,12 +36,17 @@ export function asyncRunner(
   return (args) =>
     new Promise<AsyncCmdResult>((resolve) => {
       // argv form: args as an array, never joined into a shell command line.
-      execFile(getBinary(), args, { timeout: timeoutMs }, (err: any, stdout: any, stderr: any) => {
-        resolve({
-          code: err?.code ?? 0,
-          stdout: String(stdout ?? ""),
-          stderr: String(stderr ?? err?.message ?? ""),
-        });
-      });
+      execFile(
+        getBinary(),
+        args,
+        { timeout: timeoutMs },
+        (err: (Error & { code?: number }) | null, stdout: string | Buffer, stderr: string | Buffer) => {
+          resolve({
+            code: err?.code ?? 0,
+            stdout: String(stdout ?? ""),
+            stderr: String(stderr ?? err?.message ?? ""),
+          });
+        },
+      );
     });
 }

@@ -126,9 +126,23 @@ export async function evaluateProvider(
   }
   if (!enrolled) return { provider: id, state: "not-set", endpoints: empty, reason: "isEnrolled false" };
 
-  // ── 3. live? ───────────────────────────────────────────────────────
-  // A daemon's liveness is a property of the DAEMON, not of this process's
-  // memory, so `status()` cannot answer it in either direction.
+  return liveness(provider, bound, id);
+}
+
+/**
+ * Stage 3 — is a tunnel actually up?
+ *
+ * A daemon's liveness is a property of the DAEMON, not of this process's
+ * memory, so `status()` cannot answer it in either direction: a daemon started
+ * in a terminal reads disconnected forever, one that died reads connected
+ * forever.
+ */
+async function liveness(
+  provider: TunnelProvider,
+  bound: <T>(fn: () => T | Promise<T>) => Promise<T | typeof TIMED_OUT>,
+  id: TunnelProviderId,
+): Promise<ProviderReadiness> {
+  const empty: TunnelEndpoint[] = [];
   const useProbe = provider.kind === "daemon" && hasLivenessProbe(provider);
   try {
     const endpoints = await bound<TunnelEndpoint[]>(() => {

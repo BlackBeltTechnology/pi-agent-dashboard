@@ -49,6 +49,13 @@ beforeEach(async () => {
   tunnel = await import("../tunnel/tunnel.js");
   tunnel._resetProviderSingletons();
   tunnel.setPrimaryProvider(undefined);
+  // Replace EVERY singleton with a fake before any test can connect one.
+  // Without this the suite shells out to whatever tunnelling CLIs happen to be
+  // installed on the machine — a 30s `tailscale up` on one developer's laptop
+  // and an instant failure on another, i.e. an environment-dependent test.
+  for (const id of ["zrok", "ngrok", "tailscale", "zerotier"] as const) {
+    tunnel._setProviderSingleton(id, fakeProvider(id, null));
+  }
 });
 
 afterEach(() => {
@@ -148,5 +155,55 @@ describe("liveTunnelOrigins reflects real provider state", () => {
     const a = tunnel.knownProviders();
     const b = tunnel.knownProviders();
     expect(a[0]).toBe(b[0]);
+  });
+});
+
+/**
+ * The connect route raises the PRIMARY through the existing `createTunnel`
+ * path and the extras through `connectResolvedProviders`. Composing that by
+ * blanking `provider` — `{...cfg, provider: undefined}` — is wrong in two
+ * independent ways, and both are silent. These pin them.
+ */
+describe("skipPrimary composition (the connect route's shape)", () => {
+  it("does NOT reset the recorded primary — blanking `provider` would", async () => {
+    await tunnel.connectResolvedProviders(
+      { provider: "tailscale", mode: "private", zerotier: { enabled: true } },
+      8000,
+      { skipPrimary: true },
+    );
+    // With `{...cfg, provider: undefined}` this would read "zrok", silently
+    // defeating every primary resolution downstream (getTunnelUrl, the OAuth
+    // redirect base, the board's Primary badge).
+    expect(tunnel.getPrimaryProvider()).toBe("tailscale");
+  });
+
+  it("does NOT connect the primary a second time when it also carries enabled:true", async () => {
+    connectSpy.mockReset();
+    await tunnel.connectResolvedProviders(
+      // A primary that ALSO opted in as an extra — legal config, and the shape
+      // that double-connects under a blanked `provider`.
+      { provider: "zerotier", zerotier: { enabled: true } },
+      8000,
+      { skipPrimary: true },
+    );
+    const zerotierConnects = connectSpy.mock.calls.filter((c) => c[0] === "zerotier");
+    expect(zerotierConnects).toHaveLength(0);
+  });
+
+  it("still connects the primary when skipPrimary is not set", async () => {
+    const r = await tunnel.connectResolvedProviders({ provider: "zerotier" }, 8000);
+    expect(r.plan.providers.some((p) => p.primary && p.provider === "zerotier")).toBe(true);
+  });
+
+  it("a refused plan connects nothing, even with extras enabled", async () => {
+    connectSpy.mockReset();
+    const r = await tunnel.connectResolvedProviders(
+      { provider: "zrok", mode: "private", zerotier: { enabled: true } },
+      8000,
+      { skipPrimary: true },
+    );
+    expect(r.plan.refuseConnect).toBe(true);
+    expect(r.connected).toEqual([]);
+    expect(connectSpy).not.toHaveBeenCalled();
   });
 });

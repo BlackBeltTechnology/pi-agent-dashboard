@@ -46,13 +46,13 @@ vi.mock("node:fs", async (importOriginal) => {
   return { ...actual, default: def, ...def };
 });
 
+import { effectiveReservedName, reconcileDegraded } from "../tunnel/tunnel.js";
 import {
   classifyCreateNameError,
   isDnsSafeReservedName,
   mintReservedName,
   reserveName,
 } from "../tunnel-providers/zrok.js";
-import { effectiveReservedName, reconcileDegraded } from "../tunnel/tunnel.js";
 
 /** Make `zrok create name` fail with the given stderr. */
 function failWith(stderr: string) {

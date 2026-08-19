@@ -142,7 +142,23 @@ export function getPrimaryProvider(): TunnelProviderId {
 export async function connectResolvedProviders(
   tunnelConfig: Parameters<typeof resolveTunnelPlan>[0],
   port: number,
-  opts?: { zerotierNetworkId?: string; reservedName?: string; persistent?: boolean },
+  opts?: {
+    zerotierNetworkId?: string;
+    reservedName?: string;
+    persistent?: boolean;
+    /**
+     * Skip the primary because the caller already brought it up.
+     *
+     * The connect route raises the primary through the existing `createTunnel`
+     * path (byte-identical for every pre-concurrency config) and uses this for
+     * the extras. It is an explicit flag, NOT `{...cfg, provider: undefined}`:
+     * blanking `provider` would (a) make `setPrimaryProvider` store `undefined`
+     * and silently reset the primary to zrok, defeating the whole resolution,
+     * and (b) turn a primary that also carries `enabled: true` into an "extra",
+     * connecting it a second time.
+     */
+    skipPrimary?: boolean;
+  },
 ): Promise<{ plan: ReturnType<typeof resolveTunnelPlan>; connected: TunnelProviderId[]; failures: { provider: TunnelProviderId; error: string }[] }> {
   const plan = resolveTunnelPlan(tunnelConfig);
   setPrimaryProvider(tunnelConfig?.provider);
@@ -156,6 +172,7 @@ export async function connectResolvedProviders(
   const byId = new Map(knownProviders(opts).map((p) => [p.id, p]));
 
   for (const entry of plan.providers) {
+    if (opts?.skipPrimary && entry.primary) continue;
     const provider = byId.get(entry.provider);
     if (!provider) continue;
     try {

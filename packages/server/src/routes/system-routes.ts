@@ -540,12 +540,13 @@ export function registerSystemRoutes(
     if (tunnelCfg) {
       const extras = resolveTunnelPlan(tunnelCfg).providers.filter((p) => !p.primary);
       if (extras.length > 0) {
-        const { failures } = await connectResolvedProviders(
-          // Only the extras: the primary is already up via `createTunnel`.
-          { ...tunnelCfg, provider: undefined },
-          config.port,
-          { zerotierNetworkId: tunnelCfg.zerotier?.networkId },
-        );
+        const { failures } = await connectResolvedProviders(tunnelCfg, config.port, {
+          zerotierNetworkId: tunnelCfg.zerotier?.networkId,
+          // The primary is already up via `createTunnel` above. Passing the
+          // REAL config with this flag (rather than blanking `provider`) keeps
+          // the primary recorded and stops it being re-connected as an extra.
+          skipPrimary: true,
+        });
         for (const f of failures) {
           console.warn(`tunnel: provider ${f.provider} did not connect: ${f.error}`);
         }
