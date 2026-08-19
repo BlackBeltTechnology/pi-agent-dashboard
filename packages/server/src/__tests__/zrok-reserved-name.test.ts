@@ -95,14 +95,21 @@ describe("reserved-name validation", () => {
     expect(execFileSyncMock).not.toHaveBeenCalled();
   });
 
-  it("E4: an empty name is invalid, and is NOT the clear path", () => {
-    // `reserveName("")` must not silently become "generate one for me" — that
-    // is `reserveName(undefined)`, a different intent entirely.
+  it("E4: an empty name is invalid, and zrok is never invoked", () => {
+    // `reserveName("")` must NOT become "generate one for me" — that is
+    // `reserveName(undefined)`, a different intent entirely. Treating "" as
+    // absent would mint a random reservation (a remote resource + a config
+    // write) that the caller never asked for.
     const r = reserveName("");
+    expect(r.status).toBe("invalid");
+    expect(execFileSyncMock).not.toHaveBeenCalled();
+    expect(isDnsSafeReservedName("")).toBe(false);
+  });
+
+  it("E4b: an ABSENT name still generates one — the two intents stay distinct", () => {
+    const r = reserveName(undefined);
     expect(r.status).toBe("ok");
     expect(r.name).toMatch(/^pi-dash-[0-9a-f]{8}$/);
-    // The endpoint distinguishes them: `null` clears, a string sets.
-    expect(isDnsSafeReservedName("")).toBe(false);
   });
 
   it("E5: rejects a leading hyphen so an option-like value never reaches argv", () => {

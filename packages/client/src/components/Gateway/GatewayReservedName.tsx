@@ -192,6 +192,16 @@ export function GatewayReservedName({
       {/* The endpoint stored a name the RUNNING tunnel does not serve yet.
           Saying so is the entire point: a stored-vs-served divergence with no
           indication is the defect this change removes. */}
+      {state.kind === "reserved" && state.tunnelStopped && (
+        <p data-testid="gateway-reserved-tunnel-stopped" className="text-[11.5px] text-[var(--severity-warning-fg)]">
+          {t(
+            "gateway.reserved.tunnelStopped",
+            undefined,
+            "The tunnel was stopped to release the old name. Reconnect to serve the new one.",
+          )}
+        </p>
+      )}
+
       {state.kind === "reserved" && state.liveUrlUnchanged && (
         <p
           data-testid="gateway-reserved-live-unchanged"

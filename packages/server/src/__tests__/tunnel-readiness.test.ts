@@ -20,7 +20,11 @@ import type {
   TunnelProvider,
   TunnelProviderId,
 } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
-import { READINESS_PREDICATE_TIMEOUT_MS } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
+import {
+  hasAsyncEnrollmentCheck,
+  hasLivenessProbe,
+  READINESS_PREDICATE_TIMEOUT_MS,
+} from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 import { describe, expect, it, vi } from "vitest";
 import { evaluateProvider, evaluateReadiness } from "../tunnel/tunnel-readiness.js";
 
@@ -185,6 +189,53 @@ describe("a failing predicate degrades only its own provider", () => {
     expect(r.stale).toBe(true);
     expect(r.reason).toMatch(/timed out/);
     expect(Date.now() - start).toBeLessThan(1000);
+  });
+
+  // The bound is only real over a promise the runtime can interleave with the
+  // timer. A SYNCHRONOUS shell-out blocks the event loop, so racing it against
+  // setTimeout bounds nothing — the timer cannot fire until the call returns.
+  // The earlier version of this suite stubbed a never-resolving promise, which
+  // Promise.race CAN beat, so it passed while the production guarantee was
+  // false for exactly the two providers that shell out.
+  it("daemon providers expose an ASYNC enrollment check, or the 4s bound is decorative", async () => {
+    const { TailscaleProvider } = await import("../tunnel-providers/tailscale.js");
+    const { ZeroTierProvider } = await import("../tunnel-providers/zerotier.js");
+    for (const p of [new TailscaleProvider(), new ZeroTierProvider({ networkId: "x" })]) {
+      expect(hasAsyncEnrollmentCheck(p), `${p.id} must not force readiness through a blocking isEnrolled()`).toBe(true);
+      expect(hasLivenessProbe(p), `${p.id} needs probeLive()`).toBe(true);
+    }
+  });
+
+  it("readiness PREFERS the async check over the blocking one when both exist", async () => {
+    const blocking = vi.fn(() => true);
+    const nonBlocking = vi.fn(async () => false);
+    const p: any = stub({ id: "tailscale", kind: "daemon", isEnrolled: blocking, probeLive: async () => [] });
+    p.isEnrolledAsync = nonBlocking;
+    const r = await evaluateProvider(p);
+    expect(nonBlocking).toHaveBeenCalled();
+    expect(blocking).not.toHaveBeenCalled();
+    expect(r.state).toBe("not-set");
+  });
+
+  it("a predicate that BLOCKS the event loop is not rescued by the race (documents the limit)", async () => {
+    // Asserted so the limitation is explicit rather than assumed away: this is
+    // WHY the daemon providers had to gain async predicates.
+    const start = Date.now();
+    await evaluateProvider(
+      stub({
+        isEnrolled: () => {
+          const until = Date.now() + 120;
+          while (Date.now() < until) {
+            /* deliberately blocking, mirroring execFileSync */
+          }
+          return true;
+        },
+        status: () => ({ active: false, endpoints: [] }),
+      }),
+      { timeoutMs: 10 },
+    );
+    // The 10ms bound did NOT cut the 120ms block short.
+    expect(Date.now() - start).toBeGreaterThanOrEqual(100);
   });
 
   it("the bound is SHORTER than the poll interval, or a hang survives into the next tick", async () => {

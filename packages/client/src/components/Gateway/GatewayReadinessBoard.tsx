@@ -70,7 +70,11 @@ export function GatewayReadinessBoard({
       return;
     }
     setState((s) => onOpen(s));
-    // One tick IMMEDIATELY, not after one interval of blank board.
+    // The ref is refreshed on RENDER, and this effect runs before React has
+    // re-rendered with `open: true` — so without this line `shouldTick` reads a
+    // stale `open: false`, suppresses the first tick, and the board shows
+    // "Checking…" for a full interval. F1 requires a tick immediately on open.
+    stateRef.current = onOpen(stateRef.current);
     void tick();
     const id = setInterval(() => void tick(), READINESS_POLL_INTERVAL_MS);
     const stamp = setInterval(() => setNow(Date.now()), 1000);

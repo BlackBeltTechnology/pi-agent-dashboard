@@ -30,6 +30,7 @@ import { TailscaleProvider } from "../tunnel-providers/tailscale.js";
 import { ZeroTierProvider } from "../tunnel-providers/zerotier.js";
 import { ZrokProvider } from "../tunnel-providers/zrok.js";
 import { evaluateReadiness } from "./tunnel-readiness.js";
+import { resolveTunnelPlan } from "@blackbelt-technology/pi-dashboard-shared/tunnel-concurrency.js";
 import { getTunnelWatchdogStatus } from "./tunnel-watchdog.js";
 
 export type { TunnelStatus, ZrokEnv };
@@ -78,8 +79,110 @@ export async function deleteTunnel(port?: number): Promise<void> {
   await zrokRuntime.deleteTunnel(port);
 }
 
+/**
+ * The URL OAuth redirect URIs and the session cookie derive from.
+ *
+ * Resolves the PRIMARY provider's URL. `resolveRedirectBase()`'s invariant is
+ * that this is a single resolution, so that the minted URI and the cookie's
+ * `Secure` flag can never describe different origins — which is exactly why a
+ * concurrent-tunnel design must still answer with ONE url.
+ *
+ * When the configured primary is zrok (the default, and every pre-concurrency
+ * config) this is byte-identical to the old `zrokRuntime.getTunnelUrl()`.
+ *
+ * When the primary is NOT connected this returns null and the redirect base
+ * falls back exactly as it did before this change. It deliberately does NOT
+ * promote some other live tunnel: that would move the sign-in origin without
+ * the operator asking, through a path that bypasses the confirmation a
+ * deliberate primary switch carries.
+ *
+ * See change: add-zrok-custom-reserved-name (D3).
+ */
 export function getTunnelUrl(): string | null {
-  return zrokRuntime.getTunnelUrl();
+  const primaryId = primaryProviderId;
+  if (!primaryId || primaryId === "zrok") return zrokRuntime.getTunnelUrl();
+  const provider = providerSingletons?.get(primaryId);
+  if (!provider) return null;
+  try {
+    const status = provider.status();
+    return status.active ? (status.endpoints[0]?.url ?? null) : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Which provider is primary. Set from config at boot; `undefined` means the
+ * pre-concurrency default, zrok.
+ */
+let primaryProviderId: TunnelProviderId | undefined;
+
+export function setPrimaryProvider(id: TunnelProviderId | undefined): void {
+  primaryProviderId = id;
+}
+
+export function getPrimaryProvider(): TunnelProviderId {
+  return primaryProviderId ?? "zrok";
+}
+
+/**
+ * Connect every provider the config resolves to: the primary plus each
+ * `tunnel.<id>.enabled` extra.
+ *
+ * Failure is scoped by primacy, matching `resolveTunnelPlan`: the primary
+ * failing is the connect failing (as before this change), while a non-primary
+ * failing disables that provider alone and leaves the rest reachable.
+ *
+ * Non-primary providers are connected but never consulted for the redirect
+ * base — they are additional reachable URLs, and `liveTunnelOrigins()` is what
+ * makes them CORS-readable.
+ *
+ * See change: add-zrok-custom-reserved-name (D3/D5).
+ */
+export async function connectResolvedProviders(
+  tunnelConfig: Parameters<typeof resolveTunnelPlan>[0],
+  port: number,
+  opts?: { zerotierNetworkId?: string; reservedName?: string; persistent?: boolean },
+): Promise<{ plan: ReturnType<typeof resolveTunnelPlan>; connected: TunnelProviderId[]; failures: { provider: TunnelProviderId; error: string }[] }> {
+  const plan = resolveTunnelPlan(tunnelConfig);
+  setPrimaryProvider(tunnelConfig?.provider);
+  const connected: TunnelProviderId[] = [];
+  const failures: { provider: TunnelProviderId; error: string }[] = [];
+  if (plan.refuseConnect) return { plan, connected, failures };
+
+  // Instantiate the singletons once so `status()` (and therefore
+  // `liveTunnelOrigins()` and `getTunnelUrl()`) reads the SAME objects that
+  // were connected.
+  const byId = new Map(knownProviders(opts).map((p) => [p.id, p]));
+
+  for (const entry of plan.providers) {
+    const provider = byId.get(entry.provider);
+    if (!provider) continue;
+    try {
+      await provider.connect(port, entry.mode, {
+        reservedName: opts?.reservedName,
+        persistent: opts?.persistent,
+      });
+      connected.push(entry.provider);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      failures.push({ provider: entry.provider, error: message });
+      // A non-primary failure is scoped to itself; a primary failure is the
+      // connect failing, and the caller sees it in `failures`.
+    }
+  }
+  return { plan, connected, failures };
+}
+
+/** Disconnect every provider this process connected. */
+export async function disconnectResolvedProviders(port: number): Promise<void> {
+  for (const provider of providerSingletons?.values() ?? []) {
+    try {
+      if (provider.status().active) await provider.disconnect(port);
+    } catch {
+      // One provider's teardown failure must not strand the others.
+    }
+  }
 }
 
 /**
@@ -182,6 +285,19 @@ export function knownProviders(opts?: { zerotierNetworkId?: string }): TunnelPro
 /** Test seam — drops the singletons so the next call rebuilds them. */
 export function _resetProviderSingletons(): void {
   providerSingletons = null;
+}
+
+/**
+ * Test seam — substitute one provider singleton.
+ *
+ * Exists so that "getTunnelUrl() resolves the PRIMARY" is assertable against a
+ * provider whose status is controllable. Without it that test can only observe
+ * `null`, which is true whether the resolution works or not — a vacuous
+ * assertion is worse than no assertion.
+ */
+export function _setProviderSingleton(id: TunnelProviderId, provider: TunnelProvider): void {
+  if (!providerSingletons) knownProviders();
+  providerSingletons?.set(id, provider);
 }
 
 /**

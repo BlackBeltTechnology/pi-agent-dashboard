@@ -30,7 +30,7 @@ export type ReservedNameStepState =
   /** Reserved remotely but not persisted; serving it would orphan it. */
   | { kind: "write-failed"; name: string; message: string }
   /** A name is stored and in effect. */
-  | { kind: "reserved"; name: string; liveUrlUnchanged?: string }
+  | { kind: "reserved"; name: string; liveUrlUnchanged?: string; tunnelStopped?: boolean }
   /** A different name is stored: replacing it DESTROYS the old URL. */
   | { kind: "replace-confirm"; current: string; next: string };
 
@@ -79,7 +79,12 @@ export function reservedNameStepState(input: {
   if (submitted && outcome && outcome.name === trimmed) {
     switch (outcome.status) {
       case "ok":
-        return { kind: "reserved", name: outcome.name, liveUrlUnchanged: outcome.liveUrlUnchanged };
+        return {
+          kind: "reserved",
+          name: outcome.name,
+          liveUrlUnchanged: outcome.liveUrlUnchanged,
+          tunnelStopped: outcome.tunnelStopped,
+        };
       case "taken":
         return { kind: "taken", name: outcome.name, message: outcome.message ?? "That name is not available." };
       case "write-failed":

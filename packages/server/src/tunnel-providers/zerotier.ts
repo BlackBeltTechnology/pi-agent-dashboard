@@ -23,6 +23,7 @@ import type {
   TunnelProvider,
 } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 import { providerSupportsMode } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
+import { type AsyncCmdRunner, asyncRunner } from "./daemon-exec.js";
 import type { CmdResult, CmdRunner } from "./tailscale.js";
 
 const ztResolver = new ToolResolver({ processExecPath: process.execPath, useLoginShell: true });
@@ -86,9 +87,14 @@ export class ZeroTierProvider implements TunnelProvider {
   private readonly networkId?: string;
   private readonly run: CmdRunner;
 
-  constructor(opts?: { networkId?: string; run?: CmdRunner }) {
+  private readonly runAsync: AsyncCmdRunner;
+
+  constructor(opts?: { networkId?: string; run?: CmdRunner; runAsync?: AsyncCmdRunner }) {
     this.networkId = opts?.networkId;
     this.run = opts?.run ?? defaultRunner(() => this.getBinary());
+    // Lifecycle keeps the synchronous runner; readiness gets one whose timeout
+    // kills the child, so its 4s bound is real.
+    this.runAsync = opts?.runAsync ?? asyncRunner(() => this.getBinary());
   }
 
   private getBinary(): string {
@@ -152,9 +158,23 @@ export class ZeroTierProvider implements TunnelProvider {
    *
    * See change: add-zrok-custom-reserved-name (D6.1).
    */
+  /**
+   * Non-blocking enrollment check for readiness — see TailscaleProvider for
+   * why a synchronous shell-out cannot be bounded by a timer race.
+   */
+  async isEnrolledAsync(): Promise<boolean> {
+    if (!this.networkId) return false;
+    return isNetworkAuthorized(await this.listNetworksAsync(), this.networkId);
+  }
+
+  private async listNetworksAsync(): Promise<any> {
+    const r = await this.runAsync(["-j", "listnetworks"]);
+    try { return JSON.parse(r.stdout); } catch { return null; }
+  }
+
   async probeLive(): Promise<TunnelEndpoint[]> {
     if (!this.networkId) return [];
-    const ip = parseAssignedIpv4(this.listNetworks(), this.networkId);
+    const ip = parseAssignedIpv4(await this.listNetworksAsync(), this.networkId);
     if (!ip) return [];
     return [deriveMeshEndpoint(ip, this.lastPort ?? 0)];
   }

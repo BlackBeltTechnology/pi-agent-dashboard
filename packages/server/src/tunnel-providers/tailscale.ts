@@ -24,6 +24,7 @@ import type {
   TunnelProvider,
 } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 import { providerSupportsMode } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
+import { type AsyncCmdRunner, asyncRunner } from "./daemon-exec.js";
 
 const tailscaleResolver = new ToolResolver({ processExecPath: process.execPath, useLoginShell: true });
 
@@ -160,8 +161,13 @@ export class TailscaleProvider implements TunnelProvider {
   private lastEndpoints: TunnelEndpoint[] = [];
   private readonly run: CmdRunner;
 
-  constructor(run?: CmdRunner) {
+  private readonly runAsync: AsyncCmdRunner;
+
+  constructor(run?: CmdRunner, runAsync?: AsyncCmdRunner) {
     this.run = run ?? defaultRunner(() => this.getBinary());
+    // Separate from `run` on purpose: the lifecycle keeps its synchronous
+    // runner, readiness gets one whose timeout kills the child.
+    this.runAsync = runAsync ?? asyncRunner(() => this.getBinary());
   }
 
   private getBinary(): string {
@@ -251,10 +257,32 @@ export class TailscaleProvider implements TunnelProvider {
    *
    * See change: add-zrok-custom-reserved-name (D6.1).
    */
+  /**
+   * Non-blocking enrollment check for readiness.
+   *
+   * `isEnrolled()` runs `tailscale status --json` SYNCHRONOUSLY with a 30s exec
+   * timeout, which blocks the event loop and therefore cannot be bounded by
+   * racing it against a timer. Readiness uses this instead, where the 4s bound
+   * is enforced on the child process itself.
+   */
+  async isEnrolledAsync(): Promise<boolean> {
+    return isBackendRunning(await this.statusJsonAsync());
+  }
+
+  private async statusJsonAsync(): Promise<any> {
+    const r = await this.runAsync(["status", "--json"]);
+    try { return JSON.parse(r.stdout); } catch { return null; }
+  }
+
+  private async serveStatusJsonAsync(): Promise<any> {
+    const r = await this.runAsync(["serve", "status", "--json"]);
+    try { return JSON.parse(r.stdout); } catch { return null; }
+  }
+
   async probeLive(): Promise<TunnelEndpoint[]> {
-    const status = this.statusJson();
+    const status = await this.statusJsonAsync();
     if (!isBackendRunning(status)) return [];
-    const serve = this.serveStatusJson();
+    const serve = await this.serveStatusJsonAsync();
     // A serve/funnel config with no port bound is not a live tunnel; the port
     // argument only shapes the URL, so any positive port derives the same host.
     const endpoints = deriveEndpoints(status, serve, this.lastPort ?? 0, this.lastMode ?? "private");

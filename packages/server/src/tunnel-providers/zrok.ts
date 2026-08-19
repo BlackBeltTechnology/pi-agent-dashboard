@@ -215,7 +215,12 @@ export function mintReservedName(existing?: string): string | null {
  * so a failed replace can never leave the user holding neither name.
  */
 export function reserveName(existing?: string): ReservedNameOutcome {
-  const name = existing || generateReservedName();
+  // `??`, NOT `||`: an EMPTY string is a user who submitted nothing, not a user
+  // asking us to generate one. `||` would treat "" as absent and silently mint
+  // a random `pi-dash-<hex>` reservation — a remote resource and a config write
+  // the caller never asked for. Clearing is a distinct intent, expressed as
+  // `null` at the endpoint.
+  const name = existing ?? generateReservedName();
   if (!isDnsSafeReservedName(name)) {
     return {
       status: "invalid",

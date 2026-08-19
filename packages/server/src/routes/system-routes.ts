@@ -55,7 +55,8 @@ import type { SessionManager } from "../session/memory-session-manager.js";
 import { spawnRestart } from "../spawn-process/restart-helper.js";
 import { readSpawnFailures } from "../spawn-process/spawn-failure-log.js";
 import { systemOpenCapability } from "../system-open-capability.js";
-import { createTunnel, deleteTunnel, ensureReservedName, getProviderReadiness, getTunnelStatus, getTunnelUrl, releaseShare } from "../tunnel/tunnel.js";
+import { connectResolvedProviders, createTunnel, deleteTunnel, disconnectResolvedProviders, ensureReservedName, getProviderReadiness, getTunnelStatus, getTunnelUrl, releaseShare, setPrimaryProvider } from "../tunnel/tunnel.js";
+import { resolveTunnelPlan } from "@blackbelt-technology/pi-dashboard-shared/tunnel-concurrency.js";
 import { reserveName } from "../tunnel-providers/zrok.js";
 import { blockEvents } from "../tunnel/tunnel-block-events.js";
 import { collectEndpoints } from "../tunnel/tunnel-endpoints.js";
@@ -528,7 +529,28 @@ export function registerSystemRoutes(
       persistent: config.tunnelPersistent,
     });
     config.tunnelReservedName = reservedName;
+
+    // Connect the PRIMARY through the existing zrok path (byte-identical for
+    // every pre-concurrency config), then bring up any `tunnel.<id>.enabled`
+    // extras. A non-primary failure disables that provider alone; it never
+    // fails the connect. See change: add-zrok-custom-reserved-name (D3).
     const url = await createTunnel(config.port, reservedName);
+    const tunnelCfg = config.tunnelConfig;
+    setPrimaryProvider(tunnelCfg?.provider);
+    if (tunnelCfg) {
+      const extras = resolveTunnelPlan(tunnelCfg).providers.filter((p) => !p.primary);
+      if (extras.length > 0) {
+        const { failures } = await connectResolvedProviders(
+          // Only the extras: the primary is already up via `createTunnel`.
+          { ...tunnelCfg, provider: undefined },
+          config.port,
+          { zerotierNetworkId: tunnelCfg.zerotier?.networkId },
+        );
+        for (const f of failures) {
+          console.warn(`tunnel: provider ${f.provider} did not connect: ${f.error}`);
+        }
+      }
+    }
     if (url) {
       const wd = config.tunnelWatchdog;
       if (wd?.enabled !== false) {
@@ -584,13 +606,16 @@ export function registerSystemRoutes(
       // ── Clear ────────────────────────────────────────────────────
       if (body.name === null || body.name === undefined) {
         if (previous) {
-          // Tear the share down first: `delete name` against a running share
-          // would strip the reservation from under a live tunnel.
-          if (liveUrl) {
-            stopTunnelWatchdog();
-            await deleteTunnel(config.port);
+          // Tear the share down first, unconditionally: `delete name` against a
+          // running share would strip the reservation from under a live tunnel,
+          // and `liveUrl` is a snapshot that can under-report.
+          stopTunnelWatchdog();
+          await deleteTunnel(config.port);
+          if (!releaseShare(previous)) {
+            console.warn(
+              `tunnel: reserved name "${previous}" could not be released; it may remain reserved on the zrok account`,
+            );
           }
-          releaseShare(previous);
         }
         const written = writeConfigPartial({
           tunnel: { zrok: { reservedName: undefined, persistent: false } },
@@ -607,6 +632,9 @@ export function registerSystemRoutes(
       }
 
       // ── Set / replace ────────────────────────────────────────────
+      // An empty string is a submitted-nothing, never a request to generate.
+      // `reserveName` rejects it as `invalid`; asserting it here too keeps the
+      // route honest if that ever changes.
       const requested = String(body.name);
       const outcome = reserveName(requested);
       if (outcome.status !== "ok") {
@@ -621,11 +649,19 @@ export function registerSystemRoutes(
       // Reservation succeeded and `reserveName` already persisted the name with
       // `persistent: true`. Only NOW may the old reservation be released.
       if (previous && previous !== outcome.name) {
-        if (liveUrl) {
-          stopTunnelWatchdog();
-          await deleteTunnel(config.port);
+        // Tear the share down UNCONDITIONALLY, matching the forget path. A
+        // share that is running but transiently reports inactive would
+        // otherwise have its reservation pulled out from under it.
+        stopTunnelWatchdog();
+        await deleteTunnel(config.port);
+        if (!releaseShare(previous)) {
+          // The new name is already persisted, so this cannot be unwound — but
+          // an orphaned reservation counts against the account's limit and
+          // must not vanish into a discarded boolean.
+          console.warn(
+            `tunnel: reserved name "${previous}" was replaced but could not be released; it may remain reserved on the zrok account`,
+          );
         }
-        releaseShare(previous);
       }
       config.tunnelReservedName = outcome.name;
       config.tunnelPersistent = true;
@@ -635,8 +671,15 @@ export function registerSystemRoutes(
         data: {
           status: "ok",
           name: outcome.name,
-          // Never store a name the live tunnel does not serve without saying so.
-          ...(liveUrl && previous !== outcome.name ? { liveUrlUnchanged: liveUrl } : {}),
+          // Only claimed when the tunnel is STILL UP. On a replace the share is
+          // torn down first (a release must never run against a live share), so
+          // reporting "still serving the old URL" there would be false at the
+          // moment of the response. `tunnelStopped` says what actually happened.
+          ...(liveUrl && previous && previous !== outcome.name
+            ? { tunnelStopped: true }
+            : liveUrl
+              ? { liveUrlUnchanged: liveUrl }
+              : {}),
         },
       } satisfies ApiResponse<ReservedNameResult>;
     },
@@ -647,6 +690,9 @@ export function registerSystemRoutes(
     // swept (not just the one we tracked via pid-file).
     stopTunnelWatchdog();
     await deleteTunnel(config.port);
+    // Non-primary tunnels come down too, or they would keep serving (and keep
+    // widening CORS) after the operator disconnected the Gateway.
+    await disconnectResolvedProviders(config.port);
     // Plain disconnect PRESERVES the reserved name (stable URL survives a
     // disconnect/restart). `{forget:true}` is the ONLY path that releases it:
     // `delete name` + clear config. See change: support-zrok-v2.

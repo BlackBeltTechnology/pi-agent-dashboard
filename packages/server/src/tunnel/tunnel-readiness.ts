@@ -24,8 +24,10 @@
  * See change: add-zrok-custom-reserved-name (D6).
  */
 import {
+  type AsyncEnrollmentCheck,
   type BinaryCacheInvalidation,
   type DaemonLivenessProbe,
+  hasAsyncEnrollmentCheck,
   hasBinaryCacheInvalidation,
   hasLivenessProbe,
   type ProviderReadiness,
@@ -105,9 +107,17 @@ export async function evaluateProvider(
   if (!installed) return { provider: id, state: "not-installed", endpoints: empty, reason: "detectBinary false" };
 
   // ── 2. enrolled? ───────────────────────────────────────────────────
+  // Prefer the ASYNC variant where a provider offers one. `isEnrolled()` is
+  // synchronous, and for the daemon providers it shells out with a 30s exec
+  // timeout — a synchronous call blocks the event loop, so racing it against a
+  // timer bounds NOTHING and a hung CLI freezes the whole server, not one row.
   let enrolled: boolean | typeof TIMED_OUT;
   try {
-    enrolled = await bound(() => provider.isEnrolled());
+    enrolled = await bound(() =>
+      hasAsyncEnrollmentCheck(provider)
+        ? (provider as unknown as AsyncEnrollmentCheck).isEnrolledAsync()
+        : provider.isEnrolled(),
+    );
   } catch (err) {
     return { provider: id, state: "not-set", endpoints: empty, stale: true, reason: reasonOf("isEnrolled", err) };
   }
@@ -121,13 +131,14 @@ export async function evaluateProvider(
   // memory, so `status()` cannot answer it in either direction.
   const useProbe = provider.kind === "daemon" && hasLivenessProbe(provider);
   try {
-    const endpoints = await bound<TunnelEndpoint[]>(() =>
-      useProbe
-        ? (provider as unknown as DaemonLivenessProbe).probeLive()
-        : provider.status().active
-          ? provider.status().endpoints
-          : [],
-    );
+    const endpoints = await bound<TunnelEndpoint[]>(() => {
+      if (useProbe) return (provider as unknown as DaemonLivenessProbe).probeLive();
+      // ONE snapshot. Calling `status()` twice can straddle a recycle and
+      // report `active: true` alongside an empty endpoint list — a state that
+      // never existed.
+      const snapshot = provider.status();
+      return snapshot.active ? snapshot.endpoints : [];
+    });
     if (endpoints === TIMED_OUT) {
       return {
         provider: id,

@@ -206,6 +206,29 @@ export function hasLivenessProbe(p: unknown): p is DaemonLivenessProbe {
 }
 
 /**
+ * A genuinely NON-BLOCKING enrollment check.
+ *
+ * `TunnelProvider.isEnrolled()` is synchronous, and for the daemon providers it
+ * shells out (`tailscale status --json`, `zerotier-cli -j listnetworks`) with a
+ * 30s exec timeout. A synchronous shell-out blocks the event loop, so racing it
+ * against a `setTimeout` bounds NOTHING: the timer cannot fire until the call
+ * returns. Worse, the freeze is the whole server, not one board row.
+ *
+ * Providers that shell out therefore expose an async variant, and readiness
+ * prefers it. The 4s bound is only a real bound over a promise the runtime can
+ * actually interleave with the timer.
+ *
+ * See change: add-zrok-custom-reserved-name.
+ */
+export interface AsyncEnrollmentCheck {
+  isEnrolledAsync(): Promise<boolean>;
+}
+
+export function hasAsyncEnrollmentCheck(p: unknown): p is AsyncEnrollmentCheck {
+  return typeof (p as AsyncEnrollmentCheck)?.isEnrolledAsync === "function";
+}
+
+/**
  * Invalidate a provider-local binary memo.
  *
  * `ToolRegistry.rescan()` clears the REGISTRY's cache; it cannot reach a memo a

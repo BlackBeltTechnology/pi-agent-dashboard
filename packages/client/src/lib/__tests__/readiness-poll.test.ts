@@ -133,3 +133,25 @@ describe("F6: every state carries a text label, never colour alone", () => {
     expect(readinessSeverity("not-set")).toBe("warning");
   });
 });
+
+/**
+ * The reducers above are correct in isolation; the bug they could not catch was
+ * in the EFFECT that drives them. The board seeds its ref synchronously before
+ * the first tick because React has not re-rendered at that point, so a tick
+ * guarded on the rendered ref would read a stale `open: false` and skip.
+ */
+describe("F1 wiring: the open transition is visible to the guard synchronously", () => {
+  it("onOpen applied to the PREVIOUS state immediately permits a tick", () => {
+    // This models exactly what the effect does: it must not wait for a render.
+    let ref = INITIAL_POLL_STATE;
+    expect(shouldTick(ref)).toBe(false);
+    ref = onOpen(ref);
+    expect(shouldTick(ref)).toBe(true);
+  });
+
+  it("re-opening after a close permits an immediate tick too", () => {
+    let ref = onClose(onTickStart(onOpen(INITIAL_POLL_STATE)));
+    ref = onOpen(ref);
+    expect(shouldTick(ref)).toBe(true);
+  });
+});

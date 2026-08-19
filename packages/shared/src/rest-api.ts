@@ -361,12 +361,21 @@ export interface ReservedNameResult {
   /** Human-readable reason. Present for every non-`ok` status. */
   message?: string;
   /**
-   * Set when a tunnel was already live and still serves its previous URL: the
-   * stored name now differs from what is being served until a reconnect. Never
+   * Set when a tunnel was already live and IS STILL SERVING its previous URL:
+   * the stored name now differs from what is served until a reconnect. Never
    * omitted when that divergence exists — a silent divergence is the exact
    * defect this endpoint removes.
    */
   liveUrlUnchanged?: string;
+  /**
+   * Set when the live tunnel was STOPPED to complete the request.
+   *
+   * Replacing a name must tear the share down before `delete name` (a release
+   * may never run against a running share), so after a replace-while-connected
+   * the tunnel is down — not "still serving the old URL". Reporting the latter
+   * would be factually false at the moment of the response.
+   */
+  tunnelStopped?: boolean;
 }
 
 export type ReservedNameResponse = ApiResponse<ReservedNameResult>;

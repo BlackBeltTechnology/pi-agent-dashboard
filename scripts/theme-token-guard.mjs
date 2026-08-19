@@ -59,9 +59,19 @@ const COLOR_TOKEN_RE =
 
 const NON_COLOR_SUFFIX_RE = /-(?:alpha|blur|opacity|radius|width|size|space|duration|delay)$/;
 
-/** `var(--token, <color literal>)` — the fallback form. */
-const FALLBACK_RE =
-  /var\(\s*(--[a-z0-9-]+)\s*,\s*(#[0-9a-fA-F]{3,8}|rgba?\([^)]*\)|hsla?\([^)]*\))\s*\)/g;
+/**
+ * `var(--token, <literal>)` — the fallback form.
+ *
+ * The fallback is matched as "anything that is not another `var()`", NOT as an
+ * enumerated list of colour syntaxes. An allow-list of `#hex|rgb|hsl` silently
+ * missed `transparent`, named colours, `currentColor`, `color-mix(...)` and
+ * `oklch(...)` — and `color-mix` is used throughout this very codebase, so the
+ * guard had a hole exactly where the next regression would land.
+ *
+ * `var(--a, var(--b))` is a legitimate token CHAIN, not a hardcoded literal,
+ * and is deliberately excluded.
+ */
+const FALLBACK_RE = /var\(\s*(--[a-z0-9-]+)\s*,\s*(?!\s*var\()([^;"'`]*?)\)/g;
 
 /** Any `var(--token…)` reference, fallback or bare. */
 const ANY_VAR_RE = /var\(\s*(--[a-z0-9-]+)\s*[,)]/g;
@@ -158,6 +168,29 @@ function main() {
   const found = scan();
 
   if (write) {
+    // `--write` may only SHRINK. Without this the ratchet is advisory: anyone
+    // (or CI) could adopt today's numbers and re-bless a regression, which is
+    // the one direction the spec forbids.
+    let current = null;
+    try {
+      current = loadBaseline();
+    } catch {
+      // No baseline yet — the first write establishes it.
+    }
+    if (current) {
+      const grown = [];
+      for (const arm of ["fallback", "undeclared"]) {
+        for (const [key, n] of Object.entries(found[arm])) {
+          const allowed = current[arm][key] ?? 0;
+          if (n > allowed) grown.push(`[${arm}] ${key}: ${n} > ${allowed}`);
+        }
+      }
+      if (grown.length > 0) {
+        console.error("✗ theme-token-guard: --write refuses to GROW the baseline. Fix the binding instead:");
+        for (const g of grown) console.error(`    ${g}`);
+        process.exit(1);
+      }
+    }
     writeFileSync(
       BASELINE_PATH,
       `${JSON.stringify({ fallback: found.fallback, undeclared: found.undeclared }, null, 2)}\n`,

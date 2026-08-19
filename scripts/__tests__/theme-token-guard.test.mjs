@@ -49,6 +49,26 @@ describe("theme-token-guard scan", () => {
     expect(scan({ root, roots }).undeclared).toEqual({});
   });
 
+  // The fallback arm must not be an enumerated list of colour syntaxes: an
+  // allow-list of #hex|rgb|hsl silently missed `transparent`, named colours,
+  // `currentColor` and `color-mix()` — and color-mix is used throughout this
+  // codebase, so the guard had a hole exactly where the next regression lands.
+  it.each([
+    ["transparent", 'const a = "bg-[var(--panel,transparent)]";'],
+    ["a named colour", 'const a = "bg-[var(--panel,red)]";'],
+    ["currentColor", 'const a = "text-[var(--panel,currentColor)]";'],
+    ["color-mix()", 'const a = "bg-[var(--panel,color-mix(in srgb, red 10%, blue))]";'],
+    ["oklch()", 'const a = "bg-[var(--panel,oklch(0.7 0.1 200))]";'],
+  ])("catches a fallback written as %s", (_label, source) => {
+    const { root, roots } = fixture(source);
+    expect(scan({ root, roots })["fallback"]["src/components/Widget.tsx::--panel"]).toBe(1);
+  });
+
+  it("does NOT flag a token CHAIN — var(--a, var(--b)) is not a hardcoded literal", () => {
+    const { root, roots } = fixture('const a = "bg-[var(--panel,var(--accent))]";');
+    expect(scan({ root, roots }).fallback).toEqual({});
+  });
+
   it("skips test files, which may hold fixtures that are not real paints", () => {
     const { root, roots } = fixture("// real source\n");
     writeFileSync(

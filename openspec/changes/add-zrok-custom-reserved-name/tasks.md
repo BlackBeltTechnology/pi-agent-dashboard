@@ -66,8 +66,8 @@
 - [x] 6.5 Write a failing test that overlapping ticks are suppressed
 - [x] 6.6 Implement the poll bound to dialog lifetime plus the manual refresh control and the "checked Ns ago" stamp
 - [ ] 6.7 **[performance-optimization]** MEASURE a real tick across four providers on a cold cache; if it approaches 5s, change the cadence **before** this lands. Record the measurement in the change.
-- [x] 6.8 Implement the mobile treatment per D11: below 560px the board is a 52px-per-row navigation list; verify board height and that `document.scrollWidth` equals the viewport at 375
-- [x] 6.9 Verify touch targets stay ≥44px and contrast passes in both themes at 375
+- [ ] 6.8 Implement the mobile treatment per D11: below 560px the board is a 52px-per-row navigation list; verify board height and that `document.scrollWidth` equals the viewport at 375
+- [ ] 6.9 Verify touch targets stay ≥44px and contrast passes in both themes at 375
 
 ## 7. Concurrency — per-provider runtimes
 
@@ -79,7 +79,7 @@
 - [x] 7.3 Replace zrok-hardcoded delegation in `packages/server/src/tunnel/tunnel.ts` with a per-provider runtime registry
 - [x] 7.4 Give each **`kind:"child"`** provider (zrok, ngrok) its own runtime instance, **per-provider PID file** and watchdog in `tunnel-core.ts` — per-provider naming from the first commit. Daemon providers (tailscale, zerotier) carry NO PID file and NO watchdog, per the shipped "child vs daemon lifecycle" scenario
 - [x] 7.5 Write a failing recycle test: restarting one provider leaves every other provider's PID untouched
-- [ ] 7.6 Write a failing two-tunnel test asserting the OAuth redirect URI derives from the **primary only**
+- [x] 7.6 Write a failing two-tunnel test asserting the OAuth redirect URI derives from the **primary only**
 - [x] 7.7 Write a failing test that a disconnected primary falls back exactly as today, with **no** silent promotion of another live tunnel
 - [ ] 7.8 Implement the confirm-gated primary switch (D10), stating inline that switching re-mints the redirect URI
 
@@ -130,12 +130,12 @@ manifest id. L3 reads the harness port from `.pi-test-harness.json`
 - [x] 11.7 stderr `name already exists` without another/different-account/owned-by · classify · reuse-mine, NOT `taken` — see same exemplar (test-plan #E7)
 - [x] 11.8 stderr `already exists (owned by another account)` · classify · `taken` — see same exemplar (test-plan #E8)
 - [x] 11.9 stderr matching neither branch (`connection refused`) · classify · honest-but-vague, not silently reuse-mine — see same exemplar (test-plan #E9)
-- [ ] 11.10 `zrok create name` fails for the NEW name during replace · user replaces · old reservation intact, stored name unchanged, no orphaned release — see same exemplar (test-plan #X1)
-- [ ] 11.11 a share is live on the name being released · clear or replace · `deleteTunnel()` before `delete name`; never issued against a running share — see same exemplar (test-plan #X2)
+- [x] 11.10 `zrok create name` fails for the NEW name during replace · user replaces · old reservation intact, stored name unchanged, no orphaned release — see same exemplar (test-plan #X1)
+- [x] 11.11 a share is live on the name being released · clear or replace · `deleteTunnel()` before `delete name`; never issued against a running share — see same exemplar (test-plan #X2)
 - [x] 11.12 disk write fails after a successful remote reservation · POST set-name · `write-failed` surfaced, not a misleading `ok` — see same exemplar (test-plan #X3)
-- [ ] 11.13 request without network guard / auth gate · POST set-name · refused; nothing reserved, released or persisted — see `packages/server/src/__tests__/config-api.test.ts` (test-plan #X4)
-- [ ] 11.14 tunnel live on URL A · set name B · reconnect onto B, or explicit "still serving A until reconnected"; never a silent divergence — see same exemplar (test-plan #X5)
-- [ ] 11.15 tunnel live; new reservation returns `taken` · POST set-name · running tunnel undisturbed — see same exemplar (test-plan #X6)
+- [x] 11.13 request without network guard / auth gate · POST set-name · refused; nothing reserved, released or persisted — see `packages/server/src/__tests__/config-api.test.ts` (test-plan #X4)
+- [x] 11.14 tunnel live on URL A · set name B · reconnect onto B, or explicit "still serving A until reconnected"; never a silent divergence — see same exemplar (test-plan #X5)
+- [x] 11.15 tunnel live; new reservation returns `taken` · POST set-name · running tunnel undisturbed — see same exemplar (test-plan #X6)
 
 ### 11b. L1 — readiness
 
@@ -179,12 +179,12 @@ manifest id. L3 reads the harness port from `.pi-test-harness.json`
 
 ### 11f. L3 — rendered UI (Playwright vs docker harness)
 
-- [x] 11.44 dialog closed · open it · a readiness request fires immediately, not after one interval — see `tests/e2e/zrok-v2-tunnel.spec.ts` (test-plan #F1)
-- [x] 11.45 dialog open and polling · close it, wait 15s · zero further readiness requests — see same exemplar (test-plan #F2)
-- [x] 11.46 a tick still in flight when the next is due · interval elapses · second suppressed; exactly one in flight — see same exemplar (test-plan #F3)
+- [ ] 11.44 dialog closed · open it · a readiness request fires immediately, not after one interval — see `tests/e2e/zrok-v2-tunnel.spec.ts` (test-plan #F1)
+- [ ] 11.45 dialog open and polling · close it, wait 15s · zero further readiness requests — see same exemplar (test-plan #F2)
+- [ ] 11.46 a tick still in flight when the next is due · interval elapses · second suppressed; exactly one in flight — see same exemplar (test-plan #F3)
 - [ ] 11.47 provider reports `not-set` · readiness updates to `connected` · satisfied steps render satisfied; list shrinks — see same exemplar (test-plan #F4)
 - [ ] 11.48 one provider's predicate throws · board renders · that row degrades alone; other 3 still show state — see same exemplar (test-plan #F5)
-- [x] 11.49 each of the 4 readiness states · render board · every state carries a text label, never colour alone — see same exemplar (test-plan #F6)
+- [ ] 11.49 each of the 4 readiness states · render board · every state carries a text label, never colour alone — see same exemplar (test-plan #F6)
 - [ ] 11.50 zrok primary, tailscale connected · click "Make primary" on tailscale · confirmation names the redirect-URI consequence; no config write until confirmed — see `tests/e2e/gateway-url-action.spec.ts` (test-plan #F7)
 - [ ] 11.51 connected provider with unregistered URL · tunnel connects · offer appears; `gateways` unchanged until the operator acts — see same exemplar (test-plan #F8)
 - [ ] 11.52 stored `reservedName` but connect serves an ephemeral URL · status renders · warning banner on stored-vs-effective mismatch; shown once, not per watchdog recycle — see same exemplar (test-plan #F9)
