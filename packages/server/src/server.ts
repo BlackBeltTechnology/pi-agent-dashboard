@@ -2535,6 +2535,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       if (recoveryGraceTimer) clearTimeout(recoveryGraceTimer);
       goalSupervisor?.dispose();
       pendingForkRegistry.dispose();
+      // Every pending ack holds a timer; a create/stop cycle must not leak them.
+      // See change: fix-spawn-correlation-ttl-coupling (D7).
+      pendingPromptAcks.dispose();
       preferencesStore.flush();
       preferencesStore.dispose();
       // Terminate fit workers so a restart never leaves orphaned threads.

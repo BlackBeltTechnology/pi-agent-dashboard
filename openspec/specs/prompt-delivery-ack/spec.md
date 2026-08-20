@@ -1,7 +1,18 @@
 # prompt-delivery-ack Specification
 
 ## Purpose
-TBD - created by archiving change fix-spawn-correlation-ttl-coupling. Update Purpose after archive.
+Distinguish a prompt the owning bridge ACKNOWLEDGED (pi received it) from one
+merely written to an OPEN socket. `POST /api/session/:id/prompt` returning
+`success` proves only that `piGateway.sendToSession` found a socket and wrote to
+it — never that pi saw the prompt. A bridge that is deaf inbound is
+indistinguishable from a healthy one through every diagnostic the dashboard
+exposes, because they are all OUTBOUND (telemetry, RSS, `activeBridgeCount`,
+`status`); only transcript growth falsifies it.
+
+The response therefore reports TRANSMISSION plus a per-prompt handle, and the
+acknowledged state becomes observable afterwards on the session event stream
+keyed by that handle — the response is deliberately not gated on the bridge, so
+a slow bridge never looks like a failed one.
 ## Requirements
 ### Requirement: The prompt response stops asserting an unknowable `delivered`
 `POST /api/session/:id/prompt` today returns `delivered: true` on its contended

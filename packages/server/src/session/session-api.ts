@@ -74,9 +74,16 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
     async (request, reply) => {
       const { id } = request.params;
       const { text, images } = request.body ?? {};
-      if (!text) {
+      // Untrusted input: a bare truthiness check accepted objects and numbers,
+      // which then reached the bridge as a `send_prompt.text`.
+      // See change: fix-spawn-correlation-ttl-coupling.
+      if (typeof text !== "string" || text.length === 0) {
         reply.code(400);
         return { success: false, error: "text is required" } satisfies ApiResponse;
+      }
+      if (images !== undefined && !Array.isArray(images)) {
+        reply.code(400);
+        return { success: false, error: "images must be an array" } satisfies ApiResponse;
       }
       const result = getSessionOrFail(sessionManager, id);
       if ("error" in result) {

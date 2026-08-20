@@ -478,12 +478,15 @@ export function createCommandHandler(
           // safety timeout. Settle it immediately (fresh:false → drop). The
           // passthrough + slash paths emit their own `prompt_received` with the
           // real streaming verdict. See change: optimistic-prompt-progress.
-          // `promptId` (when the server minted one) rides back on every ack so
-          // a REST caller can tell delivery from transmission.
+          // The `promptId` echo means ONE narrow thing — the owning bridge
+          // handed this prompt to pi — so it rides only the ack emitted AFTER
+          // an actual `pi.sendUserMessage`. The acks below are UI-state signals
+          // for non-turn commands and for the buffered follow-up path (pi never
+          // sees those), and attaching the handle to them would report a
+          // delivery that did not happen.
           // See change: fix-spawn-correlation-ttl-coupling (D7).
-          const ackHandle = msg.promptId ? { promptId: msg.promptId } : {};
           if (parsed.type !== "passthrough" && parsed.type !== "slash") {
-            options?.eventSink?.({ type: "prompt_received", sessionId, fresh: false, ...ackHandle });
+            options?.eventSink?.({ type: "prompt_received", sessionId, fresh: false });
           }
 
           // Route based on parsed command type
@@ -680,9 +683,22 @@ export function createCommandHandler(
           // Drives the optimistic `pendingPrompt` bubble: fresh:true → "sent",
           // fresh:false → drop (raced mid-turn). Emitted BEFORE any pi call so
           // the snapshot is authoritative. See change: optimistic-prompt-progress.
-          options?.eventSink?.({ type: "prompt_received", sessionId, fresh: !wasStreaming, ...ackHandle });
           const da = msg.delivery ?? "followUp";
-          if (wasStreaming && da === "followUp") {
+          const buffered = wasStreaming && da === "followUp";
+          // The streaming-verdict ack is unchanged and still emitted BEFORE any
+          // pi call, so the snapshot stays authoritative. It carries the
+          // `promptId` ONLY on the branch that actually hands the prompt to pi;
+          // a buffered follow-up stays `transmitted` until (and unless) the
+          // drain ships it, which is the same honest degradation an older
+          // bridge gets. See change: optimistic-prompt-progress,
+          //                 fix-spawn-correlation-ttl-coupling (D7).
+          options?.eventSink?.({
+            type: "prompt_received",
+            sessionId,
+            fresh: !wasStreaming,
+            ...(msg.promptId && !buffered ? { promptId: msg.promptId } : {}),
+          });
+          if (buffered) {
             // Bridge-owned buffer path — do NOT call pi.sendUserMessage.
             options?.onFollowupSent?.(outgoing);
           } else {

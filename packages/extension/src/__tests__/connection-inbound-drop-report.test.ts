@@ -173,6 +173,30 @@ describe("inbound drop reporting", () => {
     cm.disconnect();
   });
 
+  // A ConnectionManager outlives a `new`/`fork`/`resume` session change, so the
+  // rate-limit state must not carry across: the previous session's exhausted
+  // budget would suppress the NEW session's reports, and its `suppressed` count
+  // would ride a report naming a different session.
+  it("resets the report budget when the routing session changes", () => {
+    let sessionId = "S_first";
+    const { cm, ws } = connect({ getSessionId: () => sessionId });
+
+    for (let i = 0; i < 20; i++) {
+      cm.reportInboundDrop({ dropClass: "session_mismatch", droppedSessionId: "x" });
+    }
+    expect(reports(ws)).toHaveLength(10);
+
+    sessionId = "S_second";
+    cm.reportInboundDrop({ dropClass: "session_mismatch", droppedSessionId: "y" });
+
+    const after = reports(ws);
+    expect(after).toHaveLength(11);
+    expect(after[10].sessionId).toBe("S_second");
+    // The first session's suppressed count must NOT ride the new session.
+    expect(after[10].suppressed).toBeUndefined();
+    cm.disconnect();
+  });
+
   it("carries the dropped session id as payload, never as the routing field", () => {
     const { cm, ws } = connect();
     cm.reportInboundDrop({

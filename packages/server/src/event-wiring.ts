@@ -510,6 +510,12 @@ export function wireEvents(deps: EventWiringDeps): void {
     // Turn-boundary reset (change: auto-canvas): a terminated session must not
     // leave stale candidates behind. No settle broadcast on termination.
     canvasAccumulator.resetTurn(sessionId);
+    // Nothing can acknowledge an in-flight prompt for a session that just died.
+    // This is the TRANSPORT-INDEPENDENT death signal, so it also covers the
+    // manager-driven unregister paths (heartbeat expiry, run termination,
+    // reap) that never produce an inbound `session_unregister` message.
+    // See change: fix-spawn-correlation-ttl-coupling (D7).
+    pendingPromptAcks?.evictSession(sessionId);
     const session = sessionManager.get(sessionId);
     if (session) {
       // Durably clear the liveness marker EAGERLY (atomic, not debounced).
@@ -1534,9 +1540,6 @@ export function wireEvents(deps: EventWiringDeps): void {
       localityNoticesSent.delete(sessionId);
       locallyEvidencedChanges.delete(sessionId);
       sessionCommandRegistry.remove(sessionId);
-      // Nothing can acknowledge these any more.
-      // See change: fix-spawn-correlation-ttl-coupling (D7).
-      pendingPromptAcks?.evictSession(sessionId);
       browserGateway.broadcastSessionRemoved(sessionId);
     }
 

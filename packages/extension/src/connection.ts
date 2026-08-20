@@ -61,6 +61,14 @@ export class ConnectionManager {
   private dropReportWindowStart = 0;
   private dropReportsInWindow = 0;
   private dropReportsSuppressed = 0;
+  /**
+   * Session the counters above belong to. A `ConnectionManager` outlives a
+   * `new`/`fork`/`resume` session change, so without this the previous
+   * session's exhausted budget would suppress the NEW session's reports for the
+   * rest of the window, and its `suppressed` count would ride a report that
+   * names a different session.
+   */
+  private dropReportSessionId: string | undefined;
 
   /**
    * Report an inbound message this bridge threw away, best-effort.
@@ -80,6 +88,12 @@ export class ConnectionManager {
     if (!sessionId) return;
 
     const now = Date.now();
+    if (sessionId !== this.dropReportSessionId) {
+      this.dropReportSessionId = sessionId;
+      this.dropReportWindowStart = now;
+      this.dropReportsInWindow = 0;
+      this.dropReportsSuppressed = 0;
+    }
     if (now - this.dropReportWindowStart >= DROP_REPORT_WINDOW_MS) {
       this.dropReportWindowStart = now;
       this.dropReportsInWindow = 0;

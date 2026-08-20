@@ -61,7 +61,10 @@ ws.on('close', () => { process.exit(0); });
 # own session; the id the dropped message named rides as payload.
 # See change: fix-spawn-correlation-ttl-coupling (D6).
 LOG_PATH="$HOME/.pi/dashboard/server.log"
-if [ -f "$LOG_PATH" ]; then
+# Detect the `ws` dependency FIRST: without this, a missing module prints the
+# skip note and then the grep below still fails the run, conflating "cannot
+# test" with "the report never arrived". Connection/timeout failures stay fatal.
+if [ -f "$LOG_PATH" ] && node -e "require('ws')" 2>/dev/null; then
   DROP_SESSION="qa-drop-$$"
   node -e "
 const WebSocket = require('ws');
@@ -81,7 +84,7 @@ ws.on('open', () => {
   }, 500);
 });
 ws.on('error', (e) => { clearTimeout(timeout); console.error('drop-report error:', e.message); process.exit(1); });
-" || { echo "NOTE: ws module not available, skipping drop-report check"; }
+"
 
   sleep 1
   if grep -q "bridge-drop.*$DROP_SESSION" "$LOG_PATH"; then
@@ -90,6 +93,8 @@ ws.on('error', (e) => { clearTimeout(timeout); console.error('drop-report error:
     echo "FAIL: bridge drop report never reached server.log"
     exit 1
   fi
+else
+  echo "NOTE: server.log or ws module unavailable, skipping drop-report check"
 fi
 
 echo "PASS: WebSocket connections successful"

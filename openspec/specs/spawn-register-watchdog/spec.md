@@ -143,17 +143,22 @@ The `SpawnRegisterWatchdog` SHALL maintain a third internal index alongside the 
 
 - `byToken: Map<string, Entry>` — populated when `spawnToken` is provided to `arm`.
 
-The `arm` signature SHALL be extended to accept `spawnToken?: string`:
+The `arm` signature SHALL be extended to accept `spawnToken?: string` and the
+effective `timeoutMs?: number` for THIS spawn (absent ⇒ the instance default):
 
 ```ts
-arm({ pid?, cwd, mechanism, logPath?, ws, spawnToken? }): void
+arm({ pid?, cwd, mechanism, logPath?, ws, spawnToken?, timeoutMs? }): void
 ```
+
+`timeoutMs` is part of the documented API because every TTL recorded for a spawn
+derives from the same value that armed it; a caller that cannot pass the value
+it read cannot honour that rule.
 
 When `spawnToken` is provided at arm time, the entry SHALL be indexed in `byToken` in addition to `byCwd` and (if `pid` is provided) `byPid`. All three indices SHALL point to the same `Entry` object.
 
 A new `clearByToken(token)` method SHALL be exposed. It SHALL cancel the entry's timer and remove the entry from ALL THREE maps when invoked. Like `clearByPid` / `clearByCwd`, calling `clearByToken` with an unknown key SHALL be a no-op.
 
-The pi-gateway `session_register` handler SHALL invoke clears in priority order: `clearByToken(msg.spawnToken)` first (when present), then `clearByPid(msg.pid)` (when present), then `clearByCwd(msg.cwd)` unconditionally. The first successful clear short-circuits the rest, but invoking subsequent `clear*` calls on already-removed indices SHALL still be safe (no-op).
+The pi-gateway `session_register` handler SHALL invoke clears in priority order — `clearByToken(msg.spawnToken)` (when present), then `clearByPid(msg.pid)` (when present), then `clearByCwd(msg.cwd)` — and SHALL STOP at the first clear that reports it claimed an entry. Each `clearBy*` SHALL report whether it claimed one. A clear that already succeeded on a stronger tier SHALL NOT fall through to a weaker one: with two concurrent same-cwd spawns, falling through cancels the OTHER spawn's arm, so a spawn that never registers is never diagnosed and never reclaimed. Invoking a `clear*` on an already-removed index SHALL remain a safe no-op.
 
 #### Scenario: Token clear cancels the watchdog
 - **WHEN** `watchdog.arm({ cwd: "/p", spawnToken: "tok_a", pid: 100, mechanism: "headless", ws })` is called
@@ -183,7 +188,7 @@ The pi-gateway `session_register` handler SHALL invoke clears in priority order:
 - **AND** all three indices SHALL point to the second arm's entry
 
 ### Requirement: Late-recovery window keyed by token
-The watchdog's `recentlyFired` map SHALL also key by `spawnToken` when the fired entry had one. When a late `clearByToken` is called for a key in `recentlyFired`, the watchdog SHALL emit `spawn_register_recovered { cwd, pid?, requestId? }` to the originally-stored `ws` exactly as it does for late `clearByPid` / `clearByCwd` cases.
+The watchdog's `recentlyFired` map SHALL also key by `spawnToken` when the fired entry had one. When a late `clearByToken` is called for a key in `recentlyFired`, the watchdog SHALL emit `spawn_register_recovered { cwd, pid? }` to the originally-stored `ws` exactly as it does for late `clearByPid` / `clearByCwd` cases. The message SHALL NOT carry a `requestId`: the watchdog has no access to the correlation map and must not acquire it, and `session_added` is what carries the value.
 
 #### Scenario: Late token-bearing register triggers recovery
 - **WHEN** a watchdog entry with `spawnToken: "tok_y"` fires its timeout (entering `recentlyFired`)

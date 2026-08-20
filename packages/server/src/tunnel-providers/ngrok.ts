@@ -27,9 +27,7 @@ const ngrokResolver = new ToolResolver({ processExecPath: process.execPath, useL
 let ngrokAvailable: boolean | null = null;
 let ngrokBinaryPath: string | null = null;
 
-// Internal: the provider object exposes it as `detectBinary`; nothing imports
-// the free function. See change: fix-spawn-correlation-ttl-coupling (ratchet).
-function detectNgrokBinary(): boolean {
+export function detectNgrokBinary(): boolean {
   if (ngrokAvailable !== null) return ngrokAvailable;
   ngrokBinaryPath = ngrokResolver.which("ngrok");
   ngrokAvailable = ngrokBinaryPath !== null;

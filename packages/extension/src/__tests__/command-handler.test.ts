@@ -1287,6 +1287,54 @@ describe("CommandHandler — ack handle and dropped-message reporting", () => {
     expect(ack).not.toHaveProperty("promptId");
   });
 
+  // The `promptId` echo means "the bridge handed this to pi". A follow-up that
+  // races a streaming turn is BUFFERED, so pi never sees it — acknowledging it
+  // would report a delivery that did not happen.
+  it("omits the promptId when the prompt is buffered instead of sent to pi", async () => {
+    const events: any[] = [];
+    const pi = mockPi();
+    const handler = createCommandHandler(pi as any, "s1", {
+      eventSink: (m) => events.push(m),
+      isStreaming: () => true,
+      onFollowupSent: () => {},
+    });
+
+    await handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "hello",
+      delivery: "followUp",
+      promptId: "p-buffered",
+    } as ServerToExtensionMessage);
+
+    const ack = events.find((e) => e.type === "prompt_received");
+    expect(ack.fresh).toBe(false);
+    expect(ack).not.toHaveProperty("promptId");
+    // Buffered: pi was not called at all.
+    expect(pi.sendUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("echoes the promptId on a steer send, which does reach pi", async () => {
+    const events: any[] = [];
+    const pi = mockPi();
+    const handler = createCommandHandler(pi as any, "s1", {
+      eventSink: (m) => events.push(m),
+      isStreaming: () => true,
+      onSteerSent: () => {},
+    });
+
+    await handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "hello",
+      delivery: "steer",
+      promptId: "p-steer",
+    } as ServerToExtensionMessage);
+
+    expect(events.find((e) => e.type === "prompt_received").promptId).toBe("p-steer");
+    expect(pi.sendUserMessage).toHaveBeenCalled();
+  });
+
   it("reports a session-id-mismatch drop instead of only console.error", async () => {
     const drops: any[] = [];
     vi.spyOn(console, "error").mockImplementation(() => {});

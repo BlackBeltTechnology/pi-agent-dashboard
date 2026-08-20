@@ -552,10 +552,17 @@ describe("SpawnRegisterWatchdog: recovery identity and observability", () => {
   });
 
   // E20 — /tmp vs /private/tmp, the miss that actually happens on macOS.
-  it("arm on a symlinked cwd is cancelled by a clear on its real path", () => {
+  it("arm on a symlinked cwd is cancelled by a clear on its real path", (ctx) => {
     const dir = realpathSync(mkdtempSync(join(tmpdir(), "wd-e20-")));
     const link = join(mkdtempSync(join(tmpdir(), "wd-e20-link-")), "alias");
-    symlinkSync(dir, link);
+    try {
+      symlinkSync(dir, link);
+    } catch {
+      // Unprivileged Windows cannot create a symlink; the normalization itself
+      // is covered by the fallback cases below.
+      ctx.skip();
+      return;
+    }
 
     const { ws, messages } = makeMockWs();
     const w = new SpawnRegisterWatchdog(10_000);
