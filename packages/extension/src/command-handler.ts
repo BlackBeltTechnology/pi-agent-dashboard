@@ -7,6 +7,7 @@ import { join, relative } from "node:path";
 import { diffOr } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type {
   ExtensionToServerMessage,
+  InboundDropClass,
   ServerToExtensionMessage,
 } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
@@ -340,6 +341,16 @@ export function createCommandHandler(
     getCwd?: () => string;
     /** Callback to send events (e.g., bash_output, command_feedback) back to server */
     eventSink?: (msg: ExtensionToServerMessage) => void;
+    /**
+     * Report an inbound message this handler threw away. The mismatch guard
+     * lives inside `handle()`, which holds no connection reference, so the
+     * channel is injected. See change: fix-spawn-correlation-ttl-coupling (D6).
+     */
+    reportInboundDrop?: (drop: {
+      dropClass: InboundDropClass;
+      messageType?: string;
+      droppedSessionId?: string;
+    }) => void;
     /** Trigger context compaction */
     compact?: (options: { customInstructions?: string }) => void;
     /** Trigger session reload (extensions, settings, skills, etc.) */
@@ -355,7 +366,11 @@ export function createCommandHandler(
      * events emitted by the dispatch path arrive before this turn returns.
      * See change: fix-extension-slash-commands-in-dashboard.
      */
-    sessionPrompt?: (text: string, delivery?: "steer" | "followUp") => void | Promise<void>;
+    sessionPrompt?: (
+      text: string,
+      delivery?: "steer" | "followUp",
+      promptId?: string,
+    ) => void | Promise<void>;
     /**
      * Bridge-shadow-queue hooks: called AFTER pi accepts the user message,
      * gated by `isStreaming()` captured BEFORE the send. The capture order
@@ -444,6 +459,16 @@ export function createCommandHandler(
       // Ignore messages for other sessions (skip session-less messages like heartbeat_ack)
       if ((msg as any).sessionId !== undefined && (msg as any).sessionId !== sessionId) {
         console.error(`[dashboard] Ignoring message type=${msg.type} for session ${(msg as any).sessionId}, current session is ${sessionId}`);
+        // This `console.error` is written to /dev/null whenever
+        // `keeperLog.capturePiOutput` is false (the default), so the drop is
+        // ALSO reported over the socket. The guard cannot tell "never mine"
+        // from "was mine, since replaced" — one reportable class.
+        // See change: fix-spawn-correlation-ttl-coupling (D6).
+        options?.reportInboundDrop?.({
+          dropClass: "session_mismatch",
+          messageType: msg.type,
+          droppedSessionId: (msg as any).sessionId,
+        });
         return undefined;
       }
 
@@ -457,6 +482,13 @@ export function createCommandHandler(
           // safety timeout. Settle it immediately (fresh:false → drop). The
           // passthrough + slash paths emit their own `prompt_received` with the
           // real streaming verdict. See change: optimistic-prompt-progress.
+          // The `promptId` echo means ONE narrow thing — the owning bridge
+          // handed this prompt to pi — so it rides only the ack emitted AFTER
+          // an actual `pi.sendUserMessage`. The acks below are UI-state signals
+          // for non-turn commands and for the buffered follow-up path (pi never
+          // sees those), and attaching the handle to them would report a
+          // delivery that did not happen.
+          // See change: fix-spawn-correlation-ttl-coupling (D7).
           if (parsed.type !== "passthrough" && parsed.type !== "slash") {
             options?.eventSink?.({ type: "prompt_received", sessionId, fresh: false });
           }
@@ -577,7 +609,12 @@ export function createCommandHandler(
               // extension-command dispatch. Do NOT emit completed here — would
               // duplicate the dispatch path's terminal event.
               // See change: fix-extension-slash-commands-in-dashboard.
-              await options.sessionPrompt(parsed.text, msg.delivery);
+              // The handle rides along so the branch that actually reaches
+              // `pi.sendUserMessage` can acknowledge it; the non-turn slash
+              // routes (flow, extension dispatch, exec template) settle without
+              // one, because pi never receives those as a prompt.
+              // See change: fix-spawn-correlation-ttl-coupling (D7).
+              await options.sessionPrompt(parsed.text, msg.delivery, msg.promptId);
             } else {
               // Test / non-bridge callers: apply the extension-command dispatch
               // branch inline before falling through to sendUserMessage. Keeps
@@ -604,7 +641,22 @@ export function createCommandHandler(
                 // Forward delivery so steering on slash fallback honors the
                 // dashboard's keyboard contract. See change: add-steering-message.
                 const deliverAs = msg.delivery ?? ("followUp" as const);
+                // Capture the streaming verdict BEFORE the pi call: an idle
+                // send synchronously fires `agent_start`, so reading it
+                // afterwards reports `fresh:false` for every fresh turn — the
+                // same trap the passthrough path documents.
+                const wasStreamingBeforeSend = options?.isStreaming?.() ?? false;
                 (pi.sendUserMessage as any)(parsed.text, { deliverAs });
+                // This slash DID reach pi as a user prompt, so it is delivered.
+                // See change: fix-spawn-correlation-ttl-coupling (D7).
+                if (msg.promptId) {
+                  options?.eventSink?.({
+                    type: "prompt_received",
+                    sessionId,
+                    fresh: !wasStreamingBeforeSend,
+                    promptId: msg.promptId,
+                  });
+                }
               }
             }
             return undefined;
@@ -655,9 +707,22 @@ export function createCommandHandler(
           // Drives the optimistic `pendingPrompt` bubble: fresh:true → "sent",
           // fresh:false → drop (raced mid-turn). Emitted BEFORE any pi call so
           // the snapshot is authoritative. See change: optimistic-prompt-progress.
-          options?.eventSink?.({ type: "prompt_received", sessionId, fresh: !wasStreaming });
           const da = msg.delivery ?? "followUp";
-          if (wasStreaming && da === "followUp") {
+          const buffered = wasStreaming && da === "followUp";
+          // The streaming-verdict ack is unchanged and still emitted BEFORE any
+          // pi call, so the snapshot stays authoritative. It carries the
+          // `promptId` ONLY on the branch that actually hands the prompt to pi;
+          // a buffered follow-up stays `transmitted` until (and unless) the
+          // drain ships it, which is the same honest degradation an older
+          // bridge gets. See change: optimistic-prompt-progress,
+          //                 fix-spawn-correlation-ttl-coupling (D7).
+          options?.eventSink?.({
+            type: "prompt_received",
+            sessionId,
+            fresh: !wasStreaming,
+            ...(msg.promptId && !buffered ? { promptId: msg.promptId } : {}),
+          });
+          if (buffered) {
             // Bridge-owned buffer path — do NOT call pi.sendUserMessage.
             options?.onFollowupSent?.(outgoing);
           } else {

@@ -69,8 +69,8 @@ describe("spawn-correlation-token: kill-fork-doesn't-kill-parent regression", ()
 
     // Two forks issued in the same cwd, each with its own token. Pre-fix
     // (cwd-keyed registry) the second recordFork would overwrite the first.
-    forkRegistry.recordFork(tokenA, "parent-A");
-    forkRegistry.recordFork(tokenB, "parent-B");
+    forkRegistry.recordFork(tokenA, "parent-A", 95_000);
+    forkRegistry.recordFork(tokenB, "parent-B", 95_000);
 
     // Bridge connect order arbitrary; each token resolves to its OWN parent.
     expect(forkRegistry.consumeFork(tokenB)).toBe("parent-B");

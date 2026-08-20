@@ -1289,6 +1289,28 @@ export interface ApiResponse<T = unknown> {
    * See change: openspec-worktree-spawn-button.
    */
   orphanLikely?: boolean;
+  /**
+   * `POST /api/session/:id/prompt`: whether the prompt was WRITTEN to the
+   * owning bridge's socket. Transmission, not delivery — the response is
+   * deliberately not gated on the bridge acknowledging, so `delivered` cannot
+   * appear here at all. Pair with `promptId`.
+   * See change: fix-spawn-correlation-ttl-coupling (D7).
+   */
+  transmitted?: boolean;
+  /**
+   * Per-prompt handle echoed by the bridge on `prompt_received`, making the
+   * acknowledged state observable on the session event stream.
+   * See change: fix-spawn-correlation-ttl-coupling (D7).
+   */
+  promptId?: string;
+  /**
+   * `"contended"` when a second bridge recently claimed this session id and was
+   * refused. Annotation only — `success` is unaffected.
+   * See change: fix-duplicate-bridge-registration (D4).
+   */
+  bridgeState?: string;
+  /** Human-readable annotation paired with `bridgeState`. */
+  warning?: string;
 }
 
 /**

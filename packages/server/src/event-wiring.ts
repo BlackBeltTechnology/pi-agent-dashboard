@@ -168,6 +168,13 @@ export interface EventWiringDeps {
    */
   pendingClientCorrelations?: import("./pending/pending-client-correlations.js").PendingClientCorrelations;
   /**
+   * Optional pending-prompt-ack registry. When provided, a bridge
+   * `prompt_received` carrying a `promptId` marks that REST prompt delivered,
+   * and a `session_unregister` evicts everything still in flight for the id.
+   * See change: fix-spawn-correlation-ttl-coupling (D7).
+   */
+  pendingPromptAcks?: import("./pending/pending-prompt-acks.js").PendingPromptAcks;
+  /**
    * Optional plugin pi-message dispatcher. When provided, every
    * `plugin_pi_message` envelope forwarded from a plugin bridge entry is
    * routed to plugin-server handlers registered via
@@ -235,6 +242,7 @@ export function wireEvents(deps: EventWiringDeps): void {
     primeGoalSession,
     viewedSessionTracker,
     pendingClientCorrelations,
+    pendingPromptAcks,
     dispatchPluginPiMessage,
     dispatchPluginRawEvent,
     metaPersistence,
@@ -506,6 +514,12 @@ export function wireEvents(deps: EventWiringDeps): void {
     // Turn-boundary reset (change: auto-canvas): a terminated session must not
     // leave stale candidates behind. No settle broadcast on termination.
     canvasAccumulator.resetTurn(sessionId);
+    // Nothing can acknowledge an in-flight prompt for a session that just died.
+    // This is the TRANSPORT-INDEPENDENT death signal, so it also covers the
+    // manager-driven unregister paths (heartbeat expiry, run termination,
+    // reap) that never produce an inbound `session_unregister` message.
+    // See change: fix-spawn-correlation-ttl-coupling (D7).
+    pendingPromptAcks?.evictSession(sessionId);
     const session = sessionManager.get(sessionId);
     if (session) {
       // Durably clear the liveness marker EAGERLY (atomic, not debounced).
@@ -1494,11 +1508,30 @@ export function wireEvents(deps: EventWiringDeps): void {
     // (fresh:false, raced mid-turn). Transient signal — not cached on the
     // session. See change: optimistic-prompt-progress.
     if (msg.type === "prompt_received") {
+      // `sessionId` here is the OWNING connection's attribution (the gateway
+      // already refuses a frame whose named id belongs to another socket), so a
+      // displaced bridge cannot acknowledge the current owner's prompt.
+      // See change: fix-spawn-correlation-ttl-coupling (D7).
+      if (msg.promptId) pendingPromptAcks?.acknowledge(msg.promptId, sessionId);
       browserGateway.sendToSubscribers(sessionId, {
         type: "prompt_received",
         sessionId,
         fresh: msg.fresh,
+        ...(msg.promptId ? { promptId: msg.promptId } : {}),
       });
+      return;
+    }
+
+    // A message the bridge THREW AWAY. Its only prior record was a
+    // `console.error` written to /dev/null whenever `capturePiOutput` is false
+    // (the default). See change: fix-spawn-correlation-ttl-coupling (D6).
+    if (msg.type === "inbound_drop_report") {
+      console.error(
+        `[bridge-drop] session=${sessionId} class=${msg.dropClass} ` +
+          `messageType=${msg.messageType ?? "unknown"} ` +
+          `droppedSessionId=${msg.droppedSessionId ?? "none"}` +
+          (msg.suppressed ? ` suppressed=${msg.suppressed}` : ""),
+      );
       return;
     }
 

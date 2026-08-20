@@ -8,12 +8,13 @@
  * Replaces the prior cwd-FIFO keying which suffered the multi-fork-in-same-cwd
  * race (second fork's `recordFork` would overwrite the first).
  *
- * Entries expire after 30 seconds if not consumed.
+ * Each entry expires on a TTL supplied by the caller, derived from the timeout
+ * that armed that fork's watchdog (`deriveSpawnCorrelationTtlMs`). The former
+ * hardcoded 30s had zero slack even at the DEFAULT timeout, so a fork whose
+ * bridge was slow lost its parent placement.
  *
- * See change: spawn-correlation-token.
+ * See change: spawn-correlation-token, fix-spawn-correlation-ttl-coupling.
  */
-
-const EXPIRY_MS = 30_000;
 
 interface PendingFork {
   parentSessionId: string;
@@ -21,8 +22,12 @@ interface PendingFork {
 }
 
 export interface PendingForkRegistry {
-  /** Record that a fork was initiated from `parentSessionId`, keyed by the spawn token. */
-  recordFork(spawnToken: string, parentSessionId: string): void;
+  /**
+   * Record that a fork was initiated from `parentSessionId`, keyed by the spawn
+   * token. `ttlMs` must come from `deriveSpawnCorrelationTtlMs` applied to the
+   * timeout used to arm this fork's watchdog; a non-positive TTL records nothing.
+   */
+  recordFork(spawnToken: string, parentSessionId: string, ttlMs: number): void;
   /** Consume the parent session id for a spawn token, or undefined if none pending. */
   consumeFork(spawnToken: string): string | undefined;
   /** Clear all pending entries and timers. */
@@ -33,8 +38,9 @@ export function createPendingForkRegistry(): PendingForkRegistry {
   const pending = new Map<string, PendingFork>();
 
   return {
-    recordFork(spawnToken: string, parentSessionId: string): void {
+    recordFork(spawnToken: string, parentSessionId: string, ttlMs: number): void {
       if (!spawnToken) return;
+      if (!Number.isFinite(ttlMs) || ttlMs <= 0) return;
       // Clear any prior entry for the same token (idempotent re-record).
       const existing = pending.get(spawnToken);
       if (existing) {
@@ -42,7 +48,7 @@ export function createPendingForkRegistry(): PendingForkRegistry {
       }
       const timer = setTimeout(() => {
         pending.delete(spawnToken);
-      }, EXPIRY_MS);
+      }, ttlMs);
       pending.set(spawnToken, { parentSessionId, timer });
     },
 
