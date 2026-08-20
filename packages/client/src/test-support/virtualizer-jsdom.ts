@@ -37,9 +37,12 @@ import { afterEach, vi } from "vitest";
 // Do not wrap or cancel global timers: that breaks user-event and fake-timer
 // tests. See changes: fix-tmux-session-shutdown-leak,
 // restore-dashboard-subagents-dependency.
+let chatScrollerSeen = false;
+
 afterEach(async () => {
-  const hadChatScroller = document.querySelector('[data-testid="chat-scroll-container"]') !== null;
+  const hadChatScroller = chatScrollerSeen;
   cleanup();
+  chatScrollerSeen = false;
   if (vi.isFakeTimers() || !hadChatScroller) return;
   await new Promise((resolve) => setTimeout(resolve, 160));
 });
@@ -58,7 +61,9 @@ const TALL_VIEWPORT = 100_000;
 const WIDE_VIEWPORT = 1_000;
 
 function isChatScroller(el: unknown): boolean {
-  return el instanceof Element && el.getAttribute("data-testid") === "chat-scroll-container";
+  const matches = el instanceof Element && el.getAttribute("data-testid") === "chat-scroll-container";
+  if (matches) chatScrollerSeen = true;
+  return matches;
 }
 
 Object.defineProperty(HTMLElement.prototype, "offsetHeight", {

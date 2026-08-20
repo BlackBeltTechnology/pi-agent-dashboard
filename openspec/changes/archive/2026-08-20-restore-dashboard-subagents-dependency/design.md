@@ -51,7 +51,7 @@ Set `plugins.apple-tools.enabled` to `false` through the Dashboard plugin toggle
 
 ### Correct the OpenSpec worktree-recovery skill at its source
 
-Update `packages/openspec-workflow/.pi/skills/fix-worktree-opsx-skills-not-created/SKILL.md`. The repository now pins the real CLI and runs `pnpm install && npx --no-install openspec init --tools pi --force`; the skill's scoped-package command would bypass that pin. The installed OpenSpec CLI generated six lifecycle skills, so validation must check required names and the CLI's own success output instead of a hard-coded count of eight.
+Update `packages/openspec-workflow/.pi/skills/fix-worktree-opsx-skills-not-created/SKILL.md`. The repository hook runs `pnpm install && npx --no-install openspec init --tools pi --force`; manual recovery uses `pnpm exec openspec` so the lockfile-selected CLI cannot fall through to a registry fetch. Pin the scoped fallback to `@fission-ai/openspec@1.6.0`. The installed CLI generated six lifecycle skills, so validation must check required names and the CLI's own success output instead of a hard-coded count of eight.
 
 Update the existing `packages/openspec-workflow/AGENTS.md` row because it repeats the stale command. Validate the skill frontmatter and re-run the smallest recovery checks against this worktree. The installed npm copy remains unchanged; the feature branch carries the canonical source correction for the next package release.
 
@@ -89,11 +89,11 @@ The full suite fails from a Git worktree because two legacy `makeDeps` helpers o
 
 TanStack Virtual's element-offset observer debounces a scroll-reset callback for `isScrollingResetDelay`, which defaults to 150 ms. Its cleanup removes listeners but does not clear that timer. The shared client test cleanup currently waits one 0 ms turn, so under full-suite load a delayed callback can dispatch into React after jsdom removes `window`.
 
-Before cleanup, detect whether the test mounted `chat-scroll-container`. For those tests only, wait 160 ms after unmount. Keep fake-timer tests on the existing non-wait path. This adds no production behavior and avoids slowing unrelated client tests.
+Track ChatView mounting through the existing scroll-container layout shim so manual unmounts cannot erase the signal. For those tests only, wait 160 ms after cleanup. Keep fake-timer tests on the existing non-wait path. This adds no production behavior and avoids slowing unrelated client tests.
 
 ### Correct the stale CI troubleshooting procedure
 
-The `ci-troubleshoot` skill points to root `scripts/list-recent-runs.ts` and `scripts/show-failed-run.ts`, but the helpers live under `.pi/skills/ci-troubleshoot/scripts/`. Correct those four paths. Validate by running the corrected `show-failed-run.ts` command against failed run `32286916122` and requiring its run summary plus failed annotation.
+The `ci-troubleshoot` skill points to root `scripts/list-recent-runs.ts` and `scripts/show-failed-run.ts`, but the helpers live under `.pi/skills/ci-troubleshoot/scripts/`. Correct those four paths and run them through the repository-pinned `pnpm exec tsx`. Validate `show-failed-run.ts` against failed run `32286916122` and require its run summary plus failed annotation.
 
 ### Ship and make future Pi sessions independent of the extension worktree link
 

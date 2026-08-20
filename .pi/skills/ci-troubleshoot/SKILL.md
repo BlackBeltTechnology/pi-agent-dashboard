@@ -33,10 +33,10 @@ Full per-workflow detail: [`references/workflow-taxonomy.md`](references/workflo
 ## First moves — always run these
 
 ```bash
-npx tsx .pi/skills/ci-troubleshoot/scripts/list-recent-runs.ts                  # last 10 runs across all workflows
-npx tsx .pi/skills/ci-troubleshoot/scripts/list-recent-runs.ts --failed         # only failed
-npx tsx .pi/skills/ci-troubleshoot/scripts/show-failed-run.ts <run-id>          # failed steps + log tails
-npx tsx .pi/skills/ci-troubleshoot/scripts/show-failed-run.ts                   # most recent failed run
+pnpm exec tsx .pi/skills/ci-troubleshoot/scripts/list-recent-runs.ts                  # last 10 runs across all workflows
+pnpm exec tsx .pi/skills/ci-troubleshoot/scripts/list-recent-runs.ts --failed         # only failed
+pnpm exec tsx .pi/skills/ci-troubleshoot/scripts/show-failed-run.ts <run-id>          # failed steps + log tails
+pnpm exec tsx .pi/skills/ci-troubleshoot/scripts/show-failed-run.ts                   # most recent failed run
 ```
 
 These wrap `gh run list`, `gh run view --log-failed`, and similar. You need `gh auth status` to be authenticated.

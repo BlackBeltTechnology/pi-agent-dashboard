@@ -14,18 +14,18 @@ Use when a git worktree lacks the OpenSpec lifecycle skills (`.pi/skills/openspe
 3. Install repository dependencies before initialization. For this repository, run `pnpm install --frozen-lockfile`.
 4. Use the repository-pinned binary when it exists:
    ```bash
-   npx --no-install openspec init --tools pi --force
+   pnpm exec openspec init --tools pi --force
    ```
-   `--no-install` fails instead of fetching the unscoped stub when the local binary is absent. In a repository that does not declare the CLI, use the scoped package explicitly: `npx @fission-ai/openspec init --tools pi --force`.
+   `pnpm exec` uses the declared local dependency and fails when the binary is absent. In a repository that does not declare the CLI, use the version-pinned scoped package explicitly: `npx @fission-ai/openspec@1.6.0 init --tools pi --force`.
 5. Verify the CLI reports setup success. Check the lifecycle skills this repository requires by name: `openspec-explore`, `openspec-propose`, `openspec-apply-change`, `openspec-update-change`, and `openspec-archive-change`.
 6. Check `git status --short`. Generated `openspec-*` skill directories should remain ignored. Review any tracked context-file rewrite before continuing.
 
 ## Why the old path fails
 
-Bare `npx openspec init ...` can fetch `openspec@0.0.0` when `node_modules/.bin/openspec` is absent. The stub exits without generating lifecycle skills. Installing dependencies first and using `npx --no-install openspec` preserves the lockfile-selected CLI and fails visibly when setup is incomplete.
+Bare `npx openspec init ...` can fetch `openspec@0.0.0` when `node_modules/.bin/openspec` is absent. The stub exits without generating lifecycle skills. Installing dependencies first and using `pnpm exec openspec` preserves the lockfile-selected CLI and fails visibly when setup is incomplete.
 
 ## Pitfalls
-- Run the dependency install first. `npx --no-install openspec` cannot recover a missing local binary.
+- Run the dependency install first. `pnpm exec openspec` cannot recover a missing local binary.
 - Do not hard-code the number of generated skills or commands. OpenSpec releases generate different sets; validate the required lifecycle names.
 - The worktree-init gate `test ! -d .pi/skills/openspec-explore` correctly re-triggers initialization when generated skills are absent.
 - `openspec init --force` can rewrite tracked `AGENTS.md` or `CLAUDE.md`. Generated skill directories are safe; tracked context changes require review.
@@ -34,8 +34,8 @@ Bare `npx openspec init ...` can fetch `openspec@0.0.0` when `node_modules/.bin/
 
 ```bash
 pnpm install --frozen-lockfile
-npx --no-install openspec --version
-npx --no-install openspec init --tools pi --force
+pnpm exec openspec --version
+pnpm exec openspec init --tools pi --force
 for skill in openspec-explore openspec-propose openspec-apply-change openspec-update-change openspec-archive-change; do
   test -d ".pi/skills/$skill" || exit 1
 done

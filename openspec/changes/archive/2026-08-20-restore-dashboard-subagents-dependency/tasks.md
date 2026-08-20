@@ -55,3 +55,5 @@
 - [x] 8.5 Correct the CI troubleshooting skill's deleted-script commands and validate skill frontmatter.
 - [x] 8.6 Merge `origin/develop` into the branch and pass the full repository test and build gates.
 - [x] 8.7 Pass fresh review, validate archive readiness, and hand the completed change to the repository ship pipeline.
+- [x] 8.8 Track ChatView mounting across manual unmounts and retain the scoped 160 ms cleanup drain.
+- [x] 8.9 Replace unpinned skill commands with repository-local `pnpm exec` calls and pin the registry fallback.
