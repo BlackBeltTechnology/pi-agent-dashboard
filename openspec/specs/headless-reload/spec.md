@@ -1,8 +1,8 @@
 ## Purpose
 
-Server-side handling of `/reload` for headless-spawned pi sessions via kill-and-respawn. Produces the same user-visible outcome as an in-process `session.reload()` (fresh settings, extensions, skills, prompts, themes) while preserving accumulated session state (tokens, cost, context usage, attached proposal).
+Server-side handling of `/reload` for headless-spawned pi sessions. One entry point, `dispatchReload(sessionId)`, resolves a reload in order: write the `/__dashboard_reload` pi RPC line to the session's keeper UDS (in-process, no termination) → kill-and-respawn fallback → forward to the bridge for terminal-hosted sessions. Either way the outcome is a fresh runtime (settings, providers, extensions, skills, prompts, themes) with accumulated session state preserved (tokens, cost, context usage, attached proposal), and exactly one truthful terminal `command_feedback` keyed `/reload`.
 
-Required because pi-coding-agent exposes `reload()` only on `ExtensionCommandContext` (given to extension command handlers), and the only bridge-side capture path (`/__dashboard_reload` in pi's TUI) is unreachable from headless/RPC mode. See change: headless-reload-via-respawn.
+pi-coding-agent exposes `reload()` only on `ExtensionCommandContext` (given to extension command handlers), and the bridge-side capture path (`/__dashboard_reload` typed in pi's TUI) never fires for a dashboard-spawned session. The server reaches it anyway: pi's RPC mode runs a dispatched line through `session.prompt()` WITH command handling, so writing that line to the keeper executes the registered handler inside the running process. Kill-and-respawn is retained as the fallback for a session with no in-process path, and as the mechanism for a pi-core BINARY swap, which an in-process reload structurally cannot perform. See change: fix-out-of-band-reload (supersedes headless-reload-via-respawn).
 
 ## Requirements
 

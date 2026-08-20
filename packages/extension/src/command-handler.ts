@@ -14,10 +14,10 @@ import type { FileEntry, MissingToolError, PiSessionInfo } from "@blackbelt-tech
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { filterHiddenCommands } from "./bridge-context.js";
 import { draftCommitMessage } from "./commit-draft.js";
+import { errText, reportRefresh } from "./model-refresh.js";
 import { killProcessByPgid } from "./process-scanner.js";
 import { expandPromptTemplateFromDisk, loadPromptTemplate } from "./prompt-expander.js";
 import { buildProviderCatalogue, toModelInfo } from "./provider-register.js";
-import { errText, reportRefresh } from "./model-refresh.js";
 import { filterByEnabledModels } from "./session-sync.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 

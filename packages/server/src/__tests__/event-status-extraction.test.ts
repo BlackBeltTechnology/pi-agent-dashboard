@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { extractSessionUpdates } from "../session/event-status-extraction.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
+import { extractSessionUpdates } from "../session/event-status-extraction.js";
 
 function makeEvent(eventType: string, data: Record<string, unknown> = {}): DashboardEvent {
   return { eventType, timestamp: Date.now(), data: { type: eventType, ...data } };

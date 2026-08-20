@@ -42,6 +42,11 @@ import { ensureLocalToken, verifyLocalToken } from "./auth/local-token.js";
 import { createNetworkGuard, isBypassedHost, isGenuinelyLocal } from "./auth/localhost-guard.js";
 import { mintSpawnToken } from "./auth/spawn-token.js";
 import { extractTicket, routeScopeForUrl, type WsRouteScope, WsTicketStore } from "./auth/ws-ticket.js";
+import {
+  buildDispatchReloadContext,
+  type ReloadHostContext,
+  respawnForRuntimeSwap,
+} from "./browser-handlers/session-action-handler.js";
 import { createCommitDraftRelay } from "./commit-draft-relay.js";
 import { writeConfigPartial } from "./config-api.js";
 import { liveCorsAllowedOrigins, liveTrustedNetworks } from "./config-snapshot.js";
@@ -109,15 +114,6 @@ import { registerPackageRoutes } from "./routes/package-routes.js";
 import { registerPairingRoutes } from "./routes/pairing-routes.js";
 import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
 import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
-import {
-  buildDispatchReloadContext,
-  respawnForRuntimeSwap,
-  type ReloadHostContext,
-} from "./browser-handlers/session-action-handler.js";
-import {
-  dispatchReload as dispatchReloadRaw,
-  reloadTargetSessionIds,
-} from "./rpc-keeper/dispatch-reload.js";
 import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
 import { registerPiRuntimeRoutes } from "./routes/pi-runtime-routes.js";
 import { registerPluginActivationRoutes } from "./routes/plugin-activation-routes.js";
@@ -132,6 +128,10 @@ import { registerResourceActivationRoutes } from "./routes/resource-activation-r
 import { registerSessionRoutes } from "./routes/session-routes.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
+import {
+  dispatchReload as dispatchReloadRaw,
+  reloadTargetSessionIds,
+} from "./rpc-keeper/dispatch-reload.js";
 import { deriveEndedAt } from "./session/derive-ended-at.js";
 import { createMemorySessionManager, type SessionManager } from "./session/memory-session-manager.js";
 import { applyReattachPolicy } from "./session/reattach-placement.js";

@@ -13,16 +13,16 @@ import {
 import {
   findPidByMarker,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process-identify.js";
+import {
+  type DispatchReloadContext,
+  dispatchReload,
+} from "../rpc-keeper/dispatch-reload.js";
 import { createBranchedSessionFile } from "../session/session-file-reader.js";
 import { keeperOptsFromSpawnResult } from "../spawn-process/headless-pid-registry.js";
 import { getKeeperManager, spawnPiSession } from "../spawn-process/process-manager.js";
 import { appendSpawnFailure } from "../spawn-process/spawn-failure-log.js";
 import { preflightSpawn } from "../spawn-process/spawn-preflight.js";
 import { armSpawnWatchdog, getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
-import {
-  dispatchReload,
-  type DispatchReloadContext,
-} from "../rpc-keeper/dispatch-reload.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
 import { isBareReloadCommand } from "./session-action-helpers.js";
 

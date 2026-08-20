@@ -29,7 +29,6 @@
 import * as path from "node:path";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
-import type { SessionManager } from "../session/memory-session-manager.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
 import { AGENT_DIR } from "../pi/pi-resource-activation.js";
 import {
@@ -39,6 +38,7 @@ import {
   type ToggleType,
 } from "../pi/resource-activation-toggle.js";
 import { persistTrustDecision, trustOptionsFor } from "../pi/resource-toggle-trust.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 /**

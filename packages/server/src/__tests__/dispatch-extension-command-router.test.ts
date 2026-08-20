@@ -7,17 +7,17 @@
  *
  * See change: add-rpc-stdin-dispatch-with-keeper-sidecar.
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
-  buildPiRpcLine,
-  handleDispatchExtensionCommand,
-  type DispatchRouterContext,
-} from "../rpc-keeper/dispatch-router.js";
-import {
+  type DispatchReloadContext,
   dispatchReload,
   RELOAD_DISPATCH_COMMAND,
-  type DispatchReloadContext,
 } from "../rpc-keeper/dispatch-reload.js";
+import {
+  buildPiRpcLine,
+  type DispatchRouterContext,
+  handleDispatchExtensionCommand,
+} from "../rpc-keeper/dispatch-router.js";
 import type { HeadlessPidRegistry } from "../spawn-process/headless-pid-registry.js";
 
 // ── Mocks ────────────────────────────────────────────────────────────────────

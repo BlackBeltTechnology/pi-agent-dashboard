@@ -1118,29 +1118,55 @@ The shared `<RichDiff>` component is also consumed by `DiffPanel` (Path A / chan
 - `index.ts`: `flow:abort` and `flow:toggle-autonomous` event listeners added
 - `flow-tui.ts`: `autonomousMode` included in `flow:flow-started` event data
 
-### `/reload` Flow (two code paths)
-Reload from the dashboard (via `pnpm run reload`, the reload button, or `/reload` typed into the chat composer) follows one of two paths depending on how the pi session was spawned. The server transparently selects the right path:
+### `/reload` Flow (server-side dispatch ladder)
+Reload from the dashboard routes through a single server entry point: `dispatchReload(sessionId)` in `packages/server/src/rpc-keeper/dispatch-reload.ts`. Dispatch is a three-step ladder — keeper, bridge forward, respawn — selected by how the session was spawned. Falls through until one path succeeds.
 
 ```mermaid
 flowchart TD
-    A[Browser sends send_prompt text="/reload"] --> B[server handleSendPrompt]
-    B --> C{shouldInterceptReload?<br/>text === "/reload"<br/>no images<br/>headlessPidRegistry.getPid defined}
-    C -->|Yes — headless session| D[handleHeadlessReload]
-    D --> D1[Emit command_feedback 'started']
-    D1 --> D2[headlessPidRegistry.killBySessionId<br/>SIGTERMs old pi]
-    D2 --> D3[spawnPiSession with<br/>sessionFile+mode:'continue'<br/>strategy:'headless']
-    D3 --> D4[headlessPidRegistry.register new PID]
-    D4 --> D5[Emit command_feedback 'completed']
-    D5 --> D6[New pi bridge re-registers<br/>with same sessionId —<br/>sessionManager preserves<br/>tokens/cost/context/attachedProposal]
-    C -->|No — tmux/wt/wsl-tmux| E[piGateway.sendToSession→bridge]
-    E --> F[bridge command-handler parses /reload]
-    F --> G[Calls globalThis-RELOAD_KEY fn]
-    G --> H{Was /__dashboard_reload<br/>typed in TUI first?}
-    H -->|Yes| I[session.reload in-place]
-    H -->|No| J[Error logged to bridge stderr<br/>User must bootstrap via TUI]
+    T[Six triggers] --> E[dispatchReload sessionId]
+    E --> B{isReloadBusy?<br/>session.compacting OR<br/>streaming AND bridge-connected}
+    B -->|busy| ERR[refuse command_feedback error]
+    B -->|not busy| C{headlessPidRegistry<br/>.hasKeeper sessionId?}
+    C -->|keeper| K[writeRpc /__dashboard_reload uuid<br/>→ pi session.prompt WITH command handling<br/>→ ctx.reload in-process. no kill, no WS hop]
+    C -->|no keeper| D{isSessionConnected sessionId?}
+    D -->|connected| F[piGateway.sendToSession<br/>send_prompt text="/reload"]
+    D -->|not connected| R{has PID?<br/>getPid sessionId defined}
+    F -->|send failed| R
+    R -->|PID| S[handleHeadlessReload<br/>SIGTERM + spawnPiSession continue]
+    R -->|no PID| T2[command_feedback error<br/>never respawn terminal-hosted session]
+    K --> DONE[command_feedback completed keyed /reload]
+    S --> DONE
 ```
 
-**Why two paths?** pi-coding-agent's `ExtensionContext` (delivered to `session_start` handlers) has no `reload()` method — only `ExtensionCommandContext` (given to command handlers) does. Bridge workaround: registers `__dashboard_reload` as command, captures `ctx.reload` into `globalThis[RELOAD_KEY]` when user first invokes in pi's TUI. Headless sessions have no TUI, so capture never happens. Server-side interception is transparent kill-and-respawn achieving same user-visible outcome (fresh settings, extensions, skills/prompts/themes) without in-process reload. `memorySessionManager.register` carries accumulated state when same `sessionId` re-registers, so user sees brief reconnect flicker but keeps tokens, cost, context usage, attached proposal. See change: headless-reload-via-respawn.
+**Triggers** — six sources route through `dispatchReload`; pi-core update is the one exception:
+1. Reload button / `/reload` in composer → browser `send_prompt` → `packages/server/src/browser-handlers/session-action-handler.ts` `handleSendPrompt`.
+2. `scripts/reload-all.sh` → same browser path.
+3. pi retry-policy settings save → `server.ts` `reloadConnectedSessions`.
+4. Package install/remove → `packageManagerWrapper.setReloadSessions`.
+5. pi-core update complete → `piCoreUpdater.onAllComplete` → `respawnForRuntimeSwap` (NOT `dispatchReload`).
+6. `POST /api/resources/reload` → `routes/resource-activation-routes.ts`.
+
+**Predicate gate** — `isBareReloadCommand` in `browser-handlers/session-action-helpers.ts`. Requires `text === "/reload"` exactly and zero images. Replaced old `shouldInterceptReload`, which also required a headless PID and thereby made kill-and-respawn the default.
+
+**Busy check runs first** — `isReloadBusy`: refuse if `session.compacting === true`; refuse if `status === "streaming"` AND `piGateway.isSessionConnected(sessionId)`. A stale `streaming` on a bridge-dead session does NOT refuse — that session is pinned there forever and is exactly what the fallback rescues.
+
+**Ladder step 1 — keeper.** `headlessPidRegistry.hasKeeper(sessionId)` true → `headlessPidRegistry.writeRpc(sessionId, buildPiRpcLine("/__dashboard_reload", uuid))`. pi RPC mode runs the line through `session.prompt()` WITH command handling, so the registered handler executes and calls `ctx.reload()` inside the running process. No kill. No bridge WS hop. No TUI bootstrap.
+
+**Ladder step 2 — bridge forward.** No keeper, `isSessionConnected` true → `piGateway.sendToSession(sid, {type:"send_prompt", text:"/reload"})`. Fallback is gated on the RETURN VALUE, not the probe: the socket can close between the two.
+
+**Ladder step 3 — respawn fallback.** Send failed or not connected, AND `headlessPidRegistry.getPid(sessionId)` defined → `handleHeadlessReload` (SIGTERM + `spawnPiSession --session <file>`), with the streaming guard suppressed.
+
+**No keeper, no PID → terminal** `command_feedback {status:"error"}`. A session with no registered PID is NEVER respawned: that would start a second pi against a terminal-hosted session's file.
+
+**Feedback contract** — exactly one terminal `command_feedback` per reload, `command` field always `/reload` (never `/__dashboard_reload`). `completed` on the keeper path means "pi RECEIVED the line", NOT "the reload finished". A handler failure after delivery is not observable: pi writes `extension_error` to stdout, the keeper discards it, no consumer reads it.
+
+**Bridge side** — `packages/extension/src/command-handler.ts` no longer emits an unconditional `completed`. `BridgeCommandOptions.reload` returns a `ReloadOutcome` (`{ok:true} | {ok:false, reason}`). `bridge.ts` wraps the captured `globalThis[RELOAD_KEY]` call in try/catch, including a SYNCHRONOUS throw: the captured fn is single-use per process because the first `ctx.reload()` invalidates the runner, so a second call throws out of `assertActive()` where a `.catch()` cannot reach it.
+
+**Compaction signal** — `DashboardSession.compacting` (new, `packages/shared/src/types.ts`). Derived in `packages/server/src/session/event-status-extraction.ts` from bridge-forwarded `session_before_compact` (true) and `session_compact` (false). Cleared in `memory-session-manager.unregister`; never carried onto a re-registration.
+
+**Fan-out target set** — `reloadTargetSessionIds(connectedIds, registry)` = `piGateway.getConnectedSessionIds()` UNION `headlessPidRegistry.listSessions()`. The old connected-only fan-out could never reach a headless session whose bridge WS had died.
+
+**pi-core update is a BINARY swap** — `ctx.reload()` cannot replace pi-core, so `respawnForRuntimeSwap` respawns unconditionally (including connected + streaming), and reports `error` for a session with no `sessionFile` or no registered PID. See change: fix-out-of-band-reload.
 
 ### Server Restart (single-orchestrator path)
 

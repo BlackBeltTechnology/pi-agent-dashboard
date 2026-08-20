@@ -48,14 +48,14 @@ change); fan-out toast coalescing window = 2000 ms.
 | X6 | Bridge reload with no available path | fault-injection | L1 | automated | terminal-hosted bridge, `RELOAD_KEY` absent | `/reload` reaches `command-handler` | emits `error`; emits NO `completed` (guards against the old unconditional `completed`) |
 | X7 | `RELOAD_KEY` fast path is single-use | fault-injection (stale ctx) | L1 | automated | captured reload fn whose runner is invalidated → throws **synchronously** | second `/reload` on the same process | error reported (not an uncaught throw); one terminal `error` feedback |
 | X8 | Busy-session refusal (compaction) | state-transition | L1 | automated | session flagged compacting | `dispatchReload` | no keeper write, no respawn; `error` feedback with the wait wording |
-| X9 | Reload dispatched to a session whose extension is disabled | fault-injection | L2 | automated | headless pi spawned with the dashboard extension disabled | `dispatchReload` | documented degradation: the line becomes a user message; server still emits exactly one terminal event (no crash, no duplicate) |
-| X10 | Version skew during rollout | fault-injection (mixed versions) | L2 | automated | new server + headless session running the OLD extension | `dispatchReload` via keeper | reload still succeeds (keeper path is independent of new extension code) |
+| X9 | Reload dispatched to a session whose extension is disabled | fault-injection | L1 | automated | headless pi spawned with the dashboard extension disabled | `dispatchReload` | documented degradation: the line becomes a user message; server still emits exactly one terminal event (no crash, no duplicate) |
+| X10 | Version skew during rollout | fault-injection (mixed versions) | L1 | automated | new server + headless session running the OLD extension | `dispatchReload` via keeper | reload still succeeds (keeper path is independent of new extension code) |
 
 ### Performance
 
 | id | requirement | technique | level | disposition | workload | metric + threshold | window |
 |----|-------------|-----------|-------|-------------|----------|--------------------|--------|
-| P1 | Enumerated trigger sources (fan-out) | threshold | L2 | automated | 20 connected headless sessions, one package-install fan-out | all 20 dispatched, zero respawns, fan-out returns within 5 s | single run |
+| P1 | Enumerated trigger sources (fan-out) | threshold | L1 | automated | 20 connected headless sessions, one package-install fan-out | all 20 dispatched, zero respawns, fan-out returns within 5 s | single run |
 
 ### Manual
 
@@ -70,11 +70,28 @@ change); fan-out toast coalescing window = 2000 ms.
 
 - Requirements covered: 8/8 (4 ADDED incl. compaction signal, 4 MODIFIED)
 - Scenarios by class: edge 12 · perf 1 · frontend 5 · error 10 · manual 2
-- Scenarios by level: L1 19 · L2 3 · L3 5 · — 2
+- Scenarios by level: L1 22 · L2 0 · L3 5 · — 2
 - Scenarios by disposition: automated 28 · manual-only 2
+
+## Level re-routing at implementation time
+
+**#X9, #X10, #P1 moved L2 → L1.** They were routed to `qa/tests/09|02|03.sh`, but that layer is
+clean-install / runtime VM smoke: no dashboard, no RPC keeper, no pi session to dispatch into.
+Scenarios placed there could not have observed what they assert. Every observable the three name
+is server-side — "the server still emits exactly one terminal event" (#X9), "the keeper path is
+independent of new extension code" (#X10), "all N dispatched, zero respawns, within budget"
+(#P1) — so they are implemented in
+`packages/server/src/__tests__/dispatch-reload-rollout.test.ts`. The half of #X9 that is not
+server-observable (pi turning the dispatched line into an ordinary user message when no command
+is registered) is pi's own behaviour and is out of this change's reach.
+
+**#F4, #F5 deferred.** The L3 file covers #F1–#F3 (the convergence claims that fail on a revert).
+#F4 (streaming refusal wording) and #F5 (toast coalescing within 2000 ms) are timing-shaped
+against a live harness stream and are tracked as follow-up e2e work; their server-side halves are
+covered at L1 by #X5 / #X8 and by the fan-out target-set test.
 
 ## New infra needed
 
 None. L1 → existing vitest suites in `packages/server/src/**/__tests__/` and
-`packages/extension/src/__tests__/`; L2 → `qa/tests/*.sh`; L3 → `tests/e2e/*.spec.ts` against the
+`packages/extension/src/__tests__/`; L3 → `tests/e2e/*.spec.ts` against the
 docker harness port from `.pi-test-harness.json` (`dashboardPort`, never hardcoded).

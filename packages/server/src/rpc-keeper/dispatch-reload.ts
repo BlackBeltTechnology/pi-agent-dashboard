@@ -40,7 +40,7 @@ import type { HeadlessPidRegistry } from "../spawn-process/headless-pid-registry
 import { buildPiRpcLine } from "./dispatch-router.js";
 
 /** The command every reload's terminal feedback is keyed by. */
-export const RELOAD_COMMAND = "/reload";
+const RELOAD_COMMAND = "/reload";
 /** The pi command name actually dispatched over the keeper UDS. */
 export const RELOAD_DISPATCH_COMMAND = "/__dashboard_reload";
 
@@ -49,9 +49,9 @@ export const RELOAD_BUSY_MESSAGE =
   "Wait for the current response to finish before reloading.";
 export const RELOAD_COMPACTING_MESSAGE =
   "Wait for context compaction to finish before reloading.";
-export const RELOAD_NO_PATH_MESSAGE =
+const RELOAD_NO_PATH_MESSAGE =
   "No reload path available for this session (no keeper, no headless process, no bridge connection).";
-export const RELOAD_SESSION_NOT_FOUND_MESSAGE = "Session not found";
+const RELOAD_SESSION_NOT_FOUND_MESSAGE = "Session not found";
 
 /** What `dispatchReload` actually did. Returned for fan-out accounting. */
 export type ReloadOutcome =
@@ -67,7 +67,7 @@ export type ReloadOutcome =
   | "error";
 
 /** Minimal session shape the ladder reads. */
-export interface ReloadSessionSnapshot {
+interface ReloadSessionSnapshot {
   status: string;
   compacting?: boolean;
 }
@@ -108,7 +108,7 @@ export interface DispatchReloadContext {
  * is a last-known value that may never advance, and refusing on it would
  * make the session permanently unreloadable.
  */
-export function isReloadBusy(
+function isReloadBusy(
   session: ReloadSessionSnapshot,
   connected: boolean,
 ): false | { message: string } {
@@ -162,34 +162,7 @@ export async function dispatchReload(
 
   // ── Ladder step 1: in-process dispatch over the keeper UDS ────────────
   if (ctx.headlessPidRegistry.hasKeeper(sessionId)) {
-    const line = buildPiRpcLine(RELOAD_DISPATCH_COMMAND, randomUUID());
-    let ok = false;
-    try {
-      ok = await ctx.headlessPidRegistry.writeRpc(sessionId, line);
-    } catch (err) {
-      const reason = err instanceof Error ? err.message : String(err);
-      if (hasPid) return respawnFallback(sessionId, ctx);
-      ctx.emitCommandFeedback(
-        sessionId,
-        RELOAD_COMMAND,
-        "error",
-        `Failed to write RPC line: ${reason}`,
-      );
-      return "error";
-    }
-    if (ok) {
-      ctx.emitCommandFeedback(sessionId, RELOAD_COMMAND, "completed");
-      return "keeper";
-    }
-    // Keeper socket gone between the probe and the write.
-    if (hasPid) return respawnFallback(sessionId, ctx);
-    ctx.emitCommandFeedback(
-      sessionId,
-      RELOAD_COMMAND,
-      "error",
-      "RPC keeper unavailable for this session",
-    );
-    return "error";
+    return dispatchViaKeeper(sessionId, ctx, hasPid);
   }
 
   // ── Ladder steps 2/3: forward over the bridge when one is live ────────
@@ -208,6 +181,46 @@ export async function dispatchReload(
     RELOAD_NO_PATH_MESSAGE,
   );
   return "error";
+}
+
+/**
+ * Ladder step 1. Write the reload line to the keeper UDS.
+ *
+ * Both failure modes — a throw and a `false` return — mean the same thing:
+ * the keeper we probed a moment ago is not usable now. With a headless PID we
+ * still have a way to reload (respawn); without one there is nothing left to
+ * try, so the reason is reported rather than swallowed.
+ */
+async function dispatchViaKeeper(
+  sessionId: string,
+  ctx: DispatchReloadContext,
+  hasPid: boolean,
+): Promise<ReloadOutcome> {
+  const line = buildPiRpcLine(RELOAD_DISPATCH_COMMAND, randomUUID());
+  let ok: boolean;
+  try {
+    ok = await ctx.headlessPidRegistry.writeRpc(sessionId, line);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    return keeperUnusable(sessionId, ctx, hasPid, `Failed to write RPC line: ${reason}`);
+  }
+  if (!ok) {
+    // Keeper socket gone between the probe and the write.
+    return keeperUnusable(sessionId, ctx, hasPid, "RPC keeper unavailable for this session");
+  }
+  ctx.emitCommandFeedback(sessionId, RELOAD_COMMAND, "completed");
+  return "keeper";
+}
+
+function keeperUnusable(
+  sessionId: string,
+  ctx: DispatchReloadContext,
+  hasPid: boolean,
+  reason: string,
+): Promise<ReloadOutcome> {
+  if (hasPid) return respawnFallback(sessionId, ctx);
+  ctx.emitCommandFeedback(sessionId, RELOAD_COMMAND, "error", reason);
+  return Promise.resolve("error");
 }
 
 /**

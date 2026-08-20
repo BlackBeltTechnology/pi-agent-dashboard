@@ -9,8 +9,8 @@ import os from "node:os";
 import path from "node:path";
 import type { ChildProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { isProcessAlive, killPidWithGroup, killProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
-import { readJsonFile, writeJsonFile } from "../persistence/json-store.js";
 import { isUnsafeTestHomeScan } from "../auth/test-env-guard.js";
+import { readJsonFile, writeJsonFile } from "../persistence/json-store.js";
 
 /**
  * Minimal interface the registry depends on for keeper-mediated writes

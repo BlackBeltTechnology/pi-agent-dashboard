@@ -5,13 +5,13 @@
  *
  * See change: fix-out-of-band-reload (test-plan #E3, #E4, #E5, #X3, #X8).
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { isBareReloadCommand } from "../browser-handlers/session-action-helpers.js";
 import {
+  type DispatchReloadContext,
   dispatchReload,
   RELOAD_BUSY_MESSAGE,
   RELOAD_COMPACTING_MESSAGE,
-  type DispatchReloadContext,
 } from "../rpc-keeper/dispatch-reload.js";
 
 function msg(overrides: Partial<{ text: string; images: unknown[]; sessionId: string }> = {}) {

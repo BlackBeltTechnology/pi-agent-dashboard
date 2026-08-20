@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createCommandHandler, parseSendPrompt, tryExecSlashTemplate, buildDashboardExecEnv } from "../command-handler.js";
-import { RetryTracker } from "../retry-tracker.js";
 import type { ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildDashboardExecEnv, createCommandHandler, parseSendPrompt, tryExecSlashTemplate } from "../command-handler.js";
+import { RetryTracker } from "../retry-tracker.js";
 
 // Mock the tool registry so `!`/`!!` bash resolution is deterministic
 // across hosts. `bashMock` is mutated per-test to simulate found / missing.
