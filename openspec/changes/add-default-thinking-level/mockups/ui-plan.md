@@ -34,12 +34,14 @@ into the theme layer first — not into a component.
 One decision, two controls. Every run-configuring surface renders the same
 thing, in the same order, with the same captions.
 
-```
-┌ common region (rounded border, --border-primary, px-2 py-1) ─────────┐
-│  MODEL                    │  THINKING                                │
-│  anthropic/claude-… ▾     │  🧠 high ▾                               │
-└──────────────────────────────────────────────────────────────────────┘
-   └ ref echo: anthropic/claude-sonnet-4-5:high        (font-mono, 10px)
+```mermaid
+flowchart TB
+  subgraph CR["common region — rounded border, --border-primary, px-2 py-1"]
+    direction LR
+    M["MODEL<br/>anthropic/claude-… ▾"]
+    L["THINKING<br/>🧠 high ▾"]
+  end
+  CR --> E["ref echo: anthropic/claude-sonnet-4-5:high — font-mono, 10px"]
 ```
 
 Rules:
