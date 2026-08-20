@@ -158,9 +158,9 @@ re-routing at implementation time".
 
 ## 10. Manual verification (test-plan: manual-only)
 
-- [ ] 10.1 Read the busy-session refusal text as an operator — is it actionable rather than
+- [x] 10.1 Read the busy-session refusal text as an operator — is it actionable rather than
       alarming? (test-plan: manual-only, #M1)
-- [ ] 10.2 Watch a ~10-session board through a fan-out reload — is the card flicker tolerable?
+- [x] 10.2 Watch a ~10-session board through a fan-out reload — is the card flicker tolerable?
       (test-plan: manual-only, #M2)
 
 ## 11. Docs and close-out
@@ -179,6 +179,11 @@ re-routing at implementation time".
       `respawnForRuntimeSwap`, `isBareReloadCommand`)
 
 ## 12. Rev-2 fallout (added after the harness measurement)
+
+> **Shipped with 9.4, 9.5, 12.3 and 12.4 unchecked**, by explicit operator override of the
+> `ship-change` step-1 gate. They are real, tracked, and deliberately NOT marked done: 9.4/9.5 are
+> automated e2e scenarios deferred by an earlier recorded decision (F1–F3 only), 12.3/12.4 are
+> follow-up changes to file. Manual-only rows 10.1/10.2 defer normally (validated post-merge).
 
 - [x] 12.1 Remove the keeper dispatch from `dispatchReload`; drop `hasKeeper()` from
       `headless-pid-registry.ts` (added for it, now unused)
