@@ -101,9 +101,15 @@ Keep CI skill prose consistent with its `pnpm exec tsx` commands and update its 
 
 Keep this completed change under `openspec/changes/archive/`. The repository ship skill requires archive plus spec-sync evidence before merge; the review request to move it back to the active change root is a false positive.
 
+### Treat project-owner feedback as a push gate
+
+Robert's PR 520 review is the acceptance contract. Restore all five requested diagnostic/documentation groups: recovery controls and no-bypass warning; `_electron-build.yml` input semantics; literal failure-to-fix rows; the post-release site symptom; and KB sidecar pointers plus `kb dox lint`. The repository-wide lint currently has 93 unrelated baseline findings; the verified run reported zero findings against the three restored CI skill pointers. Preserve that residual report rather than widening this PR into a repo-wide DOX cleanup. Also apply his post-merge review: pin the one-virtualizer invariant, restore the stack and `pool:"forks"` blame-rotation diagnostics in the AGENTS row, and clarify the root OpenSpec creation-versus-archive rule.
+
+Apply both valid CodeRabbit findings: use “reusable workflows” consistently; and make worktree recovery reject dirty starting state, capture final status in a checked assignment, and use the local scoped OpenSpec CLI in `.pi/settings.json`. Before any push, require multiple independent cautious reviewers and one synthesis reviewer to map every owner and CodeRabbit item to verified evidence. Do not merge or enable auto-merge.
+
 ### Ship and make future Pi sessions independent of the extension worktree link
 
-Open a pull request from the fork branch to upstream `develop`. Run the integrated test and build gates, archive the OpenSpec change, wait for required CI and review, then squash-merge.
+Open or update the pull request from the fork branch to upstream `develop`. Run integrated tests/build and complete review gates. Leave the final merge action to the user or repository owner.
 
 Use Pi package commands to replace the linked `packages/extension` source with `npm:@blackbelt-technology/pi-dashboard-extension@0.7.0`, then pass the bounded fresh Pi startup gate.
 

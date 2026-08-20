@@ -60,3 +60,18 @@
 - [x] 8.10 Align the CI skill overview and reference taxonomy with the current workflow inventory.
 - [x] 8.11 Make the OpenSpec recovery verification fail closed and prove it preserves Git status.
 - [x] 8.12 Resolve the archive-location review as a false positive using the repository ship gate.
+
+## 9. Address project-owner and final CodeRabbit feedback
+
+- [x] 9.1 Restore release recovery commands and the no-manual-publish warning.
+- [x] 9.2 Restore `_electron-build.yml` input semantics, especially `legs` and `source_only_bundle`.
+- [x] 9.3 Restore literal failure-message-to-fix rows with current job names and the builder-debug drop-step guidance.
+- [x] 9.4 Restore the post-release site update symptom and workflow checks.
+- [x] 9.5 Restore all three KB sidecar pointers, run `kb dox lint`, and prove no lint finding targets those pointers; report unrelated baseline findings separately.
+- [x] 9.6 Use “reusable workflows” consistently in both index records.
+- [x] 9.7 Make worktree recovery reject dirty state, check final status retrieval, and update `.pi/settings.json` to the local scoped OpenSpec CLI.
+- [x] 9.8 Record the single-virtualizer invariant, stack trace, `pool:"forks"` blame rotation, and bounded test cost in the authoritative AGENTS row.
+- [x] 9.9 Clarify the root OpenSpec rule as creation-only; completed changes archive through `ship-change`.
+- [x] 9.10 Persist the global rule that this agent never merges or enables auto-merge, then pass a fresh Pi startup.
+- [x] 9.11 Obtain independent cautious review and synthesis proving every Robert and CodeRabbit item is addressed.
+- [x] 9.12 Push only after task 9.11 passes; leave PR 520 unmerged for the owner.

@@ -1,3 +1,3 @@
 # ci-troubleshoot/SKILL.md — index
 
-Diagnose failed GitHub Actions runs. Maps the current 10 workflow files, direct helper commands under `.pi/skills/ci-troubleshoot/scripts/`, release gates, triage routes, and common failures. Uses repository-pinned `pnpm exec tsx`.
+Diagnose GitHub Actions failures across the current 10 workflow files. Uses repository-pinned helpers under `.pi/skills/ci-troubleshoot/scripts/`, routes release job failures, preserves literal diagnostics, and provides rerun/cancel recovery without bypassing the release pipeline.

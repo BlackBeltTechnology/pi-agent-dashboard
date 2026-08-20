@@ -48,7 +48,7 @@ flowchart TD
   ci --> common[Tests, lint, build<br/>references/common-failures.md]
   other --> taxonomy[references/workflow-taxonomy.md]
   publish --> releaseJob{Which release job?}
-  releaseJob --> prepare[prepare]
+  releaseJob --> tag[tag-and-push]
   releaseJob --> npmOrder[publish: npm ordering]
   releaseJob --> matrix[electron: matrix leg]
   releaseJob --> assets[github-release: asset collision]
@@ -80,8 +80,8 @@ Maintained in [`references/common-failures.md`](references/common-failures.md). 
 
 | Failure | Where | Diagnosis | Fix |
 |---------|-------|-----------|-----|
-| `verify-lockfile-versions.mjs` fails | `prepare` | Cross-ref specifier in lockfile doesn't match bumped version | Regenerate lockfile + commit; or fix `scripts/sync-versions.js` |
-| CHANGELOG already has `## [X.Y.Z]` | `prepare` | You're re-dispatching with a version that was already promoted | Bump to a new version, or revert the CHANGELOG section |
+| `verify-lockfile-versions.mjs` fails | `tag-and-push` | Cross-ref specifier in lockfile doesn't match bumped version | Regenerate lockfile + commit; or fix `scripts/sync-versions.js` |
+| CHANGELOG already has `## [X.Y.Z]` | `tag-and-push` | You're re-dispatching with a version that was already promoted | Bump to a new version, or revert the CHANGELOG section |
 | `npm publish` 403 | `publish` | OIDC trusted publisher not configured for that package | Configure in npm web UI; or temporarily use NPM_TOKEN |
 | Electron matrix leg fails | `electron` | Missing prebuild for node-pty/better-sqlite3 on that OS/arch | Check `bundle-server.mjs` GO/NO-GO guard; rebuild prebuilds |
 | `shell: bash` on Windows runner | any | Lint test `no-bash-on-windows.test.ts` flags it | Remove `shell: bash` or guard with `if: runner.os != 'Windows'` |
@@ -100,7 +100,7 @@ Maintained in [`references/common-failures.md`](references/common-failures.md). 
 gh run list -L 10
 
 # Last 5 failed runs across all workflows
-gh run list -L 50 | grep -E 'failure|cancelled' | head -5
+gh run list -L 50 | grep -E 'failure|cancelled' | awk 'NR <= 5'
 
 # Get a specific run, only the failed steps
 gh run view <run-id> --log-failed
@@ -113,9 +113,14 @@ gh run rerun <run-id> --failed
 
 # Re-run from scratch (rare; usually for flakes)
 gh run rerun <run-id>
+
+# Cancel a stuck run
+gh run cancel <run-id>
 ```
 
 `gh run view --log-failed` is the highest-leverage one — it pulls only failed-step output, which is what you want 95% of the time.
+
+**Never bypass the release pipeline with a manual `npm publish`.** That loses OIDC trusted publishing, lockfile synchronization, changelog promotion, smoke gates, and Electron dependency ordering.
 
 **Rerun gotcha (tag-push releases):** `gh run rerun <id> --failed` does NOT re-dispatch skipped downstream reusable-workflow jobs (e.g. `electron`) even after `publish` flips green — they stay `skipped`. After a smoke-**gate** flake on a tag-push release, re-push the tag for a clean single-pass run instead: `git push --delete origin vX.Y.Z && git push origin vX.Y.Z`. `publish` is idempotent (skips already-published packages), so re-pushing the tag is safe.
 

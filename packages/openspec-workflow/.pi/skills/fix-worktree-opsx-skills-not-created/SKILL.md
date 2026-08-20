@@ -11,7 +11,7 @@ Use when a git worktree lacks the OpenSpec lifecycle skills (`.pi/skills/openspe
 ## Procedure
 1. Confirm the skills are generated, not committed. `.pi/.gitignore` contains `skills/openspec-*/**`; each fresh worktree must run `openspec init`.
 2. Confirm the repository declares `@fission-ai/openspec` and identify its package-manager install command. The unscoped npm package `openspec` is a `0.0.0` stub.
-3. Install repository dependencies before initialization. For this repository, run `pnpm install --frozen-lockfile`.
+3. Require a clean `git status --porcelain=v1`, then install repository dependencies. For this repository, run `pnpm install --frozen-lockfile`.
 4. Use the repository-pinned binary when it exists:
    ```bash
    pnpm exec openspec init --tools pi --force
@@ -35,13 +35,18 @@ Bare `npx openspec init ...` can fetch `openspec@0.0.0` when `node_modules/.bin/
 ```bash
 set -euo pipefail
 before_status="$(git status --porcelain=v1)"
+if [ -n "$before_status" ]; then
+  printf '%s\n' "Refusing recovery in a dirty worktree" >&2
+  exit 1
+fi
 pnpm install --frozen-lockfile
 pnpm exec openspec --version
 pnpm exec openspec init --tools pi --force
 for skill in openspec-explore openspec-propose openspec-apply-change openspec-update-change openspec-archive-change; do
   test -d ".pi/skills/$skill" || exit 1
 done
-test "$(git status --porcelain=v1)" = "$before_status"
+after_status="$(git status --porcelain=v1)"
+test -z "$after_status"
 ```
 
-Completion requires setup success, every named directory, and no unexplained tracked change.
+Completion requires setup success, every named directory, and empty Git status before and after recovery.

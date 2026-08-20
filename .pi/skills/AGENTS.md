@@ -5,12 +5,12 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | File | Purpose |
 |------|---------|
 | `ci-troubleshoot/references/common-failures.md` | Detailed CI failure catalog: repo-lint tests (`no-raw-node-import`, `no-direct-process-kill`,… → see `ci-troubleshoot/references/common-failures.md.AGENTS.md` |
-| `ci-troubleshoot/references/release-pipeline.md` | `publish.yml` deep dive. Gated 7-job graph: resolve → parallel checks/smoke → tag → publish → Electron → GitHub Release. |
-| `ci-troubleshoot/references/workflow-taxonomy.md` | Current 10 workflow files: 8 entry workflows, 2 reusable matrices, triggers, purposes, and release-mutation boundaries. |
+| `ci-troubleshoot/references/release-pipeline.md` | `publish.yml` gated 7-job graph, input semantics, literal diagnostics, recovery, post-release checks. → see `ci-troubleshoot/references/release-pipeline.md.AGENTS.md` |
+| `ci-troubleshoot/references/workflow-taxonomy.md` | Current 10 workflow files: 8 entry workflows, 2 reusable workflows, triggers, purposes, release boundaries. → see `ci-troubleshoot/references/workflow-taxonomy.md.AGENTS.md` |
 | `ci-troubleshoot/scripts/list-recent-runs.ts` | Wrap `gh run list`. Flags `--failed`, `--workflow <name>`, `-L <n>`. Ensures `gh` installed + authenticated. Filters tabular output to failure rows when `--failed`. Cross-platform (`shell:false`). |
 | `ci-troubleshoot/scripts/retrigger-failed.ts` | Re-run failed jobs of a GitHub Actions run. `<run-id>` defaults to latest failed run (`findLatestFailedRun`). → see `ci-troubleshoot/scripts/retrigger-failed.ts.AGENTS.md` |
 | `ci-troubleshoot/scripts/show-failed-run.ts` | Show failed steps + log tails. `<run-id>` defaults to latest failed run. Flag `--full` switches `gh run view --log` (full) over `--log-failed` (default). Prints run summary then failed-step logs. |
-| `ci-troubleshoot/SKILL.md` | Diagnose failed GitHub Actions runs. Maps the 10 workflow files, verified helper commands, release gates, and common failures. |
+| `ci-troubleshoot/SKILL.md` | Diagnose GitHub Actions failures: 10 workflows, verified helpers, release gates, diagnostics, recovery. → see `ci-troubleshoot/SKILL.md.AGENTS.md` |
 | `code-quality/SKILL.md` | code-quality skill. Biome analyze→fix→test. changed-files (goal-loop) + whole-repo (cleanup) modes. → see `code-quality/SKILL.md.AGENTS.md` |
 | `debug-dashboard/references/isolated-verification.md` | Isolated UI/worktree verification. Live :8000 runs MAIN-repo code; `npm run build` leaks to `packages/client/dist`. Temp HOME + non-8000 ports + `PI_DASHBOARD_NO_MDNS=1`. Mockup-serve + worktree-harness recipe. |
 | `debug-dashboard/references/known-issues.md` | Known-issue catalogue distilled from `docs/faq.md`: server won't start (Electron Node bin fallback… + new-session spawn_register_timeout (pi-crash vs overload split) → see `debug-dashboard/references/known-issues.md.AGENTS.md` |
