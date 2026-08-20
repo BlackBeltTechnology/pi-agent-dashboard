@@ -18,6 +18,10 @@ The enabled Subagent Inspector plugin reported `@blackbelt-technology/pi-dashboa
 - Make the KB stale-property test force its second reindex so it does not depend on two writes receiving different filesystem timestamps.
 - Drain TanStack Virtual's 150 ms scroll-reset callback after ChatView tests so it cannot update React after jsdom removes `window` under full-suite load.
 - Correct the CI troubleshooting skill after its deleted helper script blocks failure-log retrieval.
+- Preserve current recovery commands, Electron workflow inputs, literal failure diagnostics, and the post-release site symptom identified by the project owner.
+- Restore KB sidecar pointers, clarify the ChatView virtualizer invariant and diagnostics, and clarify that the root OpenSpec path rule governs change creation while `ship-change` archives completed work.
+- Make worktree recovery fail closed on dirty or unreadable Git status and use the repository-pinned OpenSpec CLI in `.pi/settings.json`.
+- Require a line-by-line owner-feedback audit plus independent cautious reviewers before any further push. Never merge the pull request from this agent session.
 - Ship the repository correction to `develop` through a reviewed pull request.
 - Replace the worktree-linked Pi extension with published `@blackbelt-technology/pi-dashboard-extension@0.7.0` and pass the fresh-start gate. Keep the Dashboard server worktree link because the published root package starts with zero discovered plugins.
 - Do not change application behavior, APIs, manifests, lockfiles, or application source code.
@@ -39,8 +43,8 @@ None. This change repairs one runtime installation and does not change product r
 - Global agent guidance: add the fresh Pi startup gate to `~/.pi/agent/AGENTS.md`.
 - Dashboard config: set `plugins.apple-tools.enabled` to `false`.
 - Runtime Dashboard installation: replace the linked Pi extension source with `npm:@blackbelt-technology/pi-dashboard-extension@0.7.0`. Retain the global Dashboard server worktree link after a published-root test discovered zero plugins.
-- Repository: OpenSpec artifacts; two corrected skills; checkout-independent auto-start seams; deterministic KB reindex and ChatView cleanup test support. Ship them to `develop`; no application source or dependency declaration changes.
-- Validation: `pi list`, package metadata, `GET /api/health`, `GET /api/plugins`, and a bounded fresh Pi process with normal extensions. `pi list` must not contain `npm:pi-hermes-memory` after removal.
+- Repository: OpenSpec artifacts; corrected CI and OpenSpec recovery skills; `.pi/settings.json`; root and KB-tree agent guidance; checkout-independent tests. No application runtime source or dependency declaration changes.
+- Validation: runtime requirement probes, bounded fresh Pi startup, skill validation, `kb dox lint`, repository tests/build, and independent owner-feedback completeness review before push.
 
 ## Discipline Skills
 
