@@ -14,7 +14,9 @@ import {
   buildGatewayRemovePatch,
   computeGatewayStatus,
   type GatewayConfigShape,
+  everyModeAvailable,
   isUnregisteredGatewayUrl,
+  retainAvailableModes,
   validateGatewayDraft,
 } from "../gateway/gateway-action.js";
 import { suggestTrustEntries } from "../gateway/gateway-config-ops.js";
@@ -343,5 +345,39 @@ describe("F8: the offer appears but never writes", () => {
   it("ignores a trailing slash, which would otherwise offer the same URL forever", () => {
     const config = { gateways: [{ url: "https://x.shares.zrok.io", authModes: ["pairing" as const], wrote: {} }] };
     expect(isUnregisteredGatewayUrl(config, "https://x.shares.zrok.io/")).toBe(false);
+  });
+});
+
+/**
+ * The offer's mode selection is state that OUTLIVES the fact that justified it:
+ * the board re-polls every 5s and the row component is keyed by provider, so a
+ * provider demoted from primary between "check OAuth" and "Register" keeps the
+ * checked box. A disabled checkbox is not a guard — `checked` survives
+ * `disabled`, and `buildGatewayAddPatch` trusts whatever `authModes` it is
+ * handed. Without this filter that sequence writes `auth.redirectBaseUrl` to a
+ * NON-primary URL: the silent off-primary redirect move D9 exists to prevent.
+ */
+describe("D9: a mode that stopped being available cannot ride a stale selection", () => {
+  const nonPrimary = buildGatewayModeOffer({ url: "https://ts.example.com", isPrimary: false });
+
+  it("drops oauth once the URL is no longer the primary's", () => {
+    expect(retainAvailableModes(nonPrimary, ["pairing", "oauth"])).toEqual(["pairing"]);
+  });
+
+  it("keeps every still-available mode", () => {
+    expect(retainAvailableModes(nonPrimary, ["pairing", "trusted-network"])).toEqual([
+      "pairing",
+      "trusted-network",
+    ]);
+  });
+
+  it("reports the selection as no longer wholly available, so the save can refuse", () => {
+    expect(everyModeAvailable(nonPrimary, ["pairing", "oauth"])).toBe(false);
+    expect(everyModeAvailable(nonPrimary, ["pairing"])).toBe(true);
+  });
+
+  it("still permits oauth while the URL IS the primary's", () => {
+    const primary = buildGatewayModeOffer({ url: "https://ts.example.com", isPrimary: true });
+    expect(retainAvailableModes(primary, ["oauth"])).toEqual(["oauth"]);
   });
 });

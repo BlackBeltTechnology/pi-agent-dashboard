@@ -21,13 +21,15 @@ import type {
   ProviderReadiness,
   TunnelProviderId,
 } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   buildGatewayAddPatch,
   buildGatewayModeOffer,
+  everyModeAvailable,
   type GatewayConfigShape,
   type GatewayModeOffer,
   isUnregisteredGatewayUrl,
+  retainAvailableModes,
 } from "../../lib/gateway/gateway-action.js";
 import { getConfig, putConfig } from "../../lib/gateway/gateway-api.js";
 import {
@@ -74,6 +76,26 @@ export function GatewayProviderActions({
   const showOffer =
     readiness.state === "connected" && !!url && isUnregisteredGatewayUrl(config, url);
 
+  // The board re-polls every 5s and this row is keyed by provider, so the
+  // component instance OUTLIVES the state that justified an open panel. Without
+  // these resets a provider that flaps connected → disconnected → connected
+  // brings its confirm/offer panel back already open, pre-filled, with no
+  // operator click — a two-click gate that the operator only clicked once.
+  useEffect(() => {
+    if (!showPrimary) {
+      setConfirming(false);
+      setError(null);
+    }
+  }, [showPrimary]);
+  useEffect(() => {
+    if (!showOffer) {
+      setOffering(false);
+      setModes([]);
+      setCidr("");
+      setError(null);
+    }
+  }, [showOffer]);
+
   if (!showPrimary && !showOffer) return null;
 
   const write = async (patch: (cfg: GatewayConfigShape) => Record<string, unknown>) => {
@@ -96,7 +118,11 @@ export function GatewayProviderActions({
 
   const offers = url ? buildGatewayModeOffer({ url, isPrimary }) : [];
   const needsCidr = modes.includes("trusted-network") && offers.some((o) => o.requires === "cidr");
-  const canSave = modes.length > 0 && (!needsCidr || cidr.trim().length > 0);
+  // `everyModeAvailable` is the D9 guard, NOT the disabled checkbox: `disabled`
+  // does not clear `checked`, so a mode selected while it was legal survives
+  // the tick that made it illegal.
+  const canSave =
+    modes.length > 0 && everyModeAvailable(offers, modes) && (!needsCidr || cidr.trim().length > 0);
 
   return (
     <div
@@ -111,7 +137,13 @@ export function GatewayProviderActions({
             type="button"
             data-testid={`gateway-make-primary-${readiness.provider}`}
             disabled={busy}
-            onClick={() => setConfirming((v) => !v)}
+            onClick={() => {
+              // One panel at a time, and a stale error from the other action
+              // must not read as this action's error.
+              setError(null);
+              setOffering(false);
+              setConfirming((v) => !v);
+            }}
             className="rounded border border-[var(--border-primary)] px-2 py-1 text-[11px] text-[var(--text-primary)] disabled:opacity-50"
           >
             {t("gateway.primary.make", undefined, "Make primary")}
@@ -122,7 +154,11 @@ export function GatewayProviderActions({
             type="button"
             data-testid={`gateway-register-offer-${readiness.provider}`}
             disabled={busy}
-            onClick={() => setOffering((v) => !v)}
+            onClick={() => {
+              setError(null);
+              setConfirming(false);
+              setOffering((v) => !v);
+            }}
             className="rounded border border-[var(--border-primary)] px-2 py-1 text-[11px] text-[var(--text-primary)] disabled:opacity-50"
           >
             {t("gateway.offer.register", undefined, "Register as gateway URL")}
@@ -130,7 +166,9 @@ export function GatewayProviderActions({
         )}
       </div>
 
-      {confirming && (
+      {/* Gated on the LIVE predicate, not merely on the local flag: an action
+          no longer offered must not still be applicable from an open panel. */}
+      {confirming && showPrimary && (
         <div
           data-testid={`gateway-make-primary-confirm-${readiness.provider}`}
           className="mt-2 rounded border border-[var(--border-primary)] p-2"
@@ -164,7 +202,7 @@ export function GatewayProviderActions({
         </div>
       )}
 
-      {offering && url && (
+      {offering && showOffer && url && (
         <OfferPanel
           provider={readiness.provider}
           url={url}
@@ -182,7 +220,10 @@ export function GatewayProviderActions({
             void write((cfg) =>
               buildGatewayAddPatch(cfg, {
                 url,
-                authModes: modes,
+                // Filtered a second time at the write itself: `canSave` is
+                // render-bound, so a tick landing between render and click
+                // would otherwise slip a now-illegal mode through.
+                authModes: retainAvailableModes(offers, modes),
                 trustedNetworks: cidr.trim() ? [cidr.trim()] : [],
               }),
             ).then((ok) => {
@@ -258,6 +299,9 @@ function OfferPanel({
                   type="checkbox"
                   data-testid={`gateway-offer-mode-${o.mode}`}
                   disabled={!o.available}
+                  // The reason a mode is refused is part of the control, not
+                  // decoration beside it — a screen reader must hear WHY.
+                  aria-describedby={o.available ? undefined : `${provider}-${o.mode}-reason`}
                   checked={modes.includes(o.mode)}
                   onChange={() =>
                     setModes((prev) =>
@@ -270,6 +314,7 @@ function OfferPanel({
                     hidden mode is indistinguishable from an unimplemented one. */}
                 {!o.available && (
                   <span
+                    id={`${provider}-${o.mode}-reason`}
                     data-testid={`gateway-offer-mode-${o.mode}-reason`}
                     className="text-[10.5px] text-[var(--text-secondary)]"
                   >
@@ -284,6 +329,7 @@ function OfferPanel({
             <input
               type="text"
               placeholder="10.4.0.9/32"
+              aria-label={t("gateway.offer.cidrLabel", undefined, "Trusted network address or CIDR")}
               data-testid={`gateway-offer-cidr-${provider}`}
               value={cidr}
               onChange={(e) => setCidr(e.target.value)}

@@ -382,3 +382,32 @@ export function isUnregisteredGatewayUrl(config: GatewayConfigShape, url: string
   const normalized = norm(url);
   return !(config.gateways ?? []).some((g) => norm(g.url) === normalized);
 }
+
+/**
+ * Keep only the modes the CURRENT offer still marks available.
+ *
+ * The offer is recomputed on every readiness tick, but a checked checkbox is
+ * not: `disabled` does not clear `checked`, and the component instance survives
+ * the tick (the row is keyed by provider). So a selection made while a mode was
+ * legal can outlive its legality — most sharply `oauth` on a provider demoted
+ * from primary mid-selection, which would write `auth.redirectBaseUrl` to a
+ * non-primary URL through the very path that bypasses the primary-switch
+ * confirmation.
+ *
+ * The rule therefore lives here, in the pure layer, rather than only in JSX.
+ */
+export function retainAvailableModes(
+  offers: GatewayModeOffer[],
+  modes: GatewayAuthMode[],
+): GatewayAuthMode[] {
+  const available = new Set(offers.filter((o) => o.available).map((o) => o.mode));
+  return modes.filter((m) => available.has(m));
+}
+
+/** True when every selected mode is still available — the save's precondition. */
+export function everyModeAvailable(
+  offers: GatewayModeOffer[],
+  modes: GatewayAuthMode[],
+): boolean {
+  return retainAvailableModes(offers, modes).length === modes.length;
+}

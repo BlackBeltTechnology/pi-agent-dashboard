@@ -103,7 +103,7 @@
 ## 10. Verification
 
 - [x] 10.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` — 14 821 passing. NOT fully green: 11 tests across 3 files fail, ALL pre-existing on `origin/develop` and untouched by this change (`server-auto-start.test.ts` + `connection-suppress-auto-start.test.ts` = 10, `skill-frontmatter.test.mjs` = 1). Verified by reverting this diff to a pristine `origin/develop` tree in the same worktree and re-running. Recorded rather than claimed green.
-- [ ] 10.2 **[review-code]** Review the diff: server, shared types, theme layer and client in one change
+- [x] 10.2 **[review-code]** Review the diff: server, shared types, theme layer and client in one change — two isolated passes: round 1 (server/theme/client core) found 3 blocking; the D9/D10 pass found 1 blocking (a stale `oauth` selection reaching the write once a tick demoted the provider), 2 major (panels outliving their predicate) and 3 minor. All fixed with fail-closed tests
 - [x] 10.3 `npm run quality:changed` — Biome clean on changed files
 - [ ] 10.4 Manual QA: reserve a name, connect, confirm the URL matches; take a name known to be taken and confirm the stated reason
 - [ ] 10.5 Manual QA: run zrok (primary, public) and tailscale (`tunnel.tailscale.mode=private`) concurrently; confirm both reachable, redirect URI from the primary only
