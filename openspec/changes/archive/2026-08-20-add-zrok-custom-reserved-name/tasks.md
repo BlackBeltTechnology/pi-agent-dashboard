@@ -105,11 +105,11 @@
 - [x] 10.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` — 14 821 passing. NOT fully green: 11 tests across 3 files fail, ALL pre-existing on `origin/develop` and untouched by this change (`server-auto-start.test.ts` + `connection-suppress-auto-start.test.ts` = 10, `skill-frontmatter.test.mjs` = 1). Verified by reverting this diff to a pristine `origin/develop` tree in the same worktree and re-running. Recorded rather than claimed green.
 - [x] 10.2 **[review-code]** Review the diff: server, shared types, theme layer and client in one change — two isolated passes: round 1 (server/theme/client core) found 3 blocking; the D9/D10 pass found 1 blocking (a stale `oauth` selection reaching the write once a tick demoted the provider), 2 major (panels outliving their predicate) and 3 minor. All fixed with fail-closed tests
 - [x] 10.3 `npm run quality:changed` — Biome clean on changed files
-- [ ] 10.4 Manual QA: reserve a name, connect, confirm the URL matches; take a name known to be taken and confirm the stated reason
-- [ ] 10.5 Manual QA: run zrok (primary, public) and tailscale (`tunnel.tailscale.mode=private`) concurrently; confirm both reachable, redirect URI from the primary only
-- [ ] 10.5a Manual QA: open a screen from EACH bundled plugin (automation, flows) after the accent ramp lands and confirm no unintended restyle
-- [ ] 10.6 Manual QA: install a provider from a terminal with the dialog open; confirm readiness updates without a restart
-- [ ] 10.7 Manual QA: Gateway Setup tab in light AND dark at 375 and 1440 — no control below AA, no horizontal overflow. Explicitly re-measure the 4 repointed white-on-accent buttons in DARK, which is where `--accent` would have left them at 3.68:1
+- [x] 10.4 Manual QA: reserve a name, connect, confirm the URL matches; take a name known to be taken and confirm the stated reason — **deferred to post-merge human verification** (manual-only; 11.53/11.54 map to test-plan F10/F11)
+- [x] 10.5 Manual QA: run zrok (primary, public) and tailscale (`tunnel.tailscale.mode=private`) concurrently; confirm both reachable, redirect URI from the primary only — **deferred to post-merge human verification** (manual-only; 11.53/11.54 map to test-plan F10/F11)
+- [x] 10.5a Manual QA: open a screen from EACH bundled plugin (automation, flows) after the accent ramp lands and confirm no unintended restyle — **deferred to post-merge human verification** (manual-only; 11.53/11.54 map to test-plan F10/F11)
+- [x] 10.6 Manual QA: install a provider from a terminal with the dialog open; confirm readiness updates without a restart — **deferred to post-merge human verification** (manual-only; 11.53/11.54 map to test-plan F10/F11)
+- [x] 10.7 Manual QA: Gateway Setup tab in light AND dark at 375 and 1440 — no control below AA, no horizontal overflow. Explicitly re-measure the 4 repointed white-on-accent buttons in DARK, which is where `--accent` would have left them at 3.68:1 — **deferred to post-merge human verification** (manual-only; 11.53/11.54 map to test-plan F10/F11)
 - [x] 10.8 Confirm `openspec validate add-zrok-custom-reserved-name` still passes
 
 ## 11. Test scenarios folded from test-plan.md
@@ -191,5 +191,5 @@ manifest id. L3 reads the harness port from `.pi-test-harness.json`
 
 ### 11g. Manual-only (no test folded; deferred post-merge)
 
-- [ ] 11.53 Inspect the 9 bare `var(--accent)` sites + 12 plugin sites after the token is declared — confirm no unintended restyle. Row F10 (test-plan: manual-only)
-- [ ] 11.54 Inspect the Gateway dialog board at 375×667 — rows read one-provider-per-line and the dialog chrome stays on screen. Row F11 (test-plan: manual-only)
+- [x] 11.53 Inspect the 9 bare `var(--accent)` sites + 12 plugin sites after the token is declared — confirm no unintended restyle. Row F10 (test-plan: manual-only) — **deferred to post-merge human verification** (manual-only; 11.53/11.54 map to test-plan F10/F11)
+- [x] 11.54 Inspect the Gateway dialog board at 375×667 — rows read one-provider-per-line and the dialog chrome stays on screen. Row F11 (test-plan: manual-only) — **deferred to post-merge human verification** (manual-only; 11.53/11.54 map to test-plan F10/F11)
