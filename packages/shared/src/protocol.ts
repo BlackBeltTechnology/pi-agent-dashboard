@@ -33,6 +33,45 @@ export interface PromptReceivedToServerMessage {
   type: "prompt_received";
   sessionId: string;
   fresh: boolean;
+  /**
+   * Echo of `SendPromptToExtensionMessage.promptId` when the prompt came from
+   * the server. This is the acknowledgement half of the transmitted-vs-delivered
+   * split: `POST /api/session/:id/prompt` returning `success` proves only that a
+   * byte left the server, while this echo proves the OWNING bridge handed the
+   * prompt to pi. Optional — an older bridge never echoes and the prompt stays
+   * `transmitted`. See change: fix-spawn-correlation-ttl-coupling (D7).
+   */
+  promptId?: string;
+}
+
+/** What a bridge can tell us about a message it threw away. */
+export type InboundDropClass = "session_mismatch" | "queue_overflow";
+
+/**
+ * Bridge -> server: an inbound message the bridge DISCARDED.
+ *
+ * The drop site's only record used to be a `console.error`, which lands in
+ * `/dev/null` whenever `keeperLog.capturePiOutput` is false (the default).
+ *
+ * `sessionId` is the REPORTING bridge's own session — the routing field. The id
+ * the dropped message named travels as `droppedSessionId` payload, because the
+ * gateway drops any inbound frame whose routing id maps to another connection,
+ * which is exactly the shape of a mismatch report.
+ *
+ * Best-effort by contract: reports share the outbound ring that can itself
+ * overflow, and are bounded per session per window.
+ * See change: fix-spawn-correlation-ttl-coupling (D6).
+ */
+export interface InboundDropReportMessage {
+  type: "inbound_drop_report";
+  sessionId: string;
+  dropClass: InboundDropClass;
+  /** Message type that was dropped, when known. */
+  messageType?: string;
+  /** The session id the dropped message named — payload, never routing. */
+  droppedSessionId?: string;
+  /** Reports elided by the per-window bound since the last delivered report. */
+  suppressed?: number;
 }
 
 // ── Extension → Server ──────────────────────────────────────────────
@@ -663,7 +702,8 @@ export type ExtensionToServerMessage =
   | QueueUpdateToServerMessage
   | GitCommitDraftResultMessage
   | AutoNameErrorMessage
-  | PromptReceivedToServerMessage;
+  | PromptReceivedToServerMessage
+  | InboundDropReportMessage;
 
 // ── Server → Extension ──────────────────────────────────────────────
 
@@ -672,6 +712,12 @@ export interface SendPromptToExtensionMessage {
   sessionId: string;
   text: string;
   images?: ImageContent[];
+  /**
+   * Per-prompt handle minted by the server, echoed back on `prompt_received`.
+   * Absent for prompts the server did not mint a handle for.
+   * See change: fix-spawn-correlation-ttl-coupling (D7).
+   */
+  promptId?: string;
   /** Delivery mode: "steer" (after current turn) or "followUp" (after agent finishes). Defaults to "followUp" when absent. See change: add-steering-message. */
   delivery?: "steer" | "followUp";
 }

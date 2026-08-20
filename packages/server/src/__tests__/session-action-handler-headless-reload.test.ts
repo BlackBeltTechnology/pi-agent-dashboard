@@ -9,8 +9,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../spawn-process/process-manager.js", () => ({
   spawnPiSession: vi.fn(),
 }));
-vi.mock("@blackbelt-technology/pi-dashboard-shared/config.js", () => ({
-  loadConfig: () => ({ spawnStrategy: "headless" as const }),
+vi.mock("@blackbelt-technology/pi-dashboard-shared/config.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@blackbelt-technology/pi-dashboard-shared/config.js")>()),
+  loadConfig: () => ({ spawnStrategy: "headless" as const, spawnRegisterTimeoutMs: 30_000 }),
 }));
 
 import {

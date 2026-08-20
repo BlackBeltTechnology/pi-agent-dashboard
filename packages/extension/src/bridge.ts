@@ -769,6 +769,10 @@ function initBridge(pi: ExtensionAPI) {
 
   const connection = new ConnectionManager({
     url: dashboardUrl,
+    // Routing field for a drop report — the reporting bridge's OWN session,
+    // never the id the dropped message named.
+    // See change: fix-spawn-correlation-ttl-coupling (D6).
+    getSessionId: () => sessionId,
     onMessage: safe(async (data: unknown) => {
       if (!isActive()) return; // Stale listener guard
       const msg = data as ServerToExtensionMessage;
@@ -1199,6 +1203,11 @@ function initBridge(pi: ExtensionAPI) {
 
   const commandHandler = createCommandHandler(pi, () => sessionId, {
     getModelRegistry: () => cachedModelRegistry,
+    // Surface a session-id-mismatch drop server-side; the guard's own
+    // `console.error` goes to /dev/null under the default
+    // `keeperLog.capturePiOutput:false`.
+    // See change: fix-spawn-correlation-ttl-coupling (D6).
+    reportInboundDrop: (drop) => connection.reportInboundDrop(drop),
     // AI-draft fork-subagent wiring (see change:
     // add-session-uncommitted-indicator-and-commit). Both degrade silently
     // to the draft ladder's lower rungs when unavailable.
@@ -1316,7 +1325,7 @@ function initBridge(pi: ExtensionAPI) {
     spawnNew: () => {
       connection.send({ type: "spawn_new_session", sessionId, cwd: process.cwd() });
     },
-    sessionPrompt: async (text, delivery) => {
+    sessionPrompt: async (text, delivery, promptId) => {
       // Route slash commands: management events, flow:run, extension dispatch, then fallback.
       // See change: fix-extension-slash-commands-in-dashboard.
       if (text.startsWith("/") && pi.events) {
@@ -1391,9 +1400,20 @@ function initBridge(pi: ExtensionAPI) {
       // flow / template path). Mirrors the passthrough emit in command-handler.
       // fresh:true → optimistic bubble "sent"; fresh:false → drop (raced mid-turn).
       // See change: optimistic-prompt-progress.
-      connection.send({ type: "prompt_received", sessionId, fresh: !wasStreaming });
+      // `promptId` (when the server minted one) rides ONLY when this send
+      // actually hands the prompt to pi: a follow-up racing a streaming turn is
+      // buffered, and the non-turn routes above returned already.
+      // See change: optimistic-prompt-progress,
+      //             fix-spawn-correlation-ttl-coupling (D7).
+      const buffered = wasStreaming && deliverAs === "followUp";
+      connection.send({
+        type: "prompt_received",
+        sessionId,
+        fresh: !wasStreaming,
+        ...(promptId && !buffered ? { promptId } : {}),
+      });
       const expanded = expandPromptTemplateFromDisk(text, process.cwd(), pi);
-      if (wasStreaming && deliverAs === "followUp") {
+      if (buffered) {
         // Bridge-owned buffer path — do NOT call pi.sendUserMessage. The
         // drain loop on agent_end will ship the entry as a fresh turn.
         bufferFollowupSend(expanded);

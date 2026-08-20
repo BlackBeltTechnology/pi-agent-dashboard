@@ -1,0 +1,3 @@
+# pending-prompt-acks.ts — index
+
+Prompts written to a bridge socket and awaiting the bridge's acknowledgement. Exports `PendingPromptAcks`, `createPendingPromptAcks`. `record(promptId, sessionId, ttlMs)`/`acknowledge(promptId, sessionId)`/`evictSession`/`isPending`/`dispose`/`size`. `acknowledge` refuses an ack naming a DIFFERENT session, so a displaced connection cannot claim the owner's prompt. Bounded twice: the derived spawn window (`timeout + GRACE + MARGIN`) and the session unregistering. Backs the transmitted-vs-delivered split on `POST /api/session/:id/prompt`. See change: fix-spawn-correlation-ttl-coupling.

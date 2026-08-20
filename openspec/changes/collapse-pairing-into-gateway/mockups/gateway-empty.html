@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gateway ▸ Access &amp; QR — empty state</title>
+<link rel="stylesheet" href="tokens.css">
+<script src="theme-init.js"></script>
+<style>
+  .wrap { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+  .crumb { font-size: 12px; color: var(--text-tertiary); }
+  .stack > * + * { margin-top: 28px; }
+
+  .tabs { display: flex; gap: 4px; border-bottom: 1px solid var(--border-primary); margin-bottom: 16px; }
+  .tab {
+    background: transparent; border: 0; border-bottom: 2px solid transparent;
+    padding: 10px 14px; font-size: 12.5px; font-weight: 500; font-family: inherit;
+    color: var(--text-secondary); cursor: pointer; min-height: 44px;
+  }
+  .tab[aria-pressed="true"] { color: var(--text-primary); border-bottom-color: var(--accent); }
+
+  .label {
+    display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .08em;
+    text-transform: uppercase; padding: 3px 7px; border-radius: 4px; margin-bottom: 10px;
+  }
+  .label-new { background: var(--accent-soft); color: var(--text-primary); }
+  .label-old { background: var(--bg-surface); color: var(--text-secondary); }
+  .before { border: 1px dashed var(--border-secondary); border-radius: 8px; padding: 16px; opacity: .75; }
+
+  /* Empty state: outcome → why → ONE primary CTA → one escape hatch.
+     NN/g empty-state + progressive disclosure. */
+  .empty { display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-start; }
+  .ghost {
+    width: 132px; height: 132px; flex: none;
+    border: 2px dashed var(--border-strong); border-radius: 6px;
+    display: grid; place-items: center; color: var(--text-tertiary);
+  }
+  .ghost svg { width: 34px; height: 34px; }
+  .empty-body { flex: 1; min-width: 260px; }
+  .empty h3 { margin: 0 0 6px; font-size: 15px; font-weight: 600; }
+  .empty p { margin: 0 0 14px; max-width: 54ch; }
+
+  .escape {
+    margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border-subtle);
+    font-size: 12px; color: var(--text-secondary); max-width: 60ch;
+  }
+  .rulecite { font-size: 11px; color: var(--text-tertiary); margin-top: 14px; }
+  .rulecite b { color: var(--text-secondary); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="bar">
+    <div>
+      <div class="crumb">Settings ▸ Network ▸ Gateway</div>
+      <h1 style="margin:2px 0 0;font-size:20px;">Gateway</h1>
+    </div>
+    <button class="btn" id="theme-toggle" type="button">Light theme</button>
+  </div>
+
+  <div class="tabs" role="tablist" aria-label="Gateway">
+    <button class="tab" type="button" aria-pressed="false">Setup</button>
+    <button class="tab" type="button" aria-pressed="true">Access &amp; QR</button>
+    <button class="tab" type="button" aria-pressed="false">Security</button>
+  </div>
+
+  <div class="stack">
+
+    <!-- ────────────────────────────────────────────────────────────────── -->
+    <section>
+      <span class="label label-old">Today — one dense sentence</span>
+      <div class="before">
+        <p class="eyebrow">Connect a device</p>
+        <p class="muted" style="margin:0;">
+          No TLS endpoint to pair over. Start a public tunnel or add an https:// URL — a plain-http LAN
+          address cannot run the secure pairing handshake.
+        </p>
+        <p class="rulecite">
+          States the problem and names a fix, but offers <b>no action</b> and omits the
+          <code>http://localhost</code> escape hatch — both of which <code>qr-device-pairing</code> →
+          “No secure road → empty state” <b>requires</b>. Deleting <code>PairingView</code>, which does
+          satisfy them, without porting them first would regress a shipped requirement.
+        </p>
+      </div>
+    </section>
+
+    <!-- ────────────────────────────────────────────────────────────────── -->
+    <section>
+      <span class="label label-new">Proposed — ported and restructured</span>
+      <div class="panel">
+        <p class="eyebrow">Connect a device</p>
+
+        <div class="empty">
+          <div class="ghost" role="img" aria-label="A pairing QR code will appear here once a secure endpoint exists">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="4" y="10.5" width="16" height="10" rx="2"></rect>
+              <path d="M8 10.5V7a4 4 0 0 1 8 0v3.5"></path>
+            </svg>
+          </div>
+
+          <div class="empty-body">
+            <h3>No secure road to pair over yet</h3>
+            <p class="muted">
+              Pairing proves this server's identity to the device, so it needs a TLS endpoint —
+              a public Gateway tunnel or an <code>https://</code> URL you own. A plain-http LAN
+              address cannot run the handshake.
+            </p>
+            <button class="btn btn-primary" type="button">Set up the Gateway</button>
+
+            <p class="escape">
+              <b style="color:var(--text-primary)">On this machine</b> — <code>http://localhost</code> is already a
+              secure context and can pair without any of the above. This is a same-machine path only, not a
+              route for a phone on your LAN.
+            </p>
+          </div>
+        </div>
+
+        <p class="rulecite">
+          <b>NN/g empty states</b> — name the outcome (“no secure road to pair over”), not the missing feature;
+          exactly <b>one</b> primary CTA plus at most one escape hatch, which is precisely the shape the spec asks for.
+          <b>Shape of success</b> — the dashed placeholder shows a QR is what appears here, so the region is not
+          an unexplained blank. <b>Rubric 2</b> — the CTA is 44px tall, above the 24px AA floor for the one
+          dominant action on the view. <b>WCAG 1.4.1</b> — the state is carried by icon, heading, and border, never
+          by colour alone.
+        </p>
+      </div>
+    </section>
+
+    <!-- ────────────────────────────────────────────────────────────────── -->
+    <section>
+      <span class="label label-new">Where the action points</span>
+      <div class="panel">
+        <p class="muted" style="margin:0 0 10px;">
+          The setup action's target depends on which host renders this surface, so the component takes an
+          optional <code>onSetupRequested</code> callback rather than branching on its host.
+        </p>
+        <table style="width:100%;border-collapse:collapse;font-size:13px;">
+          <thead>
+            <tr style="text-align:left;color:var(--text-tertiary);font-size:11px;text-transform:uppercase;letter-spacing:.06em;">
+              <th style="padding:6px 8px 6px 0;font-weight:600;">Host</th>
+              <th style="padding:6px 0;font-weight:600;">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr style="border-top:1px solid var(--border-subtle);">
+              <td style="padding:8px 8px 8px 0;"><code>GatewayDialog</code> (toolbar)</td>
+              <td style="padding:8px 0;" class="muted">switch to the <b style="color:var(--text-primary)">Setup</b> tab</td>
+            </tr>
+            <tr style="border-top:1px solid var(--border-subtle);">
+              <td style="padding:8px 8px 8px 0;"><code>GatewayPage</code> (settings)</td>
+              <td style="padding:8px 0;" class="muted">focus the provider section — already on the page</td>
+            </tr>
+            <tr style="border-top:1px solid var(--border-subtle);">
+              <td style="padding:8px 8px 8px 0;" class="muted">prop absent</td>
+              <td style="padding:8px 0;" class="muted">no action renders; text and escape hatch still show</td>
+            </tr>
+          </tbody>
+        </table>
+        <p class="rulecite">
+          <b>H4 Consistency</b> — one component, one empty state, two hosts; no per-host copy to drift.
+          The absent-prop row keeps the component honest: it degrades to more than ships today, never less.
+        </p>
+      </div>
+    </section>
+
+    <p><a href="security-pair.html" style="color:var(--accent-text);">← Settings ▸ Security — Pair a device</a></p>
+
+  </div>
+</div>
+</body>
+</html>

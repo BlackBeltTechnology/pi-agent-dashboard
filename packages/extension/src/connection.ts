@@ -30,7 +30,19 @@ export interface ConnectionManagerOptions {
    * retried afterwards. See change: fix-duplicate-bridge-registration (D2).
    */
   onRegisterRejected?: (sessionId: string, reason: string) => void;
+  /**
+   * The bridge's own session id, used as the ROUTING field of a drop report.
+   * The id a dropped message named travels as payload instead, because the
+   * gateway refuses any inbound frame whose routing id belongs to another
+   * connection. Reporting is skipped until this resolves.
+   * See change: fix-spawn-correlation-ttl-coupling (D6).
+   */
+  getSessionId?: () => string | undefined;
 }
+
+/** Reports per session per window, so an overflow burst cannot amplify. */
+const DROP_REPORT_LIMIT = 10;
+const DROP_REPORT_WINDOW_MS = 60_000;
 
 export class ConnectionManager {
   private url: string;
@@ -45,6 +57,71 @@ export class ConnectionManager {
   private onMessage?: (data: unknown) => void | Promise<void>;
   private onReconnect?: () => void;
   private onRegisterRejected?: (sessionId: string, reason: string) => void;
+  private getSessionIdForReports?: () => string | undefined;
+  private dropReportWindowStart = 0;
+  private dropReportsInWindow = 0;
+  private dropReportsSuppressed = 0;
+  /**
+   * Session the counters above belong to. A `ConnectionManager` outlives a
+   * `new`/`fork`/`resume` session change, so without this the previous
+   * session's exhausted budget would suppress the NEW session's reports for the
+   * rest of the window, and its `suppressed` count would ride a report that
+   * names a different session.
+   */
+  private dropReportSessionId: string | undefined;
+
+  /**
+   * Report an inbound message this bridge threw away, best-effort.
+   *
+   * Gated on a LIVE socket with no buffering fallback: `send()` silently
+   * buffers when the socket is down, and a buffered report would surface after
+   * reconnect and misdescribe when the drop happened.
+   * See change: fix-spawn-correlation-ttl-coupling (D6).
+   */
+  reportInboundDrop(drop: {
+    dropClass: "session_mismatch" | "queue_overflow";
+    messageType?: string;
+    droppedSessionId?: string;
+  }): void {
+    if (this.ws?.readyState !== 1) return;
+    const sessionId = this.getSessionIdForReports?.();
+    if (!sessionId) return;
+
+    const now = Date.now();
+    if (sessionId !== this.dropReportSessionId) {
+      this.dropReportSessionId = sessionId;
+      this.dropReportWindowStart = now;
+      this.dropReportsInWindow = 0;
+      this.dropReportsSuppressed = 0;
+    }
+    if (now - this.dropReportWindowStart >= DROP_REPORT_WINDOW_MS) {
+      this.dropReportWindowStart = now;
+      this.dropReportsInWindow = 0;
+    }
+    if (this.dropReportsInWindow >= DROP_REPORT_LIMIT) {
+      this.dropReportsSuppressed++;
+      return;
+    }
+    this.dropReportsInWindow++;
+    const suppressed = this.dropReportsSuppressed;
+    this.dropReportsSuppressed = 0;
+
+    // Raw `ws.send`, never `this.send`: a report must never be buffered.
+    try {
+      this.ws.send(
+        JSON.stringify({
+          type: "inbound_drop_report",
+          sessionId,
+          dropClass: drop.dropClass,
+          ...(drop.messageType ? { messageType: drop.messageType } : {}),
+          ...(drop.droppedSessionId ? { droppedSessionId: drop.droppedSessionId } : {}),
+          ...(suppressed ? { suppressed } : {}),
+        }),
+      );
+    } catch {
+      // Best-effort by contract: the socket died between the check and the send.
+    }
+  }
 
   /**
    * Serialized inbound pump. `ws.onmessage` enqueues; a single drain loop
@@ -123,6 +200,7 @@ export class ConnectionManager {
     this.onMessage = options.onMessage;
     this.onReconnect = options.onReconnect;
     this.onRegisterRejected = options.onRegisterRejected;
+    this.getSessionIdForReports = options.getSessionId;
   }
 
   /**
@@ -228,6 +306,13 @@ export class ConnectionManager {
           `[bridge] refused inbound message (queue full) hop=server→bridge refusedType=${typeof type === "string" ? type : "unknown"} (total refused=${this.droppedInboundCount}, maxInboundQueue=${this.maxInboundQueue})`,
         );
       }
+      // The warn above is throttled to one per 5 s AND lands in /dev/null under
+      // the default `capturePiOutput:false`; the report is what the server can
+      // actually record. See change: fix-spawn-correlation-ttl-coupling (D6).
+      this.reportInboundDrop({
+        dropClass: "queue_overflow",
+        messageType: typeof type === "string" ? type : undefined,
+      });
       return;
     }
 

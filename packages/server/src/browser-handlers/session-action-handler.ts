@@ -23,6 +23,7 @@ import { getKeeperManager, spawnPiSession } from "../spawn-process/process-manag
 import { appendSpawnFailure } from "../spawn-process/spawn-failure-log.js";
 import { preflightSpawn } from "../spawn-process/spawn-preflight.js";
 import { armSpawnWatchdog, getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
+import { deriveSpawnCorrelationTtlMs } from "../spawn-process/spawn-recovery-window.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
 import { isBareReloadCommand } from "./session-action-helpers.js";
 
@@ -564,7 +565,13 @@ export async function handleResumeSession(
       strategy: degradeConfig.spawnStrategy,
     });
     // Zombie reopen is a spawn entry point.
-    armSpawnWatchdog(session.cwd, degradeConfig.spawnStrategy as any, degradeResult, ws);
+    const degradeTimeoutMs = armSpawnWatchdog(
+      session.cwd,
+      degradeConfig.spawnStrategy as any,
+      degradeResult,
+      ws,
+      degradeConfig.spawnRegisterTimeoutMs,
+    );
     if (degradeResult.process && degradeResult.pid) {
       headlessPidRegistry.register(
         degradeResult.pid,
@@ -574,8 +581,15 @@ export async function handleResumeSession(
         keeperOptsFromSpawnResult(degradeResult),
       );
     }
-    if (msg.requestId && degradeResult.spawnToken && pendingClientCorrelations) {
-      pendingClientCorrelations.record(degradeResult.spawnToken, msg.requestId);
+    if (msg.requestId && degradeResult.spawnToken && pendingClientCorrelations && degradeTimeoutMs !== undefined) {
+      // TTL derived from the SAME timeout that armed the watchdog above, so the
+      // correlation always outlives the recovery window.
+      // See change: fix-spawn-correlation-ttl-coupling (D1).
+      pendingClientCorrelations.record(
+        degradeResult.spawnToken,
+        msg.requestId,
+        deriveSpawnCorrelationTtlMs(degradeTimeoutMs),
+      );
     }
     if (degradeResult.dashboardSpawned && degradeResult.success) {
       pendingDashboardSpawns?.set(
@@ -620,16 +634,30 @@ export async function handleResumeSession(
     strategy: resumeConfig.spawnStrategy,
   });
   // WebSocket drag-to-resume / fork is a spawn entry point.
-  armSpawnWatchdog(session.cwd, resumeConfig.spawnStrategy as any, result, ws);
+  const resumeTimeoutMs = armSpawnWatchdog(
+    session.cwd,
+    resumeConfig.spawnStrategy as any,
+    result,
+    ws,
+    resumeConfig.spawnRegisterTimeoutMs,
+  );
   // Record fork parent keyed by spawn token (was: keyed by cwd, racy on
   // multi-fork-in-same-cwd). See change: spawn-correlation-token.
   if (msg.mode === "fork" && pendingForkRegistry && result.spawnToken) {
-    pendingForkRegistry.recordFork(result.spawnToken, msg.sessionId);
+    pendingForkRegistry.recordFork(
+      result.spawnToken,
+      msg.sessionId,
+      deriveSpawnCorrelationTtlMs(resumeTimeoutMs ?? resumeConfig.spawnRegisterTimeoutMs),
+    );
   }
   // Record client-correlation so the eventual session_added carries
   // spawnRequestId. See change: spawn-correlation-token.
-  if (msg.requestId && result.spawnToken && pendingClientCorrelations) {
-    pendingClientCorrelations.record(result.spawnToken, msg.requestId);
+  if (msg.requestId && result.spawnToken && pendingClientCorrelations && resumeTimeoutMs !== undefined) {
+    pendingClientCorrelations.record(
+      result.spawnToken,
+      msg.requestId,
+      deriveSpawnCorrelationTtlMs(resumeTimeoutMs),
+    );
   }
   if (result.dashboardSpawned && result.success) {
     pendingDashboardSpawns?.set(session.cwd, (pendingDashboardSpawns?.get(session.cwd) ?? 0) + 1);
@@ -717,7 +745,13 @@ export async function handleSpawnSession(
     // Record client-correlation so the eventual session_added carries
     // spawnRequestId. See change: spawn-correlation-token.
     if (msg.requestId && spawnResult.spawnToken && pendingClientCorrelations) {
-      pendingClientCorrelations.record(spawnResult.spawnToken, msg.requestId);
+      // `config` is the same read used to arm this spawn's watchdog below.
+      // See change: fix-spawn-correlation-ttl-coupling (D1).
+      pendingClientCorrelations.record(
+        spawnResult.spawnToken,
+        msg.requestId,
+        deriveSpawnCorrelationTtlMs(config.spawnRegisterTimeoutMs),
+      );
     }
     if (spawnResult.dashboardSpawned && spawnResult.success) {
       pendingDashboardSpawns?.set(msg.cwd, (pendingDashboardSpawns?.get(msg.cwd) ?? 0) + 1);

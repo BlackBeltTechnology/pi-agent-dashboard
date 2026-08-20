@@ -8,6 +8,8 @@
  * See changes: preserve-session-order-on-reboot,
  *              differentiate-resume-intent-by-trigger.
  */
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 import {
   createPendingResumeIntentRegistry,
@@ -134,5 +136,18 @@ describe("pending-resume-intent-registry", () => {
 
   it("default TTL is 60s (sanity check exported constant)", () => {
     expect(PENDING_RESUME_INTENT_TTL_MS).toBe(60_000);
+  });
+
+  // E13 — ANTI-POISON bound: it is consumed on the ended→alive transition, not
+  // on `session_register`, and is recorded from paths with no watchdog armed at
+  // all. Raising `spawnRegisterTimeoutMs` must NOT widen it.
+  // See change: fix-spawn-correlation-ttl-coupling (D1a).
+  it("keeps its 60s anti-poison bound, independent of spawnRegisterTimeoutMs", () => {
+    expect(PENDING_RESUME_INTENT_TTL_MS).toBe(60_000);
+    const src = readFileSync(
+      fileURLToPath(new URL("../pending/pending-resume-intent-registry.ts", import.meta.url)),
+      "utf-8",
+    );
+    expect(src).not.toMatch(/spawn-recovery-window|spawnRegisterTimeoutMs/);
   });
 });
