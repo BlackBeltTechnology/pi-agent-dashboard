@@ -6,7 +6,9 @@ import {
   type DisplayPrefs,
   normalizeNotifyMinLevel,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import { mergeModelOptions } from "@blackbelt-technology/pi-dashboard-shared/model-catalogue.js";
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
@@ -19,6 +21,7 @@ import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { listKnownServers } from "../../lib/api/known-servers-api.js";
+import { fetchModelCatalogue, type ModelCatalogueResult } from "../../lib/api/models-api.js";
 import { type ProviderHealth, type TestProviderResult, testProvider } from "../../lib/api/providers-api.js";
 import { type BlockEvent, getBlockEvents } from "../../lib/gateway/gateway-api.js";
 import {
@@ -56,13 +59,13 @@ import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
 import { DiagnosticsSection } from "./DiagnosticsSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
 import { ModelSelector } from "./ModelSelector.js";
-import { ThinkingLevelSelector } from "./ThinkingLevelSelector.js";
 // Curated pi-install picker; sits directly above the raw Tools escape hatch.
 // See change: select-pi-runtime-install (design D12).
 import { PiRuntimeSection } from "./PiRuntimeSection.js";
 import { PluginNotFoundNotice, PluginSettingsPage } from "./PluginSettingsPage.js";
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
 import { RetrySettingsSection } from "./RetrySettingsSection.js";
+import { ThinkingLevelSelector } from "./ThinkingLevelSelector.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
 
 interface ProviderConfig {
@@ -328,7 +331,13 @@ function resolveSettingsPage(raw: string | undefined | null): string | null {
 const BACK_SENTINEL = "@@back";
 
 export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd }: {
-  availableModels?: Array<{ provider: string; id: string; supportedThinkingLevels?: string[] }>;
+  /**
+   * Per-session `models_list` union pushed by live bridges. Merged with the
+   * session-independent `GET /api/models` catalogue this panel fetches itself;
+   * session rows win on collision (they carry `name` / `metadataSource`).
+   * See change: settings-default-model-without-session.
+   */
+  availableModels?: ModelInfo[];
   /** Currently-selected session's cwd — backs the canvas-types project scope. */
   selectedCwd?: string;
   /** WS bus subscribe (from App) used to correlate the confirm:"ws" restart. */
@@ -512,6 +521,48 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     setting: string; source: string; gitPath: string | null;
     gitVersion: string | null; shellPath: string | null;
   } | null>(null);
+  // Session-independent model catalogue (GET /api/models). Owned here because
+  // this panel also owns the refetch triggers (credential writes) and the
+  // unavailable callout. `null` = no response yet (loading).
+  // See change: settings-default-model-without-session.
+  const [catalogue, setCatalogue] = useState<ModelCatalogueResult | null>(null);
+  // Last models a request actually returned. Held separately so a refetch that
+  // fails does not BLANK a catalogue that already loaded — the proxy editors
+  // would lose every option on one transient 503. The callout still fires, so
+  // the failure is reported rather than swallowed.
+  const [lastGoodModels, setLastGoodModels] = useState<ModelInfo[] | null>(null);
+  const [catalogueFetching, setCatalogueFetching] = useState(true);
+  // LAST-RESPONSE-wins, deliberately: whichever response arrives last is the
+  // rendered catalogue, even if its request was issued first. A stale payload
+  // may therefore win transiently; the next refetch corrects it. Spec'd that
+  // way so the rule is one observable sentence rather than request bookkeeping.
+  const refetchCatalogue = useCallback(() => {
+    setCatalogueFetching(true);
+    return fetchModelCatalogue()
+      .then((result) => {
+        setCatalogue(result);
+        if (result.status === "ok") setLastGoodModels(result.models);
+      })
+      .finally(() => setCatalogueFetching(false));
+  }, []);
+  useEffect(() => {
+    void refetchCatalogue();
+  }, [refetchCatalogue]);
+
+  const catalogueModels = useMemo(
+    () => (catalogue?.status === "ok" ? catalogue.models : (lastGoodModels ?? [])),
+    [catalogue, lastGoodModels],
+  );
+  /** Default Model options: catalogue ∪ every session list, session row wins. */
+  const defaultModelOptions = useMemo(
+    () => mergeModelOptions(catalogueModels, availableModels ?? []),
+    [catalogueModels, availableModels],
+  );
+  const catalogueUnavailable = catalogue?.status === "unavailable";
+  // Loading is the COLD state only: once a response has landed, a refetch keeps
+  // rendering the options it has instead of flipping back to a spinner.
+  const catalogueLoading = catalogueFetching && catalogue === null;
+
   const refreshGitSourceReadout = useCallback(() => {
     return fetch(`${getApiBase()}/api/health`)
       .then((res) => (res.ok ? res.json() : null))
@@ -724,6 +775,10 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
           if (!data.success) throw new Error(data.error || "providers");
           const saved = validProviders.map(({ isNew, ...rest }) => rest);
           setLlmProviders(saved);
+          // A provider save/removal changes the catalogue; refetch off THIS
+          // response, never a fixed delay.
+          // See change: settings-default-model-without-session.
+          void refetchCatalogue();
           setOriginalLlmProviders(JSON.parse(JSON.stringify(saved)));
           // The PUT awaited a server-side probe per provider; refetch so each
           // pill reflects the freshly cached health without a remount. See
@@ -1316,7 +1371,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                       <div className="flex items-center gap-2">
                         <ModelSelector
                           current={config.defaultModel || undefined}
-                          models={availableModels}
+                          models={defaultModelOptions}
                           onSelect={(v) => update((c) => { c.defaultModel = v; })}
                         />
                         {(() => {
@@ -1327,7 +1382,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                           // field stays "", never a spurious `off`). See change:
                           // add-default-thinking-level.
                           const selected = config.defaultModel
-                            ? availableModels?.find((m) => `${m.provider}/${m.id}` === config.defaultModel)
+                            ? defaultModelOptions.find((m) => `${m.provider}/${m.id}` === config.defaultModel)
                             : undefined;
                           const locked = !config.defaultModel;
                           return (
@@ -1340,6 +1395,20 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                         })()}
                       </div>
                     </div>
+                    {/* Catalogue states render HERE, beside the control: the
+                        selector trigger is disabled while its list is empty, so
+                        an in-picker state would be unreachable.
+                        See change: settings-default-model-without-session. */}
+                    {catalogueLoading && (
+                      <p className="mt-1 text-xs text-[var(--text-tertiary)]" data-testid="default-model-catalogue-loading">
+                        {i18nT("settings.modelCatalogueLoading", undefined, "Loading model catalogue…")}
+                      </p>
+                    )}
+                    {catalogueUnavailable && (
+                      <p className="mt-1 text-xs text-[var(--severity-warning-fg)]" data-testid="default-model-catalogue-unavailable">
+                        {i18nT("settings.modelCatalogueUnavailable", undefined, "The model catalogue could not be loaded. Only models reported by connected sessions are listed.")}
+                      </p>
+                    )}
                     <p className="mt-1 text-xs text-[var(--text-tertiary)]">
                       {i18nT("settings.hint.defaultModel", undefined, "Applied only to brand-new sessions. A resumed session keeps the model it was started with. Leave empty to use pi's own default.")}
                     </p>
@@ -1612,7 +1681,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
             {activeTab === "providers" && (
               <>
                 <Section title={t("settings.providerAuth", undefined, "Provider Authentication")}>
-                  <ProviderAuthSection />
+                  <ProviderAuthSection onCredentialsChanged={refetchCatalogue} />
                 </Section>
                 <Section title={t("settings.llmProviders", undefined, "LLM Providers")}>
                   <p className="text-xs text-[var(--text-tertiary)] mb-3">
@@ -1655,7 +1724,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     config={config.modelProxy ?? {}}
                     onChange={(patch) => update((c) => { c.modelProxy = { ...c.modelProxy, ...patch }; })}
                     upstreamExtensionDetected={upstreamPiModelProxyInstalled}
-                    availableModels={availableModels}
+                    availableModels={catalogueModels}
                   />
                 </Section>
               </>

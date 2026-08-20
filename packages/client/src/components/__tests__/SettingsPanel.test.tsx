@@ -437,16 +437,26 @@ describe("SettingsPanel", () => {
       if (url === "/api/provider-auth/status") {
         return Promise.resolve({ json: () => Promise.resolve([]) });
       }
+      // Proxy editors are sourced from the CATALOGUE alone, never from a
+      // session's models_list. See change: settings-default-model-without-session.
+      if (url === "/api/models") {
+        return Promise.resolve({
+          ok: true, status: 200, statusText: "",
+          headers: { get: () => "application/json" },
+          json: () => Promise.resolve({ object: "list", data: [{ id: "openai/gpt-4o", provider: "openai" }] }),
+        });
+      }
       return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
     });
     setPath("/settings/providers");
 
-    render(<SettingsPanel availableModels={[{ provider: "openai", id: "gpt-4o" }]} />);
+    render(<SettingsPanel />);
     await waitFor(() => screen.getByTestId("preferred-models-editor"));
 
     // Open the "Add model" selector and pick the one available model.
     const editor = screen.getByTestId("preferred-models-editor");
     fireEvent.click(within(editor).getByTestId("model-selector-button"));
+    await waitFor(() => within(editor).getByTestId("model-row"));
     fireEvent.click(within(editor).getByTestId("model-row"));
 
     fireEvent.click(screen.getAllByTestId("save-btn")[0]);
@@ -474,11 +484,18 @@ describe("SettingsPanel", () => {
       if (url === "/api/provider-auth/status") {
         return Promise.resolve({ json: () => Promise.resolve([]) });
       }
+      if (url === "/api/models") {
+        return Promise.resolve({
+          ok: true, status: 200, statusText: "",
+          headers: { get: () => "application/json" },
+          json: () => Promise.resolve({ object: "list", data: [{ id: "anthropic/claude-3-5-sonnet", provider: "anthropic" }] }),
+        });
+      }
       return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
     });
     setPath("/settings/providers");
 
-    render(<SettingsPanel availableModels={[{ provider: "anthropic", id: "claude-3-5-sonnet" }]} />);
+    render(<SettingsPanel />);
     await waitFor(() => screen.getByTestId("model-aliases-editor"));
 
     const editor = screen.getByTestId("model-aliases-editor");
@@ -486,6 +503,7 @@ describe("SettingsPanel", () => {
     fireEvent.change(within(editor).getByTestId("alias-key-0"), { target: { value: "claude" } });
     // Pick the alias target from the ModelSelector.
     fireEvent.click(within(editor).getByTestId("model-selector-button"));
+    await waitFor(() => within(editor).getByTestId("model-row"));
     fireEvent.click(within(editor).getByTestId("model-row"));
 
     fireEvent.click(screen.getAllByTestId("save-btn")[0]);
@@ -913,5 +931,307 @@ describe("SettingsPanel listen-interface picker", () => {
     await waitFor(() => screen.getByTestId("listen-interface-select"));
     const select = screen.getByTestId("listen-interface-select") as HTMLSelectElement;
     expect(within(select).getByText("en0 — 10.0.0.5")).toBeTruthy();
+  });
+});
+
+// Session-independent model catalogue behind the Default Model control.
+// See change: settings-default-model-without-session.
+describe("SettingsPanel model catalogue", () => {
+  const jsonHeaders = { get: (h: string) => (h.toLowerCase() === "content-type" ? "application/json" : null) };
+
+  function jsonRes(status: number, body: any) {
+    return { ok: status >= 200 && status < 300, status, statusText: "", headers: jsonHeaders, json: () => Promise.resolve(body) };
+  }
+
+  /** Config + providers baseline; `models` decides how GET /api/models answers. */
+  function mockFetchWithCatalogue(models: (url: string) => Promise<any>) {
+    return vi.fn().mockImplementation((url: string, options?: any) => {
+      if (url === "/api/models") return models(url);
+      if (url === "/api/config" && !options?.method) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockConfig }) });
+      }
+      if (url === "/api/config" && options?.method === "PUT") {
+        return Promise.resolve({ json: () => Promise.resolve({ success: true }) });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    });
+  }
+
+  const CATALOGUE_OK = () =>
+    Promise.resolve(jsonRes(200, { object: "list", data: [{ id: "openai/gpt-5", provider: "openai", input: ["text"] }] }));
+
+  beforeEach(() => {
+    vi.restoreAllMocks();
+    fetchAutoInitWorktreePref.mockResolvedValue(false);
+    setAutoInitWorktreePref.mockResolvedValue(true);
+    setPath("/settings/sessions");
+  });
+  afterEach(() => { cleanup(); vi.useRealTimers(); });
+
+  // X1
+  it("renders the unavailable callout on 503 MODEL_PROXY_RUNTIME_MISSING", async () => {
+    global.fetch = mockFetchWithCatalogue(() => Promise.resolve(jsonRes(503, { code: "MODEL_PROXY_RUNTIME_MISSING" })));
+    render(<SettingsPanel />);
+    await waitFor(() => expect(screen.getByTestId("default-model-catalogue-unavailable")).toBeTruthy());
+  });
+
+  // X2
+  it("renders the unavailable callout on a network failure", async () => {
+    global.fetch = mockFetchWithCatalogue(() => Promise.reject(new TypeError("Failed to fetch")));
+    render(<SettingsPanel />);
+    await waitFor(() => expect(screen.getByTestId("default-model-catalogue-unavailable")).toBeTruthy());
+  });
+
+  // X3
+  it("renders the unavailable callout on a non-503 error status", async () => {
+    global.fetch = mockFetchWithCatalogue(() => Promise.resolve(jsonRes(500, { error: "boom" })));
+    render(<SettingsPanel />);
+    await waitFor(() => expect(screen.getByTestId("default-model-catalogue-unavailable")).toBeTruthy());
+  });
+
+  // X4
+  it("treats an empty catalogue as success, not as unavailable", async () => {
+    global.fetch = mockFetchWithCatalogue(() => Promise.resolve(jsonRes(200, { object: "list", data: [] })));
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Default model"));
+    await waitFor(() => expect(screen.queryByTestId("default-model-catalogue-loading")).toBeNull());
+    expect(screen.queryByTestId("default-model-catalogue-unavailable")).toBeNull();
+    fireEvent.click(screen.getByTestId("model-selector-button"));
+    expect(screen.getByTestId("model-empty")).toBeTruthy();
+  });
+
+  // F1
+  it("shows the loading state while the catalogue request is in flight", async () => {
+    global.fetch = mockFetchWithCatalogue(() => new Promise(() => {}));
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Default model"));
+    expect(screen.getByTestId("default-model-catalogue-loading")).toBeTruthy();
+    expect(screen.queryByTestId("default-model-catalogue-unavailable")).toBeNull();
+  });
+
+  // F2
+  it("clears the loading state once the catalogue resolves", async () => {
+    let resolve!: (v: any) => void;
+    global.fetch = mockFetchWithCatalogue(() => new Promise((r) => { resolve = r; }));
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByTestId("default-model-catalogue-loading"));
+    resolve(jsonRes(200, { object: "list", data: [{ id: "openai/gpt-5", provider: "openai" }] }));
+    await waitFor(() => expect(screen.queryByTestId("default-model-catalogue-loading")).toBeNull());
+    fireEvent.click(screen.getByTestId("model-selector-button"));
+    expect(screen.getAllByTestId("model-row").some((r) => r.textContent?.includes("gpt-5"))).toBe(true);
+  });
+
+  // X6 + P1: the client bound resolves a hung request into the callout.
+  it("times out a hung catalogue request into the unavailable callout", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    global.fetch = mockFetchWithCatalogue(() => new Promise(() => {}));
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByTestId("default-model-catalogue-loading"));
+    await vi.advanceTimersByTimeAsync(10_000);
+    await waitFor(() => expect(screen.getByTestId("default-model-catalogue-unavailable")).toBeTruthy());
+    expect(screen.queryByTestId("default-model-catalogue-loading")).toBeNull();
+  });
+
+  // X5: session models survive a catalogue failure.
+  it("still offers session models when the catalogue is unavailable", async () => {
+    global.fetch = mockFetchWithCatalogue(() => Promise.resolve(jsonRes(503, { code: "MODEL_PROXY_RUNTIME_MISSING" })));
+    render(<SettingsPanel availableModels={[{ provider: "anthropic", id: "claude-4" }]} />);
+    await waitFor(() => screen.getByTestId("default-model-catalogue-unavailable"));
+    fireEvent.click(screen.getByTestId("model-selector-button"));
+    const rows = screen.getAllByTestId("model-row");
+    expect(rows).toHaveLength(1);
+    expect(rows[0].textContent).toContain("claude-4");
+  });
+
+
+  // Spec: proxy editors are sourced from the catalogue alone, the Default Model
+  // control from the union.
+  it("offers a session-only model to the Default Model control but not to the proxy editors", async () => {
+    global.fetch = mockFetchWithCatalogue(CATALOGUE_OK);
+    render(<SettingsPanel availableModels={[{ provider: "anthropic", id: "claude-4" }]} />);
+    await waitFor(() => expect(screen.queryByTestId("default-model-catalogue-loading")).toBeNull());
+
+    fireEvent.click(screen.getByTestId("model-selector-button"));
+    const labels = screen.getAllByTestId("model-row").map((r) => r.textContent ?? "");
+    expect(labels.some((l) => l.includes("gpt-5"))).toBe(true);
+    expect(labels.some((l) => l.includes("claude-4"))).toBe(true);
+
+    // The proxy editors live on the Providers page and read the catalogue only.
+    cleanup();
+    global.fetch = vi.fn().mockImplementation((url: string, options?: any) => {
+      if (url === "/api/models") return CATALOGUE_OK();
+      if (url === "/api/provider-auth/status") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve([]) });
+      }
+      if (url === "/api/config" && !options?.method) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { ...mockConfig, modelProxy: { enabled: true } } }),
+        });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    });
+    setPath("/settings/providers");
+    render(<SettingsPanel availableModels={[{ provider: "anthropic", id: "claude-4" }]} />);
+    await waitFor(() => screen.getByTestId("preferred-models-editor"));
+    const editor = screen.getByTestId("preferred-models-editor");
+    fireEvent.click(within(editor).getByTestId("model-selector-button"));
+    await waitFor(() => within(editor).getByTestId("model-row"));
+    const proxyLabels = within(editor).getAllByTestId("model-row").map((r) => r.textContent ?? "");
+    expect(proxyLabels.some((l) => l.includes("gpt-5"))).toBe(true);
+    expect(proxyLabels.some((l) => l.includes("claude-4"))).toBe(false);
+  });
+
+  // F5: a session connecting while Settings is open converges the options to
+  // the union — catalogue rows retained, session rows added, no duplicates.
+  // (Level-shifted from e2e: `models_list` arrives as a prop from App, so the
+  // observable is a prop change, not a browser interaction.)
+  it("converges to the union when a session's models arrive while Settings is open", async () => {
+    global.fetch = mockFetchWithCatalogue(CATALOGUE_OK);
+    const { rerender } = render(<SettingsPanel />);
+    await waitFor(() => expect(screen.queryByTestId("default-model-catalogue-loading")).toBeNull());
+
+    rerender(
+      <SettingsPanel
+        availableModels={[
+          { provider: "openai", id: "gpt-5", name: "GPT-5" },
+          { provider: "anthropic", id: "claude-4" },
+        ]}
+      />,
+    );
+
+    fireEvent.click(screen.getByTestId("model-selector-button"));
+    const rows = screen.getAllByTestId("model-row");
+    expect(rows).toHaveLength(2);
+    expect(rows.some((r) => r.textContent?.includes("claude-4"))).toBe(true);
+    // Collision resolved in the session row's favour: its display name renders.
+    expect(rows.some((r) => r.textContent?.includes("GPT-5"))).toBe(true);
+  });
+
+  /** Providers page with one api_key provider row, so credential writes can run. */
+  function mockFetchProvidersPage(apiKeyAuthenticated: boolean) {
+    return vi.fn().mockImplementation((url: string, options?: any) => {
+      if (url === "/api/models") return CATALOGUE_OK();
+      if (url === "/api/provider-auth/status") {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve([
+            { id: "openai", name: "OpenAI", flowType: "api_key", authenticated: apiKeyAuthenticated },
+          ]),
+        });
+      }
+      if (url === "/api/provider-auth/api-key") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
+      }
+      if (url.startsWith("/api/provider-auth/") && options?.method === "DELETE") {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true }) });
+      }
+      if (url === "/api/config" && !options?.method) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockConfig }) });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    });
+  }
+
+  const catalogueCalls = (mock: any) => mock.mock.calls.filter((c: any[]) => c[0] === "/api/models").length;
+
+  // X7: an API-key save issues exactly one new GET /api/models, off its response.
+  it("refetches the catalogue after an API-key save", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    const fetchMock = mockFetchProvidersPage(false);
+    global.fetch = fetchMock;
+    setPath("/settings/providers");
+    render(<SettingsPanel />);
+    await waitFor(() => expect(catalogueCalls(fetchMock)).toBe(1));
+
+    fireEvent.click(await screen.findByRole("button", { name: /Add Key/ }));
+    fireEvent.change(screen.getByPlaceholderText("Paste API key…"), { target: { value: "sk-test" } });
+    fireEvent.click(screen.getByRole("button", { name: /^Save$/ }));
+
+    await waitFor(() => expect(catalogueCalls(fetchMock)).toBe(2));
+    // Triggered by the save's response, not by a timer: no further elapsed time
+    // may produce another request.
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(catalogueCalls(fetchMock)).toBe(2);
+  });
+
+  // F3: last RESPONSE wins — R1 is issued first, R2 second, R2 answers FIRST
+  // and R1 answers second, so R1's payload is the rendered one.
+  it("applies last-response-wins for out-of-order catalogue responses", async () => {
+    const pending: Array<(v: any) => void> = [];
+    const fetchMock = mockFetchProvidersPage(true);
+    // Every /api/models call parks until explicitly resolved, in call order.
+    const parking = vi.fn().mockImplementation((url: string, options?: any) => {
+      if (url === "/api/models") return new Promise((r) => { pending.push(r as any); });
+      if (url === "/api/config" && !options?.method) {
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve({ success: true, data: { ...mockConfig, modelProxy: { enabled: true } } }),
+        });
+      }
+      return fetchMock(url, options);
+    });
+    global.fetch = parking;
+    setPath("/settings/providers");
+    render(<SettingsPanel />);
+    await waitFor(() => expect(pending).toHaveLength(1)); // R1
+
+    // A credential removal issues R2 while R1 is still in flight.
+    fireEvent.click(await screen.findByRole("button", { name: /Remove/ }));
+    await waitFor(() => expect(pending).toHaveLength(2));
+
+    // R2 answers first…
+    pending[1](jsonRes(200, { object: "list", data: [{ id: "openai/r2-model", provider: "openai" }] }));
+    await waitFor(() => expect(screen.queryByTestId("default-model-catalogue-loading")).toBeNull());
+    // …then R1 answers, and being the LAST response it is what renders.
+    pending[0](jsonRes(200, { object: "list", data: [{ id: "openai/r1-model", provider: "openai" }] }));
+
+    const editor = await screen.findByTestId("preferred-models-editor");
+    fireEvent.click(within(editor).getByTestId("model-selector-button"));
+    await waitFor(() => {
+      const labels = within(editor).getAllByTestId("model-row").map((r) => r.textContent ?? "");
+      expect(labels.some((l) => l.includes("r1-model"))).toBe(true);
+      expect(labels.some((l) => l.includes("r2-model"))).toBe(false);
+    });
+  });
+
+  // A failed REFETCH must not blank a catalogue that already loaded: the proxy
+  // editors would lose every option on one transient 503. The callout still
+  // fires, so the failure is reported rather than swallowed.
+  it("keeps the last good catalogue when a refetch fails, and still reports the failure", async () => {
+    let fail = false;
+    const fetchMock = mockFetchProvidersPage(true);
+    global.fetch = vi.fn().mockImplementation((url: string, options?: any) => {
+      if (url === "/api/models") {
+        return fail ? Promise.resolve(jsonRes(503, { code: "MODEL_PROXY_RUNTIME_MISSING" })) : CATALOGUE_OK();
+      }
+      return fetchMock(url, options);
+    });
+    setPath("/settings/sessions");
+    render(<SettingsPanel />);
+    await waitFor(() => expect(screen.queryByTestId("default-model-catalogue-loading")).toBeNull());
+
+    fail = true;
+    // Trigger a refetch through the real credential path.
+    gotoPage("Providers");
+    fireEvent.click(await screen.findByRole("button", { name: /Remove/ }));
+    await waitFor(() => expect(screen.queryByTestId("default-model-catalogue-loading")).toBeNull());
+
+    gotoPage("Sessions");
+    await waitFor(() => expect(screen.getByTestId("default-model-catalogue-unavailable")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("model-selector-button"));
+    expect(screen.getAllByTestId("model-row").some((r) => r.textContent?.includes("gpt-5"))).toBe(true);
+  });
+
+  // X9: removing a provider credential refetches the catalogue.
+  it("refetches the catalogue after a provider credential is removed", async () => {
+    const fetchMock = mockFetchProvidersPage(true);
+    global.fetch = fetchMock;
+    setPath("/settings/providers");
+    render(<SettingsPanel />);
+    await waitFor(() => expect(catalogueCalls(fetchMock)).toBe(1));
+
+    fireEvent.click(await screen.findByRole("button", { name: /Remove/ }));
+    await waitFor(() => expect(catalogueCalls(fetchMock)).toBe(2));
   });
 });

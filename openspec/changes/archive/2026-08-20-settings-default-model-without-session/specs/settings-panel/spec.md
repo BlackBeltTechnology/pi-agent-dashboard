@@ -212,7 +212,7 @@ When LLM providers are saved via the Settings panel, the server SHALL broadcast 
 
 The Settings panel's **Default Model** selector SHALL NOT depend on that broadcast for its own correctness. It is sourced from the union of the session-independent `GET /api/models` catalogue and the per-session model lists, and the catalogue half is refreshed by the panel's own refetch, so the selector SHALL display the updated model list without requiring a server restart **and without requiring any connected pi session**.
 
-#### Scenario: Saving new provider populates session model selectors
+#### Scenario: Saving new provider populates model selector
 - **WHEN** the user adds a new LLM provider and clicks Save
 - **THEN** the server broadcasts `credentials_updated` to all sessions
 - **AND** each session's bridge refreshes its model registry
@@ -224,7 +224,7 @@ The Settings panel's **Default Model** selector SHALL NOT depend on that broadca
 - **AND** the Default Model selector shows models from the new provider
 - **AND** this holds whether or not any pi session is connected
 
-#### Scenario: Removing a provider updates model selectors
+#### Scenario: Removing a provider updates model selector
 - **WHEN** the user removes an LLM provider and clicks Save
 - **THEN** models from the removed provider no longer appear in the Default Model selector, unless a live session still reports them
 - **AND** they no longer appear in session-scoped selectors once each bridge has refreshed

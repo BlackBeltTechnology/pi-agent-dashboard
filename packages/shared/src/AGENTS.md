@@ -29,6 +29,7 @@ Files in this directory. One row per source file.
 | `launch-source-types.ts` | `LaunchSource` discriminated union for Electron server layout. `SourceKind` = `attach` | `bundled` | `devMonorepo`; variants carry url/starter or cliPath/cwd. Replaces pre-R3 layouts. |
 | `legacy-managed-dir.ts` | `detectLegacyManagedDir({ homedir? })`. Returns `{present:false}` or `{present:true, path, pkgCount,… → see `legacy-managed-dir.ts.AGENTS.md` |
 | `managed-paths.ts` | Single source of truth for managed install dir `~/.pi-dashboard/`. → see `managed-paths.ts.AGENTS.md` |
+| `model-catalogue.ts` | `catalogueRowToModelInfo(row)` maps a `GET /api/models` row to `ModelInfo` (no `metadataSource`); `mergeModelOptions(catalogue, sessionModels)` dedupes by `provider/id`, session row wins. |
 | `model-id.ts` | First-slash model-id parser. `parseModelId(label)` → `{provider, modelId}`: provider = before first `/`,… → see `model-id.ts.AGENTS.md` |
 | `mdns-discovery.ts` | mDNS `_pi-dashboard._tcp` advertise + discover. `advertiseDashboard(port, piPort)`, `stopAdvertising()`,… → see `mdns-discovery.ts.AGENTS.md` |
 | `models-json-reader.ts` | ONE shared pure reader for user-authored `~/.pi/agent/models.json`, consumed by BOTH registry paths… → see `models-json-reader.ts.AGENTS.md` |
