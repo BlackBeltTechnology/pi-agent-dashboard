@@ -11,6 +11,7 @@ import type { BrowserNotifyMessage } from "@blackbelt-technology/pi-dashboard-sh
 import type { DashboardSession, NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { type PendingAttachment, prepareEventForIngest } from "./attachments/attachment-ingest.js";
 import { createAttachmentResolver } from "./attachments/attachment-resolver.js";
+import { autoNameOutcomes } from "./auto-name-outcome-store.js";
 import { normalizeNotifyLevel } from "@blackbelt-technology/pi-dashboard-shared/notify.js";
 import { fromLegacyPromptRequest } from "./pairing/notify-log.js";
 import { createCanvasAccumulator } from "./canvas/canvas-accumulator.js";
@@ -454,6 +455,18 @@ export function wireEvents(deps: EventWiringDeps): void {
       type: "preferences_update",
       autoNameSessions: preferencesStore.getAutoNameSessions(),
     });
+
+    // Restore the persisted auto-namer stop state to the bridge, so a session
+    // stopped before a process restart does not re-spend a full attempt budget
+    // and re-emit the error on its first turn back.
+    // See change: fix-auto-naming-reasoning-model (design D7).
+    const restoredNamerState = sessionManager.get(sessionId)?.autoNamerState;
+    if (restoredNamerState) {
+      piGateway.sendToSession(sessionId, {
+        type: "auto_name_state_restore",
+        state: restoredNamerState,
+      });
+    }
 
     // NOTE: goal-driver linking moved to the onEvent `session_register` branch
     // (after `linkByToken`) so the strong token→goalId path can run — the
@@ -1943,6 +1956,34 @@ export function wireEvents(deps: EventWiringDeps): void {
         : { name: msg.name || undefined };
       sessionManager.update(sessionId, nameUpdates);
       browserGateway.broadcastSessionUpdated(sessionId, nameUpdates);
+    }
+
+    if (msg.type === "auto_name_outcome") {
+      // Retained so a stop that happened with nobody subscribed is still
+      // discoverable when an operator opens Settings → Diagnostics later.
+      // See change: fix-auto-naming-reasoning-model (design D9).
+      autoNameOutcomes.record({
+        sessionId,
+        outcome: msg.outcome,
+        reason: msg.reason,
+        modelRef: msg.modelRef,
+        at: msg.at,
+      });
+      browserGateway.sendToSubscribers(sessionId, {
+        type: "auto_name_outcome",
+        sessionId,
+        outcome: msg.outcome,
+        reason: msg.reason,
+        modelRef: msg.modelRef,
+        at: msg.at,
+      });
+    }
+
+    if (msg.type === "auto_name_state") {
+      // The stop must survive a PROCESS restart, not only an extension reload,
+      // or a cold start re-spends a full budget and re-emits the error.
+      // See change: fix-auto-naming-reasoning-model (design D7).
+      sessionManager.update(sessionId, { autoNamerState: msg.state } as any);
     }
 
     if (msg.type === "auto_name_error") {

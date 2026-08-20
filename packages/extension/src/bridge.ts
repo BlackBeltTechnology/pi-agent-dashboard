@@ -25,9 +25,9 @@ import {
   persistAttachment,
 } from "./ask-user-attachments.js";
 import { registerAskUserTool } from "./ask-user-tool.js";
-import { type AutoNamer, createAutoNamer, type StreamSimpleFn } from "./auto-session-namer.js";
+import { type AutoNamer, createAutoNamer, type PersistedNamerState, type StreamSimpleFn } from "./auto-session-namer.js";
 import type { BridgeContext } from "./bridge-context.js";
-import { extractFirstAssistantReply, extractFirstMessage, filterHiddenCommands, getCurrentModelString, isHeadlessRpcSession, safeCwd } from "./bridge-context.js";
+import { extractFirstMessage, extractLatestTurnWindow, filterHiddenCommands, getCurrentModelString, isHeadlessRpcSession, safeCwd } from "./bridge-context.js";
 import { shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
 import { registerCanvasTool } from "./canvas-tool.js";
 import { createCommandHandler, tryExecSlashTemplate } from "./command-handler.js";
@@ -61,7 +61,7 @@ import { PromptBus } from "./prompt-bus.js";
 import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
 import { activate as activateProviderRegister, buildProviderCatalogue, onProviderChanged, reloadProviders, toModelInfo } from "./provider-register.js";
 import { RetryTracker } from "./retry-tracker.js";
-import { activate as activateRoleManager, lookupRole } from "./role-manager.js";
+import { activate as activateRoleManager, lookupRole, resolveNamingModel } from "./role-manager.js";
 import { registerRoleModelTools } from "./role-model-tools.js";
 import { autoStartServer } from "./server-auto-start.js";
 import { launchServer } from "./server-launcher.js";
@@ -110,6 +110,12 @@ interface BridgeState {
   timers?: ReturnType<typeof setInterval>[];
   /** True when the agent is currently in a turn (between agent_start and agent_end) */
   isAgentStreaming?: boolean;
+  /**
+   * The auto-namer's durable state set, carried across reload as VALUES. The
+   * namer OBJECT is deliberately not carried: its closures would hold a stale
+   * connection, session id and ctx. See change: fix-auto-naming-reasoning-model.
+   */
+  namerState?: PersistedNamerState;
   /**
    * Capture-once "was this pi dashboard-spawned?" boolean. Set on first bridge
    * activation from `!!process.env.PI_DASHBOARD_SPAWN_TOKEN` BEFORE the token is
@@ -289,6 +295,10 @@ function initBridge(pi: ExtensionAPI) {
   // Default true so a bridge that registers before the first push still names.
   let autoNameSessions = true;
   let autoNamer: AutoNamer | undefined;
+  // The namer's durable state set is carried across reload as VALUES, never as
+  // the namer object: its closures would retain a stale connection, session id
+  // and ctx. See change: fix-auto-naming-reasoning-model (design D7).
+  let namerState: PersistedNamerState | undefined = prev.namerState;
   // Lazily-loaded pi-ai streamSimple (null = load attempted and failed).
   let piAiStreamSimple: StreamSimpleFn | null | undefined;
   let cachedHasUI: boolean | undefined = prev.hasUI;
@@ -841,6 +851,28 @@ function initBridge(pi: ExtensionAPI) {
       if (msg.type === "preferences_update") {
         if (typeof (msg as any).autoNameSessions === "boolean") {
           autoNameSessions = (msg as any).autoNameSessions;
+        }
+        return;
+      }
+      // Persisted stop state pushed at register, so a permanent stop survives a
+      // PROCESS restart. Only the STOP fields are adopted — provenance is
+      // deliberately left alone (a separate bug owns that path, design D8b).
+      // See change: fix-auto-naming-reasoning-model (design D7).
+      if (msg.type === "auto_name_state_restore") {
+        const s = (msg as any).state;
+        if (s && typeof s === "object" && !autoNamer) {
+          namerState = {
+            hardStopped: !!s.hardStopped,
+            errorEmitted: !!s.errorEmitted,
+            attemptsUsed: Number(s.attemptsUsed) || 0,
+            starvedCount: Number(s.starvedCount) || 0,
+            waitingCount: Number(s.waitingCount) || 0,
+            sawStarved: !!s.sawStarved,
+            stoppedModelRef: s.stoppedModelRef,
+            stopCause: s.stopCause,
+            hasAutoName: false,
+          };
+          prev.namerState = namerState;
         }
         return;
       }
@@ -1487,13 +1519,10 @@ function initBridge(pi: ExtensionAPI) {
     if (autoNamer) return autoNamer;
     autoNamer = createAutoNamer({
       getAutoNameSessions: () => autoNameSessions,
-      resolveFastModel: () => lookupRole("@fast"),
+      resolveNamingModel,
       getRegistry: () => cachedModelRegistry,
       loadStreamSimple,
-      getTranscript: () => ({
-        firstUserMsg: extractFirstMessage(cachedCtx),
-        firstAssistantReply: extractFirstAssistantReply(cachedCtx),
-      }),
+      getTranscript: () => extractLatestTurnWindow(cachedCtx),
       applyName: (title: string) => {
         try { pi.setSessionName(title); } catch { /* ignore */ }
         lastSessionName = title; // suppress the redundant plain name_update poll
@@ -1505,15 +1534,28 @@ function initBridge(pi: ExtensionAPI) {
       emitError: (reason: string) => {
         connection.send({ type: "auto_name_error", sessionId, reason });
       },
-    });
+      reportOutcome: ({ outcome, reason, modelRef }) => {
+        connection.send({
+          type: "auto_name_outcome", sessionId, outcome, reason, modelRef, at: Date.now(),
+        });
+      },
+      // Carried across reload AND persisted server-side into the session's
+      // `.meta.json`, so "permanent" survives a process restart rather than
+      // re-spending a full budget on every cold start (design D7).
+      persistState: (state: PersistedNamerState) => {
+        namerState = state;
+        prev.namerState = state;
+        connection.send({ type: "auto_name_state", sessionId, state });
+      },
+    }, namerState);
     return autoNamer;
   }
 
   // Run one naming attempt after a terminal turn. Observing the current name
   // first catches a pre-existing / in-pi rename (external → permanent "user"
-  // lockout) before attempting to auto-name.
+  // lockout) before attempting to auto-name. The toggle is NOT checked here:
+  // it lives inside the namer so the `disabled` outcome is reportable (D9).
   function runAutoNameOnTurnEnd(): void {
-    if (!autoNameSessions) return;
     const namer = getAutoNamer();
     namer.onObservedName(pi.getSessionName() ?? "");
     void namer.maybeName();
