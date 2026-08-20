@@ -162,6 +162,61 @@ export interface EventReplayMessage {
   isLast: boolean;
 }
 
+/**
+ * Describes the shape of a WINDOWED replay: a head segment, a gap, a tail
+ * segment. Sent once per subscriber immediately after `session_state_reset` /
+ * asset replay and BEFORE the first `event_replay`, on full-stream paths only
+ * — a genuine delta subscribe never emits it, so a transient reconnect cannot
+ * reset a client's in-progress gap browsing.
+ * See change: lazy-load-session-history (D5).
+ */
+export interface SessionHistoryWindowMessage {
+  type: "history_window";
+  sessionId: string;
+  /** Last seq of the head segment; always >= 1 when a window applies. */
+  headMaxSeq: number;
+  /** First seq of the tail segment. */
+  tailMinSeq: number;
+  /**
+   * Events elided between head and tail that the store ACTUALLY HOLDS — never
+   * the seq distance, which overstates a middle-trimmed store. 0 = no window.
+   */
+  gapCount: number;
+  /** Lowest gap seq the store can still serve. */
+  oldestGapSeq: number;
+}
+
+/**
+ * Client request for an explicit seq RANGE inside the gap described by
+ * `history_window`. A range — not a `beforeSeq` cursor — because the gap is
+ * bounded on both sides and the client knows both bounds.
+ * See change: lazy-load-session-history (D6).
+ */
+export interface HistoryBackfillRequestMessage {
+  type: "history_backfill";
+  sessionId: string;
+  /** Inclusive. */
+  fromSeq: number;
+  /** Inclusive. */
+  toSeq: number;
+}
+
+/**
+ * Exactly ONE of these is sent per `history_backfill`, including every refusal
+ * path — a dropped request would strand the client pending with no retry.
+ * See change: lazy-load-session-history (D6, D9).
+ */
+export interface HistoryBackfillResultMessage {
+  type: "history_backfill_result";
+  sessionId: string;
+  events: Array<{ seq: number; event: DashboardEvent }>;
+  servedFrom: number;
+  servedTo: number;
+  /** Still-servable events in the gap; 0 = nothing more. Client stop rule. */
+  remainingGapCount: number;
+  error?: "not_subscribed" | "in_flight" | "out_of_range" | "stale_generation";
+}
+
 export interface BrowserCommandsListMessage {
   type: "commands_list";
   sessionId: string;
@@ -878,6 +933,8 @@ export type ServerToBrowserMessage =
   | SessionOrphanedMessage
   | EventMessage
   | EventReplayMessage
+  | SessionHistoryWindowMessage
+  | HistoryBackfillResultMessage
   | BrowserCommandsListMessage
   | BrowserFlowsListMessage
   | BrowserExtensionUiRequestMessage
@@ -1621,6 +1678,7 @@ export interface UiManagementBrowserMessage {
 export type BrowserToServerMessage =
   | SubscribeMessage
   | UnsubscribeMessage
+  | HistoryBackfillRequestMessage
   | BrowserExtensionUiResponseMessage
   | SendPromptToBrowserMessage
   | AbortToBrowserMessage

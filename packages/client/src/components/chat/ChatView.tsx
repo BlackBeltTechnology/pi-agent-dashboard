@@ -22,6 +22,7 @@ import { findActiveInteractiveToolResultIds, findRetriedErrorIds, findSurfaceSup
 // in App.tsx (sticky above the command input). See change:
 // unify-status-banner-and-terminal-limit-stop.
 import type { ChatImage, InteractiveUiRequest, SessionState } from "../../lib/chat/event-reducer.js";
+import { captureScrollAnchor, type HistoryGapState, restoreScrollAnchor } from "../../lib/chat/history-gap.js";
 import { type BurstItem, groupToolBursts, type ToolBurstGroup as ToolBurstGroupData } from "../../lib/chat/group-tool-bursts.js";
 import type { ToolCallGroup } from "../../lib/chat/group-tool-calls.js";
 import { computeAnchorCorrection } from "../../lib/chat/selection-anchor.js";
@@ -44,6 +45,7 @@ import { withDefaultFileLink } from "../tool-renderers/make-tool-context.js";
 import { BashOutputCard } from "./BashOutputCard.js";
 import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
 import { CommandFeedbackCard } from "./CommandFeedbackCard.js";
+import { HistoryGapDivider } from "./HistoryGapDivider.js";
 import { MissingToolInlineError } from "./MissingToolInlineError.js";
 import { RawEventCard } from "./RawEventCard.js";
 import { SkillInvocationCard } from "./SkillInvocationCard.js";
@@ -92,6 +94,14 @@ interface Props {
    * See change: show-replay-in-flight-indicator.
    */
   replayInFlight?: boolean;
+  /**
+   * Selected session's windowed-replay gap, when its replay was bounded by
+   * `maxReplayEvents`. Drives the interstitial gap divider.
+   * See change: lazy-load-session-history.
+   */
+  historyGap?: HistoryGapState;
+  /** Request the gap slice adjacent to the head. See change: lazy-load-session-history. */
+  onLoadEarlier?: () => void;
   /**
    * Client-only signal: the user manually collapsed the LIVE streaming
    * reasoning block. Sets `streamingThinkingCollapsed` on the session state so
@@ -322,7 +332,7 @@ export interface ChatViewHandle {
   scrollToTurn: (turnIndex: number) => void;
 }
 
-const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, replayInFlight, onCollapseStreamingThinking }, ref) {
+const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, replayInFlight, historyGap, onLoadEarlier, onCollapseStreamingThinking }, ref) {
   // `ToolContext` is a published surface (re-exported from `chat-embed`), so an
   // external embedder builds one by hand and would carry no `fileLink` —
   // silently losing file-mention linkification with no type error. Merge a
@@ -372,6 +382,33 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   }, [replayInFlight, sessionId]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  /**
+   * Scroll-anchor for the backfill splice (task 7.3). Rows are inserted ABOVE
+   * the viewport, so without this the content the user is reading jumps down
+   * by the height of everything spliced in.
+   *
+   * This COMPOSES with the stick-to-bottom lock rather than fighting it: the
+   * anchor is armed only by an explicit click, and is consumed by the very
+   * next layout pass, so it never contends for scroll ownership with the
+   * live-tail follow.
+   */
+  const gapAnchorRef = useRef<number | null>(null);
+  const handleLoadEarlier = useCallback(() => {
+    const el = scrollRef.current;
+    gapAnchorRef.current = el ? captureScrollAnchor(el) : null;
+    onLoadEarlier?.();
+  }, [onLoadEarlier]);
+  useLayoutEffect(() => {
+    const anchor = gapAnchorRef.current;
+    if (anchor === null) return;
+    const el = scrollRef.current;
+    if (!el) return;
+    // Restore the distance from the anchor row to the BOTTOM of the content,
+    // which is invariant under an insertion above it.
+    const restored = restoreScrollAnchor(el, anchor);
+    if (restored !== el.scrollTop) el.scrollTop = restored;
+    gapAnchorRef.current = null;
+  }, [state.messages.length]);
   // True when the user wants the chat to chase new content. Flips to false on
   // any real scroll-up gesture, on explicit navigation (scrollToTurn), and on
   // session restore when the saved position was away from the bottom. Re-arms
@@ -529,6 +566,10 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       switch (msg.role) {
         case "turnSeparator":
           return prefs.turnMetadata;
+        // The gap disclosure is never prefs-gated: hiding it would make a
+        // windowed replay indistinguishable from data loss.
+        case "historyGap":
+          return true;
         case "thinking":
           return prefs.reasoning;
         case "toolResult": {
@@ -1048,6 +1089,17 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         if (msg.role === "turnSeparator") {
           if (!prefs.turnMetadata) return null;
           return <div key={msg.id} className="mx-4 my-2 border-t border-[var(--border-subtle)]" />;
+        }
+
+        if (msg.role === "historyGap") {
+          if (!historyGap) return null;
+          return (
+            <HistoryGapDivider
+              key={msg.id}
+              gap={historyGap}
+              onLoadEarlier={handleLoadEarlier}
+            />
+          );
         }
 
         if (msg.role === "user") {

@@ -2,7 +2,11 @@
  * Subscription message handlers: subscribe, unsubscribe.
  */
 
-import type { BrowserToServerMessage, ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import type {
+  BrowserToServerMessage,
+  HistoryBackfillResultMessage,
+  ServerToBrowserMessage,
+} from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { WebSocket } from "ws";
 import {
   type PendingAttachment,
@@ -23,8 +27,6 @@ import type { BrowserHandlerContext } from "./handler-context.js";
  * BACKPRESSURE_THRESHOLD. See change: compact-warm-replay-stream (D5).
  */
 const REPLAY_BATCH_SIZE = 200;
-/** Max events to replay per session subscription (0 = unlimited) */
-const MAX_REPLAY_EVENTS = 0;
 /** Max buffered bytes before pausing replay sends (1MB) */
 const BACKPRESSURE_THRESHOLD = 1_024 * 1_024;
 /**
@@ -37,11 +39,158 @@ const BACKPRESSURE_THRESHOLD = 1_024 * 1_024;
 const HYDRATE_HEARTBEAT_MS = 10000;
 
 /**
- * Send stored events to a WebSocket in batches with backpressure handling.
- * Yields between batches to let the event loop flush data and avoid OOM.
+ * Head/tail window geometry. `HEAD_RATIO` of the budget goes to the head,
+ * floored at `HEAD_MIN` and capped at `HEAD_CAP`; the remainder is the tail.
+ *
+ * The floor is load-bearing: a bare `min(HEAD_CAP, floor(limit * 0.1))` yields
+ * `head = 0` for any limit under 10, silently degrading to tail-only — the
+ * shape D3 exists to reject. `HEAD_MIN` plus the config-level
+ * `MIN_REPLAY_WINDOW` makes a head-free window unreachable by configuration.
+ * See change: lazy-load-session-history (D3).
  */
+export const HEAD_RATIO = 0.1;
+export const HEAD_MIN = 20;
+export const HEAD_CAP = 200;
+/**
+ * How far either cut edge may scan for a message boundary. Bounded so a window
+ * computation can never degrade into a full scan of the array.
+ * See change: lazy-load-session-history (D4).
+ */
+export const SNAP_LOOKUP = 200;
+/**
+ * Hard ceiling on the number of events one `history_backfill` may serve. The
+ * span is attacker-controlled and is otherwise a request-amplification lever —
+ * one small frame forcing an arbitrarily large serialize + send.
+ * See change: lazy-load-session-history (D9).
+ */
+export const BACKFILL_MAX_SPAN = 500;
+
+/** Per-(socket, session) gap bookkeeping for the backfill handler. */
+interface GapState {
+  /** Last seq the client holds in the head; ADVANCES as backfill fills the gap. */
+  headMaxSeq: number;
+  /** First seq of the tail segment — fixed for the life of the subscription. */
+  tailMinSeq: number;
+  /** Monotonic subscribe counter; a completion at a different value is stale. */
+  generation: number;
+  /** Single-flight latch. A second concurrent request is refused, not queued. */
+  inFlight: boolean;
+}
+
+/**
+ * Per-connection state, keyed weakly so a closed socket's entry is collectable
+ * without an explicit teardown hook.
+ */
+const gapStates = new WeakMap<WebSocket, Map<string, GapState>>();
+
+function gapMapFor(ws: WebSocket): Map<string, GapState> {
+  let map = gapStates.get(ws);
+  if (!map) {
+    map = new Map();
+    gapStates.set(ws, map);
+  }
+  return map;
+}
+
+/**
+ * Bump the subscription generation for a (socket, session) and drop any gap
+ * bookkeeping from the previous subscription. A backfill still in flight across
+ * this boundary completes against the OLD window, so it is answered with
+ * `stale_generation` rather than spliced — a late response computed against the
+ * old window can carry seqs that overlap the new window's head or tail.
+ * See change: lazy-load-session-history (D9).
+ */
+export function bumpSubscriptionGeneration(ws: WebSocket, sessionId: string): number {
+  const map = gapMapFor(ws);
+  const prev = map.get(sessionId);
+  const generation = (prev?.generation ?? 0) + 1;
+  map.set(sessionId, { headMaxSeq: 0, tailMinSeq: 0, generation, inFlight: false });
+  return generation;
+}
+
+/** Drop all gap bookkeeping for a (socket, session). Called on unsubscribe. */
+export function clearGapState(ws: WebSocket, sessionId: string): void {
+  gapStates.get(ws)?.delete(sessionId);
+}
+
+/** TEST-ONLY read of the recorded gap bounds for a (socket, session). */
+export function peekGapState(ws: WebSocket, sessionId: string): Readonly<GapState> | undefined {
+  return gapStates.get(ws)?.get(sessionId);
+}
+
+/** Index bounds of a computed replay window: `[0, headEnd)` ∪ `[tailStart, len)`. */
+export interface ReplayWindow {
+  /** Exclusive end index of the head segment. */
+  headEnd: number;
+  /** Inclusive start index of the tail segment. */
+  tailStart: number;
+}
+
+/**
+ * Compute the head/tail split for a compacted replay array, or `null` when the
+ * window does not apply.
+ *
+ * The fits-entirely short-circuit (`compacted.length <= windowLimit`) is not an
+ * optimization — it makes the overlap case UNREPRESENTABLE. `MIN_REPLAY_WINDOW`
+ * is validated per-VALUE, not per-session, so a 40-event session under a
+ * `1000` setting is always reachable; without the guard `head(100)` and
+ * `tail(900)` overlap, emit duplicate seqs, and `gapCount` goes negative.
+ *
+ * Both cut edges SNAP, and both snaps SHRINK the window:
+ *   - the tail's leading edge snaps FORWARD to the next `message_start` /
+ *     `turn_start`. Forward, not backward, because backward snapping ADDS
+ *     events beyond the budget — a user setting 500 could receive ~700, making
+ *     `maxReplayEvents` a soft floor. Forward drops a few of the oldest tail
+ *     events instead, so the budget stays a HARD cap.
+ *   - the head's trailing edge snaps BACKWARD to a completed `message_end`, so
+ *     the head cannot end on a dangling `message_start` and strand a
+ *     permanently "streaming" row in the UI.
+ *
+ * Both are BEST-EFFORT: neither may find a boundary within `SNAP_LOOKUP`, so
+ * the reducer must tolerate an orphan at either edge. Snapping raises quality;
+ * reducer tolerance is the correctness guarantee.
+ * See change: lazy-load-session-history (D3, D4).
+ */
+export function computeReplayWindow(
+  compacted: StoredEvent[],
+  windowLimit: number,
+): ReplayWindow | null {
+  if (windowLimit <= 0) return null;
+  if (compacted.length <= windowLimit) return null;
+
+  const head = Math.min(HEAD_CAP, Math.max(HEAD_MIN, Math.floor(windowLimit * HEAD_RATIO)));
+  const tail = windowLimit - head;
+
+  let headEnd = head;
+  let tailStart = compacted.length - tail;
+
+  // Head trailing edge → backward to a completed `message_end` (shrinks).
+  const headFloor = Math.max(0, headEnd - SNAP_LOOKUP);
+  for (let i = headEnd - 1; i >= headFloor; i--) {
+    if (compacted[i].event.eventType === "message_end") {
+      headEnd = i + 1;
+      break;
+    }
+  }
+
+  // Tail leading edge → forward to the next message/turn start (shrinks).
+  const tailCeil = Math.min(compacted.length - 1, tailStart + SNAP_LOOKUP);
+  for (let i = tailStart; i <= tailCeil; i++) {
+    const type = compacted[i].event.eventType;
+    if (type === "message_start" || type === "turn_start") {
+      tailStart = i;
+      break;
+    }
+  }
+
+  // A snap must never invert the split (possible only for a degenerate array).
+  if (tailStart < headEnd) return null;
+  return { headEnd, tailStart };
+}
+
 /**
  * Send stored events to a WebSocket in batches with backpressure handling.
+ * Yields between batches to let the event loop flush data and avoid OOM.
  *
  * Returns the PRE-compaction highest seq of the window, or 0 if nothing was
  * sent. Compaction can drop the highest-seq event (a still-superseded
@@ -51,12 +200,21 @@ const HYDRATE_HEARTBEAT_MS = 10000;
  *
  * Exported so unit tests can drive the batching / backpressure / socket-close
  * paths directly, mirroring `replayUiState` / `replaySessionAssets`.
+ *
+ * `windowLimit` (optional, 0 = disabled) bounds what reaches the browser. The
+ * caller passes it ONLY when the array it hands over is a full stream (D1) —
+ * windowing a genuine delta would punch a seq gap between what the client holds
+ * and what it receives. When a window applies, a `history_window` message is
+ * emitted BEFORE the first `event_replay` so the client can render the gap
+ * affordance in the right place.
+ * See change: lazy-load-session-history (D1, D2).
  */
 export async function sendEventBatches(
   ws: WebSocket,
   sessionId: string,
   stored: StoredEvent[],
   sendTo: (ws: WebSocket, msg: ServerToBrowserMessage) => void,
+  windowLimit?: number,
 ): Promise<number> {
   // High-water mark is computed from the PRE-compaction window (D4).
   const preCompactionMaxSeq = stored.length > 0 ? stored[stored.length - 1].seq : 0;
@@ -64,7 +222,48 @@ export async function sendEventBatches(
   // superseded by a later `message_end`, bringing the warm (in-memory) window
   // down to the cold (on-disk) path's shape. The store keeps the full stream.
   // See change: compact-warm-replay-stream.
-  const compacted = compactEventsForReplay(stored);
+  const full = compactEventsForReplay(stored);
+  // Window AFTER compaction (D2). Compaction is ~20:1, so budget spent
+  // pre-compaction is mostly spent on snapshots discarded microseconds later;
+  // the same N post-compaction buys far more actual conversation.
+  //
+  // D4 survives because `preCompactionMaxSeq` above is read from the FULL
+  // INPUT array. It is emphatically NOT "the last event of the window":
+  // compaction can drop the highest-seq event (a still-superseded
+  // `message_update`) and the window can drop more. Deriving the return value
+  // from `compacted` would return a lower seq and make `clearReplaying`
+  // re-send already-delivered events.
+  const replayWindow = computeReplayWindow(full, windowLimit ?? 0);
+  let compacted = full;
+  if (replayWindow) {
+    compacted = [...full.slice(0, replayWindow.headEnd), ...full.slice(replayWindow.tailStart)];
+    const headMaxSeq = full[replayWindow.headEnd - 1].seq;
+    const tailMinSeq = full[replayWindow.tailStart].seq;
+    // `gapCount` counts the gap events the store ACTUALLY HOLDS — never the seq
+    // distance. For a middle-trimmed session the stored array is itself
+    // non-contiguous, so `tailMinSeq - headMaxSeq - 1` OVERSTATES what exists
+    // and a "N earlier messages" divider would promise rows trimmed months ago.
+    let gapCount = 0;
+    let oldestGapSeq = 0;
+    for (const e of stored) {
+      if (e.seq > headMaxSeq && e.seq < tailMinSeq) {
+        gapCount++;
+        if (oldestGapSeq === 0) oldestGapSeq = e.seq;
+      }
+    }
+    // Record the gap bounds so `handleHistoryBackfill` can clamp into them
+    // without re-deriving the window. `headMaxSeq` ADVANCES as backfill fills
+    // the gap from the head side, which is what makes `remainingGapCount`
+    // — and therefore the client's stop rule — terminate.
+    const gap = gapMapFor(ws).get(sessionId);
+    if (gap) {
+      gap.headMaxSeq = headMaxSeq;
+      gap.tailMinSeq = tailMinSeq;
+    }
+    if (ws.readyState === ws.OPEN) {
+      sendTo(ws, { type: "history_window", sessionId, headMaxSeq, tailMinSeq, gapCount, oldestGapSeq });
+    }
+  }
   // Terminate an empty payload explicitly. The loop below cannot run when there
   // is nothing to batch, so without this a warm empty delta (or a cold session
   // that parses to zero events) would send NO `event_replay` at all and the
@@ -201,13 +400,109 @@ export function replaySessionAssets(
   }
 }
 
+/**
+ * Serve one `history_backfill`. Reads ONLY the in-memory store — never the
+ * session file on disk (serving backfill from disk is an explicit Non-Goal).
+ *
+ * EXACTLY ONE `history_backfill_result` leaves this function on every path,
+ * including every refusal. A dropped request would strand the client with a
+ * pending divider and no retry path.
+ * See change: lazy-load-session-history (D6, D7, D9).
+ */
+export async function handleHistoryBackfill(
+  msg: Extract<BrowserToServerMessage, { type: "history_backfill" }>,
+  subs: Set<string>,
+  ctx: BrowserHandlerContext,
+): Promise<void> {
+  const { ws, eventStore, sendTo } = ctx;
+  const sessionId = msg.sessionId;
+  const refuse = (error: NonNullable<HistoryBackfillResultMessage["error"]>): void => {
+    sendTo(ws, {
+      type: "history_backfill_result",
+      sessionId,
+      events: [],
+      servedFrom: 0,
+      servedTo: 0,
+      remainingGapCount: 0,
+      error,
+    });
+  };
+
+  // Refuse an unsubscribed session WITHOUT touching the store.
+  if (!subs.has(sessionId)) return refuse("not_subscribed");
+  const gap = gapMapFor(ws).get(sessionId);
+  if (!gap || gap.tailMinSeq <= 0) return refuse("out_of_range");
+  // Single-flight: a second request is REFUSED, not queued, so scroll-spam
+  // cannot stack serialize+send work.
+  if (gap.inFlight) return refuse("in_flight");
+
+  const requestedFrom = Math.floor(msg.fromSeq);
+  const requestedTo = Math.floor(msg.toSeq);
+  if (!Number.isFinite(requestedFrom) || !Number.isFinite(requestedTo) || requestedTo < requestedFrom) {
+    return refuse("out_of_range");
+  }
+  // Clamp into the gap the client was actually told about.
+  const from = Math.max(requestedFrom, gap.headMaxSeq + 1);
+  let to = Math.min(requestedTo, gap.tailMinSeq - 1);
+  if (to < from) return refuse("out_of_range");
+  // Clamp the SPAN last, so a clamp into the gap can never re-inflate it.
+  if (to - from + 1 > BACKFILL_MAX_SPAN) to = from + BACKFILL_MAX_SPAN - 1;
+
+  const generation = gap.generation;
+  gap.inFlight = true;
+  try {
+    const slice = eventStore.getEventsRange(sessionId, from, to);
+    // Yield once before responding. The generation is re-checked AFTER this
+    // point, which is what makes an unsubscribe/re-subscribe racing a backfill
+    // observable rather than a silent overlap.
+    await new Promise<void>((r) => setImmediate(r));
+
+    const current = gapMapFor(ws).get(sessionId);
+    if (!subs.has(sessionId) || !current || current.generation !== generation) {
+      return refuse("stale_generation");
+    }
+
+    // Compact against the FULL stream's supersession boundary (D7). For a gap
+    // slice a later `message_end` ALWAYS exists outside it (in the tail), so
+    // the entire slice is superseded: pass `slice.length`. Deriving the
+    // boundary from the slice would keep updates whose `message_end` lives in
+    // the already-delivered tail, rendering stale snapshots over a closed
+    // message; skipping compaction is strictly worse still — the store retains
+    // every cumulative snapshot, so an un-compacted slice serves ALL of them.
+    const compacted = compactEventsForReplay(slice, slice.length);
+
+    // Backfill extends the head, so the next request starts above what was
+    // just served. This is what terminates the client's loop.
+    current.headMaxSeq = to;
+    // Truthful count of what the store STILL HOLDS above the served range —
+    // never the seq distance, which overstates a middle-trimmed store.
+    const remainingGapCount = eventStore.getEventsRange(sessionId, to + 1, current.tailMinSeq - 1).length;
+
+    sendTo(ws, {
+      type: "history_backfill_result",
+      sessionId,
+      events: compacted.map((e) => ({ seq: e.seq, event: truncateToolResultForReplay(e.event) })),
+      servedFrom: from,
+      servedTo: to,
+      remainingGapCount,
+    });
+  } finally {
+    const latch = gapMapFor(ws).get(sessionId);
+    if (latch && latch.generation === generation) latch.inFlight = false;
+  }
+}
+
 export function handleSubscribe(
   msg: Extract<BrowserToServerMessage, { type: "subscribe" }>,
   subs: Set<string>,
   ctx: BrowserHandlerContext,
 ): void {
   const { ws, sessionManager, eventStore, directoryService, piGateway, sendTo, broadcast, getSubscribers, replayPendingUiRequests, replayNotifyLog, markReplaying, clearReplaying } = ctx;
+  const maxReplayEvents = ctx.maxReplayEvents ?? 0;
   subs.add(msg.sessionId);
+  // Every subscribe starts a new generation; any backfill still in flight from
+  // the previous one now completes stale (D9).
+  bumpSubscriptionGeneration(ws, msg.sessionId);
 
   // Request metadata from the extension so commands/flows/models/roles arrive
   // while the browser is actually subscribed (responses use sendToSubscribers).
@@ -238,16 +533,14 @@ export function handleSubscribe(
     if (lastSeq > 0 && lastSeq > maxSeq) {
       sendTo(ws, { type: "session_state_reset", sessionId: msg.sessionId });
       // Full replay from seq 1
-      let events = eventStore.getEvents(msg.sessionId, 1);
-      if (MAX_REPLAY_EVENTS > 0 && events.length > MAX_REPLAY_EVENTS) {
-        events = events.slice(events.length - MAX_REPLAY_EVENTS);
-      }
+      const events = eventStore.getEvents(msg.sessionId, 1);
       // Replay asset registry BEFORE events so pi-asset:<hash> tokens in
       // message_update / message_end resolve on first reduce.
       // See change: chat-markdown-local-images-and-math.
       replaySessionAssets(ws, msg.sessionId, ctx);
       markReplaying(ws, msg.sessionId);
-      sendEventBatches(ws, msg.sessionId, events, sendTo)
+      // Stale lastSeq is ALWAYS a full stream — window it (D1).
+      sendEventBatches(ws, msg.sessionId, events, sendTo, maxReplayEvents)
         .then((lastSent) => {
           clearReplaying(ws, msg.sessionId, lastSent);
           replayPendingUiRequests(ws, msg.sessionId);
@@ -256,9 +549,28 @@ export function handleSubscribe(
         })
         .catch(onReplayFailed);
     } else {
-      let events = eventStore.getEvents(msg.sessionId, lastSeq + 1);
-      if (MAX_REPLAY_EVENTS > 0 && events.length > MAX_REPLAY_EVENTS) {
-        events = events.slice(events.length - MAX_REPLAY_EVENTS);
+      const events = eventStore.getEvents(msg.sessionId, lastSeq + 1);
+      /**
+       * This branch is DUAL-PURPOSE: `lastSeq = msg.lastSeq ?? 0`, so a browser
+       * reload with no cached seq against a still-warm server lands here with
+       * `getEvents(sessionId, 1)` — the entire stream. Windowing is therefore
+       * keyed on CONTENT (is this a full stream?), never on call site: keying
+       * on the site would make `maxReplayEvents` a no-op for warm reloads, the
+       * dominant reopen path and the primary case this change targets.
+       *
+       * A genuine delta (`lastSeq > 0`) is never windowed — that would punch a
+       * seq gap between what the client holds and what it receives.
+       * See change: lazy-load-session-history (D1).
+       */
+      const fullStreamLimit = lastSeq === 0 ? maxReplayEvents : 0;
+      /**
+       * This path does NOT otherwise send `session_state_reset` — it relies on
+       * the reducer's `firstSeq === 1` rule. A windowed replay must not depend
+       * on that store invariant, so reset explicitly before one.
+       * See change: lazy-load-session-history (D5).
+       */
+      if (fullStreamLimit > 0 && events.length > fullStreamLimit) {
+        sendTo(ws, { type: "session_state_reset", sessionId: msg.sessionId });
       }
       // Replay asset registry on every subscribe (delta or full). Cheap when
       // empty; assets already known to the client are simply re-overwritten
@@ -273,7 +585,7 @@ export function handleSubscribe(
       // See change: fix-cold-subscribe-replay-interleave.
       if (events.length > 0) {
         markReplaying(ws, msg.sessionId);
-        sendEventBatches(ws, msg.sessionId, events, sendTo)
+        sendEventBatches(ws, msg.sessionId, events, sendTo, fullStreamLimit)
           .then((lastSent) => {
             clearReplaying(ws, msg.sessionId, lastSent);
             replayPendingUiRequests(ws, msg.sessionId);
@@ -342,15 +654,15 @@ export function handleSubscribe(
           const metaUpdates: Record<string, unknown> = { dataUnavailable: false, ...statsUpdates };
           sessionManager.update(msg.sessionId, metaUpdates);
           broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: metaUpdates });
-          let stored = eventStore.getEvents(msg.sessionId, 1);
-          if (MAX_REPLAY_EVENTS > 0 && stored.length > MAX_REPLAY_EVENTS) {
-            stored = stored.slice(stored.length - MAX_REPLAY_EVENTS);
-          }
+          const stored = eventStore.getEvents(msg.sessionId, 1);
           const subscribers = getSubscribers(msg.sessionId);
           for (const sub of subscribers) {
             // Asset registry first — see change: chat-markdown-local-images-and-math.
             replaySessionAssets(sub, msg.sessionId, ctx);
-            await sendEventBatches(sub, msg.sessionId, stored, sendTo);
+            // Cold hydration is ALWAYS a full stream — window it (D1). The
+            // `history_window` message is emitted per subscriber inside this
+            // loop by `sendEventBatches` itself.
+            await sendEventBatches(sub, msg.sessionId, stored, sendTo, maxReplayEvents);
             replayPendingUiRequests(sub, msg.sessionId);
             replayNotifyLog(sub, msg.sessionId);
             replayUiState(sub, msg.sessionId, ctx);
