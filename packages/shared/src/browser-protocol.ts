@@ -881,24 +881,10 @@ export interface AutoNameOutcomeBrowserMessage {
   at: number;
 }
 
-/** Server → browser: the retained last-outcome map, answered on mount. */
-export interface AutoNameOutcomesResponseMessage {
-  type: "auto_name_outcomes";
-  requestId: string;
-  outcomes: Array<{
-    sessionId: string;
-    outcome: AutoNameOutcome;
-    reason: string;
-    modelRef?: string;
-    at: number;
-  }>;
-}
-
 export type ServerToBrowserMessage =
   | ServerRestartingMessage
   | AutoNameErrorBrowserMessage
   | AutoNameOutcomeBrowserMessage
-  | AutoNameOutcomesResponseMessage
   | RecoveryOfferMessage
   | PluginConfigUpdateMessage
   | PluginActionErrorMessage
@@ -1619,18 +1605,6 @@ export interface RequestRolesBrowserMessage {
 }
 
 /**
- * Browser → server: fetch the retained per-session auto-naming outcomes when
- * the diagnostics surface mounts. Deliberately reuses the existing
- * request/response channel rather than adding a REST route: the failure is
- * per-session and repeats, so a global point-in-time `/api/doctor` check is
- * the wrong carrier. See change: fix-auto-naming-reasoning-model (design D9).
- */
-export interface RequestAutoNameOutcomesBrowserMessage {
-  type: "request_auto_name_outcomes";
-  requestId: string;
-}
-
-/**
  * Browser → server: the user invoked a Phase-1 module action / requested
  * row data. Server forwards via `piGateway.sendToSession` to the bridge,
  * which re-emits as `pi.events.emit(event, { ...params, action, _reply })`.
@@ -1726,7 +1700,6 @@ export type BrowserToServerMessage =
   | RolePresetDeleteBrowserMessage
   | RoleRemoveBrowserMessage
   | RequestRolesBrowserMessage
-  | RequestAutoNameOutcomesBrowserMessage
   | UiManagementBrowserMessage
   | SessionViewBrowserMessage
   | SessionUnviewBrowserMessage

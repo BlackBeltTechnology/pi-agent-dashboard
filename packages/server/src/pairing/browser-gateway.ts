@@ -11,7 +11,6 @@ import type {
 import type { NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { WebSocket, WebSocketServer } from "ws";
 import { getLastBindReachability } from "../auth/bind-reachability-service.js";
-import { autoNameOutcomes } from "../auto-name-outcome-store.js";
 import { type DirectoryService, hasOpenSpecDir, hasOpenSpecRoot } from "../directory-service.js";
 import type { PendingForkRegistry } from "../pending/pending-fork-registry.js";
 import type { EventStore } from "../persistence/memory-event-store.js";
@@ -911,17 +910,6 @@ export function createBrowserGateway(
               type: "role_remove",
               sessionId: msg.sessionId,
               role: (msg as any).role,
-            });
-            break;
-          }
-          case "request_auto_name_outcomes": {
-            // Answer from the bounded retention map, so an operator who opens
-            // Diagnostics AFTER a session stopped still sees why.
-            // See change: fix-auto-naming-reasoning-model (design D9).
-            sendTo(ws, {
-              type: "auto_name_outcomes",
-              requestId: (msg as any).requestId,
-              outcomes: autoNameOutcomes.list(),
             });
             break;
           }

@@ -97,22 +97,27 @@
 - [x] 9.7 Test — never persisted. see `event-wiring-queue-state.test.ts`. Triple: outcomes are reported · inspect disk · no new file is written (test-plan #E32).
 - [x] 9.8 Test — retention memory bound under load. see `event-wiring-queue-state.test.ts`. Triple: 5000 sessions reporting outcomes · run to completion · retained entries never exceed 500 (test-plan #P4).
 
-## 10. Client — inline naming row and diagnostics
+## 10. Client — naming role discoverability and diagnostics
 
-- [ ] 10.1 Render the single `naming` role row inline beneath the auto-name toggle, driven by the existing `roles:get-all` / `roles:set` handlers in `packages/roles-plugin/`; no new preference field.
-- [ ] 10.2 Handle the row's degraded states: unassigned (show the `@fast` fallback), removed (removal marker in effect), and no connected session (unavailable, not editable-but-broken).
-- [ ] 10.3 Render the retained auto-naming outcome in Settings → Diagnostics, fetched on mount, presenting `starved` distinctly from `waiting`.
-- [ ] 10.4 Test — inline row reflects the roles map. see `tests/e2e/roles-custom.spec.ts`. Triple: `roles.naming` assigned · open Settings · the inline row beneath the auto-name toggle shows that model (test-plan #F1).
-- [ ] 10.5 Test — the inline row writes through `roles:set`. see `tests/e2e/roles-custom.spec.ts`. Triple: the operator picks a model in the inline row · save · the Roles panel converges to the same assignment and no new preference field is written (test-plan #F2).
-- [ ] 10.6 Test — unassigned shows the fallback. see `packages/roles-plugin/src/__tests__/RolesSettingsSection.test.tsx`. Triple: `roles.naming` unassigned · open Settings · the row indicates the `fast` fallback (test-plan #F3).
-- [ ] 10.7 Test — removed role state. see `RolesSettingsSection.test.tsx`. Triple: a removal marker in effect for `naming` · open Settings · the row presents REMOVED, distinct from unassigned, offering no slot the Roles panel lacks (test-plan #F4).
-- [ ] 10.8 Test — no connected session degrades the row. see `tests/e2e/roles-custom.spec.ts`. Triple: zero connected pi sessions · open Settings · the row presents unavailable rather than an editable control that silently fails (test-plan #F5).
-- [ ] 10.9 Test — a preset load is reflected. see `RolesSettingsSection.test.tsx`. Triple: `roles.naming` assigned, then load a preset lacking `naming` · after the load · the row shows unassigned with the fallback indication (test-plan #F6).
-- [ ] 10.10 Test — the naming role renders built-in. see `tests/e2e/roles-custom.spec.ts`. Triple: a default install · open the Roles panel · `@naming` appears in the Built-in group (test-plan #F11).
-- [ ] 10.11 Test — diagnostics shows a waiting state. see `tests/e2e/plugin-settings-pages.spec.ts`. Triple: a session whose last outcome is `waiting` · open Settings → Diagnostics · the outcome and its reason are rendered for that session (test-plan #F7).
-- [ ] 10.12 Test — diagnostics on late mount. see `tests/e2e/plugin-settings-pages.spec.ts`. Triple: an outcome reported BEFORE the surface is opened · open Diagnostics afterwards · the retained outcome is still rendered without depending on the live broadcast (test-plan #F8).
-- [ ] 10.13 Test — starved is distinguishable. see `tests/e2e/plugin-settings-pages.spec.ts`. Triple: a session whose last outcome is `starved` · open Diagnostics · it is presented distinctly from `waiting` and conveys truncation (test-plan #F9).
-- [ ] 10.14 Test — an unwatched stop is discoverable. see `tests/e2e/plugin-settings-pages.spec.ts`. Triple: a session stops with no subscribed client · the operator opens the dashboard later · the stop is discoverable via the retained diagnostics rather than only in `server.log` (test-plan #F10).
+> AMENDED 2026-08-21: the inline-beneath-the-toggle row is not achievable
+> (`claim.tab` inert since `plugin-settings-pages`; `usePluginConfig` throws
+> outside a plugin slot), and the diagnostics carrier moved to a REST route
+> because the Diagnostics surface has no send path. See design.md D1/D9.
+
+- [x] 10.1 Confirm the `naming` role renders in the Roles panel Built-in group, driven by the existing `roles:get-all` / `roles:set` handlers in `packages/roles-plugin/`; no new preference field.
+- [x] 10.2 Add a pointer beneath the auto-name toggle in `packages/client/src/components/settings/SettingsPanel.tsx` naming where the naming model is configured and stating the `@fast` fallback.
+- [x] 10.3 Add the read-only `GET /api/auto-name-outcomes` route serving the retained map, and render it in Settings → Diagnostics fetched on mount, presenting `starved` distinctly from `waiting`.
+- [x] 10.4 Test — the naming row reflects the roles map. see `packages/roles-plugin/src/__tests__/RolesSettingsSection.test.tsx`. Triple: `roles.naming` assigned · render the Roles panel · the `naming` row shows that model (test-plan #F1).
+- [x] 10.5 Test — the row writes through `roles:set`. see `RolesSettingsSection.test.tsx`. Triple: the operator picks a model in the `naming` row · save · a `role_set` for `naming` is dispatched and no new preference field is written (test-plan #F2).
+- [x] 10.6 Test — unassigned shows the fallback. see `RolesSettingsSection.test.tsx`. Triple: `roles.naming` unassigned · render · the row indicates the `fast` fallback (test-plan #F3).
+- [x] 10.7 Test — removed role state. see `RolesSettingsSection.test.tsx`. Triple: a removal marker in effect for `naming` · render · no assignable `naming` slot, distinct from unassigned (test-plan #F4).
+- [x] 10.8 Test — the toggle points to the naming model. see `packages/client/src/components/settings/__tests__/`. Triple: render the sessions settings page · inspect the auto-name toggle hint · it names the Roles panel and states the `@fast` fallback (test-plan #F5).
+- [x] 10.9 Test — a preset load is reflected. see `RolesSettingsSection.test.tsx`. Triple: `roles.naming` assigned, then load a preset lacking `naming` · after the load · the row shows unassigned with the fallback indication (test-plan #F6).
+- [x] 10.10 Test — the naming role renders built-in. see `RolesSettingsSection.test.tsx`. Triple: a default install · render the Roles panel · `naming` appears in the Built-in group (test-plan #F11).
+- [x] 10.11 Test — diagnostics shows a waiting state. see `packages/client/src/components/settings/__tests__/`. Triple: a session whose last outcome is `waiting` · render Diagnostics · the outcome and its reason are rendered for that session (test-plan #F7).
+- [x] 10.12 Test — diagnostics on late mount. see the same suite. Triple: an outcome retained BEFORE the surface is opened · render Diagnostics · the retained outcome is rendered without depending on the live broadcast (test-plan #F8).
+- [x] 10.13 Test — starved is distinguishable. see the same suite. Triple: a session whose last outcome is `starved` · render Diagnostics · it is presented distinctly from `waiting` and conveys truncation (test-plan #F9).
+- [x] 10.14 Test — an unwatched stop is discoverable. see `packages/server/src/__tests__/`. Triple: an outcome recorded with no subscribed client · `GET /api/auto-name-outcomes` · the stop is served from retention rather than only reaching `server.log` (test-plan #F10).
 
 ## 11. Live verification against real models
 

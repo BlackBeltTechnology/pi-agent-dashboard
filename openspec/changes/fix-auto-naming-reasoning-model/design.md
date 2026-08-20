@@ -70,15 +70,37 @@ The machine never converges and never reports.
 | Presets | free (`rolePresets`) | none |
 | Agent-settable | free (`update_roles`) | new tool surface |
 
-**Decision: the role**, plus the single `naming` row inline beneath the auto-name toggle,
-reusing `roles:get-all` / `roles:set`.
+**Decision: the role**, reusing `roles:get-all` / `roles:set`.
+
+**AMENDED during implementation (2026-08-21).** This section originally placed the single
+`naming` row **inline beneath the auto-name toggle**. That is not achievable, and the
+constraint was not known when D1 was written:
+
+- `SettingsPanel.tsx:298-301` — since `plugin-settings-pages`, **`claim.tab` is inert**;
+  every `settings-section` claim renders on `/settings/plugins/<id>`. The auto-name toggle
+  lives on the *sessions* settings page, so a roles-plugin claim cannot reach it.
+- `plugin-context.tsx:212-220` — `usePluginConfig` **throws** outside a plugin slot
+  ("if you need a plugin's config from outside, use server-side getPluginConfig"), so a
+  plain client component beneath the toggle cannot read the roles map either.
+
+Exactly one of "inline beneath the toggle" and "driven by the existing roles handlers"
+can hold. **Resolution: keep the roles handlers, move the row.** The `naming` row renders
+in the existing Roles panel (`/settings/plugins/roles`) — which it already does for free,
+because `naming` joined `DEFAULT_ROLE_NAMES` — and the sessions page carries a static
+pointer beneath the toggle naming where the naming model is configured.
+
+Rejected alternatives: adding a client-side accessor for another plugin's config (new
+plumbing this design explicitly wanted to avoid, and a second reader across the plugin
+boundary); restoring `claim.tab` as a real slot dimension (re-opens a contract
+`plugin-settings-pages` deliberately closed, blast radius across every plugin).
 
 Consequences accepted (surfaced in review):
 - **Presets are a second write path.** `roles:preset-load` replaces the roles map wholesale and
   can silently drop a `naming` assignment, reverting to the `@fast` fallback. The fallback keeps
-  it a degradation, and `roles_list` broadcasts on every write so the inline row reflects it.
-- **The inline row needs a connected session.** `request_roles` / `role_set` travel over a
-  session's bridge, so with zero connected sessions the row degrades to unavailable.
+  it a degradation, and `roles_list` broadcasts on every write so the row reflects it.
+- **The row needs a connected session.** `request_roles` / `role_set` travel over a
+  session's bridge, so with zero connected sessions the row degrades to unavailable —
+  behaviour the Roles panel already implements for every role.
 - **A pre-existing custom role named `naming` becomes built-in.** Its assignment is preserved
   and now drives naming; it also becomes non-removable (`roles:remove` rejects built-ins).
   Rare but real; specified rather than left to chance.
@@ -274,10 +296,19 @@ must check provenance *after* a reload or it will misread this change as broken.
   which is exactly what a misconfigured naming model produces. Resolution: the bound is
   absolute, protection is a preference ORDER (non-`stopped` evicted first), and among `stopped`
   entries the oldest goes. Bound is normative at 500.
-- **Named transport.** The retained map is fetched over the existing browser-protocol
-  request/response channel when the diagnostics surface mounts — NOT a new REST route (today's
-  Diagnostics section only fetches `/api/doctor`, and D9 rejects a doctor check as the carrier
-  because it is global and point-in-time while this failure is per-session and repeats).
+- **Named transport.** The retained map is fetched when the diagnostics surface mounts.
+  A doctor check is rejected as the carrier because it is global and point-in-time while
+  this failure is per-session and repeats.
+
+  **AMENDED during implementation (2026-08-21).** This originally specified the
+  browser-protocol request/response channel. `SettingsPanel` / `DiagnosticsSection` have
+  **no send capability** — `SettingsPanel`'s `onMessage` prop is a *subscribe* function
+  (`App.tsx:2221`, `SettingsPanel.tsx:344`), and the surface is REST-driven throughout
+  (`fetchDoctorReport`, `fetchAutoNameSessionsPref`). Routing a WS request from it would
+  need the same new client plumbing D1 rejected. **Resolution: a read-only REST route,**
+  `GET /api/auto-name-outcomes`, congruent with `/api/doctor` beside it. The live
+  `auto_name_outcome` broadcast is retained for a mounted client; the route exists so a
+  LATE-mounting client still sees a stop reported before it connected (test-plan #F8).
 
 ### D10 — The `user`-provenance lockout is unchanged
 

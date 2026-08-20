@@ -933,3 +933,86 @@ describe("BuiltInRolesSettings — thinking level", () => {
     });
   });
 });
+
+/**
+ * The `naming` role — the model that auto-names sessions.
+ *
+ * Naming was hard-wired to `@fast`, shared with `compact` and subagent routing,
+ * so making naming work forced a global model downgrade. The row lives here
+ * (rather than inline beneath the auto-name toggle) because `claim.tab` is
+ * inert since `plugin-settings-pages` and `usePluginConfig` throws outside a
+ * plugin slot — the shared roles handlers were judged worth more than the
+ * placement.
+ *
+ * See change: fix-auto-naming-reasoning-model (design D1, test-plan #F1–#F4, #F6, #F11).
+ */
+describe("the naming role", () => {
+  beforeEach(() => { seedConfig({}); });
+  afterEach(() => { cleanup(); seedConfig({}); });
+
+  const BUILTINS = ["planning", "coding", "compact", "fast", "vision", "research", "naming"];
+  const namingConfig = (roles: Record<string, string>, over: Record<string, unknown> = {}) => ({
+    roles,
+    presets: [],
+    activePreset: null,
+    builtinRoleNames: BUILTINS,
+    models: [{ provider: "openai", id: "gpt-namer" }, { provider: "deepseek", id: "flash" }],
+    ...over,
+  });
+
+  it("F11: `naming` renders in the Built-in group, not as a custom role", () => {
+    seedConfig(namingConfig({ naming: "", fast: "deepseek/flash" }));
+    const { getByTestId, queryByTestId } = render(wrap(<BuiltInRolesSettings />));
+    expect(getByTestId("roles-group-builtin").textContent).toContain("naming");
+    expect(queryByTestId("roles-group-custom")?.textContent ?? "").not.toContain("naming");
+  });
+
+  it("F1: the row shows the assigned naming model", () => {
+    seedConfig(namingConfig({ naming: "openai/gpt-namer", fast: "deepseek/flash" }));
+    const { getByTestId } = render(wrap(<BuiltInRolesSettings />));
+    expect(getByTestId("roles-row-naming").textContent).toContain("gpt-namer");
+  });
+
+  it("F2: assigning writes through `role_set` — no new preference field", async () => {
+    const send = makeSend();
+    const sources = new Map<string, RegisteredSource>();
+    seedConfig(namingConfig({ naming: "", fast: "deepseek/flash" }));
+    const { getByTestId } = render(wrap(<BuiltInRolesSettings />, send.fn, sources));
+    fireEvent.click(getByTestId("roles-row-naming"));
+    fireEvent.click(getByTestId("roles-model-option-openai/gpt-namer"));
+    await act(async () => { await sources.get("plugin:roles")!.commit(); });
+    expect(send.messages).toHaveLength(1);
+    expect(send.messages[0]).toMatchObject({ type: "role_set", role: "naming" });
+    // The naming model has exactly one source of truth: the roles map.
+    expect(JSON.stringify(send.messages)).not.toMatch(/preference|autoNameModel/i);
+  });
+
+  it("F3: an unassigned `naming` still renders its row (the @fast fallback applies)", () => {
+    seedConfig(namingConfig({ naming: "", fast: "deepseek/flash" }));
+    const { getByTestId } = render(wrap(<BuiltInRolesSettings />));
+    // Unassigned must be a visible, assignable slot — not a missing row, which
+    // would read as "auto-naming is off".
+    expect(getByTestId("roles-row-naming")).toBeTruthy();
+  });
+
+  it("F4: a removed `naming` renders no assignable slot, distinct from unassigned", () => {
+    // A removal marker drops the name from the effective schema upstream, so
+    // the bridge simply does not send it.
+    seedConfig(namingConfig({ fast: "deepseek/flash" }, {
+      builtinRoleNames: BUILTINS.filter((r) => r !== "naming"),
+    }));
+    const { queryByTestId } = render(wrap(<BuiltInRolesSettings />));
+    expect(queryByTestId("roles-row-naming")).toBeNull();
+  });
+
+  it("F6: a preset load that drops `naming` is reflected as unassigned", () => {
+    seedConfig(namingConfig({ naming: "openai/gpt-namer", fast: "deepseek/flash" }));
+    const { getByTestId } = render(wrap(<BuiltInRolesSettings />));
+    expect(getByTestId("roles-row-naming").textContent).toContain("gpt-namer");
+
+    // A preset replaces the roles map wholesale; the row must show the
+    // reversion rather than keep displaying a model that no longer applies.
+    seedConfig(namingConfig({ naming: "", fast: "deepseek/flash" }));
+    expect(getByTestId("roles-row-naming").textContent).not.toContain("gpt-namer");
+  });
+});
