@@ -125,7 +125,7 @@ the delivery path is `dispatchReload`'s responsibility. A session with **no** re
 NEVER be respawned — doing so would spawn a second pi process against a terminal-hosted session's
 file.
 
-#### Scenario: `/reload` sent to an active headless session
+#### Scenario: `/reload` sent to active headless session
 - **WHEN** the server receives `send_prompt` with `text === "/reload"` for an idle session that has
   a PID in `headlessPidRegistry`
 - **THEN** the server SHALL NOT forward the prompt to the bridge via `piGateway.sendToSession`
@@ -172,7 +172,7 @@ response to finish before reloading"). The refusal SHALL NOT apply to a session 
 bridge connection whose `status` is merely a stale `streaming`: such a session may be pinned there
 because its bridge died before `agent_end`, and it remains respawnable.
 
-#### Scenario: `/reload` during streaming on a connected session
+#### Scenario: `/reload` during streaming
 - **WHEN** a `/reload` arrives for a streaming session with a live bridge connection
 - **THEN** the server SHALL NOT kill or respawn the pi process
 - **AND** SHALL emit `command_feedback` with `command: "/reload"` and `status: "error"` telling the
