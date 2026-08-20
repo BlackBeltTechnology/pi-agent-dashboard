@@ -8,11 +8,14 @@ The enabled Subagent Inspector plugin reported `@blackbelt-technology/pi-dashboa
 - Activate the clean `f843084d7456550cec24103e7a43189afeb79871` Dashboard worktree and restart the Dashboard on port `8147`.
 - Disable Apple Tools on this Linux host because its iMCP dependency requires macOS 15.3 or later.
 - Replace the installed `npm:@sting8k/pi-vcc` package with `npm:pi-blackhole`, as required by Blackhole's upstream compatibility instructions.
-- Install `npm:pi-hermes-memory` alongside the existing memory systems.
-- Reload connected Pi sessions once after the package changes.
-- Verify every enabled plugin has an empty `missingRequirements` list.
+- Remove `npm:pi-hermes-memory` from global Pi settings after the user withdrew the earlier installation choice. Do not delete cached files or repository integration code.
+- Add a user-scope rule that every global Pi package, extension, skill, prompt, theme, provider, or settings mutation requires a bounded fresh Pi startup with normal extensions before completion.
+- Reload connected Pi sessions once after the earlier package changes. The later Hermes removal applies when each existing session next reloads.
+- Verify the Subagent Inspector dependency remains healthy. Accept that the enabled Hermes Memory dashboard plugin reports its removed extension requirement as missing.
 - Inventory bridge path conflicts separately. Do not change their configured paths in this change.
 - Correct the canonical `fix-worktree-opsx-skills-not-created` skill so it uses the repository-pinned OpenSpec command and validates required skill names instead of a stale count.
+- Ship the repository correction to `develop` through a reviewed pull request.
+- Replace the worktree-linked Pi extension with published `@blackbelt-technology/pi-dashboard-extension@0.7.0` and pass the fresh-start gate. Keep the Dashboard server worktree link because the published root package starts with zero discovered plugins.
 - Do not change application behavior, APIs, manifests, lockfiles, or application source code.
 
 ## Capabilities
@@ -27,12 +30,13 @@ None. This change repairs one runtime installation and does not change product r
 
 ## Impact
 
-- Runtime package cache: `@blackbelt-technology/pi-dashboard-subagents`, `pi-blackhole`, and `pi-hermes-memory` under `~/.pi/agent/npm/node_modules/`.
-- Pi settings: remove `npm:@sting8k/pi-vcc`; add `npm:pi-blackhole` and `npm:pi-hermes-memory`.
+- Runtime package cache: `@blackbelt-technology/pi-dashboard-subagents` and `pi-blackhole` under `~/.pi/agent/npm/node_modules/`. Pi can retain unreferenced `pi-hermes-memory` cache files after settings removal.
+- Pi settings: remove `npm:@sting8k/pi-vcc` and `npm:pi-hermes-memory`; retain `npm:pi-blackhole`.
+- Global agent guidance: add the fresh Pi startup gate to `~/.pi/agent/AGENTS.md`.
 - Dashboard config: set `plugins.apple-tools.enabled` to `false`.
-- Runtime Dashboard installation: the global `@blackbelt-technology/pi-agent-dashboard` link and the process listening on port `8147`.
-- Repository: OpenSpec change artifacts, the canonical OpenSpec worktree-recovery skill, and its `AGENTS.md` purpose row. No application source or dependency declaration changes.
-- Validation: `pi list`, package metadata, `GET /api/health`, and `GET /api/plugins`.
+- Runtime Dashboard installation: replace the linked Pi extension source with `npm:@blackbelt-technology/pi-dashboard-extension@0.7.0`. Retain the global Dashboard server worktree link after a published-root test discovered zero plugins.
+- Repository: OpenSpec change artifacts, the canonical OpenSpec worktree-recovery skill, and its `AGENTS.md` purpose row. Ship them to `develop`; no application source or dependency declaration changes.
+- Validation: `pi list`, package metadata, `GET /api/health`, `GET /api/plugins`, and a bounded fresh Pi process with normal extensions. `pi list` must not contain `npm:pi-hermes-memory` after removal.
 
 ## Discipline Skills
 
