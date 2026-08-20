@@ -66,8 +66,8 @@
 - [x] 6.5 Write a failing test that overlapping ticks are suppressed
 - [x] 6.6 Implement the poll bound to dialog lifetime plus the manual refresh control and the "checked Ns ago" stamp
 - [x] 6.7 **[performance-optimization]** MEASURED, 2026-08-18, macOS, real providers (`zrok=not-set ngrok=not-installed tailscale=connected zerotier=not-set`), registry reset before every tick so each is a cold cache, n=30: **min 582ms · p50 594ms · p95 617ms · max 734ms**. Against the P1 budget (p95 < 2s) that is 31%; against the 5s poll interval, 12.3%. The 5s cadence therefore **stands** — it is not close enough to the interval to justify moving it, and overlap suppression bounds the worst case regardless. Note the sample includes one genuinely connected daemon (tailscale), so the daemon `probeLive()` shell-out IS represented rather than short-circuited by an absent binary.
-- [ ] 6.8 Implement the mobile treatment per D11: below 560px the board is a 52px-per-row navigation list; verify board height and that `document.scrollWidth` equals the viewport at 375
-- [ ] 6.9 Verify touch targets stay ≥44px and contrast passes in both themes at 375
+- [x] 6.8 Implement the mobile treatment per D11: below 560px the board is a 52px-per-row navigation list; verify board height and that `document.scrollWidth` equals the viewport at 375 — `tests/e2e/gateway-board-mobile.spec.ts`; the action group collapses to the SELECTED row below 560px
+- [x] 6.9 Verify touch targets stay ≥44px and contrast passes in both themes at 375 — same spec; measured ≥44px per row and the state label ≥4.5:1 in dark AND light
 
 ## 7. Concurrency — per-provider runtimes
 

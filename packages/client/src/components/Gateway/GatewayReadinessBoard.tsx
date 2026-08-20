@@ -142,6 +142,7 @@ export function GatewayReadinessBoard({
             key={p.provider}
             readiness={p}
             isPrimary={p.provider === effectivePrimary}
+            selected={p.provider === primary}
             onSelect={onSelectProvider}
             config={config}
             onConfigChange={refreshConfig}
@@ -155,12 +156,15 @@ export function GatewayReadinessBoard({
 function ReadinessRow({
   readiness,
   isPrimary,
+  selected,
   onSelect,
   config,
   onConfigChange,
 }: {
   readiness: ProviderReadiness;
   isPrimary: boolean;
+  /** This provider is the one the Setup panel below is currently showing. */
+  selected: boolean;
   onSelect?: (id: string) => void;
   config: GatewayConfigShape;
   onConfigChange: () => void;
@@ -209,13 +213,23 @@ function ReadinessRow({
         </span>
       </button>
       {/* OUTSIDE the row button: a nested <button> is invalid HTML and the
-          browser drops it, which would silently delete both actions. */}
-      <GatewayProviderActions
+          browser drops it, which would silently delete both actions.
+
+          Below 560px a row is ONE 52px line (D11), so the action group is
+          collapsed to the SELECTED provider only — the row opens it. Hiding it
+          unconditionally would strand the actions with no mobile path to them;
+          showing it on every row puts a five-row board past the viewport. */}
+      <div
+        data-testid={`gateway-readiness-actions-slot-${readiness.provider}`}
+        className={selected ? undefined : "max-[559px]:hidden"}
+      >
+        <GatewayProviderActions
         readiness={readiness}
         isPrimary={isPrimary}
-        config={config}
-        onConfigChange={onConfigChange}
-      />
+          config={config}
+          onConfigChange={onConfigChange}
+        />
+      </div>
     </li>
   );
 }
