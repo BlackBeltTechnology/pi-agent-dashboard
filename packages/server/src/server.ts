@@ -1598,10 +1598,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   const piCoreChecker = new PiCoreChecker();
   const piCoreUpdater = new PiCoreUpdater({
     packageManagerWrapper,
-    // pi-core is a BINARY swap, not a resource reload: an in-process
-    // `ctx.reload()` cannot replace the running pi-core. Route to respawn
-    // directly (never `dispatchReload`), for every session the registry knows
-    // is headless — including connected and streaming ones.
+    // pi-core is a BINARY swap, not a resource reload. Route to respawn
+    // directly rather than through `dispatchReload`, whose busy check would
+    // refuse a streaming session — a swap cannot be deferred that way, the
+    // binary under it has already changed. Targets every session the registry
+    // knows is headless, including connected and streaming ones.
     // See change: fix-out-of-band-reload (design.md D6).
     onAllComplete: async () => {
       let count = 0;

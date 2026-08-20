@@ -58,12 +58,12 @@ export type ReloadHostContext = Pick<
 /**
  * Respawn a headless session because its pi-core BINARY changed.
  *
- * Distinct from a reload: an in-process `ctx.reload()` re-reads settings,
- * providers, extensions, skills, prompts and themes inside the running node
- * process, but it cannot replace the pi-core binary underneath. So this path
- * respawns unconditionally — including connected and streaming sessions,
- * whose streaming guard does not apply to a process replacement — and reports
- * `error` for any session that cannot be swapped (design.md D6).
+ * Shares the mechanism with a reload but not the policy: a reload of a BUSY
+ * session is refused (respawning mid-stream destroys in-flight work), whereas
+ * a runtime swap cannot be deferred that way — the operator has replaced the
+ * binary under every running session, so this path respawns unconditionally,
+ * including connected and streaming ones. Sessions that cannot be swapped
+ * report `error` rather than silently succeeding (design.md D6).
  *
  * See change: fix-out-of-band-reload.
  */
@@ -193,10 +193,12 @@ export function buildDispatchReloadContext(
  * context usage, attachedProposal) when the same sessionId re-registers,
  * the user-visible session state survives the respawn.
  *
- * Since change: fix-out-of-band-reload this is the FALLBACK branch of
- * `dispatchReload`, not the default for headless sessions, plus the
- * mechanism for a pi-core binary swap (which an in-process `ctx.reload()`
- * structurally cannot perform).
+ * Since change: fix-out-of-band-reload this is reached through
+ * `dispatchReload` (which owns the busy decision) and through
+ * `respawnForRuntimeSwap` for a pi-core binary swap — but it remains the
+ * DEFAULT mechanism for a headless session, because pi's RPC `{type:"prompt"}`
+ * performs no slash-command dispatch and there is therefore no in-process path
+ * to reach. See `rpc-keeper/dispatch-reload.ts` for the measurement.
  *
  * See change: headless-reload-via-respawn.
  */
@@ -307,9 +309,10 @@ export async function handleSendPrompt(
   const { sessionManager, piGateway, headlessPidRegistry, pendingResumeRegistry, pendingResumeIntents, pendingDashboardSpawns, broadcast } = ctx;
 
   // Route the bare `/reload` through the single server-side reload entry
-  // point. It resolves keeper dispatch → respawn fallback → bridge forward,
-  // so a healthy headless session is reloaded IN-PROCESS instead of being
-  // killed. See change: fix-out-of-band-reload.
+  // point: busy → refuse, headless PID → respawn, live bridge → forward, else
+  // an honest error. Routing here (rather than only in the four automated
+  // fan-outs) is what makes every trigger converge on one observable outcome.
+  // See change: fix-out-of-band-reload.
   if (isBareReloadCommand(msg)) {
     await dispatchReload(msg.sessionId, buildDispatchReloadContext(ctx));
     return;

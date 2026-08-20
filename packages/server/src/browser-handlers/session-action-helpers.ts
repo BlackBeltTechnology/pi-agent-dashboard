@@ -19,9 +19,10 @@ type SendPromptMsg = Extract<BrowserToServerMessage, { type: "send_prompt" }>;
  *  - No images are attached (pure slash-command, not a user prompt).
  *
  * Deliberately says nothing about the session's shape. Choosing *how* to
- * deliver the reload — keeper dispatch, respawn fallback, or bridge forward —
- * is `dispatchReload`'s ladder, and folding a headless-PID test in here is
- * what made kill-and-respawn the default for every headless session.
+ * deliver the reload — respawn or bridge forward — is `dispatchReload`'s
+ * ladder. Folding a headless-PID test in here made the four automated fan-out
+ * triggers bypass the interception entirely, because they never reached this
+ * predicate at all.
  *
  * See change: fix-out-of-band-reload (was `shouldInterceptReload`, change:
  * headless-reload-via-respawn).

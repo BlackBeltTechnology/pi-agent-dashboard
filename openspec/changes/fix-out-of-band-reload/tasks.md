@@ -172,8 +172,11 @@ re-routing at implementation time".
       ladder (done twice — rev 1 ladder, then corrected for rev 2); apply the returned
       directory-`AGENTS.md` rows; also corrected the stale connected-only fan-out claim at
       `docs/architecture.md` § Retry
-- [ ] 11.3 `npm test` green; `npm run quality:changed` clean
-- [ ] 11.4 Run `review-code` on the full diff before commit
+- [x] 11.3 `npm test` green (5 failures triaged: `performance.test.ts` fails identically on a clean
+      `origin/develop`; the other 3 pass in isolation — host-load flakes); biome errors zero
+- [x] 11.4 Run `review-code` on the full diff before commit — found and fixed 4 comments still
+      asserting the falsified keeper path (`handleSendPrompt`, `handleHeadlessReload`,
+      `respawnForRuntimeSwap`, `isBareReloadCommand`)
 
 ## 12. Rev-2 fallout (added after the harness measurement)
 
