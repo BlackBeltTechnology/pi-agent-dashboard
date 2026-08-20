@@ -255,3 +255,41 @@ describe("folder-head entry fan-out + snapshot", () => {
     expect(logged.join("\n")).toContain("/bad");
   });
 });
+
+// ── the async HEAD reader actually reads (fix-folder-header-worktree-branch-leak)
+//
+// `readHeadDisplayAsync` used the `platform/exec` wrapper's `execFileAsync`,
+// which lacks node's `util.promisify.custom` symbol and therefore resolves with
+// the BARE stdout string. Destructuring `{ stdout }` off a string yields
+// `undefined`, and `String(undefined)` is the literal `"undefined"` — so every
+// folder header reported a branch NAMED "undefined". It stayed invisible
+// because no browser ever received the cached value before the connect
+// snapshot existed.
+describe("readHeadDisplayAsync against a real repo", () => {
+  it("reports the real branch, never the string \"undefined\"", async () => {
+    const fs = await import("node:fs");
+    const os = await import("node:os");
+    const path = await import("node:path");
+    const { execFileSync } = await import("node:child_process");
+    const { readHeadDisplayAsync } = await import("../git-worktree/git-operations.js");
+
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fh-head-"));
+    try {
+      const git = (...args: string[]) =>
+        execFileSync("git", args, { cwd: dir, stdio: "pipe", encoding: "utf8" });
+      git("init", "-q", "-b", "trunk");
+      git("config", "user.email", "t@t.test");
+      git("config", "user.name", "t");
+      fs.writeFileSync(path.join(dir, "f.txt"), "x");
+      git("add", "-A");
+      git("commit", "-qm", "init");
+
+      const head = await readHeadDisplayAsync(dir);
+      expect(head.branch).toBe("trunk");
+      expect(deriveDisplayBranch(head)).toBe("trunk");
+      expect(head.sha).not.toBe("undefined");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});

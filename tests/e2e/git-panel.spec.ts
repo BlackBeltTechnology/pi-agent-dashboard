@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process";
 import { expect, test } from "./fixtures.js";
-import { byTestId, ensureGitSession, FIXTURE_GIT, gotoDashboard } from "./helpers/index.js";
+import { byTestId, ensureGitSession, expandFolder, FIXTURE_GIT, folderHeaderBranch, gotoDashboard } from "./helpers/index.js";
 import { DASHBOARD_PORT } from "./lifecycle.js";
 
 // Scenario 5.2 — VCS (git) panel renders for a session in a git repo.
@@ -56,15 +56,6 @@ function gitInFixture(args: string): string {
   ).trim();
 }
 
-/** Branch text as the user reads it in the folder header, or "" when absent. */
-async function headerBranch(page: import("@playwright/test").Page): Promise<string> {
-  const row = page.getByTestId(`folder-home-row-${FIXTURE_GIT}`).first();
-  if ((await row.count()) === 0) return "";
-  const btn = row.getByTestId("git-branch-btn");
-  if ((await btn.count()) === 0) return "";
-  return btn.first().evaluate((el) => (el.parentElement?.textContent ?? "").trim());
-}
-
 test.describe("folder header converges on an out-of-band checkout", () => {
   const TMP_BRANCH = `e2e-oob-${Date.now().toString(36)}`;
   let original = "";
@@ -78,14 +69,19 @@ test.describe("folder header converges on an out-of-band checkout", () => {
   test("out-of-band checkout still converges the header (test-plan #F5)", async ({ page }) => {
     await ensureGitSession(page);
     await gotoDashboard(page);
+    await expandFolder(page, FIXTURE_GIT);
 
     original = gitInFixture("rev-parse --abbrev-ref HEAD");
-    await expect.poll(() => headerBranch(page), { timeout: 60_000 }).toBe(original);
+    await expect
+      .poll(() => folderHeaderBranch(page, FIXTURE_GIT), { timeout: 60_000 })
+      .toBe(original);
 
     // Out-of-band: the dashboard never touches HEAD here.
     gitInFixture(`checkout -b ${TMP_BRANCH}`);
 
     // The watcher fires sub-second; the poll is the ≤60s fallback.
-    await expect.poll(() => headerBranch(page), { timeout: 90_000 }).toBe(TMP_BRANCH);
+    await expect
+      .poll(() => folderHeaderBranch(page, FIXTURE_GIT), { timeout: 90_000 })
+      .toBe(TMP_BRANCH);
   });
 });

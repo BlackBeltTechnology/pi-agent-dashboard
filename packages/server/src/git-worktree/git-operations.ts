@@ -4,7 +4,13 @@
  */
 import fs from "node:fs";
 import path from "node:path";
-import { type ChildProcess, execFileAsync, execFileSync, execSync, spawn, spawnSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+// Real node execFile + promisify: the platform/exec wrapper's `execFileAsync`
+// lacks the `util.promisify.custom` symbol and resolves with the bare stdout
+// string instead of `{ stdout, stderr }`. Precedent: `lib/path-containment.ts`.
+// See change: fix-folder-header-worktree-branch-leak.
+import { execFile as nodeExecFile } from "node:child_process"; // ban:child_process-ok async HEAD read needs promisify({stdout,stderr}); platform/exec wrapper loses the custom promisify shape
+import { promisify } from "node:util";
+import { type ChildProcess, execFileSync, execSync, spawn, spawnSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { gitStatusV2 } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type { GitChangedFile, GitCommitResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { GitStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -22,6 +28,19 @@ import {
 } from "./git-worktree.js";
 
 const GIT_TIMEOUT = 15_000;
+
+/**
+ * Real node `execFile` + `promisify`, which resolves `{ stdout, stderr }` via
+ * the `util.promisify.custom` symbol. The `platform/exec` wrapper's
+ * `execFileAsync` does NOT carry that symbol, so `promisify` falls back to its
+ * generic rule and resolves with the BARE stdout string — destructuring
+ * `{ stdout }` off it yields `undefined`, and `String(undefined)` is the literal
+ * `"undefined"`. That silently made every folder-HEAD read report a branch
+ * named `"undefined"`. Mirrors the precedent in `lib/path-containment.ts` and
+ * `pi/pi-core-checker.ts`.
+ * See change: fix-folder-header-worktree-branch-leak.
+ */
+const execFilePromise = promisify(nodeExecFile);
 
 /** Run a git command, return trimmed stdout. Throws on failure. */
 function run(command: string, cwd: string): string {
@@ -430,7 +449,7 @@ export interface HeadInfo {
  */
 async function tryRunFileAsync(args: string[], cwd: string): Promise<string | undefined> {
   try {
-    const { stdout } = await execFileAsync("git", args, {
+    const { stdout } = await execFilePromise("git", args, {
       cwd,
       encoding: "utf-8",
       timeout: GIT_TIMEOUT,

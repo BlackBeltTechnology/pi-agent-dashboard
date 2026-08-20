@@ -1,5 +1,7 @@
+import { execFileSync } from "node:child_process";
 import { expect, type Locator, type Page, test } from "./fixtures.js";
-import { ensureGitSession, FIXTURE_GIT, gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import { ensureGitSession, expandFolder, FIXTURE_GIT, folderCard, folderHeaderBranch, gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import { DASHBOARD_PORT } from "./lifecycle.js";
 
 /**
  * Browser E2E — the folder header status capsule.
@@ -27,14 +29,6 @@ function capsule(page: Page): Locator {
 
 function segment(page: Page, key: "needs-you" | "error" | "working" | "idle"): Locator {
   return page.getByTestId(`folder-capsule-seg-${key}-${CWD}`).first();
-}
-
-/** The folder card owning this cwd (scopes the non-cwd-keyed collapse chevron). */
-function folderCard(page: Page, cwd: string): Locator {
-  return page
-    .locator('[data-testid="sortable-workspace-folder"], [data-testid="sortable-pinned-group"]')
-    .filter({ has: page.getByTestId(`folder-home-row-${cwd}`) })
-    .first();
 }
 
 async function isCollapsed(page: Page): Promise<boolean> {
@@ -386,51 +380,53 @@ async function fixtureBaseBranch(page: Page): Promise<string> {
   return branch;
 }
 
-/** The git-identity region of a folder header row. */
+/**
+ * The `GroupGitInfo` container of a folder header — scoped to the CARD, since
+ * it is a SIBLING of the `folder-home-row-<cwd>` name row, not a descendant.
+ */
 function folderGitRow(page: Page, cwd: string): Locator {
-  return page.getByTestId(`folder-home-row-${cwd}`).first();
+  return folderCard(page, cwd).getByTestId("git-branch-btn");
 }
 
 /** Branch text as the user reads it in the folder header, or "" when absent. */
-async function folderBranchText(page: Page, cwd: string): Promise<string> {
-  const row = folderGitRow(page, cwd);
-  if ((await row.count()) === 0) return "";
-  const btn = row.getByTestId("git-branch-btn");
-  if ((await btn.count()) === 0) return "";
-  // The branch label is the sibling `<span>`/`<a>` of the branch button inside
-  // the same `GroupGitInfo` container.
-  return (
-    await btn
-      .first()
-      .evaluate((el) => (el.parentElement?.textContent ?? "").trim())
-      .catch(() => "")
-  );
-}
+const folderBranchText = folderHeaderBranch;
 
-/** Worktrees + sessions this block creates, so the shared container stays clean. */
+/** Worktrees + branches this block creates, so the shared container stays clean. */
 const wtCreated = new Set<string>();
+const wtBranches = new Set<string>();
 
 test.describe("folder header git identity (worktree leak)", () => {
-  test.afterAll(async ({ browser }) => {
-    if (wtCreated.size === 0) return;
-    const page = await browser.newPage();
+  // Teardown runs IN the container, matching manage-worktrees.spec.ts: the
+  // fixture repo persists across spec runs, so a leftover `.worktrees/<name>`
+  // makes the next create fail `path_exists`. Advisory — never fails a test.
+  test.afterAll(() => {
+    if (wtCreated.size === 0 && wtBranches.size === 0) return;
+    const out = execFileSync(
+      "docker",
+      ["ps", "--filter", `publish=${DASHBOARD_PORT}`, "--format", "{{.Names}}"],
+      { encoding: "utf8" },
+    ).trim();
+    const container = out.split("\n").filter(Boolean)[0];
+    if (!container) return;
+    const cmds = [
+      ...[...wtCreated].map((p) => `git -C ${CWD} worktree remove --force '${p}' 2>/dev/null || true`),
+      ...[...wtBranches].map((b) => `git -C ${CWD} branch -D '${b}' 2>/dev/null || true`),
+      `git -C ${CWD} worktree prune || true`,
+    ];
     try {
-      await gotoDashboard(page);
-      for (const p of wtCreated) {
-        await wtApi(page, "/api/git/worktree/remove", postBody({ cwd: CWD, worktreePath: p, force: true }))
-          .catch(() => ({}));
-      }
-    } finally {
-      await page.close();
+      execFileSync("docker", ["exec", container, "sh", "-c", cmds.join("; ")], { encoding: "utf8" });
+    } catch {
+      // teardown is advisory
     }
     wtCreated.clear();
+    wtBranches.clear();
   });
 
   test("main folder header never shows a worktree branch (test-plan #F1)", async ({ page }) => {
     await gotoDashboard(page);
     // A main-checkout session so the folder group exists and is expanded.
     await ensureGitSession(page);
-    await setCollapsed(page, false);
+    await expandFolder(page, CWD);
 
     const base = await fixtureBaseBranch(page);
     await expect
@@ -454,6 +450,7 @@ test.describe("folder header git identity (worktree leak)", () => {
     expect(created.success, JSON.stringify(created)).toBe(true);
     const wtPath = (created.data as { path: string }).path;
     wtCreated.add(wtPath);
+    wtBranches.add(branch);
 
     // Spawn a session INSIDE the worktree. The bridge's later `git_info_update`
     // supplies `gitWorktree.mainPath`, folding it into THIS folder's group and
@@ -479,11 +476,8 @@ test.describe("folder header git identity (worktree leak)", () => {
     // neither the branch URL nor the PR affordance.
     await gotoDashboard(page);
     await ensureGitSession(page);
-    await setCollapsed(page, false);
-    const row = folderGitRow(page, CWD);
-    await expect(row).toBeVisible({ timeout: 20_000 });
-
-    const btn = row.getByTestId("git-branch-btn").first();
+    await expandFolder(page, CWD);
+    const btn = folderGitRow(page, CWD).first();
     await expect(btn).toBeVisible({ timeout: 30_000 });
     // No borrowed branch link: the branch label is plain text, not an anchor.
     const anchors = await btn.evaluate(
@@ -503,12 +497,12 @@ test.describe("folder header git identity (worktree leak)", () => {
     // back to the (wrong) positional child branch indefinitely.
     await gotoDashboard(page);
     await ensureGitSession(page);
-    await setCollapsed(page, false);
+    await expandFolder(page, CWD);
     const base = await fixtureBaseBranch(page);
 
     await page.reload();
     await gotoDashboard(page);
-    await setCollapsed(page, false);
+    await expandFolder(page, CWD);
 
     // Short timeout ON PURPOSE: the value must arrive from the connect
     // snapshot, not from the next 60s poll cycle or a genuine HEAD change.
@@ -523,10 +517,10 @@ test.describe("folder header git identity (worktree leak)", () => {
     // confirmed non-git signal, so it must never appear for the git fixture.
     await gotoDashboard(page);
     await ensureGitSession(page);
-    await setCollapsed(page, false);
-    const row = folderGitRow(page, CWD);
-    await expect(row).toBeVisible({ timeout: 20_000 });
-    await expect(row.getByTestId("git-branch-btn").first()).toBeVisible({ timeout: 30_000 });
-    await expect(row.getByText("Init git", { exact: true })).toHaveCount(0);
+    await expandFolder(page, CWD);
+    await expect(folderGitRow(page, CWD).first()).toBeVisible({ timeout: 30_000 });
+    await expect(
+      folderCard(page, CWD).getByText("Init git", { exact: true }),
+    ).toHaveCount(0);
   });
 });
