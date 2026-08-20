@@ -31,33 +31,20 @@ import { afterEach, vi } from "vitest";
 // one is active when the leaked work fires, so a per-file fix is whack-a-mole.
 // No client spec renders in `beforeAll`, so no test relies on cross-`it` tree
 // persistence — a global unmount is safe. See change: friendlier-worktree-init.
-// Letting what is ALREADY scheduled run is the other half of the same problem,
-// and `cleanup()` alone does not cover it. TanStack Virtual notifies through a
-// `setTimeout`-based debounce (`virtual-core/utils.js`), so a notify can still
-// be in flight when a test ends; it then reaches React's dispatch after the
-// fork's jsdom is gone:
-//
-//   ReferenceError: window is not defined
-//     ❯ resolveUpdatePriority  react-dom-client
-//     ❯ Virtualizer.notify      @tanstack/virtual-core
-//     ❯ Timeout._onTimeout      @tanstack/virtual-core/utils.js
-//
-// Vitest reports that as `Errors 1` and the run exits 1 with every assertion
-// passing. Which spec gets blamed depends on `pool:"forks"` scheduling, so it is
-// a suite-level flake rather than a bug in that file. Yielding one macrotask
-// after `cleanup()` lets the pending notify fire while `window` still exists,
-// against an already-unmounted tree, which is a no-op. Deliberately a yield and
-// NOT a global `setTimeout` wrapper that cancels pending ids: that also
-// intercepts `user-event`'s and fake timers' own scheduling and broke the
-// clipboard-fallback spec.
-// See change: fix-tmux-session-shutdown-leak.
+// TanStack Virtual 3.13.12's element-offset observer leaves its default
+// 150 ms scroll-reset callback scheduled after unmount. Under full-suite load it can fire after
+// jsdom removes `window`, so wait it out only for tests that mounted ChatView.
+// Do not wrap or cancel global timers: that breaks user-event and fake-timer
+// tests. See changes: fix-tmux-session-shutdown-leak,
+// restore-dashboard-subagents-dependency.
+let chatScrollerSeen = false;
+
 afterEach(async () => {
+  const hadChatScroller = chatScrollerSeen;
   cleanup();
-  // Only with REAL timers: under `vi.useFakeTimers()` nothing advances the
-  // clock here, so awaiting a timeout would hang the hook until the test
-  // timeout (measured: five package-queue specs at 10 s each).
-  if (vi.isFakeTimers()) return;
-  await new Promise((resolve) => setTimeout(resolve, 0));
+  chatScrollerSeen = false;
+  if (vi.isFakeTimers() || !hadChatScroller) return;
+  await new Promise((resolve) => setTimeout(resolve, 160));
 });
 
 configure({ asyncUtilTimeout: 5_000 });
@@ -74,7 +61,9 @@ const TALL_VIEWPORT = 100_000;
 const WIDE_VIEWPORT = 1_000;
 
 function isChatScroller(el: unknown): boolean {
-  return el instanceof Element && el.getAttribute("data-testid") === "chat-scroll-container";
+  const matches = el instanceof Element && el.getAttribute("data-testid") === "chat-scroll-container";
+  if (matches) chatScrollerSeen = true;
+  return matches;
 }
 
 Object.defineProperty(HTMLElement.prototype, "offsetHeight", {

@@ -21,6 +21,7 @@ function makeDeps(overrides: Partial<AutoStartDeps> = {}): AutoStartDeps {
     isDashboardRunning: vi.fn().mockResolvedValue({ running: false }),
     launchServer: vi.fn().mockResolvedValue({ success: true, message: "Server started" }),
     notify: vi.fn(),
+    resolveCliPath: () => join(tmpdir(), "host-install", "packages", "server", "src", "cli.ts"),
     lockDir: LOCK_DIR,
     lossPollIntervalMs: 5,
     ...overrides,
