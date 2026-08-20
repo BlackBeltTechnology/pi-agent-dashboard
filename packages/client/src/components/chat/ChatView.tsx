@@ -392,23 +392,38 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
    * next layout pass, so it never contends for scroll ownership with the
    * live-tail follow.
    */
-  const gapAnchorRef = useRef<number | null>(null);
+  const gapAnchorRef = useRef<{ anchor: number; atLength: number } | null>(null);
   const handleLoadEarlier = useCallback(() => {
     const el = scrollRef.current;
-    gapAnchorRef.current = el ? captureScrollAnchor(el) : null;
+    gapAnchorRef.current = el ? { anchor: captureScrollAnchor(el), atLength: state.messages.length } : null;
     onLoadEarlier?.();
-  }, [onLoadEarlier]);
+  }, [onLoadEarlier, state.messages.length]);
   useLayoutEffect(() => {
-    const anchor = gapAnchorRef.current;
-    if (anchor === null) return;
+    const armed = gapAnchorRef.current;
+    if (armed === null) return;
     const el = scrollRef.current;
     if (!el) return;
-    // Restore the distance from the anchor row to the BOTTOM of the content,
-    // which is invariant under an insertion above it.
-    const restored = restoreScrollAnchor(el, anchor);
-    if (restored !== el.scrollTop) el.scrollTop = restored;
+    // Only a GROWTH is a splice. Any other length change (a live event, a row
+    // collapsing) must consume-and-discard the anchor rather than apply it,
+    // or it would jump the scroll by an unrelated row's height.
+    if (state.messages.length > armed.atLength) {
+      // Restore the distance from the anchor row to the BOTTOM of the content,
+      // which is invariant under an insertion above it.
+      const restored = restoreScrollAnchor(el, armed.anchor);
+      if (restored !== el.scrollTop) el.scrollTop = restored;
+    }
     gapAnchorRef.current = null;
   }, [state.messages.length]);
+  /**
+   * A backfill that splices NOTHING (refused, empty, or a store hole) never
+   * changes `messages.length`, so the layout effect above never runs and the
+   * anchor would stay armed until some unrelated live event consumed it.
+   * Disarm on the pending→settled edge. `useLayoutEffect` runs first, so a
+   * response that DID splice has already consumed the anchor by this point.
+   */
+  useEffect(() => {
+    if (!historyGap?.pending) gapAnchorRef.current = null;
+  }, [historyGap?.pending]);
   // True when the user wants the chat to chase new content. Flips to false on
   // any real scroll-up gesture, on explicit navigation (scrollToTurn), and on
   // session restore when the saved position was away from the bottom. Re-arms
