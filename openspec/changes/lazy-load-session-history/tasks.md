@@ -51,16 +51,18 @@
 
 ## 7. Client gap UI
 
-- [ ] 7.1 Render an "N earlier events" divider between the head and tail segments when `gapCount > 0`, with a click-to-load button
+- [ ] 7.1 Render the gap divider between the head and tail segments when `gapCount > 0`, with a click-to-load pill — follow `mockups/gap-divider.html` + `mockups/ui-plan.md` (states A1-A6, exact tokens); copy is "N earlier messages" / "Load earlier"
 - [ ] 7.2 On click, request the range adjacent to the head, bounded by `BACKFILL_MAX_SPAN`
 - [ ] 7.3 Capture `scrollHeight` before the splice and restore the delta after paint, composing with `chat-scroll-lock`
-- [ ] 7.4 Stop offering the affordance when a response returns zero events or `remainingGapCount` of `0`
+- [ ] 7.4 Stop offering the affordance when a response returns zero events or `remainingGapCount` of `0`; render state A5 ("Earlier messages are no longer available.") when the gap existed but is unservable, and remove the divider entirely (A6) when it was fully filled
+- [ ] 7.6 Map every backfill `error` code to the single plain-language A4 line plus a retry — never surface a protocol code to the user
 - [ ] 7.5 Show a local pending state on the divider, deliberately NOT the `chat-history-loading-indicator` replay-in-flight flag
 
 ## 8. Settings UI
 
 - [ ] 8.1 Add the `maxReplayEvents` numeric control to the Memory Limits section of `packages/client/src/components/settings/SettingsPanel.tsx`
-- [ ] 8.2 Add i18n keys `session.maxReplayEvents` and `settings.hint.maxReplayEvents` for en/hu/zh with English fallbacks
+- [ ] 8.2 Add i18n keys `session.maxReplayEvents` and `settings.hint.maxReplayEvents` for en/hu/zh with English fallbacks, using the copy in `mockups/ui-plan.md` section B
+- [ ] 8.3 Add i18n keys for the divider states (count, load, loading, error, unavailable) with English fallbacks; the count string must support singular and plural
 
 ## 9. Tests — config (L1)
 
