@@ -201,6 +201,26 @@ export interface HeadlessPidRegistry {
    * fix-automation-stop-zombie-runs.
    */
   killByToken(spawnToken: string): Promise<boolean>;
+  /**
+   * Enumerate every entry that has been linked to a session id, with the
+   * resolved pi PID and whether a keeper UDS is available for it.
+   *
+   * Reload fan-outs need this: they used to iterate
+   * `piGateway.getConnectedSessionIds()` only, so a headless session whose
+   * bridge WebSocket died — exactly the session that most needs a reload —
+   * was never targeted. `sessionManager` cannot substitute, because such a
+   * session is stamped `ended` on WS close.
+   * See change: fix-out-of-band-reload.
+   */
+  listSessions(): Array<{ sessionId: string; pid: number; hasKeeper: boolean }>;
+  /**
+   * True iff `sessionId` has a keeper UDS path registered, i.e. `writeRpc`
+   * has somewhere to write. Cheap synchronous probe used by the reload
+   * ladder to choose the in-process dispatch path over respawn without
+   * performing a speculative write.
+   * See change: fix-out-of-band-reload.
+   */
+  hasKeeper(sessionId: string): boolean;
   /** Remove a tracked process by PID. */
   remove(pid: number): void;
   /** Kill all tracked processes (for server shutdown). */
@@ -488,6 +508,23 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
       const entry = findByToken(spawnToken);
       if (!entry) return false;
       return killEntry(entry);
+    },
+
+    listSessions() {
+      const out: Array<{ sessionId: string; pid: number; hasKeeper: boolean }> = [];
+      for (const entry of entries.values()) {
+        if (!entry.sessionId) continue;
+        out.push({
+          sessionId: entry.sessionId,
+          pid: entry.piPid ?? entry.pid,
+          hasKeeper: Boolean(entry.keeperSockPath),
+        });
+      }
+      return out;
+    },
+
+    hasKeeper(sessionId: string) {
+      return Boolean(findBySessionId(sessionId)?.keeperSockPath);
     },
 
     remove(pid: number) {

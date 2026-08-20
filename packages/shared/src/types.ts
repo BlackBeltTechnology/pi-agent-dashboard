@@ -109,6 +109,17 @@ export interface DashboardSession {
    */
   lifecyclePolicy?: LifecyclePolicy;
   status: SessionStatus;
+  /**
+   * True while the session is compacting its context. Derived server-side
+   * from the bridge-forwarded `session_before_compact` (start) and
+   * `session_compact` (end) events, because `SessionStatus` has no
+   * compaction member. Consumed by the reload dispatcher: pi runs an
+   * extension command immediately even mid-compaction, and `ctx.reload()`
+   * would invalidate the runner, so a compacting session refuses a reload.
+   * Cleared on compaction end and never carried onto a re-registration.
+   * See change: fix-out-of-band-reload.
+   */
+  compacting?: boolean;
   model?: string;
   thinkingLevel?: string;
   startedAt: number;

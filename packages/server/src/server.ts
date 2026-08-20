@@ -109,6 +109,15 @@ import { registerPackageRoutes } from "./routes/package-routes.js";
 import { registerPairingRoutes } from "./routes/pairing-routes.js";
 import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
 import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
+import {
+  buildDispatchReloadContext,
+  respawnForRuntimeSwap,
+  type ReloadHostContext,
+} from "./browser-handlers/session-action-handler.js";
+import {
+  dispatchReload as dispatchReloadRaw,
+  reloadTargetSessionIds,
+} from "./rpc-keeper/dispatch-reload.js";
 import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
 import { registerPiRuntimeRoutes } from "./routes/pi-runtime-routes.js";
 import { registerPluginActivationRoutes } from "./routes/plugin-activation-routes.js";
@@ -1214,6 +1223,34 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     { localToken },
   );
 
+  // ── Reload fan-out plumbing ───────────────────────────────────────────
+  // Every automated reload trigger goes through the SAME ladder as the
+  // reload button. Previously each hand-rolled a `sendToSession` loop over
+  // `getConnectedSessionIds()`, which (a) bypassed the server-side
+  // interception entirely and landed on the bridge's no-op reload, and
+  // (b) could never target a headless session whose bridge WS had died.
+  // See change: fix-out-of-band-reload.
+  const reloadCtx = (): ReloadHostContext => ({
+    sessionManager,
+    eventStore,
+    piGateway,
+    headlessPidRegistry: browserGateway.headlessPidRegistry,
+    broadcast: (msg) => browserGateway.broadcast(msg),
+  });
+  const dispatchReload = (sid: string) =>
+    dispatchReloadRaw(sid, buildDispatchReloadContext(reloadCtx()));
+  const reloadFanOutTargets = (): string[] =>
+    reloadTargetSessionIds(
+      piGateway.getConnectedSessionIds(),
+      browserGateway.headlessPidRegistry,
+    ).filter((sid) => {
+      const session = sessionManager.get(sid);
+      // A registry-known session with a dead bridge is stamped `ended` in
+      // the session map but is still alive and still reloadable, so absence
+      // of a record is not a reason to skip it.
+      return !session || session.status !== "ended" || browserGateway.headlessPidRegistry.getPid(sid) !== undefined;
+    });
+
   registerSessionRoutes(fastify, { sessionManager, eventStore, networkGuard });
   // pi retry policy editor. Reload fan-out dispatches `/reload` to every
   // connected session so a saved policy applies without a manual restart
@@ -1222,9 +1259,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   registerPiRetryRoutes(fastify, {
     networkGuard,
     reloadConnectedSessions: () => {
-      const ids = piGateway.getConnectedSessionIds();
+      // Fire-and-forget by contract (the route answers with the target count,
+      // not per-session outcomes), but the rejection is OWNED: `dispatchReload`
+      // reports failures as terminal `command_feedback`, so a throw here is a
+      // bug and must be logged rather than becoming an unhandled rejection.
+      const ids = reloadFanOutTargets();
       for (const id of ids) {
-        piGateway.sendToSession(id, { type: "send_prompt", sessionId: id, text: "/reload" });
+        dispatchReload(id).catch((err) => {
+          console.error(`[dashboard] retry-policy reload fan-out failed for ${id}:`, err);
+        });
       }
       return ids.length;
     },
@@ -1519,43 +1562,39 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   // Reload all active sessions after a successful package operation
   packageManagerWrapper.setReloadSessions(async () => {
-    const connectedIds = piGateway.getConnectedSessionIds();
     let count = 0;
-    for (const sid of connectedIds) {
-      const session = sessionManager.get(sid);
-      if (session && session.status !== "ended") {
-        piGateway.sendToSession(sid, {
-          type: "send_prompt",
-          sessionId: sid,
-          text: "/reload",
-        });
-        count++;
-      }
+    for (const sid of reloadFanOutTargets()) {
+      await dispatchReload(sid);
+      count++;
     }
     return count;
   });
 
   registerPackageRoutes(fastify, { packageManagerWrapper });
-  registerResourceActivationRoutes(fastify, { networkGuard, piGateway, sessionManager });
+  registerResourceActivationRoutes(fastify, {
+    networkGuard,
+    piGateway,
+    sessionManager,
+    dispatchReload,
+    registrySessionIds: () =>
+      browserGateway.headlessPidRegistry.listSessions().map((e) => e.sessionId),
+  });
   registerRecommendedRoutes(fastify, { packageManagerWrapper });
 
   // Pi core version check + update (complements the extension package manager).
   const piCoreChecker = new PiCoreChecker();
   const piCoreUpdater = new PiCoreUpdater({
     packageManagerWrapper,
+    // pi-core is a BINARY swap, not a resource reload: an in-process
+    // `ctx.reload()` cannot replace the running pi-core. Route to respawn
+    // directly (never `dispatchReload`), for every session the registry knows
+    // is headless — including connected and streaming ones.
+    // See change: fix-out-of-band-reload (design.md D6).
     onAllComplete: async () => {
-      const connectedIds = piGateway.getConnectedSessionIds();
       let count = 0;
-      for (const sid of connectedIds) {
-        const session = sessionManager.get(sid);
-        if (session && session.status !== "ended") {
-          piGateway.sendToSession(sid, {
-            type: "send_prompt",
-            sessionId: sid,
-            text: "/reload",
-          });
-          count++;
-        }
+      for (const entry of browserGateway.headlessPidRegistry.listSessions()) {
+        await respawnForRuntimeSwap(entry.sessionId, reloadCtx());
+        count++;
       }
       return count;
     },

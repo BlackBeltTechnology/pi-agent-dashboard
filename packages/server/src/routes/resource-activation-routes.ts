@@ -74,14 +74,20 @@ function sessionsForScope(
   piGateway: PiGateway,
   sessionManager: SessionManager,
   scope: ToggleScope,
-  cwd?: string,
+  cwd: string | undefined,
+  registrySessionIds: readonly string[],
 ): string[] {
   const ids = scope === "local" && cwd
     ? piGateway.findSessionsByCwd(cwd)
-    : piGateway.getConnectedSessionIds();
+    : [...new Set([...piGateway.getConnectedSessionIds(), ...registrySessionIds])];
   return ids.filter((sid) => {
     const s = sessionManager.get(sid);
-    return s && s.status !== "ended";
+    // A session the registry knows is alive stays a target even when the
+    // session map has stamped it `ended` — that stamp fires on bridge-WS
+    // close, which is exactly the case the keeper/respawn ladder rescues.
+    // See change: fix-out-of-band-reload.
+    if (registrySessionIds.includes(sid)) return true;
+    return Boolean(s) && s?.status !== "ended";
   });
 }
 
@@ -91,6 +97,17 @@ export function registerResourceActivationRoutes(
     networkGuard: NetworkGuard;
     piGateway: PiGateway;
     sessionManager: SessionManager;
+    /**
+     * The server's single reload entry point. Injected rather than a raw
+     * `sendToSession` loop so `POST /api/resources/reload` resolves the same
+     * keeper → respawn → bridge ladder as the reload button, and emits the
+     * same one-terminal-feedback-per-reload contract.
+     * Resolves `"error"` / `"refused"` instead of throwing.
+     * See change: fix-out-of-band-reload.
+     */
+    dispatchReload: (sessionId: string) => Promise<string>;
+    /** Session ids the headless PID registry knows are alive. */
+    registrySessionIds: () => string[];
   },
 ) {
   const { networkGuard, piGateway, sessionManager } = deps;
@@ -142,7 +159,13 @@ export function registerResourceActivationRoutes(
       return { success: false, error: result.error } satisfies ApiResponse;
     }
 
-    const affectedSessions = sessionsForScope(piGateway, sessionManager, scope, body.cwd);
+    const affectedSessions = sessionsForScope(
+      piGateway,
+      sessionManager,
+      scope,
+      body.cwd,
+      deps.registrySessionIds(),
+    );
     return { success: true, data: { affectedSessions } } satisfies ApiResponse;
   });
 
@@ -200,15 +223,20 @@ export function registerResourceActivationRoutes(
         return { success: false, error: "scope must be 'local' or 'global'" } satisfies ApiResponse;
       }
 
-      const ids = sessionsForScope(piGateway, sessionManager, scope, body.cwd);
+      const ids = sessionsForScope(
+        piGateway,
+        sessionManager,
+        scope,
+        body.cwd,
+        deps.registrySessionIds(),
+      );
       let reloaded = 0;
       for (const sid of ids) {
-        // Count only sessions the message actually reached: sendToSession
-        // returns false for a closed/absent socket, so a stale connection
-        // never inflates the reported count.
-        if (piGateway.sendToSession(sid, { type: "send_prompt", sessionId: sid, text: "/reload" })) {
-          reloaded++;
-        }
+        // Count only sessions a reload path actually accepted. `dispatchReload`
+        // returns "error" when no path existed and "refused" for a busy
+        // session, so neither inflates the reported count.
+        const outcome = await deps.dispatchReload(sid);
+        if (outcome !== "error" && outcome !== "refused") reloaded++;
       }
       return { success: true, data: { reloaded } } satisfies ApiResponse;
     },

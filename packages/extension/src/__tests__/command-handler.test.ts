@@ -655,7 +655,8 @@ describe("CommandHandler", () => {
       const pi = createMockPi();
       const sessionPrompt = vi.fn();
       const eventSink = vi.fn();
-      const handler = createCommandHandler(pi as any, "s1", { sessionPrompt, eventSink });
+      const reload = vi.fn(() => ({ ok: true }) as const);
+      const handler = createCommandHandler(pi as any, "s1", { sessionPrompt, eventSink, reload });
 
       await handler.handle({ type: "send_prompt", sessionId: "s1", text: "/reload" });
 
@@ -720,7 +721,7 @@ describe("CommandHandler", () => {
 
     it("should route /reload to reload callback", async () => {
       const pi = createMockPi();
-      const reload = vi.fn();
+      const reload = vi.fn(() => ({ ok: true }) as const);
       const eventSink = vi.fn();
       const handler = createCommandHandler(pi as any, "s1", { reload, eventSink });
 
@@ -743,6 +744,56 @@ describe("CommandHandler", () => {
 
       await handler.handle({ type: "send_prompt", sessionId: "s1", text: "/reload" });
       expect(pi.sendUserMessage).not.toHaveBeenCalled();
+    });
+
+    // ── Feedback honesty (test-plan #X6, #X7) ──
+    // The handler used to emit `command_feedback {status:"completed"}`
+    // UNCONDITIONALLY — whether `options.reload` existed, ran, or silently
+    // no-op'd. That false success is the core defect this change fixes.
+    // See change: fix-out-of-band-reload.
+    it("#X6 emits `error` and NO `completed` when no reload path exists", async () => {
+      const pi = createMockPi();
+      const eventSink = vi.fn();
+      // Terminal-hosted bridge with no captured RELOAD_KEY: `reload` is absent.
+      const handler = createCommandHandler(pi as any, "s1", { eventSink });
+
+      await handler.handle({ type: "send_prompt", sessionId: "s1", text: "/reload" });
+
+      const feedback = eventSink.mock.calls
+        .map((c) => c[0])
+        .filter((m: any) => m?.event?.eventType === "command_feedback")
+        .map((m: any) => m.event.data);
+      expect(feedback).toHaveLength(1);
+      expect(feedback[0]).toMatchObject({ command: "/reload", status: "error" });
+      expect(feedback.some((f: any) => f.status === "completed")).toBe(false);
+    });
+
+    it("#X7 reports a SYNCHRONOUS throw from a stale captured reload fn", async () => {
+      const pi = createMockPi();
+      const eventSink = vi.fn();
+      // The captured fn is single-use: the first `ctx.reload()` invalidates the
+      // runner, so the second call throws synchronously out of `assertActive()`
+      // — which a `.catch()` on the returned promise cannot catch.
+      const reload = vi.fn(() => {
+        try {
+          throw new Error("session runner is no longer active");
+        } catch (err: any) {
+          return { ok: false, reason: `Reload failed: ${err.message}` } as const;
+        }
+      });
+      const handler = createCommandHandler(pi as any, "s1", { reload, eventSink });
+
+      await expect(
+        handler.handle({ type: "send_prompt", sessionId: "s1", text: "/reload" }),
+      ).resolves.not.toThrow();
+
+      const feedback = eventSink.mock.calls
+        .map((c) => c[0])
+        .filter((m: any) => m?.event?.eventType === "command_feedback")
+        .map((m: any) => m.event.data);
+      expect(feedback).toHaveLength(1);
+      expect(feedback[0]).toMatchObject({ command: "/reload", status: "error" });
+      expect(feedback[0].message).toContain("no longer active");
     });
 
     it("should route /new to spawnNew callback", async () => {

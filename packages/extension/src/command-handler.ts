@@ -195,6 +195,19 @@ export function searchFiles(cwd: string, query: string, opts?: { regex?: boolean
   return candidates.slice(0, MAX_RESULTS).map((c) => ({ path: c.path, isDirectory: c.isDirectory }));
 }
 
+/**
+ * Outcome of a bridge-side `/reload` attempt.
+ *
+ * `ok: false` carries the operator-facing reason so the terminal
+ * `command_feedback` says WHY nothing reloaded instead of claiming success.
+ * See change: fix-out-of-band-reload.
+ */
+export type ReloadOutcome = { ok: true } | { ok: false; reason: string };
+
+/** Reason emitted when the bridge has no reload path at all. */
+export const NO_RELOAD_PATH_REASON =
+  "No reload path for this session — a terminal-hosted pi session must run /__dashboard_reload once in its TUI to enable dashboard reloads.";
+
 /** Parsed result from parseSendPrompt */
 export type ParsedPrompt =
   | { type: "bash"; command: string; excludeFromContext: boolean }
@@ -342,8 +355,20 @@ export function createCommandHandler(
     eventSink?: (msg: ExtensionToServerMessage) => void;
     /** Trigger context compaction */
     compact?: (options: { customInstructions?: string }) => void;
-    /** Trigger session reload (extensions, settings, skills, etc.) */
-    reload?: () => void;
+    /**
+     * Trigger session reload (extensions, settings, skills, etc.).
+     *
+     * Returns whether a reload ACTUALLY ran. The bridge only has a reload
+     * function when a human once typed `/__dashboard_reload` in pi's TUI
+     * (`ExtensionContext` has no `reload`; only `ExtensionCommandContext`
+     * does), and even a captured one is single-use per process — its runner
+     * is invalidated by the first reload, so a second call throws
+     * *synchronously*. "Present" therefore does not imply "usable", which is
+     * why this reports an outcome instead of returning void and letting the
+     * caller emit an unconditional `completed`.
+     * See change: fix-out-of-band-reload (design.md D5).
+     */
+    reload?: () => ReloadOutcome;
     /** Spawn a new session in the same cwd */
     spawnNew?: () => void;
     /** Switch model via pi.setModel() */
@@ -480,16 +505,23 @@ export function createCommandHandler(
           }
 
           if (parsed.type === "reload") {
-            if (options?.reload) {
-              options.reload();
-            }
+            // Emit the REAL outcome. The previous unconditional `completed`
+            // reported success for every reload that silently no-op'd on a
+            // session with no captured reload function — which is every
+            // dashboard-spawned session that was never touched in a TUI.
+            // See change: fix-out-of-band-reload.
+            const outcome: ReloadOutcome = options?.reload
+              ? options.reload()
+              : { ok: false, reason: NO_RELOAD_PATH_REASON };
             options?.eventSink?.({
               type: "event_forward",
               sessionId,
               event: {
                 eventType: "command_feedback",
                 timestamp: Date.now(),
-                data: { command: "/reload", status: "completed" },
+                data: outcome.ok
+                  ? { command: "/reload", status: "completed" }
+                  : { command: "/reload", status: "error", message: outcome.reason },
               },
             });
             return undefined;
