@@ -30,7 +30,7 @@ export function TruncationBanner({ message, downloadHref, charset }: Props) {
           {charset}
         </span>
       ) : null}
-      <a href={downloadHref} download className="text-[var(--accent)] underline">
+      <a href={downloadHref} download className="text-[var(--accent-text)] underline">
         {i18nT("common.download", undefined, "Download")}
       </a>
     </div>

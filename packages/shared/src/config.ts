@@ -315,12 +315,28 @@ export interface DashboardConfig {
   tunnel: {
     enabled: boolean;
     /**
-     * Which provider backs the tunnel. Required (non-undefined) once a
-     * post-migration config is written; a legacy config with only
-     * `reservedToken` is normalized to `provider: "zrok"` at read time.
+     * Which provider backs the tunnel — now specifically **the PRIMARY**.
+     *
+     * The field keeps its shape and gains a meaning, which is what keeps
+     * concurrency cheap: `getTunnelUrl()` returns the primary's URL, so every
+     * existing OAuth, cookie and redirect scenario stays true verbatim and the
+     * legacy `reservedToken` migration is untouched. Additional providers opt
+     * in via `tunnel.<id>.enabled`.
+     *
+     * Required (non-undefined) once a post-migration config is written; a
+     * legacy config with only `reservedToken` is normalized to
+     * `provider: "zrok"` at read time.
      */
     provider?: TunnelProviderId;
-    /** public reverse-proxy vs private mesh. Required when enabled + provider set. */
+    /**
+     * public reverse-proxy vs private mesh, for the PRIMARY.
+     *
+     * A single shared mode cannot express "zrok primary + zerotier enabled":
+     * `PROVIDER_MODES` makes zerotier private-only and zrok public-only, so one
+     * field would make that combination inexpressible. Non-primary providers
+     * carry their own `tunnel.<id>.mode`. See change:
+     * add-zrok-custom-reserved-name (D3).
+     */
     mode?: TunnelMode;
     /**
      * Legacy top-level zrok reserved token. Preserved on read for downgrade
@@ -334,10 +350,10 @@ export interface DashboardConfig {
      * `persistent` (default false) opts in to minting/serving a reserved name.
      * See change: support-zrok-v2.
      */
-    zrok?: { reservedToken?: string; reservedName?: string; persistent?: boolean };
-    ngrok?: { authtoken?: string; domain?: string };
-    tailscale?: { authKey?: string };
-    zerotier?: { networkId?: string };
+    zrok?: { reservedToken?: string; reservedName?: string; persistent?: boolean; enabled?: boolean; mode?: TunnelMode };
+    ngrok?: { authtoken?: string; domain?: string; enabled?: boolean; mode?: TunnelMode };
+    tailscale?: { authKey?: string; enabled?: boolean; mode?: TunnelMode };
+    zerotier?: { networkId?: string; enabled?: boolean; mode?: TunnelMode };
     watchdog?: {
       enabled: boolean;
       intervalMs: number;
@@ -950,6 +966,32 @@ const KNOWN_TUNNEL_MODES: TunnelMode[] = ["public", "private"];
  *  - an explicit `provider` wins over a stray legacy `reservedToken`.
  * See change: add-tunnel-providers.
  */
+/**
+ * The per-provider concurrency flags (D3), validated.
+ *
+ * `zrok` is RECONSTRUCTED rather than spread (it carries the legacy token
+ * migration), so without this helper its `enabled`/`mode` were silently dropped
+ * on every load: the operator's second tunnel never connected and the config
+ * showed nothing to explain it. An invalid value is DROPPED rather than
+ * preserved — `resolveTunnelPlan` treats absent `enabled` as false, which is
+ * the safe reading; a bogus `mode` string would instead surface later as an
+ * unsupported-mode connect failure far from its cause.
+ */
+function perProviderFlags(raw: any): { enabled?: boolean; mode?: TunnelMode } {
+  return {
+    ...(typeof raw?.enabled === "boolean" ? { enabled: raw.enabled } : {}),
+    ...(typeof raw?.mode === "string" && (KNOWN_TUNNEL_MODES as string[]).includes(raw.mode)
+      ? { mode: raw.mode as TunnelMode }
+      : {}),
+  };
+}
+
+/** A provider sub-config with its flags re-derived from the validated pair. */
+function withProviderFlags(raw: any): Record<string, unknown> {
+  const { enabled: _e, mode: _m, ...rest } = raw as Record<string, unknown>;
+  return { ...rest, ...perProviderFlags(raw) };
+}
+
 export function normalizeTunnelConfig(
   raw: any,
   defaults: DashboardConfig["tunnel"],
@@ -978,6 +1020,7 @@ export function normalizeTunnelConfig(
   const zrok = {
     ...(zrokToken ? { reservedToken: zrokToken } : {}),
     ...(zrokReservedName ? { reservedName: zrokReservedName } : {}),
+    ...perProviderFlags(rawZrok),
     persistent: zrokPersistent,
   };
 
@@ -987,9 +1030,16 @@ export function normalizeTunnelConfig(
     ...(mode ? { mode } : {}),
     ...(legacyToken ? { reservedToken: legacyToken } : {}),
     zrok,
-    ...(raw?.ngrok && typeof raw.ngrok === "object" ? { ngrok: { ...raw.ngrok } } : {}),
-    ...(raw?.tailscale && typeof raw.tailscale === "object" ? { tailscale: { ...raw.tailscale } } : {}),
-    ...(raw?.zerotier && typeof raw.zerotier === "object" ? { zerotier: { ...raw.zerotier } } : {}),
+    // The raw `enabled`/`mode` are STRIPPED before the spread and re-added from
+    // the validated pair, so a junk value cannot ride the spread into the
+    // concurrency resolver.
+    ...(raw?.ngrok && typeof raw.ngrok === "object" ? { ngrok: withProviderFlags(raw.ngrok) } : {}),
+    ...(raw?.tailscale && typeof raw.tailscale === "object"
+      ? { tailscale: withProviderFlags(raw.tailscale) }
+      : {}),
+    ...(raw?.zerotier && typeof raw.zerotier === "object"
+      ? { zerotier: withProviderFlags(raw.zerotier) }
+      : {}),
     watchdog: {
       enabled: raw?.watchdog?.enabled ?? defaults.watchdog!.enabled,
       intervalMs:

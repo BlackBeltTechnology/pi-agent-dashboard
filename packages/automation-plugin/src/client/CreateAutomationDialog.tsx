@@ -517,7 +517,7 @@ export function CreateAutomationDialog({
                   onClick={() => setCategory(c.category)}
                   className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full border ${
                     selected
-                      ? "border-[var(--accent,#6366f1)] text-[var(--accent,#6366f1)] bg-[var(--accent-soft,rgba(99,102,241,0.12))]"
+                      ? "border-[var(--accent)] text-[var(--accent-text)] bg-[var(--accent-soft)]"
                       : "border-[var(--border-secondary)] text-[var(--text-secondary)]"
                   } ${planned ? "opacity-40 cursor-not-allowed" : ""}`}
                   title={planned ? t("comingSoon", undefined, "Coming soon") : c.label}
@@ -629,7 +629,7 @@ export function CreateAutomationDialog({
                     {t("filePathHelp", undefined, "Fires once per new file that arrives here (settle: rename-only).")}
                   </p>
                   {filePathMissing && (
-                    <p className="text-[10px] text-[var(--danger,#ef4444)]" data-testid="file-path-missing">
+                    <p className="text-[10px] text-[var(--severity-error-fg)]" data-testid="file-path-missing">
                       {t("filePathRequired", undefined, "Folder to watch is required.")}
                     </p>
                   )}
@@ -659,7 +659,7 @@ export function CreateAutomationDialog({
               })}
               </div>
               {eventsMissing && (
-                <p className="text-[10px] text-[var(--danger,#ef4444)]" data-testid="events-missing">
+                <p className="text-[10px] text-[var(--severity-error-fg)]" data-testid="events-missing">
                   {t("eventsMissing", undefined, "Select at least one event type.")}
                 </p>
               )}
@@ -754,7 +754,7 @@ export function CreateAutomationDialog({
                     type="button"
                     data-testid={`remove-action-entry-${i}`}
                     onClick={() => setExtraEntries((prev) => prev.filter((_, j) => j !== i))}
-                    className="text-[10px] text-[var(--danger,#ef4444)]"
+                    className="text-[10px] text-[var(--severity-error-fg)]"
                   >
                     {t("remove", undefined, "Remove")}
                   </button>
@@ -825,7 +825,7 @@ export function CreateAutomationDialog({
                 onClick={() => setModelMode("role")}
                 className={`px-2 py-0.5 text-[10px] rounded border ${
                   modelMode === "role"
-                    ? "border-[var(--accent,#6366f1)] text-[var(--accent,#6366f1)]"
+                    ? "border-[var(--accent)] text-[var(--accent-text)]"
                     : "border-[var(--border-secondary)] text-[var(--text-secondary)]"
                 }`}
               >
@@ -837,7 +837,7 @@ export function CreateAutomationDialog({
                 onClick={() => setModelMode("model")}
                 className={`px-2 py-0.5 text-[10px] rounded border ${
                   modelMode === "model"
-                    ? "border-[var(--accent,#6366f1)] text-[var(--accent,#6366f1)]"
+                    ? "border-[var(--accent)] text-[var(--accent-text)]"
                     : "border-[var(--border-secondary)] text-[var(--text-secondary)]"
                 }`}
               >
@@ -992,7 +992,7 @@ export function CreateAutomationDialog({
         </div>
 
         {error && (
-          <p className="text-xs text-[var(--danger,#ef4444)]" data-testid="create-error">
+          <p className="text-xs text-[var(--severity-error-fg)]" data-testid="create-error">
             {error}
           </p>
         )}
@@ -1011,7 +1011,7 @@ export function CreateAutomationDialog({
             onClick={submit}
             disabled={submitDisabled}
             data-testid="create-submit"
-            className="px-3 py-1 text-xs rounded bg-[var(--accent,#6366f1)] text-white disabled:opacity-50"
+            className="px-3 py-1 text-xs rounded bg-[var(--accent-solid)] text-white disabled:opacity-50"
           >
             {busy ? t("saving", undefined, "Saving…") : editing ? t("save", undefined, "Save") : t("create", undefined, "Create")}
           </button>
@@ -1089,7 +1089,7 @@ function Segmented<T extends string>({
             onClick={() => onChange(o.value)}
             className={`px-2 py-0.5 text-[11px] rounded ${
               selected
-                ? "bg-[var(--accent,#6366f1)] text-white"
+                ? "bg-[var(--accent-solid)] text-white"
                 : "text-[var(--text-secondary)]"
             } ${disabled ? "opacity-60 cursor-not-allowed" : ""}`}
           >
@@ -1199,7 +1199,7 @@ function ActionPicker({
                           data-testid={`create-action-${a.id}`}
                           className={`flex items-center gap-2 rounded border px-2 py-1.5 text-left text-[11px] ${
                             selected
-                              ? "border-[var(--accent,#6366f1)] bg-[var(--accent,#6366f1)]/10"
+                              ? "border-[var(--accent)] bg-[var(--accent)]/10"
                               : "border-[var(--border-secondary)]"
                           } ${a.available ? "" : "opacity-50 cursor-not-allowed"}`}
                         >

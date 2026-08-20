@@ -74,7 +74,7 @@ export function PptxPreview({ target }: Props) {
         type="button"
         data-testid="pptx-render-slides"
         onClick={activate}
-        className="rounded bg-[var(--accent)] px-4 py-2 text-sm text-[var(--accent-fg,#fff)] hover:opacity-90"
+        className="rounded bg-[var(--accent-solid)] px-4 py-2 text-sm text-white hover:opacity-90"
       >
         {i18nT("preview.pptxRenderSlides", undefined, "Render slides")}
       </button>

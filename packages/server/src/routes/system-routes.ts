@@ -18,7 +18,8 @@ import { whichSync } from "@blackbelt-technology/pi-dashboard-shared/platform/bi
 import { getGitSourceReadout } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
 import { classifyBridgeSource } from "@blackbelt-technology/pi-dashboard-shared/plugin-bridge-register.js";
 import { RESTART_QUIESCE_MS } from "@blackbelt-technology/pi-dashboard-shared/recovery-timing.js";
-import type { NetworkInterface } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { NetworkInterface, ReservedNameResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import { resolveTunnelPlan } from "@blackbelt-technology/pi-dashboard-shared/tunnel-concurrency.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import {
@@ -55,11 +56,12 @@ import type { SessionManager } from "../session/memory-session-manager.js";
 import { spawnRestart } from "../spawn-process/restart-helper.js";
 import { readSpawnFailures } from "../spawn-process/spawn-failure-log.js";
 import { systemOpenCapability } from "../system-open-capability.js";
-import { createTunnel, deleteTunnel, ensureReservedName, getTunnelStatus, getTunnelUrl, releaseShare } from "../tunnel/tunnel.js";
+import { connectResolvedProviders, createTunnel, deleteTunnel, disconnectResolvedProviders, ensureReservedName, getProviderReadiness, getTunnelStatus, getTunnelUrl, releaseShare, setPrimaryProvider } from "../tunnel/tunnel.js";
 import { blockEvents } from "../tunnel/tunnel-block-events.js";
 import { collectEndpoints } from "../tunnel/tunnel-endpoints.js";
 import { runEnrollStep } from "../tunnel/tunnel-enroll.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "../tunnel/tunnel-watchdog.js";
+import { reserveNameAsync } from "../tunnel-providers/zrok.js";
 import { buildNetworkInterfaceList } from "./network-interfaces.js";
 import type { NetworkGuard } from "./route-deps.js";
 
@@ -480,12 +482,68 @@ export function registerSystemRoutes(
   );
 
   // Tunnel endpoints
+  /**
+   * Per-provider readiness for the Gateway board.
+   *
+   * Shells out per provider (~4 subprocesses per call), so it is polled ONLY
+   * while the dialog is open — there is no background evaluation and no push
+   * channel. Guarded like the other config-adjacent routes: it discloses which
+   * tunnelling tools the operator has installed and enrolled.
+   *
+   * A throwing or hung provider degrades its own row only; the board never
+   * blanks because one CLI stalled. See change: add-zrok-custom-reserved-name.
+   */
+  fastify.get(
+    "/api/tunnel-readiness",
+    { preHandler: networkGuard },
+    async () => {
+      const providers = await getProviderReadiness({
+        zerotierNetworkId: (config.tunnelConfig as { zerotier?: { networkId?: string } } | undefined)?.zerotier
+          ?.networkId,
+      });
+      return {
+        success: true,
+        data: { providers, checkedAt: new Date().toISOString() },
+      } satisfies ApiResponse;
+    },
+  );
+
+  // Deliberately UNGATED, as before this change — the client reads it to render
+  // the tunnel indicator before any auth exists.
   fastify.get("/api/tunnel-status", async () => {
-    return getTunnelStatus();
+    const status = getTunnelStatus({
+      reservedName: config.tunnelReservedName,
+      persistent: config.tunnelPersistent,
+    });
+    // `degraded.configuredName` is, BY DEFINITION, a reserved name the operator
+    // owns that does NOT appear in the served URL — so unlike `url` it is not
+    // already public. Emitting it here would disclose it to an unauthenticated
+    // caller whenever no auth gate is installed, which is exactly the
+    // deployment shape a tunnel creates. The degraded FLAG is kept (the
+    // indicator needs it); the name is redacted and served from the gated
+    // `/api/tunnel-readiness`-adjacent surfaces the dialog already uses.
+    if (status.status === "active" && status.degraded) {
+      return { ...status, degraded: { configuredName: "", ...(status.degraded.effectiveName ? { effectiveName: status.degraded.effectiveName } : {}) } };
+    }
+    return status;
   });
+
+  // The gated twin of `/api/tunnel-status` — same projection, but allowed to
+  // name the configured reserved name. The Gateway dialog reads this one.
+  fastify.get(
+    "/api/tunnel-status-detail",
+    { preHandler: networkGuard },
+    async () => {
+      return getTunnelStatus({
+        reservedName: config.tunnelReservedName,
+        persistent: config.tunnelPersistent,
+      });
+    },
+  );
 
   fastify.post("/api/tunnel-connect", async () => {
     const status = getTunnelStatus();
+
     if (status.status === "active") return { ok: true, url: status.url };
     if (status.status === "unavailable") return { ok: false, error: "zrok not installed" };
     // v2: resolve the reserved NAME (stored or minted-when-persistent) and
@@ -495,7 +553,29 @@ export function registerSystemRoutes(
       persistent: config.tunnelPersistent,
     });
     config.tunnelReservedName = reservedName;
+
+    // Connect the PRIMARY through the existing zrok path (byte-identical for
+    // every pre-concurrency config), then bring up any `tunnel.<id>.enabled`
+    // extras. A non-primary failure disables that provider alone; it never
+    // fails the connect. See change: add-zrok-custom-reserved-name (D3).
     const url = await createTunnel(config.port, reservedName);
+    const tunnelCfg = config.tunnelConfig;
+    setPrimaryProvider(tunnelCfg?.provider);
+    if (tunnelCfg) {
+      const extras = resolveTunnelPlan(tunnelCfg).providers.filter((p) => !p.primary);
+      if (extras.length > 0) {
+        const { failures } = await connectResolvedProviders(tunnelCfg, config.port, {
+          zerotierNetworkId: tunnelCfg.zerotier?.networkId,
+          // The primary is already up via `createTunnel` above. Passing the
+          // REAL config with this flag (rather than blanking `provider`) keeps
+          // the primary recorded and stops it being re-connected as an extra.
+          skipPrimary: true,
+        });
+        for (const f of failures) {
+          console.warn(`tunnel: provider ${f.provider} did not connect: ${f.error}`);
+        }
+      }
+    }
     if (url) {
       const wd = config.tunnelWatchdog;
       if (wd?.enabled !== false) {
@@ -515,11 +595,132 @@ export function registerSystemRoutes(
     return { ok: false, error: "Failed to create tunnel" };
   });
 
+  /**
+   * Set, replace or clear the zrok reserved name — independently of connecting.
+   *
+   * The whole point is WHEN the user finds out. Previously the only way to run
+   * on a chosen name was to hand-edit config.json, and the only report of a
+   * failed reservation was a `console.warn` on the server while the UI showed a
+   * green tunnel at a URL the user never picked. This validates while they are
+   * still looking at the input and returns the typed reason.
+   *
+   * `networkGuard` is NOT optional here despite the route looking read-shaped
+   * from the client: it writes persisted config AND creates or destroys a
+   * remote resource on the operator's zrok account.
+   *
+   * Ordering is load-bearing in two directions:
+   *  - the OLD name is released only AFTER the new reservation succeeds, so a
+   *    failed replace can never leave the user holding neither name;
+   *  - a live share is torn down BEFORE `delete name`, mirroring the forget
+   *    path, so a reservation is never pulled out from under a running tunnel.
+   *
+   * See change: add-zrok-custom-reserved-name (D1).
+   */
+  fastify.post(
+    "/api/tunnel-reserved-name",
+    { preHandler: networkGuard },
+    async (req, reply) => {
+      const body = (req.body ?? {}) as { name?: string | null };
+      const previous = config.tunnelReservedName;
+      const live = getTunnelStatus({
+        reservedName: config.tunnelReservedName,
+        persistent: config.tunnelPersistent,
+      });
+      const liveUrl = live.status === "active" ? live.url : undefined;
+
+      // ── Clear ────────────────────────────────────────────────────
+      if (body.name === null || body.name === undefined) {
+        if (previous) {
+          // Tear the share down first, unconditionally: `delete name` against a
+          // running share would strip the reservation from under a live tunnel,
+          // and `liveUrl` is a snapshot that can under-report.
+          stopTunnelWatchdog();
+          await deleteTunnel(config.port);
+          if (!releaseShare(previous)) {
+            console.warn(
+              `tunnel: reserved name "${previous}" could not be released; it may remain reserved on the zrok account`,
+            );
+          }
+        }
+        const written = writeConfigPartial({
+          tunnel: { zrok: { reservedName: undefined, persistent: false } },
+        });
+        if (!written.success) {
+          return reply.code(500).send({
+            success: false,
+            error: written.error ?? "failed to clear reserved name",
+          } satisfies ApiResponse);
+        }
+        config.tunnelReservedName = undefined;
+        config.tunnelPersistent = false;
+        return { success: true, data: { status: "ok", name: previous ?? "" } } satisfies ApiResponse<ReservedNameResult>;
+      }
+
+      // ── Set / replace ────────────────────────────────────────────
+      // An empty string is a submitted-nothing, never a request to generate.
+      // `reserveName` rejects it as `invalid`; asserting it here too keeps the
+      // route honest if that ever changes.
+      const requested = String(body.name);
+      // ASYNC: the sync twin blocks the event loop for up to 30s, freezing every
+      // WebSocket heartbeat and session event in the dashboard while the zrok
+      // control plane is slow.
+      const outcome = await reserveNameAsync(requested);
+      if (outcome.status !== "ok") {
+        // A failed reservation is inert by construction: nothing was released,
+        // nothing persisted, and any running tunnel is untouched.
+        return {
+          success: true,
+          data: { status: outcome.status, name: outcome.name, message: outcome.message },
+        } satisfies ApiResponse<ReservedNameResult>;
+      }
+
+      // Reservation succeeded and `reserveName` already persisted the name with
+      // `persistent: true`. Only NOW may the old reservation be released.
+      if (previous && previous !== outcome.name) {
+        // Tear the share down UNCONDITIONALLY, matching the forget path. A
+        // share that is running but transiently reports inactive would
+        // otherwise have its reservation pulled out from under it.
+        stopTunnelWatchdog();
+        await deleteTunnel(config.port);
+        if (!releaseShare(previous)) {
+          // The new name is already persisted, so this cannot be unwound — but
+          // an orphaned reservation counts against the account's limit and
+          // must not vanish into a discarded boolean.
+          console.warn(
+            `tunnel: reserved name "${previous}" was replaced but could not be released; it may remain reserved on the zrok account`,
+          );
+        }
+      }
+      config.tunnelReservedName = outcome.name;
+      config.tunnelPersistent = true;
+
+      return {
+        success: true,
+        data: {
+          status: "ok",
+          name: outcome.name,
+          // Only claimed when the tunnel is STILL UP. On a replace the share is
+          // torn down first (a release must never run against a live share), so
+          // reporting "still serving the old URL" there would be false at the
+          // moment of the response. `tunnelStopped` says what actually happened.
+          ...(liveUrl && previous && previous !== outcome.name
+            ? { tunnelStopped: true }
+            : liveUrl
+              ? { liveUrlUnchanged: liveUrl }
+              : {}),
+        },
+      } satisfies ApiResponse<ReservedNameResult>;
+    },
+  );
+
   fastify.post("/api/tunnel-disconnect", async (req, reply) => {
     // Pass port so orphan zrok processes bound to this endpoint are also
     // swept (not just the one we tracked via pid-file).
     stopTunnelWatchdog();
     await deleteTunnel(config.port);
+    // Non-primary tunnels come down too, or they would keep serving (and keep
+    // widening CORS) after the operator disconnected the Gateway.
+    await disconnectResolvedProviders(config.port);
     // Plain disconnect PRESERVES the reserved name (stable URL survives a
     // disconnect/restart). `{forget:true}` is the ONLY path that releases it:
     // `delete name` + clear config. See change: support-zrok-v2.

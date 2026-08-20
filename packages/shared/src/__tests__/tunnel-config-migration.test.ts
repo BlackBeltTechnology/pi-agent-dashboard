@@ -109,3 +109,51 @@ describe("validateTunnelForConnect — mode gating", () => {
     expect(validateTunnelForConnect({ ...defaults, provider: "zerotier", mode: "private" }).ok).toBe(true);
   });
 });
+
+/**
+ * Per-provider `enabled`/`mode` (the concurrency layer, D3) must SURVIVE a load.
+ *
+ * `zrok` is not spread from raw like the other providers — it is RECONSTRUCTED
+ * from reservedToken/reservedName/persistent. So the two keys the gateway UI
+ * writes were dropped on the way back in: the config round-tripped to a
+ * zrok that had never been enabled, and the operator's second tunnel simply
+ * never connected, with nothing in the config to show why.
+ */
+describe("per-provider enabled/mode survive normalization", () => {
+  const defaults = { enabled: false, zrok: { persistent: false }, watchdog: { enabled: true, intervalMs: 30_000 } };
+
+  it("keeps zrok.enabled and zrok.mode", () => {
+    const out = normalizeTunnelConfig({ zrok: { enabled: true, mode: "public", persistent: true } }, defaults as never);
+    expect(out.zrok).toMatchObject({ enabled: true, mode: "public", persistent: true });
+  });
+
+  it("keeps enabled/mode for every other provider", () => {
+    const out = normalizeTunnelConfig(
+      {
+        ngrok: { enabled: true, mode: "public" },
+        tailscale: { enabled: true, mode: "private" },
+        zerotier: { enabled: true, mode: "private", networkId: "abc" },
+      },
+      defaults as never,
+    );
+    expect(out.ngrok).toMatchObject({ enabled: true, mode: "public" });
+    expect(out.tailscale).toMatchObject({ enabled: true, mode: "private" });
+    expect(out.zerotier).toMatchObject({ enabled: true, mode: "private", networkId: "abc" });
+  });
+
+  it("drops junk rather than letting it reach the resolver", () => {
+    const out = normalizeTunnelConfig(
+      { zrok: { enabled: "yes", mode: "sideways" }, ngrok: { enabled: 1, mode: "nonsense" } },
+      defaults as never,
+    );
+    expect(out.zrok?.enabled).toBeUndefined();
+    expect(out.zrok?.mode).toBeUndefined();
+    expect(out.ngrok?.enabled).toBeUndefined();
+    expect(out.ngrok?.mode).toBeUndefined();
+  });
+
+  it("leaves an absent flag absent — absent means false, never true", () => {
+    const out = normalizeTunnelConfig({ zrok: { persistent: false } }, defaults as never);
+    expect(out.zrok?.enabled).toBeUndefined();
+  });
+});
