@@ -1084,6 +1084,13 @@ export interface PromptReceivedToBrowserMessage {
   type: "prompt_received";
   sessionId: string;
   fresh: boolean;
+  /**
+   * Handle of the REST prompt this acknowledges, when the prompt carried one.
+   * How the acknowledged state of a `POST /api/session/:id/prompt` becomes
+   * observable without gating the response on the bridge.
+   * See change: fix-spawn-correlation-ttl-coupling (D7).
+   */
+  promptId?: string;
 }
 
 // The `/view` inline surface is retired (change:

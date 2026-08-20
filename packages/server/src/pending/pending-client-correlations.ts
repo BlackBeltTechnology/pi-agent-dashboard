@@ -6,13 +6,14 @@
  * `linkByToken` so the eventual `session_added` broadcast can carry
  * `spawnRequestId` for client-side auto-select / placeholder dismissal.
  *
- * In-memory only. 60s TTL aligned with `spawn-register-watchdog` recovery
- * window so late registers can still surface the correlation.
+ * In-memory only. The TTL is supplied PER RECORD by the caller, derived from
+ * the very timeout that armed that spawn's watchdog
+ * (`deriveSpawnCorrelationTtlMs`) — a module-level literal cannot see a
+ * configured `spawnRegisterTimeoutMs` and used to kill the token before the
+ * watchdog it was meant to outlive had even fired.
  *
- * See change: spawn-correlation-token.
+ * See change: spawn-correlation-token, fix-spawn-correlation-ttl-coupling.
  */
-
-const DEFAULT_TTL_MS = 60_000;
 
 interface Entry {
   requestId: string;
@@ -21,8 +22,12 @@ interface Entry {
 }
 
 export interface PendingClientCorrelations {
-  /** Record `spawnToken → requestId` mapping. Overwrites any prior entry for the same token. */
-  record(spawnToken: string, requestId: string): void;
+  /**
+   * Record `spawnToken → requestId`. Overwrites any prior entry for the same
+   * token. `ttlMs` must come from `deriveSpawnCorrelationTtlMs` applied to the
+   * timeout used to arm this spawn; a non-positive TTL records nothing.
+   */
+  record(spawnToken: string, requestId: string, ttlMs: number): void;
   /** Consume the requestId for a spawnToken, or undefined if none / expired. */
   consume(spawnToken: string): string | undefined;
   /** Drop all entries (server shutdown / tests). */
@@ -31,19 +36,13 @@ export interface PendingClientCorrelations {
   size(): number;
 }
 
-export interface PendingClientCorrelationsOptions {
-  ttlMs?: number;
-}
-
-export function createPendingClientCorrelations(
-  options?: PendingClientCorrelationsOptions,
-): PendingClientCorrelations {
-  const ttlMs = options?.ttlMs ?? DEFAULT_TTL_MS;
+export function createPendingClientCorrelations(): PendingClientCorrelations {
   const store = new Map<string, Entry>();
 
   return {
-    record(spawnToken: string, requestId: string): void {
+    record(spawnToken: string, requestId: string, ttlMs: number): void {
       if (!spawnToken || !requestId) return;
+      if (!Number.isFinite(ttlMs) || ttlMs <= 0) return;
       const prior = store.get(spawnToken);
       if (prior) clearTimeout(prior.timer);
       const timer = setTimeout(() => {

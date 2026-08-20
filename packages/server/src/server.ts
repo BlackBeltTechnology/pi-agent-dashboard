@@ -74,6 +74,7 @@ import { PairingManager } from "./pairing/pairing.js";
 import { createPendingAttachRegistry } from "./pending/pending-attach-registry.js";
 import { createPendingAutomationRunRegistry } from "./pending/pending-automation-run-registry.js";
 import { createPendingClientCorrelations } from "./pending/pending-client-correlations.js";
+import { createPendingPromptAcks } from "./pending/pending-prompt-acks.js";
 import { createPendingForkRegistry, type PendingForkRegistry } from "./pending/pending-fork-registry.js";
 import { createPendingGoalLinkRegistry } from "./pending/pending-goal-link-registry.js";
 import { createPendingInitialPromptRegistry } from "./pending/pending-initial-prompt-registry.js";
@@ -339,6 +340,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // session_added.spawnRequestId so the client can auto-select / dismiss
   // its placeholder by exact correlation. See change: spawn-correlation-token.
   const pendingClientCorrelations = createPendingClientCorrelations();
+  // Prompts written to a bridge socket and awaiting its acknowledgement, so a
+  // REST caller can tell "pi accepted it" from "a byte left the server".
+  // See change: fix-spawn-correlation-ttl-coupling (D7).
+  const pendingPromptAcks = createPendingPromptAcks();
 
   // Worktree-init progress registry: maps requestId -> originating ws
   // so `worktree_init_*` events stream only to the dialog that
@@ -1100,6 +1105,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingInitialPromptRegistry,
     viewedSessionTracker: browserGateway.viewedSessionTracker,
     pendingClientCorrelations,
+    pendingPromptAcks,
     dispatchPluginPiMessage,
     dispatchPluginRawEvent,
     dispatchPluginSessionEnded,
@@ -1216,6 +1222,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     pendingDashboardSpawns,
     pendingResumeIntents,
     pendingAttachRegistry,
+    pendingPromptAcks,
   });
 
   // Register route modules

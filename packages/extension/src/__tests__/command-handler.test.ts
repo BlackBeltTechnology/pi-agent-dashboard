@@ -1234,3 +1234,89 @@ describe("buildDashboardExecEnv port resolution", () => {
     expect(buildDashboardExecEnv().PI_DASHBOARD_PORT).toBe("8000");
   });
 });
+
+/**
+ * Prompt acknowledgement handle + session-mismatch drop reporting.
+ *
+ * See change: fix-spawn-correlation-ttl-coupling (D6, D7).
+ */
+describe("CommandHandler — ack handle and dropped-message reporting", () => {
+  function mockPi() {
+    return {
+      sendMessage: vi.fn(),
+      sendUserMessage: vi.fn(),
+      getCommands: vi.fn().mockReturnValue([]),
+      setSessionName: vi.fn(),
+      getSessionName: vi.fn(),
+      on: vi.fn(),
+      exec: vi.fn(),
+    };
+  }
+
+  it("echoes the server's promptId on the passthrough acknowledgement", async () => {
+    const events: any[] = [];
+    const handler = createCommandHandler(mockPi() as any, "s1", {
+      eventSink: (m) => events.push(m),
+    });
+
+    await handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "hello",
+      promptId: "p-123",
+    } as ServerToExtensionMessage);
+
+    const ack = events.find((e) => e.type === "prompt_received");
+    expect(ack.promptId).toBe("p-123");
+    expect(ack.fresh).toBe(true);
+  });
+
+  it("emits no promptId when the prompt carried none (older callers)", async () => {
+    const events: any[] = [];
+    const handler = createCommandHandler(mockPi() as any, "s1", {
+      eventSink: (m) => events.push(m),
+    });
+
+    await handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "hello",
+    } as ServerToExtensionMessage);
+
+    const ack = events.find((e) => e.type === "prompt_received");
+    expect(ack).not.toHaveProperty("promptId");
+  });
+
+  it("reports a session-id-mismatch drop instead of only console.error", async () => {
+    const drops: any[] = [];
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const handler = createCommandHandler(mockPi() as any, "s1", {
+      reportInboundDrop: (d) => drops.push(d),
+    });
+
+    const out = await handler.handle({
+      type: "send_prompt",
+      sessionId: "s_other",
+      text: "hello",
+    } as ServerToExtensionMessage);
+
+    expect(out).toBeUndefined();
+    expect(drops).toEqual([
+      { dropClass: "session_mismatch", messageType: "send_prompt", droppedSessionId: "s_other" },
+    ]);
+    vi.restoreAllMocks();
+  });
+
+  it("reports nothing for a message addressed to this session", async () => {
+    const drops: any[] = [];
+    const handler = createCommandHandler(mockPi() as any, "s1", {
+      reportInboundDrop: (d) => drops.push(d),
+    });
+    await handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "hello",
+    } as ServerToExtensionMessage);
+    expect(drops).toHaveLength(0);
+  });
+});

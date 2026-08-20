@@ -7,6 +7,7 @@ import { join, relative } from "node:path";
 import { diffOr } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type {
   ExtensionToServerMessage,
+  InboundDropClass,
   ServerToExtensionMessage,
 } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
@@ -340,6 +341,16 @@ export function createCommandHandler(
     getCwd?: () => string;
     /** Callback to send events (e.g., bash_output, command_feedback) back to server */
     eventSink?: (msg: ExtensionToServerMessage) => void;
+    /**
+     * Report an inbound message this handler threw away. The mismatch guard
+     * lives inside `handle()`, which holds no connection reference, so the
+     * channel is injected. See change: fix-spawn-correlation-ttl-coupling (D6).
+     */
+    reportInboundDrop?: (drop: {
+      dropClass: InboundDropClass;
+      messageType?: string;
+      droppedSessionId?: string;
+    }) => void;
     /** Trigger context compaction */
     compact?: (options: { customInstructions?: string }) => void;
     /** Trigger session reload (extensions, settings, skills, etc.) */
@@ -444,6 +455,16 @@ export function createCommandHandler(
       // Ignore messages for other sessions (skip session-less messages like heartbeat_ack)
       if ((msg as any).sessionId !== undefined && (msg as any).sessionId !== sessionId) {
         console.error(`[dashboard] Ignoring message type=${msg.type} for session ${(msg as any).sessionId}, current session is ${sessionId}`);
+        // This `console.error` is written to /dev/null whenever
+        // `keeperLog.capturePiOutput` is false (the default), so the drop is
+        // ALSO reported over the socket. The guard cannot tell "never mine"
+        // from "was mine, since replaced" — one reportable class.
+        // See change: fix-spawn-correlation-ttl-coupling (D6).
+        options?.reportInboundDrop?.({
+          dropClass: "session_mismatch",
+          messageType: msg.type,
+          droppedSessionId: (msg as any).sessionId,
+        });
         return undefined;
       }
 
@@ -457,8 +478,12 @@ export function createCommandHandler(
           // safety timeout. Settle it immediately (fresh:false → drop). The
           // passthrough + slash paths emit their own `prompt_received` with the
           // real streaming verdict. See change: optimistic-prompt-progress.
+          // `promptId` (when the server minted one) rides back on every ack so
+          // a REST caller can tell delivery from transmission.
+          // See change: fix-spawn-correlation-ttl-coupling (D7).
+          const ackHandle = msg.promptId ? { promptId: msg.promptId } : {};
           if (parsed.type !== "passthrough" && parsed.type !== "slash") {
-            options?.eventSink?.({ type: "prompt_received", sessionId, fresh: false });
+            options?.eventSink?.({ type: "prompt_received", sessionId, fresh: false, ...ackHandle });
           }
 
           // Route based on parsed command type
@@ -655,7 +680,7 @@ export function createCommandHandler(
           // Drives the optimistic `pendingPrompt` bubble: fresh:true → "sent",
           // fresh:false → drop (raced mid-turn). Emitted BEFORE any pi call so
           // the snapshot is authoritative. See change: optimistic-prompt-progress.
-          options?.eventSink?.({ type: "prompt_received", sessionId, fresh: !wasStreaming });
+          options?.eventSink?.({ type: "prompt_received", sessionId, fresh: !wasStreaming, ...ackHandle });
           const da = msg.delivery ?? "followUp";
           if (wasStreaming && da === "followUp") {
             // Bridge-owned buffer path — do NOT call pi.sendUserMessage.

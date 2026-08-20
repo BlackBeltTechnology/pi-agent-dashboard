@@ -764,6 +764,10 @@ function initBridge(pi: ExtensionAPI) {
 
   const connection = new ConnectionManager({
     url: dashboardUrl,
+    // Routing field for a drop report — the reporting bridge's OWN session,
+    // never the id the dropped message named.
+    // See change: fix-spawn-correlation-ttl-coupling (D6).
+    getSessionId: () => sessionId,
     onMessage: safe(async (data: unknown) => {
       if (!isActive()) return; // Stale listener guard
       const msg = data as ServerToExtensionMessage;
@@ -1194,6 +1198,11 @@ function initBridge(pi: ExtensionAPI) {
 
   const commandHandler = createCommandHandler(pi, () => sessionId, {
     getModelRegistry: () => cachedModelRegistry,
+    // Surface a session-id-mismatch drop server-side; the guard's own
+    // `console.error` goes to /dev/null under the default
+    // `keeperLog.capturePiOutput:false`.
+    // See change: fix-spawn-correlation-ttl-coupling (D6).
+    reportInboundDrop: (drop) => connection.reportInboundDrop(drop),
     // AI-draft fork-subagent wiring (see change:
     // add-session-uncommitted-indicator-and-commit). Both degrade silently
     // to the draft ladder's lower rungs when unavailable.

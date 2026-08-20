@@ -513,10 +513,15 @@ export function createPiGateway(
             // Priority: token > pid > cwd. Token is the strongest identity
             // (spawn-correlation-token); pid catches headless without token;
             // cwd is the legacy fallback for tmux/wt with neither.
+            // Tier-aware, not an unconditional cascade: with two concurrent
+            // same-cwd spawns, clearing A by its token and then falling through
+            // to `clearByCwd` disarmed B's watchdog too, so a B that never
+            // registered was never diagnosed and never reclaimed.
+            // See change: fix-spawn-correlation-ttl-coupling (D4).
             const watchdog = getSpawnRegisterWatchdog();
-            if (msg.spawnToken) watchdog.clearByToken(msg.spawnToken);
-            if (msg.pid !== undefined) watchdog.clearByPid(msg.pid);
-            watchdog.clearByCwd(msg.cwd);
+            let cleared = msg.spawnToken ? watchdog.clearByToken(msg.spawnToken) : false;
+            if (!cleared && msg.pid !== undefined) cleared = watchdog.clearByPid(msg.pid);
+            if (!cleared) watchdog.clearByCwd(msg.cwd);
 
             // If session ID changed (e.g., after /reload), clean up the old placeholder
             if (currentSessionId && currentSessionId !== msg.sessionId) {
@@ -555,6 +560,13 @@ export function createPiGateway(
                   msg.visibilityIntent === "hidden" || msg.visibilityIntent === "visible"
                     ? msg.visibilityIntent
                     : undefined,
+                // The auto-hide heuristic used to read `params.source`, which is
+                // the bridge's PRE-decision self-report ("tui") — it cannot yet
+                // be "dashboard", so a dashboard spawn reporting `hasUI:false`
+                // was hidden from its own sidebar. Same strict-boolean
+                // normalization as the untrusted inputs above.
+                // See change: fix-spawn-correlation-ttl-coupling (D3).
+                dashboardSpawned: msg.dashboardSpawned === true,
               });
               console.error(`[gateway] session registered: ${msg.sessionId} cwd=${msg.cwd}`);
 

@@ -191,17 +191,27 @@ describe("session-file resume guard (REST)", () => {
   }, 25000);
 
   // ── F3 / F1 ───────────────────────────────────────────────────────────────
-  it("F3: an uncontended prompt is a plain success", async () => {
+  // E31 — transmission is now reported explicitly on the mainline path too:
+  // a bare `{success:true}` left "written but unacknowledged" with no field to
+  // land in. See change: fix-spawn-correlation-ttl-coupling (D7).
+  it("F3: an uncontended prompt reports transmission and a prompt handle", async () => {
     await connectBridge("plain", { pid: 11, sessionFile: "/t/plain.jsonl" });
 
     const res = await postJson("/api/session/plain/prompt", { text: "hi" });
     const body = (await res.json()) as any;
 
     expect(res.status).toBe(200);
-    expect(body).toEqual({ success: true });
+    expect(body.success).toBe(true);
+    expect(body.transmitted).toBe(true);
+    expect(typeof body.promptId).toBe("string");
+    expect(body).not.toHaveProperty("delivered");
   }, 25000);
 
-  it("F1: a contended prompt is annotated, names the bridge state, and reports delivery", async () => {
+  // E30 — the former `delivered: true` was asserted on exactly the branch least
+  // able to know it (a displaced bridge). It reports TRANSMISSION now; the
+  // annotation and the non-plain-success shape are unchanged.
+  // See change: fix-spawn-correlation-ttl-coupling (D7).
+  it("F1: a contended prompt is annotated, names the bridge state, and reports transmission", async () => {
     await connectBridge("contended", { pid: 37660, sessionFile: "/t/c.jsonl" });
 
     // A second bridge claims the same id and loses.
@@ -227,12 +237,16 @@ describe("session-file resume guard (REST)", () => {
 
     // Not a plain success …
     expect(body).not.toEqual({ success: true });
-    // … but explicitly delivered, so a caller does not retry and double-send.
+    // … but explicitly transmitted, so a caller does not retry and double-send —
+    // and it no longer claims a delivery this branch cannot know.
     expect(body.success).toBe(true);
-    expect(body.delivered).toBe(true);
+    expect(body.transmitted).toBe(true);
+    expect(body).not.toHaveProperty("delivered");
+    expect(typeof body.promptId).toBe("string");
     expect(body.bridgeState).toBe("contended");
     expect(body.warning).toContain("37660");
     expect(body.warning).toContain("17579");
+    expect(body.warning).toContain("transmitted");
   }, 25000);
 
   // ── F7 ────────────────────────────────────────────────────────────────────
