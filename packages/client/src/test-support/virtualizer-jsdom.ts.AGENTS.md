@@ -21,7 +21,7 @@ Same class, earlier cause: React concurrent scheduler flushing after fork teardo
 
 ## Drain scope invariant
 
-`DRAINED_TESTIDS` in the shim lists the drained scroll containers. List MUST cover every `useVirtualizer` call site in `packages/client/src`. At this change, `ChatView.tsx` is the only production call site. A site rendering another testid leaves its own callback scheduled — drain skips it, flake returns, no failing test points at it.
+`DRAINED_TESTIDS` in the shim lists the drained scroll containers. List MUST cover every `useVirtualizer` call site in `packages/client/src`. At this change, `ChatView.tsx` is the only production call site. A site rendering another test ID leaves its own callback scheduled — drain skips it, flake returns, no failing test points at it.
 
 Enforced by `packages/shared/src/__tests__/virtualizer-drain-scope.test.ts`. If another virtualized list is added, widen `DRAINED_TESTIDS` + the drain predicate in the same change; do not just bump the lint's expected list.
 

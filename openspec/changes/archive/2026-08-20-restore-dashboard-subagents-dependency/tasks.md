@@ -75,3 +75,23 @@
 - [x] 9.10 Persist the global rule that this agent never merges or enables auto-merge, then pass a fresh Pi startup.
 - [x] 9.11 Obtain independent cautious review and synthesis proving every Robert and CodeRabbit item is addressed.
 - [x] 9.12 Push only after task 9.11 passes; leave PR 520 unmerged for the owner.
+
+## 10. Complete one-time post-push PR maintenance outside the ship workflow
+
+- [x] 10.1 Record CodeRabbit's timer-wording finding, exact `origin/develop` commit `71ea6e59`, and the three overlapping documentation records before mutation.
+- [x] 10.2 Rebase onto `origin/develop` without merging.
+- [x] 10.3 Resolve the documentation overlap by keeping the newer upstream drain-scope invariant and lint gate, Robert's requested diagnostics and bounded cost, and CodeRabbit's standard timer wording.
+- [x] 10.4 Run targeted documentation, convention, full test, and build validation.
+- [x] 10.5 Run the independent cautious review and record its missing `runConfigHarness.tsx` purpose-row finding.
+- [x] 10.6 Add the missing purpose row and rerun focused documentation validation.
+- [x] 10.7 Obtain a final focused reviewer and synthesis verdict for the exact amendment.
+- [x] 10.8 Force-push with lease only after task 10.7 passes; leave PR 520 unmerged for the owner. This one-time maintenance does not replace the merge-based ship workflow.
+
+## 11. Address the post-rebase CodeRabbit review
+
+- [x] 11.1 Triage all three findings: reject the archive-location false positive; accept the one-time-maintenance clarification and standard “test ID” wording.
+- [x] 11.2 Clarify archive policy and separate the one-time PR refresh from the merge-based ship workflow.
+- [x] 11.3 Replace “testid” with “test ID” in the virtualizer sidecar without changing behavior.
+- [x] 11.4 Run focused documentation and convention validation.
+- [x] 11.5 Obtain final independent review and synthesis before another push.
+- [x] 11.6 Force-push with lease only after task 11.5 passes; leave PR 520 unmerged for the owner.
