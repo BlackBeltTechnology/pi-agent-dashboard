@@ -526,21 +526,32 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
   // unavailable callout. `null` = no response yet (loading).
   // See change: settings-default-model-without-session.
   const [catalogue, setCatalogue] = useState<ModelCatalogueResult | null>(null);
+  // Last models a request actually returned. Held separately so a refetch that
+  // fails does not BLANK a catalogue that already loaded — the proxy editors
+  // would lose every option on one transient 503. The callout still fires, so
+  // the failure is reported rather than swallowed.
+  const [lastGoodModels, setLastGoodModels] = useState<ModelInfo[] | null>(null);
+  const [catalogueFetching, setCatalogueFetching] = useState(true);
   // LAST-RESPONSE-wins, deliberately: whichever response arrives last is the
   // rendered catalogue, even if its request was issued first. A stale payload
   // may therefore win transiently; the next refetch corrects it. Spec'd that
   // way so the rule is one observable sentence rather than request bookkeeping.
   const refetchCatalogue = useCallback(() => {
-    setCatalogue(null);
-    return fetchModelCatalogue().then(setCatalogue);
+    setCatalogueFetching(true);
+    return fetchModelCatalogue()
+      .then((result) => {
+        setCatalogue(result);
+        if (result.status === "ok") setLastGoodModels(result.models);
+      })
+      .finally(() => setCatalogueFetching(false));
   }, []);
   useEffect(() => {
     void refetchCatalogue();
   }, [refetchCatalogue]);
 
   const catalogueModels = useMemo(
-    () => (catalogue?.status === "ok" ? catalogue.models : []),
-    [catalogue],
+    () => (catalogue?.status === "ok" ? catalogue.models : (lastGoodModels ?? [])),
+    [catalogue, lastGoodModels],
   );
   /** Default Model options: catalogue ∪ every session list, session row wins. */
   const defaultModelOptions = useMemo(
@@ -548,7 +559,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     [catalogueModels, availableModels],
   );
   const catalogueUnavailable = catalogue?.status === "unavailable";
-  const catalogueLoading = catalogue === null;
+  // Loading is the COLD state only: once a response has landed, a refetch keeps
+  // rendering the options it has instead of flipping back to a spinner.
+  const catalogueLoading = catalogueFetching && catalogue === null;
 
   const refreshGitSourceReadout = useCallback(() => {
     return fetch(`${getApiBase()}/api/health`)

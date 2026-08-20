@@ -1195,6 +1195,34 @@ describe("SettingsPanel model catalogue", () => {
     });
   });
 
+  // A failed REFETCH must not blank a catalogue that already loaded: the proxy
+  // editors would lose every option on one transient 503. The callout still
+  // fires, so the failure is reported rather than swallowed.
+  it("keeps the last good catalogue when a refetch fails, and still reports the failure", async () => {
+    let fail = false;
+    const fetchMock = mockFetchProvidersPage(true);
+    global.fetch = vi.fn().mockImplementation((url: string, options?: any) => {
+      if (url === "/api/models") {
+        return fail ? Promise.resolve(jsonRes(503, { code: "MODEL_PROXY_RUNTIME_MISSING" })) : CATALOGUE_OK();
+      }
+      return fetchMock(url, options);
+    });
+    setPath("/settings/sessions");
+    render(<SettingsPanel />);
+    await waitFor(() => expect(screen.queryByTestId("default-model-catalogue-loading")).toBeNull());
+
+    fail = true;
+    // Trigger a refetch through the real credential path.
+    gotoPage("Providers");
+    fireEvent.click(await screen.findByRole("button", { name: /Remove/ }));
+    await waitFor(() => expect(screen.queryByTestId("default-model-catalogue-loading")).toBeNull());
+
+    gotoPage("Sessions");
+    await waitFor(() => expect(screen.getByTestId("default-model-catalogue-unavailable")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("model-selector-button"));
+    expect(screen.getAllByTestId("model-row").some((r) => r.textContent?.includes("gpt-5"))).toBe(true);
+  });
+
   // X9: removing a provider credential refetches the catalogue.
   it("refetches the catalogue after a provider credential is removed", async () => {
     const fetchMock = mockFetchProvidersPage(true);
