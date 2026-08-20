@@ -213,14 +213,6 @@ export interface HeadlessPidRegistry {
    * See change: fix-out-of-band-reload.
    */
   listSessions(): Array<{ sessionId: string; pid: number; hasKeeper: boolean }>;
-  /**
-   * True iff `sessionId` has a keeper UDS path registered, i.e. `writeRpc`
-   * has somewhere to write. Cheap synchronous probe used by the reload
-   * ladder to choose the in-process dispatch path over respawn without
-   * performing a speculative write.
-   * See change: fix-out-of-band-reload.
-   */
-  hasKeeper(sessionId: string): boolean;
   /** Remove a tracked process by PID. */
   remove(pid: number): void;
   /** Kill all tracked processes (for server shutdown). */
@@ -521,10 +513,6 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
         });
       }
       return out;
-    },
-
-    hasKeeper(sessionId: string) {
-      return Boolean(findBySessionId(sessionId)?.keeperSockPath);
     },
 
     remove(pid: number) {

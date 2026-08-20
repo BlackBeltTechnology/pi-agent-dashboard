@@ -28,21 +28,17 @@ interface HarnessOpts {
   compacting?: boolean;
   connected?: boolean;
   pid?: number;
-  hasKeeper?: boolean;
   sendOk?: boolean;
   missingSession?: boolean;
 }
 
 function harness(opts: HarnessOpts = {}) {
-  const writeRpc = vi.fn(async () => true);
   const sendToSession = vi.fn(() => opts.sendOk ?? true);
   const respawn = vi.fn(async () => {});
   const feedback: Array<{ command: string; status: string; message?: string }> = [];
   const ctx: DispatchReloadContext = {
     headlessPidRegistry: {
-      hasKeeper: () => opts.hasKeeper ?? false,
       getPid: () => opts.pid,
-      writeRpc,
       listSessions: () => [],
     },
     getSession: () =>
@@ -55,7 +51,7 @@ function harness(opts: HarnessOpts = {}) {
     emitCommandFeedback: (_sid, command, status, message) =>
       feedback.push({ command, status, message }),
   };
-  return { ctx, writeRpc, sendToSession, respawn, feedback };
+  return { ctx, sendToSession, respawn, feedback };
 }
 
 describe("isBareReloadCommand (test-plan #E5)", () => {
@@ -96,18 +92,28 @@ describe("isBareReloadCommand (test-plan #E5)", () => {
 
 describe("dispatchReload — non-keeper branches", () => {
   it("forwards to the bridge for a tmux session, with no kill and no spawn (#E3)", async () => {
-    const h = harness({ connected: true, pid: undefined, hasKeeper: false });
+    const h = harness({ connected: true, pid: undefined });
     const outcome = await dispatchReload("S1", h.ctx);
     expect(outcome).toBe("forwarded");
     expect(h.sendToSession).toHaveBeenCalledWith("S1", "/reload");
     expect(h.respawn).not.toHaveBeenCalled();
-    expect(h.writeRpc).not.toHaveBeenCalled();
+  });
+
+  it("respawns a headless session rather than forwarding, even with a live bridge (#E1)", async () => {
+    // The bridge path is a no-op for a dashboard-spawned session (its
+    // RELOAD_KEY was never captured in a TUI), so a registered PID always wins
+    // over the connection.
+    const h = harness({ connected: true, pid: 4242 });
+    const outcome = await dispatchReload("S1", h.ctx);
+    expect(outcome).toBe("respawn");
+    expect(h.respawn).toHaveBeenCalledWith("S1", { ignoreStreamingGuard: true });
+    expect(h.sendToSession).not.toHaveBeenCalled();
   });
 
   it("NEVER respawns a session with no registered PID (#E4)", async () => {
     // A tmux session whose WS is momentarily down. Respawning here would
     // start a SECOND pi against the same session file.
-    const h = harness({ connected: false, pid: undefined, hasKeeper: false });
+    const h = harness({ connected: false, pid: undefined });
     const outcome = await dispatchReload("S1", h.ctx);
     expect(outcome).toBe("error");
     expect(h.respawn).not.toHaveBeenCalled();
@@ -115,29 +121,33 @@ describe("dispatchReload — non-keeper branches", () => {
     expect(h.feedback[0]).toMatchObject({ command: "/reload", status: "error" });
   });
 
-  it("falls back to respawn when the send fails after a passing probe (#X3)", async () => {
-    const h = harness({ connected: true, sendOk: false, pid: 4242, hasKeeper: false });
+  it("emits an honest error when the bridge send fails and there is no PID (#X3)", async () => {
+    // The forward is gated on sendToSession's RETURN VALUE, not the probe: the
+    // socket can close between the two. With no PID there is nothing to
+    // respawn, so the reload must be reported as failed rather than dropped.
+    const h = harness({ connected: true, sendOk: false, pid: undefined });
     const outcome = await dispatchReload("S1", h.ctx);
-    expect(outcome).toBe("respawn");
-    expect(h.respawn).toHaveBeenCalledWith("S1", { ignoreStreamingGuard: true });
+    expect(outcome).toBe("error");
+    expect(h.respawn).not.toHaveBeenCalled();
+    expect(h.feedback).toHaveLength(1);
+    expect(h.feedback[0]).toMatchObject({ command: "/reload", status: "error" });
   });
 
-  it("refuses a compacting session: no write, no respawn, wait wording (#X8)", async () => {
-    const h = harness({ compacting: true, hasKeeper: true, pid: 4242, connected: true });
+  it("refuses a compacting session: no respawn, wait wording (#X8)", async () => {
+    const h = harness({ compacting: true, pid: 4242, connected: true });
     const outcome = await dispatchReload("S1", h.ctx);
     expect(outcome).toBe("refused");
-    expect(h.writeRpc).not.toHaveBeenCalled();
     expect(h.respawn).not.toHaveBeenCalled();
     expect(h.feedback).toEqual([
       { command: "/reload", status: "error", message: RELOAD_COMPACTING_MESSAGE },
     ]);
   });
 
-  it("refuses a connected streaming session with pi's wait wording", async () => {
-    const h = harness({ status: "streaming", connected: true, hasKeeper: true, pid: 42 });
+  it("refuses a connected streaming session with pi's wait wording (#X5)", async () => {
+    const h = harness({ status: "streaming", connected: true, pid: 42 });
     const outcome = await dispatchReload("S1", h.ctx);
     expect(outcome).toBe("refused");
-    expect(h.writeRpc).not.toHaveBeenCalled();
+    expect(h.respawn).not.toHaveBeenCalled();
     expect(h.feedback).toEqual([
       { command: "/reload", status: "error", message: RELOAD_BUSY_MESSAGE },
     ]);

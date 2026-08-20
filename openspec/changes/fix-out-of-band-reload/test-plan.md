@@ -73,6 +73,25 @@ change); fan-out toast coalescing window = 2000 ms.
 - Scenarios by level: L1 22 · L2 0 · L3 5 · — 2
 - Scenarios by disposition: automated 28 · manual-only 2
 
+## Rev-2 scenario remap (after the harness measurement)
+
+The keeper-dispatch mechanism was falsified (see `proposal.md`), so the scenarios that asserted a
+keeper write are re-pointed at the respawn path, which is now the default:
+
+| Scenario | Was | Now |
+|---|---|---|
+| #E1 | keeper dispatches once, never kills | PID present → respawn, never forwards to the bridge |
+| #E2 | no keeper + PID + disconnected → respawn | PID + disconnected → respawn |
+| #E6 | feedback keyed `/reload` not `/__dashboard_reload` | exactly one TERMINAL feedback per respawn, keyed `/reload` |
+| #E7 | two keeper dispatches both fire | DROPPED — no non-respawn dispatch remains; concurrency covered by #E8 |
+| #X1 | keeper write `false` → respawn fallback | respawn emits exactly one terminal feedback |
+| #X2 | keeper write throws, no PID → error | DROPPED — no keeper write remains; PID-less no-path covered by #E4 |
+| #X3 | send fails, PID present → respawn | send fails, no PID → honest error, never a silent drop |
+| #X9 | disabled extension degrades documented-ly | disabled extension still reloads (respawn is process-level) |
+| #X10 | keeper path independent of extension code | resolution is server-side, independent of extension code |
+| #P1 | 20 dispatched, zero respawns | 20 reloaded exactly once each |
+| #F2 | PID unchanged (in-process reload) | a NEW pid registered (process replaced, not orphaned) |
+
 ## Level re-routing at implementation time
 
 **#X9, #X10, #P1 moved L2 → L1.** They were routed to `qa/tests/09|02|03.sh`, but that layer is

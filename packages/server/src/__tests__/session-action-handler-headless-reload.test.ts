@@ -32,10 +32,6 @@ function makeCtx(
   options: {
     pidBySession?: Record<string, number | undefined>;
     sessions?: Record<string, any>;
-    /** Session ids that have a live RPC keeper UDS. */
-    keeperSessions?: string[];
-    /** What `writeRpc` resolves to (or throws, when an Error). */
-    writeRpcResult?: boolean | Error;
     connected?: boolean;
   } = {},
 ) {
@@ -44,7 +40,6 @@ function makeCtx(
   const killCalls: string[] = [];
   const registerCalls: Array<{ pid: number; cwd: string; proc: unknown }> = [];
   const sessionUpdates: Array<{ id: string; updates: any }> = [];
-  const writeRpcCalls: Array<{ sid: string; line: string }> = [];
 
   const pidBySession: Record<string, number | undefined> = {
     ...(options.pidBySession ?? {}),
@@ -72,19 +67,13 @@ function makeCtx(
     },
     headlessPidRegistry: {
       getPid: (sid: string) => pidBySession[sid],
-      hasKeeper: (sid: string) => (options.keeperSessions ?? []).includes(sid),
-      writeRpc: vi.fn(async (sid: string, line: string) => {
-        writeRpcCalls.push({ sid, line });
-        if (options.writeRpcResult instanceof Error) throw options.writeRpcResult;
-        return options.writeRpcResult ?? true;
-      }),
       listSessions: () =>
         Object.entries(pidBySession)
           .filter(([, pid]) => pid !== undefined)
           .map(([sessionId, pid]) => ({
             sessionId,
             pid: pid as number,
-            hasKeeper: (options.keeperSessions ?? []).includes(sessionId),
+            hasKeeper: false,
           })),
       killBySessionId: async (sid: string) => {
         killCalls.push(sid);
@@ -126,7 +115,6 @@ function makeCtx(
     sessionUpdates,
     pidBySession,
     sessions,
-    writeRpcCalls,
   };
 }
 
@@ -383,14 +371,20 @@ describe("handleSendPrompt — interception wiring", () => {
   beforeEach(() => vi.clearAllMocks());
   afterEach(() => vi.restoreAllMocks());
 
-  it("/reload on a keeper-backed headless session dispatches in-process, never respawns (#E1)", async () => {
-    // The core fix: a healthy headless session is reloaded through its keeper
-    // UDS, so its pi process survives. Before this change the same input
-    // SIGTERM'd and respawned it.
-    // See change: fix-out-of-band-reload.
-    const { ctx, writeRpcCalls, killCalls } = makeCtx({
+  it("/reload on a headless session respawns and never forwards to the bridge (#E1)", async () => {
+    // Respawn is the ONLY mechanism that actually reloads a headless session:
+    // pi's RPC `prompt` performs no slash-command dispatch, so writing
+    // `/__dashboard_reload` to the keeper would prompt the model with the
+    // literal text and reload nothing. See change: fix-out-of-band-reload.
+    (spawnPiSession as any).mockResolvedValueOnce({
+      success: true,
+      pid: 4242,
+      process: { _fake: true },
+    });
+
+    const { ctx, killCalls } = makeCtx({
       pidBySession: { S1: 1234 },
-      keeperSessions: ["S1"],
+      connected: true,
       sessions: {
         S1: { id: "S1", cwd: "/p", sessionFile: "/p/s.jsonl", status: "idle" },
       },
@@ -401,24 +395,19 @@ describe("handleSendPrompt — interception wiring", () => {
       ctx,
     );
 
-    expect(writeRpcCalls).toHaveLength(1);
-    expect(JSON.parse(writeRpcCalls[0].line)).toMatchObject({
-      type: "prompt",
-      message: "/__dashboard_reload",
-    });
-    expect(spawnPiSession).not.toHaveBeenCalled();
-    expect(killCalls).toEqual([]);
+    expect(spawnPiSession).toHaveBeenCalledTimes(1);
+    expect(killCalls).toEqual(["S1"]);
     expect(ctx.piGateway.sendToSession).not.toHaveBeenCalled();
   });
 
-  it("/reload on a headless session with no keeper and a dead bridge respawns (#E2)", async () => {
+  it("/reload on a headless session with a dead bridge still respawns (#E2)", async () => {
     (spawnPiSession as any).mockResolvedValueOnce({
       success: true,
       pid: 4242,
       process: { _fake: true },
     });
 
-    const { ctx, writeRpcCalls } = makeCtx({
+    const { ctx } = makeCtx({
       pidBySession: { S1: 1234 },
       connected: false,
       sessions: {
@@ -437,7 +426,6 @@ describe("handleSendPrompt — interception wiring", () => {
     );
 
     expect(spawnPiSession).toHaveBeenCalledTimes(1);
-    expect(writeRpcCalls).toHaveLength(0);
     expect(ctx.piGateway.sendToSession).not.toHaveBeenCalled();
   });
 
@@ -629,17 +617,17 @@ describe("dispatchReload — respawn fallback", () => {
     expect((spawnPiSession as any).mock.calls.length).toBe(spawnsAfterFirst);
   });
 
-  it("#X1 falls back to respawn when the keeper write returns false", async () => {
+  it("#X1 emits exactly ONE terminal feedback for a respawn", async () => {
+    // The `started` pill opener is not terminal; a duplicate terminal event
+    // would leave an orphan pill stuck at "in progress" on reattach.
     (spawnPiSession as any).mockResolvedValueOnce({
       success: true,
       pid: 4242,
       process: { _fake: true },
     });
 
-    const { ctx, writeRpcCalls, insertedEvents } = makeCtx({
+    const { ctx, insertedEvents } = makeCtx({
       pidBySession: { S1: 1234 },
-      keeperSessions: ["S1"],
-      writeRpcResult: false,
       connected: false,
       sessions: {
         S1: { id: "S1", cwd: "/p", sessionFile: "/p/s.jsonl", status: "idle" },
@@ -649,31 +637,30 @@ describe("dispatchReload — respawn fallback", () => {
     const outcome = await dispatchReload("S1", buildDispatchReloadContext(ctx));
 
     expect(outcome).toBe("respawn");
-    expect(writeRpcCalls).toHaveLength(1);
     expect(spawnPiSession).toHaveBeenCalledTimes(1);
-    // Exactly one TERMINAL feedback (the `started` pill opener is not terminal).
-    const terminal = findFeedback(insertedEvents).filter(
+    const feedback = findFeedback(insertedEvents);
+    const terminal = feedback.filter(
       (f) => f.status === "completed" || f.status === "error",
     );
     expect(terminal).toHaveLength(1);
+    expect(terminal[0]).toMatchObject({ command: "/reload", status: "completed" });
   });
 
-  it("#E12 a fan-out target set includes a keeper-only, bridge-dead session", async () => {
+  it("#E12 a fan-out target set includes a registry-known, bridge-dead session", async () => {
     const { ctx } = makeCtx({
-      pidBySession: { CONNECTED: 1, KEEPER_ONLY: 2 },
-      keeperSessions: ["CONNECTED", "KEEPER_ONLY"],
+      pidBySession: { CONNECTED: 1, REGISTRY_ONLY: 2 },
       sessions: {},
     });
     const { reloadTargetSessionIds } = await import("../rpc-keeper/dispatch-reload.js");
 
-    // `TMUX` is connected but has no registry entry; `KEEPER_ONLY` has a
+    // `TMUX` is connected but has no registry entry; `REGISTRY_ONLY` has a
     // registry entry but no bridge connection. The union must carry both.
     const ids = reloadTargetSessionIds(
       ["CONNECTED", "TMUX"],
       ctx.headlessPidRegistry,
     );
 
-    expect([...ids].sort()).toEqual(["CONNECTED", "KEEPER_ONLY", "TMUX"]);
+    expect([...ids].sort()).toEqual(["CONNECTED", "REGISTRY_ONLY", "TMUX"]);
   });
 });
 
@@ -684,18 +671,17 @@ describe("respawnForRuntimeSwap", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it("#E10 respawns a connected STREAMING headless session (streaming guard does not apply)", async () => {
-    // A binary swap cannot be satisfied in-process, so the guard that protects
-    // an in-flight run from `ctx.reload()` is irrelevant here — the process is
-    // being replaced, not reloaded under a live runner.
+    // A runtime swap replaces the process, so the guard that protects an
+    // in-flight run from a mid-stream respawn does not apply: a reload would
+    // be refused here, a swap must not be.
     (spawnPiSession as any).mockResolvedValueOnce({
       success: true,
       pid: 4242,
       process: { _fake: true },
     });
 
-    const { ctx, writeRpcCalls, killCalls } = makeCtx({
+    const { ctx, killCalls } = makeCtx({
       pidBySession: { S1: 1234 },
-      keeperSessions: ["S1"],
       connected: true,
       sessions: {
         S1: { id: "S1", cwd: "/p", sessionFile: "/p/s.jsonl", status: "streaming" },
@@ -706,7 +692,6 @@ describe("respawnForRuntimeSwap", () => {
 
     expect(spawnPiSession).toHaveBeenCalledTimes(1);
     expect(killCalls).toEqual(["S1"]);
-    expect(writeRpcCalls).toHaveLength(0);
   });
 
   it("#E11 reports an error for a session with no sessionFile", async () => {

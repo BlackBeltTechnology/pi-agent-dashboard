@@ -9,11 +9,6 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import {
-  type DispatchReloadContext,
-  dispatchReload,
-  RELOAD_DISPATCH_COMMAND,
-} from "../rpc-keeper/dispatch-reload.js";
-import {
   buildPiRpcLine,
   type DispatchRouterContext,
   handleDispatchExtensionCommand,
@@ -182,76 +177,3 @@ describe("handleDispatchExtensionCommand", () => {
   });
 });
 
-// ── dispatchReload: the keeper path ──────────────────────────────────────────
-// See change: fix-out-of-band-reload (test-plan #E1, #E6, #E7, #X2).
-describe("dispatchReload — keeper path", () => {
-  function keeperHarness(opts: { writeResult?: boolean | Error; pid?: number } = {}) {
-    const writeRpcCalls: string[] = [];
-    const respawn = vi.fn(async () => {});
-    const feedback: Array<{ command: string; status: string; message?: string }> = [];
-    const killBySessionId = vi.fn(async () => true);
-    const ctx: DispatchReloadContext = {
-      headlessPidRegistry: {
-        hasKeeper: () => true,
-        getPid: () => opts.pid,
-        writeRpc: async (_sid, line) => {
-          writeRpcCalls.push(line);
-          if (opts.writeResult instanceof Error) throw opts.writeResult;
-          return opts.writeResult ?? true;
-        },
-        listSessions: () => [],
-      },
-      getSession: () => ({ status: "idle" }),
-      isSessionConnected: () => true,
-      sendToSession: () => true,
-      respawn,
-      emitCommandFeedback: (_sid, command, status, message) =>
-        feedback.push({ command, status, message }),
-    };
-    return { ctx, writeRpcCalls, respawn, feedback, killBySessionId };
-  }
-
-  it("#E1 dispatches once and never kills the process", async () => {
-    const h = keeperHarness({ pid: 1234 });
-    const outcome = await dispatchReload("S1", h.ctx);
-
-    expect(outcome).toBe("keeper");
-    expect(h.writeRpcCalls).toHaveLength(1);
-    expect(JSON.parse(h.writeRpcCalls[0])).toMatchObject({
-      type: "prompt",
-      message: RELOAD_DISPATCH_COMMAND,
-    });
-    expect(h.respawn).not.toHaveBeenCalled();
-  });
-
-  it("#E6 keys the terminal feedback `/reload`, not the dispatched command name", async () => {
-    // The pill the trigger opened is keyed `/reload`; terminating it with
-    // `/__dashboard_reload` would leave that pill stuck at "in progress"
-    // forever while a second, orphan pill completed.
-    const h = keeperHarness({ pid: 1234 });
-    await dispatchReload("S1", h.ctx);
-
-    expect(h.feedback).toEqual([{ command: "/reload", status: "completed", message: undefined }]);
-    expect(h.feedback.every((f) => f.command !== RELOAD_DISPATCH_COMMAND)).toBe(true);
-  });
-
-  it("#E7 two reloads in quick succession both fire, with no dedup and no spawn", async () => {
-    const h = keeperHarness({ pid: 1234 });
-    await Promise.all([dispatchReload("S1", h.ctx), dispatchReload("S1", h.ctx)]);
-
-    expect(h.writeRpcCalls).toHaveLength(2);
-    expect(h.feedback).toHaveLength(2);
-    expect(h.respawn).not.toHaveBeenCalled();
-  });
-
-  it("#X2 a throwing keeper write on a PID-less session errors with the reason, no spawn", async () => {
-    const h = keeperHarness({ writeResult: new Error("ECONNREFUSED"), pid: undefined });
-    const outcome = await dispatchReload("S1", h.ctx);
-
-    expect(outcome).toBe("error");
-    expect(h.respawn).not.toHaveBeenCalled();
-    expect(h.feedback).toHaveLength(1);
-    expect(h.feedback[0]).toMatchObject({ command: "/reload", status: "error" });
-    expect(h.feedback[0].message).toContain("ECONNREFUSED");
-  });
-});
