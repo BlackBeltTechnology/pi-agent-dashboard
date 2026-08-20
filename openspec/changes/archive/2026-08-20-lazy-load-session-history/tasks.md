@@ -156,7 +156,7 @@
 
 ## 17. Manual verification
 
-- [ ] 17.1 Read the gap divider copy at `gapCount` of 1 and of 1200 and confirm singular/plural and phrasing read naturally (test-plan: manual-only) (test-plan #F14)
+- [x] 17.1 Read the gap divider copy at `gapCount` of 1 and of 1200 and confirm singular/plural and phrasing read naturally (test-plan: manual-only) (test-plan #F14)
 
 ## 18. Documentation
 
