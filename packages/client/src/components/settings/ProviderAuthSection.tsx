@@ -74,7 +74,14 @@ function relativeExpiry(expires: number): string {
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-export function ProviderAuthSection() {
+export function ProviderAuthSection({ onCredentialsChanged }: {
+  /**
+   * Fired after a credential write lands (API-key save/removal, OAuth or
+   * device-code completion) so the owner can refetch the model catalogue.
+   * See change: settings-default-model-without-session.
+   */
+  onCredentialsChanged?: () => void;
+} = {}) {
   const [statuses, setStatuses] = useState<ProviderAuthStatus[]>([]);
   // null = not yet known (loading or fetch failed). Never gate OAuth rows
   // closed while unknown — a secondary capability probe must not become a
@@ -93,6 +100,14 @@ export function ProviderAuthSection() {
     } catch { /* ignore */ }
     setLoading(false);
   }, []);
+
+  // Row-level credential change: refresh this section AND notify the owner.
+  // Deliberately NOT folded into `refresh`, which also runs on mount — a mount
+  // must not look like a credential write.
+  const handleChanged = useCallback(() => {
+    void refresh().catch(logRejection("ProviderAuthSection.refresh"));
+    onCredentialsChanged?.();
+  }, [refresh, onCredentialsChanged]);
 
   useEffect(() => { void refresh().catch(logRejection("ProviderAuthSection.refresh")); }, [refresh]);
   useEffect(() => {
@@ -113,7 +128,7 @@ export function ProviderAuthSection() {
       <div className="space-y-2">
         <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">{i18nT("gateway.subscriptionsOauth", undefined, "Subscriptions (OAuth)")}</h3>
         {oauthProviders.map((p) => (
-          <OAuthProviderRow key={p.id} provider={p} supported={handlerIds === null ? true : handlerIds.has(p.id)} onChanged={refresh} showToast={showToast} peerMissing={p.id === "anthropic" && peerMissing} peerReason={peerReason} />
+          <OAuthProviderRow key={p.id} provider={p} supported={handlerIds === null ? true : handlerIds.has(p.id)} onChanged={handleChanged} showToast={showToast} peerMissing={p.id === "anthropic" && peerMissing} peerReason={peerReason} />
         ))}
       </div>
 
@@ -121,7 +136,7 @@ export function ProviderAuthSection() {
       <div className="space-y-2">
         <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mt-4">{i18nT("gateway.apiKeys", undefined, "API Keys")}</h3>
         {apiKeyProviders.map((p) => (
-          <ApiKeyRow key={p.id} provider={p} onChanged={refresh} showToast={showToast} />
+          <ApiKeyRow key={p.id} provider={p} onChanged={handleChanged} showToast={showToast} />
         ))}
       </div>
     </div>

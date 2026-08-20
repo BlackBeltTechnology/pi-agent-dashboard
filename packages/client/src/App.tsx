@@ -2407,11 +2407,15 @@ export default function App() {
         )}
         {settingsMatch && <SettingsPanel availableModels={(() => {
           const seen = new Set<string>();
-          const models: Array<{ provider: string; id: string; supportedThinkingLevels?: string[] }> = [];
+          // Whole rows, not a 3-field projection: Settings merges these with the
+          // `GET /api/models` catalogue and the session row must win on collision
+          // BECAUSE it carries `name` + `metadataSource`.
+          // See change: settings-default-model-without-session.
+          const models: ModelInfo[] = [];
           for (const list of modelsMap.values()) {
             for (const m of list) {
               const key = `${m.provider}/${m.id}`;
-              if (!seen.has(key)) { seen.add(key); models.push({ provider: m.provider, id: m.id, supportedThinkingLevels: m.supportedThinkingLevels }); }
+              if (!seen.has(key)) { seen.add(key); models.push(m); }
             }
           }
           return models;
