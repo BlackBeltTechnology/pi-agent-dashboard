@@ -17,8 +17,8 @@ import {
   computeReplayWindow,
   HEAD_CAP,
   HEAD_MIN,
-  sendEventBatches,
   SNAP_LOOKUP,
+  sendEventBatches,
 } from "../browser-handlers/subscription-handler.js";
 import { createMemoryEventStore, type StoredEvent } from "../persistence/memory-event-store.js";
 

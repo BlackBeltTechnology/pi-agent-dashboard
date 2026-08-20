@@ -38,29 +38,36 @@ test.describe("maxReplayEvents settings control", () => {
     const field = page.getByLabel(LABEL, { exact: true });
     await expect(field).toBeVisible();
 
-    // Capture the siblings so the write can be proven NON-destructive: a
+    // Capture the siblings so the write can be proven NON-DESTRUCTIVE: a
     // careless `c.memoryLimits = { ...one field }` would silently reset them.
-    const readNumber = async (label: string) =>
-      Number(await page.getByLabel(label, { exact: true }).inputValue());
-    const before = {
-      maxEventsPerSession: await readNumber("Max Events Per Session"),
-      maxStringFieldSize: await readNumber("Max string truncation"),
-      maxWsBufferBytes: await readNumber("Max WebSocket buffer"),
-    };
-
-    const write = page.waitForRequest(
-      (r) => r.method() === "POST" && r.url().includes("/api/config"),
+    //
+    // Read from the SERVER, not from sibling labels: the assertion is about the
+    // persisted values the write must preserve, and sourcing them from the API
+    // keeps this test from failing over an unrelated field's label copy.
+    const before = (await (
+      await page.request.get("/api/config")
+    ).json()) as { data?: { memoryLimits?: Record<string, number> } };
+    const siblings = before.data?.memoryLimits ?? {};
+    expect(Object.keys(siblings)).toEqual(
+      expect.arrayContaining(["maxEventsPerSession", "maxStringFieldSize", "maxWsBufferBytes"]),
     );
+
     await field.fill("1000");
-    await page.getByRole("button", { name: /save/i }).first().click();
+    // The Save Bar is dirty-gated: it exists only once a field has changed, so
+    // waiting for it also proves the control is wired into the dirty tracking.
+    await expect(page.getByTestId("settings-save-bar")).toBeVisible();
+    const write = page.waitForRequest(
+      (r) => r.method() === "PUT" && r.url().includes("/api/config"),
+    );
+    await page.getByTestId("save-btn").click();
 
     const body = (await (await write).postDataJSON()) as {
       memoryLimits?: Record<string, number>;
     };
     expect(body.memoryLimits?.maxReplayEvents).toBe(1000);
-    expect(body.memoryLimits?.maxEventsPerSession).toBe(before.maxEventsPerSession);
-    expect(body.memoryLimits?.maxStringFieldSize).toBe(before.maxStringFieldSize);
-    expect(body.memoryLimits?.maxWsBufferBytes).toBe(before.maxWsBufferBytes);
+    expect(body.memoryLimits?.maxEventsPerSession).toBe(siblings.maxEventsPerSession);
+    expect(body.memoryLimits?.maxStringFieldSize).toBe(siblings.maxStringFieldSize);
+    expect(body.memoryLimits?.maxWsBufferBytes).toBe(siblings.maxWsBufferBytes);
   });
 
   // test-plan #F13

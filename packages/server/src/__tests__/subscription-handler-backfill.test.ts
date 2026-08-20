@@ -7,13 +7,13 @@
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it, vi } from "vitest";
+import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
 import {
   BACKFILL_MAX_SPAN,
   handleHistoryBackfill,
   handleSubscribe,
   peekGapState,
 } from "../browser-handlers/subscription-handler.js";
-import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 

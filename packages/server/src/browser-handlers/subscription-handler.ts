@@ -48,7 +48,7 @@ const HYDRATE_HEARTBEAT_MS = 10000;
  * `MIN_REPLAY_WINDOW` makes a head-free window unreachable by configuration.
  * See change: lazy-load-session-history (D3).
  */
-export const HEAD_RATIO = 0.1;
+const HEAD_RATIO = 0.1;
 export const HEAD_MIN = 20;
 export const HEAD_CAP = 200;
 /**
@@ -100,7 +100,7 @@ function gapMapFor(ws: WebSocket): Map<string, GapState> {
  * old window can carry seqs that overlap the new window's head or tail.
  * See change: lazy-load-session-history (D9).
  */
-export function bumpSubscriptionGeneration(ws: WebSocket, sessionId: string): number {
+function bumpSubscriptionGeneration(ws: WebSocket, sessionId: string): number {
   const map = gapMapFor(ws);
   const prev = map.get(sessionId);
   const generation = (prev?.generation ?? 0) + 1;

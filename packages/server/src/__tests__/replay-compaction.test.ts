@@ -2,8 +2,9 @@
  * Unit tests for `compactEventsForReplay` — test-plan scenarios E1–E9, P2, P3.
  * See change: compact-warm-replay-stream.
  */
-import { describe, expect, it } from "vitest";
+
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
 import type { StoredEvent } from "../persistence/memory-event-store.js";
 import { compactEventsForReplay } from "../session/replay-compaction.js";
 import { largeSyntheticWindow, subagentInterleavedWindow } from "./fixtures/replay-streams.js";

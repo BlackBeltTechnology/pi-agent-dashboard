@@ -74,8 +74,8 @@ import { clearGapState, handleHistoryBackfill, handleSubscribe } from "../browse
 import { handleCloseInlineTerminal, handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "../browser-handlers/terminal-handler.js";
 import { createPendingResumeRegistry, type PendingResumeRegistry } from "../pending/pending-resume-registry.js";
 import { createViewedSessionTracker, type ViewedSessionTracker } from "../session/viewed-session-tracker.js";
-import { ResyncRequesterRegistry, resyncRequestIdOf } from "./subagent-resync-routing.js";
 import type { TerminalManager } from "../terminal/terminal-manager.js";
+import { ResyncRequesterRegistry, resyncRequestIdOf } from "./subagent-resync-routing.js";
 
 
 

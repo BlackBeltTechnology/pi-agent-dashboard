@@ -84,7 +84,7 @@ export function createHistoryGapRow(): ChatMessage {
  * the tail side) is what lets the server advance its recorded `headMaxSeq` and
  * report a shrinking `remainingGapCount`, which is what terminates the loop.
  */
-export const BACKFILL_MAX_SPAN = 500;
+const BACKFILL_MAX_SPAN = 500;
 
 /**
  * Scroll-anchor arithmetic for the backfill splice (task 7.3).

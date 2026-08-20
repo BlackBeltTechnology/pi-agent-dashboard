@@ -63,7 +63,7 @@ export interface EventStore {
   getRangeProbe(): RangeProbe;
 }
 
-export interface RangeProbe {
+interface RangeProbe {
   /** Buffer entries examined by the most recent `getEventsRange` bound search. */
   lastEntriesExamined: number;
 }

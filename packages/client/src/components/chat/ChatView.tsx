@@ -22,9 +22,9 @@ import { findActiveInteractiveToolResultIds, findRetriedErrorIds, findSurfaceSup
 // in App.tsx (sticky above the command input). See change:
 // unify-status-banner-and-terminal-limit-stop.
 import type { ChatImage, InteractiveUiRequest, SessionState } from "../../lib/chat/event-reducer.js";
-import { captureScrollAnchor, type HistoryGapState, restoreScrollAnchor } from "../../lib/chat/history-gap.js";
 import { type BurstItem, groupToolBursts, type ToolBurstGroup as ToolBurstGroupData } from "../../lib/chat/group-tool-bursts.js";
 import type { ToolCallGroup } from "../../lib/chat/group-tool-calls.js";
+import { captureScrollAnchor, type HistoryGapState, restoreScrollAnchor } from "../../lib/chat/history-gap.js";
 import { computeAnchorCorrection } from "../../lib/chat/selection-anchor.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { REPLAY_PILL_DELAY_MS } from "../../lib/replay/loading-history.js";
