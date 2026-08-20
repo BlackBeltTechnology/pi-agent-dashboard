@@ -57,3 +57,6 @@
 - [x] 8.7 Pass fresh review, validate archive readiness, and hand the completed change to the repository ship pipeline.
 - [x] 8.8 Track ChatView mounting across manual unmounts and retain the scoped 160 ms cleanup drain.
 - [x] 8.9 Replace unpinned skill commands with repository-local `pnpm exec` calls and pin the registry fallback.
+- [x] 8.10 Align the CI skill overview and reference taxonomy with the current workflow inventory.
+- [x] 8.11 Make the OpenSpec recovery verification fail closed and prove it preserves Git status.
+- [x] 8.12 Resolve the archive-location review as a false positive using the repository ship gate.

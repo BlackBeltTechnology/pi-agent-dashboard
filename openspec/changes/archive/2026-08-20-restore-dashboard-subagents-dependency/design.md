@@ -95,6 +95,12 @@ Track ChatView mounting through the existing scroll-container layout shim so man
 
 The `ci-troubleshoot` skill points to root `scripts/list-recent-runs.ts` and `scripts/show-failed-run.ts`, but the helpers live under `.pi/skills/ci-troubleshoot/scripts/`. Correct those four paths and run them through the repository-pinned `pnpm exec tsx`. Validate `show-failed-run.ts` against failed run `32286916122` and require its run summary plus failed annotation.
 
+### Apply second-round review hardening
+
+Keep CI skill prose consistent with its `pnpm exec tsx` commands and update its workflow overview against `.github/workflows/AGENTS.md`. Make the OpenSpec recovery verification fail closed with strict shell mode and an exact before/after Git status comparison.
+
+Keep this completed change under `openspec/changes/archive/`. The repository ship skill requires archive plus spec-sync evidence before merge; the review request to move it back to the active change root is a false positive.
+
 ### Ship and make future Pi sessions independent of the extension worktree link
 
 Open a pull request from the fork branch to upstream `develop`. Run the integrated test and build gates, archive the OpenSpec change, wait for required CI and review, then squash-merge.

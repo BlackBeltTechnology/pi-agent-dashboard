@@ -33,13 +33,15 @@ Bare `npx openspec init ...` can fetch `openspec@0.0.0` when `node_modules/.bin/
 ## Verification
 
 ```bash
+set -euo pipefail
+before_status="$(git status --porcelain=v1)"
 pnpm install --frozen-lockfile
 pnpm exec openspec --version
 pnpm exec openspec init --tools pi --force
 for skill in openspec-explore openspec-propose openspec-apply-change openspec-update-change openspec-archive-change; do
   test -d ".pi/skills/$skill" || exit 1
 done
-git status --short
+test "$(git status --porcelain=v1)" = "$before_status"
 ```
 
 Completion requires setup success, every named directory, and no unexplained tracked change.
