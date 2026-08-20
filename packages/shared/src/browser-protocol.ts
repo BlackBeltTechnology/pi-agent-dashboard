@@ -168,6 +168,14 @@ export interface EventReplayMessage {
  * asset replay and BEFORE the first `event_replay`, on full-stream paths only
  * — a genuine delta subscribe never emits it, so a transient reconnect cannot
  * reset a client's in-progress gap browsing.
+ *
+ * ZERO-GAP SEMANTICS: this message is emitted ONLY when a window was actually
+ * applied. A full stream that fits entirely inside the budget emits NOTHING —
+ * not a `gapCount: 0` announcement. Same rationale as excluding deltas: a
+ * client mid-gap-browsing that received a zero-gap announcement would have its
+ * gap bookkeeping silently reset. `gapCount` is therefore always `>= 1` on the
+ * wire; the field is typed as a plain number only because `0` remains the
+ * meaningful "no window" value in the client's own state.
  * See change: lazy-load-session-history (D5).
  */
 export interface SessionHistoryWindowMessage {

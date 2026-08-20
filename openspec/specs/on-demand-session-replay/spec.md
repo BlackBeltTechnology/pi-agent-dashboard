@@ -179,7 +179,7 @@ When `memoryLimits.maxReplayEvents` is greater than zero, the server SHALL deliv
 
 - **WHEN** `maxReplayEvents` is `1000` and the compacted stream holds 40 events
 - **THEN** the server SHALL deliver all 40 events exactly once
-- **AND** the emitted `history_window` SHALL report `gapCount` of `0`
+- **AND** the server SHALL NOT emit a `history_window` message at all, because no window was applied
 - **AND** no event SHALL appear more than once in the delivered stream
 
 ### Requirement: Windowing is determined by stream content, not by call site

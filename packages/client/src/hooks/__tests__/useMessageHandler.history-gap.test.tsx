@@ -42,6 +42,7 @@ interface Harness {
   maxSeqs: Map<string, number>;
   persisterSeed: ReturnType<typeof vi.fn>;
   persisterRecord: ReturnType<typeof vi.fn>;
+  spliceRev: number;
 }
 
 /**
@@ -65,9 +66,10 @@ function mount(): { get: () => Harness; fire: (m: ServerToBrowserMessage) => voi
   renderHook(() => {
     const [states, setSessionStates] = useState(new Map<string, SessionState>([[SID, createInitialState()]]));
     const [gaps, setHistoryGaps] = useState(new Map<string, HistoryGapState>());
+    const [spliceRev, setHistorySpliceRev] = useState(0);
     const maxSeqMapRef = useRef(new Map<string, number>());
     const setters = new Proxy(
-      { setSessionStates, setHistoryGaps },
+      { setSessionStates, setHistoryGaps, setHistorySpliceRev },
       {
         get: (t: Record<string, unknown>, k: string) => (k in t ? t[k] : vi.fn()),
       },
@@ -88,7 +90,7 @@ function mount(): { get: () => Harness; fire: (m: ServerToBrowserMessage) => voi
       replayPersister: { ...real, seed: persisterSeed, record: persisterRecord },
     };
     const handle = useMessageHandler(setters, deps);
-    latest = { handle, states, gaps, publishEvents, maxSeqs: maxSeqMapRef.current, persisterSeed, persisterRecord };
+    latest = { handle, states, gaps, publishEvents, maxSeqs: maxSeqMapRef.current, persisterSeed, persisterRecord, spliceRev };
     return null;
   });
   // Every `handle` call drives React state updates, so it must run inside
@@ -214,6 +216,57 @@ describe("history_backfill_result — the splice (F6, F8, D10)", () => {
     } as ServerToBrowserMessage);
     expect(h.get().persisterSeed).not.toHaveBeenCalled();
     expect(h.get().persisterRecord).not.toHaveBeenCalled();
+  });
+});
+
+describe("the splice revision drives the scroll anchor, not messages.length", () => {
+  const primed = () => {
+    const h = mount();
+    h.fire(windowMsg());
+    h.fire(windowedReplay());
+    return h;
+  };
+
+  it("bumps on a splice \u2014 INCLUDING the final one, where the net row count is unchanged", () => {
+    const h = primed();
+    const before = h.get().spliceRev;
+    // One row spliced in AND the divider removed: net length change is zero,
+    // so a length-keyed restore would never fire. The revision still bumps.
+    const lengthBefore = h.get().states.get(SID)!.messages.length;
+    h.fire({
+      type: "history_backfill_result",
+      sessionId: SID,
+      events: [{ seq: 21, event: evt("message_start", "last") }],
+      servedFrom: 21,
+      servedTo: 4799,
+      remainingGapCount: 0,
+    } as ServerToBrowserMessage);
+    expect(h.get().states.get(SID)!.messages.length).toBe(lengthBefore);
+    expect(h.get().spliceRev).toBe(before + 1);
+  });
+
+  it("does NOT bump on a live event, which also changes messages.length", () => {
+    const h = primed();
+    const before = h.get().spliceRev;
+    h.fire({
+      type: "event",
+      sessionId: SID,
+      seq: 5000,
+      event: evt("message_start", "live"),
+    } as ServerToBrowserMessage);
+    expect(h.get().spliceRev).toBe(before);
+  });
+
+  it("does NOT bump on a refusal or an empty response", () => {
+    const h = primed();
+    const before = h.get().spliceRev;
+    for (const msg of [
+      { events: [], servedFrom: 0, servedTo: 0, remainingGapCount: 0, error: "in_flight" as const },
+      { events: [], servedFrom: 21, servedTo: 520, remainingGapCount: 700 },
+    ]) {
+      h.fire({ type: "history_backfill_result", sessionId: SID, ...msg } as ServerToBrowserMessage);
+    }
+    expect(h.get().spliceRev).toBe(before);
   });
 });
 

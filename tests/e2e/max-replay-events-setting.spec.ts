@@ -61,13 +61,23 @@ test.describe("maxReplayEvents settings control", () => {
     );
     await page.getByTestId("save-btn").click();
 
-    const body = (await (await write).postDataJSON()) as {
-      memoryLimits?: Record<string, number>;
-    };
-    expect(body.memoryLimits?.maxReplayEvents).toBe(1000);
-    expect(body.memoryLimits?.maxEventsPerSession).toBe(siblings.maxEventsPerSession);
-    expect(body.memoryLimits?.maxStringFieldSize).toBe(siblings.maxStringFieldSize);
-    expect(body.memoryLimits?.maxWsBufferBytes).toBe(siblings.maxWsBufferBytes);
+    try {
+      const body = (await (await write).postDataJSON()) as {
+        memoryLimits?: Record<string, number>;
+      };
+      expect(body.memoryLimits?.maxReplayEvents).toBe(1000);
+      expect(body.memoryLimits?.maxEventsPerSession).toBe(siblings.maxEventsPerSession);
+      expect(body.memoryLimits?.maxStringFieldSize).toBe(siblings.maxStringFieldSize);
+      expect(body.memoryLimits?.maxWsBufferBytes).toBe(siblings.maxWsBufferBytes);
+    } finally {
+      // RESTORE the shared harness config. This spec really does write to the
+      // container every other spec runs against, and a leftover non-zero
+      // `maxReplayEvents` would window THEIR replays — turning this test into a
+      // source of cross-spec flake. Runs even when the assertions above fail.
+      await page.request.put("/api/config", {
+        data: { memoryLimits: { ...siblings, maxReplayEvents: siblings.maxReplayEvents ?? 0 } },
+      });
+    }
   });
 
   // test-plan #F13

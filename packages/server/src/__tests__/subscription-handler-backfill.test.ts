@@ -197,6 +197,25 @@ describe("history_backfill — range and span (E27, E28, E29, E30, E31, P3)", ()
     expect(JSON.stringify(res).length).toBeLessThanOrEqual(perEventCeiling * BACKFILL_MAX_SPAN);
   });
 
+  it("a NON-head-adjacent request is served but does NOT advance the head", async () => {
+    // `from` is clamped up to `headMaxSeq + 1` as a LOWER bound only, so a
+    // client is free to ask for a range starting well above the head edge.
+    // Advancing the head past events that were never served would permanently
+    // orphan everything below, with the client's stop rule none the wiser.
+    const { ctx, subs, win } = await subscribed();
+    const before = peekGapState(ctx.ws, "s1")!.headMaxSeq;
+    await handleHistoryBackfill(
+      { type: "history_backfill", sessionId: "s1", fromSeq: win.headMaxSeq + 3000, toSeq: win.headMaxSeq + 3010 },
+      subs,
+      ctx,
+    );
+    const [res] = resultsOf(ctx);
+    expect(res.error).toBeUndefined();
+    expect(peekGapState(ctx.ws, "s1")!.headMaxSeq).toBe(before);
+    // ...and the count still reflects everything above the UNMOVED head edge.
+    expect(res.remainingGapCount).toBe(win.gapCount);
+  });
+
   it("the head ADVANCES across successive requests, so remainingGapCount terminates", async () => {
     const { ctx, subs, win } = await subscribed();
     let remaining = win.gapCount;

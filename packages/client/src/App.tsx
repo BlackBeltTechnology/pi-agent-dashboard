@@ -618,6 +618,9 @@ export default function App() {
   // Per-session windowed-replay gap. Non-empty only for sessions the server
   // bounded via `maxReplayEvents`. See change: lazy-load-session-history.
   const [historyGaps, setHistoryGaps] = useState<Map<string, import("./lib/chat/history-gap.js").HistoryGapState>>(new Map());
+  // Bumped once per successful backfill splice; drives ChatView's scroll-anchor
+  // restore. See change: lazy-load-session-history.
+  const [historySpliceRev, setHistorySpliceRev] = useState(0);
   const replayInFlightTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   // After overlay-url-routing: shell overlays are URL-driven via the
   // useRoute matches declared above. `previewState`, `specsBrowserCwd`,
@@ -847,7 +850,7 @@ export default function App() {
   }, [send, historyGaps]);
 
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast },
   );
 
@@ -1826,7 +1829,7 @@ export default function App() {
             </div>
           }>
             <SessionAssetsProvider assets={selectedSession?.assets}>
-            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? handleForkFromMessage : undefined} onCloseInlineTerminal={selectedId ? handleCloseInlineTerminalForSelected : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? EMPTY_STEERING} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} replayInFlight={selectedId ? replayInFlight.get(selectedId) ?? false : false} historyGap={selectedId ? historyGaps.get(selectedId) : undefined} onLoadEarlier={selectedId ? handleLoadEarlier : undefined} onCollapseStreamingThinking={selectedId ? handleCollapseStreamingThinking : undefined} />
+            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? handleForkFromMessage : undefined} onCloseInlineTerminal={selectedId ? handleCloseInlineTerminalForSelected : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? EMPTY_STEERING} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} replayInFlight={selectedId ? replayInFlight.get(selectedId) ?? false : false} historyGap={selectedId ? historyGaps.get(selectedId) : undefined} onLoadEarlier={selectedId ? handleLoadEarlier : undefined} historySpliceRev={historySpliceRev} onCollapseStreamingThinking={selectedId ? handleCollapseStreamingThinking : undefined} />
             </SessionAssetsProvider>
           </ErrorBoundary>
           {/* Single-card error-lifecycle surface. Sticky above the command

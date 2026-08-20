@@ -255,7 +255,21 @@ export async function sendEventBatches(
     // without re-deriving the window. `headMaxSeq` ADVANCES as backfill fills
     // the gap from the head side, which is what makes `remainingGapCount`
     // — and therefore the client's stop rule — terminate.
-    const gap = gapMapFor(ws).get(sessionId);
+    /**
+     * Record the bounds so `handleHistoryBackfill` can clamp into them without
+     * re-deriving the window. `headMaxSeq` ADVANCES as backfill fills the gap
+     * from the head side, which is what makes `remainingGapCount` — and
+     * therefore the client's stop rule — terminate.
+     *
+     * Absent entry = this socket has no live subscription for the session (it
+     * unsubscribed, or a direct call registered none). The announcement still
+     * goes out — it is computed from the very events being delivered on this
+     * call, so it is never stale relative to them — but there is no
+     * subscription to record against. A client that has since re-subscribed is
+     * protected by the `session_state_reset` that precedes every windowed
+     * full-stream replay, which drops its gap state.
+     */
+    const gap = gapStates.get(ws)?.get(sessionId);
     if (gap) {
       gap.headMaxSeq = headMaxSeq;
       gap.tailMinSeq = tailMinSeq;
@@ -471,12 +485,26 @@ export async function handleHistoryBackfill(
     // every cumulative snapshot, so an un-compacted slice serves ALL of them.
     const compacted = compactEventsForReplay(slice, slice.length);
 
-    // Backfill extends the head, so the next request starts above what was
-    // just served. This is what terminates the client's loop.
-    current.headMaxSeq = to;
-    // Truthful count of what the store STILL HOLDS above the served range —
-    // never the seq distance, which overstates a middle-trimmed store.
-    const remainingGapCount = eventStore.getEventsRange(sessionId, to + 1, current.tailMinSeq - 1).length;
+    /**
+     * Backfill extends the head, so the next request starts above what was just
+     * served — this is what terminates the client's loop.
+     *
+     * ONLY when the served range is genuinely head-ADJACENT. `from` is clamped
+     * up to `headMaxSeq + 1` as a lower bound, so a client is free to ask for a
+     * range starting well above the head. Advancing the head past a range that
+     * was never served would permanently orphan everything below it, with the
+     * client's own stop rule none the wiser. The server must not trust the
+     * client to only ever walk forward from the edge.
+     */
+    const headAdjacent = from === current.headMaxSeq + 1;
+    if (headAdjacent) current.headMaxSeq = to;
+    // Truthful count of what the store STILL HOLDS above the head edge — never
+    // the seq distance, which overstates a middle-trimmed store.
+    const remainingGapCount = eventStore.getEventsRange(
+      sessionId,
+      current.headMaxSeq + 1,
+      current.tailMinSeq - 1,
+    ).length;
 
     sendTo(ws, {
       type: "history_backfill_result",

@@ -131,6 +131,16 @@ export interface MessageHandlerSetters {
    * See change: lazy-load-session-history.
    */
   setHistoryGaps?: React.Dispatch<React.SetStateAction<Map<string, HistoryGapState>>>;
+  /**
+   * Monotonic counter bumped once per SUCCESSFUL backfill splice. The chat view
+   * keys its scroll-anchor restore on this rather than on `messages.length`:
+   * a live event also changes the length (and would consume the anchor for an
+   * unrelated row), and the FINAL splice inserts rows while removing the
+   * divider, so the net length can be unchanged and the restore would never
+   * run at all. A revision fires exactly once per splice, in both cases.
+   * See change: lazy-load-session-history (task 7.3).
+   */
+  setHistorySpliceRev?: React.Dispatch<React.SetStateAction<number>>;
 }
 
 export interface MessageHandlerDeps {
@@ -192,7 +202,7 @@ export function useMessageHandler(
     setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult,
     setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals,
     setDiscoveredServers, setSpawnErrors, setResumeErrors,
-    setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps,
+    setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev,
   } = setters;
   const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, showToast } = deps;
   // One-shot per session: suppress a repeat auto-name toast for the same
@@ -765,6 +775,7 @@ export function useMessageHandler(
           break;
         }
         if (msg.events.length > 0) {
+          setHistorySpliceRev?.((n) => n + 1);
           setSessionStates((prev) => {
             const current = prev.get(msg.sessionId);
             if (!current) return prev;
@@ -1366,5 +1377,5 @@ export function useMessageHandler(
         break;
       }
     }
-  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setLoadingHistory, setReplayInFlight, setCanvasMap, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush, publishGap]);
+  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setLoadingHistory, setReplayInFlight, setCanvasMap, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush, publishGap, setHistorySpliceRev]);
 }

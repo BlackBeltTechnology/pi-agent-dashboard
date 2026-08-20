@@ -103,6 +103,12 @@ interface Props {
   /** Request the gap slice adjacent to the head. See change: lazy-load-session-history. */
   onLoadEarlier?: () => void;
   /**
+   * Bumped once per successful backfill splice. The scroll-anchor restore keys
+   * on THIS, not on `messages.length` — see the effect below.
+   * See change: lazy-load-session-history (task 7.3).
+   */
+  historySpliceRev?: number;
+  /**
    * Client-only signal: the user manually collapsed the LIVE streaming
    * reasoning block. Sets `streamingThinkingCollapsed` on the session state so
    * the collapse survives the streaming→committed swap (committed block stays
@@ -332,7 +338,7 @@ export interface ChatViewHandle {
   scrollToTurn: (turnIndex: number) => void;
 }
 
-const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, replayInFlight, historyGap, onLoadEarlier, onCollapseStreamingThinking }, ref) {
+const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, replayInFlight, historyGap, onLoadEarlier, historySpliceRev, onCollapseStreamingThinking }, ref) {
   // `ToolContext` is a published surface (re-exported from `chat-embed`), so an
   // external embedder builds one by hand and would carry no `fileLink` —
   // silently losing file-mention linkification with no type error. Merge a
@@ -392,28 +398,31 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
    * next layout pass, so it never contends for scroll ownership with the
    * live-tail follow.
    */
-  const gapAnchorRef = useRef<{ anchor: number; atLength: number } | null>(null);
+  const gapAnchorRef = useRef<number | null>(null);
   const handleLoadEarlier = useCallback(() => {
     const el = scrollRef.current;
-    gapAnchorRef.current = el ? { anchor: captureScrollAnchor(el), atLength: state.messages.length } : null;
+    gapAnchorRef.current = el ? captureScrollAnchor(el) : null;
     onLoadEarlier?.();
-  }, [onLoadEarlier, state.messages.length]);
+  }, [onLoadEarlier]);
+  /**
+   * Keyed on the splice REVISION, deliberately not on `state.messages.length`:
+   *   - a live event arriving while a backfill is pending also changes the
+   *     length, and would consume the anchor for an unrelated row;
+   *   - the FINAL splice inserts rows AND removes the divider, so the net
+   *     length can be unchanged and a length-keyed effect would never fire.
+   * A revision bump happens exactly once per successful splice, in both cases.
+   */
   useLayoutEffect(() => {
-    const armed = gapAnchorRef.current;
-    if (armed === null) return;
+    const anchor = gapAnchorRef.current;
+    if (anchor === null) return;
+    gapAnchorRef.current = null;
     const el = scrollRef.current;
     if (!el) return;
-    // Only a GROWTH is a splice. Any other length change (a live event, a row
-    // collapsing) must consume-and-discard the anchor rather than apply it,
-    // or it would jump the scroll by an unrelated row's height.
-    if (state.messages.length > armed.atLength) {
-      // Restore the distance from the anchor row to the BOTTOM of the content,
-      // which is invariant under an insertion above it.
-      const restored = restoreScrollAnchor(el, armed.anchor);
-      if (restored !== el.scrollTop) el.scrollTop = restored;
-    }
-    gapAnchorRef.current = null;
-  }, [state.messages.length]);
+    // Restore the distance from the anchor row to the BOTTOM of the content,
+    // which is invariant under an insertion above it.
+    const restored = restoreScrollAnchor(el, anchor);
+    if (restored !== el.scrollTop) el.scrollTop = restored;
+  }, [historySpliceRev]);
   /**
    * A backfill that splices NOTHING (refused, empty, or a store hole) never
    * changes `messages.length`, so the layout effect above never runs and the
