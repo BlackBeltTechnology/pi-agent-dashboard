@@ -11,14 +11,11 @@
  * See change: fix-worktree-server-autostart-leak.
  */
 import { appendFileSync, mkdirSync, realpathSync } from "node:fs";
-import { dirname, sep } from "node:path";
+import { dirname } from "node:path";
 import { getDashboardServerLogPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
-// Re-exported from the config module so the predicate can never desync from
-// the actual defaults it is protecting.
-export {
-  DEFAULT_DASHBOARD_PORT,
-  DEFAULT_GATEWAY_PORT,
-} from "@blackbelt-technology/pi-dashboard-shared/config.js";
+// Imported (not re-exported) from the config module so the predicate can never
+// desync from the actual defaults it is protecting. The re-export had no
+// importer — every caller reads the constants from `config.js` directly.
 import {
   DEFAULT_DASHBOARD_PORT,
   DEFAULT_GATEWAY_PORT,
@@ -99,5 +96,4 @@ export function appendAutoStartLog(
   }
 }
 
-/** Exposed for tests that need the platform separator in a fixture path. */
-export const PATH_SEP = sep;
+

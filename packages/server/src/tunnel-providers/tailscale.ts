@@ -160,7 +160,9 @@ export function deriveEndpoints(
  * `serve status --json` maps handler targets like `http://127.0.0.1:8000`; the
  * port in that target is the authoritative one for a daemon we did not start.
  */
-export function servedPort(serveStatusJson: unknown): number | undefined {
+// Internal: only `this.lastPort` resolution calls it.
+// See change: fix-spawn-correlation-ttl-coupling (ratchet).
+function servedPort(serveStatusJson: unknown): number | undefined {
   const web = (serveStatusJson as { Web?: Record<string, unknown> } | null)?.Web ?? {};
   for (const host of Object.values(web)) {
     const handlers = (host as { Handlers?: Record<string, unknown> } | null)?.Handlers ?? {};
