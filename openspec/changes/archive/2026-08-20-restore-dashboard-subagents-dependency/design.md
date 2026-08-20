@@ -1,10 +1,10 @@
 ## Context
 
-Pi settings already contain `npm:@blackbelt-technology/pi-dashboard-subagents`. The package cache now contains version `0.2.4`, and `pi list` resolves it. The live Dashboard process still runs global Dashboard `0.6.1`, which discovers zero plugins because that install contains only the core `packages/{server,shared,extension}` source directories.
+At task start, Pi settings already contained `npm:@blackbelt-technology/pi-dashboard-subagents`, but its package cache was incomplete. The live Dashboard process ran global Dashboard `0.6.1`, which discovered zero plugins because that install contained only the core `packages/{server,shared,extension}` source directories.
 
 The clean worktree contains Dashboard `0.7.0`, 13 plugin manifests, and a generated production client bundle. Four plugin bridge paths conflict with existing live source paths. Those existing paths still exist, so the bridge registrar correctly refuses to replace them.
 
-After activation, the newer plugin set exposed three requirements that were absent from the starting runtime: Apple Tools needs a macOS iMCP path, Blackhole needs `pi-blackhole`, and Hermes Memory needs `pi-hermes-memory`. The user first chose to disable Apple Tools, replace the installed pi-vcc package with Blackhole, and install Hermes Memory alongside the existing memory systems. The user then withdrew the Hermes choice and instructed Pi to remove the exact global source `npm:pi-hermes-memory`.
+After activation, the newer plugin set exposed three requirements that were absent from the starting runtime: Apple Tools needs a macOS iMCP path, Blackhole needs `pi-blackhole`, and Hermes Memory needs `pi-hermes-memory`. The user first chose to disable Apple Tools, replace the installed pi-vcc package with Blackhole, and install Hermes Memory alongside the existing memory systems. A fresh Pi process then failed because Hermes registered `skill_manage`, which conflicts with the existing global `skill-manage.ts` extension. The user instructed Pi to remove the exact global source `npm:pi-hermes-memory`.
 
 ## Goals / Non-Goals
 
@@ -13,7 +13,7 @@ After activation, the newer plugin set exposed three requirements that were abse
 - Make the live Dashboard use the clean worktree that contains the Subagent Inspector plugin.
 - Preserve the existing Pi package declaration and installed package version.
 - Restart through the Dashboard restart endpoint so connected sessions can reattach.
-- Apply the user's activation choices for Apple Tools and Blackhole, then remove Hermes Memory from global Pi settings.
+- Apply the user's activation choices for Apple Tools and Blackhole, then remove Hermes Memory after its fresh-start conflict.
 - Prove that the Subagent Inspector dependency remains healthy and that Pi no longer lists the removed Hermes source.
 
 **Non-Goals:**
@@ -22,7 +22,6 @@ After activation, the newer plugin set exposed three requirements that were abse
 - Replace existing bridge paths.
 - Fix bridge path conflicts or other plugin load errors.
 - Configure Blackhole or Hermes Memory beyond their package defaults.
-- Merge the feature branch.
 
 ## Decisions
 
@@ -36,7 +35,7 @@ Alternative: run `pi update npm:@blackbelt-technology/pi-dashboard-subagents`. R
 
 Remove the exact configured source `npm:@sting8k/pi-vcc` before installing `npm:pi-blackhole`. Blackhole's upstream README states that standalone pi-vcc and Blackhole conflict because both own Pi's compaction hook.
 
-Use Pi's package commands rather than editing `settings.json` or package-cache files. The earlier migration installed `npm:pi-hermes-memory`; after the user withdrew that choice, run `pi remove npm:pi-hermes-memory`. Pi removal deletes the source from user settings but can leave package cache files. Do not manually delete them. Existing sessions can keep the already-loaded extension until they reload.
+Use Pi's package commands rather than editing `settings.json` or package-cache files. The earlier migration installed `npm:pi-hermes-memory`; after the fresh process reported the `skill_manage` conflict, run `pi remove npm:pi-hermes-memory`. Pi removal deletes the source from user settings but can leave package cache files. Do not manually delete them. Existing sessions can keep the already-loaded extension until they reload.
 
 Package review: `pi-blackhole@0.4.7` is MIT-licensed, carries npm provenance attestation, and targets Pi `>=0.81.1 <1.0.0`.
 
@@ -78,6 +77,24 @@ Alternative: run `systemctl --user restart` directly. Rejected because it does n
 
 Inventory conflicts by comparing each worktree plugin bridge path with `settings.json#dashboardPluginBridges`. Existing paths remain on disk, so replacing them would change source ownership outside this dependency repair.
 
+### Keep auto-start tests independent of checkout type
+
+The full suite fails from a Git worktree because two legacy `makeDeps` helpers omit the existing `resolveCliPath` test seam. They therefore resolve this worktree's real server CLI, trigger the production shared-port refusal, and never reach mocked `launchServer`. Inject a non-worktree host CLI path in those two helpers. The dedicated `server-auto-start-guarded.test.ts` suite continues to test both worktree refusal and host behavior explicitly.
+
+### Remove a filesystem timestamp assumption from the KB test
+
+`frontmatter-indexing.test.ts` rewrites one file and immediately runs incremental indexing. A fast filesystem can assign the same mtime to both writes, so the indexer correctly skips the file and the stale-property assertion fails. Pass `force=true` on the second index. This keeps the test focused on replacing stale property rows, while separate indexer tests own change detection.
+
+### Drain the ChatView virtualizer callback before jsdom teardown
+
+TanStack Virtual's element-offset observer debounces a scroll-reset callback for `isScrollingResetDelay`, which defaults to 150 ms. Its cleanup removes listeners but does not clear that timer. The shared client test cleanup currently waits one 0 ms turn, so under full-suite load a delayed callback can dispatch into React after jsdom removes `window`.
+
+Before cleanup, detect whether the test mounted `chat-scroll-container`. For those tests only, wait 160 ms after unmount. Keep fake-timer tests on the existing non-wait path. This adds no production behavior and avoids slowing unrelated client tests.
+
+### Correct the stale CI troubleshooting procedure
+
+The `ci-troubleshoot` skill points to root `scripts/list-recent-runs.ts` and `scripts/show-failed-run.ts`, but the helpers live under `.pi/skills/ci-troubleshoot/scripts/`. Correct those four paths. Validate by running the corrected `show-failed-run.ts` command against failed run `32286916122` and requiring its run summary plus failed annotation.
+
 ### Ship and make future Pi sessions independent of the extension worktree link
 
 Open a pull request from the fork branch to upstream `develop`. Run the integrated test and build gates, archive the OpenSpec change, wait for required CI and review, then squash-merge.
@@ -93,6 +110,9 @@ A test replacement of the global Dashboard root link with published `@blackbelt-
 - [Risk] Blackhole changes compaction behavior and pi-vcc cannot remain loaded. Mitigation: remove the exact pi-vcc source first and stop if removal fails.
 - [Risk] Removing Hermes Memory makes the enabled Hermes Memory dashboard plugin report its extension requirement as missing, and existing sessions can retain the loaded extension until reload. Mitigation: verify the exact source is absent from `pi list`, do not present the plugin warning as a Subagent Inspector failure, and state the reload boundary.
 - [Risk] A prompt-mode Pi smoke can keep background extension work alive after the response. Mitigation: treat the response marker as startup success, terminate the disposable process immediately, and enforce a short parent-side deadline.
+- [Risk] A host-path test seam could hide worktree refusal regressions in legacy behavior tests. Mitigation: keep the dedicated guarded suite as the single explicit owner of host and worktree path cases.
+- [Risk] Forced indexing could hide incremental change-detection failures. Mitigation: this test owns stale-property replacement only; keep change detection in the indexer test suite.
+- [Risk] A 160 ms cleanup wait can slow ChatView tests. Mitigation: apply it only when the test mounted the ChatView scroll container and skip it under fake timers.
 - [Risk] The installed OpenSpec workflow package remains stale until the repository package is released and reinstalled. Mitigation: update the canonical source, validate it, and report the unsynchronized installed copy.
 - [Risk] The shutdown/start window can briefly disconnect this session. Mitigation: use the Dashboard shutdown announcement, preserve non-main service processes with runtime-only `KillMode=process`, and verify this session reappears with `hidden: false`.
 - [Risk] A failed start could leave the temporary `KillMode=process` drop-in in place. Mitigation: the activation script removes only `preserve-pi-sessions.conf` after success or failure, reloads systemd, and reports the final effective value.
@@ -118,6 +138,10 @@ A test replacement of the global Dashboard root link with published `@blackbelt-
 17. Accept the resulting Hermes Memory plugin requirement warning while confirming the Subagent Inspector requirement remains healthy.
 18. Replace the Pi extension worktree source with published `@blackbelt-technology/pi-dashboard-extension@0.7.0` and pass the bounded fresh Pi startup gate.
 19. Test the published Dashboard root package. If it discovers zero plugins, restore the worktree link and require 13 plugins after restart.
-20. Integrate `origin/develop`, pass tests and build, archive the change, open a PR, and merge only after CI and review pass.
-21. Keep the worktree while the Dashboard server link resolves inside it.
-22. If activation fails, restore `KillMode=control-group`, restore the prior package set where safe, and start the Dashboard service.
+20. Inject a host CLI path into the two legacy auto-start test helpers and pass their targeted tests.
+21. Force the KB stale-property test's second index and pass its targeted suite.
+22. Drain the TanStack Virtual scroll-reset callback after ChatView tests and pass the client plus full-suite gates.
+23. Correct and validate the CI troubleshooting skill's first-move commands.
+24. Integrate `origin/develop`, pass the full test and build gates, archive the change, open a PR, and merge only after CI and review pass.
+25. Keep the worktree while the Dashboard server link resolves inside it.
+26. If activation fails, restore `KillMode=control-group`, restore the prior package set where safe, and start the Dashboard service.

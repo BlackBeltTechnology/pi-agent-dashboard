@@ -49,7 +49,9 @@
 ## 8. Ship and make future Pi sessions independent of the extension worktree link
 
 - [x] 8.1 Replace the linked Pi extension with published `0.7.0` and pass the bounded fresh-start gate. Test the published Dashboard root; after it discovers zero plugins, restore the server worktree link and verify 13 plugins.
-- [ ] 8.2 Merge `origin/develop` into the branch and pass the repository test and build gates.
-- [ ] 8.3 Archive the OpenSpec change, commit, push, and open a pull request to upstream `develop`.
-- [ ] 8.4 Require green CI and no actionable review findings, then squash-merge the pull request.
-- [ ] 8.5 Verify upstream `develop` contains the change and the global Pi extension no longer resolves inside this worktree. Keep the worktree while the Dashboard server link requires it.
+- [x] 8.2 Inject a host CLI path into the two legacy auto-start test helpers and pass their targeted tests from this worktree.
+- [x] 8.3 Force the KB stale-property test's second reindex and pass its targeted suite.
+- [x] 8.4 Drain the TanStack Virtual scroll-reset callback after ChatView tests and pass the client plus full-suite gates.
+- [x] 8.5 Correct the CI troubleshooting skill's deleted-script commands and validate skill frontmatter.
+- [x] 8.6 Merge `origin/develop` into the branch and pass the full repository test and build gates.
+- [x] 8.7 Pass fresh review, validate archive readiness, and hand the completed change to the repository ship pipeline.
