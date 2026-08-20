@@ -17,6 +17,20 @@ function session(over: Partial<FolderGroupSession> & { cwd: string }): FolderGro
   return { status: "active", gitWorktree: undefined, ...over } as FolderGroupSession;
 }
 
+/**
+ * Periodic-tick equivalent: the key-set recompute now lives in
+ * `directory-service` (single recompute path), so the poll object exposes only
+ * the bounded refresh fan-out.
+ * See change: fix-folder-header-worktree-branch-leak.
+ */
+function tick(
+  poll: { refreshMany(cwds: ReadonlyArray<string>): Promise<void> },
+  sessions: ReadonlyArray<FolderGroupSession>,
+  pinned: ReadonlyArray<string>,
+): Promise<void> {
+  return poll.refreshMany(computeFolderGroupKeys(sessions, pinned));
+}
+
 function onBranch(branch: string): HeadInfo {
   return { branch, detached: false, sha: "abc1234", hasSubmodules: false };
 }
@@ -88,8 +102,8 @@ describe("createFolderHeadPoll", () => {
     const readHead = vi.fn(() => onBranch("develop"));
     const poll = createFolderHeadPoll({ broadcast: (m) => calls.push(m), readHead });
 
-    await poll.poll([session({ cwd: "/repo" })], []);
-    await poll.poll([session({ cwd: "/repo" })], []);
+    await tick(poll, [session({ cwd: "/repo" })], []);
+    await tick(poll, [session({ cwd: "/repo" })], []);
 
     expect(calls).toEqual([{ type: "git_head_update", cwd: "/repo", branch: "develop" }]);
     expect(readHead).toHaveBeenCalledTimes(2);
@@ -102,9 +116,9 @@ describe("createFolderHeadPoll", () => {
       broadcast: (m) => calls.push(m),
       readHead: () => onBranch(branch),
     });
-    await poll.poll([session({ cwd: "/repo" })], []);
+    await tick(poll, [session({ cwd: "/repo" })], []);
     branch = "develop";
-    await poll.poll([session({ cwd: "/repo" })], []);
+    await tick(poll, [session({ cwd: "/repo" })], []);
 
     expect(calls.map((c) => c.branch)).toEqual(["os/foo", "develop"]);
   });
@@ -115,8 +129,8 @@ describe("createFolderHeadPoll", () => {
       broadcast: (m) => calls.push(m),
       readHead: () => ({ branch: null, detached: false, sha: null }),
     });
-    await poll.poll([session({ cwd: "/not-git" })], []);
-    await poll.poll([session({ cwd: "/not-git" })], []);
+    await tick(poll, [session({ cwd: "/not-git" })], []);
+    await tick(poll, [session({ cwd: "/not-git" })], []);
 
     expect(calls).toEqual([{ type: "git_head_update", cwd: "/not-git", branch: null }]);
   });
@@ -140,7 +154,7 @@ describe("createFolderHeadPoll", () => {
       broadcast: (m) => calls.push(m),
       readHead: async (cwd) => (cwd === "/a" ? onBranch("main") : { branch: null, detached: false, sha: null }),
     });
-    await poll.poll([session({ cwd: "/a" }), session({ cwd: "/b" })], []);
+    await tick(poll, [session({ cwd: "/a" }), session({ cwd: "/b" })], []);
     expect(calls).toContainEqual({ type: "git_head_update", cwd: "/a", branch: "main" });
     expect(calls).toContainEqual({ type: "git_head_update", cwd: "/b", branch: null });
   });
@@ -160,8 +174,84 @@ describe("createFolderHeadPoll", () => {
       },
     });
     const sessions = ["/1", "/2", "/3", "/4", "/5"].map((cwd) => session({ cwd }));
-    await poll.poll(sessions, []);
+    await tick(poll, sessions, []);
     expect(calls).toHaveLength(5);
     expect(maxInFlight).toBeLessThanOrEqual(2);
+  });
+});
+
+// ── entry fan-out + snapshot (fix-folder-header-worktree-branch-leak) ────────
+//
+// `refreshMany` is the SINGLE bounded fan-out shared by the periodic tick and
+// the entry refresh; `snapshot` is the pure read the browser connect snapshot
+// replays. The key-set recompute itself lives in `directory-service`.
+
+describe("folder-head entry fan-out + snapshot", () => {
+  it("retains a cached value for a key that left the set (#E15)", async () => {
+    const poll = createFolderHeadPoll({
+      broadcast: () => {},
+      readHead: async () => onBranch("develop"),
+    });
+    await tick(poll, [session({ cwd: "/a" })], []);
+    expect(poll.snapshot()).toEqual([{ cwd: "/a", branch: "develop" }]);
+    // `/a`'s sessions all end → it leaves the recomputed key set.
+    await tick(poll, [session({ cwd: "/a", status: "ended" })], []);
+    // Cache is NOT evicted: the folder still renders (ended-only groups,
+    // workspace folders) and the connect snapshot must still carry it.
+    expect(poll.snapshot()).toEqual([{ cwd: "/a", branch: "develop" }]);
+  });
+
+  it("snapshot is a pure read — it does not suppress a later broadcast (#E17)", async () => {
+    const calls: BrowserGitHeadUpdateMessage[] = [];
+    let branch = "develop";
+    const poll = createFolderHeadPoll({
+      broadcast: (m) => calls.push(m),
+      readHead: async () => onBranch(branch),
+    });
+    await tick(poll, [session({ cwd: "/a" })], []);
+    const before = JSON.stringify(poll.snapshot());
+    poll.snapshot();
+    poll.snapshot();
+    expect(JSON.stringify(poll.snapshot())).toBe(before);
+    branch = "feature";
+    await poll.refreshOne("/a");
+    expect(calls.map((c) => c.branch)).toEqual(["develop", "feature"]);
+  });
+
+  it("entry fan-out honours the concurrency cap (#E20)", async () => {
+    const calls: BrowserGitHeadUpdateMessage[] = [];
+    let inFlight = 0;
+    let peak = 0;
+    const poll = createFolderHeadPoll({
+      broadcast: (m) => calls.push(m),
+      // Default cap is 4 — assert the entry path inherits it, not a burst of 12.
+      readHead: async (cwd) => {
+        inFlight++; peak = Math.max(peak, inFlight);
+        await new Promise((r) => setTimeout(r, 5));
+        inFlight--;
+        return onBranch(`b${cwd}`);
+      },
+    });
+    const entering = Array.from({ length: 12 }, (_, i) => `/e${i}`);
+    await poll.refreshMany(entering);
+    expect(peak).toBeLessThanOrEqual(4);
+    expect(calls).toHaveLength(12);
+    expect(poll.size()).toBe(12);
+  });
+
+  it("readHead throwing on an entering key degrades to null, once (#X2)", async () => {
+    const calls: BrowserGitHeadUpdateMessage[] = [];
+    const logged: string[] = [];
+    const poll = createFolderHeadPoll({
+      broadcast: (m) => calls.push(m),
+      logger: (m) => logged.push(m),
+      readHead: () => { throw new Error("boom"); },
+    });
+    await expect(poll.refreshMany(["/bad"])).resolves.toBeUndefined();
+    expect(calls).toEqual([{ type: "git_head_update", cwd: "/bad", branch: null }]);
+    // Cached null → a second entry refresh does not re-broadcast.
+    await poll.refreshMany(["/bad"]);
+    expect(calls).toHaveLength(1);
+    expect(logged.join("\n")).toContain("/bad");
   });
 });

@@ -74,8 +74,8 @@ import { handleSubscribe } from "../browser-handlers/subscription-handler.js";
 import { handleCloseInlineTerminal, handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "../browser-handlers/terminal-handler.js";
 import { createPendingResumeRegistry, type PendingResumeRegistry } from "../pending/pending-resume-registry.js";
 import { createViewedSessionTracker, type ViewedSessionTracker } from "../session/viewed-session-tracker.js";
-import { ResyncRequesterRegistry, resyncRequestIdOf } from "./subagent-resync-routing.js";
 import type { TerminalManager } from "../terminal/terminal-manager.js";
+import { ResyncRequesterRegistry, resyncRequestIdOf } from "./subagent-resync-routing.js";
 
 
 
@@ -581,6 +581,18 @@ export function createBrowserGateway(
     if (directoryService) {
       for (const msg of buildOpenSpecConnectSnapshot(directoryService, hasOpenSpecDir, hasOpenSpecRoot)) {
         sendTo(ws, msg);
+      }
+      // Replay the cached folder-HEAD map to THIS socket only. `git_head_update`
+      // is broadcast on first-seen-or-change, so a browser connecting after the
+      // server cached a folder would otherwise never learn its HEAD. Unicast
+      // replay of already-computed state — no git read, no diff, no fan-out.
+      // `typeof` guard: hand-built `DirectoryService` fakes lack the accessor
+      // (precedent: `preferencesStore.getDisplayPrefs` above).
+      // See change: fix-folder-header-worktree-branch-leak.
+      if (typeof directoryService.folderHeadSnapshot === "function") {
+        for (const { cwd, branch } of directoryService.folderHeadSnapshot()) {
+          sendTo(ws, { type: "git_head_update", cwd, branch });
+        }
       }
     }
 

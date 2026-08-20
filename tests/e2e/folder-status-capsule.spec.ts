@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, test } from "./fixtures.js";
-import { FIXTURE_GIT, gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import { ensureGitSession, FIXTURE_GIT, gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
 
 /**
  * Browser E2E — the folder header status capsule.
@@ -342,5 +342,191 @@ test.describe("folder status capsule", () => {
     // stop counting that state entirely rather than keep a segment whose only
     // target is unreachable.
     await expect(errorSeg).toHaveCount(0, { timeout: 15_000 });
+  });
+});
+
+/**
+ * Browser E2E — the folder header's git identity must never be borrowed from a
+ * child session rooted in a DIFFERENT checkout.
+ *
+ * Covers test-plan #F1, #F2, #F3, #F4.
+ * See change: fix-folder-header-worktree-branch-leak.
+ *
+ * Only a rendered UI against a real server can prove these: the leak is caused
+ * by the server's `maybeRekeyOrder` moving a fresh worktree session to position
+ * 0 of the PARENT folder's order, which no jsdom render can reproduce.
+ */
+
+/** Thin same-origin API caller (page context). Mirrors manage-worktrees.spec.ts. */
+async function wtApi(page: Page, path: string, init?: RequestInit): Promise<Record<string, unknown>> {
+  return page.evaluate(
+    async ([p, i]) => {
+      const res = await fetch(p as string, (i ?? undefined) as RequestInit | undefined);
+      return { status: res.status, ...(await res.json().catch(() => ({}))) };
+    },
+    [path, init ? (JSON.parse(JSON.stringify(init)) as RequestInit) : null] as const,
+  );
+}
+
+function postBody(body: unknown): RequestInit {
+  return {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  } as RequestInit;
+}
+
+/** The fixture repo's own default branch — never assumed. */
+async function fixtureBaseBranch(page: Page): Promise<string> {
+  const res = await wtApi(page, `/api/git/worktrees?cwd=${encodeURIComponent(CWD)}`);
+  const entries = ((res.data as { worktrees?: Array<Record<string, unknown>> })?.worktrees ?? []);
+  const main = entries.find((e) => e.isMain === true);
+  const branch = main?.branch as string | undefined;
+  if (!branch) throw new Error(`could not resolve base branch: ${JSON.stringify(entries)}`);
+  return branch;
+}
+
+/** The git-identity region of a folder header row. */
+function folderGitRow(page: Page, cwd: string): Locator {
+  return page.getByTestId(`folder-home-row-${cwd}`).first();
+}
+
+/** Branch text as the user reads it in the folder header, or "" when absent. */
+async function folderBranchText(page: Page, cwd: string): Promise<string> {
+  const row = folderGitRow(page, cwd);
+  if ((await row.count()) === 0) return "";
+  const btn = row.getByTestId("git-branch-btn");
+  if ((await btn.count()) === 0) return "";
+  // The branch label is the sibling `<span>`/`<a>` of the branch button inside
+  // the same `GroupGitInfo` container.
+  return (
+    await btn
+      .first()
+      .evaluate((el) => (el.parentElement?.textContent ?? "").trim())
+      .catch(() => "")
+  );
+}
+
+/** Worktrees + sessions this block creates, so the shared container stays clean. */
+const wtCreated = new Set<string>();
+
+test.describe("folder header git identity (worktree leak)", () => {
+  test.afterAll(async ({ browser }) => {
+    if (wtCreated.size === 0) return;
+    const page = await browser.newPage();
+    try {
+      await gotoDashboard(page);
+      for (const p of wtCreated) {
+        await wtApi(page, "/api/git/worktree/remove", postBody({ cwd: CWD, worktreePath: p, force: true }))
+          .catch(() => ({}));
+      }
+    } finally {
+      await page.close();
+    }
+    wtCreated.clear();
+  });
+
+  test("main folder header never shows a worktree branch (test-plan #F1)", async ({ page }) => {
+    await gotoDashboard(page);
+    // A main-checkout session so the folder group exists and is expanded.
+    await ensureGitSession(page);
+    await setCollapsed(page, false);
+
+    const base = await fixtureBaseBranch(page);
+    await expect
+      .poll(() => folderBranchText(page, CWD), { timeout: 30_000 })
+      .toBe(base);
+
+    // Sample the header CONTINUOUSLY across the whole sequence: the leak was a
+    // transient wrong value, so a converged end-state assertion alone would
+    // pass against the bug.
+    const samples: string[] = [];
+    let sampling = true;
+    const sampler = (async () => {
+      while (sampling) {
+        samples.push(await folderBranchText(page, CWD).catch(() => ""));
+        await page.waitForTimeout(150);
+      }
+    })();
+
+    const branch = `wtleak-${Date.now().toString(36)}`;
+    const created = await wtApi(page, "/api/git/worktree", postBody({ cwd: CWD, base, newBranch: branch }));
+    expect(created.success, JSON.stringify(created)).toBe(true);
+    const wtPath = (created.data as { path: string }).path;
+    wtCreated.add(wtPath);
+
+    // Spawn a session INSIDE the worktree. The bridge's later `git_info_update`
+    // supplies `gitWorktree.mainPath`, folding it into THIS folder's group and
+    // re-keying it to the FRONT of the order — the exact leak trigger.
+    const spawned = await wtApi(page, "/api/session/spawn", postBody({ cwd: wtPath }));
+    expect(spawned.success, JSON.stringify(spawned)).toBe(true);
+
+    // Let the fold + re-key land, then stop sampling.
+    await page.waitForTimeout(12_000);
+    sampling = false;
+    await sampler;
+
+    expect(samples.length).toBeGreaterThan(10);
+    expect(samples.filter((s) => s.includes(branch))).toEqual([]);
+    await expect
+      .poll(() => folderBranchText(page, CWD), { timeout: 30_000 })
+      .toBe(base);
+  });
+
+  test("folder header renders no branch LINK and no PR pill from a child (test-plan #F2)", async ({ page }) => {
+    // The whole git-identity tuple moves together: with the fallback restricted
+    // to children rooted at the folder, an ineligible worktree child can supply
+    // neither the branch URL nor the PR affordance.
+    await gotoDashboard(page);
+    await ensureGitSession(page);
+    await setCollapsed(page, false);
+    const row = folderGitRow(page, CWD);
+    await expect(row).toBeVisible({ timeout: 20_000 });
+
+    const btn = row.getByTestId("git-branch-btn").first();
+    await expect(btn).toBeVisible({ timeout: 30_000 });
+    // No borrowed branch link: the branch label is plain text, not an anchor.
+    const anchors = await btn.evaluate(
+      (el) => el.parentElement?.querySelectorAll("a").length ?? 0,
+    );
+    expect(anchors).toBe(0);
+    // No borrowed PR pill (`#<number>` link) either.
+    const prPill = await btn.evaluate(
+      (el) => /#\d+/.test(el.parentElement?.textContent ?? ""),
+    );
+    expect(prPill).toBe(false);
+  });
+
+  test("reload shows the parent branch from first paint (test-plan #F3)", async ({ page }) => {
+    // The connect snapshot: `git_head_update` is broadcast only on
+    // first-seen-or-change, so a reloaded tab used to receive NOTHING and fell
+    // back to the (wrong) positional child branch indefinitely.
+    await gotoDashboard(page);
+    await ensureGitSession(page);
+    await setCollapsed(page, false);
+    const base = await fixtureBaseBranch(page);
+
+    await page.reload();
+    await gotoDashboard(page);
+    await setCollapsed(page, false);
+
+    // Short timeout ON PURPOSE: the value must arrive from the connect
+    // snapshot, not from the next 60s poll cycle or a genuine HEAD change.
+    await expect
+      .poll(() => folderBranchText(page, CWD), { timeout: 20_000 })
+      .toBe(base);
+  });
+
+  test("header never renders an Init-git label for a git folder (test-plan #F4)", async ({ page }) => {
+    // The resolved gate: a folder with no eligible child renders the existing
+    // dimmed branch icon with NO new affordance. "Init git" stays gated on a
+    // confirmed non-git signal, so it must never appear for the git fixture.
+    await gotoDashboard(page);
+    await ensureGitSession(page);
+    await setCollapsed(page, false);
+    const row = folderGitRow(page, CWD);
+    await expect(row).toBeVisible({ timeout: 20_000 });
+    await expect(row.getByTestId("git-branch-btn").first()).toBeVisible({ timeout: 30_000 });
+    await expect(row.getByText("Init git", { exact: true })).toHaveCount(0);
   });
 });

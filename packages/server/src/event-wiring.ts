@@ -3,16 +3,15 @@
  * Extracted from server.ts for clarity.
  */
 
+import type { BrowserNotifyMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { normalizeNotifyLevel } from "@blackbelt-technology/pi-dashboard-shared/notify.js";
 import { detectOpenSpecActivity, isValidOpenSpecChangeSlug } from "@blackbelt-technology/pi-dashboard-shared/openspec-activity-detector.js";
 import { mergeSessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { extractTurnStats } from "@blackbelt-technology/pi-dashboard-shared/stats-extractor.js";
-import type { BrowserNotifyMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { DashboardSession, NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { type PendingAttachment, prepareEventForIngest } from "./attachments/attachment-ingest.js";
 import { createAttachmentResolver } from "./attachments/attachment-resolver.js";
-import { normalizeNotifyLevel } from "@blackbelt-technology/pi-dashboard-shared/notify.js";
-import { fromLegacyPromptRequest } from "./pairing/notify-log.js";
 import { createCanvasAccumulator } from "./canvas/canvas-accumulator.js";
 import { readEffectiveCanvasTypes } from "./canvas/canvas-settings.js";
 import type { DirectoryService } from "./directory-service.js";
@@ -22,6 +21,7 @@ import { decideDashboardSource } from "./lifecycle/dashboard-source-decision.js"
 import { attachRenameTarget, isNameAutoSetFromAttachment } from "./openspec/proposal-attach-naming.js";
 import { setCatalogueForSession } from "./package/provider-catalogue-cache.js";
 import type { BrowserGateway } from "./pairing/browser-gateway.js";
+import { fromLegacyPromptRequest } from "./pairing/notify-log.js";
 import type { PendingForkRegistry } from "./pending/pending-fork-registry.js";
 import type { EventStore } from "./persistence/memory-event-store.js";
 import type { PreferencesStore } from "./persistence/preferences-store.js";
@@ -29,12 +29,12 @@ import type { PiGateway } from "./pi/pi-gateway.js";
 import { sessionCommandRegistry } from "./pi/session-skill-registry.js";
 import { handleDispatchExtensionCommand } from "./rpc-keeper/dispatch-router.js";
 import type { UnreadTriggerSnapshot } from "./session/event-status-extraction.js";
+import { extractSessionUpdates, isActivityEvent, isUnreadTrigger } from "./session/event-status-extraction.js";
+import type { SessionManager } from "./session/memory-session-manager.js";
 import {
   attachedStillExistsInCandidateRoots,
   localityGateAllows,
 } from "./session/openspec-locality.js";
-import { extractSessionUpdates, isActivityEvent, isUnreadTrigger } from "./session/event-status-extraction.js";
-import type { SessionManager } from "./session/memory-session-manager.js";
 import { resolveOrderKey } from "./session/resolve-order-key.js";
 import type { SessionOrderManager } from "./session/session-order-manager.js";
 import type { ViewedSessionTracker } from "./session/viewed-session-tracker.js";
@@ -277,6 +277,10 @@ export function wireEvents(deps: EventWiringDeps): void {
       cwd: newOrderKey,
       sessionIds: sessionOrderManager.getOrder(newOrderKey, validIds),
     });
+    // This is where a worktree's PARENT folder key first becomes known — it was
+    // not derivable at registration time. Refresh its HEAD rather than waiting
+    // a full poll interval. See change: fix-folder-header-worktree-branch-leak.
+    directoryService.refreshFolderHeadsForEnteringKeys?.();
   }
 
   // Phase 2 of the two-phase attachment render. Shared with the replay path
@@ -1412,6 +1416,12 @@ export function wireEvents(deps: EventWiringDeps): void {
       if (updatedSession) {
         browserGateway.broadcastSessionAdded(updatedSession, spawnRequestId ? { spawnRequestId } : undefined);
       }
+
+      // UNGATED by `isNewCwd` below: that check is false whenever an ENDED
+      // session already carries this cwd, while the folder-HEAD key set skips
+      // ended sessions — exactly the ended-only-folder case entry refresh must
+      // cover. See change: fix-folder-header-worktree-branch-leak.
+      directoryService.refreshFolderHeadsForEnteringKeys?.();
 
       const isNewCwd = !sessionManager.listAll().some(
         (s) => s.id !== sessionId && s.cwd === msg.cwd,

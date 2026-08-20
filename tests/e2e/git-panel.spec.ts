@@ -1,5 +1,7 @@
-import { test, expect } from "./fixtures.js";
-import { byTestId, ensureGitSession } from "./helpers/index.js";
+import { execFileSync } from "node:child_process";
+import { expect, test } from "./fixtures.js";
+import { byTestId, ensureGitSession, FIXTURE_GIT, gotoDashboard } from "./helpers/index.js";
+import { DASHBOARD_PORT } from "./lifecycle.js";
 
 // Scenario 5.2 — VCS (git) panel renders for a session in a git repo.
 //
@@ -22,5 +24,68 @@ test.describe("git VCS panel", () => {
     await expect(byTestId(page, "gitBranchBtn").first()).toBeVisible({
       timeout: 30_000,
     });
+  });
+});
+
+/**
+ * test-plan #F5 — an out-of-band `git checkout` in the MAIN checkout still
+ * converges the folder header through the changed (eligible-child) fallback.
+ *
+ * The shipped folder-HEAD watcher/poll path is what converges this; the change
+ * narrows only the client's no-folder-HEAD-entry fallback, so this pins that
+ * the authoritative path was not collaterally broken.
+ * See change: fix-folder-header-worktree-branch-leak.
+ */
+/** Resolve the harness container by the dashboard port it publishes. */
+function harnessContainer(): string {
+  const out = execFileSync(
+    "docker",
+    ["ps", "--filter", `publish=${DASHBOARD_PORT}`, "--format", "{{.Names}}"],
+    { encoding: "utf8" },
+  ).trim();
+  const name = out.split("\n").filter(Boolean)[0];
+  if (!name) throw new Error(`no running container publishes port ${DASHBOARD_PORT}`);
+  return name;
+}
+
+function gitInFixture(args: string): string {
+  return execFileSync(
+    "docker",
+    ["exec", harnessContainer(), "sh", "-c", `cd '${FIXTURE_GIT}' && git ${args}`],
+    { encoding: "utf8" },
+  ).trim();
+}
+
+/** Branch text as the user reads it in the folder header, or "" when absent. */
+async function headerBranch(page: import("@playwright/test").Page): Promise<string> {
+  const row = page.getByTestId(`folder-home-row-${FIXTURE_GIT}`).first();
+  if ((await row.count()) === 0) return "";
+  const btn = row.getByTestId("git-branch-btn");
+  if ((await btn.count()) === 0) return "";
+  return btn.first().evaluate((el) => (el.parentElement?.textContent ?? "").trim());
+}
+
+test.describe("folder header converges on an out-of-band checkout", () => {
+  const TMP_BRANCH = `e2e-oob-${Date.now().toString(36)}`;
+  let original = "";
+
+  test.afterAll(() => {
+    if (!original) return;
+    try { gitInFixture(`checkout ${original}`); } catch { /* best-effort */ }
+    try { gitInFixture(`branch -D ${TMP_BRANCH}`); } catch { /* best-effort */ }
+  });
+
+  test("out-of-band checkout still converges the header (test-plan #F5)", async ({ page }) => {
+    await ensureGitSession(page);
+    await gotoDashboard(page);
+
+    original = gitInFixture("rev-parse --abbrev-ref HEAD");
+    await expect.poll(() => headerBranch(page), { timeout: 60_000 }).toBe(original);
+
+    // Out-of-band: the dashboard never touches HEAD here.
+    gitInFixture(`checkout -b ${TMP_BRANCH}`);
+
+    // The watcher fires sub-second; the poll is the ≤60s fallback.
+    await expect.poll(() => headerBranch(page), { timeout: 90_000 }).toBe(TMP_BRANCH);
   });
 });
