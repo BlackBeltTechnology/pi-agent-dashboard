@@ -154,6 +154,20 @@ arm({ pid?, cwd, mechanism, logPath?, ws, spawnToken?, timeoutMs? }): void
 derives from the same value that armed it; a caller that cannot pass the value
 it read cannot honour that rule.
 
+The `armSpawnWatchdog(cwd, mechanism, result, ws?, timeoutMs?)` helper — the
+entry point every spawn path uses — SHALL RETURN the clamped timeout it armed
+with, or `undefined` when it armed nothing (a failed spawn):
+
+```ts
+armSpawnWatchdog(cwd, mechanism, result, ws?, timeoutMs?): number | undefined
+```
+
+Returning it is what closes the loop: a caller with no config read of its own
+still derives its TTLs from the value that ACTUALLY armed the watchdog, rather
+than from a second read that a live Settings change can desynchronize. The
+instance method `arm` itself returns `void` — its caller already holds the value
+it passed in.
+
 When `spawnToken` is provided at arm time, the entry SHALL be indexed in `byToken` in addition to `byCwd` and (if `pid` is provided) `byPid`. All three indices SHALL point to the same `Entry` object.
 
 A new `clearByToken(token)` method SHALL be exposed. It SHALL cancel the entry's timer and remove the entry from ALL THREE maps when invoked. Like `clearByPid` / `clearByCwd`, calling `clearByToken` with an unknown key SHALL be a no-op.

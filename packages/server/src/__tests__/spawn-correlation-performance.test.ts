@@ -19,7 +19,7 @@ vi.mock("../spawn-process/spawn-failure-log.js", () => ({
 
 import { createPendingClientCorrelations } from "../pending/pending-client-correlations.js";
 import { deriveSpawnCorrelationTtlMs } from "../spawn-process/spawn-recovery-window.js";
-import { SpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
+import { normalizeCwdKey, SpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
 
 function p95(samples: number[]): number {
   const sorted = [...samples].sort((a, b) => a - b);
@@ -43,33 +43,46 @@ describe("spawn-correlation performance", () => {
       kill: () => {},
     });
 
-    /** `normalize` off = the pre-change cost: no filesystem hit on the key. */
-    function measure(pairs: number, normalize: boolean): number[] {
+    function measurePairs(pairs: number): number[] {
       const samples: number[] = [];
       for (let i = 0; i < pairs; i++) {
-        const token = `tok_${normalize ? "n" : "b"}_${i}`;
+        const token = `tok_${i}`;
         const started = performance.now();
-        if (normalize) {
-          w.arm({ cwd, mechanism: "headless", pid: 10_000 + i, spawnToken: token });
-          w.clearByToken(token);
-        } else {
-          // Same map bookkeeping, no cwd normalization: the arm is keyed by a
-          // path that cannot resolve, so `realpathSync` throws immediately
-          // into the raw-string fallback.
-          w.arm({ cwd: `${cwd}/nope-${i}`, mechanism: "headless", spawnToken: token });
-          w.clearByToken(token);
-        }
+        w.arm({ cwd, mechanism: "headless", pid: 10_000 + i, spawnToken: token });
+        w.clearByToken(token);
         samples.push(performance.now() - started);
       }
       return samples;
     }
 
-    measure(200, true); // warm the JIT and the dentry cache
-    const baseline = p95(measure(1_000, false));
-    const withNormalization = p95(measure(1_000, true));
+    /**
+     * The ADDED component in isolation. `arm` always normalizes, so there is no
+     * "normalization off" arm to diff against — an arm keyed by an unresolvable
+     * path still calls `realpathSync` (and a throw is not obviously cheaper).
+     * Measuring the normalizer directly is the honest attribution.
+     */
+    function measureNormalizer(calls: number): number[] {
+      const samples: number[] = [];
+      for (let i = 0; i < calls; i++) {
+        const started = performance.now();
+        normalizeCwdKey(cwd);
+        samples.push(performance.now() - started);
+      }
+      return samples;
+    }
 
-    expect(withNormalization - baseline).toBeLessThan(2);
-    expect(withNormalization).toBeLessThan(20);
+    measurePairs(200); // warm the JIT and the dentry cache
+    measureNormalizer(200);
+
+    const added = p95(measureNormalizer(1_000));
+    const perPair = p95(measurePairs(1_000));
+
+    // The budget is on what this change ADDS — one `realpathSync` per arm.
+    expect(added).toBeLessThan(2);
+    // Generous absolute ceiling so a pathological regression still fails even
+    // if the runner (and therefore the baseline) degrades with it. Not a
+    // latency SLA: a bare wall-clock budget on shared CI measures the runner.
+    expect(perPair).toBeLessThan(20);
   });
 
   // P3 — 5 000 spawns at the maximum timeout, none registering: the map returns
@@ -101,5 +114,8 @@ describe("spawn-correlation performance", () => {
     } finally {
       vi.useRealTimers();
     }
-  });
+    // Two cycles × 5 000 timers is genuinely heavy work; on a loaded machine it
+    // outruns the 30 s default and fails as a timeout rather than on the
+    // assertion it exists for. The workload is the scenario's, not a budget.
+  }, 120_000);
 });

@@ -647,7 +647,7 @@ describe("CommandHandler", () => {
 
       await handler.handle({ type: "send_prompt", sessionId: "s1", text: "/some-command args" });
 
-      expect(sessionPrompt).toHaveBeenCalledWith("/some-command args", undefined);
+      expect(sessionPrompt).toHaveBeenCalledWith("/some-command args", undefined, undefined);
       expect(pi.sendUserMessage).not.toHaveBeenCalled();
     });
 
@@ -1060,7 +1060,7 @@ describe("CommandHandler delivery routing (pi-native queues)", () => {
 
     await handler.handle({ type: "send_prompt", sessionId: "s1", text: "/some-command args", delivery: "steer" });
 
-    expect(sessionPrompt).toHaveBeenCalledWith("/some-command args", "steer");
+    expect(sessionPrompt).toHaveBeenCalledWith("/some-command args", "steer", undefined);
     expect(pi.sendUserMessage).not.toHaveBeenCalled();
   });
 
@@ -1333,6 +1333,45 @@ describe("CommandHandler — ack handle and dropped-message reporting", () => {
 
     expect(events.find((e) => e.type === "prompt_received").promptId).toBe("p-steer");
     expect(pi.sendUserMessage).toHaveBeenCalled();
+  });
+
+  // A slash command that falls through to `pi.sendUserMessage` DID reach pi, so
+  // it must acknowledge; the bridge-owned handoff must receive the handle.
+  it("acknowledges a slash prompt that falls through to pi", async () => {
+    const events: any[] = [];
+    const pi = mockPi();
+    const handler = createCommandHandler(pi as any, "s1", {
+      eventSink: (m) => events.push(m),
+    });
+
+    await handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "/some-unknown-skill",
+      promptId: "p-slash",
+    } as ServerToExtensionMessage);
+
+    expect(pi.sendUserMessage).toHaveBeenCalled();
+    const ack = events.find((e) => e.type === "prompt_received" && e.promptId === "p-slash");
+    expect(ack).toBeTruthy();
+  });
+
+  it("hands the promptId to the bridge-owned slash route", async () => {
+    const seen: Array<[string, string | undefined, string | undefined]> = [];
+    const handler = createCommandHandler(mockPi() as any, "s1", {
+      sessionPrompt: (text, delivery, promptId) => {
+        seen.push([text, delivery, promptId]);
+      },
+    });
+
+    await handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "/flow-thing",
+      promptId: "p-bridge",
+    } as ServerToExtensionMessage);
+
+    expect(seen).toEqual([["/flow-thing", undefined, "p-bridge"]]);
   });
 
   it("reports a session-id-mismatch drop instead of only console.error", async () => {

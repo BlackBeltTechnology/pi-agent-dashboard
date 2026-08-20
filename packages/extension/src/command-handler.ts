@@ -366,7 +366,11 @@ export function createCommandHandler(
      * events emitted by the dispatch path arrive before this turn returns.
      * See change: fix-extension-slash-commands-in-dashboard.
      */
-    sessionPrompt?: (text: string, delivery?: "steer" | "followUp") => void | Promise<void>;
+    sessionPrompt?: (
+      text: string,
+      delivery?: "steer" | "followUp",
+      promptId?: string,
+    ) => void | Promise<void>;
     /**
      * Bridge-shadow-queue hooks: called AFTER pi accepts the user message,
      * gated by `isStreaming()` captured BEFORE the send. The capture order
@@ -605,7 +609,12 @@ export function createCommandHandler(
               // extension-command dispatch. Do NOT emit completed here — would
               // duplicate the dispatch path's terminal event.
               // See change: fix-extension-slash-commands-in-dashboard.
-              await options.sessionPrompt(parsed.text, msg.delivery);
+              // The handle rides along so the branch that actually reaches
+              // `pi.sendUserMessage` can acknowledge it; the non-turn slash
+              // routes (flow, extension dispatch, exec template) settle without
+              // one, because pi never receives those as a prompt.
+              // See change: fix-spawn-correlation-ttl-coupling (D7).
+              await options.sessionPrompt(parsed.text, msg.delivery, msg.promptId);
             } else {
               // Test / non-bridge callers: apply the extension-command dispatch
               // branch inline before falling through to sendUserMessage. Keeps
@@ -633,6 +642,16 @@ export function createCommandHandler(
                 // dashboard's keyboard contract. See change: add-steering-message.
                 const deliverAs = msg.delivery ?? ("followUp" as const);
                 (pi.sendUserMessage as any)(parsed.text, { deliverAs });
+                // This slash DID reach pi as a user prompt, so it is delivered.
+                // See change: fix-spawn-correlation-ttl-coupling (D7).
+                if (msg.promptId) {
+                  options?.eventSink?.({
+                    type: "prompt_received",
+                    sessionId,
+                    fresh: !(options?.isStreaming?.() ?? false),
+                    promptId: msg.promptId,
+                  });
+                }
               }
             }
             return undefined;
