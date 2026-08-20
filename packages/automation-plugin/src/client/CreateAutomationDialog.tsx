@@ -597,7 +597,7 @@ export function CreateAutomationDialog({
                     {t("filePathHelp", undefined, "Fires once per new file that arrives here (settle: rename-only).")}
                   </p>
                   {filePathMissing && (
-                    <p className="text-[10px] text-[var(--danger,#ef4444)]" data-testid="file-path-missing">
+                    <p className="text-[10px] text-[var(--severity-error-fg)]" data-testid="file-path-missing">
                       {t("filePathRequired", undefined, "Folder to watch is required.")}
                     </p>
                   )}
@@ -627,7 +627,7 @@ export function CreateAutomationDialog({
               })}
               </div>
               {eventsMissing && (
-                <p className="text-[10px] text-[var(--danger,#ef4444)]" data-testid="events-missing">
+                <p className="text-[10px] text-[var(--severity-error-fg)]" data-testid="events-missing">
                   {t("eventsMissing", undefined, "Select at least one event type.")}
                 </p>
               )}
@@ -722,7 +722,7 @@ export function CreateAutomationDialog({
                     type="button"
                     data-testid={`remove-action-entry-${i}`}
                     onClick={() => setExtraEntries((prev) => prev.filter((_, j) => j !== i))}
-                    className="text-[10px] text-[var(--danger,#ef4444)]"
+                    className="text-[10px] text-[var(--severity-error-fg)]"
                   >
                     {t("remove", undefined, "Remove")}
                   </button>
@@ -916,7 +916,7 @@ export function CreateAutomationDialog({
         </div>
 
         {error && (
-          <p className="text-xs text-[var(--danger,#ef4444)]" data-testid="create-error">
+          <p className="text-xs text-[var(--severity-error-fg)]" data-testid="create-error">
             {error}
           </p>
         )}

@@ -238,7 +238,7 @@ export function GatewayProviderActions({
       )}
 
       {error && !offering && (
-        <p data-testid={`gateway-actions-error-${readiness.provider}`} className="mt-2 text-[11px] text-[var(--danger,#ef4444)]">
+        <p data-testid={`gateway-actions-error-${readiness.provider}`} className="mt-2 text-[11px] text-[var(--severity-error-fg)]">
           {error}
         </p>
       )}
@@ -350,7 +350,7 @@ function OfferPanel({
           )}
 
           {error && (
-            <p data-testid={`gateway-offer-error-${provider}`} className="mt-2 text-[11px] text-[var(--danger,#ef4444)]">
+            <p data-testid={`gateway-offer-error-${provider}`} className="mt-2 text-[11px] text-[var(--severity-error-fg)]">
               {error}
             </p>
           )}

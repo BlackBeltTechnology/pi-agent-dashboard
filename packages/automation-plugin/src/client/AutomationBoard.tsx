@@ -320,7 +320,7 @@ export function AutomationBoard({ params, onBack }: AutomationBoardProps): React
                 if (isParent && expanded) {
                   for (const child of kids) {
                     rows.push(
-                      <tr key={child.runId} data-testid={`automation-child-run-${child.runId}`} className="border-b border-[var(--border-secondary)]/20 bg-[var(--bg-subtle,rgba(0,0,0,0.03))]">
+                      <tr key={child.runId} data-testid={`automation-child-run-${child.runId}`} className="border-b border-[var(--border-secondary)]/20 bg-[var(--bg-tertiary)]">
                         <td className="py-1 pr-2 pl-4"><span className={statusClass(child.status)}>{STATUS_LABEL[child.status]}</span></td>
                         <td className="py-1 pr-2 text-[11px]" data-testid={`child-action-${child.runId}`}>{child.actionLabel ?? child.runId}</td>
                         <td className="py-1 pr-2 text-[var(--text-muted)]">{relativeTime(child.startedAt)}</td>
