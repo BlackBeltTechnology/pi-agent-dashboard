@@ -60,7 +60,7 @@
 
 ## 7. Docs
 
-- [ ] 7.1 Update the affected directory `AGENTS.md` rows (`packages/shared/src`, `packages/extension/src`, `packages/client/src/components/settings`) per the Documentation Update Protocol, noting the new `defaultThinkingLevel` field and its bridge/UI wiring with a `See change:` marker.
+- [x] 7.1 Update the affected directory `AGENTS.md` rows (`packages/shared/src`, `packages/extension/src`, `packages/client/src/components/settings`) per the Documentation Update Protocol, noting the new `defaultThinkingLevel` field and its bridge/UI wiring with a `See change:` marker.
 - [x] 7.2 Update the `packages/roles-plugin/src` and `packages/automation-plugin/src/client` `AGENTS.md` rows for the paired thinking control and the `:<level>` ref-suffix encoding, with a `See change:` marker.
 - [x] 7.3 Keep `mockups/ui-plan.md` as the surface contract while implementing; if a rule changes during PROMOTE, update the plan in the same commit.
-- [ ] 7.4 Delegate to DocScribe (caveman style) a `docs/architecture.md` note recording the rule this change establishes: every model selector that configures a RUN pairs a thinking level; reference-listing selectors (Model Proxy preferred list, alias table) do not.
+- [x] 7.4 Delegate to DocScribe (caveman style) a `docs/architecture.md` note recording the rule this change establishes: every model selector that configures a RUN pairs a thinking level; reference-listing selectors (Model Proxy preferred list, alias table) do not.
