@@ -13,12 +13,14 @@ import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { TunnelMode } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 import { useCallback, useEffect, useState } from "react";
 import { useLocation } from "wouter";
-import { disconnectTunnel, getConfig, putConfig } from "../../lib/gateway/gateway-api.js";
+import { disconnectTunnel, getConfig, getTunnelStatusDetail, putConfig } from "../../lib/gateway/gateway-api.js";
 import type { GatewayProviderId } from "../../lib/gateway/gateway-providers.js";
 import { useI18n } from "../../lib/i18n/i18n.js";
 import { GatewayEndpoints } from "./GatewayEndpoints.js";
 import { GatewayPairQR } from "./GatewayPairQR.js";
 import { GatewayProviderSection } from "./GatewayProviderSection.js";
+import { GatewayReadinessBoard } from "./GatewayReadinessBoard.js";
+import { GatewayDegradedBanner, GatewayReservedName } from "./GatewayReservedName.js";
 import { GatewaySetupGuide } from "./GatewaySetupGuide.js";
 
 type Tab = "setup" | "access" | "security";
@@ -32,16 +34,33 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [reservedName, setReservedNameState] = useState<string | undefined>();
+  const [degraded, setDegraded] = useState<{ configuredName: string; effectiveName?: string } | undefined>();
 
   useEffect(() => {
     void getConfig()
       .then((cfg) => {
-        const tunnel = (cfg.tunnel as { provider?: GatewayProviderId; mode?: TunnelMode }) ?? {};
+        const tunnel =
+          (cfg.tunnel as {
+            provider?: GatewayProviderId;
+            mode?: TunnelMode;
+            zrok?: { reservedName?: string };
+          }) ?? {};
         if (tunnel.provider) setProvider(tunnel.provider);
         if (tunnel.mode) setMode(tunnel.mode);
+        setReservedNameState(tunnel.zrok?.reservedName);
       })
       .catch(() => {
         /* keep defaults on load failure */
+      });
+    // The degraded signal is a server-side reconciliation of stored-vs-served
+    // name, so it is read from status rather than recomputed here.
+    // The GATED twin: the ungated `/api/tunnel-status` redacts the configured
+    // name, and a banner that cannot name it says nothing useful.
+    void getTunnelStatusDetail()
+      .then((s) => setDegraded(s?.status === "active" ? s.degraded : undefined))
+      .catch(() => {
+        /* absence of a status is not a degradation */
       });
   }, []);
 
@@ -66,8 +85,8 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
       onClick={() => setTab(id)}
       className={`border-b-2 px-3.5 py-2.5 text-[12.5px] font-medium ${
         tab === id
-          ? "border-[var(--accent,#3b82f6)] text-[var(--text-primary)]"
-          : "border-transparent text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+          ? "border-[var(--accent)] text-[var(--text-primary)]"
+          : "border-transparent text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
       }`}
     >
       {label}
@@ -76,7 +95,7 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
 
   return (
     <Dialog open onClose={onClose} title={t("gateway.title", undefined, "Gateway")} size="lg" testId="gateway-dialog">
-      <div className="mb-3 flex gap-1 border-b border-[var(--border)]">
+      <div className="mb-3 flex gap-1 border-b border-[var(--border-primary)]">
         <TabButton id="setup" label={t("gateway.tab.setup", undefined, "Setup")} />
         <TabButton id="access" label={t("gateway.tab.access", undefined, "Access & QR")} />
         <TabButton id="security" label={t("gateway.tab.security", undefined, "Security")} />
@@ -85,6 +104,15 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
       <div className="max-h-[60vh] overflow-y-auto pr-1">
         {tab === "setup" && (
           <div className="space-y-4">
+            {/* Polling is bound to `tab === "setup"`, not merely to the dialog:
+                a tick shells out per provider, so it must not run while the
+                operator is reading the QR or Security panes. */}
+            <GatewayReadinessBoard
+              open={tab === "setup"}
+              primary={provider}
+              onSelectProvider={(id) => setProvider(id as GatewayProviderId)}
+            />
+            <div className="h-px bg-[var(--border-primary)]" />
             <GatewayProviderSection
               provider={provider}
               mode={mode}
@@ -95,14 +123,25 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
               }}
               disabled={saving}
             />
-            <div className="h-px bg-[var(--border)]" />
+            <div className="h-px bg-[var(--border-primary)]" />
+            <GatewayDegradedBanner degraded={degraded} />
+            {provider === "zrok" && (
+              <>
+                <GatewayReservedName
+                  stored={reservedName}
+                  onStoredChange={setReservedNameState}
+                  disabled={saving}
+                />
+                <div className="h-px bg-[var(--border-primary)]" />
+              </>
+            )}
             <GatewaySetupGuide provider={provider} />
           </div>
         )}
         {tab === "access" && (
           <div className="space-y-4">
             <GatewayPairQR />
-            <div className="h-px bg-[var(--border)]" />
+            <div className="h-px bg-[var(--border-primary)]" />
             <GatewayEndpoints />
           </div>
         )}
@@ -130,7 +169,7 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
                 onClose();
                 navigate("/settings/security");
               }}
-              className="rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]"
+              className="rounded border border-[var(--border-primary)] px-3 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]"
             >
               {t("gateway.openSecurity", undefined, "Open Security →")}
             </button>
@@ -138,7 +177,7 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
         )}
       </div>
 
-      <div className="mt-4 flex items-center gap-2 border-t border-[var(--border)] pt-3">
+      <div className="mt-4 flex items-center gap-2 border-t border-[var(--border-primary)] pt-3">
         <span className="flex-1" />
         {error && (
           <span className="text-xs text-[var(--danger,#ef4444)]" data-testid="gateway-dialog-error">
@@ -153,30 +192,50 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
               setError(e instanceof Error ? e.message : t("gateway.err.disconnectFailed", undefined, "disconnect failed")),
             )
           }
-          className="rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--danger,#ef4444)]"
+          className="rounded border border-[var(--border-primary)] px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--danger,#ef4444)]"
         >
           {t("gateway.disconnect", undefined, "Disconnect")}
         </button>
-        {/* v2 (support-zrok-v2): release a reserved name (stable URL) + clear it. */}
-        <button
-          type="button"
-          data-testid="gateway-forget-reserved"
-          onClick={() =>
-            void disconnectTunnel({ forget: true }).catch((e) =>
-              setError(e instanceof Error ? e.message : t("gateway.err.disconnectFailed", undefined, "disconnect failed")),
-            )
-          }
-          className="rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-muted)] hover:text-[var(--danger,#ef4444)]"
-        >
-          {t("gateway.forgetReserved", undefined, "Forget reserved URL")}
-        </button>
+        {/* Releasing a reserved name is IRREVERSIBLE: the name returns to zrok's
+            global pool and anyone may claim it. Confirm-gated, zrok-only, and
+            the copy names the exact URL being destroyed rather than "the
+            reserved URL". See change: add-zrok-custom-reserved-name (4.4). */}
+        {provider === "zrok" && reservedName && (
+          <button
+            type="button"
+            data-testid="gateway-forget-reserved"
+            onClick={() => {
+              if (
+                !globalThis.confirm?.(
+                  t(
+                    "gateway.confirmRelease",
+                    { url: `https://${reservedName}.shares.zrok.io` },
+                    `Release https://${reservedName}.shares.zrok.io? The name returns to zrok's global pool and anyone may claim it. Anyone you shared that URL with will no longer reach this dashboard.`,
+                  ),
+                )
+              ) {
+                return;
+              }
+              void disconnectTunnel({ forget: true })
+                .then(() => setReservedNameState(undefined))
+                .catch((e) =>
+                  setError(
+                    e instanceof Error ? e.message : t("gateway.err.disconnectFailed", undefined, "disconnect failed"),
+                  ),
+                );
+            }}
+            className="rounded border border-[var(--border-primary)] px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--severity-error-fg)]"
+          >
+            {t("gateway.releaseReserved", undefined, "Release reserved URL")}
+          </button>
+        )}
         {dirty ? (
           <button
             type="button"
             data-testid="gateway-save"
             disabled={saving}
             onClick={() => void save()}
-            className="rounded bg-[var(--accent,#3b82f6)] px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
+            className="rounded bg-[var(--accent-solid)] px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
           >
             {saving ? t("gateway.saving", undefined, "Saving…") : t("gateway.save", undefined, "Save")}
           </button>
@@ -185,7 +244,7 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
             type="button"
             data-testid="gateway-done"
             onClick={onClose}
-            className="rounded bg-[var(--accent,#3b82f6)] px-4 py-1.5 text-sm font-semibold text-white"
+            className="rounded bg-[var(--accent-solid)] px-4 py-1.5 text-sm font-semibold text-white"
           >
             {t("gateway.done", undefined, "Done")}
           </button>

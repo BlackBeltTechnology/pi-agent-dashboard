@@ -24,6 +24,7 @@ import type {
   TunnelProvider,
 } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 import { providerSupportsMode } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
+import { type AsyncCmdRunner, asyncRunner } from "./daemon-exec.js";
 
 const tailscaleResolver = new ToolResolver({ processExecPath: process.execPath, useLoginShell: true });
 
@@ -152,6 +153,26 @@ export function deriveEndpoints(
 
 // ── Provider ────────────────────────────────────────────────────────
 
+/**
+ * The local port `tailscale serve`/`funnel` is proxying, read from the daemon's
+ * own config rather than from this process's memory.
+ *
+ * `serve status --json` maps handler targets like `http://127.0.0.1:8000`; the
+ * port in that target is the authoritative one for a daemon we did not start.
+ */
+export function servedPort(serveStatusJson: unknown): number | undefined {
+  const web = (serveStatusJson as { Web?: Record<string, unknown> } | null)?.Web ?? {};
+  for (const host of Object.values(web)) {
+    const handlers = (host as { Handlers?: Record<string, unknown> } | null)?.Handlers ?? {};
+    for (const handler of Object.values(handlers)) {
+      const proxy = (handler as { Proxy?: string } | null)?.Proxy;
+      const m = proxy ? /:(\d{1,5})(?:\/|$)/.exec(proxy) : null;
+      if (m) return Number(m[1]);
+    }
+  }
+  return undefined;
+}
+
 export class TailscaleProvider implements TunnelProvider {
   readonly id = "tailscale" as const;
   readonly kind = "daemon" as const;
@@ -160,8 +181,13 @@ export class TailscaleProvider implements TunnelProvider {
   private lastEndpoints: TunnelEndpoint[] = [];
   private readonly run: CmdRunner;
 
-  constructor(run?: CmdRunner) {
+  private readonly runAsync: AsyncCmdRunner;
+
+  constructor(run?: CmdRunner, runAsync?: AsyncCmdRunner) {
     this.run = run ?? defaultRunner(() => this.getBinary());
+    // Separate from `run` on purpose: the lifecycle keeps its synchronous
+    // runner, readiness gets one whose timeout kills the child.
+    this.runAsync = runAsync ?? asyncRunner(() => this.getBinary());
   }
 
   private getBinary(): string {
@@ -219,6 +245,8 @@ export class TailscaleProvider implements TunnelProvider {
     }
     const endpoints = deriveEndpoints(this.statusJson(), this.serveStatusJson(), port, mode);
     this.lastEndpoints = endpoints;
+    this.lastPort = port;
+    this.lastMode = mode;
     return { endpoints };
   }
 
@@ -233,4 +261,64 @@ export class TailscaleProvider implements TunnelProvider {
     const active = this.lastEndpoints.length > 0;
     return { active, endpoints: this.lastEndpoints };
   }
+
+  /**
+   * Ask the DAEMON whether a tunnel is live, rather than asking our own memory.
+   *
+   * `status()` reports `lastEndpoints`, which records only whether THIS server
+   * process completed a `connect()`. A tailnet brought up in a terminal reads
+   * `disconnected` forever under that rule, and one that died reads
+   * `connected` forever — both are precisely what the readiness board exists
+   * to report. This re-derives endpoints from `tailscale status` +
+   * `serve status` on every call, so it is correct in both directions.
+   *
+   * Returns ENDPOINTS, not a boolean: a daemon connected outside the dashboard
+   * has an empty `lastEndpoints` and the readiness report still owes some.
+   *
+   * See change: add-zrok-custom-reserved-name (D6.1).
+   */
+  /**
+   * Non-blocking enrollment check for readiness.
+   *
+   * `isEnrolled()` runs `tailscale status --json` SYNCHRONOUSLY with a 30s exec
+   * timeout, which blocks the event loop and therefore cannot be bounded by
+   * racing it against a timer. Readiness uses this instead, where the 4s bound
+   * is enforced on the child process itself.
+   */
+  async isEnrolledAsync(): Promise<boolean> {
+    return isBackendRunning(await this.statusJsonAsync());
+  }
+
+  private async statusJsonAsync(): Promise<unknown> {
+    const r = await this.runAsync(["status", "--json"]);
+    try { return JSON.parse(r.stdout); } catch { return null; }
+  }
+
+  private async serveStatusJsonAsync(): Promise<unknown> {
+    const r = await this.runAsync(["serve", "status", "--json"]);
+    try { return JSON.parse(r.stdout); } catch { return null; }
+  }
+
+  async probeLive(): Promise<TunnelEndpoint[]> {
+    const status = await this.statusJsonAsync();
+    if (!isBackendRunning(status)) return [];
+    const serve = await this.serveStatusJsonAsync();
+    // Only `connect()` records `lastPort`, and the whole point of probeLive is
+    // to report daemons brought up OUTSIDE this process — which have none. A
+    // fabricated `:0` URL is worse than no URL: it is an endpoint the board
+    // would display and an operator could try to open. So a port is derived
+    // from the daemon's own serve config, and when none can be, liveness is
+    // reported through an endpoint-free marker rather than a fake address.
+    const port = servedPort(serve) ?? this.lastPort;
+    if (port === undefined) {
+      // Backend is running and serving, but we cannot name the address. Report
+      // LIVE with no endpoint rather than inventing one.
+      return [{ kind: "magicdns", url: "", tls: false }];
+    }
+    return deriveEndpoints(status, serve, port, this.lastMode ?? "private");
+  }
+
+  /** Remembered so `probeLive()` can rebuild the same URL shape a connect produced. */
+  private lastPort?: number;
+  private lastMode?: TunnelMode;
 }

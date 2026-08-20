@@ -18,6 +18,18 @@ export interface CorsOriginOptions {
   trustedNetworks: string[];
   /** Active zrok tunnel URL, read dynamically so rotation is picked up. */
   getTunnelUrl?: () => string | null;
+  /**
+   * Every CURRENTLY connected tunnel origin, across all live providers.
+   *
+   * Read dynamically, so the allowance follows tunnels as they come and go: a
+   * provider that disconnects stops being allowed. Distinct from
+   * `getTunnelUrl`, which is the PRIMARY only — CORS and the OAuth redirect
+   * base answer different questions. CORS asks "may this origin, already in the
+   * address bar, read a response?"; the redirect base asks "which single origin
+   * do we mint OAuth URIs and set cookies for?". Widening the first must never
+   * widen the second. See change: add-zrok-custom-reserved-name (D4).
+   */
+  getLiveTunnelOrigins?: () => string[];
 }
 
 /**
@@ -29,6 +41,7 @@ export interface CorsOriginOptions {
  *     Preserved intentionally; never relaxed. See improve-content-editor §6.5.
  *  3. Loopback host (any port) → allow.
  *  4. Active zrok tunnel URL → allow.
+ *  4b. Any CURRENTLY connected tunnel origin (any provider) → allow.
  *  5. Any `*.share.zrok.io` / `*.shares.zrok.io` (zrok v2) host → allow.
  *  6. Neutral static PWA shell `https://pi-dashboard.dev` → allow.
  *  7. Explicitly configured origin → allow.
@@ -54,6 +67,19 @@ export function isCorsOriginAllowed(
     // 4. Active zrok tunnel URL (dynamic — rotation without restart).
     const tunnelUrl = opts.getTunnelUrl?.() ?? null;
     if (tunnelUrl && origin === tunnelUrl) return true;
+    // 4b. Any live tunnel's origin, for every provider. Compared as ORIGINS,
+    //     not as URLs: a provider reports `https://host/path`, and a browser
+    //     sends `https://host`, so a string equality against the raw URL would
+    //     silently never match for any provider that carries a path.
+    for (const raw of opts.getLiveTunnelOrigins?.() ?? []) {
+      let candidate: string;
+      try {
+        candidate = new URL(raw).origin;
+      } catch {
+        continue;
+      }
+      if (candidate === u.origin) return true;
+    }
     // 5. Any *.share.zrok.io (v1) or *.shares.zrok.io (v2) host.
     if (host.endsWith(".share.zrok.io") || host.endsWith(".shares.zrok.io")) return true;
     // 6. Neutral static PWA shell (D1/D8).
