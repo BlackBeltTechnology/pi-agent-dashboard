@@ -337,9 +337,12 @@ export function buildGatewayModeOffer(input: { url: string; isPrimary: boolean }
   const trustedNetwork: GatewayModeOffer = {
     mode: "trusted-network",
     available: true,
-    // On an insecure URL this is not merely allowed, it is the ONLY option, and
-    // it is useless without a CIDR.
-    ...(secure ? {} : { requires: "cidr" as const }),
+    // ALWAYS, not only on an insecure URL: `validateGatewayDraft` rejects
+    // `trusted-network` with no entries under any scheme
+    // (`trusted-network-empty`). Gating `requires` on the scheme let an https
+    // selection save with an empty CIDR list — a gateway record that claims an
+    // auth mode granting access to nobody, which reads as configured.
+    requires: "cidr" as const,
   };
 
   const pairing: GatewayModeOffer = secure

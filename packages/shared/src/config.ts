@@ -966,6 +966,32 @@ const KNOWN_TUNNEL_MODES: TunnelMode[] = ["public", "private"];
  *  - an explicit `provider` wins over a stray legacy `reservedToken`.
  * See change: add-tunnel-providers.
  */
+/**
+ * The per-provider concurrency flags (D3), validated.
+ *
+ * `zrok` is RECONSTRUCTED rather than spread (it carries the legacy token
+ * migration), so without this helper its `enabled`/`mode` were silently dropped
+ * on every load: the operator's second tunnel never connected and the config
+ * showed nothing to explain it. An invalid value is DROPPED rather than
+ * preserved — `resolveTunnelPlan` treats absent `enabled` as false, which is
+ * the safe reading; a bogus `mode` string would instead surface later as an
+ * unsupported-mode connect failure far from its cause.
+ */
+function perProviderFlags(raw: any): { enabled?: boolean; mode?: TunnelMode } {
+  return {
+    ...(typeof raw?.enabled === "boolean" ? { enabled: raw.enabled } : {}),
+    ...(typeof raw?.mode === "string" && (KNOWN_TUNNEL_MODES as string[]).includes(raw.mode)
+      ? { mode: raw.mode as TunnelMode }
+      : {}),
+  };
+}
+
+/** A provider sub-config with its flags re-derived from the validated pair. */
+function withProviderFlags(raw: any): Record<string, unknown> {
+  const { enabled: _e, mode: _m, ...rest } = raw as Record<string, unknown>;
+  return { ...rest, ...perProviderFlags(raw) };
+}
+
 export function normalizeTunnelConfig(
   raw: any,
   defaults: DashboardConfig["tunnel"],
@@ -994,6 +1020,7 @@ export function normalizeTunnelConfig(
   const zrok = {
     ...(zrokToken ? { reservedToken: zrokToken } : {}),
     ...(zrokReservedName ? { reservedName: zrokReservedName } : {}),
+    ...perProviderFlags(rawZrok),
     persistent: zrokPersistent,
   };
 
@@ -1003,9 +1030,16 @@ export function normalizeTunnelConfig(
     ...(mode ? { mode } : {}),
     ...(legacyToken ? { reservedToken: legacyToken } : {}),
     zrok,
-    ...(raw?.ngrok && typeof raw.ngrok === "object" ? { ngrok: { ...raw.ngrok } } : {}),
-    ...(raw?.tailscale && typeof raw.tailscale === "object" ? { tailscale: { ...raw.tailscale } } : {}),
-    ...(raw?.zerotier && typeof raw.zerotier === "object" ? { zerotier: { ...raw.zerotier } } : {}),
+    // The raw `enabled`/`mode` are STRIPPED before the spread and re-added from
+    // the validated pair, so a junk value cannot ride the spread into the
+    // concurrency resolver.
+    ...(raw?.ngrok && typeof raw.ngrok === "object" ? { ngrok: withProviderFlags(raw.ngrok) } : {}),
+    ...(raw?.tailscale && typeof raw.tailscale === "object"
+      ? { tailscale: withProviderFlags(raw.tailscale) }
+      : {}),
+    ...(raw?.zerotier && typeof raw.zerotier === "object"
+      ? { zerotier: withProviderFlags(raw.zerotier) }
+      : {}),
     watchdog: {
       enabled: raw?.watchdog?.enabled ?? defaults.watchdog!.enabled,
       intervalMs:

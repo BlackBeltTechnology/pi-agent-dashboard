@@ -22,6 +22,7 @@ import type {
   TunnelProviderId,
 } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 import { useEffect, useState } from "react";
+import { isValidTrustEntry } from "../../lib/gateway/gateway-config-ops.js";
 import {
   buildGatewayAddPatch,
   buildGatewayModeOffer,
@@ -54,11 +55,14 @@ export function GatewayProviderActions({
   readiness,
   isPrimary,
   config,
+  configLoaded,
   onConfigChange,
 }: {
   readiness: ProviderReadiness;
   isPrimary: boolean;
   config: GatewayConfigShape;
+  /** False until `getConfig()` has actually succeeded — see below. */
+  configLoaded: boolean;
   onConfigChange: () => void;
 }) {
   const { t } = useI18n();
@@ -73,8 +77,13 @@ export function GatewayProviderActions({
   const showPrimary = canMakePrimary({ state: readiness.state, isPrimary });
   // The offer is bound to a LIVE url: a provider that is not connected has no
   // URL to register, so there is nothing to offer (shipped scenario).
+  // `configLoaded` is load-bearing: against an unread `{}` every URL reads as
+  // unregistered, so the offer would appear for a URL already registered.
   const showOffer =
-    readiness.state === "connected" && !!url && isUnregisteredGatewayUrl(config, url);
+    readiness.state === "connected" &&
+    configLoaded &&
+    !!url &&
+    isUnregisteredGatewayUrl(config, url);
 
   // The board re-polls every 5s and this row is keyed by provider, so the
   // component instance OUTLIVES the state that justified an open panel. Without
@@ -118,11 +127,16 @@ export function GatewayProviderActions({
 
   const offers = url ? buildGatewayModeOffer({ url, isPrimary }) : [];
   const needsCidr = modes.includes("trusted-network") && offers.some((o) => o.requires === "cidr");
+  // A non-empty string is not an ADDRESS. `validateGatewayDraft` only counts
+  // entries, so an unparseable one would be written verbatim into
+  // `trustedNetworks` and match nothing at request time — a trust rule that
+  // silently trusts no one.
+  const cidrValid = cidr.trim().length > 0 && isValidTrustEntry(cidr.trim());
   // `everyModeAvailable` is the D9 guard, NOT the disabled checkbox: `disabled`
   // does not clear `checked`, so a mode selected while it was legal survives
   // the tick that made it illegal.
   const canSave =
-    modes.length > 0 && everyModeAvailable(offers, modes) && (!needsCidr || cidr.trim().length > 0);
+    modes.length > 0 && everyModeAvailable(offers, modes) && (!needsCidr || cidrValid);
 
   return (
     <div
@@ -210,6 +224,7 @@ export function GatewayProviderActions({
           modes={modes}
           setModes={setModes}
           cidr={cidr}
+          cidrInvalid={needsCidr && cidr.trim().length > 0 && !cidrValid}
           setCidr={setCidr}
           needsCidr={needsCidr}
           canSave={canSave}
@@ -260,6 +275,7 @@ function OfferPanel({
   modes,
   setModes,
   cidr,
+  cidrInvalid,
   setCidr,
   needsCidr,
   canSave,
@@ -274,6 +290,7 @@ function OfferPanel({
   modes: GatewayAuthMode[];
   setModes: (fn: (prev: GatewayAuthMode[]) => GatewayAuthMode[]) => void;
   cidr: string;
+  cidrInvalid: boolean;
   setCidr: (v: string) => void;
   needsCidr: boolean;
   canSave: boolean;
@@ -333,8 +350,23 @@ function OfferPanel({
               data-testid={`gateway-offer-cidr-${provider}`}
               value={cidr}
               onChange={(e) => setCidr(e.target.value)}
+              aria-invalid={cidrInvalid}
+              aria-describedby={cidrInvalid ? `${provider}-cidr-error` : undefined}
               className="mt-2 w-full rounded border border-[var(--border-primary)] bg-[var(--bg-primary)] px-2 py-1 font-mono text-[11px] text-[var(--text-primary)]"
             />
+          )}
+          {cidrInvalid && (
+            <p
+              id={`${provider}-cidr-error`}
+              data-testid={`gateway-offer-cidr-error-${provider}`}
+              className="mt-1 text-[10.5px] text-[var(--severity-error-fg)]"
+            >
+              {t(
+                "gateway.offer.cidrInvalid",
+                undefined,
+                "Not an address or CIDR range — e.g. 10.4.0.9/32 or 192.168.1.0/24.",
+              )}
+            </p>
           )}
 
           {modes.includes("oauth") && (

@@ -54,9 +54,17 @@ export function GatewayReadinessBoard({
   // the primary-switch copy. Re-read on demand, NOT on every readiness tick —
   // the tick runs every 5s and the config does not change under it.
   const [config, setConfig] = useState<GatewayConfigShape>({});
+  // An UNREAD config is not an empty one. `isUnregisteredGatewayUrl({}, url)`
+  // answers "unregistered" for every URL, so offering against `{}` would offer
+  // to register a URL that is already registered — a duplicate write, from a
+  // read that never succeeded.
+  const [configLoaded, setConfigLoaded] = useState(false);
   const refreshConfig = useCallback(() => {
     void getConfig()
-      .then((c) => setConfig(c as GatewayConfigShape))
+      .then((c) => {
+        setConfig(c as GatewayConfigShape);
+        setConfigLoaded(true);
+      })
       .catch(() => {
         /* an unreadable config offers nothing; it must not blank the board */
       });
@@ -145,6 +153,7 @@ export function GatewayReadinessBoard({
             selected={p.provider === primary}
             onSelect={onSelectProvider}
             config={config}
+            configLoaded={configLoaded}
             onConfigChange={refreshConfig}
           />
         ))}
@@ -159,6 +168,7 @@ function ReadinessRow({
   selected,
   onSelect,
   config,
+  configLoaded,
   onConfigChange,
 }: {
   readiness: ProviderReadiness;
@@ -167,6 +177,7 @@ function ReadinessRow({
   selected: boolean;
   onSelect?: (id: string) => void;
   config: GatewayConfigShape;
+  configLoaded: boolean;
   onConfigChange: () => void;
 }) {
   const { t } = useI18n();
@@ -227,6 +238,7 @@ function ReadinessRow({
         readiness={readiness}
         isPrimary={isPrimary}
           config={config}
+          configLoaded={configLoaded}
           onConfigChange={onConfigChange}
         />
       </div>

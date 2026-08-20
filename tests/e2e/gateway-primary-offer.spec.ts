@@ -38,7 +38,7 @@ const BOARD: Readiness[] = [
 ];
 
 interface ConfigSlice {
-  gateways?: unknown[];
+  gateways?: { url?: string }[];
   publicBaseUrls?: string[];
   cors?: { allowedOrigins?: string[] };
   tunnel?: { provider?: string };
@@ -76,7 +76,21 @@ test.describe.serial("gateway primary switch + registration offer", () => {
 
   test.beforeAll(async ({ request }) => {
     original = await readConfig(request);
-    expect((await request.put("/api/config", { data: { tunnel: { provider: "zrok" } } })).ok()).toBe(true);
+    // Establish the precondition F8 asserts on: TS_URL must be UNREGISTERED.
+    // An interrupted earlier run (or a seeded harness) can leave the record
+    // behind, which hides the offer and fails the test before it ever reaches
+    // the behaviour under test. Only the TS_URL record is dropped — every other
+    // gateway the harness carries is left alone.
+    const withoutTs = (original.gateways ?? []).filter(
+      (g) => (g.url ?? "").replace(/\/+$/, "") !== TS_URL.replace(/\/+$/, ""),
+    );
+    expect(
+      (
+        await request.put("/api/config", {
+          data: { tunnel: { provider: "zrok" }, gateways: withoutTs },
+        })
+      ).ok(),
+    ).toBe(true);
   });
 
   test.afterAll(async ({ request }) => {

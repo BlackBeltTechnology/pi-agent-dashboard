@@ -31,6 +31,7 @@ function renderActions(readiness: ProviderReadiness, isPrimary = false) {
     <GatewayProviderActions
       readiness={readiness}
       isPrimary={isPrimary}
+      configLoaded
       config={{ gateways: [], tunnel: { provider: "zrok" } } as never}
       onConfigChange={() => {}}
     />,
@@ -47,6 +48,7 @@ describe("an open panel does not survive the state that justified it", () => {
       <GatewayProviderActions
         readiness={DISCONNECTED}
         isPrimary={false}
+        configLoaded
         config={{ gateways: [], tunnel: { provider: "zrok" } } as never}
         onConfigChange={() => {}}
       />,
@@ -59,6 +61,7 @@ describe("an open panel does not survive the state that justified it", () => {
       <GatewayProviderActions
         readiness={CONNECTED}
         isPrimary={false}
+        configLoaded
         config={{ gateways: [], tunnel: { provider: "zrok" } } as never}
         onConfigChange={() => {}}
       />,
@@ -82,6 +85,7 @@ describe("an open panel does not survive the state that justified it", () => {
       <GatewayProviderActions
         readiness={CONNECTED}
         isPrimary={false}
+        configLoaded
         config={registered as never}
         onConfigChange={() => {}}
       />,
@@ -96,6 +100,7 @@ describe("an open panel does not survive the state that justified it", () => {
       <GatewayProviderActions
         readiness={CONNECTED}
         isPrimary={false}
+        configLoaded
         config={{ gateways: [], tunnel: { provider: "zrok" } } as never}
         onConfigChange={() => {}}
       />,
@@ -122,6 +127,7 @@ describe("D9: a stale oauth selection cannot reach the write", () => {
       <GatewayProviderActions
         readiness={CONNECTED}
         isPrimary={false}
+        configLoaded
         config={{ gateways: [], tunnel: { provider: "zrok" } } as never}
         onConfigChange={() => {}}
       />,
@@ -134,5 +140,41 @@ describe("D9: a stale oauth selection cannot reach the write", () => {
     await waitFor(() => {
       expect(putConfig).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("the offer never runs against a config that was not read", () => {
+  it("shows nothing until getConfig() has actually succeeded", () => {
+    // `{}` answers "unregistered" for every URL, so an unguarded offer would
+    // invite a duplicate registration off a read that never landed.
+    render(
+      <GatewayProviderActions
+        readiness={CONNECTED}
+        isPrimary={false}
+        configLoaded={false}
+        config={{} as never}
+        onConfigChange={() => {}}
+      />,
+    );
+    expect(screen.queryByTestId("gateway-register-offer-tailscale")).toBeNull();
+  });
+});
+
+describe("a trusted-network entry must be an address, not merely non-empty", () => {
+  it("refuses to save an unparseable entry and says why", () => {
+    renderActions(CONNECTED);
+    fireEvent.click(screen.getByTestId("gateway-register-offer-tailscale"));
+    fireEvent.click(screen.getByTestId("gateway-offer-mode-trusted-network"));
+    fireEvent.change(screen.getByTestId("gateway-offer-cidr-tailscale"), {
+      target: { value: "my office" },
+    });
+    expect(screen.getByTestId("gateway-offer-cidr-error-tailscale")).toBeDefined();
+    expect((screen.getByTestId("gateway-offer-save-tailscale") as HTMLButtonElement).disabled).toBe(true);
+
+    fireEvent.change(screen.getByTestId("gateway-offer-cidr-tailscale"), {
+      target: { value: "10.4.0.9/32" },
+    });
+    expect(screen.queryByTestId("gateway-offer-cidr-error-tailscale")).toBeNull();
+    expect((screen.getByTestId("gateway-offer-save-tailscale") as HTMLButtonElement).disabled).toBe(false);
   });
 });

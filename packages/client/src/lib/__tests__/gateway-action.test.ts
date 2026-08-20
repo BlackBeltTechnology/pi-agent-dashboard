@@ -381,3 +381,19 @@ describe("D9: a mode that stopped being available cannot ride a stale selection"
     expect(retainAvailableModes(primary, ["oauth"])).toEqual(["oauth"]);
   });
 });
+
+describe("D9: trusted-network always demands its CIDR", () => {
+  it("requires a CIDR on an https URL too — an empty list grants access to nobody", () => {
+    const offers = buildGatewayModeOffer({ url: "https://ts.example.com", isPrimary: true });
+    const tn = offers.find((o) => o.mode === "trusted-network");
+    expect(tn).toMatchObject({ available: true, requires: "cidr" });
+  });
+
+  it("agrees with validateGatewayDraft, which rejects an empty selection under either scheme", () => {
+    for (const url of ["https://ts.example.com", "http://ts.example.com"]) {
+      expect(
+        validateGatewayDraft({ url, authModes: ["trusted-network"], trustedNetworks: [] }).errors,
+      ).toContain("trusted-network-empty");
+    }
+  });
+});
