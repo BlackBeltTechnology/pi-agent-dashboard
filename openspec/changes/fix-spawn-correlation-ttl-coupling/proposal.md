@@ -44,8 +44,9 @@ Against a real spawn, the watchdog fired at 5 s and `session_added` arrived
 
 ### Reported symptom, explained
 
-*"Banner clears itself, but no card appears until refresh."* At a 90 s timeout
-the correlation is always dead (>60 s), so `session_added` ships without
+*"Banner clears itself, but no card appears until refresh."* At a 90 s timeout a
+register landing after 60 s finds the correlation already dead — **before the
+watchdog has even fired** — so `session_added` ships without
 `spawnRequestId`; the client's Tier-1 branch in `useMessageHandler.ts:250` never
 runs `clearSpawningCwd` + `navigate()`, so the session never opens. A register
 landing in 90–150 s is still inside the recovery window, so the banner does
@@ -78,8 +79,9 @@ match:
 
 The cwd tier is raw-string and missed on `/tmp` vs `/private/tmp`. Only the
 token tier works — and the TTL gap above kills it precisely when it is needed.
-The watchdog additionally contains **no `console.*` at all**, so neither a fire
-nor a recovery appears in `server.log`; `spawn-failures.log` records 50
+The watchdog additionally logs **neither its fire nor its recovery** (its one
+`console.error` sits in `armSpawnWatchdog` and covers neither path), so neither
+appears in `server.log`; `spawn-failures.log` records 50
 `REGISTER_TIMEOUT` entries (100 % `headless`, 100 % empty `stderrTail` — pi was
 slow, not crashed) with no way to tell which later recovered.
 
@@ -147,8 +149,11 @@ in the system would ever have corrected this on its own.
   SHALL evaluate against the server's dashboard-source decision, never the
   bridge's pre-decision self-report; a session SHALL NOT end up
   `source="dashboard"` and `hidden=true` simultaneously.
-- **Watchdog identity is made reliable.** Arm/clear SHALL agree on the pi pid
-  (not the keeper pid) and compare cwds normalized the same way on both sides.
+- **Watchdog cwd identity is made reliable.** Arm/clear SHALL compare cwds
+  normalized the same way on both sides. The pid tier is deliberately NOT
+  repaired — pi's pid does not exist at arm time, and the token tier runs first
+  for every spawn the current code produces, so the tier is unreachable in
+  practice; see design D4.
 - **Fire and recovery become observable** in `server.log`, and the failure log
   SHALL be able to distinguish a timeout that later recovered from one that
   never did.
@@ -169,6 +174,11 @@ in the system would ever have corrected this on its own.
   - *The double `session_added` whose first frame carries `cwd:""` and
     `source:"unknown"`.* Observed in every trial; worth its own change.
   - *Changing the 5 000–120 000 clamp.* The bug is coupling, not the bounds.
+  - *Re-deriving the other `pending*` TTLs.* `pendingAttachRegistry` and
+    `pendingResumeIntentRegistry` bound the damage of a FAILED spawn rather than
+    waiting for a bridge; lengthening them is a regression, not a fix. Same for
+    `pendingResume`, `pendingInitialPrompt`, `pendingWorktreeBase` and
+    `pendingGoalLink` — each needs its own analysis. See design D1a.
   - *Reconciling stale `active` sessions against real processes* (the 559
     phantoms). Same family, but it is a liveness-reaper concern rather than a
     spawn-correlation one; it belongs with the reconcile channel above.
@@ -182,33 +192,47 @@ in the system would ever have corrected this on its own.
 
 ### New Capabilities
 
-None.
+- `prompt-delivery-ack`: `POST /api/session/:id/prompt` SHALL distinguish a
+  prompt the bridge acknowledged (delivered) from one merely written to an OPEN
+  socket (transmitted).
 
 ### Modified Capabilities
 
-- `spawn-correlation`: token TTL SHALL be derived from
-  `spawnRegisterTimeoutMs` rather than a 60 s literal, and a late register
-  inside the recovery window SHALL still yield `spawnRequestId` on
-  `session_added`.
-- `spawn-register-watchdog`: recovery TTL SHALL be derived from the configured
-  timeout; arm/clear SHALL use the pi pid and normalized cwds; fire and recovery
-  SHALL be logged.
+- `spawn-correlation`: the client-correlation and fork-registry TTLs SHALL be
+  derived from the same configuration read that arms the spawn's watchdog, on
+  all three recording paths, rather than from a literal; a register arriving after 60 s SHALL still yield `spawnRequestId` on
+  `session_added`; and `hidden` SHALL be decided from the dashboard-spawn signal
+  rather than the bridge's self-reported source.
+- `spawn-register-watchdog`: the recovery window SHALL be a single named
+  constant shared with every TTL derivation; cwds SHALL be normalized on both
+  sides; a register SHALL NOT disarm a concurrent same-cwd spawn; fire and
+  recovery SHALL be logged with the timeout that actually applied.
+- `bridge-message-pump`: a dropped inbound message SHALL be recorded
+  server-side, surviving `keeperLog.capturePiOutput=false`.
 
 ## Impact
 
 - `packages/server/src/pending/pending-client-correlations.ts` — TTL from config.
 - `packages/server/src/spawn-process/spawn-register-watchdog.ts` — TTL from
   config, pid/cwd identity, logging.
-- `packages/server/src/spawn-process/process-manager.ts`,
-  `packages/server/src/rpc-keeper/` — which pid is registered/armed.
+- `packages/server/src/pending/pending-fork-registry.ts` — same derivation; its
+  30 s is already short at the default timeout.
+- `packages/server/src/pi/pi-gateway.ts` — tier-aware clears, so registering one
+  spawn stops disarming a concurrent same-cwd spawn.
+- `packages/server/src/session/session-api.ts` — removal of the `delivered: true`
+  the contended branch cannot know.
 - `packages/server/src/session/memory-session-manager.ts` — auto-hide evaluated
   against the resolved source.
 - `packages/server/src/lifecycle/dashboard-source-decision.ts` — ordering
   relative to the `hidden` decision.
-- No protocol change: `spawnRequestId` and `spawn_register_recovered` already
-  exist; they simply stop being dropped.
-- Default-timeout installs are unaffected in behaviour — the derived TTL equals
-  today's 60 s at the default.
+- `packages/extension/src/` — reporting a dropped inbound message; acknowledging
+  a prompt.
+- The spawn-correlation and watchdog fixes need **no protocol change**:
+  `spawnRequestId` and `spawn_register_recovered` already exist and simply stop
+  being dropped. The two observability items **do** add protocol — a
+  bridge→server drop report and a prompt acknowledgement — both optional, so an
+  older bridge degrades to today's behaviour.
+- Default-timeout installs are unaffected in spawn behaviour.
 
 ## Discipline Skills
 
