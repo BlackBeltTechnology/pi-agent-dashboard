@@ -641,6 +641,11 @@ export function createCommandHandler(
                 // Forward delivery so steering on slash fallback honors the
                 // dashboard's keyboard contract. See change: add-steering-message.
                 const deliverAs = msg.delivery ?? ("followUp" as const);
+                // Capture the streaming verdict BEFORE the pi call: an idle
+                // send synchronously fires `agent_start`, so reading it
+                // afterwards reports `fresh:false` for every fresh turn — the
+                // same trap the passthrough path documents.
+                const wasStreamingBeforeSend = options?.isStreaming?.() ?? false;
                 (pi.sendUserMessage as any)(parsed.text, { deliverAs });
                 // This slash DID reach pi as a user prompt, so it is delivered.
                 // See change: fix-spawn-correlation-ttl-coupling (D7).
@@ -648,7 +653,7 @@ export function createCommandHandler(
                   options?.eventSink?.({
                     type: "prompt_received",
                     sessionId,
-                    fresh: !(options?.isStreaming?.() ?? false),
+                    fresh: !wasStreamingBeforeSend,
                     promptId: msg.promptId,
                   });
                 }

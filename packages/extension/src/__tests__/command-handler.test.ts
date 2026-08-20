@@ -1356,6 +1356,31 @@ describe("CommandHandler — ack handle and dropped-message reporting", () => {
     expect(ack).toBeTruthy();
   });
 
+  // An idle send synchronously fires `agent_start`, so the streaming verdict has
+  // to be captured BEFORE the pi call or every fresh turn reports `fresh:false`.
+  it("reports fresh:true for a slash prompt sent while idle", async () => {
+    const events: any[] = [];
+    const pi = mockPi();
+    let streaming = false;
+    (pi.sendUserMessage as any).mockImplementation(() => {
+      streaming = true; // pi flips idle→streaming synchronously
+    });
+    const handler = createCommandHandler(pi as any, "s1", {
+      eventSink: (m) => events.push(m),
+      isStreaming: () => streaming,
+    });
+
+    await handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "/some-unknown-skill",
+      promptId: "p-idle",
+    } as ServerToExtensionMessage);
+
+    const ack = events.find((e) => e.promptId === "p-idle");
+    expect(ack.fresh).toBe(true);
+  });
+
   it("hands the promptId to the bridge-owned slash route", async () => {
     const seen: Array<[string, string | undefined, string | undefined]> = [];
     const handler = createCommandHandler(mockPi() as any, "s1", {

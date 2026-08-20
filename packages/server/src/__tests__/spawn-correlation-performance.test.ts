@@ -49,8 +49,12 @@ describe("spawn-correlation performance", () => {
         const token = `tok_${i}`;
         const started = performance.now();
         w.arm({ cwd, mechanism: "headless", pid: 10_000 + i, spawnToken: token });
-        w.clearByToken(token);
+        const claimed = w.clearByToken(token);
         samples.push(performance.now() - started);
+        // A perf loop that measures no-ops measures nothing: if the arm never
+        // landed, `clearByToken` returns false and the budget below would pass
+        // vacuously.
+        expect(claimed).toBe(true);
       }
       return samples;
     }
