@@ -21,7 +21,7 @@ export function FallbackPreview({ target }: Props) {
         <a
           href={rawUrl(target)}
           download
-          className="text-[var(--accent)] underline"
+          className="text-[var(--accent-text)] underline"
         >
           {i18nT("common.download", undefined, "Download")}
         </a>
@@ -34,7 +34,7 @@ export function FallbackPreview({ target }: Props) {
         href={target.url}
         target="_blank"
         rel="noopener noreferrer"
-        className="text-[var(--accent)] underline"
+        className="text-[var(--accent-text)] underline"
       >
         {i18nT("common.openInNewTab", undefined, "Open in new tab")}
       </a>{" "}

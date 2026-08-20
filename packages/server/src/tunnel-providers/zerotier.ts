@@ -23,6 +23,7 @@ import type {
   TunnelProvider,
 } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
 import { providerSupportsMode } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
+import { type AsyncCmdRunner, asyncRunner } from "./daemon-exec.js";
 import type { CmdResult, CmdRunner } from "./tailscale.js";
 
 const ztResolver = new ToolResolver({ processExecPath: process.execPath, useLoginShell: true });
@@ -86,9 +87,14 @@ export class ZeroTierProvider implements TunnelProvider {
   private readonly networkId?: string;
   private readonly run: CmdRunner;
 
-  constructor(opts?: { networkId?: string; run?: CmdRunner }) {
+  private readonly runAsync: AsyncCmdRunner;
+
+  constructor(opts?: { networkId?: string; run?: CmdRunner; runAsync?: AsyncCmdRunner }) {
     this.networkId = opts?.networkId;
     this.run = opts?.run ?? defaultRunner(() => this.getBinary());
+    // Lifecycle keeps the synchronous runner; readiness gets one whose timeout
+    // kills the child, so its 4s bound is real.
+    this.runAsync = opts?.runAsync ?? asyncRunner(() => this.getBinary());
   }
 
   private getBinary(): string {
@@ -122,6 +128,7 @@ export class ZeroTierProvider implements TunnelProvider {
     this.run(["join", this.networkId]);
     const ip = parseAssignedIpv4(this.listNetworks(), this.networkId);
     // No IP yet ⇒ node not authorized in the controller (out-of-band step).
+    this.lastPort = port;
     this.lastEndpoints = ip ? [deriveMeshEndpoint(ip, port)] : [];
     return { endpoints: this.lastEndpoints };
   }
@@ -136,4 +143,50 @@ export class ZeroTierProvider implements TunnelProvider {
   status(): ProviderStatus {
     return { active: this.lastEndpoints.length > 0, endpoints: this.lastEndpoints };
   }
+
+  /**
+   * Ask the DAEMON, not our own memory.
+   *
+   * `status()` reads `lastEndpoints`, set only when THIS process ran
+   * `connect()`. A node joined and authorized out of band reads `disconnected`
+   * forever; one that left the network reads `connected` forever. Both are what
+   * the readiness board exists to report, so liveness is re-derived from
+   * `zerotier-cli -j listnetworks` on every call.
+   *
+   * An assigned mesh IPv4 IS the liveness signal here: ZeroTier hands one out
+   * only once the controller has authorized the node.
+   *
+   * See change: add-zrok-custom-reserved-name (D6.1).
+   */
+  /**
+   * Non-blocking enrollment check for readiness — see TailscaleProvider for
+   * why a synchronous shell-out cannot be bounded by a timer race.
+   */
+  async isEnrolledAsync(): Promise<boolean> {
+    if (!this.networkId) return false;
+    return isNetworkAuthorized(await this.listNetworksAsync(), this.networkId);
+  }
+
+  // `unknown`: the payload is handed straight to `parseAssignedIpv4`/
+  // `isNetworkAuthorized`, which own its shape. The surrounding sync twin
+  // predates this and still uses `any`; not widening that here.
+  private async listNetworksAsync(): Promise<unknown> {
+    const r = await this.runAsync(["-j", "listnetworks"]);
+    try { return JSON.parse(r.stdout); } catch { return null; }
+  }
+
+  async probeLive(): Promise<TunnelEndpoint[]> {
+    if (!this.networkId) return [];
+    const ip = parseAssignedIpv4(await this.listNetworksAsync(), this.networkId);
+    if (!ip) return [];
+    // ZeroTier is a mesh: the node has an IP, but the PORT is the dashboard's
+    // own listener, which only `connect()` knows. `http://<ip>:0` is not an
+    // address — it is a plausible-looking lie the board would render. Report
+    // liveness with no URL instead, and let a real connect supply the port.
+    if (this.lastPort === undefined) return [{ kind: "mesh", url: "", tls: false }];
+    return [deriveMeshEndpoint(ip, this.lastPort)];
+  }
+
+  /** Remembered so `probeLive()` can rebuild the same URL a connect produced. */
+  private lastPort?: number;
 }

@@ -57,3 +57,41 @@
 - [x] 8.7 Pass fresh review, validate archive readiness, and hand the completed change to the repository ship pipeline.
 - [x] 8.8 Track ChatView mounting across manual unmounts and retain the scoped 160 ms cleanup drain.
 - [x] 8.9 Replace unpinned skill commands with repository-local `pnpm exec` calls and pin the registry fallback.
+- [x] 8.10 Align the CI skill overview and reference taxonomy with the current workflow inventory.
+- [x] 8.11 Make the OpenSpec recovery verification fail closed and prove it preserves Git status.
+- [x] 8.12 Resolve the archive-location review as a false positive using the repository ship gate.
+
+## 9. Address project-owner and final CodeRabbit feedback
+
+- [x] 9.1 Restore release recovery commands and the no-manual-publish warning.
+- [x] 9.2 Restore `_electron-build.yml` input semantics, especially `legs` and `source_only_bundle`.
+- [x] 9.3 Restore literal failure-message-to-fix rows with current job names and the builder-debug drop-step guidance.
+- [x] 9.4 Restore the post-release site update symptom and workflow checks.
+- [x] 9.5 Restore all three KB sidecar pointers, run `kb dox lint`, and prove no lint finding targets those pointers; report unrelated baseline findings separately.
+- [x] 9.6 Use “reusable workflows” consistently in both index records.
+- [x] 9.7 Make worktree recovery reject dirty state, check final status retrieval, and update `.pi/settings.json` to the local scoped OpenSpec CLI.
+- [x] 9.8 Record the single-virtualizer invariant, stack trace, `pool:"forks"` blame rotation, and bounded test cost in the authoritative AGENTS row.
+- [x] 9.9 Clarify the root OpenSpec rule as creation-only; completed changes archive through `ship-change`.
+- [x] 9.10 Persist the global rule that this agent never merges or enables auto-merge, then pass a fresh Pi startup.
+- [x] 9.11 Obtain independent cautious review and synthesis proving every Robert and CodeRabbit item is addressed.
+- [x] 9.12 Push only after task 9.11 passes; leave PR 520 unmerged for the owner.
+
+## 10. Complete one-time post-push PR maintenance outside the ship workflow
+
+- [x] 10.1 Record CodeRabbit's timer-wording finding, exact `origin/develop` commit `71ea6e59`, and the three overlapping documentation records before mutation.
+- [x] 10.2 Rebase onto `origin/develop` without merging.
+- [x] 10.3 Resolve the documentation overlap by keeping the newer upstream drain-scope invariant and lint gate, Robert's requested diagnostics and bounded cost, and CodeRabbit's standard timer wording.
+- [x] 10.4 Run targeted documentation, convention, full test, and build validation.
+- [x] 10.5 Run the independent cautious review and record its missing `runConfigHarness.tsx` purpose-row finding.
+- [x] 10.6 Add the missing purpose row and rerun focused documentation validation.
+- [x] 10.7 Obtain a final focused reviewer and synthesis verdict for the exact amendment.
+- [x] 10.8 Force-push with lease only after task 10.7 passes; leave PR 520 unmerged for the owner. This one-time maintenance does not replace the merge-based ship workflow.
+
+## 11. Address the post-rebase CodeRabbit review
+
+- [x] 11.1 Triage all three findings: reject the archive-location false positive; accept the one-time-maintenance clarification and standard “test ID” wording.
+- [x] 11.2 Clarify archive policy and separate the one-time PR refresh from the merge-based ship workflow.
+- [x] 11.3 Replace “testid” with “test ID” in the virtualizer sidecar without changing behavior.
+- [x] 11.4 Run focused documentation and convention validation.
+- [x] 11.5 Obtain final independent review and synthesis before another push.
+- [x] 11.6 Force-push with lease only after task 11.5 passes; leave PR 520 unmerged for the owner.

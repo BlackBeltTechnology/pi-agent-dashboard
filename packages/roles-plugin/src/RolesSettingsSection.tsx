@@ -40,6 +40,44 @@ interface ModelInfo {
   provider: string;
   /** pi-coding-agent shape uses `id`; full label is `<provider>/<id>`. */
   id: string;
+  /** Levels this model advertises (pi 0.72+ per-model `thinkingLevelMap`).
+   *  Already carried by the `models_list` payload — no protocol change.
+   *  See change: add-default-thinking-level. */
+  supportedThinkingLevels?: string[];
+}
+
+/**
+ * Canonical thinking levels, in pi's own order. `off` is the NO-OVERRIDE
+ * option here: a role ref carries a level only when the user picked a real
+ * one, so `off` writes a bare ref and lets pi's own default stand.
+ * See change: add-default-thinking-level.
+ */
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+/**
+ * Split a role ref into its model base and optional thinking level.
+ *
+ * The level rides the EXISTING ref string as a `:<level>` suffix (pi parses
+ * it with the same `splitThinkingSuffix` rule), so roles never grow a second
+ * field that could drift from `/roles`-written values.
+ *
+ * Only a CANONICAL level tail is split off — provider ids legitimately
+ * contain `:` (e.g. `openrouter/vendor:free`), and those must survive.
+ *
+ * See change: add-default-thinking-level (design D7).
+ */
+export function splitRefLevel(ref: string): { base: string; level?: string } {
+  const idx = ref.lastIndexOf(":");
+  if (idx <= 0) return { base: ref };
+  const tail = ref.slice(idx + 1);
+  if (!THINKING_LEVELS.includes(tail)) return { base: ref };
+  return { base: ref.slice(0, idx), level: tail };
+}
+
+/** Inverse of {@link splitRefLevel}. `off`/undefined write a bare ref. */
+export function joinRefLevel(base: string, level?: string): string {
+  if (!base || !level || level === "off") return base;
+  return `${base}:${level}`;
 }
 
 /**
@@ -62,6 +100,38 @@ export function inferProviderForBareId(
   if (!stored || stored.includes("/")) return stored;
   const match = models.find((m) => m.id === stored);
   return match ? `${match.provider}/${stored}` : stored;
+}
+
+/**
+ * The assigned half of a role pill: model name + optional `:<level>` chip.
+ *
+ * Selected state promotes BOTH to `--text-primary` — the shipped
+ * accent-on-accent-tint is 2.66:1 dark / 3.58:1 light, under WCAG AA. The
+ * accent survives as the pill's 2px outline (non-text, ≥3:1).
+ * See change: add-default-thinking-level (mockups/ui-plan.md defect #2).
+ */
+/** Pill container classes: `rounded-l` when a × button follows, selected tint. */
+function pillClass(isCustom: boolean, selected: boolean): string {
+  const shape = isCustom ? "rounded-l" : "rounded";
+  const state = selected
+    ? "bg-[color-mix(in_srgb,var(--accent-blue)_25%,transparent)] outline outline-2 outline-[var(--accent-blue)]"
+    : "bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)]";
+  return `flex items-center gap-2 px-2 py-1 text-left min-w-0 flex-1 transition-all ${shape} ${state}`;
+}
+
+function RolePillValue({ model, level, selected }: { model: string; level?: string; selected: boolean }) {
+  return (
+    <>
+      <span className={`text-[11px] font-mono truncate flex-1 ${selected ? "text-[var(--text-primary)]" : "text-[var(--text-muted)]"}`}>
+        {model}
+      </span>
+      {level && (
+        <span className={`text-[10px] font-mono shrink-0 ${selected ? "text-[var(--text-primary)]" : "text-[var(--accent-blue)]/70"}`}>
+          :{level}
+        </span>
+      )}
+    </>
+  );
 }
 
 /**
@@ -163,8 +233,14 @@ export function BuiltInRolesSettings() {
     allSessions.find((s) => (s as any).status !== "ended")?.id;
 
   const ModelSelectorPrimitive = useUiPrimitive(UI_PRIMITIVE_KEYS.modelSelector);
+  const ThinkingLevelPrimitive = useUiPrimitive(UI_PRIMITIVE_KEYS.thinkingLevelSelector);
 
   const [editingRole, setEditingRole] = useState<string | null>(null);
+  // Set when a model pick silently cleared a level the new model can't do.
+  // The staged value changed underneath the user, so the picker says so
+  // instead of saving something else. Keyed BY ROLE so the notice cannot leak
+  // onto the next role opened. See change: add-default-thinking-level.
+  const [dropped, setDropped] = useState<{ role: string; level: string } | null>(null);
   const [savingPreset, setSavingPreset] = useState(false);
   const [presetName, setPresetName] = useState("");
   // Add-custom-role flow: an inline @-prefixed name input that, on a valid
@@ -251,7 +327,32 @@ export function BuiltInRolesSettings() {
       }
       return { ...prev, [role]: modelLabel };
     });
-    setEditingRole(null);
+  }
+
+  /**
+   * Model pick. Keeps the staged level when the new model supports it, drops
+   * the suffix (and explains why) when it does not. The picker stays OPEN so
+   * the paired level control remains reachable after the pick.
+   * See change: add-default-thinking-level.
+   */
+  function setRoleModel(role: string, modelLabel: string) {
+    const { level } = splitRefLevel(effective(role) ?? "");
+    const picked = models.find((m) => `${m.provider}/${m.id}` === modelLabel);
+    const supported = picked?.supportedThinkingLevels;
+    const keep = level && (!supported?.length || supported.includes(level));
+    setDropped(level && !keep ? { role, level } : null);
+    setRole(role, joinRefLevel(modelLabel, keep ? level : undefined));
+  }
+
+  /**
+   * Level pick. Restages the SAME base ref with the new suffix. The base runs
+   * through `inferProviderForBareId` first: a legacy bare-id role value would
+   * otherwise be re-staged bare and flushed with an empty `provider`.
+   */
+  function setRoleLevel(role: string, level: string) {
+    const { base } = splitRefLevel(effective(role) ?? "");
+    setDropped(null);
+    setRole(role, joinRefLevel(inferProviderForBareId(base, models), level));
   }
 
   /**
@@ -373,7 +474,8 @@ export function BuiltInRolesSettings() {
     const isEditing = editingRole === role;
     const dirty = role in pending && pending[role] !== rolesMap[role];
     const assigned = isAssigned(role);
-    const displayLabel = inferProviderForBareId(effective(role), models);
+    const { base: refBase, level: refLevel } = splitRefLevel(effective(role) ?? "");
+    const displayLabel = inferProviderForBareId(refBase, models);
     // A role is removable (custom) ONLY when the bridge advertised the built-in
     // set. With an older bridge (`builtinRoleNames` empty) we cannot tell
     // built-ins from custom, so per the "built-ins permanent" locked decision
@@ -385,22 +487,14 @@ export function BuiltInRolesSettings() {
         key={role}
         data-testid={`roles-row-${role}`}
         onClick={() => setEditingRole(isEditing ? null : role)}
-        className={`flex items-center gap-2 px-2 py-1 text-left min-w-0 flex-1 transition-all ${
-          isCustom ? "rounded-l" : "rounded"
-        } ${
-          isEditing
-            ? "bg-[color-mix(in_srgb,var(--accent-blue)_25%,transparent)] outline outline-2 outline-[var(--accent-blue)]"
-            : "bg-[var(--bg-tertiary)] hover:bg-[var(--bg-hover)]"
-        }`}
+        className={pillClass(isCustom, isEditing)}
         title={assigned ? displayLabel : t("setModelForRole", { role }, `Set a model for @${role}`)}
       >
-        <span className={`text-[11px] font-semibold shrink-0 ${isEditing ? "text-[var(--accent-blue)]" : "text-[var(--accent-blue)]/70"}`}>
+        <span className={`text-[11px] font-semibold shrink-0 ${isEditing ? "text-[var(--text-primary)]" : "text-[var(--accent-blue)]/70"}`}>
           @{role}
         </span>
         {assigned ? (
-          <span className="text-[11px] text-[var(--text-muted)] font-mono truncate flex-1">
-            {shortModel(displayLabel)}
-          </span>
+          <RolePillValue model={shortModel(displayLabel)} level={refLevel} selected={isEditing} />
         ) : (
           <span className="text-[11px] text-[var(--accent-blue)] truncate flex-1">
             {t("addModel", undefined, "+ Add model")}
@@ -636,7 +730,7 @@ export function BuiltInRolesSettings() {
           dirty marker before Save.
           See change: add-custom-roles-ui (design D1/D2). */}
       {builtinRoleNames.length === 0 ? (
-        <div className="grid grid-cols-2 gap-1">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
           {[...roleGroups.builtin, ...roleGroups.custom].map(renderRolePill)}
         </div>
       ) : (
@@ -645,7 +739,9 @@ export function BuiltInRolesSettings() {
             <div className="text-[10px] font-semibold uppercase tracking-wider text-[var(--text-muted)]">
               {t("builtinGroup", undefined, "Built-in")}
             </div>
-            <div className="grid grid-cols-2 gap-1">
+            {/* Single column below sm: the `:level` chip leaves too little room
+                for the model name in two columns at phone width. */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
               {roleGroups.builtin.map(renderRolePill)}
             </div>
           </div>
@@ -654,7 +750,7 @@ export function BuiltInRolesSettings() {
               {t("customGroup", undefined, "Custom")}
             </div>
             {roleGroups.custom.length > 0 && (
-              <div className="grid grid-cols-2 gap-1">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-1">
                 {roleGroups.custom.map(renderRolePill)}
               </div>
             )}
@@ -666,19 +762,56 @@ export function BuiltInRolesSettings() {
       {/* Shared `ui:model-selector` primitive when a role is being edited.
           The primitive emits the full `"<provider>/<id>"` label on select;
           `setRole` stages it in pending — no WS dispatch until Save. */}
-      {editingRole && (
+      {editingRole && (() => {
+        // The level rides the ref, so the pair is ONE decision: model left,
+        // level right, in one enclosure, with the ref that will be saved
+        // echoed below it. See openspec/changes/add-default-thinking-level/
+        // mockups/ui-plan.md (§ModelLevelPair).
+        const { base, level } = splitRefLevel(effective(editingRole) ?? "");
+        const displayBase = inferProviderForBareId(base, models);
+        const picked = models.find((m) => `${m.provider}/${m.id}` === displayBase);
+        return (
         <div data-testid="roles-model-picker" className="border border-[var(--border-primary)] rounded p-2">
-          <div className="text-[11px] text-[var(--text-muted)] mb-1">
+          <div className="text-[11px] text-[var(--text-secondary)] mb-1">
             {t("assignModelTo", undefined, "Assign model to")}{" "}
             <span className="font-semibold text-[var(--accent-blue)]">@{editingRole}</span>
           </div>
-          <ModelSelectorPrimitive
-            current={inferProviderForBareId(effective(editingRole), models)}
-            models={models}
-            onSelect={(modelLabel: string) => setRole(editingRole, modelLabel)}
-          />
+          <div className="flex flex-col md:flex-row md:items-end gap-1 md:gap-3.5 border border-[var(--border-primary)] rounded bg-[var(--bg-tertiary)] px-2 py-1.5">
+            <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+              <span className="text-[10px] uppercase tracking-wider text-[var(--text-secondary)]">
+                {t("modelLabel", undefined, "Model")}
+              </span>
+              <ModelSelectorPrimitive
+                current={displayBase}
+                models={models}
+                onSelect={(modelLabel: string) => setRoleModel(editingRole, modelLabel)}
+              />
+            </div>
+            <div className="flex flex-col gap-0.5 shrink-0">
+              <span className="text-[10px] uppercase tracking-wider text-[var(--text-secondary)]">
+                {t("thinkingLabel", undefined, "Thinking")}
+              </span>
+              <ThinkingLevelPrimitive
+                current={level}
+                supportedLevels={picked?.supportedThinkingLevels}
+                onSelect={(lvl: string) => setRoleLevel(editingRole, lvl)}
+              />
+            </div>
+          </div>
+          {dropped?.role === editingRole && (
+            <div
+              data-testid="roles-level-drop-notice"
+              className="mt-2 px-2 py-1 rounded text-[11px] bg-[var(--severity-warning-bg)] border border-[var(--severity-warning-border)] text-[var(--severity-warning-fg)]"
+            >
+              ⚠ {t("levelDropped", { level: dropped.level, model: displayBase }, `${dropped.level} isn't supported by ${displayBase} — level cleared.`)}
+            </div>
+          )}
+          <div data-testid="roles-ref-echo" className="mt-1 text-[10px] font-mono text-[var(--text-secondary)]">
+            {t("savesRef", undefined, "saves")} {joinRefLevel(displayBase, level) || "—"}
+          </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

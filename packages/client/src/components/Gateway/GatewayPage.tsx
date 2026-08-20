@@ -65,7 +65,7 @@ export function GatewayPage() {
     <div className="mx-auto max-w-3xl" data-testid="gateway-page">
       <div className="mb-4">
         <h2 className="text-lg font-semibold text-[var(--text-primary)]">{t("gateway.title", undefined, "Gateway")}</h2>
-        <p className="text-sm text-[var(--text-muted)]">
+        <p className="text-sm text-[var(--text-secondary)]">
           {t("gateway.page.subtitle", undefined, "Expose this dashboard beyond localhost — public proxy or private mesh.")}
         </p>
       </div>
@@ -97,7 +97,7 @@ export function GatewayPage() {
 
       <Divider />
       <div>
-        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
           {t("gateway.trustedNetworksTitle", undefined, "Trusted networks")}
         </p>
         <p className="text-sm text-[var(--text-secondary)]">
@@ -137,7 +137,7 @@ export function GatewayPage() {
             data-testid="gateway-page-save"
             disabled={saving}
             onClick={() => void save()}
-            className="rounded bg-[var(--accent,#3b82f6)] px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
+            className="rounded bg-[var(--accent-solid)] px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
           >
             {saving ? t("gateway.saving", undefined, "Saving…") : t("gateway.save", undefined, "Save")}
           </button>

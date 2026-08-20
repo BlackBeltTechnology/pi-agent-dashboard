@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 import { createServerPluginContext, discoverPlugins, getPluginStatusStore, loadServerEntries, refreshRequirementProbesFor } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
-import type { AuthConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { CONFIG_FILE, getPluginConfig as getPluginConfigFromFile, loadConfig, resolvePublicBaseUrls } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { advertiseDashboard, createBrowser, type DashboardBrowser, type DiscoveredServer, stopAdvertising } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 import { setWindowsGitSourceSetting } from "@blackbelt-technology/pi-dashboard-shared/platform/git-source.js";
@@ -149,7 +149,7 @@ import { removePid, writePid } from "./spawn-process/server-pid.js";
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
 import { createTerminalGateway, type TerminalGateway } from "./terminal/terminal-gateway.js";
 import { createTerminalManager, deriveTranscriptCapBytes, type TerminalManager } from "./terminal/terminal-manager.js";
-import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, ensureReservedName, getTunnelUrl, scavengeOrphanZrokProcesses } from "./tunnel/tunnel.js";
+import { cleanupStaleZrok, createTunnel, deleteTunnel, detectZrokBinary, ensureReservedName, getTunnelUrl, liveTunnelOrigins, scavengeOrphanZrokProcesses } from "./tunnel/tunnel.js";
 import { startTunnelWatchdog, stopTunnelWatchdog } from "./tunnel/tunnel-watchdog.js";
 
 export interface ServerConfig {
@@ -182,6 +182,13 @@ export interface ServerConfig {
     failureThreshold: number;
     probeTimeoutMs: number;
   };
+  /**
+   * The whole normalized `tunnel` block. Carried so the readiness board and the
+   * concurrency resolver can read per-provider `enabled`/`mode` and zerotier's
+   * `networkId` without re-loading config on every poll tick.
+   * See change: add-zrok-custom-reserved-name.
+   */
+  tunnelConfig?: DashboardConfig["tunnel"];
   authConfig?: AuthConfig;
   /** Override WS ping interval for pi-gateway (ms). Default 60000. Set 0 to disable. */
   pingInterval?: number;
@@ -1170,7 +1177,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       const allowed = isCorsOriginAllowed(origin ?? undefined, {
         configuredOrigins: corsAllowedOrigins(),
         trustedNetworks: corsTrustedNetworks(),
+        // The PRIMARY's URL, which is also what mints OAuth redirect URIs.
         getTunnelUrl,
+        // Every OTHER live tunnel. Deliberately a separate input from
+        // `getTunnelUrl`: widening who may READ a response must never widen
+        // which single origin we mint OAuth URIs and set cookies for.
+        // See change: add-zrok-custom-reserved-name (D4).
+        getLiveTunnelOrigins: liveTunnelOrigins,
       });
       cb(null, allowed);
     },

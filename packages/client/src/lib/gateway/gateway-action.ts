@@ -288,3 +288,129 @@ export function buildGatewayFixPatch(
   }
   return patch;
 }
+
+// ── Offering a live tunnel URL as a gateway ──────────────────────────
+
+/** One row of the mode picker: available, or unavailable WITH its reason. */
+export interface GatewayModeOffer {
+  mode: GatewayAuthMode;
+  available: boolean;
+  /** Present whenever `available` is false. Rendered as disabled-with-reason, never hidden. */
+  reason?: string;
+  /** The mode cannot be chosen alone — it needs an accompanying input. */
+  requires?: "cidr";
+}
+
+/**
+ * Which auth modes may be offered for a URL, and why the others may not.
+ *
+ * A live tunnel URL is not a gateway record. The auth mode CANNOT be inferred
+ * from the URL — defaulting to `trusted-network` would publish an address
+ * protected by a CIDR the operator never chose, and defaulting to pairing or
+ * OAuth is illegal on a mesh IP. So the OFFER is automatic and the DECISION is
+ * not.
+ *
+ * Ineligible modes are returned with a reason rather than filtered out: hiding
+ * them leaves the operator unable to distinguish "not allowed" from "not
+ * implemented".
+ *
+ * The sharp constraint is `oauth` on a NON-PRIMARY URL. Selecting `oauth`
+ * writes `auth.redirectBaseUrl` — precisely the single value
+ * `resolveRedirectBase()` returns — so registering a non-primary tunnel with
+ * OAuth would move the sign-in origin off the primary, silently, through a path
+ * that bypasses the confirmation a deliberate primary switch carries. Left
+ * unguarded, this defeats the primary model entirely.
+ *
+ * See change: add-zrok-custom-reserved-name (D9).
+ */
+export function buildGatewayModeOffer(input: { url: string; isPrimary: boolean }): GatewayModeOffer[] {
+  const parsed = parseUrl(input.url);
+  if (!parsed) {
+    return (["trusted-network", "pairing", "oauth"] as GatewayAuthMode[]).map((mode) => ({
+      mode,
+      available: false,
+      reason: "The URL could not be parsed.",
+    }));
+  }
+  const secure = parsed.protocol === "https:";
+
+  const trustedNetwork: GatewayModeOffer = {
+    mode: "trusted-network",
+    available: true,
+    // ALWAYS, not only on an insecure URL: `validateGatewayDraft` rejects
+    // `trusted-network` with no entries under any scheme
+    // (`trusted-network-empty`). Gating `requires` on the scheme let an https
+    // selection save with an empty CIDR list — a gateway record that claims an
+    // auth mode granting access to nobody, which reads as configured.
+    requires: "cidr" as const,
+  };
+
+  const pairing: GatewayModeOffer = secure
+    ? { mode: "pairing", available: true }
+    : {
+        mode: "pairing",
+        available: false,
+        reason: "Pairing needs TLS — the pairing payload is only issued over https.",
+      };
+
+  const oauth: GatewayModeOffer = !secure
+    ? {
+        mode: "oauth",
+        available: false,
+        reason: "OAuth providers refuse a non-TLS redirect URI.",
+      }
+    : input.isPrimary
+      ? { mode: "oauth", available: true }
+      : {
+          mode: "oauth",
+          available: false,
+          reason:
+            "This is not the primary tunnel. Choosing OAuth would move the sign-in origin off the primary — make this provider primary first, which asks for confirmation because it re-mints the redirect URI.",
+        };
+
+  return [trustedNetwork, pairing, oauth];
+}
+
+/**
+ * True when a live URL is worth offering: it is not already registered.
+ *
+ * The offer appears; `gateways` stays untouched until the operator completes
+ * the action. Nothing here writes.
+ */
+export function isUnregisteredGatewayUrl(config: GatewayConfigShape, url: string): boolean {
+  // BOTH sides are normalized. Normalizing only the incoming URL means a stored
+  // record written with a trailing slash never matches, so the offer to
+  // register it reappears forever after it has already been registered.
+  const norm = (u: string) => u.trim().replace(/\/+$/, "");
+  const normalized = norm(url);
+  return !(config.gateways ?? []).some((g) => norm(g.url) === normalized);
+}
+
+/**
+ * Keep only the modes the CURRENT offer still marks available.
+ *
+ * The offer is recomputed on every readiness tick, but a checked checkbox is
+ * not: `disabled` does not clear `checked`, and the component instance survives
+ * the tick (the row is keyed by provider). So a selection made while a mode was
+ * legal can outlive its legality — most sharply `oauth` on a provider demoted
+ * from primary mid-selection, which would write `auth.redirectBaseUrl` to a
+ * non-primary URL through the very path that bypasses the primary-switch
+ * confirmation.
+ *
+ * The rule therefore lives here, in the pure layer, rather than only in JSX.
+ */
+export function retainAvailableModes(
+  offers: GatewayModeOffer[],
+  modes: GatewayAuthMode[],
+): GatewayAuthMode[] {
+  const available = new Set(offers.filter((o) => o.available).map((o) => o.mode));
+  return modes.filter((m) => available.has(m));
+}
+
+/** True when every selected mode is still available — the save's precondition. */
+export function everyModeAvailable(
+  offers: GatewayModeOffer[],
+  modes: GatewayAuthMode[],
+): boolean {
+  return retainAvailableModes(offers, modes).length === modes.length;
+}

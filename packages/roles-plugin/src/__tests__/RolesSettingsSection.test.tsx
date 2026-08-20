@@ -22,10 +22,15 @@ import {
 } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { createSlotRegistry, SettingsDraftProvider, type RegisteredSource } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
-import type { UiModelSelectorProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import type {
+  UiModelSelectorProps,
+  UiThinkingLevelSelectorProps,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import {
   BuiltInRolesSettings,
   inferProviderForBareId,
+  splitRefLevel,
+  joinRefLevel,
   computeEffectiveRoles,
   computeDirtyRoles,
   computeRoleGroups,
@@ -55,6 +60,23 @@ function MockModelSelector({ models, onSelect }: UiModelSelectorProps) {
   );
 }
 
+/**
+ * Mock `ui:thinking-level-selector` impl: renders one button per offered
+ * level (`roles-level-option-<level>`) plus the current level as text, so a
+ * test can assert BOTH the filtered set and the displayed value.
+ */
+function MockThinkingLevelSelector({ current, onSelect, supportedLevels }: UiThinkingLevelSelectorProps) {
+  return (
+    <div data-testid="mock-thinking-level" data-current={current ?? ""}>
+      {(supportedLevels ?? ["off", "minimal", "low", "medium", "high", "xhigh"]).map((l) => (
+        <button key={l} data-testid={`roles-level-option-${l}`} onClick={() => onSelect(l)}>
+          {l}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 interface SendCapture {
   messages: unknown[];
   fn: (m: unknown) => void;
@@ -75,7 +97,10 @@ function wrap(
     remove: (id: string) => { sources?.delete(id); },
   };
   return withUiPrimitiveProvider(
-    { "ui:model-selector": MockModelSelector },
+    {
+      "ui:model-selector": MockModelSelector,
+      "ui:thinking-level-selector": MockThinkingLevelSelector,
+    },
     <PluginContextProvider
       registry={createSlotRegistry()}
       sessions={[{ id: "sess-live", cwd: "/x", status: "idle" } as any]}
@@ -570,8 +595,9 @@ describe("BuiltInRolesSettings", () => {
       // Pick a different model first
       fireEvent.click(getByTestId("roles-model-option-openai/gpt-4o"));
       expect(getByTestId("roles-row-architect-dirty")).toBeTruthy();
-      // Re-open picker and pick the original
-      fireEvent.click(getByTestId("roles-row-architect"));
+      // The picker STAYS open after a model pick so the paired thinking-level
+      // control remains reachable (see change: add-default-thinking-level);
+      // pick the original straight back.
       fireEvent.click(
         getByTestId("roles-model-option-anthropic/claude-3-7-sonnet"),
       );
@@ -748,6 +774,162 @@ describe("BuiltInRolesSettings", () => {
         sessionId: "sess-live",
         presetName: "hybrid",
       });
+    });
+  });
+});
+
+/**
+ * Thinking level paired with the role model — the level rides the existing ref
+ * as a `:<level>` suffix, never a second field.
+ * See change: add-default-thinking-level (tasks 4.x / test-plan R1-R7).
+ */
+describe("BuiltInRolesSettings — thinking level", () => {
+  const levelModels = [
+    { provider: "anthropic", id: "claude-3-7-sonnet", supportedThinkingLevels: ["off", "medium", "high", "xhigh"] },
+    { provider: "openai", id: "gpt-4o", supportedThinkingLevels: ["off", "medium", "high"] },
+  ];
+  const levelConfig = {
+    roles: { architect: "anthropic/claude-3-7-sonnet", planner: "" },
+    presets: [],
+    activePreset: null as string | null,
+    models: levelModels,
+  };
+
+  beforeEach(() => { seedConfig({}); });
+  afterEach(() => { cleanup(); seedConfig({}); });
+
+  // R1
+  describe("splitRefLevel / joinRefLevel", () => {
+    it("round-trips a bare ref and a suffixed ref", () => {
+      expect(splitRefLevel("p/m")).toEqual({ base: "p/m" });
+      expect(splitRefLevel("p/m:high")).toEqual({ base: "p/m", level: "high" });
+      expect(joinRefLevel("p/m", "high")).toBe("p/m:high");
+      expect(joinRefLevel("p/m", undefined)).toBe("p/m");
+      expect(joinRefLevel("p/m", "off")).toBe("p/m");
+    });
+
+    it("only splits a CANONICAL level tail — an id containing ':' survives", () => {
+      expect(splitRefLevel("openrouter/vendor:free")).toEqual({ base: "openrouter/vendor:free" });
+      expect(splitRefLevel("openrouter/vendor:free:high")).toEqual({
+        base: "openrouter/vendor:free",
+        level: "high",
+      });
+    });
+
+    it("leaves an empty ref alone", () => {
+      expect(splitRefLevel("")).toEqual({ base: "" });
+      expect(joinRefLevel("", "high")).toBe("");
+    });
+  });
+
+  // R2
+  it("renders the level control beside the picker, filtered to the model's levels", () => {
+    seedConfig(levelConfig);
+    const { getByTestId, queryByTestId } = render(wrap(<BuiltInRolesSettings />));
+    fireEvent.click(getByTestId("roles-row-architect"));
+    expect(getByTestId("roles-model-picker")).toBeTruthy();
+    expect(getByTestId("mock-thinking-level")).toBeTruthy();
+    expect(getByTestId("roles-level-option-xhigh")).toBeTruthy();
+    // Switch to a model without xhigh → the option disappears.
+    fireEvent.click(getByTestId("roles-model-option-openai/gpt-4o"));
+    expect(queryByTestId("roles-level-option-xhigh")).toBeNull();
+  });
+
+  // R3 + R7
+  it("staging a level suffixes the ref, marks dirty, and dispatches nothing", () => {
+    const send = makeSend();
+    seedConfig(levelConfig);
+    const { getByTestId } = render(wrap(<BuiltInRolesSettings />, send.fn));
+    fireEvent.click(getByTestId("roles-row-architect"));
+    fireEvent.click(getByTestId("roles-level-option-high"));
+    expect(getByTestId("roles-row-architect").textContent).toContain(":high");
+    expect(getByTestId("roles-row-architect-dirty")).toBeTruthy();
+    expect(send.messages).toEqual([]);
+  });
+
+  // R4
+  it("selecting `off` (no override) strips the suffix", () => {
+    seedConfig({ ...levelConfig, roles: { architect: "anthropic/claude-3-7-sonnet:high" } });
+    const { getByTestId } = render(wrap(<BuiltInRolesSettings />));
+    fireEvent.click(getByTestId("roles-row-architect"));
+    fireEvent.click(getByTestId("roles-level-option-off"));
+    expect(getByTestId("roles-row-architect").textContent).not.toContain(":high");
+    expect(getByTestId("roles-row-architect-dirty")).toBeTruthy();
+  });
+
+  // R5
+  it("splits an existing suffixed ref for display without dirtying the pill", () => {
+    seedConfig({ ...levelConfig, roles: { architect: "anthropic/claude-3-7-sonnet:high" } });
+    const { getByTestId, queryByTestId } = render(wrap(<BuiltInRolesSettings />));
+    fireEvent.click(getByTestId("roles-row-architect"));
+    // Model selector receives the STRIPPED base (the mock echoes `current`).
+    expect(getByTestId("roles-model-picker").textContent).toContain("anthropic/claude-3-7-sonnet");
+    expect(getByTestId("mock-thinking-level").getAttribute("data-current")).toBe("high");
+    expect(queryByTestId("roles-row-architect-dirty")).toBeNull();
+  });
+
+  // R6
+  it("drops a level the newly picked model does not support", () => {
+    seedConfig({ ...levelConfig, roles: { architect: "anthropic/claude-3-7-sonnet:xhigh" } });
+    const { getByTestId } = render(wrap(<BuiltInRolesSettings />));
+    fireEvent.click(getByTestId("roles-row-architect"));
+    fireEvent.click(getByTestId("roles-model-option-openai/gpt-4o"));
+    expect(getByTestId("roles-row-architect").textContent).not.toContain(":xhigh");
+    expect(getByTestId("mock-thinking-level").getAttribute("data-current")).toBe("");
+    expect(getByTestId("roles-level-drop-notice")).toBeTruthy();
+  });
+
+  it("keeps a level the newly picked model DOES support", () => {
+    seedConfig({ ...levelConfig, roles: { architect: "anthropic/claude-3-7-sonnet:high" } });
+    const { getByTestId, queryByTestId } = render(wrap(<BuiltInRolesSettings />));
+    fireEvent.click(getByTestId("roles-row-architect"));
+    fireEvent.click(getByTestId("roles-model-option-openai/gpt-4o"));
+    expect(getByTestId("roles-row-architect").textContent).toContain(":high");
+    expect(queryByTestId("roles-level-drop-notice")).toBeNull();
+  });
+
+  // Review finding: the drop notice was a single component-level flag, so it
+  // leaked across role switches and accused role B of role A's dropped level.
+  it("clears the drop notice when a different role is opened", () => {
+    seedConfig({ ...levelConfig, roles: { architect: "anthropic/claude-3-7-sonnet:xhigh", planner: "openai/gpt-4o" } });
+    const { getByTestId, queryByTestId } = render(wrap(<BuiltInRolesSettings />));
+    fireEvent.click(getByTestId("roles-row-architect"));
+    fireEvent.click(getByTestId("roles-model-option-openai/gpt-4o"));
+    expect(getByTestId("roles-level-drop-notice")).toBeTruthy();
+    fireEvent.click(getByTestId("roles-row-planner"));
+    expect(queryByTestId("roles-level-drop-notice")).toBeNull();
+  });
+
+  // Review finding: a level-only pick on a LEGACY bare-id role value skipped
+  // `inferProviderForBareId`, so flushPending dispatched `provider: ""`.
+  it("upgrades a legacy bare-id role when only the level is picked", async () => {
+    const send = makeSend();
+    const sources = new Map<string, RegisteredSource>();
+    seedConfig({ ...levelConfig, roles: { architect: "claude-3-7-sonnet" } });
+    const { getByTestId } = render(wrap(<BuiltInRolesSettings />, send.fn, sources));
+    fireEvent.click(getByTestId("roles-row-architect"));
+    fireEvent.click(getByTestId("roles-level-option-high"));
+    await act(async () => { await sources.get("plugin:roles")!.commit(); });
+    expect(send.messages[0]).toMatchObject({
+      provider: "anthropic",
+      modelId: "anthropic/claude-3-7-sonnet:high",
+    });
+  });
+
+  it("flushes the suffixed ref verbatim on Save", async () => {
+    const send = makeSend();
+    const sources = new Map<string, RegisteredSource>();
+    seedConfig(levelConfig);
+    const { getByTestId } = render(wrap(<BuiltInRolesSettings />, send.fn, sources));
+    fireEvent.click(getByTestId("roles-row-architect"));
+    fireEvent.click(getByTestId("roles-level-option-high"));
+    await act(async () => { await sources.get("plugin:roles")!.commit(); });
+    expect(send.messages).toHaveLength(1);
+    expect(send.messages[0]).toMatchObject({
+      type: "role_set",
+      role: "architect",
+      provider: "anthropic",
+      modelId: "anthropic/claude-3-7-sonnet:high",
     });
   });
 });

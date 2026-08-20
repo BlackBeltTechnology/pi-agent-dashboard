@@ -1,141 +1,97 @@
-# Release Pipeline — `publish.yml` Deep Dive
+# Release Pipeline: `publish.yml`
 
-The 4-job release flow with per-job failure modes and recovery paths.
+`publish.yml` gates public release mutation behind tests and standalone installation smoke.
 
-```
-   prepare ──▶ publish ──▶ electron ──▶ github-release
-```
-
-## Job 1 — `prepare`
-
-**Purpose:** Resolve the version, optionally bump+commit+tag (on dispatch), produce outputs consumed by downstream jobs.
-
-### Steps (dispatch path)
-
-1. **Checkout** with `fetch-depth: 0` (needed for `git tag` uniqueness check).
-2. **Resolve version** — from tag (on push) or input (on dispatch).
-3. **Set up Node.js** — installs from `.nvmrc` or workflow-pinned version.
-4. **Install dependencies** — `npm ci`.
-5. **Bump workspace versions** — `npm version <X.Y.Z> --no-git-tag-version --allow-same-version --workspaces --include-workspace-root`.
-6. **Sync inter-package dep specifiers** — `node scripts/sync-versions.js`.
-7. **Regenerate package-lock.json** — `npm install --package-lock-only --no-audit --no-fund`. The lockfile must be regenerated because the workspace symlink graph just changed; otherwise strict prerelease semver causes consumer `npm ci` to fall back to the registry on every install.
-8. **Verify lockfile matches workspace versions** — `node scripts/verify-lockfile-versions.mjs`. **Fails fast** if any cross-ref is not `^<root.version>`.
-9. **Promote CHANGELOG** — Python inlined script. Inserts a new `## [Unreleased]` template before the now-versioned section.
-10. **Commit, tag, push** — `chore(release): v<X.Y.Z>` + `v<X.Y.Z>` tag, pushed to the dispatched branch.
-
-### Outputs
-
-- `version` — e.g. `0.4.1`
-- `tag` — e.g. `v0.4.1`
-- `is_prerelease` — boolean derived from semver
-
-### Common failures
-
-| Failure | Cause | Fix |
-|---------|-------|-----|
-| `CHANGELOG.md already contains a section for X.Y.Z` | Re-dispatching with a previously-promoted version | Bump to a new version; or `git revert` the prior `chore(release): vX.Y.Z` commit |
-| `verify-lockfile-versions.mjs` exits non-zero | A cross-ref specifier in lockfile is not `^<root.version>` | Check `scripts/sync-versions.js` ran; re-regenerate lockfile; commit |
-| `Could not find '## [Unreleased]' heading` | CHANGELOG manually edited; Unreleased section missing | Restore `## [Unreleased]` heading at top of CHANGELOG |
-| `git push` fails | Branch protection blocks bot pushes | Configure branch protection to allow `github-actions[bot]` OR push via PAT |
-| `npm ci` fails | Lockfile out of sync with package.jsons | Locally: `npm install`, commit `package-lock.json`, re-dispatch |
-
-## Job 2 — `publish`
-
-**Purpose:** Publish all packages to npm via OIDC trusted publishing.
-
-### Steps
-
-1. **Checkout** at the resolved ref (the freshly-pushed tag on dispatch).
-2. **Set up Node.js** with registry URL.
-3. **Upgrade npm to latest** — required for OIDC trusted publishing.
-4. **Set version from resolved tag** — `npm version` on every workspace (idempotent if already set).
-5. **Sync inter-package dep specifiers to bumped version**.
-6. **Publish to npm** — idempotent, ordered: sub-packages first (`packages/shared`, `packages/extension`, `packages/server`, `packages/client`), root last (`@blackbelt-technology/pi-agent-dashboard`).
-
-### Why the order matters
-
-The root package depends on the sub-packages via workspace specifiers. If root publishes before subs, the published root resolves to npm-registry versions of subs that don't exist yet — installs fail for end users for a brief window.
-
-### Common failures
-
-| Failure | Cause | Fix |
-|---------|-------|-----|
-| `403 Forbidden` on `npm publish` | OIDC trusted publisher not configured for that package | Configure in npm web UI: package → Settings → Trusted Publishers → GitHub Actions → repo + workflow path |
-| `409 Conflict` | Version already exists on npm | Idempotency check should skip — if it doesn't, there's a real conflict. Bump version. |
-| Package not found in workspace | Sub-package missing from publish list | Check the publish step's loop matches the actual workspace |
-| OIDC `id-token: write` permission missing | Workflow permissions wrong | Ensure `permissions: { id-token: write, contents: read }` on publish job |
-
-## Job 3 — `electron`
-
-**Purpose:** Build Electron installers across the 6-leg matrix.
-
-### Critical constraint
-
-```yaml
-electron:
-  needs: [prepare, publish]   # ← LOCKED by repo-lint
+```mermaid
+flowchart LR
+  resolve[resolve] --> checks[ci-checks]
+  resolve --> smoke[smoke via _smoke.yml]
+  checks --> tag[tag-and-push]
+  smoke --> tag
+  tag --> publish[publish]
+  publish --> electron[electron via _electron-build.yml]
+  electron --> release[github-release]
 ```
 
-**Do not remove `needs: [prepare, publish]`.** The electron build's bundled server runs `npm install` for `@blackbelt-technology/*` packages, which must already be available on npm. Removing this dependency would cause electron to attempt installs of versions that haven't published yet.
+## Entry paths
 
-Locked by `packages/shared/src/__tests__/publish-workflow-contract.test.ts`.
+- **Tag push:** `resolve` reads the `v*` tag. `tag-and-push` is skipped. `publish.if` accepts the skip only when `ci-checks` and `smoke` pass.
+- **Manual dispatch:** `resolve` validates the version input. After both gates pass, `tag-and-push` updates workspace versions and cross-package ranges, regenerates and verifies the lockfile, promotes the changelog, commits, tags, and pushes.
 
-### Delegation
+## Jobs
 
-This job is a single `uses: ./.github/workflows/_electron-build.yml` call with:
-- `version`: from prepare outputs
-- `ref`: the freshly-pushed tag
-- `legs`: `all`
-- `source_only_bundle`: `false` (releases bundle from npm)
-- `artifact_retention_days`: 90
+### `resolve`
 
-### Common failures
+Computes `version`, `tag`, prerelease state, and the exact ref. It has no release side effects.
 
-| Failure | Cause | Fix |
-|---------|-------|-----|
-| `Cannot find module @blackbelt-technology/...` | Publish job didn't run / failed | Check `publish` job; re-run if it failed. Never bypass the dependency. |
-| node-pty prebuild missing for a triple | bundle-server.mjs GO/NO-GO guard fires | Rebuild prebuilds; add the missing triple to node-pty deps |
-| `forge.config.ts` crash | Recent change broke a maker | `ci-electron.yml` should have caught this earlier — run it on the feature branch before merging |
-| DMG signing fails (macOS) | Code signing certs expired or wrong | Update Apple Developer cert + secrets |
-| Docker build fails (Linux) | `Dockerfile.build` issue | Test locally with `packages/electron/scripts/docker-make.sh` |
+### `ci-checks`
 
-## Job 4 — `github-release`
+Runs install, lint, full tests, and build on Node 22. A failure prevents tagging and publishing.
 
-**Purpose:** Create the GitHub Release with extracted release notes and uploaded artifacts.
+### `smoke`
 
-### Steps
+Calls `_smoke.yml` against the resolved ref. The reusable workflow runs the standalone installation matrix without public release mutation.
 
-1. **Checkout** at the tag.
-2. **Download all artifacts** from electron job.
-3. **Extract release notes from CHANGELOG** — pulls the `## [X.Y.Z]` section.
-4. **Drop builder-debug logs** — avoids asset basename collision (multiple platforms ship `builder-debug.yml` etc.).
-5. **Create GitHub Release** — `gh release create` with all assets uploaded.
+### `tag-and-push`
 
-### Common failures
+Runs only for manual dispatch after both gates pass. It creates the release commit and tag. Tag-push entry skips this job.
 
-| Failure | Cause | Fix |
-|---------|-------|-----|
-| Asset basename collision | `builder-debug.yml` from multiple platforms | Already handled by drop step; if it reappears, expand the drop pattern |
-| Release notes empty | CHANGELOG section missing or malformed | Check `prepare` job's CHANGELOG promotion |
-| `gh release create` 403 | `contents: write` permission missing | Verify job permissions |
-| Release marked prerelease incorrectly | `is_prerelease` output mis-derived | Check semver parser in `prepare` step |
+### `publish`
+
+Needs `resolve`, `ci-checks`, `smoke`, and `tag-and-push`. It accepts `tag-and-push` as `success` for dispatch or `skipped` for tag push. Packages publish in dependency order; already-published versions are skipped.
+
+### `electron`
+
+Needs `[resolve, publish]` and calls `_electron-build.yml`. Do not remove the publish dependency: the bundled server installs the just-published `@blackbelt-technology/*` packages.
+
+#### `_electron-build.yml` inputs
+
+| Input | Meaning |
+|---|---|
+| `version` | SemVer string applied to every workspace |
+| `ref` | Exact Git ref to check out |
+| `legs` | `all`; one platform (`darwin`, `linux`, `win32`); or a comma-list such as `darwin-arm64,linux-x64` |
+| `source_only_bundle` | When `true`, pass `--source-only` to `bundle-server.mjs`, skip host-side `npm install`, and resolve `@blackbelt-technology/*` from workspace source. This supports unpublished dev versions. Current release and on-demand installer callers use `false` to produce runnable bundles. |
+| `artifact_retention_days` | Artifact retention; normally 14 for CI and 90 for release |
+| `artifact_name_suffix` | Optional suffix, commonly a short SHA for CI traceability |
+| `registry_url` | Optional loopback Verdaccio URL for the nightly publish-install-bundle round-trip |
+
+### `github-release`
+
+Needs the completed publish and Electron artifacts, then creates the GitHub Release.
+
+## Common failures
+
+| Literal symptom | Job | Cause | Action |
+|---|---|---|---|
+| `CHANGELOG.md already contains a section for X.Y.Z` | `tag-and-push` | Version was already promoted | Choose a new version or revert the prior release commit |
+| `Could not find '## [Unreleased]' heading` | `tag-and-push` | Changelog structure is incomplete | Restore the `## [Unreleased]` heading |
+| `verify-lockfile-versions.mjs` exits non-zero | `tag-and-push` | Workspace versions and cross-package ranges differ | Run `scripts/sync-versions.js`, regenerate the lockfile, and verify again |
+| `git push` fails | `tag-and-push` | Branch protection or token permissions reject the release commit/tag | Repair the workflow's push authority; do not bypass the gate |
+| npm publish returns `403` | `publish` | OIDC trusted publisher is not configured | Repair the npm trusted-publisher configuration |
+| npm publish returns `409 Conflict` | `publish` | The version already exists | Confirm the idempotency check; otherwise select a new version |
+| `Cannot find module @blackbelt-technology/...` | `electron` | Publish failed or dependency ordering changed | Restore `electron.needs: [resolve, publish]`; never bypass publish |
+| Missing node-pty or other native prebuild triple | `electron` | Required platform artifact is absent | Repair the native dependency/prebuild set before release |
+| DMG signing fails | `electron` | Apple certificate or signing secret is invalid | Renew the certificate or secret, then rerun the affected leg |
+| Linux maker or Docker build fails | `electron` | Linux packaging or `Dockerfile.build` regressed | Reproduce with `packages/electron/scripts/docker-make.sh` |
+| `builder-debug.yml` asset basename collision or release upload `404` | `github-release` | Several matrix legs produced the same debug filename | Preserve or expand the `Drop builder-debug logs (avoid asset basename collision)` step in `publish.yml` |
+| Release notes are empty | `github-release` | The versioned changelog section is missing or malformed | Repair the changelog section created by `tag-and-push` |
+| Release asset already exists | `github-release` | Tag/release state was reused | Inspect the existing release; do not overwrite blindly |
 
 ## After the release
 
-`sync-release-version.yml` fires on the `release: published` event, updates `site/src/data/latest-release.json`, commits to develop. Then `deploy-site.yml` redeploys. If the site doesn't update within ~5 min after release, check those two workflows.
+`sync-release-version.yml` updates `site/src/data/latest-release.json`, then `deploy-site.yml` redeploys. If the site is not updated within about five minutes, inspect those two workflows in that order.
 
 ## Recovery
 
-If the release pipeline fails partway:
-
 ```bash
-# Re-run only failed jobs (preserves successful ones)
+# Re-run only failed jobs and preserve successful jobs.
 gh run rerun <run-id> --failed
 
-# Cancel a stuck run
+# Cancel a stuck run.
 gh run cancel <run-id>
-
-# For a fully-broken release, see the release-revoke skill
 ```
 
-**Do not bypass the pipeline** — manually running `npm publish` outside the workflow loses OIDC trusted publishing, lockfile sync, and CHANGELOG promotion guarantees.
+For a fully broken release, use the `release-revoke` skill. **Do not bypass the pipeline with a manual `npm publish`.** That loses OIDC trusted publishing, lockfile synchronization, changelog promotion, smoke gates, and Electron dependency ordering.
+
+Current job details and invariants live in `.github/workflows/AGENTS.md` and `packages/shared/src/__tests__/publish-workflow-contract.test.ts`.

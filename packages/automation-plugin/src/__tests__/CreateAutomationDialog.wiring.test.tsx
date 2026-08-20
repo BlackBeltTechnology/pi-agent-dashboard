@@ -90,7 +90,12 @@ function StubEditor({
 
 function wrap(node: React.ReactNode, registry: SlotRegistry) {
   return withUiPrimitiveProvider(
-    { "ui:model-selector": MockModelSelector },
+    {
+      "ui:model-selector": MockModelSelector,
+      // Paired level control on the direct-model branch.
+      // See change: add-default-thinking-level.
+      "ui:thinking-level-selector": () => null,
+    },
     <PluginContextProvider registry={registry} sessions={[]} send={() => {}}>
       <CurrentPluginLayer pluginId="automation">{node}</CurrentPluginLayer>
     </PluginContextProvider>,

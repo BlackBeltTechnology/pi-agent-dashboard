@@ -51,7 +51,7 @@ Set `plugins.apple-tools.enabled` to `false` through the Dashboard plugin toggle
 
 ### Correct the OpenSpec worktree-recovery skill at its source
 
-Update `packages/openspec-workflow/.pi/skills/fix-worktree-opsx-skills-not-created/SKILL.md`. The repository hook runs `pnpm install && npx --no-install openspec init --tools pi --force`; manual recovery uses `pnpm exec openspec` so the lockfile-selected CLI cannot fall through to a registry fetch. Pin the scoped fallback to `@fission-ai/openspec@1.6.0`. The installed CLI generated six lifecycle skills, so validation must check required names and the CLI's own success output instead of a hard-coded count of eight.
+Update `packages/openspec-workflow/.pi/skills/fix-worktree-opsx-skills-not-created/SKILL.md`. The repository hook and manual recovery use `pnpm exec openspec` so the lockfile-selected CLI cannot fall through to a registry fetch. Pin the scoped fallback to `@fission-ai/openspec@1.6.0`. The installed CLI generated six lifecycle skills, so validation must check required names and the CLI's own success output instead of a hard-coded count of eight.
 
 Update the existing `packages/openspec-workflow/AGENTS.md` row because it repeats the stale command. Validate the skill frontmatter and re-run the smallest recovery checks against this worktree. The installed npm copy remains unchanged; the feature branch carries the canonical source correction for the next package release.
 
@@ -95,9 +95,25 @@ Track ChatView mounting through the existing scroll-container layout shim so man
 
 The `ci-troubleshoot` skill points to root `scripts/list-recent-runs.ts` and `scripts/show-failed-run.ts`, but the helpers live under `.pi/skills/ci-troubleshoot/scripts/`. Correct those four paths and run them through the repository-pinned `pnpm exec tsx`. Validate `show-failed-run.ts` against failed run `32286916122` and require its run summary plus failed annotation.
 
+### Apply second-round review hardening
+
+Keep CI skill prose consistent with its `pnpm exec tsx` commands and update its workflow overview against `.github/workflows/AGENTS.md`. Make the OpenSpec recovery verification fail closed with strict shell mode and an exact before/after Git status comparison.
+
+Keep this completed change under `openspec/changes/archive/`. The root path prohibition applies only when creating a change; `ship-change` moves completed changes into this archive, so no policy exception is required. The review request to move it back to the active change root is a false positive.
+
+### Treat project-owner feedback as a push gate
+
+Robert's PR 520 review is the acceptance contract. Restore all five requested diagnostic/documentation groups: recovery controls and no-bypass warning; `_electron-build.yml` input semantics; literal failure-to-fix rows; the post-release site symptom; and KB sidecar pointers plus `kb dox lint`. The repository-wide lint currently has 93 unrelated baseline findings; the verified run reported zero findings against the three restored CI skill pointers. Preserve that residual report rather than widening this PR into a repo-wide DOX cleanup. Also apply his post-merge review: pin the one-virtualizer invariant, restore the stack and `pool:"forks"` blame-rotation diagnostics in the AGENTS row, and clarify the root OpenSpec creation-versus-archive rule.
+
+Apply both valid CodeRabbit findings: use “reusable workflows” consistently; and make worktree recovery reject dirty starting state, capture final status in a checked assignment, and use the local scoped OpenSpec CLI in `.pi/settings.json`. Before any push, require multiple independent cautious reviewers and one synthesis reviewer to map every owner and CodeRabbit item to verified evidence. Do not merge or enable auto-merge.
+
+### One-time post-push branch maintenance after upstream overlap
+
+This is a one-time PR 520 refresh after its initial push, not the merge-based ship workflow. `origin/develop` advanced to `71ea6e59` and GitHub marked the PR dirty. Rebase onto that exact commit rather than merging. Resolve only the three overlapping documentation records. Keep the newer upstream virtualizer drain-scope invariant and lint gate, retain Robert's requested failure signature and bounded-cost guidance, and apply CodeRabbit's standard timer wording. The review found that `runConfigHarness.tsx` lacked its required row in the conflict-resolved test-support index; add that one missing purpose row and rerun the focused documentation gate. Repeat the independent review gate before a force-with-lease push. Leave the normal ship workflow and final PR merge to the project owner; never enable auto-merge.
+
 ### Ship and make future Pi sessions independent of the extension worktree link
 
-Open a pull request from the fork branch to upstream `develop`. Run the integrated test and build gates, archive the OpenSpec change, wait for required CI and review, then squash-merge.
+Open or update the pull request from the fork branch to upstream `develop`. Run integrated tests/build and complete review gates. Leave the final merge action to the user or repository owner.
 
 Use Pi package commands to replace the linked `packages/extension` source with `npm:@blackbelt-technology/pi-dashboard-extension@0.7.0`, then pass the bounded fresh Pi startup gate.
 
@@ -142,6 +158,6 @@ A test replacement of the global Dashboard root link with published `@blackbelt-
 21. Force the KB stale-property test's second index and pass its targeted suite.
 22. Drain the TanStack Virtual scroll-reset callback after ChatView tests and pass the client plus full-suite gates.
 23. Correct and validate the CI troubleshooting skill's first-move commands.
-24. Integrate `origin/develop`, pass the full test and build gates, archive the change, open a PR, and merge only after CI and review pass.
+24. For PR 520's one-time post-push refresh only, rebase onto exact current `origin/develop`, pass full test and build gates, and update the open PR. This maintenance does not replace the merge-based ship workflow; leave final merge to the project owner.
 25. Keep the worktree while the Dashboard server link resolves inside it.
 26. If activation fails, restore `KillMode=control-group`, restore the prior package set where safe, and start the Dashboard service.

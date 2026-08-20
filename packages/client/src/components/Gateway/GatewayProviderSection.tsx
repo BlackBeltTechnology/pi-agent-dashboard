@@ -41,7 +41,7 @@ export function GatewayProviderSection({ provider, mode, onChange, disabled }: P
 
   return (
     <div data-testid="gateway-provider-section">
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
         {t("gateway.provider", undefined, "Provider")}
       </p>
       <div className="mb-4 flex flex-wrap gap-1.5" role="group" aria-label={t("gateway.aria.provider", undefined, "Gateway provider")}>
@@ -55,8 +55,8 @@ export function GatewayProviderSection({ provider, mode, onChange, disabled }: P
             onClick={() => selectProvider(p.id)}
             className={`rounded-lg border px-3 py-1.5 text-[12.5px] transition-colors disabled:opacity-50 ${
               p.id === provider
-                ? "border-[var(--accent,#3b82f6)] bg-[var(--accent-soft,#1d3a63)] text-[var(--text-primary)]"
-                : "border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--text-primary)]"
+                : "border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
             }`}
           >
             {p.label}
@@ -64,7 +64,7 @@ export function GatewayProviderSection({ provider, mode, onChange, disabled }: P
         ))}
       </div>
 
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
         {t("gateway.mode", undefined, "Mode")}
       </p>
       <div className="flex flex-wrap gap-1.5" role="group" aria-label={t("gateway.aria.mode", undefined, "Gateway mode")}>
@@ -81,12 +81,12 @@ export function GatewayProviderSection({ provider, mode, onChange, disabled }: P
               onClick={() => onChange({ provider, mode: m })}
               className={`rounded-lg border px-3 py-1.5 text-[12.5px] transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
                 m === mode && ok
-                  ? "border-[var(--accent,#3b82f6)] bg-[var(--accent-soft,#1d3a63)] text-[var(--text-primary)]"
-                  : "border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                  ? "border-[var(--accent)] bg-[var(--accent-soft)] text-[var(--text-primary)]"
+                  : "border-[var(--border)] bg-[var(--bg-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               }`}
             >
               {m === "public" ? t("gateway.mode.public", undefined, "Public") : t("gateway.mode.private", undefined, "Private")}
-              <span className="ml-1.5 text-[10.5px] text-[var(--text-muted)]">{MODE_SUB[m]}</span>
+              <span className="ml-1.5 text-[10.5px] text-[var(--text-secondary)]">{MODE_SUB[m]}</span>
             </button>
           );
         })}

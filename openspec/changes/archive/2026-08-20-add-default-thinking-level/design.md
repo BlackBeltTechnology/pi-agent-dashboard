@@ -28,6 +28,9 @@ treats **empty/undefined `supportedLevels` as "show all six"** (its
 **Goals:**
 
 - Let the operator choose a default thinking level paired with the Default Model.
+- Close the same gap at every OTHER surface that picks a model **to run with** —
+  roles and the create-automation dialog — so "model picked here" always implies
+  "level pickable here".
 - Reuse the existing `ThinkingLevelSelector` component and `supportedThinkingLevels`
   derivation — no new primitive.
 - Apply the chosen level only where the default model is applied (brand-new
@@ -37,6 +40,10 @@ treats **empty/undefined `supportedLevels` as "show all six"** (its
 **Non-Goals:**
 
 - Changing the per-session runtime thinking-level selector (composer) behavior.
+- Model Proxy's preferred-models list and alias table. They are a preference
+  ordering and a name→ref mapping, not run configuration, so a level is
+  meaningless there. Deliberately excluded — see D6.
+- Any server-side plumbing for the automation level (D8 shows none is needed).
 - Overriding pi's own `settings.defaultThinkingLevel`; the dashboard value layers
   on top only when non-empty.
 - Per-model default-level maps or multiple defaults. One dashboard default.
@@ -85,6 +92,58 @@ inside `applyDefaultModel()` (D2), the custom-provider-late retry path
 (bridge.ts:2915) reuses the same code and applies the level once the model
 resolves — no distinct code path, no signal to thread through the return value.
 
+**D6 — The gap closes at run-configuring surfaces only.** Audit of every
+`ModelSelector` call site yields two classes. *Run-configuring* (the picked model
+executes a turn): composer ✓already paired, OpenSpec run-config row ✓already
+paired, Settings Default Model (D1–D5), roles (D7), create-automation (D8).
+*Reference-listing* (the picked model is an entry in a list or a mapping target):
+`ModelProxySection.tsx:132` preferred-models and `:201` alias→model. The latter
+class is excluded: a preference ordering has no single level to apply, and an
+alias target is a ref consumed by a run-configuring surface that supplies its own
+level. Adding a control there would persist a value nothing reads.
+
+**D7 — Roles encode the level as a `:<level>` ref suffix, not a new field.**
+pi already defines the suffix grammar (`--model sonnet:high`, README:560), and
+the bridge already parses it (`splitThinkingSuffix`, `provider-register.ts:914`,
+feeding `probe.thinkingLevel`). The roles map value is exactly such a ref, so the
+level has a home. Alternatives rejected: (a) a parallel `roleThinkingLevels` map
+in plugin config — two sources of truth, and pi's own `/roles` command writes the
+suffix form, so the two would drift on the first CLI edit; (b) a new field in
+`providers.json` — same drift plus a schema change to a file pi owns.
+Consequence: the section needs split/join helpers around the existing
+`inferProviderForBareId` display path, and the model selector's `current` must be
+fed the SUFFIX-STRIPPED base (else no row matches and the pill renders blank).
+
+**D8 — Automation needs UI only; the ref already travels verbatim to `--model`.**
+Traced end to end: `CreateAutomationDialog` writes `config.model` →
+`resolveModel()` (`model-resolver.ts`) passes non-`@` values through with only
+`.trim()` and returns role values unchanged → `engine.ts:581` forwards
+`resolved.model` to `spawnSession` → `sessionFlagsToArgv()`
+(`packages/shared/src/platform/spawn-mechanism.ts:140`) emits
+`["--model", flags.model]` → pi parses the suffix itself. No component in that
+chain inspects the string's shape, and `automation-types.ts:127` types it as a
+bare `string`, so the suffix survives with zero server edits. This is what made
+folding automation into this change affordable. The risk is *silent breakage by a
+future validator*, mitigated by the explicit verbatim-passthrough scenarios added
+to `automation-folder-format`.
+
+**D9 — The `@role` branch of the automation dialog shows no level control.**
+When the model field is an `@role` token, the level belongs to the role's ref and
+is resolved at run time (D7 + D8's role-preservation scenario). Rendering a
+second control there would let the operator set a level that either loses to the
+role ref or silently overrides it — a coin-flip either way. One owner per value:
+the role.
+
+**D10 — Plugins read `supportedThinkingLevels` off the rows they already have.**
+Both plugins take `models` from the roles plugin config, populated from the
+`models_list` WS payload, whose rows already carry `supportedThinkingLevels`
+(emitted at `provider-register.ts:403`, typed at `packages/shared/src/types.ts:609`).
+Only the plugins' local `ModelInfo` interfaces (`RolesSettingsSection.tsx:39`,
+`CreateAutomationDialog.tsx:181`) need the optional field added — no new payload,
+no new fetch. Likewise `UI_PRIMITIVE_KEYS.thinkingLevelSelector` is already
+registered by the shell (`main.tsx`, backed by `shell-primitives.tsx:48`); this
+change is simply its first plugin-side consumer.
+
 ## Risks / Trade-offs
 
 - **Level unsupported by the chosen model.** Mitigated: the Settings control only
@@ -99,3 +158,18 @@ resolves — no distinct code path, no signal to thread through the return value
 - **Locked-`off` vs empty subtlety.** Two states look identical (`off` shown) but
   persist differently (`""` when no model, real level when chosen). Covered by an
   explicit scenario to prevent regression.
+- **Scope growth.** Folding roles + automation in takes the change from 3 to 5
+  modified capabilities. Accepted deliberately: the three surfaces share one
+  question ("where a model is picked, is a level pickable?"), and splitting them
+  would ship a half-answered rule. Mitigated by D8 — the automation half is UI
+  plus spec text, not new plumbing.
+- **Suffix round-trip in roles.** A stored ref must split for display and rejoin
+  on save. A bug here shows as a blank pill or a spuriously dirty row on mere
+  render. Both failure modes get an explicit scenario.
+- **Level orphaned by a model switch.** Picking a model that does not support the
+  currently staged level must drop the suffix rather than persist an unsupported
+  ref. pi would clamp it anyway, but the persisted value would lie about what
+  runs. Scenario-covered in `roles-settings-ui`.
+- **A future automation validator could reject the suffix.** Nothing validates
+  `model` today (D8), so the passthrough is load-bearing but unenforced. The two
+  verbatim-passthrough scenarios in `automation-folder-format` are the guard.

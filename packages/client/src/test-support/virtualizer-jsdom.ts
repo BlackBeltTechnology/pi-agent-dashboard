@@ -31,19 +31,44 @@ import { afterEach, vi } from "vitest";
 // one is active when the leaked work fires, so a per-file fix is whack-a-mole.
 // No client spec renders in `beforeAll`, so no test relies on cross-`it` tree
 // persistence — a global unmount is safe. See change: friendlier-worktree-init.
-// TanStack Virtual 3.13.12's element-offset observer leaves its default
-// 150 ms scroll-reset callback scheduled after unmount. Under full-suite load it can fire after
-// jsdom removes `window`, so wait it out only for tests that mounted ChatView.
-// Do not wrap or cancel global timers: that breaks user-event and fake-timer
-// tests. See changes: fix-tmux-session-shutdown-leak,
+// TanStack Virtual 3.13.12's element-offset observer leaves its default 150 ms
+// scroll-reset callback scheduled after unmount. Under full-suite load it can
+// fire after jsdom removes `window`, and then reaches React's dispatch:
+//
+//   ReferenceError: window is not defined
+//     ❯ resolveUpdatePriority  react-dom-client
+//     ❯ Virtualizer.notify      @tanstack/virtual-core
+//     ❯ Timeout._onTimeout      @tanstack/virtual-core/utils.js
+//
+// Vitest reports that as `Errors 1` and the run exits 1 with EVERY assertion
+// passing. Which spec gets blamed depends on `pool: "forks"` scheduling, so it
+// presents as a suite-level flake rather than a bug in the blamed file.
+//
+// Waiting the callback out lets it fire against an already-unmounted tree while
+// `window` still exists, which is a no-op. Deliberately NOT a global
+// `setTimeout` wrapper cancelling pending ids: that also intercepts
+// `user-event`'s and fake timers' own scheduling and broke the
+// clipboard-fallback spec.
+//
+// INVARIANT: the wait is scoped to the scroll containers listed in
+// `DRAINED_TESTIDS`, so that list must cover every `useVirtualizer` call site.
+// A site rendering some other testid would leave its own callback scheduled and
+// silently reintroduce the flake. Enforced by
+// `packages/shared/src/__tests__/virtualizer-drain-scope.test.ts` — widen this
+// list rather than editing that lint's expectations.
+// See changes: fix-tmux-session-shutdown-leak,
 // restore-dashboard-subagents-dependency.
-let chatScrollerSeen = false;
+const DRAINED_TESTIDS = ["chat-scroll-container"];
+
+// Set by `noteScrollerAccess` below. The virtualizer probing a drained
+// container is the only signal that a drain-worthy tree mounted this test.
+let drainPending = false;
 
 afterEach(async () => {
-  const hadChatScroller = chatScrollerSeen;
+  const needsDrain = drainPending;
   cleanup();
-  chatScrollerSeen = false;
-  if (vi.isFakeTimers() || !hadChatScroller) return;
+  drainPending = false;
+  if (vi.isFakeTimers() || !needsDrain) return;
   await new Promise((resolve) => setTimeout(resolve, 160));
 });
 
@@ -60,21 +85,31 @@ if (typeof window !== "undefined" && !window.ResizeObserver) {
 const TALL_VIEWPORT = 100_000;
 const WIDE_VIEWPORT = 1_000;
 
-function isChatScroller(el: unknown): boolean {
-  const matches = el instanceof Element && el.getAttribute("data-testid") === "chat-scroll-container";
-  if (matches) chatScrollerSeen = true;
+function isDrainedScroller(el: unknown): boolean {
+  if (!(el instanceof Element)) return false;
+  const testid = el.getAttribute("data-testid");
+  return testid !== null && DRAINED_TESTIDS.includes(testid);
+}
+
+// Named for its effect, not as an `is*` predicate: it BOTH answers the layout
+// question and arms the `afterEach` drain. Getter access is the only hook we
+// get — the virtualizer reads `offsetHeight`/`offsetWidth` when it measures,
+// including on a later manual unmount.
+function noteScrollerAccess(el: unknown): boolean {
+  const matches = isDrainedScroller(el);
+  if (matches) drainPending = true;
   return matches;
 }
 
 Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
   configurable: true,
   get(this: HTMLElement) {
-    return isChatScroller(this) ? TALL_VIEWPORT : 0;
+    return noteScrollerAccess(this) ? TALL_VIEWPORT : 0;
   },
 });
 Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
   configurable: true,
   get(this: HTMLElement) {
-    return isChatScroller(this) ? WIDE_VIEWPORT : 0;
+    return noteScrollerAccess(this) ? WIDE_VIEWPORT : 0;
   },
 });

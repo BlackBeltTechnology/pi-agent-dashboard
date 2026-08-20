@@ -238,3 +238,107 @@ describe("live config reads (D15)", () => {
     expect(configSnapshotParseCount()).toBe(2);
   });
 });
+
+/**
+ * Every LIVE tunnel origin is CORS-allowed, and only while connected — folded
+ * from test-plan.md (add-zrok-custom-reserved-name): E25, E26.
+ *
+ * The carve-out is the interesting half. `cors-origin.ts` already allows ANY
+ * `*.share(s).zrok.io` host with no tunnel required, and the shipped spec
+ * mandates that allowance be identical to before. So "a disconnected provider's
+ * origin stops being allowed" is UNSATISFIABLE for zrok, and narrowing a
+ * shipped allowance is out of scope. The requirement is therefore scoped to
+ * providers with no standing wildcard, and the zrok carve-out is asserted
+ * explicitly rather than left as an unexamined inconsistency.
+ */
+describe("live tunnel origins (E25/E26)", () => {
+  const TAILSCALE = "https://mac.tail1234.ts.net";
+
+  it("E25: a connected provider's origin is allowed", () => {
+    expect(
+      isCorsOriginAllowed(TAILSCALE, {
+        configuredOrigins: [],
+        trustedNetworks: [],
+        getLiveTunnelOrigins: () => [TAILSCALE],
+      }),
+    ).toBe(true);
+  });
+
+  it("E25: the SAME origin is rejected once that provider disconnects", () => {
+    expect(
+      isCorsOriginAllowed(TAILSCALE, {
+        configuredOrigins: [],
+        trustedNetworks: [],
+        getLiveTunnelOrigins: () => [], // tunnel went away
+      }),
+    ).toBe(false);
+  });
+
+  it("compares ORIGINS, so a provider URL carrying a path still matches", () => {
+    expect(
+      isCorsOriginAllowed(TAILSCALE, {
+        configuredOrigins: [],
+        trustedNetworks: [],
+        getLiveTunnelOrigins: () => [`${TAILSCALE}/dashboard`],
+      }),
+    ).toBe(true);
+  });
+
+  it("allows several live origins at once (the point of concurrency)", () => {
+    const opts = {
+      configuredOrigins: [],
+      trustedNetworks: [],
+      getLiveTunnelOrigins: () => [TAILSCALE, "http://10.147.20.4:8000"],
+    };
+    expect(isCorsOriginAllowed(TAILSCALE, opts)).toBe(true);
+    expect(isCorsOriginAllowed("http://10.147.20.4:8000", opts)).toBe(true);
+    expect(isCorsOriginAllowed("https://evil.example.com", opts)).toBe(false);
+  });
+
+  it("a malformed entry is skipped rather than throwing or allowing everything", () => {
+    expect(
+      isCorsOriginAllowed(TAILSCALE, {
+        configuredOrigins: [],
+        trustedNetworks: [],
+        getLiveTunnelOrigins: () => ["::: not a url", TAILSCALE],
+      }),
+    ).toBe(true);
+    expect(
+      isCorsOriginAllowed("https://evil.example.com", {
+        configuredOrigins: [],
+        trustedNetworks: [],
+        getLiveTunnelOrigins: () => ["::: not a url"],
+      }),
+    ).toBe(false);
+  });
+
+  it("E26: the pre-existing zrok wildcard is UNCHANGED — a disconnected zrok origin stays allowed", () => {
+    // Deliberately asserting the carve-out: this is not an oversight, it is a
+    // shipped allowance this change declined to narrow.
+    expect(
+      isCorsOriginAllowed("https://abc.shares.zrok.io", {
+        configuredOrigins: [],
+        trustedNetworks: [],
+        getTunnelUrl: () => null,
+        getLiveTunnelOrigins: () => [],
+      }),
+    ).toBe(true);
+    expect(
+      isCorsOriginAllowed("https://abc.share.zrok.io", {
+        configuredOrigins: [],
+        trustedNetworks: [],
+        getLiveTunnelOrigins: () => [],
+      }),
+    ).toBe(true);
+  });
+
+  it("adds allowances without removing any — every prior branch still decides the same way", () => {
+    const withLive = { configuredOrigins: ["https://ok.example"], trustedNetworks: [], getLiveTunnelOrigins: () => [] };
+    expect(isCorsOriginAllowed(undefined, withLive)).toBe(true);
+    expect(isCorsOriginAllowed("null", withLive)).toBe(false);
+    expect(isCorsOriginAllowed("http://localhost:5173", withLive)).toBe(true);
+    expect(isCorsOriginAllowed("https://pi-dashboard.dev", withLive)).toBe(true);
+    expect(isCorsOriginAllowed("https://ok.example", withLive)).toBe(true);
+    expect(isCorsOriginAllowed("https://nope.example", withLive)).toBe(false);
+  });
+});

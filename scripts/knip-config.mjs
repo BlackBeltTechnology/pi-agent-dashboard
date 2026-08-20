@@ -163,7 +163,27 @@ function covers(configured, entry) {
   return false;
 }
 
-const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "build", ".vite", "out", "coverage"]);
+// Beyond build output, three trees hold manifests this repo does not author and
+// knip.json must never root. All are gitignored, so they exist only on a
+// developer's disk and every one of them is invisible in CI:
+//   .worktrees        git worktrees of THIS repo, created by the `ship-it` flow.
+//                     Each is a full checkout, so descending re-reports every
+//                     workspace under a `.worktrees/<name>/` prefix.
+//   bundled-extensions  extensions materialized from npm into packages/electron
+//                     at build time (.gitignore:26).
+//   .pi               locally installed extensions and skills (`.pi/npm/`).
+const SKIP_DIRS = new Set([
+  "node_modules",
+  ".git",
+  ".worktrees",
+  "bundled-extensions",
+  ".pi",
+  "dist",
+  "build",
+  ".vite",
+  "out",
+  "coverage",
+]);
 
 /**
  * Every manifest in the tree, walked from the filesystem.

@@ -1243,6 +1243,42 @@ Plugin content-view claims (e.g. flows-plugin) remain predicate-driven, out of s
 6. Thinking level changes (via pi keybinding) are detected when `model_select` events fire, on reconnect, and immediately after `set_thinking_level` commands
 7. Browser can send `set_thinking_level` to change thinking level remotely
 
+### Model selector pairing rule
+
+Two classes of model selector exist:
+
+- RUN-CONFIGURING: picks the model a session/run EXECUTES with. MUST pair a thinking-level control.
+- REFERENCE-LISTING: names a model for an allow-list, ordering, or alias mapping. MUST NOT pair one.
+
+```mermaid
+flowchart TD
+    A[Model selector] --> B{RUN-CONFIGURING?}
+    B -->|yes| C[MUST pair thinking-level control]
+    B -->|no| D[REFERENCE-LISTING: MUST NOT pair]
+```
+
+Run-configuring surfaces, all five now paired:
+
+- Chat composer model row — `packages/client/src/components/chat/CommandInput.tsx`
+- Settings → Sessions → Default Model — `packages/client/src/components/settings/SettingsPanel.tsx`, persists `config.defaultThinkingLevel`
+- OpenSpec run-config row — `packages/client/src/components/openspec/useOpenSpecRunConfigRow.tsx`
+- Roles → assign model to `@role` — `packages/roles-plugin/src/RolesSettingsSection.tsx`
+- Automation → Create, direct-model branch — `packages/automation-plugin/src/client/CreateAutomationDialog.tsx`
+
+Reference-listing surfaces, deliberately excluded: Model Proxy preferred-models list and Model Proxy alias→model table, both in `packages/client/src/components/settings/ModelProxySection.tsx`.
+
+Encoding. Roles + automation carry level as `:<level>` suffix on the EXISTING model ref string: `"<provider>/<id>:<level>"`. No second field. No parallel level map. pi parses it with `splitThinkingSuffix` (`packages/extension/src/provider-register.ts`). Reason: second field drifts from refs written by pi's own `/roles` command.
+
+Canonical levels: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. `off` = no override → writes bare ref. Split takes the LAST `:` only when the tail is a canonical level, so provider ids containing `:` (e.g. `openrouter/vendor:free`) survive.
+
+No server change. `resolveModel()` (automation-plugin `server/model-resolver.ts`) passes suffixed ref through. `sessionFlagsToArgv()` (`packages/shared/src/platform/spawn-mechanism.ts`) emits `["--model", ref]` verbatim. Nothing in that chain inspects or strips the suffix. Both guarded by tests.
+
+`@role` automation branch renders NO level control — role's own ref owns the level. One owner per value.
+
+UI shape named `ModelLevelPair`: model left, level right, one bordered container, persistent `MODEL`/`THINKING` captions, saved ref echoed in mono below. Full contract: `openspec/changes/add-default-thinking-level/mockups/ui-plan.md`.
+
+See change: add-default-thinking-level.
+
 ### Context Usage Tracking
 1. On each `turn_end`, the bridge calls pi's `ctx.getContextUsage()` API to get real-time context usage (tokens used + actual context window from the provider)
 2. Bridge enriches the `turn_end` event with this `contextUsage` data before forwarding to the server

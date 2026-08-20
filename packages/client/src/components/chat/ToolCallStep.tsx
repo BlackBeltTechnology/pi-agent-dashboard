@@ -7,10 +7,10 @@ import { useMobile } from "../../hooks/useMobile.js";
 import { useToolFullResult } from "../../hooks/useToolFullResult.js";
 import type { ChatImage } from "../../lib/chat/event-reducer.js";
 import { TRUNCATION_MARKER_PREFIX } from "../../lib/chat/event-reducer.js";
-import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { getSummary } from "../../lib/chat/tool-summary.js";
-import { ElapsedBadge } from "../session/ElapsedBadge.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { ErrorBoundary } from "../primitives/ErrorBoundary.js";
+import { ElapsedBadge } from "../session/ElapsedBadge.js";
 import { getToolRenderer, type ToolContext } from "../tool-renderers/index.js";
 
 /**
@@ -231,7 +231,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
               ) : showFull ? (
                 <button
                   onClick={() => setShowFull(false)}
-                  className="text-[var(--accent)] hover:underline"
+                  className="text-[var(--accent-text)] hover:underline"
                   data-testid="tool-collapse-output"
                 >
                   {i18nT("common.collapseOutput", undefined, "Collapse output")}
@@ -240,7 +240,7 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
                 <button
                   onClick={async () => { await fullResult.fetchFull(); setShowFull(true); }}
                   disabled={fullResult.loading}
-                  className="text-[var(--accent)] hover:underline disabled:opacity-50"
+                  className="text-[var(--accent-text)] hover:underline disabled:opacity-50"
                   data-testid="tool-show-full-output"
                 >
                   {fullResult.loading ? i18nT("common.loading2", undefined, "Loading…") : i18nT("common.showFullOutput", undefined, "Show full output")}
