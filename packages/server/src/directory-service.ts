@@ -176,6 +176,12 @@ export interface DirectoryService {
    * Refresh the HEAD of every folder group key that ENTERED the observed set
    * since the last recompute, without waiting for the next periodic cycle.
    * Debounced (~500ms) so a registration burst collapses into one fan-out.
+   *
+   * Declared REQUIRED, but call sites still guard (`?.()` in `event-wiring`,
+   * `typeof … === "function"` in `browser-gateway`): hand-built
+   * `DirectoryService` fakes cast a fixed field set through
+   * `as unknown as DirectoryService`, so the type is only a compile-time claim
+   * about a runtime object that lacks the method.
    * See change: fix-folder-header-worktree-branch-leak.
    */
   refreshFolderHeadsForEnteringKeys(): void;
@@ -1212,7 +1218,10 @@ export function createDirectoryService(
         if (changeWatcher.attach(cwd)) attachedWatcherCwds.add(cwd);
       }
       // A pinned/added directory enters the folder-HEAD key set with no session
-      // at all — refresh it rather than waiting a full poll interval.
+      // at all — refresh it rather than waiting a full poll interval. For a
+      // brand-new session cwd this is the SECOND trigger (the `session_register`
+      // handler already fired one); the debounce collapses the pair, so the
+      // duplicate costs nothing and neither call site depends on the other.
       // See change: fix-folder-header-worktree-branch-leak.
       refreshFolderHeadsForEnteringKeys();
       return { sessions, openspecData };
