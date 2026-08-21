@@ -2122,11 +2122,24 @@ function DisplayPrefsSection() {
   const baselineKey = JSON.stringify(global ?? DISPLAY_PRESETS.standard);
   const [draft, setDraft] = useState<DisplayPrefs>(() => JSON.parse(baselineKey));
   const isDirty = JSON.stringify(draft) !== baselineKey;
-  const dirtyRef = useRef(isDirty); dirtyRef.current = isDirty;
   const baselineRef = useRef(baselineKey); baselineRef.current = baselineKey;
   const draftRef = useRef(draft); draftRef.current = draft;
   // Adopt a new baseline (e.g. cross-tab broadcast) only while clean.
-  useEffect(() => { if (!dirtyRef.current) setDraft(JSON.parse(baselineKey)); }, [baselineKey]);
+  //
+  // The MOUNT pass must be a no-op: `useState` already seeded the draft from
+  // this very baseline, and re-applying it here reverts a toggle flipped
+  // between the commit that painted it and the scheduler's passive-effect
+  // flush -- a real first-click-does-nothing bug, and the CI flake
+  // "Token stats bar did not flip". Dirtiness is therefore decided against the
+  // PREVIOUS baseline inside the updater, where the current draft is readable,
+  // instead of a ref written during render (still `false` for that edit).
+  const adoptedBaselineRef = useRef(baselineKey);
+  useEffect(() => {
+    const previous = adoptedBaselineRef.current;
+    if (previous === baselineKey) return;
+    adoptedBaselineRef.current = baselineKey;
+    setDraft((prev) => (JSON.stringify(prev) === previous ? JSON.parse(baselineKey) : prev));
+  }, [baselineKey]);
 
   type ToolCallPatch = Partial<DisplayPrefs["toolCalls"]>;
   type DisplayPrefsPatch = Partial<Omit<DisplayPrefs, "toolCalls">> & { toolCalls?: ToolCallPatch };
