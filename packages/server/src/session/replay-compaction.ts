@@ -56,8 +56,26 @@ function isThinkingUpdate(event: StoredEvent["event"]): boolean {
 /**
  * Compact a replay window. Pure: returns a NEW array, never mutates the input
  * or any event object (survivors are passed through by reference).
+ *
+ * `supersessionBoundaryIdx` (optional) is the index BEFORE which non-exempt
+ * `message_update` events are considered superseded. Omitted, it defaults to
+ * this array's own last `message_end` — exactly today's behaviour, so every
+ * existing caller is unchanged.
+ *
+ * A caller MUST supply it when compacting a SLICE of a larger stream: the
+ * derived boundary is array-relative, so a gap slice would keep updates whose
+ * `message_end` lives outside the slice (in the already-delivered tail),
+ * re-serving stale cumulative snapshots over a closed message. For a gap slice
+ * a later `message_end` always exists in the tail, so the whole slice is
+ * superseded — pass `slice.length`. Skipping compaction instead is strictly
+ * worse: the store retains every snapshot, so an un-compacted slice serves ALL
+ * of them.
+ * See change: lazy-load-session-history (D7).
  */
-export function compactEventsForReplay(stored: StoredEvent[]): StoredEvent[] {
+export function compactEventsForReplay(
+  stored: StoredEvent[],
+  supersessionBoundaryIdx?: number,
+): StoredEvent[] {
   if (stored.length === 0) return [];
 
   // Pass 1 — locate the supersession boundary (last message_end) and the index
@@ -83,14 +101,18 @@ export function compactEventsForReplay(stored: StoredEvent[]): StoredEvent[] {
     }
   }
 
-  if (lastMessageEndIdx < 0) return stored.slice(); // nothing finalized yet
+  // An external boundary REPLACES the derived one, including the
+  // nothing-finalized-yet short-circuit: a slice with no `message_end` of its
+  // own is exactly the case the caller is correcting for.
+  const boundary = supersessionBoundaryIdx ?? lastMessageEndIdx;
+  if (boundary < 0) return stored.slice(); // nothing finalized yet
 
   // Pass 2 — emit.
   const out: StoredEvent[] = [];
   for (let i = 0; i < stored.length; i++) {
     const entry = stored[i];
     if (
-      i < lastMessageEndIdx &&
+      i < boundary &&
       entry.event.eventType === "message_update" &&
       !isThinkingUpdate(entry.event) &&
       !keepIndices.has(i)

@@ -2124,6 +2124,46 @@ Measured (synthetic #399-shaped window, 140 messages × ~150 snapshot updates):
 
 See change: `compact-warm-replay-stream`.
 
+**Replay windowing + gap backfill** (change: `lazy-load-session-history`): full-stream replay can exceed the browser budget. `memoryLimits.maxReplayEvents` (default `0` = unlimited) caps it. Above `0`, `sendEventBatches` ships head + tail windows, then browser backfills the middle on demand.
+
+#### Windowing (`packages/server/src/browser-handlers/subscription-handler.ts`)
+- `sendEventBatches(ws, sessionId, stored, sendTo, windowLimit?)`.
+- Window applied AFTER `compactEventsForReplay`, never before. Compaction ~20:1.
+- Returned high-water seq stays the PRE-compaction max of the full input array. Windowing never lowers it. `clearReplaying` catch-up depends on this.
+- Keyed on CONTENT not call site: `lastSeq === 0 || lastSeq > maxSeq` = full stream → window. Genuine delta (`lastSeq > 0`) never windowed, never emits `history_window`.
+- `computeReplayWindow(compacted, windowLimit)` returns `{headEnd, tailStart}` or `null`.
+- Short-circuit: `compacted.length <= windowLimit` → no window, `gapCount` 0.
+- `HEAD_RATIO` 0.1, `HEAD_MIN` 20, `HEAD_CAP` 200. `head = clamp(floor(limit*0.1), 20, 200)`, `tail = limit - head`.
+- Tail leading edge snaps FORWARD to next `message_start`/`turn_start`. Head trailing edge snaps BACKWARD to a `message_end`. Both bounded by `SNAP_LOOKUP` 200. Both SHRINK the window, so budget stays a hard cap.
+- Windowed `lastSeq === 0` path sends `session_state_reset` before replay.
+
+#### Window protocol (`packages/shared/src/browser-protocol.ts`)
+- Server→browser `history_window { sessionId, headMaxSeq, tailMinSeq, gapCount, oldestGapSeq }`. Sent once per subscriber, before first `event_replay`, full-stream paths only.
+- `gapCount` = gap events the store HOLDS. Never the seq distance. Middle-trimmed store reports fewer.
+- Browser→server `history_backfill { sessionId, fromSeq, toSeq }` (both inclusive).
+- Server→browser `history_backfill_result { sessionId, events, servedFrom, servedTo, remainingGapCount, error? }`. `error` ∈ `not_subscribed | in_flight | out_of_range | stale_generation`.
+- Exactly ONE result per request on every path, refusals included.
+
+#### Backfill server (`handleHistoryBackfill`)
+- Serves in-memory store only. Never reads the session file.
+- `EventStore.getEventsRange(sessionId, minSeq, maxSeq)` — binary search both bounds + one slice, O(log n + k). `getRangeProbe()` is test-only instrumentation.
+- Span clamped to `BACKFILL_MAX_SPAN` 500 events. Range clamped into the disclosed gap.
+- Single-flight per (socket, session) → second concurrent request refused `in_flight`.
+- Subscription generation bumped on every subscribe; completion at a stale generation replies `stale_generation`, never dropped.
+- Response compacted with `compactEventsForReplay(slice, slice.length)` — explicit supersession boundary, because the boundary is array-relative and a gap slice's `message_end` lives outside it.
+- Served range advances the recorded `headMaxSeq`, so `remainingGapCount` shrinks and the client loop terminates.
+
+#### Client gap UI
+- `packages/client/src/lib/chat/history-gap.ts` — `HistoryGapState`, `HISTORY_GAP_ROW_ID`, `nextBackfillRange`, `captureScrollAnchor`/`restoreScrollAnchor`.
+- Synthetic `ChatMessage` role `historyGap`, spliced at the head→tail boundary during the `event_replay` fold. Never produced by `reduceEvent`.
+- `packages/client/src/components/chat/HistoryGapDivider.tsx` — click-to-load interstitial. States: idle / loading / refused / unavailable / removed-when-filled.
+- Backfill splice touches `messages[]` only: no `maxSeqMapRef` move, no `publishSessionEvents`, no `replayPersister` write.
+- A windowed replay is NOT written to the client replay cache. Prevents caching a sparse array as contiguous, which would make the next reload a cache hit that delta-subscribes and hides the gap permanently.
+- Backfill armed only after the initial replay terminates (`isLast: true`).
+- Gap state cleared on `session_state_reset` and on re-subscribe.
+
+See change: `lazy-load-session-history`.
+
 ### Bridge Reconnection (State Reset)
 When a bridge extension reconnects (e.g., after `pnpm run reload` or network recovery):
 1. Bridge sends `session_register` with `eventCount` to re-register the session
@@ -2421,6 +2461,25 @@ Precedence: CLI flags → environment variables → config file (`~/.pi/dashboar
 | `tunnel.reservedToken` | _(auto)_ | Legacy bare zrok token. Read-time shim resolves to `{provider:"zrok", mode:"public", zrok:{reservedToken}}` in loadConfig. No disk rewrite until next save. Explicit `provider` wins on conflict |
 | `auth.redirectBaseUrl` | — | Optional OAuth redirect base for reverse-proxy deployments (`https://host[/prefix]`). Overrides tunnel/localhost base in `buildRedirectUri`. No default; absent = previous behaviour |
 | `publicBaseUrls` | — | Top-level reachable base URLs. Pairing QR + `GET /api/tunnel/endpoints` surfaces. `resolvePublicBaseUrls` reads top-level first, legacy `pairing.publicBaseUrls` fallback, else `[]`. No default; absent = legacy. Not an OAuth tier (D7) |
+| `memoryLimits.maxReplayEvents` | 0 | Max events in full-stream replay window. `0` = unlimited (default). Requires server restart. UI: Settings → Server → Memory Limits |
+
+### Memory Limits
+
+`memoryLimits.maxReplayEvents` bounds full-stream replay. Default `0` = unlimited.
+
+Parsing (`parseMemoryLimits`, `packages/shared/src/config.ts`):
+- Absent / non-numeric / negative / NaN / Infinity → `0`.
+- Positive below `MIN_REPLAY_WINDOW` (100) clamps up to 100.
+- `0` never clamped.
+- Fractional floored.
+
+Requires server restart. Surfaced in Settings → Server → Memory Limits.
+
+Threading:
+- `cli.ts` → `server.ts` (`ServerConfig.maxReplayEvents`)
+- → `createBrowserGateway(..., maxReplayEvents)` → `BrowserHandlerContext.maxReplayEvents`.
+
+See change: `lazy-load-session-history`.
 
 ### Tunnel Lifecycle
 

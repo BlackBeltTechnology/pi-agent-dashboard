@@ -93,7 +93,21 @@ export interface MemoryLimitsConfig {
   maxStringFieldSize: number;
   /** Max bytes in browser WebSocket send buffer before dropping messages (0 = no limit). Default: 4194304 (4MB) */
   maxWsBufferBytes: number;
+  /**
+   * Max events replayed to a browser on a FULL-stream subscribe (0 = unlimited).
+   * Positive values below `MIN_REPLAY_WINDOW` clamp up. Default: 0.
+   * See change: lazy-load-session-history (D3, D13).
+   */
+  maxReplayEvents: number;
 }
+
+/**
+ * Smallest representable replay window. A positive `maxReplayEvents` below this
+ * clamps UP to it, so `HEAD_MIN` (20) always fits inside the budget and a
+ * head-free window is unreachable by configuration. `0` is never clamped — it
+ * means "unlimited", not "tiny". See change: lazy-load-session-history (D3).
+ */
+export const MIN_REPLAY_WINDOW = 100;
 
 export const DEFAULT_MEMORY_LIMITS: MemoryLimitsConfig = {
   // 20000 (was 5000): subagent-heavy turns forward thousands of inner events
@@ -102,6 +116,9 @@ export const DEFAULT_MEMORY_LIMITS: MemoryLimitsConfig = {
   maxEventsPerSession: 20000,
   maxStringFieldSize: 0,
   maxWsBufferBytes: 4 * 1024 * 1024,
+  // 0 = unlimited. A non-zero default would silently truncate history for every
+  // existing user on upgrade. See change: lazy-load-session-history (D13).
+  maxReplayEvents: 0,
 };
 
 export interface OpenSpecPollConfig {
@@ -818,12 +835,21 @@ function parseKeeperLogConfig(raw: any): KeeperLogConfig {
   };
 }
 
+function parseMaxReplayEvents(raw: unknown): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) return 0;
+  return Math.max(MIN_REPLAY_WINDOW, Math.floor(raw));
+}
+
 function parseMemoryLimits(raw: any): MemoryLimitsConfig {
   if (!raw || typeof raw !== "object") return { ...DEFAULT_MEMORY_LIMITS };
   return {
     maxEventsPerSession: typeof raw.maxEventsPerSession === "number" ? raw.maxEventsPerSession : DEFAULT_MEMORY_LIMITS.maxEventsPerSession,
     maxStringFieldSize: typeof raw.maxStringFieldSize === "number" ? raw.maxStringFieldSize : DEFAULT_MEMORY_LIMITS.maxStringFieldSize,
     maxWsBufferBytes: typeof raw.maxWsBufferBytes === "number" ? raw.maxWsBufferBytes : DEFAULT_MEMORY_LIMITS.maxWsBufferBytes,
+    // Absent / non-numeric / negative → 0 (unlimited). A positive value below
+    // MIN_REPLAY_WINDOW clamps up; 0 itself is preserved, never clamped.
+    // See change: lazy-load-session-history (D3).
+    maxReplayEvents: parseMaxReplayEvents(raw.maxReplayEvents),
   };
 }
 

@@ -1496,3 +1496,61 @@ describe("collapse of superseded tool_execution_update events", () => {
     expect(store.getMaxSeq("s")).toBe(lateSeq);
   });
 });
+
+/**
+ * `getEventsRange` — test-plan E32, E33, X5.
+ * See change: lazy-load-session-history (D8).
+ */
+describe("memory-event-store — getEventsRange", () => {
+  const neverPinned = () => false;
+  const seeded = (n: number) => {
+    const store = createMemoryEventStore(neverPinned, 10, n);
+    for (let i = 0; i < n; i++) store.insertEvent("s1", makeEvent(`e${i}`));
+    return store;
+  };
+
+  it("E32: returns exactly the inclusive range, ascending, with nothing outside it", () => {
+    const store = seeded(20000);
+    const out = store.getEventsRange("s1", 5000, 5100);
+    expect(out).toHaveLength(101);
+    expect(out[0].seq).toBe(5000);
+    expect(out.at(-1)!.seq).toBe(5100);
+    expect(out.map((e) => e.seq)).toEqual([...out.map((e) => e.seq)].sort((a, b) => a - b));
+    expect(out.some((e) => e.seq < 5000 || e.seq > 5100)).toBe(false);
+  });
+
+  it("E33: a narrow range over 20000 entries probes ~log2(n), not the whole buffer", () => {
+    // The existing `getEvents` is a LINEAR scan. A `getEventsRange` written the
+    // same way would be O(n) per backfill regardless of span — the exact
+    // per-scroll cost the API exists to remove, making it pure ceremony.
+    const store = seeded(20000);
+    store.getEventsRange("s1", 5000, 5100);
+    const probes = store.getRangeProbe().lastEntriesExamined;
+    // Two bound searches over 20000 ⇒ ~2 × 15 probes. Ceiling deliberately far
+    // below 20000 so a linear regression cannot slip through.
+    expect(probes).toBeLessThanOrEqual(64);
+    expect(probes).toBeGreaterThan(0);
+  });
+
+  it("X5: a range inside an already-trimmed hole returns zero events, not a throw", () => {
+    // The store trims from the MIDDLE (chat head is preserved), so a long
+    // session's buffer is genuinely non-contiguous. The client's stop rule is
+    // keyed on `events.length === 0`, so this must terminate rather than error.
+    const store = createMemoryEventStore(neverPinned, 10, 3000);
+    for (let i = 0; i < 20000; i++) store.insertEvent("s1", makeEvent(`e${i}`));
+    const held = new Set(store.getEvents("s1", 1).map((e) => e.seq));
+    // Find a seq the trim actually dropped.
+    let hole = -1;
+    for (let s = 1; s <= 20000; s++) {
+      if (!held.has(s)) { hole = s; break; }
+    }
+    expect(hole).toBeGreaterThan(0);
+    expect(store.getEventsRange("s1", hole, hole)).toEqual([]);
+  });
+
+  it("returns empty for an inverted range and for an unknown session", () => {
+    const store = seeded(100);
+    expect(store.getEventsRange("s1", 50, 40)).toEqual([]);
+    expect(store.getEventsRange("nope", 1, 10)).toEqual([]);
+  });
+});
