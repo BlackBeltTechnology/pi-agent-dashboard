@@ -100,6 +100,15 @@ export interface BridgeDiagnosticMessage {
 
 export interface SessionRegisterMessage {
   type: "session_register";
+  /**
+   * Announce intent to serve this session WITHOUT claiming it (D11, task
+   * 9.3a). The gateway takes no routing entry and no contention slot, creates
+   * no placeholder session, and replies `provisional_accepted` (carrying its
+   * instance id + a commit token) or `provisional_rejected`. Routing transfers
+   * only on an explicit commit.
+   * See change: add-pi-gateway-transport-identity.
+   */
+  provisional?: boolean;
   sessionId: string;
   cwd: string;
   name?: string;
@@ -768,6 +777,30 @@ export interface TranscriptChunkMessage {
   refused?: { cause: string; reason: string };
 }
 
+
+/** Server -> bridge: the provisional was opened. Carries no routing claim. */
+export interface ProvisionalAcceptedMessage {
+  type: "provisional_accepted";
+  sessionId: string;
+  /** The TARGET's instance id, so the origin can verify identity (task 9.7). */
+  instanceId: string;
+  /** Single-use, TTL-bounded (30s) token that commits the move. */
+  token: string;
+}
+
+/**
+ * Server -> bridge: the provisional was refused.
+ *
+ * Deliberately detail-free: a cause would let a caller difference two refusals
+ * into "does this session exist here" (task 9.3a-iv). The true cause is logged
+ * server-side. Distinct from `register_rejected`, which the bridge treats as
+ * TERMINAL for the session — a refused move must not kill the session it was
+ * trying to preserve (task 9.3a-i).
+ */
+export interface ProvisionalRejectedMessage {
+  type: "provisional_rejected";
+}
+
 // ── Server → Extension ──────────────────────────────────────────────
 
 export interface SendPromptToExtensionMessage {
@@ -1098,6 +1131,8 @@ export interface PreferencesUpdateExtensionMessage {
 }
 
 export type ServerToExtensionMessage =
+  | ProvisionalAcceptedMessage
+  | ProvisionalRejectedMessage
   | TranscriptRequestMessage
   | SendPromptToExtensionMessage
   | AbortToExtensionMessage

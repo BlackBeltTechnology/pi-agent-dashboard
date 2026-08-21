@@ -23,6 +23,7 @@ import {
 } from "./bridge-contention.js";
 import { decideBridgeUpgrade } from "./bridge-upgrade-auth.js";
 import { bindGatewaySocket, unbindGatewaySocket } from "./gateway-socket-bind.js";
+import { createProvisionalRegistry } from "./provisional-registration.js";
 
 /**
  * How many times a contended claim may be re-decided when the routing entry's
@@ -55,6 +56,12 @@ export interface PiGatewayOptions {
   };
   /** Bounded window the contention probe waits for the incumbent's pong. */
   contentionProbeWindow?: number;
+  /**
+   * This dashboard's persistent instance id, returned to a bridge opening a
+   * provisional registration so it can verify the target's identity before
+   * committing a move (D11/D14, task 9.7).
+   */
+  instanceId?: string;
 }
 
 export interface PiGateway {
@@ -127,6 +134,9 @@ export function createPiGateway(
 
   // Map sessionId → WebSocket
   const connections = new Map<string, WebSocket>();
+  // Intent-only registrations (D11, task 9.3a). Deliberately separate from
+  // `connections`: an entry here is NOT a routing claim.
+  const provisionalRegistry = createProvisionalRegistry({});
   // Track connection liveness for WS ping/pong (miss counter: kill after 2 consecutive misses)
   const aliveMisses = new Map<WebSocket, number>();
   // Map sessionId → heartbeat timeout
@@ -527,6 +537,41 @@ export function createPiGateway(
           // them would strip the incumbent's `sessionFile`, consume its spawn
           // token, or reset its reconnect-grace timer.
           // See change: fix-duplicate-bridge-registration (D0).
+          // D11 (task 9.3a): a PROVISIONAL register announces intent and stops
+          // here — before `claim()`, before `connections.set()`, before every
+          // register side effect. It takes no routing entry and no contention
+          // slot, so the origin keeps serving until an explicit commit.
+          if ((msg as { provisional?: boolean }).provisional) {
+            const session = sessionManager.get(msg.sessionId);
+            const incumbent = connections.get(msg.sessionId);
+            if (!session && !incumbent) {
+              // Refused — but the caller is told only that it was refused; the
+              // cause would otherwise enumerate live sessions (task 9.3a-iv).
+              ws.send(
+                JSON.stringify(
+                  provisionalRegistry.refuseForWire({
+                    sessionId: msg.sessionId,
+                    cause: "no-such-session",
+                  }),
+                ),
+              );
+              return;
+            }
+            const opened = provisionalRegistry.open({
+              sessionId: msg.sessionId,
+              instanceId: options?.instanceId ?? "",
+            });
+            ws.send(
+              JSON.stringify({
+                type: "provisional_accepted",
+                sessionId: msg.sessionId,
+                instanceId: opened.instanceId,
+                token: opened.token,
+              }),
+            );
+            return;
+          }
+
           const ok = await claim(msg.sessionId, msg.pid);
           if (!ok) return;
 
