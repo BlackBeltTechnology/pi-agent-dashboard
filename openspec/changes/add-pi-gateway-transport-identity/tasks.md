@@ -57,9 +57,9 @@
 
 ## 4. Local authorisation (D5)
 
-- [ ] 4.1 Assert socket mode `0600` and directory mode `0700` in a test
-- [ ] 4.2 Add a test that a connection from another uid is refused (skip with a recorded reason where the CI user cannot drop privileges)
-- [ ] 4.3 Confirm no token is required or accepted on the local socket path
+- [x] 4.1 Assert socket mode `0600` and directory mode `0700` in a test
+- [x] 4.2 Add a test that a connection from another uid is refused (skip with a recorded reason where the CI user cannot drop privileges)
+- [x] 4.3 Confirm no token is required or accepted on the local socket path
 
 ## 5. Windows loopback transport (D6)
 
@@ -68,7 +68,7 @@
 - [ ] 5.3 Have the bridge read the local token via `ensureLocalToken`'s location and present it on the WebSocket upgrade; verify server-side with `verifyLocalToken`
 - [ ] 5.4 Reject a loopback bridge connection that presents no token or a wrong token, distinctly from other refusal causes
 - [ ] 5.4b **Verify the instance identity in addition to the token (D14).** `local-token.ts` resolves from `os.homedir()`, so the token is per-HOME and shared by every same-HOME dashboard; it cannot answer "is this the instance the record named". Reuse the `identity`-vs-`/api/health` check `home-lock.ts` already performs
-- [ ] 5.4c Define the Windows mixed-version rollout: the loopback listener is always bound, and an old bridge cannot present a token. State whether tokenless upgrades are refused outright or accepted for a deprecation window, and record the horizon
+- [x] 5.4c Define the Windows mixed-version rollout: the loopback listener is always bound, and an old bridge cannot present a token. State whether tokenless upgrades are refused outright or accepted for a deprecation window, and record the horizon
 - [ ] 5.5 **Verify, do not assume**, that `~/.pi/dashboard/local/token` is unreadable by a second OS user on Windows — `chmod` is a documented no-op there, so the guarantee rests on inherited NTFS ACLs
 - [ ] 5.6 If 5.5 fails, treat it as a pre-existing defect affecting `identity.key` and `paired-devices.json` too, and raise it as its own change rather than patching it here
 - [ ] 5.7 Add a Windows QA arm (alongside `qa/tests/windows-nsis-*.ps1`) covering connect, reconnect, stale-record rejection, and the two-user read test
@@ -94,10 +94,10 @@
 ## 8. Listener policy and rollout (D10)
 
 - [ ] 8.1 Stop binding the bridge TCP listener by default; make it explicit opt-in
-- [ ] 8.2 Serve socket and TCP bridges through the same connection handler
+- [x] 8.2 Serve socket and TCP bridges through the same connection handler
 - [ ] 8.3 Bridge falls back to TCP when no socket is present, so a new bridge works against an old server
 - [ ] 8.4 Old bridge against a new server keeps working while the TCP listener is enabled
-- [ ] 8.5 Record a deprecation horizon for the unauthenticated TCP path, so the fallback does not become permanent
+- [x] 8.5 Record a deprecation horizon for the unauthenticated TCP path, so the fallback does not become permanent
 - [ ] 8.6 **The shipped container default DOES depend on the TCP gateway** — `docker/compose.yml:28` publishes `${PI_GATEWAY_BIND:-0.0.0.0}:${PI_GATEWAY_PORT:-9999}` and `PI_DASHBOARD_HOST` defaults to `0.0.0.0`. Decide and implement one: keep the TCP listener with bridge auth mandatory, or move the container to the socket and update `compose.yml`. The default must not remain an unauthenticated `0.0.0.0:9999`
 - [ ] 8.7 Confirm the socket works under the container's `VOLUME ["/home/pi/.pi"]` mount, or that 2.1b's fallback engages cleanly there
 

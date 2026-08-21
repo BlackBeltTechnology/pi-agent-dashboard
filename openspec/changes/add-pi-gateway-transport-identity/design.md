@@ -212,6 +212,18 @@ change is *unrepresentable* on POSIX (nothing listens) and *survivable* on
 Windows (a listener exists; the token is the guard). Windows therefore keeps the
 loopback bind pinned to `127.0.0.1` regardless of `--host`.
 
+**Mixed-version rollout on Windows (task 5.4c), DECIDED cycle 5.** The
+loopback listener is always bound, and a bridge predating this change cannot
+present a token. Refusing those outright would break every un-upgraded session
+on the host at the moment the server updates — a worse failure than the window
+it closes, because the Windows listener is `127.0.0.1`-pinned and was already
+reachable only locally. So: **tokenless loopback upgrades are ACCEPTED for one
+deprecation window, logged loudly on every occurrence**, and refused after it.
+
+Horizon: accepted through **0.8.x**; from **0.9.0** a tokenless loopback upgrade
+is refused. The log line names the horizon so an operator sees it before the
+refusal, not after.
+
 ### D7 — Remote bridges are paired devices
 
 Reuse, do not rebuild:
@@ -306,6 +318,32 @@ is a counter-example this change must handle explicitly (D15).
 "object"` (`pi-gateway.ts:235-238`). A UDS listener's `address()` returns a
 **string**, so it would yield `null` and blank the gateway port in the settings
 UI. The accessor must report the active transport, not just a TCP port.
+
+### D10b — Listener policy and the container default (tasks 8.1, 8.5, 8.6)
+
+**DECIDED cycle 5.** The shipped container default is the hard case:
+`docker/compose.yml` publishes `${PI_GATEWAY_BIND:-0.0.0.0}:${PI_GATEWAY_PORT:-9999}`
+and `PI_DASHBOARD_HOST` defaults to `0.0.0.0`, so the default gateway is an
+**unauthenticated TCP listener on every interface**. That must not survive this
+change in any form.
+
+Chosen: **keep the TCP listener in the container, and make bridge
+authentication MANDATORY on it** (section 6 — bridge-scoped tickets, device
+credentials, revocation). Moving the container to the socket was rejected:
+bridges outside the container (the common `PI_WORKSPACES` layout) have no path
+to a socket inside it, so the socket-only container would break the product's
+own documented deployment.
+
+Ordering consequence, explicit: **task 8.1 depends on section 6.** Dropping the
+default TCP listener before bridge auth exists would leave the container
+choosing between "unauthenticated" and "broken".
+
+**Deprecation horizon for the unauthenticated TCP path (task 8.5).** The
+fallback exists so an old bridge keeps working against a new server (8.4). It
+is bounded: unauthenticated TCP bridge upgrades are accepted through **two
+minor releases — 0.8.x and 0.9.x — and refused from 1.0.0**, after which the
+TCP listener requires a bridge ticket. Recording the version here is the point:
+an unbounded "temporary" fallback is how the unauthenticated default got here.
 
 ### D11 — An explicit move is the same mechanism with a human trigger
 

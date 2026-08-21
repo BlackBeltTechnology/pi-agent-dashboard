@@ -146,3 +146,55 @@ describe("pi-gateway over a unix socket", () => {
     expect(() => gateway?.stop()).not.toThrow();
   });
 });
+
+// ──────────────────────────────────────────────────────────────────────────
+// (test-plan #E18) Local authorisation IS socket ownership — section 4, D5.
+//
+// The point of the UDS transport is that there is no token to mint, leak,
+// rotate or replay: the kernel enforces `0600` in a `0700` directory. Two
+// properties follow, and both must be asserted or the design silently drifts
+// back to a token.
+// ──────────────────────────────────────────────────────────────────────────
+describe("local authorisation on the socket (D5)", () => {
+  // (task 4.3) No token is required — and none is accepted as a substitute
+  // for owning the socket. A bridge that presents nothing must work.
+  it("requires no token: a tokenless bridge registers", async () => {
+    const sessionManager = createMemorySessionManager();
+    gateway = createPiGateway(sessionManager, { pingInterval: 0 });
+    await gateway.startOnSocket(sockPath);
+
+    const ws = dial(); // no headers, no query string, no credential of any kind
+    await opened(ws);
+    ws.send(
+      JSON.stringify({ type: "session_register", sessionId: "sess-no-token", cwd: tmp }),
+    );
+    for (let i = 0; i < 100 && !gateway.isSessionConnected("sess-no-token"); i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(gateway.isSessionConnected("sess-no-token")).toBe(true);
+  });
+
+  // (task 4.2) A connection from another uid is refused — by the kernel,
+  // through the file mode, before any of our code runs.
+  //
+  // SKIPPED, with the reason recorded rather than a vacuous pass: asserting it
+  // needs a second OS user, and the CI user cannot drop privileges. What CAN
+  // be verified here is the mechanism the refusal rests on: the socket is
+  // `0600` and its directory `0700`, so no other uid can even open it. That is
+  // asserted in `gateway-socket-bind.test.ts`; the two-user test belongs to
+  // the QA arm (task 5.7).
+  it.skip("refuses a connection from another uid (needs a second OS user — QA arm)", () => {});
+
+  it.skipIf(process.platform === "win32")(
+    "leaves the LIVE socket 0600 in a 0700 dir, not just at bind time",
+    async () => {
+      const sessionManager = createMemorySessionManager();
+      gateway = createPiGateway(sessionManager, { pingInterval: 0 });
+      await gateway.startOnSocket(sockPath);
+      const ws = dial();
+      await opened(ws);
+      expect(fs.statSync(sockPath).mode & 0o777).toBe(0o600);
+      expect(fs.statSync(path.dirname(sockPath)).mode & 0o777).toBe(0o700);
+    },
+  );
+});
