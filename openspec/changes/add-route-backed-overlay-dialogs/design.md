@@ -401,6 +401,39 @@ setup in as a settings page — the URL dies and that e2e breaks.
 surface rule, not by the absence of an underlay, so restoring the underlay does
 not bring it back.
 
+### D1d — The underlay and the dismissal target are two different things
+
+Found while wiring 5.3. `/pi-resource?path=` is reached from a settings page, and
+`/tunnel-setup` from `/settings/gateway` (D5). Both are overlay-from-overlay
+transitions, and they break the assumption that dismissal is just
+`navigate(backgroundPath)`.
+
+The two answers cannot be the same value:
+
+```mermaid
+flowchart LR
+  S["/settings/skills<br/>(overlay)"] -->|open file| R["/pi-resource?path=<br/>(overlay)"]
+  R -.->|underlay renders| B["/session/abc<br/>(base route)"]
+  R -.->|Esc returns to| S
+```
+
+The BACKGROUND must be a base route, because the underlay renders through
+`ShellContent` and settings is not in that tree at all — pinning the underlay to
+`/settings/skills` would render blank. The DISMISSAL TARGET must be the launching
+overlay, or `Esc` drops the user out of the surface they were working in and D5's
+"dismiss returns to `/settings/gateway`" is unsatisfiable.
+
+So `overlay-background.ts` tracks both: `captured` (last non-overlay route) feeds
+the underlay, `launcher` (immediate predecessor, overlay or not) feeds dismissal.
+`recordLauncher` registers only a cross-SURFACE move, so `/settings/general` →
+`/settings/security` leaves the dismissal target alone (S-10); surface identity
+is the first path segment, or `folder:<cwd>:<segment>` under `/folder/:cwd`, so
+two folders' settings are two surfaces.
+
+Rejected: making the underlay render the launching overlay. It would need the
+settings tree mounted twice, and D1's whole point is one frozen tree beneath one
+overlay.
+
 ### D6 — The OpenSpec board stays a page; the artifact becomes a dialog
 
 A kanban board wants horizontal width; a dialog fights it. The artifact reader

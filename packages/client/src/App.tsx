@@ -46,6 +46,8 @@ import { ShellContent, type ShellContentRenderers } from "./components/shell/She
 import { RouteBackedOverlay } from "./components/overlay/RouteBackedOverlay.js";
 import {
   captureBackground,
+  recordLauncher,
+  resolveDismissTarget,
   clearBackground,
   resolveBackground,
 } from "./lib/nav/overlay-background.js";
@@ -472,6 +474,14 @@ export default function App() {
     !!(fileViewMatch && fileViewPath) || !!(urlViewMatch && urlViewUrl) ||
     pluginOverlayMatched;
   const hasPiResourceRouteFlag = !!piResourceFileMatch && !!piResourceFilePath;
+  // The three preview routes share one overlay container (5.3). Each conjunct
+  // requires its payload, not just the route match: `/pi-view` with no `url=`
+  // must fall through to the content region exactly as it does today, or a
+  // malformed link would open an empty dialog over a scrim with nothing in it.
+  const previewOverlayOpen =
+    hasPiResourceRouteFlag ||
+    !!(fileViewMatch && fileViewCwd && fileViewPath) ||
+    !!(urlViewMatch && urlViewUrl);
   const selectedId =
     deriveSelectedSessionId(!!match, params, !!diffMatch, diffParams) ??
     (editorMatch ? editorParams?.id : undefined);
@@ -1690,13 +1700,20 @@ export default function App() {
   // sitting at `/settings` never overwrites the capture — which is what keeps
   // an in-overlay navigation from moving the dismissal target mid-surface.
   const fullLocation = overlayLocation + (overlaySearch ? `?${overlaySearch}` : "");
+  // Where the PREVIOUS render sat, so an overlay opened from another overlay can
+  // be dismissed back into it (D5). This is not the background: settings is not
+  // part of the shell content tree, so an underlay pinned to it would render
+  // nothing. Two questions, two answers — see overlay-background.ts.
+  const previousLocationRef = useRef(fullLocation);
   useEffect(() => {
+    const from = previousLocationRef.current;
+    previousLocationRef.current = fullLocation;
+    if (from !== fullLocation) recordLauncher(from, fullLocation);
     captureBackground(fullLocation);
   }, [fullLocation]);
   const overlayBackground = resolveBackground(fullLocation);
   const dismissOverlay = () => {
-    const target =
-      overlayBackground.path + (overlayBackground.search ? `?${overlayBackground.search}` : "");
+    const target = resolveDismissTarget(fullLocation);
     // Drop the capture first: the navigation below lands on a non-overlay route,
     // which immediately re-captures it as the next overlay's background.
     clearBackground();
@@ -2437,7 +2454,7 @@ export default function App() {
           <div className="flex-1 flex flex-col min-w-0 min-h-0">{folderViewContent}</div>
         )}
         {/* Show session detail or landing page when no folder view is selected */}
-        {!folderEditorCwd && !settingsMatch && !tunnelSetupMatch && !folderSettingsMatch && (
+        {!folderEditorCwd && !settingsMatch && !tunnelSetupMatch && !folderSettingsMatch && !previewOverlayOpen && (
           pluginOverlayMatched ? (
             // Plugin-owned overlay routes — see change: add-flow-agent-popout.
             // Pass `_pluginRegistry` explicitly (see comment on
@@ -2476,6 +2493,43 @@ export default function App() {
             right thing: onboarding blocks the app. (Any other `z-[60]` dialog
             covers that gate too; that is pre-existing and left alone.)
             See change: add-route-backed-overlay-dialogs. */}
+        {/* The three preview routes. One container for all three because they are
+            one surface with three sources; the inner renderers are untouched, as
+            the file-and-url-preview spec requires. They take `dismissOverlay`
+            rather than `goBack` so the container's Esc/backdrop/close and the
+            renderer's own back affordance agree — the content-region copies below
+            keep `goBack` because they serve mobile, where back is a depth pop.
+            See change: add-route-backed-overlay-dialogs. */}
+        {previewOverlayOpen && !firstLaunchModal && (
+          <RouteBackedOverlay
+            background={overlayBackground}
+            backgroundContent={
+              <ShellContent
+                variant="desktop"
+                {...shellRenderers}
+                renderSession={(id) => renderSessionDetail(id)}
+              />
+            }
+            onDismiss={dismissOverlay}
+            ariaLabel="Preview"
+            testId="preview-route-overlay"
+          >
+            {piResourceFileMatch && piResourceFilePath ? (
+              <PiResourceFileRoute
+                filePath={piResourceFilePath}
+                title={piResourceFileTitle}
+                onBack={dismissOverlay}
+              />
+            ) : fileViewMatch && fileViewCwd && fileViewPath ? (
+              <PreviewOverlayView
+                target={{ kind: "file", cwd: fileViewCwd, path: fileViewPath }}
+                onBack={dismissOverlay}
+              />
+            ) : urlViewMatch && urlViewUrl ? (
+              <PreviewOverlayView target={{ kind: "url", url: urlViewUrl }} onBack={dismissOverlay} />
+            ) : null}
+          </RouteBackedOverlay>
+        )}
         {/* Folder-scoped settings, same container contract as global settings.
             Suppressed from the live content region below (`!folderSettingsMatch`)
             so it is not rendered twice — the underlay supplies the launching

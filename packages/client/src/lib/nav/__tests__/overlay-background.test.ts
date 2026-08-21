@@ -10,6 +10,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   captureBackground,
+  recordLauncher,
+  resolveDismissTarget,
   clearBackground,
   peekBackground,
   resolveBackground,
@@ -117,6 +119,54 @@ describe("resolveBackground — in-app path (captured)", () => {
   ])("still captures the non-overlay route %s", (url) => {
     captureBackground(url);
     expect(peekBackground()).toBeDefined();
+  });
+});
+
+// Design D5 requires that dismissing /tunnel-setup returns to /settings/gateway.
+// So when an overlay is opened FROM another overlay, the dismissal target is the
+// launching overlay -- which is NOT the background, because the background must
+// stay a base route for the underlay to have anything to render.
+describe("resolveDismissTarget — overlay opened from another overlay", () => {
+  it("returns the launching overlay, not the base background (D5)", () => {
+    captureBackground("/session/abc");
+    recordLauncher("/settings/gateway", "/tunnel-setup");
+    expect(resolveDismissTarget("/tunnel-setup")).toBe("/settings/gateway");
+    // The underlay still renders the base route: settings is not part of the
+    // shell content tree, so an underlay pinned to it would render nothing.
+    expect(resolveBackground("/tunnel-setup").path).toBe("/session/abc");
+  });
+
+  it("carries the launcher's query string", () => {
+    recordLauncher("/folder/Zm9v/settings/skills", "/pi-resource?path=/a.md");
+    expect(resolveDismissTarget("/pi-resource?path=/a.md")).toBe("/folder/Zm9v/settings/skills");
+  });
+
+  it("falls back to the background when the launcher was a base route", () => {
+    captureBackground("/session/abc");
+    recordLauncher("/session/abc", "/settings/general");
+    expect(resolveDismissTarget("/settings/general")).toBe("/session/abc");
+  });
+
+  it("ignores an in-surface move so one Esc does not land mid-surface (S-10)", () => {
+    captureBackground("/session/abc");
+    recordLauncher("/settings/general", "/settings/security");
+    expect(resolveDismissTarget("/settings/security")).toBe("/session/abc");
+  });
+
+  it("treats a different folder's settings as a different surface", () => {
+    captureBackground("/");
+    recordLauncher("/folder/Zm9v/settings/skills", "/folder/YmFy/settings/skills");
+    expect(resolveDismissTarget("/folder/YmFy/settings/skills")).toBe("/folder/Zm9v/settings/skills");
+  });
+
+  it("falls back to the background on a cold load with no launcher", () => {
+    captureBackground("/session/abc");
+    expect(resolveDismissTarget("/tunnel-setup")).toBe("/session/abc");
+  });
+
+  it("never returns the current route, which would make dismissal a no-op", () => {
+    recordLauncher("/tunnel-setup", "/tunnel-setup");
+    expect(resolveDismissTarget("/tunnel-setup")).toBe("/");
   });
 });
 

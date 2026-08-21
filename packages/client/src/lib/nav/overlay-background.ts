@@ -72,6 +72,63 @@ export function peekBackground(): BackgroundLocation | undefined {
 /** Drop the capture so the next overlay re-captures (called on dismissal). */
 export function clearBackground(): void {
   captured = undefined;
+  launcher = undefined;
+}
+
+/**
+ * The overlay that launched the current overlay, when one did.
+ *
+ * Separate from the background on purpose — they answer different questions:
+ *
+ *   - the BACKGROUND is what the underlay renders, so it must be a base route.
+ *     Settings is not part of the shell content tree at all, so an underlay
+ *     pinned to `/settings/gateway` would render nothing.
+ *   - the DISMISSAL TARGET is where `Esc` goes. Design D5 requires dismissing
+ *     `/tunnel-setup` to return to `/settings/gateway`, and `/pi-resource` opened
+ *     from a settings page to return to that page.
+ *
+ * Collapsing the two would either blank the underlay or drop the user out of the
+ * surface they were working in.
+ */
+let launcher: string | undefined;
+
+/**
+ * Note that `to` was reached from `from`.
+ *
+ * Recorded only when `from` is an overlay of a DIFFERENT surface than `to`. An
+ * in-surface move (`/settings/general` → `/settings/security`) must not register,
+ * or one `Esc` would land mid-surface instead of leaving it (S-10).
+ */
+export function recordLauncher(from: string, to: string): void {
+  const fromPath = splitLocation(from).path;
+  if (!isOverlayRoute(fromPath)) return;
+  if (overlaySurfaceId(fromPath) === overlaySurfaceId(splitLocation(to).path)) return;
+  launcher = from;
+}
+
+/**
+ * Where dismissing the overlay at `currentRoute` should navigate.
+ *
+ * The launching overlay when there was one, else the pinned background. Never
+ * `currentRoute` itself — that would make dismissal a silent no-op.
+ */
+export function resolveDismissTarget(currentRoute: string): string {
+  const currentPath = splitLocation(currentRoute).path;
+  if (launcher && splitLocation(launcher).path !== currentPath) return launcher;
+  const background = resolveBackground(currentRoute);
+  if (background.path === currentPath) return "/";
+  return background.search ? `${background.path}?${background.search}` : background.path;
+}
+
+/**
+ * Identity of the overlay SURFACE a path belongs to, ignoring position within
+ * it. `/settings/general` and `/settings/security` are one surface; two folders'
+ * settings are two, because dismissing one should not land in the other.
+ */
+function overlaySurfaceId(path: string): string {
+  const segments = path.split("/").filter(Boolean);
+  if (segments[0] === "folder") return `folder:${segments[1]}:${segments[2] ?? ""}`;
+  return segments[0] ?? "";
 }
 
 /**
