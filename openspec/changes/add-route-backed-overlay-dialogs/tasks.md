@@ -4,10 +4,13 @@ Groups 1–2 are **already implemented and verified** (2335 tests green, `tsc`
 clean, zero new `kb dox lint` findings). They are the contract and manifest
 layer; `presentation` is inert until group 4 lands a consumer.
 
-Groups 3+ are unstarted. **Sequencing note (R5):** `collapse-pairing-into-gateway`
-is in-progress, deletes `PairingView.tsx` / `QrCodeDialog.tsx`, and edits
-`SettingsPanel.tsx` — which group 5 also edits. Land it first, or task 5.5
-becomes mandatory.
+Groups 3+ are unstarted. **Sequencing note (R5) — RESOLVED, cycle 2:**
+`collapse-pairing-into-gateway` has NOT landed and has not started (0/62 tasks, no
+worktree, only its planning commit `44dba2291` on develop; `PairingView.tsx` and
+`QrCodeDialog.tsx` are both still on disk). Waiting for a 62-task change is not
+viable, so **task 5.5 is mandatory** — and is generalised rather than
+special-cased (see 5.5). That change will rebase around group 5's
+`SettingsPanel.tsx` edits.
 
 ## 1. Plugin claim contract — `presentation`
 
@@ -61,7 +64,8 @@ becomes mandatory.
 - [ ] 5.2 `/folder/:cwd/settings/:page` onto the overlay renderer
 - [ ] 5.3 `/folder/:cwd/view?path=`, `/pi-view?url=`, `/pi-resource?path=` onto the overlay renderer (reparent `PreviewOverlayView`)
 - [ ] 5.4 `/tunnel-setup` as its own route-backed overlay; verify it REPLACES rather than stacks on settings, and that dismissal returns to `/settings/gateway` (D5)
-- [ ] 5.5 **Only if `collapse-pairing-into-gateway` has not landed:** make `navigate("/settings/...")` from inside the settings dialog switch the dialog's page without closing it, so `PairingView`'s empty-state jump cannot strand a live one-time-code TTL (R5)
+- [ ] 5.5 **MANDATORY (R5 resolved).** Navigation to a route the OPEN overlay already owns switches the surface in place instead of remounting the container — a general rule, not a pairing special case. An overlay whose own route pattern still matches the new target keeps its frozen background and its mount; only a target outside the overlay's ownership dismisses it. `PairingView.tsx:168` (`navigate("/settings/gateway")` from the empty state) is the instance the plan spotted, and stranding a live one-time-code TTL is the symptom; KB and Goals acquire the same bug the moment they grow internal navigation
+- [ ] 5.5a Test the general rule, not just the pairing path: an in-overlay navigate to a sibling settings page preserves the container mount AND the frozen background (S-10), while a navigate to a non-owned route dismisses
 - [ ] 5.6 Delete the duplicate full-page OpenSpec artifact path; `OpenSpecArtifactDialog` becomes the only renderer (D6)
 - [ ] 5.7 Confirm `/folder/:cwd/openspec`, `/session/:id/diff`, `/session/:id/editor`, and `/pair` are untouched
 - [ ] 5.8 Update the `back-target.ts` descriptor table only where a depth actually changed — paths must not move

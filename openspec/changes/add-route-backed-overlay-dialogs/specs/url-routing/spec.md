@@ -64,6 +64,26 @@ Dismissing a converted surface — backdrop click, `Esc`, or its close affordanc
 - **THEN** the surface SHALL be dismissed entirely
 - **AND** the URL SHALL return to `/session/abc`, NOT to `/settings/general`
 
+#### Scenario: Navigating to a route the overlay owns switches in place
+
+- **GIVEN** the user opened `/settings/general` from `/session/abc`
+- **WHEN** code inside the surface navigates to `/settings/gateway`
+- **THEN** the overlay container SHALL remain mounted rather than remounting
+- **AND** the frozen background SHALL remain `/session/abc`
+- **AND** state held by the surface SHALL survive the switch
+
+#### Scenario: Navigating outside the overlay's ownership dismisses it
+
+- **GIVEN** the user opened `/settings/general` from `/session/abc`
+- **WHEN** code inside the surface navigates to `/session/def`
+- **THEN** the overlay SHALL be dismissed, since the target is not a route it owns
+
+#### Scenario: An in-overlay switch does not strand a live one-time code
+
+- **GIVEN** a pairing surface holding a one-time code with a live TTL
+- **WHEN** its empty state navigates to another page of the same overlay
+- **THEN** the code SHALL NOT be discarded by a container remount
+
 #### Scenario: Cold-loaded surface dismisses to its descriptor parent
 
 - **GIVEN** a client navigates directly to `/settings/security` with no tracked in-app predecessor

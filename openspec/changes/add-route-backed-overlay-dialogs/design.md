@@ -189,6 +189,34 @@ surface's own pushed entries, or navigate directly to the tracked launching
 route. Specifying dismissal as "invoke the depth-aware back action" is wrong for
 any surface with internal navigation.
 
+### D1c — In-overlay navigation switches in place (R5 generalised, cycle 2)
+
+The corollary of D1a. If dismissal means "leave this surface", then a navigation
+that does *not* leave the surface must not be treated as one.
+
+**Rule:** navigation to a route the open overlay already owns switches the
+surface in place — same container mount, same frozen background. Only a target
+outside the overlay's ownership dismisses it. Ownership is decided by the
+overlay's own route pattern still matching the new location; nothing new is
+declared for it.
+
+Without this rule the container is keyed by location, so every in-overlay
+navigation remounts it — resetting local state, refetching, and re-freezing the
+background against a path that is itself already inside the overlay.
+
+This was originally planned as a conditional pairing-specific patch (task 5.5,
+gated on `collapse-pairing-into-gateway` landing). That change has not started
+(0/62 tasks), so the task is mandatory; it is generalised rather than
+special-cased because the hazard belongs to the container, not to the pairing
+flow. `PairingView.tsx:168` is merely the one live instance today — its empty
+state calls `navigate("/settings/gateway")`, and a remount there strands a live
+one-time-code TTL. KB and Goals inherit the identical bug the moment they grow
+internal navigation, and a pairing-shaped fix would have to be unwound to cover
+them.
+
+Note this also removes the only reason group 5 had to wait on
+`collapse-pairing-into-gateway`.
+
 ### D1b — The dirty-state guard currently evicts to `/`
 
 ```
