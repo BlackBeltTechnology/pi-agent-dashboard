@@ -2288,6 +2288,24 @@ See change: fix-pi-flows-end-to-end.
 Cross-refs:
 - packages/roles-plugin/src/RolesSettingsSection.tsx
 
+## Why are my sessions never auto-named?
+
+Check Settings → Diagnostics → auto-naming outcomes. One retained outcome per session. `starved` and `waiting` shown separately.
+
+`starved` = model could not emit title under output cap. Reasoning model spends whole cap on reasoning tokens, stream truncated (`done` reason `"length"`), no text. Text NEVER applied as name. Fix: assign different model to naming role.
+
+`waiting` = model behaved correctly, no nameable topic. `NULL` sentinel / over-40-chars / over-6-words. Nothing wrong.
+
+Budget: 3 attempts per session, shared by `starved` + `waiting`. Exhaustion ⇒ permanent stop + exactly one `auto_name_error`. Remedy matches dominant cause (tie ⇒ `starved`). Transient errors + aborts spend no budget.
+
+Stop persists in session `.meta.json` (`autoNamerState`), survives process restart. Clears when resolved naming reference changes or blocking cause (credentials/registry) resolves; clearing resets budget + re-arms error.
+
+Naming model: `@naming` first, fallback `@fast`. Neither configured ⇒ stop + `auto_name_error` naming both slots. Configure in Settings → Roles (`/settings/plugins/roles`), not on sessions page.
+
+Old bug (pre-fix): empty text mapped onto `wait` — same verdict as legitimate `NULL`. Naming retried forever, applied nothing, emitted nothing. Zero successes AND zero errors. Measured: 0 of 3380 sessions `nameSource: "auto"`, 0 `auto_name_error` lines in 6.8 MB `server.log`.
+
+See change: fix-auto-naming-reasoning-model.
+
 ## Why does Doctor sometimes show server "Not running" while dashboard works?
 
 Old bug: `probeServer` inside `/api/doctor` shelled out `curl http://localhost:8000/api/health` via `execSync`. Server was handling the request when curl called — self-deadlock. After 3 s timeout, curl failed and probe reported "Not running". Fixed in change `harvest-bootstrap-survivor-fixes`: server-side probe reads process state directly; Electron Doctor uses native `fetch`. No subprocess spawned. Result: Doctor reports "ok" correctly while server handles load.

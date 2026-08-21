@@ -131,7 +131,7 @@
 
 - [ ] 12.1 Run the full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` then `grep -nE 'FAIL|Error|✗|✘|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log`. All green.
 - [ ] 12.2 Rebuild and restart per the `implement` matrix: `npm run reload` for the extension, `curl -X POST http://localhost:8000/api/restart` for server/shared, `npm run build` plus restart for the client.
-- [ ] 12.3 Update the purpose rows for every touched source file in the nearest directory `AGENTS.md` (`auto-session-namer.ts.AGENTS.md`, `bridge.ts.AGENTS.md`, `bridge-context.ts.AGENTS.md`, the `role-manager.ts` row, the server `event-wiring.ts` row, the roles-plugin and client settings rows), each carrying `See change: fix-auto-naming-reasoning-model`.
-- [ ] 12.4 Delegate to DocScribe (caveman style) any `docs/` prose covering the naming-model role, the adaptive cap, and the starvation failure mode; apply the returned tree rows.
-- [ ] 12.5 Run `kb dox lint` and clear any `stale` or `missing` rows this change introduced.
-- [ ] 12.6 File the follow-up investigation for the auto→`user` provenance relabel on reload, carrying the evidence gathered here (`seed()` never called in production, `lastSelfApplied` not carried, 174 persisted `user` rows of unknown provenance).
+- [x] 12.3 Update the purpose rows for every touched source file in the nearest directory `AGENTS.md` (`auto-session-namer.ts.AGENTS.md`, `bridge.ts.AGENTS.md`, `bridge-context.ts.AGENTS.md`, the `role-manager.ts` row, the server `event-wiring.ts` row, the roles-plugin and client settings rows), each carrying `See change: fix-auto-naming-reasoning-model`.
+- [x] 12.4 Delegate to DocScribe (caveman style) any `docs/` prose covering the naming-model role, the adaptive cap, and the starvation failure mode; apply the returned tree rows.
+- [x] 12.5 Run `kb dox lint` and clear any `stale` or `missing` rows this change introduced.
+- [x] 12.6 File the follow-up investigation for the auto→`user` provenance relabel on reload, carrying the evidence gathered here (`seed()` never called in production, `lastSelfApplied` not carried, 174 persisted `user` rows of unknown provenance).
