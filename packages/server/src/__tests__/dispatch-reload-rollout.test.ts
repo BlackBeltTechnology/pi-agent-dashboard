@@ -73,7 +73,7 @@ describe("reload fan-out at scale (#P1)", () => {
     const ctx: DispatchReloadContext = {
       headlessPidRegistry: {
         getPid: () => 1,
-        listSessions: () => ids.map((sessionId) => ({ sessionId, pid: 1, hasKeeper: false })),
+        listSessions: () => ids.map((sessionId) => ({ sessionId, cwd: "/p", pid: 1, hasKeeper: false })),
       },
       getSession: () => ({ status: "idle" }),
       isSessionConnected: () => true,

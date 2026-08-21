@@ -61,14 +61,14 @@ const passGuard = async () => {};
  * See change: fix-out-of-band-reload.
  */
 const dispatchedReloads: string[] = [];
-let registryIds: string[] = [];
+let registrySessions: Array<{ sessionId: string; cwd: string }> = [];
 function reloadDeps() {
   return {
     dispatchReload: async (sid: string) => {
       dispatchedReloads.push(sid);
       return "forwarded";
     },
-    registrySessionIds: () => registryIds,
+    registrySessions: () => registrySessions,
   };
 }
 
@@ -78,7 +78,7 @@ describe("resource-activation-routes", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     dispatchedReloads.length = 0;
-    registryIds = [];
+    registrySessions = [];
     applyResourceToggleMock.mockResolvedValue({ ok: true });
   });
 
@@ -170,7 +170,7 @@ describe("resource-activation-routes", () => {
     // See change: fix-out-of-band-reload (test-plan #E12).
     const sessions = { a: { cwd: "/proj/x" } };
     const { gw } = makeGateway(sessions);
-    registryIds = ["z"];
+    registrySessions = [{ sessionId: "z", cwd: "/proj/z" }];
     app = Fastify();
     registerResourceActivationRoutes(app, {
       ...reloadDeps(),
@@ -183,6 +183,35 @@ describe("resource-activation-routes", () => {
     const res = await app.inject({ method: "POST", url: "/api/resources/reload", payload: { scope: "global" } });
     expect(res.statusCode).toBe(200);
     expect([...dispatchedReloads].sort()).toEqual(["a", "z"]);
+  });
+
+  it("reload local also targets a registry-known session governed by the cwd", async () => {
+    // `findSessionsByCwd` sees OPEN sockets only, so a headless session in the
+    // folder whose bridge died was silently skipped — while it is exactly the
+    // pi that must re-read the toggled setting.
+    // See change: fix-out-of-band-reload.
+    const sessions = { a: { cwd: "/proj/x" } };
+    const { gw } = makeGateway(sessions);
+    registrySessions = [
+      { sessionId: "dead", cwd: "/proj/x/sub" },
+      { sessionId: "elsewhere", cwd: "/other" },
+    ];
+    app = Fastify();
+    registerResourceActivationRoutes(app, {
+      ...reloadDeps(),
+      networkGuard: passGuard,
+      piGateway: gw,
+      sessionManager: makeSessions({ a: { cwd: "/proj/x" } }),
+    });
+    await app.ready();
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/resources/reload",
+      payload: { scope: "local", cwd: "/proj/x" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect([...dispatchedReloads].sort()).toEqual(["a", "dead"]);
   });
 
   it("reload global targets all connected sessions", async () => {

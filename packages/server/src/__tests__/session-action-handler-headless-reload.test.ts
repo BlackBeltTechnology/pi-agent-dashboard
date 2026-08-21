@@ -73,6 +73,7 @@ function makeCtx(
           .filter(([, pid]) => pid !== undefined)
           .map(([sessionId, pid]) => ({
             sessionId,
+            cwd: "/p",
             pid: pid as number,
             hasKeeper: false,
           })),
@@ -590,13 +591,49 @@ describe("dispatchReload — respawn fallback", () => {
     expect(feedback.filter((f) => f.status === "error")).toHaveLength(0);
   });
 
-  it("#E8 a second /reload during an in-flight respawn spawns at most one more pi", async () => {
+  it("#E8 two CONCURRENT reloads spawn exactly one pi (in-flight guard)", async () => {
+    // Both calls start before `killBySessionId` / `spawnPiSession` resolve, so
+    // both observe the SAME old pid. Without the per-session in-flight guard
+    // both kill it and both spawn — and the registry only remembers the last
+    // registration, leaking the first process.
+    let releaseSpawn!: () => void;
+    const spawnGate = new Promise<void>((r) => {
+      releaseSpawn = r;
+    });
     let nextPid = 7001;
-    (spawnPiSession as any).mockImplementation(async () => ({
+    (spawnPiSession as any).mockImplementation(async () => {
+      await spawnGate;
+      return { success: true, pid: nextPid++, process: { _fake: true } };
+    });
+
+    const { ctx } = makeCtx({
+      pidBySession: { S1: 1234 },
+      connected: false,
+      sessions: {
+        S1: { id: "S1", cwd: "/p", sessionFile: "/p/s.jsonl", status: "active" },
+      },
+    });
+    const reloadCtx = buildDispatchReloadContext(ctx);
+
+    const both = Promise.all([
+      dispatchReload("S1", reloadCtx),
+      dispatchReload("S1", reloadCtx),
+    ]);
+    releaseSpawn();
+    const outcomes = await both;
+
+    expect(outcomes).toEqual(["respawn", "respawn"]);
+    expect((spawnPiSession as any).mock.calls.length).toBe(1);
+  });
+
+  it("#E8 the in-flight guard clears, so a LATER reload still respawns", async () => {
+    // A guard that outlived its respawn would wedge the session against every
+    // future reload.
+    (spawnPiSession as any).mockResolvedValue({
       success: true,
-      pid: nextPid++,
+      pid: 4242,
       process: { _fake: true },
-    }));
+    });
 
     const { ctx, pidBySession } = makeCtx({
       pidBySession: { S1: 1234 },
@@ -607,15 +644,11 @@ describe("dispatchReload — respawn fallback", () => {
     });
     const reloadCtx = buildDispatchReloadContext(ctx);
 
-    // First reload takes the fallback and kills the original PID. The second
-    // arrives before a replacement PID is registered, so the ladder sees no
-    // in-process path and no PID: it must NOT start a competing pi.
     await dispatchReload("S1", reloadCtx);
-    const spawnsAfterFirst = (spawnPiSession as any).mock.calls.length;
-    pidBySession.S1 = undefined;
+    pidBySession.S1 = 4242;
     await dispatchReload("S1", reloadCtx);
 
-    expect((spawnPiSession as any).mock.calls.length).toBe(spawnsAfterFirst);
+    expect((spawnPiSession as any).mock.calls.length).toBe(2);
   });
 
   it("#X1 emits exactly ONE terminal feedback for a respawn", async () => {

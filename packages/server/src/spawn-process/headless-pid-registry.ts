@@ -212,7 +212,7 @@ export interface HeadlessPidRegistry {
    * session is stamped `ended` on WS close.
    * See change: fix-out-of-band-reload.
    */
-  listSessions(): Array<{ sessionId: string; pid: number; hasKeeper: boolean }>;
+  listSessions(): Array<{ sessionId: string; cwd: string; pid: number; hasKeeper: boolean }>;
   /** Remove a tracked process by PID. */
   remove(pid: number): void;
   /** Kill all tracked processes (for server shutdown). */
@@ -503,11 +503,12 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
     },
 
     listSessions() {
-      const out: Array<{ sessionId: string; pid: number; hasKeeper: boolean }> = [];
+      const out: Array<{ sessionId: string; cwd: string; pid: number; hasKeeper: boolean }> = [];
       for (const entry of entries.values()) {
         if (!entry.sessionId) continue;
         out.push({
           sessionId: entry.sessionId,
+          cwd: entry.cwd,
           pid: entry.piPid ?? entry.pid,
           hasKeeper: Boolean(entry.keeperSockPath),
         });

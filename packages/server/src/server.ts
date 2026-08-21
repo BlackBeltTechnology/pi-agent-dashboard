@@ -79,10 +79,10 @@ import { PairingManager } from "./pairing/pairing.js";
 import { createPendingAttachRegistry } from "./pending/pending-attach-registry.js";
 import { createPendingAutomationRunRegistry } from "./pending/pending-automation-run-registry.js";
 import { createPendingClientCorrelations } from "./pending/pending-client-correlations.js";
-import { createPendingPromptAcks } from "./pending/pending-prompt-acks.js";
 import { createPendingForkRegistry, type PendingForkRegistry } from "./pending/pending-fork-registry.js";
 import { createPendingGoalLinkRegistry } from "./pending/pending-goal-link-registry.js";
 import { createPendingInitialPromptRegistry } from "./pending/pending-initial-prompt-registry.js";
+import { createPendingPromptAcks } from "./pending/pending-prompt-acks.js";
 import { createPendingResumeIntentRegistry } from "./pending/pending-resume-intent-registry.js";
 import { createPendingWorktreeBaseRegistry } from "./pending/pending-worktree-base-registry.js";
 import { recordExitIntent, resolveExitIntent, stampBootStart } from "./persistence/boot-state.js";
@@ -1259,17 +1259,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
   const dispatchReload = (sid: string) =>
     dispatchReloadRaw(sid, buildDispatchReloadContext(reloadCtx()));
+  // No `status`-based filter here on purpose. Every id in this set is either
+  // bridge-connected or registry-known, and BOTH are reloadable regardless of
+  // what the session map says: a headless session whose bridge died is stamped
+  // `ended` while its pi is alive, and a connected session can be forwarded to
+  // over its live socket. Filtering on `status !== "ended"` dropped exactly the
+  // sessions this change exists to reach.
   const reloadFanOutTargets = (): string[] =>
     reloadTargetSessionIds(
       piGateway.getConnectedSessionIds(),
       browserGateway.headlessPidRegistry,
-    ).filter((sid) => {
-      const session = sessionManager.get(sid);
-      // A registry-known session with a dead bridge is stamped `ended` in
-      // the session map but is still alive and still reloadable, so absence
-      // of a record is not a reason to skip it.
-      return !session || session.status !== "ended" || browserGateway.headlessPidRegistry.getPid(sid) !== undefined;
-    });
+    );
 
   registerSessionRoutes(fastify, { sessionManager, eventStore, networkGuard });
   // pi retry policy editor. Reload fan-out dispatches `/reload` to every
@@ -1582,10 +1582,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   // Reload all active sessions after a successful package operation
   packageManagerWrapper.setReloadSessions(async () => {
+    // Count only what actually reloaded: `dispatchReload` resolves "refused"
+    // for a busy session and "error" when no path existed, and reporting those
+    // as reloads is the same class of lie this change removes.
     let count = 0;
     for (const sid of reloadFanOutTargets()) {
-      await dispatchReload(sid);
-      count++;
+      const outcome = await dispatchReload(sid);
+      if (outcome === "respawn" || outcome === "forwarded") count++;
     }
     return count;
   });
@@ -1596,8 +1599,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     piGateway,
     sessionManager,
     dispatchReload,
-    registrySessionIds: () =>
-      browserGateway.headlessPidRegistry.listSessions().map((e) => e.sessionId),
+    registrySessions: () =>
+      browserGateway.headlessPidRegistry
+        .listSessions()
+        .map((e) => ({ sessionId: e.sessionId, cwd: e.cwd })),
   });
   registerRecommendedRoutes(fastify, { packageManagerWrapper });
 

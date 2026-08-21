@@ -377,9 +377,13 @@ export function createCommandHandler(
      * *synchronously*. "Present" therefore does not imply "usable", which is
      * why this reports an outcome instead of returning void and letting the
      * caller emit an unconditional `completed`.
+     *
+     * ASYNC by contract: `ctx.reload()` returns a promise, and a rejection
+     * that lands after we have already emitted `completed` is the same false
+     * success this change exists to remove. The handler awaits it.
      * See change: fix-out-of-band-reload (design.md D5).
      */
-    reload?: () => ReloadOutcome;
+    reload?: () => Promise<ReloadOutcome>;
     /** Spawn a new session in the same cwd */
     spawnNew?: () => void;
     /** Switch model via pi.setModel() */
@@ -542,9 +546,19 @@ export function createCommandHandler(
             // session with no captured reload function — which is every
             // dashboard-spawned session that was never touched in a TUI.
             // See change: fix-out-of-band-reload.
-            const outcome: ReloadOutcome = options?.reload
-              ? options.reload()
-              : { ok: false, reason: NO_RELOAD_PATH_REASON };
+            let outcome: ReloadOutcome = { ok: false, reason: NO_RELOAD_PATH_REASON };
+            if (options?.reload) {
+              // Defence in depth: the bridge already converts a throw into an
+              // outcome, but a stale captured `ctx.reload` throws
+              // SYNCHRONOUSLY out of `assertActive()`, and any caller wiring a
+              // different `reload` must not be able to take the turn down.
+              try {
+                outcome = await options.reload();
+              } catch (err: any) {
+                const reason = err instanceof Error ? err.message : String(err);
+                outcome = { ok: false, reason: `Reload failed: ${reason}` };
+              }
+            }
             options?.eventSink?.({
               type: "event_forward",
               sessionId,

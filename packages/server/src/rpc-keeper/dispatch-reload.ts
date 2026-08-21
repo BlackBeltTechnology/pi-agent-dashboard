@@ -124,6 +124,20 @@ function isReloadBusy(
  * session with a dead bridge is invisible to `getConnectedSessionIds()` and
  * stamped `ended` in `sessionManager`, yet its pi is alive and respawnable.
  */
+/**
+ * Respawns currently in flight, keyed by session id.
+ *
+ * Without this, two reloads that arrive before the first respawn registers its
+ * new PID both observe the OLD pid, both kill it, and both call
+ * `spawnPiSession` — leaving one orphaned pi process the registry no longer
+ * tracks (it only remembers the last registration). Concurrent callers now
+ * await the SAME respawn instead of starting a competing one.
+ *
+ * Keyed per session, cleared in `finally`, so a failed respawn does not wedge
+ * the session against future reloads.
+ */
+const inFlightRespawns = new Map<string, Promise<void>>();
+
 export function reloadTargetSessionIds(
   connectedIds: readonly string[],
   registry: Pick<HeadlessPidRegistry, "listSessions">,
@@ -156,11 +170,27 @@ export async function dispatchReload(
     return "refused";
   }
 
+  // ── Join an in-flight respawn BEFORE the PID gate. The kill half of a
+  // respawn removes the old PID, so a concurrent reload that checked the
+  // registry first would see no PID, fall through the ladder, and report a
+  // spurious error — or, if it arrived a moment earlier, start a competing
+  // spawn. "A respawn is already running for this session" is the stronger
+  // fact and is therefore checked first.
+  const inFlight = inFlightRespawns.get(sessionId);
+  if (inFlight) {
+    await inFlight;
+    return "respawn";
+  }
+
   // ── Ladder step 2: kill-and-respawn, the only real reload for a headless
   // session. The busy decision above was made with connection awareness the
   // respawn helper lacks, so its own streaming guard is suppressed.
   if (ctx.headlessPidRegistry.getPid(sessionId) !== undefined) {
-    await ctx.respawn(sessionId, { ignoreStreamingGuard: true });
+    const run = ctx
+      .respawn(sessionId, { ignoreStreamingGuard: true })
+      .finally(() => inFlightRespawns.delete(sessionId));
+    inFlightRespawns.set(sessionId, run);
+    await run;
     return "respawn";
   }
 

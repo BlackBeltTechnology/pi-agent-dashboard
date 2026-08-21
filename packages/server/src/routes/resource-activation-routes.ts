@@ -70,23 +70,47 @@ function serializeWrite<T>(key: string, task: () => Promise<T>): Promise<T> {
 }
 
 /** Session ids governed by a scope: local → folder prefix-match, global → all. */
+/**
+ * Does `cwd` govern `sessionCwd`? Same containment rule
+ * `piGateway.findSessionsByCwd` applies, restated here because registry
+ * entries are matched outside the gateway.
+ */
+function cwdGoverns(scopeCwd: string, sessionCwd: string): boolean {
+  return (
+    sessionCwd === scopeCwd ||
+    sessionCwd.startsWith(`${scopeCwd}/`) ||
+    scopeCwd.startsWith(`${sessionCwd}/`)
+  );
+}
+
 function sessionsForScope(
   piGateway: PiGateway,
   sessionManager: SessionManager,
   scope: ToggleScope,
   cwd: string | undefined,
-  registrySessionIds: readonly string[],
+  registryEntries: ReadonlyArray<{ sessionId: string; cwd: string }>,
 ): string[] {
-  const ids = scope === "local" && cwd
-    ? piGateway.findSessionsByCwd(cwd)
-    : [...new Set([...piGateway.getConnectedSessionIds(), ...registrySessionIds])];
+  // `findSessionsByCwd` / `getConnectedSessionIds` see OPEN sockets only, so a
+  // headless session whose bridge died is invisible to both — while its pi is
+  // alive and is precisely the process that must re-read the changed settings.
+  // Union in the registry on BOTH scopes, applying the same cwd containment
+  // rule for local. See change: fix-out-of-band-reload.
+  const registryIds = new Set(registryEntries.map((e) => e.sessionId));
+  const ids =
+    scope === "local" && cwd
+      ? [
+          ...new Set([
+            ...piGateway.findSessionsByCwd(cwd),
+            ...registryEntries.filter((e) => cwdGoverns(cwd, e.cwd)).map((e) => e.sessionId),
+          ]),
+        ]
+      : [...new Set([...piGateway.getConnectedSessionIds(), ...registryIds])];
   return ids.filter((sid) => {
-    const s = sessionManager.get(sid);
     // A session the registry knows is alive stays a target even when the
     // session map has stamped it `ended` — that stamp fires on bridge-WS
-    // close, which is exactly the case the keeper/respawn ladder rescues.
-    // See change: fix-out-of-band-reload.
-    if (registrySessionIds.includes(sid)) return true;
+    // close, which is exactly the case the respawn path rescues.
+    if (registryIds.has(sid)) return true;
+    const s = sessionManager.get(sid);
     return Boolean(s) && s?.status !== "ended";
   });
 }
@@ -106,8 +130,8 @@ export function registerResourceActivationRoutes(
      * See change: fix-out-of-band-reload.
      */
     dispatchReload: (sessionId: string) => Promise<string>;
-    /** Session ids the headless PID registry knows are alive. */
-    registrySessionIds: () => string[];
+    /** Sessions the headless PID registry knows are alive, with their cwd. */
+    registrySessions: () => ReadonlyArray<{ sessionId: string; cwd: string }>;
   },
 ) {
   const { networkGuard, piGateway, sessionManager } = deps;
@@ -164,7 +188,7 @@ export function registerResourceActivationRoutes(
       sessionManager,
       scope,
       body.cwd,
-      deps.registrySessionIds(),
+      deps.registrySessions(),
     );
     return { success: true, data: { affectedSessions } } satisfies ApiResponse;
   });
@@ -228,7 +252,7 @@ export function registerResourceActivationRoutes(
         sessionManager,
         scope,
         body.cwd,
-        deps.registrySessionIds(),
+        deps.registrySessions(),
       );
       let reloaded = 0;
       for (const sid of ids) {
