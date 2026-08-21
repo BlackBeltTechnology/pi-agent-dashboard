@@ -1571,6 +1571,25 @@ export function wireEvents(deps: EventWiringDeps): void {
       return;
     }
 
+    // The session left for another instance (D11, task 9.3). Recorded as an
+    // ENDED session carrying a destination rather than a new status value: it
+    // did end here, and every existing consumer already handles `ended`. What
+    // it must not look like is a crash, which is precisely an `ended` with no
+    // explanation.
+    if (msg.type === "session_moved") {
+      const movedTo = { instanceId: msg.instanceId, endpoint: msg.endpoint, at: Date.now() };
+      sessionManager.update(sessionId, { movedTo, status: "ended", endedAt: movedTo.at });
+      browserGateway.broadcastSessionUpdated(sessionId, {
+        movedTo,
+        status: "ended",
+        endedAt: movedTo.at,
+      });
+      console.error(
+        `[gateway] session moved away: ${sessionId} -> instance=${msg.instanceId}${msg.endpoint ? ` (${msg.endpoint})` : ""}`,
+      );
+      return;
+    }
+
     if (msg.type === "first_message_update") {
       sessionManager.update(sessionId, { firstMessage: msg.firstMessage });
       browserGateway.broadcastSessionUpdated(sessionId, { firstMessage: msg.firstMessage });

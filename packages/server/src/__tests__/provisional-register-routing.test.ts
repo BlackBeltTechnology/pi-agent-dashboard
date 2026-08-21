@@ -223,3 +223,41 @@ describe("session_move_commit transfers routing (#X8)", () => {
     expect(reply.type).toBe("provisional_rejected");
   });
 });
+
+/**
+ * Task 9.3a-ii — the DIFFERENT-pid path, stated explicitly.
+ *
+ * The same-pid case is the dangerous one (it hits the no-probe fast-accept),
+ * so it is where attention goes. But a move between two different pi processes
+ * must be just as safe: a refused provisional leaves the origin registered and
+ * serving, not displaced.
+ */
+describe("a refused provisional from a different pid leaves the origin serving (9.3a-ii)", () => {
+  it("keeps the origin routed and delivering", async () => {
+    const { gw, sessions, port, delivered } = await startGateway();
+    const origin = await connect(port);
+    origin.send(
+      JSON.stringify({ type: "session_register", sessionId: "sess-D", cwd: "/tmp", source: "tui", pid: 100 }),
+    );
+    await until(() => sessions.get("sess-D")?.source === "tui");
+
+    // A different process entirely, naming a session that does not exist here.
+    const stranger = await connect(port);
+    stranger.send(
+      JSON.stringify({
+        type: "session_register",
+        sessionId: "absent-session",
+        cwd: "/tmp",
+        source: "tui",
+        pid: 999,
+        provisional: true,
+      }),
+    );
+    expect((await nextMessage(stranger)).type).toBe("provisional_rejected");
+
+    await delay(50);
+    expect(gw.isSessionConnected("sess-D")).toBe(true);
+    origin.send(JSON.stringify({ type: "first_message_update", sessionId: "sess-D", firstMessage: "still-here" }));
+    await until(() => delivered.some((d) => d.msg.firstMessage === "still-here"));
+  });
+});

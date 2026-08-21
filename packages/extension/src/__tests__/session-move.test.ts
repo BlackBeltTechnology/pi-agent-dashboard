@@ -220,3 +220,30 @@ describe("the coordinator refuses to start a move it cannot run safely", () => {
     expect(coord.owner()).toBe("target");
   });
 });
+
+describe("the origin is told where the session went (task 9.3)", () => {
+  it("sends session_moved on the ORIGIN before releasing it", async () => {
+    const { coord, origin, target } = setup();
+    const move = coord.begin({ targetUrl: "ws://target", expectInstanceId: "instance-target" });
+    acceptProvisional(target());
+    await move;
+
+    expect(origin.sent).toContainEqual({
+      type: "session_moved",
+      sessionId: "sess-A",
+      instanceId: "instance-target",
+      endpoint: "ws://target",
+    });
+  });
+
+  it("does not narrate a move that failed", async () => {
+    // A `session_moved` after an abort would mark the session gone on the
+    // dashboard that is still serving it.
+    const { coord, origin, target } = setup();
+    const move = coord.begin({ targetUrl: "ws://target", expectInstanceId: "instance-target" });
+    target().connect();
+    target().inbound?.({ type: "provisional_rejected" });
+    await move;
+    expect(origin.sent.some((m: any) => m?.type === "session_moved")).toBe(false);
+  });
+});

@@ -105,10 +105,10 @@
 
 - [ ] 9.1 Write a failing test: moving to a reachable target registers with the target BEFORE the origin connection closes
 - [ ] 9.2 Write a failing test: a completed move sets `pinned`, so the next reconnect returns to the moved-to instance
-- [ ] 9.3 Add a `session_moved` message to the protocol — the only new message type in this change — and have the origin render the session as moved, not crashed
+- [x] 9.3 Add a `session_moved` message to the protocol — the only new message type in this change — and have the origin render the session as moved, not crashed
 - [x] 9.3a **Add a provisional registration mode to the protocol.** A second registration for one `sessionId` is not inert today: same-pid is accepted with no probe (`bridge-contention.ts:81-84`) and `pi-gateway.ts:532` `connections.set()` takes over routing immediately, after which the origin's sends are dropped by the ownership gate (`pi-gateway.ts:493`). A provisional registration SHALL announce intent, return the target's `instanceId`, and claim neither the routing entry nor a contention slot; routing transfers only on explicit commit
 - [x] 9.3a-i Make a refusal on a provisional registration distinguishable from one on a live registration, so it can never set `intentionalClose` on the origin — `connection.ts:451-460` currently treats `register_rejected` as terminal for the session (`pi-gateway.ts:347`)
-- [ ] 9.3a-ii Test the different-pid path explicitly: a move whose target refuses SHALL leave the origin registered and serving
+- [x] 9.3a-ii Test the different-pid path explicitly: a move whose target refuses SHALL leave the origin registered and serving
 - [x] 9.3a-iii Give provisional registrations a **TTL**, discarded on expiry exactly as on failure, so unclaimed provisional state cannot accumulate
 - [x] 9.3a-iv Ensure a provisional refusal does not disclose whether the `sessionId` exists — otherwise the mode is an oracle for enumerating live sessions. Either make refusal causes indistinguishable to the caller, or require proof of session ownership first
 - [x] 9.3a-v Implement the bypass at both named sites: skip `connections.set()` (`pi-gateway.ts:532`) **and** the same-pid fast-accept (`bridge-contention.ts:82-83`)

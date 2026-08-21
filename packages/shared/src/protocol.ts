@@ -698,6 +698,7 @@ export interface PluginPiMessage {
 }
 
 export type ExtensionToServerMessage =
+  | SessionMovedMessage
   | SessionMoveCommitMessage
   | SessionRegisterMessage
   | SessionUnregisterMessage
@@ -778,6 +779,22 @@ export interface TranscriptChunkMessage {
   refused?: { cause: string; reason: string };
 }
 
+
+/**
+ * Bridge -> server: this session has moved to another instance (D11, task 9.3).
+ *
+ * Sent to the ORIGIN in the window between a successful commit and releasing
+ * the origin connection — the only moment both facts are known and the origin
+ * can still be told. Without it the origin sees an abrupt disconnect and
+ * renders a crash.
+ */
+export interface SessionMovedMessage {
+  type: "session_moved";
+  sessionId: string;
+  /** Identity of the instance now serving it; an address would not survive a move. */
+  instanceId: string;
+  endpoint?: string;
+}
 
 /**
  * Bridge -> server: commit a provisional, transferring routing to this socket

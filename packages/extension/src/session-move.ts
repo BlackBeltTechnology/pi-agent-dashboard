@@ -144,6 +144,22 @@ export function createMoveCoordinator(opts: {
 
         if (!outcome.ok) return abort(outcome.cause);
 
+        // Tell the ORIGIN where the session went, in the one window where
+        // both facts are known and it can still be reached: after the commit
+        // succeeded, before its connection is released. Skipping this is what
+        // makes a clean move look like a crash (task 9.3).
+        try {
+          opts.origin.send({
+            type: "session_moved",
+            sessionId: opts.sessionId,
+            instanceId: outcome.instanceId,
+            endpoint: targetUrl,
+          });
+        } catch {
+          // Best-effort: the move already succeeded, and failing to narrate it
+          // must not undo it.
+        }
+
         // The single swap instant. The origin closes only after ownership has
         // already moved, so no frame can be written to a closing socket.
         active = target;

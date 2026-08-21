@@ -120,6 +120,16 @@ export interface DashboardSession {
    * See change: add-pi-gateway-transport-identity (tasks 11.7, 11.8).
    */
   originDeviceId?: string;
+  /**
+   * Set when this session left for another dashboard instance (D11, task 9.3).
+   *
+   * The session's `status` stays `"ended"` — it genuinely did end HERE — but a
+   * plain `ended` with no explanation is indistinguishable from a crash, which
+   * is the exact confusion this field exists to remove. Absent means the
+   * session ended for any other reason.
+   * See change: add-pi-gateway-transport-identity.
+   */
+  movedTo?: { instanceId: string; endpoint?: string; at: number };
   status: SessionStatus;
   model?: string;
   thinkingLevel?: string;
