@@ -11,33 +11,42 @@ The measured failure: a reasoning model exhausts the 16-token output cap on reas
 the stream ends truncated with no text, and *empty* maps onto **wait** — a non-terminal state.
 The machine never converges and never reports.
 
-```
-                    ┌──────────────── agent_end ────────────────┐
-                    ▼                                           │
-   toggle off ──► report(disabled)                              │
-   locked out ──► report(locked-out)                             │
-   named      ──► report(already-named)                          │
-      │ eligible                                                 │
-      ▼                                                          │
-   stop latched? ──► re-resolve ref ──unchanged──► return        │
-      │ not stopped        └── changed ──► clear stop, continue  │
-      ▼                                                          │
-   prefilter (advancing window) ──skip──► report(skipped-prefilter)
-      │ pass                                                     │
-      ▼                                                          │
-   resolve @naming → @fast ──both unset──► STOP + error          │
-      ▼                                                          │
-   deps ready? ──no──► report(not-ready) ─────────────────────── ┤
-      ▼                                                          │
-   streamSimple ──hard err──► STOP + error                       │
-      │            ──soft err──► report(retrying) ────────────── ┤   (no budget spend)
-      ▼                                                          │
-   done.reason?                                                  │
-      ├── "length" | "toolUse" ──► starved  ─┐                   │
-      ├── "stop" + ""           ──► starved  ├─ spend 1 attempt ─┤
-      ├── "stop" + NULL/long    ──► waiting  ─┘                  │
-      │        budget exhausted ──► STOP + error                 │
-      └── "stop" + well-formed  ──► applyName ► TERMINAL         │
+```mermaid
+flowchart TD
+  A["agent_end (terminal turn)"] --> B{inFlight?}
+  B -->|yes| Z1["return — not an attempt, no outcome"]
+  B -->|no| C{toggle on?}
+  C -->|no| D["report(disabled)"]
+  C -->|yes| E{provenance user?}
+  E -->|yes| F["report(locked-out)"]
+  E -->|no| G{already auto-named?}
+  G -->|yes| H["report(already-named)"]
+  G -->|no| I["resolve @naming → @fast"]
+  I --> J{stop latched?}
+  J -->|"ref changed / cause resolved"| K["clear stop: budget reset, error re-armed"]
+  J -->|"unchanged"| L["report(stopped)"]
+  K --> M
+  J -->|"not stopped"| M{prefilter passes?}
+  M -->|no| N["report(skipped-prefilter)"]
+  M -->|yes| O{both roles unset?}
+  O -->|yes| P["STOP + auto_name_error"]
+  O -->|no| Q{deps ready?}
+  Q -->|no| R["report(not-ready) — no budget spent"]
+  Q -->|yes| S["streamSimple (cap 1024, or 2048 once starved)"]
+  S -->|hard error| P
+  S -->|soft error / aborted| T["report(retrying) — no budget spent"]
+  S -->|completed| U{"done.reason"}
+  U -->|"length / toolUse"| V["starved"]
+  U -->|"stop + empty"| V
+  U -->|"stop + NULL / over-long"| W["waiting"]
+  U -->|"stop + well-formed"| X{"still eligible after the await?"}
+  V --> Y["spend 1 attempt"]
+  W --> Y
+  Y --> Y2{"budget exhausted?"}
+  Y2 -->|yes| P
+  Y2 -->|no| Z2["retry on a later turn"]
+  X -->|no| F
+  X -->|yes| AA["applyName — TERMINAL"]
 ```
 
 ## Goals / Non-Goals

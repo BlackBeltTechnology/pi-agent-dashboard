@@ -22,7 +22,7 @@
 import type { AutoNameOutcome } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 
 /** Maximum retained entries. Normative. */
-export const AUTO_NAME_OUTCOME_BOUND = 500;
+const AUTO_NAME_OUTCOME_BOUND = 500;
 
 export interface RetainedOutcome {
   sessionId: string;

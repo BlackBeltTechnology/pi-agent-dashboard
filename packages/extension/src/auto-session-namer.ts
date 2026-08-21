@@ -56,7 +56,7 @@ export const TITLE_MAX_TOKENS_ESCALATED = 2048;
  * a session; equally `waiting` cannot retry forever against a 2048-token
  * ceiling. See design D5.
  */
-export const ATTEMPT_BUDGET = 3;
+const ATTEMPT_BUDGET = 3;
 /** Transcript window: truncate the assistant side so a huge turn can't blow the window. */
 const TRANSCRIPT_SIDE_MAX = 2000;
 /** Transcript window: the user side is bounded far tighter than the assistant side. */
@@ -238,7 +238,7 @@ function errMsg(e: unknown): string {
  * read silently degrades every soft error to "model error".
  * See change: fix-auto-naming-reasoning-model (test-plan #X5).
  */
-export function softErrorReason(ev: any): string {
+function softErrorReason(ev: any): string {
   const candidates = [ev?.errorMessage, ev?.error?.message, ev?.message?.message, ev?.error, ev?.reason];
   for (const c of candidates) {
     if (typeof c === "string" && c.trim()) return c;
@@ -363,7 +363,7 @@ export interface AutoNamerHooks {
  * Every terminal exit path of one attempt reports exactly one of these. The
  * `inFlight` re-entrancy guard is NOT an attempt and is exempt. See design D9.
  */
-export type NameOutcome =
+type NameOutcome =
   | "applied"
   | "waiting"
   | "starved"
@@ -376,7 +376,7 @@ export type NameOutcome =
   | "stopped";
 
 /** Why a session stopped — decides whether re-resolution alone can clear it. */
-export type StopCause = "budget" | "role" | "registry" | "credentials" | "other";
+type StopCause = "budget" | "role" | "registry" | "credentials" | "other";
 
 /**
  * The explicitly enumerated state set carried across a reload and persisted
