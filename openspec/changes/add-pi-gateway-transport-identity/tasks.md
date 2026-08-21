@@ -1,14 +1,14 @@
 ## 1. Lock the current behaviour and the target behaviour in tests
 
-- [ ] 1.1 Write a failing test proving the gateway currently accepts an unauthenticated connection that can register an arbitrary `sessionId` (documents the hole this change closes)
-- [ ] 1.2 Write a failing test for local endpoint resolution: derives from the injected `homedir`, is stable across calls, differs for two distinct HOMEs, and never consults discovery
+- [x] 1.1 Write a failing test proving the gateway currently accepts an unauthenticated connection that can register an arbitrary `sessionId` (documents the hole this change closes)
+- [x] 1.2 Write a failing test for local endpoint resolution: derives from the injected `homedir`, is stable across calls, differs for two distinct HOMEs, and never consults discovery
 - [x] 1.3 Write a failing integration test: a bridge connects over a unix socket and completes `session_register`
 - [x] 1.4 Write a failing test proving WebSocket `ping`/`pong` still resolves the contention probe over a socket transport (guards the `bridge-contention.ts` liveness oracle)
-- [ ] 1.5 Write a failing test for precedence: an explicit endpoint is not replaced by a discovered candidate
-- [ ] 1.6 Write a failing test for stickiness: a registered bridge reconnects to the same instance, and refuses an unverified candidate
-- [ ] 1.7 Write a failing test proving a live socket is never unlinked: a second instance starting on an occupied path aborts with a conflict and leaves the incumbent serving
+- [x] 1.5 Write a failing test for precedence: an explicit endpoint is not replaced by a discovered candidate
+- [x] 1.6 Write a failing test for stickiness: a registered bridge reconnects to the same instance, and refuses an unverified candidate
+- [x] 1.7 Write a failing test proving a live socket is never unlinked: a second instance starting on an occupied path aborts with a conflict and leaves the incumbent serving
 - [x] 1.8 Write a failing test proving a bridge refuses an instance whose identity differs from the rendezvous record, even when the local credential is valid
-- [ ] 1.9 Confirm 1.2–1.8 fail against current `main` for the stated reason, not an unrelated error
+- [x] 1.9 Confirm 1.2–1.8 fail against current `main` for the stated reason, not an unrelated error
 
 ## 2. Rendezvous and local socket transport (D0, D1, D2, D9, D15)
 
@@ -41,7 +41,7 @@
 - [x] 2.6 **Construct `ConnectionManager` with the `ws` package as `WebSocketImpl`** (already a dep, `packages/extension/package.json:41`). `connection.ts:110` defaults to `globalThis.WebSocket`, which rejects `ws+unix://` with `DOMException: expected a ws: or wss: url`; the same swap is required for the Windows token header
 - [x] 2.6b Re-test reconnect and error paths against the `ws` client — `connection.ts` carries a workaround tuned to the previous implementation's `onerror`-without-`onclose` behaviour
 - [x] 2.7 In the bridge, resolve the socket path and dial `ws+unix://<path>:/`
-- [ ] 2.8 Make 1.2, 1.3, 1.4, 1.7 pass
+- [x] 2.8 Make 1.2, 1.3, 1.4, 1.7 pass
 - [x] 2.9 Make `address()` transport-aware: it returns `addr.port` only when `typeof addr === "object"` (`pi-gateway.ts:235-238`), so a UDS listener would yield `null` and blank the gateway port in the settings UI
 
 ## 3. Endpoint precedence and stickiness (D3, D4)
@@ -50,7 +50,7 @@
 - [x] 3.2 Mark explicitly configured endpoints as pinned, and make pinning a property the connection layer can read
 - [x] 3.3 Refuse any re-target of a pinned endpoint; log both endpoints and the reason
 - [x] 3.4 Track the instance the bridge registered with, and require identity verification before any re-target
-- [ ] 3.5 Make 1.5 and 1.6 pass
+- [x] 3.5 Make 1.5 and 1.6 pass
 - [ ] 3.6 Confirm no delta was introduced on the `mdns-discovery` capability (this change must not collide with `fix-bridge-mdns-migration-hijack`)
 - [ ] 3.7 **Reconcile with `fix-bridge-mdns-migration-hijack` before archiving.** Making explicit endpoints pinned narrows that change's migration scenarios in practice, and both changes touch the same re-target path (`connection.updateUrl`). Re-read its spec at archive time and confirm the merged behaviour is coherent; if it is not, declare the delta rather than leaving the conflict implicit
 - [x] 3.8 Verify identity before adopting the instance named by the record: a bridge SHALL refuse an instance whose identity differs from the recorded one; make 1.8 pass
@@ -81,7 +81,7 @@
 - [x] 6.4 Ensure the durable bearer is never sent over the WebSocket
 - [x] 6.5 Persist the bridge's device credential with `0600`, consistent with existing credential storage
 - [x] 6.6 Add a revocation test: a revoked device cannot obtain a ticket and cannot register
-- [ ] 6.7 Make 1.1 pass in its inverted form — the previously accepted unauthenticated registration is now refused
+- [x] 6.7 Make 1.1 pass in its inverted form — the previously accepted unauthenticated registration is now refused
 
 ## 7. Server identity pinning (D8)
 

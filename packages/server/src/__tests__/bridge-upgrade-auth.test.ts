@@ -261,3 +261,67 @@ describe("the gate on a live TCP gateway (task 6.3)", () => {
     expect(await dial(gw.address() as number, `?ticket=${t}`)).toBe("refused");
   });
 });
+
+/**
+ * #1.1 in its inverted form (task 6.7).
+ *
+ * The hole this change closes: any process that could reach the gateway port
+ * could open `/ws/bridge` and `session_register` a sessionId it had no claim
+ * to — impersonating a session, or squatting an id a real bridge would later
+ * need. The lock asserts the OUTCOME, not the handshake: after the attempt,
+ * the session manager must hold nothing. A test that only asserted "refused"
+ * would still pass if the upgrade were rejected AFTER the register handler had
+ * already run. Flipping `requireTicketOnLoopback` to false makes it fail —
+ * verified, not assumed.
+ */
+describe("an unauthenticated peer cannot register an arbitrary sessionId (tasks 1.1/6.7)", () => {
+  const gateways: Array<{ stop: () => void }> = [];
+  afterEach(() => {
+    for (const g of gateways.splice(0)) g.stop();
+  });
+
+  it("refuses the upgrade and registers no session", async () => {
+    const { createPiGateway } = await import("../pi/pi-gateway.js");
+    const { createMemorySessionManager } = await import("../session/memory-session-manager.js");
+    const { WebSocket } = await import("ws");
+
+    const sessions = createMemorySessionManager();
+    const gw = createPiGateway(sessions, {
+      pingInterval: 0,
+      bridgeAuth: {
+        consumeTicket: (t) => new WsTicketStore().consumeDetailed(t, "bridge"),
+        requireTicketOnLoopback: true,
+        log: () => {},
+      },
+    });
+    gw.start(0, "127.0.0.1");
+    gateways.push(gw);
+    for (let i = 0; i < 100 && gw.address() === null; i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+
+    const victimId = "a-session-id-this-peer-does-not-own";
+    const outcome = await new Promise<"open" | "refused">((resolve) => {
+      const ws = new WebSocket(`ws://127.0.0.1:${gw.address() as number}/ws/bridge`);
+      ws.once("open", () => {
+        ws.send(
+          JSON.stringify({
+            type: "session_register",
+            sessionId: victimId,
+            cwd: "/tmp",
+            pid: process.pid,
+          }),
+        );
+        setTimeout(() => {
+          ws.close();
+          resolve("open");
+        }, 50);
+      });
+      ws.once("error", () => resolve("refused"));
+    });
+
+    expect(outcome).toBe("refused");
+    expect(sessions.get(victimId)).toBeUndefined();
+    expect(sessions.listAll()).toHaveLength(0);
+  });
+});

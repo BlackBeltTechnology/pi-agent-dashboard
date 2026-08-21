@@ -93,3 +93,54 @@ describe("rendezvousEndpoint", () => {
     expect(rendezvousEndpoint(env())?.httpPort).toBe(RECORD.httpPort);
   });
 });
+
+/**
+ * #1.2 — local endpoint resolution is a pure function of the injected HOME.
+ *
+ * The four properties are asserted together because each alone is satisfiable
+ * by a broken implementation: stability alone is satisfied by a constant,
+ * per-HOME distinctness alone by a random value, and both by a cache keyed on
+ * the wrong thing. The last property is the one this change exists for — the
+ * resolver reads the record, and reads NOTHING else.
+ */
+describe("local endpoint resolution derives from the injected homedir (task 1.2)", () => {
+  it("is stable across calls for one HOME", () => {
+    write(JSON.stringify(RECORD));
+    const a = rendezvousEndpoint(env());
+    const b = rendezvousEndpoint(env());
+    expect(a?.endpoint).toBe(b?.endpoint);
+    expect(a?.endpoint).toBe(
+      `ws+unix://${getGatewaySocketPath(env(), RECORD.piPort)}:/`,
+    );
+  });
+
+  it("differs for two distinct HOMEs holding an identical record", () => {
+    const other = fs.mkdtempSync(path.join(os.tmpdir(), "pi-rdv-b-"));
+    try {
+      write(JSON.stringify(RECORD));
+      const otherPath = getRendezvousRecordPath({ homedir: other });
+      fs.mkdirSync(path.dirname(otherPath), { recursive: true });
+      fs.writeFileSync(otherPath, JSON.stringify(RECORD));
+
+      const mine = rendezvousEndpoint(env());
+      const theirs = rendezvousEndpoint({ homedir: other });
+      // Same piPort, same identity, same everything — only HOME differs.
+      expect(mine?.endpoint).not.toBe(theirs?.endpoint);
+    } finally {
+      fs.rmSync(other, { recursive: true, force: true });
+    }
+  });
+
+  it("never consults discovery: no record means no endpoint, not a lookup", () => {
+    // A hostile mDNS responder is irrelevant here because there is nothing to
+    // ask — resolution is filesystem-only by construction.
+    expect(rendezvousEndpoint(env())).toBeNull();
+  });
+
+  it("ignores os.homedir() when a homedir is injected", () => {
+    write(JSON.stringify(RECORD));
+    const resolved = rendezvousEndpoint(env());
+    expect(resolved?.endpoint).toContain(home);
+    expect(resolved?.endpoint).not.toContain(os.homedir());
+  });
+});
