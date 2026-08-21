@@ -2,11 +2,10 @@
  * Pi Gateway - WebSocket server for bridge extension connections.
  */
 
+import type http from "node:http";
 import type { ExtensionToServerMessage, ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type http from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
-import { bindGatewaySocket, unbindGatewaySocket } from "./gateway-socket-bind.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import { getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
 import {
@@ -20,6 +19,7 @@ import {
   type ProbeableSocket,
   resolveProbe,
 } from "./bridge-contention.js";
+import { bindGatewaySocket, unbindGatewaySocket } from "./gateway-socket-bind.js";
 
 /**
  * How many times a contended claim may be re-decided when the routing entry's

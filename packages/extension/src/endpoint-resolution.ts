@@ -21,7 +21,7 @@
  */
 
 /** An endpoint plus the instance identity expected to answer at it. */
-export interface EndpointCandidate {
+interface EndpointCandidate {
   endpoint: string;
   instanceId?: string;
 }
@@ -72,7 +72,7 @@ function present(s: string | undefined): string | undefined {
 }
 
 /** `ws+unix://<path>:/` — the `ws` package's unix-socket URL form. */
-export function socketUrl(socketPath: string): string {
+function socketUrl(socketPath: string): string {
   return `ws+unix://${socketPath}:/`;
 }
 

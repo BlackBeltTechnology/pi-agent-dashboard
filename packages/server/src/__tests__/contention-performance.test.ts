@@ -14,9 +14,9 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
+import { CONTENTION_RATE_LIMIT } from "../pi/bridge-contention.js";
 import { createPiGateway } from "../pi/pi-gateway.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
-import { CONTENTION_RATE_LIMIT } from "../pi/bridge-contention.js";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

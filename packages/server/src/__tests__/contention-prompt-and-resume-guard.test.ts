@@ -10,9 +10,9 @@
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
+import { formatContentionLine, WS_OPEN } from "../pi/bridge-contention.js";
 import { createPiGateway } from "../pi/pi-gateway.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
-import { formatContentionLine, WS_OPEN } from "../pi/bridge-contention.js";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 

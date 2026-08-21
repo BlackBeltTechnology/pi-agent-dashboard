@@ -14,14 +14,15 @@
  * Signal handlers and release-on-exit plumbing live in
  * `home-lock-release.ts` to keep this module pure + testable.
  */
+
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
-import properLockfile from "proper-lockfile";
-import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
-import { isProcessAlive } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+import { isProcessAlive } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
+import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
+import properLockfile from "proper-lockfile";
 import { INSTANCE_ID_HEALTH_FIELD } from "./instance-id.js";
 
 // ──────────────────────────────────────────────────────────

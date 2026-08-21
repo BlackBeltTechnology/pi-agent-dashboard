@@ -2,23 +2,24 @@
  * Unit tests for the per-HOME advisory lock.
  * See change: single-dashboard-per-home.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  acquireOrAttach,
   canonicalHomedir,
   getLockPath,
   getMetaPath,
+  InstanceLockMismatchError,
+  isLockDisabled,
+  isLockHolderResponsive,
+  type LockMetadata,
   readMetadata,
   readMetadataDetailed,
-  writeMetadataAtomic,
   removeMetadata,
-  acquireOrAttach,
-  isLockHolderResponsive,
-  isLockDisabled,
-  InstanceLockMismatchError,
-  type LockMetadata,
+  writeMetadataAtomic,
 } from "../lifecycle/home-lock.js";
 import {
   ensureInstanceId,

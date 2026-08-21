@@ -32,6 +32,7 @@ import { localhostGuard } from "../auth/localhost-guard.js";
 import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
 import type { DirectoryService } from "../directory-service.js";
 import { bootParentPid, computeBootParentAlive, readLivePpid } from "../lifecycle/boot-parent-liveness.js";
+import { ensureInstanceId, instanceIdHealthFields } from "../lifecycle/instance-id.js";
 import { computeEffectiveLaunchSource } from "../lifecycle/launch-source-effective.js";
 import type { EventLoopSpikeMetrics } from "../metrics/eventloop-spike-metrics.js";
 import type { HydrationMetrics } from "../metrics/hydration-metrics.js";
@@ -64,7 +65,6 @@ import { startTunnelWatchdog, stopTunnelWatchdog } from "../tunnel/tunnel-watchd
 import { reserveNameAsync } from "../tunnel-providers/zrok.js";
 import { buildNetworkInterfaceList } from "./network-interfaces.js";
 import type { NetworkGuard } from "./route-deps.js";
-import { ensureInstanceId, instanceIdHealthFields } from "../lifecycle/instance-id.js";
 
 /**
  * `/api/health` → `piRuntime`.

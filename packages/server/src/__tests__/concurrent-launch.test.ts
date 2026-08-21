@@ -11,10 +11,11 @@
  *
  * See change: single-dashboard-per-home, task 12.1.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { acquireOrAttach, InstanceLockMismatchError } from "../lifecycle/home-lock.js";
 
 let tmpHome: string;
