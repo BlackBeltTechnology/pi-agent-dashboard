@@ -828,3 +828,71 @@ describe("publicBaseUrls promotion", () => {
     expect(loadConfig().publicBaseUrls).toBeUndefined();
   });
 });
+
+// See change: lazy-load-session-history. The whole point of the default is that
+// an upgrade changes nothing, so #E1/#E5 are the load-bearing rows: absent and
+// explicit-0 must BOTH mean unlimited, and 0 must never clamp up.
+describe("loadConfig memoryLimits.maxReplayEvents", () => {
+  let testDir: string;
+  let configFile: string;
+  let origHome: string;
+
+  beforeEach(() => {
+    testDir = path.join(os.tmpdir(), `test-config-mre-${Date.now()}`);
+    fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
+    configFile = path.join(testDir, ".pi", "dashboard", "config.json");
+    origHome = process.env.HOME!;
+    process.env.HOME = testDir;
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true });
+  });
+
+  const writeLimits = (limits: Record<string, unknown>) =>
+    fs.writeFileSync(configFile, JSON.stringify({ memoryLimits: limits }));
+
+  // #E1
+  it("maxReplayEvents defaults to 0 when absent, leaving siblings untouched", () => {
+    writeLimits({ maxEventsPerSession: 12345, maxStringFieldSize: 77, maxWsBufferBytes: 999 });
+    const limits = loadConfig().memoryLimits;
+    expect(limits.maxReplayEvents).toBe(0);
+    expect(limits.maxEventsPerSession).toBe(12345);
+    expect(limits.maxStringFieldSize).toBe(77);
+    expect(limits.maxWsBufferBytes).toBe(999);
+  });
+
+  // #E2, #E3, #E4 — the MIN_REPLAY_WINDOW boundary, both sides plus the point.
+  it.each([
+    [99, 100],
+    [100, 100],
+    [101, 101],
+  ])("maxReplayEvents %i resolves to %i at the minimum-window boundary", (input, expected) => {
+    writeLimits({ maxReplayEvents: input });
+    expect(loadConfig().memoryLimits.maxReplayEvents).toBe(expected);
+  });
+
+  // #E5 — 0 is "unlimited", not "a tiny window": it must NOT clamp up to 100.
+  it("maxReplayEvents 0 is preserved and never clamped to the minimum window", () => {
+    writeLimits({ maxReplayEvents: 0 });
+    expect(loadConfig().memoryLimits.maxReplayEvents).toBe(0);
+  });
+
+  // #E6, #E7 — a negative or non-numeric value is treated as unset (unlimited),
+  // never clamped up to the minimum window.
+  it.each([
+    ["negative", -1],
+    ["non-numeric string", "500"],
+    ["NaN", Number.NaN],
+    ["Infinity", Number.POSITIVE_INFINITY],
+  ])("maxReplayEvents falls back to 0 for a %s value", (_label, input) => {
+    writeLimits({ maxReplayEvents: input });
+    expect(loadConfig().memoryLimits.maxReplayEvents).toBe(0);
+  });
+
+  it("a fractional maxReplayEvents is floored, not rounded up", () => {
+    writeLimits({ maxReplayEvents: 500.9 });
+    expect(loadConfig().memoryLimits.maxReplayEvents).toBe(500);
+  });
+});

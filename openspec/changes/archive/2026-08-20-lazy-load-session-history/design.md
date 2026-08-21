@@ -235,6 +235,39 @@ Skipping the write makes the next reload a cache MISS → `lastSeq: 0` → full 
 
 Additive throughout. `parseMemoryLimits` defaults `maxReplayEvents` to `0` when absent, so existing `config.json` files load and behave identically. Rollback = set back to `0`. No data migration, no persisted state to unwind.
 
+## Residuals found by the independent review (implementation phase)
+
+Recorded rather than silently fixed: each is a challenge to a DOCUMENTED decision,
+not an implementation defect, and the feature ships default-`0` so the blast
+radius is opt-in only. Fixed during the review loop: a stale scroll anchor left
+armed by a backfill that spliced nothing (`ChatView.tsx`).
+
+- **[The far side of the gap is unreachable over a middle-trimmed store]** — the
+  store trims from the MIDDLE, so a session past `maxEventsPerSession` holds
+  `[1..K] ∪ [L..end]`. The client fills HEAD-ward (`nextBackfillRange` starts at
+  `headMaxSeq + 1`) and D6's stop rule fires on the first `events.length === 0`,
+  which is the hole — so the still-servable block adjacent to the tail can never
+  be fetched, even though `remainingGapCount` truthfully reports it. D6 specifies
+  exactly this rule, so the code is correct against the design; the DESIGN
+  conflates "hit a hole" with "nothing left". Resolve before any non-zero default
+  ships. `oldestGapSeq` (D5) is currently carried on the wire and stored but
+  never read — it is precisely the seed a hole-skipping fill would use.
+- **[The D7 exemption is computed per 500-event chunk, not per stream]** — when a
+  `BACKFILL_MAX_SPAN` boundary splits a text-bearing `message_update` from the
+  `tool_execution_start` it seeds, the update is dropped, where full-stream
+  compaction would have kept it. So D7's "reproduces exactly what the initial
+  replay would have emitted" holds within a chunk, not across one. ~1/500 per
+  tool call, backfilled history only.
+- **[`remainingGapCount` materializes the remaining gap to count it]** —
+  `getEventsRange(...).length` is O(k) per request where the binary search
+  already has both bound indices and `end - start` would be O(log n). Bounded by
+  the store cap and paid once per user click, but it does cut against the D8
+  rationale that motivated the API.
+- **[Settings does not clamp to `MIN_REPLAY_WINDOW` at the point of entry]** — a
+  user typing `99` saves `99` and `parseMemoryLimits` silently loads it as `100`.
+  Cosmetic; the hint copy is fixed by `mockups/ui-plan.md` § B and was not
+  changed to describe the floor.
+
 ## Open Questions
 
 - `HEAD_RATIO` / `HEAD_MIN` / `HEAD_CAP` (D3), `SNAP_LOOKUP` (D4) and `BACKFILL_MAX_SPAN` (D9) are proposed, not measured. Confirm against a real large session before they harden.
