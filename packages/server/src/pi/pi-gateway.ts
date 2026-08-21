@@ -733,7 +733,21 @@ export function createPiGateway(
     },
 
     address() {
-      const addr = socketServer?.address() ?? wss?.address();
+      // BOTH listeners can be bound at once (socket + opt-in TCP, D10). The
+      // numeric port is the load-bearing answer — `server.piPort()` feeds it to
+      // spawned sessions and the health endpoint — so a bound TCP listener is
+      // reported in preference to the socket path, which `transport()` still
+      // reports for display.
+      // `ws` THROWS on address() in noServer mode (socket-only), so this is a
+      // question that must be asked defensively, not a value to read.
+      let tcpAddr: ReturnType<NonNullable<typeof wss>["address"]> | null = null;
+      try {
+        tcpAddr = wss?.address() ?? null;
+      } catch {
+        tcpAddr = null;
+      }
+      if (tcpAddr && typeof tcpAddr === "object") return tcpAddr.port;
+      const addr = socketServer?.address() ?? tcpAddr;
       if (addr && typeof addr === "object") return addr.port;
       // A UDS listener's address() is the socket PATH, not an object. Returning
       // null here blanked the gateway endpoint in the settings UI (task 2.9),

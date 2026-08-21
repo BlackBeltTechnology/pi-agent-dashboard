@@ -31,6 +31,12 @@ services:
       # Ports (entrypoint maps these to pi-dashboard flags).
       DASHBOARD_PORT: "${DASHBOARD_PORT:-8000}"
       PI_GATEWAY_PORT: "${PI_GATEWAY_PORT:-9999}"
+      # The gateway's TCP listener is opt-in since the transport/identity
+      # change: a native start binds the unix socket and no port at all. The
+      # container keeps TCP on, because external pi sessions cannot reach the
+      # socket — bridge authentication is mandatory on that path (D10b).
+      # Set to 0 for a container that only serves sessions started inside it.
+      PI_GATEWAY_TCP: "${PI_GATEWAY_TCP:-1}"
       # Bind host for HTTP + pi gateway. Container must bind 0.0.0.0 so the
       # published ports reach the server inside the container. The native
       # default is loopback; the container declares its exposure here.

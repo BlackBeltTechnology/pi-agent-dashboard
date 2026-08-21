@@ -161,6 +161,12 @@ export interface ServerConfig {
    * next start too. See change: warn-unreachable-trusted-networks.
    */
   hostFlag?: string | null;
+  /**
+   * Bind the gateway's TCP listener. Defaults to the `PI_GATEWAY_TCP` opt-in;
+   * the POSIX default is socket-only (D10, task 8.1). Explicit here so a test
+   * server can exercise the TCP path without mutating process env.
+   */
+  gatewayTcp?: boolean;
   dev: boolean;
   autoShutdown: boolean;
   shutdownIdleSeconds: number;
@@ -2001,7 +2007,40 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         console.warn("[home-lock] could not establish the rendezvous:", err);
       }
 
-      piGateway.start(config.piPort, config.host);
+      // D10/D15 (tasks 8.1, 8.6, 5.2): the default POSIX start binds the unix
+      // socket and NO TCP port. TCP survives as an explicit `PI_GATEWAY_TCP`
+      // opt-in (bridge auth mandatory — section 6) and as the loopback
+      // fallback where a socket is unrepresentable, pinned to 127.0.0.1.
+      {
+        const { resolveLocalGatewayEndpoint } = await import(
+          "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js"
+        );
+        const { decideGatewayListeners, isTcpOptIn } = await import("./pi/gateway-transport-policy.js");
+        const policy = decideGatewayListeners({
+          local: resolveLocalGatewayEndpoint(undefined, config.piPort),
+          tcpOptIn: config.gatewayTcp ?? isTcpOptIn(process.env),
+          host: config.host,
+          piPort: config.piPort,
+        });
+        console.log(`[pi-gateway] ${policy.reason}`);
+        // TCP first: `startOnSocket` installs the shared WebSocketServer, and
+        // `start()` refuses to run after it rather than orphan the listener.
+        if (policy.tcp) piGateway.start(policy.tcp.port, policy.tcp.host);
+        if (policy.socketPath) {
+          try {
+            await piGateway.startOnSocket(policy.socketPath);
+          } catch (err) {
+            // A refused socket bind (a live incumbent — D9) must not leave the
+            // gateway with no listener at all. Fall back to loopback, never to
+            // discovery.
+            console.error(`[pi-gateway] socket bind refused: ${err}`);
+            if (!policy.tcp) {
+              console.warn(`[pi-gateway] falling back to 127.0.0.1:${config.piPort}`);
+              piGateway.start(config.piPort, "127.0.0.1");
+            }
+          }
+        }
+      }
 
       // Load plugin server entries BEFORE fastify.listen() so plugins can
       // register routes. Fastify rejects route registration after listen().

@@ -93,12 +93,12 @@
 
 ## 8. Listener policy and rollout (D10)
 
-- [ ] 8.1 Stop binding the bridge TCP listener by default; make it explicit opt-in
+- [x] 8.1 Stop binding the bridge TCP listener by default; make it explicit opt-in
 - [x] 8.2 Serve socket and TCP bridges through the same connection handler
-- [ ] 8.3 Bridge falls back to TCP when no socket is present, so a new bridge works against an old server
-- [ ] 8.4 Old bridge against a new server keeps working while the TCP listener is enabled
+- [x] 8.3 Bridge falls back to TCP when no socket is present, so a new bridge works against an old server
+- [x] 8.4 Old bridge against a new server keeps working while the TCP listener is enabled
 - [x] 8.5 Record a deprecation horizon for the unauthenticated TCP path, so the fallback does not become permanent
-- [ ] 8.6 **The shipped container default DOES depend on the TCP gateway** — `docker/compose.yml:28` publishes `${PI_GATEWAY_BIND:-0.0.0.0}:${PI_GATEWAY_PORT:-9999}` and `PI_DASHBOARD_HOST` defaults to `0.0.0.0`. Decide and implement one: keep the TCP listener with bridge auth mandatory, or move the container to the socket and update `compose.yml`. The default must not remain an unauthenticated `0.0.0.0:9999`
+- [x] 8.6 **The shipped container default DOES depend on the TCP gateway** — `docker/compose.yml:28` publishes `${PI_GATEWAY_BIND:-0.0.0.0}:${PI_GATEWAY_PORT:-9999}` and `PI_DASHBOARD_HOST` defaults to `0.0.0.0`. Decide and implement one: keep the TCP listener with bridge auth mandatory, or move the container to the socket and update `compose.yml`. The default must not remain an unauthenticated `0.0.0.0:9999`
 - [ ] 8.7 Confirm the socket works under the container's `VOLUME ["/home/pi/.pi"]` mount, or that 2.1b's fallback engages cleanly there
 
 ## 9. Explicit session move (D11)
