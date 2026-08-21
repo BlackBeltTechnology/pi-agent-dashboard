@@ -495,6 +495,10 @@ interface ShellOverlayRouteClaim {
   depth?: 1 | 2;
   /** Back-action parent path pattern for depth-2 routes. See change: fix-plugin-and-scoped-back-navigation. */
   parentPath?: string;
+  /** Container selection: route-backed dialog (default) or full-viewport page.
+   *  First-class only — unlike `path`/`sessionParam` there are no legacy
+   *  manifests carrying it under `config`. See change: add-route-backed-overlay-dialogs. */
+  presentation?: "page" | "dialog";
   /** Legacy fallback: some older manifests put `path` / `sessionParam` under `config`. */
   config?: Record<string, unknown>;
   Component?: React.ComponentType<Record<string, unknown>>;
@@ -520,13 +524,43 @@ function overlaySessionParam(c: ShellOverlayRouteClaim): string {
  * `MobileShell.detailPanel`. The shell falls through to its own rendering
  * when this returns null.
  */
+/**
+ * Props the host's dialog container receives. See `OverlayContainerComponent`.
+ */
+export interface OverlayContainerProps {
+  /** The matched claim, so the host can title the surface or read `depth`. */
+  claim: ShellOverlayRouteClaim;
+  /** Leave this surface. Wired to the slot's `onBack`. */
+  onDismiss: () => void;
+  children: React.ReactNode;
+}
+
+/**
+ * The host-supplied dialog container (in this repo, the client's
+ * `RouteBackedOverlay`).
+ *
+ * **Why injected rather than imported (D2a):** the container needs `Dialog`,
+ * which lives in `client-utils` — and `client-utils` already depends on THIS
+ * package. Importing it back would be a dependency cycle. So this package owns
+ * the decision (which claim matched, what its effective presentation is) and
+ * the host owns the visual shell.
+ */
+export type OverlayContainerComponent = React.ComponentType<OverlayContainerProps>;
+
 export function ShellOverlayRouteSlot({
   onBack,
   registry: registryProp,
+  dialogContainer,
 }: {
   onBack: () => void;
   /** Optional registry override. Same fallback rules as `useShellOverlayRouteMatched`: when omitted, falls back to `useSlotRegistryOrNull()`. */
   registry?: SlotRegistry | null;
+  /**
+   * Container for claims whose effective `presentation` is `"dialog"`.
+   * When omitted, every claim renders in the page container — so a host that
+   * has not opted in behaves exactly as it did before this change.
+   */
+  dialogContainer?: OverlayContainerComponent;
 }) {
   const ctxRegistry = useSlotRegistryOrNull();
   const effective = registryProp ?? ctxRegistry;
@@ -535,7 +569,7 @@ export function ShellOverlayRouteSlot({
   // per claim. The first probe whose route matches reports up via
   // `onMatched`. We render at most one match (first-wins).
   return (
-    <ShellOverlayRouteSwitch claims={claims} onBack={onBack} />
+    <ShellOverlayRouteSwitch claims={claims} onBack={onBack} dialogContainer={dialogContainer} />
   );
 }
 
@@ -625,9 +659,11 @@ function matchWouterPatternWithParams(
 function ShellOverlayRouteSwitch({
   claims,
   onBack,
+  dialogContainer: DialogContainer,
 }: {
   claims: ShellOverlayRouteClaim[];
   onBack: () => void;
+  dialogContainer?: OverlayContainerComponent;
 }) {
   // Compute the first-match synchronously so the first render already has
   // the right claim mounted (no empty flicker). Probes still update the
@@ -691,16 +727,35 @@ function ShellOverlayRouteSwitch({
 
   if (matchedClaimIndex === null) return <>{probes}</>;
   const claim = claims[matchedClaimIndex]!;
+
+  // The height-propagation wrapper is part of the claim's contract, so it is
+  // identical under BOTH containers — a claim that sizes itself against a flex
+  // parent renders the same either way (task 4.2).
+  const body = (
+    <div className="flex-1 min-h-0 relative">
+      <ShellOverlayRouteRender
+        claim={claim}
+        params={matchedParams}
+        onBack={onBack}
+      />
+    </div>
+  );
+
+  // `presentation` defaults to "dialog" (D3); "page" is the explicit opt-out.
+  // With no container injected everything stays on the page path, which is the
+  // pre-change behaviour.
+  const useDialog = (claim.presentation ?? "dialog") === "dialog" && Boolean(DialogContainer);
+
   return (
     <>
       {probes}
-      <div className="flex-1 min-h-0 relative">
-        <ShellOverlayRouteRender
-          claim={claim}
-          params={matchedParams}
-          onBack={onBack}
-        />
-      </div>
+      {useDialog && DialogContainer ? (
+        <DialogContainer claim={claim} onDismiss={onBack}>
+          {body}
+        </DialogContainer>
+      ) : (
+        body
+      )}
     </>
   );
 }

@@ -245,6 +245,40 @@ guaranteed on the next plugin.
 no `shell-overlay-route` claim; that path exists only in stale packaged output
 under `packages/electron/out/`.)
 
+### D2a — The dialog container is injected, not imported
+
+D2 says plugin overlays convert at the slot. They do — but the slot cannot
+import the container it selects.
+
+```mermaid
+flowchart LR
+  CU["client-utils<br/>(owns Dialog)"] --> DPR["dashboard-plugin-runtime<br/>(owns the slot)"]
+  DPR -. "what D2 needs<br/>= cycle" .-> CU
+```
+
+`client-utils` already depends on `dashboard-plugin-runtime`, so a slot-side
+import of `Dialog` (and therefore of `RouteBackedOverlay`) would close a
+dependency cycle. The plan's "single edit in `ShellOverlayRouteSlot`" assumed a
+direction that does not exist.
+
+**Resolution — dependency inversion.** `ShellOverlayRouteSlot` takes an optional
+`dialogContainer` component. This package keeps the decision (which claim
+matched, what its effective `presentation` is); the host supplies the visual
+shell. `App.tsx` injects `RouteBackedOverlay`.
+
+Rejected alternative: return the matched claim from
+`useShellOverlayRouteMatched` and choose the container in `App.tsx`. That is a
+smaller edit but puts the container choice on the WRONG matcher — this file
+already has two. The probes use wouter's real `useRoute`; the hook uses a
+hand-rolled `matchWouterPattern` whose own comment records that it supports "no
+regex parts". They can already disagree, and a claim with a regex segment could
+then render its content in a page wrapper while the slot believed it was a
+dialog. Inversion keeps one source of truth.
+
+**Default when nothing is injected:** the page container. A host that has not
+opted in behaves exactly as it did before this change, so the seam cannot break
+existing embedders or test harnesses.
+
 ### D3 — `presentation?: "page" | "dialog"`, default `"dialog"`
 
 Dialog-ising the slot constrains every third-party overlay's layout. A

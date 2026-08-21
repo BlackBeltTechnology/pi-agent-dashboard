@@ -50,8 +50,8 @@ special-cased (see 5.5). That change will rebase around group 5's
 
 ## 4. Plugin overlays render as dialogs
 
-- [ ] 4.1 Make `ShellOverlayRouteSlot` in `packages/dashboard-plugin-runtime/src/slot-consumers.tsx` select its container from the claim's effective `presentation` — this is the single edit that converts Automation, Goals, KB, and the subagent popout (D2). `flows-plugin` declares no such claim
-- [ ] 4.2 Preserve the existing height-propagation wrapper contract for both containers
+- [x] 4.1 Make `ShellOverlayRouteSlot` in `packages/dashboard-plugin-runtime/src/slot-consumers.tsx` select its container from the claim's effective `presentation` — converts Automation, Goals, KB, and the subagent popout (D2). `flows-plugin` declares no such claim. **NOT a single edit (D2a):** the container is INJECTED via a `dialogContainer` prop, because `client-utils` (home of `Dialog`) already depends on this package and importing it back would be a cycle. Defaults to the page container when nothing is injected
+- [x] 4.2 Preserve the existing height-propagation wrapper contract for both containers
 - [ ] 4.3 Honour `presentation: "page"` on desktop **and** mobile (D3a) — full viewport, outside the `MobileShell` panel
 - [ ] 4.4 Confirm the mobile path still walks the depth table, so group 2's declarations remain load-bearing (D4) — and that the SAME declarations now also feed the cold-load underlay (3.1b)
 - [ ] 4.5 Document `presentation` for plugin authors so the opt-out is discoverable (R3)
