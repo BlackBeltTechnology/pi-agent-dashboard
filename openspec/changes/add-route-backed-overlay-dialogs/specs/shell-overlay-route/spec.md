@@ -13,7 +13,7 @@ slot consumer reads them via the typed `ClaimEntry` contract):
 - `sessionParam: string` (optional, default `"sid"`) — name of the URL parameter that holds the parent session id; used by the slot consumer to resolve `DashboardSession` metadata for the claim.
 - `depth: 1 | 2` (optional) — the shell navigation depth this route occupies for the depth-aware back action (`1` = detail, `2` = overlay-on-detail). When omitted, the route SHALL be treated as `depth: 2` (overlay → cards) and the validator SHALL emit a non-fatal warning advising the author to declare `depth`.
 - `parentPath: string` (optional) — for `depth: 2` routes, the wouter path pattern of the route the back action returns to; `:params` in `parentPath` SHALL be interpolated from the current route match. When omitted, a `depth: 2` route's back target defaults to `/` (cards).
-- `presentation: "page" | "dialog"` (optional, default `"dialog"`) — the container the shell renders the claim in. `"dialog"` SHALL render a route-backed overlay: a `Dialog` over a plain backdrop on desktop, and the `MobileShell` depth slide on mobile. The launching route is NOT kept mounted behind it. `"page"` SHALL render the claim full-viewport on **both** desktop and mobile, outside the `MobileShell` detail panel. An unrecognised value SHALL be a fatal `ManifestValidationError`, NOT a warn-and-default, so a typo cannot silently restore the behaviour the author opted out of.
+- `presentation: "page" | "dialog"` (optional, default `"dialog"`) — the container the shell renders the claim in. `"dialog"` SHALL render a route-backed overlay: a `Dialog` over a scrim over the pinned background underlay on desktop, and the `MobileShell` depth slide on mobile. The underlay SHALL be rendered from the frozen background path captured at navigation time (or, on a cold load, synthesized from the claim's back target), NOT from the current location. `"page"` SHALL render the claim full-viewport on **both** desktop and mobile, outside the `MobileShell` detail panel. An unrecognised value SHALL be a fatal `ManifestValidationError`, NOT a warn-and-default, so a typo cannot silently restore the behaviour the author opted out of.
 
 Each `shell-overlay-route` claim SHALL contribute one route descriptor (`{ pattern: path, depth, computeParent }`) consumed by the back-target route classifier, so the global depth-aware back action resolves plugin routes without any core-shell edit. `depth` remains REQUIRED for `presentation: "page"` claims, because a page has no dialog dismissal and the descriptor table is the only thing driving its back action. `parentPath` is required under exactly the same rule as any other claim — whenever `depth: 2` — and NOT as an extra condition of `"page"`, which would be unsatisfiable for a `depth: 1` claim.
 
@@ -93,10 +93,10 @@ top-level `ClaimEntry` fields. Falling back to `config.path` /
 
 The consumer SHALL select the matched claim's container from its effective `presentation`:
 
-- `"dialog"` (default) — on desktop the claim SHALL render inside a `Dialog` over a plain backdrop. On mobile the claim SHALL render inside the `MobileShell` detail panel at its declared `depth`.
+- `"dialog"` (default) — on desktop the claim SHALL render inside a `Dialog` over a scrim over the pinned background underlay. On mobile the claim SHALL render inside the `MobileShell` detail panel at its declared `depth`.
 - `"page"` — the claim SHALL render full-viewport on desktop AND mobile, outside the `MobileShell` detail panel.
 
-The launching route SHALL NOT remain mounted behind a `"dialog"` claim. This preserves the existing requirement that a matched slot claim SHALL NOT render any lower-priority branch of the shell chain.
+A matched slot claim SHALL NOT render any lower-priority branch of the shell chain **derived from the current location**. The pinned background underlay is not such a branch: it is rendered from a frozen path through a location source independent of `window.location`, so exactly one branch is ever derived from the URL. The underlay SHALL be `aria-hidden`, outside the overlay's focus trap, and non-interactive while the claim is open.
 
 The URL SHALL be identical in every case. Changing a claim's `presentation` SHALL NOT change its path, its deep-linkability, or its browser back behaviour.
 
@@ -141,8 +141,9 @@ Dismissing a `"dialog"` claim (backdrop click, `Esc`, or the close affordance) S
 
 - **GIVEN** the user is on `/folder/<encodedCwd>` on a desktop viewport
 - **WHEN** the user opens the Goals board at `/folder/<encodedCwd>/goals` (a claim with no declared `presentation`)
-- **THEN** the board SHALL render in a `Dialog` over a plain backdrop
-- **AND** the folder view SHALL NOT be rendered behind it
+- **THEN** the board SHALL render in a `Dialog` over a scrim
+- **AND** the folder view SHALL be rendered behind it as the pinned underlay, `aria-hidden` and non-interactive
+- **AND** no branch of the shell chain other than the board SHALL be derived from the current location
 - **AND** the URL SHALL be `/folder/<encodedCwd>/goals`
 
 #### Scenario: Dismissal survives a claim's own internal history pushes

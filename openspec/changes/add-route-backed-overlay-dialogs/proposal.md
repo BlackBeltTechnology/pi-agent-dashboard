@@ -8,19 +8,24 @@ OpenSpec artifact, Goals, the KB, or an Automation board evicts the session or
 folder you were working in, and getting back is a navigation act rather than a
 dismissal.
 
-```
-                         TODAY
-  session ──▶ [Settings replaces everything] ──back──▶ session (if lucky)
-  folder  ──▶ [Goals replaces everything]    ──back──▶ /   ✗ folder lost
+```mermaid
+flowchart LR
+  S["session"] --> SR["Settings replaces everything"]
+  SR -->|back| S2["session (if lucky)"]
+  F["folder"] --> GR["Goals replaces everything"]
+  GR -->|back| X["/ — folder lost"]
 ```
 
 **Scope correction (doubt-review cycle 1).** An earlier draft of this proposal
 claimed the converted surface would render *over a still-mounted* launching
-route. That is not implementable: a URL-backed dialog points the URL at the
-dialog, so the launching route stops matching and cannot render. See design D1.
-This change therefore delivers **dismissal**, not a visible underlay — the
-surface renders in a dialog over a plain backdrop, and dismissing it returns to
-the launching route via history.
+route. That is not implementable **as stated**: a URL-backed dialog points the
+URL at the dialog, so the launching route stops matching and cannot render from
+the URL. Cycle 2 (design D1, option C) resolves this: the launching route is
+captured and **frozen** at navigation time, and the underlay renders from that
+pinned path through a location source independent of `window.location`. So the
+surface renders in a dialog over a scrim over the still-visible launching route,
+and dismissing it returns there. On a cold load, where nothing was captured, the
+underlay is synthesized from the route's own back target.
 
 The last row is not hyperbole. It is a live defect, and it is silent — see
 *The depth defect* below.
@@ -103,17 +108,22 @@ defaults to `/`.
 
 Goal (both claims) and KB declare **neither**:
 
-```
-  /folder/:cwd/goals          ──back──▶  /    ✗ should be /folder/:cwd
-  /folder/:cwd/goals/:goalId  ──back──▶  /    ✗ should be the goals board
-  /folder/:cwd/kb             ──back──▶  /    ✗ should be /folder/:cwd
-  /folder/:cwd/automations    ──back──▶  /    ✓ depth:1, correct
+```mermaid
+flowchart LR
+  G["/folder/:cwd/goals"] -->|back| GX["/ ✗ should be /folder/:cwd"]
+  GD["/folder/:cwd/goals/:goalId"] -->|back| GDX["/ ✗ should be the goals board"]
+  K["/folder/:cwd/kb"] -->|back| KX["/ ✗ should be /folder/:cwd"]
+  A["/folder/:cwd/automations"] -->|back| AX["/ ✓ depth:1, correct"]
 ```
 
-Open Goals from a folder, press back, and the folder is gone. Dialogs fix this
-*structurally* — a dialog closes onto whatever rendered it, so there is no depth
-to declare and no default-to-`/` cliff. The mobile path still walks the depth
-table, so the missing declarations are corrected here as well.
+Open Goals from a folder, press back, and the folder is gone. Dialogs do NOT fix
+this structurally — an earlier draft claimed "a dialog closes onto whatever
+rendered it, so there is no depth to declare", and design D4 refutes it: the
+underlay is a *frozen background path*, not a live parent, so dismissal still
+has to navigate somewhere explicit. The depth table is the source of that target
+on the cold-load path, and under design D1 it also supplies the cold-load
+underlay. The mobile path walks the same table. So the missing declarations are
+load-bearing on every path, and are corrected here.
 
 ### Ten resource routes are one component
 
@@ -139,10 +149,11 @@ affecting the rest.
 ## What Changes
 
 - **A route-backed overlay renderer is introduced.** URL canonical; desktop
-  renders a `Dialog` over a plain backdrop, mobile falls through to the existing
-  `MobileShell` depth slide. The launching route is **not** kept mounted behind
-  the dialog (see design D1); the guarantee is that *dismissal returns to it*,
-  not that it stays visible.
+  renders a `Dialog` over a scrim over a **pinned background underlay**, mobile
+  falls through to the existing `MobileShell` depth slide. The launching route
+  IS kept visible behind the dialog, rendered from a frozen path rather than
+  from the current location (see design D1); dismissal returns to it. The
+  underlay is `aria-hidden`, non-interactive, and retains its scroll position.
 
 - **These surfaces move onto it** (paths unchanged):
   - `/settings/:page/:sub?`
@@ -196,8 +207,12 @@ affecting the rest.
   one task 8.2 gates on.
 - `shell-overlay-route` and `url-routing` each carry an existing requirement that
   a matched overlay SHALL NOT render lower-priority branches (session detail,
-  landing). Rendering the dialog over a plain backdrop keeps both **true as
-  written**; a still-mounted underlay would have contradicted them.
+  landing). This change **amends both** to forbid a branch *derived from the
+  current location*, which preserves their intent — no ambiguous double-match, no
+  two competing readers of the URL — while permitting the pinned, non-URL-derived
+  underlay. `settings-panel` and `file-and-url-preview` carry the same clause and
+  are amended alongside. This is a deliberate re-litigation of the requirements
+  that cycle 1 used to rule the underlay out.
 - Affected code:
   - `packages/dashboard-plugin-runtime/src/slot-consumers.tsx` (`ShellOverlayRouteSlot`)
   - `packages/shared/src/dashboard-plugin/manifest-types.ts` (`presentation`)

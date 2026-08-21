@@ -32,12 +32,16 @@ becomes mandatory.
 
 ## 3. Route-backed overlay renderer
 
-- [ ] 3.1 Build the route-backed overlay renderer: desktop `Dialog` over a plain backdrop, mobile falls through to `MobileShell` depth. This is a NEW mechanism — `OpenSpecArtifactDialog` is local-state and is not a reusable precedent (D1)
+- [ ] 3.1 Build the route-backed overlay renderer: desktop `Dialog` over a scrim over a **pinned background underlay**, mobile falls through to `MobileShell` depth. This is a NEW mechanism — `OpenSpecArtifactDialog` is local-state and is not a reusable precedent (D1)
+- [ ] 3.1a Capture and freeze the background path at navigation time. wouter has no `location.state` background idiom — render the underlay through a nested `<Router hook={memoryLocation({ path, static: true }).hook}>` so it reads the frozen path, never `window.location` (D1)
+- [ ] 3.1b Cold-load background: no captured background → synthesize from `computeBackTarget(currentRoute)`; `/` → card list. Never render a second branch derived from the current location (D1)
 - [ ] 3.2 Implement dismissal as "leave this surface", NOT a single `history.back()` — unwind the surface's own pushed entries or navigate to the tracked launching route (D1a)
 - [ ] 3.3 Implement the cold-load dismissal path: no tracked predecessor → resolve the target from the `RouteDescriptor` table, never a no-op
 - [ ] 3.4 Ensure lazy mount on match and full unmount on dismissal — no retained subscriptions or polling behind a closed overlay (R4)
-- [ ] 3.5 Confirm nothing renders behind the dialog, keeping `shell-overlay-route:145` and `url-routing:259+` true as written
-- [ ] 3.6 Decide and implement the backdrop treatment (scrim over blank vs over the card list) — open question in design.md
+- [ ] 3.5 Confirm exactly ONE branch is derived from the current location; the underlay is derived from the frozen path only. `shell-overlay-route:99,145` and `url-routing:5,7` are amended to "derived from the current location" — verify the amended wording holds, not the old wording
+- [ ] 3.6 ~~Backdrop treatment~~ **RESOLVED by D1 revision** (scrim over the pinned underlay, in-app and cold-load alike). Closes test-plan C1
+- [ ] 3.9 Make the underlay `aria-hidden`, outside the overlay focus trap, and non-interactive; retain its scroll position for the overlay's lifetime (D1 cost)
+- [ ] 3.10 Handle a frozen background path that goes invalid mid-overlay (session ends / folder removed): underlay may go stale behind the scrim, but dismissal SHALL still resolve through normal route matching (D1 open question)
 - [ ] 3.7 Use an existing `--z-*` token rather than a raw z-index so `scripts/z-layer-lint.mjs` stays green
 - [ ] 3.8 Unit-test the renderer against the `url-routing` "Route-backed overlay container" scenarios
 
@@ -46,7 +50,7 @@ becomes mandatory.
 - [ ] 4.1 Make `ShellOverlayRouteSlot` in `packages/dashboard-plugin-runtime/src/slot-consumers.tsx` select its container from the claim's effective `presentation` — this is the single edit that converts Automation, Goals, KB, and the subagent popout (D2). `flows-plugin` declares no such claim
 - [ ] 4.2 Preserve the existing height-propagation wrapper contract for both containers
 - [ ] 4.3 Honour `presentation: "page"` on desktop **and** mobile (D3a) — full viewport, outside the `MobileShell` panel
-- [ ] 4.4 Confirm the mobile path still walks the depth table, so group 2's declarations remain load-bearing (D4)
+- [ ] 4.4 Confirm the mobile path still walks the depth table, so group 2's declarations remain load-bearing (D4) — and that the SAME declarations now also feed the cold-load underlay (3.1b)
 - [ ] 4.5 Document `presentation` for plugin authors so the opt-out is discoverable (R3)
 - [ ] 4.6 Enforce in the validator the rule the specs now state: `presentation: "page"` requires `depth`; `parentPath` is required whenever `depth: 2` (not as an extra `"page"` condition); and a claim nested under `/folder/:cwd` or `/session/:id` must not declare `depth: 1`
 - [ ] 4.7 Extend e2e coverage of `shell-overlay-route` claims beyond the automation board (`tests/e2e/automation-fanout.spec.ts:94` is the only existing one); `blackhole-plugin`, the assumed canary, declares only a `settings-section` claim
@@ -110,7 +114,8 @@ pointer to copy glue from, the scenario Triple, and its manifest id.
 ### 10b. Overlay container — L3 (`tests/e2e/openspec-artifact-dialog.spec.ts` is the nearest dialog exemplar; `tests/e2e/overlay-layering.spec.ts` for layering; `tests/e2e/navigation.spec.ts` for route walking)
 
 - [ ] 10.7 Settings renders in a dialog container on desktop. Triple: desktop viewport at /session/<id> · navigate to /settings/general · settings renders in a dialog, URL exactly /settings/general (test-plan #S-07, blocked on clarification C1). See `tests/e2e/openspec-artifact-dialog.spec.ts`
-- [ ] 10.8 No lower-priority branch renders behind the dialog. Triple: desktop at /settings/general · surface rendered · session-detail content absent from the DOM (test-plan #S-08). See `tests/e2e/openspec-artifact-dialog.spec.ts`
+- [ ] 10.8 The underlay is the pinned background, not a second URL-derived branch. Triple: desktop at /settings/general opened from /session/<id> · surface rendered · session detail IS present as the underlay, `aria-hidden` and non-interactive, and is derived from the frozen path (navigating the URL to another overlay does not change it) (test-plan #S-08, rewritten by the D1 revision). See `tests/e2e/openspec-artifact-dialog.spec.ts`
+- [ ] 10.8a Cold load synthesizes the underlay from the back target. Triple: fresh goto /settings/security, no predecessor · render · underlay matches `computeBackTarget("/settings/security")` (test-plan #S-08b, new). See `tests/e2e/navigation.spec.ts`
 - [ ] 10.9 Esc returns to the launching route. Triple: opened /settings/general from /session/<id> · press Esc · URL returns to /session/<id> and chat renders (test-plan #S-09, see clarification C2). See `tests/e2e/navigation.spec.ts`
 - [ ] 10.10 One dismissal leaves the surface even after an in-panel history push. Triple: opened /settings/general from /session/<id> then navigated to /settings/plugins/<id> · press Esc once · URL returns to /session/<id>, not /settings/general (test-plan #S-10). See `tests/e2e/plugin-settings-pages.spec.ts`
 - [ ] 10.11 Cold-loaded surface dismisses via the descriptor table. Triple: fresh goto /settings/security with no predecessor · dismiss · resolves a defined target, not a no-op (test-plan #S-11). See `tests/e2e/navigation.spec.ts`
@@ -142,7 +147,7 @@ pointer to copy glue from, the scenario Triple, and its manifest id.
 
 ### 10f. Lifecycle and performance
 
-- [ ] 10.28 A dismissed overlay releases its subscriptions. Triple: converted surface holding a live subscription · dismiss · unmounts and unsubscribes (assert the unsubscribe call, not a timer) (test-plan #S-28). L1, see `packages/client/src/lib/__tests__/back-regression.test.ts` for the module-level harness idiom
+- [ ] 10.28 A dismissed overlay releases its subscriptions. Triple: converted surface holding a live subscription · dismiss · unmounts and unsubscribes (assert the unsubscribe call, not a timer) (test-plan #S-28, re-scoped by the D1 revision to release-on-dismiss only — an OPEN overlay now deliberately retains the underlay's subscriptions). L1, see `packages/client/src/lib/__tests__/back-regression.test.ts` for the module-level harness idiom
 - [ ] 10.29 Overlay open latency stays within budget. Triple: desktop with a session open · open+dismiss settings 20x · p95 open-to-rendered under the stated budget (test-plan #S-29, blocked on clarification C5). L3, see `tests/e2e/chat-render-perf.spec.ts`
 - [ ] 10.30 Repeated open/dismiss does not leak. Triple: open+dismiss each converted surface 100x · measure RSS before/after · growth under the stated budget (test-plan #S-30, blocked on clarification C5). L2, see `qa/tests/16-e2e-memory-bound.sh`
 

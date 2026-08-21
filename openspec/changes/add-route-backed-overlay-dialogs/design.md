@@ -9,13 +9,11 @@ it.
 
 Three containers already exist in-tree and are used inconsistently:
 
-```
-        ROUTE                 SPLIT PANE                DIALOG
-   ┌──────────────┐      ┌──────────────┐       ┌──────────────┐
-   │ deep-linkable│      │ side-by-side │       │ modal, short │
-   │ back/forward │      │ keeps context│       │ dismiss=done │
-   │ own scroll   │      │ resizable    │       │ no deep link │
-   └──────────────┘      └──────────────┘       └──────────────┘
+```mermaid
+flowchart LR
+  R["ROUTE<br/>deep-linkable<br/>back/forward<br/>own scroll"]
+  SP["SPLIT PANE<br/>side-by-side<br/>keeps context<br/>resizable"]
+  D["DIALOG<br/>modal, short<br/>dismiss = done<br/>no deep link"]
 ```
 
 The third column's "no deep link" is an assumption, not a constraint —
@@ -38,11 +36,14 @@ The third column's "no deep link" is an assumption, not a constraint —
 
 ## Decisions
 
-### D1 — Route-backed overlay: URL canonical, no visible underlay
+### D1 — Route-backed overlay: URL canonical, underlay from a frozen background
 
-**Corrected in doubt-review cycle 1.** The original D1 asserted a `Dialog`
-*"over context"* with the launching route still mounted. Two independent
-adversarial reviews disproved it, and the code confirms them:
+**Revised in cycle 2 (option C).** Cycle 1 corrected the original "dialog over
+still-mounted work" claim and landed on *no underlay at all*. Cycle 2 keeps
+cycle 1's diagnosis — which is correct — but rejects its conclusion, because the
+blocker it rested on turned out to be answerable.
+
+Cycle 1's reasoning, still valid as far as it goes:
 
 ```
 App.tsx:2333  {!folderEditorCwd && !settingsMatch && !tunnelSetupMatch && ( … )}
@@ -65,29 +66,90 @@ OpenSpecArtifactDialog.tsx:16  "local-state Dialog … (URL unchanged)"
 "URL unchanged" means the URL never moves at all. It works *because* it is not
 route-backed — the opposite of what was claimed.
 
-**Decision: keep the URL, drop the underlay.** Desktop renders the surface in a
-`Dialog` over a plain backdrop; mobile is unchanged (`MobileShell` depth slide);
-dismissal returns to the launching route.
+**Where cycle 1 went wrong.** It concluded the underlay is *"not implementable
+without a second, URL-independent rendering source"* — and treated that as
+disqualifying. The premise is right; the conclusion does not follow, because the
+router ships exactly such a source.
 
-**What this costs.** The headline "never lose your place" narrows to "dismissal
-reliably returns you". The user's work is not visible behind the dialog. Much of
-that guarantee is already delivered by the depth/`parentPath` fixes in groups
-1–2, so the container refactor's remaining value is consistent dismissal
-affordances (`Esc` / backdrop / ✕ on every converted surface) plus a scoped
-container instead of a full-bleed page. A real but modest win — stated plainly
-so the scope can be re-cut if it stops paying.
+The app uses **wouter 3.9** (`packages/client/package.json:78`), mounted once at
+`main.tsx:177`. A wouter subtree reads its location from whatever `<Router hook>`
+is above it, and `wouter/memory-location` supplies a hook pinned to a fixed path.
+So a second, deliberately URL-independent tree is a library primitive:
 
-**What this buys back.** `shell-overlay-route:145` ("SHALL NOT render any of the
-lower-priority branches … session detail") and `url-routing:259+` forbid
-rendering a lower-priority branch while an overlay matches. A still-mounted
-underlay would have contradicted both. A plain backdrop keeps them true as
-written.
+```tsx
+// underlay — reads a FROZEN path, never window.location
+<Router hook={memoryLocation({ path: backgroundPath, static: true }).hook}>
+  <SessionOrFolderCascade />
+</Router>
+
+// overlay — reads the real browser location, as today
+<Dialog open>{overlayForCurrentLocation()}</Dialog>
+```
+
+**Decision: keep the URL AND keep the underlay, sourced from a frozen background
+path.** On navigation to a converted surface the launching location is captured
+and pinned. The underlay renders from that pinned path; the overlay renders from
+`window.location`. Desktop shows a `Dialog` over a scrim over the pinned
+underlay; mobile is unchanged (`MobileShell` depth slide); dismissal returns to
+the launching route.
+
+**Cold load** (`page.goto("/settings/security")`) has no captured background.
+The background is then synthesized from `computeBackTarget(currentRoute)` — the
+descriptor table group 2 just made correct for every nested claim. This makes
+groups 1–2 *more* load-bearing, not less: the same `depth`/`parentPath`
+declarations that fix the back action also choose what renders behind on a cold
+load. If the computed target is `/`, the underlay is the card list.
+
+**What this costs.** Two mounted trees. Specifically:
+
+- Memory and render cost of keeping the launching surface mounted while an
+  overlay is open. R4's "no retained subscriptions behind a *closed* overlay"
+  still holds; an *open* overlay now deliberately retains them.
+- **Live-vs-frozen skew.** The underlay keeps rendering a live component tree
+  against a frozen path. A session that ends, or a folder deleted, while the
+  overlay is open leaves the underlay showing stale or error state. It is behind
+  a scrim and non-interactive, so the accepted behaviour is: let it go stale,
+  and let the dismissal navigation resolve it — dismissal targets the launching
+  route, which will then legitimately 404/redirect through the normal path.
+- **Focus and a11y are now load-bearing.** Two trees means the underlay MUST be
+  `aria-hidden` and outside the focus trap. With no underlay this was free.
+- **Scroll retention.** The underlay's scroll position must survive the
+  overlay's lifetime.
+
+**What this costs in specs.** Four spec deltas assert the launching route is not
+rendered behind (`shell-overlay-route:99,145`, `url-routing:5,7,38`,
+`settings-panel:4,111`, `file-and-url-preview:7`). These narrow to forbid
+rendering a lower-priority branch **derived from the current location** —
+preserving the actual intent (no ambiguous double-match, no two competing
+readers of the URL) while permitting a deliberately pinned, non-URL-derived
+underlay. This is a real re-litigation of the requirements cycle 1 used to kill
+the idea, and is stated explicitly rather than quietly.
+
+**What this buys.** The change delivers the motivation in its own proposal —
+stop context eviction on read-and-return surfaces — instead of narrowing to
+"dismissal reliably returns you", which groups 1–2 already delivered. Under
+cycle 1's decision the remaining value was consistent dismissal affordances plus
+a scoped container: a real but modest win, and one that did not obviously
+justify converting ten surfaces.
 
 Rejected alternatives:
-- **Render the nav-tracker predecessor underneath** — true overlay, but requires
-  App.tsx to render two routes at once from two sources, needs a cold-load
-  fallback when no predecessor exists (`page.goto("/settings/security")`), and
-  contradicts the two requirements above.
+- **No underlay at all (cycle 1's decision, "option A")** — safest, zero routing
+  risk, keeps all four spec deltas verbatim. Rejected because it is also the
+  least valuable: by its own admission the headline benefit narrows to something
+  groups 1–2 already shipped. Remains the fallback if the double-mount cost is
+  judged unacceptable — but then the change should be re-cut and renamed.
+- **URL-less local-state dialogs ("option B")** — the underlay comes free and
+  routing risk is nil, but addressability dies for ten surfaces: deep links,
+  refresh, and share stop working; ~13 e2e `goto`s break, which is precisely the
+  falsification test task 8.2 / S-31 defines; browser Back and `MobileShell`
+  depth (`mobile-depth.ts` keys off route matches — no match, no depth-2 panel,
+  no swipe-back) both become undesigned. A defensible product direction, but a
+  different change from this one.
+- **Render the *live* nav-tracker predecessor underneath** — this is what cycle 1
+  rejected, and rejecting it was right. Reading the tracker live means the
+  underlay changes as the stack mutates, and the tracker is documented as "a
+  hint" (`nav-tracker.ts`). The fix is to *freeze* the background at push time,
+  which is what this decision does. The distinction is the whole of option C.
 - **Nest the URLs** (`/session/abc/settings/general`) — underlay comes free, but
   URLs move: ~13 e2e `goto`s and 2 specs break. Defeats the reason for keeping
   URLs canonical.
@@ -168,12 +230,13 @@ dismiss, the descriptor table is the only thing driving their back action.
 ### D4 — Depth declarations stay load-bearing on BOTH paths
 
 An earlier draft argued a dialog "closes onto whatever rendered it", making
-`depth`/`parentPath` structurally moot on desktop. **That followed from the
-underlay premise D1 has now discarded.** With nothing mounted behind the dialog,
-there is no "whatever rendered it" to close onto — the dismissal target must come
-from the tracked launching route, and on a cold load (`page.goto`) there is no
-tracked predecessor at all. In that case the descriptor table is the only source
-of a parent.
+`depth`/`parentPath` structurally moot on desktop. **That is wrong under D1 as
+revised, for a sharper reason than cycle 1 gave.** The underlay is a *frozen
+background path*, not a live parent that the dialog can close onto: dismissal
+still has to navigate somewhere explicit. On the in-app path that target is the
+tracked launching route; on a cold load (`page.goto`) there is no tracked
+predecessor, so the descriptor table is the only source of a parent — and under
+D1's cold-load rule it now also supplies the background the underlay renders.
 
 So `depth` and `parentPath` remain load-bearing on desktop *and* mobile. The
 missing declarations on the Goal, KB, and subagent claims were real defects on
@@ -253,8 +316,9 @@ The `/tunnel-setup` URL is preserved, so `zrok-v2-tunnel.spec.ts`
 (`goto("/tunnel-setup")`) is unaffected. Rejected alternative: folding tunnel
 setup in as a settings page — the URL dies and that e2e breaks.
 
-**This removes the change's sharpest accepted risk.** Dropping the underlay
-dropped the stacking problem with it — see R2.
+**The stacking risk stays retired** — see R2. It is retired by the one-URL-one-
+surface rule, not by the absence of an underlay, so restoring the underlay does
+not bring it back.
 
 ### D6 — The OpenSpec board stays a page; the artifact becomes a dialog
 
@@ -291,8 +355,9 @@ This is a functional regression, not polish. *Mitigation:* dirty-state guard on
 dismiss, with a scenario covering backdrop and Esc independently.
 
 **R2 — Stacking depth. RETIRED.** The earlier draft accepted up to three
-layers. Under D1 (no underlay) route-backed surfaces cannot stack: each owns a
-URL, and only the matching one is mounted. The `useEscapeDismiss` escape-stack
+layers. Route-backed surfaces cannot stack: each owns a URL, and only the
+matching one is mounted. The pinned underlay does not stack either — it is one
+frozen tree beneath one overlay, never a second overlay. The `useEscapeDismiss` escape-stack
 remains relevant only for a genuinely nested, *local-state* dialog opened from
 within a surface (e.g. a confirm prompt) — which is unchanged by this work.
 
@@ -348,10 +413,15 @@ alone:
 - Is the resource scope switch a filter control inside one panel, or two entry
   points into one panel with the scope preset? Affects whether the folder and
   global URLs stay distinct.
-- What renders behind the dialog on a **cold load** (`page.goto("/settings/security")`)?
-  A plain backdrop is the D1 answer, but the visual treatment (scrim over blank,
-  scrim over the card list, or a full-bleed panel that only *looks* like a page)
-  is unresolved and affects whether this change is visible to the user at all.
+- ~~What renders behind the dialog on a **cold load**?~~ **RESOLVED by D1 as
+  revised.** In-app: the frozen background captured at push time. Cold load: the
+  background synthesized from `computeBackTarget(currentRoute)`. The visual
+  treatment follows by construction — a scrim over the pinned underlay, in both
+  cases. This closes test-plan clarification C1.
+- **New, from D1's revision:** what does the underlay show when its frozen path
+  becomes invalid mid-overlay (session ends, folder deleted)? D1 accepts "let it
+  go stale behind the scrim, dismissal resolves it through the normal path", but
+  this has not been observed in practice and deserves a scenario.
 
 ## Deferred findings (doubt-review cycle 1, accepted as trade-offs)
 
