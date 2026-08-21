@@ -112,12 +112,12 @@
 - [x] 9.3a-iii Give provisional registrations a **TTL**, discarded on expiry exactly as on failure, so unclaimed provisional state cannot accumulate
 - [x] 9.3a-iv Ensure a provisional refusal does not disclose whether the `sessionId` exists — otherwise the mode is an oracle for enumerating live sessions. Either make refusal causes indistinguishable to the caller, or require proof of session ownership first
 - [x] 9.3a-v Implement the bypass at both named sites: skip `connections.set()` (`pi-gateway.ts:532`) **and** the same-pid fast-accept (`bridge-contention.ts:82-83`)
-- [ ] 9.3b **Add the overlap capability to `ConnectionManager` — it does not exist today.** `updateUrl()` (`connection.ts:334-340`) sets `this.url` then immediately calls `handleDisconnect()`, tearing down the origin before any target connection exists, and the class holds exactly one `ws`. Implement a provisional second connection that registers on the target and only closes the origin after acknowledgement, aborting back to the origin on failure
-- [ ] 9.3c Specify and test which connection owns the send ring during the overlap, so no prompt is duplicated or dropped mid-move
+- [x] 9.3b **Add the overlap capability to `ConnectionManager` — it does not exist today.** `updateUrl()` (`connection.ts:334-340`) sets `this.url` then immediately calls `handleDisconnect()`, tearing down the origin before any target connection exists, and the class holds exactly one `ws`. Implement a provisional second connection that registers on the target and only closes the origin after acknowledgement, aborting back to the origin on failure
+- [x] 9.3c Specify and test which connection owns the send ring during the overlap, so no prompt is duplicated or dropped mid-move
 - [ ] 9.4 Register the session command in the extension, following the `pi.registerCommand("__dashboard_reload", …)` template at `bridge.ts:1367`
 - [ ] 9.5 Implement `connect <instance>` accepting a socket path, a port, an instance identity, or `default`, resolved through the same ladder as startup
 - [ ] 9.6 Implement `--list` over rendezvous records visible under the current HOME, and `where` reporting endpoint + identity + pinned
-- [ ] 9.7 Refuse a move whose target identity does not verify; leave the existing registration untouched
+- [x] 9.7 Refuse a move whose target identity does not verify; leave the existing registration untouched
 - [ ] 9.8 Warn before a move whose target cannot read the session's `.jsonl` (history and resume will not follow)
 - [ ] 9.9 Make 9.1 and 9.2 pass
 
@@ -168,7 +168,7 @@
 - [x] 12.17 Extend `packages/server/src/__tests__/pi-gateway-consume-pending-attach.test.ts` — socket ownership. Triple: bound gateway socket · stat socket and dir · socket `0600`, dir `0700`. (test-plan #E18)
 - [x] 12.18 Extend `packages/extension/src/__tests__/connection.test.ts` — `ws+unix` client dial regression. Triple: `ConnectionManager` constructed per this change · dial `ws+unix://<path>:/` · connection opens; a build that falls back to `globalThis.WebSocket` fails this test. (test-plan #E19)
 - [x] 12.19 Extend `packages/server/src/__tests__/bridge-contention.test.ts` — provisional TTL boundary. Triple: provisional registration opened · commit at 29s and at 31s · 29s accepted, 31s refused because the provisional was already discarded. (test-plan #E20)
-- [ ] 12.20 New sibling test near `packages/server/src/__tests__/session-file-dedup.test.ts` — registration precedes transfer completion. Triple: remote join with a 44 MB transcript pending · observe timestamps · register-ack strictly precedes transfer-complete. (test-plan #P1)
+- [x] 12.20 New sibling test near `packages/server/src/__tests__/session-file-dedup.test.ts` — registration precedes transfer completion. Triple: remote join with a 44 MB transcript pending · observe timestamps · register-ack strictly precedes transfer-complete. (test-plan #P1)
 - [x] 12.21 Extend `packages/server/src/__tests__/pi-gateway-consume-pending-attach.test.ts`, timed — socket transport parity. Triple: 1000 messages through the send ring over UDS vs TCP · compare p95 · UDS p95 not worse than TCP p95 by more than 20%. (test-plan #P4)
 - [x] 12.22 Extend `packages/server/src/__tests__/pi-gateway-consume-pending-attach.test.ts` — a live socket is never unlinked. Triple: socket path already bound by a live listener · a second instance starts · startup aborts with a conflict naming the path, the incumbent stays bound, its bridges undisturbed. (test-plan #X1)
 - [x] 12.23 Extend `packages/server/src/__tests__/pi-gateway-consume-pending-attach.test.ts` — concurrent bind is serialized. Triple: two instances race to bind one path · simultaneous start · exactly one binds, the other aborts with a conflict, and no live socket file is removed. (test-plan #X2)

@@ -698,6 +698,7 @@ export interface PluginPiMessage {
 }
 
 export type ExtensionToServerMessage =
+  | SessionMoveCommitMessage
   | SessionRegisterMessage
   | SessionUnregisterMessage
   | SessionHeartbeatMessage
@@ -777,6 +778,17 @@ export interface TranscriptChunkMessage {
   refused?: { cause: string; reason: string };
 }
 
+
+/**
+ * Bridge -> server: commit a provisional, transferring routing to this socket
+ * (D11, task 9.3b). Single-use and TTL-bounded; the token is the only proof,
+ * so a commit cannot be replayed after the origin has been released.
+ */
+export interface SessionMoveCommitMessage {
+  type: "session_move_commit";
+  sessionId: string;
+  token: string;
+}
 
 /** Server -> bridge: the provisional was opened. Carries no routing claim. */
 export interface ProvisionalAcceptedMessage {

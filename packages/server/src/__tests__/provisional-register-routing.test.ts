@@ -148,3 +148,78 @@ describe("provisional registration does not claim routing (#X9)", () => {
     expect(sessions.listAll()).toHaveLength(0);
   });
 });
+
+/**
+ * #X8 (task 9.3b) — the commit is the instant routing transfers, end to end.
+ *
+ * Asserted on DELIVERY, not on the reply: the committing socket does not own
+ * the entry when its commit frame arrives, so a gate placed even one branch too
+ * early drops the frame that transfers ownership and the move hangs silently.
+ */
+describe("session_move_commit transfers routing (#X8)", () => {
+  it("moves delivery from the origin to the target, and only on commit", async () => {
+    const { gw, sessions, port, delivered } = await startGateway();
+
+    const origin = await connect(port);
+    origin.send(
+      JSON.stringify({ type: "session_register", sessionId: "sess-M", cwd: "/tmp", source: "tui", pid: 7 }),
+    );
+    await until(() => sessions.get("sess-M")?.source === "tui");
+
+    const target = await connect(port);
+    target.send(
+      JSON.stringify({
+        type: "session_register",
+        sessionId: "sess-M",
+        cwd: "/tmp",
+        source: "tui",
+        pid: 7,
+        provisional: true,
+      }),
+    );
+    const accepted = await nextMessage(target);
+    expect(accepted.type).toBe("provisional_accepted");
+
+    // Pre-commit: the target's traffic is not routable — it owns nothing.
+    target.send(JSON.stringify({ type: "first_message_update", sessionId: "sess-M", firstMessage: "too-early" }));
+    await delay(50);
+    expect(delivered.some((d) => d.msg.firstMessage === "too-early")).toBe(false);
+
+    target.send(JSON.stringify({ type: "session_move_commit", sessionId: "sess-M", token: accepted.token }));
+    await delay(80);
+
+    // Post-commit: the target is served, and the gateway still reports the
+    // session as connected throughout — the move is a handover, not a gap.
+    expect(gw.isSessionConnected("sess-M")).toBe(true);
+    target.send(JSON.stringify({ type: "first_message_update", sessionId: "sess-M", firstMessage: "from-target" }));
+    await until(() => delivered.some((d) => d.msg.firstMessage === "from-target"));
+
+    // And the origin, now displaced, can no longer speak for the session.
+    origin.send(JSON.stringify({ type: "first_message_update", sessionId: "sess-M", firstMessage: "stale-origin" }));
+    await delay(60);
+    expect(delivered.some((d) => d.msg.firstMessage === "stale-origin")).toBe(false);
+  });
+
+  it("refuses a replayed commit token", async () => {
+    const { port } = await startGateway();
+    const origin = await connect(port);
+    origin.send(
+      JSON.stringify({ type: "session_register", sessionId: "sess-R", cwd: "/tmp", source: "tui" }),
+    );
+    await delay(50);
+
+    const target = await connect(port);
+    target.send(
+      JSON.stringify({ type: "session_register", sessionId: "sess-R", cwd: "/tmp", source: "tui", provisional: true }),
+    );
+    const accepted = await nextMessage(target);
+    target.send(JSON.stringify({ type: "session_move_commit", sessionId: "sess-R", token: accepted.token }));
+    await delay(60);
+
+    // A second commit must not re-transfer routing after the origin was released.
+    const replay = await connect(port);
+    replay.send(JSON.stringify({ type: "session_move_commit", sessionId: "sess-R", token: accepted.token }));
+    const reply = await nextMessage(replay);
+    expect(reply.type).toBe("provisional_rejected");
+  });
+});

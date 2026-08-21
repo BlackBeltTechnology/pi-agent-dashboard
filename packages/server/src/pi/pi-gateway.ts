@@ -479,6 +479,38 @@ export function createPiGateway(
             // This is a claim on the routing table, so it is contention-checked
             // too — but a non-register message never displaces a live
             // incumbent, it is simply not routable.
+            // D11 (task 9.3b): the commit is where routing ACTUALLY transfers.
+              // Until this frame lands the origin is still the live bridge, so a
+              // move that never commits is a no-op rather than an outage.
+              if ((msg as { type?: string }).type === "session_move_commit") {
+                const commit = msg as unknown as { sessionId: string; token: string };
+                const verdict = provisionalRegistry.commit(commit.token);
+                if (!verdict.ok) {
+                  // Same detail-free refusal as the provisional itself: a cause
+                  // here would re-open the enumeration oracle (task 9.3a-iv).
+                  ws.send(
+                    JSON.stringify(
+                      provisionalRegistry.refuseForWire({
+                        sessionId: commit.sessionId,
+                        cause: verdict.cause,
+                      }),
+                    ),
+                  );
+                  return;
+                }
+                // Hand over the routing entry. The previous holder is NOT probed or
+                // refused — this is a cooperative handover the origin asked for,
+                // not contention.
+                currentSessionId = commit.sessionId;
+                connections.set(commit.sessionId, ws);
+                resetHeartbeat(commit.sessionId);
+                console.log(`[gateway] session move committed: ${commit.sessionId}`);
+                return;
+              }
+
+            // Dispatched ahead of the auto-placeholder claim below: that branch
+            // handles ANY named message from a socket holding no entry and then
+            // returns, so it would swallow the commit frame outright.
             if (!currentSessionId && "sessionId" in msg && (msg as any).sessionId) {
               const sid: string = (msg as any).sessionId;
               const incumbent = connections.get(sid);
