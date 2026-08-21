@@ -25,7 +25,7 @@ import {
   persistAttachment,
 } from "./ask-user-attachments.js";
 import { registerAskUserTool } from "./ask-user-tool.js";
-import { type AutoNamer, createAutoNamer, type PersistedNamerState, type StreamSimpleFn } from "./auto-session-namer.js";
+import { adoptRestoredNamerState, type AutoNamer, createAutoNamer, type PersistedNamerState, type StreamSimpleFn } from "./auto-session-namer.js";
 import type { BridgeContext } from "./bridge-context.js";
 import { extractFirstMessage, extractLatestTurnWindow, filterHiddenCommands, getCurrentModelString, isHeadlessRpcSession, safeCwd } from "./bridge-context.js";
 import { shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
@@ -863,20 +863,10 @@ function initBridge(pi: ExtensionAPI) {
       // still carried across an in-process RELOAD via `prev.namerState`.
       // See change: fix-auto-naming-reasoning-model (design D7).
       if (msg.type === "auto_name_state_restore") {
-        const s = (msg as any).state;
-        if (s && typeof s === "object" && !autoNamer) {
-          namerState = {
-            hardStopped: !!s.hardStopped,
-            errorEmitted: !!s.errorEmitted,
-            attemptsUsed: Number(s.attemptsUsed) || 0,
-            starvedCount: Number(s.starvedCount) || 0,
-            waitingCount: Number(s.waitingCount) || 0,
-            sawStarved: !!s.sawStarved,
-            stoppedModelRef: s.stoppedModelRef,
-            stopCause: s.stopCause,
-            hasAutoName: false,
-          };
-          prev.namerState = namerState;
+        const adopted = adoptRestoredNamerState((msg as any).state);
+        if (adopted && !autoNamer) {
+          namerState = adopted;
+          prev.namerState = adopted;
         }
         return;
       }

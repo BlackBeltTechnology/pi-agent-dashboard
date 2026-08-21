@@ -423,6 +423,39 @@ export interface PersistedNamerState {
   lastSelfApplied?: string;
 }
 
+/**
+ * Adopt the stop state the server restored from `.meta.json` at register.
+ *
+ * Field-by-field on purpose, and the omissions are the contract: `nameSource`,
+ * `lastSelfApplied` and `hasAutoName` are deliberately NOT adopted, because
+ * reinstating provenance would change the behaviour of the separate auto→`user`
+ * relabel bug (design D8b, tracked as its own investigation). Everything that
+ * describes the STOP — including `stoppedReason`, without which a restarted
+ * session re-reports a generic "stopped" and overwrites the cause-matched
+ * remedy in the diagnostics readout — must be carried.
+ *
+ * Extracted from the bridge handler so the adoption is unit-testable: the
+ * handler is buried inside `activate()`, which is exactly why a dropped field
+ * went unnoticed once already.
+ * See change: fix-auto-naming-reasoning-model (design D7).
+ */
+export function adoptRestoredNamerState(raw: unknown): PersistedNamerState | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const s = raw as Record<string, unknown>;
+  return {
+    hardStopped: !!s.hardStopped,
+    errorEmitted: !!s.errorEmitted,
+    attemptsUsed: Number(s.attemptsUsed) || 0,
+    starvedCount: Number(s.starvedCount) || 0,
+    waitingCount: Number(s.waitingCount) || 0,
+    sawStarved: !!s.sawStarved,
+    stoppedModelRef: typeof s.stoppedModelRef === "string" ? s.stoppedModelRef : undefined,
+    stopCause: typeof s.stopCause === "string" ? (s.stopCause as StopCause) : undefined,
+    stoppedReason: typeof s.stoppedReason === "string" ? s.stoppedReason : undefined,
+    hasAutoName: false,
+  };
+}
+
 export interface AutoNamer {
   /** Run one naming attempt on a terminal turn. Safe to call repeatedly. */
   maybeName: () => Promise<void>;

@@ -11,6 +11,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import {
+  adoptRestoredNamerState,
   buildTranscriptWindow,
   classifyNameChange,
   createAutoNamer,
@@ -1039,5 +1040,74 @@ describe("stripThinkingSuffix", () => {
     });
     expect(seen).toEqual(["claude-haiku"]);
     expect(res).toMatchObject({ ok: true, text: "Auth Refactor" });
+  });
+});
+
+/**
+ * Review round 2: the restore handler must adopt EVERY stop field.
+ *
+ * `stoppedReason` was wired end-to-end except this last hop, so a restarted
+ * session re-reported a generic "stopped" and overwrote the cause-matched
+ * remedy — the round-1 blocking symptom, re-triggered by a restart instead of
+ * by a later turn. The handler lives inside `activate()`, which is why the gap
+ * went unnoticed; the adoption is extracted here so it is directly testable.
+ *
+ * See change: fix-auto-naming-reasoning-model (design D7).
+ */
+describe("adoptRestoredNamerState", () => {
+  const persisted = {
+    hardStopped: true,
+    errorEmitted: true,
+    attemptsUsed: 3,
+    starvedCount: 3,
+    waitingCount: 0,
+    sawStarved: true,
+    stoppedModelRef: "deepseek/deepseek-v4-flash",
+    stopCause: "budget",
+    stoppedReason: "auto-naming stopped after 3 attempts: the model could not emit a title",
+    // Provenance the server also persisted — deliberately NOT adopted.
+    nameSource: "auto" as const,
+    hasAutoName: true,
+    lastSelfApplied: "Bridge Namer Fix",
+  };
+
+  it("carries every STOP field, including the cause-matched reason", () => {
+    expect(adoptRestoredNamerState(persisted)).toMatchObject({
+      hardStopped: true,
+      errorEmitted: true,
+      attemptsUsed: 3,
+      starvedCount: 3,
+      sawStarved: true,
+      stoppedModelRef: "deepseek/deepseek-v4-flash",
+      stopCause: "budget",
+      stoppedReason: "auto-naming stopped after 3 attempts: the model could not emit a title",
+    });
+  });
+
+  it("deliberately does NOT adopt provenance (the D8b scope boundary)", () => {
+    const adopted = adoptRestoredNamerState(persisted)!;
+    expect(adopted.hasAutoName).toBe(false);
+    expect(adopted.nameSource).toBeUndefined();
+    expect(adopted.lastSelfApplied).toBeUndefined();
+  });
+
+  it("a restored stop re-reports the ORIGINAL reason after a restart", async () => {
+    // The resolved ref must still MATCH the one the session stopped on — a
+    // changed ref legitimately clears the stop instead of re-reporting it.
+    const hooks = makeHooks({
+      resolveNamingModel: () => ({ literal: persisted.stoppedModelRef, slot: "naming" }),
+    });
+    const namer = createAutoNamer(hooks, adoptRestoredNamerState(persisted));
+    await namer.maybeName();
+    expect(hooks.reportOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "stopped", reason: persisted.stoppedReason }),
+    );
+  });
+
+  it("tolerates a malformed or absent payload rather than throwing", () => {
+    expect(adoptRestoredNamerState(undefined)).toBeUndefined();
+    expect(adoptRestoredNamerState("nonsense")).toBeUndefined();
+    expect(adoptRestoredNamerState({})).toMatchObject({ hardStopped: false, attemptsUsed: 0 });
+    expect(adoptRestoredNamerState({ attemptsUsed: "3" })).toMatchObject({ attemptsUsed: 3 });
   });
 });
