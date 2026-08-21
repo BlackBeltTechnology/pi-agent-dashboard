@@ -18,8 +18,13 @@ import {
   isLockDisabled,
   InstanceLockMismatchError,
   type LockMetadata,
-} from "../home-lock.js";
-import { ensureInstanceId, getInstanceIdPath } from "../lifecycle/instance-id.js";
+} from "../lifecycle/home-lock.js";
+import {
+  ensureInstanceId,
+  getInstanceIdPath,
+  INSTANCE_ID_HEALTH_FIELD,
+  instanceIdHealthFields,
+} from "../lifecycle/instance-id.js";
 
 // Fresh tmp dir per test → real FS (proper-lockfile needs real FS semantics).
 let tmpHome: string;
@@ -368,5 +373,62 @@ describe("ensureInstanceId", () => {
     const second = ensureInstanceId(env, 9999);
     expect(second).not.toBe(first);
     expect(second.trim()).toBe(second);
+  });
+});
+
+// (test-plan #E6) Health field naming regression — defect B1 / task 2.0e-i.
+//
+// `isLockHolderResponsive` used to read `identity` while the route published
+// nothing of the sort, so the comparison fell through to the PID branch and
+// the verification silently never ran. These tests pin the two ends together:
+// the probe reads the SAME field `/api/health` publishes, and the PID branch
+// is provably not what produced the verdict (the pids deliberately disagree).
+describe("instance id: publish site and probe site agree", () => {
+  const meta = (identity: string): LockMetadata => ({
+    pid: 4242,
+    ppid: 1,
+    httpPort: 8000,
+    piPort: 9999,
+    startedAt: Date.now(),
+    identity,
+    version: "test",
+    url: "http://localhost:8000",
+    hostname: "test-host",
+  });
+
+  it("matches on the published field, not on the pid", async () => {
+    const published = instanceIdHealthFields("instance-A");
+    const verdict = await isLockHolderResponsive(meta("instance-A"), {
+      isProcessAlive: () => true,
+      // Exactly what defaultProbeHealth extracts from the health body.
+      probeHealth: async () => ({
+        running: true,
+        pid: 9999, // deliberately NOT meta.pid — the PID branch would mismatch
+        instanceId: published[INSTANCE_ID_HEALTH_FIELD],
+      }),
+    });
+    expect(verdict).toBe("alive-match");
+  });
+
+  it("mismatches a foreign instance even when the pid happens to match", async () => {
+    const published = instanceIdHealthFields("instance-B");
+    const verdict = await isLockHolderResponsive(meta("instance-A"), {
+      isProcessAlive: () => true,
+      probeHealth: async () => ({
+        running: true,
+        pid: 4242, // same pid — the PID branch would wrongly say alive-match
+        instanceId: published[INSTANCE_ID_HEALTH_FIELD],
+      }),
+    });
+    expect(verdict).toBe("alive-mismatch");
+  });
+
+  it("publishes under `instanceId`, never under `identity`", () => {
+    const fields = instanceIdHealthFields("x");
+    expect(INSTANCE_ID_HEALTH_FIELD).toBe("instanceId");
+    expect(fields).toEqual({ instanceId: "x" });
+    // `identity` is already bound to the Ed25519 object in server.ts; reusing
+    // it here makes every second instance throw InstanceLockMismatchError.
+    expect(fields).not.toHaveProperty("identity");
   });
 });

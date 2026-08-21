@@ -15,7 +15,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { acquireOrAttach, InstanceLockMismatchError } from "../home-lock.js";
+import { acquireOrAttach, InstanceLockMismatchError } from "../lifecycle/home-lock.js";
 
 let tmpHome: string;
 let lockPath: string;

@@ -11,7 +11,7 @@ import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { isLockDisabled, acquireOrAttach } from "../home-lock.js";
+import { isLockDisabled, acquireOrAttach } from "../lifecycle/home-lock.js";
 
 let tmpHome: string;
 let lockPath: string;

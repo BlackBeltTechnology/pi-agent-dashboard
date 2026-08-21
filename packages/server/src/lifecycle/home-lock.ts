@@ -21,6 +21,7 @@ import { randomUUID } from "node:crypto";
 import properLockfile from "proper-lockfile";
 import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
 import { isProcessAlive } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
+import { INSTANCE_ID_HEALTH_FIELD } from "./instance-id.js";
 
 // ──────────────────────────────────────────────────────────
 // Types
@@ -80,7 +81,16 @@ export interface AcquireHooks {
   hostname?: () => string;
   lockPath?: string;
   metaPath?: string;
-  probeHealth?: (port: number) => Promise<{ running: boolean; pid?: number; identity?: string } | null>;
+  probeHealth?: (
+    port: number,
+  ) => Promise<{
+    running: boolean;
+    pid?: number;
+    /** The rendezvous instance id as published by `/api/health`. */
+    instanceId?: string;
+    /** Legacy field, read only for dashboards predating `instanceId`. */
+    identity?: string;
+  } | null>;
   isProcessAlive?: (pid: number) => boolean;
   /** Stale threshold forwarded to `proper-lockfile`. Default 10s. */
   staleMs?: number;
@@ -214,10 +224,17 @@ export async function isLockHolderResponsive(
   const res = await probe(meta.httpPort);
   if (!res || !res.running) return "dead";
 
-  // Identity check: `identity` field is preferred; fall back to PID match
-  // to stay compatible with older dashboards that predate identity.
-  if (res.identity) {
-    return res.identity === meta.identity ? "alive-match" : "alive-mismatch";
+  // Identity check: the rendezvous instance id is preferred; fall back to PID
+  // match to stay compatible with older dashboards that predate it.
+  //
+  // `res.instanceId` is the field `/api/health` publishes (see
+  // `instance-id.ts`); `res.identity` is only read for a dashboard predating
+  // that rename. Reading a name the health route does not publish would fall
+  // through to the PID branch and silently skip the verification entirely
+  // (task 2.0e-i).
+  const published = res.instanceId ?? res.identity;
+  if (published) {
+    return published === meta.identity ? "alive-match" : "alive-mismatch";
   }
   if (typeof res.pid === "number") {
     return res.pid === meta.pid ? "alive-match" : "alive-mismatch";
@@ -236,8 +253,17 @@ async function defaultProbeHealth(port: number) {
       signal: AbortSignal.timeout(1500),
     });
     if (res.ok) {
-      const body = (await res.json()) as { pid?: number; identity?: string };
-      return { running: true, pid: body.pid, identity: body.identity };
+      const body = (await res.json()) as {
+        pid?: number;
+        identity?: string;
+        [INSTANCE_ID_HEALTH_FIELD]?: string;
+      };
+      return {
+        running: true,
+        pid: body.pid,
+        instanceId: body[INSTANCE_ID_HEALTH_FIELD],
+        identity: body.identity,
+      };
     }
   } catch {
     /* fall through */

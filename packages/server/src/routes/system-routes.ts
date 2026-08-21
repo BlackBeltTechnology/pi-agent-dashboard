@@ -64,6 +64,7 @@ import { startTunnelWatchdog, stopTunnelWatchdog } from "../tunnel/tunnel-watchd
 import { reserveNameAsync } from "../tunnel-providers/zrok.js";
 import { buildNetworkInterfaceList } from "./network-interfaces.js";
 import type { NetworkGuard } from "./route-deps.js";
+import { ensureInstanceId, instanceIdHealthFields } from "../lifecycle/instance-id.js";
 
 /**
  * `/api/health` → `piRuntime`.
@@ -764,6 +765,12 @@ export function registerSystemRoutes(
     return {
       ok: true,
       pid: process.pid,
+      // Rendezvous instance id (NOT the Ed25519 `identity`): names which
+      // same-HOME instance answered, so a bridge can tell its own dashboard
+      // from a foreign listener on a recycled port. An IDENTIFIER, never a
+      // credential — this route has no preHandler, so the value is public.
+      // See change: add-pi-gateway-transport-identity (D14).
+      ...instanceIdHealthFields(ensureInstanceId(undefined, config.piPort)),
       // launchSource: single source of truth for arm-aware client gating
       // (e.g. hide pi-core update UI under Electron, since bundled
       // node_modules/ is read-only). See change:

@@ -69,6 +69,26 @@ export function ensureInstanceId(env: DashboardPathsEnv | undefined, piPort: num
   return id;
 }
 
+/**
+ * The `/api/health` fields carrying the rendezvous instance id.
+ *
+ * SINGLE PUBLISH SITE, deliberately. `home-lock`'s liveness probe compares the
+ * record's `identity` against a health field; publishing under a name the probe
+ * does not read makes the comparison fall through to the PID branch and the
+ * verification silently never runs (task 2.0e-i). Both sides go through this
+ * helper so the names cannot drift apart.
+ *
+ * NOT `identity`: `server.ts` already binds that name to the Ed25519 object,
+ * and reusing it would make every second instance throw
+ * `InstanceLockMismatchError` instead of attaching (task 2.0e).
+ */
+export const INSTANCE_ID_HEALTH_FIELD = "instanceId" as const;
+
+/** The health-payload fragment that publishes the instance id. */
+export function instanceIdHealthFields(instanceId: string): { instanceId: string } {
+  return { [INSTANCE_ID_HEALTH_FIELD]: instanceId };
+}
+
 /** Read a persisted id, or `null` when absent, empty, or unreadable. */
 function readInstanceId(file: string): string | null {
   try {
