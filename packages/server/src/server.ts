@@ -1984,6 +1984,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           piPort: config.piPort,
           version: pkgVersion,
           identity: ensureInstanceId(undefined, config.piPort),
+          // NO signal handlers. `installReleaseHandlers` ends in
+          // `process.exit(0)`, and `cli.ts` already owns SIGTERM/SIGINT
+          // (`recordExitIntent` → `flush` → exit). A second exit-forcing
+          // handler registered from inside `start()` races that teardown and
+          // can cost the exit-intent record. Release happens in `stop()`; a
+          // record left behind by a signal is safe, because every reader
+          // verifies liveness + identity before trusting it, and the next
+          // starter takes over through acquire-then-verify.
+          installHandlers: false,
         });
         console.log(`[home-lock] rendezvous mode: ${homeRendezvous.mode}`);
       } catch (err) {

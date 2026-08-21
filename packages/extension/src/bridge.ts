@@ -2565,26 +2565,27 @@ function initBridge(pi: ExtensionAPI) {
       endpointChoice.source === "rendezvous-record" &&
       rendezvous?.instanceId
     ) {
-      void verifyInstanceIdentity({
-        healthUrl: healthUrlForInstance(rendezvous.httpPort),
-        expectedInstanceId: rendezvous.instanceId,
-      })
-        .then((verdict) => {
-          if (verdict.adopt) {
-            registeredInstanceId = rendezvous.instanceId;
-            return;
-          }
-          console.error(`[dashboard] instance verification ${verdict.reason} — disconnecting`);
-          registeredInstanceId = undefined;
-          try {
-            connection.disconnect();
-          } catch {
-            /* already down */
-          }
-        })
-        .catch(() => {
-          /* `verifyInstanceIdentity` already collapses every failure to a refusal */
+      const verifyRecordedInstance = async () => {
+        const verdict = await verifyInstanceIdentity({
+          healthUrl: healthUrlForInstance(rendezvous.httpPort),
+          expectedInstanceId: rendezvous.instanceId,
         });
+        if (verdict.adopt) {
+          registeredInstanceId = rendezvous.instanceId;
+          return;
+        }
+        console.error(`[dashboard] instance verification ${verdict.reason} — disconnecting`);
+        registeredInstanceId = undefined;
+        try {
+          connection.disconnect();
+        } catch {
+          /* already down */
+        }
+      };
+      // Guarded discard: the verification runs alongside the connection and
+      // must never take the host pi agent down, but its failure must still be
+      // OBSERVED rather than dropped on the floor.
+      void verifyRecordedInstance().catch((err) => console.error("[dashboard]", err));
     }
 
     // Extract first message (sessionFile/sessionDir already extracted above)
