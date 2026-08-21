@@ -610,6 +610,41 @@ export function useShellOverlayRouteMatched(registry?: SlotRegistry | null): boo
   return matched;
 }
 
+/**
+ * Effective `presentation` of the matched `shell-overlay-route` claim, or
+ * `null` when none matches.
+ *
+ * The shell needs this in `App.tsx`'s body — BEFORE it renders — to pick the
+ * mobile layout: a `"page"` claim renders full-viewport OUTSIDE the
+ * `MobileShell` detail panel, while a `"dialog"` claim renders inside it at its
+ * declared depth (D3a). Same registry-argument rules as
+ * `useShellOverlayRouteMatched`.
+ *
+ * **Known caveat (D2a):** this shares `matchWouterPattern` with
+ * `useShellOverlayRouteMatched`, which supports `:param` but not wouter's regex
+ * segments, whereas the in-slot probes use the real `useRoute`. For a claim
+ * using a regex segment the two could disagree, giving page layout with a
+ * dialog container or vice versa. No bundled claim uses one today; fixing the
+ * divergence means routing both through the router's own parser and is
+ * deliberately out of this change's scope.
+ *
+ * See change: add-route-backed-overlay-dialogs.
+ */
+export function useShellOverlayRoutePresentation(
+  registry?: SlotRegistry | null,
+): "page" | "dialog" | null {
+  const ctxRegistry = useSlotRegistryOrNull();
+  const effective = registry ?? ctxRegistry;
+  const claims = (effective?.getClaims("shell-overlay-route") ?? []) as ShellOverlayRouteClaim[];
+  const [location] = useLocation();
+  for (const c of claims) {
+    const path = overlayPath(c);
+    if (!path) continue;
+    if (matchWouterPattern(path, location)) return c.presentation ?? "dialog";
+  }
+  return null;
+}
+
 // ── Internal helpers (one useRoute call per claim via per-claim component) ───
 
 /**

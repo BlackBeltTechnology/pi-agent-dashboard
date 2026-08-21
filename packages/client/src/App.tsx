@@ -157,7 +157,8 @@ import {
   forSession,
   ShellOverlayRouteSlot,
   ShellSessionsProvider,
-  useShellOverlayRouteMatched
+  useShellOverlayRouteMatched,
+  useShellOverlayRoutePresentation
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { claimsToRouteDescriptors } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/route-descriptor.js";
 import { PLUGIN_REGISTRY } from "./generated/plugin-registry.js";
@@ -453,6 +454,10 @@ export default function App() {
   // null at this call site. See change: fix-flows-plugin-polish
   // (hook-outside-provider fix).
   const pluginOverlayMatched = useShellOverlayRouteMatched(_pluginRegistry);
+  // `presentation: "page"` opts a claim out of the mobile depth panel as well as
+  // the desktop dialog (D3a) — it renders full-viewport on both. Read here in
+  // App's body for the same reason as `pluginOverlayMatched` above.
+  const pluginOverlayPresentation = useShellOverlayRoutePresentation(_pluginRegistry);
   const hasShellOverlayRoute =
     !!openspecPreviewMatch || !!openspecBoardMatch || !!archiveMatch || !!specsMatch ||
     !!piResourcesMatch || !!diffMatch || !!editorMatch ||
@@ -2217,6 +2222,17 @@ export default function App() {
 
   // Mobile: two-step full-screen navigation
   if (isMobile) {
+    // A `presentation: "page"` claim renders full-viewport OUTSIDE the two-panel
+    // shell — no list panel behind it, no depth slide, no swipe-back — which is
+    // the whole point of the opt-out (D3a). Returning before `MobileShell` is
+    // what keeps it out of the detail panel.
+    if (pluginOverlayMatched && pluginOverlayPresentation === "page") {
+      return apiProvider(
+        <div className="fixed inset-0 flex flex-col bg-[var(--bg-primary)] text-[var(--text-primary)]">
+          <ShellOverlayRouteSlot onBack={goBack} registry={_pluginRegistry} />
+        </div>,
+      );
+    }
     const mobileDepth = getMobileDepth({
       hasSessionRoute: !!selectedId,
       hasFolderRoute: !!folderEditorCwd || !!folderHomeCwd,
