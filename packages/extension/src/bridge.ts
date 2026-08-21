@@ -30,7 +30,12 @@ import type { BridgeContext } from "./bridge-context.js";
 import { extractFirstAssistantReply, extractFirstMessage, filterHiddenCommands, getCurrentModelString, isHeadlessRpcSession, safeCwd } from "./bridge-context.js";
 import { shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
 import { registerCanvasTool } from "./canvas-tool.js";
-import { createCommandHandler, tryExecSlashTemplate } from "./command-handler.js";
+import {
+  createCommandHandler,
+  NO_RELOAD_PATH_REASON,
+  type ReloadOutcome,
+  tryExecSlashTemplate,
+} from "./command-handler.js";
 import { buildSessionContextText, runForkSubagentDraft } from "./commit-draft-agent.js";
 import { ConnectionManager } from "./connection.js";
 import { registerDashboardContextInjector } from "./dashboard-context-injector.js";
@@ -1289,15 +1294,35 @@ function initBridge(pi: ExtensionAPI) {
         cachedCtx.compact(opts);
       }
     },
-    reload: () => {
+    // Terminal-hosted fast path only. Dashboard-spawned headless sessions are
+    // reloaded by the SERVER writing `/__dashboard_reload` to their keeper UDS
+    // (`dispatchReload`), which needs no TUI bootstrap and no live bridge WS.
+    //
+    // The captured fn is single-use per process: it closes over the ctx of the
+    // invocation that captured it, and the first `ctx.reload()` invalidates
+    // that runner — so a SECOND call throws SYNCHRONOUSLY out of
+    // `assertActive()`, which a `.catch()` on the returned promise cannot
+    // catch. Hence the try/catch around BOTH the call and the await.
+    //
+    // Awaited, not fire-and-forget: returning `{ok:true}` before the promise
+    // settles means an async rejection lands AFTER `command_feedback
+    // {completed}` was already emitted — the exact false success this change
+    // removes.
+    // See change: fix-out-of-band-reload (design.md D5).
+    reload: async (): Promise<ReloadOutcome> => {
       const reloadFn = (globalThis as any)[RELOAD_KEY] as (() => Promise<void>) | undefined;
-      if (reloadFn) {
-        reloadFn().catch((err: any) => {
-          console.error("[dashboard] reload failed:", err);
-        });
-      } else {
+      if (!reloadFn) {
         console.error("[dashboard] reload not available — type /__dashboard_reload in pi TUI once to bootstrap");
+        return { ok: false, reason: NO_RELOAD_PATH_REASON };
       }
+      try {
+        await reloadFn();
+      } catch (err: any) {
+        const reason = err instanceof Error ? err.message : String(err);
+        console.error("[dashboard] reload failed:", err);
+        return { ok: false, reason: `Reload failed: ${reason}` };
+      }
+      return { ok: true };
     },
     spawnNew: () => {
       connection.send({ type: "spawn_new_session", sessionId, cwd: process.cwd() });

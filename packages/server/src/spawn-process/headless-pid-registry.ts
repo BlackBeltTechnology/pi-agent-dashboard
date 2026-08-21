@@ -9,8 +9,8 @@ import os from "node:os";
 import path from "node:path";
 import type { ChildProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { isProcessAlive, killPidWithGroup, killProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
-import { readJsonFile, writeJsonFile } from "../persistence/json-store.js";
 import { isUnsafeTestHomeScan } from "../auth/test-env-guard.js";
+import { readJsonFile, writeJsonFile } from "../persistence/json-store.js";
 
 /**
  * Minimal interface the registry depends on for keeper-mediated writes
@@ -201,6 +201,18 @@ export interface HeadlessPidRegistry {
    * fix-automation-stop-zombie-runs.
    */
   killByToken(spawnToken: string): Promise<boolean>;
+  /**
+   * Enumerate every entry that has been linked to a session id, with the
+   * resolved pi PID and whether a keeper UDS is available for it.
+   *
+   * Reload fan-outs need this: they used to iterate
+   * `piGateway.getConnectedSessionIds()` only, so a headless session whose
+   * bridge WebSocket died — exactly the session that most needs a reload —
+   * was never targeted. `sessionManager` cannot substitute, because such a
+   * session is stamped `ended` on WS close.
+   * See change: fix-out-of-band-reload.
+   */
+  listSessions(): Array<{ sessionId: string; cwd: string; pid: number; hasKeeper: boolean }>;
   /** Remove a tracked process by PID. */
   remove(pid: number): void;
   /** Kill all tracked processes (for server shutdown). */
@@ -488,6 +500,20 @@ export function createHeadlessPidRegistry(options?: HeadlessPidRegistryOptions):
       const entry = findByToken(spawnToken);
       if (!entry) return false;
       return killEntry(entry);
+    },
+
+    listSessions() {
+      const out: Array<{ sessionId: string; cwd: string; pid: number; hasKeeper: boolean }> = [];
+      for (const entry of entries.values()) {
+        if (!entry.sessionId) continue;
+        out.push({
+          sessionId: entry.sessionId,
+          cwd: entry.cwd,
+          pid: entry.piPid ?? entry.pid,
+          hasKeeper: Boolean(entry.keeperSockPath),
+        });
+      }
+      return out;
     },
 
     remove(pid: number) {

@@ -6,7 +6,7 @@ import type { DashboardEvent, DashboardSession, SessionStatus } from "@blackbelt
 
 // Use null (not undefined) for fields that must be cleared — undefined is
 // dropped during JSON serialisation so the browser would keep the stale value.
-type SessionUpdates = Partial<Pick<DashboardSession, "status" | "model" | "thinkingLevel">> & {
+type SessionUpdates = Partial<Pick<DashboardSession, "status" | "model" | "thinkingLevel" | "compacting">> & {
   currentTool?: string | null;
 };
 
@@ -87,6 +87,18 @@ function extractRawSessionUpdates(event: DashboardEvent): SessionUpdates | null 
 
     case "agent_end":
       return { status: "idle", currentTool: null };
+
+    // Compaction start/end. `SessionStatus` has no compacting member, so the
+    // state rides a dedicated boolean the reload dispatcher reads to refuse a
+    // mid-compaction reload. Both events are already forwarded by the bridge
+    // (`session_before_compact` pass-through, `session_compact` enriched), so
+    // no new protocol message is needed — only the derivation.
+    // See change: fix-out-of-band-reload.
+    case "session_before_compact":
+      return { compacting: true };
+
+    case "session_compact":
+      return { compacting: false };
 
     case "tool_execution_start":
       return { currentTool: (event.data.toolName as string) ?? null };

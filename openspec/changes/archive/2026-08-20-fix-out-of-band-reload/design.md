@@ -40,6 +40,52 @@ handling, so a slash command dispatched this way actually executes its registere
 
 ## Decisions
 
+> **Rev 2 — D1 and D2 were falsified by measurement.** The keeper-dispatch mechanism this design
+> was built on does not exist: pi's RPC `{type:"prompt"}` performs no slash-command dispatch. The
+> superseding decisions are recorded as **D1′** and **D2′** immediately below; the original D1/D2
+> text is retained beneath them because the *rejected alternatives* it documents are still valid
+> and still worth not re-litigating.
+
+**D1′ — One `dispatchReload(sessionId)` entry point; kill-and-respawn is the default.**
+Resolution order per session:
+1. Busy (compacting, or streaming with a live bridge) → refuse (D9).
+2. `headlessPidRegistry.getPid(sessionId)` defined → kill-and-respawn (`handleHeadlessReload`),
+   with its own streaming guard suppressed because the busy decision was already made above with
+   connection awareness the helper lacks.
+3. No PID but a live bridge → forward `/reload` (terminal-hosted case); the bridge uses a
+   captured `RELOAD_KEY` if present, else emits an explicit error. Gated on `sendToSession`'s
+   RETURN VALUE, not the connection probe alone.
+4. Neither → terminal `error`. A session with no registered PID is NEVER respawned: that would
+   start a second pi against a terminal-hosted session's file.
+
+A registered PID wins over a live bridge deliberately: the bridge path is a no-op for a
+dashboard-spawned session, whose `globalThis[RELOAD_KEY]` was never captured in a TUI.
+
+**Why there is no in-process path.** Measured in the docker harness with
+`keeperLog.capturePiOutput = true`: a `/__dashboard_reload` line written to a session's keeper
+was delivered to the MODEL as an ordinary user prompt and produced a full agent turn
+(`agent_start` → user message → assistant reply → `agent_end`). A pi BUILT-IN (`/help`) written
+to the same socket behaved identically, so this is not the `__` prefix and not our registration.
+Dispatching a reload that way injects a junk user message into the operator's transcript, burns a
+model round-trip, and reports `completed` because the socket write succeeded — strictly worse
+than the silent no-op it was meant to fix. Reaching `ctx.reload()` without a TUI bootstrap needs
+an upstream pi change (an RPC `{type:"command"}` message, or command dispatch inside `prompt`).
+
+**Corollary, out of scope:** `handleDispatchExtensionCommand` (`rpc-keeper/dispatch-router.ts`)
+uses the same mechanism and has the same defect for every slash command it forwards. Live bug on
+`develop`; needs its own change.
+
+**D2′ — Feedback is keyed `/reload` and reports the real outcome.**
+Exactly one terminal `command_feedback` per reload (the `started` pill opener is not terminal),
+`command` always `/reload`. On the respawn path `completed` means the respawn was issued and the
+new process registered. The bridge no longer emits an unconditional `completed`;
+`BridgeCommandOptions.reload` returns a `ReloadOutcome`, covering the case where a captured
+reload function throws **synchronously** because its single-use runner was already consumed.
+
+---
+
+*Superseded, retained for the rejected alternatives:*
+
 **D1 — One server-side `dispatchReload(sessionId)` entry point; the server writes the keeper
 line directly.**
 Resolution order per session:

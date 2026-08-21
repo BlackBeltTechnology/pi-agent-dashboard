@@ -212,6 +212,11 @@ export function createMemorySessionManager(
       const session = sessions.get(sessionId);
       if (session) {
         session.status = "ended";
+        // An ended session is not compacting. Without this an unregister that
+        // lands mid-compaction leaves the flag set on the record, and the
+        // reload dispatcher would refuse forever on a session restored from
+        // that record. See change: fix-out-of-band-reload.
+        session.compacting = false;
         // Witnessed (the default) keeps the observed instant. An inferred
         // ending — heartbeat/grace expiry, or history registered then
         // immediately unregistered — must not record detection time.
