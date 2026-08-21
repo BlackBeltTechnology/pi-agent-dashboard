@@ -40,14 +40,16 @@ so it can be aligned with `dashboard-paths.ts` for free (see D2).
 
 So the design is one shared layer over two transports:
 
-```
-   SHARED (all platforms)
-     HOME-derived rendezvous  →  read piPort / socket path + identity
-     identity verification    →  prove it is the instance we meant
-     precedence + stickiness  →  explicit beats discovered, always
-   ─────────────────────────────────────────────────────────────────
-   POSIX      unix socket, mode 0600        (auth = kernel)
-   Windows    ws:// on 127.0.0.1:piPort     (auth = local-token)
+```mermaid
+flowchart TB
+  subgraph shared["SHARED (all platforms)"]
+    R["HOME-derived rendezvous<br/>read piPort / socket path + identity"]
+    V["identity verification<br/>prove it is the instance we meant"]
+    P["precedence + stickiness<br/>explicit beats discovered, always"]
+    R --> V --> P
+  end
+  P --> POSIX["POSIX: unix socket, mode 0600<br/>(auth = kernel)"]
+  P --> WIN["Windows: ws:// on 127.0.0.1:piPort<br/>(auth = local-token)"]
 ```
 
 This is what makes D6 cheap: Windows changes the transport, not the fix.
