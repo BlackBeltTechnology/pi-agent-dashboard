@@ -42,6 +42,7 @@ import { SessionHeader } from "./components/session/SessionHeader.js";
 import { SessionList } from "./components/session/SessionList.js";
 import { SessionSplitView, SplitRouteSync } from "./components/split/SessionSplitView.js";
 import { SettingsPanel } from "./components/settings/SettingsPanel.js";
+import { ShellContent, type ShellContentRenderers } from "./components/shell/ShellContent.js";
 import { SpawnErrorToastHost } from "./components/session/SpawnErrorToastHost.js";
 import { SpecsBrowserView } from "./components/openspec/SpecsBrowserView.js";
 import { SplitWorkspaceProvider } from "./components/split/SplitWorkspaceContext.js";
@@ -2110,6 +2111,70 @@ export default function App() {
     />
   ) : null;
 
+  // Renderers for the route-derived content region. `ShellContent` owns the
+  // branch SELECTION (so it can re-derive under a frozen router); App keeps the
+  // state and handlers and supplies the surfaces, parameterised by the resolved
+  // route params.
+  //
+  // STAGED LIMITATION: three renderers below (`renderOpenSpecBoard`,
+  // `renderFolderHome`, `renderSession`) delegate to variables still computed
+  // from the LIVE route, so they answer only for the live params and return
+  // null otherwise. That is exactly today's behaviour for the live tree, which
+  // is what keeps this step a pure refactor. It also means these three cannot
+  // yet back a FROZEN underlay — parameterising them (chiefly the ~360-line
+  // `sessionDetail`) is the next step, and is required before an overlay
+  // launched from `/session/:id` can show that session behind the scrim.
+  // See change: add-route-backed-overlay-dialogs.
+  const shellRenderers: Omit<ShellContentRenderers, "renderSession"> = {
+    renderOpenSpecBoard: (cwd) => (cwd === openspecBoardCwd ? openspecBoardOverlay : null),
+    renderArchive: (cwd) => <ArchiveBrowserView cwd={cwd} onBack={goBack} />,
+    renderSpecs: (cwd) => <SpecsBrowserView cwd={cwd} onBack={goBack} />,
+    renderDiff: (sessionId) => <FileDiffView sessionId={sessionId} onBack={goBack} />,
+    renderPiResourceFile: (filePath, title) => (
+      <PiResourceFileRoute filePath={filePath} title={title} onBack={goBack} />
+    ),
+    renderPiResourcesRedirect: (cwd) => <Redirect to={buildFolderSettingsUrl(cwd, "packages")} replace />,
+    renderFolderSettings: (cwd, page) => (
+      <DirectorySettings cwd={cwd} page={page} onBack={goBack} onViewFile={handleViewPiResourceFile} />
+    ),
+    renderOpenSpecPreview: (cwd, changeName, artifactId) => (
+      <OpenSpecPreview
+        cwd={cwd}
+        changeName={changeName}
+        initialArtifact={artifactId}
+        openspecMap={openspecMap}
+        onBack={goBack}
+      />
+    ),
+    renderFilePreview: (cwd, path) => (
+      <PreviewOverlayView target={{ kind: "file", cwd, path }} onBack={goBack} />
+    ),
+    renderUrlPreview: (url) => <PreviewOverlayView target={{ kind: "url", url }} onBack={goBack} />,
+    renderFolderEditor: (cwd) => (
+      <FolderEditorView
+        cwd={cwd}
+        onClose={handleEditorClose}
+        terminals={getTerminalsForCwd(cwd)}
+        onCreateTerminal={handleCreateTerminal}
+        onKillTerminal={handleKillTerminal}
+        onRenameTerminal={handleRenameTerminal}
+        onTerminalTitle={handleTerminalTitle}
+      />
+    ),
+    renderFolderHome: (cwd) => (cwd === folderHomeCwd ? directoryHomeView : null),
+    renderLanding: () => (
+      <LandingPage
+        providersReady={providersReady.ready}
+        pinnedCount={pinnedDirectories.length}
+        sessionsCount={sessions.size}
+        firstPinnedCwd={pinnedDirectories[0] ?? null}
+        onOpenPinDialog={() => setPinDialogOpen(true)}
+        onSpawnSession={handleSpawnSession}
+        navigate={navigate}
+      />
+    ),
+  };
+
   // Outer chrome ErrorBoundary — defense-in-depth for first-party shell
   // components (sidebar, session list, content header, MobileShell). The
   // inner ChatView ErrorBoundary still wins for chat-tree errors via React's
@@ -2280,70 +2345,13 @@ export default function App() {
               // We pass `_pluginRegistry` explicitly for the same reason the
               // hook does — see change: fix-flows-plugin-polish.
               <ShellOverlayRouteSlot onBack={goBack} registry={_pluginRegistry} />
-            ) : openspecBoardMatch && openspecBoardCwd ? (
-              openspecBoardOverlay
-            ) : archiveMatch && archiveCwd ? (
-              <ArchiveBrowserView cwd={archiveCwd} onBack={goBack} />
-            ) : specsMatch && specsCwd ? (
-              <SpecsBrowserView cwd={specsCwd} onBack={goBack} />
-            ) : diffMatch && diffSessionId ? (
-              <FileDiffView sessionId={diffSessionId} onBack={goBack} />
-            ) : piResourceFileMatch && piResourceFilePath ? (
-              <PiResourceFileRoute
-                filePath={piResourceFilePath}
-                title={piResourceFileTitle}
-                onBack={goBack}
-              />
-            ) : piResourcesMatch && piResourcesCwd ? (
-              <Redirect to={buildFolderSettingsUrl(piResourcesCwd, "packages")} replace />
-            ) : folderSettingsMatch && folderSettingsCwd ? (
-              <DirectorySettings
-                cwd={folderSettingsCwd}
-                page={folderSettingsPage}
-                onBack={goBack}
-                onViewFile={handleViewPiResourceFile}
-              />
-            ) : openspecPreviewMatch && openspecPreviewCwd && openspecPreviewParams ? (
-              <OpenSpecPreview
-                cwd={openspecPreviewCwd}
-                changeName={decodeURIComponent(openspecPreviewParams.changeName)}
-                initialArtifact={decodeURIComponent(openspecPreviewParams.artifactId)}
-                openspecMap={openspecMap}
-                onBack={goBack}
-              />
-            ) : fileViewMatch && fileViewCwd && fileViewPath ? (
-              <PreviewOverlayView
-                target={{ kind: "file", cwd: fileViewCwd, path: fileViewPath }}
-                onBack={goBack}
-              />
-            ) : urlViewMatch && urlViewUrl ? (
-              <PreviewOverlayView
-                target={{ kind: "url", url: urlViewUrl }}
-                onBack={goBack}
-              />
-            ) : folderEditorCwd ? (
-              <FolderEditorView
-                cwd={folderEditorCwd}
-                onClose={handleEditorClose}
-                terminals={getTerminalsForCwd(folderEditorCwd)}
-                onCreateTerminal={handleCreateTerminal}
-                onKillTerminal={handleKillTerminal}
-                onRenameTerminal={handleRenameTerminal}
-                onTerminalTitle={handleTerminalTitle}
-              />
-            ) : folderHomeCwd ? (
-              directoryHomeView
-            ) : sessionDetail ?? (
-            // Legacy /terminal/:id branch removed — see change:
-            // fix-terminal-half-height-dual-mount.
-              <LandingPage
-                providersReady={providersReady.ready}
-                pinnedCount={pinnedDirectories.length}
-                sessionsCount={sessions.size}
-                firstPinnedCwd={pinnedDirectories[0] ?? null}
-                onOpenPinDialog={() => setPinDialogOpen(true)}
-                onSpawnSession={handleSpawnSession}
-                navigate={navigate}
+            ) : (
+              // Legacy /terminal/:id branch removed — see change:
+              // fix-terminal-half-height-dual-mount.
+              <ShellContent
+                variant="mobile"
+                {...shellRenderers}
+                renderSession={(id) => (id === selectedId ? sessionDetail : null)}
               />
             )
           }
@@ -2388,73 +2396,30 @@ export default function App() {
             // Pass `_pluginRegistry` explicitly (see comment on
             // `pluginOverlayMatched` declaration above).
             <ShellOverlayRouteSlot onBack={goBack} registry={_pluginRegistry} />
-          ) : openspecBoardMatch && openspecBoardCwd ? (
-            openspecBoardOverlay
-          ) : archiveMatch && archiveCwd ? (
-            <ArchiveBrowserView cwd={archiveCwd} onBack={goBack} />
-          ) : specsMatch && specsCwd ? (
-            <SpecsBrowserView cwd={specsCwd} onBack={goBack} />
-          ) : piResourceFileMatch && piResourceFilePath ? (
-            <PiResourceFileRoute
-              filePath={piResourceFilePath}
-              title={piResourceFileTitle}
-              onBack={goBack}
-            />
-          ) : piResourcesMatch && piResourcesCwd && !selectedId ? (
-            <Redirect to={buildFolderSettingsUrl(piResourcesCwd, "packages")} replace />
-          ) : folderSettingsMatch && folderSettingsCwd && !selectedId ? (
-            <DirectorySettings
-              cwd={folderSettingsCwd}
-              page={folderSettingsPage}
-              onBack={goBack}
-              onViewFile={handleViewPiResourceFile}
-            />
-          ) : openspecPreviewMatch && openspecPreviewCwd && openspecPreviewParams && !selectedId ? (
-            <OpenSpecPreview
-              cwd={openspecPreviewCwd}
-              changeName={decodeURIComponent(openspecPreviewParams.changeName)}
-              initialArtifact={decodeURIComponent(openspecPreviewParams.artifactId)}
-              openspecMap={openspecMap}
-              onBack={goBack}
-            />
-          ) : fileViewMatch && fileViewCwd && fileViewPath && !selectedId ? (
-            <PreviewOverlayView
-              target={{ kind: "file", cwd: fileViewCwd, path: fileViewPath }}
-              onBack={goBack}
-            />
-          ) : urlViewMatch && urlViewUrl && !selectedId ? (
-            <PreviewOverlayView
-              target={{ kind: "url", url: urlViewUrl }}
-              onBack={goBack}
-            />
-          ) : folderHomeCwd && !selectedId ? (
-            directoryHomeView
           ) : (
-            /* Plugin slot: content-view — only render when at least one
-               registered claim's predicate returns true for the current
-               session. Each claim's predicate closes over the plugin's
-               own UI-state store; a `false` predicate means "this claim
-               doesn't want to render right now" and the slot returns
-               null. Without this gate, plugins that registered
-               content-view claims with all-false predicates would cause
-               `<ContentViewSlot>` to return null while still satisfying
-               the `??` operator, masking sessionDetail / LandingPage.
-               See change: pluginize-flows-via-registry (design.md
-               Decision 3 RECONSIDERED). */
-            (selectedId && selectedSession && forSession(_pluginRegistry.getClaims("content-view"), selectedSession).length > 0
-              ? <ContentViewSlot session={selectedSession} routeParams={{}} onClose={() => { /* Plugin claim clears its own UI state on dismiss, revealing the chat at the current /session/:id; the shell must NOT navigate away. See change: fix-settings-back-to-launching-route. */ }} />
-              : null
-            ) ?? sessionDetail ?? (
-              <LandingPage
-                providersReady={providersReady.ready}
-                pinnedCount={pinnedDirectories.length}
-                sessionsCount={sessions.size}
-                firstPinnedCwd={pinnedDirectories[0] ?? null}
-                onOpenPinDialog={() => setPinDialogOpen(true)}
-                onSpawnSession={handleSpawnSession}
-                navigate={navigate}
-              />
-            )
+            <ShellContent
+              variant="desktop"
+              {...shellRenderers}
+              renderSession={(id) => {
+                if (id !== selectedId) return null;
+                /* Plugin slot: content-view — only render when at least one
+                   registered claim's predicate returns true for the current
+                   session. Each claim's predicate closes over the plugin's
+                   own UI-state store; a `false` predicate means "this claim
+                   doesn't want to render right now" and the slot returns
+                   null. Without this gate, plugins that registered
+                   content-view claims with all-false predicates would cause
+                   `<ContentViewSlot>` to return null while still satisfying
+                   the `??` operator, masking sessionDetail / LandingPage.
+                   See change: pluginize-flows-via-registry (design.md
+                   Decision 3 RECONSIDERED). */
+                const contentView =
+                  selectedId && selectedSession && forSession(_pluginRegistry.getClaims("content-view"), selectedSession).length > 0
+                    ? <ContentViewSlot session={selectedSession} routeParams={{}} onClose={() => { /* Plugin claim clears its own UI state on dismiss, revealing the chat at the current /session/:id; the shell must NOT navigate away. See change: fix-settings-back-to-launching-route. */ }} />
+                    : null;
+                return contentView ?? sessionDetail;
+              }}
+            />
           )
         )}
         {settingsMatch && <SettingsPanel availableModels={(() => {
