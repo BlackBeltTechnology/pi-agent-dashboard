@@ -177,6 +177,7 @@ export function buildConfig(flags: Partial<ServerConfig>): ServerConfig {
     maxEventsPerSession: fileConfig.memoryLimits.maxEventsPerSession,
     maxStringFieldSize: fileConfig.memoryLimits.maxStringFieldSize,
     maxWsBufferBytes: fileConfig.memoryLimits.maxWsBufferBytes,
+    maxReplayEvents: fileConfig.memoryLimits.maxReplayEvents,
     openspec: fileConfig.openspec,
     sessions: fileConfig.sessions,
     reattachPlacement: fileConfig.reattachPlacement,

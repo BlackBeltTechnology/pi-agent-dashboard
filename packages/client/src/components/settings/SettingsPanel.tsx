@@ -100,7 +100,21 @@ interface MemoryLimitsConfig {
   maxEventsPerSession: number;
   maxStringFieldSize: number;
   maxWsBufferBytes: number;
+  /** See change: lazy-load-session-history. */
+  maxReplayEvents: number;
 }
+
+/**
+ * Seed for the `!c.memoryLimits` branches below. Extracted so a new field can
+ * never be added to the interface and forgotten in one of four literals —
+ * which would silently drop the other three values on save.
+ */
+const MEMORY_LIMITS_SEED: MemoryLimitsConfig = {
+  maxEventsPerSession: 200,
+  maxStringFieldSize: 4000,
+  maxWsBufferBytes: 4194304,
+  maxReplayEvents: 0,
+};
 
 interface NetworkInterfaceInfo {
   name: string;
@@ -1330,7 +1344,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     label={i18nT("session.maxEventsPerSession", undefined, "Max Events Per Session")}
                     value={config.memoryLimits?.maxEventsPerSession ?? 200}
                     onChange={(v) => update((c) => {
-                      if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
+                      if (!c.memoryLimits) c.memoryLimits = { ...MEMORY_LIMITS_SEED };
                       c.memoryLimits.maxEventsPerSession = v;
                     })}
                   />
@@ -1340,7 +1354,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     unit="chars"
                     value={config.memoryLimits?.maxStringFieldSize ?? 4000}
                     onChange={(v) => update((c) => {
-                      if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
+                      if (!c.memoryLimits) c.memoryLimits = { ...MEMORY_LIMITS_SEED };
                       c.memoryLimits.maxStringFieldSize = v;
                     })}
                   />
@@ -1350,8 +1364,22 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     unit="bytes"
                     value={config.memoryLimits?.maxWsBufferBytes ?? 4194304}
                     onChange={(v) => update((c) => {
-                      if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
+                      if (!c.memoryLimits) c.memoryLimits = { ...MEMORY_LIMITS_SEED };
                       c.memoryLimits.maxWsBufferBytes = v;
+                    })}
+                  />
+                  {/* The hint names the OUTCOME ("keeps the start and the most
+                      recent"), not the mechanism ("head/tail window"), mirroring
+                      the sibling maxEventsPerSession hint. The section's shared
+                      "Requires server restart" line covers this control too.
+                      See change: lazy-load-session-history. */}
+                  <NumberField
+                    hint={i18nT("settings.hint.maxReplayEvents", undefined, "Cap events sent to the browser when reopening a session. Keeps the start and the most recent messages; earlier ones load on demand. 0 = unlimited.")}
+                    label={i18nT("session.maxReplayEvents", undefined, "Max Replay Events")}
+                    value={config.memoryLimits?.maxReplayEvents ?? 0}
+                    onChange={(v) => update((c) => {
+                      if (!c.memoryLimits) c.memoryLimits = { ...MEMORY_LIMITS_SEED };
+                      c.memoryLimits.maxReplayEvents = v;
                     })}
                   />
                 </Section>
@@ -1422,7 +1450,16 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   />
                   <AutoNameSessionsToggle
                     hint={<>
-                      {i18nT("settings.autoNameSessionsDesc", undefined, "Let pi automatically name new sessions by their topic using the fast model.")}
+                      {i18nT("settings.autoNameSessionsDesc", undefined, "Let pi automatically name new sessions by their topic.")}
+                      {" "}
+                      {/* The naming model is the `naming` role, so it is configured in
+                          the Roles panel rather than here — one source of truth, no
+                          second preference. This pointer exists so it is still
+                          discoverable at the point of use.
+                          See change: fix-auto-naming-reasoning-model (design D1). */}
+                      <span data-testid="auto-name-model-pointer">
+                        {i18nT("settings.autoNameModelPointer", undefined, "The model is the @naming role (Settings → Roles); when it is unassigned, @fast is used.")}
+                      </span>
                     </>}
                   />
                 </Section>

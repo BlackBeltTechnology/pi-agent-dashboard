@@ -71,4 +71,52 @@ describe("session name provenance persistence", () => {
     const restored = result.sessions.find((s) => s.id === "name-id");
     expect(restored?.nameSource).toBe("user");
   });
+  /**
+   * The stop must survive a PROCESS restart, not merely an extension reload.
+   * `prev`-carried state lives on the process, so without the persisted field a
+   * cold start re-spends a full attempt budget, re-emits the error, and the
+   * "permanent" stop is not in fact permanent.
+   * See change: fix-auto-naming-reasoning-model (design D7, task 11.3).
+   */
+  it("X11: round-trips the auto-namer stop state and restores it on cold-start scan", () => {
+    const stopped = {
+      hardStopped: true,
+      errorEmitted: true,
+      attemptsUsed: 3,
+      starvedCount: 3,
+      waitingCount: 0,
+      sawStarved: true,
+      stoppedModelRef: "deepseek/deepseek-v4-flash",
+      stopCause: "budget",
+      hasAutoName: false,
+    };
+    mgr.update("name-id", { autoNamerState: stopped });
+    metaPersistence.flushAll();
+
+    expect(readSessionMeta(sessionFile)?.autoNamerState).toMatchObject(stopped);
+
+    const restored = scanAllSessions(tmpDir).sessions.find((s) => s.id === "name-id");
+    expect(restored?.autoNamerState).toMatchObject({
+      hardStopped: true,
+      attemptsUsed: 3,
+      stoppedModelRef: "deepseek/deepseek-v4-flash",
+    });
+  });
+
+  it("X11: does NOT wipe the stop state on a subsequent unrelated meta save", () => {
+    // The save is a FULL overwrite, so an unenumerated field is silently lost.
+    mgr.update("name-id", {
+      autoNamerState: {
+        hardStopped: true, errorEmitted: true, attemptsUsed: 3,
+        starvedCount: 3, waitingCount: 0, sawStarved: true, hasAutoName: false,
+      },
+    });
+    mgr.update("name-id", { processDrawerCollapsed: true });
+    metaPersistence.flushAll();
+
+    expect(readSessionMeta(sessionFile)?.autoNamerState).toMatchObject({
+      hardStopped: true,
+      attemptsUsed: 3,
+    });
+  });
 });

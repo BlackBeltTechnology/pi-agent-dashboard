@@ -12,6 +12,7 @@ import { extractTurnStats } from "@blackbelt-technology/pi-dashboard-shared/stat
 import type { DashboardSession, NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { type PendingAttachment, prepareEventForIngest } from "./attachments/attachment-ingest.js";
 import { createAttachmentResolver } from "./attachments/attachment-resolver.js";
+import { AUTO_NAME_OUTCOMES, autoNameOutcomes } from "./auto-name-outcome-store.js";
 import { createCanvasAccumulator } from "./canvas/canvas-accumulator.js";
 import { readEffectiveCanvasTypes } from "./canvas/canvas-settings.js";
 import type { DirectoryService } from "./directory-service.js";
@@ -458,6 +459,33 @@ export function wireEvents(deps: EventWiringDeps): void {
       type: "preferences_update",
       autoNameSessions: preferencesStore.getAutoNameSessions(),
     });
+
+    // Restore the persisted auto-namer stop state to the bridge, so a session
+    // stopped before a process restart does not re-spend a full attempt budget
+    // and re-emit the error on its first turn back.
+    // See change: fix-auto-naming-reasoning-model (design D7).
+    const restoredNamerState = sessionManager.get(sessionId)?.autoNamerState;
+    if (restoredNamerState) {
+      // Explicit projection, not a spread: provenance (`nameSource`,
+      // `hasAutoName`, `lastSelfApplied`) must not reach the bridge — restoring
+      // it would change the behaviour of the separate auto→`user` relabel bug
+      // (design D8b). Projecting at the SENDER keeps the wire as narrow as the
+      // contract claims, rather than relying on the receiver to drop fields.
+      piGateway.sendToSession(sessionId, {
+        type: "auto_name_state_restore",
+        state: {
+          hardStopped: restoredNamerState.hardStopped,
+          errorEmitted: restoredNamerState.errorEmitted,
+          attemptsUsed: restoredNamerState.attemptsUsed,
+          starvedCount: restoredNamerState.starvedCount,
+          waitingCount: restoredNamerState.waitingCount,
+          sawStarved: restoredNamerState.sawStarved,
+          stoppedModelRef: restoredNamerState.stoppedModelRef,
+          stopCause: restoredNamerState.stopCause,
+          stoppedReason: restoredNamerState.stoppedReason,
+        },
+      });
+    }
 
     // NOTE: goal-driver linking moved to the onEvent `session_register` branch
     // (after `linkByToken`) so the strong token→goalId path can run — the
@@ -1953,6 +1981,42 @@ export function wireEvents(deps: EventWiringDeps): void {
         : { name: msg.name || undefined };
       sessionManager.update(sessionId, nameUpdates);
       browserGateway.broadcastSessionUpdated(sessionId, nameUpdates);
+    }
+
+    if (msg.type === "auto_name_outcome") {
+      // The gateway casts raw JSON, so a malformed frame would otherwise reach
+      // the retention map, the REST route and every subscriber. Validate the
+      // whole contract, including the outcome VALUE — an unknown outcome would
+      // render as a raw string in Diagnostics and defeat the starved/waiting
+      // distinction the readout exists to make.
+      if (!AUTO_NAME_OUTCOMES.has(msg.outcome as string)) return;
+      if (typeof msg.reason !== "string") return;
+      if (msg.modelRef !== undefined && typeof msg.modelRef !== "string") return;
+      // Retained so a stop that happened with nobody subscribed is still
+      // discoverable when an operator opens Settings → Diagnostics later.
+      // See change: fix-auto-naming-reasoning-model (design D9).
+      autoNameOutcomes.record({
+        sessionId,
+        outcome: msg.outcome,
+        reason: msg.reason,
+        modelRef: msg.modelRef,
+        at: typeof msg.at === "number" ? msg.at : Date.now(),
+      });
+      browserGateway.sendToSubscribers(sessionId, {
+        type: "auto_name_outcome",
+        sessionId,
+        outcome: msg.outcome,
+        reason: msg.reason,
+        modelRef: msg.modelRef,
+        at: msg.at,
+      });
+    }
+
+    if (msg.type === "auto_name_state") {
+      // The stop must survive a PROCESS restart, not only an extension reload,
+      // or a cold start re-spends a full budget and re-emits the error.
+      // See change: fix-auto-naming-reasoning-model (design D7).
+      sessionManager.update(sessionId, { autoNamerState: msg.state } as any);
     }
 
     if (msg.type === "auto_name_error") {

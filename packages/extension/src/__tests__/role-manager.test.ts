@@ -27,6 +27,7 @@ import {
   effectiveRoleNames,
   addRoleName,
   removeRoleFromSchema,
+  resolveNamingModel,
   type RoleConfig,
 } from "../role-manager.js";
 
@@ -581,5 +582,61 @@ describe("getModelRole", () => {
 
   it("returns undefined for unknown role", () => {
     expect(getModelRole("nope")).toBeUndefined();
+  });
+});
+
+/**
+ * The dedicated `naming` role for auto session naming.
+ *
+ * Naming was hard-wired to `@fast`, shared with `compact` and subagent routing,
+ * so making naming work forced a global model downgrade. `naming` resolves
+ * first and falls back to `@fast`, so an install that never assigns it resolves
+ * EXACTLY as it did before the role existed.
+ *
+ * See change: fix-auto-naming-reasoning-model (design D1, test-plan #E22–#E27).
+ */
+describe("resolveNamingModel — @naming → @fast", () => {
+  it("E22: the `naming` assignment wins when both roles are assigned", () => {
+    saveRoleConfig({ roles: { naming: "openai/gpt-namer", fast: "deepseek/flash" }, rolePresets: [], activePreset: null });
+    expect(resolveNamingModel()).toEqual({ literal: "openai/gpt-namer", slot: "naming" });
+  });
+
+  it("E23: falls back to `fast`, resolving exactly as before the role existed", () => {
+    saveRoleConfig({ roles: { fast: "deepseek/flash" }, rolePresets: [], activePreset: null });
+    const resolved = resolveNamingModel();
+    expect(resolved).toEqual({ literal: "deepseek/flash", slot: "fast" });
+    expect(resolved.literal).toBe(lookupRole("@fast").literal); // identical to the pre-change resolution
+  });
+
+  it("E24: with neither configured the reason names BOTH slots", () => {
+    saveRoleConfig({ roles: {}, rolePresets: [], activePreset: null });
+    const resolved = resolveNamingModel();
+    expect(resolved.literal).toBeUndefined();
+    // Naming only one slot would send the operator to a role that is not the
+    // one in force.
+    expect(resolved.reason).toMatch(/naming/);
+    expect(resolved.reason).toMatch(/fast/);
+  });
+
+  it("E25: `naming` is a built-in role name, and reading does not write the file", () => {
+    resetConfig();
+    expect(existsSync(CONFIG())).toBe(false);
+    expect(overlayRoles({ roles: {} })).toHaveProperty("naming");
+    expect(DEFAULT_ROLE_NAMES).toContain("naming");
+    expect(existsSync(CONFIG())).toBe(false);
+  });
+
+  it("E26: a removal marker for `naming` is respected, not re-injected", () => {
+    expect(effectiveRoleNames({ roles: {}, removedRoles: ["naming"] })).not.toContain("naming");
+    expect(overlayRoles({ roles: {}, removedRoles: ["naming"] })).not.toHaveProperty("naming");
+  });
+
+  it("E27: a pre-existing user-created `naming` role keeps its assignment", () => {
+    // Rare but real: the role becomes built-in (and non-removable), and its
+    // assignment now drives naming rather than being silently discarded.
+    saveRoleConfig({ roles: { naming: "zai/glm-custom" }, roleNames: ["naming"], rolePresets: [], activePreset: null });
+    expect(overlayRoles(loadRoleConfig()).naming).toBe("zai/glm-custom");
+    expect(resolveNamingModel()).toEqual({ literal: "zai/glm-custom", slot: "naming" });
+    expect(DEFAULT_ROLE_NAMES).toContain("naming");
   });
 });

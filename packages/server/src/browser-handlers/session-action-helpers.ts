@@ -6,31 +6,28 @@
  */
 
 import type { BrowserToServerMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { HeadlessPidRegistry } from "../spawn-process/headless-pid-registry.js";
 
 type SendPromptMsg = Extract<BrowserToServerMessage, { type: "send_prompt" }>;
 
 /**
- * Return true iff a `send_prompt` message targeting a headless session should
- * be intercepted by the server and converted into a kill-and-respawn reload,
- * instead of being forwarded to the bridge.
+ * Return true iff a `send_prompt` message is the bare `/reload` slash command
+ * and therefore belongs on the server's reload path (`dispatchReload`) rather
+ * than being forwarded to the bridge as an ordinary prompt.
  *
- * See change: headless-reload-via-respawn.
- *
- * Criteria (ALL must hold):
+ * Criteria (BOTH must hold):
  *  - The message text is exactly "/reload" (no whitespace, no trailing args).
  *  - No images are attached (pure slash-command, not a user prompt).
- *  - The session's PID is tracked in `headlessPidRegistry.getPid(sessionId)`.
  *
- * The registry is our only source of truth for "this session is headless
- * right now" — it avoids adding a new `spawnStrategy` field to
- * `DashboardSession`.
+ * Deliberately says nothing about the session's shape. Choosing *how* to
+ * deliver the reload — respawn or bridge forward — is `dispatchReload`'s
+ * ladder. Folding a headless-PID test in here made the four automated fan-out
+ * triggers bypass the interception entirely, because they never reached this
+ * predicate at all.
+ *
+ * See change: fix-out-of-band-reload (was `shouldInterceptReload`, change:
+ * headless-reload-via-respawn).
  */
-export function shouldInterceptReload(
-  msg: SendPromptMsg,
-  headlessPidRegistry: Pick<HeadlessPidRegistry, "getPid">,
-): boolean {
+export function isBareReloadCommand(msg: SendPromptMsg): boolean {
   if (msg.text !== "/reload") return false;
-  if ((msg.images?.length ?? 0) !== 0) return false;
-  return headlessPidRegistry.getPid(msg.sessionId) !== undefined;
+  return (msg.images?.length ?? 0) === 0;
 }

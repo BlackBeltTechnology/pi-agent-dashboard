@@ -5,6 +5,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | File | Purpose |
 |------|---------|
 | `api-context.ts` | React context + module-level store for HTTP API base URL. → see `api-context.ts.AGENTS.md` |
+| `auto-name-outcomes-api.ts` | Typed `fetchAutoNameOutcomes(): Promise<AutoNameOutcomeRow[]>` against `GET /api/auto-name-outcomes`. Fetched on Diagnostics mount rather than accumulated from the live broadcast, so a naming stop reported while NO client was connected is still visible. See change: fix-auto-naming-reasoning-model. |
 | `browse-api.ts` | Client-side browse API helper for PathPicker → see `browse-api.ts.AGENTS.md` |
 | `doctor-api.ts` | Typed `fetchDoctorReport(): Promise<DoctorReport>` against `/api/doctor` via auth-aware fetch wrapper. |
 | `fetch-json.ts` | Shared client transport guard. Exports `ApiHttpError` class (`status`, `statusText`, `contentType`,… → see `fetch-json.ts.AGENTS.md` |

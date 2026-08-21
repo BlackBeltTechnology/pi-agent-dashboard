@@ -347,7 +347,11 @@ Pi owns the retry loop. Dashboard configures + observes + renders it. Attempts f
 - Validation: `maxRetries` non-negative integer; `baseDelayMs` positive integer. Invalid → nothing written.
 - No UI cap on `maxRetries`; long tail WARNED, never capped.
 - REST: `GET/PUT /api/pi-retry` (`packages/server/src/routes/pi-retry-routes.ts`), auth-gated by same network guard as `/api/config`.
-- pi reads settings only at session construction → write alone inert for running sessions. On successful save server dispatches `/reload` to every `piGateway.getConnectedSessionIds()`. Failed write reloads nothing.
+- pi reads settings only at session construction. Write alone inert for running sessions.
+- On successful save server routes every target through `dispatchReload`.
+- Target set = `reloadTargetSessionIds` = `piGateway.getConnectedSessionIds()` ∪ `headlessPidRegistry.listSessions()`.
+- Connected-only set missed headless sessions with dead bridge WS. See change: fix-out-of-band-reload.
+- Failed write reloads nothing.
 - **UI placement + save.** Editor renders on Settings **Sessions** tab (NOT Providers). Reason: 3 fields (`enabled`, `maxRetries`, `baseDelayMs`) turn-level not provider-scoped; observable effect on session (waiting / attempt n / countdown / Stop). Sibling turn-lifecycle settings co-located.
 - Enclosing section titled "Retry".
 - NO private Save button. Registers with panel unified-Save draft registry via `useSettingsDraftSource({id:"pi-retry", page:"sessions", isDirty, commit, reset})`. See change: unify-settings-save-contract.
@@ -795,7 +799,10 @@ Automation plugin = `packages/automation-plugin/`. Schedule-triggered background
 - Folder format `<scope>/.pi/automation/<name>/automation.yaml` (+`prompt.md` for prompt action). Dual scope: per-folder + global (`~/.pi/automation/`).
 - Central server-owned scheduler arms trigger registry. Phase-1 trigger kind `schedule` (5-field cron).
 - Fired run spawns pi session stamped `kind="automation"` via `ServerPluginContext.spawnSession` hook (gated priority<=100).
-- Board hides run unless effective visibility `shown`. Run always watchable in Automation view (`/automation/run/:sid`).
+- Board hides run unless effective visibility `shown`. Run always watchable in Automation view (`/folder/:encodedCwd/automations/run/:sid`).
+- Old path `/automation/run/:sid` declared `parentPath` `/folder/:encodedCwd/automations` but never captured `:encodedCwd`. `interpolateParentPath` returned null; back degraded to `/`.
+- New path carries board cwd. Cold-load back resolves to owning board.
+- See change: add-route-backed-overlay-dialogs.
 - Run results `runs/<date>-<name>/result.md`. Auto-archive empty. Keep-100 retention.
 - UI via shell slots: sidebar-folder-section, command-route `/automation`, shell-overlay-route, session-card-badge, settings-section general.
 - See change: add-automation-plugin.
@@ -1118,29 +1125,64 @@ The shared `<RichDiff>` component is also consumed by `DiffPanel` (Path A / chan
 - `index.ts`: `flow:abort` and `flow:toggle-autonomous` event listeners added
 - `flow-tui.ts`: `autonomousMode` included in `flow:flow-started` event data
 
-### `/reload` Flow (two code paths)
-Reload from the dashboard (via `pnpm run reload`, the reload button, or `/reload` typed into the chat composer) follows one of two paths depending on how the pi session was spawned. The server transparently selects the right path:
+### `/reload` Flow (server-side dispatch ladder)
+Reload from the dashboard routes through a single server entry point: `dispatchReload(sessionId)` in `packages/server/src/rpc-keeper/dispatch-reload.ts`. Dispatch is a four-step ladder — busy check, kill-and-respawn, bridge forward, terminal error — selected by how the session was spawned. Falls through until one path succeeds.
 
 ```mermaid
 flowchart TD
-    A[Browser sends send_prompt text="/reload"] --> B[server handleSendPrompt]
-    B --> C{shouldInterceptReload?<br/>text === "/reload"<br/>no images<br/>headlessPidRegistry.getPid defined}
-    C -->|Yes — headless session| D[handleHeadlessReload]
-    D --> D1[Emit command_feedback 'started']
-    D1 --> D2[headlessPidRegistry.killBySessionId<br/>SIGTERMs old pi]
-    D2 --> D3[spawnPiSession with<br/>sessionFile+mode:'continue'<br/>strategy:'headless']
-    D3 --> D4[headlessPidRegistry.register new PID]
-    D4 --> D5[Emit command_feedback 'completed']
-    D5 --> D6[New pi bridge re-registers<br/>with same sessionId —<br/>sessionManager preserves<br/>tokens/cost/context/attachedProposal]
-    C -->|No — tmux/wt/wsl-tmux| E[piGateway.sendToSession→bridge]
-    E --> F[bridge command-handler parses /reload]
-    F --> G[Calls globalThis-RELOAD_KEY fn]
-    G --> H{Was /__dashboard_reload<br/>typed in TUI first?}
-    H -->|Yes| I[session.reload in-place]
-    H -->|No| J[Error logged to bridge stderr<br/>User must bootstrap via TUI]
+    T[Six triggers]
+    E[dispatchReload sessionId]
+    B{isReloadBusy?}
+    REF[command_feedback error refuse]
+    P{headlessPidRegistry getPid defined?}
+    S[handleHeadlessReload SIGTERM + spawnPiSession continue]
+    C{piGateway isSessionConnected?}
+    F[piGateway.sendToSession send_prompt text /reload]
+    DONE[command_feedback completed keyed /reload]
+    ERR[command_feedback error no path]
+
+    T --> E
+    E --> B
+    B -->|compacting OR streaming + bridge| REF
+    B -->|not busy| P
+    P -->|PID defined| S
+    P -->|no PID| C
+    C -->|connected| F
+    C -->|not connected| ERR
+    F -->|delivered| DONE
+    F -->|send failed| ERR
+    S --> DONE
 ```
 
-**Why two paths?** pi-coding-agent's `ExtensionContext` (delivered to `session_start` handlers) has no `reload()` method — only `ExtensionCommandContext` (given to command handlers) does. Bridge workaround: registers `__dashboard_reload` as command, captures `ctx.reload` into `globalThis[RELOAD_KEY]` when user first invokes in pi's TUI. Headless sessions have no TUI, so capture never happens. Server-side interception is transparent kill-and-respawn achieving same user-visible outcome (fresh settings, extensions, skills/prompts/themes) without in-process reload. `memorySessionManager.register` carries accumulated state when same `sessionId` re-registers, so user sees brief reconnect flicker but keeps tokens, cost, context usage, attached proposal. See change: headless-reload-via-respawn.
+**Triggers** — six sources route through `dispatchReload`; pi-core update is the one exception:
+1. Reload button / `/reload` in composer → browser `send_prompt` → `packages/server/src/browser-handlers/session-action-handler.ts` `handleSendPrompt`.
+2. `scripts/reload-all.sh` → same browser path.
+3. pi retry-policy settings save → `server.ts` `reloadConnectedSessions`.
+4. Package install/remove → `packageManagerWrapper.setReloadSessions`.
+5. pi-core update complete → `piCoreUpdater.onAllComplete` → `respawnForRuntimeSwap` (NOT `dispatchReload`).
+6. `POST /api/resources/reload` → `routes/resource-activation-routes.ts`.
+
+**Predicate gate** — `isBareReloadCommand` in `browser-handlers/session-action-helpers.ts`. `text === "/reload"` exactly, zero images, says nothing about session shape. Replaced old `shouldInterceptReload`, which also required a headless PID and thereby made kill-and-respawn the default.
+
+**Why no in-process path.** Earlier revision wrote `/__dashboard_reload` to the session's RPC keeper, on the claim that pi RPC mode runs the line through `session.prompt()` WITH command handling. Measured in the docker harness with `keeperLog.capturePiOutput = true`: it does not. pi's RPC `{type:"prompt"}` performs NO slash-command dispatch. Dispatched `/__dashboard_reload` arrived at the model as an ordinary user prompt and produced a full agent turn (`agent_start` → user message → assistant reply → `agent_end`). Control: pi built-in `/help` written to the same socket behaved identically — so not the `__` prefix, not our registration. Consequence: kill-and-respawn is the ONLY mechanism that reloads a headless session. Note: `rpc-keeper/dispatch-router.ts` `dispatch_extension_command` uses the same `writeRpc` + `{type:"prompt"}` mechanism and therefore has the same defect — separate live bug, own change.
+
+**Ladder step 1 — busy check.** `isReloadBusy` runs FIRST. Refuse if `session.compacting === true`. Refuse if `status === "streaming"` AND `piGateway.isSessionConnected(sessionId)`. Stale `streaming` on a bridge-dead session does NOT refuse — pinned there forever, and exactly what respawn rescues.
+
+**Ladder step 2 — kill-and-respawn.** `headlessPidRegistry.getPid(sessionId)` defined → `handleHeadlessReload` (SIGTERM + `spawnPiSession` `mode:"continue"`), streaming guard suppressed. Registered PID wins over a live bridge: the bridge path is a no-op for a dashboard-spawned session whose `globalThis[RELOAD_KEY]` was never captured in a TUI.
+
+**Ladder step 3 — bridge forward.** No PID, `isSessionConnected` true → `piGateway.sendToSession(sid, {type:"send_prompt", text:"/reload"})`. Gated on the RETURN VALUE, not the probe: the socket can close between the two.
+
+**Ladder step 4 — terminal error.** Neither → terminal `command_feedback {status:"error"}`. A session with NO registered PID is NEVER respawned: would start a second pi against a terminal-hosted session's file.
+
+**Feedback contract** — exactly one terminal `command_feedback` per reload, `command` field always `/reload`.
+
+**Bridge side** — `packages/extension/src/command-handler.ts` no longer emits an unconditional `completed`. `BridgeCommandOptions.reload` returns a `ReloadOutcome` (`{ok:true} | {ok:false, reason}`). `bridge.ts` wraps the captured `globalThis[RELOAD_KEY]` call in try/catch, including a SYNCHRONOUS throw: the captured fn is single-use per process because the first `ctx.reload()` invalidates the runner, so a second call throws out of `assertActive()` where a `.catch()` cannot reach it.
+
+**Compaction signal** — `DashboardSession.compacting` (new, `packages/shared/src/types.ts`). Derived in `packages/server/src/session/event-status-extraction.ts` from bridge-forwarded `session_before_compact` (true) and `session_compact` (false). Cleared in `memory-session-manager.unregister`; never carried onto a re-registration.
+
+**Fan-out target set** — `reloadTargetSessionIds(connectedIds, registry)` = `piGateway.getConnectedSessionIds()` UNION `headlessPidRegistry.listSessions()`. The old connected-only fan-out could never reach a headless session whose bridge WS had died.
+
+**pi-core update is a BINARY swap** — `ctx.reload()` cannot replace pi-core, so `respawnForRuntimeSwap` respawns unconditionally (including connected + streaming), and reports `error` for a session with no `sessionFile` or no registered PID. See change: fix-out-of-band-reload.
 
 ### Server Restart (single-orchestrator path)
 
@@ -1278,6 +1320,68 @@ No server change. `resolveModel()` (automation-plugin `server/model-resolver.ts`
 UI shape named `ModelLevelPair`: model left, level right, one bordered container, persistent `MODEL`/`THINKING` captions, saved ref echoed in mono below. Full contract: `openspec/changes/add-default-thinking-level/mockups/ui-plan.md`.
 
 See change: add-default-thinking-level.
+
+### Auto Session Naming (change: fix-auto-naming-reasoning-model)
+
+Bridge-side. `packages/extension/src/auto-session-namer.ts`. After each terminal turn (`agent_end`), eligible session asks naming model for short topic title. Gate: `autoNameSessions` preference (`preferences_update` message).
+
+**Naming model resolution.**
+
+- `@naming` first, fallback `@fast`. `resolveNamingModel()` in `packages/extension/src/role-manager.ts`.
+- `naming` in `DEFAULT_ROLE_NAMES`.
+- Unassigned `naming` ⇒ `@fast` ⇒ identical resolution to pre-role behavior.
+- Neither configured ⇒ permanent stop + one `auto_name_error` naming both slots.
+- Configured in Settings → Roles (Roles panel, `/settings/plugins/roles`), NOT inline on sessions page. Auto-name toggle carries pointer `auto-name-model-pointer`.
+
+**Adaptive output cap.**
+
+- `TITLE_MAX_TOKENS_BASE = 1024` on first attempt.
+- `TITLE_MAX_TOKENS_ESCALATED = 2048` once session records a `starved` verdict.
+- Cap = ceiling, not charge. Non-reasoning model bills ~2 output tokens.
+- Measured on `deepseek/deepseek-v4-flash` + summarizer prompt.
+- Caps 16/64/256/512: `finish_reason=length`, empty content.
+- Cap 1024: returned `NULL`. 24 reasoning tokens.
+- Cap 2048: returned title. 724 reasoning tokens.
+- Reasoning spend nondeterministic. No cap guarantees a title.
+
+**Starvation failure mode.**
+
+- Reasoning model spends whole cap on reasoning tokens.
+- Stream ends truncated. `done` reason `"length"`. No text.
+- Old bug: empty text mapped onto `wait`.
+- `wait` = same verdict as legitimate `NULL` sentinel. Non-terminal.
+- Result: naming retried forever, applied nothing, emitted nothing.
+- Measured: 0 of 3380 sessions `nameSource: "auto"`.
+- Measured: 0 `auto_name_error` lines in 6.8 MB `server.log`.
+- Fix: parse keys on stream stop reason BEFORE text.
+- `length` / `toolUse` ⇒ `starved`. Text NEVER applied.
+- `stop` + empty ⇒ `starved`.
+- `NULL` / over-40-chars / over-6-words ⇒ `waiting`.
+
+**Attempt budget.**
+
+- 3 attempts per session (`ATTEMPT_BUDGET`), shared by `starved` + `waiting`.
+- Exhaustion ⇒ permanent stop + exactly one `auto_name_error`. Remedy matches dominant cause; tie ⇒ `starved`.
+- Transient errors + aborts spend no budget.
+
+**Persistence.**
+
+- Stop persists in session `.meta.json` (`autoNamerState`), survives process restart.
+- Clears when RESOLVED naming reference changes or blocking cause (credentials/registry) resolves.
+- Clearing resets budget AND re-arms error.
+
+**Diagnostics.**
+
+- Every attempt reports exactly one deduplicated outcome.
+- Server retains last outcome per session — `packages/server/src/auto-name-outcome-store.ts`.
+- Bound 500. ABSOLUTE.
+- Eviction prefers non-`stopped` entries.
+- `stopped` entries alone at the bound: OLDEST `stopped` evicted.
+- Protection is an ORDER, never indefinite retention.
+- Readable at `GET /api/auto-name-outcomes`.
+- Rendered in Settings → Diagnostics. `starved` shown distinctly from `waiting`.
+
+See change: fix-auto-naming-reasoning-model.
 
 ### Context Usage Tracking
 1. On each `turn_end`, the bridge calls pi's `ctx.getContextUsage()` API to get real-time context usage (tokens used + actual context window from the provider)
@@ -2078,6 +2182,46 @@ Measured (synthetic #399-shaped window, 140 messages × ~150 snapshot updates):
 
 See change: `compact-warm-replay-stream`.
 
+**Replay windowing + gap backfill** (change: `lazy-load-session-history`): full-stream replay can exceed the browser budget. `memoryLimits.maxReplayEvents` (default `0` = unlimited) caps it. Above `0`, `sendEventBatches` ships head + tail windows, then browser backfills the middle on demand.
+
+#### Windowing (`packages/server/src/browser-handlers/subscription-handler.ts`)
+- `sendEventBatches(ws, sessionId, stored, sendTo, windowLimit?)`.
+- Window applied AFTER `compactEventsForReplay`, never before. Compaction ~20:1.
+- Returned high-water seq stays the PRE-compaction max of the full input array. Windowing never lowers it. `clearReplaying` catch-up depends on this.
+- Keyed on CONTENT not call site: `lastSeq === 0 || lastSeq > maxSeq` = full stream → window. Genuine delta (`lastSeq > 0`) never windowed, never emits `history_window`.
+- `computeReplayWindow(compacted, windowLimit)` returns `{headEnd, tailStart}` or `null`.
+- Short-circuit: `compacted.length <= windowLimit` → no window, `gapCount` 0.
+- `HEAD_RATIO` 0.1, `HEAD_MIN` 20, `HEAD_CAP` 200. `head = clamp(floor(limit*0.1), 20, 200)`, `tail = limit - head`.
+- Tail leading edge snaps FORWARD to next `message_start`/`turn_start`. Head trailing edge snaps BACKWARD to a `message_end`. Both bounded by `SNAP_LOOKUP` 200. Both SHRINK the window, so budget stays a hard cap.
+- Windowed `lastSeq === 0` path sends `session_state_reset` before replay.
+
+#### Window protocol (`packages/shared/src/browser-protocol.ts`)
+- Server→browser `history_window { sessionId, headMaxSeq, tailMinSeq, gapCount, oldestGapSeq }`. Sent once per subscriber, before first `event_replay`, full-stream paths only.
+- `gapCount` = gap events the store HOLDS. Never the seq distance. Middle-trimmed store reports fewer.
+- Browser→server `history_backfill { sessionId, fromSeq, toSeq }` (both inclusive).
+- Server→browser `history_backfill_result { sessionId, events, servedFrom, servedTo, remainingGapCount, error? }`. `error` ∈ `not_subscribed | in_flight | out_of_range | stale_generation`.
+- Exactly ONE result per request on every path, refusals included.
+
+#### Backfill server (`handleHistoryBackfill`)
+- Serves in-memory store only. Never reads the session file.
+- `EventStore.getEventsRange(sessionId, minSeq, maxSeq)` — binary search both bounds + one slice, O(log n + k). `getRangeProbe()` is test-only instrumentation.
+- Span clamped to `BACKFILL_MAX_SPAN` 500 events. Range clamped into the disclosed gap.
+- Single-flight per (socket, session) → second concurrent request refused `in_flight`.
+- Subscription generation bumped on every subscribe; completion at a stale generation replies `stale_generation`, never dropped.
+- Response compacted with `compactEventsForReplay(slice, slice.length)` — explicit supersession boundary, because the boundary is array-relative and a gap slice's `message_end` lives outside it.
+- Served range advances the recorded `headMaxSeq`, so `remainingGapCount` shrinks and the client loop terminates.
+
+#### Client gap UI
+- `packages/client/src/lib/chat/history-gap.ts` — `HistoryGapState`, `HISTORY_GAP_ROW_ID`, `nextBackfillRange`, `captureScrollAnchor`/`restoreScrollAnchor`.
+- Synthetic `ChatMessage` role `historyGap`, spliced at the head→tail boundary during the `event_replay` fold. Never produced by `reduceEvent`.
+- `packages/client/src/components/chat/HistoryGapDivider.tsx` — click-to-load interstitial. States: idle / loading / refused / unavailable / removed-when-filled.
+- Backfill splice touches `messages[]` only: no `maxSeqMapRef` move, no `publishSessionEvents`, no `replayPersister` write.
+- A windowed replay is NOT written to the client replay cache. Prevents caching a sparse array as contiguous, which would make the next reload a cache hit that delta-subscribes and hides the gap permanently.
+- Backfill armed only after the initial replay terminates (`isLast: true`).
+- Gap state cleared on `session_state_reset` and on re-subscribe.
+
+See change: `lazy-load-session-history`.
+
 ### Bridge Reconnection (State Reset)
 When a bridge extension reconnects (e.g., after `pnpm run reload` or network recovery):
 1. Bridge sends `session_register` with `eventCount` to re-register the session
@@ -2344,6 +2488,7 @@ The per-message ⤘ Fork button needs each chat bubble to carry the entry id of 
 | Events | In-memory Map | LRU eviction, max 100 sessions. Pinned if active bridge or browser subscribers. |
 | Sessions | In-memory Map + `.meta.json` | In-memory registry. Each session's state cached in per-session `.meta.json` sidecar next to `.jsonl`. On startup, `session-scanner.ts` scans `~/.pi/agent/sessions/*/` to restore all sessions from cached meta. |
 | Session meta | `~/.pi/agent/sessions/…/<id>.meta.json` | Per-session sidecar: dashboard-owned state (name, attachedProposal, hidden, source) + cached stats (tokens, cost, model, status). Debounced per-session writes (max 1/sec). Stale cache detected via `cachedAt` vs `.jsonl` mtime. |
+| Namer stop state | `~/.pi/agent/sessions/…/<id>.meta.json` (`autoNamerState`) | Auto-naming permanent stop + counters (attemptsUsed, starvedCount, waitingCount, stoppedModelRef, stopCause). Survives process restart; restored via `auto_name_state_restore` at register. Cleared on naming re-resolution or blocking-cause resolution. See change: fix-auto-naming-reasoning-model. |
 | Notify log | `~/.pi/agent/sessions/…/<id>.meta.json` (`SessionMeta.notifyLog`) | Bounded per-session notify history (cap 50, oldest-first). Not a `DashboardEvent` — `event_replay` cannot restore. Mirrored by `sessionToMeta` (full-overwrite save), restored by `sessionFromMeta` cold start, carried across bridge reattach by `memory-session-manager.register()`. See Notify Flow. |
 | Pinned directories | `~/.pi/dashboard/preferences.json` | Ordered array of cwd paths. Pinned dirs always visible in sidebar. |
 | Session order | `~/.pi/dashboard/preferences.json` | Per-cwd ordering managed by `session-order-manager.ts`. |
@@ -2374,6 +2519,25 @@ Precedence: CLI flags → environment variables → config file (`~/.pi/dashboar
 | `tunnel.reservedToken` | _(auto)_ | Legacy bare zrok token. Read-time shim resolves to `{provider:"zrok", mode:"public", zrok:{reservedToken}}` in loadConfig. No disk rewrite until next save. Explicit `provider` wins on conflict |
 | `auth.redirectBaseUrl` | — | Optional OAuth redirect base for reverse-proxy deployments (`https://host[/prefix]`). Overrides tunnel/localhost base in `buildRedirectUri`. No default; absent = previous behaviour |
 | `publicBaseUrls` | — | Top-level reachable base URLs. Pairing QR + `GET /api/tunnel/endpoints` surfaces. `resolvePublicBaseUrls` reads top-level first, legacy `pairing.publicBaseUrls` fallback, else `[]`. No default; absent = legacy. Not an OAuth tier (D7) |
+| `memoryLimits.maxReplayEvents` | 0 | Max events in full-stream replay window. `0` = unlimited (default). Requires server restart. UI: Settings → Server → Memory Limits |
+
+### Memory Limits
+
+`memoryLimits.maxReplayEvents` bounds full-stream replay. Default `0` = unlimited.
+
+Parsing (`parseMemoryLimits`, `packages/shared/src/config.ts`):
+- Absent / non-numeric / negative / NaN / Infinity → `0`.
+- Positive below `MIN_REPLAY_WINDOW` (100) clamps up to 100.
+- `0` never clamped.
+- Fractional floored.
+
+Requires server restart. Surfaced in Settings → Server → Memory Limits.
+
+Threading:
+- `cli.ts` → `server.ts` (`ServerConfig.maxReplayEvents`)
+- → `createBrowserGateway(..., maxReplayEvents)` → `BrowserHandlerContext.maxReplayEvents`.
+
+See change: `lazy-load-session-history`.
 
 ### Tunnel Lifecycle
 

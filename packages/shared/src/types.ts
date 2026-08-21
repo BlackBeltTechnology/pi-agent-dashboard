@@ -1,3 +1,26 @@
+/**
+ * The auto-namer's enumerated durable state set: carried across an extension
+ * reload as VALUES (never the namer object, whose closures would hold a stale
+ * connection and ctx) and persisted into `.meta.json` so a permanent stop also
+ * survives a process restart.
+ * See change: fix-auto-naming-reasoning-model (design D7).
+ */
+export interface AutoNamerPersistedState {
+  hardStopped: boolean;
+  errorEmitted: boolean;
+  attemptsUsed: number;
+  starvedCount: number;
+  waitingCount: number;
+  sawStarved: boolean;
+  stoppedModelRef?: string;
+  stopCause?: string;
+  /** The cause-matched stop reason, so a later re-report stays actionable. */
+  stoppedReason?: string;
+  nameSource?: "auto" | "user";
+  hasAutoName: boolean;
+  lastSelfApplied?: string;
+}
+
 /** Source environment where a pi session is running */
 export type SessionSource =
   | "tui"
@@ -99,6 +122,12 @@ export interface DashboardSession {
    * lockout. See change: add-auto-session-naming.
    */
   nameSource?: "auto" | "user";
+  /**
+   * The auto-namer's durable stop state, restored on cold start so a
+   * permanent stop survives a process restart rather than re-spending a full
+   * attempt budget. See change: fix-auto-naming-reasoning-model (design D7).
+   */
+  autoNamerState?: AutoNamerPersistedState;
   source: SessionSource;
   /**
    * Disposability marker. Absent ⇒ `"durable"`. Only `"ephemeral"` sessions
@@ -109,6 +138,17 @@ export interface DashboardSession {
    */
   lifecyclePolicy?: LifecyclePolicy;
   status: SessionStatus;
+  /**
+   * True while the session is compacting its context. Derived server-side
+   * from the bridge-forwarded `session_before_compact` (start) and
+   * `session_compact` (end) events, because `SessionStatus` has no
+   * compaction member. Consumed by the reload dispatcher: pi runs an
+   * extension command immediately even mid-compaction, and `ctx.reload()`
+   * would invalidate the runner, so a compacting session refuses a reload.
+   * Cleared on compaction end and never carried onto a re-registration.
+   * See change: fix-out-of-band-reload.
+   */
+  compacting?: boolean;
   model?: string;
   thinkingLevel?: string;
   startedAt: number;

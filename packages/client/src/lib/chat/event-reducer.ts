@@ -32,7 +32,12 @@ export interface ChatImage {
 
 export interface ChatMessage {
   id: string;
-  role: "user" | "assistant" | "toolResult" | "thinking" | "bashOutput" | "commandFeedback" | "interactiveUi" | "turnSeparator" | "rawEvent" | "inlineTerminal";
+  /**
+   * `historyGap` is a SYNTHETIC interstitial — never produced by `reduceEvent`.
+   * It is spliced into `messages[]` by the message handler to disclose a
+   * windowed replay's elided middle. See change: lazy-load-session-history.
+   */
+  role: "user" | "assistant" | "toolResult" | "thinking" | "bashOutput" | "commandFeedback" | "interactiveUi" | "turnSeparator" | "rawEvent" | "inlineTerminal" | "historyGap";
   content: string;
   images?: ChatImage[];
   toolName?: string;

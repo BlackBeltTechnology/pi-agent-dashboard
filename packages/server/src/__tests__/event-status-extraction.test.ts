@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { extractSessionUpdates } from "../session/event-status-extraction.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
+import { extractSessionUpdates } from "../session/event-status-extraction.js";
 
 function makeEvent(eventType: string, data: Record<string, unknown> = {}): DashboardEvent {
   return { eventType, timestamp: Date.now(), data: { type: eventType, ...data } };
@@ -52,8 +52,35 @@ describe("extractSessionUpdates", () => {
 
   it("should return null for unrelated events", () => {
     expect(extractSessionUpdates(makeEvent("message_update"))).toBeNull();
-    expect(extractSessionUpdates(makeEvent("session_compact"))).toBeNull();
     expect(extractSessionUpdates(makeEvent("turn_start"))).toBeNull();
+  });
+});
+
+// ── Compaction signal (test-plan #E9) ──
+// `SessionStatus` has no compacting member, so the reload dispatcher's
+// busy-session refusal reads a dedicated boolean derived from the two
+// compaction events the bridge already forwards.
+// See change: fix-out-of-band-reload.
+describe("extractSessionUpdates — compaction signal", () => {
+  it("flags the session as compacting on session_before_compact", () => {
+    expect(extractSessionUpdates(makeEvent("session_before_compact"))).toEqual({
+      compacting: true,
+    });
+  });
+
+  it("clears the flag on session_compact", () => {
+    expect(extractSessionUpdates(makeEvent("session_compact"))).toEqual({
+      compacting: false,
+    });
+  });
+
+  it("does not disturb currentTool (no fold when hasPendingPrompt)", () => {
+    // The `hasPendingPrompt` fold only rewrites an update that CLEARS
+    // currentTool. A compaction update carries no currentTool at all, so it
+    // must pass through untouched rather than inventing an "ask_user" tool.
+    expect(extractSessionUpdates(makeEvent("session_before_compact"), true)).toEqual({
+      compacting: true,
+    });
   });
 });
 
