@@ -21,6 +21,16 @@
  */
 import type { AutoNameOutcome } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 
+/**
+ * The complete outcome taxonomy, as a runtime set. The bridge frame arrives as
+ * raw JSON that the gateway casts, so this is the only place the VALUE can be
+ * checked before it reaches retention, the REST route and every subscriber.
+ */
+export const AUTO_NAME_OUTCOMES: ReadonlySet<string> = new Set<AutoNameOutcome>([
+  "applied", "waiting", "starved", "skipped-prefilter", "locked-out",
+  "disabled", "already-named", "not-ready", "retrying", "stopped",
+]);
+
 /** Maximum retained entries. Normative. */
 const AUTO_NAME_OUTCOME_BOUND = 500;
 

@@ -10,7 +10,7 @@ import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { createServer, type DashboardServer } from "../server.js";
-import { AutoNameOutcomeStore } from "../auto-name-outcome-store.js";
+import { AUTO_NAME_OUTCOMES, AutoNameOutcomeStore } from "../auto-name-outcome-store.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -219,5 +219,28 @@ describe("auto-naming outcome retention", () => {
       expect(store.size).toBeLessThanOrEqual(500);
     }
     expect(store.size).toBe(500);
+  });
+});
+
+/**
+ * CodeRabbit: the gateway casts raw JSON, so an `auto_name_outcome` frame is
+ * unvalidated by the time `event-wiring` sees it. An unknown outcome VALUE
+ * would render as a raw string in Diagnostics and defeat the starved/waiting
+ * distinction the readout exists to make.
+ * See change: fix-auto-naming-reasoning-model.
+ */
+describe("auto-naming outcome taxonomy", () => {
+  it("covers every outcome the bridge can report", () => {
+    // Kept in lockstep with the AutoNameOutcome union in shared/protocol.ts.
+    for (const o of ["applied", "waiting", "starved", "skipped-prefilter", "locked-out",
+                     "disabled", "already-named", "not-ready", "retrying", "stopped"]) {
+      expect(AUTO_NAME_OUTCOMES.has(o)).toBe(true);
+    }
+    expect(AUTO_NAME_OUTCOMES.size).toBe(10);
+  });
+
+  it("rejects an unknown outcome value", () => {
+    expect(AUTO_NAME_OUTCOMES.has("nonsense")).toBe(false);
+    expect(AUTO_NAME_OUTCOMES.has("")).toBe(false);
   });
 });

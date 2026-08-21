@@ -11,7 +11,7 @@ import type { BrowserNotifyMessage } from "@blackbelt-technology/pi-dashboard-sh
 import type { DashboardSession, NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { type PendingAttachment, prepareEventForIngest } from "./attachments/attachment-ingest.js";
 import { createAttachmentResolver } from "./attachments/attachment-resolver.js";
-import { autoNameOutcomes } from "./auto-name-outcome-store.js";
+import { AUTO_NAME_OUTCOMES, autoNameOutcomes } from "./auto-name-outcome-store.js";
 import { normalizeNotifyLevel } from "@blackbelt-technology/pi-dashboard-shared/notify.js";
 import { fromLegacyPromptRequest } from "./pairing/notify-log.js";
 import { createCanvasAccumulator } from "./canvas/canvas-accumulator.js";
@@ -1975,8 +1975,13 @@ export function wireEvents(deps: EventWiringDeps): void {
 
     if (msg.type === "auto_name_outcome") {
       // The gateway casts raw JSON, so a malformed frame would otherwise reach
-      // the retention map, the REST route and every subscriber.
-      if (typeof msg.outcome !== "string" || typeof msg.reason !== "string") return;
+      // the retention map, the REST route and every subscriber. Validate the
+      // whole contract, including the outcome VALUE — an unknown outcome would
+      // render as a raw string in Diagnostics and defeat the starved/waiting
+      // distinction the readout exists to make.
+      if (!AUTO_NAME_OUTCOMES.has(msg.outcome as string)) return;
+      if (typeof msg.reason !== "string") return;
+      if (msg.modelRef !== undefined && typeof msg.modelRef !== "string") return;
       // Retained so a stop that happened with nobody subscribed is still
       // discoverable when an operator opens Settings → Diagnostics later.
       // See change: fix-auto-naming-reasoning-model (design D9).
