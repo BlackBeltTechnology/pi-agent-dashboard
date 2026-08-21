@@ -401,26 +401,57 @@ test.describe("folder header git identity (worktree leak)", () => {
   // makes the next create fail `path_exists`. Advisory — never fails a test.
   test.afterAll(() => {
     if (wtCreated.size === 0 && wtBranches.size === 0) return;
-    const out = execFileSync(
-      "docker",
-      ["ps", "--filter", `publish=${DASHBOARD_PORT}`, "--format", "{{.Names}}"],
-      { encoding: "utf8" },
-    ).trim();
-    const container = out.split("\n").filter(Boolean)[0];
-    if (!container) return;
-    const cmds = [
-      ...[...wtCreated].map((p) => `git -C ${CWD} worktree remove --force '${p}' 2>/dev/null || true`),
-      ...[...wtBranches].map((b) => `git -C ${CWD} branch -D '${b}' 2>/dev/null || true`),
-      `git -C ${CWD} worktree prune || true`,
-    ];
+    // EVERYTHING inside the try, container discovery included: if the harness
+    // has already stopped, `docker ps`/`docker exec` throws and would fail an
+    // otherwise-completed spec. Teardown is advisory, never a verdict.
     try {
-      execFileSync("docker", ["exec", container, "sh", "-c", cmds.join("; ")], { encoding: "utf8" });
+      const out = execFileSync(
+        "docker",
+        ["ps", "--filter", `publish=${DASHBOARD_PORT}`, "--format", "{{.Names}}"],
+        { encoding: "utf8" },
+      ).trim();
+      const container = out.split("\n").filter(Boolean)[0];
+      if (container) {
+        const git = (args: string[]) =>
+          execFileSync("docker", ["exec", container, "git", "-C", CWD, ...args], { encoding: "utf8" });
+        for (const p of wtCreated) { try { git(["worktree", "remove", "--force", p]); } catch { /* gone */ } }
+        for (const b of wtBranches) { try { git(["branch", "-D", b]); } catch { /* gone */ } }
+        try { git(["worktree", "prune"]); } catch { /* best-effort */ }
+      }
     } catch {
       // teardown is advisory
     }
     wtCreated.clear();
     wtBranches.clear();
   });
+
+  /**
+   * Create a worktree in the fixture repo and spawn a session INSIDE it, then
+   * wait for the bridge's `git_info_update` to fold it into the PARENT folder's
+   * group (and re-key it to the FRONT of the order) — the exact leak trigger.
+   * Returns the worktree branch name.
+   */
+  async function foldWorktreeChildIntoParent(page: Page, tag: string): Promise<string> {
+    const base = await fixtureBaseBranch(page);
+    const branch = `${tag}-${Date.now().toString(36)}`;
+    const created = await wtApi(page, "/api/git/worktree", postBody({ cwd: CWD, base, newBranch: branch }));
+    expect(created.success, JSON.stringify(created)).toBe(true);
+    const wtPath = (created.data as { path: string }).path;
+    wtCreated.add(wtPath);
+    wtBranches.add(branch);
+    const spawned = await wtApi(page, "/api/session/spawn", postBody({ cwd: wtPath }));
+    expect(spawned.success, JSON.stringify(spawned)).toBe(true);
+    // Poll until the server actually reports the fold, so a later assertion
+    // cannot pass merely because the ineligible child never arrived.
+    await expect
+      .poll(async () => {
+        const res = await wtApi(page, "/api/sessions");
+        const rows = (res.data ?? []) as Array<{ cwd?: string; gitWorktree?: { mainPath?: string } }>;
+        return rows.some((r) => r.cwd === wtPath && r.gitWorktree?.mainPath === CWD);
+      }, { timeout: 60_000 })
+      .toBe(true);
+    return branch;
+  }
 
   test("main folder header never shows a worktree branch (test-plan #F1)", async ({ page }) => {
     await gotoDashboard(page);
@@ -476,9 +507,14 @@ test.describe("folder header git identity (worktree leak)", () => {
     // neither the branch URL nor the PR affordance.
     await gotoDashboard(page);
     await ensureGitSession(page);
+    // An INELIGIBLE child must actually exist in the group, or the absence
+    // assertions below would hold trivially and pass against the old code too.
+    const wtBranch = await foldWorktreeChildIntoParent(page, "wtf2");
     await expandFolder(page, CWD);
     const btn = folderGitRow(page, CWD).first();
     await expect(btn).toBeVisible({ timeout: 30_000 });
+    // The ineligible child's branch is never the header's branch.
+    expect(await folderBranchText(page, CWD)).not.toContain(wtBranch);
     // No borrowed branch link: the branch label is plain text, not an anchor.
     const anchors = await btn.evaluate(
       (el) => el.parentElement?.querySelectorAll("a").length ?? 0,

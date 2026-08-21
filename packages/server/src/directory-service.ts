@@ -27,6 +27,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/openspec-poller.js";
 import type { PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { createSemaphore, type Semaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
+import { inferPlatform, pathKey } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
 import type { OpenSpecChange, OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { computeFolderGroupKeys, createFolderHeadPoll, type FolderHeadPoll } from "./git-worktree/folder-head-poll.js";
 import type { EventLoopSpikeMetrics, EventLoopTurn } from "./metrics/eventloop-spike-metrics.js";
@@ -395,10 +396,17 @@ export function createDirectoryService(
     onChange: (cwd) => { folderHeadPoll?.refreshOne(cwd)?.catch(() => { /* logged inside */ }); },
   });
   const attachedFolderHeadCwds = new Set<string>();
-  // The most recently COMPUTED folder group-key set. Single writer:
-  // `recomputeFolderHeadKeys` below, called by the periodic tick and by every
-  // entry trigger. Two independent updaters would let a trigger-side recompute
-  // mark a key "previously seen" that no refresh ever read.
+  // The most recently COMPUTED folder group-key set, held as CANONICAL
+  // `pathKey`s rather than display paths: cosmetic display drift (`/repo` vs
+  // `/repo/`, drive-letter or case changes, a pin swapping which display path
+  // wins a collision) would otherwise read as a key ENTERING the set and cost a
+  // redundant git read on every drift. `computeFolderGroupKeys` already
+  // de-duplicates by `pathKey`, so this just keeps the entry predicate on the
+  // same footing. Display paths are still what gets read and broadcast.
+  //
+  // Single writer: `recomputeFolderHeadKeys` below, called by the periodic tick
+  // and by every entry trigger. Two independent updaters would let a
+  // trigger-side recompute mark a key "previously seen" that no refresh read.
   // See change: fix-folder-header-worktree-branch-leak.
   let previousFolderHeadKeys = new Set<string>();
   let folderHeadEntryTimer: ReturnType<typeof setTimeout> | null = null;
@@ -871,12 +879,15 @@ export function createDirectoryService(
    * See change: fix-folder-header-worktree-branch-leak.
    */
   function recomputeFolderHeadKeys(): { keys: string[]; entering: string[] } {
-    const keys = computeFolderGroupKeys(
-      sessionManager.listAll(),
-      preferencesStore.getPinnedDirectories(),
-    );
-    const entering = keys.filter((k) => !previousFolderHeadKeys.has(k));
-    previousFolderHeadKeys = new Set(keys);
+    const sessions = sessionManager.listAll();
+    const pinned = preferencesStore.getPinnedDirectories();
+    const keys = computeFolderGroupKeys(sessions, pinned);
+    // Same inference inputs as `computeFolderGroupKeys` uses internally, so the
+    // canonical keys here fold exactly the drift it folds.
+    const platform = inferPlatform([...sessions.map((s) => s.cwd), ...pinned]);
+    const canonical = keys.map((k) => pathKey(k, platform));
+    const entering = keys.filter((_k, i) => !previousFolderHeadKeys.has(canonical[i]));
+    previousFolderHeadKeys = new Set(canonical);
     return { keys, entering };
   }
 

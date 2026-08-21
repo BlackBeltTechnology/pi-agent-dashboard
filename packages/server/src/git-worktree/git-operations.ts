@@ -2,13 +2,14 @@
  * Server-side git operations — branch listing, checkout, init, stash,
  * worktree (head probe, list, create).
  */
-import fs from "node:fs";
-import path from "node:path";
+
 // Real node execFile + promisify: the platform/exec wrapper's `execFileAsync`
 // lacks the `util.promisify.custom` symbol and resolves with the bare stdout
 // string instead of `{ stdout, stderr }`. Precedent: `lib/path-containment.ts`.
 // See change: fix-folder-header-worktree-branch-leak.
 import { execFile as nodeExecFile } from "node:child_process"; // ban:child_process-ok async HEAD read needs promisify({stdout,stderr}); platform/exec wrapper loses the custom promisify shape
+import fs from "node:fs";
+import path from "node:path";
 import { promisify } from "node:util";
 import { type ChildProcess, execFileSync, execSync, spawn, spawnSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { gitStatusV2 } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
@@ -453,6 +454,10 @@ async function tryRunFileAsync(args: string[], cwd: string): Promise<string | un
       cwd,
       encoding: "utf-8",
       timeout: GIT_TIMEOUT,
+      // Restored explicitly: bypassing the `platform/exec` wrapper also bypasses
+      // its `windowsHide: true` default, and this runs on every poll cycle —
+      // without it the folder-HEAD fan-out flashes console windows on Windows.
+      windowsHide: true,
     });
     return String(stdout).trim();
   } catch {

@@ -48,10 +48,16 @@ function harnessContainer(): string {
   return name;
 }
 
-function gitInFixture(args: string): string {
+/**
+ * Run git in the fixture repo INSIDE the harness container, argv-style.
+ * Deliberately no `sh -c`: git permits branch names containing shell
+ * metacharacters, and `original` here comes from `rev-parse --abbrev-ref HEAD`,
+ * so interpolating it into a shell string would be a command-execution surface.
+ */
+function gitInFixture(args: string[]): string {
   return execFileSync(
     "docker",
-    ["exec", harnessContainer(), "sh", "-c", `cd '${FIXTURE_GIT}' && git ${args}`],
+    ["exec", harnessContainer(), "git", "-C", FIXTURE_GIT, ...args],
     { encoding: "utf8" },
   ).trim();
 }
@@ -62,8 +68,8 @@ test.describe("folder header converges on an out-of-band checkout", () => {
 
   test.afterAll(() => {
     if (!original) return;
-    try { gitInFixture(`checkout ${original}`); } catch { /* best-effort */ }
-    try { gitInFixture(`branch -D ${TMP_BRANCH}`); } catch { /* best-effort */ }
+    try { gitInFixture(["checkout", original]); } catch { /* best-effort */ }
+    try { gitInFixture(["branch", "-D", TMP_BRANCH]); } catch { /* best-effort */ }
   });
 
   test("out-of-band checkout still converges the header (test-plan #F5)", async ({ page }) => {
@@ -71,13 +77,13 @@ test.describe("folder header converges on an out-of-band checkout", () => {
     await gotoDashboard(page);
     await expandFolder(page, FIXTURE_GIT);
 
-    original = gitInFixture("rev-parse --abbrev-ref HEAD");
+    original = gitInFixture(["rev-parse", "--abbrev-ref", "HEAD"]);
     await expect
       .poll(() => folderHeaderBranch(page, FIXTURE_GIT), { timeout: 60_000 })
       .toBe(original);
 
     // Out-of-band: the dashboard never touches HEAD here.
-    gitInFixture(`checkout -b ${TMP_BRANCH}`);
+    gitInFixture(["checkout", "-b", TMP_BRANCH]);
 
     // The watcher fires sub-second; the poll is the ≤60s fallback.
     await expect

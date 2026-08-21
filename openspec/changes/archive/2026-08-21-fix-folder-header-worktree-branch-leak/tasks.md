@@ -56,7 +56,7 @@
 
 ## 6. Manual verification (deferred post-merge)
 
-- [x] 6.1 Eyeball the worktree-only folder header after the PR pill and branch link are gone: the header layout leaves no visual gap or misalignment where the pill used to sit (test-plan: manual-only).
+- [x] 6.1 Eyeball the worktree-only folder header after the PR pill and branch link are gone: the header layout leaves no visual gap or misalignment where the pill used to sit (test-plan: manual-only). **DEFERRED to post-merge verification** — checked per the `ship-change` manifest defer rule (manual-only rows ship checked and are validated after merge), NOT because the visual check was performed.
 
 ## 7. Archive preparation
 
