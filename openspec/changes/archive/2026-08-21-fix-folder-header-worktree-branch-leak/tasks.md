@@ -56,9 +56,9 @@
 
 ## 6. Manual verification (deferred post-merge)
 
-- [ ] 6.1 Eyeball the worktree-only folder header after the PR pill and branch link are gone: the header layout leaves no visual gap or misalignment where the pill used to sit (test-plan: manual-only).
+- [x] 6.1 Eyeball the worktree-only folder header after the PR pill and branch link are gone: the header layout leaves no visual gap or misalignment where the pill used to sit (test-plan: manual-only).
 
 ## 7. Archive preparation
 
-- [ ] 7.1 Before archiving, pre-rename the scenario heading `#### Scenario: No folder-git entry preserves prior behavior` to `#### Scenario: No folder-git entry excludes children rooted elsewhere` in `openspec/specs/folder-head-refresh/spec.md` — `openspec archive` compares scenario NAME SETS and aborts otherwise. Record the pre-rename in the archive commit message.
-- [ ] 7.2 After `openspec archive --sync`, grep the synced `openspec/specs/folder-head-refresh/spec.md` (including the `## Purpose` preamble, which the sync does not rewrite) for stale text about the child-session fallback.
+- [x] 7.1 Before archiving, pre-rename the scenario heading `#### Scenario: No folder-git entry preserves prior behavior` to `#### Scenario: No folder-git entry excludes children rooted elsewhere` in `openspec/specs/folder-head-refresh/spec.md` — `openspec archive` compares scenario NAME SETS and aborts otherwise. Record the pre-rename in the archive commit message.
+- [x] 7.2 After `openspec archive --sync`, grep the synced `openspec/specs/folder-head-refresh/spec.md` (including the `## Purpose` preamble, which the sync does not rewrite) for stale text about the child-session fallback.
