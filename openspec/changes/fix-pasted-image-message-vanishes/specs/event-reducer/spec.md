@@ -7,12 +7,21 @@ Image content parts SHALL be recognized through the shared
 `inline-image-block-shapes` detector, so BOTH accepted block shapes are extracted
 identically: the flat pi shape `{ type: "image", data, mimeType }` and the nested
 Anthropic shape `{ type: "image", source: { type: "base64", media_type, data } }`.
-A block SHALL be admitted when it carries a non-empty mime AND either inline
-base64 bytes or a non-empty two-phase `attachmentId`; the block's `data` and mime
-SHALL be read through the shared accessors rather than by reading `data` /
-`mimeType` directly. An admitted block's `attachmentId` and `attachmentState`
-SHALL be carried onto the `ChatImage` when present, so a later
-`attachment_fitted` event can fill the reserved position.
+A block SHALL be admitted when it carries a non-empty mime AND at least one
+usable source: inline base64 bytes, a non-empty two-phase `attachmentId`, or the
+server's `imageTruncated` rescue marker. The block's `data` and mime SHALL be
+read through the shared accessors rather than by reading `data` / `mimeType`
+directly. An admitted block's `attachmentId` and `attachmentState` SHALL be
+carried onto the `ChatImage` when present, so a later `attachment_fitted` event
+can fill the reserved position.
+
+A RESCUED block (`imageTruncated: true`, no bytes, no `attachmentId` — the server
+stripped over-ceiling image bytes) SHALL resolve to `attachmentState: "failed"`,
+the state that already renders as an explicit "image unavailable" slot. Nothing
+will ever fill it, so it SHALL NOT be left pending indefinitely and SHALL NOT be
+dropped from `images`. An `attachmentState` already present on the block SHALL
+win over the derived value, so a two-phase pending placeholder is never
+downgraded.
 
 #### Scenario: User sends text message
 - **WHEN** a `message_start` event with `role: "user"` and text content arrives
@@ -35,9 +44,22 @@ SHALL be carried onto the `ChatImage` when present, so a later
   `attachmentId` (and `attachmentState` when present), so the attachment position
   is not lost
 
+#### Scenario: A rescued block renders as an unavailable slot
+- **WHEN** a `message_start` event carries an image block with a mime, empty
+  bytes and `imageTruncated: true` — in either shape
+- **THEN** it SHALL be added to `images` with `attachmentState: "failed"`, so the
+  row shows an explicit unavailable slot rather than pretending nothing was
+  attached
+- **AND** the message's text SHALL be unaffected
+
+#### Scenario: A pending placeholder is not downgraded by the rescue rule
+- **WHEN** a block carries `attachmentState: "pending"` and an `attachmentId`
+- **THEN** its state SHALL remain `"pending"`
+
 #### Scenario: A block with no usable source or no mime is not an image
 - **WHEN** a `message_start` event carries an `image`-typed block with no inline
-  bytes and no `attachmentId`, or one with no mime
+  bytes, no `attachmentId` and no `imageTruncated` marker, or one with no mime
+  (including a rescued block whose mime is absent)
 - **THEN** it SHALL NOT be added to `images`
 
 #### Scenario: Pending prompt cleared

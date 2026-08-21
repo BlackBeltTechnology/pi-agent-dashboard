@@ -3,7 +3,10 @@
  * Replaces SQLite-backed event-store.ts.
  */
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { isInlineImageBlock } from "@blackbelt-technology/pi-dashboard-shared/image-block.js";
+import {
+  isBase64DataCarrier,
+  isInlineImageBlock,
+} from "@blackbelt-technology/pi-dashboard-shared/image-block.js";
 
 export interface StoredEvent {
   seq: number;
@@ -336,13 +339,6 @@ export const DEFAULT_MAX_STRING_SIZE = 4_000;
  */
 export const DEFAULT_MAX_EVENT_DATA_SIZE = 262_144;
 
-/** True for a base64 image content block (`data` string + sibling `mimeType`). */
-function isImageBlock(obj: object): boolean {
-  return (
-    typeof (obj as Record<string, unknown>).data === "string" &&
-    "mimeType" in obj
-  );
-}
 
 /**
  * Inline image-block detection (flat pi shape + nested Anthropic `source`
@@ -442,7 +438,7 @@ export function capString(s: string, maxSize: number): string {
 function summarizeAtDepthLimit(obj: unknown, maxSize: number): unknown {
   if (typeof obj === "string") return capString(obj, maxSize);
   if (obj && typeof obj === "object") {
-    if (!Array.isArray(obj) && isImageBlock(obj)) return obj;
+    if (!Array.isArray(obj) && isBase64DataCarrier(obj)) return obj;
     return "[truncated: deep]";
   }
   return obj;
@@ -470,8 +466,12 @@ function truncateStrings(obj: unknown, maxSize: number, depth = 0): unknown {
     let changed = false;
     const result: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(obj)) {
-      // Preserve base64 image data — skip truncation when sibling mimeType exists
-      if (key === "data" && typeof val === "string" && "mimeType" in obj) {
+      // Preserve base64 image data — skip truncation when a sibling mime key
+      // exists, in EITHER shape (flat `mimeType`, nested `source.media_type`).
+      // Detection is the shared `isBase64DataCarrier`, so this pass and the
+      // client cannot drift on what an image block looks like.
+      // See change: fix-pasted-image-message-vanishes.
+      if (key === "data" && typeof val === "string" && isBase64DataCarrier(obj)) {
         result[key] = val;
         continue;
       }

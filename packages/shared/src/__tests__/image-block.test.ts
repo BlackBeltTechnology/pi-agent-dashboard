@@ -5,12 +5,19 @@ import {
   isImageTypeBlock,
   isInlineImageBlock,
   isRenderableImageBlock,
+  isTruncatedImageBlock,
 } from "../image-block.js";
 
 const flat = { type: "image", data: "AAAA", mimeType: "image/png" };
 const nested = { type: "image", source: { type: "base64", media_type: "image/png", data: "BBBB" } };
 const placeholder = { type: "image", data: "", attachmentId: "abc", attachmentState: "pending", mimeType: "image/png" };
 const blankNoMime = { type: "image", data: "" };
+const rescued = { type: "image", data: "", mimeType: "image/png", imageTruncated: true };
+const rescuedNested = {
+  type: "image",
+  source: { type: "base64", media_type: "image/png", data: "" },
+  imageTruncated: true,
+};
 const text = { type: "text", text: "hi" };
 
 describe("image-block shared detector", () => {
@@ -50,6 +57,28 @@ describe("image-block shared detector", () => {
     expect(isRenderableImageBlock(blankNoMime)).toBe(false); // no bytes, no id, no mime
     expect(isRenderableImageBlock({ type: "image", attachmentId: "x" })).toBe(false); // id but no mime
     expect(isRenderableImageBlock(text)).toBe(false);
+  });
+
+  it("recognizes rescued (imageTruncated) blocks in both shapes", () => {
+    expect(isTruncatedImageBlock(rescued)).toBe(true);
+    expect(isTruncatedImageBlock(rescuedNested)).toBe(true);
+    expect(isTruncatedImageBlock(flat)).toBe(false);
+    expect(isTruncatedImageBlock(placeholder)).toBe(false);
+    expect(isTruncatedImageBlock(text)).toBe(false);
+    expect(isTruncatedImageBlock(null)).toBe(false);
+    // Only the literal `true` marks a rescue — not any truthy value.
+    expect(isTruncatedImageBlock({ type: "image", imageTruncated: "yes" })).toBe(false);
+  });
+
+  it("a rescued block is renderable (as an unavailable slot) but not inline", () => {
+    // Nothing left to strip — the server rescue already removed the bytes.
+    expect(isInlineImageBlock(rescued)).toBe(false);
+    expect(isInlineImageBlock(rescuedNested)).toBe(false);
+    // But it MUST still reach the client, or the attachment vanishes silently.
+    expect(isRenderableImageBlock(rescued)).toBe(true);
+    expect(isRenderableImageBlock(rescuedNested)).toBe(true);
+    // The marker does not excuse a missing mime.
+    expect(isRenderableImageBlock({ type: "image", data: "", imageTruncated: true })).toBe(false);
   });
 
   it("isRenderableImageBlock rejects empty attachmentId and empty mime", () => {

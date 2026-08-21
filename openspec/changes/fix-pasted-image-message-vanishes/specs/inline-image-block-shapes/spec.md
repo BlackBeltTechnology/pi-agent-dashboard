@@ -26,15 +26,28 @@ The module SHALL expose:
 - `isInlineImageBlock(block)` — true exactly when `imageBlockData(block)` is
   defined. This is the "are there bytes here to strip?" question the server's
   over-ceiling image rescue keys off.
+- `isTruncatedImageBlock(block)` — true when the block is `image`-typed and
+  carries `imageTruncated === true` (strictly the boolean, not any truthy
+  value): a block the server's rescue emptied, whose bytes are gone for good.
 - `isRenderableImageBlock(block)` — true when the block is `image`-typed, has a
-  NON-EMPTY mime, AND has either inline bytes or a NON-EMPTY `attachmentId`.
-  This is the "can this become a rendered attachment?" question the client keys
-  off.
+  NON-EMPTY mime, AND has at least one usable source: inline bytes, a NON-EMPTY
+  `attachmentId`, or the `imageTruncated` marker. This is the "can this become a
+  rendered attachment slot?" question the client keys off.
+- `isBase64DataCarrier(obj)` — true when `obj` has a `data` string alongside a
+  sibling mime key (`mimeType` or `media_type`). Deliberately STRUCTURAL rather
+  than `type === "image"`-scoped, because the node carrying the nested bytes is
+  the `source` wrapper, which has no `type: "image"`. This is the predicate the
+  server's per-string-field truncation uses to exempt base64 from capping.
 
-The two predicates SHALL remain distinct: a blanked two-phase attachment
-placeholder SHALL be `isInlineImageBlock === false` (nothing to strip) and
-`isRenderableImageBlock === true` (its position must be reserved for the later
-fit resolution).
+The predicates SHALL remain distinct:
+
+- a blanked two-phase attachment placeholder SHALL be
+  `isInlineImageBlock === false` (nothing to strip) and
+  `isRenderableImageBlock === true` (its position must be reserved for the later
+  fit resolution);
+- a rescued block SHALL be `isInlineImageBlock === false` (already emptied) and
+  `isRenderableImageBlock === true` (it must still be shown as an explicit
+  unavailable slot, never silently dropped).
 
 Every accessor SHALL be total over unknown input: `null`, `undefined`, arrays,
 primitives and non-image blocks SHALL yield `false` / `undefined` rather than
@@ -54,6 +67,23 @@ throwing.
 - **THEN** `imageBlockData` SHALL be `undefined` and `isInlineImageBlock` SHALL be
   false
 - **AND** `isRenderableImageBlock` SHALL be true
+
+#### Scenario: A rescued block is renderable but not inline
+- **WHEN** a block is `image`-typed with a mime, empty bytes and
+  `imageTruncated: true`, in either shape
+- **THEN** `isTruncatedImageBlock` SHALL be true, `isInlineImageBlock` SHALL be
+  false, and `isRenderableImageBlock` SHALL be true
+- **AND** the marker SHALL NOT excuse a missing mime: with no mime,
+  `isRenderableImageBlock` SHALL be false
+- **AND** a non-boolean `imageTruncated` value SHALL NOT count as the marker
+
+#### Scenario: The base64 exemption is structural, not image-typed
+- **WHEN** `isBase64DataCarrier` is given the nested `source` object
+  `{ type: "base64", media_type, data }`, which carries no `type: "image"`
+- **THEN** it SHALL return true, so the per-string-field pass does not cap the
+  nested base64 into an undecodable string
+- **AND** given `{ data: "<string>" }` with no sibling mime key it SHALL return
+  false
 
 #### Scenario: Renderability requires a usable source AND a mime
 - **WHEN** a block has an `attachmentId` but no mime, or a mime but neither bytes

@@ -26,7 +26,13 @@ Tool 3 is lossless-for-memory and total-loss-for-meaning: it discards `data.mess
 
 The rescue blanks the base64 string and leaves the block in place rather than deleting it. A deleted block would shift positions and destroy the correspondence the fit/attachment resolution relies on to back-fill a thumbnail; the mime is kept for the same reason. `imageTruncated: true` marks the block so a renderer can distinguish "bytes stripped for size" from "two-phase placeholder awaiting fit". It is additive and no consumer is required to read it.
 
-*Alternative rejected:* head+tail-capping the base64 like any other string. A truncated base64 string is not a decodable image — it renders as a broken image rather than a placeholder, and still spends the ceiling on bytes nobody can use.
+*Alternative rejected:* head+tail-capping the base64 like any other string. A truncated base64 string is not a decodable image — it renders as a broken image rather than a placeholder, and still spends the ceiling on bytes nobody can use. (The same reasoning is why the per-string-field pass exempts base64 outright; that exemption is now shape-structural, so the nested `source.data` is exempt too.)
+
+### D1b — A rescued block must still render, as an explicit unavailable slot
+
+`prepareEventForIngest` blanks the bytes AND stamps an `attachmentId` for every block that enters two-phase. So a block still carrying bytes when it reaches the truncator is precisely one the fit DECLINED (animated GIF, unfittable mime, or no fit worker at all). The rescue therefore always produces a block with no bytes and no `attachmentId` — which `isRenderableImageBlock` rejected, dropping it from `images` entirely. The message survived, but claimed the user had attached nothing.
+
+The client now admits `imageTruncated` blocks and maps them to `attachmentState: "failed"`, which `ChatView` already renders as "image unavailable". No new UI state, and it is honest: the bytes are unrecoverable, so a pending slot would hang forever. An `attachmentState` already on the block wins, so a two-phase pending placeholder is never downgraded.
 
 ### D2 — Rescue runs only on the over-ceiling branch, before the generic string pass
 
@@ -44,8 +50,9 @@ The rescue returns a NEW event with only the touched paths cloned (`{...event, d
 
 `packages/shared/src/image-block.ts` is imported by both the server truncator and the client reducer. Placing it in `shared` (rather than duplicating a predicate on each side) is what makes "handle both shapes" a single fact. The module distinguishes two questions deliberately:
 
-- `isInlineImageBlock` — "are there bytes here to strip?" (server truncation). A blanked two-phase placeholder answers **false**: nothing to strip.
-- `isRenderableImageBlock` — "can this become a rendered attachment?" (client). Requires a non-empty mime AND (inline bytes OR a non-empty `attachmentId`). A two-phase placeholder answers **true**.
+- `isInlineImageBlock` — "are there bytes here to strip?" (server truncation). A blanked two-phase placeholder and a rescued block both answer **false**: nothing to strip.
+- `isRenderableImageBlock` — "can this become a rendered attachment slot?" (client). Requires a non-empty mime AND (inline bytes OR a non-empty `attachmentId` OR the `imageTruncated` marker). Both placeholder kinds answer **true**.
+- `isBase64DataCarrier` — "is this node's `data` base64 that capping would corrupt?" (per-string-field pass). Structural (`data` + `mimeType`/`media_type` sibling) rather than `type === "image"`-scoped, because the node holding nested bytes is the `source` wrapper, which carries no `type`. It replaces the store's local `isImageBlock`, which knew only the flat shape.
 
 Conflating them would either make the server rewrite blocks with nothing to gain, or make the client drop the placeholder slot that `attachment_fitted` later fills.
 
@@ -61,7 +68,7 @@ For `{ source: { type, media_type, data } }` the rescue blanks `source.data` and
 
 ## Migration Plan
 
-None. Forward-looking behavior change at ingest; already-stored placeholder events are unaffected and no persisted format changes.
+No schema migration. Newly rescued events contain an ADDITIVE `imageTruncated` field in their stored and broadcast payloads; older readers simply ignore it (they render the block as an empty image slot, or drop it, exactly as before this change). Already-stored `{ __truncated }` events are unaffected — the behavior change is forward-looking at ingest.
 
 ## Open Questions
 

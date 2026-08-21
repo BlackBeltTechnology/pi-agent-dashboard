@@ -178,6 +178,31 @@ describe("memory-event-store", () => {
       expect(content.data).toHaveLength(500);
     });
 
+    it("preserves nested-shape base64 image data (media_type sibling)", () => {
+      // The per-field exemption must key off the SHAPE, not the literal key
+      // `mimeType`: capping a nested `source.data` yields a base64 string that
+      // no longer decodes, i.e. a broken image rather than a smaller one.
+      // See change: fix-pasted-image-message-vanishes.
+      const store = createMemoryEventStore(neverPinned, 100, 5000, 100);
+      const longBase64 = "A".repeat(500);
+      const event: DashboardEvent = {
+        eventType: "message_start",
+        timestamp: Date.now(),
+        data: {
+          message: {
+            role: "user",
+            content: [
+              { type: "image", source: { type: "base64", media_type: "image/png", data: longBase64 } },
+            ],
+          },
+        },
+      };
+      store.insertEvent("s1", event);
+      const stored = store.getEvent("s1", 1);
+      const block = (stored as any).data.message.content[0];
+      expect(block.source.data).toBe(longBase64);
+    });
+
     it("still truncates data field without mimeType sibling", () => {
       const store = createMemoryEventStore(neverPinned, 100, 5000, 100);
       const longString = "B".repeat(500);

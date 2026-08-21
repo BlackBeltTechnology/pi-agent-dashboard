@@ -10,7 +10,12 @@
 // state; useMessageHandler.ts mirrors every msg.event into the
 // per-session-events store the plugin runtime owns.
 import { parseSkillBlock, type SkillBlock } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
-import { imageBlockData, imageBlockMime, isRenderableImageBlock } from "@blackbelt-technology/pi-dashboard-shared/image-block.js";
+import {
+  imageBlockData,
+  imageBlockMime,
+  isRenderableImageBlock,
+  isTruncatedImageBlock,
+} from "@blackbelt-technology/pi-dashboard-shared/image-block.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 export interface ChatImage {
@@ -1471,12 +1476,21 @@ export function reduceEvent(
             // `isRenderableImageBlock` already guaranteed a non-empty mime, so
             // the `?? ""` fallback is unreachable — it only narrows the type
             // from `string | undefined` to `string` for ChatImage.mimeType.
-            images = imgBlocks.map((c: any) => ({
-              data: imageBlockData(c) ?? "",
-              mimeType: imageBlockMime(c) ?? "",
-              ...(c.attachmentId ? { attachmentId: c.attachmentId } : {}),
-              ...(c.attachmentState ? { attachmentState: c.attachmentState } : {}),
-            }));
+            images = imgBlocks.map((c: any) => {
+              // A RESCUED block (server stripped over-ceiling image bytes) has
+              // no bytes and no attachmentId — nothing will ever fill it, so it
+              // resolves straight to the explicit unavailable slot rather than
+              // pending forever. An existing attachmentState always wins.
+              // See change: fix-pasted-image-message-vanishes.
+              const attachmentState =
+                c.attachmentState ?? (isTruncatedImageBlock(c) ? "failed" : undefined);
+              return {
+                data: imageBlockData(c) ?? "",
+                mimeType: imageBlockMime(c) ?? "",
+                ...(c.attachmentId ? { attachmentId: c.attachmentId } : {}),
+                ...(attachmentState ? { attachmentState } : {}),
+              };
+            });
           }
         } else {
           text = String(msg.content ?? "");

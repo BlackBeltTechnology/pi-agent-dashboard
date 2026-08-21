@@ -1,12 +1,24 @@
 ## MODIFIED Requirements
 
 ### Requirement: Image data preservation during truncation
-The event store string truncation SHALL preserve base64 image data fields. When truncating object fields, if a key is `"data"` and the parent object contains a `"mimeType"` key, the value SHALL NOT be truncated.
+The generic per-string-field truncation pass (`truncateStrings`) SHALL preserve base64 image data fields: when a key is `"data"` and its parent object carries a sibling mime key, the value SHALL NOT be truncated. Capping base64 does not yield a smaller image, it yields a string that no longer decodes.
 
-This exemption applies to the per-string-field pass ONLY. It SHALL NOT exempt an
-event from the per-event total-serialized-size ceiling: when the event as a whole
-is over the ceiling, the chat-message image-bytes rescue defined by that
-requirement takes precedence and the image bytes are stripped.
+The sibling-mime test SHALL be the shared `inline-image-block-shapes` structural
+predicate, covering BOTH shapes — flat `mimeType` and the nested Anthropic
+`source` wrapper's `media_type` — so a nested-shape image is exempt exactly as a
+flat one is. The predicate SHALL NOT be re-implemented locally in the store.
+
+This exemption is scoped to the generic per-string-field pass for NON-subagent
+events. It SHALL NOT apply to:
+
+- **the subagent-timeline reduction**, which is TYPE-scoped, SKIPS the generic
+  pass entirely, and deliberately head+tail-caps image `.data` with NO
+  preservation — a subagent event's timeline budget takes precedence over any
+  single image it embeds;
+- **the per-event total-serialized-size ceiling**, which is a separate bound:
+  when the event as a whole is over the ceiling, the chat-message image-bytes
+  rescue defined by that requirement takes precedence and the image bytes are
+  stripped.
 
 #### Scenario: Image base64 data preserved
 - **WHEN** a `message_start` event contains a user message with an image content block `{ type: "image", data: "<base64>", mimeType: "image/png" }` and the event as a whole is within `MAX_EVENT_DATA_SIZE`
@@ -16,6 +28,15 @@ requirement takes precedence and the image bytes are stripped.
 - **WHEN** the same image block makes the event exceed `MAX_EVENT_DATA_SIZE`
 - **THEN** the per-field exemption SHALL NOT keep the bytes: the image-bytes
   rescue SHALL strip them and the stored event SHALL be within the ceiling
+
+#### Scenario: Nested-shape image data is preserved too
+- **WHEN** an under-ceiling event carries `{ type: "image", source: { type: "base64", media_type: "image/png", data: "<base64>" } }` and the base64 exceeds the per-string-field cap
+- **THEN** `source.data` SHALL be stored verbatim, NOT head+tail-capped
+
+#### Scenario: Subagent reduction is not covered by the exemption
+- **WHEN** an over-ceiling subagent-timeline event embeds a flat image block
+- **THEN** the subagent reduction SHALL still cap that image `.data` — the
+  exemption SHALL NOT keep it whole and starve the timeline budget
 
 #### Scenario: Non-image data fields still truncated
 - **WHEN** an event contains an object with `{ data: "<large string>" }` but no `mimeType` key
@@ -27,8 +48,9 @@ requirement takes precedence and the image bytes are stripped.
 
 ### Requirement: Per-event total-serialized-size ceiling
 The in-memory event store SHALL bound the total serialized size of every
-individual event's `data` to `MAX_EVENT_DATA_SIZE` (default 20000 bytes,
-constructor-injectable, `0` = disabled). If an event's `data` exceeds the
+individual event's `data` to `MAX_EVENT_DATA_SIZE` (default
+`DEFAULT_MAX_EVENT_DATA_SIZE` = 262 144 bytes / 256 KiB, constructor-injectable —
+smaller values such as 20 000 appear only in tests, `0` = disabled). If an event's `data` exceeds the
 ceiling, the store SHALL bound the event as follows:
 
 - **Subagent-timeline events** — an event is a subagent-timeline event ONLY when
@@ -71,7 +93,12 @@ ceiling, the store SHALL bound the event as follows:
   verbatim, and each image block's POSITION in `content[]` and its mime
   (flat `mimeType`, nested `source.media_type` with the `source` wrapper intact).
   The stripped block's bytes SHALL be replaced with an empty string and the block
-  SHALL be marked `imageTruncated: true`. This rescue SHALL run BEFORE the generic
+  SHALL be marked `imageTruncated: true`. That marker is the CLIENT CONTRACT for
+  the rescued block: unlike a two-phase placeholder it carries no `attachmentId`
+  and no resolution will ever arrive for it, so the client SHALL render it as an
+  explicit unavailable slot (see the `event-reducer` and
+  `inline-image-block-shapes` requirements). A rescued block SHALL NOT be dropped
+  from the rendered message merely because it has no bytes and no `attachmentId`. This rescue SHALL run BEFORE the generic
   per-string-field pass and BEFORE the `{ __truncated }` fallback, and SHALL run
   ONLY on an event already measured as over the ceiling — an under-ceiling event's
   image bytes SHALL be left untouched so ordinary inline rendering is unaffected.
@@ -175,6 +202,8 @@ already-bounded event.
   `mimeType` intact, `data: ""`, and `imageTruncated: true`
 - **AND** the stored event's byte-accurate serialized size SHALL be
   ≤ `MAX_EVENT_DATA_SIZE` plus a small constant
+- **AND** the rescued block SHALL remain renderable by the client as an
+  unavailable slot — the image SHALL NOT silently disappear from the row
 
 #### Scenario: Nested Anthropic image shape is rescued the same way
 - **GIVEN** an over-ceiling `message_start` whose image block is the nested shape
