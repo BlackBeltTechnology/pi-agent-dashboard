@@ -1,5 +1,7 @@
 # Tasks — add-folder-action-banner (D4 · D5 · D6 · D7)
 
+> **Apply blocker (`fix-reliable-live-control-events`):** Reconcile every main-checkout inheritance task and scenario with worktree-local `resolveConfigRoot(cwd)` before implementation.
+
 ## 1. Ground truth
 
 - [ ] 1.1 Enumerate every current call-to-action render site on the directory card: `ProjectInitButton.tsx`, `WorktreeInitButton.tsx`, the `WorktreeInitChip`, and `Clean up broken (N)` in `FolderActionBar.tsx` / `SessionList.tsx`. Record the git-row wrapping exception comment in `SessionList.tsx`.

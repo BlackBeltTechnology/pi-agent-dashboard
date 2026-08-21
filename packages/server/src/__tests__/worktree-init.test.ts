@@ -4,16 +4,18 @@
  *
  * See change: generalize-worktree-init-hook.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  readInitHook,
-  normalizeHook,
   evaluateGate,
-  runInitHook,
   hookDefHash,
+  normalizeHook,
+  readInitHook,
+  runInitHook,
   type WorktreeInitHook,
 } from "../git-worktree/worktree-init.js";
 
@@ -29,6 +31,24 @@ function writeSettings(obj: unknown) {
   fs.mkdirSync(path.join(tmp, ".pi"), { recursive: true });
   fs.writeFileSync(path.join(tmp, ".pi", "settings.json"), JSON.stringify(obj), "utf8");
 }
+
+// ── readInitHook ────────────────────────────────────────────────────────────
+
+describe("repository worktree init command", () => {
+  it("uses the declared pnpm version and the built workspace KB CLI without bare npx", () => {
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
+    const packageJson = JSON.parse(fs.readFileSync(path.join(repoRoot, "package.json"), "utf8"));
+    const settings = JSON.parse(fs.readFileSync(path.join(repoRoot, ".pi", "settings.json"), "utf8"));
+    const command = settings.worktreeInit.run.command as string;
+
+    expect(packageJson.packageManager).toMatch(/^pnpm@/);
+    expect(fs.existsSync(path.join(repoRoot, "pnpm-lock.yaml"))).toBe(true);
+    expect(command).toContain("pnpm install");
+    expect(command).toContain("pnpm --filter @blackbelt-technology/pi-dashboard-kb run build");
+    expect(command).toContain("node packages/kb/dist/cli.js index");
+    expect(command).not.toMatch(/(?:^|&&|;)\s*npx\s+kb\b/);
+  });
+});
 
 // ── readInitHook ────────────────────────────────────────────────────────────
 
@@ -192,6 +212,7 @@ describe("hookDefHash", () => {
 // ── helpers ────────────────────────────────────────────────────────────────
 
 import { EventEmitter } from "node:events";
+
 /** Minimal fake ChildProcess that exits with `code` on next tick. */
 function fakeChild(code: number): any {
   const ee: any = new EventEmitter();

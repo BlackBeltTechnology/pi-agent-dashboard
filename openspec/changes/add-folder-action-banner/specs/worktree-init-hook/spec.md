@@ -1,5 +1,7 @@
 ## ADDED Requirements
 
+> **Apply blocker (`fix-reliable-live-control-events`):** Worktree-local `resolveConfigRoot(cwd)` invalidates main-checkout inheritance statements and scenario E3 in this delta. Reconcile them before implementation.
+
 ### Requirement: Setup state is a per-artifact checklist, not a boolean
 
 `WorktreeInitStatus.configured?: boolean` SHALL be replaced by a per-artifact checklist reporting, for each known setup artifact, its identity, whether it is present, and whether it is **required**. A boolean cannot express a repo that has `openspec/` but no `AGENTS.md`, which is the common real state.

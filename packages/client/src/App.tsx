@@ -71,7 +71,7 @@ import { deleteDraft, readAllDrafts, writeDraft } from "./lib/state/draft-storag
 // SubagentPopoutPage no longer imported by the shell — it's registered via
 // the subagents-plugin's `shell-overlay-route` claim and mounted through
 // `<ShellOverlayRouteSlot>` below. See change: add-flow-agent-popout.
-import { applyPromptTimeout, createInitialState, deriveBannerState, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/chat/event-reducer.js";
+import { applyPromptTimeout, createInitialState, deriveBannerState, reconcileInteractiveRequestsAfterReconnect, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/chat/event-reducer.js";
 import { nextBackfillRange } from "./lib/chat/history-gap.js";
 import { decodeFolderPath, encodeFolderPath } from "./lib/util/folder-encoding.js";
 import { fetchActiveInits } from "./lib/git/git-api.js";
@@ -929,11 +929,24 @@ export default function App() {
     return () => { cancelled = true; };
   }, [apiBase]);
 
-  // Clear subscriptions on reconnect so sessions get re-subscribed
+  // Clear subscriptions on reconnect so sessions get re-subscribed.
+  // Pending interactive rows are browser-local copies: remove them before
+  // authoritative pending-request replay restores only requests that still
+  // exist on the server. See change: fix-reliable-live-control-events.
   const prevStatusRef = useRef(status);
   useEffect(() => {
     if (status === "connected" && prevStatusRef.current !== "connected") {
       subscribedRef.current.clear();
+      setSessionStates((prev) => {
+        let next: Map<string, SessionState> | undefined;
+        for (const [sessionId, state] of prev) {
+          const reconciled = reconcileInteractiveRequestsAfterReconnect(state);
+          if (reconciled === state) continue;
+          next ??= new Map(prev);
+          next.set(sessionId, reconciled);
+        }
+        return next ?? prev;
+      });
       // sessionOrderMap is replaced atomically by the on-connect
       // `sessions_snapshot` message — no pre-reset needed.
       // See change: fix-stale-sessions-on-reconnect.

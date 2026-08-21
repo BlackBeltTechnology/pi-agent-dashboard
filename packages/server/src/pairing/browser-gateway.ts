@@ -129,7 +129,7 @@ export interface BrowserGateway {
    * crosses MAX_WS_BUFFER under back-pressure. See change:
    * fix-stuck-tool-card-on-dropped-event.
    */
-  getDroppedFrameStats(): { total: number; bySession: Record<string, number> };
+  getDroppedFrameStats(): { total: number; bySession: Record<string, number>; forcedReconnects: number };
   /** Track a pending interactive UI request for replay on reconnect */
   trackUiRequest(sessionId: string, requestId: string, method: string, params: Record<string, unknown>): boolean | void;
   /** Clear a pending interactive UI request (resolved or cancelled) */
@@ -456,26 +456,35 @@ export function createBrowserGateway(
   // stall (a log-storm would itself add load).
   let droppedFramesTotal = 0;
   const droppedFramesBySession = new Map<string, number>();
+  let forcedReconnects = 0;
+  const resynchronizingSockets = new WeakSet<WebSocket>();
   const DROP_WARN_WINDOW_MS = 5_000;
   let lastDropWarnAt = 0;
 
-  function recordDroppedFrame(sessionId: string | undefined, seq: number | undefined, bufferedAmount: number) {
+  function handleBackpressure(ws: WebSocket, sessionId?: string, seq?: number) {
     droppedFramesTotal++;
     if (sessionId) droppedFramesBySession.set(sessionId, (droppedFramesBySession.get(sessionId) ?? 0) + 1);
+    const firstDropForSocket = !resynchronizingSockets.has(ws);
+    if (firstDropForSocket) {
+      resynchronizingSockets.add(ws);
+      forcedReconnects++;
+    }
     const now = Date.now();
     if (now - lastDropWarnAt >= DROP_WARN_WINDOW_MS) {
       lastDropWarnAt = now;
       console.warn(
-        `[browser-gw] dropped frame (back-pressure) hop=server→browser sessionId=${sessionId ?? "n/a"} seq=${seq ?? "n/a"} bufferedAmount=${bufferedAmount} > MAX_WS_BUFFER=${MAX_WS_BUFFER} (total dropped=${droppedFramesTotal})`,
+        `[browser-gw] dropped frame (back-pressure) hop=server→browser sessionId=${sessionId ?? "n/a"} seq=${seq ?? "n/a"} bufferedAmount=${ws.bufferedAmount} > MAX_WS_BUFFER=${MAX_WS_BUFFER}; forcing reconnect/replay (total dropped=${droppedFramesTotal})`,
       );
     }
+    if (firstDropForSocket) ws.terminate();
   }
 
   function sendTo(ws: WebSocket, msg: ServerToBrowserMessage, ctx?: { sessionId?: string; seq?: number }) {
     if (ws.readyState === WebSocket.OPEN) {
-      // Drop messages if the send buffer is full (browser not consuming)
+      // Drop the frame and force reconnect/replay instead of leaving the open
+      // browser silently stale. One termination per socket keeps recovery bounded.
       if (MAX_WS_BUFFER > 0 && ws.bufferedAmount > MAX_WS_BUFFER) {
-        recordDroppedFrame(ctx?.sessionId, ctx?.seq, ws.bufferedAmount);
+        handleBackpressure(ws, ctx?.sessionId, ctx?.seq);
         return;
       }
       ws.send(JSON.stringify(msg));
@@ -496,7 +505,7 @@ export function createBrowserGateway(
     for (const [ws] of subscriptions) {
       if (ws.readyState !== WebSocket.OPEN) continue;
       if (MAX_WS_BUFFER > 0 && ws.bufferedAmount > MAX_WS_BUFFER) {
-        recordDroppedFrame(undefined, undefined, ws.bufferedAmount);
+        handleBackpressure(ws);
         continue;
       }
       ws.send(serialized);
@@ -1176,6 +1185,7 @@ export function createBrowserGateway(
       return {
         total: droppedFramesTotal,
         bySession: Object.fromEntries(droppedFramesBySession),
+        forcedReconnects,
       };
     },
 

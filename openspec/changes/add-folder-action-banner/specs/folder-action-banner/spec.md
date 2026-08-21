@@ -1,5 +1,7 @@
 ## ADDED Requirements
 
+> **Apply blocker (`fix-reliable-live-control-events`):** Worktree-local `resolveConfigRoot(cwd)` invalidates main-checkout inheritance statements in this delta. Reconcile them before implementation.
+
 ### Requirement: Calls to action render in a full-width tier-0 banner
 
 Every blocking directory-card call to action — project setup, init-hook run, init progress and init failure — SHALL render in a single full-width banner, never inline on the git row. The git row SHALL become facts-only (branch, dirty state, commit affordance) and SHALL carry no call-to-action control.

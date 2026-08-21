@@ -47,7 +47,7 @@ Node.js HTTP + WebSocket server that:
 - Accepts connections from web browsers (Browser Gateway, port 8000)
 - Stores events in an in-memory buffer with LRU eviction (max 100 sessions, 5000 events per session)
 - Truncates large event payloads (tool results, file content, thinking blocks) to bound memory
-- Applies WebSocket backpressure on browser connections (drops messages when send buffer > 4MB)
+- Applies browser WebSocket back-pressure at `MAX_WS_BUFFER` (4 MiB default). Over-cap open socket drops current frame, counts drop, then terminates once. Browser reconnect + replay resynchronize that socket. Healthy sockets keep fan-out.
 - Manages sessions in a pure in-memory registry (populated from bridge connections and direct disk discovery)
 - Persists global preferences (pinned directories, session order) in `~/.pi/dashboard/preferences.json`
 - Discovers historical sessions directly from disk via `SessionManager.list()` (DirectoryService)
@@ -406,7 +406,10 @@ Pi owns the retry loop. Dashboard configures + observes + renders it. Attempts f
 
 **Resilience:**
 - **Page refresh**: Server replays pending `prompt_request` messages when a browser subscribes. Client deduplicates by `requestId` or pending title match.
+- **Browser reconnect**: Each transition into `connected` runs `reconcileInteractiveRequestsAfterReconnect` across retained session state before selected-session subscribe/replay. Reconcile removes only `interactiveRequests` with `status: "pending"` plus transcript rows whose ids equal `ui-<requestId>`. Settled request rows and notify rows stay. Server replay restores requests still pending. Lost cancel/dismiss converges through omission.
 - **Bridge reconnect**: Bridge replays pending PromptBus requests on WebSocket reconnect so dashboard dialogs survive server restarts.
+
+See change: fix-reliable-live-control-events.
 
 ### Notify Flow (`ctx.ui.notify` → browser, split from prompt_request)
 
@@ -641,11 +644,12 @@ Descriptor-only slots (existing in `extension-ui-system`): `management-modal`, `
 
 #### Health endpoint observability
 
-`/api/health` exposes five additive measurement fields (no behavior change). Existing clients ignore unknown fields. See change: instrument-session-hydration-timing.
+`/api/health` exposes additive measurement fields. Existing clients ignore unknown fields.
 - `eventLoopDelay: { meanMs, p99Ms, maxMs }` — `perf_hooks.monitorEventLoopDelay` histogram, ns→ms. Resets window each read.
-- `hydration: HydrationSample[]` — ring buffer, ≤20 newest-first samples. Process-local, no persistence. Sample `{ sessionId, wallMs, fileBytes, entryCount, eventCount, at }` recorded by `loadSessionEvents`.
+- `hydration: HydrationSample[]`: ring buffer, ≤20 newest-first samples. Process-local, no persistence. Sample `{ sessionId, wallMs, fileBytes, entryCount, eventCount, at }` recorded by `loadSessionEvents`. See change: instrument-session-hydration-timing.
 - `eventLoopSpikes: { at, ms, turn }[]` — ring buffer, ≤50 newest-first, process-local, additive. Retains worst-case event-loop stalls. Two feeds: dedicated `monitorEventLoopDelay` sampler (own instance, never the boot histogram `/api/health` resets → no reset race; records `turn: null` for stalls no poll turn owns) + per-turn self-records from the openspec poll path (`turn: "tickOpen" \| "dirPollPre" \| "dirPollPost"`). Sub-threshold ~700 ms stall retained even when nobody polls `/api/health`. See change: attribute-openspec-poll-eventloop-stalls.
 - `notifyLog: { evictedEntries, bySession }` — from `browserGateway.getNotifyLogStats()` (`packages/server/src/pairing/notify-log.ts` `getStats()`). `evictedEntries` = total cap-50 evictions; `bySession` = per-session counts. Cap-50 eviction = silent transcript loss → counted beside `droppedFrames` / `storeTrim`. See change: split-notify-from-prompt-request.
+- `droppedFrames.serverToBrowser: { total, bySession, forcedReconnects }`: cumulative dropped server→browser frames and session-attributed counts. `forcedReconnects` counts one termination attempt per over-cap browser socket. Counter does not prove reconnect or replay completion. See change: fix-reliable-live-control-events.
 - `storeTrim: { trimmedEvents: { total, toolExecutionEnd, bySession }, evictedSessions, collapsedUpdates }` — from `eventStore.getTrimStats()` (`packages/server/src/persistence/memory-event-store.ts`). `trimmedEvents` + `evictedSessions` pre-existing: per-session cap trims, whole-session LRU evictions. See change: instrument-event-store-trim. NEW `collapsedUpdates`: cumulative count of superseded `tool_execution_update` events dropped at retention. Collapse keeps ≤2 `tool_execution_update` per `toolCallId`: pinned creating tick (first-wins `type`/`description`) + newest tail. Retention-only — never suppresses live broadcast; browser still receives every tick. Predecessor dropped only when successor subsumes it (superset gate on `partialResult.details`). Counters cumulative for process lifetime, never reset on read. No event store wired → `EMPTY_TRIM_STATS` (all-zero), exported from store. Harness A/B (4 sessions × 4 sustained subagent rounds): retained `tool_execution_update` per buffer 36 → 2; buffer share 18.4% → 1.2%. See change: collapse-superseded-tool-execution-updates.
 
 **Bundled-by-default plugins:** The plugin loader treats all plugins identically (same manifest, same discovery, same `enabled` flag, same failure isolation). What distinguishes "bundled-by-default" plugins (initial set: `git-plugin`) is purely operational — the build pipeline always includes them in `packages/`. Their absence is a deliberate user opt-out, not a normal state. OpenSpec, Flows, and Subagents plugins are bundled in standard builds but their absence is a normal use case (e.g. a workspace without OpenSpec).
@@ -1419,6 +1423,16 @@ See change: add-session-uncommitted-indicator-and-commit.
 ### Git worktree convention (`.worktrees/`)
 Dashboard derives new worktree path as `<repoRoot>/.worktrees/<slugifyBranch(branch)>` when `POST /api/git/worktree` body omits `path`. `addWorktree` calls `ensureWorktreeExcludeLine(cwd)` first — idempotently appends `.worktrees/` to `<repoRoot>/.git/info/exclude` so parent repo ignores nested checkouts (untouched if line already present). Bridge `detectWorktree` populates `GitInfo.gitWorktree.mainPath`; `resolveSessionGroupPath` collapses worktree sessions under parent repo's pinned-directory group. See change: add-worktree-spawn-dialog.
 
+#### Worktree init config root
+
+`GET /api/git/worktree/init-status` and `POST /api/git/worktree/init` resolve hook config through `resolveConfigRoot(cwd)`.
+
+- Git checkout: `git rev-parse --show-toplevel` returns checkout-local root. Linked worktree reads its own `.pi/settings.json`. Primary checkout never supplies fallback config.
+- Non-Git directory: exact `cwd/.pi/settings.json` remains supported. Resolver performs no upward walk.
+- Repository hook: `worktreeInit.run.command` installs through pnpm, builds `@blackbelt-technology/pi-dashboard-kb`, then runs `NODE_OPTIONS=--experimental-sqlite node packages/kb/dist/cli.js index`. Bare `npx kb` stays unused.
+
+See change: fix-reliable-live-control-events.
+
 ### Git worktree lifecycle (push / PR / merge / close)
 Dashboard exposes 7 endpoints under `/api/git/worktree/*`: `remove`, `remove-batch`, `prune`, `merge`, `push`, `pr`, `diff-stat`. Localhost-gated. Each forwards stable `{code, stderr}` errors (`active_sessions`, `dirty_worktree`, `branch_not_merged`, `dirty_main`, `merge_conflict`, `base_not_found`, `no_remote`, `auth_failed`, `non_fast_forward`, `gh_not_found`, `gh_not_authed`, `pr_exists`, `pushed_but_pr_failed`, `cwd_invalid`, `is_main_worktree`) produced by pure stderr→code mappers in `git-worktree-lifecycle.ts`.
 `/remove-batch` body `{ items: Array<{cwd, force?, deleteBranch?}> }`. Cap 50 items enforced before any git runs — `batch_too_large` 400; non-array `items` → `items_invalid` 400. Returns `{ results }` in INPUT ORDER, one per item. Never aborts on first failure. Item result: `{ cwd, ok, code, sessionIds?, branchDeleted?, branchDeleteCode? }`. `code` widens `RemoveCode` with `active_sessions | cwd_invalid | is_main_worktree`. Sits behind `networkGuard` + `validateCwd`.
@@ -1642,6 +1656,18 @@ Package operations use pi's `DefaultPackageManager` API on the server, serialize
 Why a separate system? Pi's `DefaultPackageManager` only manages packages listed in `settings.json packages[]` (extensions/skills/prompts/themes). The pi CLI binary itself and the dashboard server package are installed directly via `npm -g` (or into `~/.pi-dashboard/` in the Electron case) and are invisible to pi's manager. `PiCoreChecker` + `PiCoreUpdater` (`pi-core-checker.ts` + `pi-core-updater.ts`) fill that gap.
 
 Core update progress delivered via typed `pi_core_update_progress` / `pi_core_update_complete` browser-protocol messages (not `package_progress` channel). Fanned out to `UnifiedPackagesSection` + `PiUpdateBadge` via `pi-core-event` DOM event. Successful core update triggers `/reload` to connected pi sessions, same as extension updates.
+
+#### Pi runtime and source convergence
+
+- `GET /api/pi/installs` enumerates discoverable pi installs. Response reports separate session-spawn (`pi`) and server-import (`pi-coding-agent`) consumers, compatibility floor, consumer divergence, and install-set divergence.
+- `POST /api/pi/runtime` selects both consumers in one request. Absolute path pins consumer. `null` clears pin and selects Automatic. Route validates paths, persists one `OverridesStore.setMany` transaction, then rescans both tool-registry entries.
+- Settings → Developer → Pi runtime shows both consumer lanes. Keep-in-sync state derives from realpath package-directory equality. Import-consumer change offers dashboard restart.
+- Settings → Packages, Settings → Plugins, and `/api/packages/*` retain ownership of extension/plugin sources and enablement. Runtime selection never rewrites `packages[]`, `dashboardPluginBridges`, or plugin config.
+- Runtime selection changes no dashboard `port` or `piPort` value.
+
+Both runtime routes use `networkGuard`. Architecture records stable controls, not machine-local install versions or transient conflicts.
+
+See changes: select-pi-runtime-install, fix-reliable-live-control-events.
 
 ### Project-scope disable of global resources
 
@@ -2140,6 +2166,17 @@ The web client includes a Settings panel (gear icon in sidebar header → `/sett
 1. Browser reconnects with `subscribe` message including `lastSeq`
 2. Server compacts the in-memory window via `compactEventsForReplay`, then replays missed events in async batches of 200 (`REPLAY_BATCH_SIZE`) with backpressure handling
 3. Browser's event reducer processes replay, rebuilding state
+
+#### Browser back-pressure recovery
+
+All server→browser send paths share `MAX_WS_BUFFER` guard.
+
+- Open socket with `bufferedAmount > MAX_WS_BUFFER` drops current frame. Counter increments `total` and `bySession` when send context names a session.
+- First over-cap frame per socket adds socket to `WeakSet<WebSocket>`, increments cumulative `forcedReconnects`, and calls `ws.terminate()`. Counter records one termination attempt per over-cap browser socket. Counter does not prove reconnect or replay completion. Later send attempts never request second termination. Weak membership disappears after socket collection.
+- Other open sockets receive unchanged fan-out.
+- Browser reconnect uses existing bounded backoff. Transition into `connected` clears subscription tracking, reconciles browser-local pending interactive controls, then selected-session subscribe/replay restores server state.
+
+See change: fix-reliable-live-control-events.
 
 **Replay compaction** (change: `compact-warm-replay-stream`, issue #399): warm (in-memory) replay ships the raw live stream. Every assistant `message_update` carries a full content snapshot, not a delta. Reopening a large session replayed ~20k events; cold (on-disk) path `packages/shared/src/state-replay.ts` synthesizes ~1k. `sendEventBatches` (`packages/server/src/browser-handlers/subscription-handler.ts`) composes pure `compactEventsForReplay` (`packages/server/src/session/replay-compaction.ts`) with existing `truncateToolResultForReplay` map. REPLAY ONLY — store keeps full stream for live path, "Show full output", status extraction. Sibling precedent: `packages/server/src/session/replay-truncate.ts`.
 

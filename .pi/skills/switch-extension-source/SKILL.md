@@ -46,13 +46,12 @@ npx tsx ./scripts/switch-source.ts npm   <pkg>          # -> published npm build
 
 `<pkg>` = monorepo dir name (`kb-extension`) OR npm name (`@blackbelt-technology/pi-dashboard-kb-extension`).
 
-Each switch **removes all other representations** of that package, timestamped-backs-up every file it
-edits (`*.bak-switch-*`), and re-validates JSON before writing.
+Each switch **removes all other string representations** of that package across versioned/unversioned npm entries and local paths from any checkout, timestamped-backs-up every file it edits (`*.bak-switch-*`), and re-validates JSON before writing. A matching structured entry stops before mutation so its filters are not lost.
 
 ## Procedure
 
-1. `status` — see current source per package.
-2. `local <pkg>` or `npm <pkg>` — flip it. Script guarantees single-source.
+1. `status` — see current source per package. Mixed string and structured object entries are supported; structured target rows print `structured (manual)`.
+2. `local <pkg>` or `npm <pkg>` — flip it. Script guarantees single-source for string-form entries. If the target itself is structured, the command stops before mutation so its filters are not discarded; preserve those fields while switching it manually.
 3. **Re-load:** `packages[]` is read at session **init**, so the change takes effect on the
    **next session start**. Respawn sessions or `npm run reload` (reload alone may not re-resolve
    the package list in an already-running process — fresh session is the guaranteed path).
@@ -61,6 +60,8 @@ edits (`*.bak-switch-*`), and re-validates JSON before writing.
 
 - **Bridge plugins (flows/goal/automation) are dashboard-managed** via `dashboardPluginBridges` /
   `_dashboardManagedPackages`. This skill does NOT toggle those — leave them to the dashboard UI.
+- **Structured `packages[]` entries are valid pi settings.** Older script versions called `startsWith` on every entry and crashed during `status`. The current script applies string checks only to strings, reports a matching object as `structured (manual)`, and refuses to switch that target automatically because removing the object would lose its `extensions`/`skills`/`prompts` filters. Completion check: `status` exits 0 against mixed string/object settings and prints the source map.
+- **Published entries can carry `@<version>`, and local entries can point at another checkout.** Source matching uses npm package identity plus the `/packages/<dir>` suffix, not only the current repository prefix. After a switch, inspect `~/.pi/agent/settings.json` and require exactly one target source before reload. Restore the pre-switch snapshot if duplicates remain; do not continue to the fresh-Pi gate with conflicting sources.
 - **npm copy is a frozen snapshot**, not a symlink to your monorepo. After `npm` mode your
   working-tree edits do NOT load until you `local` again.
 - **`--overlay` needs `pi.extensions`** — skill-only packages (pi.skills, no extensions) can't use

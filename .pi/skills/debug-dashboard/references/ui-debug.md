@@ -29,11 +29,9 @@ This file exists to redirect. UI/visual debugging belongs to the **`browser`** s
 
 If you've ruled out the server and the issue is UI-only:
 
-```bash
-# Confirm server is healthy first
-npx tsx ./scripts/health-probe.ts        # this skill
+Run the `debug-dashboard` First moves block. Continue only when the discovered `/api/health` response reports `ok: true`. Then switch:
 
-# Then switch
+```text
 /skill:browser
 ```
 

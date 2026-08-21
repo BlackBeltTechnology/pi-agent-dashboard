@@ -1,5 +1,7 @@
 # Test Plan — add-openspec-init-affordances
 
+> **Apply blocker (`fix-reliable-live-control-events`):** Scenario E14 assumes main-checkout skill inheritance that `resolveConfigRoot(cwd)` no longer provides. Reconcile expected behavior before implementation.
+
 Stage: design   Generated: 2026-08-12
 
 All five HARD-gate clarifications were resolved before this file was written (legacy-artifact

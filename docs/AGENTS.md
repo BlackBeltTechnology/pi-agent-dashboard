@@ -6,7 +6,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 |------|---------|
 | `FLOWS_HANDOFF_CHECKLIST.md` | (repo root) LLM handoff checklist. Verifies pi-flows + Anthropic-messages bridge + model resolution… → see `FLOWS_HANDOFF_CHECKLIST.md.AGENTS.md` |
 | `architecture-notes/worker-offload-roadmap.md` | Worker offload roadmap. Main-loop CPU + sync-fs work → worker_threads. → see `architecture-notes/worker-offload-roadmap.md.AGENTS.md` |
-| `architecture.md` | Full architecture reference. 3 components: bridge extension, Node server, React client. KB retrieval pipeline (FTS5 BM25 staged rerank). Planned bridge↔server transport section (designed, not implemented). Auto Session Naming: `@naming`→`@fast`, adaptive cap 1024→2048, starved/waiting verdicts, 3-attempt budget, `autoNamerState` persistence, `GET /api/auto-name-outcomes`. See change: fix-auto-naming-reasoning-model. → see `architecture.md.AGENTS.md` |
+| `architecture.md` | Runtime/data-flow authority. Browser reconnect/replay, worktree-local init config, pi runtime selection. See change: fix-reliable-live-control-events. → see `architecture.md.AGENTS.md` |
 | `biome.json` | (repo root) Biome 2.5.1 config. formatter off. vcs defaultBranch develop. → see `biome.json.AGENTS.md` |
 | `chat-display-preferences.md` | `DisplayPrefs` gate chat chrome (thinking, tool cards, results, separators, stats bars). → see `chat-display-preferences.md.AGENTS.md` |
 | `chat-gateway-exploration.md` | (repo root) Explore-mode design record. pi ↔ chat platforms (Discord/Slack/Telegram) via generalized… → see `chat-gateway-exploration.md.AGENTS.md` |

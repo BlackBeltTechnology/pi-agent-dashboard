@@ -1,3 +1,3 @@
 # debug-dashboard/references/ui-debug.md — index
 
-Pointer to `browser` skill for UI/visual debugging. Symptom routing table: layout/dark-mode/responsive/console-error/blank-page/click-handler/Electron-shell → `browser` skill; server errors/bridge/API/auth/restart → stay in debug-dashboard. Handoff recipe: `health-probe.ts` then `/skill:browser`. Lists browser skill shipped scripts/references.
+Pointer to `browser` skill for UI and Electron debugging. Visual, layout, responsive, screenshot, and console issues route to `browser`; server, bridge, API, auth, and restart failures stay in debug-dashboard. Handoff requires the First moves `/api/health` check, then `/skill:browser`.

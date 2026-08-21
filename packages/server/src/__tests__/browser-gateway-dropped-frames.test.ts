@@ -31,24 +31,39 @@ describe("server→browser dropped-frame instrumentation", () => {
     vi.restoreAllMocks();
   });
 
-  it("silently drops the frame off the wire (1.2 baseline) but now counts it", () => {
+  it("drops the over-cap frame and terminates only that socket for resynchronization", () => {
     const seed = seedSessions({ focusedCwd: "/repo/a", idleCwds: [] });
     const gateway = buildLoadGateway(seed.manager);
     const ws = overloadSocket(gateway, seed.focusedSessionId);
+    const terminate = vi.fn(() => ws.close());
+    Object.assign(ws, { terminate });
+
+    const healthy = createDrainingWs({ drainRateBytesPerMs: 50_000 });
+    const healthyTerminate = vi.fn(() => healthy.close());
+    Object.assign(healthy, { terminate: healthyTerminate });
+    subscribeWs(gateway, healthy, seed.focusedSessionId);
+    healthy.drainFully();
 
     expect(ws.peakBufferedAmount()).toBeGreaterThan(MAX_WS_BUFFER);
+    const overloadedSentBefore = ws.sent.length;
+    const healthySentBefore = healthy.sent.length;
 
-    // The NEXT event for this session is dropped (buffer still over cap).
-    gateway.broadcastEvent(seed.focusedSessionId, 2, { type: "tool_execution_end", data: { toolCallId: "t1" } });
+    // The NEXT ordinary event for this session crosses the guard.
+    gateway.broadcastEvent(seed.focusedSessionId, 2, { type: "message_update", text: "ordinary-stream-update" });
 
-    // Drop is observable: it never landed as a seq-2 frame on the wire…
-    const seq2Landed = ws.sent.some((r) => r.type === "event" && r.bytes < 1000);
-    expect(seq2Landed).toBe(false);
+    // The over-cap socket misses the frame, but cannot remain silently stale.
+    expect(ws.sent).toHaveLength(overloadedSentBefore);
+    expect(terminate).toHaveBeenCalledOnce();
 
-    // …and the counter recorded it, attributed to the session.
+    // Healthy subscribers stay live and receive the same frame.
+    expect(healthy.sent.length).toBeGreaterThan(healthySentBefore);
+    expect(healthyTerminate).not.toHaveBeenCalled();
+
+    // Recovery is observable beside the existing drop attribution.
     const stats = gateway.getDroppedFrameStats();
     expect(stats.total).toBeGreaterThanOrEqual(1);
     expect(stats.bySession[seed.focusedSessionId]).toBeGreaterThanOrEqual(1);
+    expect(stats.forcedReconnects).toBe(1);
   });
 
   it("emits a rate-limited warning carrying hop/sessionId/seq/bufferedAmount", () => {
@@ -66,23 +81,30 @@ describe("server→browser dropped-frame instrumentation", () => {
     expect(msg).toContain(`sessionId=${seed.focusedSessionId}`);
     expect(msg).toContain("seq=2");
     expect(msg).toContain("bufferedAmount=");
+    expect(msg).toContain("forcing reconnect/replay");
   });
 
-  it("rate-limits the warning: a storm of drops logs at most once per window", () => {
+  it("bounds a drop storm to one warning and one recovery per affected socket", () => {
     const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
     const seed = seedSessions({ focusedCwd: "/repo/a", idleCwds: [] });
     const gateway = buildLoadGateway(seed.manager);
-    overloadSocket(gateway, seed.focusedSessionId);
+    const ws = overloadSocket(gateway, seed.focusedSessionId);
+    const terminate = vi.fn();
+    Object.assign(ws, { terminate });
 
+    // Keep readyState OPEN to model frames already in flight before the close
+    // callback changes socket state.
     for (let seq = 2; seq < 20; seq++) {
       gateway.broadcastEvent(seed.focusedSessionId, seq, { type: "tool_execution_end", data: { toolCallId: `t${seq}` } });
     }
 
     const dropWarns = warnSpy.mock.calls.map((c) => String(c[0])).filter((m) => m.includes("dropped frame"));
-    // Many drops, but at most one warning inside the 5 s window.
-    expect(dropWarns.length).toBe(1);
-    // All drops still counted.
-    expect(gateway.getDroppedFrameStats().total).toBeGreaterThanOrEqual(18);
+    expect(dropWarns).toHaveLength(1);
+    expect(terminate).toHaveBeenCalledOnce();
+    expect(gateway.getDroppedFrameStats()).toMatchObject({
+      total: 18,
+      forcedReconnects: 1,
+    });
   });
 
   it("reports zero drops for a healthy (draining) socket", () => {

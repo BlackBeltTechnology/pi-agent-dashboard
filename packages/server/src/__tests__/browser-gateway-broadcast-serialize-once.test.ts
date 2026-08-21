@@ -10,24 +10,27 @@
  *
  * See change: scope-openspec-poll-to-active-cwds (broadcast serialize-once).
  */
-import { describe, it, expect, vi } from "vitest";
+
 import { EventEmitter } from "node:events";
+import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { describe, expect, it, vi } from "vitest";
 import { createBrowserGateway } from "../pairing/browser-gateway.js";
-import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import type { PiGateway } from "../pi/pi-gateway.js";
-import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { createMemorySessionManager } from "../session/memory-session-manager.js";
 
 function makeFakeWs(opts?: { bufferedAmount?: number; readyState?: number }) {
   const ws = new EventEmitter() as EventEmitter & {
     send: ReturnType<typeof vi.fn>;
     close: ReturnType<typeof vi.fn>;
+    terminate: ReturnType<typeof vi.fn>;
     readyState: number;
     bufferedAmount: number;
     OPEN: number;
   };
   ws.send = vi.fn();
   ws.close = vi.fn();
+  ws.terminate = vi.fn();
   ws.readyState = opts?.readyState ?? 1;
   ws.bufferedAmount = opts?.bufferedAmount ?? 0;
   ws.OPEN = 1;
@@ -115,18 +118,24 @@ describe("browser-gateway broadcast serialize-once", () => {
     expect(JSON.parse(f1)).toEqual(PAYLOAD);
   });
 
-  it("skips a subscriber whose bufferedAmount exceeds MAX_WS_BUFFER", () => {
+  it("terminates and counts a subscriber whose bufferedAmount exceeds MAX_WS_BUFFER", () => {
     // MAX_WS_BUFFER defaults to 4 MB; mark one socket over that.
     const gateway = buildGateway();
     const wsOk = makeFakeWs();
-    const wsFull = makeFakeWs({ bufferedAmount: 8 * 1024 * 1024 });
+    const wsFull = makeFakeWs();
     attach(gateway, wsOk);
     attach(gateway, wsFull);
+    wsFull.bufferedAmount = 8 * 1024 * 1024;
 
     gateway.broadcastToAll(PAYLOAD);
 
     expect(wsOk.send).toHaveBeenCalledTimes(1);
     expect(wsFull.send).not.toHaveBeenCalled();
+    expect(wsFull.terminate).toHaveBeenCalledOnce();
+    expect(gateway.getDroppedFrameStats()).toMatchObject({
+      total: 1,
+      forcedReconnects: 1,
+    });
   });
 
   it("skips a subscriber whose readyState is not OPEN", () => {

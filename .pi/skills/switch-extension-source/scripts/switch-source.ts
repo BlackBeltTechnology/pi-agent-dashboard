@@ -25,9 +25,9 @@
  * dashboard-managed and intentionally NOT toggled here. Re-init takes effect on the NEXT
  * session start (packages[] is read at init), so respawn sessions / run `npm run reload` after.
  */
-import { readFileSync, writeFileSync, copyFileSync, readdirSync, existsSync } from "node:fs";
-import { join, resolve, dirname } from "node:path";
+import { copyFileSync, existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -84,11 +84,34 @@ const LOCAL_DIR = (p: PkgInfo) => `${REPO}/packages/${p.dir}`;
 const NPM_ENTRY = (p: PkgInfo) => `npm:${p.npmName}`;
 const localPrefix = (p: PkgInfo) => `${REPO}/packages/${p.dir}`;
 
-// Remove every representation of pkg from global packages[] and project overlay.
+function isNpmPackageSource(source: string, p: PkgInfo): boolean {
+  const npm = NPM_ENTRY(p);
+  return source === npm || source.startsWith(`${npm}@`);
+}
+
+function isLocalPackageSource(source: string, p: PkgInfo): boolean {
+  const normalized = source.replaceAll("\\", "/");
+  const marker = `/packages/${p.dir}`;
+  const markerAt = normalized.lastIndexOf(marker);
+  if (markerAt < 0) return false;
+  const afterMarker = markerAt + marker.length;
+  return afterMarker === normalized.length || normalized[afterMarker] === "/";
+}
+
+function matchesPackageSource(source: string, p: PkgInfo): boolean {
+  return isNpmPackageSource(source, p) || isLocalPackageSource(source, p);
+}
+
+function structuredSource(entry: unknown): string | undefined {
+  if (!entry || typeof entry !== "object" || !("source" in entry)) return undefined;
+  return typeof entry.source === "string" ? entry.source : undefined;
+}
+
+// Remove every string representation of pkg from global packages[] and project overlay.
+// A matching structured entry is rejected by cmdSwitch so its filters are not lost.
 function purge(global: any, project: any, p: PkgInfo) {
-  const pref = localPrefix(p);
   global.packages = (global.packages ?? []).filter(
-    (e: string) => e !== NPM_ENTRY(p) && e !== pref && !e.startsWith(`${pref}/`),
+    (entry: unknown) => typeof entry !== "string" || !matchesPackageSource(entry, p),
   );
   for (const ov of project.packages ?? []) {
     if (!Array.isArray(ov.extensions)) continue;
@@ -99,11 +122,14 @@ function purge(global: any, project: any, p: PkgInfo) {
 }
 
 function detect(global: any, project: any, p: PkgInfo): string {
-  const pkgs: string[] = global.packages ?? [];
+  const pkgs: unknown[] = global.packages ?? [];
+  const stringPkgs = pkgs.filter((entry): entry is string => typeof entry === "string");
   const pref = localPrefix(p);
-  if (pkgs.includes(NPM_ENTRY(p))) return "npm";
-  if (pkgs.includes(pref)) return "local (global path)";
-  if (pkgs.some((e) => e.startsWith(`${pref}/`))) return "local (global file path)";
+  if (stringPkgs.some((entry) => isNpmPackageSource(entry, p))) return "npm";
+  if (stringPkgs.includes(pref)) return "local (global path)";
+  if (stringPkgs.some((entry) => entry.startsWith(`${pref}/`))) return "local (global file path)";
+  if (stringPkgs.some((entry) => isLocalPackageSource(entry, p))) return "local (other checkout)";
+  if (pkgs.some((entry) => matchesPackageSource(structuredSource(entry) ?? "", p))) return "structured (manual)";
   for (const ov of project.packages ?? [])
     if ((ov.extensions ?? []).some((e: string) => e.replace(/^\+/, "").startsWith(`packages/${p.dir}/`)))
       return "local (project overlay)";
@@ -139,6 +165,11 @@ function cmdSwitch(mode: "local" | "npm", ident: string, overlay: boolean) {
   const p = resolvePkg(ident, all);
   const global = readJson(GLOBAL);
   const project = existsSync(PROJECT) ? readJson(PROJECT) : { packages: [] };
+
+  if ((global.packages ?? []).some((entry: unknown) => matchesPackageSource(structuredSource(entry) ?? "", p))) {
+    console.error(`✗ ${p.dir} uses a structured packages[] entry; preserve its filters and switch it manually.`);
+    process.exit(1);
+  }
 
   purge(global, project, p);
 

@@ -13,21 +13,15 @@ The skill exists because both halves are easy to get wrong:
 
 ## Quick decision tree
 
-```
-        Did you edit code?
-                │
-       ┌────────┴────────┐
-       │                 │
-       ▼                 ▼
-   src/extension/    src/server/ or src/shared/
-       │                 │
-       ▼                 ▼
-   npm run reload    curl -X POST localhost:8000/api/restart
-                     (no build step — jiti runs TS directly)
-
-   src/client/ (dev mode)   →  nothing, Vite HMR
-   src/client/ (prod mode)  →  npm run build && restart
-   Multi-component / openspec  →  npx tsx .pi/skills/implement/scripts/full-rebuild.ts
+```mermaid
+flowchart TD
+    Q[Did you edit code?] --> EXT["src/extension/"]
+    Q --> SRV["src/server/ or src/shared/"]
+    EXT --> R["npm run reload"]
+    SRV --> RS["curl -X POST localhost:8000/api/restart<br/>(no build step — jiti runs TS directly)"]
+    Q --> CD["src/client/ (dev mode) → nothing, Vite HMR"]
+    Q --> CP["src/client/ (prod mode) → npm run build && restart"]
+    Q --> MC["Multi-component / openspec → npx tsx .pi/skills/implement/scripts/full-rebuild.ts"]
 ```
 
 Quick check current mode:
@@ -48,6 +42,8 @@ npx tsx .pi/skills/implement/scripts/full-rebuild.ts
 ```
 
 > `full-rebuild.ts` **deploys the checked-out dev version to the local running instance** (build + restart + reload). It is NOT a feature-implementation step — worktree / Docker-isolated feature work does not run it. The code-review gate is separate (below).
+>
+> **Do NOT run `full-rebuild.ts` against a systemd-hosted dashboard.** Its step 2 is `POST /api/restart`; under a `systemd --user` unit with the default `KillMode=control-group` and `Restart=on-failure`, the clean exit is not revived by systemd and the cgroup teardown kills sibling pi sessions/keepers (confirmed: change `fix-reliable-live-control-events`). Restart a systemd-hosted instance with `systemctl --user restart pi-agent-dashboard.service` (verify `systemctl --user is-active` + `/api/health`), then `npm run reload` separately. Check `systemctl --user is-active pi-agent-dashboard.service` before choosing the restart path.
 >
 > Scripts are TypeScript (cross-platform). All invocations use `npx tsx` so they work identically on Linux, macOS, and Windows. `tsx` is already a project dep.
 

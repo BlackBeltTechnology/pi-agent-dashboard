@@ -1,5 +1,7 @@
 # openspec-readiness Specification
 
+> **Apply blocker (`fix-reliable-live-control-events`):** Worktree-local `resolveConfigRoot(cwd)` invalidates main-checkout skill inheritance statements and scenario E14 in this delta. Reconcile them before implementation.
+
 ## Purpose
 
 One server-derived per-cwd OpenSpec readiness state, emitted on `OpenSpecData` and rendered by

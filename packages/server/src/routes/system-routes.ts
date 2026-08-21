@@ -139,7 +139,7 @@ export function registerSystemRoutes(
       broadcastToAll: (msg: ServerToBrowserMessage) => void;
       // Per-hop dropped-frame counters for the diagnostics surface.
       // See change: fix-stuck-tool-card-on-dropped-event.
-      getDroppedFrameStats?: () => { total: number; bySession: Record<string, number> };
+      getDroppedFrameStats?: () => { total: number; bySession: Record<string, number>; forcedReconnects: number };
       getNotifyLogStats?: () => { evictedEntries: number; bySession: Record<string, number> };
     };
     // Shared hydration-timing recorder; `/api/health` reads its snapshot.
@@ -867,7 +867,7 @@ export function registerSystemRoutes(
       // count reported across active sessions' heartbeats. See change:
       // fix-stuck-tool-card-on-dropped-event.
       droppedFrames: {
-        serverToBrowser: browserGateway?.getDroppedFrameStats?.() ?? { total: 0, bySession: {} },
+        serverToBrowser: browserGateway?.getDroppedFrameStats?.() ?? { total: 0, bySession: {}, forcedReconnects: 0 },
         bridgeToServer: activeSessions.reduce(
           (max, s) => Math.max(max, (s.processMetrics as { droppedBufferedFrames?: number } | undefined)?.droppedBufferedFrames ?? 0),
           0,

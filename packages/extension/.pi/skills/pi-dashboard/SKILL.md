@@ -25,13 +25,23 @@ via [`scripts/dashboard-bus.ts`](scripts/dashboard-bus.ts) — a thin CLI wrappi
 session id from the live subscription snapshot, so command prose no longer needs
 to teach BASE-URL derivation or GET `/api/sessions` id-resolution.
 
-Canonical example:
+Pass the script's ABSOLUTE path to `npx tsx`. Under `npx tsx`, a relative
+`./scripts/dashboard-bus.ts` resolves against the nearest package root, not this
+skill directory — from the installed package (a symlink to `packages/extension`,
+whose root has no `scripts/`) that raises `ERR_MODULE_NOT_FOUND`. The file lives
+at `<skill-dir>/scripts/dashboard-bus.ts`. See change: fix-reliable-live-control-events.
 
 ```bash
-npx tsx ./scripts/dashboard-bus.ts spawn /path/to/proj --prompt "/opsx-explore add-auth"
-npx tsx ./scripts/dashboard-bus.ts until <id> idle
-npx tsx ./scripts/dashboard-bus.ts prompt <id> "run the tests"
+# Resolve the script's absolute path once (handles the symlinked install):
+BUS="$(realpath "$(find ~/.pi ~/.nvm /data/repos -path '*/pi-dashboard/scripts/dashboard-bus.ts' -print -quit 2>/dev/null)")"
+npx tsx "$BUS" spawn /path/to/proj --prompt "/opsx-explore add-auth"
+npx tsx "$BUS" until <id> idle
+npx tsx "$BUS" prompt <id> "run the tests"
 ```
+
+If the bus CLI still cannot be resolved (e.g. after a package source switch), the
+supported REST shell works — e.g. resume:
+`curl -s -X POST "$BASE/api/session/<id>/resume" -H 'Content-Type: application/json' -d '{"mode":"continue"}'` (confirmed working).
 
 LLM authors can also write an ordinary type-checked `.ts` script importing
 `{ connect }` from `@blackbelt-technology/pi-dashboard-bus-client` for multi-step

@@ -87,15 +87,17 @@ describe("GET /api/health — shape", () => {
     const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
     const body = await res.json() as Record<string, unknown>;
     const dropped = body.droppedFrames as {
-      serverToBrowser: { total: number; bySession: Record<string, number> };
+      serverToBrowser: { total: number; bySession: Record<string, number>; forcedReconnects: number };
       bridgeToServer: number;
     };
     expect(dropped).toBeDefined();
     expect(typeof dropped.serverToBrowser.total).toBe("number");
     expect(typeof dropped.serverToBrowser.bySession).toBe("object");
+    expect(typeof dropped.serverToBrowser.forcedReconnects).toBe("number");
     expect(typeof dropped.bridgeToServer).toBe("number");
-    // Fresh server: no drops yet.
+    // Fresh server: no drops or forced reconnects yet.
     expect(dropped.serverToBrowser.total).toBe(0);
+    expect(dropped.serverToBrowser.forcedReconnects).toBe(0);
     expect(dropped.bridgeToServer).toBe(0);
   });
 

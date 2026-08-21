@@ -5,40 +5,30 @@ description: 'Diagnose problems in the running pi-agent-dashboard system: server
 
 # Debug Dashboard
 
-System-level debugging for the running pi-agent-dashboard. Three layers:
+System-level debugging for the running pi-agent-dashboard. Check three layers in order:
 
-```
-   ┌─────────────────────────────────────────────────────────┐
-   │  Layer 1 — Is the server alive?                         │
-   │            npx tsx ./scripts/health-probe.ts            │
-   │            npx tsx ./scripts/tail-server-log.ts         │
-   └─────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-   ┌─────────────────────────────────────────────────────────┐
-   │  Layer 2 — Are the bridges connecting?                  │
-   │            npx tsx ./scripts/list-sessions.ts           │
-   │            npx tsx ./scripts/tail-server-log.ts --errors│
-   └─────────────────────────────────────────────────────────┘
-                            │
-                            ▼
-   ┌─────────────────────────────────────────────────────────┐
-   │  Layer 3 — Is the UI rendering?                         │
-   │            (use the browser skill)                     │
-   └─────────────────────────────────────────────────────────┘
-```
+1. Server: discover the active base URL, read `/api/health`, and inspect the current log block.
+2. Bridges: read the active session snapshot and inspect bridge errors in health or logs.
+3. UI: use the `browser` skill after server and bridge checks pass.
 
-## First moves — always run these
+## First moves
+
+Run these repository-managed commands from the repository root. They need only the installed workspace dependencies. `health-probe.ts` honors `PI_DASHBOARD_BASE`, then `PI_DASHBOARD_PORT`, then `~/.pi/dashboard/config.json`, with port 8000 as the final default.
 
 ```bash
-npx tsx ./scripts/health-probe.ts        # mode + uptime + version, or "not-running"
-npx tsx ./scripts/tail-server-log.ts     # last 50 lines of current run
-npx tsx ./scripts/list-sessions.ts       # connected pi sessions via REST
+pnpm exec pi-dashboard status
+pnpm exec tsx .pi/skills/debug-dashboard/scripts/health-probe.ts --json
+pnpm exec tsx .pi/skills/debug-dashboard/scripts/tail-server-log.ts
+pnpm exec tsx .pi/skills/debug-dashboard/scripts/list-sessions.ts --json
 ```
 
-> Scripts are TypeScript (cross-platform). All invocations use `npx tsx` so they work on Linux, macOS, and Windows. `tsx` is already a project dep.
+Completion criteria:
 
-If `health-probe` says "not-running" → server isn't up. Check `server.log` for the most recent start banner (`[bootstrap] ready ...`) and what came after. The log appends with timestamped headers per start, so the **last** banner block is the relevant one.
+- `pi-dashboard status` and `/api/health` identify the same port and running process.
+- The log excerpt starts in the latest timestamped run block.
+- The session output lists each non-ended session with its id, status, model, and cwd.
+
+If the health request fails, the server is not reachable at the discovered base URL. Inspect the latest `server.log` run block for the last `[bootstrap] ready` line and the error after it.
 
 ## When the server is up but misbehaving
 
@@ -59,9 +49,9 @@ Full known-issue catalogue: [`references/known-issues.md`](references/known-issu
 Use the tee→grep pattern. Never rerun to inspect — capture once, grep forever:
 
 ```bash
-npx tsx ./scripts/run-tests-triage.ts                 # all tests, tee to OS tmpdir, summarize failures
-npx tsx ./scripts/run-tests-triage.ts packages/server # restrict to one package's vitest
-npx tsx ./scripts/run-tests-triage.ts -t 'my test'    # by test name
+npx tsx .pi/skills/debug-dashboard/scripts/run-tests-triage.ts                 # all tests, tee to OS tmpdir, summarize failures
+npx tsx .pi/skills/debug-dashboard/scripts/run-tests-triage.ts packages/server # restrict to one package's vitest
+npx tsx .pi/skills/debug-dashboard/scripts/run-tests-triage.ts -t 'my test'    # by test name
 ```
 
 After it finishes, the log lives at:

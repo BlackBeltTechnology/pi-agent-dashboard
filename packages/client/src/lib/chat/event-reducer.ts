@@ -1034,6 +1034,24 @@ export function addInteractiveRequest(
   };
 }
 
+/**
+ * Drop browser-local pending requests before authoritative replay after a
+ * WebSocket reconnect. Settled rows stay in the transcript; notify rows have
+ * no interactiveRequests entry and therefore stay too.
+ */
+export function reconcileInteractiveRequestsAfterReconnect(state: SessionState): SessionState {
+  const pendingIds = new Set(
+    state.interactiveRequests.filter((request) => request.status === "pending").map((request) => request.requestId),
+  );
+  if (pendingIds.size === 0) return state;
+  const pendingMessageIds = new Set([...pendingIds].map((requestId) => `ui-${requestId}`));
+  return {
+    ...state,
+    interactiveRequests: state.interactiveRequests.filter((request) => !pendingIds.has(request.requestId)),
+    messages: state.messages.filter((message) => !pendingMessageIds.has(message.id)),
+  };
+}
+
 /** Resolve an interactive UI request in session state */
 export function resolveInteractiveRequest(
   state: SessionState,

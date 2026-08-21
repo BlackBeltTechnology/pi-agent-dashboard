@@ -8,9 +8,9 @@ import { type ChildProcess, execFileAsync, execFileSync, execSync, spawn, spawnS
 import { gitStatusV2 } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type { GitChangedFile, GitCommitResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import type { GitStatus } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-// Self-namespace import so `resolveConfigRoot` calls `isGitRepo`/`resolveMainPath`
-// through the module's live exports — lets tests stub them (internal lexical
-// references are otherwise un-spyable). See change: support-non-git-init-hook.
+// Self-namespace import so `resolveConfigRoot` calls `isGitRepo` through the
+// module's live export, which lets tests stub the git/non-git branch. Internal
+// lexical references are otherwise un-spyable. See change: support-non-git-init-hook.
 import * as self from "./git-operations.js";
 import {
   ensureWorktreeExcludeLine,
@@ -874,16 +874,16 @@ export function resolveMainPath(cwd: string): string | null {
  * without assuming git. Used only by the worktree init-status / init routes
  * so a declared hook is readable in a non-git directory.
  *
- * - git repo / worktree → `resolveMainPath(cwd)` (unchanged; may be `null` for a
- *   degenerate git state). A git dir is NEVER treated as its own config root —
- *   the non-git `cwd/.pi` branch is reachable only when `isGitRepo` is false.
+ * - git checkout → that checkout's top level, including a linked worktree.
+ *   Config never falls back to the primary checkout.
  * - non-git dir with `.pi/settings.json` → `cwd` itself (no upward walk).
  * - non-git dir without it → `null`.
  *
- * See change: support-non-git-init-hook.
+ * See changes: support-non-git-init-hook,
+ * fix-reliable-live-control-events.
  */
 export function resolveConfigRoot(cwd: string): string | null {
-  if (self.isGitRepo(cwd)) return self.resolveMainPath(cwd);
+  if (self.isGitRepo(cwd)) return tryRun("git rev-parse --show-toplevel", cwd) ?? null;
   return fs.existsSync(path.join(cwd, ".pi", "settings.json")) ? cwd : null;
 }
 

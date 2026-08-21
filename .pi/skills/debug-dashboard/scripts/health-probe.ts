@@ -17,6 +17,14 @@ import { join } from 'node:path';
 import { BusClient } from '@blackbelt-technology/pi-dashboard-bus-client';
 
 function getDashboardPort(): number {
+  const envPort = process.env.PI_DASHBOARD_PORT;
+  if (envPort !== undefined) {
+    const port = Number(envPort);
+    if (!Number.isInteger(port) || port < 1 || port > 65_535) {
+      throw new Error(`PI_DASHBOARD_PORT must be an integer from 1 to 65535; received ${envPort}`);
+    }
+    return port;
+  }
   try {
     const cfg = JSON.parse(
       readFileSync(join(homedir(), '.pi', 'dashboard', 'config.json'), 'utf8')
@@ -28,6 +36,16 @@ function getDashboardPort(): number {
   return 8000;
 }
 
+function getDashboardBase(): string {
+  const explicit = process.env.PI_DASHBOARD_BASE?.trim();
+  if (!explicit) return `http://127.0.0.1:${getDashboardPort()}`;
+  const parsed = new URL(explicit);
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`PI_DASHBOARD_BASE must use http or https; received ${explicit}`);
+  }
+  return explicit.replace(/\/$/, '');
+}
+
 function tailLog(logPath: string, n: number): string[] {
   try {
     const lines = readFileSync(logPath, 'utf8').split('\n');
@@ -37,18 +55,18 @@ function tailLog(logPath: string, n: number): string[] {
   }
 }
 
-const port = getDashboardPort();
+const base = getDashboardBase();
 const json = process.argv[2] === '--json';
 
 let data: Record<string, unknown> | undefined;
 try {
-  const resp = await fetch(`http://localhost:${port}/api/health`, {
+  const resp = await fetch(`${base}/api/health`, {
     signal: AbortSignal.timeout(2000),
   });
   if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
   data = (await resp.json()) as Record<string, unknown>;
 } catch {
-  console.log(`not-running (no response on port ${port})`);
+  console.log(`not-running (no response from ${base})`);
   const logPath = join(homedir(), '.pi', 'dashboard', 'server.log');
   const tail = tailLog(logPath, 10);
   if (tail.length) {
@@ -89,7 +107,7 @@ const uptimeFmt =
     : `${uptimeSec}s`;
 
 const fields: Array<[string, string]> = [
-  ['port', String(port)],
+  ['base', base],
   ['mode', String(data.mode ?? '?')],
   ['ok', String(data.ok ?? '?')],
   ['version', String(data.version ?? '?')],

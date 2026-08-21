@@ -50,6 +50,7 @@ export interface DrainingWs extends EventEmitter {
   bufferedAmount: number;
   send(frame: string | Buffer): void;
   close(): void;
+  terminate(): void;
   /** Advance the virtual clock by `ms`, draining the buffer at the configured rate. */
   advance(ms: number): void;
   /** Advance just enough to drain the buffer to 0 (clears bootstrap/replay frames before a measurement window). */
@@ -139,6 +140,7 @@ export function createDrainingWs(opts: DrainingWsOpts): DrainingWs {
     ws.readyState = 3; // CLOSED
     ws.emit("close");
   };
+  ws.terminate = ws.close;
 
   ws.advance = (ms: number) => {
     const drained = drainRate * ms;

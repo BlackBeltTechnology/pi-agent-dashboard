@@ -1,5 +1,7 @@
 # Test Plan — add-folder-action-banner
 
+> **Apply blocker (`fix-reliable-live-control-events`):** Scenario E3 assumes main-checkout inheritance that `resolveConfigRoot(cwd)` no longer provides. Reconcile expected behavior before implementation.
+
 Stage: design   Generated: 2026-08-14
 
 Clarification gate: **passed**. Three unfillable slots were resolved and folded

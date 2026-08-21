@@ -1,5 +1,7 @@
 # Tasks — add-openspec-init-affordances
 
+> **Apply blocker (`fix-reliable-live-control-events`):** Reconcile main-checkout skill inheritance tasks with worktree-local `resolveConfigRoot(cwd)` before implementation.
+
 ## 1. Ground truth
 
 - [ ] 1.1 Re-verify against the **pinned** `node_modules/@fission-ai/openspec` (currently 1.6.0), NOT `@latest`: `init` registers only `--tools`, `--force`, `--profile`; `--no-animation` and `--no-copilot-cloud` do not exist; commander is strict. The first draft of this change was verified against 1.8.0 and specified an argv that fails on every call.

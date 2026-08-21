@@ -1,5 +1,7 @@
 # Design — add-openspec-init-affordances
 
+> **Apply blocker (`fix-reliable-live-control-events`):** `resolveConfigRoot(cwd)` now resolves a linked worktree to its own top level. Main-checkout skill inheritance assumptions below are stale. Reconcile `hasOpenSpecSkills` and scenario E14 before implementation.
+
 ## Context
 
 Two surfaces, two gates, one middle state that falls between them. Four empirical findings

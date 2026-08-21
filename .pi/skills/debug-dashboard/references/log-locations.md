@@ -109,4 +109,4 @@ Each workspace package (`packages/extension/`, `packages/server/`, etc.) builds 
 | Why is the bridge not connecting? | `server.log` grep `bridge\|websocket` |
 | Which sessions exist? | `~/.pi/agent/sessions/` or `GET /api/sessions` |
 | Why is OAuth failing? | `~/.pi/agent/auth.json` perms + `server.log` |
-| Why are my changes not appearing? | Are you in dev mode? `npx tsx ./scripts/health-probe.ts` |
+| Why are my changes not appearing? | Run the skill's First moves block; check `/api/health.mode` and `version` at the discovered base URL. |

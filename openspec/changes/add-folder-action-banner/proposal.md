@@ -1,5 +1,7 @@
 ## Why
 
+> **Apply blocker (`fix-reliable-live-control-events`):** `resolveConfigRoot(cwd)` now resolves a linked worktree to its own top level. Main-checkout inheritance assumptions below are stale. Reconcile checklist base and scenario E3 before implementation.
+
 Change 3 of the four-way directory-card split established in
 `openspec/changes/archive/2026-08-09-add-folder-actions-menu/design.md`
 (decisions **D4, D5, D6, D7**). Change 1 explicitly left `FolderActionBar` in place; this

@@ -4,18 +4,13 @@ Synthesized from `AGENTS.md` "Build & Restart Workflow" + `docs/faq.md`. This is
 
 ## The three components
 
-```
-   ┌─────────────────┐    ┌──────────────────┐    ┌──────────────────┐
-   │ Bridge Extension│    │ Dashboard Server │    │   Web Client     │
-   │ src/extension/  │    │  src/server/     │    │  src/client/     │
-   │                 │◀──▶│  src/shared/     │◀──▶│                  │
-   │ Runs IN every   │ WS │ Aggregates       │ WS │ React + Tailwind │
-   │ pi session,     │    │ events, persists │    │ UI               │
-   │ forwards events │    │ to JSON/.meta    │    │ Subscribes via   │
-   │ via WebSocket   │    │ Dual WS gateways │    │ /ws/browser      │
-   └─────────────────┘    └──────────────────┘    └──────────────────┘
-        reload                  restart                 build (prod)
-                                                       HMR    (dev)
+```mermaid
+flowchart LR
+    EXT["Bridge Extension<br/>src/extension/<br/>Runs IN every pi session,<br/>forwards events via WebSocket<br/><b>reload</b>"]
+    SRV["Dashboard Server<br/>src/server/ + src/shared/<br/>Aggregates events, persists to JSON/.meta,<br/>dual WS gateways<br/><b>restart</b>"]
+    CLI["Web Client<br/>src/client/<br/>React + Tailwind UI,<br/>subscribes via /ws/browser<br/><b>build (prod) / HMR (dev)</b>"]
+    EXT <-->|WS| SRV
+    SRV <-->|WS| CLI
 ```
 
 Why each has a different rebuild path:
@@ -102,6 +97,17 @@ If client changes don't appear in dev mode → check that Vite is actually runni
 - This prevents a race where a bridge auto-starts a new server before the orchestrator can launch the replacement.
 
 **Don't bypass `/api/restart` with manual `kill`** — you'll lose the broadcast and bridges will race.
+
+### systemd-hosted dashboard — restart through the unit, not `/api/restart`
+
+When the dashboard runs under a `systemd --user` unit (default `KillMode=control-group`, `Restart=on-failure`), do NOT drive `POST /api/restart` (directly or via `full-rebuild.ts`). A clean orchestrator exit is not revived by `Restart=on-failure`, and the control-group teardown kills sibling pi sessions/keepers that share the unit's cgroup (confirmed operational evidence, change `fix-reliable-live-control-events`). Instead:
+
+```bash
+systemctl --user is-active pi-agent-dashboard.service   # detect systemd hosting first
+systemctl --user restart pi-agent-dashboard.service     # safe restart (unit re-launches)
+systemctl --user is-active pi-agent-dashboard.service && curl -fsS "$BASE/api/health" >/dev/null && echo healthy
+npm run reload                                          # reload bridges separately
+```
 
 ## Common rebuild mistakes
 
