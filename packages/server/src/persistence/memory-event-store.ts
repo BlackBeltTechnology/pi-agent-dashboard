@@ -3,6 +3,7 @@
  * Replaces SQLite-backed event-store.ts.
  */
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { isInlineImageBlock } from "@blackbelt-technology/pi-dashboard-shared/image-block.js";
 
 export interface StoredEvent {
   seq: number;
@@ -344,21 +345,12 @@ function isImageBlock(obj: object): boolean {
 }
 
 /**
- * True for ANY inline image content block that carries base64 bytes, across the
- * two shapes that reach the store:
- *   - flat  : `{ type: "image", data, mimeType }`      (pi SDK ImageContent)
- *   - nested : `{ type: "image", source: { type: "base64", media_type, data } }`
- *              (Anthropic-canonical; produced by some provider/import paths)
+ * Inline image-block detection (flat pi shape + nested Anthropic `source`
+ * shape) is the canonical `isInlineImageBlock` from
+ * `@blackbelt-technology/pi-dashboard-shared/image-block.js`, shared with the
+ * client reducer so the two sites can never drift.
  * See change: fix-pasted-image-message-vanishes.
  */
-function isInlineImageBlock(block: unknown): boolean {
-  if (!block || typeof block !== "object" || Array.isArray(block)) return false;
-  const r = block as Record<string, unknown>;
-  if (r.type !== "image") return false;
-  if (typeof r.data === "string" && r.data.length > 0) return true;
-  const src = r.source as Record<string, unknown> | undefined;
-  return !!src && typeof src === "object" && typeof src.data === "string" && src.data.length > 0;
-}
 
 /**
  * Chat-message image-bytes rescue: strip the base64 bytes out of every inline
