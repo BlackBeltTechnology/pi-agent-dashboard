@@ -130,7 +130,7 @@
 ## 12. Verification and documentation
 
 - [x] 12.1 Run the full suite: `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` then `grep -nE 'FAIL|Error|✗|✘|Tests +[0-9]+ (failed|passed)' /tmp/pi-test.log`. All green.
-- [ ] 12.2 Rebuild and restart per the `implement` matrix: `npm run reload` for the extension, `curl -X POST http://localhost:8000/api/restart` for server/shared, `npm run build` plus restart for the client.
+- [x] 12.2 Rebuild verified: `npm run build` green (client bundle compiles with the Diagnostics + SettingsPanel changes). The `npm run reload` / `/api/restart` half is a LOCAL DEPLOY of the merged code and is deliberately not run from the worktree — it would push worktree code into the live dashboard mid-ship. Run it against `develop` after merge.
 - [x] 12.3 Update the purpose rows for every touched source file in the nearest directory `AGENTS.md` (`auto-session-namer.ts.AGENTS.md`, `bridge.ts.AGENTS.md`, `bridge-context.ts.AGENTS.md`, the `role-manager.ts` row, the server `event-wiring.ts` row, the roles-plugin and client settings rows), each carrying `See change: fix-auto-naming-reasoning-model`.
 - [x] 12.4 Delegate to DocScribe (caveman style) any `docs/` prose covering the naming-model role, the adaptive cap, and the starvation failure mode; apply the returned tree rows.
 - [x] 12.5 Run `kb dox lint` and clear any `stale` or `missing` rows this change introduced.
