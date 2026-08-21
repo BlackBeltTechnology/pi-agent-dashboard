@@ -198,3 +198,74 @@ describe("local authorisation on the socket (D5)", () => {
     },
   );
 });
+
+/**
+ * #P4 (task 12.21) — transport parity.
+ *
+ * Switching the default local transport to UDS is only defensible if the
+ * protocol is not slower over it. Measured as round-trip latency through the
+ * live gateway (echoed `session_heartbeat` acknowledgement is not guaranteed,
+ * so this uses ping/pong — the same frames `bridge-contention.ts` depends on,
+ * which therefore also proves both transports carry them).
+ *
+ * The assertion is a RATIO with generous headroom, not an absolute budget: an
+ * absolute number would encode this machine's speed into the suite.
+ */
+describe("socket transport parity (#P4)", () => {
+  // Kept modest on purpose: the corpus has latency-budget tests that go red
+  // under CPU load, so a parity check must not itself be the load.
+  const ROUNDS = 80;
+
+  async function measure(ws: WebSocket): Promise<number[]> {
+    const samples: number[] = [];
+    for (let i = 0; i < ROUNDS; i++) {
+      const t0 = performance.now();
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => reject(new Error("pong timeout")), 2000);
+        ws.once("pong", () => {
+          clearTimeout(timer);
+          resolve();
+        });
+        ws.ping();
+      });
+      samples.push(performance.now() - t0);
+    }
+    return samples.sort((a, b) => a - b);
+  }
+
+  const p95 = (sorted: number[]) => sorted[Math.floor(sorted.length * 0.95)];
+
+  it("UDS p95 is not worse than TCP p95 by more than 20%", async () => {
+    // TCP arm.
+    const tcpGateway = createPiGateway(createMemorySessionManager(), { pingInterval: 0 });
+    tcpGateway.start(0, "127.0.0.1");
+    await new Promise((r) => setTimeout(r, 50));
+    const port = tcpGateway.address();
+    expect(typeof port).toBe("number");
+    const tcpWs = new WebSocket(`ws://127.0.0.1:${port}`);
+    sockets.push(tcpWs);
+    await opened(tcpWs);
+    const tcp = await measure(tcpWs);
+
+    // UDS arm — a SEPARATE gateway; start() after startOnSocket() is refused.
+    gateway = createPiGateway(createMemorySessionManager(), { pingInterval: 0 });
+    await gateway.startOnSocket(sockPath);
+    const udsWs = dial();
+    await opened(udsWs);
+    const uds = await measure(udsWs);
+
+    tcpGateway.stop();
+
+    // Guard against a vacuous pass: an arm that never round-tripped would
+    // report a p95 of 0 and trivially satisfy the ratio.
+    expect(tcp.length).toBe(ROUNDS);
+    expect(uds.length).toBe(ROUNDS);
+    expect(p95(tcp)).toBeGreaterThan(0);
+    expect(p95(uds)).toBeGreaterThan(0);
+
+    // Floor the comparison: at sub-millisecond latencies scheduler noise
+    // dominates, and a 20% ratio on 0.05 ms is measuring the event loop.
+    const floorMs = 0.5;
+    expect(Math.max(p95(uds), floorMs)).toBeLessThanOrEqual(Math.max(p95(tcp), floorMs) * 1.2);
+  }, 30_000);
+});
