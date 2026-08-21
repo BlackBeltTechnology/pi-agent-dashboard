@@ -439,10 +439,34 @@ instances scan the same files. A cross-host move carries live events only. The
 command therefore targets same-HOME instances, and must say plainly what will
 not follow when asked to do otherwise.
 
-### D12 — Transcript access for remote-joined sessions — DECIDED: pull-on-demand plus server-side retention
+### D12 — Transcript access for remote-joined sessions — DECIDED: eager-forward + lazy-backfill, over server-side retention
 
-**Gate answered (task 11.1), cycle 5.** The options below stay recorded for
-their trade-offs; the chosen shape is **B + retention**.
+**Gate answered (task 11.1), cycle 5; AMENDED cycle 6.** The options below stay
+recorded for their trade-offs. The chosen shape is the **hybrid**:
+live events forward eagerly, pre-attach history backfills lazily in the
+background, and everything the dashboard has seen is retained server-side.
+
+**Why the amendment is not a reversal.** B+retention and the hybrid share the
+same two load-bearing halves — nothing large is shipped synchronously, and
+retention is what lets an ended session stay readable (11.10, D13). They differ
+in *when* the pre-attach backfill is triggered: on first view (B) versus in the
+background after registration (hybrid). Eager-forwarding of *live* events is not
+a new mechanism at all — it is what the bridge event protocol already does for
+every session; naming it here only makes explicit that the backfill path must
+not be on the critical path for it.
+
+**What the amendment buys.** Under B, #F6 ("pre-attach history renders") is
+satisfied only if the on-demand fetch completes while the user waits, which puts
+a 44 MB tail transfer inside a page interaction. Backfilling in the background
+moves that cost off the interaction entirely, and makes the retained copy the
+steady-state answer rather than the fallback.
+
+**What it costs.** Data almost never read is now shipped anyway, which is the
+exact objection that ruled out option A. The bound on that cost is that the
+backfill is *lazy and interruptible* — it must be safe to abandon mid-flight,
+which is what #X18 (partial data is never presented as complete) tests. If the
+backfill cannot be made abandonable cheaply, fall back to B: the retention half
+is the part the spec actually requires.
 
 Reasoning: the spec requires transcript data to **outlive the session**, and
 D12's own table marks pull-on-demand (B) as failing exactly that — so B is
@@ -456,6 +480,23 @@ D13 and the remote read-only view depend on.
 Concretely: a live remote session's transcript is fetched on demand through its
 bridge; every fetched and every streamed event is retained server-side; once
 the bridge ends, reads are served from retention only, and are read-only (D13).
+
+**Task 11.2 — append-only re-verified against the pinned pi (0.84.1), cycle 6.**
+Over 3378 local `.jsonl` files: every file carrying a `"compaction"` marker
+(8 of the last 400) still has entries *preceding* the marker — compaction adds a
+record, it does not truncate the prefix. 373 files carry branch metadata,
+consistent with branching writing a new file. The 44 MB tail file parses
+cleanly (515 lines, 0 unparseable) with non-decreasing timestamps.
+
+**What this does NOT prove, and the consequence for the cursor.** Sampling
+existing files shows no *observed* rewrite; it cannot show a prefix is
+byte-stable over time, and the format is pi's, not this repo's. So the backfill
+cursor SHALL NOT be a bare byte offset that trusts the prefix. It carries the
+offset plus a cheap check on the last consumed line (length + hash); a mismatch
+means "re-read from the start", not "resume". That turns an unprovable
+assumption into a detectable condition — which is also what #X18 needs, since a
+partial transfer and a rewritten prefix are indistinguishable from the offset
+alone.
 
 ### D12 (original options) — Transcript access for remote-joined sessions
 

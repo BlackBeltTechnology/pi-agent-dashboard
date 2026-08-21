@@ -131,8 +131,8 @@
 
 ## 11. Remote session transcript access (D12, D13)
 
-- [ ] 11.1 **Decision gate.** Choose one of the four shapes recorded in D12 (push-at-register / pull-on-demand / federate / log-ship with cursor, or the eager-forward + lazy-backfill hybrid). Record the choice and its reasoning in `design.md` BEFORE writing transport code. **The choice MUST satisfy the spec**, which requires transcript data to outlive the session — D12's own table marks pull-on-demand as failing that, so it is only admissible combined with server-side retention
-- [ ] 11.2 Re-verify the append-only property against the pinned pi version before relying on a cursor: compaction must not rewrite the `.jsonl`, and branching must continue to write a new file
+- [x] 11.1 **Decision gate.** Choose one of the four shapes recorded in D12 (push-at-register / pull-on-demand / federate / log-ship with cursor, or the eager-forward + lazy-backfill hybrid). Record the choice and its reasoning in `design.md` BEFORE writing transport code. **The choice MUST satisfy the spec**, which requires transcript data to outlive the session — D12's own table marks pull-on-demand as failing that, so it is only admissible combined with server-side retention
+- [x] 11.2 Re-verify the append-only property against the pinned pi version before relying on a cursor: compaction must not rewrite the `.jsonl`, and branching must continue to write a new file
 - [ ] 11.3 Write a failing test: a request naming a filesystem path is refused by the bridge
 - [ ] 11.4 Write a failing test: a request for a session id other than the bridge's own is refused
 - [ ] 11.5 Write a failing test: a session with a large transcript becomes usable before the transfer completes
