@@ -11,6 +11,7 @@ import {
   getLockPath,
   getMetaPath,
   readMetadata,
+  readMetadataDetailed,
   writeMetadataAtomic,
   removeMetadata,
   acquireOrAttach,
@@ -76,18 +77,30 @@ describe("canonicalHomedir + paths", () => {
     expect(typeof canonicalHomedir()).toBe("string");
   });
 
-  it("ignores $HOME env override — lock path always derives from os.homedir()", () => {
-    // The design (§4) explicitly states $HOME must NOT influence the lock
-    // path: Git Bash sets $HOME=/c/Users/R while os.homedir()=C:\Users\R,
-    // which would otherwise produce two divergent canonical locks. Here we
-    // prove the invariant by construction: mutate process.env.HOME and
-    // verify getLockPath() doesn't change.
+  it("HONOURS $HOME — the lock shares one root with the gateway socket", () => {
+    // REVERSED by add-pi-gateway-transport-identity (D2, task 2.0b).
+    //
+    // The original invariant was $HOME-IMMUNITY, to stop Git Bash
+    // ($HOME=/c/Users/R vs os.homedir()=C:\Users\R) producing two divergent
+    // canonical locks. That reasoning still holds for `canonicalHomedir()`,
+    // which is unchanged and still exported.
+    //
+    // But the rendezvous record is now the selector a bridge reads to find
+    // its dashboard, and the gateway socket next to it resolves through
+    // `dashboard-paths.ts`, which HONOURS $HOME. Two different roots would
+    // give the temp-HOME isolated-verification workflow an isolated socket
+    // and a SHARED lock — precisely the cross-talk that workflow prevents.
+    // The record and the socket must share one root, and it is this one.
     const original = process.env.HOME;
     const before = getLockPath();
     try {
       process.env.HOME = "/garbage/not/a/real/path/" + Math.random();
       const after = getLockPath();
-      expect(after).toBe(before);
+      expect(after).not.toBe(before);
+      expect(after.startsWith(process.env.HOME)).toBe(true);
+      expect(after).toBe(path.join(process.env.HOME, ".pi", "dashboard", "server.lock"));
+      // …and `canonicalHomedir()` keeps its $HOME-immunity untouched.
+      expect(canonicalHomedir().startsWith(process.env.HOME)).toBe(false);
     } finally {
       if (original === undefined) delete process.env.HOME;
       else process.env.HOME = original;
@@ -430,5 +443,47 @@ describe("instance id: publish site and probe site agree", () => {
     // `identity` is already bound to the Ed25519 object in server.ts; reusing
     // it here makes every second instance throw InstanceLockMismatchError.
     expect(fields).not.toHaveProperty("identity");
+  });
+});
+
+// (test-plan #E10, #E11) Absent ≠ unreadable ≠ invalid — defect B2, task 2.0i.
+describe("readMetadataDetailed", () => {
+  const write = (body: string): string => {
+    fs.mkdirSync(path.dirname(metaPath), { recursive: true });
+    fs.writeFileSync(metaPath, body);
+    return metaPath;
+  };
+
+  it("absent record reports `absent` (takeover permitted)", () => {
+    expect(readMetadataDetailed(metaPath)).toEqual({ status: "absent" });
+  });
+
+  it("unreadable record reports `unreadable`, NOT absent", () => {
+    write(JSON.stringify({ pid: 1 }));
+    fs.chmodSync(metaPath, 0o000);
+    const res = readMetadataDetailed(metaPath);
+    // Running as root defeats mode 000; skip rather than assert a falsehood.
+    if (res.status === "ok" || process.getuid?.() === 0) return;
+    expect(res.status).toBe("unreadable");
+  });
+
+  it("record truncated mid-JSON is treated as absent, never partially trusted", () => {
+    const full = JSON.stringify({
+      pid: 1, ppid: 0, httpPort: 8000, piPort: 9999, startedAt: 1,
+      identity: "i", version: "v", url: "u", hostname: "h",
+    });
+    write(full.slice(0, Math.floor(full.length / 2)));
+    const res = readMetadataDetailed(metaPath);
+    expect(res.status).toBe("invalid");
+    expect(readMetadata(metaPath)).toBeNull();
+  });
+
+  it("a well-formed record reads back", () => {
+    const meta: LockMetadata = {
+      pid: 1, ppid: 0, httpPort: 8000, piPort: 9999, startedAt: 1,
+      identity: "i", version: "v", url: "u", hostname: "h",
+    };
+    writeMetadataAtomic(meta, metaPath);
+    expect(readMetadataDetailed(metaPath)).toEqual({ status: "ok", meta });
   });
 });

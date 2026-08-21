@@ -22,6 +22,7 @@ Files in this directory. One row per source file.
 | `dev-build.ts` | Dev build-on-reload helper. Exports `runDevBuild`, `DevBuildOptions`. → see `dev-build.ts.AGENTS.md` |
 | `empty-actionable-guard-config.ts` | Resolve empty-actionable guard config from env. Exports `resolveGuardConfig(env)` → `{mode,retryCap}`. → see `empty-actionable-guard-config.ts.AGENTS.md` |
 | `empty-actionable-guard.ts` | Bounded continue-or-surface decision for empty-actionable turns. → see `empty-actionable-guard.ts.AGENTS.md` |
+| `endpoint-resolution.ts` | Pure D3 precedence ladder + D4 stickiness decisions; the only place the bridge chooses an endpoint. → see `endpoint-resolution.ts.AGENTS.md` |
 | `event-forwarder.ts` | Map pi event objects to `event_forward` protocol messages. Exports `mapEventToProtocol`. → see `event-forwarder.ts.AGENTS.md` |
 | `flow-event-wiring.ts` | Register pi-flows + pi-subagents event listeners on `pi.events`. → see `flow-event-wiring.ts.AGENTS.md` |
 | `git-link-builder.ts` | Parse SSH/HTTPS remote URLs into branch + PR links. Exports `parseRemoteUrl`, `detectPlatform`,… → see `git-link-builder.ts.AGENTS.md` |

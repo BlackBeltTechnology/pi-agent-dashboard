@@ -21,6 +21,7 @@ import { randomUUID } from "node:crypto";
 import properLockfile from "proper-lockfile";
 import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
 import { isProcessAlive } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
+import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { INSTANCE_ID_HEALTH_FIELD } from "./instance-id.js";
 
 // ──────────────────────────────────────────────────────────
@@ -134,9 +135,19 @@ export function canonicalHomedir(): string {
 
 /**
  * Lock file path. This is what `proper-lockfile` locks.
+ *
+ * Rooted on `dashboard-paths.ts` — the `$HOME`-*honouring* root — rather than
+ * `canonicalHomedir()`, which is deliberately `$HOME`-immune. The rendezvous
+ * record and the gateway socket MUST share one root: two homes would give the
+ * temp-`HOME` isolated-verification workflow an isolated socket but a shared
+ * lock, which is the cross-talk that workflow exists to prevent (D2, task
+ * 2.0b). `canonicalHomedir` stays exported and used by the `$HOME`-drift
+ * reasoning elsewhere.
  */
-export function getLockPath(homedir: string = canonicalHomedir()): string {
-  return path.join(homedir, ".pi", "dashboard", "server.lock");
+export function getLockPath(homedir?: string): string {
+  return homedir === undefined
+    ? path.join(getDashboardConfigDir(), "server.lock")
+    : path.join(homedir, ".pi", "dashboard", "server.lock");
 }
 
 /**
@@ -189,6 +200,44 @@ function isLockMetadata(value: unknown): value is LockMetadata {
     typeof m.version === "string" &&
     typeof m.url === "string"
   );
+}
+
+/**
+ * Why a record could not be read. "Absent" and "unreadable" are NOT the same
+ * thing: `readMetadata` collapses both to `null`, and `null` is treated as
+ * stale — so a live holder whose sidecar is momentarily unreadable can be
+ * stolen from (defect B2). Absent permits takeover; unreadable fails loudly;
+ * a truncated or otherwise invalid record is treated as absent, because a
+ * partially-written record must never be partially trusted (D15).
+ *
+ * See change: add-pi-gateway-transport-identity (task 2.0i, test-plan E10/E11).
+ */
+export type MetadataRead =
+  | { status: "ok"; meta: LockMetadata }
+  | { status: "absent" }
+  | { status: "invalid"; detail: string }
+  | { status: "unreadable"; detail: string };
+
+/** Read the sidecar, distinguishing absent from unreadable from invalid. */
+export function readMetadataDetailed(metaPath: string = getMetaPath()): MetadataRead {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(metaPath, "utf-8");
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return { status: "absent" };
+    return { status: "unreadable", detail: code ?? String(err) };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    // Truncated mid-JSON, e.g. a crash during a non-atomic write by an older
+    // version. Absent, never partially trusted.
+    return { status: "invalid", detail: "record is not valid JSON" };
+  }
+  if (!isLockMetadata(parsed)) return { status: "invalid", detail: "record is missing fields" };
+  return { status: "ok", meta: parsed };
 }
 
 /**
