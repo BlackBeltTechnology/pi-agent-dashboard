@@ -75,6 +75,9 @@ export function isInlineImageBlock(block: unknown): boolean {
 export function isRenderableImageBlock(block: unknown): boolean {
   const b = asBlock(block);
   if (!b || b.type !== "image") return false;
-  const hasBytes = imageBlockData(b) !== undefined || typeof b.attachmentId === "string";
-  return hasBytes && imageBlockMime(b) !== undefined;
+  const hasImageSource =
+    imageBlockData(b) !== undefined ||
+    (typeof b.attachmentId === "string" && b.attachmentId.length > 0);
+  const mime = imageBlockMime(b);
+  return hasImageSource && typeof mime === "string" && mime.length > 0;
 }

@@ -51,4 +51,17 @@ describe("image-block shared detector", () => {
     expect(isRenderableImageBlock({ type: "image", attachmentId: "x" })).toBe(false); // id but no mime
     expect(isRenderableImageBlock(text)).toBe(false);
   });
+
+  it("isRenderableImageBlock rejects empty attachmentId and empty mime", () => {
+    // Empty attachmentId is not a usable source.
+    expect(
+      isRenderableImageBlock({ type: "image", data: "", attachmentId: "", mimeType: "image/png" }),
+    ).toBe(false);
+    // Empty mime is not usable even with real bytes.
+    expect(isRenderableImageBlock({ type: "image", data: "AAAA", mimeType: "" })).toBe(false);
+    // Empty mime is not usable even with a valid attachmentId.
+    expect(
+      isRenderableImageBlock({ type: "image", data: "", attachmentId: "abc", mimeType: "" }),
+    ).toBe(false);
+  });
 });

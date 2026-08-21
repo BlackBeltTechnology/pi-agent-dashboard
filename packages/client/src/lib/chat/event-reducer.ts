@@ -1468,9 +1468,12 @@ export function reduceEvent(
           // tolerance: fix-pasted-image-message-vanishes.
           const imgBlocks = msg.content.filter((c: any) => isRenderableImageBlock(c));
           if (imgBlocks.length > 0) {
+            // `isRenderableImageBlock` already guaranteed a non-empty mime, so
+            // the `?? ""` fallback is unreachable — it only narrows the type
+            // from `string | undefined` to `string` for ChatImage.mimeType.
             images = imgBlocks.map((c: any) => ({
               data: imageBlockData(c) ?? "",
-              mimeType: imageBlockMime(c),
+              mimeType: imageBlockMime(c) ?? "",
               ...(c.attachmentId ? { attachmentId: c.attachmentId } : {}),
               ...(c.attachmentState ? { attachmentState: c.attachmentState } : {}),
             }));
