@@ -22,6 +22,7 @@ import {
   sanitizeSessionName,
   type StreamSimpleFn,
   shouldSkipByPrefilter,
+  stripThinkingSuffix,
   TITLE_MAX_TOKENS_BASE,
   TITLE_MAX_TOKENS_ESCALATED,
 } from "../auto-session-namer.js";
@@ -954,5 +955,89 @@ describe("createAutoNamer — cross-bridge stop clearing", () => {
     await bridgeB.maybeName();
     expect(bridgeA._state()).toMatchObject({ hardStopped: false, attemptsUsed: 1 });
     expect(bridgeB._state()).toMatchObject({ hardStopped: false, attemptsUsed: 1 });
+  });
+});
+
+/**
+ * Review findings (round 1) — regression guards.
+ * See change: fix-auto-naming-reasoning-model.
+ */
+describe("createAutoNamer — stopped re-reporting carries the ORIGINAL reason", () => {
+  it("a later turn re-reports the cause-matched reason, not a generic one", async () => {
+    // The server retains ONE row per session, so a generic re-report would
+    // overwrite the actionable remedy — leaving the diagnostics readout (the
+    // whole point of the change) saying only "stopped".
+    const hooks = makeHooks({ loadStreamSimple: async () => starvedStream() });
+    const namer = createAutoNamer(hooks, {
+      hardStopped: false, errorEmitted: false, attemptsUsed: 2,
+      starvedCount: 2, waitingCount: 0, sawStarved: true, hasAutoName: false,
+    });
+
+    await namer.maybeName(); // exhausts the budget → stops with the specific reason
+    const stopReason = (hooks.emitError as any).mock.calls[0][0] as string;
+    expect(stopReason).toMatch(/Assign a different model/i);
+
+    (hooks.reportOutcome as any).mockClear();
+    await namer.maybeName(); // a later terminal turn on an already-stopped session
+
+    const calls = (hooks.reportOutcome as any).mock.calls;
+    for (const [o] of calls) {
+      expect(o.outcome).toBe("stopped");
+      // The spec requires the `stopped` outcome to carry the SAME reason as
+      // `auto_name_error`.
+      expect(o.reason).toBe(stopReason);
+    }
+  });
+
+  it("carries the stop reason across a reload so the re-report stays actionable", async () => {
+    const hooks = makeHooks();
+    const namer = createAutoNamer(hooks, {
+      hardStopped: true, errorEmitted: true, attemptsUsed: 3,
+      starvedCount: 3, waitingCount: 0, sawStarved: true,
+      stoppedModelRef: "anthropic/claude-haiku", stopCause: "budget",
+      stoppedReason: "auto-naming stopped after 3 attempts: the model could not emit a title",
+      hasAutoName: false,
+    });
+    await namer.maybeName();
+    expect(hooks.reportOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "stopped",
+        reason: "auto-naming stopped after 3 attempts: the model could not emit a title",
+      }),
+    );
+    expect(namer.exportState().stoppedReason).toMatch(/could not emit a title/);
+  });
+});
+
+describe("stripThinkingSuffix", () => {
+  // The Roles picker writes the thinking level as a `:<level>` suffix on the
+  // role value. The registry is keyed on the bare id, so leaving it on turns a
+  // valid @naming assignment into a permanent "model not found" stop.
+  it("drops a canonical thinking level", () => {
+    expect(stripThinkingSuffix("claude-haiku:high")).toBe("claude-haiku");
+    expect(stripThinkingSuffix("gpt-5:xhigh")).toBe("gpt-5");
+    expect(stripThinkingSuffix("m:off")).toBe("m");
+  });
+  it("leaves a non-level colon intact", () => {
+    // A provider id may legitimately contain a colon.
+    expect(stripThinkingSuffix("vendor:free")).toBe("vendor:free");
+    expect(stripThinkingSuffix("deepseek-v4-flash")).toBe("deepseek-v4-flash");
+  });
+  it("a suffixed naming role still resolves to the bare model in the registry", async () => {
+    const seen: string[] = [];
+    const res = await generateTitle({
+      registry: {
+        find: (_p: string, id: string) => { seen.push(id); return { id }; },
+        getApiKeyAndHeaders: async () => ({ apiKey: "k" }),
+      },
+      streamSimple: fakeStream([
+        { type: "text_delta", delta: "Auth Refactor" },
+        { type: "done", reason: "stop", message: { content: [] } },
+      ]),
+      modelRef: "anthropic/claude-haiku:high",
+      transcript: "x",
+    });
+    expect(seen).toEqual(["claude-haiku"]);
+    expect(res).toMatchObject({ ok: true, text: "Auth Refactor" });
   });
 });

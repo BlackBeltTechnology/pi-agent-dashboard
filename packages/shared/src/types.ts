@@ -14,6 +14,8 @@ export interface AutoNamerPersistedState {
   sawStarved: boolean;
   stoppedModelRef?: string;
   stopCause?: string;
+  /** The cause-matched stop reason, so a later re-report stays actionable. */
+  stoppedReason?: string;
   nameSource?: "auto" | "user";
   hasAutoName: boolean;
   lastSelfApplied?: string;

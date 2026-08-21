@@ -246,6 +246,20 @@ function softErrorReason(ev: any): string {
   return "model error";
 }
 
+/** Canonical pi thinking levels a role ref may carry as a `:<level>` suffix. */
+const THINKING_LEVELS = new Set(["off", "minimal", "low", "medium", "high", "xhigh"]);
+
+/**
+ * Drop a trailing `:<level>` thinking suffix from a model id. Only a CANONICAL
+ * level splits, so a provider id that legitimately contains a colon (e.g.
+ * `vendor:free`) survives intact.
+ */
+export function stripThinkingSuffix(modelId: string): string {
+  const colon = modelId.lastIndexOf(":");
+  if (colon <= 0) return modelId;
+  return THINKING_LEVELS.has(modelId.slice(colon + 1).toLowerCase()) ? modelId.slice(0, colon) : modelId;
+}
+
 /** Collect concatenated text from a final pi-ai AssistantMessage. */
 function collectText(message: any): string {
   const content = message?.content;
@@ -277,7 +291,11 @@ export async function generateTitle(deps: {
   const slash = modelRef.indexOf("/");
   if (slash <= 0) return { ok: false, hardError: true, reason: `malformed model ref '${modelRef}'` };
   const provider = modelRef.slice(0, slash);
-  const modelId = modelRef.slice(slash + 1);
+  // A role value may carry a `:<level>` thinking suffix (the Roles picker
+  // writes one). The registry is keyed on the bare model id, so leaving the
+  // suffix on turns a perfectly valid naming assignment into a permanent
+  // "model not found" stop. See change: fix-auto-naming-reasoning-model.
+  const modelId = stripThinkingSuffix(modelRef.slice(slash + 1));
 
   const model = registry.find(provider, modelId);
   if (!model) return { ok: false, hardError: true, reason: `model '${modelRef}' not found in registry` };
@@ -392,6 +410,14 @@ export interface PersistedNamerState {
   sawStarved: boolean;
   stoppedModelRef?: string;
   stopCause?: StopCause;
+  /**
+   * The cause-matched reason the session stopped on, carried so a LATER turn
+   * re-reports the actionable text rather than a generic "stopped" that would
+   * overwrite it in the diagnostics store (the retention map keeps one row per
+   * session). The spec requires the `stopped` outcome to carry the same reason
+   * as `auto_name_error`.
+   */
+  stoppedReason?: string;
   nameSource?: "auto" | "user";
   hasAutoName: boolean;
   lastSelfApplied?: string;
@@ -434,6 +460,7 @@ export function createAutoNamer(hooks: AutoNamerHooks, restored?: PersistedNamer
   let sawStarved = restored?.sawStarved ?? false;
   let stoppedModelRef: string | undefined = restored?.stoppedModelRef;
   let stopCause: StopCause | undefined = restored?.stopCause;
+  let stoppedReason: string | undefined = restored?.stoppedReason;
   let lastSent: { outcome: NameOutcome; reason: string } | undefined;
 
   const budget = hooks.attemptBudget ?? ATTEMPT_BUDGET;
@@ -441,7 +468,7 @@ export function createAutoNamer(hooks: AutoNamerHooks, restored?: PersistedNamer
   function exportState(): PersistedNamerState {
     return {
       hardStopped, errorEmitted, attemptsUsed, starvedCount, waitingCount, sawStarved,
-      stoppedModelRef, stopCause, nameSource, hasAutoName, lastSelfApplied,
+      stoppedModelRef, stopCause, stoppedReason, nameSource, hasAutoName, lastSelfApplied,
     };
   }
 
@@ -465,6 +492,7 @@ export function createAutoNamer(hooks: AutoNamerHooks, restored?: PersistedNamer
     hardStopped = true;
     stopCause = cause;
     stoppedModelRef = modelRef;
+    stoppedReason = reason;
     if (!errorEmitted) {
       errorEmitted = true;
       hooks.emitError(reason);
@@ -488,6 +516,7 @@ export function createAutoNamer(hooks: AutoNamerHooks, restored?: PersistedNamer
     sawStarved = false;
     stoppedModelRef = undefined;
     stopCause = undefined;
+    stoppedReason = undefined;
     persist();
   }
 
@@ -572,7 +601,10 @@ export function createAutoNamer(hooks: AutoNamerHooks, restored?: PersistedNamer
       const { literal, reason, slot } = hooks.resolveNamingModel();
       await maybeClearStop(literal);
       if (hardStopped) {
-        report("stopped", "auto-naming is stopped for this session", stoppedModelRef);
+        // The ORIGINAL cause-matched reason, not a generic one: the retention
+        // map holds a single row per session, so a generic re-report would
+        // overwrite the actionable remedy an operator needs to read later.
+        report("stopped", stoppedReason ?? "auto-naming is stopped for this session", stoppedModelRef);
         return;
       }
 

@@ -855,8 +855,12 @@ function initBridge(pi: ExtensionAPI) {
         return;
       }
       // Persisted stop state pushed at register, so a permanent stop survives a
-      // PROCESS restart. Only the STOP fields are adopted — provenance is
-      // deliberately left alone (a separate bug owns that path, design D8b).
+      // PROCESS restart. Only the STOP fields are adopted. `nameSource`,
+      // `lastSelfApplied` and `hasAutoName` are deliberately NOT restored:
+      // reinstating them would change the behaviour of the separate auto→`user`
+      // relabel bug, which has a different root cause and is tracked on its own
+      // (design D8b, change: investigate-auto-name-provenance-relabel). They are
+      // still carried across an in-process RELOAD via `prev.namerState`.
       // See change: fix-auto-naming-reasoning-model (design D7).
       if (msg.type === "auto_name_state_restore") {
         const s = (msg as any).state;
@@ -1553,13 +1557,21 @@ function initBridge(pi: ExtensionAPI) {
 
   // Run one naming attempt after a terminal turn. Observing the current name
   // first catches a pre-existing / in-pi rename (external → permanent "user"
-  // lockout) before attempting to auto-name. The toggle is NOT checked here:
-  // it lives inside the namer so the `disabled` outcome is reportable (D9).
+  // lockout) before attempting to auto-name.
+  //
+  // The toggle gates the OBSERVATION but not the attempt: `maybeName` checks it
+  // internally so the `disabled` outcome is reportable at all (design D9),
+  // while `onObservedName` stays gated exactly as before this change. Letting
+  // it run with the feature OFF would newly latch `nameSource: "user"` (plus a
+  // persisted update) on sessions the user never asked to auto-name, inflating
+  // the very population the follow-up investigation has to measure.
+  // See change: fix-auto-naming-reasoning-model.
   function runAutoNameOnTurnEnd(): void {
     const namer = getAutoNamer();
-    namer.onObservedName(pi.getSessionName() ?? "");
+    if (autoNameSessions) namer.onObservedName(pi.getSessionName() ?? "");
     void namer.maybeName();
   }
+
   function sendGitInfoIfChanged(cwd: string) { const bc = syncBc(); _sendGitInfoIfChanged(bc, cwd); applyBc(bc); }
   function sendCwdMissingIfChanged(cwd: string) { const bc = syncBc(); _sendCwdMissingIfChanged(bc, cwd); applyBc(bc); }
   function sendPiVersionIfChanged() { _sendPiVersionIfChanged(syncBc()); }
