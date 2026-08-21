@@ -1868,7 +1868,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       return null;
     },
     piPort() {
-      return piGateway.address();
+      // TCP only: a UDS listener has no port, and callers of `piPort()` are
+      // building `ws://host:<port>` URLs. Socket-transport callers read
+      // `piGateway.transport()` instead. See change:
+      // add-pi-gateway-transport-identity (task 2.9).
+      const addr = piGateway.address();
+      return typeof addr === "number" ? addr : null;
     },
 
     async start(opts: { deadlineMs?: number | null } = {}) {

@@ -4,7 +4,9 @@
 
 import type { ExtensionToServerMessage, ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type http from "node:http";
 import { WebSocket, WebSocketServer } from "ws";
+import { bindGatewaySocket, unbindGatewaySocket } from "./gateway-socket-bind.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import { getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
 import {
@@ -40,9 +42,22 @@ export interface PiGatewayOptions {
 
 export interface PiGateway {
   start(port: number, host?: string): void;
+  /**
+   * Bind the local unix-domain socket. Async and REFUSABLE: a path with a
+   * live listener aborts with `GatewaySocketConflictError` rather than
+   * unlinking an incumbent (D9).
+   */
+  startOnSocket(socketPath: string): Promise<void>;
   stop(): void;
-  /** Resolved listening port after start() (useful when start(0) is used). Returns null if not started or closed. */
-  address(): number | null;
+  /**
+   * Resolved listening endpoint after start(): a port number for TCP, the
+   * socket PATH for a UDS listener, or null when not started. A UDS
+   * `address()` is a string, so the old number-only accessor blanked the
+   * gateway endpoint in the settings UI (task 2.9).
+   */
+  address(): number | string | null;
+  /** The active transport, for callers that must branch on it. */
+  transport(): { transport: "tcp"; port: number } | { transport: "unix"; path: string } | null;
   sendToSession(sessionId: string, msg: ServerToExtensionMessage): boolean;
   broadcast(msg: ServerToExtensionMessage): void;
   connectionCount(): number;
@@ -89,6 +104,9 @@ export function createPiGateway(
   const contention = createContentionTracker();
   let wss: WebSocketServer | null = null;
   let pingTimer: ReturnType<typeof setInterval> | null = null;
+  /** The UDS listener, when this instance serves bridges over a socket (D1). */
+  let socketServer: http.Server | null = null;
+  let socketPath: string | null = null;
 
   // Map sessionId → WebSocket
   const connections = new Map<string, WebSocket>();
@@ -207,90 +225,14 @@ export function createPiGateway(
     );
   }
 
-  return {
-    set onEvent(handler: ((sessionId: string, msg: ExtensionToServerMessage) => void) | undefined) {
-      onEvent = handler;
-    },
-
-    set onEmpty(handler: (() => void) | undefined) {
-      onEmpty = handler;
-    },
-
-    set onConnection(handler: (() => void) | undefined) {
-      onConnection = handler;
-    },
-
-    set onDisconnect(handler: ((sessionId: string) => void) | undefined) {
-      onDisconnect = handler;
-    },
-
-    set onSessionCreated(handler: ((sessionId: string) => void) | undefined) {
-      onSessionCreated = handler;
-    },
-
-    set onSessionRegistered(handler: ((sessionId: string, cwd: string) => void) | undefined) {
-      onSessionRegistered = handler;
-    },
-
-    address() {
-      const addr = wss?.address();
-      if (addr && typeof addr === "object") return addr.port;
-      return null;
-    },
-    start(port: number, host?: string) {
-      wss = new WebSocketServer(host ? { port, host } : { port });
-
-      // WS-level ping/pong: detect truly dead connections.
-      // Pong responses are processed in the event loop, so a busy bridge
-      // won't respond to pings. We check the underlying TCP socket's
-      // writable state as a fallback — if TCP is alive, the bridge is just
-      // busy, not dead.
-      const PING_MISS_THRESHOLD = 3;
-      if (pingMs > 0) pingTimer = setInterval(() => {
-        if (!wss) return;
-        for (const client of wss.clients) {
-          const misses = aliveMisses.get(client) ?? 0;
-          if (misses >= PING_MISS_THRESHOLD) {
-            // Check if the underlying TCP socket is still alive.
-            // If the socket is writable, the connection is physically intact —
-            // the bridge is just too busy to process pong frames.
-            const socket = (client as any)._socket;
-            const socketAlive = socket && !socket.destroyed && socket.writable;
-            if (socketAlive) {
-              // TCP alive but no pong — bridge is busy. Reset counter, keep alive.
-              console.error(`[gateway] ping: ${misses} misses but TCP alive, keeping session (socket.destroyed=${socket?.destroyed} writable=${socket?.writable})`);
-              aliveMisses.set(client, 0);
-              client.ping();
-              continue;
-            }
-            // TCP is dead — clean up
-            console.error(`[gateway] ping: TCP dead (socket=${!!socket} destroyed=${socket?.destroyed} writable=${socket?.writable})`);
-            
-            for (const [sid, ws] of connections) {
-              if (ws === client) {
-                console.error(`[gateway] connection dead (ping timeout, ${misses} misses): ${sid}`);
-                // Ping timeout — same family as heartbeat expiry.
-                // See change: fix-ended-session-missing-endedat.
-                sessionManager.unregister(sid, { witnessed: false });
-                connections.delete(sid);
-                const timer = heartbeatTimers.get(sid);
-                if (timer) clearTimeout(timer);
-                heartbeatTimers.delete(sid);
-                heartbeatMeta.delete(sid);
-                break;
-              }
-            }
-            client.terminate();
-            aliveMisses.delete(client);
-            checkEmpty();
-            continue;
-          }
-          aliveMisses.set(client, misses + 1);
-          client.ping();
-        }
-      }, pingMs);
-
-      wss.on("connection", (ws) => {
+  /**
+   * One connection handler, shared by every transport (D10). Registered on a
+   * `noServer` WebSocketServer for the unix socket and on the TCP listener
+   * alike, so the transport is a per-bridge property rather than a
+   * per-server mode. See change: add-pi-gateway-transport-identity.
+   */
+  const attachConnectionHandler = (target: WebSocketServer) => {
+      target.on("connection", (ws) => {
         let currentSessionId: string | null = null;
         // Serializes this socket's messages. The contention decision is async
         // (it may probe the incumbent), and a bridge sends `session_register`
@@ -685,6 +627,125 @@ export function createPiGateway(
           aliveMisses.delete(ws);
         });
       });
+  };
+
+  return {
+    set onEvent(handler: ((sessionId: string, msg: ExtensionToServerMessage) => void) | undefined) {
+      onEvent = handler;
+    },
+
+    set onEmpty(handler: (() => void) | undefined) {
+      onEmpty = handler;
+    },
+
+    set onConnection(handler: (() => void) | undefined) {
+      onConnection = handler;
+    },
+
+    set onDisconnect(handler: ((sessionId: string) => void) | undefined) {
+      onDisconnect = handler;
+    },
+
+    set onSessionCreated(handler: ((sessionId: string) => void) | undefined) {
+      onSessionCreated = handler;
+    },
+
+    set onSessionRegistered(handler: ((sessionId: string, cwd: string) => void) | undefined) {
+      onSessionRegistered = handler;
+    },
+
+    address() {
+      const addr = socketServer?.address() ?? wss?.address();
+      if (addr && typeof addr === "object") return addr.port;
+      // A UDS listener's address() is the socket PATH, not an object. Returning
+      // null here blanked the gateway endpoint in the settings UI (task 2.9),
+      // so the path is reported as-is and the accessor is transport-aware.
+      if (typeof addr === "string") return addr;
+      return null;
+    },
+    transport() {
+      if (socketPath) return { transport: "unix" as const, path: socketPath };
+      const addr = socketServer?.address() ?? wss?.address();
+      if (addr && typeof addr === "object") return { transport: "tcp" as const, port: addr.port };
+      return null;
+    },
+    /**
+     * Bind the local unix-domain socket (POSIX). Separate from `start()`
+     * because binding a socket path is asynchronous and may legitimately
+     * REFUSE (a live incumbent must never be unlinked — D9).
+     *
+     * Shares one `WebSocketServer({ noServer: true })` and therefore one
+     * upgrade/connection handler with the TCP listener, so the transport is a
+     * per-bridge property rather than a per-server mode (D10).
+     */
+    async startOnSocket(path: string) {
+      if (!wss) {
+        wss = new WebSocketServer({ noServer: true });
+        attachConnectionHandler(wss);
+      }
+      const server = await bindGatewaySocket({ socketPath: path });
+      server.on("upgrade", (req, socket, head) => {
+        wss?.handleUpgrade(req, socket as never, head, (ws) => {
+          wss?.emit("connection", ws, req);
+        });
+      });
+      socketServer = server;
+      socketPath = path;
+    },
+    start(port: number, host?: string) {
+      wss = new WebSocketServer(host ? { port, host } : { port });
+
+      // WS-level ping/pong: detect truly dead connections.
+      // Pong responses are processed in the event loop, so a busy bridge
+      // won't respond to pings. We check the underlying TCP socket's
+      // writable state as a fallback — if TCP is alive, the bridge is just
+      // busy, not dead.
+      const PING_MISS_THRESHOLD = 3;
+      if (pingMs > 0) pingTimer = setInterval(() => {
+        if (!wss) return;
+        for (const client of wss.clients) {
+          const misses = aliveMisses.get(client) ?? 0;
+          if (misses >= PING_MISS_THRESHOLD) {
+            // Check if the underlying TCP socket is still alive.
+            // If the socket is writable, the connection is physically intact —
+            // the bridge is just too busy to process pong frames.
+            const socket = (client as any)._socket;
+            const socketAlive = socket && !socket.destroyed && socket.writable;
+            if (socketAlive) {
+              // TCP alive but no pong — bridge is busy. Reset counter, keep alive.
+              console.error(`[gateway] ping: ${misses} misses but TCP alive, keeping session (socket.destroyed=${socket?.destroyed} writable=${socket?.writable})`);
+              aliveMisses.set(client, 0);
+              client.ping();
+              continue;
+            }
+            // TCP is dead — clean up
+            console.error(`[gateway] ping: TCP dead (socket=${!!socket} destroyed=${socket?.destroyed} writable=${socket?.writable})`);
+            
+            for (const [sid, ws] of connections) {
+              if (ws === client) {
+                console.error(`[gateway] connection dead (ping timeout, ${misses} misses): ${sid}`);
+                // Ping timeout — same family as heartbeat expiry.
+                // See change: fix-ended-session-missing-endedat.
+                sessionManager.unregister(sid, { witnessed: false });
+                connections.delete(sid);
+                const timer = heartbeatTimers.get(sid);
+                if (timer) clearTimeout(timer);
+                heartbeatTimers.delete(sid);
+                heartbeatMeta.delete(sid);
+                break;
+              }
+            }
+            client.terminate();
+            aliveMisses.delete(client);
+            checkEmpty();
+            continue;
+          }
+          aliveMisses.set(client, misses + 1);
+          client.ping();
+        }
+      }, pingMs);
+
+      attachConnectionHandler(wss);
     },
 
     stop() {
@@ -708,6 +769,13 @@ export function createPiGateway(
       connections.clear();
       wss?.close();
       wss = null;
+      // Remove the socket file on clean shutdown; idempotent w.r.t. a file
+      // that is already gone (task 2.5).
+      if (socketPath) {
+        void unbindGatewaySocket(socketServer, socketPath);
+        socketServer = null;
+        socketPath = null;
+      }
     },
 
     sendToSession(sessionId: string, msg: ServerToExtensionMessage): boolean {
