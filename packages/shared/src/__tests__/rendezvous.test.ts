@@ -84,4 +84,12 @@ describe("rendezvousEndpoint", () => {
     write(JSON.stringify({ ...RECORD, identity: "someone-else" }));
     expect(rendezvousEndpoint(env())?.instanceId).toBe("someone-else");
   });
+
+
+  // (task 3.8) The endpoint alone cannot be verified: the caller needs the
+  // port where the instance publishes its id.
+  it("carries the http port so the instance can be verified", () => {
+    write(JSON.stringify(RECORD));
+    expect(rendezvousEndpoint(env())?.httpPort).toBe(RECORD.httpPort);
+  });
 });

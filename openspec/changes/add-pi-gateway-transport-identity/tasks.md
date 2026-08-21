@@ -7,7 +7,7 @@
 - [ ] 1.5 Write a failing test for precedence: an explicit endpoint is not replaced by a discovered candidate
 - [ ] 1.6 Write a failing test for stickiness: a registered bridge reconnects to the same instance, and refuses an unverified candidate
 - [ ] 1.7 Write a failing test proving a live socket is never unlinked: a second instance starting on an occupied path aborts with a conflict and leaves the incumbent serving
-- [ ] 1.8 Write a failing test proving a bridge refuses an instance whose identity differs from the rendezvous record, even when the local credential is valid
+- [x] 1.8 Write a failing test proving a bridge refuses an instance whose identity differs from the rendezvous record, even when the local credential is valid
 - [ ] 1.9 Confirm 1.2–1.8 fail against current `main` for the stated reason, not an unrelated error
 
 ## 2. Rendezvous and local socket transport (D0, D1, D2, D9, D15)
@@ -49,11 +49,11 @@
 - [x] 3.1 Introduce a single endpoint-resolution function in the extension implementing the precedence ladder; make it the only place an endpoint is chosen
 - [x] 3.2 Mark explicitly configured endpoints as pinned, and make pinning a property the connection layer can read
 - [x] 3.3 Refuse any re-target of a pinned endpoint; log both endpoints and the reason
-- [ ] 3.4 Track the instance the bridge registered with, and require identity verification before any re-target
+- [x] 3.4 Track the instance the bridge registered with, and require identity verification before any re-target
 - [ ] 3.5 Make 1.5 and 1.6 pass
 - [ ] 3.6 Confirm no delta was introduced on the `mdns-discovery` capability (this change must not collide with `fix-bridge-mdns-migration-hijack`)
 - [ ] 3.7 **Reconcile with `fix-bridge-mdns-migration-hijack` before archiving.** Making explicit endpoints pinned narrows that change's migration scenarios in practice, and both changes touch the same re-target path (`connection.updateUrl`). Re-read its spec at archive time and confirm the merged behaviour is coherent; if it is not, declare the delta rather than leaving the conflict implicit
-- [ ] 3.8 Verify identity before adopting the instance named by the record: a bridge SHALL refuse an instance whose identity differs from the recorded one; make 1.8 pass
+- [x] 3.8 Verify identity before adopting the instance named by the record: a bridge SHALL refuse an instance whose identity differs from the recorded one; make 1.8 pass
 
 ## 4. Local authorisation (D5)
 

@@ -79,7 +79,7 @@ export function readRendezvousRecord(env?: DashboardPathsEnv): RendezvousRecord 
  */
 export function rendezvousEndpoint(
   env?: DashboardPathsEnv,
-): { endpoint: string; instanceId: string } | null {
+): { endpoint: string; instanceId: string; httpPort: number } | null {
   const record = readRendezvousRecord(env);
   if (!record) return null;
   const local = resolveLocalGatewayEndpoint(env, record.piPort);
@@ -87,5 +87,8 @@ export function rendezvousEndpoint(
     local.transport === "unix"
       ? `ws+unix://${local.path}:/`
       : `ws://127.0.0.1:${local.port}`;
-  return { endpoint, instanceId: record.instanceId };
+  // `httpPort` rides along so the caller can VERIFY the instance answering at
+  // `endpoint` really is `instanceId` — the local credential authorises a
+  // host, never an instance (D14, task 3.8).
+  return { endpoint, instanceId: record.instanceId, httpPort: record.httpPort };
 }

@@ -49,6 +49,7 @@ import {
 } from "./flow-event-wiring.js";
 import { runGitPollTick } from "./git-poll.js";
 import { flipHasUI } from "./hasui-flip.js";
+import { healthUrlForInstance, verifyInstanceIdentity } from "./instance-verification.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
 import { reportRefresh } from "./model-refresh.js";
 import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged, defaultReadPiVersion } from "./model-tracker.js";
@@ -757,11 +758,19 @@ function initBridge(pi: ExtensionAPI) {
   // the default; discovery may only suggest. The legacy
   // `ws://localhost:<configured piPort>` is the last resort, kept so a new
   // bridge still works against a dashboard that predates the record (task 8.3).
+  const rendezvous = rendezvousEndpoint();
   const endpointChoice = resolveEndpoint({
     socketEnv: process.env.PI_DASHBOARD_SOCKET,
     urlEnv: process.env.PI_DASHBOARD_URL,
-    record: rendezvousEndpoint() ?? undefined,
+    record: rendezvous ?? undefined,
   });
+  // The instance this bridge believes it is talking to (task 3.4). Any
+  // re-target is judged against THIS id, not against the endpoint string —
+  // the same instance may legitimately move, and a different instance may
+  // legitimately answer at the same endpoint.
+  let registeredInstanceId: string | undefined = endpointChoice.available
+    ? endpointChoice.instanceId
+    : undefined;
   const dashboardUrl = endpointChoice.available
     ? endpointChoice.url
     : `ws://localhost:${config.piPort}`;
@@ -2546,6 +2555,38 @@ function initBridge(pi: ExtensionAPI) {
     // session_register must be buffered before any event_forward messages.
     connection.connect();
 
+    // (task 3.8) Verify the instance answering at the recorded endpoint really
+    // is the one the record named. The socket's mode and the local token are
+    // both per-HOME, so a same-HOME impostor passes them — only the published
+    // `instanceId` distinguishes instances. Refusal is loud and does NOT fall
+    // back to a discovered substitute: that substitution is the bug.
+    if (
+      endpointChoice.available &&
+      endpointChoice.source === "rendezvous-record" &&
+      rendezvous?.instanceId
+    ) {
+      void verifyInstanceIdentity({
+        healthUrl: healthUrlForInstance(rendezvous.httpPort),
+        expectedInstanceId: rendezvous.instanceId,
+      })
+        .then((verdict) => {
+          if (verdict.adopt) {
+            registeredInstanceId = rendezvous.instanceId;
+            return;
+          }
+          console.error(`[dashboard] instance verification ${verdict.reason} — disconnecting`);
+          registeredInstanceId = undefined;
+          try {
+            connection.disconnect();
+          } catch {
+            /* already down */
+          }
+        })
+        .catch(() => {
+          /* `verifyInstanceIdentity` already collapses every failure to a refusal */
+        });
+    }
+
     // Extract first message (sessionFile/sessionDir already extracted above)
     const firstMessage = extractFirstMessage(ctx);
     lastFirstMessage = firstMessage;
@@ -2773,7 +2814,7 @@ function initBridge(pi: ExtensionAPI) {
         // by whatever mDNS answered, and the only defence was remembering
         // `PI_DASHBOARD_NO_MDNS` — that is the hijack.
         const decision = decideRetarget({
-          current: { endpoint: dashboardUrl },
+          current: { endpoint: dashboardUrl, instanceId: registeredInstanceId },
           candidate: { endpoint: candidateUrl },
           pinned: endpointPinned,
           failed: !connection.isConnected,
