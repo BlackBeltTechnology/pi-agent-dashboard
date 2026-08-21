@@ -369,7 +369,16 @@ export async function acquireOrAttach(config: AcquireConfig): Promise<LockAcquir
     hostname: hostname(),
   });
 
-  const tryAcquire = async () => {
+  /**
+   * Acquire the lock and claim the record.
+   *
+   * `guard` runs while the lock is HELD but before the record is written — the
+   * compare-and-swap point of a takeover (task 2.0h). Returning `"abandon"`
+   * releases without touching the record and yields `null`.
+   */
+  const tryAcquire = async (
+    guard?: (existing: LockMetadata | null) => Promise<"proceed" | "abandon">,
+  ) => {
     const release = await properLockfile.lock(lockPath, {
       stale: staleMs,
       retries: 0,
@@ -377,6 +386,14 @@ export async function acquireOrAttach(config: AcquireConfig): Promise<LockAcquir
       // realpath-based directory, so this is a no-op but kept explicit.
       realpath: false,
     });
+    if (guard && (await guard(readMetadata(metaPath))) === "abandon") {
+      try {
+        await release();
+      } catch {
+        /* ignore */
+      }
+      return null;
+    }
     const meta = buildMeta();
     writeMetadataAtomic(meta, metaPath);
     const releaseOnce = (() => {
@@ -396,7 +413,7 @@ export async function acquireOrAttach(config: AcquireConfig): Promise<LockAcquir
   };
 
   try {
-    return await tryAcquire();
+    return (await tryAcquire()) as Extract<LockAcquireResult, { mode: "acquired" }>;
   } catch (err: unknown) {
     if (!isELocked(err)) throw err;
     // Someone else holds the lock. Decide: attach or error.
@@ -415,7 +432,7 @@ export async function acquireOrAttach(config: AcquireConfig): Promise<LockAcquir
       // Truly no metadata after 500ms → assume stale/corrupt. Force steal.
       removeMetadata(metaPath);
       try {
-        return await tryAcquire();
+        return (await tryAcquire()) as Extract<LockAcquireResult, { mode: "acquired" }>;
       } catch (err2) {
         if (!isELocked(err2)) throw err2;
         try {
@@ -423,7 +440,7 @@ export async function acquireOrAttach(config: AcquireConfig): Promise<LockAcquir
         } catch {
           /* ignore */
         }
-        return await tryAcquire();
+        return (await tryAcquire()) as Extract<LockAcquireResult, { mode: "acquired" }>;
       }
     }
 
@@ -434,14 +451,36 @@ export async function acquireOrAttach(config: AcquireConfig): Promise<LockAcquir
     if (liveness === "alive-mismatch") {
       throw new InstanceLockMismatchError(meta, null);
     }
-    // Dead holder — steal.
+    // Dead holder — steal, but ACQUIRE THEN VERIFY (task 2.0h, defect B2).
+    //
+    // The old sequence unlocked and removed the record unconditionally before
+    // acquiring, so two starters that each observed the SAME dead holder could
+    // each delete the other's live lock and fresh record. `proper-lockfile`
+    // does not close this: its stale path is
+    // `stat → isLockStale → removeLock → acquireLock`, with no re-stat before
+    // the removal (`proper-lockfile/lib/lockfile.js:70-79`).
+    //
+    // So the record is only claimed once we hold the lock, and only if it
+    // still names the holder we observed dead (or is gone / itself dead). If
+    // it has moved on to a live owner, we abandon and take the attach path.
+    const observed = meta;
     try {
       await properLockfile.unlock(lockPath, { realpath: false });
     } catch {
       /* ignore */
     }
-    removeMetadata(metaPath);
-    return await tryAcquire();
+    const stolen = await tryAcquire(async (existing) => {
+      if (!existing || existing.identity === observed.identity) return "proceed";
+      // The record changed under us. Only a *dead* successor may be replaced.
+      return (await isLockHolderResponsive(existing, hooks)) === "dead" ? "proceed" : "abandon";
+    });
+    if (stolen) return stolen;
+
+    const current = readMetadata(metaPath);
+    if (!current) throw new InstanceLockMismatchError(observed, null);
+    const currentLiveness = await isLockHolderResponsive(current, hooks);
+    if (currentLiveness === "alive-mismatch") throw new InstanceLockMismatchError(current, null);
+    return { mode: "attach", meta: current };
   }
 }
 

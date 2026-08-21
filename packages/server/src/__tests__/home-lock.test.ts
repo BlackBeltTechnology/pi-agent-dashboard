@@ -22,11 +22,11 @@ import {
   writeMetadataAtomic,
 } from "../lifecycle/home-lock.js";
 import {
+  __resetInstanceIdCache,
   ensureInstanceId,
   getInstanceIdPath,
   INSTANCE_ID_HEALTH_FIELD,
   instanceIdHealthFields,
-  __resetInstanceIdCache,
 } from "../lifecycle/instance-id.js";
 
 // Fresh tmp dir per test → real FS (proper-lockfile needs real FS semantics).
@@ -54,6 +54,11 @@ function baseConfig(overrides: Partial<Parameters<typeof acquireOrAttach>[0]> = 
     httpPort: 8000,
     piPort: 9999,
     version: "0.0.0-test",
+    // NOTE: `...overrides` comes BEFORE `hooks`, otherwise an override that
+    // carries its own `hooks` replaces the whole object and silently drops the
+    // injected `lockPath`/`metaPath` — every such test would then run against
+    // the real HOME and prove nothing.
+    ...overrides,
     hooks: {
       lockPath,
       metaPath,
@@ -62,7 +67,6 @@ function baseConfig(overrides: Partial<Parameters<typeof acquireOrAttach>[0]> = 
       isProcessAlive: () => false,
       ...(overrides.hooks ?? {}),
     },
-    ...overrides,
   };
 }
 
@@ -488,5 +492,102 @@ describe("readMetadataDetailed", () => {
     };
     writeMetadataAtomic(meta, metaPath);
     expect(readMetadataDetailed(metaPath)).toEqual({ status: "ok", meta });
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// (test-plan #E13) Takeover is acquire-then-verify — task 2.0h/2.0h-i.
+//
+// The old steal path unlocked and removed the metadata UNCONDITIONALLY, so
+// two starters that each observed the SAME dead holder could each delete the
+// other's live lock and fresh record: both end up "acquired", both believe
+// they own the HOME, and the record names whichever wrote last.
+//
+// `proper-lockfile` does not fix this — its stale path is
+// `stat → isLockStale → removeLock → acquireLock` with no re-stat before the
+// removal (`proper-lockfile/lib/lockfile.js:70-79`).
+// ──────────────────────────────────────────────────────────────────────────
+describe("lock takeover under a race (defect B2)", () => {
+  const deadHolder = (identity: string): LockMetadata => ({
+    pid: 2147483646, // never alive
+    ppid: 1,
+    httpPort: 8000,
+    piPort: 9999,
+    startedAt: 1,
+    identity,
+    version: "0.0.0-dead",
+    url: "http://localhost:8000",
+    hostname: "dead-host",
+  });
+
+  /** Put a dead holder's lock + record on disk, exactly as a crash leaves it. */
+  const seedDeadHolder = async (identity: string) => {
+    const properLockfile = (await import("proper-lockfile")).default;
+    fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+    fs.writeFileSync(lockPath, "# seeded\n");
+    // `update: 0` disables proper-lockfile's mtime refresher: with it running,
+    // a same-process seed lock notices its own takeover and self-destructs,
+    // which would let a later acquire succeed for a reason the test is not
+    // about.
+    await properLockfile.lock(lockPath, {
+      stale: 60_000,
+      retries: 0,
+      realpath: false,
+      update: 0,
+    });
+    writeMetadataAtomic(deadHolder(identity), metaPath);
+  };
+
+  it("two starters observing one dead holder yield exactly ONE owner", async () => {
+    await seedDeadHolder("dead-1");
+
+    const results = await Promise.allSettled([
+      acquireOrAttach(baseConfig({ identity: "starter-a" })),
+      acquireOrAttach(baseConfig({ identity: "starter-b" })),
+    ]);
+
+    const acquired = results.filter(
+      (r) => r.status === "fulfilled" && r.value.mode === "acquired",
+    );
+    expect(acquired).toHaveLength(1);
+
+    // And the record must name the single owner — not a deleted/blank state.
+    const owner = (acquired[0] as PromiseFulfilledResult<{ meta: LockMetadata }>).value.meta;
+    expect(readMetadata(metaPath)?.identity).toBe(owner.identity);
+
+    for (const r of results) {
+      if (r.status === "fulfilled" && r.value.mode === "acquired") await r.value.release();
+    }
+  });
+
+  it("a newcomer does NOT clobber a record that stopped naming the holder it observed dead", async () => {
+    // The window this closes: we read the record, conclude the holder is dead,
+    // and by the time we hold the lock somebody else has already taken over
+    // and written a FRESH record. Unconditional removal would delete a live
+    // owner's record; acquire-then-verify must abandon and attach instead.
+    await seedDeadHolder("dead-1");
+
+    let probes = 0;
+    const late = await acquireOrAttach(
+      baseConfig({
+        identity: "latecomer",
+        hooks: {
+          isProcessAlive: () => true,
+          probeHealth: async () => {
+            probes += 1;
+            if (probes === 1) {
+              // Our observation: the recorded holder is gone. Meanwhile a
+              // winner takes over and rewrites the record.
+              writeMetadataAtomic({ ...deadHolder("winner"), pid: process.pid }, metaPath);
+              return { running: false };
+            }
+            return { running: true, instanceId: "winner" };
+          },
+        },
+      }),
+    );
+
+    expect(late.mode).toBe("attach");
+    expect(readMetadata(metaPath)?.identity).toBe("winner");
   });
 });
