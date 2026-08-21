@@ -11,7 +11,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureConfig, loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { discoverDashboard } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
-import type { ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
+import type {
+  ServerToExtensionMessage,
+  TranscriptRequestMessage,
+} from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { rendezvousEndpoint } from "@blackbelt-technology/pi-dashboard-shared/rendezvous.js";
 import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
 import type { FlowInfo, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -79,6 +82,8 @@ import { SubagentFrameBuffer } from "./subagent-frame-buffer.js";
 import { stripForForward } from "./subagent-frame-strip.js";
 import { isSubagentTick, SubagentTickThrottle } from "./subagent-tick-throttle.js";
 import { inlineToolResultImages } from "./tool-result-image-inliner.js";
+import { readTranscriptChunk, type TranscriptCursor } from "./transcript-backfill.js";
+import { decideTranscriptRequest } from "./transcript-request-guard.js";
 import { createTransportDiagnostics } from "./transport-diagnostics.js";
 import { createTuiPromptAdapter } from "./tui-prompt-adapter.js";
 import { classifyTurnActionability } from "./turn-actionability.js";
@@ -815,6 +820,46 @@ function initBridge(pi: ExtensionAPI) {
     onMessage: safe(async (data: unknown) => {
       if (!isActive()) return; // Stale listener guard
       const msg = data as ServerToExtensionMessage;
+      // D12: the dashboard asking for a slice of THIS session's transcript.
+      // Guarded before any filesystem touch — a request naming a path, or
+      // another session, never reaches the reader. See change:
+      // add-pi-gateway-transport-identity (tasks 11.3/11.4/11.6).
+      if ((msg as any).type === "transcript_request") {
+        const req = msg as unknown as TranscriptRequestMessage;
+        const verdict = decideTranscriptRequest({
+          request: req as never,
+          ownSessionId: sessionId,
+        });
+        if (!verdict.allow) {
+          console.warn(`[dashboard] transcript request refused: ${verdict.reason}`);
+          connection.send({
+            type: "transcript_chunk",
+            // Echo the caller's id: routing is the connection, and the server
+            // must be able to correlate a refusal with what it asked for.
+            sessionId: req.sessionId,
+            entries: [],
+            complete: false,
+            restarted: false,
+            refused: { cause: verdict.cause, reason: verdict.reason },
+          });
+          return;
+        }
+        if (!lastSessionFile) return;
+        const chunk = readTranscriptChunk(
+          lastSessionFile,
+          req.cursor as TranscriptCursor | undefined,
+          { maxBytes: req.maxBytes },
+        );
+        connection.send({
+          type: "transcript_chunk",
+          sessionId: req.sessionId,
+          entries: chunk.entries,
+          cursor: chunk.cursor,
+          complete: chunk.complete,
+          restarted: chunk.restarted,
+        });
+        return;
+      }
       // Extension UI System (Phase 1): browser-originated action / data
       // request. Re-emit on pi.events; the listener either populates
       // data.items synchronously or calls _reply asynchronously.

@@ -726,7 +726,47 @@ export type ExtensionToServerMessage =
   | AutoNameErrorMessage
   | PromptReceivedToServerMessage
   | InboundDropReportMessage
-  | BridgeDiagnosticMessage;
+  | BridgeDiagnosticMessage
+  | TranscriptChunkMessage;
+
+
+/**
+ * Server -> bridge: send the next slice of this session's transcript.
+ *
+ * Addressing is by session id ONLY — there is deliberately no path field, and
+ * the bridge refuses any request that carries one (`transcript-request-guard`).
+ * `cursor` is opaque to the server: it is minted by the bridge, echoed back
+ * unchanged, and carries a witness so a rewritten or truncated origin file
+ * restarts the read instead of resuming into misaligned bytes.
+ * See change: add-pi-gateway-transport-identity (D12, task 11.6).
+ */
+export interface TranscriptRequestMessage {
+  type: "transcript_request";
+  sessionId: string;
+  cursor?: unknown;
+  /** Read budget for this slice; the bridge may overshoot to finish a line. */
+  maxBytes?: number;
+}
+
+/**
+ * Bridge -> server: one bounded slice of the transcript.
+ *
+ * `restarted` means the bridge could not trust its cursor and re-read from the
+ * beginning — the server MUST replace what it retained rather than append, or
+ * the retained copy silently doubles. `complete` means a clean end of file was
+ * reached; until then the retained transcript is explicitly partial (#X18).
+ */
+export interface TranscriptChunkMessage {
+  type: "transcript_chunk";
+  sessionId: string;
+  /** Whole `.jsonl` lines, verbatim. Never a partial line. */
+  entries: string[];
+  cursor?: unknown;
+  complete: boolean;
+  restarted: boolean;
+  /** Set instead of `entries` when the bridge refused the request. */
+  refused?: { cause: string; reason: string };
+}
 
 // ── Server → Extension ──────────────────────────────────────────────
 
@@ -1058,6 +1098,7 @@ export interface PreferencesUpdateExtensionMessage {
 }
 
 export type ServerToExtensionMessage =
+  | TranscriptRequestMessage
   | SendPromptToExtensionMessage
   | AbortToExtensionMessage
   | ExtensionUiResponseMessage

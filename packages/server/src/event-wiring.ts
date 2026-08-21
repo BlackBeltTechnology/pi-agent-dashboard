@@ -35,6 +35,7 @@ import {
   attachedStillExistsInCandidateRoots,
   localityGateAllows,
 } from "./session/openspec-locality.js";
+import type { RemoteTranscriptStore } from "./session/remote-transcript-store.js";
 import { resolveOrderKey } from "./session/resolve-order-key.js";
 import type { SessionOrderManager } from "./session/session-order-manager.js";
 import type { ViewedSessionTracker } from "./session/viewed-session-tracker.js";
@@ -80,6 +81,13 @@ const STRICT_SPAWN_CORRELATION =
 
 export interface EventWiringDeps {
   sessionManager: SessionManager;
+  /**
+   * Retention for remote sessions' transcripts (D12). Optional: a wiring
+   * without it simply does not retain, which is the correct degradation for
+   * tests and minimal wirings — never a crash on an unexpected chunk.
+   * See change: add-pi-gateway-transport-identity (task 11.6).
+   */
+  remoteTranscriptStore?: RemoteTranscriptStore;
   eventStore: EventStore;
   /**
    * Optional display-fit pool. When provided, inline image attachments are
@@ -220,6 +228,7 @@ export interface EventWiringDeps {
 export function wireEvents(deps: EventWiringDeps): void {
   const {
     sessionManager,
+    remoteTranscriptStore,
     eventStore,
     fitWorkerPool,
     dispatchPluginSessionEnded,
@@ -1525,6 +1534,34 @@ export function wireEvents(deps: EventWiringDeps): void {
       return;
     }
 
+
+    // A slice of a remote session's transcript (D12, task 11.6). Retained on
+    // disk because the origin host will leave and the transcript has to
+    // outlive it (11.10), at full fidelity the 4 KB-capped in-memory store
+    // cannot provide (11.9).
+    if (msg.type === "transcript_chunk") {
+      if (msg.refused) {
+        console.error(
+          `[transcript] session=${sessionId} refused by bridge: ${msg.refused.cause} — ${msg.refused.reason}`,
+        );
+        return;
+      }
+      try {
+        if (!remoteTranscriptStore) return;
+        // Keyed on the ROUTING id, never `msg.sessionId`: the payload id is a
+        // bridge-supplied field, and honouring it would let one bridge
+        // overwrite another session's retained transcript.
+        remoteTranscriptStore.append(sessionId, msg.entries, {
+          restarted: msg.restarted,
+          complete: msg.complete,
+        });
+      } catch (err) {
+        // A rejected session id is the store refusing to build a path from
+        // untrusted input; that is a refusal to record, never a crash.
+        console.error(`[transcript] session=${sessionId} not retained: ${String(err)}`);
+      }
+      return;
+    }
 
     // How the bridge chose its endpoint, and every refusal to move off it.
     // Written to the SERVER's stdout because the bridge's own log is discarded

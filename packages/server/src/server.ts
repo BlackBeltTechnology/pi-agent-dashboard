@@ -129,6 +129,7 @@ import { deriveEndedAt } from "./session/derive-ended-at.js";
 import { createMemorySessionManager, type SessionManager } from "./session/memory-session-manager.js";
 import { applyReattachPolicy } from "./session/reattach-placement.js";
 import { reconcileSessionOrder } from "./session/reconcile-session-order.js";
+import { createRemoteTranscriptStore } from "./session/remote-transcript-store.js";
 import { resolveOrderKey } from "./session/resolve-order-key.js";
 import { registerSessionApi } from "./session/session-api.js";
 import { discoverAndBroadcastSessions } from "./session/session-bootstrap.js";
@@ -1110,6 +1111,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Wire up event forwarding from pi gateway to browser gateway
   wireEvents({
     sessionManager,
+    remoteTranscriptStore: createRemoteTranscriptStore(),
     eventStore,
     fitWorkerPool,
     piGateway,
