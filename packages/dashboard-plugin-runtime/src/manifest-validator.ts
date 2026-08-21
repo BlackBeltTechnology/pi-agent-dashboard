@@ -103,6 +103,21 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
         );
       }
     }
+    // presentation: optional "page" | "dialog". Unlike `depth`, an unknown
+    // value is FATAL rather than a warn-and-default: a typo like "modal" would
+    // otherwise silently fall back to the dialog default, and the author would
+    // see the behaviour they asked to opt OUT of. See change:
+    // add-route-backed-overlay-dialogs.
+    if (
+      c.presentation !== undefined &&
+      c.presentation !== "page" &&
+      c.presentation !== "dialog"
+    ) {
+      throw new ManifestValidationError(
+        pluginId,
+        `claims[${index}] slot "shell-overlay-route" presentation must be "page" or "dialog" if provided`,
+      );
+    }
   }
 
   // settings-section: `tab` is accepted but inert. Every `settings-section`
@@ -147,6 +162,9 @@ function validateClaim(claim: unknown, pluginId: string, index: number): PluginC
     ...(typeof c.sessionParam === "string" ? { sessionParam: c.sessionParam } : {}),
     ...(c.depth === 1 || c.depth === 2 ? { depth: c.depth } : {}),
     ...(typeof c.parentPath === "string" ? { parentPath: c.parentPath } : {}),
+    ...(c.presentation === "page" || c.presentation === "dialog"
+      ? { presentation: c.presentation }
+      : {}),
     ...(typeof c.tab === "string" ? { tab: c.tab as SettingsTab } : {}),
     ...(typeof c.predicate === "string" ? { predicate: c.predicate } : {}),
     ...(typeof c.shouldRender === "string" ? { shouldRender: c.shouldRender } : {}),
