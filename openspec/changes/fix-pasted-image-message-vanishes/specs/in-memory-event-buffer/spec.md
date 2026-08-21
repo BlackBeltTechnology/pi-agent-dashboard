@@ -98,7 +98,14 @@ ceiling, the store SHALL bound the event as follows:
   and no resolution will ever arrive for it, so the client SHALL render it as an
   explicit unavailable slot (see the `event-reducer` and
   `inline-image-block-shapes` requirements). A rescued block SHALL NOT be dropped
-  from the rendered message merely because it has no bytes and no `attachmentId`. This rescue SHALL run BEFORE the generic
+  from the rendered message merely because it has no bytes and no `attachmentId`.
+
+  The rescue SHALL NOT exempt the rescued message from the generic
+  per-string-field cap: a rescued message's text blocks SHALL be capped by the
+  SAME universal rule as any other message's, so the per-field bound does not
+  depend on whether a message happened to carry an image. What the rescue changes
+  is the ALTERNATIVE for that row — the whole-event placeholder, i.e. total loss
+  of the message — not the cap. This rescue SHALL run BEFORE the generic
   per-string-field pass and BEFORE the `{ __truncated }` fallback, and SHALL run
   ONLY on an event already measured as over the ceiling — an under-ceiling event's
   image bytes SHALL be left untouched so ordinary inline rendering is unaffected.
@@ -224,6 +231,13 @@ already-bounded event.
 - **THEN** the image-bytes rescue SHALL NOT be sufficient and the store SHALL
   replace `data` with the bounded `{ __truncated }` placeholder
 - **AND** the stored event SHALL be within the ceiling
+
+#### Scenario: Rescued text is capped identically to unrescued text
+- **GIVEN** two `message_start` events with the SAME over-cap text block, one
+  plain and one whose inline image pushes it over the ceiling
+- **WHEN** both are inserted
+- **THEN** the stored text SHALL be identical for both — head+tail-capped with the
+  hidden-count marker — and the rescued one SHALL NOT be exempted from the cap
 
 #### Scenario: An under-ceiling message is not rescued
 - **GIVEN** a `message_start` carrying an inline image whose event stays within

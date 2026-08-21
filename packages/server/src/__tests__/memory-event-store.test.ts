@@ -203,6 +203,51 @@ describe("memory-event-store", () => {
       expect(block.source.data).toBe(longBase64);
     });
 
+    it("rescued message text is capped by the SAME universal rule as any message", () => {
+      // The per-string-field cap is universal and predates the rescue: a 5000-char
+      // text block is head+tail-capped in a plain message and in a rescued one
+      // ALIKE. Exempting rescued messages would make the bound depend on whether
+      // a message happened to carry an image, and would let a rescued event carry
+      // unbounded text up to the ceiling. What the rescue changes is the
+      // alternative: without it this row was the whole-event {__truncated}
+      // placeholder — total loss, not a capped-and-marked string.
+      // See change: fix-pasted-image-message-vanishes.
+      const store = createMemoryEventStore(neverPinned); // production defaults
+      const text = "T".repeat(5000); // > DEFAULT_MAX_STRING_SIZE (4000)
+      const plain: DashboardEvent = {
+        eventType: "message_start",
+        timestamp: Date.now(),
+        data: { message: { role: "user", content: [{ type: "text", text }] } },
+      };
+      const withBigImage: DashboardEvent = {
+        eventType: "message_start",
+        timestamp: Date.now(),
+        data: {
+          message: {
+            role: "user",
+            content: [
+              { type: "text", text },
+              {
+                type: "image",
+                data: "A".repeat(DEFAULT_MAX_EVENT_DATA_SIZE * 2),
+                mimeType: "image/png",
+              },
+            ],
+          },
+        },
+      };
+      store.insertEvent("s1", plain);
+      store.insertEvent("s1", withBigImage);
+      const plainText = (store.getEvent("s1", 1) as any).data.message.content[0].text;
+      const rescuedText = (store.getEvent("s1", 2) as any).data.message.content[0].text;
+      // Identical treatment — the rescue neither worsens nor exempts the cap.
+      expect(rescuedText).toBe(plainText);
+      // And the cap is head+tail with an explicit marker, not silent loss.
+      expect(rescuedText).toContain("hidden");
+      expect(rescuedText.startsWith("TTTT")).toBe(true);
+      expect(rescuedText.endsWith("TTTT")).toBe(true);
+    });
+
     it("still truncates data field without mimeType sibling", () => {
       const store = createMemoryEventStore(neverPinned, 100, 5000, 100);
       const longString = "B".repeat(500);
