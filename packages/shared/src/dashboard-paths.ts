@@ -26,6 +26,7 @@
 import os from "node:os";
 import path from "node:path";
 import { getManagedDir as getManagedDirInternal, type ManagedPathsEnv } from "./managed-paths.js";
+import { sunPathMax, supportsUnixSocketTransport } from "./platform/paths.js";
 
 /**
  * Shared env override surface. `homedir` mirrors `ManagedPathsEnv`; the
@@ -114,7 +115,7 @@ export function getFirstRunMarkerPath(env?: DashboardPathsEnv): string {
  *
  * See change: add-pi-gateway-transport-identity (D15).
  */
-export const SUN_PATH_MAX = process.platform === "darwin" ? 104 : 108;
+export const SUN_PATH_MAX = sunPathMax();
 
 /**
  * `~/.pi/dashboard/gateway-<piPort>.sock` — the per-instance bridge socket.
@@ -148,7 +149,7 @@ export function resolveLocalGatewayEndpoint(
   env: DashboardPathsEnv | undefined,
   piPort: number,
 ): LocalGatewayEndpoint {
-  if (process.platform === "win32") {
+  if (!supportsUnixSocketTransport()) {
     return {
       transport: "loopback",
       port: piPort,

@@ -1,4 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { WebSocketServer } from "ws";
 import { ConnectionManager } from "../connection.js";
 
 // Mock WebSocket
@@ -340,5 +344,47 @@ describe("ConnectionManager", () => {
 
       cm.disconnect();
     });
+  });
+});
+
+// ──────────────────────────────────────────────────────────
+// (test-plan #E19) `ws+unix://` client dial — defect-2 regression.
+//
+// `globalThis.WebSocket` rejects `ws+unix://` outright with
+// `DOMException: expected a ws: or wss: url`, so a build that falls back to it
+// cannot reach the local socket at all. This test dials a REAL unix socket, so
+// it fails on any such regression rather than asserting a constructor name.
+//
+// See change: add-pi-gateway-transport-identity (task 2.6).
+// ──────────────────────────────────────────────────────────
+describe("ConnectionManager over ws+unix", () => {
+  it("dials ws+unix://<path>:/ with the default WebSocket implementation", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-conn-uds-"));
+    const sockPath = path.join(dir, "gateway-test.sock");
+    const wss = new WebSocketServer({ noServer: true });
+    const http = await import("node:http");
+    const server = http.createServer();
+    server.on("upgrade", (req, socket, head) => {
+      wss.handleUpgrade(req, socket as never, head, (ws) => wss.emit("connection", ws, req));
+    });
+    await new Promise<void>((r) => server.listen(sockPath, () => r()));
+
+    const connected = new Promise<void>((resolve) => wss.once("connection", () => resolve()));
+    // No WebSocketImpl injected: this exercises the production default.
+    const cm = new ConnectionManager({ url: `ws+unix://${sockPath}:/`, onMessage: () => {} });
+    cm.connect();
+    try {
+      await expect(
+        Promise.race([
+          connected,
+          new Promise((_, rej) => setTimeout(() => rej(new Error("no UDS connection")), 3000)),
+        ]),
+      ).resolves.toBeUndefined();
+    } finally {
+      cm.disconnect();
+      wss.close();
+      await new Promise<void>((r) => server.close(() => r()));
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

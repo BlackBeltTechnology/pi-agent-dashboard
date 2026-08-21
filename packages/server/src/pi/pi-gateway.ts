@@ -772,7 +772,14 @@ export function createPiGateway(
       // Remove the socket file on clean shutdown; idempotent w.r.t. a file
       // that is already gone (task 2.5).
       if (socketPath) {
-        void unbindGatewaySocket(socketServer, socketPath);
+        // `stop()` is synchronous by contract, so the teardown cannot be
+        // awaited here — but it must still be OWNED: an unobserved rejection
+        // would leave the socket path behind with no trace of why.
+        const pending = unbindGatewaySocket(socketServer, socketPath);
+        const path = socketPath;
+        pending.catch((err: unknown) => {
+          console.error(`[gateway] failed to remove socket ${path}: ${String(err)}`);
+        });
         socketServer = null;
         socketPath = null;
       }

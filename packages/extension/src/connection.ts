@@ -3,9 +3,17 @@
  * and message buffering during disconnection.
  */
 
+import { WebSocket as WsWebSocket } from "ws";
+
 export interface ConnectionManagerOptions {
   url: string;
   WebSocketImpl?: any;
+  /**
+   * Extra WebSocket upgrade headers, e.g. the Windows `X-Pi-Local-Token`
+   * local credential (D6). Requires the `ws` client — the global WebSocket
+   * cannot set headers at all.
+   */
+  headers?: Record<string, string>;
   maxBufferSize?: number;
   /**
    * Bound on the SERIALIZED INBOUND queue. Distinct from `maxBufferSize`, which
@@ -182,9 +190,22 @@ export class ConnectionManager {
    */
   private suppressUntil = 0;
 
+  /** Upgrade headers presented on every (re)connect. */
+  private headers?: Record<string, string>;
+
   constructor(options: ConnectionManagerOptions) {
     this.url = options.url;
-    this.WS = options.WebSocketImpl ?? (globalThis as any).WebSocket;
+    this.headers = options.headers;
+    // The `ws` package, NOT `globalThis.WebSocket`.
+    //
+    // Two independent requirements force this, and one swap satisfies both:
+    //   - `ws+unix://<path>:/` is rejected outright by the global/undici
+    //     WebSocket (`DOMException: expected a ws: or wss: url`), so the
+    //     local socket transport is unreachable without it (D1);
+    //   - the Windows local-token credential rides an `X-Pi-Local-Token`
+    //     upgrade header, and the global WebSocket cannot set headers (D6).
+    // See change: add-pi-gateway-transport-identity (task 2.6).
+    this.WS = options.WebSocketImpl ?? WsWebSocket;
     // Validate the numeric options up front: a negative bound would refuse
     // every message and a NaN/Infinity bound would disable the limit entirely
     // (`length >= NaN` is always false), both silently.
@@ -427,7 +448,9 @@ export class ConnectionManager {
 
   private createConnection(): void {
     try {
-      this.ws = new this.WS(this.url);
+      this.ws = this.headers
+        ? new this.WS(this.url, { headers: this.headers })
+        : new this.WS(this.url);
     } catch {
       // Constructor failed — schedule reconnect
       this.ws = null;

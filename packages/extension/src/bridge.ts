@@ -11,6 +11,8 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureConfig, loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { discoverDashboard } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
+import { rendezvousEndpoint } from "@blackbelt-technology/pi-dashboard-shared/rendezvous.js";
+import { decideRetarget, resolveEndpoint } from "./endpoint-resolution.js";
 import type { ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
 import type { FlowInfo, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -750,7 +752,28 @@ function initBridge(pi: ExtensionAPI) {
   // Load config to determine WebSocket URL
   ensureConfig();
   const config = loadConfig();
-  const dashboardUrl = process.env.PI_DASHBOARD_URL ?? `ws://localhost:${config.piPort}`;
+  // The ONE place an endpoint is chosen (D3, task 3.1). Explicit configuration
+  // is pinned and outranks everything; the HOME-derived rendezvous record is
+  // the default; discovery may only suggest. The legacy
+  // `ws://localhost:<configured piPort>` is the last resort, kept so a new
+  // bridge still works against a dashboard that predates the record (task 8.3).
+  const endpointChoice = resolveEndpoint({
+    socketEnv: process.env.PI_DASHBOARD_SOCKET,
+    urlEnv: process.env.PI_DASHBOARD_URL,
+    record: rendezvousEndpoint() ?? undefined,
+  });
+  const dashboardUrl = endpointChoice.available
+    ? endpointChoice.url
+    : `ws://localhost:${config.piPort}`;
+  // Pinned endpoints refuse every re-target, including a discovered one (D3).
+  const endpointPinned = endpointChoice.available && endpointChoice.pinned;
+  // Task 10.1: log the winning precedence rule, or diagnosing "it connected to
+  // the wrong dashboard" means guessing which source won.
+  console.log(
+    `[dashboard] endpoint ${dashboardUrl} (source=${
+      endpointChoice.available ? endpointChoice.source : "legacy-config-piPort"
+    } pinned=${endpointPinned})`,
+  );
 
   // Long-lived ctx wrapper for the Extension UI System (Phase 1) — see
   // change: add-extension-ui-modal. `getSessionId` reads the closed-over
@@ -2744,8 +2767,23 @@ function initBridge(pi: ExtensionAPI) {
     }).then((result) => {
       stopSpinner(); // safety net — covers onLaunchEnd not firing
       if (result.server && result.server.piPort !== config.piPort) {
-        // Server found on a different piPort than configured — update connection URL
-        connection.updateUrl(`ws://${result.server.host === 'localhost' ? 'localhost' : result.server.host}:${result.server.piPort}`);
+        const candidateUrl = `ws://${result.server.host === "localhost" ? "localhost" : result.server.host}:${result.server.piPort}`;
+        // D3/D4: a DISCOVERED candidate may suggest, never override. Before
+        // this gate an explicit `PI_DASHBOARD_URL` could be silently replaced
+        // by whatever mDNS answered, and the only defence was remembering
+        // `PI_DASHBOARD_NO_MDNS` — that is the hijack.
+        const decision = decideRetarget({
+          current: { endpoint: dashboardUrl },
+          candidate: { endpoint: candidateUrl },
+          pinned: endpointPinned,
+          failed: !connection.isConnected,
+          // A discovered candidate has proved nothing about who it is; identity
+          // verification is the remote-pinning path (D8), not this one.
+          identityVerified: false,
+        });
+        // Task 10.2: every refusal names both endpoints.
+        console.log(`[dashboard] re-target ${decision.retarget ? "accepted" : decision.reason}`);
+        if (decision.retarget) connection.updateUrl(candidateUrl);
       }
     }).catch(() => { stopSpinner(); });
 
