@@ -344,6 +344,59 @@ function isImageBlock(obj: object): boolean {
 }
 
 /**
+ * True for ANY inline image content block that carries base64 bytes, across the
+ * two shapes that reach the store:
+ *   - flat  : `{ type: "image", data, mimeType }`      (pi SDK ImageContent)
+ *   - nested : `{ type: "image", source: { type: "base64", media_type, data } }`
+ *              (Anthropic-canonical; produced by some provider/import paths)
+ * See change: fix-pasted-image-message-vanishes.
+ */
+function isInlineImageBlock(block: unknown): boolean {
+  if (!block || typeof block !== "object" || Array.isArray(block)) return false;
+  const r = block as Record<string, unknown>;
+  if (r.type !== "image") return false;
+  if (typeof r.data === "string" && r.data.length > 0) return true;
+  const src = r.source as Record<string, unknown> | undefined;
+  return !!src && typeof src === "object" && typeof src.data === "string" && src.data.length > 0;
+}
+
+/**
+ * Chat-message image-bytes rescue: strip the base64 bytes out of every inline
+ * image block in a `data.message` while PRESERVING the message envelope (role,
+ * text blocks, block positions, mime). Runs (only for an over-ceiling event)
+ * BEFORE the generic string pass and the `{__truncated}` fallback. The
+ * whole-event `{__truncated}` placeholder erases `data.message` entirely — for
+ * a user chat message with a pasted screenshot that means the client's
+ * `message_start` handler sees no `message.role` and the row VANISHES from
+ * history (text and all). Reducing the image bytes in place keeps the text +
+ * a positioned image placeholder so the message survives; a downstream
+ * fit/attachment resolution (when available) still back-fills the rendered
+ * thumbnail.
+ *
+ * Returns a NEW event when it changed anything, else the original reference.
+ * See change: fix-pasted-image-message-vanishes.
+ */
+function stripInlineImageBytesFromMessage(event: DashboardEvent): DashboardEvent {
+  const data = event.data as Record<string, unknown> | undefined;
+  if (!data || typeof data !== "object") return event;
+  const message = data.message as Record<string, unknown> | undefined;
+  const content = message?.content;
+  if (!Array.isArray(content) || !content.some(isInlineImageBlock)) return event;
+  const nextContent = content.map((block) => {
+    if (!isInlineImageBlock(block)) return block;
+    const r = block as Record<string, unknown>;
+    // Flat shape: blank the top-level `data`.
+    if (typeof r.data === "string" && r.data.length > 0) {
+      return { ...r, data: "", imageTruncated: true };
+    }
+    // Nested shape: blank `source.data` but keep the wrapper + media_type.
+    const src = r.source as Record<string, unknown>;
+    return { ...r, source: { ...src, data: "" }, imageTruncated: true };
+  });
+  return { ...event, data: { ...data, message: { ...message, content: nextContent } } };
+}
+
+/**
  * Anchored match of a `/skill:<name>` invocation envelope
  * (`<skill name=".." location="..">\nbody\n</skill>[\n\nargs]`) — the shape
  * pi's `_expandSkillCommand` + the bridge's prompt-expander emit as the USER
@@ -890,13 +943,30 @@ function createTruncator(maxStringSize: number, maxEventDataSize: number) {
         ? reduceSubagentEvent(event, maxEventDataSize)
         : event;
     }
+    // Rescue a chat message that only busts the per-event ceiling because of
+    // inline image bytes: strip the base64 out of its image blocks (both the
+    // flat pi shape `{data,mimeType}` and the nested Anthropic shape
+    // `{source:{media_type,data}}`) BEFORE the generic string pass, but keep
+    // the text + role + block positions. Without this rescue a pasted
+    // screenshot collapses the whole event to `{__truncated}`, which erases
+    // `data.message` and makes the user's row VANISH from chat history (text
+    // and all). Small (under-ceiling) images are left untouched so normal
+    // inline rendering is unaffected.
+    // See change: fix-pasted-image-message-vanishes.
+    const rescued =
+      sizePass && exceedsSerializedSize(data, maxEventDataSize)
+        ? stripInlineImageBytesFromMessage(event)
+        : event;
+    const rescuedData = rescued.data as Record<string, unknown>;
     const truncated = stringPass
-      ? (truncateStrings(data, maxStringSize) as Record<string, unknown>)
-      : (data as Record<string, unknown>);
+      ? (truncateStrings(rescuedData, maxStringSize) as Record<string, unknown>)
+      : rescuedData;
     if (sizePass && exceedsSerializedSize(truncated, maxEventDataSize)) {
+      // Non-image content alone still busts the ceiling (e.g. a huge text
+      // block) — fall through to the whole-event placeholder.
       return truncatedPlaceholder(event, maxEventDataSize);
     }
-    return truncated !== data ? { ...event, data: truncated } : event;
+    return truncated !== data ? { ...rescued, data: truncated } : rescued;
   };
 }
 

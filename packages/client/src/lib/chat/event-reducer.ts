@@ -1460,14 +1460,21 @@ export function reduceEvent(
           // slot, otherwise the attachment position is lost and the later
           // `attachment_fitted` event has nothing to fill. Legacy inline blocks
           // (bytes present, no attachmentId) keep the original predicate.
-          // See change: fit-attachments-for-display (D12).
-          const imgBlocks = msg.content.filter(
-            (c: any) => c.type === "image" && c.mimeType && (c.data || c.attachmentId),
-          );
+          // Tolerate BOTH image block shapes: the flat pi shape
+          // `{data,mimeType}` and the nested Anthropic shape
+          // `{source:{media_type,data}}` (some provider/import/replay paths).
+          // See change: fit-attachments-for-display (D12); nested-shape
+          // tolerance: fix-pasted-image-message-vanishes.
+          const imgBlocks = msg.content.filter((c: any) => {
+            if (c?.type !== "image") return false;
+            const mime = c.mimeType ?? c.source?.media_type;
+            const hasBytes = c.data || c.attachmentId || c.source?.data;
+            return !!mime && !!hasBytes;
+          });
           if (imgBlocks.length > 0) {
             images = imgBlocks.map((c: any) => ({
-              data: c.data ?? "",
-              mimeType: c.mimeType,
+              data: c.data ?? c.source?.data ?? "",
+              mimeType: c.mimeType ?? c.source?.media_type,
               ...(c.attachmentId ? { attachmentId: c.attachmentId } : {}),
               ...(c.attachmentState ? { attachmentState: c.attachmentState } : {}),
             }));
