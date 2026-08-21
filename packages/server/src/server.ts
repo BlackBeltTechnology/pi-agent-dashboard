@@ -715,6 +715,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   let secondFastify: Awaited<ReturnType<typeof import("fastify").default>> | null = null;
   const peerServers = new Map<string, DiscoveredServer>();
 
+  /** This process's place in the per-HOME rendezvous (task 2.0a). */
+  let homeRendezvous: import("./lifecycle/home-rendezvous.js").HomeRendezvous | null = null;
+
   const piGateway = createPiGateway(sessionManager, {
     ...(config.pingInterval !== undefined ? { pingInterval: config.pingInterval } : {}),
   });
@@ -1932,6 +1935,30 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         setSpawnDashboardPiPort(config.piPort);
       }
 
+      // Claim (or attach to) this HOME's rendezvous BEFORE the gateway starts
+      // listening: the record is what an unpinned bridge resolves its
+      // dashboard through, and until this call existed no `server.lock` was
+      // ever written for a running dashboard (task 2.0a).
+      //
+      // An attach-mode instance still binds its own per-instance socket and
+      // serves pinned bridges — it just never claims the HOME's default
+      // (task 2.0c).
+      try {
+        const { ensureInstanceId } = await import("./lifecycle/instance-id.js");
+        const { establishHomeRendezvous } = await import("./lifecycle/home-rendezvous.js");
+        homeRendezvous = await establishHomeRendezvous({
+          httpPort: config.port,
+          piPort: config.piPort,
+          version: pkgVersion,
+          identity: ensureInstanceId(undefined, config.piPort),
+        });
+        console.log(`[home-lock] rendezvous mode: ${homeRendezvous.mode}`);
+      } catch (err) {
+        // A dashboard that cannot claim the rendezvous still serves pinned
+        // bridges; refusing to boot would be a worse failure than no default.
+        console.warn("[home-lock] could not establish the rendezvous:", err);
+      }
+
       piGateway.start(config.piPort, config.host);
 
       // Load plugin server entries BEFORE fastify.listen() so plugins can
@@ -2551,6 +2578,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
       stopTunnelWatchdog();
       await deleteTunnel(config.port);
+      // Release the HOME's rendezvous before the gateway stops answering, so
+      // no bridge resolves a record whose endpoint is already dead.
+      try {
+        await homeRendezvous?.stop();
+      } catch {
+        /* ignore */
+      }
+      homeRendezvous = null;
       piGateway.stop();
       for (const client of browserGateway.wss.clients) {
         client.terminate();
