@@ -664,6 +664,13 @@ export default function App() {
           // a stale notice from server A must not render against server B.
           // See change: upgrade-model-selector-primitives.
           setModelRefreshErrorsMap(new Map());
+          // Gap bookkeeping is scoped to ONE server's replay window. Server B
+          // may hold the same sessionId and replay it unwindowed; a surviving
+          // `tailMinSeq` / `gapCount` from server A would then splice a false
+          // divider into a transcript that has no gap at all.
+          // See change: lazy-load-session-history.
+          setHistoryGaps(new Map());
+          setHistorySpliceRev(0);
           subscribedRef.current.clear();
           // Strategy A (reduce-session-replay-traffic): drop the replay-cursor
           // guards too. Otherwise switching back to a server that still has the
