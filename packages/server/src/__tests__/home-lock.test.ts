@@ -7,6 +7,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ensureLocalToken, LOCAL_TOKEN_HEADER, verifyLocalToken } from "../auth/local-token.js";
 import {
   acquireOrAttach,
   canonicalHomedir,
@@ -28,6 +29,7 @@ import {
   INSTANCE_ID_HEALTH_FIELD,
   instanceIdHealthFields,
 } from "../lifecycle/instance-id.js";
+import { decideBridgeUpgrade } from "../pi/bridge-upgrade-auth.js";
 
 // Fresh tmp dir per test → real FS (proper-lockfile needs real FS semantics).
 let tmpHome: string;
@@ -622,5 +624,59 @@ describe("an UNREADABLE record is not a stealable one (defect B2)", () => {
     // And the live holder's record is still there, untouched.
     fs.chmodSync(metaPath, 0o600);
     expect(readMetadata(metaPath)?.identity).toBe("live-holder");
+  });
+});
+
+/**
+ * #X16 (task 12.35) — a stale record naming a port an UNRELATED process now
+ * holds.
+ *
+ * The failure this rules out is a generic connection error: the record's port
+ * is reachable and answers, so nothing "fails" at the transport layer. Only
+ * the instance id contradicts the record — and a valid local credential must
+ * not paper over that, because the token authorises a HOST while the record
+ * names an INSTANCE.
+ */
+describe("stale record, foreign listener (#X16)", () => {
+  const staleRecord: LockMetadata = {
+    pid: 4242,
+    ppid: 1,
+    httpPort: 8000,
+    piPort: 9999,
+    startedAt: Date.now(),
+    identity: "instance-that-died",
+    version: "test",
+    url: "http://localhost:8000",
+    hostname: "test-host",
+  };
+
+  it("reports an identity mismatch, not an unreachable endpoint", async () => {
+    const verdict = await isLockHolderResponsive(staleRecord, {
+      isProcessAlive: () => true,
+      // Something IS listening and answering — a different dashboard.
+      probeHealth: async () => ({ running: true, pid: 777, instanceId: "some-other-instance" }),
+    });
+    expect(verdict).toBe("alive-mismatch");
+    expect(verdict).not.toBe("dead");
+  });
+
+  it("a valid local token does not bypass it — the token authorises a host, not an instance", async () => {
+    const token = ensureLocalToken(path.join(tmpHome, "local"));
+    // The transport-level gate is satisfied…
+    const upgrade = decideBridgeUpgrade({
+      transport: "tcp",
+      remoteAddress: "127.0.0.1",
+      headers: { [LOCAL_TOKEN_HEADER]: token },
+      consumeTicket: () => ({ ok: false as const, reason: "missing" as const }),
+      verifyLocalToken: (h) => verifyLocalToken(h, token),
+      requireTicketOnLoopback: true,
+    });
+    expect(upgrade.allow).toBe(true);
+    // …and the identity question is still answered independently, and refused.
+    const verdict = await isLockHolderResponsive(staleRecord, {
+      isProcessAlive: () => true,
+      probeHealth: async () => ({ running: true, pid: 777, instanceId: "some-other-instance" }),
+    });
+    expect(verdict).toBe("alive-mismatch");
   });
 });
