@@ -909,3 +909,50 @@ describe("createAutoNamer — outcome reporting", () => {
     expect(outcomesOf(hooks)).toEqual(["disabled"]);
   });
 });
+
+/**
+ * Cross-bridge stop clearing (design D7).
+ *
+ * A role write is routed to ONE session's bridge, so a `roles:set` LISTENER
+ * would clear the stop only there and strand every other stopped session
+ * forever. Clearing is therefore driven by RE-RESOLUTION at the next attempt:
+ * `lookupRole` re-reads disk on every call, so every bridge sees the change
+ * with no new plumbing. Two independent namers sharing only the resolved value
+ * — never an event — is exactly the cross-bridge case.
+ *
+ * See change: fix-auto-naming-reasoning-model (test-plan #X12, task 11.4).
+ */
+describe("createAutoNamer — cross-bridge stop clearing", () => {
+  it("X12: reassigning the naming model clears the stop on BOTH bridges", async () => {
+    // One shared "providers.json" value; two bridges that never talk.
+    let assigned = "deepseek/deepseek-v4-flash";
+    const stoppedOn = (ref: string): PersistedNamerState => ({
+      hardStopped: true, errorEmitted: true, attemptsUsed: 3,
+      starvedCount: 3, waitingCount: 0, sawStarved: true,
+      stoppedModelRef: ref, stopCause: "budget", hasAutoName: false,
+    });
+    const mkNamer = () => createAutoNamer(
+      makeHooks({
+        resolveNamingModel: () => ({ literal: assigned, slot: "naming" }),
+        loadStreamSimple: async () => nullStream(),
+      }),
+      stoppedOn("deepseek/deepseek-v4-flash"),
+    );
+    const bridgeA = mkNamer();
+    const bridgeB = mkNamer();
+
+    // Unchanged assignment → both stay stopped.
+    await bridgeA.maybeName();
+    await bridgeB.maybeName();
+    expect(bridgeA._state().hardStopped).toBe(true);
+    expect(bridgeB._state().hardStopped).toBe(true);
+
+    // The operator reassigns via ONE of them; neither receives an event.
+    assigned = "openai/gpt-namer";
+
+    await bridgeA.maybeName();
+    await bridgeB.maybeName();
+    expect(bridgeA._state()).toMatchObject({ hardStopped: false, attemptsUsed: 1 });
+    expect(bridgeB._state()).toMatchObject({ hardStopped: false, attemptsUsed: 1 });
+  });
+});
