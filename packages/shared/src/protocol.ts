@@ -74,6 +74,28 @@ export interface InboundDropReportMessage {
   suppressed?: number;
 }
 
+/** Which transport fact a bridge is reporting. */
+export type BridgeDiagnosticEvent = "endpoint_resolved" | "retarget_refused";
+
+/**
+ * Bridge -> server: how this bridge chose its endpoint, and every refusal to
+ * move off it.
+ *
+ * Same motivation as `inbound_drop_report`: the bridge-side `console.log` lands
+ * in /dev/null under the default `keeperLog.capturePiOutput:false`, so the
+ * only durable record is the one the server writes.
+ *
+ * `detail` is a preformatted human string, not structured fields — these are
+ * read by a person diagnosing "why that dashboard", never matched on.
+ * See change: add-pi-gateway-transport-identity (tasks 10.1, 10.2, 10.5).
+ */
+export interface BridgeDiagnosticMessage {
+  type: "bridge_diagnostic";
+  sessionId: string;
+  event: BridgeDiagnosticEvent;
+  detail: string;
+}
+
 // ── Extension → Server ──────────────────────────────────────────────
 
 export interface SessionRegisterMessage {
@@ -703,7 +725,8 @@ export type ExtensionToServerMessage =
   | GitCommitDraftResultMessage
   | AutoNameErrorMessage
   | PromptReceivedToServerMessage
-  | InboundDropReportMessage;
+  | InboundDropReportMessage
+  | BridgeDiagnosticMessage;
 
 // ── Server → Extension ──────────────────────────────────────────────
 

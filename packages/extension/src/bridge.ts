@@ -79,6 +79,7 @@ import { SubagentFrameBuffer } from "./subagent-frame-buffer.js";
 import { stripForForward } from "./subagent-frame-strip.js";
 import { isSubagentTick, SubagentTickThrottle } from "./subagent-tick-throttle.js";
 import { inlineToolResultImages } from "./tool-result-image-inliner.js";
+import { createTransportDiagnostics } from "./transport-diagnostics.js";
 import { createTuiPromptAdapter } from "./tui-prompt-adapter.js";
 import { classifyTurnActionability } from "./turn-actionability.js";
 import { handleUiManagement, refreshUiModules, subscribeUiInvalidate, type UiModulesBridgeCtx } from "./ui-modules.js";
@@ -781,11 +782,14 @@ function initBridge(pi: ExtensionAPI) {
   const endpointPinned = endpointChoice.available && endpointChoice.pinned;
   // Task 10.1: log the winning precedence rule, or diagnosing "it connected to
   // the wrong dashboard" means guessing which source won.
-  console.log(
-    `[dashboard] endpoint ${dashboardUrl} (source=${
-      endpointChoice.available ? endpointChoice.source : "legacy-config-piPort"
-    } pinned=${endpointPinned})`,
-  );
+  const endpointDetail = `${dashboardUrl} (source=${
+    endpointChoice.available ? endpointChoice.source : "legacy-config-piPort"
+  } pinned=${endpointPinned})`;
+  console.log(`[dashboard] endpoint ${endpointDetail}`);
+  // ...and again over the wire, because the line above is discarded under the
+  // default `capturePiOutput:false` (task 10.5).
+  const transportDiagnostics = createTransportDiagnostics();
+  transportDiagnostics.record({ event: "endpoint_resolved", detail: endpointDetail });
 
   // Long-lived ctx wrapper for the Extension UI System (Phase 1) — see
   // change: add-extension-ui-modal. `getSessionId` reads the closed-over
@@ -2592,6 +2596,14 @@ function initBridge(pi: ExtensionAPI) {
     } else {
       connection.connect();
     }
+    // Drain the buffered transport diagnostics through the live connection
+    // (task 10.5). `send()` buffers while the socket is down, which is the
+    // right behaviour here: the detail is self-describing, so a late delivery
+    // is still a true one.
+    transportDiagnostics.attach({
+      send: (m) => connection.send(m),
+      getSessionId: () => sessionId,
+    });
 
     // (task 3.8) Verify the instance answering at the recorded endpoint really
     // is the one the record named. The socket's mode and the local token are
@@ -2862,7 +2874,13 @@ function initBridge(pi: ExtensionAPI) {
           identityVerified: false,
         });
         // Task 10.2: every refusal names both endpoints.
-        console.log(`[dashboard] re-target ${decision.retarget ? "accepted" : decision.reason}`);
+        const retargetDetail = `${dashboardUrl} -> ${candidateUrl}: ${
+          decision.retarget ? "accepted" : decision.reason
+        }`;
+        console.log(`[dashboard] re-target ${retargetDetail}`);
+        if (!decision.retarget) {
+          transportDiagnostics.record({ event: "retarget_refused", detail: retargetDetail });
+        }
         if (decision.retarget) connection.updateUrl(candidateUrl);
       }
     }).catch(() => { stopSpinner(); });

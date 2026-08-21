@@ -125,9 +125,9 @@
 
 - [x] 10.1 Log endpoint resolution with the winning precedence rule
 - [x] 10.2 Log every refusal to migrate, with both endpoints
-- [ ] 10.3 Log bridge auth refusals with a distinguishable cause
+- [x] 10.3 Log bridge auth refusals with a distinguishable cause
 - [ ] 10.4 Log completed moves with origin, destination, and initiator
-- [ ] 10.5 Confirm all of the above survive `capturePiOutput=false`
+- [x] 10.5 Confirm all of the above survive `capturePiOutput=false`
 
 ## 11. Remote session transcript access (D12, D13)
 

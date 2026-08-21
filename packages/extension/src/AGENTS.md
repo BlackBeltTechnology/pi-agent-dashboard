@@ -64,6 +64,7 @@ Files in this directory. One row per source file.
 | `slash-dispatch.ts` | Extension slash-command dispatch (routing-step 9). Exports `tryDispatchExtensionCommand`, `FeedbackSink`,… → see `slash-dispatch.ts.AGENTS.md` |
 | `source-detector.ts` | Detects session source env. Exports `detectSessionSource(hasUI?, sessionFile?)` → `SessionSource`. → see `source-detector.ts.AGENTS.md` |
 | `tool-result-image-inliner.ts` | Bridge Fix B tool-result image inliner. On `tool_execution_end` scans result text for absolute image paths… → see `tool-result-image-inliner.ts.AGENTS.md` |
+| `transport-diagnostics.ts` | `createTransportDiagnostics()` — bounded buffer (32, oldest dropped) that turns the endpoint decision + every re-target refusal into `bridge_diagnostic` messages once a sessionId exists, so 10.1/10.2 survive the default `capturePiOutput:false`. Throwing `send` never strands the rest. See change: add-pi-gateway-transport-identity (tasks 10.1/10.2/10.5). |
 | `tui-prompt-adapter.ts` | Production PromptBus adapter for Pi's TUI. Exports `createTuiPromptAdapter`, `TuiPromptUi`. Presents select/input/confirm/editor via captured unpatched UI; forwards confirm `metadata.message`; no multiselect arm. → see `tui-prompt-adapter.ts.AGENTS.md` |
 | `turn-actionability.ts` | Pure provider-agnostic classifier. Exports `classifyTurnActionability(turn)` →… → see `turn-actionability.ts.AGENTS.md` |
 | `ui-modules.ts` | Extension UI system bridge side. Exports `refreshUiModules`, `subscribeUiInvalidate`, `handleUiManagement`,… → see `ui-modules.ts.AGENTS.md` |
