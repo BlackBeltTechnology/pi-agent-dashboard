@@ -152,3 +152,65 @@ describe("unbindGatewaySocket", () => {
     await expect(unbindGatewaySocket(null, sockPath)).resolves.toBeUndefined();
   });
 });
+
+// ──────────────────────────────────────────────────────────────────────────
+// Stale-socket reclamation via the pidfile liveness discriminator.
+//
+// Without it, a SIGKILLed dashboard leaves a socket file that can NEVER be
+// reclaimed: `probeSocket` answers `no-listener` only on ENOENT, but the
+// unlink branch runs only when the file EXISTS — mutually exclusive, so with
+// the real probe the unlink is unreachable and startup fails forever until a
+// human removes the path. (@review finding 1; D9 amendment.)
+// ──────────────────────────────────────────────────────────────────────────
+describe("stale-socket reclamation (pidfile discriminator)", () => {
+  it("records our own pid alongside the socket after a successful bind", async () => {
+    await bind();
+    expect(fs.readFileSync(`${sockPath}.pid`, "utf8").trim()).toBe(String(process.pid));
+  });
+
+  it("reclaims a leftover socket whose recorded pid is provably dead", async () => {
+    // A real SIGKILL leaves exactly this on disk: a socket file, a pidfile,
+    // and no listener. The probe alone cannot tell it from a saturated one.
+    fs.writeFileSync(sockPath, "");
+    fs.writeFileSync(`${sockPath}.pid`, "2147483646\n"); // never a live pid
+    const server = await bind({ probe: async () => "indeterminate" });
+    expect(server.listening).toBe(true);
+    expect(fs.statSync(sockPath).isSocket()).toBe(true);
+  });
+
+  it("still refuses when the recorded pid is alive", async () => {
+    fs.writeFileSync(sockPath, "");
+    fs.writeFileSync(`${sockPath}.pid`, `${process.pid}\n`);
+    await expect(bind({ probe: async () => "indeterminate" })).rejects.toBeInstanceOf(
+      GatewaySocketConflictError,
+    );
+    expect(fs.existsSync(sockPath)).toBe(true);
+  });
+
+  it("still refuses when there is no pidfile to prove death", async () => {
+    fs.writeFileSync(sockPath, "");
+    await expect(bind({ probe: async () => "indeterminate" })).rejects.toBeInstanceOf(
+      GatewaySocketConflictError,
+    );
+    expect(fs.existsSync(sockPath)).toBe(true);
+  });
+
+  it("never reclaims on a LIVE probe, even with a dead pid recorded", async () => {
+    // The probe is authoritative when it is unambiguous; the pidfile only
+    // resolves the ambiguous case. A recycled/incorrect pidfile must not be
+    // able to authorise unlinking a socket something is answering on.
+    fs.writeFileSync(sockPath, "");
+    fs.writeFileSync(`${sockPath}.pid`, "2147483646\n");
+    await expect(bind({ probe: async () => "live" })).rejects.toBeInstanceOf(
+      GatewaySocketConflictError,
+    );
+    expect(fs.existsSync(sockPath)).toBe(true);
+  });
+
+  it("removes the pidfile on unbind", async () => {
+    const server = await bind();
+    opened.length = 0;
+    await unbindGatewaySocket(server, sockPath);
+    expect(fs.existsSync(`${sockPath}.pid`)).toBe(false);
+  });
+});

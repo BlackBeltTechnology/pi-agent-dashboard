@@ -268,6 +268,23 @@ it, but here the competitor set is empty by construction — a dashboard predati
 this change binds a **TCP port**, never a socket path, so there is no
 old-version writer to race with on this path.
 
+**Amended after `@review`, cycle 5 — a stale path must stay reclaimable.** The
+rules above are jointly unsatisfiable in practice: `probeSocket` answers
+`no-listener` only on `ENOENT`, and the unlink branch runs only when the file
+*exists*. Mutually exclusive — so under the real probe the unlink is
+unreachable, and a `SIGKILL`ed dashboard wedges its own path until a human
+deletes it. That contradicts the proposal's "a stale path is cleaned up".
+
+The missing piece is a liveness discriminator that is not `connect()`. On a
+successful bind the server SHALL record its pid in a companion
+`<socketPath>.pid` (`0600`), removed on unbind. When the probe is
+**indeterminate**, the recorded pid decides: unlink only when the pid is
+recorded AND `isProcessAlive` reports it gone. A missing, empty or unparseable
+pidfile proves nothing and still fails closed. A `live` probe is unambiguous and
+always wins, so a recycled or hand-edited pidfile can never authorise unlinking
+a path something is answering on. Both reads happen under the same companion
+bind lock, so the decision cannot be raced.
+
 A client connecting to a leftover path gets `ENOENT`/`ECONNREFUSED` immediately
 and definitively.
 
@@ -384,7 +401,25 @@ instances scan the same files. A cross-host move carries live events only. The
 command therefore targets same-HOME instances, and must say plainly what will
 not follow when asked to do otherwise.
 
-### D12 — Transcript access for remote-joined sessions (strategy deliberately open)
+### D12 — Transcript access for remote-joined sessions — DECIDED: pull-on-demand plus server-side retention
+
+**Gate answered (task 11.1), cycle 5.** The options below stay recorded for
+their trade-offs; the chosen shape is **B + retention**.
+
+Reasoning: the spec requires transcript data to **outlive the session**, and
+D12's own table marks pull-on-demand (B) as failing exactly that — so B is
+admissible only in combination with server-side retention. Retention alone (A)
+pays a continuous streaming cost for data almost never read, and C pays a large
+burst on every registration. B+retention keeps the steady state cheap (nothing
+is shipped until someone looks) while the dashboard persists what it has
+already seen, so an **ended** session is still readable — which is the property
+D13 and the remote read-only view depend on.
+
+Concretely: a live remote session's transcript is fetched on demand through its
+bridge; every fetched and every streamed event is retained server-side; once
+the bridge ends, reads are served from retention only, and are read-only (D13).
+
+### D12 (original options) — Transcript access for remote-joined sessions
 
 **It is not "history" — it is six file-backed capabilities**, and they do not all
 have the same answer:

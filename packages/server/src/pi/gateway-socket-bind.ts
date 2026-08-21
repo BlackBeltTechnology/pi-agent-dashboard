@@ -22,6 +22,12 @@
  * on a path whose file exists but has *no* listener authorise an unlink, and
  * anything indeterminate fails closed with a conflict (D9, task 2.4c).
  *
+ * Fail-closed alone, however, makes a stale path UNRECLAIMABLE — `ENOENT` and
+ * "the file exists" are mutually exclusive, so a SIGKILLed dashboard wedges its
+ * own path forever. The discriminator is a companion `<socketPath>.pid`: an
+ * indeterminate probe may unlink only when that pid is recorded and provably
+ * dead. A `live` probe always wins over it.
+ *
  * On mixed versions there is no competitor: a dashboard predating this change
  * binds a TCP port and never touches a socket path at all.
  *
@@ -32,6 +38,7 @@ import fs from "node:fs";
 import http from "node:http";
 import net from "node:net";
 import path from "node:path";
+import { isProcessAlive } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import properLockfile from "proper-lockfile";
 
 /** Raised instead of capturing a path that may still be serving. */
@@ -115,11 +122,13 @@ export async function bindGatewaySocket(opts: BindGatewaySocketOptions): Promise
   try {
     if (fs.existsSync(socketPath)) {
       const state = await probe(socketPath);
-      if (state !== "no-listener") {
-        throw new GatewaySocketConflictError(
-          socketPath,
-          state === "live" ? "a live listener answered the probe" : "the probe was indeterminate",
-        );
+      // `live` is unambiguous and always wins: a recycled or hand-edited
+      // pidfile must never authorise unlinking a path something answers on.
+      if (state === "live") {
+        throw new GatewaySocketConflictError(socketPath, "a live listener answered the probe");
+      }
+      if (state === "indeterminate" && !ownerIsProvablyDead(socketPath)) {
+        throw new GatewaySocketConflictError(socketPath, "the probe was indeterminate");
       }
       // Proven dead while holding the lock: no other participant can bind
       // between here and our own bind.
@@ -139,10 +148,47 @@ export async function bindGatewaySocket(opts: BindGatewaySocketOptions): Promise
     } catch {
       /* best-effort */
     }
+    writeOwnerPid(socketPath);
     return server;
   } finally {
     await releaseLock();
   }
+}
+
+/**
+ * Record the listening process next to the socket, so a later starter can
+ * DISTINGUISH a leftover path from a saturated live one.
+ *
+ * Without this the fail-closed rule of D9 is absolute and a `SIGKILL`ed
+ * dashboard wedges the path permanently: `probeSocket` answers `no-listener`
+ * only on `ENOENT`, which by definition cannot coincide with an existing file,
+ * so the unlink branch is unreachable under the real probe (@review finding 1).
+ */
+function writeOwnerPid(socketPath: string): void {
+  try {
+    fs.writeFileSync(`${socketPath}.pid`, `${process.pid}\n`, { mode: 0o600 });
+  } catch {
+    /* best-effort: absence only costs us the ability to reclaim */
+  }
+}
+
+/**
+ * Whether the pid recorded next to `socketPath` is provably gone.
+ *
+ * Fail-closed in every uncertain case — a missing, empty or unparseable
+ * pidfile proves nothing, and only a *recorded* pid that is not alive
+ * authorises reclaiming the path.
+ */
+function ownerIsProvablyDead(socketPath: string): boolean {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(`${socketPath}.pid`, "utf8");
+  } catch {
+    return false;
+  }
+  const pid = Number.parseInt(raw.trim(), 10);
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  return !isProcessAlive(pid);
 }
 
 /**
@@ -176,7 +222,7 @@ export async function unbindGatewaySocket(
   if (server) {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
-  for (const p of [socketPath, `${socketPath}.lock`]) {
+  for (const p of [socketPath, `${socketPath}.pid`, `${socketPath}.lock`]) {
     try {
       fs.unlinkSync(p);
     } catch {
