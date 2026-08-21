@@ -720,6 +720,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   const piGateway = createPiGateway(sessionManager, {
     ...(config.pingInterval !== undefined ? { pingInterval: config.pingInterval } : {}),
+    // Every TCP bridge upgrade passes the auth gate (D10b, task 6.3). Without
+    // it the gateway accepts anything that can reach it and lets it register
+    // an arbitrary sessionId — harmless on loopback, fatal as the container's
+    // `0.0.0.0:9999` default. The unix socket is exempt by design: the kernel
+    // already decided (D5).
+    bridgeAuth: {
+      consumeTicket: (ticket) => wsTicketStore.consumeDetailed(ticket, "bridge"),
+      // The D10b deprecation window is open: a tokenless LOOPBACK bridge is
+      // still accepted (and logged) through 0.9.x, refused from 1.0.0. Remote
+      // peers never get that grace.
+      requireTicketOnLoopback: false,
+    },
   });
 
   // Relay for AI-drafted commit messages (bridge fork-subagent ↔ HTTP).
@@ -1649,7 +1661,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     { preHandler: networkGuard },
     async (request, reply) => {
       const scope = request.body?.scope;
-      if (scope !== "browser" && scope !== "terminal" && scope !== "live") {
+      // `bridge` is mintable by any authenticated caller (networkGuard: a
+      // paired device's durable bearer, a cookie, or a trusted network). The
+      // bearer authenticates this REST call and never rides the socket
+      // (task 6.2/6.4).
+      if (scope !== "browser" && scope !== "terminal" && scope !== "live" && scope !== "bridge") {
         reply.code(400);
         return { success: false as const, error: "invalid scope" };
       }

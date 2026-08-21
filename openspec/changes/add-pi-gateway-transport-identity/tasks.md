@@ -75,12 +75,12 @@
 
 ## 6. Remote bridge authentication (D7)
 
-- [ ] 6.1 Add `bridge` to `WsRouteScope` and to `routeScopeForUrl`
-- [ ] 6.2 Allow a bridge to mint a bridge-scoped ticket using its device bearer
-- [ ] 6.3 Enforce ticket verification on the TCP bridge upgrade path; reject unauthenticated, reused, expired, and wrong-scope tickets distinctly
-- [ ] 6.4 Ensure the durable bearer is never sent over the WebSocket
-- [ ] 6.5 Persist the bridge's device credential with `0600`, consistent with existing credential storage
-- [ ] 6.6 Add a revocation test: a revoked device cannot obtain a ticket and cannot register
+- [x] 6.1 Add `bridge` to `WsRouteScope` and to `routeScopeForUrl`
+- [x] 6.2 Allow a bridge to mint a bridge-scoped ticket using its device bearer
+- [x] 6.3 Enforce ticket verification on the TCP bridge upgrade path; reject unauthenticated, reused, expired, and wrong-scope tickets distinctly
+- [x] 6.4 Ensure the durable bearer is never sent over the WebSocket
+- [x] 6.5 Persist the bridge's device credential with `0600`, consistent with existing credential storage
+- [x] 6.6 Add a revocation test: a revoked device cannot obtain a ticket and cannot register
 - [ ] 6.7 Make 1.1 pass in its inverted form — the previously accepted unauthenticated registration is now refused
 
 ## 7. Server identity pinning (D8)

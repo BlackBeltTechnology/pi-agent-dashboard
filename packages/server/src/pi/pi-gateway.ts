@@ -3,9 +3,11 @@
  */
 
 import type http from "node:http";
+import type { IncomingMessage } from "node:http";
 import type { ExtensionToServerMessage, ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { WebSocket, WebSocketServer } from "ws";
+import type { TicketConsumption } from "../auth/ws-ticket.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import { getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
 import {
@@ -19,6 +21,7 @@ import {
   type ProbeableSocket,
   resolveProbe,
 } from "./bridge-contention.js";
+import { decideBridgeUpgrade } from "./bridge-upgrade-auth.js";
 import { bindGatewaySocket, unbindGatewaySocket } from "./gateway-socket-bind.js";
 
 /**
@@ -36,6 +39,18 @@ export { CONTENTION_PROBE_WINDOW };
 export interface PiGatewayOptions {
   heartbeatTimeout?: number;
   pingInterval?: number;
+  /**
+   * Authorisation for TCP bridge upgrades (D10b, task 6.3). Omitted, the TCP
+   * listener keeps its historical accept-anything behaviour — which is
+   * exactly what makes the container's `0.0.0.0` default indefensible, so
+   * production wiring always supplies it.
+   */
+  bridgeAuth?: {
+    consumeTicket: (ticket: string | null | undefined) => TicketConsumption;
+    /** `true` once the D10b deprecation window has closed. */
+    requireTicketOnLoopback?: boolean;
+    log?: (msg: string) => void;
+  };
   /** Bounded window the contention probe waits for the incumbent's pong. */
   contentionProbeWindow?: number;
 }
@@ -770,7 +785,36 @@ export function createPiGateway(
             "start the TCP listener first, or serve the socket transport alone",
         );
       }
-      wss = new WebSocketServer(host ? { port, host } : { port });
+      // Every TCP upgrade passes the bridge-auth gate; the unix socket does
+      // not (the kernel already decided — D5). `verifyClient` refuses BEFORE
+      // the socket exists, so no unauthenticated bridge connection is ever
+      // accepted and then closed.
+      const bridgeAuth = options?.bridgeAuth;
+      const verifyClient = bridgeAuth
+        ? (info: { req: IncomingMessage }, done: (ok: boolean, code?: number, msg?: string) => void) => {
+            const verdict = decideBridgeUpgrade({
+              transport: "tcp",
+              remoteAddress: info.req.socket.remoteAddress ?? undefined,
+              url: info.req.url,
+              secWebSocketProtocol: info.req.headers["sec-websocket-protocol"],
+              requireTicketOnLoopback: bridgeAuth.requireTicketOnLoopback,
+              consumeTicket: bridgeAuth.consumeTicket,
+            });
+            const log = bridgeAuth.log ?? ((m: string) => console.warn(m));
+            if (!verdict.allow) {
+              // Logged server-side only: the client is told nothing beyond
+              // "401", so the named cause is not an oracle.
+              log(`[pi-gateway] ${verdict.reason}`);
+              done(false, 401, "unauthorised bridge upgrade");
+              return;
+            }
+            if (verdict.deprecated) log(`[pi-gateway] ${verdict.reason}`);
+            done(true);
+          }
+        : undefined;
+      wss = new WebSocketServer(
+        host ? { port, host, verifyClient } : { port, verifyClient },
+      );
       attachConnectionHandler(wss);
       startHeartbeat();
     },
