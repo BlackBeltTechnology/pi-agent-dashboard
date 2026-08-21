@@ -146,16 +146,14 @@ the move command's own primary use case.
 
 Precedence, highest first:
 
-```
-1. PI_DASHBOARD_SOCKET      explicit local socket path   ┐
-2. PI_DASHBOARD_URL         explicit remote endpoint     ├─ PINNED
-3. config: pinned instance identity                      ┘
-──────────────────────────────────────────────────────────
-4. $HOME-derived local socket        (default)
-5. paired remote dashboards          (remote-join feature)
-──────────────────────────────────────────────────────────
-6. mDNS / discovery         MAY SUGGEST — MAY NEVER OVERRIDE 1–5
-```
+| # | source | class |
+|---|---|---|
+| 1 | `PI_DASHBOARD_SOCKET` — explicit local socket path | **PINNED** |
+| 2 | `PI_DASHBOARD_URL` — explicit remote endpoint | **PINNED** |
+| 3 | config: pinned instance identity | **PINNED** |
+| 4 | `$HOME`-derived local socket | default |
+| 5 | paired remote dashboards | remote-join feature |
+| 6 | mDNS / discovery | MAY SUGGEST — MAY NEVER OVERRIDE 1–5 |
 
 A pinned endpoint that is unreachable produces a visible, retrying failure — not
 a silent migration to something else. This is the inversion the hijack needs:
