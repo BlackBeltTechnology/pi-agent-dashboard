@@ -108,6 +108,18 @@ export interface DashboardSession {
    * See change: add-embed-session-lifecycle.
    */
   lifecyclePolicy?: LifecyclePolicy;
+  /**
+   * Paired-device id of the host this session RAN on, when that host is not
+   * this one. Absent means local — which is what every pre-existing session is,
+   * so absent must keep meaning "our filesystem" (task 11.12).
+   *
+   * Derived server-side from the bridge's credential, never from a field the
+   * bridge sends: a self-reported origin is a claim by the party being
+   * identified. Display-safe, but its real job is gating every filesystem read
+   * of `sessionFile` — two hosts with the same username produce the same path.
+   * See change: add-pi-gateway-transport-identity (tasks 11.7, 11.8).
+   */
+  originDeviceId?: string;
   status: SessionStatus;
   model?: string;
   thinkingLevel?: string;

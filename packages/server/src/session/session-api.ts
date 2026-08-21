@@ -3,6 +3,7 @@
  * These expose WebSocket-only operations as HTTP endpoints
  * for use by skills, scripts, and external tooling.
  */
+
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
@@ -23,6 +24,7 @@ import { spawnPiSession } from "../spawn-process/process-manager.js";
 import { deriveSpawnCorrelationTtlMs } from "../spawn-process/spawn-recovery-window.js";
 import { armSpawnWatchdog } from "../spawn-process/spawn-register-watchdog.js";
 import type { SessionManager } from "./memory-session-manager.js";
+import { decideResume } from "./session-origin.js";
 
 export interface SessionApiDeps {
   sessionManager: SessionManager;
@@ -304,6 +306,21 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
         return result.error;
       }
       const session = result.session;
+      // D13 / task 11.11: a session that ran on ANOTHER host is read-only here.
+      // Checked before the `sessionFile` guard because the interesting remote
+      // failure is not an absent path but a present, unrelated one — two hosts
+      // with the same username produce identical paths, so resuming would
+      // attach a local pi as a second writer to a stranger's transcript (#E15).
+      const resumeVerdict = decideResume({
+        origin: session.originDeviceId
+          ? { local: false, deviceId: session.originDeviceId }
+          : { local: true },
+        status: session.status,
+      });
+      if (!resumeVerdict.allow) {
+        reply.code(409);
+        return { success: false, error: resumeVerdict.reason } satisfies ApiResponse;
+      }
       if (!session.sessionFile) {
         reply.code(400);
         return { success: false, error: "session file is unknown" } satisfies ApiResponse;

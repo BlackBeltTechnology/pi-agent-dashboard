@@ -137,12 +137,12 @@
 - [x] 11.4 Write a failing test: a request for a session id other than the bridge's own is refused
 - [x] 11.5 Write a failing test: a session with a large transcript becomes usable before the transfer completes
 - [ ] 11.6 Implement the chosen mechanism, addressing session data by id only
-- [ ] 11.7 Add the origin device identity to the session model, sourced from the bridge's paired-device identity, and make it presentable
-- [ ] 11.8 Prove two hosts with an identical cwd path produce distinct, correctly attributed sessions
+- [x] 11.7 Add the origin device identity to the session model, sourced from the bridge's paired-device identity, and make it presentable
+- [x] 11.8 Prove two hosts with an identical cwd path produce distinct, correctly attributed sessions
 - [ ] 11.9 Ensure full-fidelity payloads (beyond the `memory-event-store` 4 KB cap) resolve for remote sessions, not just the truncated in-memory copy
 - [ ] 11.10 Ensure transcript data remains servable after the remote session ends
-- [ ] 11.11 Refuse resume/respawn for an ended remote session with an explanatory response; ensure the client does not present resume as available
-- [ ] 11.12 Confirm local-session resume behaviour is unchanged
+- [x] 11.11 Refuse resume/respawn for an ended remote session with an explanatory response; ensure the client does not present resume as available
+- [x] 11.12 Confirm local-session resume behaviour is unchanged
 - [ ] 11.13 Make 11.3, 11.4, 11.5 pass
 
 ## 12. Scenario tests (folded from `test-plan.md` — manifest is the source of truth)
@@ -163,7 +163,7 @@
 - [x] 12.12 Extend `packages/extension/src/__tests__/connection.test.ts` — stickiness decision table. Triple: bridge registered with X, candidate Y whose identity verifies, rows over {pinned, failed} · attempt re-target · re-target only when unpinned AND failed AND identity verifies; every other row keeps X. (test-plan #E12)
 - [ ] 12.13 New sibling test near `packages/server/src/__tests__/session-file-dedup.test.ts` — bridge serves only its own session. Triple: bridge owning session A · transcript request naming session B · refused, no data for B returned. (test-plan #E13)
 - [ ] 12.14 New sibling test near `packages/server/src/__tests__/session-file-dedup.test.ts` — no path on the wire. Triple: request carrying `../../etc/passwd` in a path field · bridge receives it · refused with no filesystem read attempted. (test-plan #E14)
-- [ ] 12.15 New sibling test near `packages/server/src/__tests__/session-file-dedup.test.ts` — origin namespacing. Triple: two hosts each with a session at cwd `/Users/robson/Project/x` · both register with one dashboard · sessions stay distinct and each is attributable to its originating device. (test-plan #E15)
+- [x] 12.15 New sibling test near `packages/server/src/__tests__/session-file-dedup.test.ts` — origin namespacing. Triple: two hosts each with a session at cwd `/Users/robson/Project/x` · both register with one dashboard · sessions stay distinct and each is attributable to its originating device. (test-plan #E15)
 - [x] 12.16 New Windows-facing test modelled on `packages/server/src/__tests__/ws-ticket.test.ts` — loopback pin. Triple: `--host 0.0.0.0` on Windows · start the bridge listener · listener bound to `127.0.0.1` only. (test-plan #E16)
 - [x] 12.17 Extend `packages/server/src/__tests__/pi-gateway-consume-pending-attach.test.ts` — socket ownership. Triple: bound gateway socket · stat socket and dir · socket `0600`, dir `0700`. (test-plan #E18)
 - [x] 12.18 Extend `packages/extension/src/__tests__/connection.test.ts` — `ws+unix` client dial regression. Triple: `ConnectionManager` constructed per this change · dial `ws+unix://<path>:/` · connection opens; a build that falls back to `globalThis.WebSocket` fails this test. (test-plan #E19)
@@ -185,7 +185,7 @@
 - [x] 12.34 Extend the same new local-token test — wrong token. Triple: Windows bridge presents an incorrect token · upgrade · refused with a reason distinguishable from "missing". (test-plan #X15)
 - [x] 12.35 Extend `packages/server/src/__tests__/home-lock.test.ts` — stale record, foreign listener. Triple: record names a port now held by an unrelated process · bridge dials it · refused with an identity mismatch rather than a generic connection failure, and a valid local token does not bypass it. (test-plan #X16)
 - [ ] 12.36 New sibling test near `packages/server/src/__tests__/session-file-dedup.test.ts` — transfer interrupted mid-flight. Triple: bridge dies during transcript transfer · inspect the stored transcript · partial data is not presented as complete and the gap is detectable. (test-plan #X18)
-- [ ] 12.37 New sibling test near `packages/server/src/__tests__/session-file-dedup.test.ts` — resume refused for an ended remote session. Triple: remote session whose bridge has ended · `POST /api/session/:id/resume` · refused with an explanation naming host unreachability, while a local session is unaffected. (test-plan #X19)
+- [x] 12.37 New sibling test near `packages/server/src/__tests__/session-file-dedup.test.ts` — resume refused for an ended remote session. Triple: remote session whose bridge has ended · `POST /api/session/:id/resume` · refused with an explanation naming host unreachability, while a local session is unaffected. (test-plan #X19)
 - [x] 12.38 Extend `packages/server/src/__tests__/bridge-contention.test.ts` — unauthenticated gateway registration. Triple: unauthenticated peer on the TCP gateway · attempt `session_register` for an arbitrary sessionId · refused, inverting the hole this change closes. (test-plan #X20)
 
 ### L2 — qa VM smoke, `qa/tests/*.sh` | `*.ps1` (no rendered-UI asserts)

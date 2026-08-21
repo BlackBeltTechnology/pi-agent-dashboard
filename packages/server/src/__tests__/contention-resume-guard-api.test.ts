@@ -258,4 +258,66 @@ describe("session-file resume guard (REST)", () => {
     expect(Array.isArray(body.contendedSessionIds)).toBe(true);
     expect(body.contendedSessionIds).toContain("contended");
   }, 25000);
+
+  // ── #X19 (task 11.11) ─────────────────────────────────────────────────────
+  // Resume is refused for a session that ran on ANOTHER host, while a local
+  // session is untouched (task 11.12). The pairing is the test: a gate that
+  // refused everything would satisfy the remote assertions alone, so the local
+  // control is what proves it discriminates.
+  // See change: add-pi-gateway-transport-identity (D13).
+  it("refuses an ENDED remote session and names the originating device", async () => {
+    server.sessionManager.register({
+      id: "remote-ended",
+      cwd: "/tmp/test",
+      source: "tui" as const,
+      sessionFile: "/Users/robson/.pi/agent/sessions/collides.jsonl",
+      startedAt: Date.now(),
+    });
+    server.sessionManager.update("remote-ended", {
+      status: "ended",
+      endedAt: Date.now(),
+      originDeviceId: "device-7",
+    });
+
+    const res = await postJson("/api/session/remote-ended/resume", { mode: "continue" });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as any;
+    expect(body.success).toBe(false);
+    // The explanation names the host, not a missing file: "not found" would
+    // send an operator hunting a transcript that was never here.
+    expect(body.error).toMatch(/device-7/);
+    expect(body.error).not.toMatch(/file is unknown/);
+    expect(spawnCalls).toHaveLength(0);
+  });
+
+  it("refuses a LIVE remote session as a second writer, not as a revival", async () => {
+    server.sessionManager.register({
+      id: "remote-live",
+      cwd: "/tmp/test",
+      source: "tui" as const,
+      sessionFile: "/Users/robson/.pi/agent/sessions/collides.jsonl",
+      startedAt: Date.now(),
+    });
+    server.sessionManager.update("remote-live", { originDeviceId: "device-7" });
+
+    const res = await postJson("/api/session/remote-live/resume", { mode: "continue" });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as any).error).toMatch(/second pi writing/);
+    expect(spawnCalls).toHaveLength(0);
+  });
+
+  it("leaves a LOCAL ended session resumable (task 11.12)", async () => {
+    server.sessionManager.register({
+      id: "local-ended",
+      cwd: "/tmp/test",
+      source: "tui" as const,
+      sessionFile: "/t/local-only.jsonl",
+      startedAt: Date.now(),
+    });
+    server.sessionManager.update("local-ended", { status: "ended", endedAt: Date.now() });
+
+    const res = await postJson("/api/session/local-ended/resume", { mode: "continue" });
+    expect(res.status).toBe(200);
+    expect(spawnCalls.length).toBeGreaterThan(0);
+  });
 });
