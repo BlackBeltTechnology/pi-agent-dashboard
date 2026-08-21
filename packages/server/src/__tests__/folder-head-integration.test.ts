@@ -293,8 +293,13 @@ describe("folder-head refresh on entry", () => {
     // so staleness must be shown bounded by one interval, never permanent.
     const a = active("/a");
     const h = harness({ sessions: [a], heads: { "/a": "develop" }, pollIntervalSeconds: 0.1 });
-    await new Promise((r) => setTimeout(r, 50));
-    expect(h.broadcasts).toEqual([{ type: "git_head_update", cwd: "/a", branch: "develop" }]);
+    // POLL for the first broadcast rather than sleeping a fixed 50ms: the
+    // initial tick in `startPolling` is fire-and-forget on real timers, so a
+    // loaded runner can leave `broadcasts` empty at 50ms. Waiting longer cannot
+    // break the assertion — `refreshOne`'s dedup suppresses a second `develop`.
+    await vi.waitFor(() => {
+      expect(h.broadcasts).toEqual([{ type: "git_head_update", cwd: "/a", branch: "develop" }]);
+    }, { timeout: 5_000, interval: 20 });
 
     // `/a` leaves and re-enters without any recomputation observing the
     // departure, so the entry trigger may legitimately skip it — but the

@@ -476,21 +476,14 @@ test.describe("folder header git identity (worktree leak)", () => {
       }
     })();
 
-    const branch = `wtleak-${Date.now().toString(36)}`;
-    const created = await wtApi(page, "/api/git/worktree", postBody({ cwd: CWD, base, newBranch: branch }));
-    expect(created.success, JSON.stringify(created)).toBe(true);
-    const wtPath = (created.data as { path: string }).path;
-    wtCreated.add(wtPath);
-    wtBranches.add(branch);
+    // Create the worktree + spawn a session inside it, and WAIT (polled) until
+    // the server reports the fold. A fixed sleep here would make the whole test
+    // vacuous on a loaded runner: if `git_info_update` were slower than the
+    // window, the leak trigger never fires and the assertions below still pass.
+    const branch = await foldWorktreeChildIntoParent(page, "wtleak");
 
-    // Spawn a session INSIDE the worktree. The bridge's later `git_info_update`
-    // supplies `gitWorktree.mainPath`, folding it into THIS folder's group and
-    // re-keying it to the FRONT of the order — the exact leak trigger.
-    const spawned = await wtApi(page, "/api/session/spawn", postBody({ cwd: wtPath }));
-    expect(spawned.success, JSON.stringify(spawned)).toBe(true);
-
-    // Let the fold + re-key land, then stop sampling.
-    await page.waitForTimeout(12_000);
+    // Give the re-keyed group a moment to render, then stop sampling.
+    await page.waitForTimeout(2_000);
     sampling = false;
     await sampler;
 
@@ -533,10 +526,15 @@ test.describe("folder header git identity (worktree leak)", () => {
     // back to the (wrong) positional child branch indefinitely.
     await gotoDashboard(page);
     await ensureGitSession(page);
-    await expandFolder(page, CWD);
     const base = await fixtureBaseBranch(page);
+    // Per test-plan #F3 the folder must hold a worktree session grouped under
+    // its parent. Without it, a reloaded tab falling back to a positional child
+    // would still show the right value and the test would prove nothing.
+    await foldWorktreeChildIntoParent(page, "wtf3");
+    await expandFolder(page, CWD);
 
-    await page.reload();
+    // `gotoDashboard` already does `page.goto("/")` — that IS the fresh
+    // connection this test needs, so a preceding `page.reload()` is redundant.
     await gotoDashboard(page);
     await expandFolder(page, CWD);
 

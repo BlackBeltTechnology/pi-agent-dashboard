@@ -72,6 +72,11 @@ test.describe("folder header converges on an out-of-band checkout", () => {
     try { gitInFixture(["branch", "-D", TMP_BRANCH]); } catch { /* best-effort */ }
   });
 
+  // The two convergence polls below allow 60s + 90s, and setup/reaping share
+  // the budget — the 60s default would let Playwright kill the test before a
+  // poll ever reports what it observed.
+  test.setTimeout(240_000);
+
   test("out-of-band checkout still converges the header (test-plan #F5)", async ({ page }) => {
     await ensureGitSession(page);
     await gotoDashboard(page);

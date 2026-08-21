@@ -273,11 +273,21 @@ describe("readHeadDisplayAsync against a real repo", () => {
     const { execFileSync } = await import("node:child_process");
     const { readHeadDisplayAsync } = await import("../git-worktree/git-operations.js");
 
+    // This is the one test here that shells out; skip rather than fail where
+    // git is unavailable.
+    try {
+      execFileSync("git", ["--version"], { stdio: "ignore" });
+    } catch {
+      return;
+    }
+
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fh-head-"));
     try {
       const git = (...args: string[]) =>
         execFileSync("git", args, { cwd: dir, stdio: "pipe", encoding: "utf8" });
-      git("init", "-q", "-b", "trunk");
+      // `init -q` + `symbolic-ref` rather than `init -b`: `-b` needs git >= 2.28.
+      git("init", "-q");
+      git("symbolic-ref", "HEAD", "refs/heads/trunk");
       git("config", "user.email", "t@t.test");
       git("config", "user.name", "t");
       fs.writeFileSync(path.join(dir, "f.txt"), "x");
@@ -287,7 +297,10 @@ describe("readHeadDisplayAsync against a real repo", () => {
       const head = await readHeadDisplayAsync(dir);
       expect(head.branch).toBe("trunk");
       expect(deriveDisplayBranch(head)).toBe("trunk");
-      expect(head.sha).not.toBe("undefined");
+      // Shape-asserted, not just `!== "undefined"`: `sha` is `string | null`, so
+      // a bare inequality would also pass for `null`/`undefined` — exactly the
+      // values this regression is about.
+      expect(head.sha).toMatch(/^[0-9a-f]{7,40}$/);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
