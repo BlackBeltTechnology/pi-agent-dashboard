@@ -159,6 +159,25 @@ Rejected alternatives:
 
 ### D1a — Dismissal is not the same operation as `history.back()`
 
+**Resolved in cycle 2 (closes test-plan C2): dismissal is a single
+`navigate(backgroundPath)` to the frozen background path.** Not a history
+unwind, and not `history.back()`. The destination is therefore identical to what
+the underlay is already rendering — the dialog dissolves onto the thing behind
+it, which is the whole point of option C, and no `go(-n)` arithmetic over the
+surface's own pushed entries is needed.
+
+This subsumes the `isModalRoute` special case in `history-back.ts`: that branch
+exists to send settings/tunnel-setup back to their launcher via `history.back()`
+(change: fix-settings-back-to-launching-route) because no explicit target was
+available. A frozen background path IS that explicit target. The branch stays
+for the mobile back/swipe path, which is unchanged.
+
+**Accepted cost: the forward entry does not survive dismissal.** Dismissing with
+`navigate` pushes rather than pops, so the browser's forward button will not
+return to the overlay. Scroll restoration on the underlay is handled separately
+(D1: the underlay retains its scroll for the overlay's lifetime), so it is not
+lost with the forward entry.
+
 `SettingsPanel` PUSHES on internal navigation (`SettingsPanel.tsx:856`, `1133`,
 `1666`); only init/legacy redirects use `replace`. After `/settings/general` →
 rail → `/settings/plugins/x`, one history step lands on `/settings/general` —
@@ -405,14 +424,16 @@ alone:
 
 ## Open Questions
 
-- Does the dirty-state guard belong to the overlay renderer (every dialog gets
-  it) or to `SettingsPanel` (only the surface that needs it)? Renderer-level is
-  DRY but imposes a contract on plugin claims that may have no dirty concept.
-  Note D1b: whichever owns it must also cover `DirectorySettings/InstructionsPage`,
-  which holds its own dirty state.
-- Is the resource scope switch a filter control inside one panel, or two entry
-  points into one panel with the scope preset? Affects whether the folder and
-  global URLs stay distinct.
+- ~~Dirty-state guard owner?~~ **RESOLVED: panel-level.** Only surfaces with a
+  dirty concept opt in; the renderer exposes a dismissal hook they may intercept,
+  and plugin claims are unaffected (no dirty contract imposed on a claim that has
+  no such notion). Per D1b the opt-in must be taken by BOTH `SettingsPanel` and
+  `DirectorySettings/InstructionsPage`, which holds its own dirty state and does
+  not thread through `SettingsPanel`. Closes test-plan C3.
+- ~~Resource scope switch shape?~~ **RESOLVED: two entry points into one panel
+  with the scope preset.** The folder and global URLs stay distinct; scope,
+  filter visibility, and file-view target are preset per entry point rather than
+  toggled by a control inside the panel. Closes test-plan C4.
 - ~~What renders behind the dialog on a **cold load**?~~ **RESOLVED by D1 as
   revised.** In-app: the frozen background captured at push time. Cold load: the
   background synthesized from `computeBackTarget(currentRoute)`. The visual
@@ -422,6 +443,18 @@ alone:
   becomes invalid mid-overlay (session ends, folder deleted)? D1 accepts "let it
   go stale behind the scrim, dismissal resolves it through the normal path", but
   this has not been observed in practice and deserves a scenario.
+
+### Performance budgets (resolved, cycle 2)
+
+No budget existed anywhere in proposal or design; test-plan C5 flagged the gap.
+Set explicitly so S-29/S-30 gate on a number rather than a guess:
+
+- **p95 open-to-rendered < 300 ms** for a converted overlay (S-29, L3).
+- **RSS growth < 50 MB over 100 open/dismiss cycles** (S-30, L2).
+
+The memory budget is load-bearing under D1 as revised: the pinned underlay means
+two mounted trees, so a leak has twice the surface it would have had under the
+no-underlay decision.
 
 ## Deferred findings (doubt-review cycle 1, accepted as trade-offs)
 
