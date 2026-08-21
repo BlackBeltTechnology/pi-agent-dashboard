@@ -54,6 +54,8 @@ Files in this directory. One row per source file.
 | `retry-tracker.ts` | Pure helper class `RetryTracker` synthesizes `auto_retry_start` / `auto_retry_end` by OBSERVING pi's own… → see `retry-tracker.ts.AGENTS.md` |
 | `role-manager.ts` | Manages session model roles. Registers six `roles:*` handlers… → see `role-manager.ts.AGENTS.md` |
 | `role-model-tools.ts` | Agent-facing tools registered via `pi.registerTool` (capability agent-role-model-tools). → see `role-model-tools.ts.AGENTS.md` |
+| `remote-registration-gate.ts` | Pre-register D8 gate for REMOTE endpoints: `isRemoteEndpoint`, `httpBaseUrlFor`, `gateRemoteRegistration` (local → skip; no pin at all → allow as `unpinned-legacy`; any pin exists → challenge or refuse, never pin on sight). Wired in `bridge.ts` before `connection.connect()`. See change: add-pi-gateway-transport-identity (tasks 7.2/7.3). |
+| `server-pin-store.ts` | `~/.pi/dashboard/pinned-servers.json` (0600) — server identities pinned at pairing time, keyed by FINGERPRINT so a moved dashboard verifies without re-pairing. Exports `serverPinsPath`, `loadServerPins`, `recordServerPin`, `resolvePinForEndpoint` (exact address, else the sole pin), `notePinEndpoint`. See change: add-pi-gateway-transport-identity (task 7.1). |
 | `server-auto-start.ts` | Auto-start orchestration: discover dashboard via mDNS → health-check fallback → spawn server process. → see `server-auto-start.ts.AGENTS.md` |
 | `server-launcher.ts` | Spawns dashboard server as detached process via shared `launchDashboardServer`. → see `server-launcher.ts.AGENTS.md` |
 | `server-probe.ts` | TCP port probe. Exports `isPortOpen(port)` — 1s timeout localhost connect, resolves `true` on connect else `false`. Detects running dashboard server. |

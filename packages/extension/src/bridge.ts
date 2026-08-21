@@ -63,11 +63,13 @@ import { decideProjectTrust, readEventCwd } from "./project-trust.js";
 import { PromptBus } from "./prompt-bus.js";
 import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
 import { activate as activateProviderRegister, buildProviderCatalogue, onProviderChanged, reloadProviders, toModelInfo } from "./provider-register.js";
+import { gateRemoteRegistration, isRemoteEndpoint } from "./remote-registration-gate.js";
 import { RetryTracker } from "./retry-tracker.js";
 import { activate as activateRoleManager, lookupRole } from "./role-manager.js";
 import { registerRoleModelTools } from "./role-model-tools.js";
 import { autoStartServer } from "./server-auto-start.js";
 import { launchServer } from "./server-launcher.js";
+import { loadServerPins, notePinEndpoint, serverPinsPath } from "./server-pin-store.js";
 import { handleSessionChange as _handleSessionChange, replaySessionEntries as _replaySessionEntries, sendStateSync as _sendStateSync, consumeSpawnToken, filterByEnabledModels } from "./session-sync.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 import { detectSessionSource } from "./source-detector.js";
@@ -2553,7 +2555,37 @@ function initBridge(pi: ExtensionAPI) {
 
     // Connect first, then auto-start if needed.
     // session_register must be buffered before any event_forward messages.
-    connection.connect();
+    //
+    // (tasks 7.2/7.3) A REMOTE endpoint is challenged BEFORE the connection
+    // opens: across a network an address proves nothing, so the pinned Ed25519
+    // identity is the only thing that answers "is this my dashboard?" (D8).
+    // Local endpoints are unaffected — the socket/loopback token already
+    // authorises them — so this adds no latency to the common path.
+    if (isRemoteEndpoint(dashboardUrl)) {
+      const pinsFile = serverPinsPath();
+      const connectIfIdentityVerifies = async () => {
+        const verdict = await gateRemoteRegistration({
+          endpoint: dashboardUrl,
+          store: loadServerPins(pinsFile),
+        });
+        // Task 10.3: the cause is distinguishable in the log, not folded into
+        // a generic connection failure.
+        const line = `[dashboard] remote identity ${verdict.cause}: ${verdict.reason}`;
+        if (!verdict.allow) {
+          console.error(`${line} — not registering`);
+          return;
+        }
+        console.log(line);
+        // Only a VERIFIED identity gets its address remembered.
+        if (verdict.fingerprint) notePinEndpoint(pinsFile, verdict.fingerprint, dashboardUrl);
+        connection.connect();
+      };
+      // Guarded discard: a failure here must be OBSERVED, never take the host
+      // pi agent down.
+      void connectIfIdentityVerifies().catch((err) => console.error("[dashboard]", err));
+    } else {
+      connection.connect();
+    }
 
     // (task 3.8) Verify the instance answering at the recorded endpoint really
     // is the one the record named. The socket's mode and the local token are

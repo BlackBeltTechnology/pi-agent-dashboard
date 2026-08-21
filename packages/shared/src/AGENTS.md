@@ -51,6 +51,7 @@ Files in this directory. One row per source file.
 | `semaphore.ts` | Tiny FIFO throttling semaphore. `createSemaphore(max)` → `Semaphore` with `run(fn)` (queue when at cap,… → see `semaphore.ts.AGENTS.md` |
 | `server-identity.ts` | Identity-verified dashboard detection over GET /api/health. → see `server-identity.ts.AGENTS.md` |
 | `server-launcher.ts` | `launchDashboardServer` — single shared spawn primitive (jiti loader, argv, env, log header, readiness) used by Bridge / Standalone / Electron starters. Also exports `RECOVERY_PORT_CONFLICT_EXIT_CODE` + `isPortConflictExitCode` (child exit 2 → `PortConflictError`). See change: fix-worktree-server-autostart-leak. |
+| `server-pinning.ts` | Client-side D8 pinning of the server Ed25519 identity. `fingerprintFromPublicKeyB64`, `verifyNonceSignature`, pure `decidePinnedIdentity` (fingerprint recomputed from the PRESENTED key, then possession), `challengePinnedServer` (fresh nonce per call → no replay; unreachable/non-OK collapse to refusal). See change: add-pi-gateway-transport-identity. |
 | `session-group-path.ts` | Hoisted `inferPlatform`/`pathKey`/`resolveSessionGroupPath` from client session-grouping.ts. → see `session-group-path.ts.AGENTS.md` |
 | `session-meta.ts` | Per-session sidecar `.meta.json` schema + IO. Exports `SessionMeta`, `metaPath`, `readSessionMeta`,… → see `session-meta.ts.AGENTS.md` |
 | `skill-block-parser.ts` | Single source of truth for pi's `<skill name location>…</skill>` envelope. → see `skill-block-parser.ts.AGENTS.md` |

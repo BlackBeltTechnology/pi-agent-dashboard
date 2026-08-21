@@ -85,11 +85,11 @@
 
 ## 7. Server identity pinning (D8)
 
-- [ ] 7.1 Record the server fingerprint on the bridge at pairing time
-- [ ] 7.2 Verify possession via the existing nonce challenge before registering
-- [ ] 7.3 Refuse on mismatch with a distinct, logged reason
-- [ ] 7.4 Test that a pinned identity reachable at a new address is accepted without re-pairing
-- [ ] 7.5 Test that an impostor at the expected address is refused
+- [x] 7.1 Record the server fingerprint on the bridge at pairing time
+- [x] 7.2 Verify possession via the existing nonce challenge before registering
+- [x] 7.3 Refuse on mismatch with a distinct, logged reason
+- [x] 7.4 Test that a pinned identity reachable at a new address is accepted without re-pairing
+- [x] 7.5 Test that an impostor at the expected address is refused
 
 ## 8. Listener policy and rollout (D10)
 
