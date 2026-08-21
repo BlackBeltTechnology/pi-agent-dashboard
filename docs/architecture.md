@@ -1296,13 +1296,25 @@ Bridge-side. `packages/extension/src/auto-session-namer.ts`. After each terminal
 - `TITLE_MAX_TOKENS_BASE = 1024` on first attempt.
 - `TITLE_MAX_TOKENS_ESCALATED = 2048` once session records a `starved` verdict.
 - Cap = ceiling, not charge. Non-reasoning model bills ~2 output tokens.
-- Measured on `deepseek/deepseek-v4-flash` + summarizer prompt: 16/64/256/512 all ended `finish_reason=length` with empty content; 1024 returned `NULL` (24 reasoning tokens); 2048 returned title (724 reasoning tokens).
+- Measured on `deepseek/deepseek-v4-flash` + summarizer prompt.
+- Caps 16/64/256/512: `finish_reason=length`, empty content.
+- Cap 1024: returned `NULL`. 24 reasoning tokens.
+- Cap 2048: returned title. 724 reasoning tokens.
+- Reasoning spend nondeterministic. No cap guarantees a title.
 
 **Starvation failure mode.**
 
-- Reasoning model spends whole cap on reasoning tokens. Stream ends truncated (`done` reason `"length"`), no text.
-- Old bug: empty text mapped onto `wait` — same verdict as legitimate `NULL` sentinel. Naming retried forever, applied nothing, emitted nothing. Measured: 0 of 3380 sessions `nameSource: "auto"`, 0 `auto_name_error` lines in 6.8 MB `server.log`.
-- Fix: parse keys on stream stop reason BEFORE text. `length`/`toolUse` ⇒ `starved`, text NEVER applied. `stop` + empty ⇒ `starved`. `NULL` / over-40-chars / over-6-words ⇒ `waiting`.
+- Reasoning model spends whole cap on reasoning tokens.
+- Stream ends truncated. `done` reason `"length"`. No text.
+- Old bug: empty text mapped onto `wait`.
+- `wait` = same verdict as legitimate `NULL` sentinel. Non-terminal.
+- Result: naming retried forever, applied nothing, emitted nothing.
+- Measured: 0 of 3380 sessions `nameSource: "auto"`.
+- Measured: 0 `auto_name_error` lines in 6.8 MB `server.log`.
+- Fix: parse keys on stream stop reason BEFORE text.
+- `length` / `toolUse` ⇒ `starved`. Text NEVER applied.
+- `stop` + empty ⇒ `starved`.
+- `NULL` / over-40-chars / over-6-words ⇒ `waiting`.
 
 **Attempt budget.**
 
@@ -1319,7 +1331,11 @@ Bridge-side. `packages/extension/src/auto-session-namer.ts`. After each terminal
 **Diagnostics.**
 
 - Every attempt reports exactly one deduplicated outcome.
-- Server retains last per session (bound 500, `stopped` evicted last) — `packages/server/src/auto-name-outcome-store.ts`.
+- Server retains last outcome per session — `packages/server/src/auto-name-outcome-store.ts`.
+- Bound 500. ABSOLUTE.
+- Eviction prefers non-`stopped` entries.
+- `stopped` entries alone at the bound: OLDEST `stopped` evicted.
+- Protection is an ORDER, never indefinite retention.
 - Readable at `GET /api/auto-name-outcomes`.
 - Rendered in Settings → Diagnostics. `starved` shown distinctly from `waiting`.
 

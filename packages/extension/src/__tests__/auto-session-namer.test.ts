@@ -27,6 +27,7 @@ import {
   TITLE_MAX_TOKENS_BASE,
   TITLE_MAX_TOKENS_ESCALATED,
 } from "../auto-session-namer.js";
+import { extractLatestTurnWindow } from "../bridge-context.js";
 
 describe("shouldSkipByPrefilter", () => {
   it.each([
@@ -803,18 +804,30 @@ describe("createAutoNamer — durable stop", () => {
  */
 describe("createAutoNamer — advancing window pre-filter", () => {
   it("E20: a trivial LATEST message does not mask a substantive session", async () => {
-    // The window selects the latest SUBSTANTIVE user entry, so a trailing "ok"
-    // does not send an otherwise-nameable session back to the skip path.
-    const hooks = makeHooks({
-      getTranscript: () => ({ userMsg: "Refactor the auth middleware for tokens", assistantReply: "on it" }),
-    });
+    // Drives the REAL window selector, not a hand-fed transcript: an earlier
+    // version of this test passed a substantive `userMsg` straight to the
+    // namer, so it never exercised selection and stayed green while a trailing
+    // "ok" silently skipped the session.
+    const ctx = { sessionManager: { getEntries: () => [
+      { role: "user", content: "Refactor the auth middleware to support tokens" },
+      { role: "assistant", content: "on it" },
+      { role: "user", content: "ok" },
+    ] } };
+    const hooks = makeHooks({ getTranscript: () => extractLatestTurnWindow(ctx) });
     await createAutoNamer(hooks).maybeName();
     expect(hooks.applyName).toHaveBeenCalledWith("Auth Refactor");
+    expect(hooks.reportOutcome).not.toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "skipped-prefilter" }),
+    );
   });
 
   it("E21: a genuine greeting is still skipped with no model call", async () => {
+    // Also through the real selector: with nothing substantive ever said, the
+    // window falls back to the latest non-empty turn so the attempt reports
+    // `skipped-prefilter` rather than looking like a missing transcript.
+    const ctx = { sessionManager: { getEntries: () => [{ role: "user", content: "hi" }] } };
     const loadStreamSimple = vi.fn(async () => fakeStream([]));
-    const hooks = makeHooks({ getTranscript: () => ({ userMsg: "hi" }), loadStreamSimple });
+    const hooks = makeHooks({ getTranscript: () => extractLatestTurnWindow(ctx), loadStreamSimple });
     await createAutoNamer(hooks).maybeName();
     expect(loadStreamSimple).not.toHaveBeenCalled();
     expect(hooks.reportOutcome).toHaveBeenCalledWith(

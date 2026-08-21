@@ -2879,6 +2879,15 @@ function initBridge(pi: ExtensionAPI) {
     // inherit the previous session's pending graceful-stop and shut down on
     // its first turn_end. See change: adopt-pi-071-072-073-features.
     getBridgeState().shouldStopAfterTurn = false;
+    // Drop the auto-namer and its carried state: it is a PER-SESSION state
+    // machine, so a new/fork/resumed session must not inherit the outgoing
+    // session's permanent stop, spent attempt budget or auto-named flag — it
+    // would report `stopped` / `already-named` without ever attempting to name.
+    // The server re-pushes the incoming session's own persisted state on its
+    // session_register. See change: fix-auto-naming-reasoning-model.
+    autoNamer = undefined;
+    namerState = undefined;
+    prev.namerState = undefined;
     // Bridge shadow queues reset on session change so the new session
     // starts with empty chips. See change: add-followup-edit-and-steer-cancel.
     if (bridgeSteering.length > 0 || bridgeFollowUp.length > 0) {

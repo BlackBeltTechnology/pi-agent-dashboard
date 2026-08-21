@@ -598,7 +598,11 @@ export function createAutoNamer(hooks: AutoNamerHooks, restored?: PersistedNamer
     if (!registry) return;
     const slash = literal.indexOf("/");
     if (slash <= 0) return;
-    const model = registry.find(literal.slice(0, slash), literal.slice(slash + 1));
+    // Same normalization as `generateTitle`: a role value may carry a
+    // `:<level>` suffix, and leaving it on makes the probe never find the model
+    // — so a credentials/registry stop could never clear even after the
+    // operator fixed the cause.
+    const model = registry.find(literal.slice(0, slash), stripThinkingSuffix(literal.slice(slash + 1)));
     if (!model) return;
     try {
       const { apiKey, headers } = await registry.getApiKeyAndHeaders(model);

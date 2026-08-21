@@ -1,7 +1,15 @@
 # auto-name-diagnostics Specification
 
 ## Purpose
-TBD - created by archiving change fix-auto-naming-reasoning-model. Update Purpose after archive.
+
+The server retains the LAST auto-naming attempt outcome per session in a bounded
+in-memory map, and exposes it so an operator can see WHY a session was never
+named. A naming stop can be latched with no client subscribed — the
+`auto_name_error` toast reaches only a connected browser — so without retention
+the reason survives nowhere but `server.log`. Retention is bounded (500) and
+prefers to keep `stopped` entries; it is deliberately not persisted, being a
+readout of what the current process observed.
+
 ## Requirements
 ### Requirement: Last auto-naming attempt is retained per session within a bound
 
@@ -57,7 +65,7 @@ The Settings → Diagnostics section SHALL render the retained auto-naming outco
 
 The data SHALL be retrievable when the diagnostics surface mounts, NOT solely delivered by a live broadcast. A client that mounts after an attempt was reported SHALL still see the retained outcome.
 
-Retrieval SHALL use the existing browser-protocol request/response channel. It SHALL NOT introduce a new REST route, and it SHALL NOT be carried by the global doctor report, which is point-in-time and whole-system while this data is per-session and updated every turn.
+Retrieval SHALL use a read-only REST route (`GET /api/auto-name-outcomes`), congruent with the `/api/doctor` fetch the same surface already performs. It SHALL NOT be carried by the global doctor report, which is point-in-time and whole-system while this data is per-session and updated every turn. The browser protocol carries only the LIVE `auto_name_outcome` message for an already-mounted client; it is not the retrieval path, because the Diagnostics surface has no send capability (`SettingsPanel`'s `onMessage` is a subscribe function).
 
 The rendering SHALL include the outcome, the reason, and the naming model reference that was used.
 

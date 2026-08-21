@@ -4,6 +4,7 @@
  */
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { ConnectionManager } from "./connection.js";
+import { shouldSkipByPrefilter } from "./auto-session-namer.js";
 
 export interface BridgeContext {
   pi: ExtensionAPI;
@@ -260,13 +261,8 @@ export function extractLatestTurnWindow(ctx: any): { userMsg?: string; assistant
   try {
     const entries = ctx?.sessionManager?.getEntries?.();
     if (!entries || !Array.isArray(entries)) return {};
-    for (let i = entries.length - 1; i >= 0; i--) {
-      const entry = entries[i];
-      if (entry?.role !== "user") continue;
-      const text = entryText(entry).trim();
-      // A tool-result-only entry carries the `user` role but no text — it is
-      // not something a human said, so it can never be the naming window.
-      if (!text) continue;
+
+    const windowAt = (i: number, text: string) => {
       let assistantReply: string | undefined;
       for (let j = i + 1; j < entries.length; j++) {
         if (entries[j]?.role !== "assistant") continue;
@@ -274,7 +270,28 @@ export function extractLatestTurnWindow(ctx: any): { userMsg?: string; assistant
         if (reply) { assistantReply = reply.slice(0, 2000); break; }
       }
       return { userMsg: text.slice(0, 200), assistantReply };
+    };
+
+    let latestNonEmpty: { i: number; text: string } | undefined;
+    for (let i = entries.length - 1; i >= 0; i--) {
+      const entry = entries[i];
+      if (entry?.role !== "user") continue;
+      const text = entryText(entry).trim();
+      // A tool-result-only entry carries the `user` role but no text — it is
+      // not something a human said, so it can never be the naming window.
+      if (!text) continue;
+      if (latestNonEmpty === undefined) latestNonEmpty = { i, text };
+      // Select the latest turn the PRE-FILTER would accept. Selecting merely
+      // the latest non-empty turn means a trailing "ok" / "thanks" masks an
+      // otherwise-nameable session, because the pre-filter then rejects the
+      // window and the session is skipped — the exact defect the advancing
+      // window exists to remove.
+      if (!shouldSkipByPrefilter(text)) return windowAt(i, text);
     }
+    // Nothing substantive was ever said: fall back to the latest non-empty
+    // turn so a genuinely trivial session still reports `skipped-prefilter`
+    // rather than `not-ready`.
+    if (latestNonEmpty) return windowAt(latestNonEmpty.i, latestNonEmpty.text);
   } catch { /* ignore */ }
   return {};
 }

@@ -12,7 +12,7 @@ An install that already carries a USER-CREATED custom role named `naming` SHALL 
 
 #### Scenario: A pending-only custom name renders in the Custom group
 
-- **GIVEN** `builtinRoleNames` contains `planning, coding, compact, fast, naming, vision, research`
+- **GIVEN** `builtinRoleNames` contains `planning, coding, compact, fast, vision, research, naming`
 - **AND** the user has staged a pick for a new name `doubt-verifier-x` not yet in `rolesMap`
 - **THEN** `@doubt-verifier-x` SHALL render in the Custom group with a dirty marker
 - **AND** `@planning` SHALL render in the Built-in group

@@ -68,6 +68,11 @@ export class AutoNameOutcomeStore {
     return this.entries.get(sessionId);
   }
 
+  /** Drop one session's retained row (a session teardown, or test isolation). */
+  remove(sessionId: string): void {
+    this.entries.delete(sessionId);
+  }
+
   get size(): number {
     return this.entries.size;
   }

@@ -987,12 +987,21 @@ describe("the naming role", () => {
     expect(JSON.stringify(send.messages)).not.toMatch(/preference|autoNameModel/i);
   });
 
-  it("F3: an unassigned `naming` still renders its row (the @fast fallback applies)", () => {
+  it("F3: an unassigned `naming` renders an ASSIGNABLE slot, not just a row", () => {
     seedConfig(namingConfig({ naming: "", fast: "deepseek/flash" }));
     const { getByTestId } = render(wrap(<BuiltInRolesSettings />));
-    // Unassigned must be a visible, assignable slot — not a missing row, which
-    // would read as "auto-naming is off".
-    expect(getByTestId("roles-row-naming")).toBeTruthy();
+    const row = getByTestId("roles-row-naming");
+    // A bare existence check would pass even if the row stopped offering a way
+    // to assign a model. Unassigned must read as an empty, fillable slot — not
+    // as "auto-naming is off".
+    expect(row.textContent).toContain("@naming");
+    expect(row.textContent).toMatch(/Add model/i);
+    // Clicking it must open the picker scoped to `naming`.
+    fireEvent.click(row);
+    expect(getByTestId("roles-model-picker")).toBeTruthy();
+    // The @fast FALLBACK text lives on the auto-name settings surface (the
+    // point of use), asserted by the settings-page-composition spec (#F5) —
+    // this grid renders every role uniformly.
   });
 
   it("F4: a removed `naming` renders no assignable slot, distinct from unassigned", () => {

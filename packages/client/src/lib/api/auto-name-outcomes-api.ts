@@ -20,9 +20,25 @@ export interface AutoNameOutcomeRow {
   at: number;
 }
 
+/**
+ * A row is usable only when the fields the renderer dereferences are present.
+ * An array check alone lets `{ outcomes: [null] }` through, and the renderer
+ * reads `r.sessionId` — crashing the whole Settings view over a diagnostics
+ * payload, which is precisely the wrong failure for a diagnostics surface.
+ */
+function isOutcomeRow(v: unknown): v is AutoNameOutcomeRow {
+  if (!v || typeof v !== "object") return false;
+  const r = v as Record<string, unknown>;
+  return typeof r.sessionId === "string"
+    && typeof r.outcome === "string"
+    && typeof r.reason === "string"
+    && typeof r.at === "number"
+    && (r.modelRef === undefined || typeof r.modelRef === "string");
+}
+
 export async function fetchAutoNameOutcomes(): Promise<AutoNameOutcomeRow[]> {
   const res = await fetch(`${getApiBase()}/api/auto-name-outcomes`, { credentials: "same-origin" });
   if (!res.ok) throw new Error(`HTTP ${res.status}`);
   const body = await res.json();
-  return Array.isArray(body?.outcomes) ? body.outcomes : [];
+  return Array.isArray(body?.outcomes) ? body.outcomes.filter(isOutcomeRow) : [];
 }

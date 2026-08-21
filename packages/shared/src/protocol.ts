@@ -1098,8 +1098,20 @@ export interface PreferencesUpdateExtensionMessage {
  */
 export interface AutoNameStateRestoreMessage {
   type: "auto_name_state_restore";
-  state: AutoNamerPersistedState;
+  /**
+   * STOP fields only. Typed as the projection rather than the full state so
+   * the wire contract matches the documented one: a type-only `Omit` on the
+   * sender would still ship whatever extra properties the object carries.
+   */
+  state: AutoNamerStopState;
 }
+
+/** The restore-only projection: everything describing the STOP, no provenance. */
+export type AutoNamerStopState = Pick<
+  AutoNamerPersistedState,
+  "hardStopped" | "errorEmitted" | "attemptsUsed" | "starvedCount" | "waitingCount"
+  | "sawStarved" | "stoppedModelRef" | "stopCause" | "stoppedReason"
+>;
 
 export type ServerToExtensionMessage =
   | AutoNameStateRestoreMessage

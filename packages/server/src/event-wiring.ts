@@ -462,9 +462,24 @@ export function wireEvents(deps: EventWiringDeps): void {
     // See change: fix-auto-naming-reasoning-model (design D7).
     const restoredNamerState = sessionManager.get(sessionId)?.autoNamerState;
     if (restoredNamerState) {
+      // Explicit projection, not a spread: provenance (`nameSource`,
+      // `hasAutoName`, `lastSelfApplied`) must not reach the bridge — restoring
+      // it would change the behaviour of the separate auto→`user` relabel bug
+      // (design D8b). Projecting at the SENDER keeps the wire as narrow as the
+      // contract claims, rather than relying on the receiver to drop fields.
       piGateway.sendToSession(sessionId, {
         type: "auto_name_state_restore",
-        state: restoredNamerState,
+        state: {
+          hardStopped: restoredNamerState.hardStopped,
+          errorEmitted: restoredNamerState.errorEmitted,
+          attemptsUsed: restoredNamerState.attemptsUsed,
+          starvedCount: restoredNamerState.starvedCount,
+          waitingCount: restoredNamerState.waitingCount,
+          sawStarved: restoredNamerState.sawStarved,
+          stoppedModelRef: restoredNamerState.stoppedModelRef,
+          stopCause: restoredNamerState.stopCause,
+          stoppedReason: restoredNamerState.stoppedReason,
+        },
       });
     }
 
@@ -1959,6 +1974,9 @@ export function wireEvents(deps: EventWiringDeps): void {
     }
 
     if (msg.type === "auto_name_outcome") {
+      // The gateway casts raw JSON, so a malformed frame would otherwise reach
+      // the retention map, the REST route and every subscriber.
+      if (typeof msg.outcome !== "string" || typeof msg.reason !== "string") return;
       // Retained so a stop that happened with nobody subscribed is still
       // discoverable when an operator opens Settings → Diagnostics later.
       // See change: fix-auto-naming-reasoning-model (design D9).
@@ -1967,7 +1985,7 @@ export function wireEvents(deps: EventWiringDeps): void {
         outcome: msg.outcome,
         reason: msg.reason,
         modelRef: msg.modelRef,
-        at: msg.at,
+        at: typeof msg.at === "number" ? msg.at : Date.now(),
       });
       browserGateway.sendToSubscribers(sessionId, {
         type: "auto_name_outcome",

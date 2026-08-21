@@ -17,6 +17,9 @@ describe("GET /api/auto-name-outcomes", () => {
   let browserPort: number;
 
   beforeEach(async () => {
+    // The store is a process-wide singleton: without this the "empty" case
+    // below passes while the route still returns the previous test's row.
+    for (const row of autoNameOutcomes.list()) autoNameOutcomes.remove(row.sessionId);
     server = await createServer({
       port: 0, piPort: 0, host: "127.0.0.1", dev: true,
       autoShutdown: false, shutdownIdleSeconds: 999, tunnel: false,
@@ -49,9 +52,9 @@ describe("GET /api/auto-name-outcomes", () => {
     expect(row.reason).toMatch(/could not emit a title/);
   });
 
-  it("answers with an empty list rather than failing when nothing is retained", async () => {
+  it("answers with an EMPTY list when nothing is retained", async () => {
     const res = await fetch(`http://127.0.0.1:${browserPort}/api/auto-name-outcomes`);
     expect(res.ok).toBe(true);
-    expect(Array.isArray((await res.json()).outcomes)).toBe(true);
+    expect((await res.json()).outcomes).toEqual([]);
   });
 });

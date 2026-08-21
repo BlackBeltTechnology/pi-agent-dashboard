@@ -119,7 +119,7 @@ This requirement is additive with respect to `dashboard-model-resolution`: the e
 
 ### Requirement: pi-agent-dashboard SHALL define a canonical default role-name set and overlay it at read time
 
-The dashboard SHALL own a canonical default role-name set `DEFAULT_ROLE_NAMES = ["planning", "coding", "compact", "fast", "naming", "vision", "research"]`, defined in the dashboard (not read from pi-flows, which the dashboard no longer depends on for role ownership).
+The dashboard SHALL own a canonical default role-name set `DEFAULT_ROLE_NAMES = ["planning", "coding", "compact", "fast", "vision", "research", "naming"]`, defined in the dashboard (not read from pi-flows, which the dashboard no longer depends on for role ownership).
 
 The `naming` role names the model used for automatic session topic-naming. It is a default NAME only: unassigned, the auto-namer falls back to the `fast` role, so adding this name SHALL NOT change resolution for any existing install.
 
@@ -206,7 +206,7 @@ The field SHALL survive the full relay to the browser. The server's `roles_list`
 #### Scenario: builtinRoleNames mirrors DEFAULT_ROLE_NAMES
 
 - **GIVEN** the Roles back-end responds to `roles:get-all`
-- **THEN** the response SHALL include `builtinRoleNames` equal to `["planning", "coding", "compact", "fast", "vision", "research"]`
+- **THEN** the response SHALL include `builtinRoleNames` equal to `["planning", "coding", "compact", "fast", "vision", "research", "naming"]`
 - **AND** the field SHALL be present regardless of how many roles have assigned models
 
 #### Scenario: builtinRoleNames survives the server→browser relay

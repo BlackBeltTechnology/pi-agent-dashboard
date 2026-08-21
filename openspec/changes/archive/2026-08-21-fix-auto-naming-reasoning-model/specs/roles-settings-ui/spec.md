@@ -56,7 +56,8 @@ unassigned state, rather than rendering a slot the Roles panel does not list.
 
 - **GIVEN** `roles.naming` has no assigned model
 - **WHEN** the Roles panel renders
-- **THEN** it SHALL indicate that the `fast` role is used as the fallback
+- **THEN** the `naming` row SHALL render as an assignable slot rather than being absent
+- **AND** the `fast` fallback SHALL be indicated on the auto-name settings surface, at the point of use — the Roles grid renders every role uniformly and carries no per-role fallback text
 
 #### Scenario: A removed naming role is presented distinctly
 

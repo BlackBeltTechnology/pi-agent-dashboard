@@ -2290,19 +2290,46 @@ Cross-refs:
 
 ## Why are my sessions never auto-named?
 
-Check Settings → Diagnostics → auto-naming outcomes. One retained outcome per session. `starved` and `waiting` shown separately.
+Check Settings → Diagnostics → auto-naming outcomes.
+One retained outcome per session.
+`starved` and `waiting` shown separately.
 
-`starved` = model could not emit title under output cap. Reasoning model spends whole cap on reasoning tokens, stream truncated (`done` reason `"length"`), no text. Text NEVER applied as name. Fix: assign different model to naming role.
+**`starved`** = model could not emit title under output cap.
+Reasoning model spends whole cap on reasoning tokens.
+Stream truncated. `done` reason `"length"`. No text.
+Truncated text NEVER applied as a name.
+Fix: assign a different model to the `naming` role.
 
-`waiting` = model behaved correctly, no nameable topic. `NULL` sentinel / over-40-chars / over-6-words. Nothing wrong.
+**`waiting`** = model behaved correctly. No nameable topic.
+Cause: `NULL` sentinel, or over-40-chars, or over-6-words.
+Nothing to fix. Session simply has no clear topic.
 
-Budget: 3 attempts per session, shared by `starved` + `waiting`. Exhaustion ⇒ permanent stop + exactly one `auto_name_error`. Remedy matches dominant cause (tie ⇒ `starved`). Transient errors + aborts spend no budget.
+**Budget.**
+3 attempts per session.
+Shared by `starved` + `waiting`.
+Exhaustion ⇒ permanent stop + exactly one `auto_name_error`.
+Remedy matches dominant cause. Tie ⇒ `starved`.
+Transient errors + aborts spend no budget.
 
-Stop persists in session `.meta.json` (`autoNamerState`), survives process restart. Clears when resolved naming reference changes or blocking cause (credentials/registry) resolves; clearing resets budget + re-arms error.
+**Stop.**
+Persists in session `.meta.json` (`autoNamerState`).
+Survives process restart.
+Clears when resolved naming reference changes.
+Clears when blocking cause (credentials/registry) resolves.
+Clearing resets budget + re-arms error.
 
-Naming model: `@naming` first, fallback `@fast`. Neither configured ⇒ stop + `auto_name_error` naming both slots. Configure in Settings → Roles (`/settings/plugins/roles`), not on sessions page.
+**Naming model.**
+`@naming` first. Fallback `@fast`.
+Neither configured ⇒ stop + `auto_name_error` naming both slots.
+Configure in Settings → Roles (`/settings/plugins/roles`).
+Not on the sessions page. Toggle there carries a pointer.
 
-Old bug (pre-fix): empty text mapped onto `wait` — same verdict as legitimate `NULL`. Naming retried forever, applied nothing, emitted nothing. Zero successes AND zero errors. Measured: 0 of 3380 sessions `nameSource: "auto"`, 0 `auto_name_error` lines in 6.8 MB `server.log`.
+**Old bug (pre-fix).**
+Empty text mapped onto `wait`. Same verdict as legitimate `NULL`.
+Naming retried forever. Applied nothing. Emitted nothing.
+Zero successes AND zero errors.
+Measured: 0 of 3380 sessions `nameSource: "auto"`.
+Measured: 0 `auto_name_error` lines in 6.8 MB `server.log`.
 
 See change: fix-auto-naming-reasoning-model.
 

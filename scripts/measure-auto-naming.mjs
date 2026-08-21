@@ -19,7 +19,7 @@ import { createJiti } from "jiti";
 
 const jiti = createJiti(import.meta.url);
 const namer = await jiti.import("../packages/extension/src/auto-session-namer.ts");
-const { generateTitle, parseTitle, SUMMARIZER_SYSTEM_PROMPT } = namer;
+const { generateTitle, parseTitle, stripThinkingSuffix, SUMMARIZER_SYSTEM_PROMPT } = namer;
 
 // ESM-only export map — the bridge loads it the same way (dynamic import).
 const { streamSimple } = await import("@earendil-works/pi-ai");
@@ -30,9 +30,21 @@ const roles = readJson(join(agentDir, "providers.json")).roles ?? {};
 const auth = readJson(join(agentDir, "auth.json"));
 
 // The naming model, resolved exactly as the bridge resolves it.
-const modelRef = process.argv[2] || roles.naming || roles.fast;
-const [provider, ...rest] = modelRef.split("/");
-const modelId = rest.join("/");
+const rawRef = process.argv[2] || roles.naming || roles.fast;
+if (!rawRef) {
+  console.error("no naming model: assign the `naming` or `fast` role, or pass provider/model as an argument");
+  process.exit(2);
+}
+const slash = rawRef.indexOf("/");
+if (slash <= 0) {
+  console.error(`malformed model ref '${rawRef}' (expected provider/model)`);
+  process.exit(2);
+}
+const provider = rawRef.slice(0, slash);
+// Mirror production: a role value may carry a `:<level>` thinking suffix, and
+// the catalogue is keyed on the bare id.
+const modelId = stripThinkingSuffix(rawRef.slice(slash + 1));
+const modelRef = `${provider}/${modelId}`;
 
 const entry = auth[provider] ?? {};
 const apiKey = entry.apiKey ?? entry.api_key ?? entry.key ?? entry.access ?? entry.token;
