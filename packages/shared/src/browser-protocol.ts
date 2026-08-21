@@ -7,7 +7,7 @@ import type {
   PluginIntentsMessage,
 } from "./dashboard-plugin/intent-types.js";
 import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
-import type { NotifyLevel } from "./protocol.js";
+import type { AutoNameOutcome, NotifyLevel } from "./protocol.js";
 import type { TerminalSession } from "./terminal-types.js";
 import type {
   CommandInfo,
@@ -929,9 +929,25 @@ export interface AutoNameErrorBrowserMessage {
   reason: string;
 }
 
+/**
+ * Server → browser: the last auto-naming attempt outcome for `sessionId`,
+ * forwarded from the bridge's deduplicated `auto_name_outcome`. Rendered in
+ * Settings → Diagnostics so a silent stop is discoverable without reading
+ * `server.log`. See change: fix-auto-naming-reasoning-model (design D9).
+ */
+export interface AutoNameOutcomeBrowserMessage {
+  type: "auto_name_outcome";
+  sessionId: string;
+  outcome: AutoNameOutcome;
+  reason: string;
+  modelRef?: string;
+  at: number;
+}
+
 export type ServerToBrowserMessage =
   | ServerRestartingMessage
   | AutoNameErrorBrowserMessage
+  | AutoNameOutcomeBrowserMessage
   | RecoveryOfferMessage
   | PluginConfigUpdateMessage
   | PluginActionErrorMessage

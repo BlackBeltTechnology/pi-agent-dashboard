@@ -1321,6 +1321,68 @@ UI shape named `ModelLevelPair`: model left, level right, one bordered container
 
 See change: add-default-thinking-level.
 
+### Auto Session Naming (change: fix-auto-naming-reasoning-model)
+
+Bridge-side. `packages/extension/src/auto-session-namer.ts`. After each terminal turn (`agent_end`), eligible session asks naming model for short topic title. Gate: `autoNameSessions` preference (`preferences_update` message).
+
+**Naming model resolution.**
+
+- `@naming` first, fallback `@fast`. `resolveNamingModel()` in `packages/extension/src/role-manager.ts`.
+- `naming` in `DEFAULT_ROLE_NAMES`.
+- Unassigned `naming` ⇒ `@fast` ⇒ identical resolution to pre-role behavior.
+- Neither configured ⇒ permanent stop + one `auto_name_error` naming both slots.
+- Configured in Settings → Roles (Roles panel, `/settings/plugins/roles`), NOT inline on sessions page. Auto-name toggle carries pointer `auto-name-model-pointer`.
+
+**Adaptive output cap.**
+
+- `TITLE_MAX_TOKENS_BASE = 1024` on first attempt.
+- `TITLE_MAX_TOKENS_ESCALATED = 2048` once session records a `starved` verdict.
+- Cap = ceiling, not charge. Non-reasoning model bills ~2 output tokens.
+- Measured on `deepseek/deepseek-v4-flash` + summarizer prompt.
+- Caps 16/64/256/512: `finish_reason=length`, empty content.
+- Cap 1024: returned `NULL`. 24 reasoning tokens.
+- Cap 2048: returned title. 724 reasoning tokens.
+- Reasoning spend nondeterministic. No cap guarantees a title.
+
+**Starvation failure mode.**
+
+- Reasoning model spends whole cap on reasoning tokens.
+- Stream ends truncated. `done` reason `"length"`. No text.
+- Old bug: empty text mapped onto `wait`.
+- `wait` = same verdict as legitimate `NULL` sentinel. Non-terminal.
+- Result: naming retried forever, applied nothing, emitted nothing.
+- Measured: 0 of 3380 sessions `nameSource: "auto"`.
+- Measured: 0 `auto_name_error` lines in 6.8 MB `server.log`.
+- Fix: parse keys on stream stop reason BEFORE text.
+- `length` / `toolUse` ⇒ `starved`. Text NEVER applied.
+- `stop` + empty ⇒ `starved`.
+- `NULL` / over-40-chars / over-6-words ⇒ `waiting`.
+
+**Attempt budget.**
+
+- 3 attempts per session (`ATTEMPT_BUDGET`), shared by `starved` + `waiting`.
+- Exhaustion ⇒ permanent stop + exactly one `auto_name_error`. Remedy matches dominant cause; tie ⇒ `starved`.
+- Transient errors + aborts spend no budget.
+
+**Persistence.**
+
+- Stop persists in session `.meta.json` (`autoNamerState`), survives process restart.
+- Clears when RESOLVED naming reference changes or blocking cause (credentials/registry) resolves.
+- Clearing resets budget AND re-arms error.
+
+**Diagnostics.**
+
+- Every attempt reports exactly one deduplicated outcome.
+- Server retains last outcome per session — `packages/server/src/auto-name-outcome-store.ts`.
+- Bound 500. ABSOLUTE.
+- Eviction prefers non-`stopped` entries.
+- `stopped` entries alone at the bound: OLDEST `stopped` evicted.
+- Protection is an ORDER, never indefinite retention.
+- Readable at `GET /api/auto-name-outcomes`.
+- Rendered in Settings → Diagnostics. `starved` shown distinctly from `waiting`.
+
+See change: fix-auto-naming-reasoning-model.
+
 ### Context Usage Tracking
 1. On each `turn_end`, the bridge calls pi's `ctx.getContextUsage()` API to get real-time context usage (tokens used + actual context window from the provider)
 2. Bridge enriches the `turn_end` event with this `contextUsage` data before forwarding to the server
@@ -2426,6 +2488,7 @@ The per-message ⤘ Fork button needs each chat bubble to carry the entry id of 
 | Events | In-memory Map | LRU eviction, max 100 sessions. Pinned if active bridge or browser subscribers. |
 | Sessions | In-memory Map + `.meta.json` | In-memory registry. Each session's state cached in per-session `.meta.json` sidecar next to `.jsonl`. On startup, `session-scanner.ts` scans `~/.pi/agent/sessions/*/` to restore all sessions from cached meta. |
 | Session meta | `~/.pi/agent/sessions/…/<id>.meta.json` | Per-session sidecar: dashboard-owned state (name, attachedProposal, hidden, source) + cached stats (tokens, cost, model, status). Debounced per-session writes (max 1/sec). Stale cache detected via `cachedAt` vs `.jsonl` mtime. |
+| Namer stop state | `~/.pi/agent/sessions/…/<id>.meta.json` (`autoNamerState`) | Auto-naming permanent stop + counters (attemptsUsed, starvedCount, waitingCount, stoppedModelRef, stopCause). Survives process restart; restored via `auto_name_state_restore` at register. Cleared on naming re-resolution or blocking-cause resolution. See change: fix-auto-naming-reasoning-model. |
 | Notify log | `~/.pi/agent/sessions/…/<id>.meta.json` (`SessionMeta.notifyLog`) | Bounded per-session notify history (cap 50, oldest-first). Not a `DashboardEvent` — `event_replay` cannot restore. Mirrored by `sessionToMeta` (full-overwrite save), restored by `sessionFromMeta` cold start, carried across bridge reattach by `memory-session-manager.register()`. See Notify Flow. |
 | Pinned directories | `~/.pi/dashboard/preferences.json` | Ordered array of cwd paths. Pinned dirs always visible in sidebar. |
 | Session order | `~/.pi/dashboard/preferences.json` | Per-cwd ordering managed by `session-order-manager.ts`. |

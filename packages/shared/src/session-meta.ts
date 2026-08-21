@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
-import type { NotifyLogEntry } from "./types.js";
+import type { AutoNamerPersistedState, NotifyLogEntry } from "./types.js";
 
 /**
  * Session metadata stored as a sidecar `.meta.json` file
@@ -22,6 +22,15 @@ export interface SessionMeta {
    * again for that session. See change: add-auto-session-naming.
    */
   nameSource?: "auto" | "user";
+  /**
+   * The auto-namer's durable stop state. Persisted — a narrowly-scoped
+   * exception to "no new persisted field" — because a process restart would
+   * otherwise re-spend a full attempt budget and re-emit the error, so a
+   * "permanent" stop would not in fact be permanent. Same lifecycle as
+   * `nameSource`, already dashboard-owned.
+   * See change: fix-auto-naming-reasoning-model (design D7).
+   */
+  autoNamerState?: AutoNamerPersistedState;
   attachedProposal?: string | null;
   hidden?: boolean;
 

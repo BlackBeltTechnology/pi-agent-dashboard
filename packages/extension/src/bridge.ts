@@ -25,9 +25,9 @@ import {
   persistAttachment,
 } from "./ask-user-attachments.js";
 import { registerAskUserTool } from "./ask-user-tool.js";
-import { type AutoNamer, createAutoNamer, type StreamSimpleFn } from "./auto-session-namer.js";
+import { adoptRestoredNamerState, type AutoNamer, createAutoNamer, type PersistedNamerState, type StreamSimpleFn } from "./auto-session-namer.js";
 import type { BridgeContext } from "./bridge-context.js";
-import { extractFirstAssistantReply, extractFirstMessage, filterHiddenCommands, getCurrentModelString, isHeadlessRpcSession, safeCwd } from "./bridge-context.js";
+import { extractFirstMessage, extractLatestTurnWindow, filterHiddenCommands, getCurrentModelString, isHeadlessRpcSession, safeCwd } from "./bridge-context.js";
 import { shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
 import { registerCanvasTool } from "./canvas-tool.js";
 import {
@@ -66,7 +66,7 @@ import { PromptBus } from "./prompt-bus.js";
 import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
 import { activate as activateProviderRegister, buildProviderCatalogue, onProviderChanged, reloadProviders, toModelInfo } from "./provider-register.js";
 import { RetryTracker } from "./retry-tracker.js";
-import { activate as activateRoleManager, lookupRole } from "./role-manager.js";
+import { activate as activateRoleManager, lookupRole, resolveNamingModel } from "./role-manager.js";
 import { registerRoleModelTools } from "./role-model-tools.js";
 import { autoStartServer } from "./server-auto-start.js";
 import { launchServer } from "./server-launcher.js";
@@ -115,6 +115,12 @@ interface BridgeState {
   timers?: ReturnType<typeof setInterval>[];
   /** True when the agent is currently in a turn (between agent_start and agent_end) */
   isAgentStreaming?: boolean;
+  /**
+   * The auto-namer's durable state set, carried across reload as VALUES. The
+   * namer OBJECT is deliberately not carried: its closures would hold a stale
+   * connection, session id and ctx. See change: fix-auto-naming-reasoning-model.
+   */
+  namerState?: PersistedNamerState;
   /**
    * Capture-once "was this pi dashboard-spawned?" boolean. Set on first bridge
    * activation from `!!process.env.PI_DASHBOARD_SPAWN_TOKEN` BEFORE the token is
@@ -294,6 +300,10 @@ function initBridge(pi: ExtensionAPI) {
   // Default true so a bridge that registers before the first push still names.
   let autoNameSessions = true;
   let autoNamer: AutoNamer | undefined;
+  // The namer's durable state set is carried across reload as VALUES, never as
+  // the namer object: its closures would retain a stale connection, session id
+  // and ctx. See change: fix-auto-naming-reasoning-model (design D7).
+  let namerState: PersistedNamerState | undefined = prev.namerState;
   // Lazily-loaded pi-ai streamSimple (null = load attempted and failed).
   let piAiStreamSimple: StreamSimpleFn | null | undefined;
   let cachedHasUI: boolean | undefined = prev.hasUI;
@@ -846,6 +856,22 @@ function initBridge(pi: ExtensionAPI) {
       if (msg.type === "preferences_update") {
         if (typeof (msg as any).autoNameSessions === "boolean") {
           autoNameSessions = (msg as any).autoNameSessions;
+        }
+        return;
+      }
+      // Persisted stop state pushed at register, so a permanent stop survives a
+      // PROCESS restart. Only the STOP fields are adopted. `nameSource`,
+      // `lastSelfApplied` and `hasAutoName` are deliberately NOT restored:
+      // reinstating them would change the behaviour of the separate auto→`user`
+      // relabel bug, which has a different root cause and is tracked on its own
+      // (design D8b, change: investigate-auto-name-provenance-relabel). They are
+      // still carried across an in-process RELOAD via `prev.namerState`.
+      // See change: fix-auto-naming-reasoning-model (design D7).
+      if (msg.type === "auto_name_state_restore") {
+        const adopted = adoptRestoredNamerState((msg as any).state);
+        if (adopted && !autoNamer) {
+          namerState = adopted;
+          prev.namerState = adopted;
         }
         return;
       }
@@ -1512,13 +1538,10 @@ function initBridge(pi: ExtensionAPI) {
     if (autoNamer) return autoNamer;
     autoNamer = createAutoNamer({
       getAutoNameSessions: () => autoNameSessions,
-      resolveFastModel: () => lookupRole("@fast"),
+      resolveNamingModel,
       getRegistry: () => cachedModelRegistry,
       loadStreamSimple,
-      getTranscript: () => ({
-        firstUserMsg: extractFirstMessage(cachedCtx),
-        firstAssistantReply: extractFirstAssistantReply(cachedCtx),
-      }),
+      getTranscript: () => extractLatestTurnWindow(cachedCtx),
       applyName: (title: string) => {
         try { pi.setSessionName(title); } catch { /* ignore */ }
         lastSessionName = title; // suppress the redundant plain name_update poll
@@ -1530,19 +1553,40 @@ function initBridge(pi: ExtensionAPI) {
       emitError: (reason: string) => {
         connection.send({ type: "auto_name_error", sessionId, reason });
       },
-    });
+      reportOutcome: ({ outcome, reason, modelRef }) => {
+        connection.send({
+          type: "auto_name_outcome", sessionId, outcome, reason, modelRef, at: Date.now(),
+        });
+      },
+      // Carried across reload AND persisted server-side into the session's
+      // `.meta.json`, so "permanent" survives a process restart rather than
+      // re-spending a full budget on every cold start (design D7).
+      persistState: (state: PersistedNamerState) => {
+        namerState = state;
+        prev.namerState = state;
+        connection.send({ type: "auto_name_state", sessionId, state });
+      },
+    }, namerState);
     return autoNamer;
   }
 
   // Run one naming attempt after a terminal turn. Observing the current name
   // first catches a pre-existing / in-pi rename (external → permanent "user"
   // lockout) before attempting to auto-name.
+  //
+  // The toggle gates the OBSERVATION but not the attempt: `maybeName` checks it
+  // internally so the `disabled` outcome is reportable at all (design D9),
+  // while `onObservedName` stays gated exactly as before this change. Letting
+  // it run with the feature OFF would newly latch `nameSource: "user"` (plus a
+  // persisted update) on sessions the user never asked to auto-name, inflating
+  // the very population the follow-up investigation has to measure.
+  // See change: fix-auto-naming-reasoning-model.
   function runAutoNameOnTurnEnd(): void {
-    if (!autoNameSessions) return;
     const namer = getAutoNamer();
-    namer.onObservedName(pi.getSessionName() ?? "");
+    if (autoNameSessions) namer.onObservedName(pi.getSessionName() ?? "");
     void namer.maybeName();
   }
+
   function sendGitInfoIfChanged(cwd: string) { const bc = syncBc(); _sendGitInfoIfChanged(bc, cwd); applyBc(bc); }
   function sendCwdMissingIfChanged(cwd: string) { const bc = syncBc(); _sendCwdMissingIfChanged(bc, cwd); applyBc(bc); }
   function sendPiVersionIfChanged() { _sendPiVersionIfChanged(syncBc()); }
@@ -2860,6 +2904,15 @@ function initBridge(pi: ExtensionAPI) {
     // inherit the previous session's pending graceful-stop and shut down on
     // its first turn_end. See change: adopt-pi-071-072-073-features.
     getBridgeState().shouldStopAfterTurn = false;
+    // Drop the auto-namer and its carried state: it is a PER-SESSION state
+    // machine, so a new/fork/resumed session must not inherit the outgoing
+    // session's permanent stop, spent attempt budget or auto-named flag — it
+    // would report `stopped` / `already-named` without ever attempting to name.
+    // The server re-pushes the incoming session's own persisted state on its
+    // session_register. See change: fix-auto-naming-reasoning-model.
+    autoNamer = undefined;
+    namerState = undefined;
+    prev.namerState = undefined;
     // Bridge shadow queues reset on session change so the new session
     // starts with empty chips. See change: add-followup-edit-and-steer-cancel.
     if (bridgeSteering.length > 0 || bridgeFollowUp.length > 0) {

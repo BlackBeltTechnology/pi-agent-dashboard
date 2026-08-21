@@ -1450,7 +1450,16 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   />
                   <AutoNameSessionsToggle
                     hint={<>
-                      {i18nT("settings.autoNameSessionsDesc", undefined, "Let pi automatically name new sessions by their topic using the fast model.")}
+                      {i18nT("settings.autoNameSessionsDesc", undefined, "Let pi automatically name new sessions by their topic.")}
+                      {" "}
+                      {/* The naming model is the `naming` role, so it is configured in
+                          the Roles panel rather than here — one source of truth, no
+                          second preference. This pointer exists so it is still
+                          discoverable at the point of use.
+                          See change: fix-auto-naming-reasoning-model (design D1). */}
+                      <span data-testid="auto-name-model-pointer">
+                        {i18nT("settings.autoNameModelPointer", undefined, "The model is the @naming role (Settings → Roles); when it is unassigned, @fast is used.")}
+                      </span>
                     </>}
                   />
                 </Section>

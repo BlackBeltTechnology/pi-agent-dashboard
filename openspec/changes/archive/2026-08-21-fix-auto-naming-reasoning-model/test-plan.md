@@ -10,6 +10,14 @@ dominant-cause tie → **starved wins**.
 
 ---
 
+## Amendment (2026-08-21)
+
+F1/F2/F5 were respecified during implementation. The inline-beneath-the-toggle placement is
+not achievable (`claim.tab` inert since `plugin-settings-pages`; `usePluginConfig` throws
+outside a plugin slot), and the diagnostics carrier moved from the browser-protocol request
+channel to `GET /api/auto-name-outcomes` because the Diagnostics surface has no send path.
+See design.md D1 and D9 amendments.
+
 ## Scenarios
 
 ### Edge-case
@@ -64,12 +72,12 @@ dominant-cause tie → **starved wins**.
 
 | id | requirement | technique | level | disposition | input | trigger | expected observable (invariant) |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------------------|
-| F1 | Inline row reflects roles map | state-convergence | L3 | automated | `roles.naming` assigned | open Settings | inline row beneath the auto-name toggle shows that model |
-| F2 | Inline row writes via `roles:set` | state-transition | L3 | automated | operator picks a model in the inline row | save | Roles panel converges to the same assignment; no new preference field written |
-| F3 | Unassigned shows fallback | state-transition | L3 | automated | `roles.naming` unassigned | open Settings | row indicates the `fast` fallback |
-| F4 | Removed role state | decision-table | L3 | automated | removal marker in effect for `naming` | open Settings | row presents REMOVED, distinct from unassigned; no assignable slot the Roles panel lacks |
-| F5 | No connected session degrades row | state-transition | L3 | automated | zero connected pi sessions | open Settings | row presents unavailable, not an editable control that silently fails |
-| F6 | Preset load reflected | state-transition | L3 | automated | `roles.naming` assigned, then load a preset lacking `naming` | after load | row shows unassigned + fallback indication |
+| F1 | Naming row reflects roles map | state-convergence | L3 | automated | `roles.naming` assigned | open the Roles panel | the `naming` row shows that model |
+| F2 | Naming row writes via `roles:set` | state-transition | L3 | automated | operator picks a model in the `naming` row | save | assignment persists through `roles:set`; no new preference field written |
+| F3 | Unassigned shows fallback | state-transition | L3 | automated | `roles.naming` unassigned | open the Roles panel | row indicates the `fast` fallback |
+| F4 | Removed role state | decision-table | L3 | automated | removal marker in effect for `naming` | open the Roles panel | no assignable `naming` slot is rendered, distinct from unassigned |
+| F5 | Toggle points to the naming model | state-convergence | L3 | automated | any install | open Settings → sessions page | the auto-name toggle names where the naming model is configured and states the `fast` fallback |
+| F6 | Preset load reflected | state-transition | L3 | automated | `roles.naming` assigned, then load a preset lacking `naming` | after load | the `naming` row shows unassigned + fallback indication |
 | F7 | Diagnostics shows a waiting state | state-convergence | L3 | automated | session whose last outcome is `waiting` | open Settings → Diagnostics | outcome and reason rendered for that session |
 | F8 | Diagnostics late mount | state-convergence | L3 | automated | outcome reported BEFORE the surface is opened | open Diagnostics afterwards | retained outcome still rendered (not broadcast-dependent) |
 | F9 | Diagnostics distinguishes starved | state-convergence | L3 | automated | session whose last outcome is `starved` | open Diagnostics | presented distinctly from `waiting`; conveys truncation |

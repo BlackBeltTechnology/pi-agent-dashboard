@@ -140,6 +140,25 @@ describe("settings page composition", () => {
     expect(callout.contains(controls[0])).toBe(true);
   });
 
+  /**
+   * The naming model is the `naming` ROLE, so it is configured in the Roles
+   * panel — one source of truth, no second preference. Without a pointer the
+   * operator has no way to discover that from the toggle, and an unassigned
+   * `naming` reads as "auto-naming is broken" rather than "@fast is used".
+   * See change: fix-auto-naming-reasoning-model (test-plan #F5).
+   */
+  it("F5: the auto-name toggle points at the @naming role and its @fast fallback", async () => {
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Interface"));
+    gotoPage("Sessions");
+    await waitFor(() => screen.getByText(/Session Strategy/i));
+
+    const pointer = screen.getByTestId("auto-name-model-pointer");
+    expect(pointer.textContent).toMatch(/@naming/);
+    expect(pointer.textContent).toMatch(/Roles/);
+    expect(pointer.textContent).toMatch(/@fast/);
+  });
+
   // test-plan #F2
   it("states the brand-new-only caveat on the default-model callout", async () => {
     render(<SettingsPanel />);
