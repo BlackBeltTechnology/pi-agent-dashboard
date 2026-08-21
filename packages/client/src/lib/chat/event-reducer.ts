@@ -10,6 +10,12 @@
 // state; useMessageHandler.ts mirrors every msg.event into the
 // per-session-events store the plugin runtime owns.
 import { parseSkillBlock, type SkillBlock } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
+import {
+  imageBlockData,
+  imageBlockMime,
+  isRenderableImageBlock,
+  isTruncatedImageBlock,
+} from "@blackbelt-technology/pi-dashboard-shared/image-block.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 export interface ChatImage {
@@ -1465,17 +1471,31 @@ export function reduceEvent(
           // slot, otherwise the attachment position is lost and the later
           // `attachment_fitted` event has nothing to fill. Legacy inline blocks
           // (bytes present, no attachmentId) keep the original predicate.
-          // See change: fit-attachments-for-display (D12).
-          const imgBlocks = msg.content.filter(
-            (c: any) => c.type === "image" && c.mimeType && (c.data || c.attachmentId),
-          );
+          // Tolerate BOTH image block shapes via the shared detector: the flat
+          // pi shape `{data,mimeType}` and the nested Anthropic shape
+          // `{source:{media_type,data}}` (some provider/import/replay paths).
+          // See change: fit-attachments-for-display (D12); nested-shape
+          // tolerance: fix-pasted-image-message-vanishes.
+          const imgBlocks = msg.content.filter((c: any) => isRenderableImageBlock(c));
           if (imgBlocks.length > 0) {
-            images = imgBlocks.map((c: any) => ({
-              data: c.data ?? "",
-              mimeType: c.mimeType,
-              ...(c.attachmentId ? { attachmentId: c.attachmentId } : {}),
-              ...(c.attachmentState ? { attachmentState: c.attachmentState } : {}),
-            }));
+            // `isRenderableImageBlock` already guaranteed a non-empty mime, so
+            // the `?? ""` fallback is unreachable — it only narrows the type
+            // from `string | undefined` to `string` for ChatImage.mimeType.
+            images = imgBlocks.map((c: any) => {
+              // A RESCUED block (server stripped over-ceiling image bytes) has
+              // no bytes and no attachmentId — nothing will ever fill it, so it
+              // resolves straight to the explicit unavailable slot rather than
+              // pending forever. An existing attachmentState always wins.
+              // See change: fix-pasted-image-message-vanishes.
+              const attachmentState =
+                c.attachmentState ?? (isTruncatedImageBlock(c) ? "failed" : undefined);
+              return {
+                data: imageBlockData(c) ?? "",
+                mimeType: imageBlockMime(c) ?? "",
+                ...(c.attachmentId ? { attachmentId: c.attachmentId } : {}),
+                ...(attachmentState ? { attachmentState } : {}),
+              };
+            });
           }
         } else {
           text = String(msg.content ?? "");

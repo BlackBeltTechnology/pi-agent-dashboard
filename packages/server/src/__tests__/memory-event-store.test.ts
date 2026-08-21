@@ -178,6 +178,76 @@ describe("memory-event-store", () => {
       expect(content.data).toHaveLength(500);
     });
 
+    it("preserves nested-shape base64 image data (media_type sibling)", () => {
+      // The per-field exemption must key off the SHAPE, not the literal key
+      // `mimeType`: capping a nested `source.data` yields a base64 string that
+      // no longer decodes, i.e. a broken image rather than a smaller one.
+      // See change: fix-pasted-image-message-vanishes.
+      const store = createMemoryEventStore(neverPinned, 100, 5000, 100);
+      const longBase64 = "A".repeat(500);
+      const event: DashboardEvent = {
+        eventType: "message_start",
+        timestamp: Date.now(),
+        data: {
+          message: {
+            role: "user",
+            content: [
+              { type: "image", source: { type: "base64", media_type: "image/png", data: longBase64 } },
+            ],
+          },
+        },
+      };
+      store.insertEvent("s1", event);
+      const stored = store.getEvent("s1", 1);
+      const block = (stored as any).data.message.content[0];
+      expect(block.source.data).toBe(longBase64);
+    });
+
+    it("rescued message text is capped by the SAME universal rule as any message", () => {
+      // The per-string-field cap is universal and predates the rescue: a 5000-char
+      // text block is head+tail-capped in a plain message and in a rescued one
+      // ALIKE. Exempting rescued messages would make the bound depend on whether
+      // a message happened to carry an image, and would let a rescued event carry
+      // unbounded text up to the ceiling. What the rescue changes is the
+      // alternative: without it this row was the whole-event {__truncated}
+      // placeholder — total loss, not a capped-and-marked string.
+      // See change: fix-pasted-image-message-vanishes.
+      const store = createMemoryEventStore(neverPinned); // production defaults
+      const text = "T".repeat(5000); // > DEFAULT_MAX_STRING_SIZE (4000)
+      const plain: DashboardEvent = {
+        eventType: "message_start",
+        timestamp: Date.now(),
+        data: { message: { role: "user", content: [{ type: "text", text }] } },
+      };
+      const withBigImage: DashboardEvent = {
+        eventType: "message_start",
+        timestamp: Date.now(),
+        data: {
+          message: {
+            role: "user",
+            content: [
+              { type: "text", text },
+              {
+                type: "image",
+                data: "A".repeat(DEFAULT_MAX_EVENT_DATA_SIZE * 2),
+                mimeType: "image/png",
+              },
+            ],
+          },
+        },
+      };
+      store.insertEvent("s1", plain);
+      store.insertEvent("s1", withBigImage);
+      const plainText = (store.getEvent("s1", 1) as any).data.message.content[0].text;
+      const rescuedText = (store.getEvent("s1", 2) as any).data.message.content[0].text;
+      // Identical treatment — the rescue neither worsens nor exempts the cap.
+      expect(rescuedText).toBe(plainText);
+      // And the cap is head+tail with an explicit marker, not silent loss.
+      expect(rescuedText).toContain("hidden");
+      expect(rescuedText.startsWith("TTTT")).toBe(true);
+      expect(rescuedText.endsWith("TTTT")).toBe(true);
+    });
+
     it("still truncates data field without mimeType sibling", () => {
       const store = createMemoryEventStore(neverPinned, 100, 5000, 100);
       const longString = "B".repeat(500);
@@ -222,16 +292,18 @@ describe("memory-event-store", () => {
       expect(content.length).toBeLessThan(10_000);
     });
 
-    it("large pasted image over the ceiling is now byte-detected and placeholdered", () => {
-      // Behavior REVERSAL (intended): the size walk used to exempt base64 image
-      // `data` (counted 8 bytes), letting an image-bearing event escape the
-      // ceiling and then OOM the broadcast JSON.stringify. It now counts the
-      // image at its REAL byte size, so an over-ceiling image-bearing event
-      // correctly trips the ceiling and gets the {__truncated} placeholder.
-      // See change: head-tail-truncate-subagent-event-timeline (D8).
+    it("large pasted image over the ceiling keeps the message, strips only the image bytes", () => {
+      // Regression fix: a user chat message with a pasted screenshot bigger
+      // than the per-event ceiling used to collapse to the {__truncated}
+      // placeholder, which erases `data.message` entirely. The client's
+      // `message_start` handler then saw no `message.role` and the row
+      // VANISHED from chat history — text and all. The truncator now strips
+      // the base64 image bytes in place while preserving the message envelope
+      // (role, text block, image block POSITION + mime), so the message
+      // survives. See change: fix-pasted-image-message-vanishes.
       const store = createMemoryEventStore(neverPinned); // production defaults
       // Sized off the constant so the case keeps tripping the ceiling when the
-      // ceiling moves. See change: fit-attachments-for-display (task 5.4).
+      // ceiling moves.
       const bigImage = "A".repeat(DEFAULT_MAX_EVENT_DATA_SIZE * 2);
       const event: DashboardEvent = {
         eventType: "message_start",
@@ -248,8 +320,86 @@ describe("memory-event-store", () => {
       };
       store.insertEvent("s1", event);
       const stored = store.getEvent("s1", 1) as any;
+      // Message survives (NOT the whole-event placeholder).
+      expect(stored.data.__truncated).toBeUndefined();
+      expect(stored.data.message.role).toBe("user");
+      const content = stored.data.message.content;
+      // Text block preserved verbatim.
+      expect(content[0]).toEqual({ type: "text", text: "here is the screenshot" });
+      // Image block keeps its POSITION + mime, but its bytes are stripped.
+      expect(content[1].type).toBe("image");
+      expect(content[1].mimeType).toBe("image/png");
+      expect(content[1].data).toBe("");
+      expect(content[1].imageTruncated).toBe(true);
+      // And the stored event is under the ceiling.
+      expect(Buffer.byteLength(JSON.stringify(stored.data))).toBeLessThanOrEqual(
+        DEFAULT_MAX_EVENT_DATA_SIZE,
+      );
+    });
+
+    it("large pasted image in the nested Anthropic source shape also keeps the message", () => {
+      // Some provider/import paths carry the canonical Anthropic image block
+      // shape `{ type:"image", source:{ type:"base64", media_type, data } }`
+      // instead of the flat pi SDK shape. The truncator must reduce it too,
+      // or the message vanishes exactly as in the flat case.
+      // See change: fix-pasted-image-message-vanishes.
+      const store = createMemoryEventStore(neverPinned);
+      const bigImage = "A".repeat(DEFAULT_MAX_EVENT_DATA_SIZE * 2);
+      const event: DashboardEvent = {
+        eventType: "message_start",
+        timestamp: Date.now(),
+        data: {
+          message: {
+            role: "user",
+            content: [
+              { type: "text", text: "nested shape" },
+              { type: "image", source: { type: "base64", media_type: "image/png", data: bigImage } },
+            ],
+          },
+        },
+      };
+      store.insertEvent("s1", event);
+      const stored = store.getEvent("s1", 1) as any;
+      // The message survives (NOT the whole-event placeholder) and is bounded.
+      expect(stored.data.__truncated).toBeUndefined();
+      expect(stored.data.message.role).toBe("user");
+      const img = stored.data.message.content[1];
+      expect(img.type).toBe("image");
+      // The nested media_type wrapper is preserved.
+      expect(img.source.media_type).toBe("image/png");
+      // The huge base64 is stripped out (bytes removed, position kept).
+      expect(img.source.data).toBe("");
+      expect(img.imageTruncated).toBe(true);
+      expect(Buffer.byteLength(JSON.stringify(stored.data))).toBeLessThanOrEqual(
+        DEFAULT_MAX_EVENT_DATA_SIZE,
+      );
+    });
+
+    it("still uses the whole-event placeholder when non-image content busts the ceiling", () => {
+      // Defense-in-depth: image stripping is a targeted rescue, not a blanket
+      // exemption. With the generic string pass disabled, a message whose TEXT
+      // alone exceeds the ceiling still falls through to {__truncated}.
+      // See change: fix-pasted-image-message-vanishes.
+      // maxStringFieldSize = 0 disables per-field string capping so the huge
+      // text block is not itself shortened.
+      const store = createMemoryEventStore(neverPinned, undefined, undefined, 0);
+      const hugeText = "T".repeat(DEFAULT_MAX_EVENT_DATA_SIZE * 2);
+      const event: DashboardEvent = {
+        eventType: "message_start",
+        timestamp: Date.now(),
+        data: {
+          message: {
+            role: "user",
+            content: [
+              { type: "text", text: hugeText },
+              { type: "image", data: "A".repeat(1000), mimeType: "image/png" },
+            ],
+          },
+        },
+      };
+      store.insertEvent("s1", event);
+      const stored = store.getEvent("s1", 1) as any;
       expect(stored.data.__truncated).toBe(true);
-      expect(stored.data.eventType).toBe("message_start");
       expect(Buffer.byteLength(JSON.stringify(stored.data))).toBeLessThanOrEqual(
         DEFAULT_MAX_EVENT_DATA_SIZE,
       );
@@ -802,7 +952,12 @@ describe("memory-event-store", () => {
       expect(Buffer.byteLength(JSON.stringify(entry))).toBeLessThanOrEqual(B);
     });
 
-    it("E11: image-bearing NON-subagent event is byte-detected → {__truncated}", () => {
+    it("E11: image-bearing NON-subagent event keeps the message, strips the image bytes", () => {
+      // A user message_start carrying a pasted screenshot bigger than the
+      // ceiling must NOT collapse to {__truncated} (that erases data.message
+      // and the row vanishes from chat). The image bytes are stripped in place;
+      // the message envelope + block position survive.
+      // See change: fix-pasted-image-message-vanishes.
       const store = createMemoryEventStore(neverPinned, undefined, undefined, undefined, CEIL);
       const event: DashboardEvent = {
         eventType: "message_start",
@@ -816,7 +971,12 @@ describe("memory-event-store", () => {
       };
       store.insertEvent("s1", event);
       const stored = store.getEvent("s1", 1) as any;
-      expect(stored.data.__truncated).toBe(true);
+      expect(stored.data.__truncated).toBeUndefined();
+      expect(stored.data.message.role).toBe("user");
+      const img = stored.data.message.content[0];
+      expect(img.type).toBe("image");
+      expect(img.mimeType).toBe("image/png");
+      expect(img.data).toBe("");
       expect(bytesOf(stored.data)).toBeLessThanOrEqual(CEIL);
     });
 
