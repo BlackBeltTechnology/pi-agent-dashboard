@@ -591,3 +591,36 @@ describe("lock takeover under a race (defect B2)", () => {
     expect(readMetadata(metaPath)?.identity).toBe("winner");
   });
 });
+
+// ──────────────────────────────────────────────────────────────────────────
+// (@review Audit, major) `readMetadataDetailed` was added to fix defect B2 —
+// "a live holder whose sidecar is momentarily unreadable can be stolen from" —
+// but `acquireOrAttach` still read through `readMetadata`, which collapses
+// EACCES/EIO to null. A null record after 500ms is treated as stale and
+// force-stolen: unlock another process's LIVE lock, remove its record, rebind.
+// Two dashboards per HOME, from a permissions blip.
+// ──────────────────────────────────────────────────────────────────────────
+describe("an UNREADABLE record is not a stealable one (defect B2)", () => {
+  it.skipIf(process.getuid?.() === 0)("fails loudly instead of stealing", async () => {
+    const properLockfile = (await import("proper-lockfile")).default;
+    fs.mkdirSync(path.dirname(lockPath), { recursive: true });
+    fs.writeFileSync(lockPath, "# seeded\n");
+    await properLockfile.lock(lockPath, { stale: 60_000, retries: 0, realpath: false, update: 0 });
+    writeMetadataAtomic(
+      {
+        pid: process.pid, ppid: 1, httpPort: 8000, piPort: 9999, startedAt: 1,
+        identity: "live-holder", version: "v", url: "u", hostname: "h",
+      },
+      metaPath,
+    );
+    // Mode 000 is what makes it unreadable; root would defeat it, hence skipIf.
+    fs.chmodSync(metaPath, 0o000);
+
+    await expect(acquireOrAttach(baseConfig({ identity: "thief" }))).rejects.toThrow(
+      /unreadable/i,
+    );
+    // And the live holder's record is still there, untouched.
+    fs.chmodSync(metaPath, 0o600);
+    expect(readMetadata(metaPath)?.identity).toBe("live-holder");
+  });
+});

@@ -35,6 +35,7 @@ import {
   formatBindReachabilityWarning,
   initBindReachability,
 } from "./auth/bind-reachability-service.js";
+import { decideBridgeTicketMint } from "./auth/bridge-ticket-eligibility.js";
 import { isCorsOriginAllowed } from "./auth/cors-origin.js";
 import { registerCsp, resolveCspMode } from "./auth/csp.js";
 import { ensureServerIdentity } from "./auth/identity.js";
@@ -1669,6 +1670,22 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         reply.code(400);
         return { success: false as const, error: "invalid scope" };
       }
+      if (scope === "bridge") {
+        // networkGuard's OR branches include a cookie session and any
+        // trusted-network host; the bridge surface is more privileged than
+        // `/ws` (it registers sessions and attributes events), so it is
+        // narrowed to actual bridges (@review Audit, major).
+        const verdict = decideBridgeTicketMint({
+          authorization: request.headers.authorization,
+          ip: request.ip,
+          headers: request.headers as Record<string, unknown>,
+          verifyDeviceBearer: (token) => pairedDeviceRegistry.verify(token) !== null,
+        });
+        if (!verdict.allow) {
+          reply.code(403);
+          return { success: false as const, error: verdict.reason };
+        }
+      }
       return { success: true as const, data: { ticket: wsTicketStore.mint(scope) } };
     },
   );
@@ -2202,6 +2219,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // scope. Origin check is defense-in-depth only (absent-Origin exists),
         // never the sole gate.
         const scope = routeScopeForUrl(request.url);
+        // `bridge` belongs to the pi-gateway listener, not to this one. Letting
+        // it through would CONSUME the single-use ticket here and then fall to
+        // the routing `default:` and destroy the socket — a bridge that dialled
+        // the dashboard port would silently burn its ticket and see a bare TCP
+        // close (@review Audit, minor).
+        if (scope === "bridge") {
+          socket.write("HTTP/1.1 400 Bad Request\r\n\r\n");
+          socket.destroy();
+          return;
+        }
         const ticket = extractTicket(request.url, secWsProtocol);
         const consumeTicket = (t: string, s: WsRouteScope) => wsTicketStore.consume(t, s);
         const wsHeaders = request.headers as unknown as Record<string, unknown>;

@@ -104,6 +104,41 @@ describe("decideBridgeUpgrade", () => {
     }
   });
 
+  // @review (Audit, blocking): the grace path trusted `remoteAddress` alone.
+  // Any locally-terminating relay — zrok/ngrok, `ssh -L`, socat, an nginx on
+  // the host, docker's userland proxy — makes an INTERNET peer look like
+  // 127.0.0.1, and the grace then admitted it with no credential at all. The
+  // HTTP path already refuses exactly this shape (`isGenuinelyLocal`).
+  it("refuses the loopback grace to a RELAYED peer presenting proxy headers", () => {
+    for (const headers of [
+      { "x-forwarded-for": "203.0.113.9" },
+      { "x-real-ip": "203.0.113.9" },
+      { forwarded: "for=203.0.113.9" },
+    ]) {
+      const v = decideBridgeUpgrade({
+        transport: "tcp",
+        remoteAddress: "127.0.0.1",
+        headers,
+        requireTicketOnLoopback: false,
+        consumeTicket: () => ({ ok: false, reason: "missing" }),
+      });
+      expect(v.allow).toBe(false);
+    }
+  });
+
+  it("still admits a relayed peer that presents a VALID ticket", () => {
+    const s = store();
+    const t = s.mint("bridge");
+    const v = decideBridgeUpgrade({
+      transport: "tcp",
+      remoteAddress: "127.0.0.1",
+      headers: { "x-forwarded-for": "203.0.113.9" },
+      url: `/ws/bridge?ticket=${t}`,
+      consumeTicket: consumeWith(s),
+    });
+    expect(v.allow).toBe(true);
+  });
+
   it("treats IPv6 loopback forms as loopback", () => {
     for (const addr of ["::1", "::ffff:127.0.0.1"]) {
       const v = decideBridgeUpgrade({

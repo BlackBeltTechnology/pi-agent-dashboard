@@ -169,8 +169,11 @@ export function getMetaPath(lockPath: string = getLockPath()): string {
 export function writeMetadataAtomic(meta: LockMetadata, metaPath: string = getMetaPath()): void {
   const dir = path.dirname(metaPath);
   fs.mkdirSync(dir, { recursive: true });
-  const tmpPath = `${metaPath}.tmp-${process.pid}-${Date.now()}`;
-  fs.writeFileSync(tmpPath, JSON.stringify(meta, null, 2));
+  // Exclusive create with an explicit mode: the tmp name is predictable, and
+  // a plain write would follow a planted symlink and inherit the umask
+  // (@review Audit, minor).
+  const tmpPath = `${metaPath}.tmp-${process.pid}-${Date.now()}-${randomUUID().slice(0, 8)}`;
+  fs.writeFileSync(tmpPath, JSON.stringify(meta, null, 2), { mode: 0o600, flag: "wx" });
   fs.renameSync(tmpPath, metaPath);
 }
 
@@ -354,7 +357,14 @@ export async function acquireOrAttach(config: AcquireConfig): Promise<LockAcquir
   // deterministic.
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   if (!fs.existsSync(lockPath)) {
-    fs.writeFileSync(lockPath, "# pi-dashboard per-HOME advisory lock\n");
+    try {
+      fs.writeFileSync(lockPath, "# pi-dashboard per-HOME advisory lock\n", {
+        mode: 0o600,
+        flag: "wx",
+      });
+    } catch {
+      /* raced with another starter — fine, we lock it below */
+    }
   }
 
   const buildMeta = (): LockMetadata => ({
@@ -422,11 +432,27 @@ export async function acquireOrAttach(config: AcquireConfig): Promise<LockAcquir
     // metadata sidecar a few ms after acquiring. The loser hits ELOCKED
     // faster and can read the sidecar BEFORE the winner has written it.
     // Short-poll for metadata to land before concluding "no metadata = stale."
+    //
+    // The read goes through `readMetadataDetailed` — `readMetadata` collapses
+    // EACCES/EIO to `null`, and `null` is treated as stale and force-stolen, so
+    // a permissions blip on a LIVE holder's sidecar was enough to unlock its
+    // lock, delete its record and rebind: two dashboards per HOME (defect B2,
+    // @review Audit).
     let meta: LockMetadata | null = null;
     for (let i = 0; i < 20; i++) {
-      meta = readMetadata(metaPath);
-      if (meta) break;
-      await new Promise(r => setTimeout(r, 25));
+      const read = readMetadataDetailed(metaPath);
+      if (read.status === "unreadable") {
+        throw new Error(
+          `pi-dashboard: the rendezvous record at ${metaPath} exists but is unreadable. ` +
+            "Refusing to take over this HOME — a live dashboard may still hold it. " +
+            "Fix the file's permissions, or stop the running dashboard and remove it.",
+        );
+      }
+      if (read.status === "ok") {
+        meta = read.meta;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 25));
     }
     if (!meta) {
       // Truly no metadata after 500ms → assume stale/corrupt. Force steal.
@@ -470,7 +496,15 @@ export async function acquireOrAttach(config: AcquireConfig): Promise<LockAcquir
       /* ignore */
     }
     const stolen = await tryAcquire(async (existing) => {
-      if (!existing || existing.identity === observed.identity) return "proceed";
+      if (existing?.identity === observed.identity) return "proceed";
+      if (!existing) {
+        // No record while we hold the lock. Either the holder we observed dead
+        // never wrote one, or a live winner has acquired and not yet written
+        // its sidecar (@review Audit, minor — the same family as B2). Only the
+        // first is ours to claim, and it is distinguishable: a live winner
+        // holds the lock, so we could not be here.
+        return "proceed";
+      }
       // The record changed under us. Only a *dead* successor may be replaced.
       return (await isLockHolderResponsive(existing, hooks)) === "dead" ? "proceed" : "abandon";
     });

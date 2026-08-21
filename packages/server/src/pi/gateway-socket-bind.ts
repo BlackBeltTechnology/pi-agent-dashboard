@@ -58,7 +58,17 @@ export class GatewaySocketConflictError extends Error {
 /** How long to wait for a probe connection before calling it indeterminate. */
 const PROBE_TIMEOUT_MS = 500;
 
-export type ProbeResult = "no-listener" | "live" | "indeterminate";
+/**
+ * `refused` and `timeout` are deliberately NOT one verdict.
+ *
+ * A refusal means the kernel answered: nothing is accepting on that path.
+ * A timeout means nothing answered at all — which is exactly what a LIVE
+ * listener with a saturated accept backlog looks like. Collapsing them let a
+ * same-uid process (every pi session shares the uid and the `0700` dir) plant
+ * a dead pid, load the incumbent's backlog, and legitimately unlink a live
+ * socket (@review Audit, major).
+ */
+export type ProbeResult = "no-listener" | "live" | "refused" | "timeout" | "indeterminate";
 
 /**
  * Connect to `socketPath` to find out whether anything is serving there.
@@ -81,12 +91,12 @@ export function probeSocket(
       resolve(r);
     };
     const sock = net.connect(socketPath);
-    sock.setTimeout(timeoutMs, () => done("indeterminate"));
+    sock.setTimeout(timeoutMs, () => done("timeout"));
     sock.on("connect", () => done("live"));
     sock.on("error", (err: NodeJS.ErrnoException) => {
       if (err.code === "ENOENT") return done("no-listener");
-      // ECONNREFUSED is ambiguous (stale file vs saturated backlog) and every
-      // other errno is simply unknown. Both fail closed.
+      if (err.code === "ECONNREFUSED") return done("refused");
+      // Every other errno is simply unknown, and fails closed.
       done("indeterminate");
     });
   });
@@ -127,8 +137,18 @@ export async function bindGatewaySocket(opts: BindGatewaySocketOptions): Promise
       if (state === "live") {
         throw new GatewaySocketConflictError(socketPath, "a live listener answered the probe");
       }
-      if (state === "indeterminate" && !ownerIsProvablyDead(socketPath)) {
-        throw new GatewaySocketConflictError(socketPath, "the probe was indeterminate");
+      // Only a REFUSAL may be reconsidered against the pidfile. A timeout is
+      // indistinguishable from a live listener whose backlog is full, so it
+      // never authorises an unlink no matter what the pidfile claims.
+      const reclaimable =
+        state === "no-listener" || (state === "refused" && ownerIsProvablyDead(socketPath));
+      if (!reclaimable) {
+        throw new GatewaySocketConflictError(
+          socketPath,
+          state === "timeout"
+            ? "the probe timed out — a live listener with a full backlog looks exactly like this"
+            : `the probe was ${state} and no dead owner pid is recorded`,
+        );
       }
       // Proven dead while holding the lock: no other participant can bind
       // between here and our own bind.
@@ -165,8 +185,17 @@ export async function bindGatewaySocket(opts: BindGatewaySocketOptions): Promise
  * so the unlink branch is unreachable under the real probe (@review finding 1).
  */
 function writeOwnerPid(socketPath: string): void {
+  const p = `${socketPath}.pid`;
   try {
-    fs.writeFileSync(`${socketPath}.pid`, `${process.pid}\n`, { mode: 0o600 });
+    // `writeFileSync` FOLLOWS a symlink and leaves a pre-existing file's mode
+    // alone, so a planted symlink would be clobbered through and a loose mode
+    // would persist. Unlink first, then create exclusively (@review Audit).
+    try {
+      fs.unlinkSync(p);
+    } catch {
+      /* nothing there */
+    }
+    fs.writeFileSync(p, `${process.pid}\n`, { mode: 0o600, flag: "wx" });
   } catch {
     /* best-effort: absence only costs us the ability to reclaim */
   }
@@ -200,7 +229,14 @@ function ownerIsProvablyDead(socketPath: string): boolean {
 async function acquireBindLock(socketPath: string): Promise<() => Promise<void>> {
   const lockTarget = `${socketPath}.lock`;
   if (!fs.existsSync(lockTarget)) {
-    fs.writeFileSync(lockTarget, "# pi-dashboard gateway socket bind lock\n");
+    try {
+      fs.writeFileSync(lockTarget, "# pi-dashboard gateway socket bind lock\n", {
+        mode: 0o600,
+        flag: "wx",
+      });
+    } catch {
+      /* raced with another starter creating it — that is fine, we lock it below */
+    }
   }
   return properLockfile.lock(lockTarget, {
     stale: 10_000,

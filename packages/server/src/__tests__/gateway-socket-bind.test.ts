@@ -77,7 +77,7 @@ describe("bindGatewaySocket", () => {
   it("fails closed on an indeterminate probe and does NOT remove the path", async () => {
     fs.writeFileSync(sockPath, ""); // a path that exists but is not a live socket
     const before = fs.statSync(sockPath).ino;
-    await expect(bind({ probe: async () => "indeterminate" })).rejects.toBeInstanceOf(
+    await expect(bind({ probe: async () => "refused" })).rejects.toBeInstanceOf(
       GatewaySocketConflictError,
     );
     expect(fs.existsSync(sockPath)).toBe(true);
@@ -100,10 +100,10 @@ describe("bindGatewaySocket", () => {
     expect(fs.existsSync(sockPath)).toBe(true);
     const staleIno = fs.statSync(sockPath).ino;
 
-    // A dead socket file refuses connections, which is INDETERMINATE on its
-    // own (a saturated live listener refuses identically) — so the real probe
-    // correctly declines to authorise the unlink…
-    await expect(probeSocket(sockPath)).resolves.toBe("indeterminate");
+    // A dead socket file REFUSES connections — which a saturated live listener
+    // also does, so a refusal alone still does not authorise the unlink; only
+    // a refusal plus a provably-dead recorded owner does.
+    await expect(probeSocket(sockPath)).resolves.toBe("refused");
     await expect(bind()).rejects.toBeInstanceOf(GatewaySocketConflictError);
     expect(fs.statSync(sockPath).ino).toBe(staleIno);
 
@@ -173,7 +173,7 @@ describe("stale-socket reclamation (pidfile discriminator)", () => {
     // and no listener. The probe alone cannot tell it from a saturated one.
     fs.writeFileSync(sockPath, "");
     fs.writeFileSync(`${sockPath}.pid`, "2147483646\n"); // never a live pid
-    const server = await bind({ probe: async () => "indeterminate" });
+    const server = await bind({ probe: async () => "refused" });
     expect(server.listening).toBe(true);
     expect(fs.statSync(sockPath).isSocket()).toBe(true);
   });
@@ -181,7 +181,7 @@ describe("stale-socket reclamation (pidfile discriminator)", () => {
   it("still refuses when the recorded pid is alive", async () => {
     fs.writeFileSync(sockPath, "");
     fs.writeFileSync(`${sockPath}.pid`, `${process.pid}\n`);
-    await expect(bind({ probe: async () => "indeterminate" })).rejects.toBeInstanceOf(
+    await expect(bind({ probe: async () => "refused" })).rejects.toBeInstanceOf(
       GatewaySocketConflictError,
     );
     expect(fs.existsSync(sockPath)).toBe(true);
@@ -189,7 +189,7 @@ describe("stale-socket reclamation (pidfile discriminator)", () => {
 
   it("still refuses when there is no pidfile to prove death", async () => {
     fs.writeFileSync(sockPath, "");
-    await expect(bind({ probe: async () => "indeterminate" })).rejects.toBeInstanceOf(
+    await expect(bind({ probe: async () => "refused" })).rejects.toBeInstanceOf(
       GatewaySocketConflictError,
     );
     expect(fs.existsSync(sockPath)).toBe(true);
@@ -212,5 +212,50 @@ describe("stale-socket reclamation (pidfile discriminator)", () => {
     opened.length = 0;
     await unbindGatewaySocket(server, sockPath);
     expect(fs.existsSync(`${sockPath}.pid`)).toBe(false);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// (@review Audit, major) The pidfile must not become a live-socket takeover
+// primitive. `indeterminate` covered BOTH "refused, so probably stale" and
+// "timed out, so possibly a live listener with a saturated backlog". A
+// same-uid process (every pi session shares the uid and the 0700 dir) could
+// plant a dead pid, load the incumbent's backlog until the probe times out,
+// and legitimately unlink a LIVE socket.
+//
+// A timeout is therefore its own verdict and NEVER authorises an unlink,
+// whatever the pidfile says.
+// ──────────────────────────────────────────────────────────────────────────
+describe("a saturated live listener is not a stale socket", () => {
+  it("refuses to unlink on a probe TIMEOUT even with a dead pid recorded", async () => {
+    fs.writeFileSync(sockPath, "");
+    fs.writeFileSync(`${sockPath}.pid`, "2147483646\n");
+    await expect(bind({ probe: async () => "timeout" })).rejects.toBeInstanceOf(
+      GatewaySocketConflictError,
+    );
+    expect(fs.existsSync(sockPath)).toBe(true);
+  });
+
+  it("still reclaims on a REFUSED probe with a dead pid recorded", async () => {
+    fs.writeFileSync(sockPath, "");
+    fs.writeFileSync(`${sockPath}.pid`, "2147483646\n");
+    const server = await bind({ probe: async () => "refused" });
+    expect(server.listening).toBe(true);
+  });
+
+  it("reports a non-socket path as indeterminate, not as a refusal", async () => {
+    // A plain file is not a socket (ENOTSOCK): unknown, so fail closed. Only
+    // a genuine leftover SOCKET answers ECONNREFUSED — asserted above against
+    // a real SIGKILLed listener.
+    fs.writeFileSync(sockPath, "");
+    await expect(probeSocket(sockPath)).resolves.toBe("indeterminate");
+  });
+
+  it("does not follow a symlink when recording the owner pid", async () => {
+    const elsewhere = path.join(tmp, "victim");
+    fs.writeFileSync(elsewhere, "do-not-clobber");
+    fs.symlinkSync(elsewhere, `${sockPath}.pid`);
+    await bind();
+    expect(fs.readFileSync(elsewhere, "utf8")).toBe("do-not-clobber");
   });
 });

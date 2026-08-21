@@ -25,12 +25,20 @@
  * See change: add-pi-gateway-transport-identity (D5, D7, D10b).
  */
 
+import { hasProxyForwardingHeaders } from "../auth/localhost-guard.js";
 import type { TicketConsumption } from "../auth/ws-ticket.js";
 
 export interface BridgeUpgradeInput {
   transport: "unix" | "tcp";
   /** `req.socket.remoteAddress`. Absent is treated as NOT loopback. */
   remoteAddress?: string;
+  /**
+   * The upgrade request's headers. Load-bearing: a relay that terminates on
+   * this host makes a remote peer PRESENT as `127.0.0.1`, so the loopback
+   * grace must also require the absence of proxy-forwarding headers — the
+   * same rule `isGenuinelyLocal` applies on the HTTP path.
+   */
+  headers?: Record<string, unknown> | undefined;
   /** The upgrade URL, carrying `?ticket=`. */
   url?: string;
   /** `sec-websocket-protocol`, the other ticket carrier. */
@@ -83,7 +91,10 @@ export function decideBridgeUpgrade(input: BridgeUpgradeInput): BridgeUpgradeVer
     return { allow: true, reason: "unix socket: authorised by file mode (D5)" };
   }
 
-  const loopback = isLoopbackAddress(input.remoteAddress);
+  // "Genuinely local", not merely "says 127.0.0.1": zrok/ngrok, `ssh -L`,
+  // socat, a host nginx and docker's userland proxy all present as loopback.
+  const loopback =
+    isLoopbackAddress(input.remoteAddress) && !hasProxyForwardingHeaders(input.headers ?? {});
   const consumption = input.consumeTicket(ticketFrom(input));
   if (consumption.ok) {
     return { allow: true, reason: "tcp: valid single-use bridge ticket" };

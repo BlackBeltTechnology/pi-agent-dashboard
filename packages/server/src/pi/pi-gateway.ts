@@ -795,6 +795,7 @@ export function createPiGateway(
             const verdict = decideBridgeUpgrade({
               transport: "tcp",
               remoteAddress: info.req.socket.remoteAddress ?? undefined,
+              headers: info.req.headers,
               url: info.req.url,
               secWebSocketProtocol: info.req.headers["sec-websocket-protocol"],
               requireTicketOnLoopback: bridgeAuth.requireTicketOnLoopback,
