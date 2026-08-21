@@ -32,18 +32,18 @@ becomes mandatory.
 
 ## 3. Route-backed overlay renderer
 
-- [ ] 3.1 Build the route-backed overlay renderer: desktop `Dialog` over a scrim over a **pinned background underlay**, mobile falls through to `MobileShell` depth. This is a NEW mechanism — `OpenSpecArtifactDialog` is local-state and is not a reusable precedent (D1)
-- [ ] 3.1a Capture and freeze the background path at navigation time. wouter has no `location.state` background idiom — render the underlay through a nested `<Router hook={memoryLocation({ path, static: true }).hook}>` so it reads the frozen path, never `window.location` (D1)
-- [ ] 3.1b Cold-load background: no captured background → synthesize from `computeBackTarget(currentRoute)`; `/` → card list. Never render a second branch derived from the current location (D1)
+- [x] 3.1 Build the route-backed overlay renderer: desktop `Dialog` over a scrim over a **pinned background underlay**, mobile falls through to `MobileShell` depth. This is a NEW mechanism — `OpenSpecArtifactDialog` is local-state and is not a reusable precedent (D1)
+- [x] 3.1a Capture and freeze the background path at navigation time. wouter has no `location.state` background idiom — render the underlay through a nested `<Router hook={memoryLocation({ path, static: true }).hook}>` so it reads the frozen path, never `window.location` (D1)
+- [x] 3.1b Cold-load background: no captured background → synthesize from `computeBackTarget(currentRoute)`; `/` → card list. Never render a second branch derived from the current location (D1)
 - [ ] 3.2 Implement dismissal as "leave this surface", NOT a single `history.back()` — unwind the surface's own pushed entries or navigate to the tracked launching route (D1a)
 - [ ] 3.3 Implement the cold-load dismissal path: no tracked predecessor → resolve the target from the `RouteDescriptor` table, never a no-op
 - [ ] 3.4 Ensure lazy mount on match and full unmount on dismissal — no retained subscriptions or polling behind a closed overlay (R4)
-- [ ] 3.5 Confirm exactly ONE branch is derived from the current location; the underlay is derived from the frozen path only. `shell-overlay-route:99,145` and `url-routing:5,7` are amended to "derived from the current location" — verify the amended wording holds, not the old wording
-- [ ] 3.6 ~~Backdrop treatment~~ **RESOLVED by D1 revision** (scrim over the pinned underlay, in-app and cold-load alike). Closes test-plan C1
+- [x] 3.5 Confirm exactly ONE branch is derived from the current location; the underlay is derived from the frozen path only. `shell-overlay-route:99,145` and `url-routing:5,7` are amended to "derived from the current location" — verify the amended wording holds, not the old wording
+- [x] 3.6 ~~Backdrop treatment~~ **RESOLVED by D1 revision** (scrim over the pinned underlay, in-app and cold-load alike). Closes test-plan C1
 - [ ] 3.9 Make the underlay `aria-hidden`, outside the overlay focus trap, and non-interactive; retain its scroll position for the overlay's lifetime (D1 cost)
 - [ ] 3.10 Handle a frozen background path that goes invalid mid-overlay (session ends / folder removed): underlay may go stale behind the scrim, but dismissal SHALL still resolve through normal route matching (D1 open question)
-- [ ] 3.7 Use an existing `--z-*` token rather than a raw z-index so `scripts/z-layer-lint.mjs` stays green
-- [ ] 3.8 Unit-test the renderer against the `url-routing` "Route-backed overlay container" scenarios
+- [x] 3.7 Use an existing `--z-*` token rather than a raw z-index so `scripts/z-layer-lint.mjs` stays green
+- [x] 3.8 Unit-test the renderer against the `url-routing` "Route-backed overlay container" scenarios
 
 ## 4. Plugin overlays render as dialogs
 
