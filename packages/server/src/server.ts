@@ -738,6 +738,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // still accepted (and logged) through 0.9.x, refused from 1.0.0. Remote
       // peers never get that grace.
       requireTicketOnLoopback: false,
+      // A loopback bridge that presents the local token is authorised on its
+      // own credential rather than on the grace — the only local credential
+      // Windows has, since it gets no unix socket (D6, task 5.3).
+      verifyLocalToken: (headers) => verifyLocalToken(headers, localToken),
     },
   });
 

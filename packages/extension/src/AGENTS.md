@@ -31,6 +31,7 @@ Files in this directory. One row per source file.
 | `commit-draft-agent.ts` | pi-SDK-coupled half of AI-draft. Exports `buildSessionContextText(ctx, maxChars)` (compacts… → see `commit-draft-agent.ts.AGENTS.md` |
 | `git-poll.ts` | Exports `runGitPollTick(deps)` + `GitPollDeps` interface. Pure git + name/model poll-tick body. → see `git-poll.ts.AGENTS.md` |
 | `hasui-flip.ts` | Flip `ctx.hasUI` to `true` after bridge patches `ctx.ui.*`. Exports `flipHasUI`. → see `hasui-flip.ts.AGENTS.md` |
+| `local-token-header.ts` | Bridge side of D6: `readLocalToken(env?)` (`~/.pi/dashboard/local/token`, trimmed; empty ⇒ undefined) + `localTokenHeaders(endpoint, env?)` → `X-Pi-Local-Token` ONLY on a loopback TCP dial (undefined over `ws+unix:` and never to a remote endpoint). Wired as `ConnectionManager.headers` in `bridge.ts`. See change: add-pi-gateway-transport-identity (task 5.3). |
 | `markdown-image-inliner.ts` | Bridge helper rewriting assistant `![alt](path)` → `![alt](pi-asset:<hash>)` (SHA-256/16, MIME allowlist, 5… → see `markdown-image-inliner.ts.AGENTS.md` |
 | `model-refresh.ts` | Shared `ModelRegistry.refresh()` handling: `reportRefresh(pending,label)` surfaces abort/per-provider errors and bounds the wait by `REFRESH_TIMEOUT_MS` (10s) so a hung refresh can never block its caller; late rejections swallowed. See change: fix-optimistic-prompt-stuck-sending. |
 | `model-tracker.ts` | Diff-and-send trackers for model / session name / git info / pi version / cwd-missing. → see `model-tracker.ts.AGENTS.md` |

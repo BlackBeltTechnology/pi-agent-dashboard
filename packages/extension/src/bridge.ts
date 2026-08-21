@@ -50,6 +50,7 @@ import {
 import { runGitPollTick } from "./git-poll.js";
 import { flipHasUI } from "./hasui-flip.js";
 import { healthUrlForInstance, verifyInstanceIdentity } from "./instance-verification.js";
+import { localTokenHeaders } from "./local-token-header.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
 import { reportRefresh } from "./model-refresh.js";
 import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged, defaultReadPiVersion } from "./model-tracker.js";
@@ -798,6 +799,11 @@ function initBridge(pi: ExtensionAPI) {
 
   const connection = new ConnectionManager({
     url: dashboardUrl,
+    // D6 (task 5.3): a LOOPBACK TCP dial carries this HOME's local token, the
+    // credential that replaces the socket's file mode where there is no socket
+    // (Windows, or a sun_path fallback). Undefined over a socket and never
+    // sent to a remote endpoint.
+    headers: localTokenHeaders(dashboardUrl),
     // Routing field for a drop report — the reporting bridge's OWN session,
     // never the id the dropped message named.
     // See change: fix-spawn-correlation-ttl-coupling (D6).

@@ -49,6 +49,8 @@ export interface PiGatewayOptions {
     consumeTicket: (ticket: string | null | undefined) => TicketConsumption;
     /** `true` once the D10b deprecation window has closed. */
     requireTicketOnLoopback?: boolean;
+    /** Checks `X-Pi-Local-Token` for a loopback bridge (D6, task 5.3). */
+    verifyLocalToken?: (headers: Record<string, unknown> | undefined) => boolean;
     log?: (msg: string) => void;
   };
   /** Bounded window the contention probe waits for the incumbent's pong. */
@@ -814,6 +816,7 @@ export function createPiGateway(
               secWebSocketProtocol: info.req.headers["sec-websocket-protocol"],
               requireTicketOnLoopback: bridgeAuth.requireTicketOnLoopback,
               consumeTicket: bridgeAuth.consumeTicket,
+              verifyLocalToken: bridgeAuth.verifyLocalToken,
             });
             const log = bridgeAuth.log ?? ((m: string) => console.warn(m));
             if (!verdict.allow) {
