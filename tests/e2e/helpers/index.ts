@@ -506,3 +506,56 @@ export async function cleanupCommit(page: Page, cwd: string): Promise<void> {
     body: JSON.stringify({ cwd, message: "test cleanup", files: files.map((f) => f.path) }),
   });
 }
+
+// ── folder-header git identity (fix-folder-header-worktree-branch-leak) ─────
+//
+// `GroupGitInfo` renders in the folder card's expanded BODY, a sibling of the
+// `folder-home-row-<cwd>` name row — so it must be scoped to the CARD, and the
+// folder must be expanded first or the whole subtree is simply absent.
+
+/** The folder card owning `cwd` (scopes the non-cwd-keyed collapse chevron). */
+export function folderCard(page: Page, cwd: string): Locator {
+  return page
+    .locator('[data-testid="sortable-workspace-folder"], [data-testid="sortable-pinned-group"]')
+    .filter({ has: page.getByTestId(`folder-home-row-${cwd}`) })
+    .first();
+}
+
+/**
+ * Expand `cwd`'s folder card. Idempotent, and safe against hydration: an
+ * un-hydrated sidebar has no `folder-body-<cwd>` either, so a bare
+ * "absent ⇒ collapsed ⇒ click" would COLLAPSE an already-expanded folder and
+ * then wait forever. Retries instead of trusting one reading.
+ */
+export async function expandFolder(page: Page, cwd: string): Promise<void> {
+  const card = folderCard(page, cwd);
+  await card.waitFor({ state: "visible", timeout: 30_000 });
+  const expanded = async () => (await page.getByTestId(`folder-body-${cwd}`).count()) > 0;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (await expanded()) return;
+    await card.getByTestId("folder-toggle-btn").first().click();
+    const ok = await expect
+      .poll(expanded, { timeout: 5_000 })
+      .toBe(true)
+      .then(() => true)
+      .catch(() => false);
+    if (ok) return;
+  }
+  throw new Error(`folder ${cwd} never expanded`);
+}
+
+/**
+ * Branch text as the user reads it in `cwd`'s folder header, or `""` when the
+ * header renders no branch at all (dimmed icon / not yet resolved).
+ */
+export async function folderHeaderBranch(page: Page, cwd: string): Promise<string> {
+  const btn = folderCard(page, cwd).getByTestId("git-branch-btn");
+  if ((await btn.count()) === 0) return "";
+  // The branch label is the button's IMMEDIATE sibling (`<span>` plain, or an
+  // `<a>` when a branch URL is present). Reading the whole container instead
+  // would fold in the dirty pill and the Commit action.
+  return btn
+    .first()
+    .evaluate((el) => (el.nextElementSibling?.textContent ?? "").trim())
+    .catch(() => "");
+}
