@@ -34,6 +34,14 @@ import {
   getDashboardConfigDir,
 } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 
+/** Memoised id per resolved path. Cleared only by process exit. */
+const idCache = new Map<string, string>();
+
+/** Test seam: drop the memo so a fresh HOME is re-read from disk. */
+export function __resetInstanceIdCache(): void {
+  idCache.clear();
+}
+
 /** `~/.pi/dashboard/instances/<piPort>.id` */
 export function getInstanceIdPath(env: DashboardPathsEnv | undefined, piPort: number): string {
   return path.join(getDashboardConfigDir(env), "instances", `${piPort}.id`);
@@ -48,8 +56,17 @@ export function ensureInstanceId(env: DashboardPathsEnv | undefined, piPort: num
   const file = getInstanceIdPath(env, piPort);
   const dir = path.dirname(file);
 
+  // `/api/health` is polled by the UI, the bridge and doctor, and the id is
+  // immutable for the life of the file — so the read is memoised per path
+  // rather than paid per request.
+  const cached = idCache.get(file);
+  if (cached) return cached;
+
   const existing = readInstanceId(file);
-  if (existing) return existing;
+  if (existing) {
+    idCache.set(file, existing);
+    return existing;
+  }
 
   fs.mkdirSync(dir, { recursive: true });
   // chmod separately: mkdir's mode is masked by the process umask, so the
@@ -66,6 +83,7 @@ export function ensureInstanceId(env: DashboardPathsEnv | undefined, piPort: num
   } catch {
     /* best-effort */
   }
+  idCache.set(file, id);
   return id;
 }
 

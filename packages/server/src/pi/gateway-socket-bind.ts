@@ -165,8 +165,9 @@ async function acquireBindLock(socketPath: string): Promise<() => Promise<void>>
 }
 
 /**
- * Close a socket listener and remove its path. Idempotent with respect to a
- * missing file — a stop() after a crash-cleanup must not throw (task 2.5).
+ * Close a socket listener and remove its path, plus the companion bind-lock
+ * sentinel (which would otherwise accumulate forever). Idempotent with respect
+ * to a missing file — a stop() after a crash-cleanup must not throw (task 2.5).
  */
 export async function unbindGatewaySocket(
   server: http.Server | null,
@@ -175,9 +176,11 @@ export async function unbindGatewaySocket(
   if (server) {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }
-  try {
-    fs.unlinkSync(socketPath);
-  } catch {
-    /* already gone */
+  for (const p of [socketPath, `${socketPath}.lock`]) {
+    try {
+      fs.unlinkSync(p);
+    } catch {
+      /* already gone */
+    }
   }
 }

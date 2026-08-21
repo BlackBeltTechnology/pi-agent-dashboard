@@ -92,6 +92,32 @@ describe("pi-gateway over a unix socket", () => {
     await expect(pong).resolves.toBeUndefined();
   });
 
+  // Review finding: the heartbeat used to be installed only by start() (the
+  // TCP path), so a socket-only listener would have shipped with no ping/pong
+  // and a silently no-op contention probe.
+  it("runs the ping heartbeat on a socket-only listener", async () => {
+    const sessionManager = createMemorySessionManager();
+    gateway = createPiGateway(sessionManager, { pingInterval: 20 });
+    await gateway.startOnSocket(sockPath);
+
+    const ws = dial();
+    await opened(ws);
+    // The SERVER pings us; a client that never sees one has no liveness oracle.
+    await expect(
+      new Promise<void>((resolve, reject) => {
+        ws.once("ping", () => resolve());
+        setTimeout(() => reject(new Error("server never pinged over UDS")), 3000);
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("refuses start() after startOnSocket() rather than orphaning the listener", async () => {
+    const sessionManager = createMemorySessionManager();
+    gateway = createPiGateway(sessionManager, { pingInterval: 0 });
+    await gateway.startOnSocket(sockPath);
+    expect(() => gateway?.start(0)).toThrow(/orphan the socket listener/);
+  });
+
   // Task 2.9: a UDS listener's address() is a string, and reporting null
   // blanked the gateway endpoint in the settings UI.
   it("reports the socket path from address() and transport()", async () => {
@@ -109,10 +135,14 @@ describe("pi-gateway over a unix socket", () => {
     expect(fs.existsSync(sockPath)).toBe(true);
 
     gateway.stop();
-    for (let i = 0; i < 100 && fs.existsSync(sockPath); i++) {
+    // stop() is synchronous by contract and hands the teardown off, so poll.
+    for (let i = 0; i < 100; i++) {
+      if (!fs.existsSync(sockPath) && !fs.existsSync(`${sockPath}.lock`)) break;
       await new Promise((r) => setTimeout(r, 10));
     }
     expect(fs.existsSync(sockPath)).toBe(false);
+    // The companion bind-lock sentinel goes too, or it accumulates forever.
+    expect(fs.existsSync(`${sockPath}.lock`)).toBe(false);
     expect(() => gateway?.stop()).not.toThrow();
   });
 });

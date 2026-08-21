@@ -226,6 +226,69 @@ export function createPiGateway(
   }
 
   /**
+   * Install the WS-level ping/pong heartbeat.
+   *
+   * Transport-agnostic ON PURPOSE: `bridge-contention.ts` uses pong frames as
+   * its liveness oracle, and the POSIX default is heading toward a
+   * socket-only listener (D6/D10). Leaving this inside `start()` — the TCP
+   * path — would ship socket-only startup with no heartbeat and a silently
+   * no-op contention probe.
+   * See change: add-pi-gateway-transport-identity.
+   */
+  const startHeartbeat = () => {
+    if (pingTimer) return;
+      // WS-level ping/pong: detect truly dead connections.
+      // Pong responses are processed in the event loop, so a busy bridge
+      // won't respond to pings. We check the underlying TCP socket's
+      // writable state as a fallback — if TCP is alive, the bridge is just
+      // busy, not dead.
+      const PING_MISS_THRESHOLD = 3;
+      if (pingMs > 0) pingTimer = setInterval(() => {
+        if (!wss) return;
+        for (const client of wss.clients) {
+          const misses = aliveMisses.get(client) ?? 0;
+          if (misses >= PING_MISS_THRESHOLD) {
+            // Check if the underlying TCP socket is still alive.
+            // If the socket is writable, the connection is physically intact —
+            // the bridge is just too busy to process pong frames.
+            const socket = (client as any)._socket;
+            const socketAlive = socket && !socket.destroyed && socket.writable;
+            if (socketAlive) {
+              // TCP alive but no pong — bridge is busy. Reset counter, keep alive.
+              console.error(`[gateway] ping: ${misses} misses but TCP alive, keeping session (socket.destroyed=${socket?.destroyed} writable=${socket?.writable})`);
+              aliveMisses.set(client, 0);
+              client.ping();
+              continue;
+            }
+            // TCP is dead — clean up
+            console.error(`[gateway] ping: TCP dead (socket=${!!socket} destroyed=${socket?.destroyed} writable=${socket?.writable})`);
+            
+            for (const [sid, ws] of connections) {
+              if (ws === client) {
+                console.error(`[gateway] connection dead (ping timeout, ${misses} misses): ${sid}`);
+                // Ping timeout — same family as heartbeat expiry.
+                // See change: fix-ended-session-missing-endedat.
+                sessionManager.unregister(sid, { witnessed: false });
+                connections.delete(sid);
+                const timer = heartbeatTimers.get(sid);
+                if (timer) clearTimeout(timer);
+                heartbeatTimers.delete(sid);
+                heartbeatMeta.delete(sid);
+                break;
+              }
+            }
+            client.terminate();
+            aliveMisses.delete(client);
+            checkEmpty();
+            continue;
+          }
+          aliveMisses.set(client, misses + 1);
+          client.ping();
+        }
+      }, pingMs);
+  };
+
+  /**
    * One connection handler, shared by every transport (D10). Registered on a
    * `noServer` WebSocketServer for the unix socket and on the TCP listener
    * alike, so the transport is a per-bridge property rather than a
@@ -684,68 +747,32 @@ export function createPiGateway(
         attachConnectionHandler(wss);
       }
       const server = await bindGatewaySocket({ socketPath: path });
+      // Capture the CURRENT wss: routing socket upgrades through a mutable
+      // binding would send them to whatever server a later start() installed.
+      const target = wss;
       server.on("upgrade", (req, socket, head) => {
-        wss?.handleUpgrade(req, socket as never, head, (ws) => {
-          wss?.emit("connection", ws, req);
+        target.handleUpgrade(req, socket as never, head, (ws) => {
+          target.emit("connection", ws, req);
         });
       });
       socketServer = server;
       socketPath = path;
+      startHeartbeat();
     },
     start(port: number, host?: string) {
+      // A listener already exists (socket transport): replacing `wss` here
+      // would orphan it and silently re-route socket upgrades into the TCP
+      // server's client set. Both transports are meant to SHARE one
+      // WebSocketServer (D10), so refuse the ordering that cannot.
+      if (wss) {
+        throw new Error(
+          "pi-gateway: start() after startOnSocket() would orphan the socket listener; " +
+            "start the TCP listener first, or serve the socket transport alone",
+        );
+      }
       wss = new WebSocketServer(host ? { port, host } : { port });
-
-      // WS-level ping/pong: detect truly dead connections.
-      // Pong responses are processed in the event loop, so a busy bridge
-      // won't respond to pings. We check the underlying TCP socket's
-      // writable state as a fallback — if TCP is alive, the bridge is just
-      // busy, not dead.
-      const PING_MISS_THRESHOLD = 3;
-      if (pingMs > 0) pingTimer = setInterval(() => {
-        if (!wss) return;
-        for (const client of wss.clients) {
-          const misses = aliveMisses.get(client) ?? 0;
-          if (misses >= PING_MISS_THRESHOLD) {
-            // Check if the underlying TCP socket is still alive.
-            // If the socket is writable, the connection is physically intact —
-            // the bridge is just too busy to process pong frames.
-            const socket = (client as any)._socket;
-            const socketAlive = socket && !socket.destroyed && socket.writable;
-            if (socketAlive) {
-              // TCP alive but no pong — bridge is busy. Reset counter, keep alive.
-              console.error(`[gateway] ping: ${misses} misses but TCP alive, keeping session (socket.destroyed=${socket?.destroyed} writable=${socket?.writable})`);
-              aliveMisses.set(client, 0);
-              client.ping();
-              continue;
-            }
-            // TCP is dead — clean up
-            console.error(`[gateway] ping: TCP dead (socket=${!!socket} destroyed=${socket?.destroyed} writable=${socket?.writable})`);
-            
-            for (const [sid, ws] of connections) {
-              if (ws === client) {
-                console.error(`[gateway] connection dead (ping timeout, ${misses} misses): ${sid}`);
-                // Ping timeout — same family as heartbeat expiry.
-                // See change: fix-ended-session-missing-endedat.
-                sessionManager.unregister(sid, { witnessed: false });
-                connections.delete(sid);
-                const timer = heartbeatTimers.get(sid);
-                if (timer) clearTimeout(timer);
-                heartbeatTimers.delete(sid);
-                heartbeatMeta.delete(sid);
-                break;
-              }
-            }
-            client.terminate();
-            aliveMisses.delete(client);
-            checkEmpty();
-            continue;
-          }
-          aliveMisses.set(client, misses + 1);
-          client.ping();
-        }
-      }, pingMs);
-
       attachConnectionHandler(wss);
+      startHeartbeat();
     },
 
     stop() {

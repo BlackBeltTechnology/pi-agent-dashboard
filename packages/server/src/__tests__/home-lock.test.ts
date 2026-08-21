@@ -26,6 +26,7 @@ import {
   getInstanceIdPath,
   INSTANCE_ID_HEALTH_FIELD,
   instanceIdHealthFields,
+  __resetInstanceIdCache,
 } from "../lifecycle/instance-id.js";
 
 // Fresh tmp dir per test → real FS (proper-lockfile needs real FS semantics).
@@ -34,6 +35,7 @@ let lockPath: string;
 let metaPath: string;
 
 beforeEach(() => {
+  __resetInstanceIdCache();
   tmpHome = fs.mkdtempSync(path.join(os.tmpdir(), "pi-home-lock-test-"));
   lockPath = path.join(tmpHome, ".pi", "dashboard", "server.lock");
   metaPath = `${lockPath}.meta.json`;
@@ -78,7 +80,7 @@ describe("canonicalHomedir + paths", () => {
     expect(typeof canonicalHomedir()).toBe("string");
   });
 
-  it("HONOURS $HOME — the lock shares one root with the gateway socket", () => {
+  it.skipIf(process.platform === "win32")("HONOURS $HOME — the lock shares one root with the gateway socket", () => {
     // REVERSED by add-pi-gateway-transport-identity (D2, task 2.0b).
     //
     // The original invariant was $HOME-IMMUNITY, to stop Git Bash
@@ -384,6 +386,7 @@ describe("ensureInstanceId", () => {
     const env = { homedir: tmpHome };
     const first = ensureInstanceId(env, 9999);
     fs.writeFileSync(getInstanceIdPath(env, 9999), "   ");
+    __resetInstanceIdCache();
     const second = ensureInstanceId(env, 9999);
     expect(second).not.toBe(first);
     expect(second.trim()).toBe(second);
@@ -459,13 +462,12 @@ describe("readMetadataDetailed", () => {
     expect(readMetadataDetailed(metaPath)).toEqual({ status: "absent" });
   });
 
-  it("unreadable record reports `unreadable`, NOT absent", () => {
+  it.skipIf(process.getuid?.() === 0)("unreadable record reports `unreadable`, NOT absent", () => {
     write(JSON.stringify({ pid: 1 }));
     fs.chmodSync(metaPath, 0o000);
-    const res = readMetadataDetailed(metaPath);
-    // Running as root defeats mode 000; skip rather than assert a falsehood.
-    if (res.status === "ok" || process.getuid?.() === 0) return;
-    expect(res.status).toBe("unreadable");
+    // Mode 000 is what makes this unreadable; root would defeat it, hence the
+    // skipIf above (a silent early-return would report a vacuous PASS).
+    expect(readMetadataDetailed(metaPath).status).toBe("unreadable");
   });
 
   it("record truncated mid-JSON is treated as absent, never partially trusted", () => {

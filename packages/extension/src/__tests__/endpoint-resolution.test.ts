@@ -120,7 +120,7 @@ describe("decideRetarget — stickiness (D4)", () => {
     },
   );
 
-  it("keeps the current endpoint when the candidate is the same instance", () => {
+  it("re-addresses when the candidate is the SAME instance at a new endpoint", () => {
     const d = decideRetarget({
       current,
       candidate: { endpoint: "ws://X-moved:9999", instanceId: "X" },
