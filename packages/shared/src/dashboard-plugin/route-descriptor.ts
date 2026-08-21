@@ -30,9 +30,14 @@ export interface RouteDescriptor {
  * an encoded cwd round-trips through the router.
  *
  * Returns `null` when the pattern contains a `:param` the match does not
- * supply (e.g. `/automation/run/:sid` cannot fill `/folder/:encodedCwd/...`),
+ * supply (e.g. a `/run/:sid` pattern cannot fill `/folder/:encodedCwd/...`),
  * so callers degrade to the depth default instead of navigating to a broken
  * URL with a literal `:param` segment.
+ *
+ * This degradation is a safety net, not a design target: a claim whose
+ * `parentPath` names a `:param` its own `path` never captures has a back action
+ * that is dead on arrival. `overlay-claims-declare-depth.test.ts` fails the
+ * build on that shape. See change: add-route-backed-overlay-dialogs.
  */
 export function interpolateParentPath(
   parentPath: string,

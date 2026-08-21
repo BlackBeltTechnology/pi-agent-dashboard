@@ -226,3 +226,41 @@ describe("validateManifest — shell-overlay-route depth (fix-plugin-and-scoped-
     );
   });
 });
+
+describe("validateManifest — shell-overlay-route presentation (add-route-backed-overlay-dialogs)", () => {
+  const overlay = (extra: Record<string, unknown>) => ({
+    ...validManifest,
+    claims: [
+      { slot: "shell-overlay-route", component: "Foo", path: "/foo/:id", depth: 1, ...extra },
+    ],
+  });
+
+  it("passes through presentation: \"dialog\"", () => {
+    expect(validateManifest(overlay({ presentation: "dialog" })).claims[0].presentation).toBe(
+      "dialog",
+    );
+  });
+
+  it("passes through presentation: \"page\"", () => {
+    expect(validateManifest(overlay({ presentation: "page" })).claims[0].presentation).toBe("page");
+  });
+
+  it("omits presentation when absent (the shell applies the dialog default at render)", () => {
+    expect(validateManifest(overlay({})).claims[0].presentation).toBeUndefined();
+  });
+
+  it("REJECTS an unrecognised presentation instead of warn-and-defaulting", () => {
+    // Fatal on purpose: a typo silently falling back to "dialog" would hand the
+    // author exactly the behaviour they wrote the field to opt OUT of. The
+    // `depth` field's warn-and-default precedent is the argument FOR this — a
+    // non-fatal warning let four claims ship with broken back navigation.
+    expect(() => validateManifest(overlay({ presentation: "modal" }))).toThrow(
+      ManifestValidationError,
+    );
+    expect(() => validateManifest(overlay({ presentation: "modal" }))).toThrow(/"page" or "dialog"/);
+  });
+
+  it("REJECTS a non-string presentation rather than coercing", () => {
+    expect(() => validateManifest(overlay({ presentation: 42 }))).toThrow(ManifestValidationError);
+  });
+});

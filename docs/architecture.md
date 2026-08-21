@@ -799,7 +799,10 @@ Automation plugin = `packages/automation-plugin/`. Schedule-triggered background
 - Folder format `<scope>/.pi/automation/<name>/automation.yaml` (+`prompt.md` for prompt action). Dual scope: per-folder + global (`~/.pi/automation/`).
 - Central server-owned scheduler arms trigger registry. Phase-1 trigger kind `schedule` (5-field cron).
 - Fired run spawns pi session stamped `kind="automation"` via `ServerPluginContext.spawnSession` hook (gated priority<=100).
-- Board hides run unless effective visibility `shown`. Run always watchable in Automation view (`/automation/run/:sid`).
+- Board hides run unless effective visibility `shown`. Run always watchable in Automation view (`/folder/:encodedCwd/automations/run/:sid`).
+- Old path `/automation/run/:sid` declared `parentPath` `/folder/:encodedCwd/automations` but never captured `:encodedCwd`. `interpolateParentPath` returned null; back degraded to `/`.
+- New path carries board cwd. Cold-load back resolves to owning board.
+- See change: add-route-backed-overlay-dialogs.
 - Run results `runs/<date>-<name>/result.md`. Auto-archive empty. Keep-100 retention.
 - UI via shell slots: sidebar-folder-section, command-route `/automation`, shell-overlay-route, session-card-badge, settings-section general.
 - See change: add-automation-plugin.

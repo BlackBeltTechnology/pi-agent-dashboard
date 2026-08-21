@@ -51,7 +51,9 @@
       {
         "slot": "shell-overlay-route",
         "component": "KbSettingsClaim",
-        "path": "/folder/:encodedCwd/kb"
+        "path": "/folder/:encodedCwd/kb",
+        "depth": 2,
+        "parentPath": "/folder/:encodedCwd"
       }
     ]
   },

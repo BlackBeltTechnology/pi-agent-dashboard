@@ -32,20 +32,28 @@ describe("claimsToRouteDescriptors", () => {
 
   it("depth-2 parentPath yields a computeParent that interpolates :params", () => {
     const [d] = claimsToRouteDescriptors([
-      claim({ path: "/automation/run/:sid", depth: 2, parentPath: "/folder/:encodedCwd/automations" }),
+      claim({
+        path: "/folder/:encodedCwd/automations/run/:sid",
+        depth: 2,
+        parentPath: "/folder/:encodedCwd/automations",
+      }),
     ]);
     expect(d!.depth).toBe(2);
-    expect(d!.computeParent?.({ encodedCwd: "Zm9v" }, "/automation/run/S")).toBe(
-      "/folder/Zm9v/automations",
-    );
+    expect(
+      d!.computeParent?.({ encodedCwd: "Zm9v", sid: "S" }, "/folder/Zm9v/automations/run/S"),
+    ).toBe("/folder/Zm9v/automations");
   });
 
   it("computeParent degrades to / when a required :param is absent from the match", () => {
     const [d] = claimsToRouteDescriptors([
-      claim({ path: "/automation/run/:sid", depth: 2, parentPath: "/folder/:encodedCwd/automations" }),
+      // Synthetic: a claim whose parentPath names a :param its own path never
+      // captures. `overlay-claims-declare-depth.test.ts` now fails the build on
+      // this shape, so no shipped claim should look like this — the runtime
+      // safety net is still pinned here. See change: add-route-backed-overlay-dialogs.
+      claim({ path: "/legacy/run/:sid", depth: 2, parentPath: "/folder/:encodedCwd/automations" }),
     ]);
-    // The run match supplies only `sid`, never `encodedCwd`.
-    expect(d!.computeParent?.({ sid: "S" }, "/automation/run/S")).toBe("/");
+    // The match supplies only `sid`, never `encodedCwd`.
+    expect(d!.computeParent?.({ sid: "S" }, "/legacy/run/S")).toBe("/");
   });
 
   it("a depth-1 claim ignores parentPath (no computeParent emitted)", () => {
