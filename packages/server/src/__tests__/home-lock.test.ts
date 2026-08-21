@@ -19,6 +19,7 @@ import {
   InstanceLockMismatchError,
   type LockMetadata,
 } from "../home-lock.js";
+import { ensureInstanceId, getInstanceIdPath } from "../lifecycle/instance-id.js";
 
 // Fresh tmp dir per test → real FS (proper-lockfile needs real FS semantics).
 let tmpHome: string;
@@ -304,5 +305,68 @@ describe("isLockDisabled", () => {
   it("returns false for other values", () => {
     expect(isLockDisabled({ PI_DASHBOARD_ALLOW_MULTIPLE: "0" })).toBe(false);
     expect(isLockDisabled({ PI_DASHBOARD_ALLOW_MULTIPLE: "yes" })).toBe(false);
+  });
+});
+
+// ──────────────────────────────────────────────────────────
+// Persisted per-instance rendezvous id (D14 / defect B1)
+// See change: add-pi-gateway-transport-identity.
+// ──────────────────────────────────────────────────────────
+
+describe("ensureInstanceId", () => {
+  // (test-plan #E3) The id must survive a restart, or a benign restart is
+  // indistinguishable from an endpoint capture and D4 stickiness refuses a
+  // bridge its own dashboard.
+  it("is unchanged across a restart on the same port", () => {
+    const env = { homedir: tmpHome };
+    const first = ensureInstanceId(env, 9999);
+    const second = ensureInstanceId(env, 9999);
+    expect(second).toBe(first);
+    expect(first).not.toHaveLength(0);
+  });
+
+  // (test-plan #E4) …and distinct across instances, or a foreign listener
+  // cannot be rejected.
+  it("differs between two instances on different ports", () => {
+    const env = { homedir: tmpHome };
+    expect(ensureInstanceId(env, 9999)).not.toBe(ensureInstanceId(env, 9594));
+  });
+
+  // (test-plan #E5)
+  it("writes the id file 0600 inside a 0700 dir", () => {
+    const env = { homedir: tmpHome };
+    ensureInstanceId(env, 9999);
+    const file = getInstanceIdPath(env, 9999);
+    expect(fs.statSync(file).mode & 0o777).toBe(0o600);
+    expect(fs.statSync(path.dirname(file)).mode & 0o777).toBe(0o700);
+  });
+
+  // Task 2.0d-ii: a cross-model reviewer conflated the per-HOME Ed25519
+  // fingerprint with the per-instance rendezvous id. They are different
+  // things; the fingerprint cannot answer "which instance".
+  it("is not the per-HOME Ed25519 fingerprint (two instances, one HOME)", () => {
+    const env = { homedir: tmpHome };
+    const a = ensureInstanceId(env, 9999);
+    const b = ensureInstanceId(env, 9594);
+    // A per-HOME value would be equal here; a per-instance one is not.
+    expect(a).not.toBe(b);
+    // …and it is not derived from identity.key, which need not even exist.
+    expect(fs.existsSync(path.join(tmpHome, ".pi", "dashboard", "identity.key"))).toBe(false);
+  });
+
+  it("stores the id under <configDir>/instances/<piPort>.id", () => {
+    const env = { homedir: tmpHome };
+    expect(getInstanceIdPath(env, 9999)).toBe(
+      path.join(tmpHome, ".pi", "dashboard", "instances", "9999.id"),
+    );
+  });
+
+  it("regenerates when the stored id is empty or corrupt", () => {
+    const env = { homedir: tmpHome };
+    const first = ensureInstanceId(env, 9999);
+    fs.writeFileSync(getInstanceIdPath(env, 9999), "   ");
+    const second = ensureInstanceId(env, 9999);
+    expect(second).not.toBe(first);
+    expect(second.trim()).toBe(second);
   });
 });

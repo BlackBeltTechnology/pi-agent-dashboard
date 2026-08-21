@@ -105,6 +105,70 @@ export function getFirstRunMarkerPath(env?: DashboardPathsEnv): string {
   return path.join(getDashboardConfigDir(env), "first-run-done");
 }
 
+/**
+ * `sun_path` capacity of the platform's `sockaddr_un`: 104 on macOS/BSD, 108
+ * on Linux. A path at or below this binds; one byte over fails at `bind()`
+ * with a bare `EINVAL`/`ENAMETOOLONG` that names nothing useful — which is the
+ * failure mode this change exists to remove, so the length is checked at path
+ * construction instead.
+ *
+ * See change: add-pi-gateway-transport-identity (D15).
+ */
+export const SUN_PATH_MAX = process.platform === "darwin" ? 104 : 108;
+
+/**
+ * `~/.pi/dashboard/gateway-<piPort>.sock` — the per-instance bridge socket.
+ *
+ * Per instance, not per HOME: N dashboards per HOME is a supported workflow
+ * (worktree servers), and instances already differ by `piPort`, so keying on
+ * it makes a collision structurally impossible (D2). Shares the
+ * `$HOME`-honouring root with the rendezvous record so the temp-HOME isolated
+ * verification workflow keeps both under one home.
+ *
+ * See change: add-pi-gateway-transport-identity (D2).
+ */
+export function getGatewaySocketPath(env: DashboardPathsEnv | undefined, piPort: number): string {
+  return path.join(getDashboardConfigDir(env), `gateway-${piPort}.sock`);
+}
+
+/** Where a bridge on this host should dial its local dashboard. */
+export type LocalGatewayEndpoint =
+  | { transport: "unix"; path: string }
+  | { transport: "loopback"; port: number; reason: string };
+
+/**
+ * Resolve the local gateway endpoint for `piPort`, falling back to
+ * loopback + local-token when a unix socket is unrepresentable here.
+ *
+ * The fallback is ALWAYS loopback, never discovery — losing the socket must
+ * not reintroduce the name→endpoint indirection this change removes (D15).
+ * Windows has no UDS transport in this design at all (D6).
+ */
+export function resolveLocalGatewayEndpoint(
+  env: DashboardPathsEnv | undefined,
+  piPort: number,
+): LocalGatewayEndpoint {
+  if (process.platform === "win32") {
+    return {
+      transport: "loopback",
+      port: piPort,
+      reason: "win32 uses a 127.0.0.1 listener authorised by the local token, not a unix socket",
+    };
+  }
+  const sockPath = getGatewaySocketPath(env, piPort);
+  const len = Buffer.byteLength(sockPath);
+  if (len > SUN_PATH_MAX) {
+    return {
+      transport: "loopback",
+      port: piPort,
+      reason:
+        `socket path is ${len} bytes, over this platform's sun_path limit of ` +
+        `${SUN_PATH_MAX} (${sockPath}); falling back to loopback + local token`,
+    };
+  }
+  return { transport: "unix", path: sockPath };
+}
+
 /** `~/.pi-dashboard/` — managed-install root (npm packages, etc.). Re-export. */
 export function getManagedDir(env?: DashboardPathsEnv): string {
   return getManagedDirInternal(env);
