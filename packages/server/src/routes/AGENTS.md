@@ -30,7 +30,7 @@ Files in this directory. One row per source file.
 | `plugin-activation-routes.ts` | REST routes: `GET /api/plugins` (returns `PluginStatus[]` with `displayName`, `requirements`,… → see `plugin-activation-routes.ts.AGENTS.md` |
 | `plugin-config-routes.ts` | Plugin partial config write. Exports `registerPluginConfigRoutes`. → see `plugin-config-routes.ts.AGENTS.md` |
 | `preferences-display-routes.ts` | REST routes `GET /api/preferences/display` (returns `{ global: DisplayPrefs|undefined, sessionOverrides:… → see `preferences-display-routes.ts.AGENTS.md` |
-| `preferences-auto-name-routes.ts` | REST routes `GET /api/preferences/auto-name` (returns `{autoNameSessions:boolean}`, default true) + `PATCH… → see `preferences-auto-name-routes.ts.AGENTS.md` |
+| `preferences-auto-name-routes.ts` | REST routes `GET /api/preferences/auto-name` (returns `{autoNameSessions:boolean}`, default true) + `PATCH… → see `preferences-auto-name-routes.ts.AGENTS.md` Also serves read-only `GET /api/auto-name-outcomes` → `{outcomes}` from the bounded retention store, the discoverable route to a naming stop latched with no subscribed client. See change: fix-auto-naming-reasoning-model. |
 | `preferences-worktree-init-routes.ts` | REST routes `GET /api/preferences/worktree-auto-init` (returns `{autoInitWorktreeOnSpawn:boolean}`) + `PATCH… → see `preferences-worktree-init-routes.ts.AGENTS.md` |
 | `provider-auth-routes.ts` | Browser-based pi provider OAuth + API-key auth. Exports `registerProviderAuthRoutes`. → see `provider-auth-routes.ts.AGENTS.md` |
 | `provider-health-cache.ts` | In-memory per-provider health cache `{ok,status,error,modelCount,testedAt}` (credential-free). → see `provider-health-cache.ts.AGENTS.md` |

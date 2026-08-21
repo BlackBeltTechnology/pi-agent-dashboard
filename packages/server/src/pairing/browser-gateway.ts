@@ -70,12 +70,12 @@ import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspac
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
 import { handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handleRemoveFollowupEntry, handleResumeSession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
 import { handleAcceptReplaceProposal, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleHideSession, handleListSessions, handleRemoveTagGlobally, handleRenameSession, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnhideSession } from "../browser-handlers/session-meta-handler.js";
-import { handleSubscribe } from "../browser-handlers/subscription-handler.js";
+import { clearGapState, handleHistoryBackfill, handleSubscribe } from "../browser-handlers/subscription-handler.js";
 import { handleCloseInlineTerminal, handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "../browser-handlers/terminal-handler.js";
 import { createPendingResumeRegistry, type PendingResumeRegistry } from "../pending/pending-resume-registry.js";
 import { createViewedSessionTracker, type ViewedSessionTracker } from "../session/viewed-session-tracker.js";
-import { ResyncRequesterRegistry, resyncRequestIdOf } from "./subagent-resync-routing.js";
 import type { TerminalManager } from "../terminal/terminal-manager.js";
+import { ResyncRequesterRegistry, resyncRequestIdOf } from "./subagent-resync-routing.js";
 
 
 
@@ -261,6 +261,9 @@ export function createBrowserGateway(
   /** Display-fit pool, so session hydration fits inline images like the live
    *  path does. See change: fit-attachments-for-display (test-plan #E9). */
   fitWorkerPool?: import("../attachments/fit-worker-pool.js").FitWorkerPool,
+  /** Max events replayed on a FULL-stream subscribe (0 = unlimited).
+   *  See change: lazy-load-session-history (D1). */
+  maxReplayEvents?: number,
 ): BrowserGateway {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -582,6 +585,18 @@ export function createBrowserGateway(
       for (const msg of buildOpenSpecConnectSnapshot(directoryService, hasOpenSpecDir, hasOpenSpecRoot)) {
         sendTo(ws, msg);
       }
+      // Replay the cached folder-HEAD map to THIS socket only. `git_head_update`
+      // is broadcast on first-seen-or-change, so a browser connecting after the
+      // server cached a folder would otherwise never learn its HEAD. Unicast
+      // replay of already-computed state — no git read, no diff, no fan-out.
+      // `typeof` guard: hand-built `DirectoryService` fakes lack the accessor
+      // (precedent: `preferencesStore.getDisplayPrefs` above).
+      // See change: fix-folder-header-worktree-branch-leak.
+      if (typeof directoryService.folderHeadSnapshot === "function") {
+        for (const { cwd, branch } of directoryService.folderHeadSnapshot()) {
+          sendTo(ws, { type: "git_head_update", cwd, branch });
+        }
+      }
     }
 
     // Send active terminals on connect
@@ -613,6 +628,7 @@ export function createBrowserGateway(
           pendingForkRegistry, sessionOrderManager, preferencesStore,
           metaPersistence,
           fitWorkerPool,
+          maxReplayEvents,
           directoryService, terminalManager,
           headlessPidRegistry, pendingResumeRegistry, pendingDashboardSpawns,
           pendingAttachRegistry,
@@ -656,8 +672,15 @@ export function createBrowserGateway(
           case "subscribe":
             handleSubscribe(msg, subs, ctx);
             break;
+          // Backfill for the gap left by a windowed replay. Serves the
+          // in-memory store only; `clearReplaying` catch-up is untouched.
+          // See change: lazy-load-session-history.
+          case "history_backfill":
+            await handleHistoryBackfill(msg, subs, ctx);
+            break;
           case "unsubscribe":
             subs.delete(msg.sessionId);
+            clearGapState(ws, msg.sessionId);
             // Cancel an in-flight hydration once the last subscriber leaves,
             // so clicking session A then B doesn't waste A's parse+replay and
             // deliver an event_replay to a now-unsubscribed ws. Guarded by the

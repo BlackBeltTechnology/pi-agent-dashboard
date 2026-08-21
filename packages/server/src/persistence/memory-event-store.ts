@@ -14,6 +14,15 @@ export interface EventStore {
   insertEvent(sessionId: string, event: DashboardEvent): number;
   /** Get events for a session starting from minSeq (inclusive) */
   getEvents(sessionId: string, minSeq: number): StoredEvent[];
+  /**
+   * Get events in the INCLUSIVE seq range `[minSeq, maxSeq]`. Resolved by
+   * binary search for both bounds over the seq-sorted, append-only buffer plus
+   * one slice — O(log n + k), deliberately NOT a linear filter: a linear
+   * implementation would cost O(n) per backfill regardless of span, which is
+   * the exact per-scroll cost this API exists to remove.
+   * See change: lazy-load-session-history (D8).
+   */
+  getEventsRange(sessionId: string, minSeq: number, maxSeq: number): StoredEvent[];
   /** Get a single event by sessionId and seq */
   getEvent(sessionId: string, seq: number): DashboardEvent | undefined;
   /**
@@ -45,6 +54,18 @@ export interface EventStore {
    * were shed". See change: collapse-superseded-tool-execution-updates (P1).
    */
   getCollapseProbe(): CollapseProbe;
+  /**
+   * TEST-ONLY instrumentation for the `getEventsRange` sub-linearity bound
+   * (D8): buffer entries examined by the most recent range read. A binary
+   * search over 20000 entries probes ~O(log n); a linear filter probes 20000.
+   * See change: lazy-load-session-history (test-plan #E33).
+   */
+  getRangeProbe(): RangeProbe;
+}
+
+interface RangeProbe {
+  /** Buffer entries examined by the most recent `getEventsRange` bound search. */
+  lastEntriesExamined: number;
 }
 
 export interface TrimStats {
@@ -966,6 +987,8 @@ export function createMemoryEventStore(
   // P1 find-cost probe. Reset per insert; distinct from collapsedUpdatesTotal.
   let lastEntriesExamined = 0;
   let maxEntriesExamined = 0;
+  // D8 sub-linearity probe. Reset per `getEventsRange` call.
+  let lastRangeEntriesExamined = 0;
 
   function getOrCreate(sessionId: string): SessionBuffer {
     let buf = buffers.get(sessionId);
@@ -1173,6 +1196,34 @@ export function createMemoryEventStore(
       return buf.events.filter((e) => e.seq >= effectiveMin);
     },
 
+    getEventsRange(sessionId: string, minSeq: number, maxSeq: number): StoredEvent[] {
+      lastRangeEntriesExamined = 0;
+      const buf = buffers.get(sessionId);
+      if (!buf) return [];
+      buf.lastAccess = Date.now();
+      if (maxSeq < minSeq) return [];
+      const events = buf.events;
+      // Binary search both bounds over the seq-sorted buffer, then ONE slice.
+      // `lo` = first index with seq >= minSeq; `hi` = first index with
+      // seq > maxSeq. Gaps from the middle trim are fine — sortedness, not
+      // contiguity, is what the search needs.
+      const lowerBound = (target: number): number => {
+        let lo = 0;
+        let hi = events.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >>> 1;
+          lastRangeEntriesExamined++;
+          if (events[mid].seq < target) lo = mid + 1;
+          else hi = mid;
+        }
+        return lo;
+      };
+      const start = lowerBound(minSeq > 0 ? minSeq : 1);
+      const end = lowerBound(maxSeq + 1);
+      if (end <= start) return [];
+      return events.slice(start, end);
+    },
+
     getEvent(sessionId: string, seq: number): DashboardEvent | undefined {
       const buf = buffers.get(sessionId);
       if (!buf) return undefined;
@@ -1236,6 +1287,10 @@ export function createMemoryEventStore(
         subagentFatTicks: subagentFatTicksTotal,
         subagentTickFatBytes: subagentTickFatBytesTotal,
       };
+    },
+
+    getRangeProbe(): RangeProbe {
+      return { lastEntriesExamined: lastRangeEntriesExamined };
     },
 
     getCollapseProbe(): CollapseProbe {

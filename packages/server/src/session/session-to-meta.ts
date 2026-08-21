@@ -19,6 +19,10 @@ export function sessionToMeta(session: DashboardSession): SessionMeta {
     // full .meta.json overwrite (not a merge) — omitting it wipes the auto/user
     // lockout signal on the next unrelated save. See change: add-auto-session-naming.
     nameSource: session.nameSource,
+    // Same reasoning as `nameSource`: this save is a FULL overwrite, so
+    // omitting the namer state would wipe a permanent stop on the next
+    // unrelated save. See change: fix-auto-naming-reasoning-model (design D7).
+    autoNamerState: session.autoNamerState,
     attachedProposal: session.attachedProposal,
     displayPrefsOverride: session.displayPrefsOverride,
     processDrawerCollapsed: session.processDrawerCollapsed,

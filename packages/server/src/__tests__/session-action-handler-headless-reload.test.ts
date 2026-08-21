@@ -3,7 +3,7 @@
  *
  * See change: headless-reload-via-respawn.
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 // Mock spawnPiSession BEFORE importing the handler.
 vi.mock("../spawn-process/process-manager.js", () => ({
@@ -15,9 +15,12 @@ vi.mock("@blackbelt-technology/pi-dashboard-shared/config.js", async (importOrig
 }));
 
 import {
+  buildDispatchReloadContext,
   handleHeadlessReload,
   handleSendPrompt,
+  respawnForRuntimeSwap,
 } from "../browser-handlers/session-action-handler.js";
+import { dispatchReload } from "../rpc-keeper/dispatch-reload.js";
 import { spawnPiSession } from "../spawn-process/process-manager.js";
 
 type SentMessage = { type: string; [k: string]: unknown };
@@ -30,6 +33,7 @@ function makeCtx(
   options: {
     pidBySession?: Record<string, number | undefined>;
     sessions?: Record<string, any>;
+    connected?: boolean;
   } = {},
 ) {
   const broadcasts: SentMessage[] = [];
@@ -60,10 +64,19 @@ function makeCtx(
       // crash-orphaned zombie (change: resume-zombie-active-session). These
       // tests all assert the FORWARD-to-bridge path, which is exactly the
       // "process is live" branch, so it must report connected.
-      isSessionConnected: vi.fn().mockReturnValue(true),
+      isSessionConnected: vi.fn().mockReturnValue(options.connected ?? true),
     },
     headlessPidRegistry: {
       getPid: (sid: string) => pidBySession[sid],
+      listSessions: () =>
+        Object.entries(pidBySession)
+          .filter(([, pid]) => pid !== undefined)
+          .map(([sessionId, pid]) => ({
+            sessionId,
+            cwd: "/p",
+            pid: pid as number,
+            hasKeeper: false,
+          })),
       killBySessionId: async (sid: string) => {
         killCalls.push(sid);
         // Simulate immediate removal from registry on kill
@@ -360,7 +373,36 @@ describe("handleSendPrompt — interception wiring", () => {
   beforeEach(() => vi.clearAllMocks());
   afterEach(() => vi.restoreAllMocks());
 
-  it("/reload on a headless session triggers respawn, NOT bridge forward", async () => {
+  it("/reload on a headless session respawns and never forwards to the bridge (#E1)", async () => {
+    // Respawn is the ONLY mechanism that actually reloads a headless session:
+    // pi's RPC `prompt` performs no slash-command dispatch, so writing
+    // `/__dashboard_reload` to the keeper would prompt the model with the
+    // literal text and reload nothing. See change: fix-out-of-band-reload.
+    (spawnPiSession as any).mockResolvedValueOnce({
+      success: true,
+      pid: 4242,
+      process: { _fake: true },
+    });
+
+    const { ctx, killCalls } = makeCtx({
+      pidBySession: { S1: 1234 },
+      connected: true,
+      sessions: {
+        S1: { id: "S1", cwd: "/p", sessionFile: "/p/s.jsonl", status: "idle" },
+      },
+    });
+
+    await handleSendPrompt(
+      { type: "send_prompt", sessionId: "S1", text: "/reload" } as any,
+      ctx,
+    );
+
+    expect(spawnPiSession).toHaveBeenCalledTimes(1);
+    expect(killCalls).toEqual(["S1"]);
+    expect(ctx.piGateway.sendToSession).not.toHaveBeenCalled();
+  });
+
+  it("/reload on a headless session with a dead bridge still respawns (#E2)", async () => {
     (spawnPiSession as any).mockResolvedValueOnce({
       success: true,
       pid: 4242,
@@ -369,6 +411,7 @@ describe("handleSendPrompt — interception wiring", () => {
 
     const { ctx } = makeCtx({
       pidBySession: { S1: 1234 },
+      connected: false,
       sessions: {
         S1: {
           id: "S1",
@@ -513,5 +556,206 @@ describe("handleSendPrompt — interception wiring", () => {
       "S1",
       expect.objectContaining({ delivery: undefined }),
     );
+  });
+});
+
+// ── The respawn FALLBACK, reached through the ladder ──────────────────────
+// See change: fix-out-of-band-reload (test-plan #X4, #E8, #E12).
+describe("dispatchReload — respawn fallback", () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.restoreAllMocks());
+
+  it("#X4 respawns a bridge-dead session pinned at a stale `streaming`", async () => {
+    // Its bridge died before `agent_end`, so `streaming` will never advance.
+    // Refusing on it would make the session permanently unreloadable — and it
+    // is precisely the session the fallback exists to rescue.
+    (spawnPiSession as any).mockResolvedValueOnce({
+      success: true,
+      pid: 4242,
+      process: { _fake: true },
+    });
+
+    const { ctx, insertedEvents } = makeCtx({
+      pidBySession: { S1: 1234 },
+      connected: false,
+      sessions: {
+        S1: { id: "S1", cwd: "/p", sessionFile: "/p/s.jsonl", status: "streaming" },
+      },
+    });
+
+    const outcome = await dispatchReload("S1", buildDispatchReloadContext(ctx));
+
+    expect(outcome).toBe("respawn");
+    expect(spawnPiSession).toHaveBeenCalledTimes(1);
+    const feedback = findFeedback(insertedEvents);
+    expect(feedback.filter((f) => f.status === "error")).toHaveLength(0);
+  });
+
+  it("#E8 two CONCURRENT reloads spawn exactly one pi (in-flight guard)", async () => {
+    // Both calls start before `killBySessionId` / `spawnPiSession` resolve, so
+    // both observe the SAME old pid. Without the per-session in-flight guard
+    // both kill it and both spawn — and the registry only remembers the last
+    // registration, leaking the first process.
+    let releaseSpawn!: () => void;
+    const spawnGate = new Promise<void>((r) => {
+      releaseSpawn = r;
+    });
+    let nextPid = 7001;
+    (spawnPiSession as any).mockImplementation(async () => {
+      await spawnGate;
+      return { success: true, pid: nextPid++, process: { _fake: true } };
+    });
+
+    const { ctx } = makeCtx({
+      pidBySession: { S1: 1234 },
+      connected: false,
+      sessions: {
+        S1: { id: "S1", cwd: "/p", sessionFile: "/p/s.jsonl", status: "active" },
+      },
+    });
+    const reloadCtx = buildDispatchReloadContext(ctx);
+
+    const both = Promise.all([
+      dispatchReload("S1", reloadCtx),
+      dispatchReload("S1", reloadCtx),
+    ]);
+    releaseSpawn();
+    const outcomes = await both;
+
+    expect(outcomes).toEqual(["respawn", "respawn"]);
+    expect((spawnPiSession as any).mock.calls.length).toBe(1);
+  });
+
+  it("#E8 the in-flight guard clears, so a LATER reload still respawns", async () => {
+    // A guard that outlived its respawn would wedge the session against every
+    // future reload.
+    (spawnPiSession as any).mockResolvedValue({
+      success: true,
+      pid: 4242,
+      process: { _fake: true },
+    });
+
+    const { ctx, pidBySession } = makeCtx({
+      pidBySession: { S1: 1234 },
+      connected: false,
+      sessions: {
+        S1: { id: "S1", cwd: "/p", sessionFile: "/p/s.jsonl", status: "active" },
+      },
+    });
+    const reloadCtx = buildDispatchReloadContext(ctx);
+
+    await dispatchReload("S1", reloadCtx);
+    pidBySession.S1 = 4242;
+    await dispatchReload("S1", reloadCtx);
+
+    expect((spawnPiSession as any).mock.calls.length).toBe(2);
+  });
+
+  it("#X1 emits exactly ONE terminal feedback for a respawn", async () => {
+    // The `started` pill opener is not terminal; a duplicate terminal event
+    // would leave an orphan pill stuck at "in progress" on reattach.
+    (spawnPiSession as any).mockResolvedValueOnce({
+      success: true,
+      pid: 4242,
+      process: { _fake: true },
+    });
+
+    const { ctx, insertedEvents } = makeCtx({
+      pidBySession: { S1: 1234 },
+      connected: false,
+      sessions: {
+        S1: { id: "S1", cwd: "/p", sessionFile: "/p/s.jsonl", status: "idle" },
+      },
+    });
+
+    const outcome = await dispatchReload("S1", buildDispatchReloadContext(ctx));
+
+    expect(outcome).toBe("respawn");
+    expect(spawnPiSession).toHaveBeenCalledTimes(1);
+    const feedback = findFeedback(insertedEvents);
+    const terminal = feedback.filter(
+      (f) => f.status === "completed" || f.status === "error",
+    );
+    expect(terminal).toHaveLength(1);
+    expect(terminal[0]).toMatchObject({ command: "/reload", status: "completed" });
+  });
+
+  it("#E12 a fan-out target set includes a registry-known, bridge-dead session", async () => {
+    const { ctx } = makeCtx({
+      pidBySession: { CONNECTED: 1, REGISTRY_ONLY: 2 },
+      sessions: {},
+    });
+    const { reloadTargetSessionIds } = await import("../rpc-keeper/dispatch-reload.js");
+
+    // `TMUX` is connected but has no registry entry; `REGISTRY_ONLY` has a
+    // registry entry but no bridge connection. The union must carry both.
+    const ids = reloadTargetSessionIds(
+      ["CONNECTED", "TMUX"],
+      ctx.headlessPidRegistry,
+    );
+
+    expect([...ids].sort()).toEqual(["CONNECTED", "REGISTRY_ONLY", "TMUX"]);
+  });
+});
+
+// ── pi-core update is a runtime SWAP, not a reload ────────────────────────
+// See change: fix-out-of-band-reload (test-plan #E10, #E11).
+describe("respawnForRuntimeSwap", () => {
+  beforeEach(() => vi.clearAllMocks());
+  afterEach(() => vi.restoreAllMocks());
+
+  it("#E10 respawns a connected STREAMING headless session (streaming guard does not apply)", async () => {
+    // A runtime swap replaces the process, so the guard that protects an
+    // in-flight run from a mid-stream respawn does not apply: a reload would
+    // be refused here, a swap must not be.
+    (spawnPiSession as any).mockResolvedValueOnce({
+      success: true,
+      pid: 4242,
+      process: { _fake: true },
+    });
+
+    const { ctx, killCalls } = makeCtx({
+      pidBySession: { S1: 1234 },
+      connected: true,
+      sessions: {
+        S1: { id: "S1", cwd: "/p", sessionFile: "/p/s.jsonl", status: "streaming" },
+      },
+    });
+
+    await respawnForRuntimeSwap("S1", ctx);
+
+    expect(spawnPiSession).toHaveBeenCalledTimes(1);
+    expect(killCalls).toEqual(["S1"]);
+  });
+
+  it("#E11 reports an error for a session with no sessionFile", async () => {
+    const { ctx, insertedEvents } = makeCtx({
+      pidBySession: { S1: 1234 },
+      sessions: { S1: { id: "S1", cwd: "/p", status: "idle" } },
+    });
+
+    await respawnForRuntimeSwap("S1", ctx);
+
+    expect(spawnPiSession).not.toHaveBeenCalled();
+    const feedback = findFeedback(insertedEvents);
+    expect(feedback).toHaveLength(1);
+    expect(feedback[0].status).toBe("error");
+  });
+
+  it("#E11 reports an error for a non-headless session, never a success", async () => {
+    const { ctx, insertedEvents } = makeCtx({
+      pidBySession: { S1: undefined },
+      sessions: {
+        S1: { id: "S1", cwd: "/p", sessionFile: "/p/s.jsonl", status: "idle" },
+      },
+    });
+
+    await respawnForRuntimeSwap("S1", ctx);
+
+    expect(spawnPiSession).not.toHaveBeenCalled();
+    const feedback = findFeedback(insertedEvents);
+    expect(feedback).toHaveLength(1);
+    expect(feedback[0].status).toBe("error");
+    expect(feedback.some((f) => f.status === "completed")).toBe(false);
   });
 });

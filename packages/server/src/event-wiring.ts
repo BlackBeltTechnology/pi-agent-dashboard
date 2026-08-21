@@ -3,16 +3,16 @@
  * Extracted from server.ts for clarity.
  */
 
+import type { BrowserNotifyMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { normalizeNotifyLevel } from "@blackbelt-technology/pi-dashboard-shared/notify.js";
 import { detectOpenSpecActivity, isValidOpenSpecChangeSlug } from "@blackbelt-technology/pi-dashboard-shared/openspec-activity-detector.js";
 import { mergeSessionMeta, writeSessionMeta } from "@blackbelt-technology/pi-dashboard-shared/session-meta.js";
 import { extractTurnStats } from "@blackbelt-technology/pi-dashboard-shared/stats-extractor.js";
-import type { BrowserNotifyMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { DashboardSession, NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { type PendingAttachment, prepareEventForIngest } from "./attachments/attachment-ingest.js";
 import { createAttachmentResolver } from "./attachments/attachment-resolver.js";
-import { normalizeNotifyLevel } from "@blackbelt-technology/pi-dashboard-shared/notify.js";
-import { fromLegacyPromptRequest } from "./pairing/notify-log.js";
+import { AUTO_NAME_OUTCOMES, autoNameOutcomes } from "./auto-name-outcome-store.js";
 import { createCanvasAccumulator } from "./canvas/canvas-accumulator.js";
 import { readEffectiveCanvasTypes } from "./canvas/canvas-settings.js";
 import type { DirectoryService } from "./directory-service.js";
@@ -22,6 +22,7 @@ import { decideDashboardSource } from "./lifecycle/dashboard-source-decision.js"
 import { attachRenameTarget, isNameAutoSetFromAttachment } from "./openspec/proposal-attach-naming.js";
 import { setCatalogueForSession } from "./package/provider-catalogue-cache.js";
 import type { BrowserGateway } from "./pairing/browser-gateway.js";
+import { fromLegacyPromptRequest } from "./pairing/notify-log.js";
 import type { PendingForkRegistry } from "./pending/pending-fork-registry.js";
 import type { EventStore } from "./persistence/memory-event-store.js";
 import type { PreferencesStore } from "./persistence/preferences-store.js";
@@ -29,12 +30,12 @@ import type { PiGateway } from "./pi/pi-gateway.js";
 import { sessionCommandRegistry } from "./pi/session-skill-registry.js";
 import { handleDispatchExtensionCommand } from "./rpc-keeper/dispatch-router.js";
 import type { UnreadTriggerSnapshot } from "./session/event-status-extraction.js";
+import { extractSessionUpdates, isActivityEvent, isUnreadTrigger } from "./session/event-status-extraction.js";
+import type { SessionManager } from "./session/memory-session-manager.js";
 import {
   attachedStillExistsInCandidateRoots,
   localityGateAllows,
 } from "./session/openspec-locality.js";
-import { extractSessionUpdates, isActivityEvent, isUnreadTrigger } from "./session/event-status-extraction.js";
-import type { SessionManager } from "./session/memory-session-manager.js";
 import { resolveOrderKey } from "./session/resolve-order-key.js";
 import type { SessionOrderManager } from "./session/session-order-manager.js";
 import type { ViewedSessionTracker } from "./session/viewed-session-tracker.js";
@@ -285,6 +286,10 @@ export function wireEvents(deps: EventWiringDeps): void {
       cwd: newOrderKey,
       sessionIds: sessionOrderManager.getOrder(newOrderKey, validIds),
     });
+    // This is where a worktree's PARENT folder key first becomes known — it was
+    // not derivable at registration time. Refresh its HEAD rather than waiting
+    // a full poll interval. See change: fix-folder-header-worktree-branch-leak.
+    directoryService.refreshFolderHeadsForEnteringKeys?.();
   }
 
   // Phase 2 of the two-phase attachment render. Shared with the replay path
@@ -454,6 +459,33 @@ export function wireEvents(deps: EventWiringDeps): void {
       type: "preferences_update",
       autoNameSessions: preferencesStore.getAutoNameSessions(),
     });
+
+    // Restore the persisted auto-namer stop state to the bridge, so a session
+    // stopped before a process restart does not re-spend a full attempt budget
+    // and re-emit the error on its first turn back.
+    // See change: fix-auto-naming-reasoning-model (design D7).
+    const restoredNamerState = sessionManager.get(sessionId)?.autoNamerState;
+    if (restoredNamerState) {
+      // Explicit projection, not a spread: provenance (`nameSource`,
+      // `hasAutoName`, `lastSelfApplied`) must not reach the bridge — restoring
+      // it would change the behaviour of the separate auto→`user` relabel bug
+      // (design D8b). Projecting at the SENDER keeps the wire as narrow as the
+      // contract claims, rather than relying on the receiver to drop fields.
+      piGateway.sendToSession(sessionId, {
+        type: "auto_name_state_restore",
+        state: {
+          hardStopped: restoredNamerState.hardStopped,
+          errorEmitted: restoredNamerState.errorEmitted,
+          attemptsUsed: restoredNamerState.attemptsUsed,
+          starvedCount: restoredNamerState.starvedCount,
+          waitingCount: restoredNamerState.waitingCount,
+          sawStarved: restoredNamerState.sawStarved,
+          stoppedModelRef: restoredNamerState.stoppedModelRef,
+          stopCause: restoredNamerState.stopCause,
+          stoppedReason: restoredNamerState.stoppedReason,
+        },
+      });
+    }
 
     // NOTE: goal-driver linking moved to the onEvent `session_register` branch
     // (after `linkByToken`) so the strong token→goalId path can run — the
@@ -1427,6 +1459,12 @@ export function wireEvents(deps: EventWiringDeps): void {
         browserGateway.broadcastSessionAdded(updatedSession, spawnRequestId ? { spawnRequestId } : undefined);
       }
 
+      // UNGATED by `isNewCwd` below: that check is false whenever an ENDED
+      // session already carries this cwd, while the folder-HEAD key set skips
+      // ended sessions — exactly the ended-only-folder case entry refresh must
+      // cover. See change: fix-folder-header-worktree-branch-leak.
+      directoryService.refreshFolderHeadsForEnteringKeys?.();
+
       const isNewCwd = !sessionManager.listAll().some(
         (s) => s.id !== sessionId && s.cwd === msg.cwd,
       );
@@ -1943,6 +1981,42 @@ export function wireEvents(deps: EventWiringDeps): void {
         : { name: msg.name || undefined };
       sessionManager.update(sessionId, nameUpdates);
       browserGateway.broadcastSessionUpdated(sessionId, nameUpdates);
+    }
+
+    if (msg.type === "auto_name_outcome") {
+      // The gateway casts raw JSON, so a malformed frame would otherwise reach
+      // the retention map, the REST route and every subscriber. Validate the
+      // whole contract, including the outcome VALUE — an unknown outcome would
+      // render as a raw string in Diagnostics and defeat the starved/waiting
+      // distinction the readout exists to make.
+      if (!AUTO_NAME_OUTCOMES.has(msg.outcome as string)) return;
+      if (typeof msg.reason !== "string") return;
+      if (msg.modelRef !== undefined && typeof msg.modelRef !== "string") return;
+      // Retained so a stop that happened with nobody subscribed is still
+      // discoverable when an operator opens Settings → Diagnostics later.
+      // See change: fix-auto-naming-reasoning-model (design D9).
+      autoNameOutcomes.record({
+        sessionId,
+        outcome: msg.outcome,
+        reason: msg.reason,
+        modelRef: msg.modelRef,
+        at: typeof msg.at === "number" ? msg.at : Date.now(),
+      });
+      browserGateway.sendToSubscribers(sessionId, {
+        type: "auto_name_outcome",
+        sessionId,
+        outcome: msg.outcome,
+        reason: msg.reason,
+        modelRef: msg.modelRef,
+        at: msg.at,
+      });
+    }
+
+    if (msg.type === "auto_name_state") {
+      // The stop must survive a PROCESS restart, not only an extension reload,
+      // or a cold start re-spends a full budget and re-emits the error.
+      // See change: fix-auto-naming-reasoning-model (design D7).
+      sessionManager.update(sessionId, { autoNamerState: msg.state } as any);
     }
 
     if (msg.type === "auto_name_error") {

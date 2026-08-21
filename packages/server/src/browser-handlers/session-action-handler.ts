@@ -13,15 +13,19 @@ import {
 import {
   findPidByMarker,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process-identify.js";
+import {
+  type DispatchReloadContext,
+  dispatchReload,
+} from "../rpc-keeper/dispatch-reload.js";
 import { createBranchedSessionFile } from "../session/session-file-reader.js";
 import { keeperOptsFromSpawnResult } from "../spawn-process/headless-pid-registry.js";
 import { getKeeperManager, spawnPiSession } from "../spawn-process/process-manager.js";
 import { appendSpawnFailure } from "../spawn-process/spawn-failure-log.js";
 import { preflightSpawn } from "../spawn-process/spawn-preflight.js";
-import { armSpawnWatchdog, getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
 import { deriveSpawnCorrelationTtlMs } from "../spawn-process/spawn-recovery-window.js";
+import { armSpawnWatchdog, getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
-import { shouldInterceptReload } from "./session-action-helpers.js";
+import { isBareReloadCommand } from "./session-action-helpers.js";
 
 /**
  * Status message + code emitted when fork is attempted on a session whose
@@ -35,6 +39,58 @@ import { shouldInterceptReload } from "./session-action-helpers.js";
 export const FORK_DEGRADED_TO_NEW_MESSAGE =
   "Started a fresh session \u2014 the source had no persisted history to fork from.";
 export const FORK_DEGRADED_TO_NEW_CODE = "FORK_DEGRADED_TO_NEW";
+
+/**
+ * The slice of `BrowserHandlerContext` the reload path actually needs.
+ *
+ * Narrower than the full handler context on purpose: the automated fan-out
+ * triggers live in `server.ts` and `routes/`, where there is no browser
+ * WebSocket to hang a full `BrowserHandlerContext` off. Without this slice
+ * those call sites could not share the ladder, which is exactly how they
+ * ended up hand-rolling `sendToSession` loops that bypassed it.
+ *
+ * See change: fix-out-of-band-reload.
+ */
+export type ReloadHostContext = Pick<
+  BrowserHandlerContext,
+  "sessionManager" | "eventStore" | "piGateway" | "headlessPidRegistry" | "broadcast"
+>;
+
+/**
+ * Respawn a headless session because its pi-core BINARY changed.
+ *
+ * Shares the mechanism with a reload but not the policy: a reload of a BUSY
+ * session is refused (respawning mid-stream destroys in-flight work), whereas
+ * a runtime swap cannot be deferred that way — the operator has replaced the
+ * binary under every running session, so this path respawns unconditionally,
+ * including connected and streaming ones. Sessions that cannot be swapped
+ * report `error` rather than silently succeeding (design.md D6).
+ *
+ * See change: fix-out-of-band-reload.
+ */
+export async function respawnForRuntimeSwap(
+  sessionId: string,
+  ctx: ReloadHostContext,
+): Promise<void> {
+  // A session with no registered PID is not ours to respawn: spawning here
+  // would start a SECOND pi process against a terminal-hosted session's file.
+  // Reported as an error rather than silently succeeding, so a pi-core swap
+  // never claims to have swapped a session it structurally cannot swap.
+  if (ctx.headlessPidRegistry.getPid(sessionId) === undefined) {
+    emitCommandFeedback(
+      ctx,
+      sessionId,
+      "error",
+      "Not a headless session — pi-core update cannot swap its runtime",
+    );
+    return;
+  }
+  await handleHeadlessReload(
+    { type: "send_prompt", sessionId, text: "/reload" } as any,
+    ctx,
+    { ignoreStreamingGuard: true },
+  );
+}
 
 /**
  * Find headless pi PIDs associated with a session-id marker and kill them.
@@ -72,18 +128,53 @@ function killHeadlessBySessionId(sessionId: string): boolean {
  * See change: headless-reload-via-respawn.
  */
 function emitCommandFeedback(
-  ctx: BrowserHandlerContext,
+  ctx: ReloadHostContext,
   sessionId: string,
   status: "started" | "completed" | "error",
   message?: string,
+  command = "/reload",
 ): void {
   const event = {
     eventType: "command_feedback",
     timestamp: Date.now(),
-    data: { command: "/reload", status, ...(message ? { message } : {}) },
+    data: { command, status, ...(message ? { message } : {}) },
   };
   const seq = ctx.eventStore.insertEvent(sessionId, event);
   ctx.broadcast({ type: "event", sessionId, seq, event } as any);
+}
+
+/**
+ * Bind a `BrowserHandlerContext` to the reload ladder's dependency surface.
+ *
+ * Exported so the fan-out call sites in `server.ts` and
+ * `resource-activation-routes.ts` reload through exactly the same ladder as
+ * the reload button, instead of each hand-rolling a `sendToSession` loop that
+ * bypasses the interception entirely.
+ *
+ * See change: fix-out-of-band-reload.
+ */
+export function buildDispatchReloadContext(
+  ctx: ReloadHostContext,
+): DispatchReloadContext {
+  return {
+    headlessPidRegistry: ctx.headlessPidRegistry,
+    getSession: (sid) => ctx.sessionManager.get(sid),
+    isSessionConnected: (sid) => ctx.piGateway.isSessionConnected(sid),
+    sendToSession: (sid, text) =>
+      ctx.piGateway.sendToSession(sid, {
+        type: "send_prompt",
+        sessionId: sid,
+        text,
+      }),
+    respawn: (sid, opts) =>
+      handleHeadlessReload(
+        { type: "send_prompt", sessionId: sid, text: "/reload" } as any,
+        ctx,
+        opts,
+      ),
+    emitCommandFeedback: (sid, command, status, message) =>
+      emitCommandFeedback(ctx, sid, status, message, command),
+  };
 }
 
 /**
@@ -103,11 +194,28 @@ function emitCommandFeedback(
  * context usage, attachedProposal) when the same sessionId re-registers,
  * the user-visible session state survives the respawn.
  *
+ * Since change: fix-out-of-band-reload this is reached through
+ * `dispatchReload` (which owns the busy decision) and through
+ * `respawnForRuntimeSwap` for a pi-core binary swap — but it remains the
+ * DEFAULT mechanism for a headless session, because pi's RPC `{type:"prompt"}`
+ * performs no slash-command dispatch and there is therefore no in-process path
+ * to reach. See `rpc-keeper/dispatch-reload.ts` for the measurement.
+ *
  * See change: headless-reload-via-respawn.
  */
 export async function handleHeadlessReload(
   msg: Extract<BrowserToServerMessage, { type: "send_prompt" }>,
-  ctx: BrowserHandlerContext,
+  ctx: ReloadHostContext,
+  opts: {
+    /**
+     * Skip the `status === "streaming"` refusal. Set by callers that have
+     * already made the busy decision with information this helper lacks:
+     * `dispatchReload` (a bridge-dead session pinned at a stale `streaming`
+     * must stay respawnable, design.md D4) and the pi-core runtime swap (the
+     * process is being replaced, not reloaded under a live runner, D6).
+     */
+    ignoreStreamingGuard?: boolean;
+  } = {},
 ): Promise<void> {
   const { sessionManager, headlessPidRegistry } = ctx;
   const session = sessionManager.get(msg.sessionId);
@@ -124,7 +232,7 @@ export async function handleHeadlessReload(
     );
     return;
   }
-  if (session.status === "streaming") {
+  if (session.status === "streaming" && !opts.ignoreStreamingGuard) {
     emitCommandFeedback(
       ctx,
       msg.sessionId,
@@ -201,12 +309,13 @@ export async function handleSendPrompt(
 ): Promise<void> {
   const { sessionManager, piGateway, headlessPidRegistry, pendingResumeRegistry, pendingResumeIntents, pendingDashboardSpawns, broadcast } = ctx;
 
-  // Intercept `/reload` on active headless sessions — forward the request to
-  // our kill-and-respawn handler instead of routing the prompt to the bridge
-  // (the bridge has no programmatic reload path on RPC).
-  // See change: headless-reload-via-respawn.
-  if (shouldInterceptReload(msg, headlessPidRegistry)) {
-    await handleHeadlessReload(msg, ctx);
+  // Route the bare `/reload` through the single server-side reload entry
+  // point: busy → refuse, headless PID → respawn, live bridge → forward, else
+  // an honest error. Routing here (rather than only in the four automated
+  // fan-outs) is what makes every trigger converge on one observable outcome.
+  // See change: fix-out-of-band-reload.
+  if (isBareReloadCommand(msg)) {
+    await dispatchReload(msg.sessionId, buildDispatchReloadContext(ctx));
     return;
   }
 
