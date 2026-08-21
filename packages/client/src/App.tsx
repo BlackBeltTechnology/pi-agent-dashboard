@@ -3,7 +3,7 @@ import { mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Redirect, Route, Switch, useLocation, useRoute, useSearchParams } from "wouter";
+import { Redirect, Route, Switch, useLocation, useRoute, useSearch, useSearchParams } from "wouter";
 import { ArchiveBrowserView } from "./components/openspec/ArchiveBrowserView.js";
 import { CanvasDriver } from "./components/canvas/CanvasDriver.js";
 import { ChatView, type ChatViewHandle } from "./components/chat/ChatView.js";
@@ -43,6 +43,12 @@ import { SessionList } from "./components/session/SessionList.js";
 import { SessionSplitView, SplitRouteSync } from "./components/split/SessionSplitView.js";
 import { SettingsPanel } from "./components/settings/SettingsPanel.js";
 import { ShellContent, type ShellContentRenderers } from "./components/shell/ShellContent.js";
+import { RouteBackedOverlay } from "./components/overlay/RouteBackedOverlay.js";
+import {
+  captureBackground,
+  clearBackground,
+  resolveBackground,
+} from "./lib/nav/overlay-background.js";
 import { SpawnErrorToastHost } from "./components/session/SpawnErrorToastHost.js";
 import { SpecsBrowserView } from "./components/openspec/SpecsBrowserView.js";
 import { SplitWorkspaceProvider } from "./components/split/SplitWorkspaceContext.js";
@@ -360,7 +366,8 @@ export default function App() {
     setGlobalApiBase(base);
     return base;
   }, [wsUrl]);
-  const [, rawNavigate] = useLocation();
+  const [overlayLocation, rawNavigate] = useLocation();
+  const overlaySearch = useSearch();
   // Instrument the single navigation path so every navigate records into the
   // in-app depth-tagged nav tracker (change: fix-mobile-back-depth-aware).
   // wouter pushState/replaceState does not fire popstate, so record here; the
@@ -1677,6 +1684,25 @@ export default function App() {
     </>
   );
 
+  // ── Route-backed overlay background (D1, option C) ────────────────────────
+  // The launching location is frozen at navigation time so the overlay can
+  // render it underneath itself. `captureBackground` ignores overlay routes, so
+  // sitting at `/settings` never overwrites the capture — which is what keeps
+  // an in-overlay navigation from moving the dismissal target mid-surface.
+  const fullLocation = overlayLocation + (overlaySearch ? `?${overlaySearch}` : "");
+  useEffect(() => {
+    captureBackground(fullLocation);
+  }, [fullLocation]);
+  const overlayBackground = resolveBackground(fullLocation);
+  const dismissOverlay = () => {
+    const target =
+      overlayBackground.path + (overlayBackground.search ? `?${overlayBackground.search}` : "");
+    // Drop the capture first: the navigation below lands on a non-overlay route,
+    // which immediately re-captures it as the next overlay's background.
+    clearBackground();
+    navigate(target);
+  };
+
   // Live-selection aliases, captured BEFORE the shadowing block below.
   const liveSelectedId = selectedId;
   const liveSelectedHistory = selectedHistory;
@@ -2442,7 +2468,29 @@ export default function App() {
             />
           )
         )}
-        {settingsMatch && <SettingsPanel availableModels={(() => {
+        {/* The first-launch display gate is a BLOCKING onboarding step, and the
+            shared `Dialog` paints at a raw `z-[60]` while that modal sits at the
+            `z-dialog` token (50) — so a route-backed overlay would cover it and
+            swallow its clicks. Not rendering the overlay until the gate is
+            answered is narrower than re-tiering the layer scale, and says the
+            right thing: onboarding blocks the app. (Any other `z-[60]` dialog
+            covers that gate too; that is pre-existing and left alone.)
+            See change: add-route-backed-overlay-dialogs. */}
+        {settingsMatch && !firstLaunchModal && (
+          <RouteBackedOverlay
+            background={overlayBackground}
+            backgroundContent={
+              <ShellContent
+                variant="desktop"
+                {...shellRenderers}
+                renderSession={(id) => renderSessionDetail(id)}
+              />
+            }
+            onDismiss={dismissOverlay}
+            ariaLabel="Settings"
+            testId="settings-overlay"
+          >
+            <SettingsPanel availableModels={(() => {
           const seen = new Set<string>();
           // Whole rows, not a 3-field projection: Settings merges these with the
           // `GET /api/models` catalogue and the session row must win on collision
@@ -2456,7 +2504,9 @@ export default function App() {
             }
           }
           return models;
-        })()} onMessage={onMessage} onBack={goBack} selectedCwd={selectedCwd} />}
+        })()} onMessage={onMessage} onBack={dismissOverlay} selectedCwd={selectedCwd} />
+          </RouteBackedOverlay>
+        )}
         {tunnelSetupMatch && <ZrokInstallGuide onBack={goBack} />}
       </div>
       {artifactDialog && (
