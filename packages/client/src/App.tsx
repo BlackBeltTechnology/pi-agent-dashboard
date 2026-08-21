@@ -1095,11 +1095,12 @@ export default function App() {
     : createInitialState();
 
   // Per-session draft text + history recall for CommandInput.
-  const selectedDraft = selectedId ? (drafts.get(selectedId) ?? "") : "";
+  // `selectedDraft` / `selectedImages` / `selectedCommands` /
+  // `selectedContextUsage` now live inside `renderSessionDetail`, derived from
+  // its session-id argument. See change: add-route-backed-overlay-dialogs.
   // Per-session pending images. Returns the stable EMPTY_IMAGES ref
   // when the session has no entry, so unrelated re-renders don't
   // produce a fresh `[]` and re-render <CommandInput>.
-  const selectedImages = (selectedId ? pendingImagesMap.get(selectedId) : undefined) ?? (EMPTY_IMAGES as ImageContent[]);
   const selectedHistory = useMemo(
     () => extractUserPromptHistory(selectedState.messages),
     [selectedState.messages],
@@ -1225,9 +1226,6 @@ export default function App() {
     }
   }, [selectedId, setSessionStates]));
 
-  const selectedCommands = selectedId
-    ? sessionCommands.get(selectedId) ?? []
-    : [];
 
   // selectedFlows derivation removed — flows-plugin's SessionFlowActions
   // claim reads flows from the per-session-data store directly. See
@@ -1296,8 +1294,6 @@ export default function App() {
   // shared two-tier map (live event-reducer value, else persisted fallback),
   // falling back to raw live state only if the map has no entry.
   // See change: align-content-header-context-usage.
-  const selectedContextUsage =
-    (selectedId ? contextUsageMap.get(selectedId) : undefined) ?? selectedState.contextUsage;
 
   const sessionActions = useSessionActions({
     selectedId, send, navigate, setMobileOpen,
@@ -1681,7 +1677,30 @@ export default function App() {
     </>
   );
 
-  const sessionDetail = selectedId ? (
+  // Live-selection aliases, captured BEFORE the shadowing block below.
+  const liveSelectedId = selectedId;
+  const liveSelectedHistory = selectedHistory;
+
+  // Session chat, parameterised by session id so a FROZEN underlay can render a
+  // session that is not the live selection. The four `selected*` names below
+  // deliberately SHADOW their live counterparts, which is what lets the ~360
+  // lines of JSX stay byte-identical instead of being rewritten reference by
+  // reference. No hooks are called inside, so conditional invocation is safe.
+  // See change: add-route-backed-overlay-dialogs.
+  const renderSessionDetail = (sessionIdArg: string) => {
+    const selectedId = sessionIdArg;
+    const selectedSession = sessions.get(selectedId);
+    const selectedCwd = selectedSession?.cwd;
+    const selectedState = sessionStates.get(selectedId) ?? createInitialState();
+    const selectedDraft = drafts.get(selectedId) ?? "";
+    const selectedImages = pendingImagesMap.get(selectedId) ?? (EMPTY_IMAGES as ImageContent[]);
+    const selectedCommands = sessionCommands.get(selectedId) ?? [];
+    const selectedContextUsage = contextUsageMap.get(selectedId) ?? selectedState.contextUsage;
+    // Reuse the memoised history for the LIVE session; only a frozen underlay
+    // pays the extraction, and only for a session it is actually showing.
+    const selectedHistory =
+      sessionIdArg === liveSelectedId ? liveSelectedHistory : extractUserPromptHistory(selectedState.messages);
+    return (
     <div className="flex-1 flex flex-col min-w-0 h-full">
       {connectionBanner}
       <SessionHeader
@@ -2043,7 +2062,9 @@ export default function App() {
         />
       )}
     </div>
-  ) : null;
+    );
+  };
+
 
   // Get terminals for a specific folder cwd
   const getTerminalsForCwd = useCallback((cwd: string) => {
@@ -2351,7 +2372,7 @@ export default function App() {
               <ShellContent
                 variant="mobile"
                 {...shellRenderers}
-                renderSession={(id) => (id === selectedId ? sessionDetail : null)}
+                renderSession={(id) => renderSessionDetail(id)}
               />
             )
           }
@@ -2401,7 +2422,6 @@ export default function App() {
               variant="desktop"
               {...shellRenderers}
               renderSession={(id) => {
-                if (id !== selectedId) return null;
                 /* Plugin slot: content-view — only render when at least one
                    registered claim's predicate returns true for the current
                    session. Each claim's predicate closes over the plugin's
@@ -2417,7 +2437,7 @@ export default function App() {
                   selectedId && selectedSession && forSession(_pluginRegistry.getClaims("content-view"), selectedSession).length > 0
                     ? <ContentViewSlot session={selectedSession} routeParams={{}} onClose={() => { /* Plugin claim clears its own UI state on dismiss, revealing the chat at the current /session/:id; the shell must NOT navigate away. See change: fix-settings-back-to-launching-route. */ }} />
                     : null;
-                return contentView ?? sessionDetail;
+                return contentView ?? renderSessionDetail(id);
               }}
             />
           )

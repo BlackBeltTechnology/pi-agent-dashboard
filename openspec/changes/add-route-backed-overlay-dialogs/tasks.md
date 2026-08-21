@@ -60,7 +60,7 @@ special-cased (see 5.5). That change will rebase around group 5's
 
 ## 5. Convert core surfaces
 
-- [ ] 5.0 **(added, cycle 2)** Extract `ShellContent` so the content branch re-derives under a frozen Router — the underlay is structurally impossible while App body fixes all 17 `useRoute` matches against the live URL. DONE for the desktop + mobile call sites. STILL OPEN: `sessionDetail` (App.tsx ~360 lines) holds a THIRD copy of the chain and is not yet parameterised by session id, so a frozen `/session/:id` underlay still falls back to the landing page. Conversions 5.1-5.6 are expected to delete that copy
+- [x] 5.0 **(added, cycle 2)** Extract `ShellContent` so the content branch re-derives under a frozen Router — the underlay is structurally impossible while App body fixes all 17 `useRoute` matches against the live URL. Desktop + mobile call sites use it, and `sessionDetail` is now `renderSessionDetail(id)` (shadowed `selected*` locals, no hooks inside, so conditional invocation is safe), so a frozen `/session/:id` underlay renders that session. **Untested gap:** no test yet drives App with a non-live session id — `ShellContent` unit tests cover branch selection, the App wiring is covered only by `tsc` until the group 8 e2e
 - [ ] 5.1 `/settings/:page/:sub?` onto the overlay renderer
 - [ ] 5.2 `/folder/:cwd/settings/:page` onto the overlay renderer
 - [ ] 5.3 `/folder/:cwd/view?path=`, `/pi-view?url=`, `/pi-resource?path=` onto the overlay renderer (reparent `PreviewOverlayView`)
