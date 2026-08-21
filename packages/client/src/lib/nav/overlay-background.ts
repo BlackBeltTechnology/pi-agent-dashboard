@@ -96,8 +96,28 @@ export function resolveBackground(currentRoute: string): ResolvedBackground {
 
 /**
  * Routes that are themselves route-backed overlays and so can never serve as a
- * background. Currently the modal routes (`/settings/*`, `/tunnel-setup`).
+ * background — the seven surfaces the `url-routing` spec lists as converted.
+ *
+ * Deliberately NOT `isModalRoute`. That predicate knows only `/settings/*` and
+ * `/tunnel-setup` because it answers a different question (which routes the
+ * mobile back path treats as modal), and widening it would change history
+ * semantics for every caller. The two lists overlap; they are not the same list.
+ *
+ * A route missing here captures ITSELF as its background: it renders behind
+ * itself and dismissal becomes a no-op.
  */
-function isOverlayRoute(path: string): boolean {
-  return isModalRoute(path);
+export function isOverlayRoute(path: string): boolean {
+  if (isModalRoute(path)) return true;
+  const segments = path.split("/").filter(Boolean);
+  if (segments[0] === "pi-view" || segments[0] === "pi-resource") return true;
+  if (segments[0] !== "folder") return false;
+  // `/folder/:cwd/settings[/:page]`
+  if (segments[2] === "settings") return true;
+  // `/folder/:cwd/view`
+  if (segments[2] === "view") return true;
+  // `/folder/:cwd/openspec/:changeName/:artifactId` — the artifact preview only.
+  // The board (`/openspec`) and its `archive` / `specs` pages stay full pages,
+  // so they remain valid backgrounds.
+  if (segments[2] === "openspec" && segments.length === 5) return true;
+  return false;
 }

@@ -2437,7 +2437,7 @@ export default function App() {
           <div className="flex-1 flex flex-col min-w-0 min-h-0">{folderViewContent}</div>
         )}
         {/* Show session detail or landing page when no folder view is selected */}
-        {!folderEditorCwd && !settingsMatch && !tunnelSetupMatch && (
+        {!folderEditorCwd && !settingsMatch && !tunnelSetupMatch && !folderSettingsMatch && (
           pluginOverlayMatched ? (
             // Plugin-owned overlay routes — see change: add-flow-agent-popout.
             // Pass `_pluginRegistry` explicitly (see comment on
@@ -2476,6 +2476,33 @@ export default function App() {
             right thing: onboarding blocks the app. (Any other `z-[60]` dialog
             covers that gate too; that is pre-existing and left alone.)
             See change: add-route-backed-overlay-dialogs. */}
+        {/* Folder-scoped settings, same container contract as global settings.
+            Suppressed from the live content region below (`!folderSettingsMatch`)
+            so it is not rendered twice — the underlay supplies the launching
+            folder from the frozen path. See change:
+            add-route-backed-overlay-dialogs. */}
+        {folderSettingsMatch && folderSettingsCwd && !firstLaunchModal && (
+          <RouteBackedOverlay
+            background={overlayBackground}
+            backgroundContent={
+              <ShellContent
+                variant="desktop"
+                {...shellRenderers}
+                renderSession={(id) => renderSessionDetail(id)}
+              />
+            }
+            onDismiss={dismissOverlay}
+            ariaLabel="Folder settings"
+            testId="folder-settings-overlay"
+          >
+            <DirectorySettings
+              cwd={folderSettingsCwd}
+              page={folderSettingsPage}
+              onBack={dismissOverlay}
+              onViewFile={handleViewPiResourceFile}
+            />
+          </RouteBackedOverlay>
+        )}
         {settingsMatch && !firstLaunchModal && (
           <RouteBackedOverlay
             background={overlayBackground}

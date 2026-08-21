@@ -64,10 +64,16 @@ describe("resolveBackground — in-app path (captured)", () => {
   });
 
   it("pins the search string of the launching location", () => {
-    captureBackground("/folder/xyz/view?path=/a.ts");
+    // Was written against `/folder/xyz/view?path=`, which the url-routing spec
+    // lists as a CONVERTED overlay — so it can never be a background, and the
+    // old expectation encoded a self-reference the code now refuses. The
+    // search-pinning behaviour itself is unchanged; `/session/:id/editor` is a
+    // query-carrying route that genuinely stays a full route, so it is the
+    // honest example. See change: add-route-backed-overlay-dialogs.
+    captureBackground("/session/abc/editor?file=src/a.ts");
     expect(resolveBackground("/settings/general")).toEqual({
-      path: "/folder/xyz/view",
-      search: "path=/a.ts",
+      path: "/session/abc/editor",
+      search: "file=src/a.ts",
       source: "captured",
     });
   });
@@ -76,6 +82,41 @@ describe("resolveBackground — in-app path (captured)", () => {
     // Guards the obvious self-reference bug: dismissal would be a no-op.
     captureBackground("/settings/general");
     expect(peekBackground()).toBeUndefined();
+  });
+
+  // The url-routing spec lists exactly seven converted surfaces. Every one of
+  // them must be refused as a background, or it renders behind itself and
+  // dismissal becomes a no-op. `isModalRoute` only knows two of them, which is
+  // correct for its own job (the mobile back path) but not for this one.
+  it.each([
+    ["/settings/general"],
+    ["/tunnel-setup"],
+    ["/folder/Zm9v/settings"],
+    ["/folder/Zm9v/settings/skills"],
+    ["/folder/Zm9v/view?path=/a.ts"],
+    ["/pi-view?url=https://example.com"],
+    ["/pi-resource?path=/a.md"],
+    ["/folder/Zm9v/openspec/my-change/proposal"],
+  ])("refuses the converted overlay route %s as a background", (url) => {
+    captureBackground(url);
+    expect(peekBackground()).toBeUndefined();
+  });
+
+  // The complements matter as much: these are launching routes, and refusing
+  // them would leave every overlay opened from them with no background at all.
+  it.each([
+    ["/"],
+    ["/session/abc"],
+    ["/folder/Zm9v"],
+    ["/folder/Zm9v/editor"],
+    ["/folder/Zm9v/openspec"],
+    ["/folder/Zm9v/openspec/archive"],
+    ["/folder/Zm9v/openspec/specs"],
+    ["/session/abc/diff"],
+    ["/session/abc/editor"],
+  ])("still captures the non-overlay route %s", (url) => {
+    captureBackground(url);
+    expect(peekBackground()).toBeDefined();
   });
 });
 
