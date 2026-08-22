@@ -958,3 +958,43 @@ is not scanning to pick an endpoint automatically.** Enforced by construction �
 than a heuristic, and nothing on the bridge's automatic connect path imports it.
 If that last property is ever violated, this has become discovery by the back
 door.
+
+## D16 — reconciliation with `fix-bridge-mdns-migration-hijack` (cycle 8, DECIDED)
+
+Tasks 3.6 and 3.7 require this to be settled before archiving, not left implicit.
+
+**3.6 — no delta was introduced on `mdns-discovery`.** This change's deltas are
+`pi-gateway-transport`, `pi-gateway-auth` and `remote-session-history`. The
+`mdns-discovery` capability is untouched.
+
+**3.7 — but the two changes DO overlap, and the overlap needs declaring.**
+`fix-bridge-mdns-migration-hijack` is unimplemented (0 of 31 tasks) and both
+changes act on the same re-target path. The honest summary:
+
+| Their requirement | Status under this change |
+|---|---|
+| Guarded migration away from an established bridge | **Subsumed and made stricter.** They gate migration on a `/api/health` reachability probe; `decideRetarget` (D4) additionally requires the current endpoint to be unpinned AND failed AND the candidate identity-verified. Their guard permits a migration this change still refuses. |
+| Migration is reversible | **Largely vacuous here.** A discovered candidate can no longer displace a working endpoint, so the stranding it recovers from is mostly unreachable. Their bounded-backoff scenario still has value for the pinned-endpoint case. |
+| Bridge re-targeting is observable | **Implemented here** (section 10). `bridge_diagnostic` carries `endpoint_resolved` and `retarget_refused` to the server log, which is precisely their "observable without enabling pi output capture". |
+| Advertisement matches what the server serves | **NOT addressed here, and still needed.** This change hardens the *consumer*. A loopback-bound dashboard advertising a LAN hostname remains a defect on the *producer* side, and still misleads anything that trusts mDNS. |
+| Localhost preference (MODIFIED) | Untouched. It governs discovery ranking, which this change removes from the authoritative path but does not delete. |
+
+**The declared delta.** Their spec is written on the premise that migrating to a
+discovered candidate is a legitimate operation to be *guarded*. This change
+demotes discovery to a suggestion that is never authoritative (D0/D3). Both can
+be true at once, but their scenario "Reachable candidate is adopted" becomes
+practically unreachable, because `identityVerified` is only satisfiable for an
+endpoint that the rendezvous record or a pin already named.
+
+This is stated rather than resolved on purpose: collapsing their change into this
+one would quietly drop the advertisement requirement, which is the half this
+change does not fix. **Recommendation: keep both.** Their remaining value is the
+producer-side fix and the bounded backoff; re-scope their "adopted" scenario to
+the identity-verified path when it is implemented.
+
+**Carried-forward gap, restated so archiving does not bury it.** `bridge.ts`
+passes `identityVerified: false` at the mDNS re-target site, so an mDNS-triggered
+re-target is currently refused *unconditionally* rather than conditionally. For a
+bridge that started against a wrong default and has no record to re-resolve from,
+self-correction is therefore not available. That is a deliberate fail-closed
+posture, not an oversight, but it is the sharp edge of this design.

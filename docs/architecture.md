@@ -3913,3 +3913,113 @@ Reproduce + full variant table: `packages/kb/eval/` (`run-fixtures.ts`, `measure
 Lane quota is the cost: its `agents` lane is a second FTS query, and `doc_type` is an UNINDEXED FTS5 column — cannot be answered by an index, scans the full match set. Scaled 31,121 → ~22,000 chunks: ≈38 ms median (passes 50 ms budget), ≈60 ms p95 (fails).
 
 See change: fix-kb-search-retrieval-quality.
+
+## Pi Gateway Transport & Identity
+
+Bridge↔server gateway transport + identity. Ground truth: `openspec/changes/add-pi-gateway-transport-identity/design.md` (decisions D0–D16), `packages/extension/src/endpoint-resolution.ts`, `packages/server/src/pi/gateway-transport-policy.ts`, `gateway-socket-bind.ts`, `bridge-upgrade-auth.ts`, `provisional-registration.ts`.
+
+See change: add-pi-gateway-transport-identity.
+
+### Transport: unix socket default, TCP by opt-in
+
+- Default listener = unix socket `<dashboardConfigDir>/gateway-<piPort>.sock` (`~/.pi/dashboard/gateway-<piPort>.sock`).
+- Socket mode `0600`, directory `0700`. Kernel enforces ownership; no token to mint, leak, rotate, replay (D5).
+- Socket path per instance, keyed by `piPort`. Same-HOME instances collide structurally never (D2).
+- Bridge dials `ws+unix://<path>:/`. Same WS protocol over the socket (D1) — `ws.ping()`/`pong` liveness oracle intact.
+- `ConnectionManager` constructed with `ws` package as `WebSocketImpl`. Global WebSocket rejects `ws+unix://` and cannot set upgrade headers.
+- TCP = opt-in only. `PI_GATEWAY_TCP` truthy (`1`/`true`/`yes`/`on`) binds listener; absent → no TCP listener (`decideGatewayListeners`, `packages/server/src/pi/gateway-transport-policy.ts`).
+- Opt-in TCP widens to configured bind host. No-socket fallback listener pins `127.0.0.1` regardless of `--host`.
+- Docker container sets `PI_GATEWAY_TCP: "${PI_GATEWAY_TCP:-1}"` (`docker/compose.yml`) — external pi sessions cannot reach the in-container socket; TCP kept with bridge auth mandatory (D10b).
+- Windows = always loopback. No unix socket. `ws://127.0.0.1:<piPort>`, authorised by `X-Pi-Local-Token` (D6).
+- sun_path fallback: path length checked at construction, never at `bind`. `SUN_PATH_MAX` = 104 macOS/BSD, 108 Linux. Over limit → loopback + local token, reason in log (D15).
+- Stale-socket fail-closed (D9, defect B3): probe/unlink/bind serialized under exclusive companion lock `gateway-<piPort>.sock.lock` (`proper-lockfile`). Probe `live` → `GatewaySocketConflictError`, never unlink. Reclaim only on `ENOENT`, or `refused` + `<socketPath>.pid` records a provably dead owner (`isProcessAlive`). Timeout fails closed — saturated live backlog looks exactly like it.
+- On unbind: socket path + `.pid` + `.lock` sentinels removed. Idempotent (task 2.5).
+
+### Endpoint resolution: precedence ladder (D3)
+
+`resolveEndpoint` (`packages/extension/src/endpoint-resolution.ts`) — pure decision table. Every input passed in; the ladder is enumerable, not emergent from I/O order. Highest first:
+
+| # | source | input | class |
+|---|---|---|---|
+| 1 | `PI_DASHBOARD_SOCKET` | explicit local socket path | **PINNED** |
+| 2 | `PI_DASHBOARD_URL` | explicit endpoint | **PINNED** |
+| 3 | pinned instance | operator config | **PINNED** |
+| 4 | rendezvous record | `~/.pi/dashboard/server.lock.meta.json` (HOME-derived) | default |
+| 5 | paired remote | remote-join feature | — |
+| 6 | mDNS / discovery | suggestion only | **never overrides** |
+
+- mDNS never wins. Discovered candidate surfaces as `suggestion` only, informational, for deliberate operator action.
+- Absence = unavailable, never discovery (D0). Resolution `available:false` + reason. No silent substitute.
+- Rendezvous record written by the lock holder only (D2). Truncated / partially-written record = absent, never partially trusted (D15).
+- Stickiness (D4): once registered with instance X, bridge reconnects only to X. Re-target requires all of: current endpoint unpinned, current endpoint failed, candidate identity verified (`decideRetarget`).
+- Pinned endpoint unreachable → visible, retrying failure — never silent migration to something else.
+
+```mermaid
+flowchart TD
+  A["bridge starts"] --> B["resolveEndpoint"]
+  B --> C1{"PI_DASHBOARD_SOCKET set?"}
+  C1 -- "yes" --> P1["dial socket — pinned"]
+  C1 -- "no" --> C2{"PI_DASHBOARD_URL set?"}
+  C2 -- "yes" --> P2["dial endpoint — pinned"]
+  C2 -- "no" --> C3{"pinned instance configured?"}
+  C3 -- "yes" --> P3["dial pinned instance — pinned"]
+  C3 -- "no" --> C4{"rendezvous record?"}
+  C4 -- "yes" --> P4["dial record endpoint — not pinned"]
+  C4 -- "no" --> C5{"paired remote?"}
+  C5 -- "yes" --> P5["dial paired remote — not pinned"]
+  C5 -- "no" --> U["unavailable + reason; mDNS = suggestion only"]
+  P1 --> D["dial, verify instance id, register"]
+  P2 --> D
+  P3 --> D
+  P4 --> D
+  P5 --> D
+  D --> R{"current endpoint failed?"}
+  R -- "no" --> SERVE["serve"]
+  R -- "yes" --> G["decideRetarget"]
+  G -- "pinned / not failed / identity unverified" --> STAY["keep retrying current endpoint"]
+  G -- "unpinned + failed + identity verified" --> B
+```
+
+### Auth model
+
+`decideBridgeUpgrade` (`packages/server/src/pi/bridge-upgrade-auth.ts`) — pure per-transport gate. Asymmetry is the point:
+
+| transport | credential | mechanism |
+|---|---|---|
+| unix socket | none | kernel via `0600` socket in `0700` dir (D5) |
+| loopback TCP | `X-Pi-Local-Token` | 32-byte secret `~/.pi/dashboard/local/token`, verified with `crypto.timingSafeEqual` (D6) |
+| remote TCP | single-use bridge-scoped ws ticket | minted from paired-device bearer or genuinely-local caller; rides upgrade only |
+
+- Loopback = `127.0.0.1`/`::1` AND absence of proxy-forwarding headers (`hasProxyForwardingHeaders`). `ssh -L`, zrok, host nginx present as loopback → not genuinely local.
+- Ticket scope `bridge` added to `WsRouteScope` (`packages/server/src/auth/ws-ticket.ts`). Single-use, ~15 s TTL, path `/ws/bridge`. Carried in `?ticket=` query or `sec-websocket-protocol` `pi-ticket.` entry. Durable bearer never rides the WebSocket.
+- Remote TCP requires a valid ticket always. No grace, ever.
+- Tokenless loopback accepted during deprecation window, logged `deprecated: true`; refused after horizon (1.0.0).
+- Refusal causes distinct — no-credential ≠ bad-credential: `local-token-missing`, `local-token-invalid`, `no-ticket`.
+- Server identity = Ed25519 fingerprint (`auth/identity.ts` → `~/.pi/dashboard/identity.key`), per-HOME, stable across restarts. Stored at pairing; verified by nonce challenge before registering (D8). Stale or hostile server cannot impersonate a pinned identity.
+- Rendezvous instance id = separate concept (D14, defect B1): `<dashboardConfigDir>/instances/<piPort>.id`, `0600`, per-instance, stable across restarts. Identifier, never a capability — `/api/health` publishes it unauthenticated. Answers "which instance answered"; never proof of entitlement.
+- Local token (or socket ownership) proves entitlement; instance id only names the instance (D14).
+
+### Move command (D11)
+
+- `/dashboard-connect <target>` — move the live session to another dashboard. Target: exact `instanceId` | port | unambiguous id prefix (git-short-sha style) | explicit socket path / `ws://` URL | `default` (D11b).
+- Ambiguous id prefix refused, never resolved — silently choosing moves the session wrong and still looks like it worked.
+- `/dashboard-list` — every gateway instance under this HOME, default first (display-only scan, `packages/shared/src/instance-directory.ts`). Never auto-picks an endpoint.
+- `/dashboard-where` — current endpoint, identity, pinned? for this session.
+- Sequence: connect target → provisional registration → verify instance id → commit. Origin keeps serving until commit succeeds (D11).
+- Provisional registration (`provisional-registration.ts`) claims NO routing entry, no contention slot, no heartbeat. Returns target `instanceId` + token. TTL 30 s (`PROVISIONAL_TTL`). Refusal = `provisional_rejected`, cause never on the wire — no session-enumeration oracle.
+- Routing transfers only on `session_move_commit`. Send-ring ownership: exactly one owner at every instant; origin owns until target acknowledges, then single swap instant.
+- `session_moved` → server sets `movedTo` + `status: "ended"` + `endedAt` (`packages/server/src/event-wiring.ts`). Card reads *moved*, never *crashed*.
+- Every failure — refusal, identity mismatch, timeout (30 s), transport error — drops the target and keeps the origin. Move that cannot complete = no-op, never an outage.
+- Move pin in-memory, process-lifetime only (D11a). Nothing on disk. Restarted pi re-resolves through the D3 ladder. Feeds existing `decideRetarget({ pinned })` stickiness gate.
+- Cross-host target: transcript stays on origin host — history and resume do not follow (`assessTranscriptFollow`, locality decided from endpoint, never path sent on wire). Warning surfaced before move.
+
+### Remote transcripts + read-only boundary (D12, D13)
+
+- Sessions addressed by id ONLY. `decideTranscriptRequest` (`packages/extension/src/transcript-request-guard.ts`) refuses any path-bearing field: `path`, `file`, `filePath`, `filepath`, `sessionFile`, `sessionDir`, `dir`, `cwd`. Refusal on field presence, never value validation — validating values is a traversal-parsing contest.
+- Shape checked before subject: two refusals cannot be differenced into an existence check. Foreign `sessionId` refused — bridge serves only its own session.
+- Backfill: lazy, interruptible, background after registration. Live events forward eagerly. Cursor = offset + length + hash of last consumed line; mismatch → re-read from start, never resume (append-only is measured, not provable over time).
+- Retention: `<dashboardConfigDir>/remote-transcripts/<sessionId>.jsonl` (`~/.pi/dashboard/remote-transcripts/`). File `0600`, dir `0700`. `sessionId` validated `^[A-Za-z0-9_-]{1,64}$` — rejected, never sanitised (write-anywhere guard).
+- Restarted read REPLACES, never appends — duplicated second pass corrupts the retained copy. `.complete` sidecar marker; transcript byte-identical to origin.
+- Origin derived from the authenticated bridge credential, never bridge-claimed (`attributeOrigin`, `packages/server/src/session/session-origin.ts`). unix / loopback → local. Remote + `deviceId` → remote. Unattributable remote → remote, fail closed. Claimed fields (`claimedDeviceId`, `claimedLocal`, …) ignored.
+- Remote-origin sessions refuse local file reads (`mayReadLocalSessionFile`: `remote-origin` | `no-session-file`) — same-username path collision would serve an unrelated host's transcript.
+- Remote-origin sessions refuse resume (`decideResume`: `remote-origin-ended` | `remote-origin-live`) — local resume would attach a writer to another host's transcript. Read-only after bridge ends (D13).

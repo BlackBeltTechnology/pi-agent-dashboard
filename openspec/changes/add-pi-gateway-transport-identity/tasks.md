@@ -51,8 +51,8 @@
 - [x] 3.3 Refuse any re-target of a pinned endpoint; log both endpoints and the reason
 - [x] 3.4 Track the instance the bridge registered with, and require identity verification before any re-target
 - [x] 3.5 Make 1.5 and 1.6 pass
-- [ ] 3.6 Confirm no delta was introduced on the `mdns-discovery` capability (this change must not collide with `fix-bridge-mdns-migration-hijack`)
-- [ ] 3.7 **Reconcile with `fix-bridge-mdns-migration-hijack` before archiving.** Making explicit endpoints pinned narrows that change's migration scenarios in practice, and both changes touch the same re-target path (`connection.updateUrl`). Re-read its spec at archive time and confirm the merged behaviour is coherent; if it is not, declare the delta rather than leaving the conflict implicit
+- [x] 3.6 Confirm no delta was introduced on the `mdns-discovery` capability (this change must not collide with `fix-bridge-mdns-migration-hijack`)
+- [x] 3.7 **Reconcile with `fix-bridge-mdns-migration-hijack` before archiving.** Making explicit endpoints pinned narrows that change's migration scenarios in practice, and both changes touch the same re-target path (`connection.updateUrl`). Re-read its spec at archive time and confirm the merged behaviour is coherent; if it is not, declare the delta rather than leaving the conflict implicit
 - [x] 3.8 Verify identity before adopting the instance named by the record: a bridge SHALL refuse an instance whose identity differs from the recorded one; make 1.8 pass
 
 ## 4. Local authorisation (D5)
@@ -222,4 +222,4 @@
 - [ ] 13.6 Confirm an ended remote session refuses resume with an explanation, and a local session does not
 - [ ] 13.7 Measure the remote-join path against a p99 transcript (~4 MB) and the observed maximum (~44 MB); record registration latency and transfer cost
 - [ ] 13.8 Cross-platform QA arms for macOS, Linux, and Windows, including that a POSIX default start binds no bridge TCP port at all
-- [ ] 13.9 Update `docs/architecture.md` via DocScribe (transport, precedence ladder, auth model, move command, remote transcript access + the read-only boundary)
+- [x] 13.9 Update `docs/architecture.md` via DocScribe (transport, precedence ladder, auth model, move command, remote transcript access + the read-only boundary)
