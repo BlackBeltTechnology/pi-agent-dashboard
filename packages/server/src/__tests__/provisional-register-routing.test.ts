@@ -164,16 +164,21 @@ describe("provisional registration does not claim routing (#X9)", () => {
  * early drops the frame that transfers ownership and the move hangs silently.
  */
 describe("session_move_commit transfers routing (#X8)", () => {
-  it("moves delivery from the origin to the target, and only on commit", async () => {
-    const { gw, sessions, port, delivered } = await startGateway();
+  it("moves delivery to the target instance, and only on commit", async () => {
+    // TWO gateways, because a move to the instance that already holds the
+    // session is not a move — it is the hijack shape the commit handler now
+    // refuses. Modelling origin and target as one gateway is what hid two
+    // production-fatal defects before live verification found them.
+    const A = await startGateway({ instanceId: "instance-origin" });
+    const B = await startGateway({ instanceId: "instance-dest" });
 
-    const origin = await connect(port);
+    const origin = await connect(A.port);
     origin.send(
       JSON.stringify({ type: "session_register", sessionId: "sess-M", cwd: "/tmp", source: "tui", pid: 7 }),
     );
-    await until(() => sessions.get("sess-M")?.source === "tui");
+    await until(() => A.sessions.get("sess-M")?.source === "tui");
 
-    const target = await connect(port);
+    const target = await connect(B.port);
     target.send(
       JSON.stringify({
         type: "session_register",
@@ -186,35 +191,36 @@ describe("session_move_commit transfers routing (#X8)", () => {
     );
     const accepted = await nextMessage(target);
     expect(accepted.type).toBe("provisional_accepted");
+    expect(accepted.instanceId).toBe("instance-dest");
 
-    // Pre-commit: the target's traffic is not routable — it owns nothing.
+    // Pre-commit: the target's traffic is not routable — it owns nothing on B.
     target.send(JSON.stringify({ type: "first_message_update", sessionId: "sess-M", firstMessage: "too-early" }));
     await delay(50);
-    expect(delivered.some((d) => d.msg.firstMessage === "too-early")).toBe(false);
+    expect(B.delivered.some((d) => d.msg.firstMessage === "too-early")).toBe(false);
+    expect(B.gw.isSessionConnected("sess-M")).toBe(false);
 
     target.send(JSON.stringify({ type: "session_move_commit", sessionId: "sess-M", token: accepted.token }));
     await delay(80);
 
-    // Post-commit: the target is served, and the gateway still reports the
-    // session as connected throughout — the move is a handover, not a gap.
-    expect(gw.isSessionConnected("sess-M")).toBe(true);
+    // Post-commit: B serves the target and has materialised the session it
+    // had never heard of.
+    expect(B.gw.isSessionConnected("sess-M")).toBe(true);
+    expect(B.sessions.get("sess-M")?.cwd).toBe("/tmp");
     target.send(JSON.stringify({ type: "first_message_update", sessionId: "sess-M", firstMessage: "from-target" }));
-    await until(() => delivered.some((d) => d.msg.firstMessage === "from-target"));
+    await until(() => B.delivered.some((d) => d.msg.firstMessage === "from-target"));
 
-    // And the origin, now displaced, can no longer speak for the session.
-    origin.send(JSON.stringify({ type: "first_message_update", sessionId: "sess-M", firstMessage: "stale-origin" }));
-    await delay(60);
-    expect(delivered.some((d) => d.msg.firstMessage === "stale-origin")).toBe(false);
+    // The ORIGIN's instance is untouched by a commit on another instance:
+    // releasing it is the coordinator's job (session_moved, then disconnect),
+    // not a side effect B may inflict remotely.
+    expect(A.gw.isSessionConnected("sess-M")).toBe(true);
+    origin.send(JSON.stringify({ type: "first_message_update", sessionId: "sess-M", firstMessage: "origin-still" }));
+    await until(() => A.delivered.some((d) => d.msg.firstMessage === "origin-still"));
   });
 
   it("refuses a replayed commit token", async () => {
+    // No incumbent on this gateway: it is the move DESTINATION. An origin
+    // registered here would (correctly) make the commit a refused hijack.
     const { port } = await startGateway();
-    const origin = await connect(port);
-    origin.send(
-      JSON.stringify({ type: "session_register", sessionId: "sess-R", cwd: "/tmp", source: "tui" }),
-    );
-    await delay(50);
-
     const target = await connect(port);
     target.send(
       JSON.stringify({ type: "session_register", sessionId: "sess-R", cwd: "/tmp", source: "tui", provisional: true }),
@@ -426,6 +432,54 @@ describe("a session moves between two separate instances (task 13.4)", () => {
  * happened to send matching ids.
  */
 describe("a commit cannot rename the session it was minted for", () => {
+  it("refuses a commit that would displace a LIVE incumbent", async () => {
+    // Nothing in the protocol proves the mover is the session's origin — the
+    // token is minted for whoever asks. So the commit must never take a
+    // session out of a live socket's hands, which is the one capability a
+    // plain `session_register` (contention + liveness probe) would not grant.
+    const { gw, sessions, port, delivered } = await startGateway();
+
+    const victimWs = await connect(port);
+    victimWs.send(
+      JSON.stringify({ type: "session_register", sessionId: "sess-V", cwd: "/tmp", source: "tui", pid: 7 }),
+    );
+    await until(() => sessions.get("sess-V")?.source === "tui");
+
+    // A provisional is still answered uniformly — it claims nothing, and
+    // refusing here would leak whether the session lives on this instance.
+    const attacker = await connect(port);
+    attacker.send(
+      JSON.stringify({
+        type: "session_register",
+        sessionId: "sess-V",
+        cwd: "/tmp",
+        source: "tui",
+        pid: 9,
+        provisional: true,
+      }),
+    );
+    const prov = await nextMessage(attacker);
+    expect(prov.type).toBe("provisional_accepted");
+
+    // The commit is where it must stop.
+    attacker.send(JSON.stringify({ type: "session_move_commit", sessionId: "sess-V", token: prov.token }));
+    expect((await nextMessage(attacker)).type).toBe("provisional_rejected");
+
+    // The victim still owns the session and is still served...
+    expect(gw.isSessionConnected("sess-V")).toBe(true);
+    victimWs.send(
+      JSON.stringify({ type: "first_message_update", sessionId: "sess-V", firstMessage: "still-mine" }),
+    );
+    await until(() => delivered.some((d) => d.msg.firstMessage === "still-mine"));
+
+    // ...and the attacker speaks for nothing.
+    attacker.send(
+      JSON.stringify({ type: "first_message_update", sessionId: "sess-V", firstMessage: "hijacked" }),
+    );
+    await delay(120);
+    expect(delivered.some((d) => d.msg.firstMessage === "hijacked")).toBe(false);
+  });
+
   it("refuses a commit whose sessionId does not match the token", async () => {
     const { gw, sessions, port, delivered } = await startGateway();
 

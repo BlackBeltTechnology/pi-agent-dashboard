@@ -326,6 +326,10 @@ export function createPiGateway(
   const attachConnectionHandler = (target: WebSocketServer) => {
       target.on("connection", (ws) => {
         let currentSessionId: string | null = null;
+        // The session this socket holds an OPEN provisional for, if any. A
+        // provisional announces intent and claims nothing, so this socket must
+        // stay unrouted for that id until it commits.
+        let provisionalSessionId: string | null = null;
         // Serializes this socket's messages. The contention decision is async
         // (it may probe the incumbent), and a bridge sends `session_register`
         // immediately followed by events; without this queue a later message
@@ -519,6 +523,32 @@ export function createPiGateway(
                   );
                   return;
                 }
+                // A commit may never displace a LIVE incumbent. Nothing in the
+                // protocol proves the mover is the session's origin — the token
+                // is minted by whoever asked for it — so without this the move
+                // path was a hijack primitive that skipped the contention and
+                // liveness probe a plain register goes through.
+                //
+                // The invariant this restores: a move grants NOTHING a plain
+                // `session_register` does not already grant. Adopting a session
+                // this instance has never heard of is exactly what a register
+                // does; taking one out of a live socket's hands is not.
+                //
+                // A genuine move never trips this — the session is live on the
+                // ORIGIN, not here. Moving back to an instance that once held it
+                // is still fine: that entry is gone once the socket closed.
+                const incumbent = connections.get(movedId);
+                if (incumbent && incumbent !== ws) {
+                  ws.send(
+                    JSON.stringify(
+                      provisionalRegistry.refuseForWire({
+                        sessionId: movedId,
+                        cause: "session-live-elsewhere",
+                      }),
+                    ),
+                  );
+                  return;
+                }
                 // Hand over the routing entry. The previous holder is NOT probed or
                 // refused — this is a cooperative handover the origin asked for,
                 // not contention.
@@ -550,6 +580,14 @@ export function createPiGateway(
             // returns, so it would swallow the commit frame outright.
             if (!currentSessionId && "sessionId" in msg && (msg as any).sessionId) {
               const sid: string = (msg as any).sessionId;
+              // A socket holding an open provisional for this id must NOT be
+              // auto-claimed into owning it. Otherwise the very next frame a
+              // move target sends laundered its "claims nothing" provisional
+              // into a real routing entry, taking the session before the
+              // commit that is meant to be the only transfer point.
+              // Only observable across two instances: on a single gateway the
+              // origin's ownership gate absorbed the frame and hid it.
+              if (sid === provisionalSessionId) return;
               const incumbent = connections.get(sid);
               if (incumbent && incumbent !== ws && incumbent.readyState === WebSocket.OPEN) {
                 // Held by a live socket: this socket never becomes the entry.
@@ -636,6 +674,7 @@ export function createPiGateway(
                 pid: msg.pid,
               },
             });
+            provisionalSessionId = msg.sessionId;
             ws.send(
               JSON.stringify({
                 type: "provisional_accepted",
