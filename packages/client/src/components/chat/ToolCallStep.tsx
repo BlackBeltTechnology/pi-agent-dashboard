@@ -1,6 +1,6 @@
 import { type ClaimEntry, CurrentPluginLayer, forToolName } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { useSlotRegistryOrNull } from "@blackbelt-technology/dashboard-plugin-runtime/context";
-import { mdiAlert, mdiAlertCircle, mdiCheck, mdiChevronDown, mdiChevronRight, mdiHelpCircleOutline, mdiLoading, mdiStop } from "@mdi/js";
+import { mdiAlert, mdiAlertCircle, mdiCheck, mdiChevronDown, mdiChevronRight, mdiHelpCircleOutline, mdiLoading, mdiMinusCircleOutline, mdiStop } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { type ReactNode, useState } from "react";
 import { useMobile } from "../../hooks/useMobile.js";
@@ -39,7 +39,12 @@ interface Props {
   toolName: string;
   toolCallId: string;
   args?: Record<string, unknown>;
-  status: "running" | "complete" | "error";
+  /**
+   * `elided` = the result is not loadable (a backfill segment orphaned this
+   * call). Terminal and neutral: no spinner, no error styling.
+   * See change: fix-lazy-history-backfill-ux (D5).
+   */
+  status: "running" | "complete" | "error" | "elided";
   result?: string;
   images?: ChatImage[];
   context: ToolContext;
@@ -69,6 +74,8 @@ const statusIcons: Record<string, ReactNode> = {
   running: <Icon path={mdiLoading} size={0.55} spin />,
   complete: <Icon path={mdiCheck} size={0.55} />,
   error: <Icon path={mdiAlertCircle} size={0.55} />,
+  // Neutral, static, non-error. See change: fix-lazy-history-backfill-ux (D5).
+  elided: <Icon path={mdiMinusCircleOutline} size={0.55} />,
 };
 
 export function ToolCallStep({ toolName, toolCallId, args, status, result, images, context, startedAt, duration, toolDetails, showResultBody = true, hideStatusIcon = false, onAbort, onForceKill }: Props) {
@@ -147,13 +154,15 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
           <span className={`inline-flex ${
             status === "error"
               ? "text-[var(--severity-error-fg)]"
-              : isAskUser
-                ? "text-sky-400"
-                : status === "complete"
-                  ? "text-green-400"
-                  : "text-yellow-400"
+              : status === "elided"
+                ? "text-[var(--text-muted)]"
+                : isAskUser
+                  ? "text-sky-400"
+                  : status === "complete"
+                    ? "text-green-400"
+                    : "text-yellow-400"
           }`}>
-            {isAskUser && status !== "error" && status !== "running"
+            {isAskUser && status !== "error" && status !== "running" && status !== "elided"
               ? <Icon path={mdiHelpCircleOutline} size={0.55} />
               : statusIcons[status]}
           </span>
@@ -167,6 +176,15 @@ export function ToolCallStep({ toolName, toolCallId, args, status, result, image
             title={i18nT("common.resultNotCapturedRecovered", undefined, "Result not captured — the tool finished but its output was unrecoverable; recovered from the transcript.")}
           >
             {i18nT("common.recovered", undefined, "recovered")}
+          </span>
+        )}
+        {status === "elided" && (
+          <span
+            data-testid="tool-elided-badge"
+            className="ml-1 shrink-0 rounded px-1 text-[10px] leading-4 bg-[var(--bg-secondary)] text-[var(--text-muted)] border border-[var(--border-subtle)]"
+            title={i18nT("chat.tool.elidedHint", undefined, "This tool's result is outside the loaded history and cannot be loaded.")}
+          >
+            {i18nT("chat.tool.elided", undefined, "result not loaded")}
           </span>
         )}
         {status === "running" && onAbort && stopState === "idle" && (

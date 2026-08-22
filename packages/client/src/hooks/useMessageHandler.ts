@@ -17,7 +17,7 @@ import type { DiscoveredServerInfo } from "../components/connectivity/ServerSele
 import type { ToastVariant } from "../components/primitives/Toast.js";
 import { EMPTY_CANVAS_STATE, reduceCanvasChip, reduceCanvasIntent } from "../lib/canvas/canvas-gate.js";
 import { foldLiveEvents, type QueuedLiveEvent } from "../lib/chat/coalesce-live-events.js";
-import { addInteractiveRequest, addNotify, applyPromptReceived, carryPendingPrompt, createInitialState, dismissInteractiveRequest, reduceEvent, type SessionState } from "../lib/chat/event-reducer.js";
+import { addInteractiveRequest, addNotify, applyPromptReceived, carryPendingPrompt, createInitialState, dismissInteractiveRequest, finalizeBackfillSegment, reduceEvent, type SessionState } from "../lib/chat/event-reducer.js";
 import {
   createHistoryGapRow,
   createHistoryGapState,
@@ -787,10 +787,18 @@ export function useMessageHandler(
             // guarantee behind the server's best-effort edge snapping (D4).
             let seg = createInitialState();
             for (const { event } of msg.events) seg = reduceEvent(seg, event);
+            /**
+             * Tail-anchored events are the NEWEST remaining gap events, so they
+             * belong immediately ABOVE the tail — i.e. after the divider, not
+             * before it. `at + 1`, not `at`.
+             * See change: fix-lazy-history-backfill-ux (D3).
+             */
             const messages = [
-              ...current.messages.slice(0, at),
-              ...seg.messages,
-              ...current.messages.slice(at),
+              ...current.messages.slice(0, at + 1),
+              // Correctness floor before merge: no orphaned spinner, no
+              // permanently-streaming bubble (D5).
+              ...finalizeBackfillSegment(seg.messages),
+              ...current.messages.slice(at + 1),
             ];
             const next = new Map(prev);
             next.set(msg.sessionId, { ...current, messages });
@@ -818,7 +826,12 @@ export function useMessageHandler(
         }
         publishGap(msg.sessionId, {
           ...gap,
-          headMaxSeq: msg.servedTo > 0 ? msg.servedTo : gap.headMaxSeq,
+          /**
+           * Retreat the TAIL edge only. Moving both edges from one response
+           * would double-shrink a gap the server credited exactly once.
+           * See change: fix-lazy-history-backfill-ux (D2).
+           */
+          tailMinSeq: msg.servedFrom > 0 ? msg.servedFrom : gap.tailMinSeq,
           gapCount: msg.remainingGapCount,
           pending: false,
           failed: false,

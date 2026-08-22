@@ -76,7 +76,12 @@ export function groupConsecutiveToolCalls(messages: ChatMessage[]): ChatItem[] {
     // it is always rendered as a live card. Guard the RUN-STARTING row too
     // (the inner loop only guards subsequent rows). See change:
     // collapse-tool-calls-across-narration.
-    if (msg.toolStatus === "running") {
+    //
+    // `elided` is excluded for a different reason: it is a terminal status, so
+    // it would otherwise group happily — and the "result not loaded" affordance
+    // never renders inside a collapsed ≥3 group, silently reading as succeeded.
+    // See change: fix-lazy-history-backfill-ux (D5).
+    if (msg.toolStatus === "running" || msg.toolStatus === "elided") {
       result.push(msg);
       i++;
       continue;
@@ -97,8 +102,8 @@ export function groupConsecutiveToolCalls(messages: ChatMessage[]): ChatItem[] {
       if (next.role !== "toolResult") break;
       if (next.toolName !== msg.toolName) break;
       if (!argsSimilar(next.args, msg.args)) break;
-      // Don't include a currently-running tool in a collapsed group
-      if (next.toolStatus === "running") break;
+      // Don't include a currently-running or elided tool in a collapsed group.
+      if (next.toolStatus === "running" || next.toolStatus === "elided") break;
       group.push(next);
       j++;
       lastToolEnd = j;

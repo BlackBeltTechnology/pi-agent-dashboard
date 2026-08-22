@@ -95,8 +95,12 @@ export interface MemoryLimitsConfig {
   maxWsBufferBytes: number;
   /**
    * Max events replayed to a browser on a FULL-stream subscribe (0 = unlimited).
-   * Positive values below `MIN_REPLAY_WINDOW` clamp up. Default: 0.
-   * See change: lazy-load-session-history (D3, D13).
+   * Positive values below `MIN_REPLAY_WINDOW` clamp up. Default: 2000.
+   *
+   * ABSENT is not the same as an explicit `0`: absent (and negative /
+   * non-numeric) falls back to the default, while an explicit `0` is preserved
+   * as the documented rollback lever.
+   * See change: lazy-load-session-history (D3, D13), fix-lazy-history-backfill-ux (D7).
    */
   maxReplayEvents: number;
 }
@@ -116,9 +120,15 @@ export const DEFAULT_MEMORY_LIMITS: MemoryLimitsConfig = {
   maxEventsPerSession: 20000,
   maxStringFieldSize: 0,
   maxWsBufferBytes: 4 * 1024 * 1024,
-  // 0 = unlimited. A non-zero default would silently truncate history for every
-  // existing user on upgrade. See change: lazy-load-session-history (D13).
-  maxReplayEvents: 0,
+  /**
+   * 2000 (was 0 = unlimited): at `0` nobody gets windowing without reading the
+   * issue thread. `computeReplayWindow` early-returns when the compacted stream
+   * fits, so any session compacting below 2000 takes the pre-change path
+   * exactly. Geometry at 2000: head 200 (at `HEAD_CAP`, so the protected chat
+   * head is maximal), tail 1800. `0` remains the exact rollback.
+   * See change: lazy-load-session-history (D13), fix-lazy-history-backfill-ux (D7).
+   */
+  maxReplayEvents: 2000,
 };
 
 export interface OpenSpecPollConfig {
@@ -835,8 +845,20 @@ function parseKeeperLogConfig(raw: any): KeeperLogConfig {
   };
 }
 
+/**
+ * Absent / negative / non-numeric → the DEFAULT; explicit `0` → `0`.
+ *
+ * Presence detection is load-bearing once the default is non-zero: the previous
+ * shape collapsed absent, negative, non-numeric and explicit `0` into `0`, so a
+ * non-zero default would have been unreachable from a config file that simply
+ * omits the field. The `MIN_REPLAY_WINDOW` clamp is unchanged.
+ * See change: fix-lazy-history-backfill-ux (D7).
+ */
 function parseMaxReplayEvents(raw: unknown): number {
-  if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) return 0;
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) {
+    return DEFAULT_MEMORY_LIMITS.maxReplayEvents;
+  }
+  if (raw === 0) return 0;
   return Math.max(MIN_REPLAY_WINDOW, Math.floor(raw));
 }
 
@@ -846,9 +868,9 @@ function parseMemoryLimits(raw: any): MemoryLimitsConfig {
     maxEventsPerSession: typeof raw.maxEventsPerSession === "number" ? raw.maxEventsPerSession : DEFAULT_MEMORY_LIMITS.maxEventsPerSession,
     maxStringFieldSize: typeof raw.maxStringFieldSize === "number" ? raw.maxStringFieldSize : DEFAULT_MEMORY_LIMITS.maxStringFieldSize,
     maxWsBufferBytes: typeof raw.maxWsBufferBytes === "number" ? raw.maxWsBufferBytes : DEFAULT_MEMORY_LIMITS.maxWsBufferBytes,
-    // Absent / non-numeric / negative → 0 (unlimited). A positive value below
-    // MIN_REPLAY_WINDOW clamps up; 0 itself is preserved, never clamped.
-    // See change: lazy-load-session-history (D3).
+    // Absent / non-numeric / negative → the default. A positive value below
+    // MIN_REPLAY_WINDOW clamps up; an explicit 0 is preserved, never clamped.
+    // See change: lazy-load-session-history (D3), fix-lazy-history-backfill-ux (D7).
     maxReplayEvents: parseMaxReplayEvents(raw.maxReplayEvents),
   };
 }

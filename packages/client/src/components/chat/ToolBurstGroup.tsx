@@ -35,13 +35,13 @@ import { useMobile } from "../../hooks/useMobile.js";
 import type { ChatMessage } from "../../lib/chat/event-reducer.js";
 import type { ToolBurstGroup as ToolBurstGroupData } from "../../lib/chat/group-tool-bursts.js";
 import type { ChatItem, ToolCallGroup } from "../../lib/chat/group-tool-calls.js";
-import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { getSummary, getToolIcon } from "../../lib/chat/tool-summary.js";
-import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
+import type { ToolContext } from "../tool-renderers/index.js";
+import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
 import { ThinkingBlock } from "./ThinkingBlock.js";
 import { ToolCallStep } from "./ToolCallStep.js";
-import type { ToolContext } from "../tool-renderers/index.js";
 
 interface Props {
   burst: ToolBurstGroupData;
@@ -183,7 +183,12 @@ export function ToolBurstGroup({ burst, toolContext }: Props) {
   if (visibleMembers.length === 0) return null;
 
   const total = visibleMembers.length;
-  const doneCount = visibleMembers.filter((m) => m.toolStatus !== "running").length;
+  // `elided` is terminal but NOT done: its result was never loaded, so counting
+  // it in the burst header would report work that did not demonstrably finish.
+  // See change: fix-lazy-history-backfill-ux (D5).
+  const doneCount = visibleMembers.filter(
+    (m) => m.toolStatus !== "running" && m.toolStatus !== "elided",
+  ).length;
   const failedCount = visibleMembers.filter((m) => m.toolStatus === "error").length;
   const runningMember = visibleMembers.find((m) => m.toolStatus === "running");
   const liveCommand = runningMember ? getSummary(runningMember.toolName ?? "unknown", runningMember.args) : "";

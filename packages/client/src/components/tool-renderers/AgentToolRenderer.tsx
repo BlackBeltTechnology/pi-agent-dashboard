@@ -25,16 +25,16 @@ import { Icon } from "@mdi/react";
 import type React from "react";
 import { useEffect, useState } from "react";
 import { useSubagentResyncCadence } from "../../hooks/useSubagentResyncCadence.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import {
   noteSubagentRunning,
   noteSubagentTerminal,
   trackInspectorMounted,
 } from "../../lib/state/subagent-inspector-telemetry.js";
-import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { AgentCardShell } from "../session/AgentCardShell.js";
 import { formatDuration } from "../session/agent-card-utils.js";
 import { ElapsedBadge } from "../session/ElapsedBadge.js";
-import { MarkdownContent } from "../preview/MarkdownContent.js";
 import type { ToolRendererProps } from "./types.js";
 
 /** Shape of AgentDetails sent by pi-dashboard-subagents via partialResult.details */
@@ -61,9 +61,21 @@ interface AgentDetails {
   error?: string;
 }
 
-/** Map AgentDetails status to AgentCardShell status key */
+/**
+ * Map AgentDetails status to AgentCardShell status key.
+ *
+ * The no-details fall-through maps ANY unrecognised row status to `running`, so
+ * `elided` must be handled explicitly or a windowed subagent row spins forever
+ * — and subagent rows are the likeliest to be windowed.
+ * See change: fix-lazy-history-backfill-ux (D5).
+ */
 function mapStatus(details: AgentDetails | undefined, toolStatus: string): string {
-  if (!details?.status) return toolStatus === "error" ? "error" : toolStatus === "complete" ? "complete" : "running";
+  if (!details?.status) {
+    if (toolStatus === "error") return "error";
+    if (toolStatus === "complete") return "complete";
+    if (toolStatus === "elided") return "elided";
+    return "running";
+  }
   switch (details.status) {
     case "running":
     case "queued":
@@ -322,6 +334,14 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
       <AgentCardShell name={displayName} status={cardStatus} headerRight={controls}>
         {description && (
           <div className="text-[11px] text-[var(--text-secondary)] mt-1 truncate">"{description}"</div>
+        )}
+        {cardStatus === "elided" && (
+          <div
+            data-testid="agent-elided-note"
+            className="text-[11px] text-[var(--text-muted)] mt-1"
+          >
+            {i18nT("chat.tool.elided", undefined, "result not loaded")}
+          </div>
         )}
         {!expanded && promptText && <PromptBlock text={promptText} />}
         {!expanded && result && <ResultBlock text={result} />}

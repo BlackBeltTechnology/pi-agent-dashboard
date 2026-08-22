@@ -1,5 +1,6 @@
 import { type RegisteredSource, SettingsDraftProvider, type SettingsDraftRegistry, useSettingsDraftSource, useSlotIntents } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { VALID_SETTINGS_TABS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-types.js";
 import {
   DISPLAY_PRESETS,
@@ -113,7 +114,7 @@ const MEMORY_LIMITS_SEED: MemoryLimitsConfig = {
   maxEventsPerSession: 200,
   maxStringFieldSize: 4000,
   maxWsBufferBytes: 4194304,
-  maxReplayEvents: 0,
+  maxReplayEvents: DEFAULT_MEMORY_LIMITS.maxReplayEvents,
 };
 
 interface NetworkInterfaceInfo {
@@ -284,8 +285,26 @@ function computeConfigPartial(config: Config, original: Config): Record<string, 
   if (JSON.stringify(config.trustedNetworks) !== JSON.stringify(original.trustedNetworks)) {
     partial.trustedNetworks = config.trustedNetworks ?? [];
   }
+  /**
+   * FIELD-level, not whole-object. `GET /api/config` returns the PARSED config,
+   * so every memory limit is materialized client-side; writing the whole object
+   * back would serialize an explicit `maxReplayEvents` the user never chose
+   * whenever they edit a sibling field — converting a defaulted field into a
+   * pinned one behind their back, and freezing the old default across upgrades.
+   * The server deep-merges `memoryLimits` over the RAW file, so a partial
+   * sub-object is safe: untouched keys stay exactly as the file has them
+   * (including an explicit `0`, the documented rollback lever).
+   * See change: fix-lazy-history-backfill-ux (D7).
+   */
   if (JSON.stringify(config.memoryLimits) !== JSON.stringify(original.memoryLimits)) {
-    partial.memoryLimits = config.memoryLimits;
+    const changed: Partial<MemoryLimitsConfig> = {};
+    const keys = Object.keys(config.memoryLimits ?? {}) as (keyof MemoryLimitsConfig)[];
+    for (const key of keys) {
+      if (config.memoryLimits[key] !== original.memoryLimits?.[key]) {
+        changed[key] = config.memoryLimits[key];
+      }
+    }
+    if (Object.keys(changed).length > 0) partial.memoryLimits = changed;
   }
   if (JSON.stringify(config.openspec) !== JSON.stringify(original.openspec)) {
     partial.openspec = config.openspec ?? DEFAULT_OPENSPEC_UI;
@@ -1376,12 +1395,29 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   <NumberField
                     hint={i18nT("settings.hint.maxReplayEvents", undefined, "Cap events sent to the browser when reopening a session. Keeps the start and the most recent messages; earlier ones load on demand. 0 = unlimited.")}
                     label={i18nT("session.maxReplayEvents", undefined, "Max Replay Events")}
-                    value={config.memoryLimits?.maxReplayEvents ?? 0}
+                    value={config.memoryLimits?.maxReplayEvents ?? DEFAULT_MEMORY_LIMITS.maxReplayEvents}
                     onChange={(v) => update((c) => {
                       if (!c.memoryLimits) c.memoryLimits = { ...MEMORY_LIMITS_SEED };
                       c.memoryLimits.maxReplayEvents = v;
                     })}
                   />
+                  {/* UNCONDITIONAL. A conditional warning comparing the two
+                      values is both backwards and undecidable: when
+                      `maxEventsPerSession <= maxReplayEvents` no window forms at
+                      all, so the warned-about pairing is inert; the genuinely
+                      harmful case depends on session size, unknowable at
+                      settings time. State the interaction instead.
+                      See change: fix-lazy-history-backfill-ux (D8). */}
+                  <p
+                    data-testid="memory-limits-replay-help"
+                    className="text-xs text-[var(--text-secondary)]"
+                  >
+                    {i18nT(
+                      "settings.help.replayWindowRetention",
+                      undefined,
+                      "Max Replay Events and Max Events Per Session work together: the replay window decides how much of a session the browser receives up front, while the event cap decides how much the server still holds. Earlier messages can only be loaded on demand while the server still holds them.",
+                    )}
+                  </p>
                 </Section>
               </>
             )}
