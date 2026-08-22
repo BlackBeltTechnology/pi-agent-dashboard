@@ -42,6 +42,24 @@ interface ProvisionalEntry {
   instanceId: string;
   openedAt: number;
   committed: boolean;
+  /**
+   * The registration payload the mover presented. A move TARGET has never heard
+   * of the session, so the commit has to materialise it from this rather than
+   * look it up locally.
+   */
+  register?: ProvisionalRegisterPayload;
+}
+
+/** The subset of `session_register` a target needs to materialise the session. */
+interface ProvisionalRegisterPayload {
+  cwd: string;
+  source: string;
+  name?: string;
+  model?: string;
+  sessionFile?: string;
+  sessionDir?: string;
+  firstMessage?: string;
+  pid?: number;
 }
 
 /** What the caller is told. Deliberately carries no detail. */
@@ -50,8 +68,16 @@ interface ProvisionalRejectedWire {
 }
 
 export interface ProvisionalRegistry {
-  open(input: { sessionId: string; instanceId: string }): { token: string; instanceId: string };
-  commit(token: string): { ok: true } | { ok: false; cause: ProvisionalRefusalCause };
+  open(input: {
+    sessionId: string;
+    instanceId: string;
+    register?: ProvisionalRegisterPayload;
+  }): { token: string; instanceId: string };
+  commit(
+    token: string,
+  ):
+    | { ok: true; sessionId: string; register?: ProvisionalRegisterPayload }
+    | { ok: false; cause: ProvisionalRefusalCause };
   abandon(token: string): void;
   isCommitted(token: string): boolean;
   size(): number;
@@ -80,10 +106,10 @@ export function createProvisionalRegistry(opts: {
   };
 
   return {
-    open({ sessionId, instanceId }) {
+    open({ sessionId, instanceId, register }) {
       sweep();
       const token = randomBytes(18).toString("base64url");
-      entries.set(token, { sessionId, instanceId, openedAt: now(), committed: false });
+      entries.set(token, { sessionId, instanceId, openedAt: now(), committed: false, register });
       return { token, instanceId };
     },
 
@@ -100,7 +126,7 @@ export function createProvisionalRegistry(opts: {
         return { ok: false, cause: "expired" };
       }
       entry.committed = true;
-      return { ok: true };
+      return { ok: true, sessionId: entry.sessionId, register: entry.register };
     },
 
     abandon(token) {

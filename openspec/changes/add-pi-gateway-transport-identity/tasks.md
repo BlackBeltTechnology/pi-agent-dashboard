@@ -190,7 +190,7 @@
 
 ### L2 — qa VM smoke, `qa/tests/*.sh` | `*.ps1` (no rendered-UI asserts)
 
-- [ ] 12.39 New arm modelled on `qa/tests/03-websocket.sh` — POSIX binds no bridge TCP port. Triple: default `pi-dashboard` start on macOS/Linux · inspect listening sockets · no TCP listener on the gateway port at all. (test-plan #E17)
+- [x] 12.39 New arm modelled on `qa/tests/03-websocket.sh` — POSIX binds no bridge TCP port. Triple: default `pi-dashboard` start on macOS/Linux · inspect listening sockets · no TCP listener on the gateway port at all. (test-plan #E17)
 - [ ] 12.40 New arm modelled on `qa/tests/03-websocket.sh` — registration not blocked, wall clock. Triple: remote join with a 44 MB transcript · measure over 20 runs · prompt accepted within 1s of register-ack at p95. (test-plan #P2)
 - [ ] 12.41 New arm modelled on `qa/tests/03-websocket.sh` — remote-join at p99 transcript size. Triple: remote join with a ~4 MB transcript · 20 runs · register-to-usable p95 recorded as a baseline. (test-plan #P3)
 - [ ] 12.42 New arm modelled on `qa/tests/03-websocket.sh` — promotion poll churn soak. Triple: 3 attach-mode instances with a 60s poll and the owner alive throughout · run 10 minutes · zero spurious promotions and lock acquisitions bounded by poll count. (test-plan #P5)
@@ -215,9 +215,9 @@
 ## 13. Verification
 
 - [ ] 13.1 Full test suite green
-- [ ] 13.2 Isolated-verification run: two dashboards under two HOMEs, each with its own bridges, no cross-talk, without needing `PI_DASHBOARD_NO_MDNS`
-- [ ] 13.3 Reproduce the hijack scenario — a stale dashboard advertising a hostname it does not serve — and confirm a bridge on the socket path is unaffected
-- [ ] 13.4 Move a live session between two same-HOME instances and confirm no prompt is lost, history still resolves, and the origin shows *moved*
+- [x] 13.2 Isolated-verification run: two dashboards under two HOMEs, each with its own bridges, no cross-talk, without needing `PI_DASHBOARD_NO_MDNS`
+- [x] 13.3 Reproduce the hijack scenario — a stale dashboard advertising a hostname it does not serve — and confirm a bridge on the socket path is unaffected
+- [x] 13.4 Move a live session between two same-HOME instances and confirm no prompt is lost, history still resolves, and the origin shows *moved*
 - [ ] 13.5 Remote-join end-to-end: local pi pairs with a remote dashboard, registers, survives a reconnect, serves history predating the attach, retains that history after the session ends, and is locked out after revocation
 - [ ] 13.6 Confirm an ended remote session refuses resume with an explanation, and a local session does not
 - [ ] 13.7 Measure the remote-join path against a p99 transcript (~4 MB) and the observed maximum (~44 MB); record registration latency and transfer cost

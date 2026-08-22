@@ -60,6 +60,7 @@ import { createGoalStore } from "./goal/goal-store.js";
 import { createGoalSupervisor, type GoalDriverSpawnRequest, type GoalSupervisor } from "./goal/goal-supervisor.js";
 import { createGoalVerdictAccumulator } from "./goal/goal-verdict-accumulator.js";
 import { runBoundedStartup } from "./lifecycle/bounded-startup.js";
+import { ensureInstanceId } from "./lifecycle/instance-id.js";
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
 import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
 import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
@@ -728,6 +729,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   const piGateway = createPiGateway(sessionManager, {
     ...(config.pingInterval !== undefined ? { pingInterval: config.pingInterval } : {}),
+    // The identity a move TARGET announces on `provisional_accepted`, so the
+    // mover can prove it reached the instance it named (D14). Unset, every
+    // destination reported "" and the coordinator's identity check compared
+    // empty strings — verification that always passes verifies nothing.
+    instanceId: ensureInstanceId(undefined, config.piPort),
     // Every TCP bridge upgrade passes the auth gate (D10b, task 6.3). Without
     // it the gateway accepts anything that can reach it and lets it register
     // an arbitrary sessionId — harmless on loopback, fatal as the container's

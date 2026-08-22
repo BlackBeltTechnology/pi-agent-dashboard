@@ -505,6 +505,22 @@ export function createPiGateway(
                 // not contention.
                 currentSessionId = commit.sessionId;
                 connections.set(commit.sessionId, ws);
+                // Materialise the session if this instance never had one: a
+                // routing entry with no session record would route frames to a
+                // dashboard that cannot render the session.
+                if (!sessionManager.get(commit.sessionId) && verdict.register) {
+                  sessionManager.register({
+                    id: commit.sessionId,
+                    cwd: verdict.register.cwd,
+                    name: verdict.register.name,
+                    source: verdict.register.source as never,
+                    model: verdict.register.model,
+                    sessionFile: verdict.register.sessionFile,
+                    sessionDir: verdict.register.sessionDir,
+                    firstMessage: verdict.register.firstMessage,
+                    pid: verdict.register.pid,
+                  });
+                }
                 resetHeartbeat(commit.sessionId);
                 console.log(`[gateway] session move committed: ${commit.sessionId}`);
                 return;
@@ -576,24 +592,30 @@ export function createPiGateway(
           // register side effect. It takes no routing entry and no contention
           // slot, so the origin keeps serving until an explicit commit.
           if ((msg as { provisional?: boolean }).provisional) {
-            const session = sessionManager.get(msg.sessionId);
-            const incumbent = connections.get(msg.sessionId);
-            if (!session && !incumbent) {
-              // Refused — but the caller is told only that it was refused; the
-              // cause would otherwise enumerate live sessions (task 9.3a-iv).
-              ws.send(
-                JSON.stringify(
-                  provisionalRegistry.refuseForWire({
-                    sessionId: msg.sessionId,
-                    cause: "no-such-session",
-                  }),
-                ),
-              );
-              return;
-            }
+            // A move TARGET has never heard of the session — that is precisely
+            // what makes it a move. Refusing an unknown session here made every
+            // cross-instance move impossible while same-instance ones passed,
+            // which is why the unit tests missed it: they modelled origin and
+            // target as one gateway. Found by real two-instance verification.
+            //
+            // Refusing also LEAKED what the refusal was meant to hide: accepted
+            // vs rejected told any local caller whether a session lived here.
+            // Answering uniformly is both correct and quieter. A provisional
+            // still claims nothing, so accepting one grants nothing; the payload
+            // is carried so the commit can materialise the session.
             const opened = provisionalRegistry.open({
               sessionId: msg.sessionId,
               instanceId: options?.instanceId ?? "",
+              register: {
+                cwd: msg.cwd,
+                source: msg.source,
+                name: msg.name,
+                model: msg.model,
+                sessionFile: msg.sessionFile,
+                sessionDir: msg.sessionDir,
+                firstMessage: msg.firstMessage,
+                pid: msg.pid,
+              },
             });
             ws.send(
               JSON.stringify({

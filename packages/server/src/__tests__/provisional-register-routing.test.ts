@@ -25,11 +25,11 @@ afterEach(() => {
   for (const g of gateways.splice(0)) g.stop();
 });
 
-async function startGateway(opts: { provisionalTtlMs?: number } = {}) {
+async function startGateway(opts: { provisionalTtlMs?: number; instanceId?: string } = {}) {
   const sessions = createMemorySessionManager();
   const gw = createPiGateway(sessions, {
     pingInterval: 0,
-    instanceId: "instance-target",
+    instanceId: opts.instanceId ?? "instance-target",
     provisionalTtlMs: opts.provisionalTtlMs,
   });
   // Delivery is observed at `onEvent` — the exact hook the ownership gate
@@ -110,7 +110,7 @@ describe("provisional registration does not claim routing (#X9)", () => {
     expect(delivered.at(-1)?.sessionId).toBe("sess-A");
   });
 
-  it("refuses a provisional for an unknown session without killing anything (#X10)", async () => {
+  it("answers a provisional for an unknown session uniformly, claiming nothing (#X10)", async () => {
     const { port } = await startGateway();
     const target = await connect(port);
     target.send(
@@ -123,11 +123,14 @@ describe("provisional registration does not claim routing (#X9)", () => {
       }),
     );
     const reply = await nextMessage(target);
-    // NOT `register_rejected`: the bridge treats that as terminal for the
-    // session and sets `intentionalClose` (task 9.3a-i).
-    expect(reply.type).toBe("provisional_rejected");
-    expect(Object.keys(reply)).toEqual(["type"]);
-    // The socket stays open — a refused move is not a severed bridge.
+    // Originally this expected `provisional_rejected`, which broke every real
+    // cross-instance move: a move TARGET has never heard of the session. The
+    // refusal also leaked exactly what it meant to hide — accept-vs-reject told
+    // any local caller whether a session lived on this instance. Answering the
+    // same way either way is both correct and quieter.
+    expect(reply.type).toBe("provisional_accepted");
+    // Accepting grants NOTHING: no routing entry, no session (asserted by the
+    // next test), and the token is useless without a commit.
     await delay(50);
     expect(target.readyState).toBe(WebSocket.OPEN);
   });
@@ -257,7 +260,11 @@ describe("a refused provisional from a different pid leaves the origin serving (
         provisional: true,
       }),
     );
-    expect((await nextMessage(stranger)).type).toBe("provisional_rejected");
+    // The stranger is answered, but a provisional confers no routing, so the
+    // established session is untouched. That is the property under test — the
+    // reply type is not what protects the origin, the absence of a claim is.
+    expect((await nextMessage(stranger)).type).toBe("provisional_accepted");
+    expect(gw.isSessionConnected("absent-session")).toBe(false);
 
     await delay(50);
     expect(gw.isSessionConnected("sess-D")).toBe(true);
@@ -311,5 +318,102 @@ describe("a provisional that is never committed is discarded (#X8)", () => {
     expect(gw.isSessionConnected("sess-T")).toBe(true);
     origin.send(JSON.stringify({ type: "first_message_update", sessionId: "sess-T", firstMessage: "origin-throughout" }));
     await until(() => delivered.some((d) => d.msg.firstMessage === "origin-throughout"));
+  });
+});
+
+/**
+ * Task 13.4 — a move between two SEPARATE instances.
+ *
+ * Every other test in this file models origin and target as one gateway, which
+ * is not a move at all: the target already knew the session, so the target-side
+ * "do I know this session?" guard was never exercised. Two-instance
+ * verification on real sockets found that guard refusing every genuine move
+ * with `no-such-session` — the feature was dead in production while the suite
+ * stayed green. This is the arm that fails if that guard comes back.
+ */
+describe("a session moves between two separate instances (task 13.4)", () => {
+  it("the target adopts a session it has never heard of", async () => {
+    const origin = await startGateway({ instanceId: "instance-origin" });
+    const target = await startGateway({ instanceId: "instance-dest" });
+
+    const originWs = await connect(origin.port);
+    originWs.send(
+      JSON.stringify({
+        type: "session_register",
+        sessionId: "sess-X",
+        cwd: "/work/repo",
+        source: "tui",
+        pid: 41,
+        sessionFile: "/work/repo/.pi/sess-X.jsonl",
+      }),
+    );
+    await until(() => origin.sessions.get("sess-X") !== undefined);
+
+    // The destination genuinely does not know this session.
+    expect(target.sessions.get("sess-X")).toBeUndefined();
+
+    const targetWs = await connect(target.port);
+    targetWs.send(
+      JSON.stringify({
+        type: "session_register",
+        sessionId: "sess-X",
+        cwd: "/work/repo",
+        source: "tui",
+        pid: 41,
+        sessionFile: "/work/repo/.pi/sess-X.jsonl",
+        provisional: true,
+      }),
+    );
+    const prov = await nextMessage(targetWs);
+    expect(prov.type).toBe("provisional_accepted");
+    expect(prov.instanceId).toBe("instance-dest");
+
+    // Still claimed nothing: the origin owns the session until the commit.
+    expect(target.sessions.get("sess-X")).toBeUndefined();
+    expect(origin.gw.isSessionConnected("sess-X")).toBe(true);
+
+    targetWs.send(JSON.stringify({ type: "session_move_commit", sessionId: "sess-X", token: prov.token }));
+    await until(() => target.gw.isSessionConnected("sess-X"));
+
+    // The destination can now RENDER it, not merely route to it — a routing
+    // entry with no session record is a dashboard that drops the session.
+    const adopted = target.sessions.get("sess-X");
+    expect(adopted).toBeDefined();
+    expect(adopted?.cwd).toBe("/work/repo");
+    expect(adopted?.sessionFile).toBe("/work/repo/.pi/sess-X.jsonl");
+
+    // And it actually serves traffic.
+    targetWs.send(
+      JSON.stringify({ type: "first_message_update", sessionId: "sess-X", firstMessage: "after-move" }),
+    );
+    await until(() => target.delivered.some((d) => d.msg.firstMessage === "after-move"));
+  });
+
+  it("refuses a replayed commit token at the destination", async () => {
+    const origin = await startGateway({ instanceId: "instance-origin" });
+    const target = await startGateway({ instanceId: "instance-dest" });
+    const originWs = await connect(origin.port);
+    originWs.send(
+      JSON.stringify({ type: "session_register", sessionId: "sess-Y", cwd: "/w", source: "tui", pid: 9 }),
+    );
+    await until(() => origin.sessions.get("sess-Y") !== undefined);
+
+    const targetWs = await connect(target.port);
+    targetWs.send(
+      JSON.stringify({
+        type: "session_register",
+        sessionId: "sess-Y",
+        cwd: "/w",
+        source: "tui",
+        pid: 9,
+        provisional: true,
+      }),
+    );
+    const prov = await nextMessage(targetWs);
+    targetWs.send(JSON.stringify({ type: "session_move_commit", sessionId: "sess-Y", token: prov.token }));
+    await until(() => target.gw.isSessionConnected("sess-Y"));
+
+    targetWs.send(JSON.stringify({ type: "session_move_commit", sessionId: "sess-Y", token: prov.token }));
+    expect((await nextMessage(targetWs)).type).toBe("provisional_rejected");
   });
 });
