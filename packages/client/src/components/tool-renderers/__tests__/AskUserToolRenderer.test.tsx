@@ -104,6 +104,9 @@ describe("AskUserToolRenderer — error line severity tokens", () => {
     // SVGAnimatedString — read the attribute instead.
     const icon = row.querySelector("svg") as SVGElement;
     expect(icon.getAttribute("class")).toContain("text-[var(--severity-error-fg)]");
+    // `innerHTML` excludes the row's OWN class attribute, so a raw red added to
+    // the row itself would slip through — assert on both.
+    expect(row.className).not.toMatch(/\bred-\d{2,3}\b/);
     expect(row.innerHTML).not.toMatch(/\bred-\d{2,3}\b/);
   });
 });

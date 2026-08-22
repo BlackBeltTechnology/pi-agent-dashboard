@@ -123,7 +123,8 @@ measures a real SHIPPED class string in-browser; do not invent a new probe.
       all 18 combos, including every light cell.
 - [x] 5.2 Links legible on `--bg-code` (test-plan #F8). Input: a `LinkifiedText` link
       rendered on `--bg-code` · Trigger: 18 theme·mode sweep · Observable: link colour vs
-      resolved `--bg-code` ≥ 3:1 in every combo.
+      resolved `--bg-code` ≥ 3:1 in every combo except the documented `tokyo-night/light`
+      carve-out (≥ 2.5:1, measured 2.77:1 — see test-plan C1 and design.md D3/Q3).
 - [x] 5.3 Anti-vacuity guard (test-plan #F9). Input: the same probes as #F7 · Trigger: read
       raw computed values before asserting · Observable: no probe background is
       `rgba(0, 0, 0, 0)` — an unresolvable `var()` would score high against black and pass

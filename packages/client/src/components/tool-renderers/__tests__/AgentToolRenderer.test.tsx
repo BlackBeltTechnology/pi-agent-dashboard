@@ -59,6 +59,33 @@ describe("AgentToolRenderer — error line severity tokens", () => {
     expect(line.textContent).toContain("subagent crashed");
   });
 
+  it("a non-errored agent renders no error line at all", () => {
+    const { queryByText } = renderAgent(
+      <AgentToolRenderer
+        toolName="Agent"
+        args={{ subagent_type: "Explore", description: "find the thing", prompt: "go" }}
+        status="complete"
+        result="done"
+        toolDetails={{ status: "complete", displayName: "Explore" }}
+        context={ctx}
+      />,
+    );
+    expect(queryByText("Error:")).toBeNull();
+  });
+
+  it("renders without toolDetails instead of throwing", () => {
+    expect(() =>
+      renderAgent(
+        <AgentToolRenderer
+          toolName="Agent"
+          args={{ subagent_type: "Explore", prompt: "go" }}
+          status="running"
+          context={ctx}
+        />,
+      ),
+    ).not.toThrow();
+  });
+
   it("#F4 no raw red literal survives in the governed error line", () => {
     const { getByText } = renderAgent(erroredAgent);
     // Scoped to the error LINE, which is what this change governs. The
@@ -67,6 +94,9 @@ describe("AgentToolRenderer — error line severity tokens", () => {
     // deliberately out of scope, so asserting over the whole card here would
     // silently widen this change into a repo-wide sweep.
     const line = (getByText("Error:") as HTMLElement).parentElement as HTMLElement;
+    // `innerHTML` excludes the element's OWN class attribute, so a raw red added
+    // to the line itself would slip through — assert on both.
+    expect(line.className).not.toMatch(/\bred-\d{2,3}\b/);
     expect(line.innerHTML).not.toMatch(/\bred-\d{2,3}\b/);
   });
 });
