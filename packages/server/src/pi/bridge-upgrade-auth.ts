@@ -60,7 +60,7 @@ export interface BridgeUpgradeInput {
 }
 
 /** Distinct refusal causes — "no credential" ≠ "bad credential" (tasks 5.4/10.3). */
-export type BridgeRefusalCause = "local-token-missing" | "local-token-invalid" | "no-ticket";
+type BridgeRefusalCause = "local-token-missing" | "local-token-invalid" | "no-ticket";
 
 export type BridgeUpgradeVerdict =
   | { allow: true; reason: string; deprecated?: boolean }

@@ -44,7 +44,7 @@ export function attributeOrigin(evidence: OriginEvidence): SessionOrigin {
   return evidence.deviceId ? { local: false, deviceId: evidence.deviceId } : { local: false };
 }
 
-export type LocalReadRefusal = "remote-origin" | "no-session-file";
+type LocalReadRefusal = "remote-origin" | "no-session-file";
 
 export type LocalReadVerdict =
   | { allow: true; sessionFile: string }
@@ -74,7 +74,7 @@ export function mayReadLocalSessionFile(input: {
   return { allow: true, sessionFile: input.sessionFile };
 }
 
-export type ResumeRefusal = "remote-origin-ended" | "remote-origin-live";
+type ResumeRefusal = "remote-origin-ended" | "remote-origin-live";
 
 export type ResumeVerdict =
   | { allow: true }

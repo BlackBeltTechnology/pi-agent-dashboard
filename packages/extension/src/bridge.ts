@@ -1514,6 +1514,21 @@ function initBridge(pi: ExtensionAPI) {
     },
   });
 
+  // `/dashboard-where` — endpoint + identity + pinned, for the session that
+  // cannot otherwise answer "which dashboard am I actually on?" (task 9.6).
+  // Written with console.error because pi's stdout is discarded under the
+  // default `capturePiOutput:false`.
+  pi.registerCommand("dashboard-where", {
+    handler: async () => {
+      const lines = [
+        `endpoint: ${dashboardUrl}`,
+        `instance: ${registeredInstanceId ?? "unverified"}`,
+        `pinned:   ${endpointPinned ? "yes (explicit configuration)" : "no (resolved from the $HOME rendezvous record)"}`,
+      ];
+      console.error(`[dashboard] where:\n${lines.join("\n")}`);
+    },
+  });
+
   /** Sync local variables into BridgeContext for extracted module calls */
   function syncBc(): BridgeContext {
     return {

@@ -35,7 +35,7 @@ import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared
  */
 const SESSION_ID_SHAPE = /^[A-Za-z0-9_-]{1,64}$/;
 
-export interface RetainedTranscript {
+interface RetainedTranscript {
   entries: string[];
   /** True once a chunk reported the origin file fully read. */
   complete: boolean;

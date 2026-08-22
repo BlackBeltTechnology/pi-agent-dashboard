@@ -20,7 +20,7 @@ import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared
 import { isRemoteEndpoint } from "./remote-registration-gate.js";
 
 /** Header name; matches the server's `LOCAL_TOKEN_HEADER` (case-insensitive). */
-export const LOCAL_TOKEN_HEADER = "X-Pi-Local-Token";
+const LOCAL_TOKEN_HEADER = "X-Pi-Local-Token";
 
 /** Read this HOME's local token, or `undefined` when there is none to present. */
 export function readLocalToken(env?: { homedir?: string }): string | undefined {

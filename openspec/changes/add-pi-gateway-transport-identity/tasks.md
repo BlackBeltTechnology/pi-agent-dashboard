@@ -118,7 +118,7 @@
 - [ ] 9.5 Implement `connect <instance>` accepting a socket path, a port, an instance identity, or `default`, resolved through the same ladder as startup
 - [ ] 9.6 Implement `--list` over rendezvous records visible under the current HOME, and `where` reporting endpoint + identity + pinned
 - [x] 9.7 Refuse a move whose target identity does not verify; leave the existing registration untouched
-- [ ] 9.8 Warn before a move whose target cannot read the session's `.jsonl` (history and resume will not follow)
+- [x] 9.8 Warn before a move whose target cannot read the session's `.jsonl` (history and resume will not follow)
 - [x] 9.9 Make 9.1 and 9.2 pass
 
 ## 10. Observability

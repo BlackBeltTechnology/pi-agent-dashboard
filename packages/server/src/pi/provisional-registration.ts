@@ -30,7 +30,7 @@ import { randomBytes } from "node:crypto";
 /** How long an unclaimed provisional survives before it is discarded. */
 export const PROVISIONAL_TTL = 30_000;
 
-export type ProvisionalRefusalCause =
+type ProvisionalRefusalCause =
   | "no-such-session"
   | "session-live-elsewhere"
   | "expired"
@@ -45,7 +45,7 @@ interface ProvisionalEntry {
 }
 
 /** What the caller is told. Deliberately carries no detail. */
-export interface ProvisionalRejectedWire {
+interface ProvisionalRejectedWire {
   type: "provisional_rejected";
 }
 

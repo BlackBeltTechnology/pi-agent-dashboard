@@ -42,7 +42,7 @@ export function httpBaseUrlFor(endpoint: string): string | null {
   }
 }
 
-export type GateCause = PinVerdict["cause"] | "local" | "unpinned-legacy";
+type GateCause = PinVerdict["cause"] | "local" | "unpinned-legacy";
 
 export interface GateResult {
   allow: boolean;

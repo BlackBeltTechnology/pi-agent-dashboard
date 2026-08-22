@@ -16,7 +16,11 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import { decideRetarget } from "../endpoint-resolution.js";
-import { createMoveCoordinator, type MovableConnection } from "../session-move.js";
+import {
+  assessTranscriptFollow,
+  createMoveCoordinator,
+  type MovableConnection,
+} from "../session-move.js";
 
 /** A ConnectionManager stand-in recording every frame it was asked to send. */
 function fakeConnection(url: string) {
@@ -337,5 +341,59 @@ describe("ordering: the target registers BEFORE the origin closes (task 9.1)", (
     await move;
 
     expect(events).toEqual(["target-connect", "commit", "origin-disconnect"]);
+  });
+});
+
+describe("warning when the transcript cannot follow the move (task 9.8)", () => {
+  it("says nothing when the target is on this host", () => {
+    expect(assessTranscriptFollow({ targetUrl: "ws+unix:///tmp/gw.sock:/", sessionFile: "/s.jsonl" }))
+      .toEqual({ follows: true });
+    expect(assessTranscriptFollow({ targetUrl: "ws://127.0.0.1:8000", sessionFile: "/s.jsonl" }))
+      .toEqual({ follows: true });
+  });
+
+  it("warns that history and resume stay behind on a remote target", () => {
+    const v = assessTranscriptFollow({ targetUrl: "ws://203.0.113.9:8000", sessionFile: "/s.jsonl" });
+    expect(v.follows).toBe(false);
+    expect(v.warning).toMatch(/history and resume will not follow/);
+  });
+
+  it("warns when there is no transcript at all", () => {
+    const v = assessTranscriptFollow({ targetUrl: "ws://127.0.0.1:8000" });
+    expect(v.follows).toBe(false);
+    expect(v.warning).toMatch(/no transcript file/);
+  });
+
+  it("warns before the move rather than after, and does not block it", async () => {
+    const warnings: string[] = [];
+    const origin = fakeConnection("ws://origin");
+    origin.connect();
+    let target!: ReturnType<typeof fakeConnection>;
+    const coord = createMoveCoordinator({
+      origin,
+      sessionId: "sess-A",
+      sessionFile: "/s.jsonl",
+      warn: (l) => warnings.push(l),
+      connect: (url) => {
+        target = fakeConnection(url);
+        return target;
+      },
+    });
+
+    const move = coord.begin({
+      targetUrl: "ws://203.0.113.9:8000",
+      expectInstanceId: "instance-target",
+    });
+    // Already warned, before any outcome is known.
+    expect(warnings.join("\n")).toMatch(/history and resume will not follow/);
+
+    target.inbound?.({
+      type: "provisional_accepted",
+      sessionId: "sess-A",
+      instanceId: "instance-target",
+      token: "t",
+    });
+    // ...and the move still completes: this is advice, not a veto.
+    expect((await move).ok).toBe(true);
   });
 });

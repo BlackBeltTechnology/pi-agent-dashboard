@@ -17,7 +17,7 @@
 
 import type { BridgeDiagnosticEvent } from "@blackbelt-technology/pi-dashboard-shared";
 
-export interface TransportDiagnostic {
+interface TransportDiagnostic {
   event: BridgeDiagnosticEvent;
   detail: string;
 }

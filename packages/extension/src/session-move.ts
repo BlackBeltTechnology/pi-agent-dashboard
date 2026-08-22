@@ -31,6 +31,42 @@
  * See change: add-pi-gateway-transport-identity (tasks 9.3b, 9.3c).
  */
 
+import { isRemoteEndpoint } from "./remote-registration-gate.js";
+
+/**
+ * Whether the session's `.jsonl` can follow it to `targetUrl` (task 9.8).
+ *
+ * Decided from the endpoint's LOCALITY, not by asking the target: a unix socket
+ * or a loopback dial is the same host, therefore the same filesystem, therefore
+ * the same absolute `sessionFile` path. A remote target is a different disk,
+ * and the transcript stays behind — history and resume do not follow.
+ *
+ * Deliberately NOT implemented by sending the path to the target and asking it
+ * to stat: a path on the wire is the exact shape `decideTranscriptRequest`
+ * refuses (task 11.3), and re-introducing it here for a convenience warning
+ * would reopen it as a probing primitive.
+ */
+export function assessTranscriptFollow(input: {
+  targetUrl: string;
+  sessionFile?: string;
+}): { follows: boolean; warning?: string } {
+  if (!input.sessionFile) {
+    return {
+      follows: false,
+      warning: "this session has no transcript file, so no history will follow the move",
+    };
+  }
+  if (isRemoteEndpoint(input.targetUrl)) {
+    return {
+      follows: false,
+      warning:
+        `the target ${input.targetUrl} is on another host: the transcript stays on this machine, ` +
+        "so history and resume will not follow the move",
+    };
+  }
+  return { follows: true };
+}
+
 /** The slice of `ConnectionManager` a move needs. */
 export interface MovableConnection {
   connect(): void;
@@ -41,17 +77,17 @@ export interface MovableConnection {
   onMessage(handler: (msg: unknown) => void): void;
 }
 
-export type MoveFailureCause =
+type MoveFailureCause =
   | "refused"
   | "identity-mismatch"
   | "timeout"
   | "transport"
   | "move-in-progress";
 
-export type MoveResult = { ok: true; instanceId: string } | { ok: false; cause: MoveFailureCause };
+type MoveResult = { ok: true; instanceId: string } | { ok: false; cause: MoveFailureCause };
 
 /** How long the whole handshake may take before it is abandoned. */
-export const MOVE_TIMEOUT = 30_000;
+const MOVE_TIMEOUT = 30_000;
 
 export interface MoveCoordinator {
   begin(input: { targetUrl: string; expectInstanceId: string }): Promise<MoveResult>;
@@ -80,6 +116,10 @@ export function createMoveCoordinator(opts: {
   connect: (url: string) => MovableConnection;
   timeoutMs?: number;
   log?: (line: string) => void;
+  /** The session's transcript path, used only to warn about what will not follow (9.8). */
+  sessionFile?: string;
+  /** Surfaced to the user before the move proceeds. */
+  warn?: (line: string) => void;
 }): MoveCoordinator {
   const timeoutMs = opts.timeoutMs ?? MOVE_TIMEOUT;
   const log = opts.log ?? ((line: string) => console.log(line));
@@ -108,6 +148,14 @@ export function createMoveCoordinator(opts: {
       // would leave a live connection nobody owns.
       if (inFlight) return { ok: false, cause: "move-in-progress" };
       inFlight = true;
+
+      // Warn, do not block (task 9.8). Moving a session whose history cannot
+      // follow is a legitimate thing to want; silently discovering it
+      // afterwards is not.
+      const follow = assessTranscriptFollow({ targetUrl, sessionFile: opts.sessionFile });
+      if (follow.warning) {
+        (opts.warn ?? log)(`[dashboard] session move warning: ${follow.warning}`);
+      }
 
       const target = opts.connect(targetUrl);
 
