@@ -159,8 +159,20 @@ export function resolvePackagedBinary(): string {
   if (process.platform === "darwin") {
     const app = fs.readdirSync(appDir).find((d) => d.endsWith(".app"));
     if (!app) throw new Error(`[electron-e2e] No .app under ${appDir}.`);
-    const name = app.replace(/\.app$/, "");
-    return path.join(appDir, app, "Contents", "MacOS", name);
+    const macOsDir = path.join(appDir, app, "Contents", "MacOS");
+    // The inner Mach-O is named after forge's `executableName`
+    // ("pi-dashboard"), NOT after the .app bundle ("PI-Dashboard.app") — the
+    // two differ in case. Deriving the name from the bundle yields ENOENT.
+    // Same trap the linux branch below already documents. This went unnoticed
+    // because ci-e2e-electron.yml has no macOS leg, so the darwin branch had
+    // never run. See change: upgrade-electron-runtime.
+    const named = path.join(macOsDir, "pi-dashboard");
+    if (fs.existsSync(named)) return named;
+    const only = fs
+      .readdirSync(macOsDir)
+      .filter((d) => fs.statSync(path.join(macOsDir, d)).isFile());
+    if (only.length === 0) throw new Error(`[electron-e2e] No executable under ${macOsDir}.`);
+    return path.join(macOsDir, only[0]);
   }
   if (process.platform === "win32") {
     const exe = fs.readdirSync(appDir).find((d) => d.endsWith(".exe"));

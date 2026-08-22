@@ -26,15 +26,13 @@ the finding; do not land below 41.
 
 The floor is asserted at three independent points:
 
-```
-  forge.config.ts                 ──▶  Info.plist LSMinimumSystemVersion
-       (declared intent)                       │
-                                               ▼
-  MACOSX_DEPLOYMENT_TARGET  ──▶  Mach-O LC_BUILD_VERSION.minos
-       (compiler contract)                     │
-                                               ▼
-  verify step: plutil + otool  ──▶  fail the job on mismatch
-       (the thing that makes the other two non-silent)
+```mermaid
+flowchart TD
+  A["forge.config.ts<br/>(declared intent)"] --> A2["Info.plist<br/>LSMinimumSystemVersion"]
+  A2 --> B
+  B["MACOSX_DEPLOYMENT_TARGET<br/>(compiler contract)"] --> B2["Mach-O<br/>LC_BUILD_VERSION.minos"]
+  B2 --> C
+  C["verify step: plutil + otool"] --> C2["fail the job on mismatch<br/>(what makes the other two non-silent)"]
 ```
 
 ### The otool leg is upward-only today, and that becomes a hole at 12.0
@@ -126,18 +124,13 @@ lingering `arm64 → 11` branch would silently accept a slice below the new floo
 
 Two Node runtimes exist in this app and they are frequently confused:
 
-```
-  ┌─────────────────────────────────────────────────────────┐
-  │  PI-Dashboard.app                                       │
-  │                                                         │
-  │   Electron main process                                 │
-  │     └── Node embedded in Electron  ◀── moves with 43    │
-  │           uses: node:path, node:fs, node:url, node:os   │
-  │                                                         │
-  │   resources/node  (BUNDLED_NODE_VERSION = v24.15.0)     │
-  │     └── runs the bundled server  ◀── NOT affected       │
-  │           loads node-pty prebuilds (ABI-sensitive)      │
-  └─────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TB
+  subgraph App ["PI-Dashboard.app"]
+    direction TB
+    M["Electron main process"] --> ME["Node embedded in Electron<br/>MOVES WITH 43<br/>uses node:path, node:fs, node:url, node:os"]
+    R["resources/node<br/>(BUNDLED_NODE_VERSION = v24.15.0)"] --> RS["runs the bundled server<br/>NOT affected<br/>loads node-pty prebuilds (ABI-sensitive)"]
+  end
 ```
 
 `node-pty` — the one genuinely ABI-sensitive dependency in the product — is loaded by the
@@ -153,13 +146,11 @@ the bundled Node binary is missing — a corrupted install, or a local
 `electron-forge start` without a downloaded `resources/node` — the server is launched
 under **Electron's own binary** with `ELECTRON_RUN_AS_NODE=1`.
 
-```
-   bundled node present?
-        │
-    yes │──▶ resources/node v24.15.0       ← Electron bump irrelevant
-        │
-     no │──▶ ELECTRON_RUN_AS_NODE=1        ← node-pty loads under
-             (Electron's embedded Node)       Electron's Node ABI
+```mermaid
+flowchart LR
+  Q{"bundled node present?"}
+  Q -->|yes| Y["resources/node v24.15.0<br/>Electron bump irrelevant"]
+  Q -->|no| N["ELECTRON_RUN_AS_NODE=1<br/>(Electron's embedded Node)<br/>node-pty loads under Electron's Node ABI"]
 ```
 
 In that mode the categorical claim "the Electron bump has no effect on node-pty" is
@@ -323,10 +314,30 @@ partial guarantee, deliberately, rather than an implied-total one.
 | Newer major changes a `webPreferences` default | low | `harden-electron-renderer-boundary` overlaps here | explicit assertion that `contextIsolation`/`nodeIntegration` are unchanged |
 | Conflict with the two open electron changes | **high if delayed** | — | land this first (proposal, What Changes) |
 
-## Open question carried into implementation
+## Open question — RESOLVED at implementation time
 
-**Do we have any evidence of installed users on macOS 10.15 or 11?** There is no
-telemetry to answer it. The change proceeds on the position that an EOL-Chromium security
-hole affecting *all* users outweighs continued support for two macOS versions Apple
-itself no longer patches (Catalina EOL 2022-09, Big Sur EOL 2023-09) — but this should be
-stated as a deliberate trade-off in the release notes, not left implicit.
+**Do we have any evidence of installed users on macOS 10.15 or 11?**
+
+**Answer: no, and no such evidence can exist.** Checked at implementation time, not
+assumed:
+
+- The dashboard ships **no telemetry**. There is no install-base reporting, no crash
+  reporter, and no update-check analytics anywhere in `packages/electron` — so the
+  population on any given macOS version is unobservable by construction.
+- The only artefact that would reveal it (GitHub Release asset download counts) is
+  per-asset, not per-OS-version, and the macOS DMGs are split by ARCH (arm64/x64), not by
+  OS. An x64 download is equally consistent with a Monterey Intel Mac and a Catalina one.
+
+So the honest position is not "there are no such users" but "we cannot know, and we are
+dropping them anyway". The trade-off stands as written: an EOL-Chromium hole affecting
+*all* users outweighs continued support for two macOS versions Apple itself stopped
+patching (Catalina EOL 2022-09, Big Sur EOL 2023-09).
+
+What that unknowability changes is the WEIGHT of the update-stream gate (Decision 5).
+Because we cannot rule the population out, the gate is not a nice-to-have that could be
+deferred to a follow-up — it is the only thing standing between an unknown number of
+users and a permanent failed-install retry loop. It is treated as **blocking** for this
+change, and the release notes must state the drop explicitly rather than leaving it
+implicit.
+
+See change: upgrade-electron-runtime (tasks 2.1 / 2.2).
