@@ -1070,3 +1070,72 @@ container's `0.0.0.0` case), where bridges can present a local token or a
 ticket, while leaving the genuine legacy-loopback window open. **Not taken
 here**: D10b's horizon is a recorded product decision, and narrowing it is a
 product call rather than a review fix. Recorded so the choice is deliberate.
+
+## D10d — measured transport profile: UDS vs TCP loopback (cycle 9, RECORDED)
+
+**Status: evidence recorded; no behaviour changed, no threshold retuned.** The
+question "is the socket faster?" kept recurring, and P4 asserts *parity* rather
+than improvement without saying why. This records what was actually measured so
+the next reader neither over-claims a win nor treats P4's wide bound as sloppy.
+
+Framing first, because it is routinely muddled: the bridge did not move from
+"websocket" to "socket". It speaks **WebSocket on both paths** — same `ws`
+library, same framing. Only the transport beneath changed, TCP loopback → unix
+domain socket.
+
+### Method
+
+Same `ws` library both arms, a bare echo server, samples **interleaved**
+(TCP, UDS, TCP, UDS…) so ambient load hits both equally — the host was busy, and
+an interleaved *ratio* survives that where absolute figures do not. Two runs,
+reproducible. macOS/Darwin, node 24, 16 cores.
+
+### Result
+
+| payload | TCP p50 | UDS p50 | outcome |
+|---|---|---|---|
+| 64 B | 0.078 ms | 0.036 ms | UDS ~54% faster |
+| 1–4 KB | 0.103 ms | 0.057 ms | UDS ~37–45% faster |
+| 16 KB | 0.140 ms | 0.160 ms | TCP ~14% faster |
+| 64 KB | 0.373 ms | 0.420 ms | TCP ~13% faster |
+| 256 KB | 1.042 ms | 1.384 ms | TCP ~33% faster |
+
+Sustained 20k x 256 B burst: **UDS 345k msg/s vs TCP 152–212k msg/s (+65–126%)**.
+
+### The crossover is a kernel tunable, not a property of unix sockets
+
+```
+net.local.stream.sendspace / recvspace : 8192     (unix)
+net.inet.tcp.sendspace     / recvspace : 131072   (tcp, 16x larger)
+```
+
+The sign flips at ~8 KB — exactly the unix buffer size. Above it a UDS write
+fragments into far more syscalls while loopback TCP absorbs it whole.
+
+**Do NOT generalise this to the container.** These are Darwin defaults; Linux
+ships much larger unix-socket buffers and UDS commonly wins at every size there.
+The container was not measured.
+
+### What it means for this change
+
+The dominant bridge workload is streaming token deltas — many small frames,
+precisely where UDS wins ~2x. The one place it loses is transcript backfill,
+which uses 256 KB chunks (task 11.5), the worst size for UDS on macOS.
+
+**None of it is user-visible.** The whole spread is sub-millisecond; the
+small-message win is ~42 microseconds per message against LLM round trips of
+hundreds of milliseconds. Two caveats cut the same way: the benchmark used a
+bare echo server, so real per-message work (JSON parse, ownership gate, session
+lookup) shrinks the relative delta further; and Windows keeps loopback TCP
+regardless, so it sees none of this.
+
+**Rejected: shrinking the backfill chunk toward 8 KB.** It would trade 1.4 ms
+for 1.0 ms on a rare path while multiplying message count — a worse deal than
+it looks, and an optimisation aimed at a number nobody can perceive.
+
+**Consequence for P4.** Parity, not improvement, is the correct assertion: the
+transport was chosen for identity and authorisation (D2, D5), not throughput.
+The wide median bound is justified by this profile, not by convenience — the
+regression P4 guards (UDS falling onto a slow path) is order-of-magnitude,
+while the honest transport delta is tens of microseconds and sign-flips with
+payload size.

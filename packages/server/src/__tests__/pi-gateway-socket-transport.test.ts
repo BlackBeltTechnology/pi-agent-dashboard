@@ -271,6 +271,17 @@ describe("socket transport parity (#P4)", () => {
     // the transport, and would keep flipping colour for reasons unrelated to
     // the change.
     //
+    // The bound is wide on EVIDENCE, not convenience (design.md D10d). Measured
+    // off-CI, interleaved, same ws library both arms: UDS is ~54% faster at
+    // 64 B and ~37-45% faster at 1-4 KB, but ~13-33% SLOWER at 64-256 KB. The
+    // sign flips at ~8 KB because that is Darwin's unix socket buffer
+    // (net.local.stream.sendspace) against TCP's 131072 — a kernel tunable, not
+    // a property of the transport, and Linux differs. So a tight ratio here
+    // would encode one platform's buffer sizes and one payload size as a
+    // correctness requirement. What P4 must catch is UDS falling onto a SLOW
+    // PATH, which is order-of-magnitude; the honest transport delta is tens of
+    // microseconds and changes sign with payload.
+    //
     // The median rejects that tail, and 2x still catches the regression this
     // exists to catch — UDS silently falling onto a slow path is an
     // order-of-magnitude event, not a 20% one. Tightening it back requires a
