@@ -2588,7 +2588,29 @@ export default function App() {
         })()} onMessage={onMessage} onBack={dismissOverlay} selectedCwd={selectedCwd} />
           </RouteBackedOverlay>
         )}
-        {tunnelSetupMatch && <ZrokInstallGuide onBack={goBack} />}
+        {/* Tunnel setup REPLACES settings rather than stacking on it (D5): at
+            `/tunnel-setup` the settings block above does not match, so it is not
+            mounted and there is no layer to stack on. Dismissal returns to
+            `/settings/gateway` because `recordLauncher` saw the cross-surface
+            move — the background stays a base route for the underlay (D1d).
+            See change: add-route-backed-overlay-dialogs. */}
+        {tunnelSetupMatch && !firstLaunchModal && (
+          <RouteBackedOverlay
+            background={overlayBackground}
+            backgroundContent={
+              <ShellContent
+                variant="desktop"
+                {...shellRenderers}
+                renderSession={(id) => renderSessionDetail(id)}
+              />
+            }
+            onDismiss={dismissOverlay}
+            ariaLabel="Tunnel setup"
+            testId="tunnel-setup-overlay"
+          >
+            <ZrokInstallGuide onBack={dismissOverlay} />
+          </RouteBackedOverlay>
+        )}
       </div>
       {artifactDialog && (
         <OpenSpecArtifactDialog
