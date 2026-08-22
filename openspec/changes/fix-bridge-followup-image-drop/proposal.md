@@ -1,10 +1,10 @@
 ## Why
 
 A follow-up prompt sent while the agent is streaming loses its images. The
-bridge buffers the entry as a bare string (`bridge.ts:366`,
+bridge buffers the entry as a bare string (`bridge.ts:409`,
 `let bridgeFollowUp: string[]`), so `msg.images` is discarded at
-`command-handler.ts:629` and the drain ships text only
-(`bridge.ts:485`, `pi.sendUserMessage(entry)` on a `string`). The failure is
+`command-handler.ts:773` and the drain ships text only
+(`bridge.ts:525`, `pi.sendUserMessage(entry)` on a `string`). The failure is
 silent: the client accepts the image, the chip renders the text, and the model
 never receives the attachment. Nothing in the UI reports the loss.
 
@@ -19,11 +19,18 @@ the wrong half:
 
 `rework-mid-turn-prompt-queue` replaced the image-carrying `PendingPrompt`
 buffer with the `string[]`, recorded the loss as a code comment ("Known
-Limitation", `bridge.ts:397-400`), and left the drain requirement stale. This
+Limitation", `bridge.ts:440-443`), and left the drain requirement stale. This
 change reconciles the two halves in favour of delivery.
 
-Delivery is the bug. This is distinct from the display-only bug fixed by
-`fit-attachments-for-display`. Tracked as issue #415.
+Delivery is the bug. This is distinct from the display-only bugs fixed by
+`fit-attachments-for-display` and by `fix-pasted-image-message-vanishes`.
+The latter matters here: before it landed, a drained image-bearing message
+busted the 256 KiB per-event ceiling and collapsed to a `{ __truncated }`
+placeholder, so the user saw **no chat row at all**. Delivering images on the
+drain would have shipped a second, quieter half of this bug. That half is now
+closed upstream (the store preserves the message envelope and strips only the
+bytes), so this change fixes delivery alone — but the drained row rendering is
+an observable it MUST verify, not assume. Tracked as issue #415.
 
 ## What Changes
 
@@ -34,13 +41,22 @@ Delivery is the bug. This is distinct from the display-only bug fixed by
 - `onFollowupSent` gains the images parameter so `command-handler.ts` stops
   discarding `msg.images` on the buffer path.
 - The image-validation + content-array assembly currently private to
-  `sendUserMessageWithImages` (`command-handler.ts:866`) is extracted so the
+  `sendUserMessageWithImages` (`command-handler.ts:1027`) is extracted so the
   bridge drain reuses it — **without** its `deliverAs` behaviour. The drain
   MUST call `pi.sendUserMessage` with no send options; passing
   `{deliverAs:"followUp"}` is a known-broken path (the entry never drains —
-  `rework-mid-turn-prompt-queue` design D2, restated at `bridge.ts:429-435`).
+  `rework-mid-turn-prompt-queue` design D2, restated at `bridge.ts:466-476`).
   The extraction therefore separates *validation + content assembly* from
   *send options*.
+- **Image-block shape**: sizing and validation read image bytes and mime
+  through the canonical accessors in `packages/shared/src/image-block.ts`
+  (`imageBlockData`, `imageBlockMime`), never through a direct `.data` /
+  `.mimeType` property read. Two block shapes circulate in this codebase (flat
+  pi + nested Anthropic `source`), and a direct read sizes a nested block at
+  **zero bytes** — a silent bypass of the byte ceiling below — and drops it as
+  "invalid mime" on the validation path. `send_prompt` carries the flat shape
+  today (`useImagePaste.ts:118`), so this is defence against drift, not a
+  behaviour change.
 - **Wire shape**: `pendingQueues.followUp` gains a per-entry image **count**
   so a queued chip can show an attachment indicator. Image bytes stay
   extension-side and never cross the wire — the count is display-only.
@@ -50,7 +66,7 @@ Delivery is the bug. This is distinct from the display-only bug fixed by
   carries (`spec.md:141-147`), which contradicts `optimistic-prompt/spec.md:8`
   (mid-turn sends never set `pendingPrompt`).
 - **Byte budget**: the follow-up buffer gains an aggregate byte ceiling
-  alongside the existing 20-entry `FOLLOWUP_QUEUE_CAP` (`bridge.ts:385`).
+  alongside the existing 20-entry `FOLLOWUP_QUEUE_CAP` (`bridge.ts:428`).
   Entry count alone bounds nothing:
   - The send path applies no downscale — `useImagePaste.ts:113` admits
     anything under `MAX_IMAGE_SIZE = 10 * 1024 * 1024` (`:38`). The 768 px
@@ -60,7 +76,7 @@ Delivery is the bug. This is distinct from the display-only bug fixed by
     `> 0` presence check, never a ceiling. So the worst case is
     `20 entries × N images × 10 MB`, **unbounded in N** — not a fixed 200 MB.
   - The text path is already unbounded today: `bufferFollowupSend`
-    (`bridge.ts:408`) pushes a string of any length under the count cap. The
+    (`bridge.ts:445`) pushes a string of any length under the count cap. The
     ceiling therefore closes a pre-existing hole, not only the image one.
 
   `design.md` MUST set the ceiling against total bytes per entry across all its
@@ -110,20 +126,25 @@ Explicitly cleared as unaffected (requirements unchanged):
   shape-agnostic to the entry change.
 - `shared-protocol` — defines message-type unions but does not enumerate
   `queue_update`; `mid-turn-prompt-queue:206` owns that wire shape.
+- `inline-image-block-shapes` — this change *consumes* its accessors on the
+  sizing and validation paths (above) but adds no shape, changes no accessor
+  contract, and puts no image block on the wire. Requirements unchanged.
 
 ## Impact
 
-- `packages/extension/src/bridge.ts` — buffer type, `bufferFollowupSend`
-  (`:402`), `drainFollowupQueue` (`:446`), `enqueueSystemFollowup` (`:518`),
-  `emitQueueUpdate` (`:367`), and the **four** mutation handlers at
-  `:1023-1090` (`edit` `:1023`, `remove` `:1039`, `promote` `:1055`, `clear`
-  `:1066`). Two stale block comments claim "five handlers" — `:355-357` and
-  `:1011` — and both need correcting.
+- `packages/extension/src/bridge.ts` — buffer type (`:409`),
+  `bufferFollowupSend` (`:445`), `drainFollowupQueue` (`:489`),
+  `enqueueSystemFollowup` (`:561`), `emitQueueUpdate` (`:410`), the
+  `message_start` drain matcher (`:1896`, an `indexOf(text)` over the buffer),
+  the session reset (`:2920`), and the **four** mutation handlers at
+  `:1096-1155` (`edit` `:1096`, `remove` `:1112`, `promote` `:1129`, `clear`
+  `:1140`). Two stale block comments claim "five handlers" — `:395-400` and
+  `:1082` — and both need correcting.
 - `packages/extension/src/command-handler.ts` — `onFollowupSent` signature
-  (`:362`), the buffer-path call site (`:629`), extraction of
-  `sendUserMessageWithImages` (`:866`) with the `deliverAs` split above.
-- `packages/shared/src/types.ts` — `pendingQueues` (`:347`) / `queue_update`
-  payload.
+  (`:413`), the buffer-path call site (`:773`), extraction of
+  `sendUserMessageWithImages` (`:1027`) with the `deliverAs` split above.
+- `packages/shared/src/types.ts` — `pendingQueues` (`:387`) / `queue_update`
+  payload. `packages/shared/src/image-block.ts` is consumed, not modified.
 - `packages/server/src/` — type-level only; `event-wiring.ts` forwards the
   arrays wholesale and does not inspect elements.
 - `packages/client/src/` — mechanical `.text` mapping in every consumer

@@ -1,6 +1,9 @@
 # Test Plan — fix-bridge-followup-image-drop
 
-Stage: design   Generated: 2026-08-13
+Stage: design   Generated: 2026-08-13   Rechecked: 2026-08-21
+
+Recheck added E25, X11 (design D3c — nested image-block shape) and F8 (the
+display half closed by `fix-pasted-image-message-vanishes`).
 
 HARD gate cleared: C1 (injectable ceiling), C2 (`queue-followup-attachments`
 testid), C3 (no perf scenarios) were resolved before this catalog was written.
@@ -38,6 +41,7 @@ No open clarifications.
 | E22 | Session-change releases bytes | state-transition | L1 | automated | buffer holds an image-bearing entry | `session_start { reason:"resume" }` | `bridgeFollowUp` is `[]`; a subsequent admission check sees a zero total; one `queue_update { followUp: [] }` emitted |
 | E23 | Server forwards entries verbatim | EP | L1 | automated | server receives `queue_update { followUp:[{text:"c",imageCount:2}] }` | cache update + broadcast | `SessionUiState.pendingQueues.followUp` equals the input; broadcast payload contains `imageCount:2` and **no** `data` field anywhere |
 | E24 | Steering stays `string[]` | EP | L1 | automated | `queue_update { steering:["a"], followUp:[{text:"c",imageCount:0}] }` | cache update | `steering` remains a string array; no entry-object coercion applied to it |
+| E25 | Nested-shape image sizes by its real bytes (D3c) | BVA | L1 | automated | ceiling injected at 1 KiB; buffer `[]`; one image in the nested Anthropic shape `{type:"image",source:{type:"base64",media_type:"image/png",data:<4 KiB base64>}}` | admission check runs | refused; the entry does **not** size at zero and is not admitted — fails if sizing reads `.data` directly |
 
 ### Frontend-quirk
 
@@ -50,6 +54,7 @@ No open clarifications.
 | F5 | Legacy string renders safely | state-transition | L3 | automated | server broadcast carrying a legacy `string[]` followUp | chip renders | converges to: chip text `"hello"`; `queue-followup-attachments` absent; no `[object Object]` anywhere in `queue-panel` |
 | F6 | Refusal is user-visible | state-transition | L3 | automated | buffer at the entry-count cap | user sends another follow-up | converges to: a `commandFeedback` row appears in chat carrying the refusal message; buffer chip count unchanged at 20 |
 | F7 | Dropped attachment is user-visible | state-transition | L3 | automated | follow-up sent with 3 images, one `image/svg+xml` | `queue_update` + feedback arrive | converges to: `queue-followup-attachments` shows 2 AND a `commandFeedback` row states one attachment was dropped as unsupported |
+| F8 | Drained image-bearing message renders a chat row | state-transition | L3 | automated | image-bearing follow-up buffered mid-turn; image large enough to bust the 256 KiB per-event ceiling | turn ends; buffer drains | converges to: a user row carrying the prompt text AND an image slot (thumbnail or the explicit unavailable slot); the row does NOT vanish. Guards the display half closed by `fix-pasted-image-message-vanishes` against regression by this change's new drain payload |
 
 ### Error-handling
 
@@ -65,15 +70,16 @@ No open clarifications.
 | X8 | Invalid image shapes | fault-injection (bad input) | L1 | automated | images array containing a non-object, one with missing `data`, one with `mimeType:"image/svg+xml"` | follow-up buffered while streaming | all three dropped; valid ones retained; `command_feedback { status:"error" }` emitted stating how many were dropped; process log alone is insufficient |
 | X9 | All-invalid attachment set | fault-injection (bad input) | L1 | automated | every supplied image invalid | follow-up buffered | entry buffered as text-only with `imageCount:0`; `command_feedback` error emitted |
 | X10 | No feedback when all valid | fault-injection (control) | L1 | automated | two valid images | follow-up buffered | entry carries both; **no** validation `command_feedback` emitted (guards against a false-positive warning) |
+| X11 | Nested-shape image is not dropped as invalid (D3c) | fault-injection (shape) | L1 | automated | one image in the nested Anthropic shape carrying `source.media_type:"image/png"` | follow-up buffered | retained with `imageCount:1`; **no** validation `command_feedback` — fails if the mime filter reads `img.mimeType` directly |
 
 ---
 
 ## Coverage summary
 
 - Requirements covered: 11/11 delta requirements (4 MODIFIED incl. abort, 4 ADDED, 3 REMOVED verified by absence)
-- Scenarios by class: edge 24 · perf 0 · frontend 7 · error 10
-- Scenarios by level: L1 36 · L2 0 · L3 5
-- Scenarios by disposition: automated 41 · manual-only 0
+- Scenarios by class: edge 25 · perf 0 · frontend 8 · error 11
+- Scenarios by level: L1 38 · L2 0 · L3 6
+- Scenarios by disposition: automated 44 · manual-only 0
 
 Notes on coverage shape:
 

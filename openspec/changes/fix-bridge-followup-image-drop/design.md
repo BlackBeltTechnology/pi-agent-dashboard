@@ -2,7 +2,7 @@
 
 `bridgeFollowUp` is a bridge-owned buffer holding dashboard-originated
 follow-up prompts while the agent streams; the drain ships one entry per
-`agent_end` as a fresh turn. It is typed `string[]` (`bridge.ts:366`), so an
+`agent_end` as a fresh turn. It is typed `string[]` (`bridge.ts:409`), so an
 image-bearing follow-up loses its images between `send_prompt` and delivery.
 
 Constraints that shape every decision below:
@@ -19,6 +19,17 @@ Constraints that shape every decision below:
   (spec `:207`), and session-change resets it. Images inherit both.
 - **The client is the only source of image bytes.** They arrive once on
   `send_prompt` (`image-paste/spec.md:49`) and are never re-sent.
+- **Two inline image block shapes exist in this codebase.**
+  `fix-pasted-image-message-vanishes` made that explicit and shipped the
+  canonical accessors (`packages/shared/src/image-block.ts`): flat pi
+  `{type:"image", data, mimeType}` and nested Anthropic
+  `{type:"image", source:{media_type, data}}`. Any code that reads `.data` or
+  `.mimeType` directly is correct only for the flat shape. See D3c.
+- **The display half of this bug is already fixed.** Pre-`#528`, a drained
+  image-bearing `message_start` over the 256 KiB event ceiling collapsed to
+  `{ __truncated }` and vanished from history. The store now preserves the
+  envelope and strips only the bytes, so delivery is the only half left — but
+  the rendered row is an observable to verify, not assume (F8).
 
 ## Goals / Non-Goals
 
@@ -81,6 +92,8 @@ three-line normaliser at the reducer boundary.
 
 ### D3 — Aggregate byte ceiling of 32 MiB, enforced by refusal
 
+*(Sizing reads bytes through the shared accessor — see D3c.)*
+
 `FOLLOWUP_BUFFER_MAX_BYTES = 32 * 1024 * 1024`, held alongside the existing
 `FOLLOWUP_QUEUE_CAP = 20`.
 
@@ -93,7 +106,8 @@ session at a fixed, per-session cost.
 
 **Measurement is recomputed on demand, never accumulated.** The total is
 derived by summing over the (at most 20) live entries at each admission check:
-`Buffer.byteLength(text) + Σ image.data.length`. Image `data` is base64, so its
+`Buffer.byteLength(text) + Σ imageBlockData(image)?.length ?? 0`.
+Image `data` is base64, so its
 string length is exactly its byte count; `text` uses `byteLength` because
 `String.length` counts UTF-16 code units and under-counts non-Latin-1 text.
 `JSON.stringify` is never used — it would allocate a copy of the megabyte
@@ -124,6 +138,32 @@ goal false.
 stripped to make it fit. Partial admission would deliver a prompt whose
 attachment vanished — again the original bug.
 
+### D3c — Byte sizing and MIME validation read through the shared accessors
+
+Both the D3 size walk and the D6/D7 validation filter read image bytes and mime
+via `imageBlockData()` / `imageBlockMime()` from
+`packages/shared/src/image-block.ts`, never via a direct `.data` / `.mimeType`
+property read.
+
+Rationale: a direct read is correct only for the flat pi shape. Against a
+nested Anthropic block it returns `undefined`, so the entry sizes at **zero
+bytes** — an unbounded hold that passes every ceiling check, which is exactly
+the exposure D3 exists to close — and the D7 filter drops the block as
+"invalid mimeType", silently destroying a valid attachment.
+
+`send_prompt.images` carries the flat shape today (`useImagePaste.ts:118`), so
+this costs nothing at runtime and is not a behaviour change. It is defence
+against drift: `#528` shipped the shared module precisely because two
+independent sites had already drifted on this question.
+
+*Alternative rejected — assert flat-only at the wire boundary and keep direct
+reads.* An assertion that rejects a nested block would turn a future shape
+change into a user-visible refusal rather than transparent handling, and would
+add a second definition of "what an image block is" next to the canonical one.
+
+*Not adopted:* `isRenderableImageBlock` / `isTruncatedImageBlock`. Those encode
+rendering and rescue concerns; this path only needs bytes + mime.
+
 ### D3b — The ceiling is injectable so boundary tests stay cheap
 
 32 MiB is the default, not a hardcoded literal at the comparison site. The
@@ -140,9 +180,9 @@ An injectable ceiling tests the real path at proportional cost.
 ### D4 — Refusals are visible — all of them
 
 There are three silent refusal sites today, all bare logs:
-the 20-entry cap in `bufferFollowupSend` (`bridge.ts:405`), the same cap in
-`enqueueSystemFollowup` (`:521`), and image-validation drops
-(`command-handler.ts:883`). This change adds a fourth (the byte ceiling).
+the 20-entry cap in `bufferFollowupSend` (`bridge.ts:447`), the same cap in
+`enqueueSystemFollowup` (`:564`), and image-validation drops
+(`command-handler.ts:1043`). This change adds a fourth (the byte ceiling).
 
 All four emit `command_feedback { status: "error", message }`. The existing
 spec explicitly left the entry-cap case as "implementation choice"
@@ -161,14 +201,14 @@ same behaviour:
   `pi.clearFollowUpQueue()` + `pi.sendUserMessage(_, {deliverAs:"followUp"})`
   for `edit_followup_entry` / `promote` / `remove` — the exact handlers the
   modified mutation requirement forbids from touching pi. `rewriteFollowupQueue`
-  was deleted (`bridge.ts:541-544`).
+  was deleted (`bridge.ts:588`).
 - `spec.md:299` "Follow-up queue surface is display-only" states
   `queue-followup-edit` / `-editor` / `-promote` / `-remove` SHALL NEVER be in
   the DOM; `QueuePanel` renders all four, and this change adds an indicator to
   that same chip.
 - `spec.md:359` "User abort resets shadow queues" requires abort to empty
   `bridgeFollowUp`; the live abort deliberately persists them
-  (`bridge.ts:1205-1208`, per `honest-mid-turn-queue-surface`).
+  (`bridge.ts:1268`, `:1281`, per `honest-mid-turn-queue-surface`).
 
 This change retires the first two (they directly contradict requirements it
 rewrites) and corrects the third to match shipped behaviour. This is spec
@@ -188,7 +228,7 @@ sent images.* A field no producer can populate is a trap for the next reader.
 
 ### D6 — Extraction splits validation from send options
 
-`sendUserMessageWithImages` (`command-handler.ts:866`) currently fuses three
+`sendUserMessageWithImages` (`command-handler.ts:1027`) currently fuses three
 concerns: MIME validation, content-array assembly, and `deliverAs` options.
 Extract the first two as `buildUserMessageContent(text, images) → string |
 ContentBlock[]`, leaving send options at each call site:
@@ -197,7 +237,8 @@ ContentBlock[]`, leaving send options at each call site:
 - drain path: `pi.sendUserMessage(buildUserMessageContent(...))` — **no options**
 
 This is the rule-of-three-free version of the extraction: one shared validation
-policy (the `image/jpeg|png|gif|webp` allow-list at `:881`), two send policies,
+policy (the `image/jpeg|png|gif|webp` allow-list at `:1041`, read through
+`imageBlockMime` per D3c), two send policies,
 made structurally impossible to confuse.
 
 ### D7 — Validation happens at buffer time, and a dropped image is reported
@@ -208,7 +249,7 @@ while the user is still looking at the composer rather than one turn later.
 `buildUserMessageContent` remains the single validation implementation.
 
 Today that filter drops images with a bare `console.error`
-(`command-handler.ts:883-892`), invisible to a dashboard user. Under D4's own
+(`command-handler.ts:1043-1052`), invisible to a dashboard user. Under D4's own
 argument that is the same defect class this change exists to fix: a user pastes
 three images, one has an unsupported MIME, and the chip silently reports two
 with no explanation. So a filtered image SHALL also emit `command_feedback`.
@@ -218,7 +259,7 @@ validation quietly strips them anyway.
 ### D7b — Helper placement avoids an import cycle
 
 `buildUserMessageContent` lives in `command-handler.ts` (or a module both
-import). `bridge.ts:33` already imports from `command-handler.js`; defining the
+import). `bridge.ts:38` already imports from `command-handler.js`; defining the
 helper in `bridge.ts` and importing it back would create a
 `bridge → command-handler → bridge` cycle.
 
@@ -228,7 +269,7 @@ External signature unchanged (`text: string`). It constructs a text-only entry.
 Its cap check participates in the byte budget for consistency, though a
 text-only entry is unlikely to approach it.
 
-Its refusal is a **third** cap site (`bridge.ts:521`), also silent today. A
+Its refusal is a **third** cap site (`bridge.ts:564`), also silent today. A
 refused system nudge is a lost plugin continuation, so it emits
 `command_feedback` under its own command name (`enqueue_followup`) rather than
 borrowing `send_prompt`, which would misattribute a programmatic refusal to a
@@ -239,7 +280,7 @@ user action.
 - **[Wire-shape skew breaks a stale browser tab]** → D2b tolerant read; the
   normaliser is deleted in a later release.
 - **[The base spec disagrees with shipped code on whether abort clears the
-  buffer]** → `spec.md:359` says it does; `bridge.ts:1205` says queues persist
+  buffer]** → `spec.md:359` says it does; `bridge.ts:1281` says queues persist
   by design. D4b corrects the requirement to match the code. The byte budget is
   unaffected either way because D3 recomputes rather than accumulates — chosen
   partly for this reason.
@@ -297,7 +338,7 @@ None blocking. Two deliberately deferred:
 - Whether a per-send image-count cap belongs in `image-paste` (the absence of
   one is what makes the pre-change exposure unbounded). Out of scope here: this
   change bounds the buffer regardless of how many images a single send carries.
-- Whether `bridgeFollowUp` being a module-level singleton (`bridge.ts:366`)
+- Whether `bridgeFollowUp` being a module-level singleton (`bridge.ts:409`)
   deserves an explicit per-session assertion. It is per-session only because
   each pi session is its own process — true today, and relied upon by the whole
   bridge, not just this buffer. Noted, not changed.
