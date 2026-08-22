@@ -13,6 +13,11 @@
  * See change: add-pi-gateway-transport-identity (D11, task 9.5).
  */
 
+import {
+  type LocalInstance,
+  resolveInstanceRef,
+} from "@blackbelt-technology/pi-dashboard-shared/instance-directory.js";
+
 export type ConnectTarget =
   /** `default` / empty — whatever the $HOME rendezvous record names (ladder rung 4). */
   | { kind: "default" }
@@ -75,5 +80,51 @@ export function describeConnectTarget(t: ConnectTarget): string {
       return `instance ${t.id}`;
     case "invalid":
       return `invalid target (${t.reason})`;
+  }
+}
+
+/**
+ * Turn a parsed target into a dialable endpoint (task 9.5).
+ *
+ * Resolution runs through the same primitives as startup — the rendezvous
+ * record for `default`, the config dir for instances — so a hand-typed target
+ * and a resolved one can never disagree about where a dashboard lives.
+ */
+export function resolveConnectTarget(
+  target: ConnectTarget,
+  deps: {
+    defaultEndpoint: () => string | null;
+    instances: () => LocalInstance[];
+  },
+): { ok: true; endpoint: string; instanceId?: string } | { ok: false; reason: string } {
+  switch (target.kind) {
+    case "invalid":
+      return { ok: false, reason: target.reason };
+
+    case "default": {
+      const endpoint = deps.defaultEndpoint();
+      // Absence means "no local dashboard", never "go look on the network"
+      // (D0): a failed resolve must not fall through to discovery.
+      return endpoint
+        ? { ok: true, endpoint }
+        : { ok: false, reason: "no default dashboard is registered under this HOME" };
+    }
+
+    case "socket":
+      return { ok: true, endpoint: `ws+unix://${target.path}:/` };
+
+    case "port":
+      // Loopback, never the configured host: a bare port is a local shorthand.
+      return { ok: true, endpoint: `ws://127.0.0.1:${target.port}` };
+
+    case "url":
+      return { ok: true, endpoint: target.url };
+
+    case "instance": {
+      const found = resolveInstanceRef(target.id, deps.instances());
+      return found.ok
+        ? { ok: true, endpoint: found.instance.endpoint, instanceId: found.instance.instanceId }
+        : { ok: false, reason: found.reason };
+    }
   }
 }

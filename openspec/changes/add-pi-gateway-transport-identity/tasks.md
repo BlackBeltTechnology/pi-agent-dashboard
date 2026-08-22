@@ -115,8 +115,8 @@
 - [x] 9.3b **Add the overlap capability to `ConnectionManager` — it does not exist today.** `updateUrl()` (`connection.ts:334-340`) sets `this.url` then immediately calls `handleDisconnect()`, tearing down the origin before any target connection exists, and the class holds exactly one `ws`. Implement a provisional second connection that registers on the target and only closes the origin after acknowledgement, aborting back to the origin on failure
 - [x] 9.3c Specify and test which connection owns the send ring during the overlap, so no prompt is duplicated or dropped mid-move
 - [ ] 9.4 Register the session command in the extension, following the `pi.registerCommand("__dashboard_reload", …)` template at `bridge.ts:1367`
-- [ ] 9.5 Implement `connect <instance>` accepting a socket path, a port, an instance identity, or `default`, resolved through the same ladder as startup
-- [ ] 9.6 Implement `--list` over rendezvous records visible under the current HOME, and `where` reporting endpoint + identity + pinned
+- [x] 9.5 Implement `connect <instance>` accepting a socket path, a port, an instance identity, or `default`, resolved through the same ladder as startup
+- [x] 9.6 Implement `--list` over rendezvous records visible under the current HOME, and `where` reporting endpoint + identity + pinned
 - [x] 9.7 Refuse a move whose target identity does not verify; leave the existing registration untouched
 - [x] 9.8 Warn before a move whose target cannot read the session's `.jsonl` (history and resume will not follow)
 - [x] 9.9 Make 9.1 and 9.2 pass

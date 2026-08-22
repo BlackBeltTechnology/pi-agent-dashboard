@@ -926,3 +926,35 @@ Rejected:
   it makes a transient user action durable with no way to see or clear it.
 - **Persisted and outranking everything** — "moved means moved", at the cost of
   an invisible on-disk pin overriding explicit configuration.
+
+### D11b — Naming an instance, and the display-only scan (cycle 7, DECIDED)
+
+Task 9.5 lets a user name a move target; task 9.6 lists the options. Two calls:
+
+**1. What a user types.** Accepted, in this order: an exact `instanceId`, a
+**port** (`connect 8002`), an unambiguous **id prefix** (`connect bbbb`,
+git-short-sha style), an explicit socket path or `ws://` URL, or `default`.
+
+The port is the humane primary name — it is already what the user sees, and the
+socket is already `gateway-<piPort>.sock`. The id prefix exists because the id
+is an opaque UUID nobody would type in full. An **ambiguous prefix is refused,
+never resolved**: silently choosing between two dashboards moves the session to
+the wrong one and still looks like it worked. An exact id beats a prefix, so an
+instance whose id prefixes another's stays addressable.
+
+Rejected: user-assigned labels. Nicest to type, but it introduces a second
+naming authority plus persistent storage for what is currently derivable state.
+
+**2. `--list` scans, and that is a deliberate carve-out from D2.** D2 forbids a
+scan as the *selection* mechanism — an unpinned bridge does one deterministic
+read of the record. That is untouched. But the record names exactly ONE instance
+(the lock holder), so a record-only listing cannot answer "which dashboards
+could I move this session to?" — and D11's headline case (worktree ↔ main) is
+two instances under one HOME, where the *second* is the interesting one.
+
+The distinction that keeps this honest: **scanning to show a human their options
+is not scanning to pick an endpoint automatically.** Enforced by construction —
+`instance-directory.ts` is display/resolve-only, ambiguity is an error rather
+than a heuristic, and nothing on the bridge's automatic connect path imports it.
+If that last property is ever violated, this has become discovery by the back
+door.

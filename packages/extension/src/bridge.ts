@@ -1514,6 +1514,25 @@ function initBridge(pi: ExtensionAPI) {
     },
   });
 
+  // `/dashboard-list` — every dashboard instance visible under this HOME
+  // (task 9.6). This is the DISPLAY-only side of the D2 carve-out: it scans so
+  // a human can choose, and never feeds automatic endpoint selection.
+  pi.registerCommand("dashboard-list", {
+    handler: async () => {
+      const { listLocalInstances, formatInstanceLine } = await import(
+        "@blackbelt-technology/pi-dashboard-shared/instance-directory.js"
+      );
+      const found = listLocalInstances();
+      if (found.length === 0) {
+        console.error("[dashboard] no dashboard instances found under this HOME");
+        return;
+      }
+      console.error(
+        `[dashboard] instances (* = default for this HOME):\n${found.map(formatInstanceLine).join("\n")}`,
+      );
+    },
+  });
+
   // `/dashboard-where` — endpoint + identity + pinned, for the session that
   // cannot otherwise answer "which dashboard am I actually on?" (task 9.6).
   // Written with console.error because pi's stdout is discarded under the

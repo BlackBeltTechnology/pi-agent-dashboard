@@ -6,7 +6,11 @@
  * two ways, and where guessing wrong sends them debugging the wrong thing.
  */
 import { describe, expect, it } from "vitest";
-import { describeConnectTarget, parseConnectTarget } from "../connect-target.js";
+import {
+  describeConnectTarget,
+  parseConnectTarget,
+  resolveConnectTarget,
+} from "../connect-target.js";
 
 describe("parseConnectTarget", () => {
   it("treats empty and `default` as the $HOME rendezvous default", () => {
@@ -84,5 +88,67 @@ describe("describeConnectTarget", () => {
     // A bare port must never be dialled on a wildcard address; the rendering
     // is what tells the user which host they are about to reach.
     expect(describeConnectTarget(parseConnectTarget("8000"))).toBe("127.0.0.1:8000");
+  });
+});
+
+describe("resolveConnectTarget", () => {
+  const instances = [
+    { piPort: 8001, instanceId: "aaaa1111", endpoint: "ws+unix:///c/gateway-8001.sock:/", isDefault: true },
+    { piPort: 8002, instanceId: "bbbb2222", endpoint: "ws+unix:///c/gateway-8002.sock:/", isDefault: false },
+  ];
+  const deps = {
+    defaultEndpoint: () => "ws+unix:///c/gateway-8001.sock:/",
+    instances: () => instances,
+  };
+
+  it("resolves default through the rendezvous record", () => {
+    expect(resolveConnectTarget(parseConnectTarget("default"), deps)).toEqual({
+      ok: true,
+      endpoint: "ws+unix:///c/gateway-8001.sock:/",
+    });
+  });
+
+  it("does NOT fall through to discovery when there is no default", () => {
+    // Absence means "no local dashboard", never "ask the network" (D0).
+    const v = resolveConnectTarget(parseConnectTarget("default"), {
+      ...deps,
+      defaultEndpoint: () => null,
+    });
+    expect(v.ok).toBe(false);
+    expect(v.ok === false && v.reason).toMatch(/no default dashboard/);
+  });
+
+  it("dials a bare port on loopback, never a wildcard host", () => {
+    expect(resolveConnectTarget(parseConnectTarget("8002"), deps)).toEqual({
+      ok: true,
+      endpoint: "ws://127.0.0.1:8002",
+    });
+  });
+
+  it("resolves an instance prefix to its socket endpoint", () => {
+    expect(resolveConnectTarget(parseConnectTarget("bbbb"), deps)).toEqual({
+      ok: true,
+      endpoint: "ws+unix:///c/gateway-8002.sock:/",
+      instanceId: "bbbb2222",
+    });
+  });
+
+  it("passes an ambiguous instance refusal through instead of guessing", () => {
+    const v = resolveConnectTarget(parseConnectTarget("zzz"), deps);
+    expect(v.ok).toBe(false);
+    expect(v.ok === false && v.reason).toMatch(/no instance matching/);
+  });
+
+  it("turns a socket path into a ws+unix endpoint", () => {
+    expect(resolveConnectTarget(parseConnectTarget("/tmp/gw.sock"), deps)).toEqual({
+      ok: true,
+      endpoint: "ws+unix:///tmp/gw.sock:/",
+    });
+  });
+
+  it("refuses an out-of-range port with the parser's reason", () => {
+    const v = resolveConnectTarget(parseConnectTarget("80"), deps);
+    expect(v.ok).toBe(false);
+    expect(v.ok === false && v.reason).toMatch(/out of range/);
   });
 });

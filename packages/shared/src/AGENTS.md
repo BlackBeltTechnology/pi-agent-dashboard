@@ -22,6 +22,7 @@ Files in this directory. One row per source file.
 | `diff-types.ts` | Session file-diff API types. `EditOperation`, `FileChangeEvent`, `FileDiffEntry`, `SessionDiffResponse`… → see `diff-types.ts.AGENTS.md` |
 | `display-prefs.ts` | `DisplayPrefs` interface gates chat-view chrome (thinking, tool calls per kind, turn separators, debug tools,… → see `display-prefs.ts.AGENTS.md` |
 | `doctor-core.ts` | Pure detection core. Types `DoctorCheck` / `DoctorReport` / `DoctorSection` (6:… → see `doctor-core.ts.AGENTS.md` |
+| `instance-directory.ts` | `listLocalInstances()` / `resolveInstanceRef()` / `formatInstanceLine()` — enumerates `gateway-*.sock` under the HOME config dir for `/dashboard-list` + connect-target resolution. **DISPLAY-ONLY D2 carve-out**: scans so a human can choose, never feeds automatic endpoint selection; ambiguous id prefix is REFUSED, not guessed; exact id beats prefix. Nothing on the bridge's auto-connect path may import it. See change: add-pi-gateway-transport-identity (D11b, tasks 9.5/9.6). |
 | `live-server.ts` | Pure browser-safe live-server SSRF boundary. `validateLiveTarget({host,port,label})` — loopback-only… → see `live-server.ts.AGENTS.md` |
 | `file-kind.ts` | Pure browser-safe viewer classifier. `fileKind(absPath, sniff?)` → `{ kind, mimeType, viewer, editable }`. → see `file-kind.ts.AGENTS.md` |
 | `git-worktree-helpers.ts` | Pure worktree helpers shared by server + client. `slugifyBranch(branch)` → fs-safe slug; `localNameOf(ref)`… → see `git-worktree-helpers.ts.AGENTS.md` |
