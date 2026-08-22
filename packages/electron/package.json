@@ -29,9 +29,11 @@
     "@electron-forge/maker-deb": "^7.6.0",
     "@electron-forge/plugin-vite": "^7.6.0",
     "@pengx17/electron-forge-maker-appimage": "^1.2.1",
+    "@types/semver": "^7.7.0",
     "electron": "43.4.1",
     "electron-builder": "^26.8.1",
     "png-to-ico": "^2.1.8",
+    "semver": "^7.7.1",
     "sharp": "^0.33.5",
     "vite": "^6.0.0"
   },
