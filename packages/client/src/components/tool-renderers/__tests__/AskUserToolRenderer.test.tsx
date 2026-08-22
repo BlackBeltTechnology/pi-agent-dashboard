@@ -77,3 +77,33 @@ describe("AskUserToolRenderer — batch", () => {
     expect(screen.getByText(/cancelled/i)).toBeTruthy();
   });
 });
+
+/**
+ * #F4 (repair-tool-error-surfaces) — the ask_user error line: the icon carries
+ * the severity accent, the message stays in normal text colours, and the old
+ * `text-red-400/80` literal must not return.
+ */
+describe("AskUserToolRenderer — error line severity tokens", () => {
+  it("#F4 icon takes the accent and the message stays neutral", () => {
+    const { container } = renderWithTheme(
+      <AskUserToolRenderer
+        toolName="ask_user"
+        args={{ method: "input", title: "Project name" }}
+        status="error"
+        result="User cancelled the prompt."
+        context={ctx}
+      />,
+    );
+    // Scope to the error ROW (the line holding the message), not the whole card:
+    // the method badge above it carries its own, ungoverned icon.
+    const message = container.querySelector("pre") as HTMLElement;
+    expect(message.className).toContain("text-[var(--text-secondary)]");
+
+    const row = message.parentElement as HTMLElement;
+    // @mdi/react puts the className on the <svg> itself, whose `.className` is an
+    // SVGAnimatedString — read the attribute instead.
+    const icon = row.querySelector("svg") as SVGElement;
+    expect(icon.getAttribute("class")).toContain("text-[var(--severity-error-fg)]");
+    expect(row.innerHTML).not.toMatch(/\bred-\d{2,3}\b/);
+  });
+});

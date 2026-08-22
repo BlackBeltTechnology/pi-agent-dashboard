@@ -31,7 +31,11 @@ export function UrlLink({ href, children }: Props) {
       // Not draggable so a click-drag that starts on or crosses the link
       // extends the text selection instead of starting a native link-drag.
       draggable={false}
-      className="text-blue-400 hover:underline"
+      // `--link` is mode-aware (#60a5fa dark / #2563eb light); the raw
+      // `blue-400` it replaces was tuned on a dark ground and measured
+      // 1.80–2.52:1 on `--bg-code` in all 9 light themes.
+      // See change: repair-tool-error-surfaces (test-plan #F8).
+      className="text-[var(--link)] hover:underline"
     >
       {children}
     </a>
