@@ -122,25 +122,39 @@ pointer to copy glue from, the scenario Triple, and its manifest id.
 - [x] 10.4 Omitted `presentation` validates and is left undefined for the shell to default. Triple: claim with no presentation key · validator runs · succeeds, presentation undefined (test-plan #S-04). See `manifest-validator.test.ts`
 - [x] 10.5 Non-string `presentation` is rejected rather than coerced. Triple: claim with presentation 42 · validator runs · throws ManifestValidationError (test-plan #S-05). See `manifest-validator.test.ts`
 - [ ] 10.6 Registry codegen emits `presentation` and excludes the demo fixture. Triple: manifest with presentation page · NODE_ENV=production codegen runs · generated registry carries presentation top-level and contains no demo plugin (test-plan #S-06). See `packages/shared/src/__tests__/bundled-plugins-complete.test.ts` for the repo-scan idiom
+      - **NOT DONE — blocked, no fixture exists.** Needs a demo/test-only plugin manifest declaring `presentation`, which no bundled plugin does (same blocker as task 4.7). The codegen path is untested for `presentation`; the field IS covered at the validator level by 10.1–10.5. Carry with 4.7.
 
 ### 10b. Overlay container — L3 (`tests/e2e/openspec-artifact-dialog.spec.ts` is the nearest dialog exemplar; `tests/e2e/overlay-layering.spec.ts` for layering; `tests/e2e/navigation.spec.ts` for route walking)
 
-- [ ] 10.7 Settings renders in a dialog container on desktop. Triple: desktop viewport at /session/<id> · navigate to /settings/general · settings renders in a dialog, URL exactly /settings/general (test-plan #S-07, blocked on clarification C1). See `tests/e2e/openspec-artifact-dialog.spec.ts`
-- [ ] 10.8 The underlay is the pinned background, not a second URL-derived branch. Triple: desktop at /settings/general opened from /session/<id> · surface rendered · session detail IS present as the underlay, `aria-hidden` and non-interactive, and is derived from the frozen path (navigating the URL to another overlay does not change it) (test-plan #S-08, rewritten by the D1 revision). See `tests/e2e/openspec-artifact-dialog.spec.ts`
-- [ ] 10.8a Cold load synthesizes the underlay from the back target. Triple: fresh goto /settings/security, no predecessor · render · underlay matches `computeBackTarget("/settings/security")` (test-plan #S-08b, new). See `tests/e2e/navigation.spec.ts`
-- [ ] 10.9 Esc returns to the launching route. Triple: opened /settings/general from /session/<id> · press Esc · URL returns to /session/<id> and chat renders (test-plan #S-09, see clarification C2). See `tests/e2e/navigation.spec.ts`
-- [ ] 10.10 One dismissal leaves the surface even after an in-panel history push. Triple: opened /settings/general from /session/<id> then navigated to /settings/plugins/<id> · press Esc once · URL returns to /session/<id>, not /settings/general (test-plan #S-10). See `tests/e2e/plugin-settings-pages.spec.ts`
-- [ ] 10.11 Cold-loaded surface dismisses via the descriptor table. Triple: fresh goto /settings/security with no predecessor · dismiss · resolves a defined target, not a no-op (test-plan #S-11). See `tests/e2e/navigation.spec.ts`
-- [ ] 10.12 Route-backed surfaces replace rather than stack. Triple: at /settings/gateway · navigate to /tunnel-setup · exactly one overlay mounted, settings not mounted simultaneously (test-plan #S-12). See `tests/e2e/zrok-v2-tunnel.spec.ts`
-- [ ] 10.13 Tunnel dismissal returns to settings. Triple: opened /tunnel-setup from /settings/gateway · dismiss · URL returns to /settings/gateway and settings renders (test-plan #S-13). See `tests/e2e/zrok-v2-tunnel.spec.ts`
+- [x] 10.7 Settings renders in a dialog container on desktop. Triple: desktop viewport at /session/<id> · navigate to /settings/general · settings renders in a dialog, URL exactly /settings/general (test-plan #S-07, blocked on clarification C1). See `tests/e2e/openspec-artifact-dialog.spec.ts`
+      - **DONE:** Covered by `tests/e2e/route-backed-overlay.spec.ts` (S-12b: exactly one overlay at /settings, one role=dialog) plus the 6.5 clean-dismiss test asserting `settings-overlay` visible at /settings/general with the URL unchanged
+- [x] 10.8 The underlay is the pinned background, not a second URL-derived branch. Triple: desktop at /settings/general opened from /session/<id> · surface rendered · session detail IS present as the underlay, `aria-hidden` and non-interactive, and is derived from the frozen path (navigating the URL to another overlay does not change it) (test-plan #S-08, rewritten by the D1 revision). See `tests/e2e/openspec-artifact-dialog.spec.ts`
+      - **DONE:** Covered by `route-backed-overlay.spec.ts`: the underlay is `aria-hidden` + `inert` (nothing behind is clickable), it renders the LAUNCHING surface not a URL-derived branch (D1 test, fails-closed against the old live-cwd gating), and 5.5a proves an in-overlay move does not churn the frozen background
+- [x] 10.8a Cold load synthesizes the underlay from the back target. Triple: fresh goto /settings/security, no predecessor · render · underlay matches `computeBackTarget("/settings/security")` (test-plan #S-08b, new). See `tests/e2e/navigation.spec.ts`
+      - **DONE:** Covered at L1 by `overlay-claim-underlay.test.ts` (25 tests over the 6 real registry claims, incl. a fails-closed block where unregistering descriptors degrades every underlay to `/`) and the cold-load cases in `overlay-background.test.ts`
+- [x] 10.9 Esc returns to the launching route. Triple: opened /settings/general from /session/<id> · press Esc · URL returns to /session/<id> and chat renders (test-plan #S-09, see clarification C2). See `tests/e2e/navigation.spec.ts`
+      - **DONE:** Covered at L1 by `resolveDismissTarget` (launcher-based return) and at L3 by S-13. NOTE the L3 half is cold-load form: no in-app affordance anywhere navigates to /tunnel-setup
+- [x] 10.10 One dismissal leaves the surface even after an in-panel history push. Triple: opened /settings/general from /session/<id> then navigated to /settings/plugins/<id> · press Esc once · URL returns to /session/<id>, not /settings/general (test-plan #S-10). See `tests/e2e/plugin-settings-pages.spec.ts`
+      - **DONE:** Covered by `route-backed-overlay.spec.ts` 5.5a (in-place switch keeps the frozen background, DOM-expando remount probe) and the S-10 in-surface-move unit test
+- [x] 10.11 Cold-loaded surface dismisses via the descriptor table. Triple: fresh goto /settings/security with no predecessor · dismiss · resolves a defined target, not a no-op (test-plan #S-11). See `tests/e2e/navigation.spec.ts`
+      - **DONE:** Covered by S-13 cold load: Escape removes the overlay and the URL leaves /tunnel-setup, so dismissal resolves a defined target rather than no-opping
+- [x] 10.12 Route-backed surfaces replace rather than stack. Triple: at /settings/gateway · navigate to /tunnel-setup · exactly one overlay mounted, settings not mounted simultaneously (test-plan #S-12). See `tests/e2e/zrok-v2-tunnel.spec.ts`
+      - **DONE:** Covered by S-12 in `route-backed-overlay.spec.ts`, proven fails-closed (making settings also mount at /tunnel-setup turns S-12/S-13 red while the mirror stays green)
+- [x] 10.13 Tunnel dismissal returns to settings. Triple: opened /tunnel-setup from /settings/gateway · dismiss · URL returns to /settings/gateway and settings renders (test-plan #S-13). See `tests/e2e/zrok-v2-tunnel.spec.ts`
+      - **DONE:** Covered at L1 by `resolveDismissTarget`; L3 is cold-load form for the reason in 10.9
 
 ### 10c. Dirty-state guard — L3 (`tests/e2e/plugin-settings-pages.spec.ts`)
 
-- [ ] 10.14 Backdrop click with unsaved edits prompts. Triple: settings Instructions page with an unsaved edit · click backdrop · discard prompt appears, edit not discarded (test-plan #S-14, see clarification C3). See `tests/e2e/plugin-settings-pages.spec.ts`
-- [ ] 10.15 Esc with unsaved edits prompts. Triple: same unsaved edit · press Esc · discard prompt appears (test-plan #S-15). See `tests/e2e/plugin-settings-pages.spec.ts`
-- [ ] 10.16 Clean surface dismisses with no prompt. Triple: settings open with no unsaved edits · press Esc · closes immediately, no prompt (test-plan #S-16). See `tests/e2e/plugin-settings-pages.spec.ts`
-- [ ] 10.17 Discard confirmation returns to the launching route, not the card list. Triple: opened settings from /session/<id>, unsaved edit · dismiss then confirm discard · URL becomes /session/<id>, not / (test-plan #S-17). See `tests/e2e/navigation.spec.ts`
-- [ ] 10.18 Folder instructions editor is covered by the same guard. Triple: /folder/<cwd>/settings/instructions with an unsaved edit · dismiss via backdrop · discard prompt appears (test-plan #S-18). See `tests/e2e/directory-home.spec.ts`
+- [x] 10.14 Backdrop click with unsaved edits prompts. Triple: settings Instructions page with an unsaved edit · click backdrop · discard prompt appears, edit not discarded (test-plan #S-14, see clarification C3). See `tests/e2e/plugin-settings-pages.spec.ts`
+      - **DONE:** Covered by `blackhole-settings.spec.ts` — backdrop click on a dirty settings overlay raises the prompt, the URL holds and the edit survives
+- [x] 10.15 Esc with unsaved edits prompts. Triple: same unsaved edit · press Esc · discard prompt appears (test-plan #S-15). See `tests/e2e/plugin-settings-pages.spec.ts`
+      - **DONE:** Same spec, Escape gesture (and the ✕ affordance, a third gesture the plan did not list)
+- [x] 10.16 Clean surface dismisses with no prompt. Triple: settings open with no unsaved edits · press Esc · closes immediately, no prompt (test-plan #S-16). See `tests/e2e/plugin-settings-pages.spec.ts`
+      - **DONE:** Covered by `route-backed-overlay.spec.ts` 6.5, plus two unit cases (a guarded panel while clean, and a panel that never opts in — C3)
+- [x] 10.17 Discard confirmation returns to the launching route, not the card list. Triple: opened settings from /session/<id>, unsaved edit · dismiss then confirm discard · URL becomes /session/<id>, not / (test-plan #S-17). See `tests/e2e/navigation.spec.ts`
+      - **DONE:** Covered by `blackhole-settings.spec.ts`: dirty settings opened IN-APP from /folder/<cwd>, discard confirmed, URL returns to the folder. Had to navigate client-side — `page.goto` leaves no launcher and the cold-load path then correctly synthesizes `/`, so a goto-based test asserts the wrong contract
+- [x] 10.18 Folder instructions editor is covered by the same guard. Triple: /folder/<cwd>/settings/instructions with an unsaved edit · dismiss via backdrop · discard prompt appears (test-plan #S-18). See `tests/e2e/directory-home.spec.ts`
+      - **DONE:** Covered at L1 by `InstructionsPage.test.tsx` (3 tests: prompts instead of discarding, leaves once confirmed, dismisses while clean), proven fails-closed by disarming the guard
 
 ### 10d. Back-target correctness — L1 (`packages/client/src/lib/nav/__tests__/overlay-claim-back-targets.test.ts`, `packages/client/src/lib/__tests__/back-target.test.ts`)
 
@@ -149,29 +163,40 @@ pointer to copy glue from, the scenario Triple, and its manifest id.
 - [x] 10.21 An uninterpolable parentPath fails the manifest scan. Triple: claim /x/run/:sid with parentPath needing :encodedCwd · scan test runs · fails naming the unsuppliable param (test-plan #S-21). See `packages/shared/src/__tests__/overlay-claims-declare-depth.test.ts`
 - [x] 10.22 The manifest scan is not vacuous. Triple: scan returns an empty claim list · scan test runs · fails rather than passing over zero claims (test-plan #S-22). See `overlay-claims-declare-depth.test.ts`
 - [ ] 10.23 Mobile swipe-back from the Goals board returns to the folder. Triple: mobile, opened /folder/<cwd>/goals from /folder/<cwd> · swipe-back · returns to /folder/<cwd>, not / (test-plan #S-23). See `tests/e2e/gateway-board-mobile.spec.ts` for the mobile-viewport idiom
+      - **NOT DONE — mobile, needs a human or a mobile-viewport e2e.** Grouped with the deferred manual mobile pass (8.8 / section 11). The desktop half of the same guarantee is covered by `overlay-claim-back-targets.test.ts` over every registry claim.
 - [x] 10.24 Run monitor backs to its board via computeParent, pinning the R7 depth-model limit. Triple: at the run URL with the board as tracked predecessor · goBack · navigates to the board, history.back() not used (test-plan #S-24). See `packages/client/src/lib/__tests__/back-regression.test.ts`
 
 ### 10e. Resource dedupe — L3 (`tests/e2e/resource-activation-trust.spec.ts`)
 
-- [ ] 10.25 All ten resource paths resolve to the type named in the path. Triple: each of the 10 settings/folder-settings resource paths · open each · renders its named type, none 404s or falls through (test-plan #S-25, see clarification C4). See `tests/e2e/resource-activation-trust.spec.ts`
-- [ ] 10.26 Exactly one ResourceGridPanel mounts per matched route. Triple: any resource route open as an overlay · render · one grid mounted (test-plan #S-26). See `tests/e2e/resource-activation-trust.spec.ts`
-- [ ] 10.27 Scope and filter follow the matched route. Triple: /settings/skills vs /folder/<cwd>/settings/skills · open each · global hides the filter, folder shows local+global with it (test-plan #S-27). See `tests/e2e/skill-provenance.spec.ts`
+- [x] 10.25 All ten resource paths resolve to the type named in the path. Triple: each of the 10 settings/folder-settings resource paths · open each · renders its named type, none 404s or falls through (test-plan #S-25, see clarification C4). See `tests/e2e/resource-activation-trust.spec.ts`
+      - **DONE:** Covered by `tests/e2e/resource-scope-routes.spec.ts` — all 10 paths, asserted on `data-type` rather than mere grid presence
+- [x] 10.26 Exactly one ResourceGridPanel mounts per matched route. Triple: any resource route open as an overlay · render · one grid mounted (test-plan #S-26). See `tests/e2e/resource-activation-trust.spec.ts`
+      - **DONE:** Same spec: `toHaveCount(1)` per matched route
+- [x] 10.27 Scope and filter follow the matched route. Triple: /settings/skills vs /folder/<cwd>/settings/skills · open each · global hides the filter, folder shows local+global with it (test-plan #S-27). See `tests/e2e/skill-provenance.spec.ts`
+      - **DONE:** Same spec: folder → `resource-scope-filter` and no pill; global → `resource-global-pill` and no filter. Fails-closed (forcing global scope reddens exactly the 5 folder cases)
 
 ### 10f. Lifecycle and performance
 
-- [ ] 10.28 A dismissed overlay releases its subscriptions. Triple: converted surface holding a live subscription · dismiss · unmounts and unsubscribes (assert the unsubscribe call, not a timer) (test-plan #S-28, re-scoped by the D1 revision to release-on-dismiss only — an OPEN overlay now deliberately retains the underlay's subscriptions). L1, see `packages/client/src/lib/__tests__/back-regression.test.ts` for the module-level harness idiom
+- [x] 10.28 A dismissed overlay releases its subscriptions. Triple: converted surface holding a live subscription · dismiss · unmounts and unsubscribes (assert the unsubscribe call, not a timer) (test-plan #S-28, re-scoped by the D1 revision to release-on-dismiss only — an OPEN overlay now deliberately retains the underlay's subscriptions). L1, see `packages/client/src/lib/__tests__/back-regression.test.ts` for the module-level harness idiom
+      - **DONE:** Covered by `overlay-lifecycle.test.tsx` using effect-cleanup counts (not DOM absence, not a timer), fails-closed against the always-mounted-container anti-pattern
 - [ ] 10.29 Overlay open latency stays within budget. Triple: desktop with a session open · open+dismiss settings 20x · p95 open-to-rendered under the stated budget (test-plan #S-29, blocked on clarification C5). L3, see `tests/e2e/chat-render-perf.spec.ts`
+      - **NOT DONE — C5 budget (p95 open-to-rendered < 300 ms) unmeasured.** Nothing in this change measures open latency. The underlay does mount a second tree, so this is the budget most at risk; the audit also flagged a chat-subtree remount on open/close (follow-up 9.9). Should be measured before relying on the budget.
 - [ ] 10.30 Repeated open/dismiss does not leak. Triple: open+dismiss each converted surface 100x · measure RSS before/after · growth under the stated budget (test-plan #S-30, blocked on clarification C5). L2, see `qa/tests/16-e2e-memory-bound.sh`
+      - **NOT DONE — C5 budget (RSS growth < 50 MB over 100 cycles) unmeasured.** Release-on-dismiss IS pinned structurally by `overlay-lifecycle.test.tsx` (effect cleanup for both trees), which covers the mechanism a leak would violate, but no RSS measurement was taken.
 
 ### 10g. URL-preservation gate and resilience
 
-- [ ] 10.31 The existing e2e suite passes with zero goto edits. Triple: unmodified e2e suite · run against the converted build · passes with no goto target changed; any required edit falsifies D1 and stops the change (test-plan #S-31). See the whole of `tests/e2e/`
-- [ ] 10.32 A missing preview target renders the error state, not a blank dialog. Triple: deep-link /folder/<cwd>/view?path=<missing> as an overlay · open · error/fallback renders, no unhandled rejection (test-plan #S-32). See `tests/e2e/file-preview-survives-churn.spec.ts`
+- [x] 10.31 The existing e2e suite passes with zero goto edits. Triple: unmodified e2e suite · run against the converted build · passes with no goto target changed; any required edit falsifies D1 and stops the change (test-plan #S-31). See the whole of `tests/e2e/`
+      - **DONE:** Verified in 8.2: the `tests/e2e` diff deletes zero lines and every added `goto` is in a spec this change ADDED
+- [x] 10.32 A missing preview target renders the error state, not a blank dialog. Triple: deep-link /folder/<cwd>/view?path=<missing> as an overlay · open · error/fallback renders, no unhandled rejection (test-plan #S-32). See `tests/e2e/file-preview-survives-churn.spec.ts`
+      - **DONE:** Covered by `route-backed-overlay.spec.ts` S-32. The surface is NOT blank — it names the target and reports "unknown session path". The assertion is a vocabulary match plus a no-unhandled-rejection check, deliberately not the exact copy.
 
 ### 10h. Pairing (contract 4)
 
 - [ ] 10.33 A live pairing code survives navigation across overlays. Triple: live one-time code from the gateway surface · navigate away to another overlay and back · code still valid within TTL or cleanly re-issued, never silently dead (test-plan #S-33). See `tests/e2e/pairing-qr.spec.ts`
-- [ ] 10.34 No converted route bypasses the pairing guard. Triple: every converted route path · check against guardPairingUrls · no pairing affordance on a bypassing path (test-plan #S-34). L1, see `packages/server/src/__tests__/` for the guard's existing coverage
+      - **PARTIAL.** The in-place half is pinned: 5.5a proves an in-overlay navigation does not remount, which is what protects `PairingView`'s one-time code (its TTL was the stated hazard), and 22/22 pairing/gateway specs pass incl. the real /pair handshake. NOT pinned: navigating AWAY to a different overlay and back, then asserting the code is still valid or cleanly re-issued.
+- [x] 10.34 No converted route bypasses the pairing guard. Triple: every converted route path · check against guardPairingUrls · no pairing affordance on a bypassing path (test-plan #S-34). L1, see `packages/server/src/__tests__/` for the guard's existing coverage
+      - **DONE:** Verified in 8.4: zero pairing/TLS lines in the diff, `/pair` never enters the router (D8), `guardPairingUrls` applies to the payload independent of container; 22/22 pairing+gateway specs green incl. the real /pair handshake
 
 ## 11. Manual verification (deferred post-merge)
 

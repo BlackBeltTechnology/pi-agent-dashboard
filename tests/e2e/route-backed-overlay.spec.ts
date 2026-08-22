@@ -174,4 +174,31 @@ test.describe("route-backed overlays", () => {
     // ...and NOT the onboarding fallback.
     await expect(underlay).not.toContainText("Welcome to pi-dashboard");
   });
+
+  // S-32 — a deep link to a file that does not exist must render the surface's
+  // own error state. A dialog makes this sharper than a page did: an empty
+  // dialog is a dead-end modal with no content to explain itself.
+  test("S-32: a missing preview target renders an error state, not a blank dialog", async ({
+    page,
+  }) => {
+    const errors: string[] = [];
+    page.on("pageerror", (e) => errors.push(e.message));
+
+    const cwd = Buffer.from(FIXTURE_GIT).toString("base64url");
+    await gotoDashboard(page);
+    await page.goto(`/folder/${cwd}/view?path=definitely/not/here.md`);
+
+    const overlay = page.getByTestId("preview-route-overlay");
+    await expect(overlay).toBeVisible({ timeout: 20_000 });
+
+    // The dialog has CONTENT: it names the target and states that it cannot be
+    // resolved, rather than rendering an empty shell. Deliberately a vocabulary
+    // match, not the exact copy — this pins "explains itself", not wording.
+    await expect(overlay).not.toHaveText(/^\s*$/);
+    await expect(overlay).toContainText("definitely/not/here.md");
+    await expect(overlay).toContainText(/unknown|not found|no such file|failed|error|unable/i);
+
+    // And the failure did not escape as an unhandled rejection.
+    expect(errors).toEqual([]);
+  });
 });
