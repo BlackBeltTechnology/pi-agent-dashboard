@@ -10,6 +10,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   captureBackground,
+  isOverlayRoute,
   recordLauncher,
   resolveDismissTarget,
   clearBackground,
@@ -17,6 +18,7 @@ import {
   resolveBackground,
   splitLocation,
 } from "../overlay-background.js";
+import { computeBackTarget, routeDepth } from "../back-target.js";
 
 beforeEach(() => {
   clearBackground();
@@ -126,6 +128,35 @@ describe("resolveBackground — in-app path (captured)", () => {
 // So when an overlay is opened FROM another overlay, the dismissal target is the
 // launching overlay -- which is NOT the background, because the background must
 // stay a base route for the underlay to have anything to render.
+// Task 5.7 states four routes as deliberately NOT converted. A grep proves that
+// today and nothing tomorrow; this pins it. If someone later adds one of these
+// to the converted set, it stops being a full page AND stops being a usable
+// background for the overlay launched from it — two regressions from one edit.
+describe("5.7 — routes that stay full pages", () => {
+  it.each([
+    ["/folder/Zm9v/openspec", "the kanban board needs horizontal width (D6)"],
+    ["/session/abc/diff", "read-while-working surface"],
+    ["/session/abc/editor", "read-while-working surface"],
+  ])("%s is not an overlay route — %s", (url) => {
+    expect(isOverlayRoute(url)).toBe(false);
+  });
+
+  it("keeps their descriptor depths untouched (5.8: paths must not move)", () => {
+    // The ONLY descriptor edit in this change adds `computeParent` to the two
+    // folder-settings patterns; every depth is unchanged. A moved depth would
+    // silently relocate a back target.
+    expect(routeDepth("/folder/Zm9v/openspec")).toBe(2);
+    expect(routeDepth("/session/abc/diff")).toBe(2);
+    expect(routeDepth("/session/abc/editor")).toBe(2);
+    expect(routeDepth("/folder/Zm9v/settings/skills")).toBe(1);
+  });
+
+  it("still resolves diff/editor back to their owning session, not to /", () => {
+    expect(computeBackTarget("/session/abc/diff")).toBe("/session/abc");
+    expect(computeBackTarget("/session/abc/editor")).toBe("/session/abc");
+  });
+});
+
 describe("resolveDismissTarget — overlay opened from another overlay", () => {
   it("returns the launching overlay, not the base background (D5)", () => {
     captureBackground("/session/abc");
