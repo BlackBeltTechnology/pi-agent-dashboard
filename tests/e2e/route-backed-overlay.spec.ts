@@ -130,4 +130,22 @@ test.describe("route-backed overlays", () => {
     await expect(page.getByTestId("tunnel-setup-overlay")).toHaveCount(0);
     await expect(page.getByRole("dialog")).toHaveCount(1);
   });
+
+  // 6.5 — the dirty guard is OPT-IN, so a clean surface must not gain a prompt.
+  // Deliberately lives here rather than in a plugin-settings spec: those install
+  // `page.route` stubs, and a test that asserts navigation AWAY tears the
+  // in-flight handler down mid-fetch ("Response has been disposed").
+  test("6.5: dismissing a CLEAN settings overlay leaves immediately, with no prompt", async ({
+    page,
+  }) => {
+    await page.goto("/settings/general");
+    await expect(page.getByTestId("settings-overlay")).toBeVisible();
+
+    await page.keyboard.press("Escape");
+
+    // URL first: the overlay is also gated on the first-launch modal, so a
+    // count of 0 is reachable without any dismissal having happened.
+    await expect(page).not.toHaveURL(/\/settings/);
+    await expect(page.getByTestId("unsaved-changes-dialog")).toHaveCount(0);
+  });
 });

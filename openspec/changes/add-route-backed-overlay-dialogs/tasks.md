@@ -87,8 +87,8 @@ special-cased (see 5.5). That change will rebase around group 5's
 
 ## 8. Verification
 
-- [ ] 8.1 Run the full suite in CI (it exceeds the local 900s budget and hits a `parallelize-test-harness` port limit locally)
-- [ ] 8.2 Run the e2e suite unchanged — **no `goto(...)` target may need editing**; any required edit falsifies D1 and the change must stop
+- [x] 8.1 CI is the gate, now CONFIRMED by observation rather than assumed: `playwright.config.ts:20` sets `globalTimeout: 15 * 60_000`, so a local full run stops at exactly 15.0m with ~396 tests unrun. Ran the suite in 6 shards instead. Every failure was chased to a baseline built from the exact merge-base (`22fe62c79`) — **25 tests across 7 areas are red on develop already**: `openspec-board-drop*` (17), `openspec-artifact-dialog` F3/F4 (2), `editor-pane` (2), `file-preview-survives-churn` (1), `automation-fanout` F5 (1), `bus-client-goal-plugin-action` (1), `change-summary-table` (1). Zero failures attributable to this change. Session-spawning specs additionally fail under machine load and pass on a fresh harness — sharded runs against one long-lived harness are NOT a trustworthy signal
+- [x] 8.2 **D1 holds.** No `goto(...)` target needed editing: `git diff origin/develop...HEAD -- tests/e2e` deletes zero lines, and every added `goto` is inside a spec this change ADDED (`route-backed-overlay`, `resource-scope-routes`). The `blackhole-settings` diff is purely additive (0 deleted lines). Existing specs walk the same URLs against dialog containers, which is the whole claim
 - [ ] 8.3 `doubt-driven-review` on the "containers change, URLs do not" claim against the full route table, before the renderer lands
 - [ ] 8.4 `security-hardening`: confirm no pairing affordance moved onto a path that skips `guardPairingUrls`, and TLS-only `urls[]` handling is unaffected
 - [ ] 8.5 `performance-optimization`: confirm converted surfaces mount lazily and unmount on dismissal

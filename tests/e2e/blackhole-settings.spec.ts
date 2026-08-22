@@ -333,19 +333,6 @@ test.describe("blackhole settings page (L3)", () => {
     });
   }
 
-  test("dismissing a CLEAN settings overlay leaves immediately, with no prompt", async ({
-    page,
-  }) => {
-    await routeInstalled(page);
-    await routeConfig(page, configFixture());
-    await gotoBlackhole(page);
-
-    await page.keyboard.press("Escape");
-
-    await expect(page).not.toHaveURL(/\/settings/);
-    await expect(page.getByTestId("unsaved-changes-dialog")).toHaveCount(0);
-  });
-
   // ── No per-session state on the global surface (test-plan #F9) ────────────
   test("renders no per-session pipeline content", async ({ page }) => {
     await routeInstalled(page);
