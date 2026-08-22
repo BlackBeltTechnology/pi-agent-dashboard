@@ -295,6 +295,57 @@ test.describe("blackhole settings page (L3)", () => {
     await expect(page.getByTestId("settings-save-bar")).toHaveCount(0);
   });
 
+  // ── R1: overlay dismissal must not discard unsaved edits ─────────────────
+  // Converting Settings into a route-backed overlay added three dismissal
+  // gestures the full page never had. Each one reaches `Dialog`'s onClose, so
+  // without the opt-in guard it navigates away and eats the edit. This is the
+  // highest-severity risk in add-route-backed-overlay-dialogs.
+  for (const [name, dismiss] of [
+    ["Escape", async (page) => await page.keyboard.press("Escape")],
+    ["the ✕ affordance", async (page) => await page.getByTestId("settings-overlay-close").click()],
+    ["a backdrop click", async (page) => await page.getByTestId("settings-overlay-overlay").click({ position: { x: 5, y: 5 } })],
+  ] as [string, (page: import("@playwright/test").Page) => Promise<void>][]) {
+    test(`dismissing a dirty settings overlay via ${name} prompts instead of discarding`, async ({
+      page,
+    }) => {
+      await routeInstalled(page);
+      await routeConfig(page, configFixture());
+      await gotoBlackhole(page);
+      await expandGroups(page);
+
+      const input = page.getByTestId("blackhole-input-compactAfterTokens");
+      await input.fill("90000");
+      await input.blur();
+      await expect(page.getByTestId("settings-save-bar")).toBeVisible();
+
+      await dismiss(page);
+
+      // The prompt is raised AND the surface is still mounted with the edit
+      // intact — the URL must not have moved.
+      await expect(page.getByTestId("unsaved-changes-dialog")).toBeVisible();
+      await expect(page).toHaveURL(/\/settings\/plugins\/blackhole/);
+      await expect(page.getByTestId("settings-overlay")).toBeVisible();
+
+      // Cancelling returns to the edit, still unsaved.
+      await page.getByTestId("unsaved-cancel").click();
+      await expect(page.getByTestId("unsaved-changes-dialog")).toHaveCount(0);
+      await expect(page.getByTestId("blackhole-input-compactAfterTokens")).toHaveValue("90000");
+    });
+  }
+
+  test("dismissing a CLEAN settings overlay leaves immediately, with no prompt", async ({
+    page,
+  }) => {
+    await routeInstalled(page);
+    await routeConfig(page, configFixture());
+    await gotoBlackhole(page);
+
+    await page.keyboard.press("Escape");
+
+    await expect(page).not.toHaveURL(/\/settings/);
+    await expect(page.getByTestId("unsaved-changes-dialog")).toHaveCount(0);
+  });
+
   // ── No per-session state on the global surface (test-plan #F9) ────────────
   test("renders no per-session pipeline content", async ({ page }) => {
     await routeInstalled(page);

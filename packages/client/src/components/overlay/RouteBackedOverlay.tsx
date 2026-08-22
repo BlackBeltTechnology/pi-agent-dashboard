@@ -26,10 +26,15 @@
  * See change: add-route-backed-overlay-dialogs.
  */
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
-import { type ReactNode, useMemo } from "react";
+import { type ReactNode, useCallback, useMemo, useRef } from "react";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import type { BackgroundLocation } from "../../lib/nav/overlay-background.js";
+import {
+  type DismissGuardRegistrar,
+  type OverlayDismissGuardApi,
+  OverlayDismissGuardContext,
+} from "./overlay-dismiss-guard.js";
 
 interface Props {
   /** The frozen location the underlay renders from. */
@@ -67,6 +72,25 @@ export function RouteBackedOverlay({
     [background.path, background.search],
   );
 
+  // R1 — backdrop, Escape and the ✕ are three dismissal gestures a full page
+  // never had. A surface with unsaved edits registers here to take them over;
+  // everything else dismisses immediately. See `overlay-dismiss-guard.tsx`.
+  const guard = useRef<(() => void) | null>(null);
+  const register = useCallback<DismissGuardRegistrar>((handler) => {
+    guard.current = handler;
+  }, []);
+  const guardApi = useMemo<OverlayDismissGuardApi>(
+    () => ({ register, dismiss: onDismiss }),
+    [register, onDismiss],
+  );
+  const handleClose = useCallback(() => {
+    if (guard.current) {
+      guard.current();
+      return;
+    }
+    onDismiss();
+  }, [onDismiss]);
+
   return (
     <>
       <div
@@ -84,14 +108,16 @@ export function RouteBackedOverlay({
       </div>
       <Dialog
         open
-        onClose={onDismiss}
+        onClose={handleClose}
         title={title}
         ariaLabel={ariaLabel}
         size="full"
         flush
         testId={testId}
       >
-        {children}
+        <OverlayDismissGuardContext.Provider value={guardApi}>
+          {children}
+        </OverlayDismissGuardContext.Provider>
       </Dialog>
     </>
   );

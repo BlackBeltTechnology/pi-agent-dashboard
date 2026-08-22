@@ -489,6 +489,34 @@ if the change needs narrowing. Nothing else in the plan depends on it.
 container change can reach it. Recorded explicitly so a reviewer does not have
 to re-derive it.
 
+### D9 — The shared `Dialog` was squatting on the toast layer
+
+Converting a page into a dialog exposed a latent defect in
+`packages/client-utils/src/Dialog.tsx:77`: it painted at a raw `z-[60]` while
+`--z-dialog` is 50 and `--z-toast` is 60. Every shared dialog therefore sat on
+the *toast* layer, above the documented dialog layer.
+
+That is invisible while dialogs are leaves. It is not once a dialog can *raise*
+another: `UnsavedChangesDialog` and `ResourceTrustDialog` are both correctly
+tokenised at `z-dialog`, so once their host became an overlay they rendered
+UNDERNEATH the surface that raised them. Measured by hit-test — the cancel
+button at z 50, the click landing on an element inside the z-60 overlay.
+
+`Dialog` now uses the `z-dialog` utility. Nested dialogs tie at 50 and resolve
+by portal/DOM order (later mount wins), which is already how this repo stacks
+them. Toast (60) stays above dialog (50) — that intent never changed; only the
+shared component stopped squatting on the toast value.
+
+Two notes for whoever reads this next:
+
+- `scripts/z-layer-lint.mjs` sets `SCAN_DIR = "packages/client/src"`, so
+  `packages/client-utils` is outside the raw-z gate. That is *why* this
+  survived. The gate reported a clean 42/42 throughout.
+- `ResourceTrustDialog` was already unclickable inside the converted folder
+  settings overlay, and its e2e did not catch it: the spec only asserts
+  `toBeVisible()` and presses Escape, and a z-covered element is still
+  "visible" to Playwright. Visibility is not clickability.
+
 ## Risks / Trade-offs
 
 **R1 — Dirty-state loss (highest severity).** `SettingsPanel` tracks `isDirty`.

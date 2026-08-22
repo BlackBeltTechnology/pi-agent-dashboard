@@ -2486,11 +2486,11 @@ export default function App() {
           )
         )}
         {/* The first-launch display gate is a BLOCKING onboarding step, and the
-            shared `Dialog` paints at a raw `z-[60]` while that modal sits at the
+            shared `Dialog` paints at a raw z-index of 60 while that modal sits at the
             `z-dialog` token (50) — so a route-backed overlay would cover it and
             swallow its clicks. Not rendering the overlay until the gate is
             answered is narrower than re-tiering the layer scale, and says the
-            right thing: onboarding blocks the app. (Any other `z-[60]` dialog
+            right thing: onboarding blocks the app. (Any other raw-60 dialog
             covers that gate too; that is pre-existing and left alone.)
             See change: add-route-backed-overlay-dialogs. */}
         {/* The deep-linked OpenSpec artifact (D6, as corrected). The ROUTE gets a

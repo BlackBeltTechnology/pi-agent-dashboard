@@ -67,6 +67,7 @@ import { ProviderAuthSection } from "./ProviderAuthSection.js";
 import { RetrySettingsSection } from "./RetrySettingsSection.js";
 import { ThinkingLevelSelector } from "./ThinkingLevelSelector.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
+import { useOverlayDismissGuard } from "../overlay/overlay-dismiss-guard.js";
 
 interface ProviderConfig {
   clientId: string;
@@ -894,6 +895,13 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     else performBack();
   }, [performBack]);
 
+  // Overlay dismissal (backdrop / Escape / ✕) — gestures the full page never
+  // had. Route them through the SAME prompt as the back arrow rather than
+  // letting the container navigate out from under unsaved edits (R1). Opt-in,
+  // so this arms only while dirty.
+  // See change: add-route-backed-overlay-dialogs (task 6.2).
+  useOverlayDismissGuard(isDirty, requestBack);
+
   // Hard exits (tab close / reload / Electron window close): native prompt,
   // registered only while dirty.
   useEffect(() => {
@@ -911,7 +919,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     const onPop = () => {
       if (isDirtyRef.current) {
         window.history.pushState(null, "", window.location.href);
-        setPendingNav("/");
+        // Discarding must return to the LAUNCHING route, not the card list.
+        // The old hardcoded "/" evicted the user to the cards — exactly the
+        // defect this change exists to fix (D1b).
+        // See change: add-route-backed-overlay-dialogs (task 6.3).
+        setPendingNav(BACK_SENTINEL);
       }
     };
     window.addEventListener("popstate", onPop);

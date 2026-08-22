@@ -73,11 +73,11 @@ special-cased (see 5.5). That change will rebase around group 5's
 
 ## 6. Dirty-state guard (R1 — highest severity)
 
-- [ ] 6.1 Write failing tests: backdrop-click and `Esc` on a dirty settings surface must not discard edits
-- [ ] 6.2 Wire `SettingsPanel`'s `isDirty` to the overlay's dismissal gestures — prompt or persist, never silently discard
-- [ ] 6.3 Change the discard-confirm target from the hardcoded `setPendingNav("/")` (`SettingsPanel.tsx:899`) to the launching route — today it evicts to the card list, re-creating the defect this change exists to fix (D1b)
-- [ ] 6.4 Extend the guard to `DirectorySettings/InstructionsPage`, which holds its own dirty state and does not thread through `SettingsPanel` (D1b)
-- [ ] 6.5 Verify a clean surface still dismisses immediately with no prompt
+- [x] 6.1 Failing tests written first at both levels: `overlay-dismiss-guard.test.tsx` (backdrop, Escape and ✕ each intercepted; clean surface unaffected; guard released on save and on unmount) and 3 tests in `InstructionsPage.test.tsx`. Proven fails-closed — disarming the guard turns exactly the two dirty tests red
+- [x] 6.2 `SettingsPanel` arms the container guard via `useOverlayDismissGuard(isDirty, requestBack)`, routing backdrop/Escape/✕ through the SAME prompt as the back arrow. Container seam is `overlay-dismiss-guard.tsx` — panel-level opt-in per C3, so plugin claims are unaffected and the container stays ignorant of what "dirty" means
+- [x] 6.3 The popstate guard's hardcoded `setPendingNav("/")` is now `setPendingNav(BACK_SENTINEL)`, so a confirmed discard returns to the LAUNCHING route instead of evicting to the card list (D1b). The back arrow already used the sentinel — only the browser-back path was still hardcoded
+- [x] 6.4 `InstructionsPage` arms the guard itself through a local `useOverlayLeaveConfirm` hook (it owns its dirty state and does not thread through `SettingsPanel`). `DirectorySettings` needed no change — it holds no dirty state, contrary to the task's original wording
+- [x] 6.5 Clean-surface dismissal pinned at both levels: unit (guarded panel while clean, and a panel that never opts in) and e2e (`dismissing a CLEAN settings overlay leaves immediately, with no prompt`)
 
 ## 7. Resource surface dedupe
 
