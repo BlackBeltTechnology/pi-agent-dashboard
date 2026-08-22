@@ -54,7 +54,7 @@ import { PluginsSection } from "../packages/PluginsSection.js";
 import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 import type { ResourceType } from "../resource/ResourceCardGrid.js";
-import { ResourceGridPanel } from "../resource/ResourceGridPanel.js";
+import { RESOURCE_PAGE_TYPE, type ResourcePageId, ScopedResourceGrid } from "../resource/ScopedResourceGrid.js";
 import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
 import { DiagnosticsSection } from "./DiagnosticsSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
@@ -323,13 +323,10 @@ const VALID_PAGES = new Set<string>([...VALID_SETTINGS_TABS, "instructions", "ga
 
 // Global-scope resource card pages. Page id → the singular `PiResource.type` its
 // grid renders. See change: resources-card-tabs.
-const RESOURCE_TAB_TYPE: Record<string, ResourceType> = {
-  skills: "skill",
-  agents: "agent",
-  extensions: "extension",
-  prompts: "prompt",
-  themes: "theme",
-};
+/** Retired in favour of the single map in `ScopedResourceGrid` (D7): two
+ *  byte-identical copies could drift and render the wrong type under a
+ *  correct-looking URL. See change: add-route-backed-overlay-dialogs. */
+const RESOURCE_TAB_TYPE = RESOURCE_PAGE_TYPE;
 
 /** Resolve a raw id (route param or ?tab=) to a canonical page id, or null if invalid. */
 function resolveSettingsPage(raw: string | undefined | null): string | null {
@@ -1211,17 +1208,13 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
             <InstructionsPage />
           ) : activeTab in RESOURCE_TAB_TYPE ? (
             <div className="flex-1 overflow-y-auto min-w-0">
-              <ResourceGridPanel
+              <ScopedResourceGrid
+                page={activeTab as ResourcePageId}
                 data={piResources.data}
                 isLoading={piResources.isLoading}
                 error={piResources.error}
                 refresh={piResources.refresh}
                 activation={resourceActivation}
-                type={RESOURCE_TAB_TYPE[activeTab]}
-                scopes={["global"]}
-                showScopeFilter={false}
-                globalPill
-                onViewFile={(filePath, title) => navigate(buildPiResourceFileUrl(filePath, title))}
               />
             </div>
           ) : (

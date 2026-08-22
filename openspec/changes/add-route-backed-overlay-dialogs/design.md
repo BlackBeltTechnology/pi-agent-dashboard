@@ -482,6 +482,23 @@ one grid's wiring at two call sites, both of which this change already edits.
 Because the justification is weaker than claimed, this is the first item to cut
 if the change needs narrowing. Nothing else in the plan depends on it.
 
+**Implemented (cycle 2), with the survey correcting the task text again.**
+`ResourceGridPanel` was ALREADY a shared component — the duplication was the
+call-site wiring, not the component. `ScopedResourceGrid` now owns it and reads
+the scope preset off the matched route.
+
+The dedupe turned out to carry more than cosmetic value. Each call site kept its
+own page→type map, byte-identical and mutually unchecked; a drifted entry would
+render the wrong resource type under a correct-looking URL, and nothing would
+type-error. There is now one `RESOURCE_PAGE_TYPE`.
+
+It also surfaced a live trap: **two different `ResourceType` unions exist** —
+`lib/api/resources-api.ts` (four types, no `"agent"`) and
+`components/resource/ResourceCardGrid.tsx` (five, including it). Both former
+call sites used the latter. Importing the former compiles everywhere except the
+agents entry, so the mistake surfaces as one broken page rather than a type
+error. Flagged, not unified — out of scope here.
+
 ### D8 — `/pair` is out of scope by construction
 
 `main.tsx:167` branches on `window.location.pathname === "/pair"` *before*

@@ -81,9 +81,9 @@ special-cased (see 5.5). That change will rebase around group 5's
 
 ## 7. Resource surface dedupe
 
-- [ ] 7.1 Collapse the global and folder `ResourceGridPanel` call sites into one scope-switched surface deriving scope set, filter visibility, and file-view target from the matched route (D7)
-- [ ] 7.2 Verify all ten resource paths still resolve and render the type named in the path
-- [ ] 7.3 Verify exactly one `ResourceGridPanel` mounts per matched route
+- [x] 7.1 `ScopedResourceGrid` (`packages/client/src/components/resource/ScopedResourceGrid.tsx`) is now the single wiring: it derives the scope set, filter visibility, the `◇ global` pill and the `/pi-resource` file-view target from the matched route, so both entry points cannot disagree about what folder scope means. The caller keeps the `usePiResources` fetch (the folder nav counts share it). Retired the two byte-identical page→type maps in favour of one `RESOURCE_PAGE_TYPE`, and dropped `DirectorySettings`' now-orphaned `onViewFile` prop plus its 3 call sites. Survey correction: `ResourceGridPanel` was ALREADY shared — the duplication was the call-site wiring, not the component
+- [x] 7.2 All ten paths verified by `tests/e2e/resource-scope-routes.spec.ts` (S-25): each renders the resource type its OWN path names, asserted on `data-type` rather than mere grid presence, and the URL is unchanged (no redirect, no fallthrough)
+- [x] 7.3 Exactly one `resource-grid-panel` per matched route, asserted in the same spec — a second mount would mean the underlay is rendering a live grid behind the dialog. Scope-preset assertions included and proven fails-closed: forcing global scope turns exactly the 5 folder tests red while the 5 global stay green
 
 ## 8. Verification
 

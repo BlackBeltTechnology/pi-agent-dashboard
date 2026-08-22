@@ -1860,7 +1860,6 @@ export default function App() {
           cwd={folderSettingsCwd}
           page={folderSettingsPage}
           onBack={goBack}
-          onViewFile={handleViewPiResourceFile}
         />
       ) : openspecPreviewMatch && openspecPreviewCwd && openspecPreviewParams ? (
         <OpenSpecPreview
@@ -2199,7 +2198,7 @@ export default function App() {
     ),
     renderPiResourcesRedirect: (cwd) => <Redirect to={buildFolderSettingsUrl(cwd, "packages")} replace />,
     renderFolderSettings: (cwd, page) => (
-      <DirectorySettings cwd={cwd} page={page} onBack={goBack} onViewFile={handleViewPiResourceFile} />
+      <DirectorySettings cwd={cwd} page={page} onBack={goBack} />
     ),
     renderOpenSpecPreview: (cwd, changeName, artifactId) => (
       <OpenSpecPreview
@@ -2586,7 +2585,6 @@ export default function App() {
               cwd={folderSettingsCwd}
               page={folderSettingsPage}
               onBack={dismissOverlay}
-              onViewFile={handleViewPiResourceFile}
             />
           </RouteBackedOverlay>
         )}
