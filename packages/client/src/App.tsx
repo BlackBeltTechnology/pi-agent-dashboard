@@ -2454,7 +2454,7 @@ export default function App() {
           <div className="flex-1 flex flex-col min-w-0 min-h-0">{folderViewContent}</div>
         )}
         {/* Show session detail or landing page when no folder view is selected */}
-        {!folderEditorCwd && !settingsMatch && !tunnelSetupMatch && !folderSettingsMatch && !previewOverlayOpen && (
+        {!folderEditorCwd && !settingsMatch && !tunnelSetupMatch && !folderSettingsMatch && !previewOverlayOpen && !openspecPreviewMatch && (
           pluginOverlayMatched ? (
             // Plugin-owned overlay routes — see change: add-flow-agent-popout.
             // Pass `_pluginRegistry` explicitly (see comment on
@@ -2493,6 +2493,39 @@ export default function App() {
             right thing: onboarding blocks the app. (Any other `z-[60]` dialog
             covers that gate too; that is pre-existing and left alone.)
             See change: add-route-backed-overlay-dialogs. */}
+        {/* The deep-linked OpenSpec artifact (D6, as corrected). The ROUTE gets a
+            dialog container on desktop; it keeps `OpenSpecPreview` as its content
+            because a route-backed surface must drive its tabs through the URL.
+            The ephemeral `OpenSpecArtifactDialog` below is deliberately NOT
+            deleted — it is URL-less by design (badge opens it without
+            navigating, tabs are local state, a reload does not restore it), so
+            the two are different behaviours rather than a duplicate.
+            Mobile keeps the full page: E9 pins that the badge navigates there
+            and that no dialog appears.
+            See change: add-route-backed-overlay-dialogs. */}
+        {openspecPreviewMatch && openspecPreviewCwd && openspecPreviewParams && !firstLaunchModal && (
+          <RouteBackedOverlay
+            background={overlayBackground}
+            backgroundContent={
+              <ShellContent
+                variant="desktop"
+                {...shellRenderers}
+                renderSession={(id) => renderSessionDetail(id)}
+              />
+            }
+            onDismiss={dismissOverlay}
+            ariaLabel="OpenSpec artifact"
+            testId="openspec-artifact-route-overlay"
+          >
+            <OpenSpecPreview
+              cwd={openspecPreviewCwd}
+              changeName={decodeURIComponent(openspecPreviewParams.changeName)}
+              initialArtifact={decodeURIComponent(openspecPreviewParams.artifactId)}
+              openspecMap={openspecMap}
+              onBack={dismissOverlay}
+            />
+          </RouteBackedOverlay>
+        )}
         {/* The three preview routes. One container for all three because they are
             one surface with three sources; the inner renderers are untouched, as
             the file-and-url-preview spec requires. They take `dismissOverlay`

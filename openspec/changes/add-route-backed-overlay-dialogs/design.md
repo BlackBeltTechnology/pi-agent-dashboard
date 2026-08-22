@@ -436,9 +436,38 @@ overlay.
 
 ### D6 — The OpenSpec board stays a page; the artifact becomes a dialog
 
-A kanban board wants horizontal width; a dialog fights it. The artifact reader
-is already dialog-shaped and *already has a dialog implementation* — the
-full-page path for the same route is a duplicate and is deleted.
+A kanban board wants horizontal width; a dialog fights it. So the board stays a
+page and the deep-linked artifact route gets a dialog container.
+
+**Corrected, cycle 2 — "the full-page path is a duplicate and is deleted" was
+wrong.** There are two readers, and they differ in the one thing that matters:
+
+| | `OpenSpecPreview` (route) | `OpenSpecArtifactDialog` (ephemeral) |
+|---|---|---|
+| URL | source of truth for the active artifact | unchanged; badge never navigates |
+| tab change | `navigate(...)` | local `setState` |
+| reload | restores the artifact | does not restore it |
+| serves | the deep link, and mobile | a desktop badge click |
+
+Deleting either one deletes a behaviour that tests pin. `E9` asserts that on
+mobile the badge navigates to the full-page route and `openspec-artifact-dialog`
+has count 0, so the dialog cannot be the only renderer. `F1`/`F2`/`F7` pin the
+ephemeral dialog as deliberately URL-less. And `url-routing` lists
+`/folder/:cwd/openspec/:changeName/:artifactId` among the converted surfaces
+whose "path, deep link, browser back and depth SHALL be preserved exactly" — so
+the route cannot go away either.
+
+**Resolution:** the ROUTE gets a `RouteBackedOverlay` on desktop, keeping
+`OpenSpecPreview` as its content precisely because a route-backed surface must
+drive its tabs through the URL. Mobile keeps the full page. The ephemeral dialog
+is untouched. This delivers D6's actual goal — the deep-linked artifact stops
+being a full page on desktop — without deleting a pinned behaviour.
+
+The duplication D6 objected to is real but narrower than stated: both readers
+wrap `useOpenSpecReader` + `MarkdownPreviewView` with near-identical
+waiting/not-found branches. Collapsing THAT shared body behind one inner
+component is a safe follow-up; it was not done here because it is a refactor with
+no user-visible effect and this change is already large.
 
 ### D7 — Resource surfaces dedupe as part of this change
 
