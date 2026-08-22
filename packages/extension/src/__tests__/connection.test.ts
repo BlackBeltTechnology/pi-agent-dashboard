@@ -390,6 +390,8 @@ describe("ConnectionManager over ws+unix", () => {
 });
 
 describe("onOpen fires on the FIRST open, unlike onReconnect (task 9.4)", () => {
+  beforeEach(() => vi.useRealTimers());
+
   it("fires on the initial connection, where a provisional register must be sent", async () => {
     // `onReconnect` deliberately skips the first open, so a move's target had
     // no hook at which to announce itself — and `send()` before the socket is
@@ -407,6 +409,66 @@ describe("onOpen fires on the FIRST open, unlike onReconnect (task 9.4)", () => 
     cm.connect();
     await vi.waitFor(() => expect(opens).toContain("open"), { timeout: 3000 });
     expect(opens).toEqual(["open"]);
+
+    cm.disconnect();
+    server.close();
+  });
+});
+
+/**
+ * #X7 (task 12.26 / 9.3a-i) — a provisional refusal must never be terminal.
+ *
+ * `register_rejected` sets `intentionalClose` and stops the reconnect loop for
+ * good: correct for a contention refusal, catastrophic for a move, where the
+ * origin is still serving the session perfectly well. The two message types
+ * differ by one word, and nothing but this test stops a future rename or a
+ * `startsWith` from collapsing them.
+ */
+describe("provisional_rejected is not a terminal registration refusal (#X7)", () => {
+  // Real timers: an earlier describe's `beforeEach` installs fake ones, and
+  // `vi.waitFor` cannot advance a real socket handshake under them.
+  beforeEach(() => vi.useRealTimers());
+
+  it("does not stop the reconnect loop the way register_rejected does", async () => {
+    const rejected: string[] = [];
+    const server = new WebSocketServer({ port: 0 });
+    await new Promise<void>((r) => server.on("listening", () => r()));
+    const port = (server.address() as { port: number }).port;
+    server.on("connection", (ws) => {
+      ws.send(JSON.stringify({ type: "provisional_rejected" }));
+    });
+
+    const cm = new ConnectionManager({
+      url: `ws://127.0.0.1:${port}`,
+      onRegisterRejected: (sid) => rejected.push(sid),
+    });
+    cm.connect();
+    await vi.waitFor(() => expect(cm.isConnected).toBe(true), { timeout: 3000 });
+    await new Promise((r) => setTimeout(r, 60));
+
+    // The refusal reached the client, and the connection is untouched by it.
+    expect(rejected).toEqual([]);
+    expect(cm.isConnected).toBe(true);
+
+    cm.disconnect();
+    server.close();
+  });
+
+  it("still treats register_rejected as terminal — the discriminating control", async () => {
+    const rejected: string[] = [];
+    const server = new WebSocketServer({ port: 0 });
+    await new Promise<void>((r) => server.on("listening", () => r()));
+    const port = (server.address() as { port: number }).port;
+    server.on("connection", (ws) => {
+      ws.send(JSON.stringify({ type: "register_rejected", sessionId: "s1", reason: "taken" }));
+    });
+
+    const cm = new ConnectionManager({
+      url: `ws://127.0.0.1:${port}`,
+      onRegisterRejected: (sid) => rejected.push(sid),
+    });
+    cm.connect();
+    await vi.waitFor(() => expect(rejected).toEqual(["s1"]), { timeout: 3000 });
 
     cm.disconnect();
     server.close();

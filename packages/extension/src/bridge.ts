@@ -1586,6 +1586,7 @@ function initBridge(pi: ExtensionAPI) {
         },
         sessionId,
         sessionFile: lastSessionFile,
+        originEndpoint: dashboardUrl,
         connect: (url) => {
           let handler: (msg: unknown) => void = () => {};
           targetManager = new ConnectionManager({
@@ -1625,6 +1626,7 @@ function initBridge(pi: ExtensionAPI) {
       const result = await coordinator.begin({
         targetUrl: resolved.endpoint,
         expectInstanceId,
+        initiator: "/dashboard-connect",
       });
 
       if (!result.ok) {

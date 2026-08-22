@@ -25,9 +25,13 @@ afterEach(() => {
   for (const g of gateways.splice(0)) g.stop();
 });
 
-async function startGateway() {
+async function startGateway(opts: { provisionalTtlMs?: number } = {}) {
   const sessions = createMemorySessionManager();
-  const gw = createPiGateway(sessions, { pingInterval: 0, instanceId: "instance-target" });
+  const gw = createPiGateway(sessions, {
+    pingInterval: 0,
+    instanceId: "instance-target",
+    provisionalTtlMs: opts.provisionalTtlMs,
+  });
   // Delivery is observed at `onEvent` — the exact hook the ownership gate
   // guards. A frame from a socket that no longer owns the entry never reaches
   // it, so this is the assertion that would break if routing had moved.
@@ -259,5 +263,53 @@ describe("a refused provisional from a different pid leaves the origin serving (
     expect(gw.isSessionConnected("sess-D")).toBe(true);
     origin.send(JSON.stringify({ type: "first_message_update", sessionId: "sess-D", firstMessage: "still-here" }));
     await until(() => delivered.some((d) => d.msg.firstMessage === "still-here"));
+  });
+});
+
+/**
+ * #X8 (task 12.27) — the commit never arrives.
+ *
+ * The failure this guards against is not an error, it is a SILENCE: a target
+ * that opens a provisional and then dies. If the provisional outlived it, a
+ * commit arriving minutes later would yank routing away from an origin that had
+ * been serving happily in the meantime.
+ */
+describe("a provisional that is never committed is discarded (#X8)", () => {
+  it("expires, leaving the origin owning the session throughout", async () => {
+    const ttl = 300;
+    const { gw, sessions, port, delivered } = await startGateway({ provisionalTtlMs: ttl });
+
+    const origin = await connect(port);
+    origin.send(
+      JSON.stringify({ type: "session_register", sessionId: "sess-T", cwd: "/tmp", source: "tui", pid: 5 }),
+    );
+    await until(() => sessions.get("sess-T")?.source === "tui");
+
+    const target = await connect(port);
+    target.send(
+      JSON.stringify({
+        type: "session_register",
+        sessionId: "sess-T",
+        cwd: "/tmp",
+        source: "tui",
+        pid: 5,
+        provisional: true,
+      }),
+    );
+    const accepted = await nextMessage(target);
+    expect(accepted.type).toBe("provisional_accepted");
+
+    // ...then the target goes silent past the TTL.
+    await delay(ttl + 150);
+
+    // A late commit is refused: the provisional is gone.
+    target.send(JSON.stringify({ type: "session_move_commit", sessionId: "sess-T", token: accepted.token }));
+    expect((await nextMessage(target)).type).toBe("provisional_rejected");
+
+    // The origin never stopped owning the session — asserted on delivery,
+    // which is what "owning the send ring" actually means.
+    expect(gw.isSessionConnected("sess-T")).toBe(true);
+    origin.send(JSON.stringify({ type: "first_message_update", sessionId: "sess-T", firstMessage: "origin-throughout" }));
+    await until(() => delivered.some((d) => d.msg.firstMessage === "origin-throughout"));
   });
 });

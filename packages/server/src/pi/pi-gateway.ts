@@ -56,6 +56,8 @@ export interface PiGatewayOptions {
   };
   /** Bounded window the contention probe waits for the incumbent's pong. */
   contentionProbeWindow?: number;
+  /** TTL for provisional registrations; test seam for the 30s default. */
+  provisionalTtlMs?: number;
   /**
    * This dashboard's persistent instance id, returned to a bridge opening a
    * provisional registration so it can verify the target's identity before
@@ -136,7 +138,7 @@ export function createPiGateway(
   const connections = new Map<string, WebSocket>();
   // Intent-only registrations (D11, task 9.3a). Deliberately separate from
   // `connections`: an entry here is NOT a routing claim.
-  const provisionalRegistry = createProvisionalRegistry({});
+  const provisionalRegistry = createProvisionalRegistry({ ttlMs: options?.provisionalTtlMs });
   // Track connection liveness for WS ping/pong (miss counter: kill after 2 consecutive misses)
   const aliveMisses = new Map<WebSocket, number>();
   // Map sessionId → heartbeat timeout

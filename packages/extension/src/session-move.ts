@@ -90,7 +90,12 @@ type MoveResult = { ok: true; instanceId: string } | { ok: false; cause: MoveFai
 const MOVE_TIMEOUT = 30_000;
 
 export interface MoveCoordinator {
-  begin(input: { targetUrl: string; expectInstanceId: string }): Promise<MoveResult>;
+  begin(input: {
+    targetUrl: string;
+    expectInstanceId: string;
+    /** Who asked for the move, for the completion log (task 10.4). */
+    initiator?: string;
+  }): Promise<MoveResult>;
   /**
    * The endpoint a completed move pinned, or `undefined` if no move has
    * completed (task 9.2).
@@ -113,6 +118,8 @@ export interface MoveCoordinator {
 export function createMoveCoordinator(opts: {
   origin: MovableConnection;
   sessionId: string;
+  /** The endpoint being moved AWAY from, named in the completion log (task 10.4). */
+  originEndpoint?: string;
   connect: (url: string) => MovableConnection;
   timeoutMs?: number;
   log?: (line: string) => void;
@@ -143,7 +150,7 @@ export function createMoveCoordinator(opts: {
       active.send(message);
     },
 
-    async begin({ targetUrl, expectInstanceId }) {
+    async begin({ targetUrl, expectInstanceId, initiator }) {
       // Two concurrent moves would race to reassign `active`, and the loser
       // would leave a live connection nobody owns.
       if (inFlight) return { ok: false, cause: "move-in-progress" };
@@ -161,7 +168,10 @@ export function createMoveCoordinator(opts: {
 
       /** Every failure exits here: target dropped, origin untouched. */
       const abort = (cause: MoveFailureCause): MoveResult => {
-        log(`[dashboard] session move aborted: ${opts.sessionId} -> ${targetUrl} (${cause})`);
+        log(
+          `[dashboard] session move aborted: session=${opts.sessionId} ` +
+            `origin=${opts.originEndpoint ?? "unknown"} destination=${targetUrl} cause=${cause}`,
+        );
         try {
           target.disconnect();
         } catch {
@@ -235,7 +245,14 @@ export function createMoveCoordinator(opts: {
         // the user just moved off (task 9.2).
         pinned = targetUrl;
         opts.origin.disconnect();
-        log(`[dashboard] session moved: ${opts.sessionId} -> ${targetUrl} (${outcome.instanceId})`);
+        // Origin, destination and initiator on ONE line: a move is the event
+        // most likely to be reconstructed after the fact ("why is this session
+        // over there?"), and a destination alone cannot answer it (task 10.4).
+        log(
+          `[dashboard] session move completed: session=${opts.sessionId} ` +
+            `origin=${opts.originEndpoint ?? "unknown"} destination=${targetUrl} ` +
+            `instance=${outcome.instanceId} initiator=${initiator ?? "unknown"}`,
+        );
         inFlight = false;
         return outcome;
       } catch {

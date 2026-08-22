@@ -126,7 +126,7 @@
 - [x] 10.1 Log endpoint resolution with the winning precedence rule
 - [x] 10.2 Log every refusal to migrate, with both endpoints
 - [x] 10.3 Log bridge auth refusals with a distinguishable cause
-- [ ] 10.4 Log completed moves with origin, destination, and initiator
+- [x] 10.4 Log completed moves with origin, destination, and initiator
 - [x] 10.5 Confirm all of the above survive `capturePiOutput=false`
 
 ## 11. Remote session transcript access (D12, D13)
@@ -174,8 +174,8 @@
 - [x] 12.23 Extend `packages/server/src/__tests__/pi-gateway-consume-pending-attach.test.ts` — concurrent bind is serialized. Triple: two instances race to bind one path · simultaneous start · exactly one binds, the other aborts with a conflict, and no live socket file is removed. (test-plan #X2)
 - [x] 12.24 Extend `packages/server/src/__tests__/pi-gateway-consume-pending-attach.test.ts` — indeterminate probe fails closed. Triple: live listener with a saturated backlog returning `ECONNREFUSED` · probe before unlink · path NOT removed and startup aborts. (test-plan #X3)
 - [x] 12.25 Extend `packages/server/src/__tests__/home-lock.test.ts` — takeover is acquire-then-verify. Triple: two starters both observe the same dead holder · simultaneous takeover · exactly one owner results and neither deletes the other's live lock or fresh record. (test-plan #X4)
-- [ ] 12.26 Extend `packages/server/src/__tests__/bridge-contention.test.ts` — move refusal spares the origin. Triple: target refuses the provisional registration on the different-pid branch · attempt the move · origin stays registered and serving, and its `intentionalClose` is never set. (test-plan #X7)
-- [ ] 12.27 Extend `packages/server/src/__tests__/bridge-contention.test.ts` — commit never arrives. Triple: target accepts the provisional then goes silent · wait past 30s · provisional discarded, origin never stopped owning the send ring, no message lost or duplicated. (test-plan #X8)
+- [x] 12.26 Extend `packages/server/src/__tests__/bridge-contention.test.ts` — move refusal spares the origin. Triple: target refuses the provisional registration on the different-pid branch · attempt the move · origin stays registered and serving, and its `intentionalClose` is never set. (test-plan #X7)
+- [x] 12.27 Extend `packages/server/src/__tests__/bridge-contention.test.ts` — commit never arrives. Triple: target accepts the provisional then goes silent · wait past 30s · provisional discarded, origin never stopped owning the send ring, no message lost or duplicated. (test-plan #X8)
 - [x] 12.28 Extend `packages/server/src/__tests__/bridge-contention.test.ts` — provisional does not claim routing. Triple: live bridge on session A plus a provisional registration for A · provisional registers · `connections.get(A)` still maps to the origin socket and the origin's sends are still delivered. (test-plan #X9)
 - [x] 12.29 Extend `packages/server/src/__tests__/bridge-contention.test.ts` — provisional is not an enumeration oracle. Triple: provisional registrations for one existing and one non-existent sessionId · compare the refusals · responses indistinguishable to the caller, or ownership proof required before either answers. (test-plan #X10)
 - [x] 12.30 Extend `packages/server/src/__tests__/ws-ticket.test.ts` — revoked device is locked out. Triple: paired bridge device revoked · attempt ticket mint and register · both refused with a distinct reason. (test-plan #X11)

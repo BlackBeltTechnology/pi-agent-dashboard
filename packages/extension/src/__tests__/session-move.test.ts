@@ -397,3 +397,66 @@ describe("warning when the transcript cannot follow the move (task 9.8)", () => 
     expect((await move).ok).toBe(true);
   });
 });
+
+describe("a completed move is logged with origin, destination and initiator (task 10.4)", () => {
+  it("names all three on the completion line", async () => {
+    const logs: string[] = [];
+    const origin = fakeConnection("ws://origin");
+    origin.connect();
+    let target!: ReturnType<typeof fakeConnection>;
+    const coord = createMoveCoordinator({
+      origin,
+      sessionId: "sess-A",
+      originEndpoint: "ws://origin",
+      log: (l) => logs.push(l),
+      connect: (url) => {
+        target = fakeConnection(url);
+        return target;
+      },
+    });
+
+    const move = coord.begin({
+      targetUrl: "ws://target",
+      expectInstanceId: "instance-target",
+      initiator: "/dashboard-connect",
+    });
+    target.inbound?.({
+      type: "provisional_accepted",
+      sessionId: "sess-A",
+      instanceId: "instance-target",
+      token: "t",
+    });
+    await move;
+
+    const line = logs.find((l) => l.includes("move completed")) ?? "";
+    expect(line).toMatch(/origin=ws:\/\/origin/);
+    expect(line).toMatch(/destination=ws:\/\/target/);
+    expect(line).toMatch(/initiator=\/dashboard-connect/);
+    expect(line).toMatch(/session=sess-A/);
+  });
+
+  it("names origin and destination on an abort too", async () => {
+    const logs: string[] = [];
+    const origin = fakeConnection("ws://origin");
+    origin.connect();
+    let target!: ReturnType<typeof fakeConnection>;
+    const coord = createMoveCoordinator({
+      origin,
+      sessionId: "sess-A",
+      originEndpoint: "ws://origin",
+      log: (l) => logs.push(l),
+      connect: (url) => {
+        target = fakeConnection(url);
+        return target;
+      },
+    });
+    const move = coord.begin({ targetUrl: "ws://target", expectInstanceId: "instance-target" });
+    target.inbound?.({ type: "provisional_rejected" });
+    await move;
+
+    const line = logs.find((l) => l.includes("move aborted")) ?? "";
+    expect(line).toMatch(/origin=ws:\/\/origin/);
+    expect(line).toMatch(/destination=ws:\/\/target/);
+    expect(line).toMatch(/cause=refused/);
+  });
+});
