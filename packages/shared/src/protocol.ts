@@ -878,6 +878,20 @@ export interface ProvisionalAcceptedMessage {
  * TERMINAL for the session — a refused move must not kill the session it was
  * trying to preserve (task 9.3a-i).
  */
+/**
+ * Positive acknowledgement that routing has ACTUALLY transferred.
+ *
+ * Without it the mover could only observe that its commit was *sent*, so a
+ * commit the gateway rejected (expired or replayed token, a mismatched
+ * sessionId, a live incumbent) still looked like success — the origin was
+ * released and the target owned nothing, losing the session outright. This
+ * is what makes "a failed move is a no-op" true rather than aspirational.
+ */
+export interface SessionMoveCommittedMessage {
+  type: "session_move_committed";
+  sessionId: string;
+}
+
 export interface ProvisionalRejectedMessage {
   type: "provisional_rejected";
 }
@@ -1240,6 +1254,7 @@ export type AutoNamerStopState = Pick<
 
 export type ServerToExtensionMessage =
   | ProvisionalAcceptedMessage
+  | SessionMoveCommittedMessage
   | ProvisionalRejectedMessage
   | TranscriptRequestMessage
   | AutoNameStateRestoreMessage

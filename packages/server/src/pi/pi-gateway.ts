@@ -607,6 +607,10 @@ export function createPiGateway(
                 }
                 resetHeartbeat(movedId);
                 console.log(`[gateway] session move committed: ${movedId}`);
+                // Tell the mover the transfer actually happened. It cannot
+                // infer this from its own send: every refusal above is silent
+                // by design, so no acknowledgement means "assume nothing moved".
+                ws.send(JSON.stringify({ type: "session_move_committed", sessionId: movedId }));
                 return;
               }
 

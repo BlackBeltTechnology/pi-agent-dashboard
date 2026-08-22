@@ -75,8 +75,17 @@ function setup(opts: { timeoutMs?: number } = {}) {
   return { coord, origin, made, target: () => made[0] };
 }
 
-/** Drive the target through provisional acceptance. */
-function acceptProvisional(target: ReturnType<typeof fakeConnection>, instanceId = "instance-target") {
+/**
+ * Drive the target through provisional acceptance AND the commit
+ * acknowledgement — the gateway sends both, and the move completes only on the
+ * second. `ackCommit: false` models a gateway that accepted the provisional
+ * and then refused (or never answered) the commit.
+ */
+function acceptProvisional(
+  target: ReturnType<typeof fakeConnection>,
+  instanceId = "instance-target",
+  opts: { ackCommit?: boolean } = {},
+) {
   target.connect();
   target.inbound?.({
     type: "provisional_accepted",
@@ -84,6 +93,10 @@ function acceptProvisional(target: ReturnType<typeof fakeConnection>, instanceId
     instanceId,
     token: "tok-1",
   });
+  if (opts.ackCommit === false) return;
+  if (target.sent.some((m) => (m as { type?: string })?.type === "session_move_commit")) {
+    target.inbound?.({ type: "session_move_committed", sessionId: "sess-A" });
+  }
 }
 
 describe("send ownership during a move (task 9.3c)", () => {
@@ -338,6 +351,7 @@ describe("ordering: the target registers BEFORE the origin closes (task 9.1)", (
       instanceId: "instance-target",
       token: "tok-1",
     });
+    target.inbound?.({ type: "session_move_committed", sessionId: "sess-A" });
     await move;
 
     expect(events).toEqual(["target-connect", "commit", "origin-disconnect"]);
@@ -393,6 +407,7 @@ describe("warning when the transcript cannot follow the move (task 9.8)", () => 
       instanceId: "instance-target",
       token: "t",
     });
+    target.inbound?.({ type: "session_move_committed", sessionId: "sess-A" });
     // ...and the move still completes: this is advice, not a veto.
     expect((await move).ok).toBe(true);
   });
@@ -426,6 +441,7 @@ describe("a completed move is logged with origin, destination and initiator (tas
       instanceId: "instance-target",
       token: "t",
     });
+    target.inbound?.({ type: "session_move_committed", sessionId: "sess-A" });
     await move;
 
     const line = logs.find((l) => l.includes("move completed")) ?? "";
@@ -458,5 +474,48 @@ describe("a completed move is logged with origin, destination and initiator (tas
     expect(line).toMatch(/origin=ws:\/\/origin/);
     expect(line).toMatch(/destination=ws:\/\/target/);
     expect(line).toMatch(/cause=refused/);
+  });
+});
+
+/**
+ * The commit is the one step whose outcome the mover cannot infer from its own
+ * send. Every gateway refusal is deliberately silent about its cause, and
+ * there are several — an expired or replayed token, a sessionId that does not
+ * match the token, a live incumbent on the target. Settling on the send made
+ * all of them look like success and released the origin anyway, so the session
+ * ended up owned by nobody.
+ */
+describe("a commit the target refuses is a no-op, not a lost session", () => {
+  it("keeps the origin serving when the commit is rejected", async () => {
+    const { coord, origin, target } = setup({ timeoutMs: 300 });
+    const move = coord.begin({ targetUrl: "ws://target", expectInstanceId: "instance-target" });
+
+    // Provisional accepted, commit sent — then refused.
+    acceptProvisional(target(), "instance-target", { ackCommit: false });
+    expect(target().sent.some((m: any) => m?.type === "session_move_commit")).toBe(true);
+    target().inbound?.({ type: "provisional_rejected" });
+
+    const result = await move;
+    expect(result.ok).toBe(false);
+
+    // The origin still owns sends and is still connected; the target is gone.
+    expect(coord.owner()).toBe("origin");
+    expect(origin.isConnected).toBe(true);
+    expect(origin.closed).toBe(false);
+    expect(target().closed).toBe(true);
+    // The origin was never told the session moved.
+    expect(origin.sent.some((m: any) => m?.type === "session_moved")).toBe(false);
+  });
+
+  it("keeps the origin serving when the commit is never acknowledged", async () => {
+    const { coord, origin, target } = setup({ timeoutMs: 200 });
+    const move = coord.begin({ targetUrl: "ws://target", expectInstanceId: "instance-target" });
+    acceptProvisional(target(), "instance-target", { ackCommit: false });
+
+    const result = await move;
+    expect(result.ok).toBe(false);
+    expect(coord.owner()).toBe("origin");
+    expect(origin.isConnected).toBe(true);
+    expect(origin.sent.some((m: any) => m?.type === "session_moved")).toBe(false);
   });
 });

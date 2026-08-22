@@ -194,9 +194,16 @@ export function createMoveCoordinator(opts: {
           const timer = setTimeout(() => settle({ ok: false, cause: "timeout" }), timeoutMs);
           (timer as { unref?: () => void }).unref?.();
 
+          let acceptedInstanceId: string | undefined;
+
           target.onMessage((raw) => {
             const msg = raw as { type?: string; instanceId?: string; token?: string };
+            // Sent in reply to the provisional AND to a refused commit; either
+            // way nothing moved, so the origin keeps serving.
             if (msg?.type === "provisional_rejected") return settle({ ok: false, cause: "refused" });
+            if (msg?.type === "session_move_committed") {
+              return settle({ ok: true, instanceId: acceptedInstanceId ?? "" });
+            }
             if (msg?.type !== "provisional_accepted") return;
 
             // Reaching the expected ADDRESS is not reaching the expected
@@ -206,14 +213,19 @@ export function createMoveCoordinator(opts: {
               return settle({ ok: false, cause: "identity-mismatch" });
             }
 
-            // Committed: the target has proven it can serve. Ownership moves
-            // here, and only here.
+            // The provisional was accepted and the identity checks out, but
+            // NOTHING has moved yet: a provisional claims no routing. Send the
+            // commit and wait to be TOLD it landed. Settling here instead —
+            // on our own send — released the origin for commits the gateway
+            // went on to refuse (expired or replayed token, mismatched
+            // sessionId, a live incumbent), leaving the session owned by
+            // neither side.
+            acceptedInstanceId = msg.instanceId;
             target.send({
               type: "session_move_commit",
               sessionId: opts.sessionId,
               token: msg.token,
             });
-            settle({ ok: true, instanceId: msg.instanceId });
           });
 
           target.connect();
