@@ -103,8 +103,8 @@
 
 ## 9. Explicit session move (D11)
 
-- [ ] 9.1 Write a failing test: moving to a reachable target registers with the target BEFORE the origin connection closes
-- [ ] 9.2 Write a failing test: a completed move sets `pinned`, so the next reconnect returns to the moved-to instance
+- [x] 9.1 Write a failing test: moving to a reachable target registers with the target BEFORE the origin connection closes
+- [x] 9.2 Write a failing test: a completed move sets `pinned`, so the next reconnect returns to the moved-to instance
 - [x] 9.3 Add a `session_moved` message to the protocol — the only new message type in this change — and have the origin render the session as moved, not crashed
 - [x] 9.3a **Add a provisional registration mode to the protocol.** A second registration for one `sessionId` is not inert today: same-pid is accepted with no probe (`bridge-contention.ts:81-84`) and `pi-gateway.ts:532` `connections.set()` takes over routing immediately, after which the origin's sends are dropped by the ownership gate (`pi-gateway.ts:493`). A provisional registration SHALL announce intent, return the target's `instanceId`, and claim neither the routing entry nor a contention slot; routing transfers only on explicit commit
 - [x] 9.3a-i Make a refusal on a provisional registration distinguishable from one on a live registration, so it can never set `intentionalClose` on the origin — `connection.ts:451-460` currently treats `register_rejected` as terminal for the session (`pi-gateway.ts:347`)
@@ -119,7 +119,7 @@
 - [ ] 9.6 Implement `--list` over rendezvous records visible under the current HOME, and `where` reporting endpoint + identity + pinned
 - [x] 9.7 Refuse a move whose target identity does not verify; leave the existing registration untouched
 - [ ] 9.8 Warn before a move whose target cannot read the session's `.jsonl` (history and resume will not follow)
-- [ ] 9.9 Make 9.1 and 9.2 pass
+- [x] 9.9 Make 9.1 and 9.2 pass
 
 ## 10. Observability
 

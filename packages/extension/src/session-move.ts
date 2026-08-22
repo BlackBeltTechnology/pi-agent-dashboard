@@ -55,6 +55,20 @@ export const MOVE_TIMEOUT = 30_000;
 
 export interface MoveCoordinator {
   begin(input: { targetUrl: string; expectInstanceId: string }): Promise<MoveResult>;
+  /**
+   * The endpoint a completed move pinned, or `undefined` if no move has
+   * completed (task 9.2).
+   *
+   * **Process-lifetime only, by decision.** A move is a runtime act, not a
+   * config change: nothing is written to disk, so a restarted pi re-resolves
+   * through the normal D3 ladder. A persisted pin would also have to be given a
+   * rung on that ladder, and any rung above `PI_DASHBOARD_URL` would resurrect
+   * the silent-override class this change exists to remove.
+   *
+   * Feeds `decideRetarget({ pinned })` — the EXISTING stickiness gate — rather
+   * than adding a second, competing notion of pinning.
+   */
+  pinnedEndpoint(): string | undefined;
   /** Route a frame to whichever connection currently owns sends. */
   send(message: unknown): void;
   owner(): "origin" | "target";
@@ -74,10 +88,15 @@ export function createMoveCoordinator(opts: {
   // socket state: during the overlap BOTH sockets are open.
   let active: MovableConnection = opts.origin;
   let inFlight = false;
+  let pinned: string | undefined;
 
   return {
     owner() {
       return active === opts.origin ? "origin" : "target";
+    },
+
+    pinnedEndpoint() {
+      return pinned;
     },
 
     send(message) {
@@ -163,6 +182,10 @@ export function createMoveCoordinator(opts: {
         // The single swap instant. The origin closes only after ownership has
         // already moved, so no frame can be written to a closing socket.
         active = target;
+        // Pin the destination so the stickiness rule keeps the session here:
+        // without it a reconnect could resolve straight back to the instance
+        // the user just moved off (task 9.2).
+        pinned = targetUrl;
         opts.origin.disconnect();
         log(`[dashboard] session moved: ${opts.sessionId} -> ${targetUrl} (${outcome.instanceId})`);
         inFlight = false;

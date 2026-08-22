@@ -15,6 +15,7 @@
  * See change: add-pi-gateway-transport-identity.
  */
 import { describe, expect, it, vi } from "vitest";
+import { decideRetarget } from "../endpoint-resolution.js";
 import { createMoveCoordinator, type MovableConnection } from "../session-move.js";
 
 /** A ConnectionManager stand-in recording every frame it was asked to send. */
@@ -245,5 +246,96 @@ describe("the origin is told where the session went (task 9.3)", () => {
     target().inbound?.({ type: "provisional_rejected" });
     await move;
     expect(origin.sent.some((m: any) => m?.type === "session_moved")).toBe(false);
+  });
+});
+
+describe("a completed move pins the destination (task 9.2)", () => {
+  it("pins nothing until a move actually completes", async () => {
+    const { coord, target } = setup();
+    expect(coord.pinnedEndpoint()).toBeUndefined();
+    const move = coord.begin({ targetUrl: "ws://target", expectInstanceId: "instance-target" });
+    // Mid-move: still nothing pinned, or an aborted move would leave the
+    // session stuck to an instance that never took it.
+    expect(coord.pinnedEndpoint()).toBeUndefined();
+    acceptProvisional(target());
+    await move;
+    expect(coord.pinnedEndpoint()).toBe("ws://target");
+  });
+
+  it("pins nothing when the move fails", async () => {
+    const { coord, target } = setup();
+    const move = coord.begin({ targetUrl: "ws://target", expectInstanceId: "instance-target" });
+    target().connect();
+    target().inbound?.({ type: "provisional_rejected" });
+    await move;
+    expect(coord.pinnedEndpoint()).toBeUndefined();
+  });
+
+  it("feeds the EXISTING stickiness gate, so a reconnect returns to the moved-to instance", async () => {
+    // The pin is only meaningful if it actually blocks a retarget. Asserted
+    // through `decideRetarget` rather than re-implementing the rule here.
+    const { coord, target } = setup();
+    const move = coord.begin({ targetUrl: "ws://target", expectInstanceId: "instance-target" });
+    acceptProvisional(target());
+    await move;
+
+    const decision = decideRetarget({
+      current: { endpoint: coord.pinnedEndpoint() as string, instanceId: "instance-target" },
+      candidate: { endpoint: "ws://origin", instanceId: "instance-origin" },
+      pinned: coord.pinnedEndpoint() !== undefined,
+      failed: true,
+      identityVerified: true,
+    });
+    expect(decision.retarget).toBe(false);
+    expect(decision.reason).toMatch(/pinned/);
+  });
+});
+
+describe("ordering: the target registers BEFORE the origin closes (task 9.1)", () => {
+  it("records target-connect strictly before origin-disconnect", async () => {
+    // The invariant is an ORDERING, so it is asserted on a single interleaved
+    // log. Two separate booleans could both end up true while the sequence in
+    // between was still a gap with no live connection.
+    const events: string[] = [];
+    const origin = fakeConnection("ws://origin");
+    origin.connect();
+    const originDisconnect = origin.disconnect;
+    origin.disconnect = () => {
+      events.push("origin-disconnect");
+      originDisconnect();
+    };
+
+    let target!: ReturnType<typeof fakeConnection>;
+    const coord = createMoveCoordinator({
+      origin,
+      sessionId: "sess-A",
+      connect: (url) => {
+        target = fakeConnection(url);
+        const targetConnect = target.connect;
+        target.connect = () => {
+          events.push("target-connect");
+          targetConnect();
+        };
+        const targetSend = target.send;
+        target.send = (m: any) => {
+          if (m?.type === "session_move_commit") events.push("commit");
+          targetSend(m);
+        };
+        return target;
+      },
+    });
+
+    const move = coord.begin({ targetUrl: "ws://target", expectInstanceId: "instance-target" });
+    // Fed directly: the coordinator already connected the target, so the
+    // helper's own connect() would just duplicate the event.
+    target.inbound?.({
+      type: "provisional_accepted",
+      sessionId: "sess-A",
+      instanceId: "instance-target",
+      token: "tok-1",
+    });
+    await move;
+
+    expect(events).toEqual(["target-connect", "commit", "origin-disconnect"]);
   });
 });

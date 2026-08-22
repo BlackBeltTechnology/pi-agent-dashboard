@@ -903,3 +903,26 @@ Soften to a measurement with stated provenance, or widen the sample.
   unlock remote resume and remote spawn, and it is the natural home for
   transcript serving after a session ends. It is also a substantially larger
   product surface. Not proposed here — only named, so the boundary is deliberate.
+
+### D11a — A move's pin is process-lifetime only (cycle 7, DECIDED)
+
+Task 9.2 requires a completed move to set `pinned` so the next reconnect
+returns to the moved-to instance. Scope decided: **in-memory, for the life of
+the pi process.** Nothing is written to disk; a restarted pi re-resolves through
+the normal D3 ladder.
+
+Rationale: a move is a **runtime act, not a config change**. Persisting it would
+force the pin onto a D3 rung, and any rung above `PI_DASHBOARD_URL` would
+resurrect precisely the silent-override class this change exists to remove — a
+stored pin quietly beating explicit configuration is the same defect as mDNS
+doing it, relocated.
+
+Mechanism: `createMoveCoordinator().pinnedEndpoint()` feeds the EXISTING
+`decideRetarget({ pinned })` stickiness gate (D4), rather than introducing a
+second notion of pinning that would then have to be kept consistent with it.
+
+Rejected:
+- **Persisted at rung 3** (survives restart, env still wins) — defensible, but
+  it makes a transient user action durable with no way to see or clear it.
+- **Persisted and outranking everything** — "moved means moved", at the cost of
+  an invisible on-disk pin overriding explicit configuration.
