@@ -20,7 +20,7 @@
  * Tasks 11.6, 11.9, 11.10; test-plan #X18.
  * See change: add-pi-gateway-transport-identity.
  */
-import fs from "node:fs";
+import fs, { readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -129,5 +129,49 @@ describe("createRemoteTranscriptStore", () => {
     expect(s.read("sess-1").entries).toEqual([]);
     // Idempotent: forgetting twice is not an error.
     expect(() => s.forget("sess-1")).not.toThrow();
+  });
+});
+
+/**
+ * Retention is driven by a bridge that may be REMOTE, so both of these are
+ * reachable by a paired device rather than only by a local process.
+ */
+describe("retention is bounded and does not follow a planted symlink", () => {
+  it("refuses to extend a transcript past the retention cap", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "retention-cap-"));
+    const store = createRemoteTranscriptStore({ homedir: home });
+
+    // One oversized chunk is refused outright...
+    const huge = "x".repeat(65 * 1024 * 1024);
+    expect(() => store.append("sess-cap", [huge], { restarted: true, complete: false })).toThrow(
+      /retention cap/,
+    );
+
+    // ...and so is a small chunk that would push an existing file past it.
+    const big = "y".repeat(60 * 1024 * 1024);
+    store.append("sess-cap2", [big], { restarted: true, complete: false });
+    const another = "z".repeat(5 * 1024 * 1024);
+    expect(() => store.append("sess-cap2", [another], { restarted: false, complete: false })).toThrow(
+      /retention cap/,
+    );
+    // The transcript retained so far is intact, not truncated by the refusal.
+    expect(store.read("sess-cap2").entries).toHaveLength(1);
+  });
+
+  it("does not write through a symlink planted at the transcript path", () => {
+    const home = fs.mkdtempSync(path.join(os.tmpdir(), "retention-link-"));
+    const store = createRemoteTranscriptStore({ homedir: home });
+    // Materialise the directory with a legitimate write first.
+    store.append("sess-decoy", ["{}"], { restarted: true, complete: false });
+
+    const victim = path.join(home, "victim.txt");
+    writeFileSync(victim, "original");
+    const planted = path.join(home, ".pi", "dashboard", "remote-transcripts", "sess-link.jsonl");
+    symlinkSync(victim, planted);
+
+    // A `restarted` chunk REPLACES the file — the path that would follow the link.
+    store.append("sess-link", ['{"hijacked":true}'], { restarted: true, complete: false });
+
+    expect(readFileSync(victim, "utf8")).toBe("original");
   });
 });

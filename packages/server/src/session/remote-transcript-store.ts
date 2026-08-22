@@ -33,6 +33,13 @@ import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared
  * traversal primitive (`/`, `\`, `.`, NUL) and separators, which is the actual
  * requirement; matching a specific id grammar is not.
  */
+/**
+ * Per-session retention ceiling. Measured locally: p50 73 KB, p90 1.1 MB,
+ * p99 3.9 MB, max 44 MB. 64 MB keeps every real transcript while making
+ * "fill the disk" bounded per session.
+ */
+const MAX_RETAINED_BYTES = 64 * 1024 * 1024;
+
 const SESSION_ID_SHAPE = /^[A-Za-z0-9_-]{1,64}$/;
 
 interface RetainedTranscript {
@@ -80,8 +87,23 @@ export function createRemoteTranscriptStore(env?: {
         /* Windows: chmod is a documented no-op. */
       }
       const body = entries.length > 0 ? `${entries.join("\n")}\n` : "";
+      // Retention is driven by a possibly-REMOTE bridge, so it is a disk-fill
+      // primitive without a ceiling: a paired device can stream chunks until
+      // the dashboard's disk is gone. The cap is generous next to the measured
+      // p99 (3.9 MB) but finite; past it the transcript is simply not extended.
+      const existingBytes = meta.restarted ? 0 : (fs.statSync(file, { throwIfNoEntry: false })?.size ?? 0);
+      if (existingBytes + Buffer.byteLength(body) > MAX_RETAINED_BYTES) {
+        throw new Error(
+          `remote transcript for ${sessionId} exceeds the ${MAX_RETAINED_BYTES}-byte retention cap; not extended`,
+        );
+      }
+      // `writeFileSync`/`appendFileSync` FOLLOW symlinks, so a same-uid process
+      // can pre-plant <sessionId>.jsonl and redirect remote-controlled content
+      // to an arbitrary file. `writeOwnerPid` already defends this exact shape;
+      // the two now agree.
       if (meta.restarted) {
-        fs.writeFileSync(file, body, { mode: 0o600 });
+        fs.rmSync(file, { force: true });
+        fs.writeFileSync(file, body, { mode: 0o600, flag: "wx" });
       } else {
         fs.appendFileSync(file, body, { mode: 0o600 });
       }
