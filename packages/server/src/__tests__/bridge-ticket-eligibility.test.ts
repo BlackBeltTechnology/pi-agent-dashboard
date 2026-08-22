@@ -65,16 +65,18 @@ describe("decideBridgeTicketMint", () => {
  * pinning is that the rewrite still parses exactly what it used to.
  */
 describe("the bearer parser accepts and rejects exactly what it used to", () => {
+  // `base` is a NON-local LAN caller, so `allow` can only come from the bearer
+  // path — which makes this a clean probe of the parser itself.
   it("parses the accepted shapes", () => {
     const seen: string[] = [];
-    const capture = (auth: string) =>
+    const capture = (authorization: string) =>
       decideBridgeTicketMint({
-        authorization: auth,
-        verifyDeviceBearer: (t) => {
+        ...base,
+        authorization,
+        verifyDeviceBearer: (t: string) => {
           seen.push(t);
           return true;
         },
-        isGenuinelyLocal: false,
       }).allow;
 
     expect(capture("Bearer abc123")).toBe(true);
@@ -87,9 +89,9 @@ describe("the bearer parser accepts and rejects exactly what it used to", () => 
     for (const bad of ["Bearer", "Bearer   ", "Basic abc123", "Bearerabc123", ""]) {
       expect(
         decideBridgeTicketMint({
+          ...base,
           authorization: bad,
           verifyDeviceBearer: () => true,
-          isGenuinelyLocal: false,
         }).allow,
       ).toBe(false);
     }
