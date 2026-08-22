@@ -59,17 +59,22 @@ describe("AgentToolRenderer — error line severity tokens", () => {
     expect(line.textContent).toContain("subagent crashed");
   });
 
-  it("a non-errored agent renders no error line at all", () => {
-    const { queryByText } = renderAgent(
+  it("a completed agent renders no error line at all", () => {
+    const { queryByText, getByText } = renderAgent(
       <AgentToolRenderer
         toolName="Agent"
         args={{ subagent_type: "Explore", description: "find the thing", prompt: "go" }}
         status="complete"
         result="done"
-        toolDetails={{ status: "complete", displayName: "Explore" }}
+        // `AgentDetails.status` vocabulary is "completed" — NOT "complete", which
+        // is the separate `ToolRendererProps.status` value. Using the wrong one
+        // here silently lands on the stopped fallback, so the assertion would
+        // pass without ever exercising the completed branch.
+        toolDetails={{ status: "completed", displayName: "Explore" }}
         context={ctx}
       />,
     );
+    expect(getByText("Explore")).toBeTruthy(); // the completed card did render
     expect(queryByText("Error:")).toBeNull();
   });
 
