@@ -137,6 +137,18 @@ jobs:
           node-version: '22'
           cache: pnpm
 
+      - name: Export the macOS deployment target (before any native compile)
+        # MUST run BEFORE `pnpm install`. A macOS native module compiled from
+        # source during install would otherwise inherit the RUNNER's default
+        # deployment target, and the post-build otool check inspects only the
+        # main Electron binary, so that module's floor drift would go
+        # undetected. Setting it only on the make step (as this workflow did)
+        # left that window open.
+        # See change: upgrade-electron-runtime.
+        if: matrix.platform == 'darwin'
+        shell: bash
+        run: echo "MACOSX_DEPLOYMENT_TARGET=12.0" >> "$GITHUB_ENV"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile ${{ matrix.platform == 'linux' && matrix.arch == 'arm64' && '--ignore-scripts' || '' }}
         timeout-minutes: 15
@@ -404,6 +416,9 @@ jobs:
         # MACOSX_DEPLOYMENT_TARGET pins Mach-O minos for every binary the build
         # itself COMPILES (it does NOT set the Electron prebuilt's own minos).
         # Pairs with extendInfo.LSMinimumSystemVersion in forge.config.
+        # Also exported job-wide before `pnpm install` (see the step above) so
+        # install-time native compiles get it too; kept here as well so the step
+        # is self-documenting and correct even if that export is ever moved.
         # See change: upgrade-electron-runtime.
         env:
           MACOSX_DEPLOYMENT_TARGET: "12.0"

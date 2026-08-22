@@ -586,7 +586,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          MERGED=$(find electron-darwin-* -name 'latest-mac.yml' 2>/dev/null | head -1)
+          # `|| true`: with no electron-darwin-* dir the glob stays literal and
+          # find exits 1, which pipefail propagates through `head` — killing the
+          # step under `set -e` BEFORE the guard below can skip cleanly. Same
+          # guard the merge step above already uses.
+          MERGED=$(find electron-darwin-* -name 'latest-mac.yml' 2>/dev/null | head -1 || true)
           if [ -z "$MERGED" ]; then
             echo "No latest-mac.yml present (no darwin artifacts) — nothing to assert"; exit 0
           fi

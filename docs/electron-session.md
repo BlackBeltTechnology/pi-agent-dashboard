@@ -63,7 +63,7 @@ Record of full implementation session: what built, what tried, what failed, less
 
 **What worked**: Downgraded Electron 33 → Electron 32 (`"electron": "^32.0.0"`). Electron 32 = last version supporting macOS 10.15.
 
-> **Superseded by change `upgrade-electron-runtime`.** 10.15 floor retired. Floor now macOS 12.0 (Monterey). Electron pinned `43.4.1`. 10.15 + 11 past Apple security window (EOL 2022-09 / 2023-09). Below-floor macOS users stay on last 0.7.x/Electron-32 build; update-stream gate refuses newer artifact. History above preserved as record.
+> **Superseded by change `upgrade-electron-runtime`.** 10.15 floor retired. Floor now macOS 12.0 (Monterey). Electron pinned `43.4.1`. 10.15 + 11 past Apple security window (EOL 2022-09 / 2023-09). Below-floor macOS users remain on currently-installed Electron-32 build; update-stream gate refuses newer artifact. Gate blocks newer metadata — does NOT move older installs forward. History above preserved as record.
 
 ### Phase 5: VM White Screen Fix
 **Goal**: Fix blank white screen on VMware macOS.

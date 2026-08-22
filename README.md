@@ -65,7 +65,7 @@ Download a pre-built installer from [GitHub Releases](https://github.com/BlackBe
 | **Linux** (x64 / ARM64) | `.deb` or `.AppImage` |
 | **Windows** (x64 / ARM64) | `.zip` |
 
-> **macOS requirement:** macOS 12 (Monterey) or newer — Intel and Apple Silicon both supported. macOS 10.15 (Catalina) and 11 (Big Sur) are not supported; users on those versions stay on the last 0.7.x build (Electron 32) and are not offered the newer update.
+> **macOS requirement:** macOS 12 (Monterey) or newer — Intel and Apple Silicon both supported. macOS 10.15 (Catalina) and 11 (Big Sur) are not supported; users on those versions keep their currently installed version (Electron 32) and are not offered the newer update.
 
 On first launch a setup wizard walks you through mode selection (standalone vs. power-user), API key / OAuth sign-in, and [recommended extensions](#recommended-extensions). The standalone mode bundles Node.js and auto-installs pi + dashboard + openspec into `~/.pi-dashboard/` — **no terminal, npm, or Node.js required**.
 
