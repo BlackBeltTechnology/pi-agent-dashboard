@@ -836,6 +836,7 @@ disables the gate silently rather than failing loudly.
 - **THEN** the emitted `latest-mac.yml` SHALL carry a `minimumSystemVersion` field
 - **AND** the requirement SHALL be verified against the **emitted metadata file**, NOT against a build-config key, because `mac.minimumSystemVersion` in `electron-builder.yml` does NOT propagate to update metadata: `app-builder-lib`'s update-info builder never writes the field, and its only consumer (`macPackager`) is skipped entirely under the `--prepackaged` invocation this pipeline uses
 - **AND** the field SHALL survive the arm64 + x64 `latest-mac.yml` merge step, which MUST preserve fields it does not itself compose
+- **AND** preservation alone is NOT sufficient: the merge seeds root keys from whichever file its glob yields first, so a leg-asymmetric injection would make the shipped gate depend on glob order rather than on intent. The merge SHALL therefore require every darwin leg to agree on `minimumSystemVersion` and SHALL FAIL when they disagree — including the case where one leg carries the field and the other does not, in either glob order. Silently inheriting the first leg's value is a defect
 
 #### Scenario: The minimum-system-version value is a full Darwin semver triple
 - **WHEN** the `minimumSystemVersion` value is chosen for a macOS 12 floor
