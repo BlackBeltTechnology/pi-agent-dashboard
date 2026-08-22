@@ -4,63 +4,55 @@ import { Icon } from "@mdi/react";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Redirect, Route, Switch, useLocation, useRoute, useSearch, useSearchParams } from "wouter";
-import { ArchiveBrowserView } from "./components/openspec/ArchiveBrowserView.js";
 import { CanvasDriver } from "./components/canvas/CanvasDriver.js";
 import { ChatView, type ChatViewHandle } from "./components/chat/ChatView.js";
 import { ChatViewMenu } from "./components/chat/ChatViewMenu.js";
 import { CommandInput } from "./components/chat/CommandInput.js";
-import { CommitDialogProvider } from "./components/worktree/CommitDialog.js";
-import { ComposerSessionActions } from "./components/session/ComposerSessionActions.js";
-import { ModelConfigProvider, type ModelConfigValue } from "./lib/state/ModelConfigContext.js";
 import { ConnectionStatusBanner } from "./components/connectivity/ConnectionStatusBanner.js";
-import { DirectoryHomeView } from "./components/folder/DirectoryHomeView.js";
+import { ServerSelector } from "./components/connectivity/ServerSelector.js";
 import { DirectorySettings, type DirectorySettingsPage } from "./components/DirectorySettings/DirectorySettings.js";
-import { FolderEditorView } from "./components/folder/FolderEditorView.js";
 import { FileDiffView } from "./components/diff/FileDiffView.js";
+import { SessionDiffProvider } from "./components/diff/SessionDiffContext.js";
+import { DirectoryHomeView } from "./components/folder/DirectoryHomeView.js";
+import { FolderEditorView } from "./components/folder/FolderEditorView.js";
+import { ArchiveBrowserView } from "./components/openspec/ArchiveBrowserView.js";
+import { OpenSpecArtifactDialog } from "./components/openspec/OpenSpecArtifactDialog.js";
+import { OpenSpecBoardView } from "./components/openspec/OpenSpecBoardView.js";
+import { SpecsBrowserView } from "./components/openspec/SpecsBrowserView.js";
+import { RouteBackedOverlay } from "./components/overlay/RouteBackedOverlay.js";
 import { InstallBanner } from "./components/packages/InstallBanner.js";
-import { LandingPage } from "./components/shell/LandingPage.js";
+import { PiUpdateBadge } from "./components/packages/PiUpdateBadge.js";
+import { PluginStalenessBanner } from "./components/packages/PluginStalenessBanner.js";
+import { ZrokInstallGuide } from "./components/packages/ZrokInstallGuide.js";
 // Flow components are no longer imported by the shell. They render
 // exclusively via plugin slot claims (content-header-sticky,
 // content-view, content-inline-footer, command-route). See change:
 // pluginize-flows-via-registry.
 import { MarkdownPreviewView } from "./components/preview/MarkdownPreviewView.js";
-import { MissingRequiredBanner } from "./components/session/MissingRequiredBanner.js";
-import { HamburgerButton, MobileOverlay } from "./components/shell/MobileOverlay.js";
-import { MobileShell } from "./components/shell/MobileShell.js";
-import { OpenSpecArtifactDialog } from "./components/openspec/OpenSpecArtifactDialog.js";
-import { OpenSpecBoardView } from "./components/openspec/OpenSpecBoardView.js";
-import { PiUpdateBadge } from "./components/packages/PiUpdateBadge.js";
-import { PluginStalenessBanner } from "./components/packages/PluginStalenessBanner.js";
 import { PreviewOverlayView } from "./components/preview/PreviewOverlayView.js";
+import { Toast, useToast } from "./components/primitives/Toast.js";
+import { ComposerSessionActions } from "./components/session/ComposerSessionActions.js";
+import { MissingRequiredBanner } from "./components/session/MissingRequiredBanner.js";
 import { QueuePanel } from "./components/session/QueuePanel.js";
 import { RecoveryOfferHost } from "./components/session/RecoveryOfferHost.js";
-import { ResizableSidebar } from "./components/shell/ResizableSidebar.js";
-import { ServerSelector } from "./components/connectivity/ServerSelector.js";
 import { SessionBanner } from "./components/session/SessionBanner.js";
-import { SessionDiffProvider } from "./components/diff/SessionDiffContext.js";
 import { SessionHeader } from "./components/session/SessionHeader.js";
 import { SessionList } from "./components/session/SessionList.js";
-import { SessionSplitView, SplitRouteSync } from "./components/split/SessionSplitView.js";
-import { SettingsPanel } from "./components/settings/SettingsPanel.js";
-import { ShellContent, type ShellContentRenderers } from "./components/shell/ShellContent.js";
-import { RouteBackedOverlay } from "./components/overlay/RouteBackedOverlay.js";
-import {
-  captureBackground,
-  recordLauncher,
-  resolveDismissTarget,
-  clearBackground,
-  resolveBackground,
-} from "./lib/nav/overlay-background.js";
 import { SpawnErrorToastHost } from "./components/session/SpawnErrorToastHost.js";
-import { SpecsBrowserView } from "./components/openspec/SpecsBrowserView.js";
-import { SplitWorkspaceProvider } from "./components/split/SplitWorkspaceContext.js";
-import { StatusBar } from "./components/shell/StatusBar.js";
-import { Toast, useToast } from "./components/primitives/Toast.js";
 import { TokenStatsBar } from "./components/session/TokenStatsBar.js";
+import { SettingsPanel } from "./components/settings/SettingsPanel.js";
+import { LandingPage } from "./components/shell/LandingPage.js";
+import { HamburgerButton, MobileOverlay } from "./components/shell/MobileOverlay.js";
+import { MobileShell } from "./components/shell/MobileShell.js";
+import { ResizableSidebar } from "./components/shell/ResizableSidebar.js";
+import { ShellContent, type ShellContentRenderers } from "./components/shell/ShellContent.js";
+import { StatusBar } from "./components/shell/StatusBar.js";
+import { SessionSplitView, SplitRouteSync } from "./components/split/SessionSplitView.js";
+import { SplitWorkspaceProvider } from "./components/split/SplitWorkspaceContext.js";
 import { allTagsInUse } from "./components/tags/all-tags.js";
+import { CommitDialogProvider } from "./components/worktree/CommitDialog.js";
 import { WorktreeInitStack } from "./components/worktree/WorktreeInitStack.js";
 import { WorktreeSpawnDialog } from "./components/worktree/WorktreeSpawnDialog.js";
-import { ZrokInstallGuide } from "./components/packages/ZrokInstallGuide.js";
 import { useAppHidden } from "./hooks/useAppHidden.js";
 import { useContentViews } from "./hooks/useContentViews.js";
 import { useDocumentTitle } from "./hooks/useDocumentTitle.js";
@@ -74,21 +66,22 @@ import { usePiResourceFileFetch } from "./hooks/usePiResourceFileFetch.js";
 import { useSidebarState } from "./hooks/useSidebarState.js";
 import { useStaleToolReconcile } from "./hooks/useStaleToolReconcile.js";
 import { useWebSocket } from "./hooks/useWebSocket.js";
-import { maybeAutoInitWorktreeOnSpawn } from "./lib/git/auto-init-worktree.js";
+import { performServerSwitch } from "./lib/api/server-switch.js";
+import { openStagingSocket } from "./lib/api/staging-socket.js";
 import { EMPTY_CANVAS_STATE } from "./lib/canvas/canvas-gate.js";
-import { deleteDraft, readAllDrafts, writeDraft } from "./lib/state/draft-storage.js";
 // SubagentPopoutPage no longer imported by the shell — it's registered via
 // the subagents-plugin's `shell-overlay-route` claim and mounted through
 // `<ShellOverlayRouteSlot>` below. See change: add-flow-agent-popout.
 import { applyPromptTimeout, createInitialState, deriveBannerState, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/chat/event-reducer.js";
 import { nextBackfillRange } from "./lib/chat/history-gap.js";
-import { decodeFolderPath, encodeFolderPath } from "./lib/util/folder-encoding.js";
+import { refreshChat } from "./lib/chat/refresh-chat.js";
+import { maybeAutoInitWorktreeOnSpawn } from "./lib/git/auto-init-worktree.js";
 import { fetchActiveInits } from "./lib/git/git-api.js";
 import { refreshGitStatus } from "./lib/git/git-status-cache.js";
-import { goBack as goBackAction } from "./lib/nav/history-back.js";
-import { clearLoadingHistory, SUBSCRIBE_ACK_MS } from "./lib/replay/loading-history.js";
-import { extractUserPromptHistory } from "./lib/replay/message-history.js";
+import { resendActiveCwdSubscriptions, setInitSender } from "./lib/git/worktree-init-bus.js";
+import { initStore } from "./lib/git/worktree-init-store.js";
 import { getMobileDepth } from "./lib/layout/mobile-depth.js";
+import { goBack as goBackAction } from "./lib/nav/history-back.js";
 import {
   initNavTracker,
   popNav,
@@ -96,15 +89,13 @@ import {
   recordNavigation,
   resetNavStack,
 } from "./lib/nav/nav-tracker.js";
-import { useOpenSpecConfig } from "./lib/openspec/openspec-config-api.js";
-import { viewTargetToEditorPath } from "./lib/nav/view-route.js";
-import { dispatchPluginMessage } from "./lib/package/plugins-api.js";
-import { clearRecoveryOffer } from "./lib/state/recovery-offer-bus.js";
-import { rehydrateSession } from "./lib/replay/rehydrate-session.js";
-// Strategy A (reduce-session-replay-traffic): durable replay cursor.
-import { deriveServerKey, replayCache } from "./lib/replay/replay-cache.js";
-import { createReplayPersister } from "./lib/replay/replay-persist.js";
-import { refreshChat } from "./lib/chat/refresh-chat.js";
+import {
+  captureBackground,
+  clearBackground,
+  recordLauncher,
+  resolveBackground,
+  resolveDismissTarget,
+} from "./lib/nav/overlay-background.js";
 import {
   buildFolderSettingsUrl,
   buildOpenSpecArchiveUrl,
@@ -113,10 +104,19 @@ import {
   buildOpenSpecSpecsUrl,
   buildSessionDiffUrl,
 } from "./lib/nav/route-builders.js";
-import { performServerSwitch } from "./lib/api/server-switch.js";
-import { openStagingSocket } from "./lib/api/staging-socket.js";
-import { resendActiveCwdSubscriptions, setInitSender } from "./lib/git/worktree-init-bus.js";
-import { initStore } from "./lib/git/worktree-init-store.js";
+import { viewTargetToEditorPath } from "./lib/nav/view-route.js";
+import { useOpenSpecConfig } from "./lib/openspec/openspec-config-api.js";
+import { dispatchPluginMessage } from "./lib/package/plugins-api.js";
+import { clearLoadingHistory, SUBSCRIBE_ACK_MS } from "./lib/replay/loading-history.js";
+import { extractUserPromptHistory } from "./lib/replay/message-history.js";
+import { rehydrateSession } from "./lib/replay/rehydrate-session.js";
+// Strategy A (reduce-session-replay-traffic): durable replay cursor.
+import { deriveServerKey, replayCache } from "./lib/replay/replay-cache.js";
+import { createReplayPersister } from "./lib/replay/replay-persist.js";
+import { deleteDraft, readAllDrafts, writeDraft } from "./lib/state/draft-storage.js";
+import { ModelConfigProvider, type ModelConfigValue } from "./lib/state/ModelConfigContext.js";
+import { clearRecoveryOffer } from "./lib/state/recovery-offer-bus.js";
+import { decodeFolderPath, encodeFolderPath } from "./lib/util/folder-encoding.js";
 
 // Stable tracker facade for the depth-aware back action
 // (change: fix-mobile-back-depth-aware).
@@ -124,32 +124,32 @@ const NAV_TRACKER = { predecessor, popNav };
 
 import { applyPluginConfigUpdate, initPluginConfigs, PluginContextProvider, type SubagentStateSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
+import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { CommandInfo, DashboardSession, FileEntry, ImageContent, ModelInfo, OpenSpecData, OpenSpecGroup, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import { DialogPortal } from "./components/primitives/DialogPortal.js";
-import { ErrorBoundary } from "./components/primitives/ErrorBoundary.js";
 import { GenericExtensionDialog } from "./components/extension-ui/GenericExtensionDialog.js";
 import { ToastSlot } from "./components/extension-ui/ToastSlot.js";
-import { FirstLaunchDisplayModal } from "./components/settings/FirstLaunchDisplayModal.js";
-import { AddFoldersDialog } from "./components/workspace/AddFoldersDialog.js";
+import { DialogPortal } from "./components/primitives/DialogPortal.js";
+import { ErrorBoundary } from "./components/primitives/ErrorBoundary.js";
 import { SearchableSelectDialog, type SelectOption } from "./components/primitives/SearchableSelectDialog.js";
+import { FirstLaunchDisplayModal } from "./components/settings/FirstLaunchDisplayModal.js";
 import type { ToolContext } from "./components/tool-renderers/index.js";
 import { makeToolContext } from "./components/tool-renderers/make-tool-context.js";
+import { AddFoldersDialog } from "./components/workspace/AddFoldersDialog.js";
 import { useOpenSpecActions } from "./hooks/useOpenSpecActions.js";
-import { openArtifactForViewport } from "./lib/util/artifact-view-gate.js";
 import { usePendingPromptTimeout } from "./hooks/usePendingPromptTimeout.js";
 import { useProvidersReady } from "./hooks/useProvidersReady.js";
 import { useSessionActions } from "./hooks/useSessionActions.js";
 import { useViewDispatcher } from "./hooks/useViewDispatcher.js";
 import { ApiContext, deriveApiBase, setGlobalApiBase, VITE_API_URL } from "./lib/api/api-context.js";
 import { buildContextUsageMap } from "./lib/context-usage.js";
-import { DisplayPrefsProvider } from "./lib/state/DisplayPrefsContext.js";
 import { registerPluginCatalog, useI18n } from "./lib/i18n/i18n.js";
-import { SessionAssetsProvider } from "./lib/session/SessionAssetsContext.js";
 import { deriveRetryProjection } from "./lib/session/retry-projection.js";
+import { SessionAssetsProvider } from "./lib/session/SessionAssetsContext.js";
 import { deriveSelectedSessionId } from "./lib/session/selectedSessionId.js";
 import { selectViewedSessionId } from "./lib/session/selectViewedSessionId.js";
+import { DisplayPrefsProvider } from "./lib/state/DisplayPrefsContext.js";
+import { openArtifactForViewport } from "./lib/util/artifact-view-gate.js";
 
 // Stable empty references for plugin context's session-state primitives.
 // See change: route-flow-asks-to-upper-slot + add-flow-agent-popout.
@@ -1712,13 +1712,16 @@ export default function App() {
     captureBackground(fullLocation);
   }, [fullLocation]);
   const overlayBackground = resolveBackground(fullLocation);
-  const dismissOverlay = () => {
+  // Memoised: it flows into the overlay's dismiss-guard context value, so a
+  // fresh identity each render would re-render every consumer under the overlay.
+  // See change: add-route-backed-overlay-dialogs (audit finding, task 8.7).
+  const dismissOverlay = useCallback(() => {
     const target = resolveDismissTarget(fullLocation);
     // Drop the capture first: the navigation below lands on a non-overlay route,
     // which immediately re-captures it as the next overlay's background.
     clearBackground();
     navigate(target);
-  };
+  }, [fullLocation, navigate]);
 
   // Live-selection aliases, captured BEFORE the shadowing block below.
   const liveSelectedId = selectedId;

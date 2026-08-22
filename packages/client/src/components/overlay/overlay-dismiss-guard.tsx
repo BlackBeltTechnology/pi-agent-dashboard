@@ -21,10 +21,17 @@
  */
 import { createContext, useCallback, useContext, useEffect, useRef } from "react";
 
-/** `null` clears the registration. Only one guard is active at a time — an
- *  overlay hosts exactly one surface, and nested dialogs handle their own
- *  Escape via the shared escape-stack. */
-export type DismissGuardRegistrar = (handler: (() => void) | null) => void;
+/**
+ * Register a guard; the returned function removes THAT guard by identity.
+ *
+ * A stack, not a single slot: surfaces nest. `SettingsPanel` arms on its own
+ * `isDirty` while its instructions tab renders `InstructionsPage`, which arms
+ * its own guard. A last-write-wins slot let the inner guard's cleanup clear the
+ * outer one, so the next Escape discarded unsaved settings with no prompt.
+ * Dismissal runs the TOPMOST guard — the same rule as the shared escape-stack.
+ * See change: add-route-backed-overlay-dialogs (audit finding, task 8.7).
+ */
+export type DismissGuardRegistrar = (handler: () => void) => () => void;
 
 export interface OverlayDismissGuardApi {
   register: DismissGuardRegistrar;
@@ -54,8 +61,9 @@ export function useOverlayDismissGuard(active: boolean, onAttempt: () => void): 
 
   useEffect(() => {
     if (!register || !active) return;
-    register(() => handler.current());
-    return () => register(null);
+    // Identity-scoped: the returned cleanup removes only THIS guard, so an
+    // inner surface unmounting cannot disarm the one beneath it.
+    return register(() => handler.current());
   }, [register, active]);
 
   return useCallback(() => api?.dismiss(), [api]);

@@ -69,6 +69,56 @@ describe("6.1 — a dirty surface survives every dismissal gesture", () => {
   }
 });
 
+// Audit finding (8.7, high): registration was last-write-wins on a single ref
+// and deregistration was unconditional, so an inner guard's cleanup cleared the
+// OUTER guard too. `SettingsPanel` arms on `isDirty` while its instructions tab
+// renders `InstructionsPage`, which arms its own — the real, shipping case.
+describe("8.7 — nested guards do not clobber each other", () => {
+  function Nested({ inner, onOuter, onInner }: { inner: boolean; onOuter: () => void; onInner: () => void }) {
+    useOverlayDismissGuard(true, onOuter);
+    return inner ? <GuardedPanel dirty onAttempt={onInner} /> : <div data-testid="panel" />;
+  }
+
+  it("with both armed, dismissal is prevented and exactly one guard prompts", () => {
+    const onDismiss = vi.fn();
+    const onOuter = vi.fn();
+    const onInner = vi.fn();
+    renderOverlay(<Nested inner onOuter={onOuter} onInner={onInner} />, onDismiss);
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    // Deliberately does NOT assert WHICH guard fires. React runs child effects
+    // before parent ones, so stack order here is an artefact of effect
+    // ordering, not a contract — pinning it would pin React internals. What
+    // matters is that the edit survives and the user sees exactly one prompt.
+    expect(onDismiss).not.toHaveBeenCalled();
+    expect(onOuter.mock.calls.length + onInner.mock.calls.length).toBe(1);
+  });
+
+  it("the OUTER guard survives the inner one unmounting", () => {
+    const onDismiss = vi.fn();
+    const onOuter = vi.fn();
+    const onInner = vi.fn();
+    const { rerender } = render(
+      <RouteBackedOverlay background={BG} backgroundContent={<div />} onDismiss={onDismiss} testId="ov">
+        <Nested inner onOuter={onOuter} onInner={onInner} />
+      </RouteBackedOverlay>,
+    );
+    // Leave the instructions tab; the panel-level dirty state is still set.
+    rerender(
+      <RouteBackedOverlay background={BG} backgroundContent={<div />} onDismiss={onDismiss} testId="ov">
+        <Nested inner={false} onOuter={onOuter} onInner={onInner} />
+      </RouteBackedOverlay>,
+    );
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    // Without identity-checked deregistration this dismisses and eats the edit.
+    expect(onDismiss).not.toHaveBeenCalled();
+    expect(onOuter).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("6.5 — a clean surface still dismisses immediately", () => {
   it("dismisses when the guarded panel is not dirty", () => {
     const onDismiss = vi.fn();

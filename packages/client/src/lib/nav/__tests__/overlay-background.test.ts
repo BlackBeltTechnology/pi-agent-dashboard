@@ -132,6 +132,31 @@ describe("resolveBackground — in-app path (captured)", () => {
 // today and nothing tomorrow; this pins it. If someone later adds one of these
 // to the converted set, it stops being a full page AND stops being a usable
 // background for the overlay launched from it — two regressions from one edit.
+// Audit finding (8.7, high): `launcher` was cleared ONLY by clearBackground(),
+// which only the explicit dismiss path calls. Leaving an overlay by browser Back
+// therefore left a stale launcher, and the NEXT overlay's Esc navigated to a
+// surface the user was no longer in.
+describe("8.7 — the launcher does not survive a non-overlay landing", () => {
+  it("clears when the user lands on a real (non-overlay) route", () => {
+    recordLauncher("/settings/gateway", "/tunnel-setup");
+    expect(resolveDismissTarget("/tunnel-setup")).toBe("/settings/gateway");
+
+    // Browser Back out of the overlay: no dismissOverlay, so nothing calls
+    // clearBackground. Landing on a non-overlay route must still release it.
+    captureBackground("/session/abc");
+
+    // A LATER, unrelated overlay must not inherit the old launcher.
+    expect(resolveDismissTarget("/pi-view?url=https://x")).toBe("/session/abc");
+  });
+
+  it("keeps the launcher across an in-overlay move (S-10 unaffected)", () => {
+    captureBackground("/session/abc");
+    recordLauncher("/settings/gateway", "/tunnel-setup");
+    // No non-overlay landing happened, so the launcher still governs.
+    expect(resolveDismissTarget("/tunnel-setup")).toBe("/settings/gateway");
+  });
+});
+
 describe("5.7 — routes that stay full pages", () => {
   it.each([
     ["/folder/Zm9v/openspec", "the kanban board needs horizontal width (D6)"],

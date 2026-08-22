@@ -62,6 +62,12 @@ export function captureBackground(url: string): void {
   const location = splitLocation(url);
   if (isOverlayRoute(location.path)) return;
   captured = location;
+  // Landing on a real route means we are no longer inside ANY overlay, so the
+  // launcher is spent. Clearing only in `clearBackground` (the explicit dismiss
+  // path) let a browser-Back exit strand a stale launcher, and the NEXT
+  // overlay's Esc then navigated to a surface the user had already left.
+  // See change: add-route-backed-overlay-dialogs (audit finding, task 8.7).
+  launcher = undefined;
 }
 
 /** The current capture, or `undefined` when nothing is frozen. */

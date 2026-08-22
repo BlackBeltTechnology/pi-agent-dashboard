@@ -18,7 +18,6 @@
   "packages/client/src/components/preview/MermaidBlock.tsx|z-10": 1,
   "packages/client/src/components/preview/SpreadsheetPreview.tsx|z-10": 2,
   "packages/client/src/components/preview/SpreadsheetPreview.tsx|z-20": 1,
-  "packages/client/src/components/session/SessionCard.tsx|z-[60]": 1,
   "packages/client/src/components/session/SessionCard.tsx|z-20": 1,
   "packages/client/src/components/session/SessionHeader.tsx|z-50": 1,
   "packages/client/src/components/session/SessionList.tsx|z-[1]": 1,

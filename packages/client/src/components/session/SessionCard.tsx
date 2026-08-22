@@ -1227,7 +1227,7 @@ function MobileProcessSubcard({ activity, processes, onKill, onAbortTool, now, o
       )}
       {sheetOpen && hasProcesses && onKill && (
         <div
-          className="fixed inset-0 bg-[var(--bg-overlay)] flex items-end justify-center z-[60]"
+          className="fixed inset-0 bg-[var(--bg-overlay)] flex items-end justify-center z-dialog"
           onClick={(e) => { e.stopPropagation(); setSheetOpen(false); }}
           data-testid="background-drawer-sheet"
         >

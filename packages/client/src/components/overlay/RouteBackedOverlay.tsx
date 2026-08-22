@@ -75,17 +75,24 @@ export function RouteBackedOverlay({
   // R1 — backdrop, Escape and the ✕ are three dismissal gestures a full page
   // never had. A surface with unsaved edits registers here to take them over;
   // everything else dismisses immediately. See `overlay-dismiss-guard.tsx`.
-  const guard = useRef<(() => void) | null>(null);
+  // A STACK, not one slot: surfaces nest (a settings PAGE inside the settings
+  // panel), and last-write-wins let an inner guard's cleanup disarm the outer.
+  const guards = useRef<(() => void)[]>([]);
   const register = useCallback<DismissGuardRegistrar>((handler) => {
-    guard.current = handler;
+    guards.current.push(handler);
+    return () => {
+      guards.current = guards.current.filter((g) => g !== handler);
+    };
   }, []);
   const guardApi = useMemo<OverlayDismissGuardApi>(
     () => ({ register, dismiss: onDismiss }),
     [register, onDismiss],
   );
   const handleClose = useCallback(() => {
-    if (guard.current) {
-      guard.current();
+    // Topmost wins — the same rule as the shared escape-stack.
+    const top = guards.current.at(-1);
+    if (top) {
+      top();
       return;
     }
     onDismiss();
