@@ -62,6 +62,11 @@ function sessionFromMeta(
     // Restore name provenance so the auto-naming lockout survives restarts.
     // See change: add-auto-session-naming.
     nameSource: meta.nameSource,
+    // Restore the auto-namer stop state so a permanent stop survives a PROCESS
+    // restart, not only an extension reload — otherwise a cold start re-spends
+    // a full attempt budget and re-emits the error.
+    // See change: fix-auto-naming-reasoning-model (design D7).
+    autoNamerState: meta.autoNamerState,
     source: (meta.source as SessionSource) ?? "tui",
     // Restore the disposability marker so a restart never reclassifies an
     // ephemeral session as durable (absent ⇒ durable) and lets it escape

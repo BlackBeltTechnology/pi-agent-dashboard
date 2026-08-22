@@ -11,6 +11,7 @@ vi.mock("../components/preview/MarkdownContent.js", () => ({
 import { DiagnosticsSection } from "../components/settings/DiagnosticsSection.js";
 import { DoctorFetchError } from "../lib/api/doctor-api.js";
 import type { DoctorReport } from "../lib/api/doctor-api.js";
+import type { AutoNameOutcomeRow } from "../lib/api/auto-name-outcomes-api.js";
 
 afterEach(() => cleanup());
 
@@ -130,5 +131,85 @@ describe("DiagnosticsSection", () => {
     fireEvent.click(copyBtn);
     await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1));
     expect(writeText.mock.calls[0][0]).toContain("PI Dashboard Doctor");
+  });
+});
+
+/**
+ * Auto-naming diagnostics readout.
+ *
+ * Automatic naming could stop a session permanently while emitting nothing an
+ * operator could find: the toast reaches only a subscribed client, and the log
+ * line only the server host. This readout is the discoverable surface.
+ *
+ * See change: fix-auto-naming-reasoning-model (design D9, test-plan #F7–#F9).
+ */
+describe("DiagnosticsSection — auto-naming outcomes", () => {
+  const row = (over: Partial<AutoNameOutcomeRow> = {}): AutoNameOutcomeRow => ({
+    sessionId: "abcdef12-3456-7890-abcd-ef1234567890",
+    outcome: "waiting",
+    reason: "no nameable topic yet",
+    at: 1700000000000,
+    ...over,
+  });
+
+  it("F7: renders the outcome and its reason for a session", async () => {
+    const { findByTestId } = render(
+      <DiagnosticsSection
+        fetcher={async () => mkReport()}
+        autoNameFetcher={async () => [row()]}
+      />,
+    );
+    const li = await findByTestId(`auto-name-outcome-${row().sessionId}`);
+    expect(li.textContent).toContain("no nameable topic yet");
+    expect(li.getAttribute("data-outcome")).toBe("waiting");
+  });
+
+  it("F8: renders an outcome retained BEFORE the surface mounted", async () => {
+    // The row comes from the fetch, not from a live broadcast — a stop
+    // reported while no client was connected must still be visible.
+    const autoNameFetcher = vi.fn(async () => [row({ outcome: "stopped", reason: "budget exhausted" })]);
+    const { findByTestId } = render(
+      <DiagnosticsSection fetcher={async () => mkReport()} autoNameFetcher={autoNameFetcher} />,
+    );
+    await findByTestId("auto-naming-diagnostics");
+    expect(autoNameFetcher).toHaveBeenCalled();
+    const li = await findByTestId(`auto-name-outcome-${row().sessionId}`);
+    expect(li.textContent).toContain("budget exhausted");
+  });
+
+  it("F9: `starved` is presented distinctly from `waiting` and conveys truncation", async () => {
+    const starvedId = "11111111-2222-3333-4444-555555555555";
+    const { findByTestId } = render(
+      <DiagnosticsSection
+        fetcher={async () => mkReport()}
+        autoNameFetcher={async () => [
+          row(),
+          row({ sessionId: starvedId, outcome: "starved", reason: "output cap reached" }),
+        ]}
+      />,
+    );
+    const starved = await findByTestId(`auto-name-outcome-label-${starvedId}`);
+    const waiting = await findByTestId(`auto-name-outcome-label-${row().sessionId}`);
+    expect(starved.textContent).not.toBe(waiting.textContent);
+    expect(starved.textContent).toMatch(/truncat|output cap/i);
+  });
+
+  it("renders nothing when no outcomes are retained", async () => {
+    const { queryByTestId, findByTestId } = render(
+      <DiagnosticsSection fetcher={async () => mkReport()} autoNameFetcher={async () => []} />,
+    );
+    await findByTestId("diagnostics-rerun");
+    expect(queryByTestId("auto-naming-diagnostics")).toBeNull();
+  });
+
+  it("still renders the doctor report when the outcomes fetch fails", async () => {
+    const { findByTestId, queryByTestId } = render(
+      <DiagnosticsSection
+        fetcher={async () => mkReport()}
+        autoNameFetcher={async () => { throw new Error("HTTP 500"); }}
+      />,
+    );
+    await findByTestId("diagnostics-rerun");
+    expect(queryByTestId("auto-naming-diagnostics")).toBeNull();
   });
 });

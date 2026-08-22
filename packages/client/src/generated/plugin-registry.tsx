@@ -11,6 +11,7 @@ import { FolderKbSection, KbSettingsClaim, catalog as kb_catalog } from "@blackb
 import { BuiltInRolesSettings, catalog as roles_catalog } from "@blackbelt-technology/pi-dashboard-roles-plugin";
 import { SubagentsSettings, SubagentPopoutClaim, catalog as subagents_catalog } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
 import { FlowsAnthropicBridgeSettings, catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
+import { DemoSettings, DemoToolRenderer } from "@blackbelt-technology/demo-plugin";
 
 import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import type { ClaimEntry } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -64,12 +65,13 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
                 "slot": "shell-overlay-route",
                 "component": "AutomationBoard",
                 "path": "/folder/:encodedCwd/automations",
-                "depth": 1
+                "depth": 2,
+                "parentPath": "/folder/:encodedCwd"
             },
             {
                 "slot": "shell-overlay-route",
                 "component": "AutomationRunMonitor",
-                "path": "/automation/run/:sid",
+                "path": "/folder/:encodedCwd/automations/run/:sid",
                 "sessionParam": "sid",
                 "depth": 2,
                 "parentPath": "/folder/:encodedCwd/automations"
@@ -93,8 +95,8 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     },
     claims: [
       { pluginId: "automation", priority: 100, slot: "sidebar-folder-section", Component: FolderAutomationSection },
-      { pluginId: "automation", priority: 100, slot: "shell-overlay-route", path: "/folder/:encodedCwd/automations", depth: 1, Component: AutomationBoard },
-      { pluginId: "automation", priority: 100, slot: "shell-overlay-route", path: "/automation/run/:sid", sessionParam: "sid", depth: 2, parentPath: "/folder/:encodedCwd/automations", Component: AutomationRunMonitor },
+      { pluginId: "automation", priority: 100, slot: "shell-overlay-route", path: "/folder/:encodedCwd/automations", depth: 2, parentPath: "/folder/:encodedCwd", Component: AutomationBoard },
+      { pluginId: "automation", priority: 100, slot: "shell-overlay-route", path: "/folder/:encodedCwd/automations/run/:sid", sessionParam: "sid", depth: 2, parentPath: "/folder/:encodedCwd/automations", Component: AutomationRunMonitor },
       { pluginId: "automation", priority: 100, slot: "session-card-badge", Component: AutomationBadge, predicate: isAutomationRun },
       { pluginId: "automation", priority: 100, slot: "settings-section", tab: "general", Component: AutomationSettings },
     ],
@@ -237,12 +239,16 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
             {
                 "slot": "shell-overlay-route",
                 "component": "GoalsBoardClaim",
-                "path": "/folder/:encodedCwd/goals"
+                "path": "/folder/:encodedCwd/goals",
+                "depth": 2,
+                "parentPath": "/folder/:encodedCwd"
             },
             {
                 "slot": "shell-overlay-route",
                 "component": "GoalDetailClaim",
-                "path": "/folder/:encodedCwd/goals/:goalId"
+                "path": "/folder/:encodedCwd/goals/:goalId",
+                "depth": 2,
+                "parentPath": "/folder/:encodedCwd/goals"
             },
             {
                 "slot": "settings-section",
@@ -265,8 +271,8 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
       { pluginId: "goal", priority: 100, slot: "session-card-badge", Component: GoalChip, predicate: hasGoal },
       { pluginId: "goal", priority: 100, slot: "session-card-action-bar", Component: GoalControl },
       { pluginId: "goal", priority: 100, slot: "sidebar-folder-section", Component: FolderGoalsSection },
-      { pluginId: "goal", priority: 100, slot: "shell-overlay-route", path: "/folder/:encodedCwd/goals", Component: GoalsBoardClaim },
-      { pluginId: "goal", priority: 100, slot: "shell-overlay-route", path: "/folder/:encodedCwd/goals/:goalId", Component: GoalDetailClaim },
+      { pluginId: "goal", priority: 100, slot: "shell-overlay-route", path: "/folder/:encodedCwd/goals", depth: 2, parentPath: "/folder/:encodedCwd", Component: GoalsBoardClaim },
+      { pluginId: "goal", priority: 100, slot: "shell-overlay-route", path: "/folder/:encodedCwd/goals/:goalId", depth: 2, parentPath: "/folder/:encodedCwd/goals", Component: GoalDetailClaim },
       { pluginId: "goal", priority: 100, slot: "settings-section", tab: "general", Component: GoalPluginSettings },
     ],
     catalog: goal_catalog,
@@ -315,7 +321,9 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
             {
                 "slot": "shell-overlay-route",
                 "component": "KbSettingsClaim",
-                "path": "/folder/:encodedCwd/kb"
+                "path": "/folder/:encodedCwd/kb",
+                "depth": 2,
+                "parentPath": "/folder/:encodedCwd"
             }
         ],
         "client": "./src/client/index.tsx",
@@ -325,7 +333,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     claims: [
       { pluginId: "kb", priority: 100, slot: "sidebar-folder-section", Component: FolderKbSection },
       { pluginId: "kb", priority: 100, slot: "worktree-card-section", Component: FolderKbSection },
-      { pluginId: "kb", priority: 100, slot: "shell-overlay-route", path: "/folder/:encodedCwd/kb", Component: KbSettingsClaim },
+      { pluginId: "kb", priority: 100, slot: "shell-overlay-route", path: "/folder/:encodedCwd/kb", depth: 2, parentPath: "/folder/:encodedCwd", Component: KbSettingsClaim },
     ],
     catalog: kb_catalog,
   },
@@ -364,7 +372,9 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
                 "slot": "shell-overlay-route",
                 "component": "SubagentPopoutClaim",
                 "path": "/session/:sessionId/subagent/:agentId",
-                "sessionParam": "sessionId"
+                "sessionParam": "sessionId",
+                "depth": 2,
+                "parentPath": "/session/:sessionId"
             }
         ],
         "client": "./src/client/index.tsx",
@@ -379,7 +389,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     },
     claims: [
       { pluginId: "subagents", priority: 100, slot: "settings-section", tab: "general", Component: SubagentsSettings },
-      { pluginId: "subagents", priority: 100, slot: "shell-overlay-route", path: "/session/:sessionId/subagent/:agentId", sessionParam: "sessionId", Component: SubagentPopoutClaim },
+      { pluginId: "subagents", priority: 100, slot: "shell-overlay-route", path: "/session/:sessionId/subagent/:agentId", sessionParam: "sessionId", depth: 2, parentPath: "/session/:sessionId", Component: SubagentPopoutClaim },
     ],
     catalog: subagents_catalog,
   },
@@ -406,6 +416,31 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     ],
     catalog: flows_anthropic_bridge_catalog,
   },
+  {
+    manifest: {
+        "id": "demo",
+        "displayName": "Demo Plugin (fixture)",
+        "priority": 1000,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "DemoSettings",
+                "tab": "general"
+            },
+            {
+                "slot": "tool-renderer",
+                "component": "DemoToolRenderer",
+                "toolName": "DashboardDemo"
+            }
+        ],
+        "client": "./src/client.tsx",
+        "fixture": true
+    },
+    claims: [
+      { pluginId: "demo", priority: 1000, slot: "settings-section", tab: "general", Component: DemoSettings },
+      { pluginId: "demo", priority: 1000, slot: "tool-renderer", toolName: "DashboardDemo", Component: DemoToolRenderer },
+    ],
+  },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "4544ec8f44947cd7f82b48f8233d8a77936cb45a8198b2ca1181c221ca0ae5cc";
+export const PLUGIN_REGISTRY_HASH = "82028d29761278a451f8dae19d1bbeff96a9db20e7d5d1f1487df07756ac2f0e";

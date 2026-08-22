@@ -1,7 +1,7 @@
 /**
  * Extension ↔ Server WebSocket protocol messages.
  */
-import type { CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionSource, TurnUsage } from "./types.js";
+import type { AutoNamerPersistedState, CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionSource, TurnUsage } from "./types.js";
 
 // Notify level lives in types.ts (the session record retains a notify log);
 // re-exported here so protocol consumers import it from one place.
@@ -399,6 +399,56 @@ export interface AutoNameErrorMessage {
 }
 
 /**
+ * The outcome of ONE auto-naming attempt. `starved` means the model could not
+ * emit a title under the output cap (truncated stream) — distinct from
+ * `waiting`, where a well-behaved model reported no nameable topic yet, and
+ * from `retrying`, a transient failure. Conflating them destroys the
+ * diagnostic value of all three. See change: fix-auto-naming-reasoning-model.
+ */
+export type AutoNameOutcome =
+  | "applied"
+  | "waiting"
+  | "starved"
+  | "skipped-prefilter"
+  | "locked-out"
+  | "disabled"
+  | "already-named"
+  | "not-ready"
+  | "retrying"
+  | "stopped";
+
+/**
+ * Bridge → server: the outcome of one auto-naming attempt. DEDUPLICATED by the
+ * bridge — sent only when the outcome or its reason differs from the last one
+ * sent for that session, because terminal states (`already-named`,
+ * `locked-out`, `disabled`) otherwise recur on every terminal turn forever.
+ * The server retains the last one per session for the diagnostics surface.
+ * See change: fix-auto-naming-reasoning-model (design D9).
+ */
+export interface AutoNameOutcomeMessage {
+  type: "auto_name_outcome";
+  sessionId: string;
+  outcome: AutoNameOutcome;
+  reason: string;
+  modelRef?: string;
+  at: number;
+}
+
+/**
+ * Bridge → server: the auto-namer's durable state set, persisted into the
+ * session's `.meta.json` so a permanent stop survives a PROCESS restart, not
+ * only an extension reload. Without it a cold start re-spends a full attempt
+ * budget and re-emits the error, so "permanent" would not be permanent.
+ * See change: fix-auto-naming-reasoning-model (design D7).
+ */
+export interface AutoNameStateMessage {
+  type: "auto_name_state";
+  sessionId: string;
+  state: AutoNamerPersistedState;
+}
+
+
+/**
  * Bridge -> server: the pi-coding-agent version of the process this bridge
  * runs inside, read via `createRequire` from pi's own tree (ground truth for
  * the session). Sent at register and whenever the polled value changes
@@ -735,6 +785,8 @@ export type ExtensionToServerMessage =
   | QueueUpdateToServerMessage
   | GitCommitDraftResultMessage
   | AutoNameErrorMessage
+  | AutoNameOutcomeMessage
+  | AutoNameStateMessage
   | PromptReceivedToServerMessage
   | InboundDropReportMessage
   | BridgeDiagnosticMessage
@@ -1159,10 +1211,38 @@ export interface PreferencesUpdateExtensionMessage {
   autoNameSessions: boolean;
 }
 
+/**
+ * Server → bridge: the auto-namer stop state persisted in the session's
+ * `.meta.json`, pushed on register so a permanent stop survives a PROCESS
+ * restart and not merely an extension reload.
+ *
+ * Carries the STOP state only — never `nameSource` / `hasAutoName`. Restoring
+ * provenance would also change the behaviour of the separate auto→`user`
+ * relabel bug, which has a different root cause and is tracked on its own.
+ * See change: fix-auto-naming-reasoning-model (design D7, D8b).
+ */
+export interface AutoNameStateRestoreMessage {
+  type: "auto_name_state_restore";
+  /**
+   * STOP fields only. Typed as the projection rather than the full state so
+   * the wire contract matches the documented one: a type-only `Omit` on the
+   * sender would still ship whatever extra properties the object carries.
+   */
+  state: AutoNamerStopState;
+}
+
+/** The restore-only projection: everything describing the STOP, no provenance. */
+export type AutoNamerStopState = Pick<
+  AutoNamerPersistedState,
+  "hardStopped" | "errorEmitted" | "attemptsUsed" | "starvedCount" | "waitingCount"
+  | "sawStarved" | "stoppedModelRef" | "stopCause" | "stoppedReason"
+>;
+
 export type ServerToExtensionMessage =
   | ProvisionalAcceptedMessage
   | ProvisionalRejectedMessage
   | TranscriptRequestMessage
+  | AutoNameStateRestoreMessage
   | SendPromptToExtensionMessage
   | AbortToExtensionMessage
   | ExtensionUiResponseMessage

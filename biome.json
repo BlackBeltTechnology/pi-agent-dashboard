@@ -98,6 +98,7 @@
     {
       "includes": [
         "**/vitest.config.ts",
+        "**/vitest.*.config.ts",
         "**/vite.config.ts",
         "**/vite.*.config.ts",
         "**/forge.config.ts",

@@ -32,30 +32,31 @@ import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
 import { useFxVisibility } from "../../hooks/useFxVisibility.js";
 import type { InflightBashTool } from "../../hooks/useInflightBashTools.js";
 import { useMobile } from "../../hooks/useMobile.js";
-import { formatRelativeTime, formatTokens } from "../../lib/util/format.js";
 import { refreshGitStatus, setCachedGitStatus, useGitStatus } from "../../lib/git/git-status-cache.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { useOpenSpecConfig } from "../../lib/openspec/openspec-config-api.js";
 import { selectBadgeTimestamp } from "../../lib/session/session-card-time.js";
 import { getSessionDisplayName } from "../../lib/session/session-display-name.js";
-import { useCommitDialog } from "../worktree/CommitDialog.js";
-import { ContextUsageBar } from "./ContextUsageBar.js";
-import { CwdGonePill } from "../folder/CwdGonePill.js";
+import { inferPlatform, pathKey } from "../../lib/session/session-grouping.js";
+import { formatRelativeTime, formatTokens } from "../../lib/util/format.js";
 // flows-plugin components (FlowActivityBadge, SessionFlowActions) are
 // rendered exclusively via plugin slot consumers (SessionCardBadgeSlot /
 // SessionCardActionBarSlot) per change pluginize-flows-via-registry.
 import { CollapseSummary } from "../chat/collapse-summary.js";
-import { GitDirtyPill } from "../worktree/GitDirtyPill.js";
-import { InlineRenameInput } from "../primitives/InlineRenameInput.js";
+import { CwdGonePill } from "../folder/CwdGonePill.js";
 import { OpenSpecActivityBadge } from "../openspec/OpenSpecActivityBadge.js";
+import { SessionOpenSpecActions } from "../openspec/SessionOpenSpecActions.js";
+import { InlineRenameInput } from "../primitives/InlineRenameInput.js";
+import { TagStrip } from "../tags/TagStrip.js";
 import { type ProcessEntry, ProcessList } from "../terminal/ProcessList.js";
+import { useCommitDialog } from "../worktree/CommitDialog.js";
+import { GitDirtyPill } from "../worktree/GitDirtyPill.js";
+import { WorktreeActionsMenu } from "../worktree/WorktreeActionsMenu.js";
+import { ContextUsageBar } from "./ContextUsageBar.js";
 import { formatElapsed, SessionActivityBar, truncateCommand } from "./SessionActivityBar.js";
 import type { ContextUsageInfo } from "./SessionList.js";
-import { SessionOpenSpecActions } from "../openspec/SessionOpenSpecActions.js";
 import { SessionSubcard } from "./SessionSubcard.js";
 import { useSessionCardDragHandle } from "./SortableSessionCard.js";
-import { TagStrip } from "../tags/TagStrip.js";
-import { WorktreeActionsMenu } from "../worktree/WorktreeActionsMenu.js";
 
 /**
  * The card's single activity slot. Precedence:
@@ -269,7 +270,17 @@ export function GroupGitInfo({ sessions, cwd, folderBranch, onBranchClick, folde
   useEffect(() => {
     if (seededStatus) setCachedGitStatus(cwd, seededStatus);
   }, [cwd, seededStatus]);
-  const session = sessions.find((s) => s.gitBranch);
+  // Only a session ROOTED AT this folder can report this folder's HEAD. A
+  // worktree session folded into its parent's group via `gitWorktree.mainPath`
+  // describes a different checkout, and `maybeRekeyOrder` puts it at position 0
+  // — so a positional `find` leaks its branch into the parent folder header.
+  // Eligibility is cwd identity under the shared `pathKey` canonicalization,
+  // which keeps the PINNED worktree folder correct (there the session's cwd IS
+  // the folder cwd). The whole git-identity tuple comes from this ONE session.
+  // See change: fix-folder-header-worktree-branch-leak.
+  const platform = inferPlatform([cwd, ...sessions.map((s) => s.cwd)]);
+  const folderKey = pathKey(cwd, platform);
+  const session = sessions.find((s) => s.gitBranch && pathKey(s.cwd, platform) === folderKey);
   const cached = branchCache.get(cwd);
   const [fetchedBranch, setFetchedBranch] = useState<string | null>(cached?.branch ?? null);
   const [noGitRepo, setNoGitRepo] = useState(cached?.noGit ?? false);

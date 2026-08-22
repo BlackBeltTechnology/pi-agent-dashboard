@@ -15,10 +15,10 @@ import type { FileEntry, MissingToolError, PiSessionInfo } from "@blackbelt-tech
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { filterHiddenCommands } from "./bridge-context.js";
 import { draftCommitMessage } from "./commit-draft.js";
+import { errText, reportRefresh } from "./model-refresh.js";
 import { killProcessByPgid } from "./process-scanner.js";
 import { expandPromptTemplateFromDisk, loadPromptTemplate } from "./prompt-expander.js";
 import { buildProviderCatalogue, toModelInfo } from "./provider-register.js";
-import { errText, reportRefresh } from "./model-refresh.js";
 import { filterByEnabledModels } from "./session-sync.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 
@@ -196,6 +196,19 @@ export function searchFiles(cwd: string, query: string, opts?: { regex?: boolean
   return candidates.slice(0, MAX_RESULTS).map((c) => ({ path: c.path, isDirectory: c.isDirectory }));
 }
 
+/**
+ * Outcome of a bridge-side `/reload` attempt.
+ *
+ * `ok: false` carries the operator-facing reason so the terminal
+ * `command_feedback` says WHY nothing reloaded instead of claiming success.
+ * See change: fix-out-of-band-reload.
+ */
+export type ReloadOutcome = { ok: true } | { ok: false; reason: string };
+
+/** Reason emitted when the bridge has no reload path at all. */
+export const NO_RELOAD_PATH_REASON =
+  "No reload path for this session — a terminal-hosted pi session must run /__dashboard_reload once in its TUI to enable dashboard reloads.";
+
 /** Parsed result from parseSendPrompt */
 export type ParsedPrompt =
   | { type: "bash"; command: string; excludeFromContext: boolean }
@@ -353,8 +366,24 @@ export function createCommandHandler(
     }) => void;
     /** Trigger context compaction */
     compact?: (options: { customInstructions?: string }) => void;
-    /** Trigger session reload (extensions, settings, skills, etc.) */
-    reload?: () => void;
+    /**
+     * Trigger session reload (extensions, settings, skills, etc.).
+     *
+     * Returns whether a reload ACTUALLY ran. The bridge only has a reload
+     * function when a human once typed `/__dashboard_reload` in pi's TUI
+     * (`ExtensionContext` has no `reload`; only `ExtensionCommandContext`
+     * does), and even a captured one is single-use per process — its runner
+     * is invalidated by the first reload, so a second call throws
+     * *synchronously*. "Present" therefore does not imply "usable", which is
+     * why this reports an outcome instead of returning void and letting the
+     * caller emit an unconditional `completed`.
+     *
+     * ASYNC by contract: `ctx.reload()` returns a promise, and a rejection
+     * that lands after we have already emitted `completed` is the same false
+     * success this change exists to remove. The handler awaits it.
+     * See change: fix-out-of-band-reload (design.md D5).
+     */
+    reload?: () => Promise<ReloadOutcome>;
     /** Spawn a new session in the same cwd */
     spawnNew?: () => void;
     /** Switch model via pi.setModel() */
@@ -512,8 +541,23 @@ export function createCommandHandler(
           }
 
           if (parsed.type === "reload") {
+            // Emit the REAL outcome. The previous unconditional `completed`
+            // reported success for every reload that silently no-op'd on a
+            // session with no captured reload function — which is every
+            // dashboard-spawned session that was never touched in a TUI.
+            // See change: fix-out-of-band-reload.
+            let outcome: ReloadOutcome = { ok: false, reason: NO_RELOAD_PATH_REASON };
             if (options?.reload) {
-              options.reload();
+              // Defence in depth: the bridge already converts a throw into an
+              // outcome, but a stale captured `ctx.reload` throws
+              // SYNCHRONOUSLY out of `assertActive()`, and any caller wiring a
+              // different `reload` must not be able to take the turn down.
+              try {
+                outcome = await options.reload();
+              } catch (err: any) {
+                const reason = err instanceof Error ? err.message : String(err);
+                outcome = { ok: false, reason: `Reload failed: ${reason}` };
+              }
             }
             options?.eventSink?.({
               type: "event_forward",
@@ -521,7 +565,9 @@ export function createCommandHandler(
               event: {
                 eventType: "command_feedback",
                 timestamp: Date.now(),
-                data: { command: "/reload", status: "completed" },
+                data: outcome.ok
+                  ? { command: "/reload", status: "completed" }
+                  : { command: "/reload", status: "error", message: outcome.reason },
               },
             });
             return undefined;

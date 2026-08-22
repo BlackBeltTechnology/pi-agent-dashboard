@@ -104,6 +104,21 @@ describe("ToolBurstGroup", () => {
     expect(container.querySelector('[data-testid="tool-burst-failed-badge"]')!.textContent).toContain("1 failed");
   });
 
+  // #F4 (repair-tool-error-surfaces) — this badge is one of the five single-line
+  // error surfaces: the whole element takes the severity accent, no chrome/content
+  // split, and no raw red literal may return.
+  it("#F4 the failed badge sources its colour from the severity tokens", () => {
+    const { container } = renderBurst([
+      tool({ toolName: "read", toolStatus: "error", args: { path: "/x" } }),
+      tool({ toolName: "grep" }),
+    ]);
+    const badge = container.querySelector('[data-testid="tool-burst-failed-badge"]') as HTMLElement;
+    expect(badge.className).toContain("bg-[var(--severity-error-bg)]");
+    expect(badge.className).toContain("text-[var(--severity-error-fg)]");
+    expect(badge.className).toContain("border-[var(--severity-error-border)]");
+    expect(badge.className).not.toMatch(/\bred-\d{2,3}\b/);
+  });
+
   it("renders absorbed thinking as a ThinkingBlock when reasoning is on and expanded", () => {
     const think: ChatMessage = {
       id: "th-1",

@@ -43,6 +43,11 @@ import { ensureLocalToken, verifyLocalToken } from "./auth/local-token.js";
 import { createNetworkGuard, isBypassedHost, isGenuinelyLocal } from "./auth/localhost-guard.js";
 import { mintSpawnToken } from "./auth/spawn-token.js";
 import { extractTicket, routeScopeForUrl, type WsRouteScope, WsTicketStore } from "./auth/ws-ticket.js";
+import {
+  buildDispatchReloadContext,
+  type ReloadHostContext,
+  respawnForRuntimeSwap,
+} from "./browser-handlers/session-action-handler.js";
 import { createCommitDraftRelay } from "./commit-draft-relay.js";
 import { writeConfigPartial } from "./config-api.js";
 import { liveCorsAllowedOrigins, liveTrustedNetworks } from "./config-snapshot.js";
@@ -126,6 +131,10 @@ import { registerResourceActivationRoutes } from "./routes/resource-activation-r
 import { registerSessionRoutes } from "./routes/session-routes.js";
 import { registerSystemRoutes } from "./routes/system-routes.js";
 import { registerToolRoutes } from "./routes/tool-routes.js";
+import {
+  dispatchReload as dispatchReloadRaw,
+  reloadTargetSessionIds,
+} from "./rpc-keeper/dispatch-reload.js";
 import { deriveEndedAt } from "./session/derive-ended-at.js";
 import { createMemorySessionManager, type SessionManager } from "./session/memory-session-manager.js";
 import { applyReattachPolicy } from "./session/reattach-placement.js";
@@ -199,6 +208,9 @@ export interface ServerConfig {
   /** Override the event-store per-event data byte ceiling. Default DEFAULT_MAX_EVENT_DATA_SIZE. */
   maxEventDataSize?: number;
   maxWsBufferBytes?: number;
+  /** Max events replayed on a FULL-stream browser subscribe (0 = unlimited).
+   *  See change: lazy-load-session-history. */
+  maxReplayEvents?: number;
   /** OpenSpec polling config (interval, concurrency, change detection, jitter) */
   openspec?: import("@blackbelt-technology/pi-dashboard-shared/config.js").OpenSpecPollConfig;
   /** Session behavior — hydration worker offload toggle.
@@ -814,7 +826,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Live-server-preview manager (loopback dev-server allowlist + proxy).
   const liveServerManager = createLiveServerManager(preferencesStore);
 
-  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool);
+  const browserGateway = createBrowserGateway(sessionManager, eventStore, piGateway, undefined, pendingForkRegistry, sessionOrderManager, preferencesStore, directoryService, terminalManager, pendingDashboardSpawns, config.maxWsBufferBytes, pendingAttachRegistry, pendingInitialPromptRegistry, pendingResumeIntents, pendingClientCorrelations, pendingWorktreeBaseRegistry, metaPersistence, fitWorkerPool, config.maxReplayEvents);
 
   // Editor-pane changed-on-disk watch: the browser declares its open files via
   // `watch_files`; the server watches exactly those and pushes `file_changed`.
@@ -1268,6 +1280,34 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     { localToken },
   );
 
+  // ── Reload fan-out plumbing ───────────────────────────────────────────
+  // Every automated reload trigger goes through the SAME ladder as the
+  // reload button. Previously each hand-rolled a `sendToSession` loop over
+  // `getConnectedSessionIds()`, which (a) bypassed the server-side
+  // interception entirely and landed on the bridge's no-op reload, and
+  // (b) could never target a headless session whose bridge WS had died.
+  // See change: fix-out-of-band-reload.
+  const reloadCtx = (): ReloadHostContext => ({
+    sessionManager,
+    eventStore,
+    piGateway,
+    headlessPidRegistry: browserGateway.headlessPidRegistry,
+    broadcast: (msg) => browserGateway.broadcast(msg),
+  });
+  const dispatchReload = (sid: string) =>
+    dispatchReloadRaw(sid, buildDispatchReloadContext(reloadCtx()));
+  // No `status`-based filter here on purpose. Every id in this set is either
+  // bridge-connected or registry-known, and BOTH are reloadable regardless of
+  // what the session map says: a headless session whose bridge died is stamped
+  // `ended` while its pi is alive, and a connected session can be forwarded to
+  // over its live socket. Filtering on `status !== "ended"` dropped exactly the
+  // sessions this change exists to reach.
+  const reloadFanOutTargets = (): string[] =>
+    reloadTargetSessionIds(
+      piGateway.getConnectedSessionIds(),
+      browserGateway.headlessPidRegistry,
+    );
+
   registerSessionRoutes(fastify, { sessionManager, eventStore, networkGuard });
   // pi retry policy editor. Reload fan-out dispatches `/reload` to every
   // connected session so a saved policy applies without a manual restart
@@ -1276,9 +1316,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   registerPiRetryRoutes(fastify, {
     networkGuard,
     reloadConnectedSessions: () => {
-      const ids = piGateway.getConnectedSessionIds();
+      // Fire-and-forget by contract (the route answers with the target count,
+      // not per-session outcomes), but the rejection is OWNED: `dispatchReload`
+      // reports failures as terminal `command_feedback`, so a throw here is a
+      // bug and must be logged rather than becoming an unhandled rejection.
+      const ids = reloadFanOutTargets();
       for (const id of ids) {
-        piGateway.sendToSession(id, { type: "send_prompt", sessionId: id, text: "/reload" });
+        dispatchReload(id).catch((err) => {
+          console.error(`[dashboard] retry-policy reload fan-out failed for ${id}:`, err);
+        });
       }
       return ids.length;
     },
@@ -1573,43 +1619,45 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
   // Reload all active sessions after a successful package operation
   packageManagerWrapper.setReloadSessions(async () => {
-    const connectedIds = piGateway.getConnectedSessionIds();
+    // Count only what actually reloaded: `dispatchReload` resolves "refused"
+    // for a busy session and "error" when no path existed, and reporting those
+    // as reloads is the same class of lie this change removes.
     let count = 0;
-    for (const sid of connectedIds) {
-      const session = sessionManager.get(sid);
-      if (session && session.status !== "ended") {
-        piGateway.sendToSession(sid, {
-          type: "send_prompt",
-          sessionId: sid,
-          text: "/reload",
-        });
-        count++;
-      }
+    for (const sid of reloadFanOutTargets()) {
+      const outcome = await dispatchReload(sid);
+      if (outcome === "respawn" || outcome === "forwarded") count++;
     }
     return count;
   });
 
   registerPackageRoutes(fastify, { packageManagerWrapper });
-  registerResourceActivationRoutes(fastify, { networkGuard, piGateway, sessionManager });
+  registerResourceActivationRoutes(fastify, {
+    networkGuard,
+    piGateway,
+    sessionManager,
+    dispatchReload,
+    registrySessions: () =>
+      browserGateway.headlessPidRegistry
+        .listSessions()
+        .map((e) => ({ sessionId: e.sessionId, cwd: e.cwd })),
+  });
   registerRecommendedRoutes(fastify, { packageManagerWrapper });
 
   // Pi core version check + update (complements the extension package manager).
   const piCoreChecker = new PiCoreChecker();
   const piCoreUpdater = new PiCoreUpdater({
     packageManagerWrapper,
+    // pi-core is a BINARY swap, not a resource reload. Route to respawn
+    // directly rather than through `dispatchReload`, whose busy check would
+    // refuse a streaming session — a swap cannot be deferred that way, the
+    // binary under it has already changed. Targets every session the registry
+    // knows is headless, including connected and streaming ones.
+    // See change: fix-out-of-band-reload (design.md D6).
     onAllComplete: async () => {
-      const connectedIds = piGateway.getConnectedSessionIds();
       let count = 0;
-      for (const sid of connectedIds) {
-        const session = sessionManager.get(sid);
-        if (session && session.status !== "ended") {
-          piGateway.sendToSession(sid, {
-            type: "send_prompt",
-            sessionId: sid,
-            text: "/reload",
-          });
-          count++;
-        }
+      for (const entry of browserGateway.headlessPidRegistry.listSessions()) {
+        await respawnForRuntimeSwap(entry.sessionId, reloadCtx());
+        count++;
       }
       return count;
     },

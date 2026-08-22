@@ -137,6 +137,18 @@ jobs:
           node-version: '22'
           cache: pnpm
 
+      - name: Export the macOS deployment target (before any native compile)
+        # MUST run BEFORE `pnpm install`. A macOS native module compiled from
+        # source during install would otherwise inherit the RUNNER's default
+        # deployment target, and the post-build otool check inspects only the
+        # main Electron binary, so that module's floor drift would go
+        # undetected. Setting it only on the make step (as this workflow did)
+        # left that window open.
+        # See change: upgrade-electron-runtime.
+        if: matrix.platform == 'darwin'
+        shell: bash
+        run: echo "MACOSX_DEPLOYMENT_TARGET=12.0" >> "$GITHUB_ENV"
+
       - name: Install dependencies
         run: pnpm install --frozen-lockfile ${{ matrix.platform == 'linux' && matrix.arch == 'arm64' && '--ignore-scripts' || '' }}
         timeout-minutes: 15
@@ -402,9 +414,14 @@ jobs:
       - name: Make Electron distributables (macOS)
         if: matrix.platform == 'darwin'
         # MACOSX_DEPLOYMENT_TARGET pins Mach-O minos for every binary the build
-        # produces. Pairs with extendInfo.LSMinimumSystemVersion in forge.config.
+        # itself COMPILES (it does NOT set the Electron prebuilt's own minos).
+        # Pairs with extendInfo.LSMinimumSystemVersion in forge.config.
+        # Also exported job-wide before `pnpm install` (see the step above) so
+        # install-time native compiles get it too; kept here as well so the step
+        # is self-documenting and correct even if that export is ever moved.
+        # See change: upgrade-electron-runtime.
         env:
-          MACOSX_DEPLOYMENT_TARGET: "10.15"
+          MACOSX_DEPLOYMENT_TARGET: "12.0"
         run: |
           set -euo pipefail
           cd packages/electron
@@ -451,11 +468,114 @@ jobs:
             -c.linux.artifactName='PI-Dashboard-${version}-${{ matrix.arch }}.${ext}' \
             --publish never
 
-      - name: Verify macOS deployment target floor (10.15)
+      - name: Gate the macOS update stream on the minimum supported OS
+        # Raising the macOS floor strands already-shipped 10.15/11 clients. Left
+        # ungated they still read latest-mac.yml, download the new artifact,
+        # hand it to Squirrel.Mac, launchd refuses it, and the recurring
+        # electron-auto-update check retries FOREVER — strictly worse than
+        # doing nothing. electron-updater's checkIfUpdateSupported reads
+        # updateInfo.minimumSystemVersion to prevent exactly that.
+        #
+        # Injected post-build rather than set in electron-builder.yml: that
+        # config key never reaches update metadata (app-builder-lib's
+        # update-info builder does not write it, and its only consumer,
+        # macPackager, is skipped under --prepackaged). See design.md Decision 5.
+        #
+        # macOS ONLY — the gate has no platform guard, so the same field in
+        # latest-linux.yml / latest.yml would compare a Linux kernel or a
+        # Windows version against the Darwin value and deny updates to EVERY
+        # client there. The script itself refuses any other filename.
+        # See change: upgrade-electron-runtime.
+        if: matrix.platform == 'darwin'
+        shell: bash
+        run: |
+          set -euo pipefail
+          MAC_YML=$(find packages/electron/out/make -name 'latest-mac.yml' | head -1)
+          if [ -z "$MAC_YML" ]; then
+            echo "::error::No latest-mac.yml emitted — cannot gate the update stream"
+            find packages/electron/out/make -maxdepth 2 -type f | head -30 || true
+            exit 1
+          fi
+          node packages/electron/scripts/inject-update-min-system-version.mjs "$MAC_YML"
+          echo "--- $MAC_YML ---"
+          cat "$MAC_YML"
+
+      - name: Smoke the AppImage on Ubuntu 22.04 (glibc floor)
+        # test-plan X4. Electron majors have moved the glibc floor before, and
+        # the existing Linux smoke runs on the runner's CURRENT Ubuntu image —
+        # so a raised floor would pass CI silently and only break users on
+        # older distros. Ubuntu 22.04 / glibc 2.35 is the documented floor
+        # (test-plan clarification G3), so the OLDER IMAGE IS THE ENTIRE POINT
+        # of this step; running it on the default runner proves nothing.
+        #
+        # x64 only: the arm64 leg cross-builds and the runner cannot exec an
+        # arm64 AppImage. Runs the AppImage EXTRACTED (`--appimage-extract`)
+        # because FUSE is unavailable in a container. Asserts the dynamic
+        # loader resolves every symbol — an unresolved GLIBC_2.3x version
+        # reference is exactly the failure this exists to catch.
+        # See change: upgrade-electron-runtime.
+        if: matrix.platform == 'linux' && matrix.arch == 'x64'
+        shell: bash
+        run: |
+          set -euo pipefail
+          APPIMAGE=$(find packages/electron/out/make -name '*.AppImage' | head -1)
+          if [ -z "$APPIMAGE" ]; then
+            echo "::error::No AppImage produced — cannot probe the glibc floor"
+            exit 1
+          fi
+          echo "Probing $APPIMAGE against ubuntu:22.04 (glibc 2.35)"
+          docker run --rm \
+            -v "$PWD/$(dirname "$APPIMAGE")":/art:ro \
+            -e APPIMAGE_NAME="$(basename "$APPIMAGE")" \
+            ubuntu:22.04 bash -euo pipefail -c '
+              apt-get update -qq
+              apt-get install -y -qq --no-install-recommends \
+                libgtk-3-0 libnss3 libasound2 libgbm1 libxss1 libxtst6 \
+                libsecret-1-0 xvfb ca-certificates curl >/dev/null
+              ldd --version | head -1
+              cd /tmp
+              cp "/art/$APPIMAGE_NAME" ./app.AppImage
+              chmod +x ./app.AppImage
+              # FUSE is unavailable in the container; extract instead of mounting.
+              ./app.AppImage --appimage-extract >/dev/null
+              BIN=squashfs-root/pi-dashboard
+              test -x "$BIN"
+              # The decisive assertion: the 22.04 dynamic loader must resolve
+              # every symbol the binary requires. A raised upstream glibc floor
+              # shows up here as "version `GLIBC_2.3x` not found".
+              if ! ldd "$BIN" > /tmp/ldd.txt 2>&1; then
+                echo "::error::ldd failed on ubuntu:22.04"; cat /tmp/ldd.txt; exit 1
+              fi
+              if grep -qE "not found" /tmp/ldd.txt; then
+                echo "::error::Electron requires symbols absent on Ubuntu 22.04 (glibc 2.35) — the upstream glibc floor rose above the documented Linux floor."
+                grep -E "not found" /tmp/ldd.txt
+                exit 1
+              fi
+              echo "All shared-object dependencies resolve on glibc 2.35."
+              # Boot proof: reach a healthy /api/health under xvfb.
+              export HOME=/tmp/pi-home
+              mkdir -p "$HOME/.pi/dashboard"
+              touch "$HOME/.pi/dashboard/first-run-done"
+              xvfb-run -a "$BIN" --no-sandbox > /tmp/electron.log 2>&1 &
+              for i in $(seq 1 90); do
+                if curl -fsS -o /dev/null http://localhost:8000/api/health 2>/dev/null; then
+                  echo "Reached /api/health on Ubuntu 22.04 after ${i}s"; exit 0
+                fi
+                sleep 1
+              done
+              echo "::error::AppImage did not reach /api/health on Ubuntu 22.04 within 90s"
+              tail -80 /tmp/electron.log || true
+              exit 1
+            '
+
+      - name: Verify macOS deployment target floor (12.0)
         # Defensive check: extract LSMinimumSystemVersion from the produced
         # Info.plist and otool the inner Mach-O minos. Fail the job on any
         # drift so a future runner-image upgrade cannot silently raise the
-        # floor without anyone noticing. See change: add-darwin-x64-build (6b).
+        # floor without anyone noticing.
+        # The otool leg is delegated to scripts/verify-macos-floor.mjs so the
+        # extractor + predicate are unit-testable (they were inline shell, and
+        # therefore untested, before). See change: upgrade-electron-runtime.
         if: matrix.platform == 'darwin'
         shell: bash
         run: |
@@ -487,63 +607,32 @@ jobs:
           INFO_PLIST=$(find "$APP" -path '*/Contents/Info.plist' -maxdepth 2 2>/dev/null | head -1)
           MIN_OS=$(plutil -extract LSMinimumSystemVersion raw "$INFO_PLIST" 2>/dev/null || echo "missing")
           echo "  Info.plist ($INFO_PLIST) LSMinimumSystemVersion = $MIN_OS"
-          if [ "$MIN_OS" != "10.15" ]; then
-            echo "::error::LSMinimumSystemVersion is '$MIN_OS', expected '10.15'. Pin via packagerConfig.extendInfo in packages/electron/forge.config.ts. See change: add-darwin-x64-build."
+          if [ "$MIN_OS" != "12.0" ]; then
+            echo "::error::LSMinimumSystemVersion is '$MIN_OS', expected '12.0'. Pin via packagerConfig.extendInfo in packages/electron/forge.config.ts. See change: upgrade-electron-runtime."
             hdiutil detach "$MOUNT_POINT" -quiet || true
             exit 1
           fi
           # 2. Mach-O LC_BUILD_VERSION minos for the main binary.
-          # Per-arch floor: x64 must be 10.x (10.15 target); arm64 must be 11.x
-          # (Apple Silicon hardware launched on Big Sur/11.0 — arm64 binaries
-          # CANNOT declare minos < 11). Anything higher than the arch's floor
-          # major means the runner SDK leaked into the build.
+          # Both arches expect the SAME major now: the old x64→10 / arm64→11
+          # asymmetry was a Catalina artefact (arm64 slices cannot declare
+          # below 11), and at a 12.0 floor the two converge. The comparison is
+          # EQUALITY, not the previous upward-only `-gt`: below-floor was
+          # unreachable at 10.15 but is reachable at 12.0.
+          # The extractor is multi-slice safe (a fat Mach-O emits one
+          # load-command set per arch) and lives in a Node script so it is
+          # covered by L1 tests. It exits 1 only on a real mismatch; an
+          # unextractable or non-numeric minos emits ::warning:: and exits 0.
           BIN=$(find "$APP/Contents/MacOS" -maxdepth 1 -type f 2>/dev/null | head -1)
           if [ -n "$BIN" ] && [ -f "$BIN" ]; then
-            # Capture minos via a state-machine awk that's tolerant of otool's
-            # actual layout (LC_BUILD_VERSION header is followed by cmd /
-            # cmdsize / platform / minos lines, then the next Load command).
-            # Disable pipefail locally because grep may not match if the
-            # binary uses LC_VERSION_MIN_MACOSX (older format) instead of
-            # LC_BUILD_VERSION; we fall through to the legacy probe below.
-            set +o pipefail
-            MINOS=$(otool -l "$BIN" 2>/dev/null | awk '
-              /^Load command/ { in_bv = 0 }
-              /LC_BUILD_VERSION/ { in_bv = 1; next }
-              in_bv && /minos/ { print $2; exit }
-            ')
-            # Fall back to LC_VERSION_MIN_MACOSX (older Mach-Os) if needed.
-            if [ -z "$MINOS" ]; then
-              MINOS=$(otool -l "$BIN" 2>/dev/null | awk '
-                /^Load command/ { in_vm = 0 }
-                /LC_VERSION_MIN_MACOSX/ { in_vm = 1; next }
-                in_vm && /version/ { print $2; exit }
-              ')
-            fi
-            set -o pipefail
-            echo "  Mach-O minos = ${MINOS:-<not-found>}"
-            if [ -z "$MINOS" ]; then
-              echo "::warning::Could not extract minos from $BIN — skipping otool floor check"
-            else
-              MAJOR="${MINOS%%.*}"
-              # Per-arch expected floor major version
-              case "${{ matrix.arch }}" in
-                x64)   EXPECTED_MAJOR=10 ;;
-                arm64) EXPECTED_MAJOR=11 ;;
-                *)     EXPECTED_MAJOR=10 ;;
-              esac
-              if ! [ "$MAJOR" -eq "$MAJOR" ] 2>/dev/null; then
-                echo "::warning::minos major is non-numeric ('$MAJOR') — skipping floor check"
-              elif [ "$MAJOR" -gt "$EXPECTED_MAJOR" ]; then
-                echo "::error::Mach-O minos is '$MINOS' (major=$MAJOR), expected major=$EXPECTED_MAJOR for arch=${{ matrix.arch }}. The runner SDK leaked into the binary. Verify MACOSX_DEPLOYMENT_TARGET is set on the make step. See change: add-darwin-x64-build."
-                hdiutil detach "$MOUNT_POINT" -quiet || true
-                exit 1
-              fi
+            if ! node packages/electron/scripts/verify-macos-floor.mjs "$BIN"; then
+              hdiutil detach "$MOUNT_POINT" -quiet || true
+              exit 1
             fi
           else
             echo "::warning::Main binary not found at $BIN — skipping otool check"
           fi
           hdiutil detach "$MOUNT_POINT" -quiet || true
-          echo "✓ Deployment target floor verified: 10.15"
+          echo "✓ Deployment target floor verified: 12.0"
 
       - name: Launch-smoke the .app
         # Dynamic boot proof: exec the just-built .app's inner Mach-O and
@@ -553,7 +642,7 @@ jobs:
         # Windows/Linux GH runners) provides a real Aqua/WindowServer
         # session. Each leg execs its OWN native arch — macos-14→arm64,
         # macos-15-intel→x64 — so there is no cross-arch exec. Boot-proof,
-        # NOT floor-proof: runner OS (14/15) is above the 10.15 floor; the
+        # NOT floor-proof: runner OS (14/15) is above the 12.0 floor; the
         # static otool minos check above is the (label-only) floor guard.
         # See change: add-macos-electron-launch-smoke.
         if: matrix.platform == 'darwin'
@@ -615,6 +704,17 @@ jobs:
             --prepackaged "out/PI-Dashboard-win32-$arch" `
             --config electron-builder-nsis.json `
             --publish never
+
+      - name: Verify the update-gate field is present and macOS-scoped
+        # Runs LAST, after every platform's metadata exists (the Windows
+        # latest.yml is only written by the NSIS step above). Node, not bash,
+        # so the win32 legs need no shell (eliminate-bash-on-windows-runners).
+        # Asserts BOTH directions: latest-mac.yml must carry the value
+        # (fail-OPEN hazard), latest-linux.yml / latest.yml must not
+        # (fail-CLOSED hazard — checkIfUpdateSupported has no platform guard).
+        # A darwin leg with no latest-mac.yml FAILS rather than passing on an
+        # empty scan. test-plan U1 + U5. See change: upgrade-electron-runtime.
+        run: node packages/electron/scripts/verify-update-gate-scope.mjs packages/electron/out/make ${{ matrix.platform }}
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4

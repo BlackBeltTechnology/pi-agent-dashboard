@@ -49,6 +49,12 @@ export interface BrowserHandlerContext {
    * See change: fit-attachments-for-display (test-plan #E9).
    */
   fitWorkerPool?: import("../attachments/fit-worker-pool.js").FitWorkerPool;
+  /**
+   * Max events replayed on a FULL-stream subscribe (0 / absent = unlimited).
+   * Never applied to a genuine delta.
+   * See change: lazy-load-session-history (D1).
+   */
+  maxReplayEvents?: number;
   directoryService?: DirectoryService;
   terminalManager?: TerminalManager;
   headlessPidRegistry: HeadlessPidRegistry;

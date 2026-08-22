@@ -6,7 +6,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 |------|---------|
 | `FLOWS_HANDOFF_CHECKLIST.md` | (repo root) LLM handoff checklist. Verifies pi-flows + Anthropic-messages bridge + model resolution… → see `FLOWS_HANDOFF_CHECKLIST.md.AGENTS.md` |
 | `architecture-notes/worker-offload-roadmap.md` | Worker offload roadmap. Main-loop CPU + sync-fs work → worker_threads. → see `architecture-notes/worker-offload-roadmap.md.AGENTS.md` |
-| `architecture.md` | Full architecture reference. 3 components: bridge extension, Node server, React client. KB retrieval pipeline (FTS5 BM25 staged rerank). Pi Gateway Transport & Identity section (shipped): unix-socket default, D3 endpoint precedence ladder, per-transport auth, session move, remote transcripts read-only. → see `architecture.md.AGENTS.md` |
+| `architecture.md` | Full architecture reference. 3 components: bridge extension, Node server, React client. KB retrieval pipeline (FTS5 BM25 staged rerank). Pi Gateway Transport & Identity section (shipped): unix-socket default, D3 endpoint precedence ladder, per-transport auth, session move, remote transcripts read-only. Auto Session Naming: `@naming`→`@fast`, adaptive cap 1024→2048, starved/waiting verdicts, 3-attempt budget, `autoNamerState` persistence, `GET /api/auto-name-outcomes`. See change: fix-auto-naming-reasoning-model. → see `architecture.md.AGENTS.md` |
 | `biome.json` | (repo root) Biome 2.5.1 config. formatter off. vcs defaultBranch develop. → see `biome.json.AGENTS.md` |
 | `chat-display-preferences.md` | `DisplayPrefs` gate chat chrome (thinking, tool cards, results, separators, stats bars). → see `chat-display-preferences.md.AGENTS.md` |
 | `chat-gateway-exploration.md` | (repo root) Explore-mode design record. pi ↔ chat platforms (Discord/Slack/Telegram) via generalized… → see `chat-gateway-exploration.md.AGENTS.md` |
@@ -21,7 +21,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `electron-session.md` | Implementation session log. 21 phases. Branding/icons, packaging (NSIS/AppImage), `__dirname`/tsx saga, dead… → see `electron-session.md.AGENTS.md` |
 | `embedding-chat-view.md` | Subpath export `@blackbelt-technology/pi-dashboard-web/chat-embed` mounts live chat in sibling workspace. → see `embedding-chat-view.md.AGENTS.md` |
 | `examples/c4-example.md` | C4-model diagram example. Mermaid fenced blocks: `C4Context`, `C4Container`. → see `examples/c4-example.md.AGENTS.md` |
-| `faq.md` | Recurring how-to + troubleshooting questions. Caveman style. Cross-refs README.md + docs/. → see `faq.md.AGENTS.md` |
+| `faq.md` | Recurring how-to + troubleshooting questions. Caveman style. Cross-refs README.md + docs/. Auto-naming entry: starved vs waiting, budget, stop persistence. See change: fix-auto-naming-reasoning-model. → see `faq.md.AGENTS.md` |
 | `install-invoice-bot-extension.md` | Install `@blackbelt-technology/invoicebot` (local `../pi-invoice-bot`) as global pi extension. → see `install-invoice-bot-extension.md.AGENTS.md` |
 | `installation-windows.md` | Windows 10/11 install guide. 2 paths: Electron Setup.exe NSIS (per-user, bundled Node) + tarball/npm (advanced). Runtime layout `%USERPROFILE%\.pi-dashboard\` + `%USERPROFILE%\.pi\`. |
 | `knip-baseline.json` | (repo root) Knip dead-code baseline. Per-class debt counts, measured 2026-08-13. Debt ceiling, not target. → see `knip-baseline.json.AGENTS.md` |

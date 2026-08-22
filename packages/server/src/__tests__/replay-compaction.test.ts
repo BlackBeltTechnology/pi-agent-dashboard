@@ -2,8 +2,9 @@
  * Unit tests for `compactEventsForReplay` — test-plan scenarios E1–E9, P2, P3.
  * See change: compact-warm-replay-stream.
  */
-import { describe, expect, it } from "vitest";
+
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
 import type { StoredEvent } from "../persistence/memory-event-store.js";
 import { compactEventsForReplay } from "../session/replay-compaction.js";
 import { largeSyntheticWindow, subagentInterleavedWindow } from "./fixtures/replay-streams.js";
@@ -154,5 +155,54 @@ describe("compactEventsForReplay — budget", () => {
     const out = compactEventsForReplay(w);
     expect(out).not.toBe(w);
     expect(w).toEqual(snapshot);
+  });
+});
+
+/**
+ * The caller-supplied supersession boundary — test-plan E23, E24, E25.
+ * See change: lazy-load-session-history (D7).
+ */
+describe("compactEventsForReplay — external supersession boundary", () => {
+  it("E23: omitting the boundary reproduces the pre-change behaviour exactly", () => {
+    const w: StoredEvent[] = [
+      ev("message_start", 1),
+      assistantUpdate(2, "a"),
+      assistantUpdate(3, "ab"),
+      ev("message_end", 4),
+      assistantUpdate(5, "tail"),
+    ];
+    // Same array, boundary derived internally vs passed as today's derived
+    // value: the two MUST be indistinguishable, or every existing caller moved.
+    expect(compactEventsForReplay(w)).toEqual(compactEventsForReplay(w, 3));
+    expect(seqs(compactEventsForReplay(w))).toEqual([1, 4, 5]);
+  });
+
+  it("E24: an external boundary supersedes a slice that holds no message_end of its own", () => {
+    // A GAP SLICE: its own trailing `message_end` lives outside it, in the
+    // already-delivered tail. Derived naively, the boundary would be -1 and
+    // every stale cumulative snapshot would survive to render over a closed
+    // message. Passing `slice.length` supersedes the whole slice.
+    const slice: StoredEvent[] = [
+      assistantUpdate(100, "a"),
+      assistantUpdate(101, "ab"),
+      assistantUpdate(102, "abc"),
+    ];
+    expect(seqs(compactEventsForReplay(slice))).toEqual([100, 101, 102]);
+    expect(compactEventsForReplay(slice, slice.length)).toEqual([]);
+  });
+
+  it("E25: BOTH documented exemptions still hold under an external boundary", () => {
+    const slice: StoredEvent[] = [
+      ev("message_update", 200, { assistantMessageEvent: { type: "thinking_delta" } }),
+      assistantUpdate(201, "dropped"),
+      assistantUpdate(202, "seeds the flushed row"),
+      ev("tool_execution_start", 203),
+      assistantUpdate(204, "also dropped"),
+    ];
+    const out = compactEventsForReplay(slice, slice.length);
+    // The thinking update (client builds `role:"thinking"` rows from these) and
+    // the LAST text-bearing update before the tool start (which seeds
+    // `streamingText` for the `flush-<toolCallId>` row) both survive.
+    expect(seqs(out)).toEqual([200, 202, 203]);
   });
 });

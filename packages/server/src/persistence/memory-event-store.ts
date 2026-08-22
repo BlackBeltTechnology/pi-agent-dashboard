@@ -3,6 +3,10 @@
  * Replaces SQLite-backed event-store.ts.
  */
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import {
+  isBase64DataCarrier,
+  isInlineImageBlock,
+} from "@blackbelt-technology/pi-dashboard-shared/image-block.js";
 
 export interface StoredEvent {
   seq: number;
@@ -14,6 +18,15 @@ export interface EventStore {
   insertEvent(sessionId: string, event: DashboardEvent): number;
   /** Get events for a session starting from minSeq (inclusive) */
   getEvents(sessionId: string, minSeq: number): StoredEvent[];
+  /**
+   * Get events in the INCLUSIVE seq range `[minSeq, maxSeq]`. Resolved by
+   * binary search for both bounds over the seq-sorted, append-only buffer plus
+   * one slice — O(log n + k), deliberately NOT a linear filter: a linear
+   * implementation would cost O(n) per backfill regardless of span, which is
+   * the exact per-scroll cost this API exists to remove.
+   * See change: lazy-load-session-history (D8).
+   */
+  getEventsRange(sessionId: string, minSeq: number, maxSeq: number): StoredEvent[];
   /** Get a single event by sessionId and seq */
   getEvent(sessionId: string, seq: number): DashboardEvent | undefined;
   /**
@@ -45,6 +58,18 @@ export interface EventStore {
    * were shed". See change: collapse-superseded-tool-execution-updates (P1).
    */
   getCollapseProbe(): CollapseProbe;
+  /**
+   * TEST-ONLY instrumentation for the `getEventsRange` sub-linearity bound
+   * (D8): buffer entries examined by the most recent range read. A binary
+   * search over 20000 entries probes ~O(log n); a linear filter probes 20000.
+   * See change: lazy-load-session-history (test-plan #E33).
+   */
+  getRangeProbe(): RangeProbe;
+}
+
+interface RangeProbe {
+  /** Buffer entries examined by the most recent `getEventsRange` bound search. */
+  lastEntriesExamined: number;
 }
 
 export interface TrimStats {
@@ -335,12 +360,49 @@ export const DEFAULT_MAX_STRING_SIZE = 4_000;
  */
 export const DEFAULT_MAX_EVENT_DATA_SIZE = 262_144;
 
-/** True for a base64 image content block (`data` string + sibling `mimeType`). */
-function isImageBlock(obj: object): boolean {
-  return (
-    typeof (obj as Record<string, unknown>).data === "string" &&
-    "mimeType" in obj
-  );
+
+/**
+ * Inline image-block detection (flat pi shape + nested Anthropic `source`
+ * shape) is the canonical `isInlineImageBlock` from
+ * `@blackbelt-technology/pi-dashboard-shared/image-block.js`, shared with the
+ * client reducer so the two sites can never drift.
+ * See change: fix-pasted-image-message-vanishes.
+ */
+
+/**
+ * Chat-message image-bytes rescue: strip the base64 bytes out of every inline
+ * image block in a `data.message` while PRESERVING the message envelope (role,
+ * text blocks, block positions, mime). Runs (only for an over-ceiling event)
+ * BEFORE the generic string pass and the `{__truncated}` fallback. The
+ * whole-event `{__truncated}` placeholder erases `data.message` entirely — for
+ * a user chat message with a pasted screenshot that means the client's
+ * `message_start` handler sees no `message.role` and the row VANISHES from
+ * history (text and all). Reducing the image bytes in place keeps the text +
+ * a positioned image placeholder so the message survives; a downstream
+ * fit/attachment resolution (when available) still back-fills the rendered
+ * thumbnail.
+ *
+ * Returns a NEW event when it changed anything, else the original reference.
+ * See change: fix-pasted-image-message-vanishes.
+ */
+function stripInlineImageBytesFromMessage(event: DashboardEvent): DashboardEvent {
+  const data = event.data as Record<string, unknown> | undefined;
+  if (!data || typeof data !== "object") return event;
+  const message = data.message as Record<string, unknown> | undefined;
+  const content = message?.content;
+  if (!Array.isArray(content) || !content.some(isInlineImageBlock)) return event;
+  const nextContent = content.map((block) => {
+    if (!isInlineImageBlock(block)) return block;
+    const r = block as Record<string, unknown>;
+    // Flat shape: blank the top-level `data`.
+    if (typeof r.data === "string" && r.data.length > 0) {
+      return { ...r, data: "", imageTruncated: true };
+    }
+    // Nested shape: blank `source.data` but keep the wrapper + media_type.
+    const src = r.source as Record<string, unknown>;
+    return { ...r, source: { ...src, data: "" }, imageTruncated: true };
+  });
+  return { ...event, data: { ...data, message: { ...message, content: nextContent } } };
 }
 
 /**
@@ -397,7 +459,7 @@ export function capString(s: string, maxSize: number): string {
 function summarizeAtDepthLimit(obj: unknown, maxSize: number): unknown {
   if (typeof obj === "string") return capString(obj, maxSize);
   if (obj && typeof obj === "object") {
-    if (!Array.isArray(obj) && isImageBlock(obj)) return obj;
+    if (!Array.isArray(obj) && isBase64DataCarrier(obj)) return obj;
     return "[truncated: deep]";
   }
   return obj;
@@ -425,8 +487,12 @@ function truncateStrings(obj: unknown, maxSize: number, depth = 0): unknown {
     let changed = false;
     const result: Record<string, unknown> = {};
     for (const [key, val] of Object.entries(obj)) {
-      // Preserve base64 image data — skip truncation when sibling mimeType exists
-      if (key === "data" && typeof val === "string" && "mimeType" in obj) {
+      // Preserve base64 image data — skip truncation when a sibling mime key
+      // exists, in EITHER shape (flat `mimeType`, nested `source.media_type`).
+      // Detection is the shared `isBase64DataCarrier`, so this pass and the
+      // client cannot drift on what an image block looks like.
+      // See change: fix-pasted-image-message-vanishes.
+      if (key === "data" && typeof val === "string" && isBase64DataCarrier(obj)) {
         result[key] = val;
         continue;
       }
@@ -890,13 +956,30 @@ function createTruncator(maxStringSize: number, maxEventDataSize: number) {
         ? reduceSubagentEvent(event, maxEventDataSize)
         : event;
     }
+    // Rescue a chat message that only busts the per-event ceiling because of
+    // inline image bytes: strip the base64 out of its image blocks (both the
+    // flat pi shape `{data,mimeType}` and the nested Anthropic shape
+    // `{source:{media_type,data}}`) BEFORE the generic string pass, but keep
+    // the text + role + block positions. Without this rescue a pasted
+    // screenshot collapses the whole event to `{__truncated}`, which erases
+    // `data.message` and makes the user's row VANISH from chat history (text
+    // and all). Small (under-ceiling) images are left untouched so normal
+    // inline rendering is unaffected.
+    // See change: fix-pasted-image-message-vanishes.
+    const rescued =
+      sizePass && exceedsSerializedSize(data, maxEventDataSize)
+        ? stripInlineImageBytesFromMessage(event)
+        : event;
+    const rescuedData = rescued.data as Record<string, unknown>;
     const truncated = stringPass
-      ? (truncateStrings(data, maxStringSize) as Record<string, unknown>)
-      : (data as Record<string, unknown>);
+      ? (truncateStrings(rescuedData, maxStringSize) as Record<string, unknown>)
+      : rescuedData;
     if (sizePass && exceedsSerializedSize(truncated, maxEventDataSize)) {
+      // Non-image content alone still busts the ceiling (e.g. a huge text
+      // block) — fall through to the whole-event placeholder.
       return truncatedPlaceholder(event, maxEventDataSize);
     }
-    return truncated !== data ? { ...event, data: truncated } : event;
+    return truncated !== data ? { ...rescued, data: truncated } : rescued;
   };
 }
 
@@ -966,6 +1049,8 @@ export function createMemoryEventStore(
   // P1 find-cost probe. Reset per insert; distinct from collapsedUpdatesTotal.
   let lastEntriesExamined = 0;
   let maxEntriesExamined = 0;
+  // D8 sub-linearity probe. Reset per `getEventsRange` call.
+  let lastRangeEntriesExamined = 0;
 
   function getOrCreate(sessionId: string): SessionBuffer {
     let buf = buffers.get(sessionId);
@@ -1173,6 +1258,34 @@ export function createMemoryEventStore(
       return buf.events.filter((e) => e.seq >= effectiveMin);
     },
 
+    getEventsRange(sessionId: string, minSeq: number, maxSeq: number): StoredEvent[] {
+      lastRangeEntriesExamined = 0;
+      const buf = buffers.get(sessionId);
+      if (!buf) return [];
+      buf.lastAccess = Date.now();
+      if (maxSeq < minSeq) return [];
+      const events = buf.events;
+      // Binary search both bounds over the seq-sorted buffer, then ONE slice.
+      // `lo` = first index with seq >= minSeq; `hi` = first index with
+      // seq > maxSeq. Gaps from the middle trim are fine — sortedness, not
+      // contiguity, is what the search needs.
+      const lowerBound = (target: number): number => {
+        let lo = 0;
+        let hi = events.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >>> 1;
+          lastRangeEntriesExamined++;
+          if (events[mid].seq < target) lo = mid + 1;
+          else hi = mid;
+        }
+        return lo;
+      };
+      const start = lowerBound(minSeq > 0 ? minSeq : 1);
+      const end = lowerBound(maxSeq + 1);
+      if (end <= start) return [];
+      return events.slice(start, end);
+    },
+
     getEvent(sessionId: string, seq: number): DashboardEvent | undefined {
       const buf = buffers.get(sessionId);
       if (!buf) return undefined;
@@ -1236,6 +1349,10 @@ export function createMemoryEventStore(
         subagentFatTicks: subagentFatTicksTotal,
         subagentTickFatBytes: subagentTickFatBytesTotal,
       };
+    },
+
+    getRangeProbe(): RangeProbe {
+      return { lastEntriesExamined: lastRangeEntriesExamined };
     },
 
     getCollapseProbe(): CollapseProbe {

@@ -11,6 +11,7 @@
  */
 import { describe, expect, it, vi } from "vitest";
 import {
+  adoptRestoredNamerState,
   buildTranscriptWindow,
   classifyNameChange,
   createAutoNamer,
@@ -18,10 +19,15 @@ import {
   isEligible,
   type NamerRegistry,
   parseTitle,
+  type PersistedNamerState,
   sanitizeSessionName,
   type StreamSimpleFn,
   shouldSkipByPrefilter,
+  stripThinkingSuffix,
+  TITLE_MAX_TOKENS_BASE,
+  TITLE_MAX_TOKENS_ESCALATED,
 } from "../auto-session-namer.js";
+import { extractLatestTurnWindow } from "../bridge-context.js";
 
 describe("shouldSkipByPrefilter", () => {
   it.each([
@@ -50,25 +56,73 @@ describe("shouldSkipByPrefilter", () => {
 
 describe("parseTitle", () => {
   it("accepts a valid title", () => {
-    expect(parseTitle("Auth Token Refactor")).toEqual({ title: "Auth Token Refactor", wait: false });
+    expect(parseTitle("Auth Token Refactor")).toEqual({ verdict: "title", title: "Auth Token Refactor" });
   });
   it("trims surrounding whitespace", () => {
-    expect(parseTitle("  Auth Token Refactor  ")).toEqual({ title: "Auth Token Refactor", wait: false });
+    expect(parseTitle("  Auth Token Refactor  ")).toEqual({ verdict: "title", title: "Auth Token Refactor" });
   });
   it("waits on the NULL sentinel (any case)", () => {
-    expect(parseTitle("NULL").wait).toBe(true);
-    expect(parseTitle("null").wait).toBe(true);
-  });
-  it("waits on empty", () => {
-    expect(parseTitle("").wait).toBe(true);
-    expect(parseTitle("   ").wait).toBe(true);
-    expect(parseTitle(undefined).wait).toBe(true);
+    expect(parseTitle("NULL").verdict).toBe("waiting");
+    expect(parseTitle("null").verdict).toBe("waiting");
   });
   it("waits on an over-long title", () => {
-    expect(parseTitle("This Title Is Far Too Long To Be A Reasonable Session Name Indeed").wait).toBe(true);
+    expect(parseTitle("This Title Is Far Too Long To Be A Reasonable Session Name Indeed").verdict).toBe("waiting");
   });
   it("waits on too many words", () => {
-    expect(parseTitle("One Two Three Four Five Six Seven").wait).toBe(true);
+    expect(parseTitle("One Two Three Four Five Six Seven").verdict).toBe("waiting");
+  });
+
+  // E4: with real headroom a truncated stream carries a PLAUSIBLE fragment that
+  // passes both shape guards. Keying on emptiness would apply it as a permanent
+  // session name; keying on the stop reason rejects it before parsing.
+  it("E4: a `length` stop is starved and its text is never a title", () => {
+    const v = parseTitle("Working On", "length");
+    expect(v.verdict).toBe("starved");
+    expect(v).not.toHaveProperty("title");
+  });
+
+  // E5: a toolUse stop is likewise not a title.
+  it("E5: a `toolUse` stop is starved and its text is never a title", () => {
+    const v = parseTitle("Bridge Fix", "toolUse");
+    expect(v.verdict).toBe("starved");
+    expect(v).not.toHaveProperty("title");
+  });
+
+  // E6: empty is NOT the NULL sentinel. Conflating them is the original bug:
+  // it made a structurally impossible configuration indistinguishable from
+  // "no clear topic yet", so the namer retried forever and reported nothing.
+  it("E6: empty on an untruncated stream is starved, never waiting", () => {
+    expect(parseTitle("", "stop").verdict).toBe("starved");
+    expect(parseTitle("   ", "stop").verdict).toBe("starved");
+    expect(parseTitle(undefined, "stop").verdict).toBe("starved");
+  });
+
+  // E7: the NULL sentinel stays benign — a well-behaved model saying "not yet".
+  it("E7: the NULL sentinel is waiting, not starved", () => {
+    expect(parseTitle("NULL", "stop")).toEqual({ verdict: "waiting", reason: expect.any(String) });
+  });
+
+  // E8: the 40-char guard is load-bearing and becomes MORE so with headroom.
+  it("E8: title character boundary at 40", () => {
+    expect(parseTitle("a".repeat(39), "stop").verdict).toBe("title");
+    expect(parseTitle("a".repeat(40), "stop").verdict).toBe("title");
+    expect(parseTitle("a".repeat(41), "stop").verdict).toBe("waiting");
+  });
+
+  // E9: the 6-word guard, same reasoning.
+  it("E9: title word boundary at 6", () => {
+    expect(parseTitle("One Two Three Four Five", "stop").verdict).toBe("title");
+    expect(parseTitle("One Two Three Four Five Six", "stop").verdict).toBe("title");
+    expect(parseTitle("One Two Three Four Five Six Seven", "stop").verdict).toBe("waiting");
+  });
+
+  // E10: observed in the wild — a model ignoring the summarizer prompt and
+  // replying with 900 characters of chat. Rejected, and the rejection is
+  // reported rather than swallowed.
+  it("E10: an uncooperative 900-char prose reply is waiting with a reason", () => {
+    const v = parseTitle("x".repeat(900), "stop");
+    expect(v.verdict).toBe("waiting");
+    expect((v as { reason: string }).reason).toMatch(/900/);
   });
 });
 
@@ -79,11 +133,16 @@ describe("buildTranscriptWindow", () => {
   it("omits the separator when there is no assistant reply", () => {
     expect(buildTranscriptWindow("do the thing", undefined)).toBe("do the thing");
   });
-  it("bounds the window size", () => {
-    const huge = "x".repeat(10_000);
+  // E19: advancing the window changes WHICH turn is sent, never HOW MUCH. An
+  // earlier draft wrote "2000 each", which would have widened the user slice
+  // tenfold — a security regression disguised as a formatting detail.
+  it("E19: bounds the window at 200 chars of user + 2000 of assistant", () => {
+    const huge = "x".repeat(5_000);
     const out = buildTranscriptWindow(huge, huge);
-    // each side capped at 2000 + the 2-char separator
-    expect(out.length).toBeLessThanOrEqual(2000 + 2 + 2000);
+    const [user, assistant] = out.split("\n\n");
+    expect(user).toHaveLength(200);
+    expect(assistant).toHaveLength(2000);
+    expect(out.split("\n\n")).toHaveLength(2); // exactly two slices leave the process
   });
 });
 
@@ -155,7 +214,7 @@ describe("generateTitle", () => {
       modelRef: "anthropic/claude-haiku",
       transcript: "refactor auth",
     });
-    expect(res).toEqual({ ok: true, text: "Auth Refactor" });
+    expect(res).toEqual({ ok: true, text: "Auth Refactor", stopReason: "stop" });
   });
 
   it("falls back to the final message when no deltas arrive", async () => {
@@ -167,7 +226,7 @@ describe("generateTitle", () => {
       modelRef: "anthropic/claude-haiku",
       transcript: "x",
     });
-    expect(res).toEqual({ ok: true, text: "Cold Start" });
+    expect(res).toEqual({ ok: true, text: "Cold Start", stopReason: "stop" });
   });
 
   it("hard-errors on an unknown model (not a throw)", async () => {
@@ -233,15 +292,27 @@ describe("generateTitle", () => {
 function makeHooks(overrides: Partial<Parameters<typeof createAutoNamer>[0]> = {}) {
   return {
     getAutoNameSessions: () => true,
-    resolveFastModel: () => ({ literal: "anthropic/claude-haiku" }),
+    resolveNamingModel: () => ({ literal: "anthropic/claude-haiku", slot: "naming" }),
     getRegistry: () => okRegistry,
-    loadStreamSimple: async () => fakeStream([{ type: "text_delta", delta: "Auth Refactor" }, { type: "done", message: { content: [] } }]),
-    getTranscript: () => ({ firstUserMsg: "Refactor the auth middleware for tokens", firstAssistantReply: "on it" }),
+    loadStreamSimple: async () => fakeStream([{ type: "text_delta", delta: "Auth Refactor" }, { type: "done", reason: "stop", message: { content: [] } }]),
+    getTranscript: () => ({ userMsg: "Refactor the auth middleware for tokens", assistantReply: "on it" }),
     applyName: vi.fn(),
     reportUserRename: vi.fn(),
     emitError: vi.fn(),
+    reportOutcome: vi.fn(),
+    persistState: vi.fn(),
     ...overrides,
   };
+}
+
+/** A stream ending truncated with no usable text — the measured failure. */
+function starvedStream(): StreamSimpleFn {
+  return fakeStream([{ type: "done", reason: "length", message: { content: [] } }]);
+}
+
+/** A well-behaved model reporting "no nameable topic yet". */
+function nullStream(): StreamSimpleFn {
+  return fakeStream([{ type: "text_delta", delta: "NULL" }, { type: "done", reason: "stop", message: { content: [] } }]);
 }
 
 describe("createAutoNamer", () => {
@@ -267,15 +338,15 @@ describe("createAutoNamer", () => {
 
   it("skips the model call on a greeting-only opener", async () => {
     const loadStreamSimple = vi.fn(async () => fakeStream([]));
-    const hooks = makeHooks({ getTranscript: () => ({ firstUserMsg: "hi", firstAssistantReply: "hello" }), loadStreamSimple });
+    const hooks = makeHooks({ getTranscript: () => ({ userMsg: "hi", assistantReply: "hello" }), loadStreamSimple });
     const namer = createAutoNamer(hooks);
     await namer.maybeName();
     expect(loadStreamSimple).not.toHaveBeenCalled();
     expect(hooks.applyName).not.toHaveBeenCalled();
   });
 
-  it("emits one auto_name_error and hard-stops when @fast is unconfigured", async () => {
-    const hooks = makeHooks({ resolveFastModel: () => ({ reason: "role 'fast' not configured yet" }) });
+  it("emits one auto_name_error and hard-stops when no naming role is configured", async () => {
+    const hooks = makeHooks({ resolveNamingModel: () => ({ reason: "role 'naming' unset; role 'fast' unset" }) });
     const namer = createAutoNamer(hooks);
     await namer.maybeName();
     await namer.maybeName(); // must not emit twice
@@ -285,9 +356,7 @@ describe("createAutoNamer", () => {
   });
 
   it("waits (no name) when the model returns NULL", async () => {
-    const hooks = makeHooks({
-      loadStreamSimple: async () => fakeStream([{ type: "text_delta", delta: "NULL" }, { type: "done", message: { content: [] } }]),
-    });
+    const hooks = makeHooks({ loadStreamSimple: async () => nullStream() });
     const namer = createAutoNamer(hooks);
     await namer.maybeName();
     expect(hooks.applyName).not.toHaveBeenCalled();
@@ -316,7 +385,7 @@ describe("createAutoNamer", () => {
     // via session_info_changed. The self-filter must classify it self.
     const hooks = makeHooks({
       loadStreamSimple: async () =>
-        fakeStream([{ type: "text_delta", delta: "Foo\nBar" }, { type: "done", message: { content: [] } }]),
+        fakeStream([{ type: "text_delta", delta: "Foo\nBar" }, { type: "done", reason: "stop", message: { content: [] } }]),
     });
     const namer = createAutoNamer(hooks);
     await namer.maybeName();
@@ -374,7 +443,7 @@ describe("generateTitle — null-bearing provider headers (pi 0.84.x)", () => {
       transcript: "x",
     });
 
-    expect(res).toEqual({ ok: true, text: "T" });
+    expect(res).toEqual({ ok: true, text: "T", stopReason: "stop" });
     expect(seen).toHaveLength(1);
     const headers = seen[0].headers;
     expect(headers).toHaveProperty("x-del");
@@ -416,7 +485,642 @@ describe("generateTitle — null-bearing provider headers (pi 0.84.x)", () => {
       transcript: "x",
     });
 
-    expect(res).toEqual({ ok: true, text: "T" });
+    expect(res).toEqual({ ok: true, text: "T", stopReason: "stop" });
     expect(seen[0].headers).toEqual({ a: null, b: "v" });
+  });
+});
+
+/**
+ * The adaptive output cap (design D3). Measured on the configured model with
+ * this exact prompt: 16/64/256/512 all ended `length` with no text; 1024
+ * returned `NULL`; 2048 returned a title after 724 reasoning tokens. The cap is
+ * a CEILING, not a charge, so escalating costs nothing on the common path.
+ *
+ * See change: fix-auto-naming-reasoning-model (test-plan #E1, #E2, #E3).
+ */
+describe("createAutoNamer — adaptive output cap", () => {
+  function capturingHooks(streamEvents: any[], overrides: any = {}) {
+    const seen: any[] = [];
+    const streamSimple: StreamSimpleFn = (_m, _c, options) => {
+      seen.push(options);
+      return (async function* () {
+        for (const e of streamEvents) yield e;
+      })();
+    };
+    return { seen, hooks: makeHooks({ loadStreamSimple: async () => streamSimple, ...overrides }) };
+  }
+
+  it("E1: a session's FIRST attempt requests the 1024-token base cap", async () => {
+    const { seen, hooks } = capturingHooks([{ type: "done", reason: "stop", message: { content: [] } }]);
+    await createAutoNamer(hooks).maybeName();
+    expect(seen).toHaveLength(1);
+    expect(seen[0].maxTokens).toBe(TITLE_MAX_TOKENS_BASE);
+    expect(TITLE_MAX_TOKENS_BASE).toBe(1024);
+    // D2: reasoning suppression is not expressible on this options surface, and
+    // an unsupported level can be clamped UP — re-starving the budget.
+    expect(seen[0]).not.toHaveProperty("reasoning");
+  });
+
+  it("E2: a recorded `starved` verdict escalates the next attempt to 2048", async () => {
+    const { seen, hooks } = capturingHooks([{ type: "done", reason: "length", message: { content: [] } }]);
+    const namer = createAutoNamer(hooks);
+    await namer.maybeName(); // starves
+    await namer.maybeName();
+    expect(seen[0].maxTokens).toBe(TITLE_MAX_TOKENS_BASE);
+    expect(seen[1].maxTokens).toBe(TITLE_MAX_TOKENS_ESCALATED);
+    expect(TITLE_MAX_TOKENS_ESCALATED).toBe(2048);
+  });
+
+  it("E3: a `waiting` verdict on an untruncated stream does NOT escalate", async () => {
+    const { seen, hooks } = capturingHooks([
+      { type: "text_delta", delta: "NULL" },
+      { type: "done", reason: "stop", message: { content: [] } },
+    ]);
+    const namer = createAutoNamer(hooks);
+    await namer.maybeName();
+    await namer.maybeName();
+    expect(seen[0].maxTokens).toBe(TITLE_MAX_TOKENS_BASE);
+    expect(seen[1].maxTokens).toBe(TITLE_MAX_TOKENS_BASE);
+  });
+});
+
+/**
+ * ONE bounded attempt budget shared by `starved` and `waiting` (design D5).
+ * Starvation is nondeterministic, so one starved attempt must not stop a
+ * session; equally `waiting` cannot retry forever against a 2048-token ceiling,
+ * which would turn a claimed cost improvement into an unbounded regression.
+ *
+ * See change: fix-auto-naming-reasoning-model (test-plan #E11–#E17, #P1, #P2).
+ */
+describe("createAutoNamer — attempt budget", () => {
+  const starvedState = (attemptsUsed: number) => ({
+    hardStopped: false, errorEmitted: false, attemptsUsed,
+    starvedCount: attemptsUsed, waitingCount: 0, sawStarved: attemptsUsed > 0,
+    hasAutoName: false,
+  });
+
+  it("E11: reaching the bound stops permanently and emits exactly one error", async () => {
+    const hooks = makeHooks({ loadStreamSimple: async () => starvedStream() });
+    const namer = createAutoNamer(hooks, starvedState(2));
+    await namer.maybeName();
+    expect(namer._state()).toMatchObject({ hardStopped: true, attemptsUsed: 3 });
+    expect(hooks.emitError).toHaveBeenCalledTimes(1);
+
+    await namer.maybeName(); // a later turn must not re-emit
+    expect(hooks.emitError).toHaveBeenCalledTimes(1);
+    expect(hooks.applyName).not.toHaveBeenCalled();
+  });
+
+  it("E12: below the bound does NOT stop — starvation is nondeterministic", async () => {
+    const hooks = makeHooks({ loadStreamSimple: async () => starvedStream() });
+    const namer = createAutoNamer(hooks, starvedState(1));
+    await namer.maybeName();
+    expect(namer._state()).toMatchObject({ hardStopped: false, attemptsUsed: 2 });
+    expect(hooks.emitError).not.toHaveBeenCalled();
+  });
+
+  it("E13: three `waiting` verdicts alone exhaust the same budget", async () => {
+    const hooks = makeHooks({ loadStreamSimple: async () => nullStream() });
+    const namer = createAutoNamer(hooks);
+    await namer.maybeName();
+    await namer.maybeName();
+    await namer.maybeName();
+    expect(namer._state()).toMatchObject({ hardStopped: true, attemptsUsed: 3 });
+    expect(hooks.emitError).toHaveBeenCalledTimes(1);
+  });
+
+  it("E14: transient errors spend NOTHING and never emit an error", async () => {
+    const hooks = makeHooks({
+      loadStreamSimple: async () => fakeStream([{ type: "error", error: { message: "rate limited" } }]),
+    });
+    const namer = createAutoNamer(hooks);
+    for (let i = 0; i < 5; i++) await namer.maybeName();
+    expect(namer._state()).toMatchObject({ attemptsUsed: 0, hardStopped: false });
+    expect(hooks.emitError).not.toHaveBeenCalled();
+  });
+
+  it("E15: a starved-dominant exhaustion tells the operator to change the model", async () => {
+    const hooks = makeHooks({ loadStreamSimple: async () => starvedStream() });
+    await createAutoNamer(hooks, starvedState(2)).maybeName();
+    const reason = (hooks.emitError as any).mock.calls[0][0] as string;
+    expect(reason).toMatch(/naming role/i);
+    expect(reason).toMatch(/anthropic\/claude-haiku/);
+    expect(reason).toMatch(/@naming/);
+  });
+
+  it("E16: a waiting-dominant exhaustion does NOT blame the model", async () => {
+    const hooks = makeHooks({ loadStreamSimple: async () => nullStream() });
+    const namer = createAutoNamer(hooks);
+    await namer.maybeName();
+    await namer.maybeName();
+    await namer.maybeName();
+    const reason = (hooks.emitError as any).mock.calls[0][0] as string;
+    expect(reason).toMatch(/no nameable topic/i);
+    expect(reason).not.toMatch(/Assign a different model/i);
+  });
+
+  it("E17: on a tie the starved remedy wins — the more actionable one", async () => {
+    // 2 starved + 2 waiting, with the budget raised so the tie is reachable.
+    const hooks = makeHooks({ attemptBudget: 4, loadStreamSimple: async () => starvedStream() });
+    const namer = createAutoNamer(hooks, {
+      hardStopped: false, errorEmitted: false, attemptsUsed: 3,
+      starvedCount: 1, waitingCount: 2, sawStarved: true, hasAutoName: false,
+    });
+    await namer.maybeName(); // → 2 starved vs 2 waiting
+    const reason = (hooks.emitError as any).mock.calls[0][0] as string;
+    expect(reason).toMatch(/Assign a different model/i);
+  });
+
+  it("P1: per-session model cost is bounded by the budget, not by turn count", async () => {
+    let calls = 0;
+    const streamSimple: StreamSimpleFn = () => {
+      calls++;
+      return (async function* () { yield { type: "done", reason: "length", message: { content: [] } }; })();
+    };
+    const namer = createAutoNamer(makeHooks({ loadStreamSimple: async () => streamSimple }));
+    for (let i = 0; i < 50; i++) await namer.maybeName();
+    expect(calls).toBeLessThanOrEqual(3);
+  });
+
+  it("P2: cost does not grow between a 50-turn and a 500-turn session", async () => {
+    async function run(turns: number): Promise<number> {
+      let calls = 0;
+      const streamSimple: StreamSimpleFn = () => {
+        calls++;
+        return (async function* () { yield { type: "done", reason: "length", message: { content: [] } }; })();
+      };
+      const namer = createAutoNamer(makeHooks({ loadStreamSimple: async () => streamSimple }));
+      for (let i = 0; i < turns; i++) await namer.maybeName();
+      return calls;
+    }
+    expect(await run(50)).toBe(await run(500));
+  });
+});
+
+/**
+ * In-flight safety (design D8). Both defects are pre-existing, but the budget
+ * accounting makes them worse: correctness now depends on "one attempt = one
+ * spend", and on a completion never overwriting a user's chosen name.
+ *
+ * See change: fix-auto-naming-reasoning-model (test-plan #X6, #X7).
+ */
+describe("createAutoNamer — in-flight safety", () => {
+  it("X6: a rename landing mid-call is not clobbered by the completion", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const hooks = makeHooks({
+      loadStreamSimple: async () => (() => (async function* () {
+        await gate;
+        yield { type: "text_delta", delta: "Auth Refactor" };
+        yield { type: "done", reason: "stop", message: { content: [] } };
+      })()) as StreamSimpleFn,
+    });
+    const namer = createAutoNamer(hooks);
+    const attempt = namer.maybeName();
+    namer.onObservedName("Hand Typed Name"); // external rename lands mid-stream
+    release();
+    await attempt;
+
+    expect(hooks.applyName).not.toHaveBeenCalled();
+    expect(namer._state().nameSource).toBe("user");
+    expect(hooks.reportUserRename).toHaveBeenCalledWith("Hand Typed Name");
+  });
+
+  it("X7: two adjacent terminal turns start exactly one call and spend one unit", async () => {
+    let calls = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((r) => { release = r; });
+    const streamSimple: StreamSimpleFn = () => {
+      calls++;
+      return (async function* () {
+        await gate;
+        yield { type: "done", reason: "length", message: { content: [] } };
+      })();
+    };
+    const namer = createAutoNamer(makeHooks({ loadStreamSimple: async () => streamSimple }));
+    const a = namer.maybeName();
+    const b = namer.maybeName(); // arrives before the first call resolves
+    release();
+    await Promise.all([a, b]);
+
+    expect(calls).toBe(1);
+    expect(namer._state().attemptsUsed).toBe(1);
+  });
+});
+
+/**
+ * The durable stop and its clearing rule (design D7). Clearing by RE-RESOLUTION
+ * rather than by a roles event is load-bearing: a role write is routed to one
+ * session's bridge, so a listener would clear the stop only there and strand
+ * every other stopped session forever.
+ *
+ * See change: fix-auto-naming-reasoning-model (test-plan #X9–#X16).
+ */
+describe("createAutoNamer — durable stop", () => {
+  const stopped = (over: Partial<PersistedNamerState> = {}): PersistedNamerState => ({
+    hardStopped: true, errorEmitted: true, attemptsUsed: 3,
+    starvedCount: 3, waitingCount: 0, sawStarved: true,
+    stoppedModelRef: "anthropic/claude-haiku", stopCause: "budget",
+    hasAutoName: false, ...over,
+  });
+
+  it("X9: a stop survives reload — no further attempt, no second error", async () => {
+    const loadStreamSimple = vi.fn(async () => starvedStream());
+    const hooks = makeHooks({ loadStreamSimple });
+    const namer = createAutoNamer(hooks, stopped());
+    await namer.maybeName();
+    expect(loadStreamSimple).not.toHaveBeenCalled();
+    expect(hooks.emitError).not.toHaveBeenCalled();
+  });
+
+  it("X10: the spent budget survives reload and does not reset to zero", async () => {
+    const carried = createAutoNamer(makeHooks(), stopped({ hardStopped: false, errorEmitted: false, attemptsUsed: 2, starvedCount: 2 }));
+    expect(carried._state().attemptsUsed).toBe(2);
+    expect(carried.exportState().attemptsUsed).toBe(2);
+  });
+
+  it("X13: reassigning a model that resolves to the SAME ref does not clear", async () => {
+    const hooks = makeHooks({ resolveNamingModel: () => ({ literal: "anthropic/claude-haiku", slot: "naming" }) });
+    const namer = createAutoNamer(hooks, stopped());
+    await namer.maybeName();
+    expect(namer._state().hardStopped).toBe(true);
+    expect(hooks.applyName).not.toHaveBeenCalled();
+  });
+
+  it("X14: clearing resets the budget AND re-arms the error", async () => {
+    // Without BOTH resets the operator's remedy is vacuous: one retry, an
+    // instant re-exhaustion of the already-spent budget, and no error at all
+    // because the one-shot flag is still latched.
+    const hooks = makeHooks({
+      resolveNamingModel: () => ({ literal: "openai/gpt-other", slot: "naming" }),
+      loadStreamSimple: async () => starvedStream(),
+    });
+    const namer = createAutoNamer(hooks, stopped());
+
+    await namer.maybeName();
+    expect(namer._state()).toMatchObject({ hardStopped: false, attemptsUsed: 1 });
+
+    await namer.maybeName();
+    await namer.maybeName();
+    expect(namer._state()).toMatchObject({ hardStopped: true, attemptsUsed: 3 });
+    expect(hooks.emitError).toHaveBeenCalledTimes(1); // a NEW error, re-armed
+  });
+
+  it("X15: a credential fix clears the stop with the reference unchanged", async () => {
+    let credentialsWork = false;
+    const registry: NamerRegistry = {
+      find: () => ({ provider: "anthropic", id: "claude-haiku" }),
+      getApiKeyAndHeaders: async () => {
+        if (!credentialsWork) throw new Error("no credentials");
+        return { apiKey: "sk-now-configured" };
+      },
+    };
+    const hooks = makeHooks({ getRegistry: () => registry });
+    const namer = createAutoNamer(hooks, stopped({ stopCause: "credentials" }));
+
+    await namer.maybeName();
+    expect(namer._state().hardStopped).toBe(true); // still broken
+
+    credentialsWork = true;
+    await namer.maybeName();
+    expect(namer._state().hardStopped).toBe(false);
+  });
+
+  it("X16: clearing never overrides a `user` lockout", async () => {
+    const hooks = makeHooks({ resolveNamingModel: () => ({ literal: "openai/gpt-other", slot: "naming" }) });
+    const namer = createAutoNamer(hooks, stopped({ nameSource: "user" }));
+    await namer.maybeName();
+    expect(namer._state()).toMatchObject({ hardStopped: true, nameSource: "user" });
+    expect(hooks.applyName).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * The advancing transcript window and the pre-filter that reads it (design D6).
+ * The frozen window made every retry byte-identical and skipped a session that
+ * opened with a greeting for life.
+ *
+ * See change: fix-auto-naming-reasoning-model (test-plan #E20, #E21).
+ */
+describe("createAutoNamer — advancing window pre-filter", () => {
+  it("E20: a trivial LATEST message does not mask a substantive session", async () => {
+    // Drives the REAL window selector, not a hand-fed transcript: an earlier
+    // version of this test passed a substantive `userMsg` straight to the
+    // namer, so it never exercised selection and stayed green while a trailing
+    // "ok" silently skipped the session.
+    const ctx = { sessionManager: { getEntries: () => [
+      { role: "user", content: "Refactor the auth middleware to support tokens" },
+      { role: "assistant", content: "on it" },
+      { role: "user", content: "ok" },
+    ] } };
+    const hooks = makeHooks({ getTranscript: () => extractLatestTurnWindow(ctx) });
+    await createAutoNamer(hooks).maybeName();
+    expect(hooks.applyName).toHaveBeenCalledWith("Auth Refactor");
+    expect(hooks.reportOutcome).not.toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "skipped-prefilter" }),
+    );
+  });
+
+  it("E21: a genuine greeting is still skipped with no model call", async () => {
+    // Also through the real selector: with nothing substantive ever said, the
+    // window falls back to the latest non-empty turn so the attempt reports
+    // `skipped-prefilter` rather than looking like a missing transcript.
+    const ctx = { sessionManager: { getEntries: () => [{ role: "user", content: "hi" }] } };
+    const loadStreamSimple = vi.fn(async () => fakeStream([]));
+    const hooks = makeHooks({ getTranscript: () => extractLatestTurnWindow(ctx), loadStreamSimple });
+    await createAutoNamer(hooks).maybeName();
+    expect(loadStreamSimple).not.toHaveBeenCalled();
+    expect(hooks.reportOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "skipped-prefilter" }),
+    );
+  });
+});
+
+/**
+ * Complete, deduplicated outcome reporting (design D9). Today every one of
+ * these paths returns silently, which is why a system with zero successes AND
+ * zero errors was structurally invisible.
+ *
+ * See change: fix-auto-naming-reasoning-model (test-plan #X3–#X5, #X8, #E33, #E34, #P3).
+ */
+describe("createAutoNamer — outcome reporting", () => {
+  const outcomesOf = (hooks: any) =>
+    (hooks.reportOutcome as any).mock.calls.map((c: any[]) => c[0].outcome);
+
+  it("X8: dependencies not ready reports `not-ready` and spends no budget", async () => {
+    const hooks = makeHooks({ getRegistry: () => undefined });
+    const namer = createAutoNamer(hooks);
+    await namer.maybeName();
+    expect(outcomesOf(hooks)).toContain("not-ready");
+    expect(namer._state().attemptsUsed).toBe(0);
+    expect(hooks.emitError).not.toHaveBeenCalled();
+  });
+
+  it("X3: a transient network error reports `retrying`, never `waiting`", async () => {
+    const hooks = makeHooks({
+      loadStreamSimple: async () => (() => { throw new Error("socket hang up"); }) as StreamSimpleFn,
+    });
+    const namer = createAutoNamer(hooks);
+    await namer.maybeName();
+    expect(outcomesOf(hooks)).toContain("retrying");
+    expect(outcomesOf(hooks)).not.toContain("waiting");
+    expect(namer._state().attemptsUsed).toBe(0);
+  });
+
+  it("X4: a user abort is a soft error, not starvation", async () => {
+    const hooks = makeHooks({
+      loadStreamSimple: async () => fakeStream([{ type: "error", reason: "aborted", error: { message: "aborted" } }]),
+    });
+    const namer = createAutoNamer(hooks);
+    await namer.maybeName();
+    expect(outcomesOf(hooks)).toContain("retrying");
+    expect(outcomesOf(hooks)).not.toContain("starved");
+    expect(namer._state().attemptsUsed).toBe(0);
+  });
+
+  it("X5: the soft-error reason is read from the event's message payload", async () => {
+    const hooks = makeHooks({
+      loadStreamSimple: async () => fakeStream([{ type: "error", error: { message: "upstream 529" } }]),
+    });
+    await createAutoNamer(hooks).maybeName();
+    expect(hooks.reportOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "retrying", reason: "upstream 529" }),
+    );
+  });
+
+  it("E33: an unchanged outcome is not resent on later turns", async () => {
+    const hooks = makeHooks();
+    const namer = createAutoNamer(hooks);
+    await namer.maybeName();                       // applied
+    (hooks.reportOutcome as any).mockClear();
+    for (let i = 0; i < 4; i++) await namer.maybeName(); // already-named ×4
+    expect((hooks.reportOutcome as any).mock.calls).toHaveLength(1);
+  });
+
+  it("E34: a CHANGED outcome is sent", async () => {
+    let starve = false;
+    const hooks = makeHooks({
+      loadStreamSimple: async () => (starve ? starvedStream() : nullStream()),
+    });
+    const namer = createAutoNamer(hooks);
+    await namer.maybeName();
+    starve = true;
+    await namer.maybeName();
+    expect(outcomesOf(hooks)).toEqual(["waiting", "starved"]);
+  });
+
+  it("P3: dedupe bounds the wire cost of a terminal state over 100 turns", async () => {
+    const hooks = makeHooks();
+    const namer = createAutoNamer(hooks);
+    await namer.maybeName();
+    (hooks.reportOutcome as any).mockClear();
+    for (let i = 0; i < 100; i++) await namer.maybeName();
+    expect((hooks.reportOutcome as any).mock.calls.length).toBeLessThanOrEqual(1);
+  });
+
+  it("the `disabled` outcome is reachable — the toggle lives inside the namer", async () => {
+    const hooks = makeHooks({ getAutoNameSessions: () => false });
+    await createAutoNamer(hooks).maybeName();
+    expect(outcomesOf(hooks)).toEqual(["disabled"]);
+  });
+});
+
+/**
+ * Cross-bridge stop clearing (design D7).
+ *
+ * A role write is routed to ONE session's bridge, so a `roles:set` LISTENER
+ * would clear the stop only there and strand every other stopped session
+ * forever. Clearing is therefore driven by RE-RESOLUTION at the next attempt:
+ * `lookupRole` re-reads disk on every call, so every bridge sees the change
+ * with no new plumbing. Two independent namers sharing only the resolved value
+ * — never an event — is exactly the cross-bridge case.
+ *
+ * See change: fix-auto-naming-reasoning-model (test-plan #X12, task 11.4).
+ */
+describe("createAutoNamer — cross-bridge stop clearing", () => {
+  it("X12: reassigning the naming model clears the stop on BOTH bridges", async () => {
+    // One shared "providers.json" value; two bridges that never talk.
+    let assigned = "deepseek/deepseek-v4-flash";
+    const stoppedOn = (ref: string): PersistedNamerState => ({
+      hardStopped: true, errorEmitted: true, attemptsUsed: 3,
+      starvedCount: 3, waitingCount: 0, sawStarved: true,
+      stoppedModelRef: ref, stopCause: "budget", hasAutoName: false,
+    });
+    const mkNamer = () => createAutoNamer(
+      makeHooks({
+        resolveNamingModel: () => ({ literal: assigned, slot: "naming" }),
+        loadStreamSimple: async () => nullStream(),
+      }),
+      stoppedOn("deepseek/deepseek-v4-flash"),
+    );
+    const bridgeA = mkNamer();
+    const bridgeB = mkNamer();
+
+    // Unchanged assignment → both stay stopped.
+    await bridgeA.maybeName();
+    await bridgeB.maybeName();
+    expect(bridgeA._state().hardStopped).toBe(true);
+    expect(bridgeB._state().hardStopped).toBe(true);
+
+    // The operator reassigns via ONE of them; neither receives an event.
+    assigned = "openai/gpt-namer";
+
+    await bridgeA.maybeName();
+    await bridgeB.maybeName();
+    expect(bridgeA._state()).toMatchObject({ hardStopped: false, attemptsUsed: 1 });
+    expect(bridgeB._state()).toMatchObject({ hardStopped: false, attemptsUsed: 1 });
+  });
+});
+
+/**
+ * Review findings (round 1) — regression guards.
+ * See change: fix-auto-naming-reasoning-model.
+ */
+describe("createAutoNamer — stopped re-reporting carries the ORIGINAL reason", () => {
+  it("a later turn re-reports the cause-matched reason, not a generic one", async () => {
+    // The server retains ONE row per session, so a generic re-report would
+    // overwrite the actionable remedy — leaving the diagnostics readout (the
+    // whole point of the change) saying only "stopped".
+    const hooks = makeHooks({ loadStreamSimple: async () => starvedStream() });
+    const namer = createAutoNamer(hooks, {
+      hardStopped: false, errorEmitted: false, attemptsUsed: 2,
+      starvedCount: 2, waitingCount: 0, sawStarved: true, hasAutoName: false,
+    });
+
+    await namer.maybeName(); // exhausts the budget → stops with the specific reason
+    const stopReason = (hooks.emitError as any).mock.calls[0][0] as string;
+    expect(stopReason).toMatch(/Assign a different model/i);
+
+    (hooks.reportOutcome as any).mockClear();
+    await namer.maybeName(); // a later terminal turn on an already-stopped session
+
+    const calls = (hooks.reportOutcome as any).mock.calls;
+    for (const [o] of calls) {
+      expect(o.outcome).toBe("stopped");
+      // The spec requires the `stopped` outcome to carry the SAME reason as
+      // `auto_name_error`.
+      expect(o.reason).toBe(stopReason);
+    }
+  });
+
+  it("carries the stop reason across a reload so the re-report stays actionable", async () => {
+    const hooks = makeHooks();
+    const namer = createAutoNamer(hooks, {
+      hardStopped: true, errorEmitted: true, attemptsUsed: 3,
+      starvedCount: 3, waitingCount: 0, sawStarved: true,
+      stoppedModelRef: "anthropic/claude-haiku", stopCause: "budget",
+      stoppedReason: "auto-naming stopped after 3 attempts: the model could not emit a title",
+      hasAutoName: false,
+    });
+    await namer.maybeName();
+    expect(hooks.reportOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({
+        outcome: "stopped",
+        reason: "auto-naming stopped after 3 attempts: the model could not emit a title",
+      }),
+    );
+    expect(namer.exportState().stoppedReason).toMatch(/could not emit a title/);
+  });
+});
+
+describe("stripThinkingSuffix", () => {
+  // The Roles picker writes the thinking level as a `:<level>` suffix on the
+  // role value. The registry is keyed on the bare id, so leaving it on turns a
+  // valid @naming assignment into a permanent "model not found" stop.
+  it("drops a canonical thinking level", () => {
+    expect(stripThinkingSuffix("claude-haiku:high")).toBe("claude-haiku");
+    expect(stripThinkingSuffix("gpt-5:xhigh")).toBe("gpt-5");
+    expect(stripThinkingSuffix("m:off")).toBe("m");
+  });
+  it("leaves a non-level colon intact", () => {
+    // A provider id may legitimately contain a colon.
+    expect(stripThinkingSuffix("vendor:free")).toBe("vendor:free");
+    expect(stripThinkingSuffix("deepseek-v4-flash")).toBe("deepseek-v4-flash");
+  });
+  it("a suffixed naming role still resolves to the bare model in the registry", async () => {
+    const seen: string[] = [];
+    const res = await generateTitle({
+      registry: {
+        find: (_p: string, id: string) => { seen.push(id); return { id }; },
+        getApiKeyAndHeaders: async () => ({ apiKey: "k" }),
+      },
+      streamSimple: fakeStream([
+        { type: "text_delta", delta: "Auth Refactor" },
+        { type: "done", reason: "stop", message: { content: [] } },
+      ]),
+      modelRef: "anthropic/claude-haiku:high",
+      transcript: "x",
+    });
+    expect(seen).toEqual(["claude-haiku"]);
+    expect(res).toMatchObject({ ok: true, text: "Auth Refactor" });
+  });
+});
+
+/**
+ * Review round 2: the restore handler must adopt EVERY stop field.
+ *
+ * `stoppedReason` was wired end-to-end except this last hop, so a restarted
+ * session re-reported a generic "stopped" and overwrote the cause-matched
+ * remedy — the round-1 blocking symptom, re-triggered by a restart instead of
+ * by a later turn. The handler lives inside `activate()`, which is why the gap
+ * went unnoticed; the adoption is extracted here so it is directly testable.
+ *
+ * See change: fix-auto-naming-reasoning-model (design D7).
+ */
+describe("adoptRestoredNamerState", () => {
+  const persisted = {
+    hardStopped: true,
+    errorEmitted: true,
+    attemptsUsed: 3,
+    starvedCount: 3,
+    waitingCount: 0,
+    sawStarved: true,
+    stoppedModelRef: "deepseek/deepseek-v4-flash",
+    stopCause: "budget",
+    stoppedReason: "auto-naming stopped after 3 attempts: the model could not emit a title",
+    // Provenance the server also persisted — deliberately NOT adopted.
+    nameSource: "auto" as const,
+    hasAutoName: true,
+    lastSelfApplied: "Bridge Namer Fix",
+  };
+
+  it("carries every STOP field, including the cause-matched reason", () => {
+    expect(adoptRestoredNamerState(persisted)).toMatchObject({
+      hardStopped: true,
+      errorEmitted: true,
+      attemptsUsed: 3,
+      starvedCount: 3,
+      sawStarved: true,
+      stoppedModelRef: "deepseek/deepseek-v4-flash",
+      stopCause: "budget",
+      stoppedReason: "auto-naming stopped after 3 attempts: the model could not emit a title",
+    });
+  });
+
+  it("deliberately does NOT adopt provenance (the D8b scope boundary)", () => {
+    const adopted = adoptRestoredNamerState(persisted)!;
+    expect(adopted.hasAutoName).toBe(false);
+    expect(adopted.nameSource).toBeUndefined();
+    expect(adopted.lastSelfApplied).toBeUndefined();
+  });
+
+  it("a restored stop re-reports the ORIGINAL reason after a restart", async () => {
+    // The resolved ref must still MATCH the one the session stopped on — a
+    // changed ref legitimately clears the stop instead of re-reporting it.
+    const hooks = makeHooks({
+      resolveNamingModel: () => ({ literal: persisted.stoppedModelRef, slot: "naming" }),
+    });
+    const namer = createAutoNamer(hooks, adoptRestoredNamerState(persisted));
+    await namer.maybeName();
+    expect(hooks.reportOutcome).toHaveBeenCalledWith(
+      expect.objectContaining({ outcome: "stopped", reason: persisted.stoppedReason }),
+    );
+  });
+
+  it("tolerates a malformed or absent payload rather than throwing", () => {
+    expect(adoptRestoredNamerState(undefined)).toBeUndefined();
+    expect(adoptRestoredNamerState("nonsense")).toBeUndefined();
+    expect(adoptRestoredNamerState({})).toMatchObject({ hardStopped: false, attemptsUsed: 0 });
+    expect(adoptRestoredNamerState({ attemptsUsed: "3" })).toMatchObject({ attemptsUsed: 3 });
   });
 });
