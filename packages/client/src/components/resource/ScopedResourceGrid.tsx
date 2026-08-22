@@ -66,7 +66,12 @@ export function ScopedResourceGrid({ page, data, isLoading, error, refresh, acti
   // entry points cannot disagree about what "folder scope" means. Inside a
   // route-backed overlay this reads the live URL (the surface is in the dialog,
   // not in the frozen underlay Router), which is the intended location.
-  const [isFolderScoped] = useRoute("/folder/:encodedCwd/settings/:page");
+  // `:page?` (optional) mirrors the shell's own pattern. With a REQUIRED
+  // `:page` a folder URL lacking the segment fell through to the GLOBAL preset
+  // inside a folder surface. Latent today (the default page is `packages`,
+  // not a resource page) — tightened so it cannot become live.
+  // See change: add-route-backed-overlay-dialogs (audit finding, task 8.7).
+  const [isFolderScoped] = useRoute("/folder/:encodedCwd/settings/:page?");
 
   return (
     <ResourceGridPanel

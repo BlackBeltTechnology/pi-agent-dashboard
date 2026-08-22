@@ -1,4 +1,5 @@
 import { expect, test } from "./fixtures.js";
+import { FIXTURE_GIT, gotoDashboard } from "./helpers/index.js";
 
 /**
  * Browser E2E — route-backed overlays (change: add-route-backed-overlay-dialogs).
@@ -147,5 +148,30 @@ test.describe("route-backed overlays", () => {
     // count of 0 is reachable without any dismissal having happened.
     await expect(page).not.toHaveURL(/\/settings/);
     await expect(page.getByTestId("unsaved-changes-dialog")).toHaveCount(0);
+  });
+
+  // The CORE promise of option C (design D1): the launching surface stays
+  // visible beneath the scrim. Nothing tested it, and an audit found it broken
+  // — the folder-home renderer was gated on a LIVE-URL-derived cwd, which is
+  // null once the overlay owns the URL, so the underlay fell through to the
+  // onboarding LandingPage.
+  //
+  // Must be driven by a REAL in-app affordance: page.goto() is a hard load that
+  // wipes the module-level capture and exercises the cold-load synthesis path
+  // instead (D4), where a LandingPage underlay is correct.
+  test("D1: the underlay shows the LAUNCHING surface, not the landing page", async ({ page }) => {
+    const cwd = Buffer.from(FIXTURE_GIT).toString("base64url");
+    await gotoDashboard(page);
+    await page.goto(`/folder/${cwd}`);
+    await expect(page.getByTestId("directory-home")).toBeVisible({ timeout: 20_000 });
+
+    await page.getByTestId("directory-home-open-settings").click();
+
+    const underlay = page.getByTestId("folder-settings-overlay-underlay");
+    await expect(underlay).toBeVisible();
+    // The folder the user launched from is still behind the scrim...
+    await expect(underlay.getByTestId("directory-home")).toBeVisible();
+    // ...and NOT the onboarding fallback.
+    await expect(underlay).not.toContainText("Welcome to pi-dashboard");
   });
 });

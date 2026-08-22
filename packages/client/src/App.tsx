@@ -1642,7 +1642,8 @@ export default function App() {
 
   // Full-page OpenSpec board overlay element. Shared across the three overlay
   // render sites (desktop + responsive layouts). See change: redesign-openspec-board.
-  const openspecBoardOverlay = openspecBoardMatch && openspecBoardCwd ? (
+  // Parameterised by cwd for the same reason as `renderDirectoryHome`.
+  const renderOpenSpecBoardView = (openspecBoardCwd: string) => (
     <OpenSpecBoardView
       cwd={openspecBoardCwd}
       data={openspecMap.get(openspecBoardCwd) ?? { initialized: false, pending: false, changes: [], hasOpenspecDir: false }}
@@ -1669,7 +1670,7 @@ export default function App() {
       gitWorktreeEnabled={gitWorktreeEnabled}
       selectedId={selectedId}
     />
-  ) : null;
+  );
 
   const connectionBanner = (
     <>
@@ -1845,7 +1846,7 @@ export default function App() {
         );
       })()}
       {openspecBoardMatch && openspecBoardCwd ? (
-        openspecBoardOverlay
+        renderOpenSpecBoardView(openspecBoardCwd)
       ) : archiveMatch && archiveCwd ? (
         <ArchiveBrowserView cwd={archiveCwd} onBack={goBack} />
       ) : specsMatch && specsCwd ? (
@@ -2165,17 +2166,22 @@ export default function App() {
     </DialogPortal>
   ) : null;
 
-  const directoryHomeView = folderHomeCwd ? (
+  // Parameterised by cwd so a FROZEN underlay can render the folder the user
+  // launched from. Previously this closed over the LIVE `folderHomeCwd`, so
+  // opening Settings from /folder/<cwd> put the onboarding LandingPage behind
+  // the scrim instead of the folder — the opposite of what option C promises.
+  // See change: add-route-backed-overlay-dialogs (audit finding, task 8.7).
+  const renderDirectoryHome = (cwd: string) => (
     <DirectoryHomeView
-      cwd={folderHomeCwd}
-      sessions={allSessionsList.filter((s) => s.cwd === folderHomeCwd)}
+      cwd={cwd}
+      sessions={allSessionsList.filter((s) => s.cwd === cwd)}
       onSpawnSession={handleSpawnSession}
       onSelectSession={handleSelect}
-      onOpenTerminals={(cwd) => navigate(`/folder/${encodeFolderPath(cwd)}/editor`)}
-      onOpenEditor={(cwd) => navigate(`/folder/${encodeFolderPath(cwd)}/editor`)}
-      onOpenSettings={(cwd) => navigate(buildFolderSettingsUrl(cwd))}
+      onOpenTerminals={(c) => navigate(`/folder/${encodeFolderPath(c)}/editor`)}
+      onOpenEditor={(c) => navigate(`/folder/${encodeFolderPath(c)}/editor`)}
+      onOpenSettings={(c) => navigate(buildFolderSettingsUrl(c))}
     />
-  ) : null;
+  );
 
   // Renderers for the route-derived content region. `ShellContent` owns the
   // branch SELECTION (so it can re-derive under a frozen router); App keeps the
@@ -2192,7 +2198,7 @@ export default function App() {
   // launched from `/session/:id` can show that session behind the scrim.
   // See change: add-route-backed-overlay-dialogs.
   const shellRenderers: Omit<ShellContentRenderers, "renderSession"> = {
-    renderOpenSpecBoard: (cwd) => (cwd === openspecBoardCwd ? openspecBoardOverlay : null),
+    renderOpenSpecBoard: (cwd) => renderOpenSpecBoardView(cwd),
     renderArchive: (cwd) => <ArchiveBrowserView cwd={cwd} onBack={goBack} />,
     renderSpecs: (cwd) => <SpecsBrowserView cwd={cwd} onBack={goBack} />,
     renderDiff: (sessionId) => <FileDiffView sessionId={sessionId} onBack={goBack} />,
@@ -2227,7 +2233,7 @@ export default function App() {
         onTerminalTitle={handleTerminalTitle}
       />
     ),
-    renderFolderHome: (cwd) => (cwd === folderHomeCwd ? directoryHomeView : null),
+    renderFolderHome: (cwd) => renderDirectoryHome(cwd),
     renderLanding: () => (
       <LandingPage
         providersReady={providersReady.ready}

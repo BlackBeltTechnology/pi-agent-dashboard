@@ -13,7 +13,6 @@
   "packages/client/src/components/openspec/OpenSpecGroupPicker.tsx|z-50": 1,
   "packages/client/src/components/openspec/OpenSpecStepper.tsx|z-[2]": 1,
   "packages/client/src/components/packages/PackageRow.tsx|z-10": 1,
-  "packages/client/src/components/preview/FilePreviewOverlay.tsx|z-[60]": 1,
   "packages/client/src/components/preview/FilePreviewOverlay.tsx|z-[70]": 1,
   "packages/client/src/components/preview/MermaidBlock.tsx|z-10": 1,
   "packages/client/src/components/preview/SpreadsheetPreview.tsx|z-10": 2,
