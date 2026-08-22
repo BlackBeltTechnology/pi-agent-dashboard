@@ -500,17 +500,36 @@ export function createPiGateway(
                   );
                   return;
                 }
+                // The routing entry transfers for the id the TOKEN was minted
+                // for — never the id on the wire. They are separate inputs, and
+                // trusting the wire made this a hijack primitive: open a
+                // provisional for a throwaway id, then commit naming a victim,
+                // and the victim's routing followed. A mismatch is refused
+                // outright rather than silently corrected, because a mover with
+                // nothing to hide never sends one.
+                const movedId = verdict.sessionId;
+                if (commit.sessionId !== movedId) {
+                  ws.send(
+                    JSON.stringify(
+                      provisionalRegistry.refuseForWire({
+                        sessionId: commit.sessionId,
+                        cause: "unknown-token",
+                      }),
+                    ),
+                  );
+                  return;
+                }
                 // Hand over the routing entry. The previous holder is NOT probed or
                 // refused — this is a cooperative handover the origin asked for,
                 // not contention.
-                currentSessionId = commit.sessionId;
-                connections.set(commit.sessionId, ws);
+                currentSessionId = movedId;
+                connections.set(movedId, ws);
                 // Materialise the session if this instance never had one: a
                 // routing entry with no session record would route frames to a
                 // dashboard that cannot render the session.
-                if (!sessionManager.get(commit.sessionId) && verdict.register) {
+                if (!sessionManager.get(movedId) && verdict.register) {
                   sessionManager.register({
-                    id: commit.sessionId,
+                    id: movedId,
                     cwd: verdict.register.cwd,
                     name: verdict.register.name,
                     source: verdict.register.source as never,
@@ -521,8 +540,8 @@ export function createPiGateway(
                     pid: verdict.register.pid,
                   });
                 }
-                resetHeartbeat(commit.sessionId);
-                console.log(`[gateway] session move committed: ${commit.sessionId}`);
+                resetHeartbeat(movedId);
+                console.log(`[gateway] session move committed: ${movedId}`);
                 return;
               }
 

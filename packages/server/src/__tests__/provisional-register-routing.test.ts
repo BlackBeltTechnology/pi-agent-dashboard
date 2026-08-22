@@ -417,3 +417,55 @@ describe("a session moves between two separate instances (task 13.4)", () => {
     expect((await nextMessage(targetWs)).type).toBe("provisional_rejected");
   });
 });
+
+/**
+ * The commit frame carries a sessionId AND a token, which are two separate
+ * inputs. Honouring the wire id let a caller open a provisional for a
+ * throwaway session and then commit naming a victim, taking the victim's
+ * routing entry. Found by audit, not by any test above — every existing test
+ * happened to send matching ids.
+ */
+describe("a commit cannot rename the session it was minted for", () => {
+  it("refuses a commit whose sessionId does not match the token", async () => {
+    const { gw, sessions, port, delivered } = await startGateway();
+
+    const victimWs = await connect(port);
+    victimWs.send(
+      JSON.stringify({ type: "session_register", sessionId: "victim", cwd: "/tmp", source: "tui", pid: 7 }),
+    );
+    await until(() => sessions.get("victim") !== undefined);
+
+    // A provisional for something else entirely.
+    const attacker = await connect(port);
+    attacker.send(
+      JSON.stringify({
+        type: "session_register",
+        sessionId: "attacker-own",
+        cwd: "/tmp",
+        source: "tui",
+        pid: 8,
+        provisional: true,
+      }),
+    );
+    const prov = await nextMessage(attacker);
+    expect(prov.type).toBe("provisional_accepted");
+
+    // Commit that token while naming the victim.
+    attacker.send(JSON.stringify({ type: "session_move_commit", sessionId: "victim", token: prov.token }));
+    expect((await nextMessage(attacker)).type).toBe("provisional_rejected");
+
+    // The victim never moved: still routed to its own socket and still served.
+    expect(gw.isSessionConnected("victim")).toBe(true);
+    victimWs.send(
+      JSON.stringify({ type: "first_message_update", sessionId: "victim", firstMessage: "still-mine" }),
+    );
+    await until(() => delivered.some((d) => d.msg.firstMessage === "still-mine"));
+
+    // And the attacker's own frames are NOT attributed to the victim.
+    attacker.send(
+      JSON.stringify({ type: "first_message_update", sessionId: "victim", firstMessage: "stolen" }),
+    );
+    await delay(120);
+    expect(delivered.some((d) => d.msg.firstMessage === "stolen")).toBe(false);
+  });
+});
