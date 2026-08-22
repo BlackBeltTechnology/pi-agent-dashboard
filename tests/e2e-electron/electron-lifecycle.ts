@@ -172,6 +172,15 @@ export function resolvePackagedBinary(): string {
       .readdirSync(macOsDir)
       .filter((d) => fs.statSync(path.join(macOsDir, d)).isFile());
     if (only.length === 0) throw new Error(`[electron-e2e] No executable under ${macOsDir}.`);
+    if (only.length > 1) {
+      // Picking only[0] here would silently launch whichever helper readdir
+      // happened to list first and fail somewhere far less legible.
+      throw new Error(
+        `[electron-e2e] Ambiguous darwin binary: expected 'pi-dashboard' under ${macOsDir}, ` +
+          `found ${only.length} candidates (${only.join(", ")}). ` +
+          "Set PW_ELECTRON_BINARY, or align forge's executableName.",
+      );
+    }
     return path.join(macOsDir, only[0]);
   }
   if (process.platform === "win32") {

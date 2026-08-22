@@ -25,9 +25,18 @@ if (!binary) {
   process.exit(1);
 }
 
-const expectedMajor = expectedMajorArg
-  ? Number(expectedMajorArg)
-  : MACOS_FLOOR_MINOS_MAJOR;
+let expectedMajor = MACOS_FLOOR_MINOS_MAJOR;
+if (expectedMajorArg !== undefined) {
+  expectedMajor = Number(expectedMajorArg);
+  if (!Number.isInteger(expectedMajor)) {
+    // Silently coercing a typo to NaN would make every comparison mismatch
+    // (noisy) or, worse, be misread as a deliberate override.
+    console.error(
+      `::error::verify-macos-floor.mjs: expectedMajor must be an integer, got '${expectedMajorArg}'`,
+    );
+    process.exit(1);
+  }
+}
 
 let otoolOutput = "";
 try {
