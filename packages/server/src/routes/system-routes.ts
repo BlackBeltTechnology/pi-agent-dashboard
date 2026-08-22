@@ -741,6 +741,12 @@ export function registerSystemRoutes(
     return { ok: true };
   });
 
+  // Resolved ONCE at registration, not per request: the id is immutable for the
+  // process, and `ensureInstanceId` touches the filesystem. Inside the handler
+  // it made an unauthenticated, frequently-polled route do file I/O
+  // (CodeQL js/missing-rate-limiting).
+  const healthInstanceFields = instanceIdHealthFields(ensureInstanceId(undefined, config.piPort));
+
   // Health endpoint — includes server + agent process metrics
   fastify.get("/api/health", async () => {
     const mem = process.memoryUsage();
@@ -770,7 +776,7 @@ export function registerSystemRoutes(
       // from a foreign listener on a recycled port. An IDENTIFIER, never a
       // credential — this route has no preHandler, so the value is public.
       // See change: add-pi-gateway-transport-identity (D14).
-      ...instanceIdHealthFields(ensureInstanceId(undefined, config.piPort)),
+      ...healthInstanceFields,
       // launchSource: single source of truth for arm-aware client gating
       // (e.g. hide pi-core update UI under Electron, since bundled
       // node_modules/ is read-only). See change:

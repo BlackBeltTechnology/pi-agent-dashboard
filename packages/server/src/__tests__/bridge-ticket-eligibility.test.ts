@@ -51,3 +51,47 @@ describe("decideBridgeTicketMint", () => {
     ).toBe(false);
   });
 });
+
+/**
+ * CodeQL js/polynomial-redos flagged `/^Bearer\s+(.+)$/i` here as polynomial on
+ * attacker-supplied input. Honest note: the blowup could NOT be reproduced —
+ * the parser trims first, which strips exactly the leading/trailing repetition
+ * the query names, and no interior shape degraded either. The parser was made
+ * linear by construction anyway (cheap, clearer, and it silences a blocking
+ * high-severity alert), but this is defensive, not a proven exploit fix.
+ *
+ * So there is deliberately NO timing assertion here: a threshold the OLD code
+ * already met would be a test that passes for the wrong reason. What is worth
+ * pinning is that the rewrite still parses exactly what it used to.
+ */
+describe("the bearer parser accepts and rejects exactly what it used to", () => {
+  it("parses the accepted shapes", () => {
+    const seen: string[] = [];
+    const capture = (auth: string) =>
+      decideBridgeTicketMint({
+        authorization: auth,
+        verifyDeviceBearer: (t) => {
+          seen.push(t);
+          return true;
+        },
+        isGenuinelyLocal: false,
+      }).allow;
+
+    expect(capture("Bearer abc123")).toBe(true);
+    expect(capture("bearer   abc123  ")).toBe(true);
+    expect(capture("BEARER\tabc123")).toBe(true);
+    expect(seen).toEqual(["abc123", "abc123", "abc123"]);
+  });
+
+  it("rejects the shapes that are not a bearer credential", () => {
+    for (const bad of ["Bearer", "Bearer   ", "Basic abc123", "Bearerabc123", ""]) {
+      expect(
+        decideBridgeTicketMint({
+          authorization: bad,
+          verifyDeviceBearer: () => true,
+          isGenuinelyLocal: false,
+        }).allow,
+      ).toBe(false);
+    }
+  });
+});

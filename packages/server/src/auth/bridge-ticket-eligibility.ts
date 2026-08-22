@@ -32,11 +32,24 @@ export interface BridgeMintDecision {
   reason: string;
 }
 
-/** Parse `Authorization: Bearer <token>`. */
+/**
+ * Parse `Authorization: Bearer <token>` WITHOUT a backtracking regex.
+ *
+ * The obvious `/^Bearer\s+(.+)$/i` is a polynomial-ReDoS hazard (CodeQL
+ * js/polynomial-redos): `\s+` and `.+` both match a space, so `"bearer "`
+ * followed by many spaces makes the engine try every split between them. This
+ * header is attacker-supplied on an unauthenticated route, which is exactly
+ * where that matters. Slicing is linear and states the intent more plainly.
+ */
 function bearerFrom(authorization: string | undefined): string | null {
   if (!authorization) return null;
-  const m = /^Bearer\s+(.+)$/i.exec(authorization.trim());
-  return m ? m[1].trim() : null;
+  const trimmed = authorization.trim();
+  if (trimmed.slice(0, 6).toLowerCase() !== "bearer") return null;
+  const rest = trimmed.slice(6);
+  // A single-character class test: no repetition, so nothing to backtrack.
+  if (!/^\s/.test(rest)) return null;
+  const token = rest.trim();
+  return token.length > 0 ? token : null;
 }
 
 export function decideBridgeTicketMint(input: BridgeMintInput): BridgeMintDecision {
