@@ -103,6 +103,13 @@ export function decideBridgeUpgrade(input: BridgeUpgradeInput): BridgeUpgradeVer
 
   // "Genuinely local", not merely "says 127.0.0.1": zrok/ngrok, `ssh -L`,
   // socat, a host nginx and docker's userland proxy all present as loopback.
+  //
+  // KNOWN BLIND SPOT (design.md D10c): this catches L7 proxies, which ADD
+  // forwarding headers. An L4 forwarder (`ssh -L`, socat, docker's userland
+  // proxy) adds nothing, so a peer arriving through one is indistinguishable
+  // here from a genuinely local caller. That is survivable only while a
+  // positive credential (ticket or local token) is also required — i.e. it is
+  // the tokenless grace below, not this check, that carries the risk.
   const loopback =
     isLoopbackAddress(input.remoteAddress) && !hasProxyForwardingHeaders(input.headers ?? {});
   const consumption = input.consumeTicket(ticketFrom(input));

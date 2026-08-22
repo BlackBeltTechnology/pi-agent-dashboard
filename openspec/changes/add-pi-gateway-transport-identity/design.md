@@ -998,3 +998,75 @@ re-target is currently refused *unconditionally* rather than conditionally. For 
 bridge that started against a wrong default and has no record to re-resolve from,
 self-correction is therefore not available. That is a deliberate fail-closed
 posture, not an oversight, but it is the sharp edge of this design.
+
+## D10c — reachability of the tokenless-loopback grace (cycle 9, RECORDED)
+
+**Status: analysis recorded, horizon UNCHANGED.** An `@review` audit rated the
+`requireTicketOnLoopback: false` grace (`server.ts`) a major risk. This section
+records what is actually reachable, because the audit's severity assumed a TCP
+listener that, since task 8.1, usually does not exist.
+
+### Reaching it requires six conditions at once
+
+```mermaid
+flowchart TD
+    A[bridge upgrade] --> B{transport}
+    B -->|unix| OK1[allow: file mode, D5]
+    B -->|tcp| C{valid bridge ticket}
+    C -->|yes| OK2[allow: attributed to a device]
+    C -->|no| D{loopback address}
+    D -->|no| NO1[refuse: no-ticket]
+    D -->|yes| E{proxy-forwarding header}
+    E -->|present| NO2[refuse: relayed]
+    E -->|absent| F{valid X-Pi-Local-Token}
+    F -->|yes| OK3[allow: positive credential, D6]
+    F -->|no| G{requireTicketOnLoopback}
+    G -->|true| NO3[refuse: local-token-missing]
+    G -->|false| GRACE[GRACE: tokenless allow]
+```
+
+### The dominant precondition is that TCP exists at all
+
+Task 8.1 made the gateway socket-only by default; live verification (task 13.2)
+confirmed a host dashboard binds **no** bridge TCP port. On a default host
+install the grace is therefore **unreachable**. It becomes reachable four ways:
+
+| # | How a TCP listener comes to exist | Intended |
+|---|---|---|
+| 1 | `PI_GATEWAY_TCP=1` — the **docker default** (`compose.yml`) | yes |
+| 2 | **Windows**: no unix-socket transport, so loopback TCP always | yes |
+| 3 | Socket bind refused, falling back to `127.0.0.1:<piPort>` | **no — silent** |
+| 4 | Operator sets the opt-in deliberately | yes |
+
+A legitimate bridge omits the token only when it cannot read it: an older
+extension, or a different `$HOME` than the server's (`<configDir>/local/token`,
+0600). That is the compat case the window was bought for.
+
+### Two consequences worth naming
+
+**L4 forwarders are invisible to the header check.** `hasProxyForwardingHeaders`
+catches **L7** proxies (nginx, zrok/ngrok in HTTP mode) because they ADD
+headers. An **L4** forwarder — `ssh -L`, `socat`, docker's userland proxy —
+adds nothing, so a remote peer arriving through one is indistinguishable from a
+genuinely local caller and the grace admits it.
+
+**The grace downgrades a per-USER boundary to a per-HOST one.** D5's argument
+is that socket file mode makes the KERNEL enforce same-user. Loopback TCP
+carries no user identity, and the local token that would restore it is exactly
+what the grace waives. So a second OS user — or any container co-tenant, e.g. a
+code-server terminal in the all-in-one — is refused by the socket and admitted
+by the graced TCP path. An admitted peer cannot hijack a live session (see the
+commit guards) but can still claim UNHELD session ids and receive their traffic.
+
+### Assessment and the open option
+
+Severity is **major in the container and on Windows, negligible on a default
+host install**, plus a latent path via (3) where a FAILURE silently moves an
+operator onto the graced path with only a log line.
+
+The narrowest change preserving the D10b compat promise would be to default
+`requireTicketOnLoopback` to **true when the listener is non-loopback** (the
+container's `0.0.0.0` case), where bridges can present a local token or a
+ticket, while leaving the genuine legacy-loopback window open. **Not taken
+here**: D10b's horizon is a recorded product decision, and narrowing it is a
+product call rather than a review fix. Recorded so the choice is deliberate.
