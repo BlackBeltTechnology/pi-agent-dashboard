@@ -47,11 +47,76 @@ test.describe("route-backed overlays", () => {
 
     await page.keyboard.press("Escape");
 
+    // Assert the URL FIRST. `toHaveCount(0)` is not a sound primary signal here:
+    // the overlay is also gated on `firstLaunchModal`, so it can reach count 0
+    // WITHOUT any dismissal having happened, and this test duly flaked green-to-
+    // red on exactly that. A changed URL is the one observable only a real
+    // dismissal produces.
+    //
     // Dismissal must not be a no-op — the cold-load target is resolved from the
     // RouteDescriptor table, which is why group 2's depth work is load-bearing
     // on this path too.
-    await expect(page.getByTestId("tunnel-setup-overlay")).toHaveCount(0);
     await expect(page).not.toHaveURL(/\/tunnel-setup$/);
+    await expect(page.getByTestId("tunnel-setup-overlay")).toHaveCount(0);
+  });
+
+  test("5.5a/S-10: an in-overlay navigation switches in place and keeps the frozen background", async ({
+    page,
+  }) => {
+    await page.goto("/settings/general");
+    await expect(page.getByTestId("settings-nav-rail")).toBeVisible({ timeout: 20_000 });
+
+    // Stamp the live DOM nodes with an expando React does not manage. It rides
+    // along through any number of re-renders and vanishes on REMOUNT, which is
+    // the only thing that distinguishes "switched in place" from "tore down and
+    // rebuilt" once the URL has changed either way. Asserting on visibility
+    // instead would pass in both cases and prove nothing.
+    const stamp = (testId: string) =>
+      page.evaluate((id) => {
+        const el = document.querySelector(`[data-testid="${id}"]`);
+        if (!el) throw new Error(`stamp target ${id} not found`);
+        (el as HTMLElement).dataset.remountProbe = "original";
+      }, testId);
+    const probe = (testId: string) =>
+      page.evaluate(
+        (id) =>
+          (document.querySelector(`[data-testid="${id}"]`) as HTMLElement | null)?.dataset
+            .remountProbe ?? null,
+        testId,
+      );
+
+    await stamp("settings-overlay");
+    await stamp("settings-overlay-underlay");
+
+    // A real in-panel navigation to a sibling settings page: same overlay, and
+    // the container's own route pattern still matches, so D1c says switch in
+    // place rather than dismiss.
+    await page
+      .getByTestId("settings-nav-rail")
+      .getByRole("button", { name: "Security", exact: true })
+      .click();
+    await expect(page).toHaveURL(/\/settings\/security/);
+
+    expect(await probe("settings-overlay"), "container was NOT remounted").toBe("original");
+    // The frozen background must survive too: re-freezing it against a path that
+    // is itself inside the overlay is the specific corruption D1c prevents, and
+    // it would take the underlay's scroll position with it.
+    expect(await probe("settings-overlay-underlay"), "underlay was NOT remounted").toBe("original");
+
+    // Still exactly one surface -- an in-place switch must not leave a second
+    // container behind.
+    await expect(page.getByRole("dialog")).toHaveCount(1);
+  });
+
+  test("the underlay is inert, so nothing behind the overlay can be clicked", async ({ page }) => {
+    // This is WHY 'navigate to a non-owned route' has no in-app path from inside
+    // an overlay: the whole shell behind it is removed from pointer and focus
+    // order. The non-owned branch is therefore exercised by dismissal (S-13) and
+    // by route matching (S-12b), not by a click.
+    await page.goto("/settings/general");
+    const underlay = page.getByTestId("settings-overlay-underlay");
+    await expect(underlay).toHaveAttribute("aria-hidden", "true");
+    await expect(underlay).toHaveAttribute("inert", /.*/);
   });
 
   test("S-12b: /settings mounts exactly one overlay and tunnel setup is not mounted", async ({
