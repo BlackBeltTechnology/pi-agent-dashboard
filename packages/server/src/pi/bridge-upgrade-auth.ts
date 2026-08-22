@@ -63,7 +63,7 @@ export interface BridgeUpgradeInput {
 type BridgeRefusalCause = "local-token-missing" | "local-token-invalid" | "no-ticket";
 
 export type BridgeUpgradeVerdict =
-  | { allow: true; reason: string; deprecated?: boolean }
+  | { allow: true; reason: string; deprecated?: boolean; deviceId?: string }
   | { allow: false; reason: string; cause: BridgeRefusalCause };
 
 /** Loopback in every form Node reports it, including IPv4-mapped IPv6. */
@@ -107,7 +107,14 @@ export function decideBridgeUpgrade(input: BridgeUpgradeInput): BridgeUpgradeVer
     isLoopbackAddress(input.remoteAddress) && !hasProxyForwardingHeaders(input.headers ?? {});
   const consumption = input.consumeTicket(ticketFrom(input));
   if (consumption.ok) {
-    return { allow: true, reason: "tcp: valid single-use bridge ticket" };
+    // The device the ticket was minted for travels with the verdict: a session
+    // this bridge registers is then attributable to it, which is what the
+    // origin gate needs to refuse LOCAL file reads for a REMOTE session (#E15).
+    return {
+      allow: true,
+      reason: "tcp: valid single-use bridge ticket",
+      deviceId: consumption.deviceId,
+    };
   }
 
   // A loopback bridge may instead present the local token — a POSITIVE

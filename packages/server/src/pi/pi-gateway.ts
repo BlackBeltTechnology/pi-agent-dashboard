@@ -9,6 +9,7 @@ import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared
 import { WebSocket, WebSocketServer } from "ws";
 import type { TicketConsumption } from "../auth/ws-ticket.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
+import { attributeOrigin, UNATTRIBUTED_REMOTE } from "../session/session-origin.js";
 import { getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
 import {
   CONTENTION_PROBE_WINDOW,
@@ -21,7 +22,7 @@ import {
   type ProbeableSocket,
   resolveProbe,
 } from "./bridge-contention.js";
-import { decideBridgeUpgrade } from "./bridge-upgrade-auth.js";
+import { decideBridgeUpgrade, isLoopbackAddress } from "./bridge-upgrade-auth.js";
 import { bindGatewaySocket, unbindGatewaySocket } from "./gateway-socket-bind.js";
 import { createProvisionalRegistry } from "./provisional-registration.js";
 
@@ -58,6 +59,12 @@ export interface PiGatewayOptions {
   contentionProbeWindow?: number;
   /** TTL for provisional registrations; test seam for the 30s default. */
   provisionalTtlMs?: number;
+  /**
+   * Test seam: the peer address the origin gate sees. Every test peer is
+   * loopback (and therefore local), so without this the remote branch of the
+   * gate is unreachable from a test — which is precisely how it shipped inert.
+   */
+  peerAddressForTest?: string;
   /**
    * This dashboard's persistent instance id, returned to a bridge opening a
    * provisional registration so it can verify the target's identity before
@@ -139,6 +146,11 @@ export function createPiGateway(
   // Intent-only registrations (D11, task 9.3a). Deliberately separate from
   // `connections`: an entry here is NOT a routing claim.
   const provisionalRegistry = createProvisionalRegistry({ ttlMs: options?.provisionalTtlMs });
+  /**
+   * Device id resolved during the upgrade, keyed by the upgrade request so the
+   * connection handler can read it. Weak: entries die with the request.
+   */
+  const upgradeDeviceId = new WeakMap<IncomingMessage, string>();
   // Track connection liveness for WS ping/pong (miss counter: kill after 2 consecutive misses)
   const aliveMisses = new Map<WebSocket, number>();
   // Map sessionId → heartbeat timeout
@@ -323,8 +335,30 @@ export function createPiGateway(
    * alike, so the transport is a per-bridge property rather than a
    * per-server mode. See change: add-pi-gateway-transport-identity.
    */
-  const attachConnectionHandler = (target: WebSocketServer) => {
-      target.on("connection", (ws) => {
+  const attachConnectionHandler = (target: WebSocketServer, transport: "unix" | "tcp") => {
+      target.on("connection", (ws, req) => {
+        // Origin evidence, derived ONLY from the connection and its credential
+        // — never from anything the bridge says about itself. A unix peer
+        // opened a file in this HOME's 0700 dir; a loopback TCP peer is on this
+        // host; anything else is remote, attributable via its bridge ticket or
+        // (failing closed) not at all.
+        const sessionOrigin = attributeOrigin({
+          transport,
+          remote:
+            transport === "tcp" &&
+            !isLoopbackAddress(
+              options?.peerAddressForTest ?? req?.socket?.remoteAddress ?? undefined,
+            ),
+          deviceId: req ? upgradeDeviceId.get(req) : undefined,
+          localInstanceId: options?.instanceId ?? "",
+        });
+        // `originDeviceId` is ABSENT for a local session (that is how every
+        // pre-existing session keeps working), so a remote peer we could not
+        // attribute still needs a value — otherwise "unattributable" would
+        // silently read back as "local", which is the opposite of failing closed.
+        const originDeviceId = sessionOrigin.local
+          ? undefined
+          : (sessionOrigin.deviceId ?? UNATTRIBUTED_REMOTE);
         let currentSessionId: string | null = null;
         // The session this socket holds an OPEN provisional for, if any. A
         // provisional announces intent and claims nothing, so this socket must
@@ -560,6 +594,7 @@ export function createPiGateway(
                 if (!sessionManager.get(movedId) && verdict.register) {
                   sessionManager.register({
                     id: movedId,
+                    originDeviceId,
                     cwd: verdict.register.cwd,
                     name: verdict.register.name,
                     source: verdict.register.source as never,
@@ -719,6 +754,8 @@ export function createPiGateway(
 
               sessionManager.register({
                 id: msg.sessionId,
+                // Derived from the credential, not from the payload.
+                originDeviceId,
                 cwd: msg.cwd,
                 name: msg.name,
                 source: msg.source,
@@ -934,7 +971,7 @@ export function createPiGateway(
     async startOnSocket(path: string) {
       if (!wss) {
         wss = new WebSocketServer({ noServer: true });
-        attachConnectionHandler(wss);
+        attachConnectionHandler(wss, "unix");
       }
       const server = await bindGatewaySocket({ socketPath: path });
       // Capture the CURRENT wss: routing socket upgrades through a mutable
@@ -986,13 +1023,14 @@ export function createPiGateway(
               return;
             }
             if (verdict.deprecated) log(`[pi-gateway] ${verdict.reason}`);
+            if (verdict.deviceId) upgradeDeviceId.set(info.req, verdict.deviceId);
             done(true);
           }
         : undefined;
       wss = new WebSocketServer(
         host ? { port, host, verifyClient } : { port, verifyClient },
       );
-      attachConnectionHandler(wss);
+      attachConnectionHandler(wss, "tcp");
       startHeartbeat();
     },
 

@@ -9,6 +9,9 @@
  * See change: fix-duplicate-bridge-registration (D4, D5).
  */
 
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer } from "../server.js";
@@ -319,5 +322,42 @@ describe("session-file resume guard (REST)", () => {
     const res = await postJson("/api/session/local-ended/resume", { mode: "continue" });
     expect(res.status).toBe(200);
     expect(spawnCalls.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * #E15 / task 11.8 — /api/session-file confines reads to `session.cwd`, but a
+ * remote session's cwd is a path on ANOTHER host. Two machines with the same
+ * username yield the same path, so the confinement passes while the file
+ * served is an unrelated local one. A correctness bug before a security one.
+ */
+describe("/api/session-file refuses a remote-origin session", () => {
+  it("refuses by naming the device, and never serves the local path", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "origin-gate-"));
+    writeFileSync(join(dir, "README.md"), "local-secret");
+
+    // Same cwd for both: the whole point is that the PATH cannot discriminate.
+    server.sessionManager.register({
+      id: "remote-sess",
+      cwd: dir,
+      source: "tui",
+      originDeviceId: "device-7",
+    });
+    server.sessionManager.register({ id: "local-sess", cwd: dir, source: "tui" });
+
+    const remote = await fetch(url("/api/session-file?sessionId=remote-sess&path=README.md"));
+    expect(remote.status).toBe(403);
+    const body = (await remote.json()) as { success: boolean; error: string };
+    expect(body.success).toBe(false);
+    expect(body.error).toMatch(/device-7/);
+    expect(body.error).toMatch(/not on this host/);
+    expect(JSON.stringify(body)).not.toContain("local-secret");
+
+    // The discriminating control: an identical read for a LOCAL session is
+    // served, so the refusal is about ORIGIN and not about the path.
+    const local = await fetch(url("/api/session-file?sessionId=local-sess&path=README.md"));
+    expect(local.status).toBe(200);
+    const okBody = (await local.json()) as { data: { content: string } };
+    expect(okBody.data.content).toBe("local-secret");
   });
 });

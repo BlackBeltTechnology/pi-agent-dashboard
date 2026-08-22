@@ -15,6 +15,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createPiGateway } from "../pi/pi-gateway.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
+import { decideResume, UNATTRIBUTED_REMOTE } from "../session/session-origin.js";
 import { delay, until, waitForBind, waitForOpen } from "./pi-gateway-duplicate-register.test.js";
 
 const gateways: Array<{ stop: () => void }> = [];
@@ -521,5 +522,77 @@ describe("a commit cannot rename the session it was minted for", () => {
     );
     await delay(120);
     expect(delivered.some((d) => d.msg.firstMessage === "stolen")).toBe(false);
+  });
+});
+
+/**
+ * #E15 — the origin gate must be LIVE, not merely present.
+ *
+ * `attributeOrigin` and `decideResume` were fully implemented and fully
+ * unit-tested while nothing ever set `originDeviceId`, so every session read
+ * back as local and the gate was inert in shipped code. These assert the
+ * wiring itself: what the gateway stamps onto a session it registers.
+ */
+describe("a session is attributed to the credential that registered it (#E15)", () => {
+  const registerOver = async (opts: {
+    peerAddressForTest?: string;
+    deviceId?: string;
+  }) => {
+    const sessions = createMemorySessionManager();
+    const gw = createPiGateway(sessions, {
+      instanceId: "instance-local",
+      peerAddressForTest: opts.peerAddressForTest,
+      bridgeAuth: {
+        consumeTicket: () => ({ ok: true as const, deviceId: opts.deviceId }),
+        requireTicketOnLoopback: false,
+        log: () => {},
+      },
+    });
+    gw.onEvent = () => {};
+    gateways.push(gw);
+    await gw.start(0, "127.0.0.1");
+    const port = await waitForBind(gw);
+
+    const ws = await connect(port);
+    ws.send(
+      JSON.stringify({
+        type: "session_register",
+        sessionId: "sess-O",
+        cwd: "/home/alice/proj",
+        source: "tui",
+        sessionFile: "/home/alice/.pi/sessions/sess-O.jsonl",
+      }),
+    );
+    await until(() => sessions.get("sess-O") !== undefined);
+    return sessions.get("sess-O");
+  };
+
+  it("leaves a loopback bridge unattributed — absent means local", async () => {
+    const session = await registerOver({ deviceId: "device-7" });
+    // Loopback is genuinely this host, so the ticket's device is irrelevant.
+    expect(session?.originDeviceId).toBeUndefined();
+  });
+
+  it("names the paired device behind a remote bridge", async () => {
+    const session = await registerOver({
+      peerAddressForTest: "203.0.113.7",
+      deviceId: "device-7",
+    });
+    expect(session?.originDeviceId).toBe("device-7");
+
+    // ...and that is what makes the gate bite: this session's sessionFile is a
+    // path on ANOTHER host, so reading it here would serve an unrelated file.
+    const verdict = decideResume({
+      origin: { local: false, deviceId: session?.originDeviceId },
+      status: "ended",
+    });
+    expect(verdict.allow).toBe(false);
+  });
+
+  it("fails closed for an unattributable remote peer", async () => {
+    const session = await registerOver({ peerAddressForTest: "203.0.113.7" });
+    // NOT undefined: undefined reads back as "local", which is the opposite
+    // of failing closed.
+    expect(session?.originDeviceId).toBe(UNATTRIBUTED_REMOTE);
   });
 });

@@ -34,12 +34,19 @@ const TICKET_BYTES = 32;
 
 interface TicketEntry {
   scope: WsRouteScope;
+  /**
+   * Paired-device id of the caller that minted this ticket, for `bridge`
+   * scope. Carried so a session registered over a remote bridge can be
+   * ATTRIBUTED to a device — origin is derived from the credential, never
+   * from anything the bridge says about itself.
+   */
+  deviceId?: string;
   expiresAt: number;
 }
 
 /** Outcome of a single-use consumption attempt, with the cause named. */
 export type TicketConsumption =
-  | { ok: true }
+  | { ok: true; deviceId?: string }
   | { ok: false; reason: "missing" | "unknown" | "expired" | "wrong-scope" };
 
 /** Map a WebSocket upgrade URL to its route scope, or null if not a WS route. */
@@ -91,12 +98,12 @@ export class WsTicketStore {
   }
 
   /** Mint a single-use ticket bound to a route scope (authenticated caller). */
-  mint(scope: WsRouteScope): string {
+  mint(scope: WsRouteScope, deviceId?: string): string {
     // Lazy sweep on each mint clears abandoned (minted-but-unconsumed) tickets
     // so the map can't grow unbounded without a background timer.
     this.sweep();
     const ticket = crypto.randomBytes(TICKET_BYTES).toString("base64url");
-    this.tickets.set(ticket, { scope, expiresAt: this.now() + TICKET_TTL_MS });
+    this.tickets.set(ticket, { scope, deviceId, expiresAt: this.now() + TICKET_TTL_MS });
     return ticket;
   }
 
@@ -126,7 +133,7 @@ export class WsTicketStore {
     if (!entry) return { ok: false, reason: "unknown" };
     if (entry.expiresAt < this.now()) return { ok: false, reason: "expired" };
     if (entry.scope !== scope) return { ok: false, reason: "wrong-scope" };
-    return { ok: true };
+    return { ok: true, deviceId: entry.deviceId };
   }
 
   /** Drop expired tickets (memory hygiene). */

@@ -16,6 +16,15 @@
  * See change: add-pi-gateway-transport-identity (D12/D13; tasks 11.7, 11.8).
  */
 
+/**
+ * Stand-in device id for a REMOTE connection we could not attribute to a
+ * paired device. `originDeviceId` being absent means "local" (so every
+ * pre-existing session keeps working), which leaves no way to say "remote,
+ * unknown device" — and without this a peer that dodged attribution would read
+ * back as local, re-opening exactly the paths this gate closes.
+ */
+export const UNATTRIBUTED_REMOTE = "unattributed-remote";
+
 export interface SessionOrigin {
   /** True when the session's files live on THIS host. */
   local: boolean;
@@ -36,6 +45,15 @@ export interface OriginEvidence {
  * Derive origin from connection evidence. Extra fields a bridge may have sent
  * (`claimedDeviceId`, `claimedLocal`, …) are deliberately not read.
  */
+/**
+ * The origin already recorded on a session. `originDeviceId` absent means the
+ * files are on this host — that encoding is what lets every pre-existing
+ * session keep working after this gate landed.
+ */
+export function originOf(session: { originDeviceId?: string }): SessionOrigin {
+  return session.originDeviceId ? { local: false, deviceId: session.originDeviceId } : { local: true };
+}
+
 export function attributeOrigin(evidence: OriginEvidence): SessionOrigin {
   // A unix socket is same-host by construction: the peer opened a file in this
   // HOME's 0700 directory. Loopback TCP is same-host too.

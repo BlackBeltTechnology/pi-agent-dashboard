@@ -1745,12 +1745,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           authorization: request.headers.authorization,
           ip: request.ip,
           headers: request.headers as Record<string, unknown>,
-          verifyDeviceBearer: (token) => pairedDeviceRegistry.verify(token) !== null,
+          verifyDeviceBearer: (token) => pairedDeviceRegistry.verify(token),
         });
         if (!verdict.allow) {
           reply.code(403);
           return { success: false as const, error: verdict.reason };
         }
+        // The ticket carries the minting device so the bridge that presents it
+        // registers ATTRIBUTABLE sessions (origin gate, #E15).
+        return {
+          success: true as const,
+          data: { ticket: wsTicketStore.mint(scope, verdict.deviceId) },
+        };
       }
       return { success: true as const, data: { ticket: wsTicketStore.mint(scope) } };
     },

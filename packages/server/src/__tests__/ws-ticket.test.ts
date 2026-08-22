@@ -86,7 +86,7 @@ describe("revoked paired device (#X11)", () => {
       // A REMOTE bridge — the genuinely-local branch must not rescue it.
       ip: "203.0.113.7",
       headers: {},
-      verifyDeviceBearer: (t) => registry.verify(t) !== null,
+      verifyDeviceBearer: (t) => registry.verify(t),
     });
 
   it("mints for a paired device and refuses once revoked, with a named reason", () => {

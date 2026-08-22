@@ -23,13 +23,21 @@ export interface BridgeMintInput {
   authorization?: string;
   ip: string;
   headers: Record<string, unknown>;
-  /** Verify a durable device bearer. */
-  verifyDeviceBearer: (token: string) => boolean;
+  /**
+   * Resolve a durable device bearer to its paired-device id, or null. Returns
+   * the ID rather than a boolean so the minted ticket can carry WHICH device
+   * minted it: a session registered over that ticket is then attributable,
+   * which is what the origin gate needs to refuse local file reads for a
+   * remote session (#E15).
+   */
+  verifyDeviceBearer: (token: string) => string | null;
 }
 
 export interface BridgeMintDecision {
   allow: boolean;
   reason: string;
+  /** Set when the caller authenticated AS a paired device. */
+  deviceId?: string;
 }
 
 /**
@@ -54,8 +62,9 @@ function bearerFrom(authorization: string | undefined): string | null {
 
 export function decideBridgeTicketMint(input: BridgeMintInput): BridgeMintDecision {
   const bearer = bearerFrom(input.authorization);
-  if (bearer && input.verifyDeviceBearer(bearer)) {
-    return { allow: true, reason: "paired device bearer" };
+  const deviceId = bearer ? input.verifyDeviceBearer(bearer) : null;
+  if (deviceId) {
+    return { allow: true, reason: "paired device bearer", deviceId };
   }
   if (isGenuinelyLocal(input.ip, input.headers)) {
     return { allow: true, reason: "genuinely-local caller" };

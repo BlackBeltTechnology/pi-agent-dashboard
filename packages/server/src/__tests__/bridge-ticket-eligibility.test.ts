@@ -13,7 +13,7 @@ import { decideBridgeTicketMint } from "../auth/bridge-ticket-eligibility.js";
 const base = {
   ip: "192.168.1.50",
   headers: {} as Record<string, unknown>,
-  verifyDeviceBearer: (t: string) => t === "good-device-bearer",
+  verifyDeviceBearer: (t: string) => (t === "good-device-bearer" ? "device-7" : null),
 };
 
 describe("decideBridgeTicketMint", () => {
@@ -75,7 +75,7 @@ describe("the bearer parser accepts and rejects exactly what it used to", () => 
         authorization,
         verifyDeviceBearer: (t: string) => {
           seen.push(t);
-          return true;
+          return "device-7";
         },
       }).allow;
 
@@ -91,9 +91,26 @@ describe("the bearer parser accepts and rejects exactly what it used to", () => 
         decideBridgeTicketMint({
           ...base,
           authorization: bad,
-          verifyDeviceBearer: () => true,
+          verifyDeviceBearer: () => "device-7",
         }).allow,
       ).toBe(false);
     }
   });
+});
+
+/**
+ * The minted ticket must carry WHICH device minted it: a session registered
+ * over that ticket is otherwise unattributable, and the origin gate then
+ * cannot tell a remote session from a local one (#E15).
+ */
+it("names the paired device that authenticated, so the ticket is attributable", () => {
+  const verdict = decideBridgeTicketMint({ ...base, authorization: "Bearer good-device-bearer" });
+  expect(verdict.allow).toBe(true);
+  expect(verdict.deviceId).toBe("device-7");
+});
+
+it("does not attribute a genuinely-local caller to any device", () => {
+  const verdict = decideBridgeTicketMint({ ...base, ip: "127.0.0.1", authorization: undefined });
+  expect(verdict.allow).toBe(true);
+  expect(verdict.deviceId).toBeUndefined();
 });
