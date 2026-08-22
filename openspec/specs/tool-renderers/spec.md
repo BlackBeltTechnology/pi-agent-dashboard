@@ -277,21 +277,6 @@ The parser SHALL first strip a leading noise line matching the context-mode upgr
 
 For a `runtime` error whose body has the context-mode execution shape — a fenced code block followed by an `Exit code: <n>` line and optional `stdout:` / `stderr:` sections — the parser SHALL additionally capture those parts into structured fields (`command`, `language`, `exitCode`, `stdout`, `stderr`) on the error struct. When the body does not have that shape, the parser SHALL leave the fields undefined and the renderer SHALL fall back to the flat `message` body. Field extraction SHALL NOT throw on a partial or malformed body.
 
-#### Scenario: Strips upgrade banner
-- **GIVEN** a result whose first line is `⚠️ context-mode v1.0.161 outdated → v1.0.162 available. Upgrade: npm run build`
-- **WHEN** the parser runs
-- **THEN** the returned struct's rendered body SHALL NOT contain the banner line
-
-#### Scenario: Parses batch summary header
-- **GIVEN** a `ctx_batch_execute` result starting with `Executed 6 commands (816 lines, 62.8KB). Indexed 31 sections. Searched 5 queries.`
-- **WHEN** the parser runs
-- **THEN** it SHALL return `{ kind: "batch" }` with summary fields `commands=6`, `sections=31`, `queries=5`
-
-#### Scenario: Parses index header
-- **GIVEN** a `ctx_index` result `Indexed 830 sections (169 with code) from: docs/`
-- **WHEN** the parser runs
-- **THEN** it SHALL return `{ kind: "index", sections: 830, withCode: 169, source: "docs/" }`
-
 #### Scenario: Classifies validation error
 - **GIVEN** `isError` is true and the result starts with `Validation failed for tool "ctx_batch_execute":`
 - **WHEN** the parser runs
@@ -316,6 +301,21 @@ For a `runtime` error whose body has the context-mode execution shape — a fenc
 - **THEN** it SHALL return `{ kind: "error", variant: "runtime" }` with `command` / `exitCode` / `stdout` / `stderr` undefined
 - **AND** the original text SHALL remain available in `message`
 
+#### Scenario: Strips upgrade banner
+- **GIVEN** a result whose first line is `⚠️ context-mode v1.0.161 outdated → v1.0.162 available. Upgrade: npm run build`
+- **WHEN** the parser runs
+- **THEN** the returned struct's rendered body SHALL NOT contain the banner line
+
+#### Scenario: Parses batch summary header
+- **GIVEN** a `ctx_batch_execute` result starting with `Executed 6 commands (816 lines, 62.8KB). Indexed 31 sections. Searched 5 queries.`
+- **WHEN** the parser runs
+- **THEN** it SHALL return `{ kind: "batch" }` with summary fields `commands=6`, `sections=31`, `queries=5`
+
+#### Scenario: Parses index header
+- **GIVEN** a `ctx_index` result `Indexed 830 sections (169 with code) from: docs/`
+- **WHEN** the parser runs
+- **THEN** it SHALL return `{ kind: "index", sections: 830, withCode: 169, source: "docs/" }`
+
 #### Scenario: Malformed result falls back to raw
 - **GIVEN** a `ctx_search` result whose body does not match the expected `## <query>` grammar
 - **WHEN** the parser runs
@@ -326,14 +326,30 @@ A single `CtxToolRenderer` component SHALL render all `ctx_*` tool calls. It SHA
 
 The error card SHALL carry its severity signal on the container chrome (border, fill, label) and SHALL NOT render its body in a raw severity-coloured `<pre>`. When the parser has structured a runtime error into fields, the card SHALL render the `command` through the same `CodeBlock` used by the success path (syntax-highlighted when a language is present), an `exit <n>` badge, and each non-empty stream (`stdout`, `stderr`) as its own labelled section. The success and error paths SHALL therefore share the same code-block and section presentation; a failing ctx call SHALL NOT render as a flat, unstructured wall while a passing one is highlighted and sectioned.
 
-#### Scenario: Header chip per tool
-- **WHEN** a `ctx_batch_execute` result parses to a batch summary with 6 commands, 31 sections, 5 queries
-- **THEN** the collapsed card header SHALL show a chip summarizing command count, section count, and query count (e.g. `6 cmds · 31 sections · 5 queries`)
-
 #### Scenario: Execute body shows code and stdout
 - **WHEN** a `ctx_execute` tool call has `args.language = "shell"` and a non-empty `code` argument and a stdout result
 - **THEN** the card SHALL render the `code` argument as a code block and the stdout below it
 - **AND** the card SHALL NOT render `JSON.stringify(args)`
+
+#### Scenario: Runtime error card renders structured sections
+- **GIVEN** a `ctx_execute` error parsed with `command`, `language: "shell"`, `exitCode: 1`, and empty streams
+- **THEN** the card SHALL render the command through `CodeBlock` with shell syntax highlighting
+- **AND** SHALL render an `exit 1` badge
+- **AND** SHALL render `stdout` and `stderr` as labelled sections
+- **AND** SHALL NOT render the fenced ```` ``` ```` markers or the `Exit code:` label as literal body text
+
+#### Scenario: Error card chrome carries the severity signal
+- **WHEN** any error card renders
+- **THEN** its border, fill and label SHALL use `--severity-error-*` tokens
+- **AND** its body SHALL NOT be a `<pre>` coloured by a raw `red-<NNN>` literal
+
+#### Scenario: Unstructured runtime error falls back to a neutral body
+- **GIVEN** a runtime error the parser could not structure into fields
+- **THEN** the card SHALL render the flat `message` in `--text-secondary` on `--bg-code`
+- **AND** the chrome SHALL still carry the severity signal
+#### Scenario: Header chip per tool
+- **WHEN** a `ctx_batch_execute` result parses to a batch summary with 6 commands, 31 sections, 5 queries
+- **THEN** the collapsed card header SHALL show a chip summarizing command count, section count, and query count (e.g. `6 cmds · 31 sections · 5 queries`)
 
 #### Scenario: Execute_file body shows path header
 - **WHEN** a `ctx_execute_file` tool call has a `path` argument
@@ -383,23 +399,6 @@ The error card SHALL carry its severity signal on the container chrome (border, 
 - **WHEN** a `ctx_search` tool call is running with `args.queries` of length 2
 - **THEN** the header chip SHALL read `🔍 2 queries`
 - **AND** the running body SHALL list both `args.queries` entries
-
-#### Scenario: Runtime error card renders structured sections
-- **GIVEN** a `ctx_execute` error parsed with `command`, `language: "shell"`, `exitCode: 1`, and empty streams
-- **THEN** the card SHALL render the command through `CodeBlock` with shell syntax highlighting
-- **AND** SHALL render an `exit 1` badge
-- **AND** SHALL render `stdout` and `stderr` as labelled sections
-- **AND** SHALL NOT render the fenced ```` ``` ```` markers or the `Exit code:` label as literal body text
-
-#### Scenario: Error card chrome carries the severity signal
-- **WHEN** any error card renders
-- **THEN** its border, fill and label SHALL use `--severity-error-*` tokens
-- **AND** its body SHALL NOT be a `<pre>` coloured by a raw `red-<NNN>` literal
-
-#### Scenario: Unstructured runtime error falls back to a neutral body
-- **GIVEN** a runtime error the parser could not structure into fields
-- **THEN** the card SHALL render the flat `message` in `--text-secondary` on `--bg-code`
-- **AND** the chrome SHALL still carry the severity signal
 
 ### Requirement: Raw fallback still renders a card
 When `parseCtxResult` returns `{ kind: "raw", text }`, the `CtxToolRenderer` SHALL render a card whose header chip is derived from the tool `args` (via the same args-chip path used for the running state) rather than the bare tool name, and whose body is the stripped `text` rendered as linkified output. The card SHALL NOT render `JSON.stringify(args)`.

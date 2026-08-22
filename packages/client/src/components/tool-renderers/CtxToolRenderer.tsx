@@ -3,6 +3,7 @@ import { Icon } from "@mdi/react";
 import type React from "react";
 import { useState } from "react";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
+import { truncateOutputForDisplay } from "../../lib/chat/event-reducer.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { getSyntaxTheme } from "../../lib/theme/syntax-theme.js";
 import { useThemeContext } from "../settings/ThemeProvider.js";
@@ -191,12 +192,17 @@ function StreamSection({
   text: string;
   context: ToolRendererProps["context"];
 }) {
+  // A failing command can emit thousands of lines. Bound the section with the
+  // SAME helper BashOutputCard already uses (last 200 lines behind a
+  // «N earlier lines hidden» marker) rather than introducing a second cap.
+  // See change: repair-tool-error-surfaces (test-plan #X3 / clarification C3).
+  const shown = truncateOutputForDisplay(text);
   return (
     <div className="space-y-1">
       <div className={SECTION_LABEL}>{label}</div>
       {text ? (
         <pre className={`${ERROR_BODY} ${bodyCap}`}>
-          <LinkifiedText text={text} context={context} />
+          <LinkifiedText text={shown} context={context} />
         </pre>
       ) : (
         <pre className={`${ERROR_BODY_BASE} italic text-[var(--text-muted)]`}>(empty)</pre>
@@ -325,7 +331,7 @@ function RunningPreview({ toolName, args }: { toolName: string; args?: Record<st
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-xs text-blue-400 hover:underline break-all"
+          className="text-xs text-[var(--link)] hover:underline break-all"
         >
           {url}
         </a>
@@ -420,7 +426,7 @@ function CtxBody({
               href={parsed.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-blue-400 hover:underline break-all"
+              className="text-[var(--link)] hover:underline break-all"
             >
               {parsed.url}
             </a>
@@ -436,7 +442,7 @@ function CtxBody({
               href={parsed.url}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-[var(--bg-code)] border border-[var(--border-secondary)] text-blue-400 hover:underline"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded text-xs bg-[var(--bg-code)] border border-[var(--border-secondary)] text-[var(--link)] hover:underline"
             >
               <Icon path={mdiOpenInNew} size={0.5} />
               {parsed.url}

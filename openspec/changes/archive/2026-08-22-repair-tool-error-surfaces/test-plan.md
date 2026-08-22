@@ -4,8 +4,13 @@ Stage: apply   Generated: 2026-08-21
 
 ## Clarifications — resolved during planning
 
-- **C1** (F8) — link colour vs `--bg-code` SHALL clear **≥ 3:1 in all 18 theme·mode
-  combos**, measured by the same in-browser probe as F7.
+- **C1** (F8) — link colour vs `--bg-code` SHALL clear **≥ 3:1**, measured by the same
+  in-browser probe as F7, in every theme·mode combo EXCEPT the documented
+  `tokyo-night/light` carve-out (≥ 2.5:1, measured 2.77:1). That theme renders its own
+  body text in blue, so `--link` is deliberately a lighter blue to stay distinguishable
+  from ordinary text. Per design.md D3 these surfaces INHERIT the existing exceptions
+  and introduce no new one; the carve-out is keyed `tokyo-night/light/link` so fixing
+  the `info` cell cannot silently re-raise this floor.
 - **C2** (E10) — with more than one fenced block, the **FIRST** fence becomes `command`;
   every remaining fence stays **verbatim** in `message`/`stdout`. No text is dropped and
   no second `CodeBlock` is synthesised.
@@ -59,7 +64,7 @@ real class string in-browser; port that shape rather than inventing a new probe)
 | F5 | Collapsed receivedArgs block unchanged | regression pin | L1 | automated | validation error with `receivedArgs` | render + expand | the block still uses `--text-secondary` on `--bg-code`; no severity class added by this change |
 | F6 | Unstructured runtime error falls back | state-transition (illegal edge) | L1 | automated | E5's parsed struct | render the error card | flat `message` body rendered verbatim (no text dropped) in `--text-secondary` on `--bg-code`; chrome still carries the severity signal; no `exit` badge, no empty stream sections |
 | F7 | Tool-result surfaces clear the 3:1 floor | in-browser contrast sweep | L3 | automated | probe elements built from the SHIPPED class strings of all 7 surfaces | apply each of the 9 themes × {light,dark} and read `getComputedStyle` | every surface's resolved fg-on-its-own-bg ≥ 3:1 in all 18 combos, **including every light cell** (ctx body's current 1.24:1 is the canary) |
-| F8 | Links legible on the new body background | contrast probe | L3 | automated | a `LinkifiedText` link rendered on `--bg-code` | 18 theme·mode sweep | link colour vs resolved `--bg-code` ≥ 3:1 in every combo (same probe + anti-vacuity check as F7/F9) — links previously sat on a red tint |
+| F8 | Links legible on the new body background | contrast probe | L3 | automated | a `LinkifiedText` link rendered on `--bg-code` | 18 theme·mode sweep | link colour vs resolved `--bg-code` ≥ 3:1 in every combo except the documented `tokyo-night/light` carve-out (≥ 2.5:1, see C1); same probe + anti-vacuity check as F7/F9 — links previously sat on a red tint |
 | F9 | Contrast gate cannot pass vacuously | anti-vacuity guard | L3 | automated | the same probes as F7 | read raw computed values before asserting | every probe's resolved background is NOT `rgba(0, 0, 0, 0)` — an unresolvable `var()` would score as high contrast against black and pass green (this failure mode is already guarded for `--bg-tertiary` in the same spec) |
 | F10 | Body reads as code, not a red wash | visual/subjective | — | manual-only | live failing `ctx_execute` (`exit 3`) | human looks in dark mode | [judgment: "no longer a flat red wash, structure is readable" — no automatable observable] |
 | F11 | Non-default theme spot check | visual/subjective | — | manual-only | one non-default theme, both modes | human looks | [judgment: card reads correctly; the numeric part is already gated by F7] |

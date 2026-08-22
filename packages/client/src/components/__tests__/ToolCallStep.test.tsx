@@ -622,4 +622,19 @@ describe("ToolCallStep lazy-mount — <RichDiff> only mounts when expanded", () 
     const { container } = renderStep({ status: "complete" });
     expect(container.querySelector('[data-testid="tool-superseded-badge"]')).toBeNull();
   });
+
+  // #F4 (repair-tool-error-surfaces) — the errored status icon is a single-line
+  // surface. Only the error branch is governed; the sibling branches are a
+  // different tier and are pinned unchanged.
+  it("#F4 the errored status icon resolves its colour from --severity-error-fg", () => {
+    const { container } = renderStep({ status: "error" });
+    const icon = container.querySelector("span.inline-flex") as HTMLElement;
+    expect(icon.className).toContain("text-[var(--severity-error-fg)]");
+    expect(icon.className).not.toMatch(/\bred-\d{2,3}\b/);
+  });
+
+  it("leaves the non-error status branches untouched by this change", () => {
+    const { container } = renderStep({ status: "complete" });
+    expect((container.querySelector("span.inline-flex") as HTMLElement).className).toContain("text-green-400");
+  });
 });
