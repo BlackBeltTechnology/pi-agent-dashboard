@@ -15,7 +15,9 @@
  * See change: add-pi-gateway-transport-identity (tasks 10.1, 10.2, 10.5).
  */
 
-import type { BridgeDiagnosticEvent } from "@blackbelt-technology/pi-dashboard-shared";
+// Subpath import, not the package barrel: the barrel does not resolve here
+// (the same trap that yields "getDashboardConfigDir is not a function").
+import type { BridgeDiagnosticEvent } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 
 interface TransportDiagnostic {
   event: BridgeDiagnosticEvent;

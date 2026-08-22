@@ -780,7 +780,10 @@ function initBridge(pi: ExtensionAPI) {
   let registeredInstanceId: string | undefined = endpointChoice.available
     ? endpointChoice.instanceId
     : undefined;
-  const dashboardUrl = endpointChoice.available
+  // `let`: a completed move re-points this, so diagnostics and `/dashboard-where`
+  // report where the session actually IS rather than where it started.
+  // biome-ignore lint/style/useConst: reassigned by the move command.
+  let dashboardUrl = endpointChoice.available
     ? endpointChoice.url
     : `ws://localhost:${config.piPort}`;
   // Pinned endpoints refuse every re-target, including a discovered one (D3).
@@ -806,7 +809,12 @@ function initBridge(pi: ExtensionAPI) {
     getSessionId: () => sessionId,
   };
 
-  const connection = new ConnectionManager({
+  // `let`, not `const`: a completed move REBINDS this to the target's
+  // connection, and every closure in this module captured the BINDING rather
+  // than the value, so all ~100 `connection.send(...)` sites follow the session
+  // to its new dashboard without being rewritten (task 9.4).
+  // biome-ignore lint/style/useConst: reassigned by the move command below.
+  let connection = new ConnectionManager({
     url: dashboardUrl,
     // D6 (task 5.3): a LOOPBACK TCP dial carries this HOME's local token, the
     // credential that replaces the socket's file mode where there is no socket
@@ -1511,6 +1519,127 @@ function initBridge(pi: ExtensionAPI) {
         (globalThis as any)[RELOAD_KEY] = () => ctx.reload();
         await ctx.reload();
       }
+    },
+  });
+
+  /**
+   * `/dashboard-connect <target>` — move this live session to another dashboard
+   * (D11, task 9.4).
+   *
+   * The overlap is the point: the target proves it can serve BEFORE the origin
+   * is released, so a failed move is a no-op rather than an outage. On success
+   * the module-level `connection` binding is rebound, which is what carries
+   * every existing send site over to the new dashboard.
+   */
+  pi.registerCommand("dashboard-connect", {
+    handler: async (args: string) => {
+      const { parseConnectTarget, describeConnectTarget, resolveConnectTarget } = await import(
+        "./connect-target.js"
+      );
+      const { listLocalInstances } = await import(
+        "@blackbelt-technology/pi-dashboard-shared/instance-directory.js"
+      );
+      const { createMoveCoordinator } = await import("./session-move.js");
+      const { rendezvousEndpoint } = await import(
+        "@blackbelt-technology/pi-dashboard-shared/rendezvous.js"
+      );
+
+      const parsed = parseConnectTarget(args ?? "");
+      const resolved = resolveConnectTarget(parsed, {
+        defaultEndpoint: () => rendezvousEndpoint()?.endpoint ?? null,
+        instances: () => listLocalInstances(),
+      });
+      if (!resolved.ok) {
+        console.error(`[dashboard] connect refused: ${resolved.reason}`);
+        return;
+      }
+      if (resolved.endpoint === dashboardUrl) {
+        console.error(`[dashboard] already on ${describeConnectTarget(parsed)}`);
+        return;
+      }
+
+      // The target's identity must be known BEFORE the move: the coordinator
+      // refuses a target whose instance id is not the expected one, and
+      // "whatever answers" is not an expectation (D14).
+      const expectInstanceId =
+        resolved.instanceId ??
+        listLocalInstances().find((i) => i.endpoint === resolved.endpoint)?.instanceId;
+      if (!expectInstanceId) {
+        console.error(
+          `[dashboard] connect refused: cannot determine the instance id of ${describeConnectTarget(parsed)} — refusing to move to an unverified dashboard`,
+        );
+        return;
+      }
+
+      let targetManager: ConnectionManager | undefined;
+      const coordinator = createMoveCoordinator({
+        origin: {
+          connect: () => connection.connect(),
+          disconnect: () => connection.disconnect(),
+          send: (m) => connection.send(m),
+          get isConnected() {
+            return connection.isConnected;
+          },
+          // The coordinator never subscribes to the origin; only the target
+          // answers the handshake.
+          onMessage: () => {},
+        },
+        sessionId,
+        sessionFile: lastSessionFile,
+        connect: (url) => {
+          let handler: (msg: unknown) => void = () => {};
+          targetManager = new ConnectionManager({
+            url,
+            headers: localTokenHeaders(url),
+            getSessionId: () => sessionId,
+            onMessage: (data) => handler(data),
+            // On the FIRST open, not just reconnects: this is where the
+            // provisional registration is announced, and a send before the
+            // socket is live would be silently dropped.
+            onOpen: () => {
+              targetManager?.send({
+                type: "session_register",
+                sessionId,
+                cwd: process.cwd(),
+                source: "tui",
+                pid: process.pid,
+                provisional: true,
+              });
+            },
+          });
+          const mgr = targetManager;
+          return {
+            connect: () => mgr.connect(),
+            disconnect: () => mgr.disconnect(),
+            send: (m) => mgr.send(m),
+            get isConnected() {
+              return mgr.isConnected;
+            },
+            onMessage: (h) => {
+              handler = h;
+            },
+          };
+        },
+      });
+
+      const result = await coordinator.begin({
+        targetUrl: resolved.endpoint,
+        expectInstanceId,
+      });
+
+      if (!result.ok) {
+        console.error(
+          `[dashboard] move to ${describeConnectTarget(parsed)} failed: ${result.cause} — still on ${dashboardUrl}`,
+        );
+        return;
+      }
+
+      // Rebind: from here every `connection.send(...)` in this module reaches
+      // the new dashboard.
+      if (targetManager) connection = targetManager;
+      dashboardUrl = resolved.endpoint;
+      registeredInstanceId = expectInstanceId;
+      console.error(`[dashboard] moved to ${describeConnectTarget(parsed)} (${expectInstanceId})`);
     },
   });
 

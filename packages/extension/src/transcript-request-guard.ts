@@ -44,7 +44,9 @@ export function decideTranscriptRequest(input: {
   /** Undefined until `session_register` has settled. */
   ownSessionId: string | undefined;
 }): TranscriptVerdict {
-  const req = input.request as Record<string, unknown>;
+  // Via `unknown`: the guard inspects arbitrary wire shapes, so a direct
+  // structural cast is not merely unsafe, TS rejects it outright.
+  const req = input.request as unknown as Record<string, unknown>;
 
   // Shape first, subject second. The other order would leak existence: a
   // path-bearing probe answered with "foreign-session" tells the caller the

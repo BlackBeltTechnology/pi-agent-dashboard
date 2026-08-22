@@ -31,6 +31,13 @@ export interface ConnectionManagerOptions {
   /** Server liveness watchdog: force reconnect after this many ms without any received message. Default 60000. Set 0 to disable. */
   watchdogTimeout?: number;
   onMessage?: (data: unknown) => void | Promise<void>;
+  /**
+   * Fired on EVERY open, including the first — unlike `onReconnect`, which
+   * deliberately skips it. A move's target connection needs the first one:
+   * that is when it must announce its provisional registration, and `send()`
+   * before the socket is live is silently dropped (task 9.4).
+   */
+  onOpen?: () => void;
   onReconnect?: () => void;
   /**
    * Fired when the server terminally refuses this bridge's registration for a
@@ -63,6 +70,7 @@ export class ConnectionManager {
   private intentionalClose = false;
   private hasConnectedBefore = false;
   private onMessage?: (data: unknown) => void | Promise<void>;
+  private onOpen?: () => void;
   private onReconnect?: () => void;
   private onRegisterRejected?: (sessionId: string, reason: string) => void;
   private getSessionIdForReports?: () => string | undefined;
@@ -219,6 +227,7 @@ export class ConnectionManager {
       0,
     );
     this.onMessage = options.onMessage;
+    this.onOpen = options.onOpen;
     this.onReconnect = options.onReconnect;
     this.onRegisterRejected = options.onRegisterRejected;
     this.getSessionIdForReports = options.getSessionId;
@@ -470,6 +479,7 @@ export class ConnectionManager {
         this.onReconnect?.();
       }
       this.hasConnectedBefore = true;
+      this.onOpen?.();
 
       // Flush buffer
       const buffered = [...this.buffer];

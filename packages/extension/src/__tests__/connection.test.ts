@@ -388,3 +388,27 @@ describe("ConnectionManager over ws+unix", () => {
     }
   });
 });
+
+describe("onOpen fires on the FIRST open, unlike onReconnect (task 9.4)", () => {
+  it("fires on the initial connection, where a provisional register must be sent", async () => {
+    // `onReconnect` deliberately skips the first open, so a move's target had
+    // no hook at which to announce itself — and `send()` before the socket is
+    // live is silently dropped, which would hang the handshake to its timeout.
+    const opens: string[] = [];
+    const server = new WebSocketServer({ port: 0 });
+    await new Promise<void>((r) => server.on("listening", () => r()));
+    const port = (server.address() as { port: number }).port;
+
+    const cm = new ConnectionManager({
+      url: `ws://127.0.0.1:${port}`,
+      onOpen: () => opens.push("open"),
+      onReconnect: () => opens.push("reconnect"),
+    });
+    cm.connect();
+    await vi.waitFor(() => expect(opens).toContain("open"), { timeout: 3000 });
+    expect(opens).toEqual(["open"]);
+
+    cm.disconnect();
+    server.close();
+  });
+});
