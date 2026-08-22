@@ -110,7 +110,11 @@ describe("bindGatewaySocket", () => {
     // …and only a probe that positively proves "no listener" unlinks it.
     const server = await bind({ probe: async () => "no-listener" });
     expect(server.listening).toBe(true);
-    expect(fs.statSync(sockPath).ino).not.toBe(staleIno);
+    // Asserted on BEHAVIOUR, not on the inode: Linux tmpfs happily reuses the
+    // inode number it just freed, so `ino !== staleIno` failed on CI even
+    // though the reclaim had worked. What matters is that the path now SERVES
+    // where a moment ago it refused.
+    await expect(probeSocket(sockPath)).resolves.toBe("live");
   });
 
   // (test-plan #X2) Concurrency: exactly one binds, and no live socket dies.
@@ -243,12 +247,19 @@ describe("a saturated live listener is not a stale socket", () => {
     expect(server.listening).toBe(true);
   });
 
-  it("reports a non-socket path as indeterminate, not as a refusal", async () => {
-    // A plain file is not a socket (ENOTSOCK): unknown, so fail closed. Only
-    // a genuine leftover SOCKET answers ECONNREFUSED — asserted above against
-    // a real SIGKILLed listener.
+  it("never treats a non-socket path as proof of staleness", async () => {
+    // The errno here is PLATFORM-DEPENDENT and this test originally encoded
+    // macOS: darwin answers ENOTSOCK (indeterminate), Linux answers
+    // ECONNREFUSED (refused). Pinning one spelling made CI red on the other.
     fs.writeFileSync(sockPath, "");
-    await expect(probeSocket(sockPath)).resolves.toBe("indeterminate");
+    const verdict = await probeSocket(sockPath);
+    expect(["indeterminate", "refused"]).toContain(verdict);
+    expect(verdict).not.toBe("no-listener");
+
+    // The invariant that actually matters is identical on both platforms: a
+    // non-socket is never reclaimed without a provably-dead recorded owner.
+    await expect(bind()).rejects.toBeInstanceOf(GatewaySocketConflictError);
+    expect(fs.existsSync(sockPath)).toBe(true);
   });
 
   it("does not follow a symlink when recording the owner pid", async () => {
