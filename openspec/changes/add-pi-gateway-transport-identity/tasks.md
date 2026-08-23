@@ -99,7 +99,13 @@
 - [x] 8.4 Old bridge against a new server keeps working while the TCP listener is enabled
 - [x] 8.5 Record a deprecation horizon for the unauthenticated TCP path, so the fallback does not become permanent
 - [x] 8.6 **The shipped container default DOES depend on the TCP gateway** — `docker/compose.yml:28` publishes `${PI_GATEWAY_BIND:-0.0.0.0}:${PI_GATEWAY_PORT:-9999}` and `PI_DASHBOARD_HOST` defaults to `0.0.0.0`. Decide and implement one: keep the TCP listener with bridge auth mandatory, or move the container to the socket and update `compose.yml`. The default must not remain an unauthenticated `0.0.0.0:9999`
-- [ ] 8.7 Confirm the socket works under the container's `VOLUME ["/home/pi/.pi"]` mount, or that 2.1b's fallback engages cleanly there
+- [x] 8.7 Confirm the socket works under the container's `VOLUME ["/home/pi/.pi"]` mount, or that 2.1b's fallback engages cleanly there
+  - Confirmed the first way: the socket binds on the mount (`srw------- pi pi gateway-<port>.sock`, ext4) and a `ws+unix://` bridge inside the container registers through it as LOCAL. 2.1b's fallback correctly does NOT engage — the path is 38 bytes against a 108-byte limit. Covered by `qa/tests/27-docker-deploy-lifecycle.sh`.
+  - Answering it needed four defects fixed first, none of which any existing test could see, because the E2E harness overrides the two things that break (`user: "root"` and its own supervision):
+    1. `VOLUME` creates `/home/pi/.pi` as root whatever `USER` is set, and a fresh named volume inherits that — the documented `docker compose up -d` EACCES-restart-looped on a clean machine. PRE-EXISTING (`docker/Dockerfile` is byte-identical to develop).
+    2. `CMD ["start"]` daemonizes, so PID 1 exited and the container cycled every ~30s (`RestartCount=11` in 120s). PRE-EXISTING. Fixed by supervising the pidfile rather than running the server in the foreground, which would make `POST /api/restart` kill the container.
+    3. **This change's own §8**: the shared `WebSocketServer` (task 8.2) also shares `verifyClient`, so enabling the TCP listener — the shipped container, task 8.6 — answered every unix-socket bridge with 401. D5 looked correct in the source and held in isolation; only the combination broke it.
+    4. Same root cause one layer down: the handler's `transport` label is per-SERVER, so socket peers were attributed as remote, which shows an origin chip and withholds Resume/Fork for every in-container session (the surfaces built in 12.47-12.51).
 
 ## 9. Explicit session move (D11)
 

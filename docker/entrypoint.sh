@@ -67,5 +67,20 @@ case "${TUNNEL_ENABLED:-}" in
   0|false|no|off) ARGS+=("--no-tunnel") ;;
 esac
 
-echo "[entrypoint] exec pi-dashboard ${ARGS[*]}"
-exec pi-dashboard "${ARGS[@]}"
+# `PI_ENTRYPOINT_NO_SUPERVISE=1` returns here instead of blocking, for a caller
+# that wraps this script and supervises itself (`test-entrypoint.sh`).
+if [ "${PI_ENTRYPOINT_NO_SUPERVISE:-}" = "1" ]; then
+  echo "[entrypoint] exec pi-dashboard ${ARGS[*]}"
+  exec pi-dashboard "${ARGS[@]}"
+fi
+
+# `start` spawns the server DETACHED and returns, so exec'ing it as PID 1 ends
+# the container the moment the daemon is up. Launch, then supervise the pidfile
+# for the daemon's lifetime. See docker/supervise-daemon.sh for why the daemon
+# is not simply run in the foreground instead (`POST /api/restart`).
+echo "[entrypoint] pi-dashboard ${ARGS[*]}"
+pi-dashboard "${ARGS[@]}" || echo "[entrypoint] launcher exited non-zero (readiness timeout?); the daemon is detached — supervising"
+
+# shellcheck source=docker/supervise-daemon.sh
+. /usr/local/bin/supervise-daemon.sh
+supervise_daemon "${HOME:-/home/pi}/.pi/dashboard/server.pid"

@@ -290,3 +290,83 @@ describe("socket transport parity (#P4)", () => {
     expect(Math.max(median(uds), floorMs)).toBeLessThanOrEqual(Math.max(median(tcp), floorMs) * 2);
   }, 30_000);
 });
+
+// ── D5 must survive the SHIPPED transport combination ──────────────────────
+//
+// The container publishes TCP (`PI_GATEWAY_TCP=1`, task 8.6) AND serves the
+// socket. Both transports deliberately share one `WebSocketServer` (D10/task
+// 8.2) — but `verifyClient` is a property of that SERVER, so the TCP bridge
+// gate silently applied to socket upgrades too, and every in-container bridge
+// dialling the socket was answered `401`. The exemption looked correct in the
+// source (`startOnSocket` attaches no gate) and was correct in isolation; only
+// the combination broke it, and only the deployment runs the combination.
+//
+// Found by qa/tests/27-docker-deploy-lifecycle.sh against the real image.
+// See change: add-pi-gateway-transport-identity (D5, task 8.2).
+describe("unix socket transport alongside an authenticated TCP listener", () => {
+  it("still accepts a socket bridge — the kernel already decided (D5)", async () => {
+    const sessionManager = createMemorySessionManager();
+    let refusals = 0;
+    gateway = createPiGateway(sessionManager, {
+      pingInterval: 0,
+      bridgeAuth: {
+        // The container's shape: no ticket, no local token, nothing minted.
+        requireTicketOnLoopback: true,
+        consumeTicket: () => ({ ok: false, reason: "missing" }) as const,
+        verifyLocalToken: () => false,
+        log: () => {
+          refusals += 1;
+        },
+      },
+    });
+    // The shipped order — TCP first, then the socket (start() refuses the
+    // reverse outright).
+    const tcpPort = 19_099;
+    gateway.start(tcpPort, "127.0.0.1");
+    await gateway.startOnSocket(sockPath);
+
+    const ws = dial();
+    await opened(ws);
+
+    ws.send(
+      JSON.stringify({
+        type: "session_register",
+        sessionId: "00000000-0000-4000-8000-0000000000d5",
+        cwd: "/tmp",
+        name: "socket-peer",
+      }),
+    );
+    for (let i = 0; i < 100 && !gateway.isSessionConnected("00000000-0000-4000-8000-0000000000d5"); i++) {
+      await new Promise((r) => setTimeout(r, 10));
+    }
+    expect(gateway.isSessionConnected("00000000-0000-4000-8000-0000000000d5")).toBe(true);
+    expect(refusals).toBe(0);
+    // …and is LOCAL. The shared server also shares the handler's transport
+    // label, so a socket peer was attributed as remote — which shows an origin
+    // chip and withholds Resume/Fork for every in-container session.
+    expect(
+      sessionManager.get("00000000-0000-4000-8000-0000000000d5")?.originDeviceId,
+    ).toBeUndefined();
+  });
+
+  it("still refuses an unauthenticated TCP bridge on the same server", async () => {
+    // The exemption must be scoped to the socket, not a hole in the gate.
+    const sessionManager = createMemorySessionManager();
+    gateway = createPiGateway(sessionManager, {
+      pingInterval: 0,
+      bridgeAuth: {
+        requireTicketOnLoopback: true,
+        consumeTicket: () => ({ ok: false, reason: "missing" }) as const,
+        verifyLocalToken: () => false,
+        log: () => {},
+      },
+    });
+    const tcpPort = 19_098;
+    gateway.start(tcpPort, "127.0.0.1");
+    await gateway.startOnSocket(sockPath);
+
+    const ws = new WebSocket(`ws://127.0.0.1:${tcpPort}`);
+    sockets.push(ws);
+    await expect(opened(ws)).rejects.toThrow(/401|Unexpected server response/);
+  });
+});

@@ -136,6 +136,12 @@ export function createPiGateway(
   const probeWindow = options?.contentionProbeWindow ?? CONTENTION_PROBE_WINDOW;
   const contention = createContentionTracker();
   let wss: WebSocketServer | null = null;
+  /**
+   * Upgrade requests that arrived over the unix socket. Identity has to
+   * travel with the REQUEST because both transports deliberately share one
+   * `WebSocketServer` (D10), and `verifyClient` sees only the request.
+   */
+  const unixUpgrades = new WeakSet<IncomingMessage>();
   let pingTimer: ReturnType<typeof setInterval> | null = null;
   /** The UDS listener, when this instance serves bridges over a socket (D1). */
   let socketServer: http.Server | null = null;
@@ -342,10 +348,16 @@ export function createPiGateway(
         // opened a file in this HOME's 0700 dir; a loopback TCP peer is on this
         // host; anything else is remote, attributable via its bridge ticket or
         // (failing closed) not at all.
+        // Per CONNECTION, not per handler: when the TCP listener is enabled the
+        // socket shares its `WebSocketServer` (D10), so this closure's label is
+        // whichever transport attached the handler first — `tcp` in the shipped
+        // container. Trusting it made every in-container session REMOTE, which
+        // withholds Resume/Fork in the UI and is exactly backwards.
+        const connTransport = req && unixUpgrades.has(req) ? "unix" : transport;
         const sessionOrigin = attributeOrigin({
-          transport,
+          transport: connTransport,
           remote:
-            transport === "tcp" &&
+            connTransport === "tcp" &&
             !isLoopbackAddress(
               options?.peerAddressForTest ?? req?.socket?.remoteAddress ?? undefined,
             ),
@@ -982,6 +994,11 @@ export function createPiGateway(
       // binding would send them to whatever server a later start() installed.
       const target = wss;
       server.on("upgrade", (req, socket, head) => {
+        // Mark the request as having arrived over the socket BEFORE handing it
+        // to the shared server, whose `verifyClient` is a property of the
+        // SERVER and therefore also runs for these. Without the mark, enabling
+        // the TCP listener silently revokes D5 for every socket bridge.
+        unixUpgrades.add(req);
         target.handleUpgrade(req, socket as never, head, (ws) => {
           target.emit("connection", ws, req);
         });
@@ -1008,6 +1025,16 @@ export function createPiGateway(
       const bridgeAuth = options?.bridgeAuth;
       const verifyClient = bridgeAuth
         ? (info: { req: IncomingMessage }, done: (ok: boolean, code?: number, msg?: string) => void) => {
+            // A unix-socket peer is exempt (D5): the socket is 0600 inside a
+            // 0700 directory, so the kernel decided before we were asked, and
+            // there is no address to authenticate anyway. The gate below is
+            // written for TCP and hardcodes `transport: "tcp"` — running it
+            // here would refuse every local bridge in any deployment that also
+            // enables TCP, which is the shipped container.
+            if (unixUpgrades.has(info.req)) {
+              done(true);
+              return;
+            }
             const verdict = decideBridgeUpgrade({
               transport: "tcp",
               remoteAddress: info.req.socket.remoteAddress ?? undefined,
