@@ -221,10 +221,20 @@ export function computeReplayWindow(
  * Exported so unit tests can drive the batching / backpressure / socket-close
  * paths directly, mirroring `replayUiState` / `replaySessionAssets`.
  *
- * `windowLimit` (optional, 0 = disabled) bounds what reaches the browser. The
- * caller passes it ONLY when the array it hands over is a full stream (D1) —
- * windowing a genuine delta would punch a seq gap between what the client holds
- * and what it receives. When a window applies, a `history_window` message is
+ * `windowLimit` has THREE distinct meanings, and they must not be collapsed:
+ *   - a POSITIVE number — the budget to window this full stream to;
+ *   - `0` — explicitly unlimited;
+ *   - ABSENT — "this array is not a windowable full stream" (a delta, or an
+ *     empty payload). NOT "the caller forgot the config".
+ *
+ * Absent therefore must NOT fall back to the configured default: windowing a
+ * genuine delta would punch a seq gap between what the client holds and what it
+ * receives. The config default is applied once, at the config boundary in
+ * `handleSubscribe`, which is the only place a programmatically constructed
+ * server can arrive with no value at all.
+ * See change: fix-lazy-history-backfill-ux (D7).
+ *
+ * The caller passes it ONLY when the array it hands over is a full stream (D1). When a window applies, a `history_window` message is
  * emitted BEFORE the first `event_replay` so the client can render the gap
  * affordance in the right place.
  * See change: lazy-load-session-history (D1, D2).
