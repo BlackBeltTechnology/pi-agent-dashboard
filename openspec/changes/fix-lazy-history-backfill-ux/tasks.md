@@ -35,7 +35,7 @@ Test tasks in groups 7–10 are folded from `test-plan.md`; the manifest is the 
 
 ## 5. Client — scroll (D6)
 
-- [x] 5.1 DELETE the backfill scroll anchor: `captureScrollAnchor`/`restoreScrollAnchor` (no other call site), the `historySpliceRev` layout effect, the `gapAnchorRef` disarm effect (`ChatView.tsx:433`), and the now-dead `historySpliceRev` prop threaded from `App.tsx`.
+- [x] 5.1 DELETE the backfill scroll anchor: `captureScrollAnchor`/`restoreScrollAnchor` (no other call site), the `historySpliceRev` layout effect, and the `gapAnchorRef` disarm effect (`ChatView.tsx:433`). **CORRECTED during implementation:** the `historySpliceRev` prop is NOT dead and is RETAINED, repurposed as the key for D6's splice-commit suppression latch. D6 requires an explicit owner for the grow-pin and the selection compensator on the splice commit, and `historySpliceRev` is the only signal that survives both a live event arriving mid-flight and a final splice whose net row count is unchanged. Deleting it would break D6.
 - [x] 5.2 Suppress the virtualizer grow-pin for the splice commit (`ChatView.tsx:784`). Disarming at click is insufficient: `handleScroll` (`:861`) can re-arm mid-flight.
 - [x] 5.3 Suppress the selection-anchor compensator (`ChatView.tsx:1003-1051`) for the splice commit; it writes `scrollTop` on every commit while a selection is held.
 - [x] 5.4 Verify `scrollToTurn` navigation and normal stick-to-bottom follow on live events are unaffected by 5.2/5.3.
@@ -176,6 +176,18 @@ the auto-reap fixture structurally cannot see).
   the stamp itself at L1.
 
 ### Findings
+
+0. **Review findings applied.** The isolated `@review` pass (verdict: ship) raised
+   three actionable items, all fixed: an unrelated `plugin-registry.tsx`
+   regeneration was reverted; `collapse-retried-errors.ts` was missing from the
+   D5 renderer-audit table and would have collapsed an error behind an `elided`
+   retry, presenting an UNKNOWN outcome as a recovery (fixed + test with a
+   control); and tasks.md 5.1 was corrected above. Two open questions were
+   accepted and recorded rather than fixed: the one-rAF suppression latch may be
+   short for a late image-remeasure inside a spliced slice, and `servedFrom`/
+   `servedTo` fall back to the requested bounds when no snap occurs, which is
+   benign over a holey store (the edge still strictly retreats, so the loop
+   still terminates) but rests on an unstated invariant.
 
 1. **A regression this change introduced, invisible to every cheap gate.**
    Value-importing `pi-dashboard-shared/config.js` from `SettingsPanel` pulled
