@@ -11,12 +11,7 @@
  */
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
-import {
-  captureScrollAnchor,
-  type HistoryGapState,
-  nextBackfillRange,
-  restoreScrollAnchor,
-} from "../../../lib/chat/history-gap.js";
+import { type HistoryGapState, nextBackfillRange } from "../../../lib/chat/history-gap.js";
 import { HistoryGapDivider } from "../HistoryGapDivider.js";
 
 const gap = (over: Partial<HistoryGapState> = {}): HistoryGapState => ({
@@ -100,9 +95,14 @@ describe("HistoryGapDivider — A4 refused", () => {
 describe("HistoryGapDivider — A5 unavailable", () => {
   it("renders a NON-actionable tombstone: nothing failed, the events are gone", () => {
     render(<HistoryGapDivider gap={gap({ unservable: true })} onLoadEarlier={vi.fn()} />);
-    expect(screen.getByTestId("history-gap-unavailable").textContent).toContain(
-      "Earlier messages are no longer available.",
-    );
+    // States the OUTCOME without attributing it to retention: an empty slice is
+    // equally producible by replay compaction dropping a superseded band, so
+    // "trimmed by retention" would sometimes be false.
+    // See change: fix-lazy-history-backfill-ux (D8).
+    const text = screen.getByTestId("history-gap-unavailable").textContent ?? "";
+    expect(text).toContain("no longer available to load");
+    expect(text.toLowerCase()).not.toContain("retention");
+    expect(text.toLowerCase()).not.toContain("trimmed");
     // Deliberately NOT an error, and offers no retry — there is nothing to retry.
     expect(screen.queryByTestId("history-gap-retry")).toBeNull();
     expect(screen.queryByTestId("history-gap-load")).toBeNull();
@@ -115,32 +115,20 @@ describe("HistoryGapDivider — A5 unavailable", () => {
   });
 });
 
-describe("splice scroll anchor (F7)", () => {
-  it("restores the pre-splice reading position when rows are inserted ABOVE", () => {
-    // jsdom reports scrollHeight as 0, so the arithmetic is asserted directly —
-    // an in-component assertion here would be vacuously true.
-    const before = { scrollHeight: 10000, scrollTop: 3000 };
-    const anchor = captureScrollAnchor(before);
-    // 1200 spliced rows add 4000px ABOVE the viewport.
-    const after = { scrollHeight: 14000 };
-    expect(restoreScrollAnchor(after, anchor)).toBe(7000);
-    // The distance to the bottom of the content is unchanged — the row the user
-    // was reading has not moved.
-    expect(after.scrollHeight - restoreScrollAnchor(after, anchor)).toBe(anchor);
+/**
+ * The distance-to-bottom splice anchor is DELETED, not relocated: events now
+ * splice BELOW the divider, so the surviving invariant is absolute `scrollTop`
+ * and it needs no correction. Its tests go with it — asserting the old
+ * arithmetic would pin behaviour this change exists to remove.
+ * See change: fix-lazy-history-backfill-ux (D6).
+ */
+
+describe("nextBackfillRange — requests the slice adjacent to the TAIL (E10–E12)", () => {
+  it("E10/E12: ends one below the tail and is bounded by the server's max span", () => {
+    expect(nextBackfillRange(gap())).toEqual({ fromSeq: 4300, toSeq: 4799 });
   });
 
-  it("is a no-op when nothing was inserted", () => {
-    const el = { scrollHeight: 10000, scrollTop: 3000 };
-    expect(restoreScrollAnchor(el, captureScrollAnchor(el))).toBe(el.scrollTop);
-  });
-});
-
-describe("nextBackfillRange — requests the slice adjacent to the HEAD", () => {
-  it("starts one above the head and is bounded by the server's max span", () => {
-    expect(nextBackfillRange(gap())).toEqual({ fromSeq: 21, toSeq: 520 });
-  });
-
-  it("never runs past the tail's first seq", () => {
+  it("E11: never runs below the head's last seq", () => {
     expect(nextBackfillRange(gap({ headMaxSeq: 4700 }))).toEqual({ fromSeq: 4701, toSeq: 4799 });
   });
 });

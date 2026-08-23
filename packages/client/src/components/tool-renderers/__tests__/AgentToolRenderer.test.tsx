@@ -105,3 +105,56 @@ describe("AgentToolRenderer — error line severity tokens", () => {
     expect(line.innerHTML).not.toMatch(/\bred-\d{2,3}\b/);
   });
 });
+
+/**
+ * `elided` on a subagent row — the CodeRabbit-found gap in D5's renderer audit.
+ *
+ * `toolDetails` SURVIVES on a spliced row, so a backfilled subagent whose end
+ * never arrived still carries `details.status` from the last frame the window
+ * delivered. The first fix checked `elided` only in the no-details branch,
+ * which left exactly the case the design calls most likely — subagent rows are
+ * the likeliest to be windowed — rendering a spinner or a completed card for a
+ * result that is not loaded.
+ * See change: fix-lazy-history-backfill-ux (D5).
+ */
+describe("AgentToolRenderer — elided outranks details.status", () => {
+  const elidedWith = (details: Record<string, unknown> | undefined) => (
+    <AgentToolRenderer
+      toolName="Agent"
+      args={{ subagent_type: "Explore", description: "find the thing", prompt: "go" }}
+      status="elided"
+      toolDetails={details}
+      context={ctx}
+    />
+  );
+
+  it("renders no spinner when stale details still say running", () => {
+    const { container } = renderAgent(elidedWith({ status: "running", displayName: "Explore" }));
+    expect(container.querySelector(".animate-spin")).toBeNull();
+  });
+
+  it("does not render a completed card when stale details say completed", () => {
+    const { container } = renderAgent(elidedWith({ status: "completed", displayName: "Explore" }));
+    // The green completion accent must not be claimed for an unloaded result.
+    expect(container.querySelector(".text-green-400")).toBeNull();
+  });
+
+  it("still renders neutrally with no details at all", () => {
+    const { container } = renderAgent(elidedWith(undefined));
+    expect(container.querySelector(".animate-spin")).toBeNull();
+    expect(container.textContent).toMatch(/result not loaded/i);
+  });
+
+  it("CONTROL: a genuinely running agent DOES render the spinner", () => {
+    const { container } = renderAgent(
+      <AgentToolRenderer
+        toolName="Agent"
+        args={{ subagent_type: "Explore", description: "d", prompt: "go" }}
+        status="running"
+        toolDetails={{ status: "running", displayName: "Explore" }}
+        context={ctx}
+      />,
+    );
+    expect(container.querySelector(".animate-spin")).not.toBeNull();
+  });
+});

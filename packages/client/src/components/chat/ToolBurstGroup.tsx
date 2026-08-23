@@ -26,7 +26,7 @@
  */
 
 import { toolCallPrefKey } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
-import { mdiCheck, mdiChevronDown, mdiChevronRight, mdiConsoleLine, mdiLoading } from "@mdi/js";
+import { mdiCheck, mdiChevronDown, mdiChevronRight, mdiConsoleLine, mdiLoading, mdiMinusCircleOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { type ReactNode, useEffect, useRef, useState } from "react";
 import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
@@ -35,13 +35,13 @@ import { useMobile } from "../../hooks/useMobile.js";
 import type { ChatMessage } from "../../lib/chat/event-reducer.js";
 import type { ToolBurstGroup as ToolBurstGroupData } from "../../lib/chat/group-tool-bursts.js";
 import type { ChatItem, ToolCallGroup } from "../../lib/chat/group-tool-calls.js";
-import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { getSummary, getToolIcon } from "../../lib/chat/tool-summary.js";
-import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
+import type { ToolContext } from "../tool-renderers/index.js";
+import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
 import { ThinkingBlock } from "./ThinkingBlock.js";
 import { ToolCallStep } from "./ToolCallStep.js";
-import type { ToolContext } from "../tool-renderers/index.js";
 
 interface Props {
   burst: ToolBurstGroupData;
@@ -183,7 +183,12 @@ export function ToolBurstGroup({ burst, toolContext }: Props) {
   if (visibleMembers.length === 0) return null;
 
   const total = visibleMembers.length;
-  const doneCount = visibleMembers.filter((m) => m.toolStatus !== "running").length;
+  // `elided` is terminal but NOT done: its result was never loaded, so counting
+  // it in the burst header would report work that did not demonstrably finish.
+  // See change: fix-lazy-history-backfill-ux (D5).
+  const doneCount = visibleMembers.filter(
+    (m) => m.toolStatus !== "running" && m.toolStatus !== "elided",
+  ).length;
   const failedCount = visibleMembers.filter((m) => m.toolStatus === "error").length;
   const runningMember = visibleMembers.find((m) => m.toolStatus === "running");
   const liveCommand = runningMember ? getSummary(runningMember.toolName ?? "unknown", runningMember.args) : "";
@@ -192,12 +197,32 @@ export function ToolBurstGroup({ burst, toolContext }: Props) {
   const soleMember = visibleMembers[0];
 
   // ── Slots ────────────────────────────────────────────────────────────────
+  /**
+   * A settled burst carrying an `elided` member is NOT a success.
+   *
+   * Excluding elided from `doneCount` is necessary but not sufficient: with no
+   * member running, the glyph below would still take the green completion
+   * accent, so a burst holding an unloadable result reads as fully succeeded
+   * before the user expands it. Neutral glyph + muted colour instead.
+   * See change: fix-lazy-history-backfill-ux (D5).
+   */
+  const hasElided = visibleMembers.some((m) => m.toolStatus === "elided");
+  const settledAccent = hasElided ? "text-[var(--text-muted)]" : "text-green-400";
   const leftGlyph = (
     <span
-      className={`inline-flex ${isRunning ? "text-yellow-400 tool-group-spin-pulse" : "text-green-400"} ${flash ? "tool-group-flash" : ""}`}
+      className={`inline-flex ${isRunning ? "text-yellow-400 tool-group-spin-pulse" : settledAccent} ${flash ? "tool-group-flash" : ""}`}
+      data-testid={!isRunning && hasElided ? "tool-burst-elided-glyph" : undefined}
     >
       <Icon
-        path={isRunning ? mdiLoading : single ? getToolIcon(soleMember.toolName ?? "unknown") : mdiCheck}
+        path={
+          isRunning
+            ? mdiLoading
+            : hasElided
+              ? mdiMinusCircleOutline
+              : single
+                ? getToolIcon(soleMember.toolName ?? "unknown")
+                : mdiCheck
+        }
         size={0.55}
         spin={isRunning}
       />

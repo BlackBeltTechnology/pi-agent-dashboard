@@ -25,16 +25,16 @@ import { Icon } from "@mdi/react";
 import type React from "react";
 import { useEffect, useState } from "react";
 import { useSubagentResyncCadence } from "../../hooks/useSubagentResyncCadence.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import {
   noteSubagentRunning,
   noteSubagentTerminal,
   trackInspectorMounted,
 } from "../../lib/state/subagent-inspector-telemetry.js";
-import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { AgentCardShell } from "../session/AgentCardShell.js";
 import { formatDuration } from "../session/agent-card-utils.js";
 import { ElapsedBadge } from "../session/ElapsedBadge.js";
-import { MarkdownContent } from "../preview/MarkdownContent.js";
 import type { ToolRendererProps } from "./types.js";
 
 /** Shape of AgentDetails sent by pi-dashboard-subagents via partialResult.details */
@@ -61,9 +61,32 @@ interface AgentDetails {
   error?: string;
 }
 
-/** Map AgentDetails status to AgentCardShell status key */
+/**
+ * Map AgentDetails status to AgentCardShell status key.
+ *
+ * The no-details fall-through maps ANY unrecognised row status to `running`, so
+ * `elided` must be handled explicitly or a windowed subagent row spins forever
+ * — and subagent rows are the likeliest to be windowed.
+ * See change: fix-lazy-history-backfill-ux (D5).
+ */
 function mapStatus(details: AgentDetails | undefined, toolStatus: string): string {
-  if (!details?.status) return toolStatus === "error" ? "error" : toolStatus === "complete" ? "complete" : "running";
+  /**
+   * `elided` outranks `details.status`, and must be checked BEFORE it.
+   *
+   * `toolDetails` survives on a spliced row, so a backfilled subagent whose end
+   * never arrived still carries `details.status: "running"` (or a stale
+   * `"completed"`) from the last frame the window delivered. Reading that first
+   * renders a spinner — or worse, a completed card — for a result that is not
+   * loaded. The row-level stamp is the authority on loadability; `details` only
+   * describes what the subagent was doing when the stream was cut.
+   * See change: fix-lazy-history-backfill-ux (D5).
+   */
+  if (toolStatus === "elided") return "elided";
+  if (!details?.status) {
+    if (toolStatus === "error") return "error";
+    if (toolStatus === "complete") return "complete";
+    return "running";
+  }
   switch (details.status) {
     case "running":
     case "queued":
@@ -316,12 +339,34 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
     ? <div className="mt-2"><SubagentDetailView session={session} agentId={agentId} mode="inline" sessionId={context.sessionId} /></div>
     : null;
 
-  // --- Fallback: no toolDetails (replayed/older sessions) ---
-  if (!details) {
+  /**
+   * ELIDED short-circuits the details-driven branches below, and must come
+   * BEFORE them.
+   *
+   * `mapStatus` alone is not enough: the `details.status` branches further down
+   * hardcode their own shell status (`status="running"` for running/queued,
+   * the completed styling for completed/steered) and never consult
+   * `cardStatus`. `toolDetails` SURVIVES on a spliced row, so a backfilled
+   * subagent still carries whatever `details.status` the last delivered frame
+   * set — which rendered a spinner, or a completed card, for a result that is
+   * not loadable. The row-level stamp is the authority on loadability;
+   * `details` only describes what the subagent was doing when the stream was
+   * cut. See change: fix-lazy-history-backfill-ux (D5).
+   */
+  // --- Fallback: no toolDetails (replayed/older sessions), or an elided row ---
+  if (!details || cardStatus === "elided") {
     return (
       <AgentCardShell name={displayName} status={cardStatus} headerRight={controls}>
         {description && (
           <div className="text-[11px] text-[var(--text-secondary)] mt-1 truncate">"{description}"</div>
+        )}
+        {cardStatus === "elided" && (
+          <div
+            data-testid="agent-elided-note"
+            className="text-[11px] text-[var(--text-muted)] mt-1"
+          >
+            {i18nT("chat.tool.elided", undefined, "result not loaded")}
+          </div>
         )}
         {!expanded && promptText && <PromptBlock text={promptText} />}
         {!expanded && result && <ResultBlock text={result} />}

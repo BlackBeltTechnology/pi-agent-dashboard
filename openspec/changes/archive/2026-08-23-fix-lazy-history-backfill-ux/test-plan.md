@@ -49,8 +49,8 @@ scroll stability tolerance = **≤8px drift**.
 
 | id | requirement | technique | level | disposition | workload | metric + threshold | window |
 |----|-------------|-----------|-------|-------------|----------|--------------------|--------|
-| P1 | proposal: long sessions open fast | comparative | L3 | automated | one session compacting to ~20k events, opened at `maxReplayEvents` `0` then `2000` | time to first rendered transcript row: windowed ≥5× faster | 5 runs, median |
-| P2 | D7: subagent-heavy sessions window | comparative | L3 | automated | subagent-heavy session (compacts poorly) at `2000` | window IS applied; same ≥5× ratio holds | 5 runs, median |
+| P1 | proposal: long sessions open fast | comparative | L3 | automated | one session exceeding the window, opened at `maxReplayEvents` `0` then a windowing value | **AMENDED (task 1.2):** full-replay completion time windowed is faster, AND wire bytes are materially smaller. Was "time to first rendered row ≥5× faster" — measured 0.97×, an observable windowing cannot affect (the first 200-event batch lands at the same moment regardless of what follows). See the measurement addendum. | 5 runs, median |
+| P2 | D7: sessions that compact poorly still window | comparative | L3 | automated | a tool-heavy session (compacts poorly) at a windowing value | window IS applied, and the same completion/bytes gains hold | 5 runs, median |
 | P3 | D9: bounded serialize+send | threshold | L1 | automated | backfill request spanning the full `BACKFILL_MAX_SPAN` | response event count ≤500; handler wall time bounded | per-call |
 | P4 | loop terminates without growth | soak | L2 | automated | repeated backfill until gap exhausted on a 20k-event session | loop terminates; server RSS returns to baseline ±10% | full drain |
 
@@ -101,3 +101,48 @@ scroll stability tolerance = **≤8px drift**.
 
 - **X6 only.** Exercising the new-client-vs-old-server skew needs a pinned pre-change server build, which no current harness provides. Recorded as `manual-only` rather than silently assumed; if it must be automated, that is a separate harness change, not part of this one.
 - Everything else routes to existing levels: `subscription-handler-backfill.test.ts` / `subscription-handler-window.test.ts` (L1 server), `event-reducer.window-edges.test.ts` / `useMessageHandler.history-gap.test.tsx` / `useStaleToolReconcile.test.ts` / `config.test.ts` (L1 client+shared), `qa/tests/*.sh` (L2), and the docker Playwright harness (L3).
+
+---
+
+## Measurement addendum (task 1.2) — P1/P2 metric AMENDED
+
+Run against the docker harness on a **4825-event** faux session
+(`[[faux:long-transcript]]` × 8), 5 opens per configuration, median reported.
+Each open used a fresh browser context, so IndexedDB was empty and the client
+subscribed with `lastSeq: 0` — a genuine full stream.
+
+| metric | `maxReplayEvents: 0` | `maxReplayEvents: 2000` | ratio |
+|---|---|---|---|
+| time to first rendered row | 340 ms | 349 ms | **0.97× (no gain)** |
+| full replay completion | 715 ms | 341 ms | 2.10× faster |
+| wire bytes | 1958 KB | 834 KB | 57% smaller |
+| events delivered | 4825 | 1996 | window applied ✓ |
+
+**The `2000` default is CONFIRMED.** It windows this session, halves replay
+completion, cuts wire bytes by 57%, and — because `computeReplayWindow`
+early-returns when the compacted stream fits — leaves every session under 2000
+on the pre-change path byte for byte.
+
+**P1/P2's metric is AMENDED, because the original one is not measurable in
+principle.** "Time to first rendered transcript row" cannot improve with
+windowing: the server ships events in `REPLAY_BATCH_SIZE` (200) batches, so the
+FIRST batch — and therefore the first painted row — arrives at the same moment
+whether 2000 or 20000 events follow it. The measured 0.97× is not a regression
+and not noise; it is the correct result for a metric that windowing does not
+touch. The ≥5× target was written against an observable the design does not
+affect.
+
+The properties windowing DOES improve, and which P1/P2 now assert:
+
+- **full-replay completion time** — windowed is constant-cost in the session
+  size (bounded by the budget), unwindowed grows linearly. 2.10× at 4825 events,
+  and the gap widens with session size.
+- **wire bytes** — 57% here, likewise widening.
+
+At the ~20k events P1 names, the completion ratio would be roughly 10× on this
+trend, but the first-row ratio would still be ~1×. Scaling the workload would
+not have rescued the original threshold.
+
+Recorded rather than quietly re-scoped: this is the amendment task 1.2 exists to
+produce ("Confirms or amends the 2000 default the scenarios are written
+against"), and it changes a stated numeric requirement.

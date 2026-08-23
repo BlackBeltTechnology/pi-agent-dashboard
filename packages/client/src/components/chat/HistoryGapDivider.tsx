@@ -61,14 +61,27 @@ export function HistoryGapDivider({ gap, onLoadEarlier }: Props) {
    * (9.07:1 dark / 9.74:1 light) or `--text-primary`.
    */
   const body = (() => {
-    // A5 — the gap exists but the store cannot serve it. Deliberately NOT an
-    // error: nothing failed, the events were trimmed. No retry is offered
-    // because there is nothing to retry.
+    /**
+     * A5 — the gap exists but the store cannot serve it. Deliberately NOT an
+     * error: nothing failed. No retry is offered because there is nothing to
+     * retry.
+     *
+     * The wording must stay true for BOTH causes of an empty slice: retention
+     * having trimmed the events, and replay compaction having dropped a whole
+     * all-`message_update` band as superseded. The client cannot distinguish
+     * them, so it states the OUTCOME ("no longer available to load") and never
+     * attributes the loss to retention, which would sometimes be false.
+     * See change: fix-lazy-history-backfill-ux (D8).
+     */
     if (gap.unservable) {
       return (
         <span role="status" className="inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)] whitespace-nowrap" data-testid="history-gap-unavailable">
           <WarningIcon />
-          {t("chat.historyGap.unavailable", undefined, "Earlier messages are no longer available.")}
+          {t(
+            "chat.historyGap.unavailable",
+            undefined,
+            "These earlier messages are no longer available to load.",
+          )}
         </span>
       );
     }

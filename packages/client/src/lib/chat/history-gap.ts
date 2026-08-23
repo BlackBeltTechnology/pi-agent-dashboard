@@ -23,7 +23,11 @@ export const HISTORY_GAP_ROW_ID = "__history_gap__";
 export interface HistoryGapState {
   /** Last seq the client holds in the head. ADVANCES as backfill fills the gap. */
   headMaxSeq: number;
-  /** First seq of the tail segment. Fixed for the life of the subscription. */
+  /**
+   * First seq of the tail segment. RETREATS as backfill fills the gap from the
+   * tail side — updated from `servedFrom`, never from arithmetic.
+   * See change: fix-lazy-history-backfill-ux (D2).
+   */
   tailMinSeq: number;
   /** Events the store still holds in the gap. Never the seq distance. */
   gapCount: number;
@@ -78,35 +82,22 @@ export function createHistoryGapRow(): ChatMessage {
   return { id: HISTORY_GAP_ROW_ID, role: "historyGap", content: "", timestamp: Date.now() };
 }
 
-/**
- * The seq range to request next: the slice ADJACENT TO THE HEAD, bounded by the
- * server's own `BACKFILL_MAX_SPAN`. Requesting from the head side (rather than
- * the tail side) is what lets the server advance its recorded `headMaxSeq` and
- * report a shrinking `remainingGapCount`, which is what terminates the loop.
- */
+/** Mirrors the server's own ceiling on one `history_backfill` response. */
 const BACKFILL_MAX_SPAN = 500;
 
 /**
- * Scroll-anchor arithmetic for the backfill splice (task 7.3).
+ * The seq range to request next: the slice ADJACENT TO THE TAIL, bounded by the
+ * server's own `BACKFILL_MAX_SPAN` and floored at the head edge.
  *
- * Rows are inserted ABOVE the viewport, so the naive outcome is that whatever
- * the user was reading jumps down by the height of everything spliced in. The
- * invariant that survives an insertion above the viewport is the distance from
- * the scroll position to the BOTTOM of the content — capture it before, restore
- * it after.
- *
- * Extracted as a pure function because jsdom reports `scrollHeight` as 0, which
- * would make an in-component assertion vacuously true.
+ * Tail-anchored, because "Load earlier" must deliver the events IMMEDIATELY
+ * PRECEDING what the user is reading — the chat-app behaviour. The previous
+ * head-first direction existed only because `headMaxSeq` was the one mutable
+ * edge; the gap is symmetric now, so the server retreats `tailMinSeq` on a
+ * tail-adjacent range exactly as it advances `headMaxSeq` on a head-adjacent
+ * one, and the loop still terminates on the store-read `remainingGapCount`.
+ * See change: fix-lazy-history-backfill-ux (D1, D2).
  */
-export function captureScrollAnchor(el: { scrollHeight: number; scrollTop: number }): number {
-  return el.scrollHeight - el.scrollTop;
-}
-
-export function restoreScrollAnchor(el: { scrollHeight: number }, anchor: number): number {
-  return el.scrollHeight - anchor;
-}
-
 export function nextBackfillRange(gap: HistoryGapState): { fromSeq: number; toSeq: number } {
-  const fromSeq = gap.headMaxSeq + 1;
-  return { fromSeq, toSeq: Math.min(gap.tailMinSeq - 1, fromSeq + BACKFILL_MAX_SPAN - 1) };
+  const toSeq = gap.tailMinSeq - 1;
+  return { fromSeq: Math.max(gap.headMaxSeq + 1, toSeq - BACKFILL_MAX_SPAN + 1), toSeq };
 }
