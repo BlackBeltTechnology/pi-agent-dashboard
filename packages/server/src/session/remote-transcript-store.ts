@@ -34,11 +34,19 @@ import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared
  * requirement; matching a specific id grammar is not.
  */
 /**
- * Per-session retention ceiling. Measured locally: p50 73 KB, p90 1.1 MB,
- * p99 3.9 MB, max 44 MB. 64 MB keeps every real transcript while making
- * "fill the disk" bounded per session.
+ * Per-session retention ceiling, overridable per store.
+ *
+ * Measured (task 13.7) rather than guessed: p50 73 KB, p90 1.1 MB, p99 3.9 MB,
+ * and an observed MAXIMUM of 44.1 MB across 3471 local transcripts. An earlier
+ * 64 MB was called "generous" against the p99 — but against the real maximum it
+ * is 1.45x, which is not headroom. A legitimate transcript half again as large
+ * as today's biggest would silently stop being retained, and losing a real
+ * user's history is a worse failure than the disk-fill it guards against —
+ * especially as that attack already requires an authenticated paired device.
+ *
+ * 256 MB keeps the stream bounded while making a false positive remote.
  */
-const MAX_RETAINED_BYTES = 64 * 1024 * 1024;
+const DEFAULT_MAX_RETAINED_BYTES = 256 * 1024 * 1024;
 
 const SESSION_ID_SHAPE = /^[A-Za-z0-9_-]{1,64}$/;
 
@@ -58,9 +66,14 @@ export interface RemoteTranscriptStore {
   forget(sessionId: string): void;
 }
 
-export function createRemoteTranscriptStore(env?: {
-  homedir?: string;
-}): RemoteTranscriptStore {
+export function createRemoteTranscriptStore(
+  env?: {
+    homedir?: string;
+    /** Per-session retention ceiling; injectable so a test need not write 256 MB. */
+    maxRetainedBytes?: number;
+  },
+): RemoteTranscriptStore {
+  const maxRetainedBytes = env?.maxRetainedBytes ?? DEFAULT_MAX_RETAINED_BYTES;
   const dir = path.join(getDashboardConfigDir(env), "remote-transcripts");
 
   const fileFor = (sessionId: string): string => {
@@ -92,9 +105,9 @@ export function createRemoteTranscriptStore(env?: {
       // the dashboard's disk is gone. The cap is generous next to the measured
       // p99 (3.9 MB) but finite; past it the transcript is simply not extended.
       const existingBytes = meta.restarted ? 0 : (fs.statSync(file, { throwIfNoEntry: false })?.size ?? 0);
-      if (existingBytes + Buffer.byteLength(body) > MAX_RETAINED_BYTES) {
+      if (existingBytes + Buffer.byteLength(body) > maxRetainedBytes) {
         throw new Error(
-          `remote transcript for ${sessionId} exceeds the ${MAX_RETAINED_BYTES}-byte retention cap; not extended`,
+          `remote transcript for ${sessionId} exceeds the ${maxRetainedBytes}-byte retention cap; not extended`,
         );
       }
       // `writeFileSync`/`appendFileSync` FOLLOW symlinks, so a same-uid process

@@ -1139,3 +1139,39 @@ The wide median bound is justified by this profile, not by convenience — the
 regression P4 guards (UDS falling onto a slow path) is order-of-magnitude,
 while the honest transport delta is tens of microseconds and sign-flips with
 payload size.
+
+## D13a — measured backfill cost against real transcripts (task 13.7, RECORDED)
+
+Measured through the **real** code path — the bounded resumable reader feeding
+the retention store — against actual local transcripts rather than synthetic
+data. 3471 transcripts on this machine: p50 73 KB, p90 1.1 MB, p99 3.9 MB,
+observed maximum 44.1 MB.
+
+| transcript | size | chunks | entries | transfer | throughput |
+|---|---|---|---|---|---|
+| p99 | 4.4 MB | 19 | 321 | 101 ms | 43 MB/s |
+| observed max | 44.1 MB | 34 | 515 | 689 ms | 64 MB/s |
+
+**Registration is unaffected**, which is the property that matters (11.x): the
+backfill is pulled after attach, so none of this cost is on the register path.
+
+### Two facts the numbers exposed
+
+**A chunk is not bounded by the read budget.** 44.1 MB in 34 chunks is ~1.3 MB
+per chunk, not the 256 KB budget, because `maxBytes` is a READ budget that a
+single oversized line deliberately overshoots rather than stalling on. The
+largest single chunk measured **2.84 MB**, driven by a single 2.81 MB line.
+Verified safe: `ws` defaults `maxPayload` to 100 MB and neither the gateway nor
+the bridge lowers it, so the real ceiling is ~35x the largest chunk observed.
+Worth knowing that the biggest backfill messages land in exactly the size range
+where UDS is slower than loopback TCP on Darwin (D10d) — still sub-second, but
+the two facts meet here.
+
+**The first retention cap was mis-sized.** 64 MB was chosen as "generous"
+against the p99 of 3.9 MB (16x). Against the observed MAXIMUM of 44.1 MB it is
+**1.45x**, which is not headroom: a legitimate transcript half again as large as
+today's biggest would silently stop being retained. Losing a real user's history
+is a worse failure than the disk-fill it guards against — an attack that already
+requires an authenticated paired device. **Raised to 256 MB** and made
+injectable, so the guard keeps its purpose (a hostile stream stays bounded)
+without a plausible false positive.

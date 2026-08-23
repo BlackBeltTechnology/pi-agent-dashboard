@@ -220,6 +220,6 @@
 - [x] 13.4 Move a live session between two same-HOME instances and confirm no prompt is lost, history still resolves, and the origin shows *moved*
 - [ ] 13.5 Remote-join end-to-end: local pi pairs with a remote dashboard, registers, survives a reconnect, serves history predating the attach, retains that history after the session ends, and is locked out after revocation
 - [ ] 13.6 Confirm an ended remote session refuses resume with an explanation, and a local session does not
-- [ ] 13.7 Measure the remote-join path against a p99 transcript (~4 MB) and the observed maximum (~44 MB); record registration latency and transfer cost
+- [x] 13.7 Measure the remote-join path against a p99 transcript (~4 MB) and the observed maximum (~44 MB); record registration latency and transfer cost
 - [ ] 13.8 Cross-platform QA arms for macOS, Linux, and Windows, including that a POSIX default start binds no bridge TCP port at all
 - [x] 13.9 Update `docs/architecture.md` via DocScribe (transport, precedence ladder, auth model, move command, remote transcript access + the read-only boundary)

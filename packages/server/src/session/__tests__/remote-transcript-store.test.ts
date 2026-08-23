@@ -139,22 +139,21 @@ describe("createRemoteTranscriptStore", () => {
 describe("retention is bounded and does not follow a planted symlink", () => {
   it("refuses to extend a transcript past the retention cap", () => {
     const home = fs.mkdtempSync(path.join(os.tmpdir(), "retention-cap-"));
-    const store = createRemoteTranscriptStore({ homedir: home });
+    // Injected ceiling: the real one is 256 MB, and a test that allocated that
+    // much would be measuring the allocator.
+    const store = createRemoteTranscriptStore({ homedir: home, maxRetainedBytes: 1024 });
 
     // One oversized chunk is refused outright...
-    const huge = "x".repeat(65 * 1024 * 1024);
-    expect(() => store.append("sess-cap", [huge], { restarted: true, complete: false })).toThrow(
+    expect(() => store.append("sess-cap", ["x".repeat(2048)], { restarted: true, complete: false })).toThrow(
       /retention cap/,
     );
 
     // ...and so is a small chunk that would push an existing file past it.
-    const big = "y".repeat(60 * 1024 * 1024);
-    store.append("sess-cap2", [big], { restarted: true, complete: false });
-    const another = "z".repeat(5 * 1024 * 1024);
-    expect(() => store.append("sess-cap2", [another], { restarted: false, complete: false })).toThrow(
+    store.append("sess-cap2", ["y".repeat(900)], { restarted: true, complete: false });
+    expect(() => store.append("sess-cap2", ["z".repeat(400)], { restarted: false, complete: false })).toThrow(
       /retention cap/,
     );
-    // The transcript retained so far is intact, not truncated by the refusal.
+    // What was retained is intact, not truncated by the refusal.
     expect(store.read("sess-cap2").entries).toHaveLength(1);
   });
 
