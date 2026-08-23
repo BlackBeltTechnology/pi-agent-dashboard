@@ -54,12 +54,25 @@ history remains to be transferred.
 ### Requirement: A session records the host it originates from
 A session SHALL carry the identity of the device its bridge ran on, so that
 sessions from different hosts remain distinguishable when their working
-directories coincide.
+directories coincide. That identity SHALL be derived from the credential the
+bridge authenticated with, and SHALL NOT be taken from any value the bridge
+reports about itself. A connection that cannot be attributed SHALL be treated as
+remote rather than local.
 
 #### Scenario: Identical paths on two hosts do not collide
 - **WHEN** two hosts each have a session whose working directory path is identical
 - **THEN** the dashboard SHALL keep them distinct
 - **AND** each SHALL be attributable to its originating device
+
+#### Scenario: A bridge cannot declare itself local
+- **WHEN** a remote bridge reports that its session is local, or names a device it did not authenticate as
+- **THEN** the reported value SHALL be ignored
+- **AND** the session's origin SHALL be the one derived from its credential
+
+#### Scenario: An unattributable remote connection is not treated as local
+- **WHEN** a session is registered by a remote connection whose device cannot be resolved
+- **THEN** the session SHALL be treated as remote
+- **AND** operations restricted to local sessions SHALL be refused for it
 
 #### Scenario: Origin is presentable
 - **WHEN** a session originated on another host

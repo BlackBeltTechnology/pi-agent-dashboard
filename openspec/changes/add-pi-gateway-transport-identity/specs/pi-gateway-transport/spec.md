@@ -54,6 +54,12 @@ The record and the socket SHALL be rooted at the same home directory.
 - **THEN** it SHALL present the same instance identifier as before
 - **AND** a bridge registered with it SHALL reconnect without an identity mismatch
 
+#### Scenario: A restart on a different gateway port is a different instance
+- **WHEN** a dashboard instance restarts on a gateway port other than the one it previously used
+- **THEN** it SHALL present a new instance identifier rather than reusing the previous one
+- **AND** a bridge that is not explicitly pinned SHALL re-resolve its endpoint from the rendezvous record
+- **AND** that bridge SHALL register with the instance the record names rather than refusing on the identifier change
+
 #### Scenario: An unrelated process on a recorded endpoint cannot present the identifier
 - **WHEN** the endpoint named by a stale record is occupied by a process that is not that dashboard
 - **THEN** it SHALL be unable to present the recorded instance identifier
@@ -157,14 +163,42 @@ been verified.
 
 ### Requirement: A session can be explicitly moved to another instance
 An operator SHALL be able to move a running session's bridge to a named
-instance. The bridge SHALL establish and register with the target before closing
-its connection to the origin, SHALL treat the resulting endpoint as pinned, and
-SHALL notify the origin that the session moved.
+instance. The move SHALL be a two-step handshake: the bridge first announces its
+INTENT to the target, which claims nothing, and the session's routing SHALL
+transfer only at an explicit commit. The bridge SHALL treat the resulting
+endpoint as pinned and SHALL notify the origin that the session moved.
 
-#### Scenario: Move registers with the target before leaving the origin
+Announcing intent SHALL NOT be answered differently depending on whether the
+target already knows the session, since a difference in answer would reveal
+which sessions live on that instance.
+
+#### Scenario: Move reaches the target before leaving the origin
 - **WHEN** an operator moves a registered session to a reachable target instance
-- **THEN** the bridge SHALL complete `session_register` with the target before closing the origin connection
+- **THEN** the bridge SHALL be connected to the target before closing the origin connection
 - **AND** the session SHALL remain reachable throughout the move
+
+#### Scenario: Routing transfers only at the commit
+- **WHEN** a bridge has announced intent to the target but has not yet committed
+- **THEN** the target SHALL NOT route that session to it
+- **AND** any traffic it sends for that session before the commit SHALL NOT be delivered
+- **AND** the origin SHALL remain the session's owner
+
+#### Scenario: A commit moves only the session its authorisation names
+- **WHEN** a commit names a different session than the one its authorisation was issued for
+- **THEN** the commit SHALL be refused
+- **AND** the named session's routing SHALL be unchanged
+
+#### Scenario: A move never takes a session from a live owner
+- **WHEN** a commit would displace a connection that is currently serving that session
+- **THEN** the commit SHALL be refused
+- **AND** the serving connection SHALL remain the owner
+- **AND** the refusal SHALL NOT reveal why
+
+#### Scenario: The origin is released only after the transfer is confirmed
+- **WHEN** a bridge has sent a commit but the target has not confirmed the transfer
+- **THEN** the bridge SHALL keep serving the session from the origin
+- **AND** if the commit is refused or unanswered the move SHALL be abandoned with the origin still serving
+- **AND** the origin SHALL NOT be told the session moved
 
 #### Scenario: The origin reports the session as moved
 - **WHEN** a move completes
