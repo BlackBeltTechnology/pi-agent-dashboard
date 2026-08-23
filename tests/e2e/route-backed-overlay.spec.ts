@@ -1,5 +1,5 @@
 import { expect, test } from "./fixtures.js";
-import { FIXTURE_GIT, gotoDashboard } from "./helpers/index.js";
+import { FIXTURE_GIT, gotoDashboard, spawnFreshGitSession } from "./helpers/index.js";
 
 /**
  * Browser E2E — route-backed overlays (change: add-route-backed-overlay-dialogs).
@@ -226,5 +226,33 @@ test.describe("route-backed overlays", () => {
     await expect(page.getByTestId("plugin-overlay-underlay")).toHaveAttribute("inert", "");
     // ...and the URL is untouched (D1: containers change, URLs do not).
     await expect(page).toHaveURL(new RegExp(`/folder/${cwd}/kb$`));
+  });
+
+  // CodeRabbit (PR #536) caught this and was right. `renderSessionDetail` keeps
+  // a LIVE-route ternary chain — desktop reaches /session/:id/diff and the
+  // pi-resources redirect through it — so a FROZEN /session/:id underlay used
+  // to evaluate those live matches and render the OVERLAY's own content behind
+  // the scrim instead of the session it was pinned to.
+  test("a frozen /session/:id underlay renders the session, not the overlay's content", async ({
+    page,
+  }) => {
+    const card = await spawnFreshGitSession(page);
+    await card.click();
+    await expect(page).toHaveURL(/\/session\//, { timeout: 30_000 });
+    await expect(page.getByTestId("composer-context-strip")).toBeVisible({ timeout: 30_000 });
+
+    // Client-side navigation into a preview overlay, so the session is captured
+    // as the frozen background.
+    await page.evaluate(() => {
+      window.history.pushState({}, "", "/pi-view?url=https%3A%2F%2Fexample.com");
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    });
+    await expect(page.getByTestId("preview-route-overlay")).toBeVisible({ timeout: 20_000 });
+
+    const underlay = page.getByTestId("preview-route-overlay-underlay");
+    // The session chat is still what sits behind the scrim...
+    await expect(underlay.getByTestId("composer-context-strip")).toBeVisible();
+    // ...and the underlay is NOT a second copy of the preview.
+    await expect(underlay.getByTestId("preview-overlay")).toHaveCount(0);
   });
 });

@@ -82,7 +82,7 @@ The dashboard-plugin-runtime SHALL export `<ShellOverlayRouteSlot>`. It SHALL wa
 ```ts
 {
   params: Record<string, string>;     // decoded URL params from wouter
-  session?: DashboardSession;          // resolved via useShellSession(params[claim.config.sessionParam])
+  session?: DashboardSession;          // resolved via useShellSession(params[claim.sessionParam ?? claim.config?.sessionParam ?? "sid"])
   onBack: () => void;                  // shell-provided back-nav callback
   pluginContext: AnyPluginContext;     // standard plugin-context object
 }

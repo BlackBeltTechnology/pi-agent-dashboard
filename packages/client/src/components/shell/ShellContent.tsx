@@ -61,19 +61,31 @@ export interface ShellContentRenderers {
   renderFolderEditor: (cwd: string) => ReactNode;
   renderFolderHome: (cwd: string) => ReactNode;
   /** Session chat, or `null` when the id is not a known session. */
-  renderSession: (sessionId: string) => ReactNode;
+  /** `frozen` is true when this tree is a route-backed overlay UNDERLAY, so
+   *  the renderer must not consult live route matches. */
+  renderSession: (sessionId: string, frozen: boolean) => ReactNode;
   renderLanding: () => ReactNode;
 }
 
 interface Props extends ShellContentRenderers {
   variant: "desktop" | "mobile";
+  /**
+   * True when this tree is the pinned UNDERLAY of a route-backed overlay.
+   *
+   * The underlay re-derives its branch from a FROZEN router, but any renderer
+   * that still reads a live `useRoute` result would answer for the overlay's
+   * URL instead. `renderSessionDetail` keeps such a chain (desktop reaches
+   * /session/:id/diff and the pi-resources redirect through it), so it has to
+   * be told to skip it. See change: add-route-backed-overlay-dialogs.
+   */
+  frozen?: boolean;
 }
 
 /**
  * Resolves the shell's content branch from the AMBIENT wouter location — live
  * in the normal tree, frozen when rendered as a `RouteBackedOverlay` underlay.
  */
-export function ShellContent({ variant, ...render }: Props) {
+export function ShellContent({ variant, frozen = false, ...render }: Props) {
   const [openspecPreviewMatch, openspecPreviewParams] = useRoute(
     "/folder/:encodedCwd/openspec/:changeName/:artifactId",
   );
@@ -153,6 +165,6 @@ export function ShellContent({ variant, ...render }: Props) {
   if (variant === "mobile" && folderEditorCwd) return <>{render.renderFolderEditor(folderEditorCwd)}</>;
   if (folderHomeCwd && free) return <>{render.renderFolderHome(folderHomeCwd)}</>;
 
-  const session = selectedId ? render.renderSession(selectedId) : null;
+  const session = selectedId ? render.renderSession(selectedId, frozen) : null;
   return <>{session ?? render.renderLanding()}</>;
 }

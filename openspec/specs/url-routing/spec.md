@@ -344,7 +344,7 @@ The guarantee this requirement makes is about **dismissal**, not visibility: dis
 The following surfaces SHALL be route-backed overlays. Every path below is unchanged by this requirement:
 
 - `/settings/:page?/:sub?`
-- `/folder/:cwd/settings/:page`
+- `/folder/:cwd/settings/:page?` (the page segment is optional; it defaults to `packages`)
 - `/folder/:cwd/openspec/:changeName/:artifactId`
 - `/folder/:cwd/view?path=`
 - `/pi-view?url=`

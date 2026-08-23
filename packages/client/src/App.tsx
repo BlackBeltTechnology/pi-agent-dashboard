@@ -1744,7 +1744,7 @@ export default function App() {
   // lines of JSX stay byte-identical instead of being rewritten reference by
   // reference. No hooks are called inside, so conditional invocation is safe.
   // See change: add-route-backed-overlay-dialogs.
-  const renderSessionDetail = (sessionIdArg: string) => {
+  const renderSessionDetail = (sessionIdArg: string, frozen = false) => {
     const selectedId = sessionIdArg;
     const selectedSession = sessions.get(selectedId);
     const selectedCwd = selectedSession?.cwd;
@@ -1855,27 +1855,36 @@ export default function App() {
           />
         );
       })()}
-      {openspecBoardMatch && openspecBoardCwd ? (
+      {/* This chain reads LIVE route matches and is still load-bearing: on
+          desktop `/session/:id/diff` and the `/folder/:cwd/pi-resources`
+          redirect reach their surface through here, because `ShellContent`
+          skips those branches once a session is selected.
+
+          A FROZEN underlay must not evaluate it. The live matches answer for
+          the OVERLAY's URL, so the underlay behind a preview would render that
+          preview again instead of the session it was pinned to.
+          See change: add-route-backed-overlay-dialogs (CodeRabbit, PR #536). */}
+      {!frozen && openspecBoardMatch && openspecBoardCwd ? (
         renderOpenSpecBoardView(openspecBoardCwd)
-      ) : archiveMatch && archiveCwd ? (
+      ) : !frozen && archiveMatch && archiveCwd ? (
         <ArchiveBrowserView cwd={archiveCwd} onBack={goBack} />
-      ) : specsMatch && specsCwd ? (
+      ) : !frozen && specsMatch && specsCwd ? (
         <SpecsBrowserView cwd={specsCwd} onBack={goBack} />
-      ) : piResourceFileMatch && piResourceFilePath ? (
+      ) : !frozen && piResourceFileMatch && piResourceFilePath ? (
         <PiResourceFileRoute
           filePath={piResourceFilePath}
           title={piResourceFileTitle}
           onBack={goBack}
         />
-      ) : piResourcesMatch && piResourcesCwd ? (
+      ) : !frozen && piResourcesMatch && piResourcesCwd ? (
         <Redirect to={buildFolderSettingsUrl(piResourcesCwd, "packages")} replace />
-      ) : folderSettingsMatch && folderSettingsCwd ? (
+      ) : !frozen && folderSettingsMatch && folderSettingsCwd ? (
         <DirectorySettings
           cwd={folderSettingsCwd}
           page={folderSettingsPage}
           onBack={goBack}
         />
-      ) : openspecPreviewMatch && openspecPreviewCwd && openspecPreviewParams ? (
+      ) : !frozen && openspecPreviewMatch && openspecPreviewCwd && openspecPreviewParams ? (
         <OpenSpecPreview
           cwd={openspecPreviewCwd}
           changeName={decodeURIComponent(openspecPreviewParams.changeName)}
@@ -1883,17 +1892,17 @@ export default function App() {
           openspecMap={openspecMap}
           onBack={goBack}
         />
-      ) : fileViewMatch && fileViewCwd && fileViewPath ? (
+      ) : !frozen && fileViewMatch && fileViewCwd && fileViewPath ? (
         <PreviewOverlayView
           target={{ kind: "file", cwd: fileViewCwd, path: fileViewPath }}
           onBack={goBack}
         />
-      ) : urlViewMatch && urlViewUrl ? (
+      ) : !frozen && urlViewMatch && urlViewUrl ? (
         <PreviewOverlayView
           target={{ kind: "url", url: urlViewUrl }}
           onBack={goBack}
         />
-      ) : diffMatch && diffSessionId ? (
+      ) : !frozen && diffMatch && diffSessionId ? (
         <FileDiffView sessionId={diffSessionId} onBack={goBack} />
       ) : (
         <SessionSplitView
@@ -2433,7 +2442,7 @@ export default function App() {
               <ShellContent
                 variant="mobile"
                 {...shellRenderers}
-                renderSession={(id) => renderSessionDetail(id)}
+                renderSession={(id, isFrozen) => renderSessionDetail(id, isFrozen)}
               />
             )
           }
@@ -2527,8 +2536,9 @@ export default function App() {
             backgroundContent={
               <ShellContent
                 variant="desktop"
+                frozen
                 {...shellRenderers}
-                renderSession={(id) => renderSessionDetail(id)}
+                renderSession={(id, isFrozen) => renderSessionDetail(id, isFrozen)}
               />
             }
             onDismiss={dismissOverlay}
@@ -2557,8 +2567,9 @@ export default function App() {
             backgroundContent={
               <ShellContent
                 variant="desktop"
+                frozen
                 {...shellRenderers}
-                renderSession={(id) => renderSessionDetail(id)}
+                renderSession={(id, isFrozen) => renderSessionDetail(id, isFrozen)}
               />
             }
             onDismiss={dismissOverlay}
@@ -2592,8 +2603,9 @@ export default function App() {
             backgroundContent={
               <ShellContent
                 variant="desktop"
+                frozen
                 {...shellRenderers}
-                renderSession={(id) => renderSessionDetail(id)}
+                renderSession={(id, isFrozen) => renderSessionDetail(id, isFrozen)}
               />
             }
             onDismiss={dismissOverlay}
@@ -2613,8 +2625,9 @@ export default function App() {
             backgroundContent={
               <ShellContent
                 variant="desktop"
+                frozen
                 {...shellRenderers}
-                renderSession={(id) => renderSessionDetail(id)}
+                renderSession={(id, isFrozen) => renderSessionDetail(id, isFrozen)}
               />
             }
             onDismiss={dismissOverlay}
@@ -2639,8 +2652,9 @@ export default function App() {
             backgroundContent={
               <ShellContent
                 variant="desktop"
+                frozen
                 {...shellRenderers}
-                renderSession={(id) => renderSessionDetail(id)}
+                renderSession={(id, isFrozen) => renderSessionDetail(id, isFrozen)}
               />
             }
             onDismiss={dismissOverlay}
@@ -2676,8 +2690,9 @@ export default function App() {
             backgroundContent={
               <ShellContent
                 variant="desktop"
+                frozen
                 {...shellRenderers}
-                renderSession={(id) => renderSessionDetail(id)}
+                renderSession={(id, isFrozen) => renderSessionDetail(id, isFrozen)}
               />
             }
             onDismiss={dismissOverlay}

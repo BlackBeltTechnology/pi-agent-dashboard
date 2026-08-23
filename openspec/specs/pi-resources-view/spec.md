@@ -537,7 +537,12 @@ The two routes are never mounted simultaneously, so this is not a correctness de
 
 - **GIVEN** the user is on `/folder/<encodedCwd>/settings/skills`
 - **WHEN** the user opens a resource file
-- **THEN** the file view SHALL be routed to the folder-scoped file view path
+- **THEN** the file view SHALL be routed to `/pi-resource?path=<path>&title=<title>`
+- **AND** the target SHALL be identical from the global entry point: both entry
+  points share ONE file-view route, which is what lets a single surface serve
+  both scopes. (Corrected: an earlier draft of this scenario named a
+  folder-scoped `/folder/:cwd/view` target that no implementation has ever
+  used.)
 
 #### Scenario: All ten resource paths still resolve
 
