@@ -474,3 +474,70 @@ describe("provisional_rejected is not a terminal registration refusal (#X7)", ()
     server.close();
   });
 });
+
+/**
+ * A remote bridge's gateway ticket is SINGLE-USE with a 15s TTL. Minting it
+ * once at startup would authorise the first connection and no other, so any
+ * drop would reconnect with a spent ticket and be refused — the failure would
+ * look like an outage rather than a credential problem.
+ */
+describe("per-attempt connection preparation", () => {
+  beforeEach(() => vi.useRealTimers());
+
+  it("re-prepares on EVERY attempt, not just the first", async () => {
+    const urls: string[] = [];
+    let n = 0;
+    const mgr = new ConnectionManager({
+      url: "ws://dash:9999",
+      prepareConnect: async () => ({ url: `ws://dash:9999?ticket=t${++n}` }),
+      WebSocketImpl: class {
+        onopen?: () => void;
+        onclose?: () => void;
+        onerror?: () => void;
+        onmessage?: () => void;
+        readyState = 1;
+        constructor(url: string) {
+          urls.push(url);
+          setTimeout(() => this.onclose?.(), 5);
+        }
+        close() {}
+        send() {}
+      } as never,
+      reconnectDelayMs: 5,
+    } as never);
+
+    mgr.connect();
+    await vi.waitFor(() => expect(urls.length).toBeGreaterThanOrEqual(2), { timeout: 3000 });
+    mgr.disconnect();
+
+    // Distinct tickets: the second attempt did not replay the first.
+    expect(urls[0]).toContain("ticket=t1");
+    expect(urls[1]).toContain("ticket=t2");
+  });
+
+  it("does not dial unauthenticated when preparation fails", async () => {
+    const urls: string[] = [];
+    const mgr = new ConnectionManager({
+      url: "ws://dash:9999",
+      prepareConnect: async () => {
+        throw new Error("no bearer");
+      },
+      WebSocketImpl: class {
+        constructor(url: string) {
+          urls.push(url);
+        }
+        close() {}
+        send() {}
+      } as never,
+      reconnectDelayMs: 5,
+    } as never);
+
+    mgr.connect();
+    await new Promise((r) => setTimeout(r, 120));
+    mgr.disconnect();
+
+    // The server would refuse it anyway; dialling would report an outage
+    // instead of a credential failure.
+    expect(urls).toHaveLength(0);
+  });
+});

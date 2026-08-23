@@ -29,10 +29,11 @@ import {
   persistAttachment,
 } from "./ask-user-attachments.js";
 import { registerAskUserTool } from "./ask-user-tool.js";
-import { adoptRestoredNamerState, type AutoNamer, createAutoNamer, type PersistedNamerState, type StreamSimpleFn } from "./auto-session-namer.js";
+import { type AutoNamer, adoptRestoredNamerState, createAutoNamer, type PersistedNamerState, type StreamSimpleFn } from "./auto-session-namer.js";
 import type { BridgeContext } from "./bridge-context.js";
 import { extractFirstMessage, extractLatestTurnWindow, filterHiddenCommands, getCurrentModelString, isHeadlessRpcSession, safeCwd } from "./bridge-context.js";
 import { shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
+import { mintBridgeTicket, readDeviceToken, withTicket } from "./bridge-ticket-client.js";
 import { registerCanvasTool } from "./canvas-tool.js";
 import {
   createCommandHandler,
@@ -72,7 +73,7 @@ import { decideProjectTrust, readEventCwd } from "./project-trust.js";
 import { PromptBus } from "./prompt-bus.js";
 import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
 import { activate as activateProviderRegister, buildProviderCatalogue, onProviderChanged, reloadProviders, toModelInfo } from "./provider-register.js";
-import { gateRemoteRegistration, isRemoteEndpoint } from "./remote-registration-gate.js";
+import { gateRemoteRegistration, httpBaseUrlFor, isRemoteEndpoint } from "./remote-registration-gate.js";
 import { RetryTracker } from "./retry-tracker.js";
 import { activate as activateRoleManager, lookupRole, resolveNamingModel } from "./role-manager.js";
 import { registerRoleModelTools } from "./role-model-tools.js";
@@ -814,6 +815,28 @@ function initBridge(pi: ExtensionAPI) {
   const transportDiagnostics = createTransportDiagnostics();
   transportDiagnostics.record({ event: "endpoint_resolved", detail: endpointDetail });
 
+  /**
+   * Mint a fresh, single-use bridge ticket for a REMOTE endpoint.
+   *
+   * Returns undefined for a local endpoint (nothing to mint) and THROWS when a
+   * remote endpoint cannot be authorised, so ConnectionManager retries on its
+   * backoff rather than dialling a credential-less upgrade the gateway will
+   * refuse. The reason is logged once per attempt: "refused" here means the
+   * bearer is missing, unpaired or revoked, which is an operator problem and
+   * must not be reported as an unreachable dashboard.
+   */
+  async function prepareRemoteUpgrade(endpoint: string): Promise<{ url?: string } | undefined> {
+    if (!isRemoteEndpoint(endpoint)) return undefined;
+    const httpBase = httpBaseUrlFor(endpoint);
+    if (!httpBase) return undefined;
+    const minted = await mintBridgeTicket({ httpBase, token: readDeviceToken() });
+    if (!minted.ok) {
+      console.error(`[dashboard] bridge ticket ${minted.cause}: ${minted.reason}`);
+      throw new Error(minted.reason);
+    }
+    return { url: withTicket(endpoint, minted.ticket) };
+  }
+
   // Long-lived ctx wrapper for the Extension UI System (Phase 1) — see
   // change: add-extension-ui-modal. `getSessionId` reads the closed-over
   // `sessionId` so the helper always uses the current value (which is
@@ -836,6 +859,11 @@ function initBridge(pi: ExtensionAPI) {
     // (Windows, or a sun_path fallback). Undefined over a socket and never
     // sent to a remote endpoint.
     headers: localTokenHeaders(dashboardUrl),
+    // A REMOTE endpoint needs a bridge ticket per attempt (§6 made TCP bridge
+    // auth mandatory). Local dials — unix socket or loopback — are authorised
+    // by file mode or the local token and mint nothing.
+    // See change: add-pi-gateway-transport-identity (D10b).
+    prepareConnect: () => prepareRemoteUpgrade(dashboardUrl),
     // Routing field for a drop report — the reporting bridge's OWN session,
     // never the id the dropped message named.
     // See change: fix-spawn-correlation-ttl-coupling (D6).

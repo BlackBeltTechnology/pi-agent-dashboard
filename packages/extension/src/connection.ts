@@ -9,6 +9,14 @@ export interface ConnectionManagerOptions {
   url: string;
   WebSocketImpl?: any;
   /**
+   * Runs before EVERY connection attempt, including reconnects, and may
+   * override the URL for that attempt. Exists because a remote bridge's
+   * gateway ticket is single-use with a 15s TTL: minting it once at startup
+   * would authorise the first connection and no other, so a reconnect after
+   * any drop would be refused. Returning nothing leaves the URL as-is.
+   */
+  prepareConnect?: () => Promise<{ url?: string } | undefined>;
+  /**
    * Extra WebSocket upgrade headers, e.g. the Windows `X-Pi-Local-Token`
    * local credential (D6). Requires the `ws` client — the global WebSocket
    * cannot set headers at all.
@@ -200,6 +208,7 @@ export class ConnectionManager {
 
   /** Upgrade headers presented on every (re)connect. */
   private headers?: Record<string, string>;
+  private prepareConnect?: () => Promise<{ url?: string } | undefined>;
 
   constructor(options: ConnectionManagerOptions) {
     this.url = options.url;
@@ -214,6 +223,7 @@ export class ConnectionManager {
     //     upgrade header, and the global WebSocket cannot set headers (D6).
     // See change: add-pi-gateway-transport-identity (task 2.6).
     this.WS = options.WebSocketImpl ?? WsWebSocket;
+    this.prepareConnect = options.prepareConnect;
     // Validate the numeric options up front: a negative bound would refuse
     // every message and a NaN/Infinity bound would disable the limit entirely
     // (`length >= NaN` is always false), both silently.
@@ -456,6 +466,31 @@ export class ConnectionManager {
   }
 
   private createConnection(): void {
+    if (!this.prepareConnect) {
+      this.openSocket();
+      return;
+    }
+    void this.prepareThenOpen().catch(() => this.onPrepareFailed());
+  }
+
+  /** Apply a per-attempt URL override (e.g. a freshly minted ticket). */
+  private async prepareThenOpen(): Promise<void> {
+    const override = await this.prepareConnect?.();
+    if (override?.url) this.url = override.url;
+    this.openSocket();
+  }
+
+  /**
+   * Preparation failed (no credential, dashboard unreachable). Retry on the
+   * normal backoff rather than dialling without it: the server would refuse
+   * the upgrade anyway, and the operator would see a connection error instead
+   * of a credential one.
+   */
+  private onPrepareFailed(): void {
+    if (!this.intentionalClose) this.scheduleReconnect();
+  }
+
+  private openSocket(): void {
     try {
       this.ws = this.headers
         ? new this.WS(this.url, { headers: this.headers })
