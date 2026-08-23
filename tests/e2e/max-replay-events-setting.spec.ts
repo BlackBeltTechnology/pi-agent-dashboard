@@ -1,5 +1,9 @@
+import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+import path from "node:path";
 import { expect, type Page, test } from "./fixtures.js";
 import { gotoDashboard } from "./helpers/index.js";
+import { DASHBOARD_PORT, REPO_ROOT } from "./lifecycle.js";
 
 /**
  * L3 browser behaviour for the `maxReplayEvents` control — test-plan rows F12
@@ -21,6 +25,60 @@ import { gotoDashboard } from "./helpers/index.js";
  */
 
 const LABEL = "Max Replay Events";
+
+/**
+ * Container access for the ONE precondition the API cannot express: a config
+ * file with `maxReplayEvents` ABSENT. `PUT /api/config` merges, so it can set a
+ * value but never delete a key. Same route as `ended-session-endedat.spec.ts`.
+ */
+let containerId: string | undefined;
+function harnessContainer(): string {
+  if (containerId) return containerId;
+  const state = JSON.parse(
+    fs.readFileSync(path.join(REPO_ROOT, ".pi-test-harness.json"), "utf8"),
+  ) as { project?: string };
+  if (!state.project) throw new Error(".pi-test-harness.json carries no compose project");
+  const id = execFileSync(
+    "docker",
+    ["ps", "-q", "--filter", `label=com.docker.compose.project=${state.project}`],
+    { encoding: "utf8", timeout: 30_000 },
+  )
+    .trim()
+    .split("\n")[0];
+  if (!id) throw new Error(`no running container for compose project ${state.project}`);
+  containerId = id;
+  return id;
+}
+
+function inContainer(script: string): string {
+  // Bounded: an unbounded `docker` call would hang the single worker until the
+  // Playwright timeout fires, hiding the real cause.
+  return execFileSync("docker", ["exec", harnessContainer(), "sh", "-c", script], {
+    encoding: "utf8",
+    timeout: 60_000,
+  }).trim();
+}
+
+const CONFIG_JS =
+  'node -e \'const fs=require("fs");const p=process.env.HOME+"/.pi/dashboard/config.json";' +
+  'const c=JSON.parse(fs.readFileSync(p,"utf8"));';
+
+async function restartDashboard(): Promise<void> {
+  await fetch(`http://localhost:${DASHBOARD_PORT}/api/restart`, { method: "POST" }).catch(
+    () => undefined,
+  );
+  await new Promise((r) => setTimeout(r, 2_000));
+  const deadline = Date.now() + 120_000;
+  while (Date.now() < deadline) {
+    try {
+      if ((await fetch(`http://localhost:${DASHBOARD_PORT}/api/health`)).ok) return;
+    } catch {
+      // still down
+    }
+    await new Promise((r) => setTimeout(r, 1_000));
+  }
+  throw new Error("dashboard did not come back after POST /api/restart");
+}
 
 async function openServerSettings(page: Page) {
   await gotoDashboard(page);
@@ -66,9 +124,27 @@ test.describe("maxReplayEvents settings control", () => {
         memoryLimits?: Record<string, number>;
       };
       expect(body.memoryLimits?.maxReplayEvents).toBe(1000);
-      expect(body.memoryLimits?.maxEventsPerSession).toBe(siblings.maxEventsPerSession);
-      expect(body.memoryLimits?.maxStringFieldSize).toBe(siblings.maxStringFieldSize);
-      expect(body.memoryLimits?.maxWsBufferBytes).toBe(siblings.maxWsBufferBytes);
+      /**
+       * The payload now carries ONLY the edited field. It used to carry the
+       * whole `memoryLimits` object, and this test used to assert the siblings
+       * were echoed back unchanged — that echo is precisely what pinned a
+       * defaulted `maxReplayEvents` whenever a sibling was touched.
+       *
+       * The non-destructive property this test exists for is unchanged, and is
+       * now asserted END-TO-END against the server (a strictly stronger check
+       * than inspecting the request body): the persisted siblings must still
+       * hold their original values after the write.
+       * See change: fix-lazy-history-backfill-ux (D7).
+       */
+      expect(body.memoryLimits).not.toHaveProperty("maxEventsPerSession");
+      const after = (await (
+        await page.request.get("/api/config")
+      ).json()) as { data?: { memoryLimits?: Record<string, number> } };
+      const persisted = after.data?.memoryLimits ?? {};
+      expect(persisted.maxReplayEvents).toBe(1000);
+      expect(persisted.maxEventsPerSession).toBe(siblings.maxEventsPerSession);
+      expect(persisted.maxStringFieldSize).toBe(siblings.maxStringFieldSize);
+      expect(persisted.maxWsBufferBytes).toBe(siblings.maxWsBufferBytes);
     } finally {
       // RESTORE the shared harness config. This spec really does write to the
       // container every other spec runs against, and a leftover non-zero
@@ -99,5 +175,116 @@ test.describe("maxReplayEvents settings control", () => {
       .filter({ has: page.getByLabel(LABEL, { exact: true }) })
       .last();
     await expect(section).toContainText(/requires server restart/i);
+  });
+});
+
+/**
+ * The default flip and its settings consequences — test-plan rows F12-F15.
+ *
+ * `GET /api/config` returns the PARSED config, so `maxReplayEvents` is always
+ * materialized client-side. That is what made the old whole-object write
+ * dangerous: editing ANY sibling serialized an explicit value the user never
+ * chose, converting a defaulted field into a pinned one behind their back and
+ * freezing the old default across upgrades.
+ *
+ * See change: fix-lazy-history-backfill-ux (D7, D8).
+ */
+test.describe("maxReplayEvents — the default flip (F12-F15)", () => {
+  const readLimits = async (page: Page): Promise<Record<string, number>> => {
+    const body = (await (await page.request.get("/api/config")).json()) as {
+      data?: { memoryLimits?: Record<string, number> };
+    };
+    return body.data?.memoryLimits ?? {};
+  };
+
+  /**
+   * test-plan #F15 — the precondition is a config file with NO `maxReplayEvents`
+   * key, which no API call can produce: `PUT /api/config` merges, so it can set
+   * a value but never delete one. The key is therefore removed on disk inside
+   * the container, the same route `ended-session-endedat.spec.ts` uses for
+   * config state it cannot reach through the API.
+   */
+  test("F15: with the field ABSENT, the control displays the default, never 0", async ({
+    page,
+  }) => {
+    test.setTimeout(240_000);
+    const before = JSON.parse(
+      inContainer(`${CONFIG_JS}process.stdout.write(JSON.stringify(c.memoryLimits??{}))'`),
+    ) as Record<string, number>;
+    try {
+      inContainer(
+        `${CONFIG_JS}if(c.memoryLimits)delete c.memoryLimits.maxReplayEvents;` +
+          `fs.writeFileSync(p,JSON.stringify(c,null,2))'`,
+      );
+      await restartDashboard();
+
+      // The PARSED config resolves the absent field to the default...
+      expect((await readLimits(page)).maxReplayEvents).toBe(2000);
+      await openServerSettings(page);
+      const field = page.getByLabel(LABEL, { exact: true });
+      await expect(field).toBeVisible();
+      // ...and the control shows it. The pre-change control read `?? 0`, which
+      // told every untouched install it was unlimited when it no longer is.
+      await expect(field).toHaveValue("2000");
+    } finally {
+      // Restore byte-for-byte, so this file leaves the shared harness exactly
+      // as it found it.
+      await page.request.put("/api/config", { data: { memoryLimits: before } });
+      await restartDashboard();
+    }
+  });
+
+  // test-plan #F12
+  test("F12: the interaction help text is UNCONDITIONAL, and is not a warning", async ({ page }) => {
+    await openServerSettings(page);
+    const help = page.getByTestId("memory-limits-replay-help");
+    await expect(help).toBeVisible();
+    await expect(help).toContainText(/Max Replay Events and Max Events Per Session/i);
+
+    // Flip the pairing to the ordering a conditional predicate would have fired
+    // on, and prove the copy does not change. The predicate was rejected as
+    // both backwards (that pairing forms no window at all) and undecidable
+    // (the harmful case depends on session size, unknowable here).
+    const before = await readLimits(page);
+    const original = await help.textContent();
+    try {
+      await page.getByLabel("Max Events Per Session", { exact: true }).fill("100");
+      await page.waitForTimeout(300);
+      await expect(help).toBeVisible();
+      expect(await help.textContent()).toBe(original);
+      await expect(page.getByTestId("settings-content")).not.toContainText(/too small to back/i);
+    } finally {
+      await page.request.put("/api/config", { data: { memoryLimits: before } });
+    }
+  });
+
+  /**
+   * F13/F14 — the write must be FIELD-level. Asserted on the PUT body, which is
+   * the contract: the server deep-merges `memoryLimits` over the RAW config
+   * file, so a key the client omits keeps whatever the file has (including an
+   * absent key, and including an explicit `0`).
+   */
+  test("F13/F14: editing a sibling writes ONLY that sibling", async ({ page }) => {
+    await openServerSettings(page);
+    const before = await readLimits(page);
+
+    await page.getByLabel("Max Events Per Session", { exact: true }).fill("12345");
+    await expect(page.getByTestId("settings-save-bar")).toBeVisible();
+    const write = page.waitForRequest((r) => r.method() === "PUT" && r.url().includes("/api/config"));
+    await page.getByTestId("save-btn").click();
+
+    try {
+      const body = (await (await write).postDataJSON()) as {
+        memoryLimits?: Record<string, number>;
+      };
+      expect(body.memoryLimits?.maxEventsPerSession).toBe(12345);
+      // F13 — the untouched field is ABSENT from the payload, so a defaulted
+      // `maxReplayEvents` is never converted into a pinned one. F14 follows for
+      // free: an explicit `0` in the file is equally untouched by this write.
+      expect(Object.keys(body.memoryLimits ?? {})).toEqual(["maxEventsPerSession"]);
+      expect(body.memoryLimits).not.toHaveProperty("maxReplayEvents");
+    } finally {
+      await page.request.put("/api/config", { data: { memoryLimits: before } });
+    }
   });
 });
