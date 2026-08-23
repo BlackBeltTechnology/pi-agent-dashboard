@@ -577,10 +577,21 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
   // rendering the options it has instead of flipping back to a spinner.
   const catalogueLoading = catalogueFetching && catalogue === null;
 
+  // LIVE gateway endpoint. The Pi Gateway Port field below is the CONFIGURED
+  // value, and since the gateway became socket-by-default that number names a
+  // port nothing is bound to — the field advertised a listener that did not
+  // exist. `/api/health.piGatewayPort` carries what is actually bound: a number
+  // for TCP, the socket PATH for a unix listener, null for neither.
+  // See change: add-pi-gateway-transport-identity (task 2.9).
+  const [gatewayEndpoint, setGatewayEndpoint] = useState<number | string | null | undefined>(undefined);
+
   const refreshGitSourceReadout = useCallback(() => {
     return fetch(`${getApiBase()}/api/health`)
       .then((res) => (res.ok ? res.json() : null))
-      .then((h) => setGitSourceReadout(h?.gitSource ?? null))
+      .then((h) => {
+        setGitSourceReadout(h?.gitSource ?? null);
+        setGatewayEndpoint(h ? (h.piGatewayPort ?? null) : null);
+      })
       .catch(() => {});
   }, []);
   useEffect(() => {
@@ -1259,6 +1270,22 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                 <Section title={t("settings.ports", undefined, "Ports")}>
                   <NumberField label={t("settings.httpPort", undefined, "HTTP Port")} value={config.port} onChange={(v) => update((c) => { c.port = v; })} hint={i18nT("settings.hint.httpPort", undefined, "Port the dashboard web UI and REST API listen on. Changing it needs a restart and breaks bookmarked URLs. Default 8000.")} />
                   <NumberField label={t("settings.piGatewayPort", undefined, "Pi Gateway Port")} value={config.piPort} onChange={(v) => update((c) => { c.piPort = v; })} hint={i18nT("settings.hint.piGatewayPort", undefined, "Port pi sessions connect their bridge WebSocket to. Must be free and reachable from every machine running pi. Default 8001.")} />
+                  {gatewayEndpoint !== undefined && (
+                    <p
+                      className="text-xs text-[var(--text-tertiary)] -mt-2 mb-3"
+                      data-testid="gateway-transport-live"
+                      data-transport={typeof gatewayEndpoint === "string" ? "unix" : gatewayEndpoint === null ? "none" : "tcp"}
+                    >
+                      {typeof gatewayEndpoint === "string"
+                        ? i18nT("settings.gatewayLiveSocket", undefined, "Currently serving bridges on a local socket:")
+                        : gatewayEndpoint === null
+                          ? i18nT("settings.gatewayLiveNone", undefined, "No bridge listener is currently bound.")
+                          : i18nT("settings.gatewayLiveTcp", undefined, "Currently listening on port:")}
+                      {gatewayEndpoint !== null && (
+                        <span className="ml-1 font-mono break-all">{String(gatewayEndpoint)}</span>
+                      )}
+                    </p>
+                  )}
                   <ListenInterfaceField
                     bindHost={config.bindHost ?? "127.0.0.1"}
                     hasGuardConfig={hasGuardConfig(config)}

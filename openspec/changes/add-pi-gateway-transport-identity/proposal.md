@@ -214,3 +214,18 @@ None. (`mdns-discovery` is intentionally untouched — see NOT in scope.)
   two HOMEs, a pinned endpoint that is down, a paired device that was revoked, a
   Windows rendezvous record naming a port another process now holds, and rollout
   with a mixed-version bridge and server.
+
+## Carved out for a follow-up change
+
+Two pieces were deliberately NOT built here, and the spec deltas were narrowed
+to stop claiming them rather than left asserting behaviour that does not exist:
+
+1. **Serving a retained remote transcript.** Retention is write-only: chunks are
+   received and stored, but nothing reads them back and no API exposes them.
+   Making §11 useful needs a read path plus a rendered view. Until then the
+   retained copy is durable storage with no consumer.
+2. **The browser E2E arms that depend on it** — test-plan #F6 (task 12.52),
+   pre-attach history rendering.
+
+The client surfaces that WERE built (moved badge, remote-origin display, resume
+gating, live gateway endpoint) cover test-plan #F1-#F5.

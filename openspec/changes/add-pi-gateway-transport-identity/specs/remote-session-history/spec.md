@@ -1,23 +1,31 @@
 ## ADDED Requirements
 
-### Requirement: A remote-joined session's transcript is reachable by the dashboard it joined
-A dashboard SHALL be able to serve the transcript of a session whose pi process
-runs on another host, to the same extent it serves a local session. This includes
-entries recorded before the bridge attached. The mechanism is not mandated; any
-mechanism SHALL satisfy the constraints in this capability.
+### Requirement: A remote-joined session's transcript is transferred and retained
+A dashboard SHALL obtain the transcript of a session whose pi process runs on
+another host, including entries recorded before the bridge attached, and SHALL
+retain it on its own storage so it outlives the session. The mechanism is not
+mandated; any mechanism SHALL satisfy the constraints in this capability.
 
-#### Scenario: History predating the connection is available
+**Scope note.** This requirement covers ACQUISITION and RETENTION only. Serving
+the retained transcript back to a client — an API and a rendered view — is
+deliberately NOT claimed here, because it is not implemented: retention is
+currently write-only. The narrower wording is the honest one; a requirement
+asserting the dashboard can "serve" the transcript would be false the day it
+was archived. See the follow-up carved out in `proposal.md`.
+
+#### Scenario: History predating the connection is transferred
 - **WHEN** a bridge on another host joins a dashboard part-way through a session
-- **THEN** the dashboard SHALL be able to present transcript entries recorded before the bridge attached
+- **THEN** the dashboard SHALL obtain transcript entries recorded before the bridge attached
 
-#### Scenario: Full-fidelity payloads are available
+#### Scenario: Full-fidelity payloads are transferred
 - **WHEN** a tool payload for a remote session exceeds the in-memory event store's truncation limits
-- **THEN** the dashboard SHALL still be able to serve the untruncated payload
-- **AND** it SHALL NOT present the truncated in-memory copy as if it were complete
+- **THEN** the dashboard SHALL obtain the untruncated payload
+- **AND** the truncated in-memory copy SHALL NOT be recorded as if it were complete
 
-#### Scenario: Transcript data outlives the session
+#### Scenario: Retained transcript data outlives the session
 - **WHEN** a remote session ends and its bridge disconnects
-- **THEN** the dashboard SHALL still be able to serve that session's transcript
+- **THEN** the transcript the dashboard retained SHALL remain on its storage
+- **AND** it SHALL remain byte-identical to what the bridge sent
 
 ### Requirement: No filesystem path crosses the bridge
 A dashboard SHALL request session data by session identifier. The bridge SHALL
