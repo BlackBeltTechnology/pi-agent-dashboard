@@ -70,10 +70,21 @@ interface AgentDetails {
  * See change: fix-lazy-history-backfill-ux (D5).
  */
 function mapStatus(details: AgentDetails | undefined, toolStatus: string): string {
+  /**
+   * `elided` outranks `details.status`, and must be checked BEFORE it.
+   *
+   * `toolDetails` survives on a spliced row, so a backfilled subagent whose end
+   * never arrived still carries `details.status: "running"` (or a stale
+   * `"completed"`) from the last frame the window delivered. Reading that first
+   * renders a spinner — or worse, a completed card — for a result that is not
+   * loaded. The row-level stamp is the authority on loadability; `details` only
+   * describes what the subagent was doing when the stream was cut.
+   * See change: fix-lazy-history-backfill-ux (D5).
+   */
+  if (toolStatus === "elided") return "elided";
   if (!details?.status) {
     if (toolStatus === "error") return "error";
     if (toolStatus === "complete") return "complete";
-    if (toolStatus === "elided") return "elided";
     return "running";
   }
   switch (details.status) {
@@ -328,8 +339,22 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
     ? <div className="mt-2"><SubagentDetailView session={session} agentId={agentId} mode="inline" sessionId={context.sessionId} /></div>
     : null;
 
-  // --- Fallback: no toolDetails (replayed/older sessions) ---
-  if (!details) {
+  /**
+   * ELIDED short-circuits the details-driven branches below, and must come
+   * BEFORE them.
+   *
+   * `mapStatus` alone is not enough: the `details.status` branches further down
+   * hardcode their own shell status (`status="running"` for running/queued,
+   * the completed styling for completed/steered) and never consult
+   * `cardStatus`. `toolDetails` SURVIVES on a spliced row, so a backfilled
+   * subagent still carries whatever `details.status` the last delivered frame
+   * set — which rendered a spinner, or a completed card, for a result that is
+   * not loadable. The row-level stamp is the authority on loadability;
+   * `details` only describes what the subagent was doing when the stream was
+   * cut. See change: fix-lazy-history-backfill-ux (D5).
+   */
+  // --- Fallback: no toolDetails (replayed/older sessions), or an elided row ---
+  if (!details || cardStatus === "elided") {
     return (
       <AgentCardShell name={displayName} status={cardStatus} headerRight={controls}>
         {description && (

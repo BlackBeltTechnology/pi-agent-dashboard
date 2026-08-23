@@ -287,4 +287,60 @@ test.describe("maxReplayEvents — the default flip (F12-F15)", () => {
       await page.request.put("/api/config", { data: { memoryLimits: before } });
     }
   });
+
+  /**
+   * F13/F14 against the RAW FILE, not the request body.
+   *
+   * The test above proves the client OMITS the field; this proves the omission
+   * actually preserves on-disk state, which is the property users feel. Both
+   * raw states are exercised because they fail differently: an ABSENT key must
+   * not be materialized into an explicit value (F13), and an explicit `0` must
+   * survive as `0` rather than being re-defaulted to 2000 (F14). Neither is
+   * observable through `GET /api/config`, which returns the PARSED config — so
+   * the file is read directly in the container.
+   */
+  for (const raw of ["absent", "explicit-zero"] as const) {
+    test(`F13/F14: a sibling edit leaves an ${raw} maxReplayEvents untouched on disk`, async ({
+      page,
+    }) => {
+      test.setTimeout(240_000);
+      const before = JSON.parse(
+        inContainer(`${CONFIG_JS}process.stdout.write(JSON.stringify(c.memoryLimits??{}))'`),
+      ) as Record<string, number>;
+      try {
+        inContainer(
+          `${CONFIG_JS}c.memoryLimits=c.memoryLimits||{};` +
+            (raw === "absent"
+              ? "delete c.memoryLimits.maxReplayEvents;"
+              : "c.memoryLimits.maxReplayEvents=0;") +
+            `fs.writeFileSync(p,JSON.stringify(c,null,2))'`,
+        );
+        await restartDashboard();
+
+        await openServerSettings(page);
+        await page.getByLabel("Max Events Per Session", { exact: true }).fill("23456");
+        await expect(page.getByTestId("settings-save-bar")).toBeVisible();
+        const write = page.waitForResponse(
+          (r) => r.request().method() === "PUT" && r.url().includes("/api/config"),
+        );
+        await page.getByTestId("save-btn").click();
+        await write;
+
+        const after = JSON.parse(
+          inContainer(`${CONFIG_JS}process.stdout.write(JSON.stringify(c.memoryLimits??{}))'`),
+        ) as Record<string, number>;
+        // The sibling edit landed...
+        expect(after.maxEventsPerSession).toBe(23456);
+        // ...and the raw state of the field under test is byte-identical.
+        if (raw === "absent") {
+          expect(Object.hasOwn(after, "maxReplayEvents")).toBe(false);
+        } else {
+          expect(after.maxReplayEvents).toBe(0);
+        }
+      } finally {
+        await page.request.put("/api/config", { data: { memoryLimits: before } });
+        await restartDashboard();
+      }
+    });
+  }
 });

@@ -141,9 +141,9 @@ Findings and deviations from the plan, recorded where the next reader will look.
 - **L1 (59 scenarios, all green):** E1-E29, X1/X2/X4, P3. `subscription-handler-window.test.ts`
   stayed green with ZERO edits, which is the proof task 2.5's snap-helper
   extraction is behaviour-preserving.
-- **L3 (17 scenarios, 16 green + 1 by-design skip):** `tests/e2e/history-backfill-gap.spec.ts`
-  (F1-F6, F8-F11, F4, X3, X5), `tests/e2e/history-backfill-perf.spec.ts` (P1, P2),
-  `tests/e2e/max-replay-events-setting.spec.ts` (F12-F15).
+- **L3 (18 scenarios, 17 green + 1 by-design skip):** `tests/e2e/history-backfill-gap.spec.ts`
+  (F1-F6, F8-F11, X3, X5 — twelve), `tests/e2e/history-backfill-perf.spec.ts`
+  (P1, P2), `tests/e2e/max-replay-events-setting.spec.ts` (F12-F15).
 
 ### Deviation: one L3 file, not the nine the manifest names
 

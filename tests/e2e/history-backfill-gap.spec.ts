@@ -263,7 +263,10 @@ test.describe("history gap — tail-anchored backfill in the browser", () => {
     // `test.setTimeout` at describe scope does NOT reach hooks (they keep the
     // 60s default), and this hook builds a whole transcript AND restarts the
     // daemon. Raise it here or the file fails in setup, not in an assertion.
-    test.setTimeout(900_000);
+    // 25 min, not 15: on a COLD container the first spawn also pays the
+    // pi-flows jiti compile, and observed 900s exhaustion when this file runs
+    // alongside the sibling session-building spec.
+    test.setTimeout(1_500_000);
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
     try {
@@ -320,7 +323,10 @@ test.describe("history gap — tail-anchored backfill in the browser", () => {
           .catch(() => undefined);
       }
       await page.request.put("/api/config", {
-        data: { memoryLimits: { ...originalLimits, maxReplayEvents: originalLimits.maxReplayEvents ?? 0 } },
+        // Restore EXACTLY what was read, never `?? 0`: coercing an absent
+        // field into an explicit `0` would persist unlimited replay for every
+        // later spec — the same presence bug D7 fixes in the settings panel.
+        data: { memoryLimits: originalLimits },
       });
     } finally {
       await ctx.close();

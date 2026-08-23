@@ -1253,13 +1253,18 @@ The Memory Limits section of the settings panel SHALL expose a numeric control f
 #### Scenario: Control renders the default when the field is absent
 
 - **WHEN** the settings panel loads a config with no `maxReplayEvents`
-- **THEN** the control SHALL display `0`
+- **THEN** the control SHALL display the positive default window the server applies
 
 #### Scenario: Edited value is written back
 
 - **WHEN** the user changes the control to `500` and saves
 - **THEN** the config write SHALL include `memoryLimits.maxReplayEvents` of `500`
-- **AND** the other `memoryLimits` values SHALL be written unchanged
+- **AND** the other `memoryLimits` values SHALL be preserved on disk
+
+Note: preserved, not re-written. The write carries only the CHANGED fields and
+the server deep-merges them over the raw config file, so an untouched sibling
+keeps whatever the file holds — including an absent key, which a whole-object
+write would have materialized into an explicit value the user never chose.
 
 #### Scenario: Change is marked as requiring a restart
 
