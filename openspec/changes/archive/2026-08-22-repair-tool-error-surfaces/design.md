@@ -124,11 +124,50 @@ Human review is not a reliable gate for "did you use the token here too".
 fire on ~40 legitimate uses (destructive buttons, preview panes) and would be
 turned off within a week.
 
-**Open question Q1.** Where should the guard live — `scripts/check-conventions.mjs`
-(runs in the ship gate) or a Biome `noRestrictedSyntax`-style rule (runs in
-`quality:changed`, closer to the keystroke)? Biome catches it earlier but the
-class strings are template literals in some call sites, which is awkward to match
-syntactically. Leaning `check-conventions.mjs` with a path allowlist.
+**Q1 — RESOLVED: a vitest guard, `scripts/__tests__/severity-literal-guard.test.mjs`.**
+Neither `check-conventions.mjs` nor Biome. `check-conventions.mjs` caps itself at
+four rules ("growth pressure here is a signal to write a different script") and
+runs only in ship-it step 4.4, whereas `npm test` runs in `ci.yml`, `publish.yml`
+and `npm run quality:changed` — so the vitest home fires in strictly more places.
+Biome would catch it a keystroke earlier still, but several governed class strings
+are template literals assembled at runtime (`BashOutputCard`'s success/error
+ternary, `ToolCallStep`'s four-branch status expression), which a syntactic rule
+matches poorly. Same shape and home as `scripts/__tests__/repo-hygiene.test.mjs`.
+
+Exports `rawRedViolations(file, content)`; bans `\bred-\d{2,3}\b` across the
+six-file allowlist. #E11 and #E12 are covered there, #E12 with an anti-vacuity
+sample that proves the guard WOULD report the out-of-scope files if they were
+enrolled — asserting only "not in GOVERNED" would pass without ever exercising
+the rule.
+
+**Exemption valve.** A governed FILE can hold a red that is not an error surface
+— `ToolCallStep`'s destructive stop control sits on its own opaque fill. Those
+carry an explicit `severity-exempt: <reason>` comment on or directly above the
+line; anything without one is a violation. Without the valve the rule would have
+to choose between a false positive and dropping a whole file from the allowlist.
+
+**Q2 — stream-header grammar (surfaced while folding #E9).** A line reading
+`stderr:` *inside* stdout's own output used to open a real section, stranding the
+rest of stdout under a bogus label. A stream header now counts only when it is
+preceded by a blank line (or starts the body) and has not already opened, which
+is how context-mode actually emits the dump.
+
+**Q3 — link colour (surfaced while folding #F8).** `UrlLink`/`FileLink`
+hardcoded `text-blue-400`, tuned on a dark ground. Once the error body moved to
+`--bg-code` the pair measured 1.80–2.52:1 across all NINE light themes — the same
+one-sided defect this change exists to fix. They now use the mode-aware `--link`
+token. tokyo-night/light lands at 2.77:1 and takes the carve-out D3 already
+inherits (keyed `tokyo-night/light/link`, not borrowed from the `info` cell);
+every other cell clears 3:1 outright.
+
+**Scope of Q3 is deliberately GLOBAL, not error-card-local.** `UrlLink` and
+`FileLink` are what `LinkifiedText` renders everywhere, so every linkified URL
+and file path in tool output shifts from `#60a5fa` to `#2563eb` in light mode
+(dark is unchanged). Scoping the token to the error card would have meant
+branching link colour on its container — more machinery to express "be legible",
+and it would leave the identical defect standing on every other surface. The
+contrast only improves; #F8 gates the `--bg-code` pair, and the pre-existing
+severity gate covers the rest.
 
 ## Non-goal
 

@@ -10,32 +10,34 @@ extension reload **last**.
 
 ## 1. Shared types
 
-- [ ] 1.1 Add `FollowUpEntryView = { text: string; imageCount: number }` to `packages/shared/src/types.ts` and change `pendingQueues.followUp` (`:347`) from `string[]` to `FollowUpEntryView[]`; leave `steering` as `string[]`
+- [ ] 1.1 Add `FollowUpEntryView = { text: string; imageCount: number }` to `packages/shared/src/types.ts` and change `pendingQueues.followUp` (`:387`) from `string[]` to `FollowUpEntryView[]`; leave `steering` as `string[]`
 - [ ] 1.2 Remove the `images?` field from the `edit_followup_entry` message type (design D5 — unpopulatable under the count-only wire)
 
 ## 2. Extension — buffer entry shape
 
-- [ ] 2.1 Change `bridgeFollowUp` (`bridge.ts:366`) to `FollowUpEntry[]` where `FollowUpEntry = { text: string; images?: ImageContent[] }`
-- [ ] 2.2 Update `emitQueueUpdate` (`:367`) to project entries to `{ text, imageCount }`; image bytes must never enter the payload
-- [ ] 2.3 Update the `message_start` follow-up matcher (`~:1765`) to compare against entry `.text` instead of the entry itself
-- [ ] 2.4 Correct the two stale "five mutation handlers" comments (`:355-357`, `:1011`) to four, and drop the `pull_followup_to_editor` mention
+- [ ] 2.1 Change `bridgeFollowUp` (`bridge.ts:409`) to `FollowUpEntry[]` where `FollowUpEntry = { text: string; images?: ImageContent[] }`
+- [ ] 2.2 Update `emitQueueUpdate` (`:410`) to project entries to `{ text, imageCount }`; image bytes must never enter the payload
+- [ ] 2.3 Update the `message_start` follow-up matcher at `:1896` — `bridgeFollowUp.indexOf(text)` becomes `findIndex((e) => e.text === text)`; the `splice` below it is unchanged
+- [ ] 2.4 Confirm the session reset at `:2920` (`bridgeFollowUp = []`) still type-checks and releases image bytes
+- [ ] 2.5 Correct the two stale "five mutation handlers" comments (`:395-400`, `:1082`) to four, and drop the `pull_followup_to_editor` mention
 
 ## 3. Extension — content assembly + delivery
 
-- [ ] 3.1 Extract `buildUserMessageContent(text, images)` from `sendUserMessageWithImages` (`command-handler.ts:866`) returning `string | ContentBlock[]`, carrying the existing MIME allow-list unchanged; place it in `command-handler.ts` to avoid a `bridge → command-handler → bridge` cycle (design D7b)
+- [ ] 3.1 Extract `buildUserMessageContent(text, images)` from `sendUserMessageWithImages` (`command-handler.ts:1027`) returning `string | ContentBlock[]`, carrying the existing MIME allow-list unchanged; place it in `command-handler.ts` to avoid a `bridge → command-handler → bridge` cycle (design D7b)
 - [ ] 3.2 Repoint the steer/idle call site at the helper, keeping `{ deliverAs }` at the call site
-- [ ] 3.3 Update `drainFollowupQueue` (`:446`) to send `buildUserMessageContent(entry.text, entry.images)` with **no** send options (spec invariant 7 — `deliverAs` breaks the drain)
-- [ ] 3.4 Add the images parameter to `onFollowupSent` (`command-handler.ts:362`) and pass `msg.images` at the buffer-path call site (`:629`)
+- [ ] 3.3 Update `drainFollowupQueue` (`:489`, pi call at `:525`) to send `buildUserMessageContent(entry.text, entry.images)` with **no** send options (spec invariant 7 — `deliverAs` breaks the drain)
+- [ ] 3.4 Add the images parameter to `onFollowupSent` (`command-handler.ts:413`) and pass `msg.images` at the buffer-path call site (`:773`)
+- [ ] 3.5 Read mime through `imageBlockMime()` from `packages/shared/src/image-block.ts` in the validation filter (`:1041`) instead of `img.mimeType`; the allow-list values are unchanged (design D3c)
 
 ## 4. Extension — bounds and visibility
 
 - [ ] 4.1 Add `FOLLOWUP_BUFFER_MAX_BYTES = 32 * 1024 * 1024`, read from an injected value rather than compared as a literal at the admission site (design D3b)
-- [ ] 4.2 Implement entry sizing as `Buffer.byteLength(text) + Σ image.data.length`; recompute the total from live entries at each admission check — never maintain a running counter (design D3)
+- [ ] 4.2 Implement entry sizing as `Buffer.byteLength(text) + Σ (imageBlockData(image)?.length ?? 0)` using the shared accessor — a direct `.data` read sizes a nested-shape block at zero and bypasses the ceiling (design D3c); recompute the total from live entries at each admission check — never maintain a running counter (design D3)
 - [ ] 4.3 Gate `bufferFollowupSend` on both the entry-count cap and the byte ceiling; refuse whole entries only (never strip images to fit)
 - [ ] 4.4 Gate `edit_followup_entry` on the byte ceiling; refuse and leave the entry unchanged, emitting no `queue_update`
 - [ ] 4.5 Preserve the entry's images on edit; carry them on promote; discard on remove/clear
-- [ ] 4.6 Emit `command_feedback { command:"send_prompt", status:"error" }` on both user-send refusals (replaces the silent `console.warn` at `:405`)
-- [ ] 4.7 Emit `command_feedback { command:"enqueue_followup", status:"error" }` on system-push refusal (replaces the silent warn at `:521`); wrap system pushes into `{ text }` entries
+- [ ] 4.6 Emit `command_feedback { command:"send_prompt", status:"error" }` on both user-send refusals (replaces the silent `console.warn` at `:447`)
+- [ ] 4.7 Emit `command_feedback { command:"enqueue_followup", status:"error" }` on system-push refusal (replaces the silent warn at `:564`); wrap system pushes into `{ text }` entries
 - [ ] 4.8 Emit `command_feedback { status:"error" }` when image validation drops attachments, reporting how many and why (design D7)
 
 ## 5. Client
@@ -86,6 +88,7 @@ Exemplar for all rows in this section: `packages/extension/src/__tests__/bridge-
 - [ ] 10.6 Count cap refuses independently of bytes · input: default ceiling, 20 tiny entries · trigger: 10 B send · observable: refused on count, feedback names the queue-depth limit (test-plan #E10)
 - [ ] 10.7 Override changes only the threshold · input: buffer constructed with ceiling 1 KiB · trigger: send exceeding it · observable: refusal shape identical to the default-ceiling refusal (test-plan #E11)
 - [ ] 10.8 Size computation is byte-accurate · input: entry with multi-byte text plus a known-length base64 image · trigger: size computed · observable: equals `Buffer.byteLength(text)+data.length`, multi-byte not under-counted, `JSON.stringify` not invoked (test-plan #E12)
+- [ ] 10.11 Nested-shape image sizes by its real bytes · input: ceiling 1 KiB, empty buffer, one image in the nested Anthropic shape `{type:"image",source:{media_type,data}}` whose base64 is 4 KiB · trigger: admission check · observable: refused; the entry does NOT size at zero and is not admitted (test-plan #E25)
 - [ ] 10.9 Total is derived, not accumulated · input: ceiling 1 KiB, sequence push/push/drain/remove/promote/clear/push · trigger: admission attempted after each mutation · observable: every decision matches the sum over present entries; no drift (test-plan #E17)
 - [ ] 10.10 Removal releases bytes · input: ceiling 1 KiB, buffer 1000 B, a send just refused · trigger: remove a 400 B entry then retry · observable: retry admitted (test-plan #E16)
 
@@ -109,6 +112,7 @@ Exemplar for 12.1–12.2: `packages/extension/src/__tests__/bridge-system-follow
 - [ ] 12.3 Invalid image shapes are dropped and reported · input: images containing a non-object, one missing `data`, one `image/svg+xml` · trigger: follow-up buffered while streaming · observable: all three dropped, valid retained, `command_feedback{status:"error"}` stating the count (test-plan #X8)
 - [ ] 12.4 All-invalid set buffers as text-only · input: every image invalid · trigger: follow-up buffered · observable: entry text-only with `imageCount:0`, feedback error emitted (test-plan #X9)
 - [ ] 12.5 No feedback when all images are valid · input: two valid images · trigger: follow-up buffered · observable: both retained, **no** validation `command_feedback` (test-plan #X10)
+- [ ] 12.6 Nested-shape image is not dropped as invalid · input: one image in the nested Anthropic shape with `source.media_type:"image/png"` · trigger: follow-up buffered · observable: retained (`imageCount:1`), no validation `command_feedback` (test-plan #X11)
 
 ## 13. Tests — server cache (L1)
 
@@ -133,6 +137,7 @@ Exemplar for all rows in this section: `tests/e2e/optimistic-prompt.spec.ts` (ch
 - [ ] 15.4 Legacy string payload renders safely · input: broadcast carrying a legacy `string[]` followUp · trigger: chip renders · observable: converges to text `"hello"`, indicator absent, no `[object Object]` anywhere in `queue-panel` (test-plan #F5)
 - [ ] 15.5 Refusal is visible in chat · input: buffer at the entry-count cap · trigger: user sends another follow-up · observable: converges to a `commandFeedback` row carrying the refusal message, chip count still 20 (test-plan #F6)
 - [ ] 15.6 Dropped attachment is visible · input: follow-up with 3 images, one `image/svg+xml` · trigger: `queue_update` + feedback arrive · observable: converges to indicator showing 2 AND a `commandFeedback` row stating one attachment was dropped (test-plan #F7)
+- [ ] 15.7 Drained image-bearing message renders a chat row · input: image-bearing follow-up buffered mid-turn, image large enough to bust the 256 KiB event ceiling · trigger: turn ends and the buffer drains · observable: converges to a user row carrying the prompt text AND an image slot (thumbnail or the explicit unavailable slot); the row does NOT vanish (test-plan #F8)
 
 ## 16. Validate
 

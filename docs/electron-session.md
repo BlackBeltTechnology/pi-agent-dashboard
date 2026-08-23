@@ -63,6 +63,8 @@ Record of full implementation session: what built, what tried, what failed, less
 
 **What worked**: Downgraded Electron 33 → Electron 32 (`"electron": "^32.0.0"`). Electron 32 = last version supporting macOS 10.15.
 
+> **Superseded by change `upgrade-electron-runtime`.** 10.15 floor retired. Floor now macOS 12.0 (Monterey). Electron pinned `43.4.1`. 10.15 + 11 past Apple security window (EOL 2022-09 / 2023-09). Below-floor macOS users remain on currently-installed Electron-32 build; update-stream gate refuses newer artifact. Gate blocks newer metadata — does NOT move older installs forward. History above preserved as record.
+
 ### Phase 5: VM White Screen Fix
 **Goal**: Fix blank white screen on VMware macOS.
 
@@ -347,7 +349,7 @@ docker rmi pi-dashboard-electron-builder                 # Docker build image
 
 Each runner builds natively. No cross-compilation in CI. Release job creates draft GitHub Release with all artifacts.
 
-**macOS launch smoke (in-CI).** `_electron-build.yml` macOS legs run `qa/tests/09-electron-mac-launch.sh` after deployment-target floor check. Direct-execs built `.app` (`--disable-gpu`; seeds `first-run-done` to skip wizard); asserts `/api/health` 200 + `launchSource==electron` + server.log non-empty + no `FATAL` within 120s. Each leg execs own arch (`macos-14`→arm64, `macos-15-intel`→x64). Only dynamic launch proof on macOS; exercises `selectLaunchSource`+`spawnFromSource`+`spawnDetached` end-to-end. Boot-proof only: runner OS above advertised floor (10.15). Floor-proof on oldest allowed macOS remains QA gap (needs macOS-12/-10.15 VM). Static `otool minos` floor check stays label-only complement.
+**macOS launch smoke (in-CI).** `_electron-build.yml` macOS legs run `qa/tests/09-electron-mac-launch.sh` after deployment-target floor check. Direct-execs built `.app` (`--disable-gpu`; seeds `first-run-done` to skip wizard); asserts `/api/health` 200 + `launchSource==electron` + server.log non-empty + no `FATAL` within 120s. Each leg execs own arch (`macos-14`→arm64, `macos-15-intel`→x64). Only dynamic launch proof on macOS; exercises `selectLaunchSource`+`spawnFromSource`+`spawnDetached` end-to-end. Boot-proof only: runner OS above advertised floor (12.0). Floor-proof on oldest allowed macOS (12.0) remains QA gap (needs macOS-12 VM). Static `otool minos` floor check stays label-only complement.
 
 **Local testing with `act`**: Only Linux jobs work (Docker-based). macOS/Windows need real runners.
 
