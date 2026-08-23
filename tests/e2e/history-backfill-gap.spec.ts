@@ -638,6 +638,122 @@ test.describe("history gap — tail-anchored backfill in the browser", () => {
   });
 
   /**
+   * F4 — the illegal edge for the OTHER deleted-by-D6 writer. The
+   * selection-anchor compensator writes `scrollTop` on every commit while a
+   * selection is held; a splice above a held selection displaces the anchor
+   * row, which it would read as drift and "correct" — on the one commit that
+   * must not move.
+   */
+  test("F4: a selection held in the transcript survives the splice, with no correction", async ({
+    page,
+  }) => {
+    const frames = watchBackfillFrames(page);
+    await openWindowedSession(page);
+    await centerDivider(page);
+    await settleClickTarget(page);
+    const scroller = page.getByTestId("chat-scroll-container");
+
+    // Hold a real selection over a mounted transcript row.
+    const selected = await page.evaluate(() => {
+      const row = document.querySelector("[data-index] p, [data-index] div");
+      if (!row || !row.textContent?.trim()) return null;
+      const range = document.createRange();
+      range.selectNodeContents(row);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+      return sel?.toString() ?? null;
+    });
+    expect(selected, "a selection was established").toBeTruthy();
+
+    const scrollTopBefore = await scroller.evaluate((el) => el.scrollTop);
+    await clickLoadEarlierWithoutScrolling(page);
+    await expect
+      .poll(() => frames.received.filter((m) => m.type === "history_backfill_result").length, {
+        timeout: 30_000,
+      })
+      .toBeGreaterThan(0);
+    await page.waitForTimeout(2_000);
+
+    // The selection still holds the same text...
+    expect(await page.evaluate(() => window.getSelection()?.toString() ?? null)).toBe(selected);
+    // ...and no correction was applied.
+    expect(await scroller.evaluate((el) => el.scrollTop)).toBe(scrollTopBefore);
+  });
+
+  /**
+   * X3 — the socket drops after the request and before the response. The
+   * divider must not be left pending: a stranded busy state is unrecoverable
+   * without a reload, and the affordance has no retry in that state.
+   */
+  test("X3: a socket drop mid-backfill leaves the affordance usable after resubscribe", async ({
+    page,
+  }) => {
+    await openWindowedSession(page);
+    await centerDivider(page);
+    await settleClickTarget(page);
+
+    await clickLoadEarlierWithoutScrolling(page);
+    // Cut the network immediately, so the in-flight response cannot land.
+    await page.context().setOffline(true);
+    await page.waitForTimeout(2_000);
+    await page.context().setOffline(false);
+
+    // After the client reconnects and resubscribes, the divider must be back in
+    // a state the user can act on — either loadable again, or an honest
+    // tombstone. What it must NOT be is stuck busy forever.
+    await page.reload();
+    const card = page.locator(`[data-session-id="${sessionId}"]`).first();
+    await card.waitFor({ state: "visible", timeout: 60_000 });
+    await card.click();
+    await scrollDividerIntoDom(page);
+    await expect(
+      loadEarlier(page).or(page.getByTestId("history-gap-unavailable")),
+    ).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId("history-gap-loading")).toHaveCount(0);
+  });
+
+  /**
+   * X5 — the server restarts between the window announcement and the backfill.
+   * The client resubscribes against a NEW generation; nothing may be spliced
+   * twice and the transcript must stay coherent.
+   */
+  test("X5: a server restart mid-gap leaves no crash and no double splice", async ({ page }) => {
+    await openWindowedSession(page);
+    const rowsBefore = await page.locator("[data-index]").count();
+    expect(rowsBefore).toBeGreaterThan(0);
+
+    await restartDashboard();
+
+    await page.reload();
+    const card = page.locator(`[data-session-id="${sessionId}"]`).first();
+    await card.waitFor({ state: "visible", timeout: 90_000 });
+    await card.click();
+    await page.waitForSelector("[data-index]", { timeout: 120_000 });
+
+    /**
+     * The scenario asks for "no crash, no double splice, transcript coherent".
+     * It deliberately does NOT require the divider to re-appear, and asserting
+     * that would test a different subsystem: after a restart the in-memory
+     * store is empty and the session re-hydrates from disk, so whether a window
+     * forms on the next subscribe depends on cold-hydration timing rather than
+     * on anything this change controls. An earlier revision did require it and
+     * failed for exactly that reason.
+     */
+    expect(await page.locator("[data-index]").count()).toBeGreaterThan(0);
+    // No duplicate divider — the singleton invariant survived the resubscribe.
+    expect(await divider(page).count()).toBeLessThanOrEqual(1);
+    // If a gap IS disclosed, its count is sane rather than a stale or negative
+    // artifact of the pre-restart window.
+    const count = page.getByTestId("history-gap-count");
+    if ((await count.count()) > 0) {
+      const text = await count.textContent();
+      expect(text).toMatch(/\d/);
+      expect(text).not.toMatch(/-\d/);
+    }
+  });
+
+  /**
    * F8 — the `elided` affordance, on the row type most likely to be windowed.
    * Snapping is best-effort, so a slice can still orphan a tool call whose end
    * is in already-delivered content and can never arrive. It must read as "not

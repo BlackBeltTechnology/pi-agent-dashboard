@@ -2,9 +2,9 @@ Test tasks in groups 7–10 are folded from `test-plan.md`; the manifest is the 
 
 ## 1. Reproduce and measure first
 
-- [ ] 1.1 Reproduce the stuck-tool-spinner defect against a real windowed session (`maxEventsPerSession = 0`, `maxReplayEvents = 100`) via `docker/test-up.sh`, and record the observed rate — the report claims ~6/10. Invoke `systematic-debugging`; do not fix by inspection alone.
-- [ ] 1.2 Measure hydration time, wire bytes, and client reduce cost for a large session at `maxReplayEvents` of `0`, `2000`, and `5000`. Include a subagent-heavy session, which design D7 notes compacts poorly. Confirms or amends the `2000` default the scenarios are written against.
-- [ ] 1.3 Decide drop-vs-keep for `oldestGapSeq` (written at `history-gap.ts:67`, never read). Cleanup, not a blocker.
+- [x] 1.1 Reproduce the stuck-tool-spinner defect against a real windowed session (`maxEventsPerSession = 0`, `maxReplayEvents = 100`) via `docker/test-up.sh`, and record the observed rate — the report claims ~6/10. Invoke `systematic-debugging`; do not fix by inspection alone.
+- [x] 1.2 Measure hydration time, wire bytes, and client reduce cost for a large session at `maxReplayEvents` of `0`, `2000`, and `5000`. Include a subagent-heavy session, which design D7 notes compacts poorly. Confirms or amends the `2000` default the scenarios are written against.
+- [x] 1.3 Decide drop-vs-keep for `oldestGapSeq` (written at `history-gap.ts:67`, never read). Cleanup, not a blocker.
 
 ## 2. Server — symmetric gap (D1, D1a, D4, D4a)
 
@@ -23,7 +23,7 @@ Test tasks in groups 7–10 are folded from `test-plan.md`; the manifest is the 
 - [x] 3.3 Move the splice insertion point from `at` to `at + 1` so tail-anchored events land between the divider and the tail.
 - [x] 3.4 Verify the A6 fully-filled path still removes the divider and the A5 `unservable` path is unchanged.
 - [x] 3.5 Confirm the splice still touches `messages[]` only: no `maxSeqMapRef` move, no `publishSessionEvents`, no `replayPersister` write.
-- [ ] 3.6 Consider deduplicating `BACKFILL_MAX_SPAN` (`history-gap.ts:87` vs `subscription-handler.ts:66`). No longer load-bearing once 2.3 lands, but the drift is a live footgun.
+- [x] 3.6 Consider deduplicating `BACKFILL_MAX_SPAN` (`history-gap.ts:87` vs `subscription-handler.ts:66`). No longer load-bearing once 2.3 lands, but the drift is a live footgun.
 
 ## 4. Client — elided tool status (D5)
 
@@ -39,14 +39,14 @@ Test tasks in groups 7–10 are folded from `test-plan.md`; the manifest is the 
 - [x] 5.2 Suppress the virtualizer grow-pin for the splice commit (`ChatView.tsx:784`). Disarming at click is insufficient: `handleScroll` (`:861`) can re-arm mid-flight.
 - [x] 5.3 Suppress the selection-anchor compensator (`ChatView.tsx:1003-1051`) for the splice commit; it writes `scrollTop` on every commit while a selection is held.
 - [x] 5.4 Verify `scrollToTurn` navigation and normal stick-to-bottom follow on live events are unaffected by 5.2/5.3.
-- [ ] 5.5 QA in a real browser — jsdom reports `scrollHeight` as 0, which makes an in-component assertion vacuously true. Use `isolated-ui-verification`. Invoke `performance-optimization` if any per-frame work is added.
+- [x] 5.5 QA in a real browser — jsdom reports `scrollHeight` as 0, which makes an in-component assertion vacuously true. Use `isolated-ui-verification`. Invoke `performance-optimization` if any per-frame work is added.
 
 ## 6. Divider copy, default flip, settings (D7, D8)
 
 - [x] 6.1 Reword the `unservable` divider state (`HistoryGapDivider.tsx:71`) to say the earlier events are no longer available to load, WITHOUT attributing the loss to retention. Localize.
-- [ ] 6.2 Invoke `doubt-driven-review` on the default flip BEFORE it lands. Groups 2–5 must be green first.
+- [x] 6.2 Invoke `doubt-driven-review` on the default flip BEFORE it lands. Groups 2–5 must be green first.
 - [x] 6.3 Add presence detection to `parseMaxReplayEvents` (`config.ts:838`): absent / negative / non-numeric → default; explicit `0` → `0`. The `MIN_REPLAY_WINDOW` clamp already exists and must not change.
-- [ ] 6.4 Update `DEFAULT_MEMORY_LIMITS.maxReplayEvents` to the value settled by task 1.2.
+- [x] 6.4 Update `DEFAULT_MEMORY_LIMITS.maxReplayEvents` to the value settled by task 1.2.
 - [x] 6.5 Fix the settings pin: `computeConfigPartial`'s whole-object write (`SettingsPanel.tsx:287`) must not persist an explicit `maxReplayEvents` the user never chose when they edit a sibling field.
 - [x] 6.6 Make the Memory Limits control display the effective default, and add UNCONDITIONAL help text on the replay-window / retention interaction. Do NOT add a conditional warning comparing the two values.
 - [x] 6.7 Add the copy to `packages/client/src/lib/i18n/i18n.tsx` and `i18n-hu.ts`.
@@ -96,25 +96,25 @@ Test tasks in groups 7–10 are folded from `test-plan.md`; the manifest is the 
 ## 10. L2 and L3 scenarios
 
 - [ ] 10.1 repeated backfill until the gap is exhausted on a 20k-event session · full drain · loop terminates, server RSS returns to baseline ±10% (see `qa/tests/02-server-start.sh`) (test-plan #P4)
-- [ ] 10.2 one ~20k-event session opened at `maxReplayEvents` `0` then `2000` · median of 5 runs · time to first rendered transcript row at least 5× faster windowed (see `tests/e2e/chat-render-perf.spec.ts`) (test-plan #P1)
-- [ ] 10.3 subagent-heavy session at `2000` · median of 5 runs · window IS applied and the ≥5× ratio still holds (see `tests/e2e/large-session-replay.spec.ts`) (test-plan #P2)
-- [ ] 10.4 windowed session with the divider in view · click "Load earlier" · divider bounding-box `y` drifts ≤8px (see `tests/e2e/scroll-to-top.spec.ts`) (test-plan #F1)
-- [ ] 10.5 as F1 · virtualizer measures the spliced rows · divider `y` still within 8px of pre-click after settle (see `tests/e2e/chat-transcript-virtualization.spec.ts`) (test-plan #F2)
-- [ ] 10.6 divider positioned inside the 50px near-bottom band · splice commits · transcript does NOT jump to bottom (see `tests/e2e/scroll-to-top.spec.ts`) (test-plan #F3)
-- [ ] 10.7 text selection held in the tail · splice commits · selection preserved, no scroll correction applied (see `tests/e2e/tool-output-selection.spec.ts`) (test-plan #F4)
-- [ ] 10.8 windowed session · one backfill · new rows render between the divider and the first tail row in seq order (see `tests/e2e/large-session-replay.spec.ts`) (test-plan #F5)
-- [ ] 10.9 gap smaller than one span · one backfill · divider removed entirely, no residual affordance (see `tests/e2e/large-session-replay.spec.ts`) (test-plan #F6)
+- [x] 10.2 one ~20k-event session opened at `maxReplayEvents` `0` then `2000` · median of 5 runs · time to first rendered transcript row at least 5× faster windowed (see `tests/e2e/chat-render-perf.spec.ts`) (test-plan #P1)
+- [x] 10.3 subagent-heavy session at `2000` · median of 5 runs · window IS applied and the ≥5× ratio still holds (see `tests/e2e/large-session-replay.spec.ts`) (test-plan #P2)
+- [x] 10.4 windowed session with the divider in view · click "Load earlier" · divider bounding-box `y` drifts ≤8px (see `tests/e2e/scroll-to-top.spec.ts`) (test-plan #F1)
+- [x] 10.5 as F1 · virtualizer measures the spliced rows · divider `y` still within 8px of pre-click after settle (see `tests/e2e/chat-transcript-virtualization.spec.ts`) (test-plan #F2)
+- [x] 10.6 divider positioned inside the 50px near-bottom band · splice commits · transcript does NOT jump to bottom (see `tests/e2e/scroll-to-top.spec.ts`) (test-plan #F3)
+- [x] 10.7 text selection held in the tail · splice commits · selection preserved, no scroll correction applied (see `tests/e2e/tool-output-selection.spec.ts`) (test-plan #F4)
+- [x] 10.8 windowed session · one backfill · new rows render between the divider and the first tail row in seq order (see `tests/e2e/large-session-replay.spec.ts`) (test-plan #F5)
+- [x] 10.9 gap smaller than one span · one backfill · divider removed entirely, no residual affordance (see `tests/e2e/large-session-replay.spec.ts`) (test-plan #F6)
 - [ ] 10.10 gap whose store range was trimmed · click "Load earlier" · divider says events are unavailable, no retry, not error-styled, does not blame retention (see `tests/e2e/large-session-replay.spec.ts`) (test-plan #F7)
 - [ ] 10.11 backfill slice orphaning a subagent tool call · splice commits · agent row shows "result not loaded", no spinner, not error-styled (see `tests/e2e/tool-burst.spec.ts`) (test-plan #F8)
-- [ ] 10.12 session still hydrating · user clicks before the terminal batch · no `history_backfill` is sent (see `tests/e2e/replay-in-flight-pill.spec.ts`) (test-plan #F9)
-- [ ] 10.13 windowed session · two rapid "Load earlier" clicks · second refused `in_flight`, first still splices, divider not stuck pending (see `tests/e2e/large-session-replay.spec.ts`) (test-plan #F10)
-- [ ] 10.14 backfill in flight · navigate away and back · `stale_generation`, nothing spliced, divider recovers (see `tests/e2e/replay-delta-on-reload.spec.ts`) (test-plan #F11)
-- [ ] 10.15 both memory-limit values positive in each ordering · open Memory Limits · help text present, no pairing-specific warning in any ordering (see `tests/e2e/max-replay-events-setting.spec.ts`) (test-plan #F12)
-- [ ] 10.16 stored config with no `maxReplayEvents` · edit `maxEventsPerSession` and save · written config gains no explicit `maxReplayEvents` (see `tests/e2e/max-replay-events-setting.spec.ts`) (test-plan #F13)
-- [ ] 10.17 stored config with `maxReplayEvents: 0` · edit a sibling and save · written config still has `0` (see `tests/e2e/max-replay-events-setting.spec.ts`) (test-plan #F14)
-- [ ] 10.18 config with no `maxReplayEvents` · open Memory Limits · control displays `2000`, not `0` (see `tests/e2e/max-replay-events-setting.spec.ts`) (test-plan #F15)
-- [ ] 10.19 WS closed after request and before response · reconnect · divider not left pending, affordance usable after resubscribe (see `tests/e2e/replay-delta-on-reload.spec.ts`) (test-plan #X3)
-- [ ] 10.20 `/api/restart` between window announce and backfill · client resubscribes · no crash, no double splice, transcript coherent (see `tests/e2e/replay-delta-on-reload.spec.ts`) (test-plan #X5)
+- [x] 10.12 session still hydrating · user clicks before the terminal batch · no `history_backfill` is sent (see `tests/e2e/replay-in-flight-pill.spec.ts`) (test-plan #F9)
+- [x] 10.13 windowed session · two rapid "Load earlier" clicks · second refused `in_flight`, first still splices, divider not stuck pending (see `tests/e2e/large-session-replay.spec.ts`) (test-plan #F10)
+- [x] 10.14 backfill in flight · navigate away and back · `stale_generation`, nothing spliced, divider recovers (see `tests/e2e/replay-delta-on-reload.spec.ts`) (test-plan #F11)
+- [x] 10.15 both memory-limit values positive in each ordering · open Memory Limits · help text present, no pairing-specific warning in any ordering (see `tests/e2e/max-replay-events-setting.spec.ts`) (test-plan #F12)
+- [x] 10.16 stored config with no `maxReplayEvents` · edit `maxEventsPerSession` and save · written config gains no explicit `maxReplayEvents` (see `tests/e2e/max-replay-events-setting.spec.ts`) (test-plan #F13)
+- [x] 10.17 stored config with `maxReplayEvents: 0` · edit a sibling and save · written config still has `0` (see `tests/e2e/max-replay-events-setting.spec.ts`) (test-plan #F14)
+- [x] 10.18 config with no `maxReplayEvents` · open Memory Limits · control displays `2000`, not `0` (see `tests/e2e/max-replay-events-setting.spec.ts`) (test-plan #F15)
+- [x] 10.19 WS closed after request and before response · reconnect · divider not left pending, affordance usable after resubscribe (see `tests/e2e/replay-delta-on-reload.spec.ts`) (test-plan #X3)
+- [x] 10.20 `/api/restart` between window announce and backfill · client resubscribes · no crash, no double splice, transcript coherent (see `tests/e2e/replay-delta-on-reload.spec.ts`) (test-plan #X5)
 - [ ] 10.21 gap slice consisting entirely of superseded `message_update`s · click "Load earlier" · empty response, divider wording stays truthful (see `tests/e2e/large-session-replay.spec.ts`) (test-plan #X7)
 
 ## 11. Manual verification
@@ -131,3 +131,68 @@ Test tasks in groups 7–10 are folded from `test-plan.md`; the manifest is the 
 - [ ] 12.4 Update `docs/architecture.md` Memory Limits (new default + two-sided gap) and the affected directory `AGENTS.md` rows. Delegate every `docs/` write to `DocScribe` in caveman style.
 - [ ] 12.5 Reply on issue #521 with what changed and ask @Philogag to re-test.
 - [ ] 12.6 At archive time, expect `openspec archive` to abort over renamed scenarios. Both `shared-config` requirements are MODIFIED here, so the renames land inside modified blocks — verify "Absent field defaults to unlimited", "Existing config files behave identically", and "Negative value falls back to unlimited" all reconcile. Apply the pre-rename procedure from the `openspec-archive-sync-traps` skill; do NOT reach for `--no-validate` or `--skip-specs`.
+
+## 13. Execution record (ship-it)
+
+Findings and deviations from the plan, recorded where the next reader will look.
+
+### Automated coverage as landed
+
+- **L1 (59 scenarios, all green):** E1-E29, X1/X2/X4, P3. `subscription-handler-window.test.ts`
+  stayed green with ZERO edits, which is the proof task 2.5's snap-helper
+  extraction is behaviour-preserving.
+- **L3 (17 scenarios, 16 green + 1 by-design skip):** `tests/e2e/history-backfill-gap.spec.ts`
+  (F1-F6, F8-F11, F4, X3, X5), `tests/e2e/history-backfill-perf.spec.ts` (P1, P2),
+  `tests/e2e/max-replay-events-setting.spec.ts` (F12-F15).
+
+### Deviation: one L3 file, not the nine the manifest names
+
+Every gap row needs the server running with a non-zero `maxReplayEvents` — a
+restart-only field on the ONE container all ~90 specs share. Nine files would
+mean nine restart-and-restore dances, nine chances to leak a windowing config
+into an unrelated spec, and a cross-file ordering dependency on the expensive
+session build. Consolidated into `serial` files that own the mutation and
+restore it in `afterAll` (including ending their own `beforeAll` session, which
+the auto-reap fixture structurally cannot see).
+
+### Rows NOT automated, and why
+
+- **F7** (unservable divider explains itself) — needs retention to have trimmed
+  the gap, which means rebuilding the session under a small `maxEventsPerSession`
+  so trimming happens at INGEST. Not arrangeable against an already-built
+  session. The state and its exact copy are gated at L1 in
+  `HistoryGapDivider.test.tsx`, including the negative assertions that it does
+  not say "retention" or "trimmed".
+- **X7** (a slice that compacts to nothing) — no faux fixture produces a gap
+  band that is entirely superseded `message_update`s. Its observable — empty
+  events, truthful count, unservable rather than error — is identical to X4 and
+  is gated at L1 in `subscription-handler-backfill.test.ts`.
+- **P4** (soak: RSS returns to baseline ±10%) — an L2 `qa/tests/*.sh` row against
+  a 20k-event session. The loop-termination half IS gated: L1 walks the gap to
+  exhaustion from the tail, and F6 drains it in the browser.
+- **F16/F17/X6** — `manual-only` in the manifest; see group 11.
+- **F8** skips when no slice orphans a tool call. That is snapping working, not
+  a passing test, so it reports as a skip rather than a vacuous green; E24 gates
+  the stamp itself at L1.
+
+### Findings
+
+1. **A regression this change introduced, invisible to every cheap gate.**
+   Value-importing `pi-dashboard-shared/config.js` from `SettingsPanel` pulled
+   `node:fs/os/path` into the browser bundle; the SPA died at boot with
+   `uv.homedir is not a function` — a blank page — while `tsc --noEmit`, all
+   15k+ vitest tests, and the build were green. Fixed via a browser-safe
+   `packages/shared/src/memory-limits.ts`; `no-node-only-shared-imports.test.ts`
+   now fails closed on any recurrence (verified red on revert).
+2. **`design.md`'s E27 premise is wrong.** `ChatMessage.isStreaming` is never set
+   `true` by the reducer — `next.isStreaming` is the SESSION-level field of the
+   same name — so the row-level "permanently streaming bubble" is unreachable
+   today. The finalize pass is kept as a fail-closed floor and asserted directly.
+3. **P1's metric was unmeasurable** and is amended; see the test-plan addendum.
+4. **`knip-ratchet` reports `types 194 > baseline 193`.** Pre-existing: verified
+   194 on a clean `origin/develop` checkout. The ceiling gate
+   (`--check-baseline-diff`) passes; no baseline was raised.
+5. **Worktree resolution hazard.** This worktree has no local `node_modules`, so
+   `@blackbelt-technology/*` resolved to the MAIN repo's `packages/`, and local
+   `tsc` was type-checking the wrong `shared`. A `node_modules/@blackbelt-technology/pi-dashboard-shared`
+   symlink into the worktree's own `packages/shared` fixes it (gitignored).
