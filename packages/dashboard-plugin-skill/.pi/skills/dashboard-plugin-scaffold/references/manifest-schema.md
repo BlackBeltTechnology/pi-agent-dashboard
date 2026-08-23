@@ -57,7 +57,7 @@ Route-backed overlay claim. Component receives `{ params, onBack, session? }`.
 
 Unknown `presentation` value → FATAL `ManifestValidationError`. NOT warn-and-default. Typo like `"modal"` would silently restore the behaviour the author opted out of. Validator: `packages/dashboard-plugin-runtime/src/manifest-validator.ts`.
 
-Container selection: `ShellOverlayRouteSlot` (`packages/dashboard-plugin-runtime/src/slot-consumers.tsx`). Dialog container injected by host via `dialogContainer` prop, NOT imported — avoids `client-utils` → `dashboard-plugin-runtime` dependency cycle.
+Container selection: the HOST decides. It reads the effective `presentation` via `useShellOverlayRoutePresentation` (`packages/dashboard-plugin-runtime/src/slot-consumers.tsx`) and lifts a `dialog` claim out of the content region into its route-backed overlay; `ShellOverlayRouteSlot` itself renders only the claim body plus a height wrapper. A hook returning a string avoids the `client-utils` → `dashboard-plugin-runtime` dependency cycle a component import would close.
 
 Bundled-plugin gate (`packages/dashboard-plugin-runtime/src/__tests__/bundled-overlay-claims.test.ts`): explicit `depth` required; `depth: 2` requires `parentPath`; `parentPath` interpolable from claim path's own `:params`; claim nested under `/folder/:x` or `/session/:x` must NOT declare `depth: 1`. Third-party manifests: runtime degrades to `/` as safety net.
 

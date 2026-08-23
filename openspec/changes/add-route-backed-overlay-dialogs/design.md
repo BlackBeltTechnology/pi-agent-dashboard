@@ -245,39 +245,34 @@ guaranteed on the next plugin.
 no `shell-overlay-route` claim; that path exists only in stale packaged output
 under `packages/electron/out/`.)
 
-### D2a — The dialog container is injected, not imported
+### D2a — The dialog container is injected, not imported — SUPERSEDED
 
-D2 says plugin overlays convert at the slot. They do — but the slot cannot
-import the container it selects.
+**Superseded in cycle 2 by the underlay-positioning constraint.** The original
+seam gave `ShellOverlayRouteSlot` an optional `dialogContainer` prop so it could
+wrap a `presentation: "dialog"` claim per-claim, avoiding a package cycle
+(`client-utils` already depends on `dashboard-plugin-runtime`, so importing the
+dialog INTO the runtime would close a loop).
 
-```mermaid
-flowchart LR
-  CU["client-utils<br/>(owns Dialog)"] --> DPR["dashboard-plugin-runtime<br/>(owns the slot)"]
-  DPR -. "what D2 needs<br/>= cycle" .-> CU
-```
+The seam worked and was unit-tested, but it was never injected, and wiring it up
+showed why it could not be: the overlay's underlay has to cover the VIEWPORT.
+Wrapping from inside the slot puts the underlay inside the content region, where
+it covers a pane rather than the screen. The host must lift a dialog claim out
+of the content region entirely, which is a decision only the host can make.
 
-`client-utils` already depends on `dashboard-plugin-runtime`, so a slot-side
-import of `Dialog` (and therefore of `RouteBackedOverlay`) would close a
-dependency cycle. The plan's "single edit in `ShellOverlayRouteSlot`" assumed a
-direction that does not exist.
+So `presentation` is consumed by the host through the exported
+`useShellOverlayRoutePresentation` hook — no package cycle, because a hook
+returning a string crosses the boundary where a component could not. The slot
+renders the claim body plus its flex height wrapper; the `dialogContainer` prop
+and the `OverlayContainerProps` / `OverlayContainerComponent` types are removed
+rather than left as tested-but-unreachable code.
 
-**Resolution — dependency inversion.** `ShellOverlayRouteSlot` takes an optional
-`dialogContainer` component. This package keeps the decision (which claim
-matched, what its effective `presentation` is); the host supplies the visual
-shell. `App.tsx` injects `RouteBackedOverlay`.
-
-Rejected alternative: return the matched claim from
-`useShellOverlayRouteMatched` and choose the container in `App.tsx`. That is a
-smaller edit but puts the container choice on the WRONG matcher — this file
-already has two. The probes use wouter's real `useRoute`; the hook uses a
-hand-rolled `matchWouterPattern` whose own comment records that it supports "no
-regex parts". They can already disagree, and a claim with a regex segment could
-then render its content in a page wrapper while the slot believed it was a
-dialog. Inversion keeps one source of truth.
-
-**Default when nothing is injected:** the page container. A host that has not
-opted in behaves exactly as it did before this change, so the seam cannot break
-existing embedders or test harnesses.
+**The gap this hid is the point.** Group 4 marked the seam done and deferred the
+injection to group 5; group 5's tasks covered only the six core surfaces, so the
+injection fell between them. The seam's own unit tests passed a container
+explicitly, so they stayed green while production rendered every plugin claim as
+a full page — D2 was undelivered for the whole of groups 4 through 8 and no test
+said so. Task 4.7's e2e canary now asserts the real container, which is the only
+level that could have caught it.
 
 ### D3 — `presentation?: "page" | "dialog"`, default `"dialog"`
 

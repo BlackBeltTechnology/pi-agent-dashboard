@@ -201,4 +201,30 @@ test.describe("route-backed overlays", () => {
     // And the failure did not escape as an unhandled rejection.
     expect(errors).toEqual([]);
   });
+
+  // Task 4.7 / design D2 — the plugin canary. Six bundled `shell-overlay-route`
+  // claims (automation x2, goals x2, kb, subagent popout) all default to
+  // `presentation: "dialog"`, and D2's whole claim is that ONE change at the
+  // slot converts every one of them.
+  //
+  // This exists because the seam shipped in group 4 was never injected: its
+  // unit tests passed a container explicitly, so they were green while
+  // production still rendered every plugin claim as a full page. Only an e2e
+  // that looks at the real container catches that class of gap.
+  test("4.7/D2: a plugin claim route renders in the overlay, not as a full page", async ({
+    page,
+  }) => {
+    const cwd = Buffer.from(FIXTURE_GIT).toString("base64url");
+    await gotoDashboard(page);
+    await page.goto(`/folder/${cwd}/kb`);
+
+    const overlay = page.getByTestId("plugin-overlay");
+    await expect(overlay).toBeVisible({ timeout: 20_000 });
+    // The claim's own content is inside the overlay...
+    await expect(overlay).toContainText(/knowledge base/i);
+    // ...over a pinned, inert underlay...
+    await expect(page.getByTestId("plugin-overlay-underlay")).toHaveAttribute("inert", "");
+    // ...and the URL is untouched (D1: containers change, URLs do not).
+    await expect(page).toHaveURL(new RegExp(`/folder/${cwd}/kb$`));
+  });
 });

@@ -1,27 +1,30 @@
 /**
- * `ShellOverlayRouteSlot` container selection (design D2 + D2a).
+ * What survives of the container-selection tests.
  *
- * The claim's effective `presentation` decides the container. The dialog
- * container is INJECTED by the host rather than imported, because
- * `client-utils` (where `Dialog` lives) already depends on this package —
- * importing it back would be a cycle. See D2a.
+ * An earlier draft of this change injected a dialog container INTO the slot so
+ * it could wrap a `presentation: "dialog"` claim per-claim. That seam was
+ * removed: the overlay's underlay must cover the viewport, so the host has to
+ * lift a dialog claim out of the content region entirely — which the slot
+ * cannot do from the inside. `presentation` is now consumed by the host via
+ * `useShellOverlayRoutePresentation` (see `shell-overlay-presentation-hook.test.tsx`),
+ * and the slot renders the claim body only.
  *
- * See change: add-route-backed-overlay-dialogs (tasks 4.1-4.3).
+ * These keep the LAYOUT contract the removed tests also covered: whatever the
+ * host wraps it in, the slot supplies the flex height wrapper the claim body
+ * needs, or a full-height plugin surface collapses.
+ *
+ * See change: add-route-backed-overlay-dialogs (design D2a).
  */
 import { cleanup, render, screen } from "@testing-library/react";
-import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
 import {
   type ClaimEntry,
   createSlotRegistry,
-  type OverlayContainerProps,
   PluginContextProvider,
   ShellOverlayRouteSlot,
 } from "../index.js";
-
-const HEIGHT_WRAPPER = ".flex-1.min-h-0.relative";
 
 // This package's vitest project does not enable testing-library's automatic
 // cleanup, so renders would otherwise accumulate across tests and every query
@@ -38,22 +41,7 @@ function overlayClaim(presentation?: "page" | "dialog"): ClaimEntry {
   } as unknown as ClaimEntry;
 }
 
-/** Stand-in for the client's `RouteBackedOverlay`. */
-function FakeDialogContainer({ children, onDismiss }: OverlayContainerProps) {
-  return (
-    <div data-testid="dialog-container">
-      <button type="button" data-testid="dismiss" onClick={onDismiss}>
-        x
-      </button>
-      {children}
-    </div>
-  );
-}
-
-function setup(
-  claim: ClaimEntry,
-  opts: { container?: React.ComponentType<OverlayContainerProps> } = {},
-) {
+function setup(claim: ClaimEntry) {
   const onBack = vi.fn();
   const registry = createSlotRegistry();
   registry.addClaim(claim);
@@ -61,62 +49,35 @@ function setup(
   const utils = render(
     <Router hook={hook}>
       <PluginContextProvider registry={registry}>
-        <ShellOverlayRouteSlot
-          onBack={onBack}
-          registry={registry}
-          dialogContainer={opts.container}
-        />
+        <ShellOverlayRouteSlot onBack={onBack} registry={registry} />
       </PluginContextProvider>
     </Router>,
   );
   return { ...utils, onBack };
 }
 
-describe("ShellOverlayRouteSlot — container selection", () => {
-  it("renders presentation:'page' in the page wrapper, not the dialog", () => {
-    setup(overlayClaim("page"), { container: FakeDialogContainer });
-    expect(screen.getByTestId("claim-content")).toBeTruthy();
-    expect(screen.queryByTestId("dialog-container")).toBeNull();
-  });
-
-  it("defaults an undeclared presentation to the dialog container", () => {
-    // D3: the default is "dialog". This is the assertion that actually
-    // converts Automation, Goals, KB and the subagent popout.
-    setup(overlayClaim(), { container: FakeDialogContainer });
-    expect(screen.getByTestId("dialog-container")).toBeTruthy();
+describe("ShellOverlayRouteSlot — claim body and layout", () => {
+  it.each([
+    ["an undeclared presentation", undefined],
+    ["presentation:'dialog'", "dialog" as const],
+    ["presentation:'page'", "page" as const],
+  ])("renders the matched claim body for %s", (_label, presentation) => {
+    setup(overlayClaim(presentation));
     expect(screen.getByTestId("claim-content")).toBeTruthy();
   });
 
-  it("renders an explicit presentation:'dialog' in the dialog container", () => {
-    setup(overlayClaim("dialog"), { container: FakeDialogContainer });
-    expect(screen.getByTestId("dialog-container")).toBeTruthy();
+  it("keeps the flex height wrapper around the claim body", () => {
+    const { container } = setup(overlayClaim());
+    // Without this a full-height plugin surface collapses to content height.
+    const wrapper = container.querySelector(".flex-1.min-h-0.relative");
+    expect(wrapper).toBeTruthy();
+    expect(wrapper?.querySelector("[data-testid='claim-content']")).toBeTruthy();
   });
 
-  it("falls back to the page wrapper when no container is injected", () => {
-    // A host that has not opted in (or a test harness) must keep working
-    // exactly as it does today rather than crashing on a missing container.
-    setup(overlayClaim("dialog"));
-    expect(screen.getByTestId("claim-content")).toBeTruthy();
-  });
-
-  it("routes the container's dismissal to onBack", () => {
-    const { onBack } = setup(overlayClaim(), { container: FakeDialogContainer });
-    screen.getByTestId("dismiss").click();
-    expect(onBack).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("ShellOverlayRouteSlot — height propagation (4.2)", () => {
-  it("keeps the height wrapper for the page container", () => {
-    const { container } = setup(overlayClaim("page"), { container: FakeDialogContainer });
-    expect(container.querySelector(HEIGHT_WRAPPER)).toBeTruthy();
-  });
-
-  it("keeps the height wrapper INSIDE the dialog container", () => {
-    // The wrapper contract is preserved for both containers, so a claim that
-    // sizes itself against a flex parent renders identically in either.
-    const { container } = setup(overlayClaim(), { container: FakeDialogContainer });
-    const dialog = container.querySelector("[data-testid='dialog-container']");
-    expect(dialog?.querySelector(HEIGHT_WRAPPER)).toBeTruthy();
+  it("does not wrap the body in any dialog chrome of its own", () => {
+    // The HOST owns the dialog; a slot-level dialog would double-wrap and, worse,
+    // position the underlay inside the content region.
+    const { container } = setup(overlayClaim("dialog"));
+    expect(container.querySelector("[role='dialog']")).toBeNull();
   });
 });

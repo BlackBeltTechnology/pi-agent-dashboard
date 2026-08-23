@@ -524,33 +524,10 @@ function overlaySessionParam(c: ShellOverlayRouteClaim): string {
  * `MobileShell.detailPanel`. The shell falls through to its own rendering
  * when this returns null.
  */
-/**
- * Props the host's dialog container receives. See `OverlayContainerComponent`.
- */
-export interface OverlayContainerProps {
-  /** The matched claim, so the host can title the surface or read `depth`. */
-  claim: ShellOverlayRouteClaim;
-  /** Leave this surface. Wired to the slot's `onBack`. */
-  onDismiss: () => void;
-  children: React.ReactNode;
-}
-
-/**
- * The host-supplied dialog container (in this repo, the client's
- * `RouteBackedOverlay`).
- *
- * **Why injected rather than imported (D2a):** the container needs `Dialog`,
- * which lives in `client-utils` — and `client-utils` already depends on THIS
- * package. Importing it back would be a dependency cycle. So this package owns
- * the decision (which claim matched, what its effective presentation is) and
- * the host owns the visual shell.
- */
-export type OverlayContainerComponent = React.ComponentType<OverlayContainerProps>;
 
 export function ShellOverlayRouteSlot({
   onBack,
   registry: registryProp,
-  dialogContainer,
 }: {
   onBack: () => void;
   /** Optional registry override. Same fallback rules as `useShellOverlayRouteMatched`: when omitted, falls back to `useSlotRegistryOrNull()`. */
@@ -560,7 +537,6 @@ export function ShellOverlayRouteSlot({
    * When omitted, every claim renders in the page container — so a host that
    * has not opted in behaves exactly as it did before this change.
    */
-  dialogContainer?: OverlayContainerComponent;
 }) {
   const ctxRegistry = useSlotRegistryOrNull();
   const effective = registryProp ?? ctxRegistry;
@@ -569,7 +545,7 @@ export function ShellOverlayRouteSlot({
   // per claim. The first probe whose route matches reports up via
   // `onMatched`. We render at most one match (first-wins).
   return (
-    <ShellOverlayRouteSwitch claims={claims} onBack={onBack} dialogContainer={dialogContainer} />
+    <ShellOverlayRouteSwitch claims={claims} onBack={onBack} />
   );
 }
 
@@ -694,11 +670,9 @@ function matchWouterPatternWithParams(
 function ShellOverlayRouteSwitch({
   claims,
   onBack,
-  dialogContainer: DialogContainer,
 }: {
   claims: ShellOverlayRouteClaim[];
   onBack: () => void;
-  dialogContainer?: OverlayContainerComponent;
 }) {
   // Compute the first-match synchronously so the first render already has
   // the right claim mounted (no empty flicker). Probes still update the
@@ -776,21 +750,16 @@ function ShellOverlayRouteSwitch({
     </div>
   );
 
-  // `presentation` defaults to "dialog" (D3); "page" is the explicit opt-out.
-  // With no container injected everything stays on the page path, which is the
-  // pre-change behaviour.
-  const useDialog = (claim.presentation ?? "dialog") === "dialog" && Boolean(DialogContainer);
-
+  // The slot renders the claim body only. `presentation` is consumed by the
+  // HOST via `useShellOverlayRoutePresentation`, which lifts a dialog claim out
+  // of the content region entirely — the underlay has to cover the viewport, so
+  // it cannot be wrapped from in here. An earlier draft injected a container
+  // through this component; that seam could not position the underlay and was
+  // removed. See design D2a.
   return (
     <>
       {probes}
-      {useDialog && DialogContainer ? (
-        <DialogContainer claim={claim} onDismiss={onBack}>
-          {body}
-        </DialogContainer>
-      ) : (
-        body
-      )}
+      {body}
     </>
   );
 }

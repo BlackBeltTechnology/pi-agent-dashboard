@@ -1710,9 +1710,19 @@ export default function App() {
     const from = previousLocationRef.current;
     previousLocationRef.current = fullLocation;
     if (from !== fullLocation) recordLauncher(from, fullLocation);
-    captureBackground(fullLocation);
+    // Plugin claim routes are overlay routes too, but `isOverlayRoute` only
+    // knows the static list — the registry is dynamic. Skipping the capture
+    // here stops a plugin overlay freezing ITSELF as its own underlay.
+    if (!pluginOverlayAsDialogRef.current) captureBackground(fullLocation);
   }, [fullLocation]);
   const overlayBackground = resolveBackground(fullLocation);
+  // A plugin claim renders as a DIALOG unless it opted out with
+  // `presentation: "page"` (D2/D3a). Only the dialog case is lifted out of the
+  // content region; a page claim keeps rendering in place.
+  // See change: add-route-backed-overlay-dialogs (task 4.7 wiring).
+  const pluginOverlayAsDialog = pluginOverlayMatched && pluginOverlayPresentation !== "page";
+  const pluginOverlayAsDialogRef = useRef(pluginOverlayAsDialog);
+  pluginOverlayAsDialogRef.current = pluginOverlayAsDialog;
   // Memoised: it flows into the overlay's dismiss-guard context value, so a
   // fresh identity each render would re-render every consumer under the overlay.
   // See change: add-route-backed-overlay-dialogs (audit finding, task 8.7).
@@ -2462,7 +2472,7 @@ export default function App() {
           <div className="flex-1 flex flex-col min-w-0 min-h-0">{folderViewContent}</div>
         )}
         {/* Show session detail or landing page when no folder view is selected */}
-        {!folderEditorCwd && !settingsMatch && !tunnelSetupMatch && !folderSettingsMatch && !previewOverlayOpen && !openspecPreviewMatch && (
+        {!folderEditorCwd && !settingsMatch && !tunnelSetupMatch && !folderSettingsMatch && !previewOverlayOpen && !openspecPreviewMatch && !pluginOverlayAsDialog && (
           pluginOverlayMatched ? (
             // Plugin-owned overlay routes — see change: add-flow-agent-popout.
             // Pass `_pluginRegistry` explicitly (see comment on
@@ -2595,6 +2605,32 @@ export default function App() {
               page={folderSettingsPage}
               onBack={dismissOverlay}
             />
+          </RouteBackedOverlay>
+        )}
+        {pluginOverlayAsDialog && !firstLaunchModal && (
+          <RouteBackedOverlay
+            background={overlayBackground}
+            backgroundContent={
+              <ShellContent
+                variant="desktop"
+                {...shellRenderers}
+                renderSession={(id) => renderSessionDetail(id)}
+              />
+            }
+            onDismiss={dismissOverlay}
+            ariaLabel="Plugin overlay"
+            testId="plugin-overlay"
+          >
+            {/* A DEFINITE height, not `h-full`. The Dialog panel sets only
+                `max-h-[92vh]` for size="full", so a percentage height here
+                resolves against nothing and the whole chain collapses: the
+                slot's `flex-1 min-h-0` gets 0, and a claim body positioned
+                `absolute inset-0` (the KB page) disappears entirely. 92vh
+                matches the panel's own cap, so nothing overflows.
+                Caught by kb-folder-slot.spec.ts. */}
+            <div className="flex flex-col h-[92vh] min-h-0">
+              <ShellOverlayRouteSlot onBack={dismissOverlay} registry={_pluginRegistry} />
+            </div>
           </RouteBackedOverlay>
         )}
         {settingsMatch && !firstLaunchModal && (
