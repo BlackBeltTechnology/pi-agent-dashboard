@@ -43,7 +43,9 @@ const VALID_FOLDER_SETTINGS_PAGES = [
   "themes",
 ] as const;
 
-export type FolderSettingsPage = (typeof VALID_FOLDER_SETTINGS_PAGES)[number];
+// Not exported: only this module names it, and an unused export trips the
+// knip ratchet. `ShellContentRenderers` still carries it structurally.
+type FolderSettingsPage = (typeof VALID_FOLDER_SETTINGS_PAGES)[number];
 
 export interface ShellContentRenderers {
   renderOpenSpecBoard: (cwd: string) => ReactNode;

@@ -42,10 +42,6 @@ export const RESOURCE_PAGE_TYPE = {
 
 export type ResourcePageId = keyof typeof RESOURCE_PAGE_TYPE;
 
-export function isResourcePage(id: string): id is ResourcePageId {
-  return id in RESOURCE_PAGE_TYPE;
-}
-
 /** Folder scope shows both tiers and lets the user filter between them. */
 const FOLDER_SCOPES: ResourceScope[] = ["local", "global"];
 /** The global entry point has exactly one tier, so a filter would be inert. */
