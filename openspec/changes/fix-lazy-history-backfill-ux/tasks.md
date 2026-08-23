@@ -126,9 +126,9 @@ Test tasks in groups 7–10 are folded from `test-plan.md`; the manifest is the 
 ## 12. Verification and landing
 
 - [ ] 12.1 Re-run the task 1.1 reproduction and confirm the stuck-spinner rate is zero.
-- [ ] 12.2 Run the full suite per AGENTS.md (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`), then `npm run quality:changed`.
-- [ ] 12.3 Invoke `review-code` on the complete diff before commit.
-- [ ] 12.4 Update `docs/architecture.md` Memory Limits (new default + two-sided gap) and the affected directory `AGENTS.md` rows. Delegate every `docs/` write to `DocScribe` in caveman style.
+- [x] 12.2 Run the full suite per AGENTS.md (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`), then `npm run quality:changed`.
+- [x] 12.3 Invoke `review-code` on the complete diff before commit.
+- [x] 12.4 Update `docs/architecture.md` Memory Limits (new default + two-sided gap) and the affected directory `AGENTS.md` rows. Delegate every `docs/` write to `DocScribe` in caveman style.
 - [ ] 12.5 Reply on issue #521 with what changed and ask @Philogag to re-test.
 - [ ] 12.6 At archive time, expect `openspec archive` to abort over renamed scenarios. Both `shared-config` requirements are MODIFIED here, so the renames land inside modified blocks — verify "Absent field defaults to unlimited", "Existing config files behave identically", and "Negative value falls back to unlimited" all reconcile. Apply the pre-rename procedure from the `openspec-archive-sync-traps` skill; do NOT reach for `--no-validate` or `--skip-specs`.
 
