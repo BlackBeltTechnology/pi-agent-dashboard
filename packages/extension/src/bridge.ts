@@ -2950,6 +2950,20 @@ function initBridge(pi: ExtensionAPI) {
           registeredInstanceId = rendezvous.instanceId;
           return;
         }
+        // Only a CONFLICT justifies tearing the connection down. `disconnect()`
+        // sets `intentionalClose`, so nothing rearms the backoff loop and the
+        // session is dead until pi itself restarts — right for an impostor,
+        // catastrophic for an outage. `/api/health` is unreachable for seconds
+        // on every `POST /api/restart` while the gateway socket stays healthy,
+        // so treating silence as refusal would kill every bridge on the host on
+        // every rebuild. Unverified means we simply do not claim an identity.
+        if (!verdict.conflict) {
+          console.error(
+            `[dashboard] instance verification ${verdict.reason} — keeping the connection, identity unclaimed`,
+          );
+          registeredInstanceId = undefined;
+          return;
+        }
         console.error(`[dashboard] instance verification ${verdict.reason} — disconnecting`);
         registeredInstanceId = undefined;
         try {

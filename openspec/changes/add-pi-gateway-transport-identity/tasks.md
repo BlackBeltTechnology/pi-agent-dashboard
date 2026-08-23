@@ -54,6 +54,7 @@
 - [x] 3.6 Confirm no delta was introduced on the `mdns-discovery` capability (this change must not collide with `fix-bridge-mdns-migration-hijack`)
 - [x] 3.7 **Reconcile with `fix-bridge-mdns-migration-hijack` before archiving.** Making explicit endpoints pinned narrows that change's migration scenarios in practice, and both changes touch the same re-target path (`connection.updateUrl`). Re-read its spec at archive time and confirm the merged behaviour is coherent; if it is not, declare the delta rather than leaving the conflict implicit
 - [x] 3.8 Verify identity before adopting the instance named by the record: a bridge SHALL refuse an instance whose identity differs from the recorded one; make 1.8 pass
+  - A failed verification is terminal (`disconnect()` sets `intentionalClose`; nothing rearms the backoff loop), so it fires ONLY on a conflict: an endpoint that answered as a different instance, or that answered without naming itself. Unreachable or non-OK is `unverified`, not `refused` — the connection stays up with the identity unclaimed. `POST /api/restart` takes `/api/health` down for seconds on every rebuild while the gateway socket is untouched; the earlier collapse would have killed every bridge on the host each time. Surfaced by a parallel debugging session chasing a similar-shaped close on `develop` (judged distinct — see proposal.md).
 
 ## 4. Local authorisation (D5)
 

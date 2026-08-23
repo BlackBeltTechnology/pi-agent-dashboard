@@ -93,3 +93,79 @@ describe("verifyInstanceIdentity", () => {
     expect(res.adopt).toBe(false);
   });
 });
+
+// ── "nobody answered" is not "someone else answered" ───────────────────────
+//
+// The bridge disconnects TERMINALLY on a failed verification — `disconnect()`
+// sets `intentionalClose`, so nothing rearms the backoff loop and the session
+// is dead until pi restarts. That is right for a hijack and catastrophic for
+// an outage, and `adopt: false` alone cannot tell them apart.
+//
+// The window is not hypothetical: `POST /api/restart` is the documented
+// restart path, so every rebuild takes `/api/health` down for a few seconds
+// while the gateway socket is untouched. Collapsing that into "refused" would
+// permanently kill every bridge on the host on every rebuild.
+//
+// See change: add-pi-gateway-transport-identity (task 3.8, D4).
+describe("verification distinguishes an absent instance from a DIFFERENT one", () => {
+  const unreachable = (): Promise<Response> => Promise.reject(new Error("ECONNREFUSED"));
+  const answers = (instanceId: unknown, ok = true): (() => Promise<Response>) =>
+    () =>
+      Promise.resolve({
+        ok,
+        status: ok ? 200 : 503,
+        json: () => Promise.resolve({ instanceId }),
+      } as Response);
+
+  it("does not call an unreachable endpoint a conflict", async () => {
+    const v = await verifyInstanceIdentity({
+      healthUrl: "http://127.0.0.1:8000/api/health",
+      expectedInstanceId: "inst-A",
+      fetchImpl: unreachable as unknown as typeof fetch,
+    });
+    expect(v.adopt).toBe(false);
+    expect(v.conflict).toBe(false);
+  });
+
+  it("does not call a non-OK response a conflict", async () => {
+    const v = await verifyInstanceIdentity({
+      healthUrl: "http://127.0.0.1:8000/api/health",
+      expectedInstanceId: "inst-A",
+      fetchImpl: answers("inst-A", false) as unknown as typeof fetch,
+    });
+    expect(v.adopt).toBe(false);
+    expect(v.conflict).toBe(false);
+  });
+
+  it("DOES call a different instance a conflict — that is the hijack", async () => {
+    const v = await verifyInstanceIdentity({
+      healthUrl: "http://127.0.0.1:8000/api/health",
+      expectedInstanceId: "inst-A",
+      fetchImpl: answers("inst-B") as unknown as typeof fetch,
+    });
+    expect(v.adopt).toBe(false);
+    expect(v.conflict).toBe(true);
+  });
+
+  it("treats an endpoint that publishes NO id as a conflict", async () => {
+    // It answered, and what it published does not match. An instance that
+    // cannot name itself is not one we may keep talking to.
+    const v = await verifyInstanceIdentity({
+      healthUrl: "http://127.0.0.1:8000/api/health",
+      expectedInstanceId: "inst-A",
+      fetchImpl: answers(undefined) as unknown as typeof fetch,
+    });
+    expect(v.adopt).toBe(false);
+    expect(v.conflict).toBe(true);
+  });
+
+  it("verifies the happy path without conflict", async () => {
+    const v = await verifyInstanceIdentity({
+      healthUrl: "http://127.0.0.1:8000/api/health",
+      expectedInstanceId: "inst-A",
+      fetchImpl: answers("inst-A") as unknown as typeof fetch,
+    });
+    expect(v.adopt).toBe(true);
+    expect(v.conflict).toBe(false);
+  });
+});

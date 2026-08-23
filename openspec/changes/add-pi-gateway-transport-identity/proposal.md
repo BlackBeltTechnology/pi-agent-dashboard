@@ -229,3 +229,21 @@ to stop claiming them rather than left asserting behaviour that does not exist:
 
 The client surfaces that WERE built (moved badge, remote-origin display, resume
 gating, live gateway endpoint) cover test-plan #F1-#F5.
+
+3. **A terminal bridge close on `develop`, reported from a parallel debugging
+   session and NOT this change's.** Dashboard-spawned sessions under one cwd
+   register, close, and never reconnect — no contention refusal, no
+   registration refusal, zero reconnect attempts. Judged distinct: the only
+   terminal-close site this change adds (`verifyRecordedInstance`) does not
+   exist on `develop`, whose three `disconnect()` sites are `initBridge`'s
+   orphan sweep, session end, and reload. Nothing here makes that close
+   non-terminal — `disconnect()` sets `intentionalClose` by design, and this
+   change only stops the ORIGIN of a move from doing so (9.3a-i). It needs its
+   own change.
+
+   The report did find a defect HERE, of exactly that shape: instance
+   verification disconnected terminally when `/api/health` was merely
+   UNREACHABLE, which `POST /api/restart` produces on every rebuild while the
+   gateway socket stays healthy. Now only a genuine conflict — an endpoint that
+   answered as a different instance, or that cannot name itself — is terminal;
+   silence leaves the connection up with the identity unclaimed.

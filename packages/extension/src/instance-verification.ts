@@ -24,6 +24,17 @@ export interface AdoptionDecision {
   adopt: boolean;
   /** Names BOTH ids — a silent swap is the failure being removed (task 10.2). */
   reason: string;
+  /**
+   * An endpoint ANSWERED and was not the instance we meant.
+   *
+   * Distinct from `!adopt`, which also covers "nobody answered". The bridge
+   * disconnects TERMINALLY on a conflict (`disconnect()` sets
+   * `intentionalClose`, so nothing rearms the backoff loop) — correct for a
+   * hijack, catastrophic for an outage. `POST /api/restart` takes `/api/health`
+   * down for seconds on every rebuild while the gateway socket stays healthy;
+   * collapsing that into "refused" would kill every bridge on the host.
+   */
+  conflict: boolean;
 }
 
 /**
@@ -37,21 +48,29 @@ export interface AdoptionDecision {
  */
 export function decideAdoption({ expected, observed }: AdoptionInput): AdoptionDecision {
   if (!expected) {
-    return { adopt: true, reason: "no expected instance id — nothing to verify against" };
+    return {
+      adopt: true,
+      conflict: false,
+      reason: "no expected instance id — nothing to verify against",
+    };
   }
   if (!observed) {
+    // It answered; it just could not name itself. An instance we cannot
+    // identify is not one we may keep talking to.
     return {
       adopt: false,
+      conflict: true,
       reason: `refused: expected instance ${expected}, but the endpoint published none`,
     };
   }
   if (observed !== expected) {
     return {
       adopt: false,
+      conflict: true,
       reason: `refused: expected instance ${expected}, endpoint answered as ${observed}`,
     };
   }
-  return { adopt: true, reason: `verified: instance ${expected}` };
+  return { adopt: true, conflict: false, reason: `verified: instance ${expected}` };
 }
 
 /** `/api/health` on loopback — the instance id's single publish site. */
@@ -86,8 +105,10 @@ export async function verifyInstanceIdentity(input: VerifyInput): Promise<Verify
     if (!res.ok) {
       return {
         adopt: !input.expectedInstanceId,
+        // Nobody usable answered — an outage, not an impostor.
+        conflict: false,
         observed: null,
-        reason: `refused: ${input.healthUrl} answered ${res.status}`,
+        reason: `unverified: ${input.healthUrl} answered ${res.status}`,
       };
     }
     const body = (await res.json()) as { instanceId?: string };
@@ -95,8 +116,9 @@ export async function verifyInstanceIdentity(input: VerifyInput): Promise<Verify
   } catch {
     return {
       adopt: !input.expectedInstanceId,
+      conflict: false,
       observed: null,
-      reason: `refused: ${input.healthUrl} is unreachable — it did not answer`,
+      reason: `unverified: ${input.healthUrl} is unreachable — it did not answer`,
     };
   }
   return { ...decideAdoption({ expected: input.expectedInstanceId, observed }), observed };
