@@ -1,5 +1,7 @@
 import { expect, test } from "./fixtures.js";
+import { gatewayUrlWithTicket, pairDeviceBearer } from "./helpers/bridge-credential.js";
 import { sendPrompt, setSubagentTickThrottle, spawnFreshGitSession } from "./helpers/index.js";
+import { BASE_URL } from "./lifecycle.js";
 
 // test-plan #F6 (L3) — change: fix-duplicate-bridge-registration (D6).
 //
@@ -49,29 +51,21 @@ test.describe("bridge contention health surface (L3)", () => {
     // Drive two claims for one id straight at the pi gateway. Uses the Node
     // global `WebSocket` rather than the `ws` package: `ws` is only a hoisted
     // transitive dependency here, not one this workspace declares.
-    const connect = (port: number) =>
-      new Promise<WebSocket>((resolve, reject) => {
-        const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+    // A ticket per connection: this spec runs on the HOST, so the gateway
+    // sees the docker bridge address rather than loopback and requires a
+    // bridge-scoped credential. Tickets are single-use — mint inside connect().
+    const bearer = await pairDeviceBearer(BASE_URL);
+    const connect = async (port: number): Promise<WebSocket> => {
+      const url = await gatewayUrlWithTicket(BASE_URL, port, bearer);
+      return new Promise<WebSocket>((resolve, reject) => {
+        const ws = new WebSocket(url);
         // Cleared on settle: a live 5 s timer per connection would otherwise
         // hold the test worker open past the assertions.
         const timer = setTimeout(() => reject(new Error("open timeout")), 5000);
-        ws.addEventListener(
-          "open",
-          () => {
-            clearTimeout(timer);
-            resolve(ws);
-          },
-          { once: true },
-        );
-        ws.addEventListener(
-          "error",
-          () => {
-            clearTimeout(timer);
-            reject(new Error("socket error"));
-          },
-          { once: true },
-        );
+        ws.addEventListener("open", () => { clearTimeout(timer); resolve(ws); }, { once: true });
+        ws.addEventListener("error", () => { clearTimeout(timer); reject(new Error("socket error")); }, { once: true });
       });
+    };
 
     const register = (ws: WebSocket, pid: number) =>
       ws.send(
