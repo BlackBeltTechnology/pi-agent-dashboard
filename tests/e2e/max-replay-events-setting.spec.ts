@@ -63,6 +63,22 @@ const CONFIG_JS =
   'node -e \'const fs=require("fs");const p=process.env.HOME+"/.pi/dashboard/config.json";' +
   'const c=JSON.parse(fs.readFileSync(p,"utf8"));';
 
+/**
+ * Replace the whole `memoryLimits` sub-object on disk with `snapshot`.
+ *
+ * Used for cleanup instead of `PUT /api/config`, which deep-merges and can
+ * therefore add or overwrite a key but never REMOVE one — so a test that
+ * introduced `maxReplayEvents` where the file had none could not undo it, and
+ * would leave its value behind for every later spec. The snapshot is passed as
+ * a JSON string literal, never interpolated as code.
+ */
+function restoreMemoryLimits(snapshot: Record<string, number>): void {
+  const json = JSON.stringify(JSON.stringify(snapshot));
+  inContainer(
+    `${CONFIG_JS}c.memoryLimits=JSON.parse(${json});fs.writeFileSync(p,JSON.stringify(c,null,2))'`,
+  );
+}
+
 async function restartDashboard(): Promise<void> {
   await fetch(`http://localhost:${DASHBOARD_PORT}/api/restart`, { method: "POST" }).catch(
     () => undefined,
@@ -227,9 +243,9 @@ test.describe("maxReplayEvents — the default flip (F12-F15)", () => {
       // told every untouched install it was unlimited when it no longer is.
       await expect(field).toHaveValue("2000");
     } finally {
-      // Restore byte-for-byte, so this file leaves the shared harness exactly
-      // as it found it.
-      await page.request.put("/api/config", { data: { memoryLimits: before } });
+      // Wholesale, not a merge: this test DELETED a key, and `PUT /api/config`
+      // cannot remove one. See `restoreMemoryLimits`.
+      restoreMemoryLimits(before);
       await restartDashboard();
     }
   });
@@ -318,7 +334,13 @@ test.describe("maxReplayEvents — the default flip (F12-F15)", () => {
         await restartDashboard();
 
         await openServerSettings(page);
-        await page.getByLabel("Max Events Per Session", { exact: true }).fill("23456");
+        // Derive a target GUARANTEED to differ from the current value: filling
+        // the same number leaves the form clean, the dirty-gated save bar never
+        // appears, and the test would hang on a save that had nothing to save.
+        const sibling = page.getByLabel("Max Events Per Session", { exact: true });
+        const current = Number((await sibling.inputValue()) || "0");
+        const target = current === 23_456 ? 23_457 : 23_456;
+        await sibling.fill(String(target));
         await expect(page.getByTestId("settings-save-bar")).toBeVisible();
         const write = page.waitForResponse(
           (r) => r.request().method() === "PUT" && r.url().includes("/api/config"),
@@ -330,7 +352,7 @@ test.describe("maxReplayEvents — the default flip (F12-F15)", () => {
           inContainer(`${CONFIG_JS}process.stdout.write(JSON.stringify(c.memoryLimits??{}))'`),
         ) as Record<string, number>;
         // The sibling edit landed...
-        expect(after.maxEventsPerSession).toBe(23456);
+        expect(after.maxEventsPerSession).toBe(target);
         // ...and the raw state of the field under test is byte-identical.
         if (raw === "absent") {
           expect(Object.hasOwn(after, "maxReplayEvents")).toBe(false);
@@ -338,7 +360,18 @@ test.describe("maxReplayEvents — the default flip (F12-F15)", () => {
           expect(after.maxReplayEvents).toBe(0);
         }
       } finally {
-        await page.request.put("/api/config", { data: { memoryLimits: before } });
+        /**
+         * Restore the snapshot WHOLESALE on disk, not through `PUT /api/config`.
+         *
+         * The PUT deep-merges `memoryLimits` over the raw file, so it can add
+         * and overwrite keys but never REMOVE one. When the original config had
+         * no `maxReplayEvents`, the explicit-zero case above wrote `0`, and a
+         * merge-based restore would leave that `0` behind — persisting
+         * unlimited replay for every spec that runs afterwards. Writing the
+         * snapshot object replaces the whole sub-object, so an originally
+         * absent key really goes away again.
+         */
+        restoreMemoryLimits(before);
         await restartDashboard();
       }
     });
