@@ -34,9 +34,6 @@ describe("computeBackTarget", () => {
       "/settings",
       "/settings/remote",
       "/settings?tab=servers",
-      "/folder/Zm9v/settings",
-      "/folder/Zm9v/settings/packages",
-      "/folder/Zm9v/settings/resources",
       "/tunnel-setup",
     ];
     for (const route of depth1) {
@@ -45,6 +42,37 @@ describe("computeBackTarget", () => {
         expect(computeBackTarget(route)).toBe("/");
       });
     }
+  });
+
+  // Folder-scoped settings are depth 1 but NOT lateral: they are entered from
+  // their folder and must return to it. The depth default sent them to "/",
+  // losing the folder — the defect the overlay change exists to fix. Depth is
+  // unchanged; only the parent is narrowed, so no path moves.
+  // See change: add-route-backed-overlay-dialogs (task 5.8).
+  describe("depth 1 folder-scoped settings → owning folder", () => {
+    const folderScoped = [
+      "/folder/Zm9v/settings",
+      "/folder/Zm9v/settings/packages",
+      "/folder/Zm9v/settings/resources",
+    ];
+    for (const route of folderScoped) {
+      it(`${route} → /folder/Zm9v`, () => {
+        expect(routeDepth(route)).toBe(1);
+        expect(computeBackTarget(route)).toBe("/folder/Zm9v");
+      });
+    }
+
+    // `encodeFolderPath` is base64url with padding stripped, so a real cwd
+    // segment is [A-Za-z0-9_-]+ and round-trips through the parser untouched.
+    it("round-trips a base64url cwd segment unchanged", () => {
+      expect(computeBackTarget("/folder/L1VzZXJzL3gvcHJvag/settings/instructions")).toBe(
+        "/folder/L1VzZXJzL3gvcHJvag",
+      );
+    });
+
+    it("round-trips the -/_ base64url substitutions unchanged", () => {
+      expect(computeBackTarget("/folder/a-b_c/settings")).toBe("/folder/a-b_c");
+    });
   });
 
   describe("depth 2 → parent", () => {

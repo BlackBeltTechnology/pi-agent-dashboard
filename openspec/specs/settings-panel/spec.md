@@ -16,7 +16,11 @@ The sidebar header SHALL include a gear icon button positioned at the end of the
 - **THEN** the app SHALL navigate to `/settings` and the main content area SHALL show the settings panel
 
 ### Requirement: Settings panel view
-The settings panel SHALL render as a full-page view in the main content area when the route matches `/settings/:page?`. It SHALL display a fixed header (back button, title, Restart button), a navigation listing pages grouped by concern, and a content area for the active page. The header SHALL remain visible at all times regardless of scroll position. A single `SettingsPanel` instance SHALL remain mounted across page changes so unsaved edits on any page persist until Save. Persistence SHALL be driven by a dirty-gated **Save Bar** (see "Settings Save Bar"), not by a header Save button.
+The settings panel SHALL render in a route-backed overlay container in the main content area when the route matches `/settings/:page?/:sub?`: a `Dialog` over a scrim over the pinned background underlay on desktop, and a `MobileShell` depth-1 detail panel on mobile. The route that launched it SHALL remain visible behind it as the pinned underlay, rendered from the frozen background path rather than the current location. It SHALL display a fixed header (back button, title, Restart button), a navigation listing pages grouped by concern, and a content area for the active page. The header SHALL remain visible at all times regardless of scroll position. A single `SettingsPanel` instance SHALL remain mounted across page changes so unsaved edits on any page persist until Save. Persistence SHALL be driven by a dirty-gated **Save Bar** (see "Settings Save Bar"), not by a header Save button.
+
+Dismissing the panel — via the back button, `Esc`, or a backdrop click — SHALL leave the settings surface entirely and return to the route that launched it. Because in-panel navigation pushes history entries, dismissal SHALL NOT be implemented as a single history step.
+
+When the panel holds unsaved edits, a dismissal gesture SHALL prompt before discarding. Confirming the discard SHALL return to the launching route and SHALL NOT navigate to `/`.
 
 The navigation + content layout SHALL be responsive. The wrapper element containing the nav and the content area SHALL stack vertically on narrow (mobile) viewports and arrange side-by-side on wide (desktop, `md` breakpoint and up) viewports. On mobile the navigation SHALL render as a full-width horizontal, horizontally-scrollable tab strip positioned above the content, and the content area SHALL fill the remaining space below it with a non-zero width. On desktop the navigation SHALL render as a fixed-width vertical rail to the left of the content. At no viewport width SHALL the content area collapse to zero width or be positioned outside the visible viewport.
 
@@ -115,6 +119,27 @@ A config key's Save Bar page attribution is resolved from `CONFIG_FIELD_PAGE` by
 - **GIVEN** the Security page displays the bind reachability advisory
 - **WHEN** the advisory condition no longer holds
 - **THEN** the remediation control SHALL no longer be rendered
+
+#### Scenario: Panel renders in an overlay container on desktop
+- **WHEN** the route matches `/settings/:page?/:sub?` on a desktop viewport
+- **THEN** the settings panel SHALL render in a `Dialog` over a scrim
+- **AND** the launching route SHALL be rendered behind it as the pinned underlay, `aria-hidden` and non-interactive
+
+#### Scenario: Panel renders as a depth panel on mobile
+- **WHEN** the route matches `/settings/:page?/:sub?` on a mobile viewport
+- **THEN** the settings panel SHALL render as a `MobileShell` depth-1 detail panel with swipe-back
+
+#### Scenario: Dismissal after in-panel navigation leaves the surface
+- **GIVEN** the user opened `/settings/general` from `/session/abc` and navigated to `/settings/plugins/x`
+- **WHEN** the user presses `Esc`
+- **THEN** the settings surface SHALL be dismissed entirely
+- **AND** the URL SHALL return to `/session/abc`, NOT to `/settings/general`
+
+#### Scenario: Discard confirmation returns to the launching route
+- **GIVEN** the user opened the settings surface from `/session/abc` and has unsaved edits
+- **WHEN** the user dismisses it and confirms the discard
+- **THEN** the URL SHALL return to `/session/abc`
+- **AND** SHALL NOT navigate to `/`
 
 ### Requirement: Canonical and legacy settings URLs
 The settings panel SHALL be addressable at the canonical path `/settings/:page?` and SHALL continue to honor the legacy query form `/settings?tab=<id>` indefinitely. Resolution SHALL run inside the single mounted panel in this order: (1) a valid route `:page`; (2) a valid legacy `?tab=<id>`, which SHALL trigger a history-`replace` navigation to `/settings/<id>`; (3) otherwise default to `/settings/general` via history-`replace`. The alias map `advanced → developer` and `servers → remote` SHALL be applied before validation so old links resolve to the new page homes.

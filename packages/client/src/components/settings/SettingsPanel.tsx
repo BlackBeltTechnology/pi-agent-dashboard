@@ -58,7 +58,7 @@ import { PluginsSection } from "../packages/PluginsSection.js";
 import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 import type { ResourceType } from "../resource/ResourceCardGrid.js";
-import { ResourceGridPanel } from "../resource/ResourceGridPanel.js";
+import { RESOURCE_PAGE_TYPE, type ResourcePageId, ScopedResourceGrid } from "../resource/ScopedResourceGrid.js";
 import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
 import { DiagnosticsSection } from "./DiagnosticsSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
@@ -71,6 +71,7 @@ import { ProviderAuthSection } from "./ProviderAuthSection.js";
 import { RetrySettingsSection } from "./RetrySettingsSection.js";
 import { ThinkingLevelSelector } from "./ThinkingLevelSelector.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
+import { useOverlayDismissGuard } from "../overlay/overlay-dismiss-guard.js";
 
 interface ProviderConfig {
   clientId: string;
@@ -344,13 +345,10 @@ const VALID_PAGES = new Set<string>([...VALID_SETTINGS_TABS, "instructions", "ga
 
 // Global-scope resource card pages. Page id → the singular `PiResource.type` its
 // grid renders. See change: resources-card-tabs.
-const RESOURCE_TAB_TYPE: Record<string, ResourceType> = {
-  skills: "skill",
-  agents: "agent",
-  extensions: "extension",
-  prompts: "prompt",
-  themes: "theme",
-};
+/** Retired in favour of the single map in `ScopedResourceGrid` (D7): two
+ *  byte-identical copies could drift and render the wrong type under a
+ *  correct-looking URL. See change: add-route-backed-overlay-dialogs. */
+const RESOURCE_TAB_TYPE = RESOURCE_PAGE_TYPE;
 
 /** Resolve a raw id (route param or ?tab=) to a canonical page id, or null if invalid. */
 function resolveSettingsPage(raw: string | undefined | null): string | null {
@@ -916,6 +914,13 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     else performBack();
   }, [performBack]);
 
+  // Overlay dismissal (backdrop / Escape / ✕) — gestures the full page never
+  // had. Route them through the SAME prompt as the back arrow rather than
+  // letting the container navigate out from under unsaved edits (R1). Opt-in,
+  // so this arms only while dirty.
+  // See change: add-route-backed-overlay-dialogs (task 6.2).
+  useOverlayDismissGuard(isDirty, requestBack);
+
   // Hard exits (tab close / reload / Electron window close): native prompt,
   // registered only while dirty.
   useEffect(() => {
@@ -933,7 +938,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     const onPop = () => {
       if (isDirtyRef.current) {
         window.history.pushState(null, "", window.location.href);
-        setPendingNav("/");
+        // Discarding must return to the LAUNCHING route, not the card list.
+        // The old hardcoded "/" evicted the user to the cards — exactly the
+        // defect this change exists to fix (D1b).
+        // See change: add-route-backed-overlay-dialogs (task 6.3).
+        setPendingNav(BACK_SENTINEL);
       }
     };
     window.addEventListener("popstate", onPop);
@@ -1221,17 +1230,13 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
             <InstructionsPage />
           ) : activeTab in RESOURCE_TAB_TYPE ? (
             <div className="flex-1 overflow-y-auto min-w-0">
-              <ResourceGridPanel
+              <ScopedResourceGrid
+                page={activeTab as ResourcePageId}
                 data={piResources.data}
                 isLoading={piResources.isLoading}
                 error={piResources.error}
                 refresh={piResources.refresh}
                 activation={resourceActivation}
-                type={RESOURCE_TAB_TYPE[activeTab]}
-                scopes={["global"]}
-                showScopeFilter={false}
-                globalPill
-                onViewFile={(filePath, title) => navigate(buildPiResourceFileUrl(filePath, title))}
               />
             </div>
           ) : (
