@@ -201,12 +201,15 @@
 
 ### L3 — Playwright e2e, `tests/e2e/*.spec.ts` (harness port from `.pi-test-harness.json`, never hardcoded)
 
-- [ ] 12.47 New spec modelled on `tests/e2e/bridge-contention-health.spec.ts` — move renders as moved. Triple: session live on the origin dashboard · complete a move to the target · origin card converges to *moved*, never *crashed* or dead. (test-plan #F1)
-- [ ] 12.48 New spec modelled on `tests/e2e/blackhole-settings.spec.ts` — gateway transport surfaced. Triple: dashboard running on a UDS listener · open settings · gateway endpoint displayed and not blank, guarding `address()` returning a string for UDS. (test-plan #F2)
-- [ ] 12.49 New spec modelled on `tests/e2e/ended-session-endedat.spec.ts` — ended remote session hides resume. Triple: remote session whose bridge has ended · view the session · resume is not presented as an available action. (test-plan #F3)
-- [ ] 12.50 New spec modelled on `tests/e2e/bridge-contention-health.spec.ts` — origin converges without reload. Triple: origin dashboard open in a browser · move completes · origin view reaches *moved* with no manual reload. (test-plan #F4)
-- [ ] 12.51 New spec modelled on `tests/e2e/session-context-injection.spec.ts` — session origin displayed. Triple: session originating on another host · view the session list · originating device shown. (test-plan #F5)
-- [ ] 12.52 New spec modelled on `tests/e2e/large-session-replay.spec.ts` — pre-attach history renders. Triple: remote session with entries predating the bridge attach · open the transcript · pre-attach entries present in the rendered transcript. (test-plan #F6)
+- [x] 12.47 New spec modelled on `tests/e2e/bridge-contention-health.spec.ts` — move renders as moved. Triple: session live on the origin dashboard · complete a move to the target · origin card converges to *moved*, never *crashed* or dead. (test-plan #F1)
+- [x] 12.48 New spec modelled on `tests/e2e/blackhole-settings.spec.ts` — gateway transport surfaced. Triple: dashboard running on a UDS listener · open settings · gateway endpoint displayed and not blank, guarding `address()` returning a string for UDS. (test-plan #F2)
+- [x] 12.49 New spec modelled on `tests/e2e/ended-session-endedat.spec.ts` — ended remote session hides resume. Triple: remote session whose bridge has ended · view the session · resume is not presented as an available action. (test-plan #F3)
+- [x] 12.50 New spec modelled on `tests/e2e/bridge-contention-health.spec.ts` — origin converges without reload. Triple: origin dashboard open in a browser · move completes · origin view reaches *moved* with no manual reload. (test-plan #F4)
+- [x] 12.51 New spec modelled on `tests/e2e/session-context-injection.spec.ts` — session origin displayed. Triple: session originating on another host · view the session list · originating device shown. (test-plan #F5)
+- [ ] 12.52 **NOT WRITABLE against what shipped — deferred with the read path.** New spec modelled on `tests/e2e/large-session-replay.spec.ts` — pre-attach history renders. Triple: remote session with entries predating the bridge attach · open the transcript · pre-attach entries present in the rendered transcript. (test-plan #F6)
+  - The requirement this scenario tests was narrowed to acquisition-and-retention: `RemoteTranscriptStore` is written by the `transcript_chunk` handler and its `read()` has NO caller, no HTTP route, and no client surface. There is therefore no rendered transcript for a browser test to assert on, and any spec written today would either test the store directly (not L3) or pass vacuously. Moves with the read path into the follow-up carved out in `proposal.md`.
+
+> Tasks 12.47–12.51 landed as one file, `tests/e2e/gateway-origin-surfaces.spec.ts`, rather than five: all five need the same paired-bridge registration, the same ended-tier reveal, and the same harness plumbing, and five copies of it would drift apart. Each test names its task and its test-plan id.
 
 ### Manual-only (no test folded; deferred post-merge)
 
