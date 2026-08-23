@@ -129,6 +129,44 @@ export function resolveEndpoint(inputs: EndpointInputs): EndpointResolution {
   };
 }
 
+/**
+ * The per-instance id file that belongs to a pinned gateway socket, or
+ * `undefined` when the path is not one.
+ *
+ * WHY THE SOCKET AND NOT THE RECORD. A bridge pinned via `PI_DASHBOARD_SOCKET`
+ * — which is every session the dashboard spawns (task 2.0f) — had no instance
+ * id at all, so `/dashboard-where` answered `unverified` in the one case a
+ * user would ever ask. The rendezvous record cannot fill that gap: it names
+ * the HOME's OWNER, so a session pinned to an ATTACH instance's socket would
+ * be told a confident wrong id, which is worse than admitting ignorance. The
+ * socket path is the only artefact that names the instance on the other end —
+ * `gateway-<piPort>.sock` and `instances/<piPort>.id` are siblings under the
+ * same `0700` directory.
+ *
+ * No network verification is needed for this source: the socket is `0600`
+ * inside a `0700` dir, so the kernel already decided the caller is the same OS
+ * user (D5), and the id file is in that same directory. Verification stays on
+ * the record-sourced path, where the endpoint is a network address some other
+ * instance could be answering on.
+ *
+ * Pure by design, like the rest of this module: the caller does the reading.
+ *
+ * See change: add-pi-gateway-transport-identity (task 9.6).
+ */
+export function instanceIdFileForSocket(socketPathOrUrl: string): string | undefined {
+  const raw = present(socketPathOrUrl);
+  if (!raw) return undefined;
+  // Accept both the bare path and the `ws+unix://<path>:/` form the bridge dials.
+  const path = raw.startsWith("ws+unix://") ? raw.slice("ws+unix://".length).replace(/:\/$/, "") : raw;
+  const slash = path.lastIndexOf("/");
+  if (slash < 0) return undefined;
+  const dir = path.slice(0, slash);
+  const base = path.slice(slash + 1);
+  const match = /^gateway-(\d+)\.sock$/.exec(base);
+  if (!match) return undefined;
+  return `${dir}/instances/${match[1]}.id`;
+}
+
 export interface RetargetInputs {
   current: EndpointCandidate;
   candidate: EndpointCandidate;

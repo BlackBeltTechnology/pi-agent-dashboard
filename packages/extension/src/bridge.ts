@@ -48,7 +48,7 @@ import { DashboardDefaultAdapter } from "./dashboard-default-adapter.js";
 import { runDevBuild } from "./dev-build.js";
 import { EmptyActionableGuard, SURFACE_MESSAGE } from "./empty-actionable-guard.js";
 import { resolveGuardConfig } from "./empty-actionable-guard-config.js";
-import { decideRetarget, resolveEndpoint } from "./endpoint-resolution.js";
+import { decideRetarget, instanceIdFileForSocket, resolveEndpoint } from "./endpoint-resolution.js";
 import { mapEventToProtocol } from "./event-forwarder.js";
 import {
   FLOW_EVENT_MAP,
@@ -796,6 +796,25 @@ function initBridge(pi: ExtensionAPI) {
   let registeredInstanceId: string | undefined = endpointChoice.available
     ? endpointChoice.instanceId
     : undefined;
+  // A socket-pinned bridge learns its instance from the FILESYSTEM, beside the
+  // socket it was pinned to. Without this every dashboard-spawned session
+  // answered `/dashboard-where` with `instance: unverified`, because only the
+  // record-sourced path carried an id — and the record could not be used here,
+  // since it names the HOME's owner rather than whichever instance owns this
+  // socket. Best-effort: a missing or unreadable file leaves the id unset,
+  // which is the honest answer and exactly today's behaviour.
+  // See change: add-pi-gateway-transport-identity (task 9.6).
+  if (registeredInstanceId === undefined && endpointChoice.available && process.env.PI_DASHBOARD_SOCKET) {
+    const idFile = instanceIdFileForSocket(process.env.PI_DASHBOARD_SOCKET);
+    if (idFile) {
+      try {
+        const id = fs.readFileSync(idFile, "utf8").trim();
+        if (id) registeredInstanceId = id;
+      } catch {
+        /* absent or unreadable — stay unverified rather than guess */
+      }
+    }
+  }
   // `let`: a completed move re-points this, so diagnostics and `/dashboard-where`
   // report where the session actually IS rather than where it started.
   // biome-ignore lint/style/useConst: reassigned by the move command.

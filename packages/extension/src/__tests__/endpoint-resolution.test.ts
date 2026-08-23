@@ -13,6 +13,7 @@ import {
   decideRetarget,
   type EndpointInputs,
   type EndpointSource,
+  instanceIdFileForSocket,
   resolveEndpoint,
 } from "../endpoint-resolution.js";
 
@@ -131,5 +132,48 @@ describe("decideRetarget — stickiness (D4)", () => {
     // Same instance reachable at a new address is a re-address, not a drift.
     expect(d.retarget).toBe(true);
     expect(d.reason).toMatch(/same instance/i);
+  });
+});
+
+// ── Instance identity of a PINNED LOCAL SOCKET ─────────────────────────────
+//
+// `/dashboard-where` reported `instance: unverified` for every session the
+// dashboard spawns itself, because those are pinned via `PI_DASHBOARD_SOCKET`
+// and only the record-sourced path carried an id. The record could NOT supply
+// it: the record names the HOME's OWNER, so a session pinned to an
+// attach-mode instance's socket would have been told a confident wrong id.
+//
+// The socket path is the only thing that names the instance actually being
+// talked to — `gateway-<piPort>.sock` sits beside `instances/<piPort>.id` in
+// the same 0700 directory. See change: add-pi-gateway-transport-identity
+// (task 9.6, test-plan #F7).
+describe("instance id file for a pinned local socket", () => {
+  it("maps a gateway socket to its sibling per-instance id file", () => {
+    expect(instanceIdFileForSocket("/home/u/.pi/dashboard/gateway-9999.sock")).toBe(
+      "/home/u/.pi/dashboard/instances/9999.id",
+    );
+  });
+
+  it("accepts the ws+unix URL form the bridge actually dials", () => {
+    expect(instanceIdFileForSocket("ws+unix:///home/u/.pi/dashboard/gateway-9999.sock:/")).toBe(
+      "/home/u/.pi/dashboard/instances/9999.id",
+    );
+  });
+
+  it("resolves against the socket's OWN directory, not a fixed home", () => {
+    // The temp-HOME isolated-verification workflow depends on this: reading
+    // the id from `os.homedir()` would answer for the wrong dashboard.
+    expect(instanceIdFileForSocket("/tmp/qa-home/.pi/dashboard/gateway-19810.sock")).toBe(
+      "/tmp/qa-home/.pi/dashboard/instances/19810.id",
+    );
+  });
+
+  it.each([
+    ["a socket that is not a gateway socket", "/home/u/.pi/dashboard/keeper.sock"],
+    ["a gateway socket with no port", "/home/u/.pi/dashboard/gateway-.sock"],
+    ["a non-numeric port", "/home/u/.pi/dashboard/gateway-abc.sock"],
+    ["an empty path", ""],
+  ])("returns undefined for %s", (_label, input) => {
+    expect(instanceIdFileForSocket(input)).toBeUndefined();
   });
 });

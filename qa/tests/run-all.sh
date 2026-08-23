@@ -24,6 +24,11 @@ TESTS=(
   "17-bridge-contention.sh"     # duplicate bridge refused terminally for a held session id (#X10). See change: fix-duplicate-bridge-registration.
   "18-server-port-hygiene.sh"   # a losing server leaves no port held (#E1, #E22). See change: fix-worktree-server-autostart-leak.
   "19-tmux-spawn-injection.sh"  # adversarial workspace names do not execute; pane honours the resolved runtime (#X1-X3, #X6). Skips when tmux absent. See change: select-pi-runtime-install.
+  "21-gateway-rendezvous.sh"    # the HOME rendezvous record survives a SIGKILLed owner and a clean exit (#X5, #X6). Hermetic: own throwaway $HOME. See change: add-pi-gateway-transport-identity.
+  "23-gateway-socket-fallback.sh" # an unrepresentable socket path falls back to loopback + token, never discovery (#X17). See change: add-pi-gateway-transport-identity.
+  "24-gateway-where.sh"         # /dashboard-where reports endpoint + instance id + pinned (#F7); skips when pi absent. See change: add-pi-gateway-transport-identity.
+  # 25-gateway-remote-join-perf.sh and 26-gateway-promotion-soak.sh are OPT-IN:
+  # one moves ~1 GB through a socket, the other soaks for ten minutes.
 )
 
 PASSED=0
