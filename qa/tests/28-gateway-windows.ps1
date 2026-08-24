@@ -44,8 +44,10 @@ function Cleanup {
   if ($script:otherUserCreated) {
     Remove-LocalUser -Name $script:otherUser -ErrorAction SilentlyContinue
   }
-  $probe = Join-Path $script:repo "qa-reconnect-probe.cjs"
-  if (Test-Path $probe) { Remove-Item $probe -Force -ErrorAction SilentlyContinue }
+  foreach ($leftover in @("qa-reconnect-probe.cjs", "qa-mint-token.ts")) {
+    $lp = Join-Path $script:repo $leftover
+    if (Test-Path $lp) { Remove-Item $lp -Force -ErrorAction SilentlyContinue }
+  }
   if (Test-Path $script:qaHome) {
     Remove-Item -Recurse -Force $script:qaHome -ErrorAction SilentlyContinue
   }
@@ -221,11 +223,28 @@ const register = (ws) => ws.send(JSON.stringify({
   $tokenPath = Join-Path $credDir "token"
 
   if (-not (Test-Path $tokenPath)) {
-    # Create it through the real code path rather than by hand, so the ACLs are
-    # the ones the product actually produces.
-    New-Item -ItemType Directory -Force -Path $credDir | Out-Null
-    Set-Content -Path $tokenPath -Value "qa-placeholder-token" -Encoding UTF8
-    Write-Host "  NOTE: token did not exist; created one in the real profile to observe inheritance"
+    # Through the PRODUCT's own code path, not Set-Content. The question 5.5
+    # asks is what permissions `ensureLocalToken` leaves behind on Windows,
+    # where its chmod is a no-op — a file this script creates by hand would
+    # answer a question nobody asked.
+    $mintPath = Join-Path $repo "qa-mint-token.ts"
+    Set-Content -Path $mintPath -Encoding UTF8 -Value @"
+import { ensureLocalToken } from "./packages/server/src/auth/local-token.js";
+const t = ensureLocalToken();
+console.log("minted " + (t ? "ok" : "empty"));
+"@
+    Push-Location $repo
+    $mintOut = & npx tsx $mintPath 2>&1
+    $mintCode = $LASTEXITCODE
+    Pop-Location
+    Remove-Item $mintPath -Force -ErrorAction SilentlyContinue
+    if ($mintCode -ne 0 -or -not (Test-Path $tokenPath)) {
+      Write-Error "FAIL: could not mint the local token through ensureLocalToken: $mintOut"
+      exit 1
+    }
+    Write-Host "  token minted by the product's own ensureLocalToken()"
+  } else {
+    Write-Host "  token already existed (product-created); observing it as found"
   }
 
   $acl = Get-Acl $tokenPath
