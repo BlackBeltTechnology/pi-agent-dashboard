@@ -191,12 +191,20 @@ function extractModelIds(body: any): string[] {
  *
  * See change: add-agent-role-model-tools (server custom-provider registry).
  */
-export async function listProviderModelIds(input: ProbeInput): Promise<string[]> {
+/**
+ * Fetch a provider's model-list body and return the parsed JSON, or `null` on
+ * any failure (bad request build, non-2xx, non-JSON body, network error,
+ * timeout). Never throws. Shared by both `listProviderModelIds` (ids only, for
+ * the Test button) and `listProviderModels` (metadata-preserving), so the two
+ * cannot drift on request construction, timeout handling, or error semantics.
+ * See change: fix-custom-provider-model-metadata (design D1).
+ */
+async function fetchProviderModelBody(input: ProbeInput): Promise<unknown | null> {
   let req: ProbeRequest;
   try {
     req = buildProbeRequest(input);
   } catch {
-    return [];
+    return null;
   }
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
@@ -204,18 +212,21 @@ export async function listProviderModelIds(input: ProbeInput): Promise<string[]>
   try {
     const response = await fetch(req.url, { method: "GET", headers: req.headers, signal: controller.signal });
     clearTimeout(timer);
-    if (!response.ok) return [];
-    let body: any = null;
+    if (!response.ok) return null;
     try {
-      body = await response.json();
+      return await response.json();
     } catch {
-      return [];
+      return null;
     }
-    return extractModelIds(body);
   } catch {
     clearTimeout(timer);
-    return [];
+    return null;
   }
+}
+
+export async function listProviderModelIds(input: ProbeInput): Promise<string[]> {
+  const body = await fetchProviderModelBody(input);
+  return body === null ? [] : extractModelIds(body);
 }
 
 /**
@@ -232,30 +243,8 @@ export async function listProviderModelIds(input: ProbeInput): Promise<string[]>
  * See change: fix-custom-provider-model-metadata (design D1).
  */
 export async function listProviderModels(input: ProbeInput): Promise<DiscoveredModelRecord[]> {
-  let req: ProbeRequest;
-  try {
-    req = buildProbeRequest(input);
-  } catch {
-    return [];
-  }
-  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(req.url, { method: "GET", headers: req.headers, signal: controller.signal });
-    clearTimeout(timer);
-    if (!response.ok) return [];
-    let body: unknown = null;
-    try {
-      body = await response.json();
-    } catch {
-      return [];
-    }
-    return mapAdvertisedModels(body);
-  } catch {
-    clearTimeout(timer);
-    return [];
-  }
+  const body = await fetchProviderModelBody(input);
+  return body === null ? [] : mapAdvertisedModels(body);
 }
 
 export async function probeProvider(input: ProbeInput): Promise<ProbeResult> {
