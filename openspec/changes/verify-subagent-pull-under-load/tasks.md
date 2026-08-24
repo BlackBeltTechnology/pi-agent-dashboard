@@ -17,8 +17,11 @@
 - [x] 1.4 Add the `subagent-watched-growth` faux scenario to
       `qa/fixtures/faux-scenarios.ts` driving the extended producer.
 - [x] 1.5 Add a `PI_DASHBOARD_SUBAGENT_STRIP` passthrough to
-      `docker/compose.test.yml` and `docker/test-entrypoint.sh`; update
-      `docker/AGENTS.md`.
+      `docker/compose.test.yml`; update `docker/AGENTS.md`. (No
+      `test-entrypoint.sh` change needed — `subagent-frame-strip.ts` reads
+      `process.env` directly, so the compose env reaches the bridge through
+      normal inheritance. Verified by the arm difference: 53 229 B/s unstripped
+      vs 15 575 B/s stripped.)
 - [x] 1.6 Generalize `collectAgentTicks` (`tests/e2e/helpers/index.ts`):
       classify `subagent_*` frames, capture `__resyncRequestId`, capture
       OUTGOING frames via `ws.on("framesent")` (with their `reason` +

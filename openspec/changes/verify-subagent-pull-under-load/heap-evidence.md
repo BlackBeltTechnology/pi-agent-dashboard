@@ -50,11 +50,12 @@ renders, never closed, no reload.
 | observation | value |
 |---|---|
 | rendered count reached 30 **while the agent was still non-terminal** | yes |
-| non-terminal PUSH frames observed | 27 |
+| non-terminal PUSH frames observed | 102 |
 | of those, carrying a timeline | **0** |
 | resync REPLIES observed | 3 |
 | outgoing `reason: "cadence"` requests | 2 |
 | outgoing `reason: "open"` requests | 1 |
+| max entries carried by ANY open-time reply | **5** (the timeline at mount) |
 | max rendered entries at any sample | 30 (never exceeded) |
 | terminal frame entry count | 30 |
 
@@ -65,7 +66,7 @@ could have delivered 30 entries; three are excluded by measurement:
 |---|---|
 | terminal frame (never stripped, always fat) | the assertion window closes while the agent is non-terminal — asserted, not assumed |
 | fat push frames | 0 of 27 pushes carried a timeline (§1 table) |
-| open-time resync (expand/popout + `App.tsx` subscribe — all three DO fire, since the RENDERED timeline is empty at mount) | the converging reply arrived after the last `open` request, carrying a count that did not exist at that request's bridge-handling time |
+| open-time resync (expand/popout + `App.tsx` subscribe — all three DO fire, since the RENDERED timeline is empty at mount) | excluded by CONTENT, not ordering: the open-time reply carried **5** entries — the timeline as it stood at mount — so it cannot explain a converged count of 30 |
 | **cadence resync** | what remains — and asserted POSITIVELY: the converging reply's `__resyncRequestId` EQUALS a captured `reason: "cadence"` request id |
 
 Token equality matters: mere ordering would be satisfied by a reconnect-driven
@@ -104,14 +105,14 @@ identical in both arms.
 | arm | quantity | median | spread |
 |---|---|---|---|
 | pull (strip ON) | resync-reply bytes/s | **1 059.8** | 9.7 |
-| pull (strip ON) | its own stripped push bytes/s | 15 774 | 101 |
-| push (strip OFF) | subagent-carrying push bytes/s, replies excluded | **53 229** | 425.5 |
+| pull (strip ON) | its own stripped push bytes/s | 15 574.8 | 98.5 |
+| push (strip OFF) | subagent-carrying push bytes/s, replies excluded | **53 229.2** | 425.5 |
 
-**Bytes the strip actually removes** = 53 229 − 15 774 ≈ **37 455 B/s**.
+**Bytes the strip actually removes** = 53 229 − 15 575 ≈ **37 654 B/s**.
 **Pull cost** = **1 060 B/s**.
 
-> **VERDICT: PASS — the pull path costs ~1/35th of the push traffic it removed.**
-> Not inconclusive: the gap is ~35×, while the run-to-run spread is ≤ 425 B/s.
+> **VERDICT: PASS — the pull path costs ~1/36th of the push traffic it removed.**
+> Not inconclusive: the gap is ~36×, while the run-to-run spread is ≤ 425 B/s.
 > The D4 v2 escalation is NOT triggered.
 
 ### 3a. Bus-cadence sensitivity — the verdict does not flip
@@ -122,11 +123,11 @@ pipeline. 250 ms is production-matched; 100/1000 ms are the flanks.
 
 | bus interval | push removed (B/s) | pull (B/s) | ratio | verdict |
 |---|---|---|---|---|
-| 100 ms | 65 535 − 18 514 = 47 021 | 1 070 | 44× | pass |
-| **250 ms (headline)** | 53 229 − 15 774 = 37 455 | 1 060 | **35×** | pass |
-| 1000 ms | 47 337 − 14 292 = 33 045 | 1 060 | 31× | pass |
+| 100 ms | 65 535 − 18 315 = 47 220 | 1 070 | 44× | pass |
+| **250 ms (headline)** | 53 229 − 15 575 = 37 654 | 1 060 | **36×** | pass |
+| 1000 ms | 47 337 − 14 372 = 32 965 | 1 050 | 31× | pass |
 
-Pull cost is FLAT across the table (1 060 ± 10 B/s) — as designed: the cadence is
+Pull cost is FLAT across the table (1 050–1 070 B/s) — as designed: the cadence is
 one timer per subagent, not per frame. Reply rate held at 0.50/s in every arm.
 
 ### 3b. Harness ceiling (P1) — measured, not assumed
@@ -186,7 +187,7 @@ selected (`App.tsx` resyncs every running empty-timeline subagent on subscribe).
 | outgoing resync requests before the kill | **0** |
 | terminal frame observed before the kill | none |
 | kill mechanism | `force_kill` (the container-level `SIGKILL` fallback was NOT needed) |
-| replayed subagent frames | 13 |
+| replayed subagent frames | 8 |
 | stored terminal frames for that agent | **0** |
 | stored frames carrying a timeline | **0** |
 | rendered timeline entries after replay | **0** |
@@ -218,3 +219,15 @@ frames, not on the index. Recorded rather than papered over.
 - **Real-producer frame fidelity.** §0's boundary.
 - **A pre-change baseline.** Not applicable — this change adds no production
   behaviour; both P4 arms are the same binary with one env var moved.
+
+---
+
+## 7. Transcription provenance
+
+Every number above is transcribed from
+`openspec/changes/verify-subagent-pull-under-load/measurements.json`, written by
+the specs themselves. Medians and the push−pull subtraction are computed FROM
+those rows, not restated from a console reading — an earlier revision of this
+file was transcribed from a first run and then went stale when the specs were
+re-run after review fixes, which a round-2 review caught. If the specs are re-run,
+re-derive this file from the JSON rather than editing numbers in place.
