@@ -13,13 +13,13 @@
 
 import { mdiPlus } from "@mdi/js";
 import { act, cleanup, render } from "@testing-library/react";
-import React from "react";
+import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   createFolderMenuStore,
   FOLDER_MENU_GROUPS,
-  FolderMenuProvider,
   type FolderMenuContribution,
+  FolderMenuProvider,
   isValidFolderMenuContribution,
   selectFolderMenuItems,
   useFolderMenuItem,

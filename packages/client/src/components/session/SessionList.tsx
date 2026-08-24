@@ -1042,6 +1042,38 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
    * Directory-group order is pin · urgency sort · directory settings.
    * See change: add-folder-actions-menu.
    */
+  /**
+   * OpenSpec's `OPEN`-group items. Contributed HOST-side rather than through the
+   * plugin contribution registry because `onOpenArchive` / `onOpenSpecs` are
+   * already props on this component — routing them through a registry would be
+   * indirection for symmetry's sake. Labels are slot-qualified because a verb
+   * group no longer says which slot an item came from.
+   * See change: move-slot-actions-to-menu.
+   */
+  function openspecMenuItems(cwd: string): FolderMenuItem[] {
+    if (!openspecMap?.get(cwd)?.initialized) return [];
+    const items: FolderMenuItem[] = [];
+    if (onOpenArchive) {
+      items.push({
+        id: "openspec-archive",
+        group: "open",
+        label: t("openspec.folderMenuArchive", undefined, "OpenSpec archive"),
+        icon: mdiArchiveOutline,
+        onSelect: () => onOpenArchive(cwd),
+      });
+    }
+    if (onOpenSpecs) {
+      items.push({
+        id: "openspec-specs",
+        group: "open",
+        label: t("openspec.folderMenuSpecs", undefined, "OpenSpec specs"),
+        icon: mdiFileDocumentOutline,
+        onSelect: () => onOpenSpecs(cwd),
+      });
+    }
+    return items;
+  }
+
   function folderMenuItems({ group, isPinned, inWorkspace, workspaceId, headerAction }: {
     group: DirectoryGroup;
     isPinned: boolean;
@@ -1118,30 +1150,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
       onSelect: () => onOpenDirectorySettings?.(group.cwd),
     });
 
-    // OpenSpec contributes HOST-side: its callbacks are already props on this
-    // component. Labels are slot-qualified because a verb group no longer says
-    // which slot an item came from.
-    const openspec = openspecMap?.get(group.cwd);
-    if (openspec?.initialized) {
-      if (onOpenArchive) {
-        items.push({
-          id: "openspec-archive",
-          group: "open",
-          label: t("openspec.folderMenuArchive", undefined, "OpenSpec archive"),
-          icon: mdiArchiveOutline,
-          onSelect: () => onOpenArchive(group.cwd),
-        });
-      }
-      if (onOpenSpecs) {
-        items.push({
-          id: "openspec-specs",
-          group: "open",
-          label: t("openspec.folderMenuSpecs", undefined, "OpenSpec specs"),
-          icon: mdiFileDocumentOutline,
-          onSelect: () => onOpenSpecs(group.cwd),
-        });
-      }
-    }
+    items.push(...openspecMenuItems(group.cwd));
 
     // The ONE plain refresh: three per-slot refresh buttons collapsed into a
     // fan-out over every refresher the folder's sections registered, PLUS the

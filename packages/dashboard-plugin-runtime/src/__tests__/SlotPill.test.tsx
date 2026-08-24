@@ -3,8 +3,8 @@
  * See change: align-session-card-kb-slot-surface.
  */
 
-import { cleanup, fireEvent, render } from "@testing-library/react";
 import { mdiDatabaseOutline } from "@mdi/js";
+import { cleanup, fireEvent, render } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { SlotPill } from "../SlotPill.js";
 

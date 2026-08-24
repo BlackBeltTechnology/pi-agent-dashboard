@@ -26,7 +26,8 @@
  * See change: move-slot-actions-to-menu (folder-actions-menu spec).
  */
 
-import React, { createContext, useContext, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import type React from "react";
+import { createContext, useContext, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 import { useCurrentPluginId } from "./plugin-context.js";
 
 /** Host-owned verb taxonomy, in render order. Grouping is by verb, never by plugin. */

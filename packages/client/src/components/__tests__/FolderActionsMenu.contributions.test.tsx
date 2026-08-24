@@ -7,8 +7,8 @@
  */
 
 import {
-  createFolderMenuStore,
   CurrentPluginLayer,
+  createFolderMenuStore,
   type FolderMenuContribution,
   FolderMenuProvider,
   useFolderMenuItem,
