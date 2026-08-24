@@ -256,7 +256,9 @@ def cmd_render_docx(req: dict) -> dict:
 def cmd_render_pdf(req: dict) -> dict:
     inp = Path(req["input"])
     out = req["output"]
-    args = ["convert-pdf", str(inp), out]
+    # `--output`, never a positional: `convert-pdf`'s `inputs` is nargs='+' and
+    # swallows a trailing positional output. See issue #507.
+    args = ["convert-pdf", str(inp), "--output", out]
     if req.get("pageSize"):
         args += ["--page-size", req["pageSize"]]
     if req.get("template"):
