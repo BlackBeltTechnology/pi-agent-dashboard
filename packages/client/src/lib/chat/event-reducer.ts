@@ -3,6 +3,12 @@
  * (state, event) → new state
  */
 
+import {
+  imageBlockData,
+  imageBlockMime,
+  isRenderableImageBlock,
+  isTruncatedImageBlock,
+} from "@blackbelt-technology/pi-dashboard-shared/image-block.js";
 // Flow + architect state derivation moved into flows-plugin per change
 // pluginize-flows-via-registry. The shell carries no flow knowledge.
 // Plugins consume `useSessionEvents(sessionId)` from
@@ -32,7 +38,12 @@ export interface ChatImage {
 
 export interface ChatMessage {
   id: string;
-  role: "user" | "assistant" | "toolResult" | "thinking" | "bashOutput" | "commandFeedback" | "interactiveUi" | "turnSeparator" | "rawEvent" | "inlineTerminal";
+  /**
+   * `historyGap` is a SYNTHETIC interstitial — never produced by `reduceEvent`.
+   * It is spliced into `messages[]` by the message handler to disclose a
+   * windowed replay's elided middle. See change: lazy-load-session-history.
+   */
+  role: "user" | "assistant" | "toolResult" | "thinking" | "bashOutput" | "commandFeedback" | "interactiveUi" | "turnSeparator" | "rawEvent" | "inlineTerminal" | "historyGap";
   content: string;
   images?: ChatImage[];
   toolName?: string;
@@ -41,7 +52,15 @@ export interface ChatMessage {
   timestamp: number;
   args?: Record<string, unknown>;
   result?: string;
-  toolStatus?: "running" | "complete" | "error";
+  /**
+   * `elided` is a TERMINAL status meaning "the result is not loadable", not
+   * "the tool failed": a backfill segment ends mid-turn, orphaning a
+   * `tool_execution_start` whose end lies in already-delivered content and can
+   * therefore never arrive. Renderers must show a neutral "result not loaded"
+   * affordance — no spinner, no error styling.
+   * See change: fix-lazy-history-backfill-ux (D5).
+   */
+  toolStatus?: "running" | "complete" | "error" | "elided";
   /** Epoch ms when the block started (for live elapsed counter) */
   startedAt?: number;
   /** Duration in ms (set when complete) */
@@ -109,7 +128,8 @@ export interface ToolCallState {
   toolCallId: string;
   toolName: string;
   args?: Record<string, unknown>;
-  status: "running" | "complete" | "error";
+  /** See `ChatMessage.toolStatus` for the `elided` contract. */
+  status: "running" | "complete" | "error" | "elided";
   result?: string;
   /**
    * Epoch ms when `tool_execution_start` fired. Used by the session
@@ -1227,6 +1247,43 @@ export function deriveBannerState(state: SessionState): BannerState {
   return out;
 }
 
+/**
+ * Correctness floor for a fully-reduced BACKFILL segment: stamp every row still
+ * `running` as `elided`, and finalize every row the segment left mid-stream.
+ *
+ * Stamp ALL of them, not "the ones at a seam". Within a slice a dangling
+ * `tool_execution_start`'s end is always ABOVE the slice — i.e. in content the
+ * client already holds — and later slices are strictly lower, so every
+ * still-running row in a COMPLETED backfill segment is provably unjoinable. A
+ * seam-scoped rule would fire nowhere and ship the bug intact.
+ *
+ * Scoped to backfill segments, never the initial windowed replay: a live
+ * session reopened mid-tool-run has a dangling start whose end simply has not
+ * happened yet. Stamping that would label a genuinely running tool "not
+ * loaded" AND remove it from supersede-heal eligibility (the heal selects
+ * `status === "running"`).
+ *
+ * Row-level, because the splice merges `messages` only and discards
+ * `seg.toolCalls` — renderers read `msg.toolStatus`, so a status written into
+ * the tool-call map would be unobservable.
+ *
+ * `isStreaming` is the identical defect one type over: a slice whose top edge
+ * lands mid-message produces an assistant row nothing ever clears, i.e. a
+ * permanently "streaming" bubble.
+ * See change: fix-lazy-history-backfill-ux (D5).
+ */
+export function finalizeBackfillSegment(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map((m) => {
+    const elide = m.toolStatus === "running";
+    const finalize = m.isStreaming === true;
+    if (!elide && !finalize) return m;
+    const out = { ...m };
+    if (elide) out.toolStatus = "elided";
+    if (finalize) out.isStreaming = false;
+    return out;
+  });
+}
+
 export function reduceEvent(
   state: SessionState,
   event: DashboardEvent,
@@ -1460,17 +1517,31 @@ export function reduceEvent(
           // slot, otherwise the attachment position is lost and the later
           // `attachment_fitted` event has nothing to fill. Legacy inline blocks
           // (bytes present, no attachmentId) keep the original predicate.
-          // See change: fit-attachments-for-display (D12).
-          const imgBlocks = msg.content.filter(
-            (c: any) => c.type === "image" && c.mimeType && (c.data || c.attachmentId),
-          );
+          // Tolerate BOTH image block shapes via the shared detector: the flat
+          // pi shape `{data,mimeType}` and the nested Anthropic shape
+          // `{source:{media_type,data}}` (some provider/import/replay paths).
+          // See change: fit-attachments-for-display (D12); nested-shape
+          // tolerance: fix-pasted-image-message-vanishes.
+          const imgBlocks = msg.content.filter((c: any) => isRenderableImageBlock(c));
           if (imgBlocks.length > 0) {
-            images = imgBlocks.map((c: any) => ({
-              data: c.data ?? "",
-              mimeType: c.mimeType,
-              ...(c.attachmentId ? { attachmentId: c.attachmentId } : {}),
-              ...(c.attachmentState ? { attachmentState: c.attachmentState } : {}),
-            }));
+            // `isRenderableImageBlock` already guaranteed a non-empty mime, so
+            // the `?? ""` fallback is unreachable — it only narrows the type
+            // from `string | undefined` to `string` for ChatImage.mimeType.
+            images = imgBlocks.map((c: any) => {
+              // A RESCUED block (server stripped over-ceiling image bytes) has
+              // no bytes and no attachmentId — nothing will ever fill it, so it
+              // resolves straight to the explicit unavailable slot rather than
+              // pending forever. An existing attachmentState always wins.
+              // See change: fix-pasted-image-message-vanishes.
+              const attachmentState =
+                c.attachmentState ?? (isTruncatedImageBlock(c) ? "failed" : undefined);
+              return {
+                data: imageBlockData(c) ?? "",
+                mimeType: imageBlockMime(c) ?? "",
+                ...(c.attachmentId ? { attachmentId: c.attachmentId } : {}),
+                ...(attachmentState ? { attachmentState } : {}),
+              };
+            });
           }
         } else {
           text = String(msg.content ?? "");

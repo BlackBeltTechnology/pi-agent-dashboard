@@ -70,7 +70,9 @@ export interface GrepOptions {
 }
 
 const IGNORE_DIRS = new Set([".git", "node_modules", ".next", "dist", "build", ".cache", "__pycache__", ".venv"]);
-export const DEFAULT_MAX_MATCHES = 500;
+// Internal default; no importer outside this module.
+// See change: fix-spawn-correlation-ttl-coupling (knip ratchet).
+const DEFAULT_MAX_MATCHES = 500;
 const DEFAULT_MAX_FILES = 5000;
 const DEFAULT_MAX_FILE_BYTES = 1_000_000;
 const SNIPPET_MAX = 240;

@@ -51,7 +51,9 @@
         "slot": "shell-overlay-route",
         "component": "SubagentPopoutClaim",
         "path": "/session/:sessionId/subagent/:agentId",
-        "sessionParam": "sessionId"
+        "sessionParam": "sessionId",
+        "depth": 2,
+        "parentPath": "/session/:sessionId"
       }
     ],
     "requires": {

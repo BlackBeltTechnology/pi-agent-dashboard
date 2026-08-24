@@ -29,6 +29,13 @@ export interface SpawnFailureEntry {
   stderrTail?: string;
   pid?: number;
   reasons?: PreflightReason[];
+  /**
+   * Join key between a `REGISTER_TIMEOUT` fire and its later
+   * `REGISTER_RECOVERED` companion. cwd is ambiguous under concurrent same-cwd
+   * spawns and pid is absent for tmux, so the token is the only usable key.
+   * See change: fix-spawn-correlation-ttl-coupling (D5).
+   */
+  spawnToken?: string;
 }
 
 const LOG_MAX_BYTES = 10 * 1024 * 1024; // 10 MB

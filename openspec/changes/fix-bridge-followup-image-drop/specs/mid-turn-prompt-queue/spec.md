@@ -290,7 +290,15 @@ The bridge SHALL bound `bridgeFollowUp` by total retained bytes in addition to t
 
 The ceiling SHALL be readable from an injected value rather than compared against a hardcoded literal at the admission site, so that boundary behaviour can be exercised with a small ceiling without allocating megabyte payloads. Overriding the ceiling SHALL change only the threshold — never the admission, refusal, or feedback logic.
 
-An entry's size SHALL be computed as `Buffer.byteLength(text) + Σ image.data.length` over its images. Image `data` is base64, so its string length is exactly its byte count; `text` is measured with `byteLength` because `String.length` counts UTF-16 code units and under-counts non-Latin-1 text. The implementation SHALL NOT use `JSON.stringify` to measure.
+An entry's size SHALL be computed as `Buffer.byteLength(text)` plus the length of each image's inline base64 bytes. Image `data` is base64, so its string length is exactly its byte count; `text` is measured with `byteLength` because `String.length` counts UTF-16 code units and under-counts non-Latin-1 text. The implementation SHALL NOT use `JSON.stringify` to measure.
+
+The inline bytes SHALL be read through the canonical accessor `imageBlockData` (`packages/shared/src/image-block.ts`), so that an image block in EITHER accepted shape — flat pi `{ type, data, mimeType }` or nested Anthropic `{ type, source: { media_type, data } }` — is sized by its real bytes. A direct `.data` property read sizes a nested-shape block at zero and admits an unbounded hold past the ceiling.
+
+#### Scenario: A nested-shape image is sized by its real bytes
+- **WHEN** the buffer is empty and its ceiling is 1 KiB
+- **AND** a follow-up send carries one image in the nested shape `{ type: "image", source: { type: "base64", media_type: "image/png", data: <4 KiB of base64> } }`
+- **THEN** the entry SHALL be sized at its real byte count, not zero
+- **AND** the send SHALL be refused by the byte ceiling
 
 The total SHALL be **recomputed from the live entries at each admission check**, NOT maintained as a running counter. The buffer is mutated from many sites (push, system push, drain, edit, remove, promote, clear, matcher splice, session reset, and any future site); a counter that misses one decrement mis-enforces the ceiling permanently and silently. Recomputation over at most 20 entries makes drift structurally impossible and means every present and future removal path releases bytes without knowing the budget exists.
 
@@ -367,6 +375,14 @@ Removing, clearing, or draining entries SHALL release their bytes, allowing subs
 When image validation rejects an attachment (unsupported `mimeType`, missing or non-string `data`, or a non-object entry), the bridge SHALL emit `command_feedback { status: "error" }` identifying how many attachments were dropped and why. A validation drop SHALL NOT be reported only to the process log.
 
 This applies wherever validation runs — the idle/steer send path and the follow-up buffer path share one validation implementation.
+
+Validation SHALL read an image's mime through the canonical accessor `imageBlockMime` (`packages/shared/src/image-block.ts`), so that a block in either accepted shape is judged against the allow-list on its real mime. A block whose mime is carried nested (`source.media_type`) SHALL NOT be rejected as untyped. The allow-list itself (`image/jpeg`, `image/png`, `image/gif`, `image/webp`) is unchanged and SHALL NOT be widened by this change.
+
+#### Scenario: A nested-shape image is not dropped as invalid
+- **WHEN** the user sends a follow-up while streaming with one image whose mime is carried as `source.media_type: "image/png"`
+- **THEN** the buffered entry SHALL carry that image
+- **AND** the emitted `queue_update` SHALL report `imageCount: 1`
+- **AND** the bridge SHALL NOT emit any validation `command_feedback`
 
 #### Scenario: One bad attachment among several is reported
 - **WHEN** the user sends a follow-up while streaming with three images, one of which has `mimeType: "image/svg+xml"`

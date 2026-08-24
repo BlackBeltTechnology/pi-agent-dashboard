@@ -92,11 +92,17 @@ describe("Session Control REST API", () => {
     expect((await res.json()).error).toBe("text is required");
   });
 
-  it("POST /api/session/:id/prompt — 502 when no bridge connection", async () => {
+  // E32 — no OPEN socket: not transmitted, 502 as today.
+  // See change: fix-spawn-correlation-ttl-coupling (D7).
+  it("POST /api/session/:id/prompt — 502 and transmitted:false when no bridge connection", async () => {
     registerSession("prompt-no-bridge");
     const res = await postJson("/api/session/prompt-no-bridge/prompt", { text: "hello" });
     expect(res.status).toBe(502);
-    expect((await res.json()).error).toBe("no bridge connection for session");
+    const body = (await res.json()) as any;
+    expect(body.error).toBe("no bridge connection for session");
+    expect(body.success).toBe(false);
+    expect(body.transmitted).toBe(false);
+    expect(body).not.toHaveProperty("promptId");
   });
 
   // ── abort ───────────────────────────────────────────────────────

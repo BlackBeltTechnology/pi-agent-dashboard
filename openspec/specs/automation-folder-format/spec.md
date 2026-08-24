@@ -24,7 +24,9 @@ Automation definitions SHALL be read from two scopes: per-folder at `<repo>/.pi/
 
 ### Requirement: automation.yaml schema
 
-`automation.yaml` SHALL declare `on` (trigger block with `kind`), `action`, `model` (bare provider/model id or `@role`), `mode` (`worktree` | `local`), `sandbox` (`read-only` | `workspace-write` | `full-access`), `concurrency` (`skip` | `queue` | `parallel`, default `skip`), and an OPTIONAL `visibility` (`hidden` | `shown`) overriding the settings-level default.
+`automation.yaml` SHALL declare `on` (trigger block with `kind`), `action`, `model` (bare provider/model id with an OPTIONAL `:<thinking>` suffix, or `@role`), `mode` (`worktree` | `local`), `sandbox` (`read-only` | `workspace-write` | `full-access`), `concurrency` (`skip` | `queue` | `parallel`, default `skip`), and an OPTIONAL `visibility` (`hidden` | `shown`) overriding the settings-level default.
+
+The `model` value SHALL be carried verbatim to the spawned pi process's `--model` flag, which owns parsing and clamping of the `:<thinking>` suffix. Role resolution SHALL preserve any suffix present on the resolved role ref. No dashboard-side component SHALL strip, validate, or reject the suffix.
 
 The `action` block SHALL declare `kind` set to a registered action id. Built-in ids are `core.prompt` (with a `prompt` path) and `core.skill` (with a `skill` token); a bare `kind: prompt` or `kind: skill` SHALL be accepted and normalized to the corresponding `core.*` id for backward compatibility. Plugin-registered ids SHALL use the namespaced form `<source>.<verb>`. The `action` block MAY declare an OPTIONAL `payload` map whose keys correspond to the action's `payloadSchema` fields.
 
@@ -34,6 +36,16 @@ The `action` block SHALL declare `kind` set to a registered action id. Built-in 
 
 - **WHEN** `automation.yaml` declares `on.kind: schedule`, `on.cron: "0 9 * * 1"`, `action.kind: prompt`, `model: "@fast"`, `mode: worktree`, `concurrency: skip`
 - **THEN** it SHALL parse as valid, with `action.kind` normalized to `core.prompt`.
+
+#### Scenario: Model with a thinking suffix reaches pi verbatim
+
+- **WHEN** `automation.yaml` declares `model: "anthropic/claude-sonnet-4-5:high"` and the automation fires
+- **THEN** the spawned pi argv SHALL contain `--model anthropic/claude-sonnet-4-5:high` unchanged.
+
+#### Scenario: Role ref suffix survives resolution
+
+- **WHEN** `automation.yaml` declares `model: "@planning"` and the role map binds `planning` to `"anthropic/claude-sonnet-4-5:high"`
+- **THEN** model resolution SHALL yield `"anthropic/claude-sonnet-4-5:high"` and the spawn SHALL pass it unchanged.
 
 #### Scenario: Plugin action with payload
 

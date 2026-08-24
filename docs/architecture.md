@@ -112,11 +112,11 @@ React-based responsive web UI that:
 - Works on mobile with responsive layout and swipe gestures
 - Shows an onboarding `LandingPage` whenever the main pane is empty, narrating the three steps needed to go from install → first running session (Setup credentials → Add folder → Start session). Each step is a card in **pending**, **done**, or **locked** state, derived purely from client state: `useProvidersReady()` (from `GET /api/providers`), `pinnedDirectories.length`, and `sessions.size`. Satisfied steps collapse to single-line ✔ rows, so returning users see a compact status strip rather than a full onboarding wall. Step ② sidebar "Add folder" button opens multi-select `AddFoldersDialog` (destination: None); pinning implicit (adding folder pins it). App uses `pinDialogOpen` state to gate dialog.
 
-**Unified dialog system** (`packages/client-utils/`): `Dialog` primitive + `Confirm` preset + `useFocusTrap` hook. `Dialog` owns portal/overlay (`bg-black/60`)/Esc/click-outside/focus-trap/ARIA/`z-[60]`/size variants (sm/md/lg)/header+footer slots (`Dialog.Footer`/`Dialog.Cancel`/`Dialog.Action`). `Confirm` wraps `Dialog` (size sm) for confirm flows. `ui:dialog` registry key exposes shell to plugins; `ui:confirm-dialog` re-skinned as adapter over `Confirm`. ~20 dialogs migrated. Legacy `ConfirmDialog` removed. See change: unify-dialog-system.
+**Unified dialog system** (`packages/client-utils/`): `Dialog` primitive + `Confirm` preset + `useFocusTrap` hook. `Dialog` owns portal/overlay (`bg-black/60`)/Esc/click-outside/focus-trap/ARIA/`z-dialog`/size variants (sm/md/lg)/header+footer slots (`Dialog.Footer`/`Dialog.Cancel`/`Dialog.Action`). `Confirm` wraps `Dialog` (size sm) for confirm flows. `ui:dialog` registry key exposes shell to plugins; `ui:confirm-dialog` re-skinned as adapter over `Confirm`. ~20 dialogs migrated. Legacy `ConfirmDialog` removed. See changes: unify-dialog-system, add-route-backed-overlay-dialogs.
 
 **Global Escape dismissal** (`packages/client-utils/src/escape-stack.ts`): single module-stable `document` `keydown` listener arbitrates Escape dismissal for portaled dismissible surfaces via LIFO stack. On Escape, only TOPMOST registered layer's `onEscape` fires (`preventDefault` + `stopImmediatePropagation`). Guarded against `e.repeat` + `e.defaultPrevented`. Listener attaches once on first registration; never detaches. New dismissible portaled overlays SHOULD use `useEscapeDismiss(active, onEscape)` hook; stacked surfaces peel one layer per Escape instead of collapsing multiple layers at once. Adopted by `Dialog`, `ImageLightbox`, `FilePreviewOverlay`; `MermaidBlock` deferred (inline, not portaled). See change: fix-stacked-escape-closes-layers.
 
-**Overlay layering (z-index)** (change: add-overlay-layering-system): single stacking order source. `packages/client/src/index.css` defines CSS custom properties `--z-base:0`, `--z-raised:10`, `--z-sidebar:20`, `--z-overlay:30`, `--z-popover:40`, `--z-dialog:50`, `--z-toast:60`, `--z-lightbox:70`. Ascending values = paints later = on top. Theme-independent; one scale covers all themes. Matching Tailwind utilities `z-base` through `z-lightbox` bind to the vars. Layer roles: base = flow content; raised = sticky headers; sidebar = sidebar/folder chrome; overlay = scrims/mobile backdrops; popover = menus/dropdowns/folder flyouts; dialog = modals/full-pane; toast = notifications; lightbox = full-screen media. Toast > dialog intentional — notification visible over modal. Preserves prior raw order (ToastSlot `z-[100]` already above dialog `z-[60]`).
+**Overlay layering (z-index)** (change: add-overlay-layering-system): single stacking order source. `packages/client/src/index.css` defines CSS custom properties `--z-base:0`, `--z-raised:10`, `--z-sidebar:20`, `--z-overlay:30`, `--z-popover:40`, `--z-dialog:50`, `--z-toast:60`, `--z-lightbox:70`. Ascending values = paints later = on top. Theme-independent; one scale covers all themes. Matching Tailwind utilities `z-base` through `z-lightbox` bind to the vars. Layer roles: base = flow content; raised = sticky headers; sidebar = sidebar/folder chrome; overlay = scrims/mobile backdrops; popover = menus/dropdowns/folder flyouts; dialog = modals/full-pane; toast = notifications; lightbox = full-screen media. Toast (60) > dialog (50) intentional — notification visible over modal. Shared `Dialog` (`packages/client-utils/src/Dialog.tsx:77`) uses `z-dialog` utility (`--z-dialog: 50`), not raw `z-[60]`. Nested dialogs tie at 50; later portal/DOM mount wins — repo-standard for stacked dialogs. Gate gap: `z-layer-lint` `SCAN_DIR = "packages/client/src"` excludes `packages/client-utils`; raw `z-[60]` survived there (raw-z gate blind spot). See change: add-route-backed-overlay-dialogs.
 
 **Portal-or-perish rule:** any box-escaping overlay (menu/popover/dropdown/dialog/toast/lightbox) MUST portal to top-level layer root (`document.body`), never inline `position:absolute`. Reason: numeric z-index orders only within nearest ancestor stacking context. Inline absolute overlay trapped by ancestor `transform`/`will-change`/`opacity`/`isolate`/`z-*`. `SessionCard` sets `isolate` per card → trapped folder popover UNDERLAPS cards. Portaling escapes contexts; token then orders portaled layers. Portal primitives: `packages/client-utils/src/LayerPortal.tsx` (portal to body, no scroll lock) for menus/popovers; `DialogPortal.tsx` (portal + body scroll lock) for modals. Portaled panel positions `fixed` from `usePopoverFlip` `triggerRect`; capture-phase window scroll re-measure → tracks ancestor (sidebar) scroll.
 
@@ -347,7 +347,11 @@ Pi owns the retry loop. Dashboard configures + observes + renders it. Attempts f
 - Validation: `maxRetries` non-negative integer; `baseDelayMs` positive integer. Invalid → nothing written.
 - No UI cap on `maxRetries`; long tail WARNED, never capped.
 - REST: `GET/PUT /api/pi-retry` (`packages/server/src/routes/pi-retry-routes.ts`), auth-gated by same network guard as `/api/config`.
-- pi reads settings only at session construction → write alone inert for running sessions. On successful save server dispatches `/reload` to every `piGateway.getConnectedSessionIds()`. Failed write reloads nothing.
+- pi reads settings only at session construction. Write alone inert for running sessions.
+- On successful save server routes every target through `dispatchReload`.
+- Target set = `reloadTargetSessionIds` = `piGateway.getConnectedSessionIds()` ∪ `headlessPidRegistry.listSessions()`.
+- Connected-only set missed headless sessions with dead bridge WS. See change: fix-out-of-band-reload.
+- Failed write reloads nothing.
 - **UI placement + save.** Editor renders on Settings **Sessions** tab (NOT Providers). Reason: 3 fields (`enabled`, `maxRetries`, `baseDelayMs`) turn-level not provider-scoped; observable effect on session (waiting / attempt n / countdown / Stop). Sibling turn-lifecycle settings co-located.
 - Enclosing section titled "Retry".
 - NO private Save button. Registers with panel unified-Save draft registry via `useSettingsDraftSource({id:"pi-retry", page:"sessions", isDirty, commit, reset})`. See change: unify-settings-save-contract.
@@ -608,10 +612,11 @@ Descriptor-only slots (existing in `extension-ui-system`): `management-modal`, `
 `packages/dashboard-plugin-runtime/` is a new workspace package containing all runtime pieces:
 
 - **`src/slot-registry.ts`** — `createSlotRegistry()` returns a typed `Map<SlotId, ClaimEntry[]>` sorted by `(priority, pluginId)`. Filter helpers: `forSession`, `forSessionRendered`, `forFolder`, `forCommand`, `forToolName`, `forActionId`. Registry also exposes read-only `isPluginEnabled(id)`.
-- **`src/manifest-validator.ts`** — hand-rolled manifest validator; throws `ManifestValidationError` with `pluginId` and `reason`.
+- **`src/manifest-validator.ts`** — hand-rolled manifest validator; throws `ManifestValidationError` with `pluginId` and `reason`. Validates `shell-overlay-route` `presentation` is `"page"`|`"dialog"`; unknown value FATAL, not warn-and-default — typo like `"modal"` would silently restore the behaviour the author opted out of. See change: add-route-backed-overlay-dialogs.
 - **`src/plugin-context.tsx`** — `PluginContextProvider` wraps the entire app. A nested `CurrentPluginLayer` is pushed per contribution so `usePluginConfig<T>()` and `logger` resolve to the contributing plugin's id. `applyPluginConfigUpdate` updates the in-memory config store and re-renders subscribers.
-- **`src/slot-consumers.tsx`** — one component per slot id. Each wraps contributions in a `SlotErrorBoundary` (per-claim scope). Reads registry from the provider.
+- **`src/slot-consumers.tsx`** — one component per slot id. Each wraps contributions in a `SlotErrorBoundary` (per-claim scope). Reads registry from the provider. `ShellOverlayRouteSlot` renders matched claim body ONLY, inside `flex-1 min-h-0 relative` height wrapper. No dialog chrome, no container selection. `dialogContainer` prop + `OverlayContainerProps`/`OverlayContainerComponent` types removed. Container choice belongs to HOST (`App.tsx`): reads claim's effective `presentation` via exported `useShellOverlayRoutePresentation` hook (default `"dialog"`; `"page"` opts out → full viewport desktop + mobile), lifts dialog claim out of content region into `RouteBackedOverlay`. Seam could not work — underlay must cover VIEWPORT; wrapping from inside slot puts underlay inside content region. Hook returns string, avoids `client-utils` → `dashboard-plugin-runtime` dependency cycle. Rationale: design D2a (SUPERSEDED). See change: add-route-backed-overlay-dialogs.
 - **`src/slot-error-boundary.tsx`** — React error boundary scoped to one claim. Logs with plugin id and slot id; renders nothing for the failing claim without suppressing siblings.
+- **`src/__tests__/bundled-overlay-claims.test.ts`** — repo gate on BUNDLED `shell-overlay-route` claims: explicit `depth`; `depth: 2` requires `parentPath`; `parentPath` interpolable from claim path's own `:params`; claim nested under `/folder/:x` or `/session/:x` must NOT declare `depth: 1`. Third-party manifests keep runtime degradation to `/` as safety net. See change: add-route-backed-overlay-dialogs.
 - **`src/vite-plugin/index.ts`** — `viteDashboardPluginsPlugin` generates `packages/client/src/generated/plugin-registry.tsx` with named imports (tree-shaking). Watches manifests during dev and triggers HMR.
 - **`src/server/loader.ts`** — `discoverPlugins(repoRoot?)` (single module-level cache), `loadServerEntries(deps)` (per-plugin dynamic-import, failure isolated), `getPluginStatusStore()`.
 - **`src/server/server-context.ts`** — `createServerPluginContext(deps, pluginId)` — namespaced logger, typed config accessors.
@@ -795,7 +800,10 @@ Automation plugin = `packages/automation-plugin/`. Schedule-triggered background
 - Folder format `<scope>/.pi/automation/<name>/automation.yaml` (+`prompt.md` for prompt action). Dual scope: per-folder + global (`~/.pi/automation/`).
 - Central server-owned scheduler arms trigger registry. Phase-1 trigger kind `schedule` (5-field cron).
 - Fired run spawns pi session stamped `kind="automation"` via `ServerPluginContext.spawnSession` hook (gated priority<=100).
-- Board hides run unless effective visibility `shown`. Run always watchable in Automation view (`/automation/run/:sid`).
+- Board hides run unless effective visibility `shown`. Run always watchable in Automation view (`/folder/:encodedCwd/automations/run/:sid`).
+- Old path `/automation/run/:sid` declared `parentPath` `/folder/:encodedCwd/automations` but never captured `:encodedCwd`. `interpolateParentPath` returned null; back degraded to `/`.
+- New path carries board cwd. Cold-load back resolves to owning board.
+- See change: add-route-backed-overlay-dialogs.
 - Run results `runs/<date>-<name>/result.md`. Auto-archive empty. Keep-100 retention.
 - UI via shell slots: sidebar-folder-section, command-route `/automation`, shell-overlay-route, session-card-badge, settings-section general.
 - See change: add-automation-plugin.
@@ -1118,29 +1126,64 @@ The shared `<RichDiff>` component is also consumed by `DiffPanel` (Path A / chan
 - `index.ts`: `flow:abort` and `flow:toggle-autonomous` event listeners added
 - `flow-tui.ts`: `autonomousMode` included in `flow:flow-started` event data
 
-### `/reload` Flow (two code paths)
-Reload from the dashboard (via `pnpm run reload`, the reload button, or `/reload` typed into the chat composer) follows one of two paths depending on how the pi session was spawned. The server transparently selects the right path:
+### `/reload` Flow (server-side dispatch ladder)
+Reload from the dashboard routes through a single server entry point: `dispatchReload(sessionId)` in `packages/server/src/rpc-keeper/dispatch-reload.ts`. Dispatch is a four-step ladder — busy check, kill-and-respawn, bridge forward, terminal error — selected by how the session was spawned. Falls through until one path succeeds.
 
 ```mermaid
 flowchart TD
-    A[Browser sends send_prompt text="/reload"] --> B[server handleSendPrompt]
-    B --> C{shouldInterceptReload?<br/>text === "/reload"<br/>no images<br/>headlessPidRegistry.getPid defined}
-    C -->|Yes — headless session| D[handleHeadlessReload]
-    D --> D1[Emit command_feedback 'started']
-    D1 --> D2[headlessPidRegistry.killBySessionId<br/>SIGTERMs old pi]
-    D2 --> D3[spawnPiSession with<br/>sessionFile+mode:'continue'<br/>strategy:'headless']
-    D3 --> D4[headlessPidRegistry.register new PID]
-    D4 --> D5[Emit command_feedback 'completed']
-    D5 --> D6[New pi bridge re-registers<br/>with same sessionId —<br/>sessionManager preserves<br/>tokens/cost/context/attachedProposal]
-    C -->|No — tmux/wt/wsl-tmux| E[piGateway.sendToSession→bridge]
-    E --> F[bridge command-handler parses /reload]
-    F --> G[Calls globalThis-RELOAD_KEY fn]
-    G --> H{Was /__dashboard_reload<br/>typed in TUI first?}
-    H -->|Yes| I[session.reload in-place]
-    H -->|No| J[Error logged to bridge stderr<br/>User must bootstrap via TUI]
+    T[Six triggers]
+    E[dispatchReload sessionId]
+    B{isReloadBusy?}
+    REF[command_feedback error refuse]
+    P{headlessPidRegistry getPid defined?}
+    S[handleHeadlessReload SIGTERM + spawnPiSession continue]
+    C{piGateway isSessionConnected?}
+    F[piGateway.sendToSession send_prompt text /reload]
+    DONE[command_feedback completed keyed /reload]
+    ERR[command_feedback error no path]
+
+    T --> E
+    E --> B
+    B -->|compacting OR streaming + bridge| REF
+    B -->|not busy| P
+    P -->|PID defined| S
+    P -->|no PID| C
+    C -->|connected| F
+    C -->|not connected| ERR
+    F -->|delivered| DONE
+    F -->|send failed| ERR
+    S --> DONE
 ```
 
-**Why two paths?** pi-coding-agent's `ExtensionContext` (delivered to `session_start` handlers) has no `reload()` method — only `ExtensionCommandContext` (given to command handlers) does. Bridge workaround: registers `__dashboard_reload` as command, captures `ctx.reload` into `globalThis[RELOAD_KEY]` when user first invokes in pi's TUI. Headless sessions have no TUI, so capture never happens. Server-side interception is transparent kill-and-respawn achieving same user-visible outcome (fresh settings, extensions, skills/prompts/themes) without in-process reload. `memorySessionManager.register` carries accumulated state when same `sessionId` re-registers, so user sees brief reconnect flicker but keeps tokens, cost, context usage, attached proposal. See change: headless-reload-via-respawn.
+**Triggers** — six sources route through `dispatchReload`; pi-core update is the one exception:
+1. Reload button / `/reload` in composer → browser `send_prompt` → `packages/server/src/browser-handlers/session-action-handler.ts` `handleSendPrompt`.
+2. `scripts/reload-all.sh` → same browser path.
+3. pi retry-policy settings save → `server.ts` `reloadConnectedSessions`.
+4. Package install/remove → `packageManagerWrapper.setReloadSessions`.
+5. pi-core update complete → `piCoreUpdater.onAllComplete` → `respawnForRuntimeSwap` (NOT `dispatchReload`).
+6. `POST /api/resources/reload` → `routes/resource-activation-routes.ts`.
+
+**Predicate gate** — `isBareReloadCommand` in `browser-handlers/session-action-helpers.ts`. `text === "/reload"` exactly, zero images, says nothing about session shape. Replaced old `shouldInterceptReload`, which also required a headless PID and thereby made kill-and-respawn the default.
+
+**Why no in-process path.** Earlier revision wrote `/__dashboard_reload` to the session's RPC keeper, on the claim that pi RPC mode runs the line through `session.prompt()` WITH command handling. Measured in the docker harness with `keeperLog.capturePiOutput = true`: it does not. pi's RPC `{type:"prompt"}` performs NO slash-command dispatch. Dispatched `/__dashboard_reload` arrived at the model as an ordinary user prompt and produced a full agent turn (`agent_start` → user message → assistant reply → `agent_end`). Control: pi built-in `/help` written to the same socket behaved identically — so not the `__` prefix, not our registration. Consequence: kill-and-respawn is the ONLY mechanism that reloads a headless session. Note: `rpc-keeper/dispatch-router.ts` `dispatch_extension_command` uses the same `writeRpc` + `{type:"prompt"}` mechanism and therefore has the same defect — separate live bug, own change.
+
+**Ladder step 1 — busy check.** `isReloadBusy` runs FIRST. Refuse if `session.compacting === true`. Refuse if `status === "streaming"` AND `piGateway.isSessionConnected(sessionId)`. Stale `streaming` on a bridge-dead session does NOT refuse — pinned there forever, and exactly what respawn rescues.
+
+**Ladder step 2 — kill-and-respawn.** `headlessPidRegistry.getPid(sessionId)` defined → `handleHeadlessReload` (SIGTERM + `spawnPiSession` `mode:"continue"`), streaming guard suppressed. Registered PID wins over a live bridge: the bridge path is a no-op for a dashboard-spawned session whose `globalThis[RELOAD_KEY]` was never captured in a TUI.
+
+**Ladder step 3 — bridge forward.** No PID, `isSessionConnected` true → `piGateway.sendToSession(sid, {type:"send_prompt", text:"/reload"})`. Gated on the RETURN VALUE, not the probe: the socket can close between the two.
+
+**Ladder step 4 — terminal error.** Neither → terminal `command_feedback {status:"error"}`. A session with NO registered PID is NEVER respawned: would start a second pi against a terminal-hosted session's file.
+
+**Feedback contract** — exactly one terminal `command_feedback` per reload, `command` field always `/reload`.
+
+**Bridge side** — `packages/extension/src/command-handler.ts` no longer emits an unconditional `completed`. `BridgeCommandOptions.reload` returns a `ReloadOutcome` (`{ok:true} | {ok:false, reason}`). `bridge.ts` wraps the captured `globalThis[RELOAD_KEY]` call in try/catch, including a SYNCHRONOUS throw: the captured fn is single-use per process because the first `ctx.reload()` invalidates the runner, so a second call throws out of `assertActive()` where a `.catch()` cannot reach it.
+
+**Compaction signal** — `DashboardSession.compacting` (new, `packages/shared/src/types.ts`). Derived in `packages/server/src/session/event-status-extraction.ts` from bridge-forwarded `session_before_compact` (true) and `session_compact` (false). Cleared in `memory-session-manager.unregister`; never carried onto a re-registration.
+
+**Fan-out target set** — `reloadTargetSessionIds(connectedIds, registry)` = `piGateway.getConnectedSessionIds()` UNION `headlessPidRegistry.listSessions()`. The old connected-only fan-out could never reach a headless session whose bridge WS had died.
+
+**pi-core update is a BINARY swap** — `ctx.reload()` cannot replace pi-core, so `respawnForRuntimeSwap` respawns unconditionally (including connected + streaming), and reports `error` for a session with no `sessionFile` or no registered PID. See change: fix-out-of-band-reload.
 
 ### Server Restart (single-orchestrator path)
 
@@ -1242,6 +1285,104 @@ Plugin content-view claims (e.g. flows-plugin) remain predicate-driven, out of s
 5. Server extracts model/thinkingLevel from events and `model_update`, broadcasts to browsers
 6. Thinking level changes (via pi keybinding) are detected when `model_select` events fire, on reconnect, and immediately after `set_thinking_level` commands
 7. Browser can send `set_thinking_level` to change thinking level remotely
+
+### Model selector pairing rule
+
+Two classes of model selector exist:
+
+- RUN-CONFIGURING: picks the model a session/run EXECUTES with. MUST pair a thinking-level control.
+- REFERENCE-LISTING: names a model for an allow-list, ordering, or alias mapping. MUST NOT pair one.
+
+```mermaid
+flowchart TD
+    A[Model selector] --> B{RUN-CONFIGURING?}
+    B -->|yes| C[MUST pair thinking-level control]
+    B -->|no| D[REFERENCE-LISTING: MUST NOT pair]
+```
+
+Run-configuring surfaces, all five now paired:
+
+- Chat composer model row — `packages/client/src/components/chat/CommandInput.tsx`
+- Settings → Sessions → Default Model — `packages/client/src/components/settings/SettingsPanel.tsx`, persists `config.defaultThinkingLevel`
+- OpenSpec run-config row — `packages/client/src/components/openspec/useOpenSpecRunConfigRow.tsx`
+- Roles → assign model to `@role` — `packages/roles-plugin/src/RolesSettingsSection.tsx`
+- Automation → Create, direct-model branch — `packages/automation-plugin/src/client/CreateAutomationDialog.tsx`
+
+Reference-listing surfaces, deliberately excluded: Model Proxy preferred-models list and Model Proxy alias→model table, both in `packages/client/src/components/settings/ModelProxySection.tsx`.
+
+Encoding. Roles + automation carry level as `:<level>` suffix on the EXISTING model ref string: `"<provider>/<id>:<level>"`. No second field. No parallel level map. pi parses it with `splitThinkingSuffix` (`packages/extension/src/provider-register.ts`). Reason: second field drifts from refs written by pi's own `/roles` command.
+
+Canonical levels: `off`, `minimal`, `low`, `medium`, `high`, `xhigh`, `max`. `off` = no override → writes bare ref. Split takes the LAST `:` only when the tail is a canonical level, so provider ids containing `:` (e.g. `openrouter/vendor:free`) survive.
+
+No server change. `resolveModel()` (automation-plugin `server/model-resolver.ts`) passes suffixed ref through. `sessionFlagsToArgv()` (`packages/shared/src/platform/spawn-mechanism.ts`) emits `["--model", ref]` verbatim. Nothing in that chain inspects or strips the suffix. Both guarded by tests.
+
+`@role` automation branch renders NO level control — role's own ref owns the level. One owner per value.
+
+UI shape named `ModelLevelPair`: model left, level right, one bordered container, persistent `MODEL`/`THINKING` captions, saved ref echoed in mono below. Full contract: `openspec/changes/add-default-thinking-level/mockups/ui-plan.md`.
+
+See change: add-default-thinking-level.
+
+### Auto Session Naming (change: fix-auto-naming-reasoning-model)
+
+Bridge-side. `packages/extension/src/auto-session-namer.ts`. After each terminal turn (`agent_end`), eligible session asks naming model for short topic title. Gate: `autoNameSessions` preference (`preferences_update` message).
+
+**Naming model resolution.**
+
+- `@naming` first, fallback `@fast`. `resolveNamingModel()` in `packages/extension/src/role-manager.ts`.
+- `naming` in `DEFAULT_ROLE_NAMES`.
+- Unassigned `naming` ⇒ `@fast` ⇒ identical resolution to pre-role behavior.
+- Neither configured ⇒ permanent stop + one `auto_name_error` naming both slots.
+- Configured in Settings → Roles (Roles panel, `/settings/plugins/roles`), NOT inline on sessions page. Auto-name toggle carries pointer `auto-name-model-pointer`.
+
+**Adaptive output cap.**
+
+- `TITLE_MAX_TOKENS_BASE = 1024` on first attempt.
+- `TITLE_MAX_TOKENS_ESCALATED = 2048` once session records a `starved` verdict.
+- Cap = ceiling, not charge. Non-reasoning model bills ~2 output tokens.
+- Measured on `deepseek/deepseek-v4-flash` + summarizer prompt.
+- Caps 16/64/256/512: `finish_reason=length`, empty content.
+- Cap 1024: returned `NULL`. 24 reasoning tokens.
+- Cap 2048: returned title. 724 reasoning tokens.
+- Reasoning spend nondeterministic. No cap guarantees a title.
+
+**Starvation failure mode.**
+
+- Reasoning model spends whole cap on reasoning tokens.
+- Stream ends truncated. `done` reason `"length"`. No text.
+- Old bug: empty text mapped onto `wait`.
+- `wait` = same verdict as legitimate `NULL` sentinel. Non-terminal.
+- Result: naming retried forever, applied nothing, emitted nothing.
+- Measured: 0 of 3380 sessions `nameSource: "auto"`.
+- Measured: 0 `auto_name_error` lines in 6.8 MB `server.log`.
+- Fix: parse keys on stream stop reason BEFORE text.
+- `length` / `toolUse` ⇒ `starved`. Text NEVER applied.
+- `stop` + empty ⇒ `starved`.
+- `NULL` / over-40-chars / over-6-words ⇒ `waiting`.
+
+**Attempt budget.**
+
+- 3 attempts per session (`ATTEMPT_BUDGET`), shared by `starved` + `waiting`.
+- Exhaustion ⇒ permanent stop + exactly one `auto_name_error`. Remedy matches dominant cause; tie ⇒ `starved`.
+- Transient errors + aborts spend no budget.
+
+**Persistence.**
+
+- Stop persists in session `.meta.json` (`autoNamerState`), survives process restart.
+- Clears when RESOLVED naming reference changes or blocking cause (credentials/registry) resolves.
+- Clearing resets budget AND re-arms error.
+
+**Diagnostics.**
+
+- Every attempt reports exactly one deduplicated outcome.
+- Server retains last outcome per session — `packages/server/src/auto-name-outcome-store.ts`.
+- Bound 500. ABSOLUTE.
+- Eviction prefers non-`stopped` entries.
+- `stopped` entries alone at the bound: OLDEST `stopped` evicted.
+- Protection is an ORDER, never indefinite retention.
+- Readable at `GET /api/auto-name-outcomes`.
+- Rendered in Settings → Diagnostics. `starved` shown distinctly from `waiting`.
+
+See change: fix-auto-naming-reasoning-model.
 
 ### Context Usage Tracking
 1. On each `turn_end`, the bridge calls pi's `ctx.getContextUsage()` API to get real-time context usage (tokens used + actual context window from the provider)
@@ -2042,6 +2183,52 @@ Measured (synthetic #399-shaped window, 140 messages × ~150 snapshot updates):
 
 See change: `compact-warm-replay-stream`.
 
+**Replay windowing + gap backfill** (change: `lazy-load-session-history`, `fix-lazy-history-backfill-ux`): full-stream replay can exceed the browser budget. `memoryLimits.maxReplayEvents` (default `2000`; explicit `0` = unlimited) caps it. Above `0`, `sendEventBatches` ships head + tail windows, then browser backfills the middle on demand.
+
+#### Windowing (`packages/server/src/browser-handlers/subscription-handler.ts`)
+- `sendEventBatches(ws, sessionId, stored, sendTo, windowLimit?)`.
+- Window applied AFTER `compactEventsForReplay`, never before. Compaction ~20:1.
+- Returned high-water seq stays the PRE-compaction max of the full input array. Windowing never lowers it. `clearReplaying` catch-up depends on this.
+- Keyed on CONTENT not call site: `lastSeq === 0 || lastSeq > maxSeq` = full stream → window. Genuine delta (`lastSeq > 0`) never windowed, never emits `history_window`.
+- `computeReplayWindow(compacted, windowLimit)` returns `{headEnd, tailStart}` or `null`.
+- Short-circuit: `compacted.length <= windowLimit` → no window, `gapCount` 0.
+- `HEAD_RATIO` 0.1, `HEAD_MIN` 20, `HEAD_CAP` 200. `head = clamp(floor(limit*0.1), 20, 200)`, `tail = limit - head`.
+- Default geometry at 2000: head 200 (at `HEAD_CAP`, protected chat head maximal), tail 1800. `compacted.length <= windowLimit` short-circuit → sessions compacting under the limit take the pre-change path exactly.
+- Tail leading edge snaps FORWARD to next `message_start`/`turn_start`. Head trailing edge snaps BACKWARD to a `message_end`. Both bounded by `SNAP_LOOKUP` 200. Both SHRINK the window, so budget stays a hard cap.
+- Windowed `lastSeq === 0` path sends `session_state_reset` before replay.
+
+#### Window protocol (`packages/shared/src/browser-protocol.ts`)
+- Server→browser `history_window { sessionId, headMaxSeq, tailMinSeq, gapCount, oldestGapSeq }`. Sent once per subscriber, before first `event_replay`, full-stream paths only.
+- `gapCount` = gap events the store HOLDS. Never the seq distance. Middle-trimmed store reports fewer.
+- Browser→server `history_backfill { sessionId, fromSeq, toSeq }` (both inclusive).
+- Server→browser `history_backfill_result { sessionId, events, servedFrom, servedTo, remainingGapCount, error? }`. `error` ∈ `not_subscribed | in_flight | out_of_range | stale_generation`.
+- Exactly ONE result per request on every path, refusals included.
+
+#### Backfill server (`handleHistoryBackfill`)
+- Serves in-memory store only. Never reads the session file.
+- `EventStore.getEventsRange(sessionId, minSeq, maxSeq)` — binary search both bounds + one slice, O(log n + k). `getRangeProbe()` is test-only instrumentation.
+- Span clamped to `BACKFILL_MAX_SPAN` 500 events. Range clamped into the disclosed gap.
+- Span clamp moves the NON-abutting bound: raises `from` on a tail-adjacent request, lowers `to` on a head-adjacent one. Oversized tail-adjacent slice keeps its tail adjacency (lowering `to` would break crediting and invert the next request → failure loop).
+- Single-flight per (socket, session) → second concurrent request refused `in_flight`.
+- Subscription generation bumped on every subscribe; completion at a stale generation replies `stale_generation`, never dropped.
+- Response compacted with `compactEventsForReplay(slice, slice.length)` — explicit supersession boundary, because the boundary is array-relative and a gap slice's `message_end` lives outside it.
+- Gap is SYMMETRIC: `tailMinSeq` mutable like `headMaxSeq`. Served range credited to whichever edge it abuts — tail-adjacent → `tailMinSeq = servedFrom`; head-adjacent → `headMaxSeq = servedTo`; a both-adjacent final request credits the TAIL (exclusive). `remainingGapCount` store read over both edges terminates the loop.
+- Slice snaps its GAP-FACING edge: lower for a tail-anchored request, upper for a head-anchored one, chosen by request ORIENTATION so a legacy head-first client stays correct. Snap only shrinks, never empties (empty `events` array = client termination signal). Credit edge from POST-SNAP served bounds.
+
+#### Client gap UI
+- `packages/client/src/lib/chat/history-gap.ts` — `HistoryGapState`, `HISTORY_GAP_ROW_ID`, `nextBackfillRange`. `nextBackfillRange` walks DOWN from `tailMinSeq` (tail-anchored), so "Load earlier" delivers the events immediately preceding what the user reads. `HistoryGapState.tailMinSeq` mutable, updated from `servedFrom`; `headMaxSeq = servedTo` update dropped (two-edge move double-shrinks a gap credited once).
+- Synthetic `ChatMessage` role `historyGap`, spliced at the head→tail boundary during the `event_replay` fold. Never produced by `reduceEvent`.
+- `packages/client/src/components/chat/HistoryGapDivider.tsx` — click-to-load interstitial. States: idle / loading / refused / unavailable / removed-when-filled.
+- Backfill splice touches `messages[]` only: no `maxSeqMapRef` move, no `publishSessionEvents`, no `replayPersister` write.
+- Backfill segment stamped before merge: every still-running tool row → `elided` (`ChatMessage.toolStatus`, `ToolCall.status`). Terminal status, "result not loadable"; renders neutral "result not loaded", never spinner, never error styling. Also finalizes assistant rows the segment left `isStreaming`. Backfill segments ONLY, never the initial windowed replay (a live mid-tool run must stay on the supersede-heal path).
+- A windowed replay is NOT written to the client replay cache. Prevents caching a sparse array as contiguous, which would make the next reload a cache hit that delta-subscribes and hides the gap permanently.
+- Backfill armed only after the initial replay terminates (`isLast: true`).
+- Gap state cleared on `session_state_reset` and on re-subscribe.
+
+Measured (docker harness, 4825-event session, median of 5): full-replay completion 715ms → 341ms (2.10x), wire bytes 1958KB → 834KB (-57%), delivered events 4825 → 1996. Time-to-first-rendered-row unchanged (340ms → 349ms): replay ships in `REPLAY_BATCH_SIZE` 200-event batches, so the first batch lands identically regardless of what follows.
+
+See change: `lazy-load-session-history`.
+
 ### Bridge Reconnection (State Reset)
 When a bridge extension reconnects (e.g., after `pnpm run reload` or network recovery):
 1. Bridge sends `session_register` with `eventCount` to re-register the session
@@ -2308,6 +2495,7 @@ The per-message ⤘ Fork button needs each chat bubble to carry the entry id of 
 | Events | In-memory Map | LRU eviction, max 100 sessions. Pinned if active bridge or browser subscribers. |
 | Sessions | In-memory Map + `.meta.json` | In-memory registry. Each session's state cached in per-session `.meta.json` sidecar next to `.jsonl`. On startup, `session-scanner.ts` scans `~/.pi/agent/sessions/*/` to restore all sessions from cached meta. |
 | Session meta | `~/.pi/agent/sessions/…/<id>.meta.json` | Per-session sidecar: dashboard-owned state (name, attachedProposal, hidden, source) + cached stats (tokens, cost, model, status). Debounced per-session writes (max 1/sec). Stale cache detected via `cachedAt` vs `.jsonl` mtime. |
+| Namer stop state | `~/.pi/agent/sessions/…/<id>.meta.json` (`autoNamerState`) | Auto-naming permanent stop + counters (attemptsUsed, starvedCount, waitingCount, stoppedModelRef, stopCause). Survives process restart; restored via `auto_name_state_restore` at register. Cleared on naming re-resolution or blocking-cause resolution. See change: fix-auto-naming-reasoning-model. |
 | Notify log | `~/.pi/agent/sessions/…/<id>.meta.json` (`SessionMeta.notifyLog`) | Bounded per-session notify history (cap 50, oldest-first). Not a `DashboardEvent` — `event_replay` cannot restore. Mirrored by `sessionToMeta` (full-overwrite save), restored by `sessionFromMeta` cold start, carried across bridge reattach by `memory-session-manager.register()`. See Notify Flow. |
 | Pinned directories | `~/.pi/dashboard/preferences.json` | Ordered array of cwd paths. Pinned dirs always visible in sidebar. |
 | Session order | `~/.pi/dashboard/preferences.json` | Per-cwd ordering managed by `session-order-manager.ts`. |
@@ -2338,6 +2526,28 @@ Precedence: CLI flags → environment variables → config file (`~/.pi/dashboar
 | `tunnel.reservedToken` | _(auto)_ | Legacy bare zrok token. Read-time shim resolves to `{provider:"zrok", mode:"public", zrok:{reservedToken}}` in loadConfig. No disk rewrite until next save. Explicit `provider` wins on conflict |
 | `auth.redirectBaseUrl` | — | Optional OAuth redirect base for reverse-proxy deployments (`https://host[/prefix]`). Overrides tunnel/localhost base in `buildRedirectUri`. No default; absent = previous behaviour |
 | `publicBaseUrls` | — | Top-level reachable base URLs. Pairing QR + `GET /api/tunnel/endpoints` surfaces. `resolvePublicBaseUrls` reads top-level first, legacy `pairing.publicBaseUrls` fallback, else `[]`. No default; absent = legacy. Not an OAuth tier (D7) |
+| `memoryLimits.maxReplayEvents` | 2000 | Max events in full-stream replay window. Default `2000`; explicit `0` = unlimited (rollback lever). Absent/negative/non-numeric → `2000`; explicit `0` → `0`. Requires server restart. UI: Settings → Server → Memory Limits |
+
+### Memory Limits
+
+`memoryLimits.maxReplayEvents` bounds full-stream replay. Default `2000`. Explicit `0` = unlimited, the documented rollback lever.
+
+Parsing (`parseMaxReplayEvents`, `packages/shared/src/config.ts`):
+- Absent / non-numeric / negative / NaN / Infinity → default `2000`.
+- Explicit `0` → `0` (presence detected; never clamped).
+- Positive below `MIN_REPLAY_WINDOW` (100) clamps up to 100.
+- Fractional floored.
+
+Defaults + types live in `packages/shared/src/memory-limits.ts`, a BROWSER-SAFE module re-exported by `config.ts`. Reason: `config.ts` imports `node:fs`/`node:os`/`node:path` at module scope, so a VALUE import from `packages/client` ships node built-ins to the browser and the SPA dies at boot with `uv.homedir is not a function` (blank page; tsc/vitest/build all stay green). `import type` is safe. Guarded by `packages/client/src/__tests__/no-node-only-shared-imports.test.ts`.
+
+Requires server restart. Surfaced in Settings → Server → Memory Limits.
+
+Threading:
+- `cli.ts` → `server.ts` (`ServerConfig.maxReplayEvents`)
+- → `createBrowserGateway(..., maxReplayEvents)` → `BrowserHandlerContext.maxReplayEvents`.
+- Programmatic server falls back to shared DEFAULT, not `0`; stays unlimited only when threaded explicitly.
+
+See change: `lazy-load-session-history`, `fix-lazy-history-backfill-ux`.
 
 ### Tunnel Lifecycle
 

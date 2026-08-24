@@ -102,6 +102,20 @@
   --link: #60a5fa;
   --link-hover: #93bbfd;
 
+  /* Accent RAMP — four role-scoped tokens, one contrast floor each.
+     Before this existed, `--accent` and `--accent-soft` were referenced by
+     component code but declared NOWHERE, so every `var(--accent-soft,#1d3a63)`
+     call site painted its dark-navy fallback literal in BOTH themes while the
+     text on top stayed theme-aware — 1.52:1 on the light Gateway Setup tab.
+     Roles are not interchangeable: `--accent` carries the 3:1 non-text
+     border/ring floor and is NOT a valid fill under white text (white on
+     #3b82f6 is 3.68:1 in BOTH themes), which is why `--accent-solid` is
+     #2563eb in dark mode too. See change: add-zrok-custom-reserved-name. */
+  --accent: #3b82f6;        /* border, ring, focus — 3:1 non-text */
+  --accent-soft: #1d3a63;   /* fill behind --text-primary — 9.07:1 */
+  --accent-solid: #2563eb;  /* fill behind white text — 5.17:1 */
+  --accent-text: #60a5fa;   /* link text on --bg-primary — 7.79:1 */
+
   /* Semantic session-status tokens (derive from accents; theme overrides via
      inline vars for non-base themes). See change:
      improve-dashboard-attention-routing. */
@@ -209,6 +223,15 @@
   --accent-primary: #2563eb;
   --link: #2563eb;
   --link-hover: #1d4ed8;
+
+  /* Accent ramp — light scope. See the :root block for the role contract.
+     --accent-solid is #2563eb in BOTH themes on purpose: it is the only value
+     in the ramp that carries white text at AA. See change:
+     add-zrok-custom-reserved-name. */
+  --accent: #2563eb;        /* border, ring, focus — 3:1 non-text */
+  --accent-soft: #dbeafe;   /* fill behind --text-primary — 14.27:1 */
+  --accent-solid: #2563eb;  /* fill behind white text — 5.17:1 */
+  --accent-text: #1d4ed8;   /* link text on --bg-primary — 6.70:1 */
   --focus-ring: var(--accent-primary);
 
   /* Shadows */

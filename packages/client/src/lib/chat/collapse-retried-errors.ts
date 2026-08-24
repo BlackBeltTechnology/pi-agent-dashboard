@@ -49,6 +49,15 @@ export function findRetriedErrorIds(messages: ChatMessage[]): Set<string> {
       if (next.role !== "toolResult") break; // user / bashOutput / interactiveUi etc → abort
       if (next.toolName !== m.toolName) break; // different tool → not a retry
       if (next.toolStatus === "error") break; // chained errors → don't collapse the first
+      /**
+       * `elided` means the retry's result is NOT LOADABLE, so its outcome is
+       * unknown. Collapsing the preceding error behind it would present an
+       * unknown outcome as a recovered one — the same misattribution `elided`
+       * exists to prevent. Treated as non-collapsing, unlike `running`, where
+       * the result is still genuinely on its way.
+       * See change: fix-lazy-history-backfill-ux (D5).
+       */
+      if (next.toolStatus === "elided") break;
       // Successful (or running) retry of the same tool.
       retried.add(m.id);
       break;

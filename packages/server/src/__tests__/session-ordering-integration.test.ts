@@ -69,7 +69,7 @@ describe("Session ordering integration", () => {
     orderMgr.insert("/project", "s2"); // s2 is at front: ["s2", "s1"]
 
     // User forks s1
-    forkRegistry.recordFork("/project", "s1");
+    forkRegistry.recordFork("/project", "s1", 95_000);
 
     // New session registers — simulate server checking fork registry
     const forkParent = forkRegistry.consumeFork("/project");

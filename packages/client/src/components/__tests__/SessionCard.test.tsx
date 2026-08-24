@@ -515,10 +515,14 @@ describe("GroupGitInfo", () => {
     globalThis.fetch = origFetch;
   });
 
+  // `cwd` matches `makeSession`'s default cwd so the child is ELIGIBLE for the
+  // fallback. See change: fix-folder-header-worktree-branch-leak.
+  const OWN_CWD = "/home/user/project";
+
   it("renders branch icon as clickable button", () => {
     const onClick = vi.fn();
     const sessions = [makeSession({ gitBranch: "main" })];
-    render(<GroupGitInfo sessions={sessions} cwd="/test" onBranchClick={onClick} />);
+    render(<GroupGitInfo sessions={sessions} cwd={OWN_CWD} onBranchClick={onClick} />);
     const btn = screen.getByTestId("git-branch-btn");
     fireEvent.click(btn);
     expect(onClick).toHaveBeenCalled();
@@ -526,13 +530,13 @@ describe("GroupGitInfo", () => {
 
   it("renders branch name for normal branch", () => {
     const sessions = [makeSession({ gitBranch: "feature/new" })];
-    render(<GroupGitInfo sessions={sessions} cwd="/test" />);
+    render(<GroupGitInfo sessions={sessions} cwd={OWN_CWD} />);
     expect(screen.getByText("feature/new")).toBeTruthy();
   });
 
   it("renders detached HEAD (short SHA)", () => {
     const sessions = [makeSession({ gitBranch: "abc1234" })];
-    render(<GroupGitInfo sessions={sessions} cwd="/test" />);
+    render(<GroupGitInfo sessions={sessions} cwd={OWN_CWD} />);
     expect(screen.getByText("abc1234")).toBeTruthy();
   });
 
@@ -568,10 +572,117 @@ describe("GroupGitInfo", () => {
     expect(screen.queryByText("os/foo")).toBeNull();
   });
 
-  it("with no folderBranch entry, falls back to session.gitBranch", () => {
-    const sessions = [makeSession({ gitBranch: "os/foo" })];
+  it("with no folderBranch entry, falls back to a child rooted AT the folder", () => {
+    // Eligibility is cwd identity: this child's own cwd IS the folder cwd.
+    // See change: fix-folder-header-worktree-branch-leak.
+    const sessions = [makeSession({ cwd: "/repo", gitBranch: "os/foo" })];
     render(<GroupGitInfo sessions={sessions} cwd="/repo" />);
     expect(screen.getByText("os/foo")).toBeTruthy();
+  });
+
+  // ── eligible-child fallback (fix-folder-header-worktree-branch-leak) ─────
+  //
+  // Only a session ROOTED AT the folder can report the folder's HEAD. A
+  // worktree child folded in via `gitWorktree.mainPath` is deterministically
+  // ordered FIRST by `maybeRekeyOrder`'s `toFront`, so a positional `find`
+  // leaked its branch into the parent folder header.
+
+  /** Stub `GET /api/git/branches` so the REST seed is deterministic. */
+  function seedBranches(current: string | null): void {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      json: async () => (current === null
+        ? { success: false }
+        : { success: true, data: { current } }),
+    }) as unknown as typeof fetch;
+  }
+
+  it("eligible child wins over a front-ordered worktree child (#E1)", () => {
+    const sessions = [
+      makeSession({ id: "wt", cwd: "/repo/.worktrees/os-foo", gitBranch: "os/foo" }),
+      makeSession({ id: "main", cwd: "/repo", gitBranch: "develop" }),
+    ];
+    render(<GroupGitInfo sessions={sessions} cwd="/repo" />);
+    expect(screen.getByText("develop")).toBeTruthy();
+    expect(screen.queryByText("os/foo")).toBeNull();
+  });
+
+  it("no eligible child falls through to the REST seed (#E2)", async () => {
+    branchCache.delete("/repo-e2");
+    seedBranches("develop");
+    const sessions = [
+      makeSession({ id: "wt1", cwd: "/repo-e2/.worktrees/os-foo", gitBranch: "os/foo" }),
+      makeSession({ id: "wt2", cwd: "/repo-e2/.worktrees/os-bar", gitBranch: "os/bar" }),
+    ];
+    render(<GroupGitInfo sessions={sessions} cwd="/repo-e2" />);
+    expect(screen.queryByText("os/foo")).toBeNull();
+    expect(screen.queryByText("os/bar")).toBeNull();
+    expect(await screen.findByText("develop")).toBeTruthy();
+    branchCache.delete("/repo-e2");
+  });
+
+  it("pinned worktree folder renders its own session's branch (#E3)", () => {
+    // Pin wins in `resolveSessionGroupPath`, so the group cwd IS the worktree
+    // path — cwd identity holds and the session stays eligible.
+    const sessions = [makeSession({ cwd: "/repo/.worktrees/os-foo", gitBranch: "os/foo" })];
+    render(<GroupGitInfo sessions={sessions} cwd="/repo/.worktrees/os-foo" />);
+    expect(screen.getByText("os/foo")).toBeTruthy();
+  });
+
+  it("git-identity tuple never mixes sessions (#E4)", () => {
+    const sessions = [
+      makeSession({
+        id: "wt",
+        cwd: "/repo/.worktrees/os-foo",
+        gitBranch: "os/foo",
+        gitBranchUrl: "https://example.test/tree/os-foo",
+        gitPrNumber: 42,
+        gitPrUrl: "https://example.test/pull/42",
+      }),
+      makeSession({ id: "main", cwd: "/repo", gitBranch: "develop" }),
+    ];
+    const { container } = render(<GroupGitInfo sessions={sessions} cwd="/repo" />);
+    expect(screen.getByText("develop")).toBeTruthy();
+    expect(screen.queryByText("#42")).toBeNull();
+    expect(container.querySelector('a[href="https://example.test/pull/42"]')).toBeNull();
+    expect(container.querySelector('a[href="https://example.test/tree/os-foo"]')).toBeNull();
+  });
+
+  it("folder-HEAD entry still outranks a front-ordered worktree child (#E5)", () => {
+    const sessions = [
+      makeSession({ id: "wt", cwd: "/repo/.worktrees/os-foo", gitBranch: "os/foo" }),
+    ];
+    render(<GroupGitInfo sessions={sessions} cwd="/repo" folderBranch="develop" />);
+    expect(screen.getByText("develop")).toBeTruthy();
+    expect(screen.queryByText("os/foo")).toBeNull();
+  });
+
+  it("null folder-HEAD entry still renders the non-git state (#E6)", () => {
+    const sessions = [
+      makeSession({ id: "wt", cwd: "/repo/.worktrees/os-foo", gitBranch: "os/foo" }),
+    ];
+    render(<GroupGitInfo sessions={sessions} cwd="/repo" folderBranch={null} />);
+    expect(screen.getByTestId("git-init-btn")).toBeTruthy();
+    expect(screen.getByText("Init git")).toBeTruthy();
+    expect(screen.queryByText("os/foo")).toBeNull();
+  });
+
+  it("eligibility uses pathKey, not raw string equality (#E7)", () => {
+    // Trailing separator is cosmetic drift `pathKey` collapses.
+    const sessions = [makeSession({ cwd: "/repo/", gitBranch: "develop" })];
+    render(<GroupGitInfo sessions={sessions} cwd="/repo" />);
+    expect(screen.getByText("develop")).toBeTruthy();
+  });
+
+  it("REST-seed failure must not resurrect an ineligible branch (#X1)", async () => {
+    branchCache.delete("/repo-x1");
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error("boom")) as unknown as typeof fetch;
+    const sessions = [
+      makeSession({ id: "wt", cwd: "/repo-x1/.worktrees/os-foo", gitBranch: "os/foo" }),
+    ];
+    render(<GroupGitInfo sessions={sessions} cwd="/repo-x1" />);
+    expect(await screen.findByTestId("git-init-btn")).toBeTruthy();
+    expect(screen.queryByText("os/foo")).toBeNull();
+    branchCache.delete("/repo-x1");
   });
 
   it("folderBranch null renders the Init git non-git state", () => {

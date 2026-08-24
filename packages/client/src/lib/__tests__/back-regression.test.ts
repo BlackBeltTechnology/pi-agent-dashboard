@@ -131,9 +131,13 @@ describe("mobile back — regression", () => {
 // See change: fix-plugin-and-scoped-back-navigation.
 describe("plugin overlay back — automations", () => {
   const automationDescriptors: RouteDescriptor[] = [
-    { pattern: "/folder/:encodedCwd/automations", depth: 1 },
     {
-      pattern: "/automation/run/:sid",
+      pattern: "/folder/:encodedCwd/automations",
+      depth: 2,
+      computeParent: (p) => interpolateParentPath("/folder/:encodedCwd", p) ?? "/",
+    },
+    {
+      pattern: "/folder/:encodedCwd/automations/run/:sid",
       depth: 2,
       computeParent: (p) => interpolateParentPath("/folder/:encodedCwd/automations", p) ?? "/",
     },
@@ -149,7 +153,7 @@ describe("plugin overlay back — automations", () => {
     registerPluginRouteDescriptors([]);
   });
 
-  it("cold-load board back → cards via computeBackTarget (was a dead no-op)", () => {
+  it("cold-load board back → its owning folder via computeBackTarget", () => {
     resetNavStack("/folder/Zm9v/automations"); // deep-link, no predecessor
     const back = vi.fn();
     window.history.back = back;
@@ -157,12 +161,15 @@ describe("plugin overlay back — automations", () => {
 
     goBack(navigate, "/folder/Zm9v/automations", tracker);
 
-    // depth 1 (not 0) → no longer early-returns; navigates to cards.
-    expect(navigate).toHaveBeenCalledWith("/");
+    // Was `navigate("/")` while the board was declared depth 1. A folder-scoped
+    // board is depth 2 with a parentPath, so a cold-loaded back reconstructs the
+    // folder instead of ejecting to the card list.
+    // See change: add-route-backed-overlay-dialogs.
+    expect(navigate).toHaveBeenCalledWith("/folder/Zm9v");
     expect(back).not.toHaveBeenCalled();
   });
 
-  it("board back with a shallower predecessor uses history.back() (returns to cards)", () => {
+  it("board back with a shallower predecessor uses history.back()", () => {
     resetNavStack("/");
     recordNavigation("/folder/Zm9v/automations");
     const back = vi.fn();
@@ -171,25 +178,31 @@ describe("plugin overlay back — automations", () => {
 
     goBack(navigate, "/folder/Zm9v/automations", tracker);
 
-    // predecessor "/" (depth 0) < board depth 1 → fast-path.
+    // predecessor "/" (depth 0) < board depth 2 → fast-path.
     expect(back).toHaveBeenCalledOnce();
     expect(navigate).not.toHaveBeenCalled();
   });
 
-  it("run monitor (depth 2) opened from the board → back returns to the board via the tracker", () => {
+  it("run monitor opened from the board → back returns to the board via computeParent", () => {
     resetNavStack("/");
-    recordNavigation("/folder/Zm9v/automations"); // board, depth 1
-    recordNavigation("/automation/run/S"); // run, depth 2
+    recordNavigation("/folder/Zm9v/automations"); // board, depth 2
+    recordNavigation("/folder/Zm9v/automations/run/S"); // run, depth 2
     const back = vi.fn();
     window.history.back = back;
     const navigate = vi.fn();
 
-    goBack(navigate, "/automation/run/S", tracker);
+    goBack(navigate, "/folder/Zm9v/automations/run/S", tracker);
 
-    // board depth 1 < run depth 2 → history.back() returns to the exact board
-    // URL (with its cwd), which computeBackTarget cannot reconstruct alone.
-    expect(back).toHaveBeenCalledOnce();
-    expect(navigate).not.toHaveBeenCalled();
+    // KNOWN LIMITATION: `depth` is `1 | 2` only, so a three-level hierarchy
+    // (folder → board → run) cannot be strictly increasing — board and run are
+    // both depth 2. `pred.depth < currentDepth` is therefore false and the
+    // history fast-path does NOT fire; the back resolves through the run's
+    // declared `parentPath` instead. The user still lands on the board, but via
+    // an explicit navigation, so scroll position and the forward entry are not
+    // preserved. Accepted: correct destination beats preserved scroll.
+    // See change: add-route-backed-overlay-dialogs.
+    expect(navigate).toHaveBeenCalledWith("/folder/Zm9v/automations");
+    expect(back).not.toHaveBeenCalled();
   });
 
   // End-to-end: the run monitor is reached by wouter's raw `useLocation`
@@ -208,9 +221,9 @@ describe("plugin overlay back — automations", () => {
       // Simulate the real plugin/session-card path: raw pushState, no
       // recordNavigation call.
       window.history.pushState(null, "", "/session/abc"); // launching session (depth 1)
-      window.history.pushState(null, "", "/automation/run/S"); // run monitor (depth 2)
+      window.history.pushState(null, "", "/folder/Zm9v/automations/run/S"); // run monitor (depth 2)
 
-      goBack(navigate, "/automation/run/S", tracker);
+      goBack(navigate, "/folder/Zm9v/automations/run/S", tracker);
 
       // predecessor /session/abc (depth 1) < run depth 2 → history.back() →
       // the launching session, not "/".

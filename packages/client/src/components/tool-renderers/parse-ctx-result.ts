@@ -120,7 +120,20 @@ export function parseExecutionShape(text: string): CtxExecutionShape {
   // A stream section runs to the next stream header or the end of the body.
   // Sliced by index rather than matched with a lookahead: JS has no `\z`, and a
   // multiline `$` would cut every section at its first newline.
-  const heads = [...text.matchAll(/^(stdout|stderr):[ \t]*$/gm)];
+  //
+  // A header only counts when it is preceded by a blank line (or starts the
+  // body) and has not already opened, mirroring how context-mode emits the
+  // dump. Without that bound a line reading `stderr:` *inside* stdout's own
+  // output would split the section and strand the rest of stdout under a bogus
+  // stderr label. See change: repair-tool-error-surfaces (test-plan #E9).
+  const seen = new Set<string>();
+  const heads = [...text.matchAll(/^(stdout|stderr):[ \t]*$/gm)].filter((h) => {
+    const idx = h.index ?? 0;
+    if (idx !== 0 && !text.slice(0, idx).endsWith("\n\n")) return false;
+    if (seen.has(h[1])) return false;
+    seen.add(h[1]);
+    return true;
+  });
   heads.forEach((h, i) => {
     const start = (h.index ?? 0) + h[0].length;
     const end = i + 1 < heads.length ? (heads[i + 1].index ?? text.length) : text.length;

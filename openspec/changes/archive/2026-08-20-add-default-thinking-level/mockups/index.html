@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>model + thinking-level pairing — add-default-thinking-level</title>
+<style>
+/* ── Tokens: copied verbatim from packages/client/src/index.css.
+      Nothing below this block uses a raw colour literal. ───────────────── */
+:root {
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #141414;
+  --bg-tertiary: #1e1e1e;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --text-primary: #e5e5e5;
+  --text-secondary: #b0b0b0;
+  --text-tertiary: #808080;
+  --text-muted: #585858;
+  --border-primary: #252525;
+  --border-secondary: #333333;
+  --accent-blue: #3b82f6;
+  --accent-yellow: #eab308;
+  --accent-orange: #f97316;
+  --accent-red: #ef4444;
+  --accent-primary: #3b82f6;
+  --accent: #3b82f6;
+  --link: #60a5fa;
+  --focus-ring: var(--accent-primary);
+  --severity-info-bg: color-mix(in srgb, var(--accent-blue) 10%, var(--bg-tertiary));
+  --severity-info-fg: color-mix(in srgb, var(--accent-blue) 46%, var(--text-primary));
+  --severity-info-border: color-mix(in srgb, var(--accent-blue) 40%, transparent);
+  --severity-warning-bg: color-mix(in srgb, var(--accent-orange) 10%, var(--bg-tertiary));
+  --severity-warning-fg: color-mix(in srgb, var(--accent-orange) 46%, var(--text-primary));
+  --severity-warning-border: color-mix(in srgb, var(--accent-orange) 40%, transparent);
+}
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #fafafa;
+  --bg-tertiary: #f0f0f0;
+  --bg-hover: rgba(0, 0, 0, 0.04);
+  --text-primary: #1a1a1a;
+  --text-secondary: #444444;
+  --text-tertiary: #777777;
+  --text-muted: #aaaaaa;
+  /* NOTE: shipped light --text-tertiary (#777) is 4.29:1 on --bg-secondary —
+     under AA for 11px text. This mockup does NOT patch the token; it routes
+     every ESSENTIAL small string to --text-secondary instead. See ui-plan.md. */
+  --border-primary: #e0e0e0;
+  --border-secondary: #cccccc;
+  --accent-primary: #2563eb;
+  --accent-blue: #1d4ed8;
+  --accent: #2563eb;
+  --link: #2563eb;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+.mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+.wrap { max-width: 1120px; margin: 0 auto; padding: 24px 16px 64px; }
+
+header.top {
+  display: flex; flex-wrap: wrap; gap: 12px;
+  align-items: baseline; justify-content: space-between;
+  border-bottom: 1px solid var(--border-primary);
+  padding-bottom: 12px; margin-bottom: 24px;
+}
+header.top h1 { font-size: 18px; margin: 0; font-weight: 600; }
+header.top p { margin: 2px 0 0; font-size: 12px; color: var(--text-secondary); }
+.themeToggle {
+  min-height: 32px; padding: 4px 12px; border-radius: 6px;
+  border: 1px solid var(--border-secondary);
+  background: var(--bg-tertiary); color: var(--text-secondary);
+  font-size: 12px; cursor: pointer;
+}
+.themeToggle:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+h2.surface {
+  font-size: 13px; font-weight: 600; text-transform: uppercase;
+  letter-spacing: .08em; color: var(--text-primary);
+  margin: 32px 0 4px;
+}
+h2.surface .path { text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 11px; color: var(--text-secondary); }
+.rule { font-size: 11px; color: var(--text-secondary); margin: 0 0 12px; max-width: 78ch; }
+.rule b { color: var(--text-primary); font-weight: 600; }
+
+.grid { display: grid; gap: 16px; grid-template-columns: 1fr; }
+@media (min-width: 900px) { .grid.two { grid-template-columns: 1fr 1fr; } }
+
+.panel {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px; padding: 14px;
+}
+.panel > .cap {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .09em;
+  color: var(--text-secondary); margin-bottom: 10px;
+}
+
+/* ── The shared ModelLevelPair ─────────────────────────────────────────── */
+.pair {
+  display: flex; flex-wrap: wrap; gap: 4px 14px; align-items: flex-end;
+  border: 1px solid var(--border-primary); border-radius: 6px;
+  padding: 6px 8px; background: var(--bg-tertiary);
+}
+/* One row from tablet up — every instance of the pattern must look identical
+   across surfaces and states (NN/g #4). Only the <768px form stacks. */
+@media (min-width: 768px) { .pair { flex-wrap: nowrap; } }
+.pair .field { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.pair .field > .lab {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .08em;
+  color: var(--text-secondary);
+}
+.pair .field.model { flex: 1 1 auto; min-width: 0; }
+.pair .field.level { flex: 0 0 auto; }
+.refEcho { font-size: 10px; color: var(--text-secondary); margin: 4px 0 0; }
+.refEcho .suffix { color: var(--accent-blue); }
+
+/* triggers — shipped classes, with a 24px target-size floor */
+.trigger {
+  display: inline-flex; align-items: center; gap: 4px;
+  min-height: 24px; padding: 2px 8px; border-radius: 4px;
+  background: transparent; border: 0; cursor: pointer;
+  font-size: 12px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text-secondary); max-width: 100%;
+}
+.trigger:hover { color: var(--text-primary); background: var(--bg-hover); }
+.trigger:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.trigger .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.trigger .chev { color: var(--text-secondary); font-size: 10px; }
+.trigger[data-locked="true"] { color: var(--text-muted); cursor: not-allowed; }
+.trigger[data-locked="true"]:hover { background: transparent; }
+svg.ic { width: 13px; height: 13px; flex: none; fill: currentColor; }
+
+/* popover — shipped ThinkingLevelSelector dropdown */
+.pop {
+  position: absolute; z-index: 40; margin-top: 4px; width: 128px;
+  background: var(--bg-secondary); border: 1px solid var(--border-secondary);
+  border-radius: 8px; overflow: hidden;
+  box-shadow: 0 10px 15px -3px rgba(0,0,0,.35);
+}
+.pop button {
+  display: block; width: 100%; text-align: left;
+  padding: 6px 12px; min-height: 32px;
+  background: transparent; border: 0; cursor: pointer;
+  font-size: 12px; font-family: ui-monospace, monospace;
+  color: var(--text-secondary);
+}
+@media (max-width: 767px) { .pop button { min-height: 44px; } }
+}
+.pop button:hover { background: var(--bg-hover); }
+.pop button[aria-selected="true"] { color: var(--accent); font-weight: 700; }
+.popHost { position: relative; }
+
+/* notes / hints */
+.hint { font-size: 11px; color: var(--text-secondary); margin: 6px 0 0; }
+.hint .kbd { color: var(--accent-blue); }
+.notice {
+  display: flex; gap: 6px; align-items: flex-start;
+  margin-top: 8px; padding: 5px 8px; border-radius: 4px; font-size: 11px;
+  background: var(--severity-warning-bg);
+  border: 1px solid var(--severity-warning-border);
+  color: var(--severity-warning-fg);
+}
+.notice svg { margin-top: 2px; }
+
+/* S1 callout */
+.callout {
+  border: 1px solid var(--severity-info-border);
+  background: var(--severity-info-bg);
+  border-radius: 4px; padding: 10px 12px;
+}
+.callout .row { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; }
+.callout label { font-size: 13px; font-weight: 500; color: var(--severity-info-fg); }
+
+/* S2 role pills */
+/* Single column below 640px: the added `:level` chip makes the shipped
+   2-column pill grid truncate the model name at phone width. */
+.pills { display: grid; grid-template-columns: 1fr; gap: 4px; margin-bottom: 10px; }
+@media (min-width: 640px) { .pills { grid-template-columns: 1fr 1fr; } }
+.pill {
+  display: flex; align-items: center; gap: 8px;
+  min-height: 26px; padding: 3px 8px; border-radius: 4px;
+  background: var(--bg-tertiary); border: 0; cursor: pointer; text-align: left;
+}
+.pill:hover { background: var(--bg-hover); }
+.pill:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+.pill .role { font-size: 11px; font-weight: 600; color: var(--accent-blue); flex: none; }
+.pill .m { font-size: 11px; font-family: ui-monospace, monospace; color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.pill .lvl { font-size: 10px; font-family: ui-monospace, monospace; color: var(--accent-blue); flex: none; }
+.pill[aria-pressed="true"] {
+  background: color-mix(in srgb, var(--accent-blue) 25%, transparent);
+  outline: 2px solid var(--accent-blue);
+}
+/* The shipped selected-pill tint carries accent-on-accent text (2.66:1 dark,
+   3.58:1 light) — under AA. Selected state promotes ALL pill text to
+   --text-primary; the accent survives as the 2px outline (non-text, ≥3:1).
+   WCAG 2.2 SC 1.4.3. */
+.pill[aria-pressed="true"] .role,
+.pill[aria-pressed="true"] .m,
+.pill[aria-pressed="true"] .lvl { color: var(--text-primary); }
+.dot { width: 6px; height: 6px; border-radius: 50%; background: var(--accent-yellow); flex: none; }
+.picker { border: 1px solid var(--border-primary); border-radius: 4px; padding: 8px; }
+.picker .cap { font-size: 11px; color: var(--text-secondary); margin-bottom: 6px; }
+.picker .cap b { color: var(--accent-blue); font-weight: 600; }
+
+/* S3 automation dialog */
+.dlg { display: flex; flex-direction: column; gap: 4px; }
+.dlg .flab { font-size: 12px; color: var(--text-secondary); }
+.modes { display: flex; gap: 6px; margin: 2px 0 6px; }
+.modes button {
+  min-height: 24px; padding: 2px 10px; border-radius: 4px;
+  font-size: 10px; cursor: pointer;
+  background: transparent; border: 1px solid var(--border-secondary);
+  color: var(--text-secondary);
+}
+.modes button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); }
+.modes button:focus-visible { outline: 2px solid var(--focus-ring); outline-offset: 2px; }
+select.input {
+  min-height: 28px; width: 100%; padding: 3px 8px; border-radius: 4px;
+  background: var(--bg-tertiary); border: 1px solid var(--border-secondary);
+  color: var(--text-primary); font-family: ui-monospace, monospace; font-size: 12px;
+}
+
+/* excluded surface */
+.excluded { opacity: .82; }
+.excluded .stamp {
+  display: inline-block; margin-left: 8px; padding: 1px 6px; border-radius: 3px;
+  font-size: 10px; text-transform: uppercase; letter-spacing: .06em;
+  border: 1px solid var(--border-secondary); color: var(--text-secondary);
+}
+.rowline { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.arrow { color: var(--text-secondary); }
+.rowline .k {
+  min-height: 24px; display: inline-flex; align-items: center;
+  padding: 2px 8px; border-radius: 4px; font-size: 11px;
+  background: var(--bg-tertiary); border: 1px solid var(--border-secondary);
+  font-family: ui-monospace, monospace; color: var(--text-secondary);
+}
+footer.legend {
+  margin-top: 40px; padding-top: 14px;
+  border-top: 1px solid var(--border-primary);
+  font-size: 11px; color: var(--text-secondary);
+}
+footer.legend li { margin: 3px 0; }
+/* Phone: every control the pattern owns grows to the 44px comfortable-touch
+   figure. WCAG 2.2 SC 2.5.8 floor is 24px (met at every width); 44px is the
+   loop rubric's mobile line and matches the popover rows the shipped
+   ThinkingLevelSelector already promotes under 768px. */
+@media (max-width: 767px) {
+  .trigger, .pill, .modes button, select.input, .themeToggle { min-height: 44px; }
+  /* Deterministic single column under 768px — short values must not
+     opportunistically sit on one row while long ones stack (rubric #14 +
+     NN/g #4: one shape per state, not one shape per string length). */
+  .pair { flex-direction: column; align-items: stretch; }
+  /* Label above the control, full width — never a squeezed half-row. */
+  .callout .row { flex-direction: column; align-items: stretch; }
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="top">
+  <div>
+    <h1>model&nbsp;+&nbsp;thinking-level pairing</h1>
+    <p>openspec/changes/add-default-thinking-level · every selector that configures a <em>run</em> pairs a level</p>
+  </div>
+  <button class="themeToggle" id="tt" type="button">◐ light theme</button>
+</header>
+
+<!-- ── S1 ─────────────────────────────────────────────────────────────── -->
+<h2 class="surface">S1 · Settings → Sessions <span class="path">SettingsPanel.tsx:1368</span></h2>
+<p class="rule">The pair lives inside the existing <b>--severity-info-*</b> callout. Locked state carries a <b>text</b> reason, never colour alone (WCAG 1.4.1 · heuristic #1).</p>
+<div class="grid two">
+
+  <div class="panel">
+    <div class="cap">state · model selected</div>
+    <div class="callout">
+      <div class="row">
+        <label for="s1model">Default model</label>
+        <div class="pair">
+          <div class="field model">
+            <span class="lab">model</span>
+            <button class="trigger" id="s1model" type="button">
+              <span class="name">anthropic/claude-sonnet-4-5</span><span class="chev">▾</span>
+            </button>
+          </div>
+          <div class="field level popHost">
+            <span class="lab">thinking</span>
+            <button class="trigger" type="button" data-pop="s1pop" aria-haspopup="listbox" aria-expanded="false">
+              <svg class="ic" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-4 12.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26A7 7 0 0 0 12 2m-2 19a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1v-1h-4z"/></svg>
+              <span class="name">high</span><span class="chev">▾</span>
+            </button>
+            <div class="pop" id="s1pop" role="listbox" hidden>
+              <button role="option" aria-selected="false">off</button>
+              <button role="option" aria-selected="false">minimal</button>
+              <button role="option" aria-selected="false">low</button>
+              <button role="option" aria-selected="false">medium</button>
+              <button role="option" aria-selected="true">high</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <p class="refEcho mono">new sessions start as <span>anthropic/claude-sonnet-4-5</span><span class="suffix">:high</span></p>
+    </div>
+    <p class="hint">Levels filter to the model's <span class="mono">supportedThinkingLevels</span> — <span class="mono">xhigh</span> is absent because this model does not advertise it.</p>
+  </div>
+
+  <div class="panel">
+    <div class="cap">state · no model selected → locked</div>
+    <div class="callout">
+      <div class="row">
+        <label for="s1model2">Default model</label>
+        <div class="pair">
+          <div class="field model">
+            <span class="lab">model</span>
+            <button class="trigger" id="s1model2" type="button">
+              <span class="name">select model…</span><span class="chev">▾</span>
+            </button>
+          </div>
+          <div class="field level">
+            <span class="lab">thinking</span>
+            <button class="trigger" type="button" data-locked="true" aria-disabled="true">
+              <svg class="ic" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-4 12.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26A7 7 0 0 0 12 2m-2 19a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1v-1h-4z"/></svg>
+              <span class="name">off</span>
+            </button>
+          </div>
+        </div>
+      </div>
+      <p class="hint">Pick a default model to choose a thinking level. Until then pi's own default applies.</p>
+    </div>
+    <p class="hint">Nothing is persisted here — the stored value stays <span class="mono">""</span>, never a spurious <span class="mono">off</span>.</p>
+  </div>
+</div>
+
+<!-- ── S2 ─────────────────────────────────────────────────────────────── -->
+<h2 class="surface">S2 · Settings → Roles <span class="path">RolesSettingsSection.tsx:669</span></h2>
+<p class="rule">The level is stored as a <b>:suffix</b> on the role ref, so the pair is enclosed in one container (Gestalt common region) and the written ref is echoed verbatim (heuristic #1).</p>
+<div class="grid two">
+
+  <div class="panel">
+    <div class="cap">state · picker open, level staged</div>
+    <div class="pills">
+      <button class="pill" type="button" aria-pressed="true">
+        <span class="role">@planning</span><span class="m">claude-sonnet-4-5</span><span class="lvl">:high</span><span class="dot" title="unsaved"></span>
+      </button>
+      <button class="pill" type="button" aria-pressed="false">
+        <span class="role">@fast</span><span class="m">claude-haiku-4-5</span><span class="lvl">:low</span>
+      </button>
+      <button class="pill" type="button" aria-pressed="false">
+        <span class="role">@coding</span><span class="m">gpt-5-codex</span>
+      </button>
+      <button class="pill" type="button" aria-pressed="false">
+        <span class="role">@vision</span><span class="m" style="color:var(--accent-blue)">+ Add model</span>
+      </button>
+    </div>
+    <div class="picker">
+      <div class="cap">Assign model to <b>@planning</b></div>
+      <div class="pair">
+        <div class="field model">
+          <span class="lab">model</span>
+          <button class="trigger" type="button"><span class="name">anthropic/claude-sonnet-4-5</span><span class="chev">▾</span></button>
+        </div>
+        <div class="field level popHost">
+          <span class="lab">thinking</span>
+          <button class="trigger" type="button" data-pop="s2pop" aria-haspopup="listbox" aria-expanded="false">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-4 12.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26A7 7 0 0 0 12 2m-2 19a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1v-1h-4z"/></svg>
+            <span class="name">high</span><span class="chev">▾</span>
+          </button>
+          <div class="pop" id="s2pop" role="listbox" hidden>
+            <button role="option" aria-selected="false">off</button>
+            <button role="option" aria-selected="false">low</button>
+            <button role="option" aria-selected="false">medium</button>
+            <button role="option" aria-selected="true">high</button>
+            <button role="option" aria-selected="false">xhigh</button>
+          </div>
+        </div>
+      </div>
+      <p class="refEcho mono">saves <span>anthropic/claude-sonnet-4-5</span><span class="suffix">:high</span></p>
+    </div>
+    <p class="hint">A level change marks the pill unsaved exactly like a model change — one dirty marker, one Save.</p>
+  </div>
+
+  <div class="panel">
+    <div class="cap">state · level dropped by a model switch</div>
+    <div class="pills">
+      <button class="pill" type="button" aria-pressed="true">
+        <span class="role">@planning</span><span class="m">gpt-5-mini</span><span class="dot" title="unsaved"></span>
+      </button>
+      <button class="pill" type="button" aria-pressed="false">
+        <span class="role">@fast</span><span class="m">claude-haiku-4-5</span><span class="lvl">:low</span>
+      </button>
+    </div>
+    <div class="picker">
+      <div class="cap">Assign model to <b>@planning</b></div>
+      <div class="pair">
+        <div class="field model">
+          <span class="lab">model</span>
+          <button class="trigger" type="button"><span class="name">openai/gpt-5-mini</span><span class="chev">▾</span></button>
+        </div>
+        <div class="field level">
+          <span class="lab">thinking</span>
+          <button class="trigger" type="button">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-4 12.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26A7 7 0 0 0 12 2m-2 19a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1v-1h-4z"/></svg>
+            <span class="name">off</span><span class="chev">▾</span>
+          </button>
+        </div>
+      </div>
+      <div class="notice">
+        <svg class="ic" viewBox="0 0 24 24"><path d="M13 14h-2V9h2m0 9h-2v-2h2M1 21h22L12 2z"/></svg>
+        <span><span class="mono">xhigh</span> isn't supported by <span class="mono">openai/gpt-5-mini</span> — level cleared.</span>
+      </div>
+      <p class="refEcho mono">saves <span>openai/gpt-5-mini</span></p>
+    </div>
+    <p class="hint">The staged value changed underneath the user, so the UI says so rather than silently saving something else.</p>
+  </div>
+</div>
+
+<!-- ── S3 ─────────────────────────────────────────────────────────────── -->
+<h2 class="surface">S3 · Automation → create <span class="path">CreateAutomationDialog.tsx:829</span></h2>
+<p class="rule">The <b>@role</b> branch shows no level control — one owner per value. Absence is explained in words so it doesn't read as a missing feature (Tesler's Law).</p>
+<div class="grid two">
+
+  <div class="panel">
+    <div class="cap">state · specific-model branch</div>
+    <div class="dlg">
+      <span class="flab">Model</span>
+      <div class="modes">
+        <button type="button" aria-pressed="false">@role</button>
+        <button type="button" aria-pressed="true">specific model</button>
+      </div>
+      <div class="pair">
+        <div class="field model">
+          <span class="lab">model</span>
+          <button class="trigger" type="button"><span class="name">anthropic/claude-sonnet-4-5</span><span class="chev">▾</span></button>
+        </div>
+        <div class="field level popHost">
+          <span class="lab">thinking</span>
+          <button class="trigger" type="button" data-pop="s3pop" aria-haspopup="listbox" aria-expanded="false">
+            <svg class="ic" viewBox="0 0 24 24"><path d="M12 2a7 7 0 0 0-4 12.74V17a2 2 0 0 0 2 2h4a2 2 0 0 0 2-2v-2.26A7 7 0 0 0 12 2m-2 19a1 1 0 0 0 1 1h2a1 1 0 0 0 1-1v-1h-4z"/></svg>
+            <span class="name">high</span><span class="chev">▾</span>
+          </button>
+          <div class="pop" id="s3pop" role="listbox" hidden>
+            <button role="option" aria-selected="false">off</button>
+            <button role="option" aria-selected="false">low</button>
+            <button role="option" aria-selected="false">medium</button>
+            <button role="option" aria-selected="true">high</button>
+          </div>
+        </div>
+      </div>
+      <p class="refEcho mono">automation.yaml → model: "<span>anthropic/claude-sonnet-4-5</span><span class="suffix">:high</span>"</p>
+    </div>
+  </div>
+
+  <div class="panel">
+    <div class="cap">state · @role branch</div>
+    <div class="dlg">
+      <span class="flab">Model</span>
+      <div class="modes">
+        <button type="button" aria-pressed="true">@role</button>
+        <button type="button" aria-pressed="false">specific model</button>
+      </div>
+      <select class="input" aria-label="Role">
+        <option>@planning</option>
+        <option>@fast</option>
+        <option>@coding</option>
+      </select>
+      <p class="hint">Thinking level comes from <span class="kbd mono">@planning</span> — set it in Settings → Roles.</p>
+      <p class="refEcho mono">automation.yaml → model: "<span>@planning</span>"</p>
+    </div>
+  </div>
+</div>
+
+<!-- ── excluded ───────────────────────────────────────────────────────── -->
+<h2 class="surface excluded">Not paired — by design <span class="path">ModelProxySection.tsx:132 / :201</span></h2>
+<p class="rule">These selectors <b>list</b> or <b>map</b> refs; they never configure a run. A level here would be written and never read (design D6, heuristic #2).</p>
+<div class="grid two excluded">
+  <div class="panel">
+    <div class="cap">preferred models <span class="stamp">no level</span></div>
+    <div class="rowline"><span class="k">1. anthropic/claude-sonnet-4-5</span></div>
+    <div class="rowline"><span class="k">2. openai/gpt-5-mini</span></div>
+    <p class="hint">An ordered fallback list — there is no single run to configure.</p>
+  </div>
+  <div class="panel">
+    <div class="cap">model aliases <span class="stamp">no level</span></div>
+    <div class="rowline"><span class="k">sonnet</span><span class="arrow">→</span><span class="k">anthropic/claude-sonnet-4-5</span></div>
+    <div class="rowline"><span class="k">mini</span><span class="arrow">→</span><span class="k">openai/gpt-5-mini</span></div>
+    <p class="hint">A name→ref mapping. The level belongs to whoever <em>runs</em> the alias.</p>
+  </div>
+</div>
+
+<footer class="legend">
+  <ul>
+    <li><b>Order is fixed:</b> model left, level right — the composer's existing order (NN/g #4 consistency &amp; standards).</li>
+    <li><b>One container:</b> the level is a property of the model, which is why it rides the ref as <span class="mono">:suffix</span> (Gestalt common region).</li>
+    <li><b>Persistent captions:</b> icon-only triggers stay in the dense composer; forms get labels (rubric #13).</li>
+    <li><b>Echo the written value:</b> the user can see the exact ref that will be saved (heuristic #1).</li>
+    <li><b>24px target floor + visible focus</b> on every trigger (WCAG 2.5.8, 2.4.7); popover rows go 44px under 768px.</li>
+  </ul>
+</footer>
+
+</div>
+<script>
+document.getElementById('tt').addEventListener('click', () => {
+  const el = document.documentElement;
+  const next = el.dataset.theme === 'dark' ? 'light' : 'dark';
+  el.dataset.theme = next;
+  document.getElementById('tt').textContent = next === 'dark' ? '◐ light theme' : '◑ dark theme';
+});
+document.querySelectorAll('[data-pop]').forEach((btn) => {
+  btn.addEventListener('click', () => {
+    const pop = document.getElementById(btn.dataset.pop);
+    const open = !pop.hasAttribute('hidden');
+    document.querySelectorAll('.pop').forEach((p) => p.setAttribute('hidden', ''));
+    document.querySelectorAll('[data-pop]').forEach((b) => b.setAttribute('aria-expanded', 'false'));
+    if (open) return;
+    pop.removeAttribute('hidden');
+    btn.setAttribute('aria-expanded', 'true');
+  });
+});
+document.querySelectorAll('.pop button').forEach((opt) => {
+  opt.addEventListener('click', () => {
+    const pop = opt.closest('.pop');
+    pop.querySelectorAll('button').forEach((b) => b.setAttribute('aria-selected', 'false'));
+    opt.setAttribute('aria-selected', 'true');
+    const host = pop.closest('.popHost');
+    host.querySelector('.trigger .name').textContent = opt.textContent;
+    const echo = host.closest('.panel').querySelector('.refEcho .suffix');
+    if (echo) echo.textContent = opt.textContent === 'off' ? '' : ':' + opt.textContent;
+    pop.setAttribute('hidden', '');
+    host.querySelector('.trigger').setAttribute('aria-expanded', 'false');
+  });
+});
+document.addEventListener('click', (e) => {
+  if (e.target.closest('.popHost')) return;
+  document.querySelectorAll('.pop').forEach((p) => p.setAttribute('hidden', ''));
+});
+</script>
+</body>
+</html>

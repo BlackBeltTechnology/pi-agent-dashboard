@@ -62,6 +62,7 @@ describe("autoStartServer respects shouldSuppressAutoStart", () => {
       isDashboardRunning: vi.fn().mockResolvedValue({ running: false }),
       launchServer: vi.fn().mockResolvedValue({ success: true, message: "ok" }),
       notify: vi.fn(),
+      resolveCliPath: () => join(tmpdir(), "host-install", "packages", "server", "src", "cli.ts"),
       // Isolate the single-flight lock from the shared `~/.pi/dashboard`
       // path so parallel vitest workers cannot contend on one real lockfile.
       // See change: fix-worktree-server-autostart-leak.

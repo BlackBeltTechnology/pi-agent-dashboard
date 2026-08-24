@@ -140,6 +140,25 @@ describe("settings page composition", () => {
     expect(callout.contains(controls[0])).toBe(true);
   });
 
+  /**
+   * The naming model is the `naming` ROLE, so it is configured in the Roles
+   * panel — one source of truth, no second preference. Without a pointer the
+   * operator has no way to discover that from the toggle, and an unassigned
+   * `naming` reads as "auto-naming is broken" rather than "@fast is used".
+   * See change: fix-auto-naming-reasoning-model (test-plan #F5).
+   */
+  it("F5: the auto-name toggle points at the @naming role and its @fast fallback", async () => {
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Interface"));
+    gotoPage("Sessions");
+    await waitFor(() => screen.getByText(/Session Strategy/i));
+
+    const pointer = screen.getByTestId("auto-name-model-pointer");
+    expect(pointer.textContent).toMatch(/@naming/);
+    expect(pointer.textContent).toMatch(/Roles/);
+    expect(pointer.textContent).toMatch(/@fast/);
+  });
+
   // test-plan #F2
   it("states the brand-new-only caveat on the default-model callout", async () => {
     render(<SettingsPanel />);
@@ -272,5 +291,50 @@ describe("settings page composition", () => {
     expect(screen.queryByText(/Enable Watchdog/i)).toBeNull();
     expect(screen.queryByText(/Probe interval/i)).toBeNull();
     expect(screen.queryByText(/Failure Threshold/i)).toBeNull();
+  });
+
+  // Regression: the chat-display draft used to be re-seeded from the baseline
+  // on the section's MOUNT pass, so a toggle flipped between the commit that
+  // painted it and the passive-effect flush was silently reverted (the dirty
+  // flag is written during render, so the effect still read "clean"). Under
+  // load this surfaced as a flaky "Token stats bar did not flip" in CI, and
+  // for a real user as a fast first click on Settings doing nothing.
+  //
+  // The interleaving is pinned by clicking from a MutationObserver callback --
+  // the same microtask checkpoint `waitFor` wakes on -- which runs right after
+  // the commit that paints the toggle and before the scheduler's macrotask that
+  // flushes the new passive effects.
+  it("keeps a toggle flipped before the mount effects flush", async () => {
+    let releaseConfig: () => void = () => {};
+    const gate = new Promise<void>((resolve) => { releaseConfig = resolve; });
+    const inner = mockFetchConfig();
+    global.fetch = vi.fn().mockImplementation(async (url: string, options?: any) => {
+      if (url === "/api/config" && !options?.method) await gate;
+      return inner(url, options);
+    });
+
+    render(<SettingsPanel />);
+    expect(screen.queryByText("Interface")).toBeNull();
+
+    const clickedOnPaint = new Promise<{ before: string | null; after: string | null }>((resolve) => {
+      const observer = new MutationObserver(() => {
+        const toggle = screen.queryByRole("switch", { name: "Token stats bar" });
+        if (!toggle) return;
+        observer.disconnect();
+        const before = toggle.getAttribute("aria-checked");
+        fireEvent.click(toggle);
+        resolve({ before, after: toggle.getAttribute("aria-checked") });
+      });
+      observer.observe(document.body, { childList: true, subtree: true });
+    });
+
+    releaseConfig();
+    const { before, after } = await clickedOnPaint;
+
+    expect(before).toBe("true");
+    expect(after, "click did not flip the toggle").toBe("false");
+    // Survives the passive-effect flush that `fireEvent`'s act() ran on exit.
+    expect(screen.getByRole("switch", { name: "Token stats bar" }).getAttribute("aria-checked")).toBe("false");
+    expect(await waitFor(() => screen.getByTestId("settings-save-bar"))).toBeTruthy();
   });
 });

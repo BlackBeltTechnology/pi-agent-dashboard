@@ -27,13 +27,20 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/openspec-poller.js";
 import type { PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { createSemaphore, type Semaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
+import { inferPlatform, pathKey } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
 import type { OpenSpecChange, OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { computeFolderGroupKeys, createFolderHeadPoll, type FolderHeadPoll } from "./git-worktree/folder-head-poll.js";
 import type { EventLoopSpikeMetrics, EventLoopTurn } from "./metrics/eventloop-spike-metrics.js";
-import { createFolderHeadPoll, type FolderHeadPoll } from "./git-worktree/folder-head-poll.js";
+
+/**
+ * Debounce for the folder-HEAD entry refresh, so a registration burst collapses
+ * into one bounded fan-out. See change: fix-folder-header-worktree-branch-leak.
+ */
+const FOLDER_HEAD_ENTRY_DEBOUNCE_MS = 500;
+
 import { createFolderHeadWatcher, type FolderHeadWatcher } from "./git-worktree/folder-head-watcher.js";
 import type { HeadInfo } from "./git-worktree/git-operations.js";
 import type { HydrationMetrics } from "./metrics/hydration-metrics.js";
-import type { SessionManager } from "./session/memory-session-manager.js";
 import { createOpenSpecChangeWatcher, type OpenSpecChangeWatcher } from "./openspec/openspec-change-watcher.js";
 import {
   effectiveMtimeOr,
@@ -48,8 +55,9 @@ import {
   createOpenSpecPollWorkerPool,
   type PollWorkerPool,
 } from "./openspec/openspec-poll-worker-pool.js";
-import { scanPiResources } from "./pi/pi-resource-scanner.js";
 import type { PreferencesStore } from "./persistence/preferences-store.js";
+import { scanPiResources } from "./pi/pi-resource-scanner.js";
+import type { SessionManager } from "./session/memory-session-manager.js";
 import { discoverSessionsForCwd } from "./session/session-discovery.js";
 import {
   createSessionLoadWorkerPool,
@@ -158,6 +166,26 @@ export interface DirectoryService {
   /** Apply a new OpenSpecPollConfig without losing cache. Safe to call mid-stream. */
   reconfigurePolling(config: OpenSpecPollConfig): void;
   onDirectoryAdded(cwd: string): Promise<DirectoryAddedResult>;
+  /**
+   * Read-only snapshot of the folder-HEAD diff cache, for the browser connect
+   * snapshot. Empty when the lazily-created poll does not exist (polling not
+   * started, or already stopped). PURE — never mutates the cache.
+   * See change: fix-folder-header-worktree-branch-leak.
+   */
+  folderHeadSnapshot(): Array<{ cwd: string; branch: string | null }>;
+  /**
+   * Refresh the HEAD of every folder group key that ENTERED the observed set
+   * since the last recompute, without waiting for the next periodic cycle.
+   * Debounced (~500ms) so a registration burst collapses into one fan-out.
+   *
+   * Declared REQUIRED, but call sites still guard (`?.()` in `event-wiring`,
+   * `typeof … === "function"` in `browser-gateway`): hand-built
+   * `DirectoryService` fakes cast a fixed field set through
+   * `as unknown as DirectoryService`, so the type is only a compile-time claim
+   * about a runtime object that lacks the method.
+   * See change: fix-folder-header-worktree-branch-leak.
+   */
+  refreshFolderHeadsForEnteringKeys(): void;
 }
 
 // ── Jitter ─────────────────────────────────────────────────────────
@@ -368,6 +396,20 @@ export function createDirectoryService(
     onChange: (cwd) => { folderHeadPoll?.refreshOne(cwd)?.catch(() => { /* logged inside */ }); },
   });
   const attachedFolderHeadCwds = new Set<string>();
+  // The most recently COMPUTED folder group-key set, held as CANONICAL
+  // `pathKey`s rather than display paths: cosmetic display drift (`/repo` vs
+  // `/repo/`, drive-letter or case changes, a pin swapping which display path
+  // wins a collision) would otherwise read as a key ENTERING the set and cost a
+  // redundant git read on every drift. `computeFolderGroupKeys` already
+  // de-duplicates by `pathKey`, so this just keeps the entry predicate on the
+  // same footing. Display paths are still what gets read and broadcast.
+  //
+  // Single writer: `recomputeFolderHeadKeys` below, called by the periodic tick
+  // and by every entry trigger. Two independent updaters would let a
+  // trigger-side recompute mark a key "previously seen" that no refresh read.
+  // See change: fix-folder-header-worktree-branch-leak.
+  let previousFolderHeadKeys = new Set<string>();
+  let folderHeadEntryTimer: ReturnType<typeof setTimeout> | null = null;
 
   const caches = new Map<string, DirCache>();
   const piResourcesCache = new Map<string, PiResourcesResult>();
@@ -829,14 +871,55 @@ export function createDirectoryService(
    * HEAD refresh). No-op until `startPolling` installs the broadcast callback.
    * See change: refresh-folder-header-branch.
    */
+  /**
+   * THE single recompute path for the folder group-key set. Returns the fresh
+   * key list plus the keys that were NOT in the previously computed set, and
+   * atomically installs the fresh set as "previously computed". Called by the
+   * periodic tick and by every entry trigger.
+   * See change: fix-folder-header-worktree-branch-leak.
+   */
+  function recomputeFolderHeadKeys(): { keys: string[]; entering: string[] } {
+    const sessions = sessionManager.listAll();
+    const pinned = preferencesStore.getPinnedDirectories();
+    const keys = computeFolderGroupKeys(sessions, pinned);
+    // Same inference inputs as `computeFolderGroupKeys` uses internally, so the
+    // canonical keys here fold exactly the drift it folds.
+    const platform = inferPlatform([...sessions.map((s) => s.cwd), ...pinned]);
+    const canonical = keys.map((k) => pathKey(k, platform));
+    const entering = keys.filter((_k, i) => !previousFolderHeadKeys.has(canonical[i]));
+    previousFolderHeadKeys = new Set(canonical);
+    return { keys, entering };
+  }
+
+  /**
+   * Entry refresh: read the HEAD of every key that entered the observed set
+   * since the last recompute. Debounced so a registration burst collapses into
+   * one bounded fan-out; the fan-out reuses the poll's read → diff → broadcast
+   * funnel and its concurrency cap, so this is not a second broadcast path.
+   * See change: fix-folder-header-worktree-branch-leak.
+   */
+  function refreshFolderHeadsForEnteringKeys(): void {
+    if (!folderHeadPoll) return;
+    if (folderHeadEntryTimer) return; // burst already collapsing into one fan-out
+    folderHeadEntryTimer = setTimeout(() => {
+      folderHeadEntryTimer = null;
+      const poll = folderHeadPoll;
+      if (!poll) return;
+      const { entering } = recomputeFolderHeadKeys();
+      if (entering.length === 0) return;
+      void poll.refreshMany(entering).catch((err) => {
+        console.warn("[folder-head] entry refresh failed:", err);
+      });
+    }, FOLDER_HEAD_ENTRY_DEBOUNCE_MS);
+    folderHeadEntryTimer.unref?.();
+  }
+
   async function tickFolderHeads(): Promise<void> {
     if (!folderHeadPoll) return;
     // Async, concurrency-bounded HEAD reads (no `execSync` burst on this turn).
     // See change: attribute-openspec-poll-eventloop-stalls.
-    const keys = await folderHeadPoll.poll(
-      sessionManager.listAll(),
-      preferencesStore.getPinnedDirectories(),
-    );
+    const { keys } = recomputeFolderHeadKeys();
+    await folderHeadPoll.refreshMany(keys);
     const known = new Set(keys);
     for (const cwd of keys) {
       if (!attachedFolderHeadCwds.has(cwd)) {
@@ -1067,6 +1150,8 @@ export function createDirectoryService(
       // refresh-folder-header-branch.
       try { folderHeadWatcher.detachAll(); } catch { /* best-effort */ }
       attachedFolderHeadCwds.clear();
+      if (folderHeadEntryTimer) { clearTimeout(folderHeadEntryTimer); folderHeadEntryTimer = null; }
+      previousFolderHeadKeys = new Set();
       folderHeadPoll = null;
       // Terminate the OpenSpec poll worker pool (best-effort — callers that
       // restart polling will respawn it lazily). See change:
@@ -1143,7 +1228,20 @@ export function createDirectoryService(
       if (!attachedWatcherCwds.has(cwd)) {
         if (changeWatcher.attach(cwd)) attachedWatcherCwds.add(cwd);
       }
+      // A pinned/added directory enters the folder-HEAD key set with no session
+      // at all — refresh it rather than waiting a full poll interval. For a
+      // brand-new session cwd this is the SECOND trigger (the `session_register`
+      // handler already fired one); the debounce collapses the pair, so the
+      // duplicate costs nothing and neither call site depends on the other.
+      // See change: fix-folder-header-worktree-branch-leak.
+      refreshFolderHeadsForEnteringKeys();
       return { sessions, openspecData };
     },
+
+    folderHeadSnapshot(): Array<{ cwd: string; branch: string | null }> {
+      return folderHeadPoll?.snapshot() ?? [];
+    },
+
+    refreshFolderHeadsForEnteringKeys,
   };
 }

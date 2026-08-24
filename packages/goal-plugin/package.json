@@ -62,12 +62,16 @@
       {
         "slot": "shell-overlay-route",
         "component": "GoalsBoardClaim",
-        "path": "/folder/:encodedCwd/goals"
+        "path": "/folder/:encodedCwd/goals",
+        "depth": 2,
+        "parentPath": "/folder/:encodedCwd"
       },
       {
         "slot": "shell-overlay-route",
         "component": "GoalDetailClaim",
-        "path": "/folder/:encodedCwd/goals/:goalId"
+        "path": "/folder/:encodedCwd/goals/:goalId",
+        "depth": 2,
+        "parentPath": "/folder/:encodedCwd/goals"
       },
       {
         "slot": "settings-section",

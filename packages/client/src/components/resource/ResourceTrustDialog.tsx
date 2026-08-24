@@ -17,8 +17,9 @@
  */
 
 import { DialogPortal } from "@blackbelt-technology/pi-dashboard-client-utils/DialogPortal";
+import { useEscapeDismiss } from "@blackbelt-technology/pi-dashboard-client-utils/escape-stack";
 import type React from "react";
-import { useCallback, useEffect } from "react";
+import { useCallback } from "react";
 import type { ResourceTrustOption } from "../../lib/api/resources-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 
@@ -33,13 +34,15 @@ interface Props {
 export function ResourceTrustDialog({ cwd, message, options, onChoose, onDismiss }: Props): React.ReactElement {
   const dismiss = useCallback(() => onDismiss(), [onDismiss]);
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") dismiss();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [dismiss]);
+  // Join the SHARED escape stack instead of listening on `document` directly.
+  // A private listener is invisible to the stack, so Escape dismissed this
+  // dialog AND whatever layer was underneath it. That was harmless while the
+  // Resources page was a plain route, and became visible the moment folder
+  // settings became a route-backed overlay: one keypress closed the trust
+  // prompt and navigated the whole surface away. The stack fires only its top
+  // layer, which is the behaviour this dialog always intended.
+  // See change: add-route-backed-overlay-dialogs.
+  useEscapeDismiss(true, dismiss);
 
   return (
     <DialogPortal>

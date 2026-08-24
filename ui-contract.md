@@ -126,6 +126,20 @@ which is why they also carry a shape (below).
    **plus** text, not a bare coloured dot.
 5. Dialogs carry `role="dialog"`, `aria-modal`, a labelled title, focus trap,
    and Escape-to-close.
+6. **The lower text ramp is not uniformly text-safe, and the failure is
+   theme-asymmetric.** Verify a ramp token against BOTH themes before using it
+   as text:
+
+   | Token | dark on `--bg-primary` | light on `--bg-primary` | Safe as text? |
+   |---|---|---|---|
+   | `--text-secondary` | 9.07:1 | 9.74:1 | yes, both |
+   | `--text-tertiary` | 4.98:1 | **4.48:1** | **dark only** — light is under the 4.5:1 floor |
+   | `--text-muted` | 2.77:1 | 2.32:1 | no — decorative/disabled only |
+
+   `--text-tertiary` is #777777 in light, documented in `index.css` as an
+   *overlay boundary* under SC 1.4.11 — a **3:1 non-text** threshold. It is a
+   border token that happens to be legible, not a text token. Quiet body copy
+   that must survive both themes takes `--text-secondary`.
 
 **Known debt (do not copy):** `BranchSwitchDialog.tsx` ships with no `role`,
 `aria-modal`, or labelled title. New dialogs must not inherit that.

@@ -6,7 +6,13 @@ import {
   type DisplayPrefs,
   normalizeNotifyMinLevel,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+// From the BROWSER-SAFE module, never `config.js`: a value import of the latter
+// pulls node:fs/os/path into the bundle and the SPA dies at boot with
+// `uv.homedir is not a function`. See change: fix-lazy-history-backfill-ux (D7).
+import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
+import { mergeModelOptions } from "@blackbelt-technology/pi-dashboard-shared/model-catalogue.js";
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
@@ -19,6 +25,7 @@ import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { listKnownServers } from "../../lib/api/known-servers-api.js";
+import { fetchModelCatalogue, type ModelCatalogueResult } from "../../lib/api/models-api.js";
 import { type ProviderHealth, type TestProviderResult, testProvider } from "../../lib/api/providers-api.js";
 import { type BlockEvent, getBlockEvents } from "../../lib/gateway/gateway-api.js";
 import {
@@ -51,19 +58,20 @@ import { PluginsSection } from "../packages/PluginsSection.js";
 import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 import type { ResourceType } from "../resource/ResourceCardGrid.js";
-import { ResourceGridPanel } from "../resource/ResourceGridPanel.js";
+import { RESOURCE_PAGE_TYPE, type ResourcePageId, ScopedResourceGrid } from "../resource/ScopedResourceGrid.js";
 import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
 import { DiagnosticsSection } from "./DiagnosticsSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
 import { ModelSelector } from "./ModelSelector.js";
-import { ThinkingLevelSelector } from "./ThinkingLevelSelector.js";
 // Curated pi-install picker; sits directly above the raw Tools escape hatch.
 // See change: select-pi-runtime-install (design D12).
 import { PiRuntimeSection } from "./PiRuntimeSection.js";
 import { PluginNotFoundNotice, PluginSettingsPage } from "./PluginSettingsPage.js";
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
 import { RetrySettingsSection } from "./RetrySettingsSection.js";
+import { ThinkingLevelSelector } from "./ThinkingLevelSelector.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
+import { useOverlayDismissGuard } from "../overlay/overlay-dismiss-guard.js";
 
 interface ProviderConfig {
   clientId: string;
@@ -97,7 +105,21 @@ interface MemoryLimitsConfig {
   maxEventsPerSession: number;
   maxStringFieldSize: number;
   maxWsBufferBytes: number;
+  /** See change: lazy-load-session-history. */
+  maxReplayEvents: number;
 }
+
+/**
+ * Seed for the `!c.memoryLimits` branches below. Extracted so a new field can
+ * never be added to the interface and forgotten in one of four literals —
+ * which would silently drop the other three values on save.
+ */
+const MEMORY_LIMITS_SEED: MemoryLimitsConfig = {
+  maxEventsPerSession: 200,
+  maxStringFieldSize: 4000,
+  maxWsBufferBytes: 4194304,
+  maxReplayEvents: DEFAULT_MEMORY_LIMITS.maxReplayEvents,
+};
 
 interface NetworkInterfaceInfo {
   name: string;
@@ -267,8 +289,26 @@ function computeConfigPartial(config: Config, original: Config): Record<string, 
   if (JSON.stringify(config.trustedNetworks) !== JSON.stringify(original.trustedNetworks)) {
     partial.trustedNetworks = config.trustedNetworks ?? [];
   }
+  /**
+   * FIELD-level, not whole-object. `GET /api/config` returns the PARSED config,
+   * so every memory limit is materialized client-side; writing the whole object
+   * back would serialize an explicit `maxReplayEvents` the user never chose
+   * whenever they edit a sibling field — converting a defaulted field into a
+   * pinned one behind their back, and freezing the old default across upgrades.
+   * The server deep-merges `memoryLimits` over the RAW file, so a partial
+   * sub-object is safe: untouched keys stay exactly as the file has them
+   * (including an explicit `0`, the documented rollback lever).
+   * See change: fix-lazy-history-backfill-ux (D7).
+   */
   if (JSON.stringify(config.memoryLimits) !== JSON.stringify(original.memoryLimits)) {
-    partial.memoryLimits = config.memoryLimits;
+    const changed: Partial<MemoryLimitsConfig> = {};
+    const keys = Object.keys(config.memoryLimits ?? {}) as (keyof MemoryLimitsConfig)[];
+    for (const key of keys) {
+      if (config.memoryLimits[key] !== original.memoryLimits?.[key]) {
+        changed[key] = config.memoryLimits[key];
+      }
+    }
+    if (Object.keys(changed).length > 0) partial.memoryLimits = changed;
   }
   if (JSON.stringify(config.openspec) !== JSON.stringify(original.openspec)) {
     partial.openspec = config.openspec ?? DEFAULT_OPENSPEC_UI;
@@ -305,13 +345,10 @@ const VALID_PAGES = new Set<string>([...VALID_SETTINGS_TABS, "instructions", "ga
 
 // Global-scope resource card pages. Page id → the singular `PiResource.type` its
 // grid renders. See change: resources-card-tabs.
-const RESOURCE_TAB_TYPE: Record<string, ResourceType> = {
-  skills: "skill",
-  agents: "agent",
-  extensions: "extension",
-  prompts: "prompt",
-  themes: "theme",
-};
+/** Retired in favour of the single map in `ScopedResourceGrid` (D7): two
+ *  byte-identical copies could drift and render the wrong type under a
+ *  correct-looking URL. See change: add-route-backed-overlay-dialogs. */
+const RESOURCE_TAB_TYPE = RESOURCE_PAGE_TYPE;
 
 /** Resolve a raw id (route param or ?tab=) to a canonical page id, or null if invalid. */
 function resolveSettingsPage(raw: string | undefined | null): string | null {
@@ -328,7 +365,13 @@ function resolveSettingsPage(raw: string | undefined | null): string | null {
 const BACK_SENTINEL = "@@back";
 
 export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd }: {
-  availableModels?: Array<{ provider: string; id: string; supportedThinkingLevels?: string[] }>;
+  /**
+   * Per-session `models_list` union pushed by live bridges. Merged with the
+   * session-independent `GET /api/models` catalogue this panel fetches itself;
+   * session rows win on collision (they carry `name` / `metadataSource`).
+   * See change: settings-default-model-without-session.
+   */
+  availableModels?: ModelInfo[];
   /** Currently-selected session's cwd — backs the canvas-types project scope. */
   selectedCwd?: string;
   /** WS bus subscribe (from App) used to correlate the confirm:"ws" restart. */
@@ -512,6 +555,48 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     setting: string; source: string; gitPath: string | null;
     gitVersion: string | null; shellPath: string | null;
   } | null>(null);
+  // Session-independent model catalogue (GET /api/models). Owned here because
+  // this panel also owns the refetch triggers (credential writes) and the
+  // unavailable callout. `null` = no response yet (loading).
+  // See change: settings-default-model-without-session.
+  const [catalogue, setCatalogue] = useState<ModelCatalogueResult | null>(null);
+  // Last models a request actually returned. Held separately so a refetch that
+  // fails does not BLANK a catalogue that already loaded — the proxy editors
+  // would lose every option on one transient 503. The callout still fires, so
+  // the failure is reported rather than swallowed.
+  const [lastGoodModels, setLastGoodModels] = useState<ModelInfo[] | null>(null);
+  const [catalogueFetching, setCatalogueFetching] = useState(true);
+  // LAST-RESPONSE-wins, deliberately: whichever response arrives last is the
+  // rendered catalogue, even if its request was issued first. A stale payload
+  // may therefore win transiently; the next refetch corrects it. Spec'd that
+  // way so the rule is one observable sentence rather than request bookkeeping.
+  const refetchCatalogue = useCallback(() => {
+    setCatalogueFetching(true);
+    return fetchModelCatalogue()
+      .then((result) => {
+        setCatalogue(result);
+        if (result.status === "ok") setLastGoodModels(result.models);
+      })
+      .finally(() => setCatalogueFetching(false));
+  }, []);
+  useEffect(() => {
+    void refetchCatalogue();
+  }, [refetchCatalogue]);
+
+  const catalogueModels = useMemo(
+    () => (catalogue?.status === "ok" ? catalogue.models : (lastGoodModels ?? [])),
+    [catalogue, lastGoodModels],
+  );
+  /** Default Model options: catalogue ∪ every session list, session row wins. */
+  const defaultModelOptions = useMemo(
+    () => mergeModelOptions(catalogueModels, availableModels ?? []),
+    [catalogueModels, availableModels],
+  );
+  const catalogueUnavailable = catalogue?.status === "unavailable";
+  // Loading is the COLD state only: once a response has landed, a refetch keeps
+  // rendering the options it has instead of flipping back to a spinner.
+  const catalogueLoading = catalogueFetching && catalogue === null;
+
   const refreshGitSourceReadout = useCallback(() => {
     return fetch(`${getApiBase()}/api/health`)
       .then((res) => (res.ok ? res.json() : null))
@@ -724,6 +809,10 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
           if (!data.success) throw new Error(data.error || "providers");
           const saved = validProviders.map(({ isNew, ...rest }) => rest);
           setLlmProviders(saved);
+          // A provider save/removal changes the catalogue; refetch off THIS
+          // response, never a fixed delay.
+          // See change: settings-default-model-without-session.
+          void refetchCatalogue();
           setOriginalLlmProviders(JSON.parse(JSON.stringify(saved)));
           // The PUT awaited a server-side probe per provider; refetch so each
           // pill reflects the freshly cached health without a remount. See
@@ -825,6 +914,13 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     else performBack();
   }, [performBack]);
 
+  // Overlay dismissal (backdrop / Escape / ✕) — gestures the full page never
+  // had. Route them through the SAME prompt as the back arrow rather than
+  // letting the container navigate out from under unsaved edits (R1). Opt-in,
+  // so this arms only while dirty.
+  // See change: add-route-backed-overlay-dialogs (task 6.2).
+  useOverlayDismissGuard(isDirty, requestBack);
+
   // Hard exits (tab close / reload / Electron window close): native prompt,
   // registered only while dirty.
   useEffect(() => {
@@ -842,7 +938,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     const onPop = () => {
       if (isDirtyRef.current) {
         window.history.pushState(null, "", window.location.href);
-        setPendingNav("/");
+        // Discarding must return to the LAUNCHING route, not the card list.
+        // The old hardcoded "/" evicted the user to the cards — exactly the
+        // defect this change exists to fix (D1b).
+        // See change: add-route-backed-overlay-dialogs (task 6.3).
+        setPendingNav(BACK_SENTINEL);
       }
     };
     window.addEventListener("popstate", onPop);
@@ -1130,17 +1230,13 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
             <InstructionsPage />
           ) : activeTab in RESOURCE_TAB_TYPE ? (
             <div className="flex-1 overflow-y-auto min-w-0">
-              <ResourceGridPanel
+              <ScopedResourceGrid
+                page={activeTab as ResourcePageId}
                 data={piResources.data}
                 isLoading={piResources.isLoading}
                 error={piResources.error}
                 refresh={piResources.refresh}
                 activation={resourceActivation}
-                type={RESOURCE_TAB_TYPE[activeTab]}
-                scopes={["global"]}
-                showScopeFilter={false}
-                globalPill
-                onViewFile={(filePath, title) => navigate(buildPiResourceFileUrl(filePath, title))}
               />
             </div>
           ) : (
@@ -1275,7 +1371,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     label={i18nT("session.maxEventsPerSession", undefined, "Max Events Per Session")}
                     value={config.memoryLimits?.maxEventsPerSession ?? 200}
                     onChange={(v) => update((c) => {
-                      if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
+                      if (!c.memoryLimits) c.memoryLimits = { ...MEMORY_LIMITS_SEED };
                       c.memoryLimits.maxEventsPerSession = v;
                     })}
                   />
@@ -1285,7 +1381,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     unit="chars"
                     value={config.memoryLimits?.maxStringFieldSize ?? 4000}
                     onChange={(v) => update((c) => {
-                      if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
+                      if (!c.memoryLimits) c.memoryLimits = { ...MEMORY_LIMITS_SEED };
                       c.memoryLimits.maxStringFieldSize = v;
                     })}
                   />
@@ -1295,10 +1391,41 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     unit="bytes"
                     value={config.memoryLimits?.maxWsBufferBytes ?? 4194304}
                     onChange={(v) => update((c) => {
-                      if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
+                      if (!c.memoryLimits) c.memoryLimits = { ...MEMORY_LIMITS_SEED };
                       c.memoryLimits.maxWsBufferBytes = v;
                     })}
                   />
+                  {/* The hint names the OUTCOME ("keeps the start and the most
+                      recent"), not the mechanism ("head/tail window"), mirroring
+                      the sibling maxEventsPerSession hint. The section's shared
+                      "Requires server restart" line covers this control too.
+                      See change: lazy-load-session-history. */}
+                  <NumberField
+                    hint={i18nT("settings.hint.maxReplayEvents", undefined, "Cap events sent to the browser when reopening a session. Keeps the start and the most recent messages; earlier ones load on demand. 0 = unlimited.")}
+                    label={i18nT("session.maxReplayEvents", undefined, "Max Replay Events")}
+                    value={config.memoryLimits?.maxReplayEvents ?? DEFAULT_MEMORY_LIMITS.maxReplayEvents}
+                    onChange={(v) => update((c) => {
+                      if (!c.memoryLimits) c.memoryLimits = { ...MEMORY_LIMITS_SEED };
+                      c.memoryLimits.maxReplayEvents = v;
+                    })}
+                  />
+                  {/* UNCONDITIONAL. A conditional warning comparing the two
+                      values is both backwards and undecidable: when
+                      `maxEventsPerSession <= maxReplayEvents` no window forms at
+                      all, so the warned-about pairing is inert; the genuinely
+                      harmful case depends on session size, unknowable at
+                      settings time. State the interaction instead.
+                      See change: fix-lazy-history-backfill-ux (D8). */}
+                  <p
+                    data-testid="memory-limits-replay-help"
+                    className="text-xs text-[var(--text-secondary)]"
+                  >
+                    {i18nT(
+                      "settings.help.replayWindowRetention",
+                      undefined,
+                      "Max Replay Events and Max Events Per Session work together: the replay window decides how much of a session the browser receives up front, while the event cap decides how much the server still holds. Earlier messages can only be loaded on demand while the server still holds them.",
+                    )}
+                  </p>
                 </Section>
               </>
             )}
@@ -1316,7 +1443,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                       <div className="flex items-center gap-2">
                         <ModelSelector
                           current={config.defaultModel || undefined}
-                          models={availableModels}
+                          models={defaultModelOptions}
                           onSelect={(v) => update((c) => { c.defaultModel = v; })}
                         />
                         {(() => {
@@ -1327,7 +1454,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                           // field stays "", never a spurious `off`). See change:
                           // add-default-thinking-level.
                           const selected = config.defaultModel
-                            ? availableModels?.find((m) => `${m.provider}/${m.id}` === config.defaultModel)
+                            ? defaultModelOptions.find((m) => `${m.provider}/${m.id}` === config.defaultModel)
                             : undefined;
                           const locked = !config.defaultModel;
                           return (
@@ -1340,6 +1467,20 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                         })()}
                       </div>
                     </div>
+                    {/* Catalogue states render HERE, beside the control: the
+                        selector trigger is disabled while its list is empty, so
+                        an in-picker state would be unreachable.
+                        See change: settings-default-model-without-session. */}
+                    {catalogueLoading && (
+                      <p className="mt-1 text-xs text-[var(--text-tertiary)]" data-testid="default-model-catalogue-loading">
+                        {i18nT("settings.modelCatalogueLoading", undefined, "Loading model catalogue…")}
+                      </p>
+                    )}
+                    {catalogueUnavailable && (
+                      <p className="mt-1 text-xs text-[var(--severity-warning-fg)]" data-testid="default-model-catalogue-unavailable">
+                        {i18nT("settings.modelCatalogueUnavailable", undefined, "The model catalogue could not be loaded. Only models reported by connected sessions are listed.")}
+                      </p>
+                    )}
                     <p className="mt-1 text-xs text-[var(--text-tertiary)]">
                       {i18nT("settings.hint.defaultModel", undefined, "Applied only to brand-new sessions. A resumed session keeps the model it was started with. Leave empty to use pi's own default.")}
                     </p>
@@ -1353,7 +1494,16 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   />
                   <AutoNameSessionsToggle
                     hint={<>
-                      {i18nT("settings.autoNameSessionsDesc", undefined, "Let pi automatically name new sessions by their topic using the fast model.")}
+                      {i18nT("settings.autoNameSessionsDesc", undefined, "Let pi automatically name new sessions by their topic.")}
+                      {" "}
+                      {/* The naming model is the `naming` role, so it is configured in
+                          the Roles panel rather than here — one source of truth, no
+                          second preference. This pointer exists so it is still
+                          discoverable at the point of use.
+                          See change: fix-auto-naming-reasoning-model (design D1). */}
+                      <span data-testid="auto-name-model-pointer">
+                        {i18nT("settings.autoNameModelPointer", undefined, "The model is the @naming role (Settings → Roles); when it is unassigned, @fast is used.")}
+                      </span>
                     </>}
                   />
                 </Section>
@@ -1612,7 +1762,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
             {activeTab === "providers" && (
               <>
                 <Section title={t("settings.providerAuth", undefined, "Provider Authentication")}>
-                  <ProviderAuthSection />
+                  <ProviderAuthSection onCredentialsChanged={refetchCatalogue} />
                 </Section>
                 <Section title={t("settings.llmProviders", undefined, "LLM Providers")}>
                   <p className="text-xs text-[var(--text-tertiary)] mb-3">
@@ -1655,7 +1805,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     config={config.modelProxy ?? {}}
                     onChange={(patch) => update((c) => { c.modelProxy = { ...c.modelProxy, ...patch }; })}
                     upstreamExtensionDetected={upstreamPiModelProxyInstalled}
-                    availableModels={availableModels}
+                    availableModels={catalogueModels}
                   />
                 </Section>
               </>
@@ -2016,11 +2166,24 @@ function DisplayPrefsSection() {
   const baselineKey = JSON.stringify(global ?? DISPLAY_PRESETS.standard);
   const [draft, setDraft] = useState<DisplayPrefs>(() => JSON.parse(baselineKey));
   const isDirty = JSON.stringify(draft) !== baselineKey;
-  const dirtyRef = useRef(isDirty); dirtyRef.current = isDirty;
   const baselineRef = useRef(baselineKey); baselineRef.current = baselineKey;
   const draftRef = useRef(draft); draftRef.current = draft;
   // Adopt a new baseline (e.g. cross-tab broadcast) only while clean.
-  useEffect(() => { if (!dirtyRef.current) setDraft(JSON.parse(baselineKey)); }, [baselineKey]);
+  //
+  // The MOUNT pass must be a no-op: `useState` already seeded the draft from
+  // this very baseline, and re-applying it here reverts a toggle flipped
+  // between the commit that painted it and the scheduler's passive-effect
+  // flush -- a real first-click-does-nothing bug, and the CI flake
+  // "Token stats bar did not flip". Dirtiness is therefore decided against the
+  // PREVIOUS baseline inside the updater, where the current draft is readable,
+  // instead of a ref written during render (still `false` for that edit).
+  const adoptedBaselineRef = useRef(baselineKey);
+  useEffect(() => {
+    const previous = adoptedBaselineRef.current;
+    if (previous === baselineKey) return;
+    adoptedBaselineRef.current = baselineKey;
+    setDraft((prev) => (JSON.stringify(prev) === previous ? JSON.parse(baselineKey) : prev));
+  }, [baselineKey]);
 
   type ToolCallPatch = Partial<DisplayPrefs["toolCalls"]>;
   type DisplayPrefsPatch = Partial<Omit<DisplayPrefs, "toolCalls">> & { toolCalls?: ToolCallPatch };

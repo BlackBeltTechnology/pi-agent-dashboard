@@ -53,6 +53,16 @@ export interface RegisterSessionParams {
    * See change: auto-hide-headless-worker-sessions.
    */
   visibilityIntent?: "hidden" | "visible";
+  /**
+   * Strong dashboard-spawn signal, forwarded from `session_register`
+   * (`SessionRegisterMessage.dashboardSpawned`) and normalized to a strict
+   * boolean by the gateway. Replaces `params.source` in the auto-hide
+   * heuristic: `source` is the bridge's SELF-REPORT, evaluated before
+   * `decideDashboardSource` stamps `"dashboard"`, so it can never carry the
+   * value the heuristic was testing for.
+   * See change: fix-spawn-correlation-ttl-coupling (D3).
+   */
+  dashboardSpawned?: boolean;
 }
 
 export interface OnChangeContext {
@@ -166,14 +176,17 @@ export function createMemorySessionManager(
         // prior `hidden` is preserved so a manual unhide/hide survives. On
         // first register (spawn / legacy / no prior record) an explicit
         // visibilityIntent wins, else headless non-dashboard sessions are
-        // hidden. See change: auto-hide-headless-worker-sessions.
+        // hidden. The last branch reads the dashboard-spawn SIGNAL, never the
+        // bridge's pre-decision `source`.
+        // See change: auto-hide-headless-worker-sessions,
+        //             fix-spawn-correlation-ttl-coupling (D3).
         hidden: (params.registerReason === "reattach" && existing)
           ? existing.hidden
           : params.visibilityIntent === "hidden"
             ? true
             : params.visibilityIntent === "visible"
               ? false
-              : params.hasUI === false && params.source !== "dashboard",
+              : params.hasUI === false && params.dashboardSpawned !== true,
         firstMessage: params.firstMessage ?? existing?.firstMessage,
         dataUnavailable: false,
         pid: params.pid,
@@ -199,6 +212,11 @@ export function createMemorySessionManager(
       const session = sessions.get(sessionId);
       if (session) {
         session.status = "ended";
+        // An ended session is not compacting. Without this an unregister that
+        // lands mid-compaction leaves the flag set on the record, and the
+        // reload dispatcher would refuse forever on a session restored from
+        // that record. See change: fix-out-of-band-reload.
+        session.compacting = false;
         // Witnessed (the default) keeps the observed instant. An inferred
         // ending — heartbeat/grace expiry, or history registered then
         // immediately unregistered — must not record detection time.

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type DashboardConfig, ensureConfig, loadConfig, resolvePublicBaseUrls } from "../config.js";
+import { type DashboardConfig, DEFAULT_MEMORY_LIMITS, ensureConfig, loadConfig, resolvePublicBaseUrls } from "../config.js";
 
 describe("loadConfig", () => {
   let testDir: string;
@@ -826,5 +826,88 @@ describe("publicBaseUrls promotion", () => {
     const written = JSON.parse(fs.readFileSync(configFile, "utf-8"));
     expect(Object.hasOwn(written, "publicBaseUrls")).toBe(false);
     expect(loadConfig().publicBaseUrls).toBeUndefined();
+  });
+});
+
+/**
+ * See change: lazy-load-session-history, fix-lazy-history-backfill-ux (D7).
+ *
+ * The default flipped from `0` (unlimited) to `2000`, which makes PRESENCE
+ * DETECTION the load-bearing property: the old parse collapsed absent,
+ * negative, non-numeric and explicit `0` into `0`, so a non-zero default would
+ * be unreachable from a config file that simply omits the field. E1/E2 are the
+ * pair that pins it — absent → the default, explicit `0` → `0` (the documented
+ * rollback lever), and `0` still never clamps up.
+ */
+describe("loadConfig memoryLimits.maxReplayEvents", () => {
+  let testDir: string;
+  let configFile: string;
+  let origHome: string;
+
+  beforeEach(() => {
+    testDir = path.join(os.tmpdir(), `test-config-mre-${Date.now()}`);
+    fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
+    configFile = path.join(testDir, ".pi", "dashboard", "config.json");
+    origHome = process.env.HOME!;
+    process.env.HOME = testDir;
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true });
+  });
+
+  const writeLimits = (limits: Record<string, unknown>) =>
+    fs.writeFileSync(configFile, JSON.stringify({ memoryLimits: limits }));
+
+  // #E1 — absent resolves to the DEFAULT, not to 0, and no sibling moves.
+  it("maxReplayEvents defaults to 2000 when absent, leaving siblings untouched", () => {
+    writeLimits({ maxEventsPerSession: 12345, maxStringFieldSize: 77, maxWsBufferBytes: 999 });
+    const limits = loadConfig().memoryLimits;
+    expect(limits.maxReplayEvents).toBe(2000);
+    expect(limits.maxReplayEvents).toBe(DEFAULT_MEMORY_LIMITS.maxReplayEvents);
+    expect(limits.maxEventsPerSession).toBe(12345);
+    expect(limits.maxStringFieldSize).toBe(77);
+    expect(limits.maxWsBufferBytes).toBe(999);
+  });
+
+  // #E2, #E3, #E4 — the MIN_REPLAY_WINDOW boundary, both sides plus the point.
+  it.each([
+    [99, 100],
+    [100, 100],
+    [101, 101],
+  ])("maxReplayEvents %i resolves to %i at the minimum-window boundary", (input, expected) => {
+    writeLimits({ maxReplayEvents: input });
+    expect(loadConfig().memoryLimits.maxReplayEvents).toBe(expected);
+  });
+
+  /**
+   * #E2 — an EXPLICIT 0 is "unlimited", and is the documented rollback lever.
+   * It must survive presence detection (not fall back to the default) and must
+   * never clamp up to `MIN_REPLAY_WINDOW`.
+   */
+  it("an explicit maxReplayEvents 0 is preserved, never defaulted and never clamped", () => {
+    writeLimits({ maxReplayEvents: 0 });
+    expect(loadConfig().memoryLimits.maxReplayEvents).toBe(0);
+  });
+
+  /**
+   * #E5, #E6 — negative and non-numeric are UNSET, so they resolve to the
+   * default. `-1` changes meaning here: it parsed to `0` (unlimited) before the
+   * flip and to `2000` after. Recorded deliberately, not waved through.
+   */
+  it.each([
+    ["negative", -1],
+    ["non-numeric string", "500"],
+    ["NaN", Number.NaN],
+    ["Infinity", Number.POSITIVE_INFINITY],
+  ])("maxReplayEvents falls back to the default for a %s value", (_label, input) => {
+    writeLimits({ maxReplayEvents: input });
+    expect(loadConfig().memoryLimits.maxReplayEvents).toBe(DEFAULT_MEMORY_LIMITS.maxReplayEvents);
+  });
+
+  it("a fractional maxReplayEvents is floored, not rounded up", () => {
+    writeLimits({ maxReplayEvents: 500.9 });
+    expect(loadConfig().memoryLimits.maxReplayEvents).toBe(500);
   });
 });

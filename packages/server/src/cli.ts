@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 /**
  * PI Dashboard Server CLI
  *
@@ -19,30 +22,26 @@
 // top-level module-resolution failure (missing `fastify` etc.) can be
 // caught and degraded into the recovery HTTP server instead of crashing
 // the process. The type-only import here is fully erased at runtime.
-import { SERVER_STARTUP_DEADLINE_MS } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import type { createServer as _CreateServerType, ServerConfig } from "./server.js";
-import {
-  startRecoveryServer,
-  isModuleNotFoundError,
-  parseModuleNotFoundError,
-} from "./lifecycle/recovery-server.js";
-import { loadConfig, ensureConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import {
-  launchDashboardServer,
-  JitiNotFoundError,
-  PortConflictError,
-  EarlyExitError,
-} from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
-import { fileURLToPath } from "node:url";
-import os from "node:os";
-import path from "node:path";
-import { readPid, removePid, isServerRunning } from "./spawn-process/server-pid.js";
+import { ensureConfig, loadConfig, SERVER_STARTUP_DEADLINE_MS } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import {
   findPortHolders as platformFindPortHolders,
   isProcessAlive as platformIsProcessAlive,
   killProcess as platformKillProcess,
   parseNetstatListeners as platformParseNetstatListeners,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
+import {
+  EarlyExitError,
+  JitiNotFoundError,
+  launchDashboardServer,
+  PortConflictError,
+} from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
+import {
+  isModuleNotFoundError,
+  parseModuleNotFoundError,
+  startRecoveryServer,
+} from "./lifecycle/recovery-server.js";
+import type { createServer as _CreateServerType, ServerConfig } from "./server.js";
+import { isServerRunning, readPid, removePid } from "./spawn-process/server-pid.js";
 
 // Re-exports for back-compat — other modules / tests may import these from cli.
 export const parseNetstatListeners = platformParseNetstatListeners;
@@ -52,17 +51,17 @@ export function findPortHolders(
 ): number[] {
   return platformFindPortHolders(port, execImpl ? { exec: execImpl } : undefined);
 }
-import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
-import { discoverDashboard } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 
-import { assertNodeVersionSupported } from "./auth/node-guard.js";
-import { recordExitIntent } from "./persistence/boot-state.js";
-import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import {
   findBundledExtension,
   registerBridgeExtension,
 } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
 import { parseDashboardStarter } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
+import { discoverDashboard } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
+import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
+import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { assertNodeVersionSupported } from "./auth/node-guard.js";
+import { recordExitIntent } from "./persistence/boot-state.js";
 
 const SUBCOMMANDS = ["start", "stop", "restart", "status"] as const;
 type Subcommand = (typeof SUBCOMMANDS)[number];
@@ -173,10 +172,12 @@ export function buildConfig(flags: Partial<ServerConfig>): ServerConfig {
     tunnelReservedName: fileConfig.tunnel.zrok?.reservedName,
     tunnelPersistent: fileConfig.tunnel.zrok?.persistent,
     tunnelWatchdog: fileConfig.tunnel.watchdog,
+    tunnelConfig: fileConfig.tunnel,
     authConfig: fileConfig.auth,
     maxEventsPerSession: fileConfig.memoryLimits.maxEventsPerSession,
     maxStringFieldSize: fileConfig.memoryLimits.maxStringFieldSize,
     maxWsBufferBytes: fileConfig.memoryLimits.maxWsBufferBytes,
+    maxReplayEvents: fileConfig.memoryLimits.maxReplayEvents,
     openspec: fileConfig.openspec,
     sessions: fileConfig.sessions,
     reattachPlacement: fileConfig.reattachPlacement,

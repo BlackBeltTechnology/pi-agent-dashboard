@@ -1,9 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { createCommandHandler, parseSendPrompt, tryExecSlashTemplate, buildDashboardExecEnv } from "../command-handler.js";
-import { RetryTracker } from "../retry-tracker.js";
 import type { ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { buildDashboardExecEnv, createCommandHandler, parseSendPrompt, tryExecSlashTemplate } from "../command-handler.js";
+import { RetryTracker } from "../retry-tracker.js";
 
 // Mock the tool registry so `!`/`!!` bash resolution is deterministic
 // across hosts. `bashMock` is mutated per-test to simulate found / missing.
@@ -647,7 +647,7 @@ describe("CommandHandler", () => {
 
       await handler.handle({ type: "send_prompt", sessionId: "s1", text: "/some-command args" });
 
-      expect(sessionPrompt).toHaveBeenCalledWith("/some-command args", undefined);
+      expect(sessionPrompt).toHaveBeenCalledWith("/some-command args", undefined, undefined);
       expect(pi.sendUserMessage).not.toHaveBeenCalled();
     });
 
@@ -655,7 +655,8 @@ describe("CommandHandler", () => {
       const pi = createMockPi();
       const sessionPrompt = vi.fn();
       const eventSink = vi.fn();
-      const handler = createCommandHandler(pi as any, "s1", { sessionPrompt, eventSink });
+      const reload = vi.fn(async () => ({ ok: true }) as const);
+      const handler = createCommandHandler(pi as any, "s1", { sessionPrompt, eventSink, reload });
 
       await handler.handle({ type: "send_prompt", sessionId: "s1", text: "/reload" });
 
@@ -720,7 +721,7 @@ describe("CommandHandler", () => {
 
     it("should route /reload to reload callback", async () => {
       const pi = createMockPi();
-      const reload = vi.fn();
+      const reload = vi.fn(async () => ({ ok: true }) as const);
       const eventSink = vi.fn();
       const handler = createCommandHandler(pi as any, "s1", { reload, eventSink });
 
@@ -743,6 +744,78 @@ describe("CommandHandler", () => {
 
       await handler.handle({ type: "send_prompt", sessionId: "s1", text: "/reload" });
       expect(pi.sendUserMessage).not.toHaveBeenCalled();
+    });
+
+    // ── Feedback honesty (test-plan #X6, #X7) ──
+    // The handler used to emit `command_feedback {status:"completed"}`
+    // UNCONDITIONALLY — whether `options.reload` existed, ran, or silently
+    // no-op'd. That false success is the core defect this change fixes.
+    // See change: fix-out-of-band-reload.
+    it("#X6 emits `error` and NO `completed` when no reload path exists", async () => {
+      const pi = createMockPi();
+      const eventSink = vi.fn();
+      // Terminal-hosted bridge with no captured RELOAD_KEY: `reload` is absent.
+      const handler = createCommandHandler(pi as any, "s1", { eventSink });
+
+      await handler.handle({ type: "send_prompt", sessionId: "s1", text: "/reload" });
+
+      const feedback = eventSink.mock.calls
+        .map((c) => c[0])
+        .filter((m: any) => m?.event?.eventType === "command_feedback")
+        .map((m: any) => m.event.data);
+      expect(feedback).toHaveLength(1);
+      expect(feedback[0]).toMatchObject({ command: "/reload", status: "error" });
+      expect(feedback.some((f: any) => f.status === "completed")).toBe(false);
+    });
+
+    it("#X7 reports a SYNCHRONOUS throw from a stale captured reload fn", async () => {
+      const pi = createMockPi();
+      const eventSink = vi.fn();
+      // The captured fn is single-use: the first `ctx.reload()` invalidates the
+      // runner, so the second call throws synchronously out of `assertActive()`
+      // — which a `.catch()` on the returned promise cannot catch. The mock
+      // THROWS rather than pre-converting, so this exercises the handler's own
+      // guard instead of asserting on a value the test itself constructed.
+      const reload = vi.fn(() => {
+        throw new Error("session runner is no longer active");
+      });
+      const handler = createCommandHandler(pi as any, "s1", { reload, eventSink });
+
+      await expect(
+        handler.handle({ type: "send_prompt", sessionId: "s1", text: "/reload" }),
+      ).resolves.not.toThrow();
+
+      const feedback = eventSink.mock.calls
+        .map((c) => c[0])
+        .filter((m: any) => m?.event?.eventType === "command_feedback")
+        .map((m: any) => m.event.data);
+      expect(feedback).toHaveLength(1);
+      expect(feedback[0]).toMatchObject({ command: "/reload", status: "error" });
+      expect(feedback[0].message).toContain("no longer active");
+    });
+
+    it("#X7 reports an ASYNCHRONOUS reload rejection, never a false completed", async () => {
+      // `ctx.reload()` returns a promise. Emitting `completed` before it
+      // settles is the same false success this change removes.
+      const pi = createMockPi();
+      const eventSink = vi.fn();
+      const reload = vi.fn(async () => {
+        throw new Error("reload aborted mid-flight");
+      });
+      const handler = createCommandHandler(pi as any, "s1", { reload, eventSink });
+
+      await expect(
+        handler.handle({ type: "send_prompt", sessionId: "s1", text: "/reload" }),
+      ).resolves.not.toThrow();
+
+      const feedback = eventSink.mock.calls
+        .map((c) => c[0])
+        .filter((m: any) => m?.event?.eventType === "command_feedback")
+        .map((m: any) => m.event.data);
+      expect(feedback).toHaveLength(1);
+      expect(feedback[0]).toMatchObject({ command: "/reload", status: "error" });
+      expect(feedback[0].message).toContain("aborted mid-flight");
+      expect(feedback.some((f: any) => f.status === "completed")).toBe(false);
     });
 
     it("should route /new to spawnNew callback", async () => {
@@ -1060,7 +1133,7 @@ describe("CommandHandler delivery routing (pi-native queues)", () => {
 
     await handler.handle({ type: "send_prompt", sessionId: "s1", text: "/some-command args", delivery: "steer" });
 
-    expect(sessionPrompt).toHaveBeenCalledWith("/some-command args", "steer");
+    expect(sessionPrompt).toHaveBeenCalledWith("/some-command args", "steer", undefined);
     expect(pi.sendUserMessage).not.toHaveBeenCalled();
   });
 
@@ -1232,5 +1305,203 @@ describe("buildDashboardExecEnv port resolution", () => {
     delete process.env.DASHBOARD_PORT;
     // Ephemeral HOME in tests has no ~/.pi/dashboard/config.json with a port.
     expect(buildDashboardExecEnv().PI_DASHBOARD_PORT).toBe("8000");
+  });
+});
+
+/**
+ * Prompt acknowledgement handle + session-mismatch drop reporting.
+ *
+ * See change: fix-spawn-correlation-ttl-coupling (D6, D7).
+ */
+describe("CommandHandler — ack handle and dropped-message reporting", () => {
+  function mockPi() {
+    return {
+      sendMessage: vi.fn(),
+      sendUserMessage: vi.fn(),
+      getCommands: vi.fn().mockReturnValue([]),
+      setSessionName: vi.fn(),
+      getSessionName: vi.fn(),
+      on: vi.fn(),
+      exec: vi.fn(),
+    };
+  }
+
+  it("echoes the server's promptId on the passthrough acknowledgement", async () => {
+    const events: any[] = [];
+    const handler = createCommandHandler(mockPi() as any, "s1", {
+      eventSink: (m) => events.push(m),
+    });
+
+    await handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "hello",
+      promptId: "p-123",
+    } as ServerToExtensionMessage);
+
+    const ack = events.find((e) => e.type === "prompt_received");
+    expect(ack.promptId).toBe("p-123");
+    expect(ack.fresh).toBe(true);
+  });
+
+  it("emits no promptId when the prompt carried none (older callers)", async () => {
+    const events: any[] = [];
+    const handler = createCommandHandler(mockPi() as any, "s1", {
+      eventSink: (m) => events.push(m),
+    });
+
+    await handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "hello",
+    } as ServerToExtensionMessage);
+
+    const ack = events.find((e) => e.type === "prompt_received");
+    expect(ack).not.toHaveProperty("promptId");
+  });
+
+  // The `promptId` echo means "the bridge handed this to pi". A follow-up that
+  // races a streaming turn is BUFFERED, so pi never sees it — acknowledging it
+  // would report a delivery that did not happen.
+  it("omits the promptId when the prompt is buffered instead of sent to pi", async () => {
+    const events: any[] = [];
+    const pi = mockPi();
+    const handler = createCommandHandler(pi as any, "s1", {
+      eventSink: (m) => events.push(m),
+      isStreaming: () => true,
+      onFollowupSent: () => {},
+    });
+
+    await handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "hello",
+      delivery: "followUp",
+      promptId: "p-buffered",
+    } as ServerToExtensionMessage);
+
+    const ack = events.find((e) => e.type === "prompt_received");
+    expect(ack.fresh).toBe(false);
+    expect(ack).not.toHaveProperty("promptId");
+    // Buffered: pi was not called at all.
+    expect(pi.sendUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("echoes the promptId on a steer send, which does reach pi", async () => {
+    const events: any[] = [];
+    const pi = mockPi();
+    const handler = createCommandHandler(pi as any, "s1", {
+      eventSink: (m) => events.push(m),
+      isStreaming: () => true,
+      onSteerSent: () => {},
+    });
+
+    await handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "hello",
+      delivery: "steer",
+      promptId: "p-steer",
+    } as ServerToExtensionMessage);
+
+    expect(events.find((e) => e.type === "prompt_received").promptId).toBe("p-steer");
+    expect(pi.sendUserMessage).toHaveBeenCalled();
+  });
+
+  // A slash command that falls through to `pi.sendUserMessage` DID reach pi, so
+  // it must acknowledge; the bridge-owned handoff must receive the handle.
+  it("acknowledges a slash prompt that falls through to pi", async () => {
+    const events: any[] = [];
+    const pi = mockPi();
+    const handler = createCommandHandler(pi as any, "s1", {
+      eventSink: (m) => events.push(m),
+    });
+
+    await handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "/some-unknown-skill",
+      promptId: "p-slash",
+    } as ServerToExtensionMessage);
+
+    expect(pi.sendUserMessage).toHaveBeenCalled();
+    const ack = events.find((e) => e.type === "prompt_received" && e.promptId === "p-slash");
+    expect(ack).toBeTruthy();
+  });
+
+  // An idle send synchronously fires `agent_start`, so the streaming verdict has
+  // to be captured BEFORE the pi call or every fresh turn reports `fresh:false`.
+  it("reports fresh:true for a slash prompt sent while idle", async () => {
+    const events: any[] = [];
+    const pi = mockPi();
+    let streaming = false;
+    (pi.sendUserMessage as any).mockImplementation(() => {
+      streaming = true; // pi flips idle→streaming synchronously
+    });
+    const handler = createCommandHandler(pi as any, "s1", {
+      eventSink: (m) => events.push(m),
+      isStreaming: () => streaming,
+    });
+
+    await handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "/some-unknown-skill",
+      promptId: "p-idle",
+    } as ServerToExtensionMessage);
+
+    const ack = events.find((e) => e.promptId === "p-idle");
+    expect(ack.fresh).toBe(true);
+  });
+
+  it("hands the promptId to the bridge-owned slash route", async () => {
+    const seen: Array<[string, string | undefined, string | undefined]> = [];
+    const handler = createCommandHandler(mockPi() as any, "s1", {
+      sessionPrompt: (text, delivery, promptId) => {
+        seen.push([text, delivery, promptId]);
+      },
+    });
+
+    await handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "/flow-thing",
+      promptId: "p-bridge",
+    } as ServerToExtensionMessage);
+
+    expect(seen).toEqual([["/flow-thing", undefined, "p-bridge"]]);
+  });
+
+  it("reports a session-id-mismatch drop instead of only console.error", async () => {
+    const drops: any[] = [];
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const handler = createCommandHandler(mockPi() as any, "s1", {
+      reportInboundDrop: (d) => drops.push(d),
+    });
+
+    const out = await handler.handle({
+      type: "send_prompt",
+      sessionId: "s_other",
+      text: "hello",
+    } as ServerToExtensionMessage);
+
+    expect(out).toBeUndefined();
+    expect(drops).toEqual([
+      { dropClass: "session_mismatch", messageType: "send_prompt", droppedSessionId: "s_other" },
+    ]);
+    vi.restoreAllMocks();
+  });
+
+  it("reports nothing for a message addressed to this session", async () => {
+    const drops: any[] = [];
+    const handler = createCommandHandler(mockPi() as any, "s1", {
+      reportInboundDrop: (d) => drops.push(d),
+    });
+    await handler.handle({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "hello",
+    } as ServerToExtensionMessage);
+    expect(drops).toHaveLength(0);
   });
 });

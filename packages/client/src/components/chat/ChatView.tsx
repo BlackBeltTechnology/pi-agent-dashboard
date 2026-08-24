@@ -24,6 +24,7 @@ import { findActiveInteractiveToolResultIds, findRetriedErrorIds, findSurfaceSup
 import type { ChatImage, InteractiveUiRequest, SessionState } from "../../lib/chat/event-reducer.js";
 import { type BurstItem, groupToolBursts, type ToolBurstGroup as ToolBurstGroupData } from "../../lib/chat/group-tool-bursts.js";
 import type { ToolCallGroup } from "../../lib/chat/group-tool-calls.js";
+import type { HistoryGapState } from "../../lib/chat/history-gap.js";
 import { computeAnchorCorrection } from "../../lib/chat/selection-anchor.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { REPLAY_PILL_DELAY_MS } from "../../lib/replay/loading-history.js";
@@ -44,6 +45,7 @@ import { withDefaultFileLink } from "../tool-renderers/make-tool-context.js";
 import { BashOutputCard } from "./BashOutputCard.js";
 import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
 import { CommandFeedbackCard } from "./CommandFeedbackCard.js";
+import { HistoryGapDivider } from "./HistoryGapDivider.js";
 import { MissingToolInlineError } from "./MissingToolInlineError.js";
 import { RawEventCard } from "./RawEventCard.js";
 import { SkillInvocationCard } from "./SkillInvocationCard.js";
@@ -92,6 +94,21 @@ interface Props {
    * See change: show-replay-in-flight-indicator.
    */
   replayInFlight?: boolean;
+  /**
+   * Selected session's windowed-replay gap, when its replay was bounded by
+   * `maxReplayEvents`. Drives the interstitial gap divider.
+   * See change: lazy-load-session-history.
+   */
+  historyGap?: HistoryGapState;
+  /** Request the gap slice adjacent to the TAIL. See change: fix-lazy-history-backfill-ux (D2). */
+  onLoadEarlier?: () => void;
+  /**
+   * Bumped once per successful backfill splice. Keys the splice-commit
+   * suppression latch — deliberately not `messages.length`, which a live event
+   * also changes and which the final splice can leave unchanged.
+   * See change: fix-lazy-history-backfill-ux (D6).
+   */
+  historySpliceRev?: number;
   /**
    * Client-only signal: the user manually collapsed the LIVE streaming
    * reasoning block. Sets `streamingThinkingCollapsed` on the session state so
@@ -322,7 +339,7 @@ export interface ChatViewHandle {
   scrollToTurn: (turnIndex: number) => void;
 }
 
-const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, replayInFlight, onCollapseStreamingThinking }, ref) {
+const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, replayInFlight, historyGap, onLoadEarlier, historySpliceRev, onCollapseStreamingThinking }, ref) {
   // `ToolContext` is a published surface (re-exported from `chat-embed`), so an
   // external embedder builds one by hand and would carry no `fileLink` —
   // silently losing file-mention linkification with no type error. Merge a
@@ -372,6 +389,44 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   }, [replayInFlight, sessionId]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const handleLoadEarlier = useCallback(() => {
+    onLoadEarlier?.();
+  }, [onLoadEarlier]);
+  /**
+   * Backfill splice scroll ownership (D6): the correct invariant is ABSOLUTE
+   * `scrollTop`, and it needs no correction at all.
+   *
+   * Events now splice BELOW the divider, and the divider is by definition in
+   * the viewport (the user just clicked it), so nothing above the reading
+   * position moves. The old distance-to-bottom anchor is not merely
+   * unnecessary here, it is WRONG-SIGNED: it would add the full inserted
+   * height to `scrollTop` and scroll the divider out of view on every splice.
+   * It is deleted rather than made more elaborate.
+   *
+   * "Leave `scrollTop` alone" is NOT "nothing writes `scrollTop`". Deleting the
+   * layout effect removed the only splice-time hook, so the two remaining
+   * writers — the virtualizer grow-pin and the selection-anchor compensator —
+   * need an explicit owner instead of inheriting the commit by accident. This
+   * latch is that owner. It is armed on the splice revision (bumped exactly
+   * once per successful splice, and the only signal that survives BOTH a live
+   * event arriving mid-flight and the final splice whose net row count is
+   * unchanged) and released one frame later, after the virtualizer has
+   * measured the spliced rows. Disarming at click would be insufficient:
+   * `handleScroll` can re-arm stick-to-bottom mid-flight.
+   * See change: fix-lazy-history-backfill-ux (D6).
+   */
+  const spliceSuppressRef = useRef(false);
+  useLayoutEffect(() => {
+    if (!historySpliceRev) return;
+    spliceSuppressRef.current = true;
+    const id = requestAnimationFrame(() => {
+      spliceSuppressRef.current = false;
+    });
+    return () => {
+      cancelAnimationFrame(id);
+      spliceSuppressRef.current = false;
+    };
+  }, [historySpliceRev]);
   // True when the user wants the chat to chase new content. Flips to false on
   // any real scroll-up gesture, on explicit navigation (scrollToTurn), and on
   // session restore when the saved position was away from the bottom. Re-arms
@@ -529,6 +584,10 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       switch (msg.role) {
         case "turnSeparator":
           return prefs.turnMetadata;
+        // The gap disclosure is never prefs-gated: hiding it would make a
+        // windowed replay indistinguishable from data loss.
+        case "historyGap":
+          return true;
         case "thinking":
           return prefs.reasoning;
         case "toolResult": {
@@ -716,7 +775,11 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       // Suspend the bottom-pin while a transcript selection is held (D2) so the
       // selected row is not scrolled out of its overscan band. stickToBottomRef
       // is NOT cleared — follow resumes on collapse.
-      if (grew && stickToBottomRef.current && !isSelectingRef.current) el.scrollTop = el.scrollHeight;
+      // A backfill splice grows the content from ABOVE the reading position, so
+      // any user inside the near-bottom band would be yanked to the bottom (D6).
+      if (grew && stickToBottomRef.current && !isSelectingRef.current && !spliceSuppressRef.current) {
+        el.scrollTop = el.scrollHeight;
+      }
       // Ascending: re-target index 0 whenever a measurement grows the total
       // size (an above-viewport row mounting/measuring, INCLUDING the async
       // image-load remeasure). scrollToIndex is bounded to maxAttempts frames,
@@ -954,6 +1017,16 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     const prevTop = anchorPrevTopRef.current;
     const prevScrollTop = anchorPrevScrollTopRef.current;
 
+    // A backfill splice above a held selection displaces the anchor row, which
+    // this compensator would read as drift and "correct" — writing scrollTop on
+    // the one commit that must not move. Re-baseline instead of correcting.
+    // See change: fix-lazy-history-backfill-ux (D6).
+    if (spliceSuppressRef.current) {
+      anchorPrevTopRef.current = nextTop;
+      anchorPrevScrollTopRef.current = nextScrollTop;
+      return;
+    }
+
     // First commit of this drag: establish the baseline, correct nothing.
     if (prevTop === null) {
       anchorPrevTopRef.current = nextTop;
@@ -1048,6 +1121,17 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         if (msg.role === "turnSeparator") {
           if (!prefs.turnMetadata) return null;
           return <div key={msg.id} className="mx-4 my-2 border-t border-[var(--border-subtle)]" />;
+        }
+
+        if (msg.role === "historyGap") {
+          if (!historyGap) return null;
+          return (
+            <HistoryGapDivider
+              key={msg.id}
+              gap={historyGap}
+              onLoadEarlier={handleLoadEarlier}
+            />
+          );
         }
 
         if (msg.role === "user") {

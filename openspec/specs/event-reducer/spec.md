@@ -14,6 +14,26 @@ The `SessionState` SHALL contain: `messages` (array of `ChatMessage`), `toolCall
 ### Requirement: User message rendering
 A `message_start` event with role `"user"` SHALL create a new `ChatMessage` with `role: "user"`. Text content parts SHALL be concatenated. Image content parts SHALL be extracted into the `images` array.
 
+Image content parts SHALL be recognized through the shared
+`inline-image-block-shapes` detector, so BOTH accepted block shapes are extracted
+identically: the flat pi shape `{ type: "image", data, mimeType }` and the nested
+Anthropic shape `{ type: "image", source: { type: "base64", media_type, data } }`.
+A block SHALL be admitted when it carries a non-empty mime AND at least one
+usable source: inline base64 bytes, a non-empty two-phase `attachmentId`, or the
+server's `imageTruncated` rescue marker. The block's `data` and mime SHALL be
+read through the shared accessors rather than by reading `data` / `mimeType`
+directly. An admitted block's `attachmentId` and `attachmentState` SHALL be
+carried onto the `ChatImage` when present, so a later `attachment_fitted` event
+can fill the reserved position.
+
+A RESCUED block (`imageTruncated: true`, no bytes, no `attachmentId` — the server
+stripped over-ceiling image bytes) SHALL resolve to `attachmentState: "failed"`,
+the state that already renders as an explicit "image unavailable" slot. Nothing
+will ever fill it, so it SHALL NOT be left pending indefinitely and SHALL NOT be
+dropped from `images`. An `attachmentState` already present on the block SHALL
+win over the derived value, so a two-phase pending placeholder is never
+downgraded.
+
 #### Scenario: User sends text message
 - **WHEN** a `message_start` event with `role: "user"` and text content arrives
 - **THEN** a new user ChatMessage SHALL be added to `messages`
@@ -21,6 +41,37 @@ A `message_start` event with role `"user"` SHALL create a new `ChatMessage` with
 #### Scenario: User sends message with images
 - **WHEN** a `message_start` event with image content parts arrives
 - **THEN** the ChatMessage SHALL include the images in its `images` array
+
+#### Scenario: Nested-shape image is extracted
+- **WHEN** a `message_start` event carries an image block in the nested Anthropic
+  `source` shape
+- **THEN** the ChatMessage SHALL include that image in its `images` array with the
+  bytes from `source.data` and the mime from `source.media_type`
+
+#### Scenario: Two-phase placeholder block reserves its slot
+- **WHEN** a `message_start` event carries an image block with blanked bytes, a
+  non-empty `attachmentId` and a mime
+- **THEN** the block SHALL still be admitted into `images` with its
+  `attachmentId` (and `attachmentState` when present), so the attachment position
+  is not lost
+
+#### Scenario: A rescued block renders as an unavailable slot
+- **WHEN** a `message_start` event carries an image block with a mime, empty
+  bytes and `imageTruncated: true` — in either shape
+- **THEN** it SHALL be added to `images` with `attachmentState: "failed"`, so the
+  row shows an explicit unavailable slot rather than pretending nothing was
+  attached
+- **AND** the message's text SHALL be unaffected
+
+#### Scenario: A pending placeholder is not downgraded by the rescue rule
+- **WHEN** a block carries `attachmentState: "pending"` and an `attachmentId`
+- **THEN** its state SHALL remain `"pending"`
+
+#### Scenario: A block with no usable source or no mime is not an image
+- **WHEN** a `message_start` event carries an `image`-typed block with no inline
+  bytes, no `attachmentId` and no `imageTruncated` marker, or one with no mime
+  (including a rescued block whose mime is absent)
+- **THEN** it SHALL NOT be added to `images`
 
 #### Scenario: Pending prompt cleared
 - **WHEN** a `message_start` with `role: "user"` or `agent_start` arrives
@@ -59,7 +110,7 @@ The preference SHALL apply uniformly across all three branches of the `message_e
 - **THEN** the pushed `ChatMessage` SHALL have `content: "xyz"` (from msg.content), NOT `"abc"` (from deltas)
 
 ### Requirement: Tool call state machine
-A `tool_execution_start` event SHALL create a `ToolCallState` entry with `status: "running"`. A `tool_execution_end` event SHALL update the entry to `status: "complete"` (or `"error"` if `isError` is true) and store the result text.
+A `tool_execution_start` event SHALL create a `ToolCallState` entry with `status: "running"`. A `tool_execution_end` event SHALL update the entry to `status: "complete"` (or `"error"` if `isError` is true) and store the result text. A tool call still `running` when a backfill segment has been fully reduced SHALL resolve to `status: "elided"`.
 
 #### Scenario: Tool starts running
 - **WHEN** a `tool_execution_start` event arrives
@@ -72,6 +123,24 @@ A `tool_execution_start` event SHALL create a `ToolCallState` entry with `status
 #### Scenario: Tool completes with error
 - **WHEN** a `tool_execution_end` event arrives with `isError: true`
 - **THEN** the ToolCallState SHALL update to `status: "error"` with the error result
+
+#### Scenario: Every unfinished tool in a reduced backfill segment is elided
+- **WHEN** a backfill segment has been fully reduced and one of its tool calls is still `running`
+- **THEN** that tool call SHALL resolve to `status: "elided"`
+- **AND** this SHALL hold regardless of the tool call's position within the segment
+
+#### Scenario: An assistant row left streaming by a backfill segment is finalized
+- **WHEN** a backfill segment has been fully reduced and one of its assistant rows is still marked as streaming
+- **THEN** that row SHALL no longer be marked as streaming
+
+#### Scenario: A live in-flight tool is never elided
+- **WHEN** a `tool_execution_start` arrives on the live event path and no `tool_execution_end` has arrived yet
+- **THEN** the entry SHALL remain `status: "running"`
+
+#### Scenario: An unfinished tool at the end of an initial windowed replay is not elided
+- **WHEN** an initial windowed replay is fully applied and one of its tool calls is still `running`
+- **THEN** that tool call SHALL remain `status: "running"`
+- **AND** it SHALL remain eligible for the stale running-tool reconcile
 
 ### Requirement: Stats accumulation
 A `stats_update` event SHALL add per-turn token usage to the running totals and append a `TurnStat` entry (capped at 50 entries). If `contextUsage` is present, it SHALL update the session's context usage.
@@ -610,4 +679,45 @@ The reducer SHALL capture `reason` (`"manual" | "threshold" | "overflow"`), `wil
 #### Scenario: Legacy compaction event without new fields
 - **WHEN** `session_compact` carries none of `reason`/`willRetry`/estimate
 - **THEN** the reducer SHALL store nothing new and behave as today
+
+### Requirement: The chat row carries the elided tool status
+
+The `elided` status SHALL be carried on the chat row's tool status, not only on the reducer's tool-call map, because a backfilled segment merges rows into session state without merging its tool-call map. Rows SHALL be stamped before the merge.
+
+#### Scenario: Spliced row carries the status
+
+- **WHEN** a backfilled segment containing an unfinished tool call is spliced into the transcript
+- **THEN** the resulting chat row SHALL carry tool status `elided`
+
+#### Scenario: Rendering never falls back to another status
+
+- **WHEN** a tool row with status `elided` is passed to any tool renderer or grouping helper
+- **THEN** it SHALL NOT be treated as `running`
+- **AND** it SHALL NOT be treated as `complete`
+
+### Requirement: An elided tool call renders as unloaded, not as failed or pending
+
+A tool call with status `elided` SHALL be rendered with a neutral affordance stating its result is not loaded, and SHALL NOT be presented as an error, nor with a running indicator. The affordance SHALL remain visible however the row is grouped.
+
+#### Scenario: No running indicator
+
+- **WHEN** a tool row with status `elided` is rendered by any renderer, including the agent/subagent renderer
+- **THEN** it SHALL NOT display a running spinner
+
+#### Scenario: No error styling
+
+- **WHEN** a tool row with status `elided` is rendered
+- **THEN** it SHALL NOT use the error presentation used for a failed tool call
+
+#### Scenario: Grouping does not absorb the affordance
+
+- **WHEN** consecutive tool rows are grouped and one of them has status `elided`
+- **THEN** the elided row SHALL NOT be absorbed into a collapsed group that hides its state
+- **AND** it SHALL NOT be counted as completed in any group's done count
+
+#### Scenario: Reconcile selectors reject an elided entry
+
+- **WHEN** the stale running-tool selector or the supersede-heal selector is given session state containing a tool call with status `elided`
+- **THEN** neither SHALL select it
+- **AND** no supersede-heal sentinel SHALL be written into that row
 

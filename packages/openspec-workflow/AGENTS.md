@@ -4,7 +4,7 @@ Files in this directory. One row per source file. Pure-skill package (OpenSpec-l
 
 | File | Purpose |
 |------|---------|
-| `.pi/skills/fix-worktree-opsx-skills-not-created/SKILL.md` | Skill. Fix worktree missing generated openspec-* (opsx) skills. `worktreeInit` must call `npx @fission-ai/openspec init`; bare `openspec` = squatted 0.0.0 npm stub that inits nothing. |
+| `.pi/skills/fix-worktree-opsx-skills-not-created/SKILL.md` | Skill. Restore generated OpenSpec skills with the pinned local CLI; verify required lifecycle names, not a fixed count. |
 | `.pi/skills/pre-scaffold-openspec-coherence-check/SKILL.md` | Skill. Pre-scaffold checks before new openspec change: archive sweep, active sweep, current-code verify, slot-props contract, registry check. Avoid re-proposing archived work. |
 | `.pi/skills/reverse-spec-from-code/SKILL.md` | Reverse-generate `openspec/specs/<cap>/spec.md` from spec-less code to enrich `kb_search`. Discovery subagent clusters dir→capabilities; parallel blind generators follow contract across file boundaries; parallel auditors ground each spec against code; scratch in gitignored `.reverse-spec-scratch/`; promote to `openspec/specs/` only on confirm. Step 6.5 HARD `openspec validate` gate before promote. |
 | `.pi/skills/reverse-spec-from-code/prompts/auditor.md` | Auditor subagent prompt. Reads generated spec + code, emits strict JSON `{hallucinated_requirements,missing_behaviors,format_ok,verdict}`. Code is oracle. verdict=revise on any hallucination or central missing behavior. |

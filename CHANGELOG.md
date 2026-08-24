@@ -99,6 +99,29 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **BREAKING (macOS): the desktop app now requires macOS 12 (Monterey) or newer.**
+  macOS 10.15 (Catalina) and 11 (Big Sur) are no longer supported.
+
+  The Electron runtime moved from `32.3.3` to `43.4.1`. The 32.x line is
+  end-of-life and receives **no security backports**, and the desktop app ships a
+  full Chromium to end users and auto-updates it into every install — so staying
+  on it meant shipping ~22 Chromium majors of known renderer CVEs in a released
+  artifact. Every currently-supported Electron line requires macOS 12, so the
+  floor move is not optional: Electron dropped 10.15 at v33 and 11 at v38. Both
+  are also past Apple's own security window (Catalina EOL 2022-09, Big Sur EOL
+  2023-09).
+
+  **If you are on macOS 10.15 or 11:** you keep the version you have installed
+  today and will **not** be offered this or any later update. The update stream
+  is gated on the minimum supported OS (`minimumSystemVersion` in the published
+  `latest-mac.yml`), specifically so your client does not download a build macOS
+  would then refuse to launch and retry it forever. There is no action to take,
+  and nothing breaks — your current install keeps working. To move forward you
+  need macOS 12 or newer.
+
+  Intel Macs are **not** dropped: the `darwin/x64` build is retained, and Apple
+  supports Intel hardware on macOS 12+. Windows and Linux are unaffected.
+
 - **tmux sessions now launch the pi the dashboard resolved, not the first `pi` on
   the shell's `PATH`.** `buildTmuxCommand` returns an argv array and the tmux CLI
   is invoked without a dashboard-side shell. This aligns tmux with the headless

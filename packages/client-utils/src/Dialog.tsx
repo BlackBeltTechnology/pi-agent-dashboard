@@ -74,7 +74,7 @@ export function Dialog({
 
   return (
     <DialogPortal>
-      <div className="fixed inset-0 z-[60] flex items-center justify-center">
+      <div className="fixed inset-0 z-dialog flex items-center justify-center">
         <div
           className="absolute inset-0 bg-black/60"
           onClick={onClose}

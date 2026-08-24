@@ -28,6 +28,7 @@ import { useMediaQuery } from "../../hooks/useMediaQuery.js";
 import { useTreeColumnWidth } from "../../hooks/useTreeColumnWidth.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { useOverlayDismissGuard } from "../overlay/overlay-dismiss-guard.js";
 import { FilePicker } from "./FilePicker.js";
 // The lazy Monaco mount + mtime formatting live in InstructionsEditorPane.
 import { InstructionsEditorPane } from "./InstructionsEditorPane.js";
@@ -39,6 +40,37 @@ interface Props {
 interface Message {
   type: "success" | "error";
   text: string;
+}
+
+/**
+ * Overlay dismissal (backdrop / Escape / ✕) awaiting discard confirmation.
+ *
+ * This page owns its own dirty state and does NOT thread through
+ * `SettingsPanel`, so it must arm the container guard itself (D1b). Kept as a
+ * hook rather than inline state so the page component does not grow another
+ * nested callback.
+ *
+ * See change: add-route-backed-overlay-dialogs (task 6.4).
+ *
+ * @param dirty     Arm the guard only while there are unsaved edits.
+ * @param setBuffer Editor buffer setter.
+ * @param loaded    Last loaded content — restoring it disarms the guard before
+ *                  we leave, so the dismissal is not re-intercepted.
+ */
+function useOverlayLeaveConfirm(
+  dirty: boolean,
+  setBuffer: (v: string) => void,
+  loaded: string,
+): [boolean, () => void, () => void] {
+  const [open, setOpen] = useState(false);
+  const leaveOverlay = useOverlayDismissGuard(dirty, () => setOpen(true));
+  const confirm = useCallback(() => {
+    setOpen(false);
+    setBuffer(loaded);
+    leaveOverlay();
+  }, [setBuffer, loaded, leaveOverlay]);
+  const cancel = useCallback(() => setOpen(false), []);
+  return [open, confirm, cancel];
 }
 
 /** Discard-unsaved-changes confirm, shared by the file-switch and mobile-back guards. */
@@ -133,6 +165,7 @@ export function InstructionsPage({ cwd }: Props) {
   const [pendingSwitch, setPendingSwitch] = useState<MdCandidate | null>(null);
   // Mobile back-to-tree awaiting discard confirmation (dirty guard).
   const [confirmBack, setConfirmBack] = useState(false);
+
 
   const dirty = buffer !== loadedContent;
   const dirtyRef = useRef(dirty);
@@ -345,11 +378,21 @@ export function InstructionsPage({ cwd }: Props) {
     navigate(location);
   }, [navigate, location]);
 
+  const [confirmOverlayLeave, confirmOverlayDiscard, cancelOverlayLeave] = useOverlayLeaveConfirm(
+    dirty,
+    setBuffer,
+    loadedContent,
+  );
+
   const confirmBackDiscard = useCallback(() => {
     setConfirmBack(false);
     setBuffer(loadedContent); // clear dirty so a later reselect won't re-confirm
     navigate(location);
   }, [loadedContent, navigate, location]);
+
+  // Named once for all three discard confirms (file switch / mobile back /
+  // overlay dismissal) rather than repeated per prompt.
+  const dirtyFileLabel = selected?.relPath ?? "this file";
 
   // Master/detail visibility. Desktop always shows both panes (split). Mobile
   // shows the editor once a file is selected, else the tree.
@@ -416,7 +459,7 @@ export function InstructionsPage({ cwd }: Props) {
       <DiscardConfirm
         open={pendingSwitch !== null}
         testId="instructions-switch-confirm"
-        fileLabel={selected?.relPath ?? "this file"}
+        fileLabel={dirtyFileLabel}
         onConfirm={confirmSwitch}
         onClose={() => setPendingSwitch(null)}
       />
@@ -425,9 +468,18 @@ export function InstructionsPage({ cwd }: Props) {
       <DiscardConfirm
         open={confirmBack}
         testId="instructions-back-confirm"
-        fileLabel={selected?.relPath ?? "this file"}
+        fileLabel={dirtyFileLabel}
         onConfirm={confirmBackDiscard}
         onClose={() => setConfirmBack(false)}
+      />
+
+      {/* Unsaved-changes guard on overlay dismissal (backdrop / Escape / ✕) */}
+      <DiscardConfirm
+        open={confirmOverlayLeave}
+        testId="instructions-overlay-leave-confirm"
+        fileLabel={dirtyFileLabel}
+        onConfirm={confirmOverlayDiscard}
+        onClose={cancelOverlayLeave}
       />
     </div>
   );

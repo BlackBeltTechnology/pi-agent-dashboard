@@ -1,7 +1,7 @@
 /**
  * Extension ↔ Server WebSocket protocol messages.
  */
-import type { CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionSource, TurnUsage } from "./types.js";
+import type { AutoNamerPersistedState, CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionSource, TurnUsage } from "./types.js";
 
 // Notify level lives in types.ts (the session record retains a notify log);
 // re-exported here so protocol consumers import it from one place.
@@ -33,6 +33,45 @@ export interface PromptReceivedToServerMessage {
   type: "prompt_received";
   sessionId: string;
   fresh: boolean;
+  /**
+   * Echo of `SendPromptToExtensionMessage.promptId` when the prompt came from
+   * the server. This is the acknowledgement half of the transmitted-vs-delivered
+   * split: `POST /api/session/:id/prompt` returning `success` proves only that a
+   * byte left the server, while this echo proves the OWNING bridge handed the
+   * prompt to pi. Optional — an older bridge never echoes and the prompt stays
+   * `transmitted`. See change: fix-spawn-correlation-ttl-coupling (D7).
+   */
+  promptId?: string;
+}
+
+/** What a bridge can tell us about a message it threw away. */
+export type InboundDropClass = "session_mismatch" | "queue_overflow";
+
+/**
+ * Bridge -> server: an inbound message the bridge DISCARDED.
+ *
+ * The drop site's only record used to be a `console.error`, which lands in
+ * `/dev/null` whenever `keeperLog.capturePiOutput` is false (the default).
+ *
+ * `sessionId` is the REPORTING bridge's own session — the routing field. The id
+ * the dropped message named travels as `droppedSessionId` payload, because the
+ * gateway drops any inbound frame whose routing id maps to another connection,
+ * which is exactly the shape of a mismatch report.
+ *
+ * Best-effort by contract: reports share the outbound ring that can itself
+ * overflow, and are bounded per session per window.
+ * See change: fix-spawn-correlation-ttl-coupling (D6).
+ */
+export interface InboundDropReportMessage {
+  type: "inbound_drop_report";
+  sessionId: string;
+  dropClass: InboundDropClass;
+  /** Message type that was dropped, when known. */
+  messageType?: string;
+  /** The session id the dropped message named — payload, never routing. */
+  droppedSessionId?: string;
+  /** Reports elided by the per-window bound since the last delivered report. */
+  suppressed?: number;
 }
 
 // ── Extension → Server ──────────────────────────────────────────────
@@ -327,6 +366,56 @@ export interface AutoNameErrorMessage {
   sessionId: string;
   reason: string;
 }
+
+/**
+ * The outcome of ONE auto-naming attempt. `starved` means the model could not
+ * emit a title under the output cap (truncated stream) — distinct from
+ * `waiting`, where a well-behaved model reported no nameable topic yet, and
+ * from `retrying`, a transient failure. Conflating them destroys the
+ * diagnostic value of all three. See change: fix-auto-naming-reasoning-model.
+ */
+export type AutoNameOutcome =
+  | "applied"
+  | "waiting"
+  | "starved"
+  | "skipped-prefilter"
+  | "locked-out"
+  | "disabled"
+  | "already-named"
+  | "not-ready"
+  | "retrying"
+  | "stopped";
+
+/**
+ * Bridge → server: the outcome of one auto-naming attempt. DEDUPLICATED by the
+ * bridge — sent only when the outcome or its reason differs from the last one
+ * sent for that session, because terminal states (`already-named`,
+ * `locked-out`, `disabled`) otherwise recur on every terminal turn forever.
+ * The server retains the last one per session for the diagnostics surface.
+ * See change: fix-auto-naming-reasoning-model (design D9).
+ */
+export interface AutoNameOutcomeMessage {
+  type: "auto_name_outcome";
+  sessionId: string;
+  outcome: AutoNameOutcome;
+  reason: string;
+  modelRef?: string;
+  at: number;
+}
+
+/**
+ * Bridge → server: the auto-namer's durable state set, persisted into the
+ * session's `.meta.json` so a permanent stop survives a PROCESS restart, not
+ * only an extension reload. Without it a cold start re-spends a full attempt
+ * budget and re-emits the error, so "permanent" would not be permanent.
+ * See change: fix-auto-naming-reasoning-model (design D7).
+ */
+export interface AutoNameStateMessage {
+  type: "auto_name_state";
+  sessionId: string;
+  state: AutoNamerPersistedState;
+}
+
 
 /**
  * Bridge -> server: the pi-coding-agent version of the process this bridge
@@ -663,7 +752,10 @@ export type ExtensionToServerMessage =
   | QueueUpdateToServerMessage
   | GitCommitDraftResultMessage
   | AutoNameErrorMessage
-  | PromptReceivedToServerMessage;
+  | AutoNameOutcomeMessage
+  | AutoNameStateMessage
+  | PromptReceivedToServerMessage
+  | InboundDropReportMessage;
 
 // ── Server → Extension ──────────────────────────────────────────────
 
@@ -672,6 +764,12 @@ export interface SendPromptToExtensionMessage {
   sessionId: string;
   text: string;
   images?: ImageContent[];
+  /**
+   * Per-prompt handle minted by the server, echoed back on `prompt_received`.
+   * Absent for prompts the server did not mint a handle for.
+   * See change: fix-spawn-correlation-ttl-coupling (D7).
+   */
+  promptId?: string;
   /** Delivery mode: "steer" (after current turn) or "followUp" (after agent finishes). Defaults to "followUp" when absent. See change: add-steering-message. */
   delivery?: "steer" | "followUp";
 }
@@ -988,7 +1086,35 @@ export interface PreferencesUpdateExtensionMessage {
   autoNameSessions: boolean;
 }
 
+/**
+ * Server → bridge: the auto-namer stop state persisted in the session's
+ * `.meta.json`, pushed on register so a permanent stop survives a PROCESS
+ * restart and not merely an extension reload.
+ *
+ * Carries the STOP state only — never `nameSource` / `hasAutoName`. Restoring
+ * provenance would also change the behaviour of the separate auto→`user`
+ * relabel bug, which has a different root cause and is tracked on its own.
+ * See change: fix-auto-naming-reasoning-model (design D7, D8b).
+ */
+export interface AutoNameStateRestoreMessage {
+  type: "auto_name_state_restore";
+  /**
+   * STOP fields only. Typed as the projection rather than the full state so
+   * the wire contract matches the documented one: a type-only `Omit` on the
+   * sender would still ship whatever extra properties the object carries.
+   */
+  state: AutoNamerStopState;
+}
+
+/** The restore-only projection: everything describing the STOP, no provenance. */
+export type AutoNamerStopState = Pick<
+  AutoNamerPersistedState,
+  "hardStopped" | "errorEmitted" | "attemptsUsed" | "starvedCount" | "waitingCount"
+  | "sawStarved" | "stoppedModelRef" | "stopCause" | "stoppedReason"
+>;
+
 export type ServerToExtensionMessage =
+  | AutoNameStateRestoreMessage
   | SendPromptToExtensionMessage
   | AbortToExtensionMessage
   | ExtensionUiResponseMessage

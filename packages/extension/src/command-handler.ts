@@ -7,6 +7,7 @@ import { join, relative } from "node:path";
 import { diffOr } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type {
   ExtensionToServerMessage,
+  InboundDropClass,
   ServerToExtensionMessage,
 } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
@@ -14,10 +15,10 @@ import type { FileEntry, MissingToolError, PiSessionInfo } from "@blackbelt-tech
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { filterHiddenCommands } from "./bridge-context.js";
 import { draftCommitMessage } from "./commit-draft.js";
+import { errText, reportRefresh } from "./model-refresh.js";
 import { killProcessByPgid } from "./process-scanner.js";
 import { expandPromptTemplateFromDisk, loadPromptTemplate } from "./prompt-expander.js";
 import { buildProviderCatalogue, toModelInfo } from "./provider-register.js";
-import { errText, reportRefresh } from "./model-refresh.js";
 import { filterByEnabledModels } from "./session-sync.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 
@@ -195,6 +196,19 @@ export function searchFiles(cwd: string, query: string, opts?: { regex?: boolean
   return candidates.slice(0, MAX_RESULTS).map((c) => ({ path: c.path, isDirectory: c.isDirectory }));
 }
 
+/**
+ * Outcome of a bridge-side `/reload` attempt.
+ *
+ * `ok: false` carries the operator-facing reason so the terminal
+ * `command_feedback` says WHY nothing reloaded instead of claiming success.
+ * See change: fix-out-of-band-reload.
+ */
+export type ReloadOutcome = { ok: true } | { ok: false; reason: string };
+
+/** Reason emitted when the bridge has no reload path at all. */
+export const NO_RELOAD_PATH_REASON =
+  "No reload path for this session — a terminal-hosted pi session must run /__dashboard_reload once in its TUI to enable dashboard reloads.";
+
 /** Parsed result from parseSendPrompt */
 export type ParsedPrompt =
   | { type: "bash"; command: string; excludeFromContext: boolean }
@@ -340,10 +354,36 @@ export function createCommandHandler(
     getCwd?: () => string;
     /** Callback to send events (e.g., bash_output, command_feedback) back to server */
     eventSink?: (msg: ExtensionToServerMessage) => void;
+    /**
+     * Report an inbound message this handler threw away. The mismatch guard
+     * lives inside `handle()`, which holds no connection reference, so the
+     * channel is injected. See change: fix-spawn-correlation-ttl-coupling (D6).
+     */
+    reportInboundDrop?: (drop: {
+      dropClass: InboundDropClass;
+      messageType?: string;
+      droppedSessionId?: string;
+    }) => void;
     /** Trigger context compaction */
     compact?: (options: { customInstructions?: string }) => void;
-    /** Trigger session reload (extensions, settings, skills, etc.) */
-    reload?: () => void;
+    /**
+     * Trigger session reload (extensions, settings, skills, etc.).
+     *
+     * Returns whether a reload ACTUALLY ran. The bridge only has a reload
+     * function when a human once typed `/__dashboard_reload` in pi's TUI
+     * (`ExtensionContext` has no `reload`; only `ExtensionCommandContext`
+     * does), and even a captured one is single-use per process — its runner
+     * is invalidated by the first reload, so a second call throws
+     * *synchronously*. "Present" therefore does not imply "usable", which is
+     * why this reports an outcome instead of returning void and letting the
+     * caller emit an unconditional `completed`.
+     *
+     * ASYNC by contract: `ctx.reload()` returns a promise, and a rejection
+     * that lands after we have already emitted `completed` is the same false
+     * success this change exists to remove. The handler awaits it.
+     * See change: fix-out-of-band-reload (design.md D5).
+     */
+    reload?: () => Promise<ReloadOutcome>;
     /** Spawn a new session in the same cwd */
     spawnNew?: () => void;
     /** Switch model via pi.setModel() */
@@ -355,7 +395,11 @@ export function createCommandHandler(
      * events emitted by the dispatch path arrive before this turn returns.
      * See change: fix-extension-slash-commands-in-dashboard.
      */
-    sessionPrompt?: (text: string, delivery?: "steer" | "followUp") => void | Promise<void>;
+    sessionPrompt?: (
+      text: string,
+      delivery?: "steer" | "followUp",
+      promptId?: string,
+    ) => void | Promise<void>;
     /**
      * Bridge-shadow-queue hooks: called AFTER pi accepts the user message,
      * gated by `isStreaming()` captured BEFORE the send. The capture order
@@ -444,6 +488,16 @@ export function createCommandHandler(
       // Ignore messages for other sessions (skip session-less messages like heartbeat_ack)
       if ((msg as any).sessionId !== undefined && (msg as any).sessionId !== sessionId) {
         console.error(`[dashboard] Ignoring message type=${msg.type} for session ${(msg as any).sessionId}, current session is ${sessionId}`);
+        // This `console.error` is written to /dev/null whenever
+        // `keeperLog.capturePiOutput` is false (the default), so the drop is
+        // ALSO reported over the socket. The guard cannot tell "never mine"
+        // from "was mine, since replaced" — one reportable class.
+        // See change: fix-spawn-correlation-ttl-coupling (D6).
+        options?.reportInboundDrop?.({
+          dropClass: "session_mismatch",
+          messageType: msg.type,
+          droppedSessionId: (msg as any).sessionId,
+        });
         return undefined;
       }
 
@@ -457,6 +511,13 @@ export function createCommandHandler(
           // safety timeout. Settle it immediately (fresh:false → drop). The
           // passthrough + slash paths emit their own `prompt_received` with the
           // real streaming verdict. See change: optimistic-prompt-progress.
+          // The `promptId` echo means ONE narrow thing — the owning bridge
+          // handed this prompt to pi — so it rides only the ack emitted AFTER
+          // an actual `pi.sendUserMessage`. The acks below are UI-state signals
+          // for non-turn commands and for the buffered follow-up path (pi never
+          // sees those), and attaching the handle to them would report a
+          // delivery that did not happen.
+          // See change: fix-spawn-correlation-ttl-coupling (D7).
           if (parsed.type !== "passthrough" && parsed.type !== "slash") {
             options?.eventSink?.({ type: "prompt_received", sessionId, fresh: false });
           }
@@ -480,8 +541,23 @@ export function createCommandHandler(
           }
 
           if (parsed.type === "reload") {
+            // Emit the REAL outcome. The previous unconditional `completed`
+            // reported success for every reload that silently no-op'd on a
+            // session with no captured reload function — which is every
+            // dashboard-spawned session that was never touched in a TUI.
+            // See change: fix-out-of-band-reload.
+            let outcome: ReloadOutcome = { ok: false, reason: NO_RELOAD_PATH_REASON };
             if (options?.reload) {
-              options.reload();
+              // Defence in depth: the bridge already converts a throw into an
+              // outcome, but a stale captured `ctx.reload` throws
+              // SYNCHRONOUSLY out of `assertActive()`, and any caller wiring a
+              // different `reload` must not be able to take the turn down.
+              try {
+                outcome = await options.reload();
+              } catch (err: any) {
+                const reason = err instanceof Error ? err.message : String(err);
+                outcome = { ok: false, reason: `Reload failed: ${reason}` };
+              }
             }
             options?.eventSink?.({
               type: "event_forward",
@@ -489,7 +565,9 @@ export function createCommandHandler(
               event: {
                 eventType: "command_feedback",
                 timestamp: Date.now(),
-                data: { command: "/reload", status: "completed" },
+                data: outcome.ok
+                  ? { command: "/reload", status: "completed" }
+                  : { command: "/reload", status: "error", message: outcome.reason },
               },
             });
             return undefined;
@@ -577,7 +655,12 @@ export function createCommandHandler(
               // extension-command dispatch. Do NOT emit completed here — would
               // duplicate the dispatch path's terminal event.
               // See change: fix-extension-slash-commands-in-dashboard.
-              await options.sessionPrompt(parsed.text, msg.delivery);
+              // The handle rides along so the branch that actually reaches
+              // `pi.sendUserMessage` can acknowledge it; the non-turn slash
+              // routes (flow, extension dispatch, exec template) settle without
+              // one, because pi never receives those as a prompt.
+              // See change: fix-spawn-correlation-ttl-coupling (D7).
+              await options.sessionPrompt(parsed.text, msg.delivery, msg.promptId);
             } else {
               // Test / non-bridge callers: apply the extension-command dispatch
               // branch inline before falling through to sendUserMessage. Keeps
@@ -604,7 +687,22 @@ export function createCommandHandler(
                 // Forward delivery so steering on slash fallback honors the
                 // dashboard's keyboard contract. See change: add-steering-message.
                 const deliverAs = msg.delivery ?? ("followUp" as const);
+                // Capture the streaming verdict BEFORE the pi call: an idle
+                // send synchronously fires `agent_start`, so reading it
+                // afterwards reports `fresh:false` for every fresh turn — the
+                // same trap the passthrough path documents.
+                const wasStreamingBeforeSend = options?.isStreaming?.() ?? false;
                 (pi.sendUserMessage as any)(parsed.text, { deliverAs });
+                // This slash DID reach pi as a user prompt, so it is delivered.
+                // See change: fix-spawn-correlation-ttl-coupling (D7).
+                if (msg.promptId) {
+                  options?.eventSink?.({
+                    type: "prompt_received",
+                    sessionId,
+                    fresh: !wasStreamingBeforeSend,
+                    promptId: msg.promptId,
+                  });
+                }
               }
             }
             return undefined;
@@ -655,9 +753,22 @@ export function createCommandHandler(
           // Drives the optimistic `pendingPrompt` bubble: fresh:true → "sent",
           // fresh:false → drop (raced mid-turn). Emitted BEFORE any pi call so
           // the snapshot is authoritative. See change: optimistic-prompt-progress.
-          options?.eventSink?.({ type: "prompt_received", sessionId, fresh: !wasStreaming });
           const da = msg.delivery ?? "followUp";
-          if (wasStreaming && da === "followUp") {
+          const buffered = wasStreaming && da === "followUp";
+          // The streaming-verdict ack is unchanged and still emitted BEFORE any
+          // pi call, so the snapshot stays authoritative. It carries the
+          // `promptId` ONLY on the branch that actually hands the prompt to pi;
+          // a buffered follow-up stays `transmitted` until (and unless) the
+          // drain ships it, which is the same honest degradation an older
+          // bridge gets. See change: optimistic-prompt-progress,
+          //                 fix-spawn-correlation-ttl-coupling (D7).
+          options?.eventSink?.({
+            type: "prompt_received",
+            sessionId,
+            fresh: !wasStreaming,
+            ...(msg.promptId && !buffered ? { promptId: msg.promptId } : {}),
+          });
+          if (buffered) {
             // Bridge-owned buffer path — do NOT call pi.sendUserMessage.
             options?.onFollowupSent?.(outgoing);
           } else {

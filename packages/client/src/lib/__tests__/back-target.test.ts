@@ -34,9 +34,6 @@ describe("computeBackTarget", () => {
       "/settings",
       "/settings/remote",
       "/settings?tab=servers",
-      "/folder/Zm9v/settings",
-      "/folder/Zm9v/settings/packages",
-      "/folder/Zm9v/settings/resources",
       "/tunnel-setup",
     ];
     for (const route of depth1) {
@@ -45,6 +42,37 @@ describe("computeBackTarget", () => {
         expect(computeBackTarget(route)).toBe("/");
       });
     }
+  });
+
+  // Folder-scoped settings are depth 1 but NOT lateral: they are entered from
+  // their folder and must return to it. The depth default sent them to "/",
+  // losing the folder — the defect the overlay change exists to fix. Depth is
+  // unchanged; only the parent is narrowed, so no path moves.
+  // See change: add-route-backed-overlay-dialogs (task 5.8).
+  describe("depth 1 folder-scoped settings → owning folder", () => {
+    const folderScoped = [
+      "/folder/Zm9v/settings",
+      "/folder/Zm9v/settings/packages",
+      "/folder/Zm9v/settings/resources",
+    ];
+    for (const route of folderScoped) {
+      it(`${route} → /folder/Zm9v`, () => {
+        expect(routeDepth(route)).toBe(1);
+        expect(computeBackTarget(route)).toBe("/folder/Zm9v");
+      });
+    }
+
+    // `encodeFolderPath` is base64url with padding stripped, so a real cwd
+    // segment is [A-Za-z0-9_-]+ and round-trips through the parser untouched.
+    it("round-trips a base64url cwd segment unchanged", () => {
+      expect(computeBackTarget("/folder/L1VzZXJzL3gvcHJvag/settings/instructions")).toBe(
+        "/folder/L1VzZXJzL3gvcHJvag",
+      );
+    });
+
+    it("round-trips the -/_ base64url substitutions unchanged", () => {
+      expect(computeBackTarget("/folder/a-b_c/settings")).toBe("/folder/a-b_c");
+    });
   });
 
   describe("depth 2 → parent", () => {
@@ -89,9 +117,13 @@ describe("plugin route descriptors (registry-fed)", () => {
   // (that emission is unit-tested in dashboard-plugin-runtime); here we pin the
   // classifier's resolution of registered plugin descriptors.
   const automationDescriptors: RouteDescriptor[] = [
-    { pattern: "/folder/:encodedCwd/automations", depth: 1 },
     {
-      pattern: "/automation/run/:sid",
+      pattern: "/folder/:encodedCwd/automations",
+      depth: 2,
+      computeParent: (p) => interpolateParentPath("/folder/:encodedCwd", p) ?? "/",
+    },
+    {
+      pattern: "/folder/:encodedCwd/automations/run/:sid",
       depth: 2,
       computeParent: (p) => interpolateParentPath("/folder/:encodedCwd/automations", p) ?? "/",
     },
@@ -105,18 +137,33 @@ describe("plugin route descriptors (registry-fed)", () => {
     expect(computeBackTarget("/folder/Zm9v/automations")).toBeNull();
   });
 
-  it("board resolves depth 1 → / via the registry-fed table", () => {
-    registerPluginRouteDescriptors(automationDescriptors);
-    expect(routeDepth("/folder/Zm9v/automations")).toBe(1);
-    expect(computeBackTarget("/folder/Zm9v/automations")).toBe("/");
+  it("a folder-scoped claim declared at depth 1 ejects to / (why boards declare depth 2)", () => {
+    // Regression pin. `depth: 1` on a surface nested under a depth-1 folder is
+    // WORSE than declaring nothing: the omitted-depth default is 2, which keeps
+    // the fast-path, while an explicit 1 loses it and resolves to "/".
+    registerPluginRouteDescriptors([{ pattern: "/folder/:encodedCwd/thing", depth: 1 }]);
+    expect(computeBackTarget("/folder/Zm9v/thing")).toBe("/");
   });
 
-  it("run monitor resolves depth 2; cold-load parent degrades to / (cwd not in URL)", () => {
+  it("board resolves depth 2 → its owning folder via the registry-fed table", () => {
     registerPluginRouteDescriptors(automationDescriptors);
-    expect(routeDepth("/automation/run/S")).toBe(2);
-    // The run URL carries no cwd, so a cold-load back degrades to cards; the
-    // run→board walk is guaranteed by the nav-tracker fast-path instead.
-    expect(computeBackTarget("/automation/run/S")).toBe("/");
+    // Was depth 1 → "/". A folder-scoped board declared at the SAME depth as its
+    // folder loses the strictly-shallower history fast-path and falls through to
+    // the depth-1 default ("/"), ejecting the user from the folder. Declaring
+    // depth 2 + parentPath returns them to it on both the in-app and cold-load
+    // paths. See change: add-route-backed-overlay-dialogs.
+    expect(routeDepth("/folder/Zm9v/automations")).toBe(2);
+    expect(computeBackTarget("/folder/Zm9v/automations")).toBe("/folder/Zm9v");
+  });
+
+  it("run monitor resolves depth 2; cold-load parent resolves to the owning board", () => {
+    registerPluginRouteDescriptors(automationDescriptors);
+    expect(routeDepth("/folder/Zm9v/automations/run/S")).toBe(2);
+    // The run URL now carries the board's cwd, so a cold-load back reconstructs
+    // the exact board URL instead of degrading to cards. Previously this
+    // asserted "/" because `/automation/run/:sid` could never supply
+    // `:encodedCwd`. See change: add-route-backed-overlay-dialogs.
+    expect(computeBackTarget("/folder/Zm9v/automations/run/S")).toBe("/folder/Zm9v/automations");
   });
 
   it("a depth-2 plugin descriptor with no computeParent backs to / (legacy default)", () => {

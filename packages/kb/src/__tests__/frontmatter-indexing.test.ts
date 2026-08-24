@@ -138,7 +138,8 @@ describe("reindex integrity", () => {
     const store = freshStore();
     await indexInto(store, dir);
     md(dir, "a.md", "---\nstatus: approved\n---\nversion two changed");
-    await indexInto(store, dir);
+    // Force the reindex so this stale-row test does not depend on filesystem mtime resolution.
+    await indexInto(store, dir, true);
     const f = store.facets(["status"]);
     expect(f.status).toEqual({ approved: 1 });
   });
