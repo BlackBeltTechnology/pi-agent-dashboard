@@ -1,0 +1,73 @@
+name: Gateway transport (cross-platform)
+
+# The gateway's transport is decided BY THE PLATFORM, so a single-OS gate
+# cannot see most of it: POSIX gets a unix socket and no TCP port at all,
+# Windows has no socket path and falls back to loopback + token. Each side is
+# the other's blind spot, and until now only the POSIX side was ever run.
+#
+# Deliberately NOT part of `ci.yml`, which is a cheap per-PR safety net on one
+# runner. This boots a real dashboard on three operating systems; it belongs on
+# a dispatch, next to `ci-smoke.yml`, and on pushes that touch the transport.
+#
+# tasks 5.1, 5.5, 5.7, 12.53, 13.8
+# See change: add-pi-gateway-transport-identity.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [develop]
+    paths:
+      - "packages/shared/src/dashboard-paths.ts"
+      - "packages/server/src/pi/pi-gateway.ts"
+      - "packages/server/src/lifecycle/**"
+      - "packages/extension/src/endpoint-resolution.ts"
+      - "packages/extension/src/bridge.ts"
+      - "qa/tests/28-gateway-windows.ps1"
+      - "qa/tests/29-gateway-posix-no-tcp.sh"
+      - ".github/workflows/ci-gateway-platform.yml"
+
+jobs:
+  posix:
+    name: no bridge TCP port (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm run build
+      # The arm calls `pi-dashboard` on PATH. Running from source via the jiti
+      # entry keeps CI testing THIS checkout rather than a published build.
+      - name: Shim pi-dashboard to this checkout
+        run: |
+          mkdir -p "$RUNNER_TEMP/shim"
+          printf '#!/usr/bin/env bash\nexec node "%s/packages/server/bin/pi-dashboard.mjs" "$@"\n' "$GITHUB_WORKSPACE" > "$RUNNER_TEMP/shim/pi-dashboard"
+          chmod +x "$RUNNER_TEMP/shim/pi-dashboard"
+          echo "$RUNNER_TEMP/shim" >> "$GITHUB_PATH"
+      - name: Default start binds no bridge TCP port
+        run: bash qa/tests/29-gateway-posix-no-tcp.sh
+
+  windows:
+    name: loopback fallback + credential ACLs (windows-latest)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile --config.engine-strict=false
+      - run: pnpm run build
+      - name: Gateway transport + identity on Windows
+        shell: pwsh
+        env:
+          QA_REPO_ROOT: ${{ github.workspace }}
+        run: ./qa/tests/28-gateway-windows.ps1

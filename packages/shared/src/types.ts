@@ -137,6 +137,28 @@ export interface DashboardSession {
    * See change: add-embed-session-lifecycle.
    */
   lifecyclePolicy?: LifecyclePolicy;
+  /**
+   * Paired-device id of the host this session RAN on, when that host is not
+   * this one. Absent means local — which is what every pre-existing session is,
+   * so absent must keep meaning "our filesystem" (task 11.12).
+   *
+   * Derived server-side from the bridge's credential, never from a field the
+   * bridge sends: a self-reported origin is a claim by the party being
+   * identified. Display-safe, but its real job is gating every filesystem read
+   * of `sessionFile` — two hosts with the same username produce the same path.
+   * See change: add-pi-gateway-transport-identity (tasks 11.7, 11.8).
+   */
+  originDeviceId?: string;
+  /**
+   * Set when this session left for another dashboard instance (D11, task 9.3).
+   *
+   * The session's `status` stays `"ended"` — it genuinely did end HERE — but a
+   * plain `ended` with no explanation is indistinguishable from a crash, which
+   * is the exact confusion this field exists to remove. Absent means the
+   * session ended for any other reason.
+   * See change: add-pi-gateway-transport-identity.
+   */
+  movedTo?: { instanceId: string; endpoint?: string; at: number };
   status: SessionStatus;
   /**
    * True while the session is compacting its context. Derived server-side

@@ -24,8 +24,8 @@
  * per-fork). So no per-file localStorage path is needed here.
  */
 import { mkdirSync, mkdtempSync } from "node:fs";
-import { join } from "node:path";
 import os from "node:os";
+import { join } from "node:path";
 
 const home = mkdtempSync(join(os.tmpdir(), "pi-test-"));
 process.env.HOME = home;
@@ -41,3 +41,10 @@ if (process.platform === "win32") { // platform-branch-ok: test HOME isolation; 
 // production code that reads those paths finds empty but well-formed dirs.
 mkdirSync(join(home, ".pi", "agent", "sessions"), { recursive: true });
 mkdirSync(join(home, ".pi", "dashboard"), { recursive: true });
+
+// The gateway's TCP listener is an explicit opt-in in production (D10, task
+// 8.1 — a default POSIX start binds no bridge port at all), but the server
+// corpus dials `ws://127.0.0.1:<piPort>` throughout. Opt in here so tests keep
+// exercising the TCP transport, which remains supported for remote and
+// container bridges. See change: add-pi-gateway-transport-identity.
+process.env.PI_GATEWAY_TCP ??= "1";

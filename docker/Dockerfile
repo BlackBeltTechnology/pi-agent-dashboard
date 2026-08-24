@@ -177,6 +177,9 @@ COPY public ./public
 COPY .github ./.github
 COPY .pi/skills ./.pi/skills
 COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+# Sourced by both entrypoints so the deployment and the test harness supervise
+# the detached daemon identically.
+COPY --chmod=0755 docker/supervise-daemon.sh /usr/local/bin/supervise-daemon.sh
 COPY docker/scripts ./docker/scripts
 
 # pnpm re-resolves the full platform optional-dep tree from pnpm-lock.yaml
@@ -190,6 +193,13 @@ RUN pnpm install --frozen-lockfile \
  && apt-get purge -y --auto-remove build-essential python3 \
  && rm -rf /var/lib/apt/lists/* \
  && chown -R pi:pi /app
+
+# The VOLUME paths below are created by the VOLUME instruction itself, as ROOT,
+# regardless of the USER in force — and a fresh named volume inherits that
+# root:root ownership on first use, which a container running as `pi` cannot
+# write. Create them here, owned by pi, so the copy-on-first-use hands the
+# volume to the user that actually runs.
+RUN mkdir -p /home/pi/.pi /home/pi/.zrok2 && chown pi:pi /home/pi/.pi /home/pi/.zrok2
 
 USER pi
 ENV HOME=/home/pi

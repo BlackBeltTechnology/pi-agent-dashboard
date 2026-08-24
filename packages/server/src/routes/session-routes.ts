@@ -10,6 +10,7 @@ import type { SessionManager } from "../session/memory-session-manager.js";
 import { buildSessionDiffCached, type SessionDiffResult } from "../session/session-diff.js";
 import { SessionDiffCache } from "../session/session-diff-cache.js";
 import { findSessionToolCallPayload } from "../session/session-file-reader.js";
+import { originOf } from "../session/session-origin.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 export function registerSessionRoutes(
@@ -137,6 +138,21 @@ export function registerSessionRoutes(
       if (!session) {
         reply.code(404);
         return { success: false, error: "session not found" } satisfies ApiResponse;
+      }
+      // A REMOTE session's `cwd` is a path on ANOTHER host. Confining to it
+      // here is a check that does not travel: two machines with the same
+      // username produce the same path, so this would happily serve an
+      // unrelated local file as if it were the remote workspace's. Correctness
+      // first, security second — and the origin comes from the credential the
+      // bridge registered with, never from anything it claimed.
+      // See change: add-pi-gateway-transport-identity (#E15, task 11.8).
+      const origin = originOf(session);
+      if (!origin.local) {
+        reply.code(403);
+        return {
+          success: false,
+          error: `session ${sessionId} was registered by remote device ${origin.deviceId ?? "unknown"}; its files are not on this host`,
+        } satisfies ApiResponse;
       }
       // Resolve and ensure path is within cwd
       const absPath = isAbsolute(filePath) ? filePath : resolve(session.cwd, filePath);

@@ -21,6 +21,7 @@ import { existsSync } from "node:fs";
 import path from "node:path";
 import type { SpawnFailureCode } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { loadConfig, type SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { resolveLocalGatewayEndpoint } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { MANAGED_BIN } from "@blackbelt-technology/pi-dashboard-shared/managed-paths.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import {
@@ -205,6 +206,16 @@ export function buildSpawnEnv(
   // inherited PI_DASHBOARD_URL. See setSpawnDashboardPiPort above.
   if (spawnDashboardPiPort != null) {
     env.PI_DASHBOARD_URL = `ws://localhost:${spawnDashboardPiPort}`;
+    // Pin over the socket too when this instance is serving one. The URL pin
+    // alone stops working the moment the default TCP listener goes away (task
+    // 8.1), and an inherited `PI_DASHBOARD_SOCKET` from another instance would
+    // outrank our URL in the bridge's precedence ladder — the same
+    // cross-instance capture, via a different variable (task 2.0f).
+    delete env.PI_DASHBOARD_SOCKET;
+    const local = resolveLocalGatewayEndpoint({ homedir: env.HOME }, spawnDashboardPiPort);
+    if (local.transport === "unix" && existsSync(local.path)) {
+      env.PI_DASHBOARD_SOCKET = local.path;
+    }
   }
   if (opts?.spawnToken) {
     // Inject the correlation token so the bridge inside the spawned pi
