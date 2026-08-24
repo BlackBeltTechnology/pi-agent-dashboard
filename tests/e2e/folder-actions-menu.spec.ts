@@ -86,9 +86,11 @@ test.describe("folder actions menu", () => {
     // pill root. Counted across the card, which is where the violation was
     // invisible before.
     const sections = ["folder-automation-section", "folder-goals-section", "folder-kb-section", "folder-openspec-section"];
+    let present = 0;
     for (const section of sections) {
       const node = card.getByTestId(section).first();
       if ((await node.count()) === 0) continue;
+      present++;
       const interactive = await node.evaluate(
         (el) =>
           el.querySelectorAll("button, a, input, select, textarea, [role='button'], [tabindex]:not([tabindex='-1'])")
@@ -96,6 +98,9 @@ test.describe("folder actions menu", () => {
       );
       expect(interactive, `${section} exposes one control (its pill root)`).toBe(1);
     }
+    // Guard against a vacuous pass: with zero sections rendered the loop above
+    // asserts nothing, and the id sweep would also trivially hold.
+    expect(present, "at least one slot section rendered on the card").toBeGreaterThan(0);
   });
 
   test("the moved actions are reachable from the menu instead", async ({ page }) => {

@@ -92,7 +92,7 @@ Author these before the implementation in sections 3-4 and verify each fails. Ev
 - [x] 6.1 CHANGELOG entry: `SlotPill.actions` removed; declarative `folder-actions-menu` contributions replace it.
 - [x] 6.2 Plugin-author migration note in the plugin docs (delegate `docs/` prose to DocScribe).
 - [x] 6.3 Grep the repo for any remaining third-party-facing reference to `SlotPill.actions`.
-- [x] 6.4 Confirm i18n keys exist for the five group labels — the taxonomy adds user-visible text and the menu shipped with two groups.
+- [x] 6.4 i18n for the five group labels: the three NEW keys (`folders.menuGroup{Create,Open,Maintenance}`) plus `folders.refreshFolder` and `openspec.folderMenu{Archive,Specs}` are authored as `t(key, undefined, "<English>")` call sites and resolve through the English fallback — **matching the two shipped group labels** (`menuGroupWorkspace`/`menuGroupDirectory`), which are also absent from `i18n.tsx` `zhCN` and `i18n-hu.ts`. `i18n-lint --strict` and `i18n-parity` both pass. Non-English locales therefore show English group headers, exactly as they already did for the two existing groups; translating them is design Open Question 4 and is deliberately NOT widened here.
 
 ## 7. A11y + verify
 

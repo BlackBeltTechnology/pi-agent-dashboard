@@ -153,6 +153,21 @@ describe("store registration (test-plan #E15, #E16, #F1)", () => {
     expect(store.getItems(SCOPE).map((i) => i.label)).toEqual(["second"]);
   });
 
+  it("strips non-declarative fields \u2014 a smuggled `node`/`pressed` never reaches the host", () => {
+    const store = createFolderMenuStore();
+    store.registerItem(SCOPE, "p", {
+      ...contribution(),
+      node: "<smuggled markup>",
+      pressed: true,
+    } as unknown as FolderMenuContribution);
+    const entry = store.getItems(SCOPE)[0] as unknown as Record<string, unknown>;
+    expect(entry.node).toBeUndefined();
+    expect(entry.pressed).toBeUndefined();
+    expect(Object.keys(entry).sort()).toEqual(
+      ["badge", "disabled", "group", "icon", "id", "label", "onSelect", "pluginId"],
+    );
+  });
+
   it("returns a referentially stable snapshot until the scope changes", () => {
     const store = createFolderMenuStore();
     const before = store.getItems(SCOPE);
@@ -305,6 +320,28 @@ describe("useFolderMenuItem bridge (test-plan #F1, #F2, #F4)", () => {
     expect(store.getItems(SCOPE)).toBe(snapshot);
     rerender(<Tree label="Retry" />);
     expect(store.getItems(SCOPE).map((i) => i.label)).toEqual(["Retry"]);
+  });
+
+  it("invokes the LATEST onSelect without re-registering when only the closure changed", () => {
+    const store = createFolderMenuStore();
+    const first = vi.fn();
+    const second = vi.fn();
+    function Tree({ onSelect }: { onSelect: () => void }) {
+      return (
+        <FolderMenuProvider store={store}>
+          <Section pluginId="kb-plugin" scope={SCOPE} item={contribution({ id: "kb", onSelect })} />
+        </FolderMenuProvider>
+      );
+    }
+    const { rerender } = render(<Tree onSelect={first} />);
+    const snapshot = store.getItems(SCOPE);
+    rerender(<Tree onSelect={second} />);
+    // No rendered field changed, so the registration is NOT churned …
+    expect(store.getItems(SCOPE)).toBe(snapshot);
+    // … yet the item still runs the current closure, not the stale one.
+    act(() => store.getItems(SCOPE)[0]!.onSelect());
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledTimes(1);
   });
 
   it("stamps the plugin id from the plugin context, ignoring any payload-supplied one", () => {

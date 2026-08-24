@@ -144,7 +144,14 @@ export function createFolderMenuStore(): FolderMenuStore {
       // a development double-mount — re-registers the same key, so the LATEST
       // registration wins and the live callback is never dropped.
       const key = `${pluginId}\u0000${contribution.id}`;
-      const entry: RegisteredFolderMenuItem = { ...contribution, pluginId };
+      // Whitelist the declarative fields rather than spreading. A spread would
+      // carry an unknown key straight through to the host renderer, and the
+      // renderer honours `node` — so a plugin compiled with `as any` (or a
+      // plain-JS one) could smuggle back the arbitrary markup this change
+      // exists to remove. "No ReactNode" has to hold at RUNTIME, not only in
+      // the type system, exactly as `SlotPill.actions`'s removal does.
+      const { id, group, label, icon, onSelect, badge, disabled } = contribution;
+      const entry: RegisteredFolderMenuItem = { id, group, label, icon, onSelect, badge, disabled, pluginId };
       s.items.set(key, entry);
       invalidate(s);
       return () => {
