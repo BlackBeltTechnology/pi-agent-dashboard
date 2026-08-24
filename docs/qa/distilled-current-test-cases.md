@@ -69,7 +69,7 @@ Cases are grounded in a *source digest* (testids/text/handlers), not a running a
 - [ ] **NEW** [queue-count-badge] A session with queued prompts renders queue-count-badge showing the pending count.
 - [ ] **NEW** [session-status-icon] session-status-icon shows solid green (active), pulsing yellow with animate-pulse (streaming), and gray (ended), conveying state via icon/shape not hue alone, with the source label as tooltip.
 - [ ] **NEW** [state-pill] state-pill reflects the session's current status and updates live on server transitions without reload; ask_user shows "Needs you" (non-green dot), idle shows muted "Idle", IMPLEMENTING shows the change state label.
-- [ ] **NEW** [worktree-pill] A session with gitWorktree set renders worktree-pill with worktree-pill-name showing the branch/worktree name once below the OpenSpec actions; a session without it renders no worktree-pill.
+- [ ] **NEW** [worktree-pill] A session with gitWorktree set renders worktree-pill with bare `worktree` label, tooltip `created from <base>` when base known else `git worktree`; a session without it renders no worktree-pill.
 - [ ] **NEW** [git-init-btn] A non-git cwd renders git-init-btn; clicking it starts git init (opening an interactive session when there is no worktreeInit hook) — an initialized repo renders git-branch-btn instead.
 - [ ] **NEW** [git-branch-btn] Clicking git-branch-btn opens the branch picker/switcher dialog.
 - [ ] **NEW** [git-branch-btn] Dispatching git_head_update { branch: "develop" } updates git-branch-btn to "develop"; a folder HEAD entry overrides any worktree child branch, else it falls back to the session/fetched branch.
@@ -77,7 +77,7 @@ Cases are grounded in a *source digest* (testids/text/handlers), not a running a
 - [ ] **NEW** [OPENSPEC] The OPENSPEC section lists changes grouped in-progress/completed with task counts and is hidden for projects with no openspec/ directory.
 - [ ] **NEW** [OPENSPEC] Clicking an OpenSpec action button (Continue/FF/Apply) sends the corresponding command to the session.
 - [ ] **NEW** [settings-btn] Toggling "Enable OpenSpec" hides the OPENSPEC subcard across cards and re-enabling restores it.
-- [ ] **NEW** [SessionCard] Triggering activity for `openspec/changes/add-auth/...` auto-renames the card (worktree-pill-name shows `add-auth`) and marks it attached; a UUID-shaped path leaves the name unchanged and attached-proposal chip unset.
+- [ ] **NEW** [SessionCard] Triggering activity for `openspec/changes/add-auth/...` auto-renames the card name to `add-auth` and shows the attached-proposal chip; a UUID-shaped path leaves the name unchanged and attached-proposal chip unset.
 - [ ] **NEW** [SessionCard] A card renders subcard titles only for sections with content: MEMORY absent with no plugin claim, FLOWS absent with no flow claims.
 - [ ] **NEW** [session-activity-bar] Running a flow renders the session-activity-bar / activity badge on the session card.
 - [ ] **NEW** [SessionCard] A session with no custom name displays the directory basename (cwd.split("/").pop()); clicking the name region navigates to `/session/:id` and highlights it after reload.
