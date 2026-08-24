@@ -66,14 +66,17 @@
 ## 5. Windows loopback transport (D6)
 
 - [ ] 5.1 On Windows, resolve the local endpoint to `127.0.0.1:<piPort>` from the rendezvous record; no named pipe, no `getGatewaySocketPath`
+  - Arm written (`28-gateway-windows.ps1` §1: numeric `piGatewayPort`, no `gateway-*.sock` artifact, a real listener on the port) and CI-wired; awaiting its first `windows-latest` run. Windows has no runner on this developer's desk, and asserting it from macOS would be theatre.
 - [x] 5.2 Pin the Windows local bridge listener to `127.0.0.1` regardless of the configured bind host
 - [x] 5.3 Have the bridge read the local token via `ensureLocalToken`'s location and present it on the WebSocket upgrade; verify server-side with `verifyLocalToken`
 - [x] 5.4 Reject a loopback bridge connection that presents no token or a wrong token, distinctly from other refusal causes
 - [ ] 5.4b **Verify the instance identity in addition to the token (D14).** `local-token.ts` resolves from `os.homedir()`, so the token is per-HOME and shared by every same-HOME dashboard; it cannot answer "is this the instance the record named". Reuse the `identity`-vs-`/api/health` check `home-lock.ts` already performs
 - [x] 5.4c Define the Windows mixed-version rollout: the loopback listener is always bound, and an old bridge cannot present a token. State whether tokenless upgrades are refused outright or accepted for a deprecation window, and record the horizon
 - [ ] 5.5 **Verify, do not assume**, that `~/.pi/dashboard/local/token` is unreadable by a second OS user on Windows — `chmod` is a documented no-op there, so the guarantee rests on inherited NTFS ACLs
+  - Arm written (`28-gateway-windows.ps1` §4) against the REAL profile, since inherited NTFS ACLs are the mechanism under test and a temp HOME inherits from elsewhere. Reports ACL inspection and the empirical second-user read SEPARATELY, and distinguishes "denied" from "infeasible on a hosted runner" so an untested claim cannot read as a pass. Awaiting its first run.
 - [ ] 5.6 If 5.5 fails, treat it as a pre-existing defect affecting `identity.key` and `paired-devices.json` too, and raise it as its own change rather than patching it here
 - [ ] 5.7 Add a Windows QA arm (alongside `qa/tests/windows-nsis-*.ps1`) covering connect, reconnect, stale-record rejection, and the two-user read test
+  - This IS `qa/tests/28-gateway-windows.ps1` (connect, hard-drop reconnect as ONE session, stale/identity read, two-user read). Written and CI-wired; unproven until `windows-latest` runs it.
 
 ## 6. Remote bridge authentication (D7)
 
@@ -223,6 +226,7 @@
 ### Manual-only (no test folded; deferred post-merge)
 
 - [ ] 12.53 Windows credential readability on a real Windows host: log in as a second standard OS user and attempt to read `~/.pi/dashboard/local/token`, `identity.key`, and `paired-devices.json`. `chmod` is a documented no-op on Windows, so this rests on inherited NTFS ACLs and must be observed rather than asserted. (test-plan: manual-only)
+  - **Downgraded from manual-only to CI-observable, pending evidence.** A hosted `windows-latest` runner has admin, so §4 of the Windows arm creates a STANDARD local user (hard-failing if it lands in Administrators, which would make the test vacuous) and attempts the read. If impersonation proves infeasible on a hosted runner, the arm says so instead of passing, and this task stays open for a real host.
 
 ## 13. Verification
 
@@ -243,4 +247,6 @@
   - Evidence: `resume-remote-origin-bus.test.ts` (4 cases incl. a local control arm that must NOT be refused) and F7 in `gateway-origin-surfaces.spec.ts`, which fires the message the hidden button would have sent and asserts the refusal on the bus.
 - [x] 13.7 Measure the remote-join path against a p99 transcript (~4 MB) and the observed maximum (~44 MB); record registration latency and transfer cost
 - [ ] 13.8 Cross-platform QA arms for macOS, Linux, and Windows, including that a POSIX default start binds no bridge TCP port at all
+  - **Arms written and CI-wired; still open until the runners report.** `qa/tests/29-gateway-posix-no-tcp.sh` PASSES locally on macOS and is teeth-proven by `PI_GATEWAY_TCP=1` (no code mutation needed); its Linux leg and the whole of `qa/tests/28-gateway-windows.ps1` have never executed on their platform, so they are unproven, not done.
+  - `.github/workflows/ci-gateway-platform.yml` runs both: ubuntu+macOS for the POSIX arm, `windows-latest` for the Windows one. Deliberately not in `ci.yml`, which is a cheap single-runner PR net.
 - [x] 13.9 Update `docs/architecture.md` via DocScribe (transport, precedence ladder, auth model, move command, remote transcript access + the read-only boundary)
