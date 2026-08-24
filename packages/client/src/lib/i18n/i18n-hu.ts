@@ -1084,6 +1084,7 @@ export const huCatalog: Record<string, string> = {
   "session.abortedMaxTurnsExceeded": "Megszakítva (max. körök túllépve)",
   "session.activePiSession": "aktív pi munkamenet",
   "session.askUserPromptTimeoutSeconds": "ask_user kérdés időkorlátja",
+  "session.attachedImages": "Csatolt képek",
   "session.backToChat": "Vissza a csevegéshez",
   "session.clearAllFollowUp": "Összes utókérés törlése",
   "session.clearAllFollowUpEntries": "Összes utókérési bejegyzés törlése",

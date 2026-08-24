@@ -77,7 +77,7 @@ type AdmitResult = { ok: true } | AdmitRefusal;
 type EditResult = { ok: true } | { ok: false; reason: "range" | "bytes"; message: string };
 
 export interface FollowupBuffer {
-  /** Live entries, for read-only inspection. */
+  /** Snapshot of the current entries, for read-only inspection. */
   entries(): readonly FollowUpEntry[];
   readonly length: number;
   /** Sum of `entryBytes` over the entries actually present, recomputed on call. */
@@ -114,7 +114,9 @@ export function createFollowupBuffer(options: FollowupBufferOptions = {}): Follo
   const totalBytes = (): number => entries.reduce((sum, entry) => sum + entryBytes(entry), 0);
 
   return {
-    entries: () => entries,
+    // A COPY: the internal array must not be mutable through a read accessor,
+    // or a caller could bypass every bound above.
+    entries: () => [...entries],
     get length() {
       return entries.length;
     },

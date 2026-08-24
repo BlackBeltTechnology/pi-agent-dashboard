@@ -237,5 +237,18 @@ test.describe("follow-up queue — drained delivery", () => {
     // drained prompt must appear in the transcript — text AND an image slot.
     await expect(page.getByText("drained-image-probe").first()).toBeVisible({ timeout: 120_000 });
     await expect(byTestId(page, "queuePanel")).toHaveCount(0);
+
+    // The image slot is the load-bearing half: without it this asserts only
+    // that TEXT survived the drain, which was already true BEFORE the fix. A
+    // slot means the drain really handed pi a content array — rendered as a
+    // zoomable thumbnail, a pending two-phase placeholder, or the explicit
+    // unavailable slot when the server stripped the over-ceiling bytes.
+    await expect(
+      page
+        .locator(
+          'button[aria-label^="Zoom attachment"], [data-testid="attachment-pending"], [data-testid="attachment-failed"]',
+        )
+        .first(),
+    ).toBeVisible({ timeout: 60_000 });
   });
 });

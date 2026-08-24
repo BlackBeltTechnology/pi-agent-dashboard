@@ -104,7 +104,7 @@ export function useSessionActions(deps: SessionActionDeps) {
 
   // ── Follow-up queue mutation (bridge-owned buffer) ──────────────────
   //
-  // These five senders dispatch the wire messages defined in
+  // These four senders dispatch the wire messages defined in
   // browser-protocol.ts. The bridge mutates `bridgeFollowUp` locally; pi
   // is not involved. Steer mutation is intentionally NOT exposed (steer
   // drains too fast for it to matter; user direction).
@@ -116,9 +116,13 @@ export function useSessionActions(deps: SessionActionDeps) {
     send({ type: "remove_followup_entry", sessionId: selectedId, index });
   }, [selectedId, send]);
 
-  const editFollowUpEntry = useCallback((index: number, text: string, images?: ImageContent[]) => {
+  // Text only: the entry's images live in the bridge buffer and are preserved
+  // across the edit. The browser never holds the bytes after the initial
+  // `send_prompt`, so it has nothing to re-send.
+  // See change: fix-bridge-followup-image-drop (D5).
+  const editFollowUpEntry = useCallback((index: number, text: string) => {
     if (!selectedId) return;
-    send({ type: "edit_followup_entry", sessionId: selectedId, index, text, images });
+    send({ type: "edit_followup_entry", sessionId: selectedId, index, text });
   }, [selectedId, send]);
 
   const promoteFollowUpEntry = useCallback((index: number) => {

@@ -1112,6 +1112,11 @@ function sendUserMessageWithImages(
   // (bridge buffer path; never calls this helper). The deliverAs parameter
   // is preserved for steer routing.
   // See change: rework-mid-turn-prompt-queue (design.md D1).
+  //
+  // Drops are logged here rather than surfaced: this path has no event sink.
+  // The buffer path emits `command_feedback` instead (design D7).
+  const { dropped } = validateImages(images);
+  for (const reason of dropped) console.error(`[dashboard] Dropping image — ${reason}`);
   (pi.sendUserMessage as any)(buildUserMessageContent(text, images), { deliverAs });
 }
 

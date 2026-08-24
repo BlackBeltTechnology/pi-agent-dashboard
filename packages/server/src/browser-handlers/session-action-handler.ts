@@ -1007,7 +1007,7 @@ export function handleStopAfterTurn(
 
 // ── Follow-up queue mutation forwarders (bridge-owned buffer) ─────────────
 //
-// These five handlers forward bridge-owned-buffer mutation messages to the
+// These four handlers forward bridge-owned-buffer mutation messages to the
 // session's bridge. The bridge mutates `bridgeFollowUp` locally; nothing
 // touches pi. The OLD pi-mutation message types from Phase 3
 // (`clear_steering_queue`, `clear_followup_slot`, `edit_followup_slot`)

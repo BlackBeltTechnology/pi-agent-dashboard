@@ -1,12 +1,17 @@
 /**
  * Tolerant read of `Session.pendingQueues.followUp` (design D2b).
  *
- * The wire shape changed from `string[]` to `{ text, imageCount }[]`. The
- * dashboard ships as one version, but a browser tab left open across an
- * extension reload is a realistic skew source, and an un-normalised object
- * would render as `[object Object]` in every chip. Normalise ONCE, here, at
- * the boundary where the session state reaches the queue surface, so every
- * downstream consumer sees exactly one shape.
+ * The wire shape changed from `string[]` to `{ text, imageCount }[]`, and the
+ * rollout is deliberately CLIENT-FIRST (design Migration Plan): this bundle is
+ * serving BEFORE any extension emits the new shape. In that window a
+ * not-yet-reloaded extension still sends legacy `string[]`, which the new
+ * `QueuePanel` reads as `entry?.text` on a string — `undefined` — and renders
+ * as an EMPTY chip, silently hiding a queued prompt. That is the skew this
+ * closes; a stale TAB cannot be helped from here, since the old bundle has no
+ * normaliser at all.
+ *
+ * Normalise ONCE, here, at the boundary where the session state reaches the
+ * queue surface, so every downstream consumer sees exactly one shape.
  *
  * Delete the string branch one release after `fix-bridge-followup-image-drop`
  * ships.

@@ -486,12 +486,6 @@ function initBridge(pi: ExtensionAPI) {
   function bufferFollowupSend(text: string, images?: readonly unknown[]): void {
     if (!getBridgeState().isAgentStreaming) return;
     const { valid, dropped } = validateImages(images);
-    if (dropped.length > 0) {
-      sendCommandFeedback(
-        "send_prompt",
-        `${dropped.length} attachment(s) dropped: ${dropped.join("; ")}`,
-      );
-    }
     const admitted = bridgeFollowUp.push({
       text,
       ...(valid.length > 0 ? { images: valid } : {}),
@@ -500,6 +494,15 @@ function initBridge(pi: ExtensionAPI) {
       console.warn("[dashboard] follow-up buffer refused entry:", admitted.message);
       sendCommandFeedback("send_prompt", admitted.message);
       return;
+    }
+    // Reported only once the entry is actually queued: a refused entry is not
+    // in the queue at all, so telling the user which of its attachments were
+    // dropped is noise on top of the refusal.
+    if (dropped.length > 0) {
+      sendCommandFeedback(
+        "send_prompt",
+        `${dropped.length} attachment(s) dropped: ${dropped.join("; ")}`,
+      );
     }
     emitQueueUpdate();
   }
