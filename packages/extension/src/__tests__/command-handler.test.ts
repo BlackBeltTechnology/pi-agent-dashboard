@@ -139,6 +139,10 @@ describe("CommandHandler", () => {
       handler.handle({ type: "retry_session", sessionId: "s1" } as ServerToExtensionMessage),
     ).resolves.toBeUndefined();
 
+    const failures = eventSink.mock.calls.filter(
+      ([m]) => m?.event?.eventType === "auto_retry_end",
+    );
+    expect(failures).toHaveLength(1); // exactly one — sync path must not also hit .catch()
     expect(eventSink).toHaveBeenCalledWith({
       type: "event_forward",
       sessionId: "s1",
@@ -163,6 +167,10 @@ describe("CommandHandler", () => {
     // Drain the microtask queue so the .catch() handler runs.
     await new Promise((r) => setTimeout(r, 0));
 
+    const failures = eventSink.mock.calls.filter(
+      ([m]) => m?.event?.eventType === "auto_retry_end",
+    );
+    expect(failures).toHaveLength(1); // exactly one — async path must not also hit sync try/catch
     expect(eventSink).toHaveBeenCalledWith({
       type: "event_forward",
       sessionId: "s1",

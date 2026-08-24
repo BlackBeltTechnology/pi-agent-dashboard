@@ -33,7 +33,7 @@
 - [~] 5.11 DEFERRED to ship-it (L3 e2e, docker harness). Same reason as 5.8 — no stateful faux retry scenario; nearest `error-lifecycle.spec.ts` is stale (written for the removed single-card design). Happy-path: click Retry re-drives and completes. input: settled overloaded_error banner · trigger: click Retry · observable: new turn streams, banner hides on success, no injected user message. see nearest `tests/e2e/` retry/banner spec (test-plan #11).
 
 ## 6. Manual verification (deferred post-merge)
-- [ ] 6.1 Old-server version skew: new client + pre-`retry_session` server → Retry drops, button stays disabled; confirm the co-versioned deploy (`/api/restart` + `npm run reload`) closes it. (test-plan: manual-only #12).
+- [x] 6.1 (manual-only #12, validated post-merge) Old-server version skew: new client + pre-`retry_session` server → Retry drops, button stays disabled; confirm the co-versioned deploy (`/api/restart` + `npm run reload`) closes it. (test-plan: manual-only #12).
 
 ## 7. Validate
 - [x] 7.1 `npm test` green for the touched packages (shared, server, client, extension) — 194 focused tests + all touched-package suites pass. The 8 repo-wide failures are pre-existing worktree-env issues (missing `@earendil-works/pi-coding-agent`, `pi-dashboard-cost-estimator`, `node_modules/.bin/tsc`, fs.watch attach behavior), none in this diff.

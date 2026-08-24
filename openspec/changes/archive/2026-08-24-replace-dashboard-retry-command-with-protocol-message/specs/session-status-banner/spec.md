@@ -1,6 +1,6 @@
 # session-status-banner (delta)
 
-## MODIFIED Requirements
+## ADDED Requirements
 
 ### Requirement: Settled-error Retry is dispatched as a typed protocol message
 
@@ -77,8 +77,6 @@ surface a toast on receipt.
 - **WHEN** the server processes it
 - **THEN** it SHALL send `retry_session_error { sessionId, error }` to the sender
 - **AND** the client SHALL re-enable Retry and toast the error
-
-## ADDED Requirements
 
 ### Requirement: The /__dashboard_retry sentinel remains a deprecated alias
 
