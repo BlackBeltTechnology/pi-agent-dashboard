@@ -212,6 +212,34 @@ export async function scrollDividerIntoDom(page: Page): Promise<void> {
 }
 
 /**
+ * Climb to the divider through the PRODUCT's own ascent affordance.
+ *
+ * Required after a `tail-only` splice, where the raw `scrollTop = 0` climb
+ * cannot converge. The raw write does not go through `handleScroll`'s gesture
+ * path, so `stickToBottomRef` stays armed; on a transcript the splice just made
+ * ~10x taller, measurement-driven growth re-pins to the bottom faster than the
+ * loop can climb, and the poll burns its full budget without ever mounting the
+ * divider. Observed directly — a 10-minute F9 run expired inside that poll.
+ *
+ * `scroll-to-top` drives `scrollToIndex(0)` with the ascent latch held, which
+ * is both what a real user does and the only path that suppresses the re-pin.
+ * Falls back to the raw climb when the button is absent (short transcript, no
+ * ascent needed).
+ */
+export async function climbToDivider(page: Page): Promise<void> {
+  const btn = page.getByTestId("scroll-to-top");
+  if (await btn.count()) {
+    await btn.first().click();
+    // The ascent is bounded + re-issued on remeasure; give it room to land
+    // rather than asserting on the first frame.
+    await expect(divider(page)).toHaveCount(1, { timeout: 120_000 });
+    await page.waitForTimeout(600);
+    return;
+  }
+  await scrollDividerIntoDom(page);
+}
+
+/**
  * Re-establish the divider at the top and let the virtualizer settle. Cheap,
  * idempotent, and the only safe thing to do immediately before a measurement or
  * a click: the transcript is virtualized and the position is PERISHABLE.
@@ -235,7 +263,11 @@ export async function pinDividerToTop(page: Page): Promise<void> {
  * disarms backfill until the terminal replay batch lands, so asserting before
  * that would be racing hydration rather than testing it.
  */
-export async function openWindowedSession(page: Page, sessionId: string): Promise<void> {
+export async function openWindowedSession(
+  page: Page,
+  sessionId: string,
+  opts: { requireLoadButton?: boolean } = {},
+): Promise<void> {
   const { gotoDashboard } = await import("./index.js");
   await gotoDashboard(page);
   const card = page.locator(`[data-session-id="${sessionId}"]`).first();
@@ -244,7 +276,25 @@ export async function openWindowedSession(page: Page, sessionId: string): Promis
   await scrollDividerIntoDom(page);
   await pinDividerToTop(page);
   await expect(divider(page)).toBeVisible({ timeout: 60_000 });
-  await expect(loadEarlier(page)).toBeEnabled({ timeout: 60_000 });
+  /**
+   * `requireLoadButton` defaults to FALSE, and the default matters in
+   * `tail-only`.
+   *
+   * Waiting for an enabled "Load earlier" is a `head-tail` precondition. In
+   * `tail-only` the divider AUTO-LOADS on scroll proximity, and the climb above
+   * writes `scrollTop` directly through `evaluate` — which is deliberately NOT
+   * carrying the `programmaticScrollUntil` stamp, so the product reads it as a
+   * genuine user ascent and fires the trigger. Correct behaviour (D7), but it
+   * means the manual button is frequently replaced by the loading/terminus row
+   * before an assertion can reach it, and the wait then fails with
+   * "element(s) not found" on a perfectly healthy session.
+   *
+   * Callers that genuinely need the manual affordance (the `head-tail` rows)
+   * opt in explicitly.
+   */
+  if (opts.requireLoadButton) {
+    await expect(loadEarlier(page)).toBeEnabled({ timeout: 60_000 });
+  }
 }
 
 /**

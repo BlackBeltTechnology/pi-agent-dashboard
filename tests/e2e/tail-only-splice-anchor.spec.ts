@@ -2,11 +2,11 @@ import { expect, test } from "./fixtures.js";
 import {
   awaitBackfillResults,
   buildWindowedSession,
+  climbToDivider,
   clickLoadEarlierWithoutScrolling,
   divider,
   openWindowedSession,
   pinDividerToTop,
-  scrollDividerIntoDom,
   scroller,
   settleClickTarget,
   settledDividerY,
@@ -278,12 +278,11 @@ test.describe("tail-only — the splice anchors on the first previously-loaded r
      * lapsed, no second request is issuable.
      */
     const sentBefore = frames.sent.length;
-    // `scrollDividerIntoDom` first, not `pinDividerToTop`: the anchor left the
-    // view ~36000px below the divider, and the bounded 6-pass pin is built for
-    // re-establishing a position that is already close. The polling climb is
-    // the one that copes with the distance.
-    await scrollDividerIntoDom(page);
-    await pinDividerToTop(page);
+    // Through the PRODUCT's ascent affordance, not a raw `scrollTop = 0` climb:
+    // the anchor left the view ~36000px below the divider, and on a transcript
+    // this tall the raw climb loses a race with the bottom re-pin. See
+    // `climbToDivider`.
+    await climbToDivider(page);
     await settleClickTarget(page);
     await clickLoadEarlierWithoutScrolling(page);
     await awaitBackfillResults(page, frames, 2);
@@ -315,7 +314,7 @@ test.describe("tail-only — the splice anchors on the first previously-loaded r
     }
 
     const frames = watchBackfillFrames(page);
-    await openWindowedSession(page, session.sessionId);
+    await openWindowedSession(page, session.sessionId, { requireLoadButton: true });
     // Premise: this really is the other shape, or the assertion below is
     // asserting `tail-only` behaviour under a `head-tail` name.
     await expect
