@@ -35,6 +35,7 @@
     "@blackbelt-technology/pi-dashboard-goal-plugin": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-hermes-memory-plugin": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-kb-plugin": "^0.7.0",
+    "@blackbelt-technology/pi-dashboard-quota-plugin": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-roles-plugin": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-subagents-plugin": "^0.7.0",

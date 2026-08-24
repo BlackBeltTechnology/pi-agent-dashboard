@@ -11,6 +11,7 @@ import { FolderKbSection, KbSettingsClaim, catalog as kb_catalog } from "@blackb
 import { BuiltInRolesSettings, catalog as roles_catalog } from "@blackbelt-technology/pi-dashboard-roles-plugin";
 import { SubagentsSettings, SubagentPopoutClaim, catalog as subagents_catalog } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
 import { FlowsAnthropicBridgeSettings, catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
+import { QuotaWidget, QuotaSettings, catalog as quota_catalog } from "@blackbelt-technology/pi-dashboard-quota-plugin";
 
 import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import type { ClaimEntry } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -415,6 +416,33 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     ],
     catalog: flows_anthropic_bridge_catalog,
   },
+  {
+    manifest: {
+        "id": "quota",
+        "displayName": "Provider Quota",
+        "priority": 600,
+        "claims": [
+            {
+                "slot": "content-inline-footer",
+                "component": "QuotaWidget"
+            },
+            {
+                "slot": "settings-section",
+                "component": "QuotaSettings",
+                "tab": "general"
+            }
+        ],
+        "client": "./src/client.tsx",
+        "server": "./src/server/index.ts",
+        "configSchema": "./configSchema.json",
+        "i18nCatalog": "catalog"
+    },
+    claims: [
+      { pluginId: "quota", priority: 600, slot: "content-inline-footer", Component: QuotaWidget },
+      { pluginId: "quota", priority: 600, slot: "settings-section", tab: "general", Component: QuotaSettings },
+    ],
+    catalog: quota_catalog,
+  },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "9ff3cfb86df09f1f16d86c359b635534df71a1a042bc6b5e60c269c59972c959";
+export const PLUGIN_REGISTRY_HASH = "4f7ee8b660cc8d2943d6bb3984afaf298d6dca844042524681a6a21003c378a8";

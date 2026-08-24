@@ -18,6 +18,8 @@ packages/*/src/**/*.js.map
 packages/*/src/**/*.d.ts
 # Hand-authored Vite ambient types (?worker / ?url) — not a build artifact.
 !packages/client/src/vite-env.d.ts
+# Hand-authored ambient module decl for the deep raw-TS import of @latentminds/pi-quotas — not a build artifact.
+!packages/quota-plugin/src/pi-quotas.d.ts
 packages/electron/resources/server
 packages/electron/resources/node
 packages/electron/resources/git

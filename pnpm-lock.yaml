@@ -29,7 +29,7 @@ importers:
         version: 0.83.0
       '@mariozechner/pi-ai':
         specifier: '>=0.73.1'
-        version: 0.73.1(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.4.3))(@opentelemetry/api@1.9.0)(supports-color@8.1.1)(ws@8.21.1)(zod@4.4.3)
+        version: 0.73.1(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.4.3))(@opentelemetry/api@1.9.0)(supports-color@8.1.1)(ws@8.21.2)(zod@4.4.3)
       '@mariozechner/pi-coding-agent':
         specifier: '>=0.73.1'
         version: 0.73.1(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.4.3))(@opentelemetry/api@1.9.0)(supports-color@8.1.1)(ws@8.21.2)(zod@4.4.3)
@@ -241,6 +241,9 @@ importers:
       '@blackbelt-technology/pi-dashboard-kb-plugin':
         specifier: ^0.7.0
         version: link:../kb-plugin
+      '@blackbelt-technology/pi-dashboard-quota-plugin':
+        specifier: ^0.7.0
+        version: link:../quota-plugin
       '@blackbelt-technology/pi-dashboard-roles-plugin':
         specifier: ^0.7.0
         version: link:../roles-plugin
@@ -857,6 +860,37 @@ importers:
   packages/openspec-workflow: {}
 
   packages/pi-forms-bpmn: {}
+
+  packages/quota-plugin:
+    dependencies:
+      '@blackbelt-technology/dashboard-plugin-runtime':
+        specifier: ^0.7.0
+        version: link:../dashboard-plugin-runtime
+      '@blackbelt-technology/pi-dashboard-server':
+        specifier: workspace:*
+        version: link:../server
+      '@blackbelt-technology/pi-dashboard-shared':
+        specifier: ^0.7.0
+        version: link:../shared
+      '@latentminds/pi-quotas':
+        specifier: 0.4.0
+        version: 0.4.0(@mariozechner/pi-coding-agent@0.73.1(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.4.3))(@opentelemetry/api@1.9.0)(supports-color@8.1.1)(ws@8.21.2)(zod@4.4.3))(@mariozechner/pi-tui@0.73.1)
+    devDependencies:
+      '@blackbelt-technology/pi-dashboard-client-utils':
+        specifier: ^0.7.0
+        version: link:../client-utils
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.17
+      '@types/react-dom':
+        specifier: ^19.0.0
+        version: 19.2.3(@types/react@19.2.17)
+      react:
+        specifier: ^19.0.0
+        version: 19.2.7
+      react-dom:
+        specifier: ^19.0.0
+        version: 19.2.7(react@19.2.7)
 
   packages/roles-plugin:
     dependencies:
@@ -3059,6 +3093,17 @@ packages:
     resolution: {integrity: sha512-KqHPmvj6QILhNyI/To8QSihHsijeVGIYYPBOUnXEpcnH2LuLbargY4Hd6dDeTN3Z90uUUxN+1FWz1UnhVzFOiA==}
     cpu: [x64]
     os: [win32]
+
+  '@latentminds/pi-quotas@0.4.0':
+    resolution: {integrity: sha512-GniXE2M0xDoKaolz59tJ1Ri3U7BaHg/pUe0R2bbCEw27eRPn+Kn/r74ePKG91pAqSEfg2zTydtP3ZLokqKHV4A==}
+    peerDependencies:
+      '@mariozechner/pi-coding-agent': '*'
+      '@mariozechner/pi-tui': '*'
+    peerDependenciesMeta:
+      '@mariozechner/pi-coding-agent':
+        optional: true
+      '@mariozechner/pi-tui':
+        optional: true
 
   '@leichtgewicht/ip-codec@2.0.5':
     resolution: {integrity: sha512-Vo+PSpZG2/fmgmiNzYK9qWRh8h/CHrwD0mo1h1DzL4yzHNSfWYujGTYsWGreD000gcgmZ7K4Ys6Tx9TxtsKdDw==}
@@ -12520,6 +12565,11 @@ snapshots:
 
   '@koromix/koffi-win32-x64@3.1.1':
     optional: true
+
+  '@latentminds/pi-quotas@0.4.0(@mariozechner/pi-coding-agent@0.73.1(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.4.3))(@opentelemetry/api@1.9.0)(supports-color@8.1.1)(ws@8.21.2)(zod@4.4.3))(@mariozechner/pi-tui@0.73.1)':
+    optionalDependencies:
+      '@mariozechner/pi-coding-agent': 0.73.1(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.4.3))(@opentelemetry/api@1.9.0)(supports-color@8.1.1)(ws@8.21.2)(zod@4.4.3)
+      '@mariozechner/pi-tui': 0.73.1
 
   '@leichtgewicht/ip-codec@2.0.5': {}
 
