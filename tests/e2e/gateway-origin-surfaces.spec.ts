@@ -352,6 +352,58 @@ test.describe("remote origin + move, on the session card (L3)", () => {
       "fork was offered for a remote-origin session",
     ).toHaveCount(0);
   });
+
+  test("F7: the bus REFUSES a remote resume and says why, not just hides it (task 13.6)", async ({
+    page,
+  }) => {
+    test.setTimeout(240_000);
+    await ensureFixturePinned();
+
+    // F3 asserts the button is absent. That is the sign, not the door: the
+    // client resumes over the BUS, and drag-to-resume, an automation, or any
+    // bus client sends `resume_session` without ever touching a button. This
+    // arm fires exactly that message and requires the SERVER to refuse.
+    //
+    // Asserted on the BUS, not on the page, because `resume_result` is
+    // delivered to the socket that ASKED — a browser that never sent the
+    // resume is correctly told nothing. Watching the page here would fail for
+    // a reason that has nothing to do with the gate. The page's own rendering
+    // of a refusal (`Resume failed: …`, SessionList.tsx) is pre-existing and
+    // driven by the same message when the browser is the initiator.
+    const remoteId = `e2e-remote-refuse-${Date.now()}`;
+    const ws = await registerRemoteSession(remoteId, { sessionFile: FAKE_SESSION_FILE });
+    ws.send(JSON.stringify({ type: "session_moved", instanceId: "e2e-refuse-control" }));
+    await waitForEnded(page, remoteId);
+    ws.close();
+
+    const client = new BusClient({ host: "localhost", port: DASHBOARD_PORT });
+    await client.connect();
+    try {
+      const requestId = `e2e-${Date.now()}`;
+      const refusal = client.waitFor(
+        (m) => m.type === "resume_result" && (m as { requestId?: string }).requestId === requestId,
+        { timeout: 20_000 },
+      );
+      client.send({
+        type: "resume_session",
+        sessionId: remoteId,
+        mode: "continue",
+        requestId,
+      } as never);
+      const result = (await refusal) as { success: boolean; message?: string; code?: string };
+
+      expect(
+        result.success,
+        "the bus resumed a session whose transcript lives on another host",
+      ).toBe(false);
+      // A refusal a user cannot act on is barely better than a silent one: it
+      // has to name the machine and the reason.
+      expect(String(result.message)).toMatch(/no longer connected|cannot be resumed/i);
+      expect(String(result.code)).toBe("resume.remote_origin_ended");
+    } finally {
+      client.close();
+    }
+  });
 });
 
 test.describe("gateway transport, on the settings surface (L3)", () => {
