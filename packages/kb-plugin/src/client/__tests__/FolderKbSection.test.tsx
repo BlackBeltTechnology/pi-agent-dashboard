@@ -1,9 +1,21 @@
 /**
  * FolderKbSection — five-state render + reindex/navigation (tasks 3.1–3.3).
- * See change: add-kb-folder-slot.
+ *
+ * The pill is STATE-ONLY: the three former controls (`retry` / `index now` /
+ * `reindex`) are ONE declarative folder-actions-menu item whose label, badge and
+ * disabled state vary by KB state, so the state assertions below read the
+ * contribution registry rather than pill buttons.
+ * See change: add-kb-folder-slot; move-slot-actions-to-menu
+ * (test-plan #E10, #E11, #E19, #F4).
  */
 
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  createFolderMenuStore,
+  CurrentPluginLayer,
+  type FolderMenuStore,
+  FolderMenuProvider,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
 import { memoryLocation } from "wouter/memory-location";
@@ -30,20 +42,37 @@ function mockStats(s: KbStats) {
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
-function renderSlot(hook?: unknown) {
-  return render(
+function renderSlot(hook?: unknown, store: FolderMenuStore = createFolderMenuStore()) {
+  const utils = render(
     <Router hook={hook as never}>
-      <FolderKbSection folder={{ cwd }} />
+      <FolderMenuProvider store={store}>
+        <CurrentPluginLayer pluginId="kb-plugin">
+          <FolderKbSection folder={{ cwd }} />
+        </CurrentPluginLayer>
+      </FolderMenuProvider>
     </Router>,
   );
+  return { ...utils, store };
 }
 
-function renderSlotPlacement(placement?: "sidebar" | "card") {
-  return render(
+function renderSlotPlacement(placement?: "sidebar" | "card", store: FolderMenuStore = createFolderMenuStore()) {
+  const utils = render(
     <Router>
-      <FolderKbSection folder={{ cwd }} placement={placement} />
+      <FolderMenuProvider store={store}>
+        <CurrentPluginLayer pluginId="kb-plugin">
+          <FolderKbSection folder={{ cwd }} placement={placement} />
+        </CurrentPluginLayer>
+      </FolderMenuProvider>
     </Router>,
   );
+  return { ...utils, store };
+}
+
+/** The folder's single KB menu item, or `undefined` when it has not registered. */
+function kbItem(store: FolderMenuStore) {
+  const items = store.getItems(cwd).filter((i) => i.id === "kb-reindex");
+  expect(items.length).toBeLessThanOrEqual(1);
+  return items[0];
 }
 
 describe("deriveKbRowState (ordered)", () => {
@@ -65,35 +94,66 @@ describe("deriveKbRowState (ordered)", () => {
 });
 
 describe("FolderKbSection render", () => {
-  it("populated: shows the chunk count + reindex", async () => {
+  it("populated: shows the chunk count and contributes ONE enabled Reindex item", async () => {
     (globalThis as { fetch?: unknown }).fetch = mockStats(stats({ chunks: 1247 }));
-    const { getByTestId } = renderSlot();
+    const { getByTestId, store } = renderSlot();
     await waitFor(() => expect(getByTestId("folder-kb-count").textContent).toContain("1,247"));
-    expect(getByTestId("folder-kb-reindex")).toBeTruthy();
+    await waitFor(() => expect(kbItem(store)?.label).toContain("Reindex"));
+    const item = kbItem(store)!;
+    expect(item.group).toBe("maintenance");
+    expect(item.disabled).toBe(false);
+    expect(item.badge).toBeUndefined();
   });
 
-  it("not-indexed: shows Index now AND keeps settings reachable", async () => {
+  it("the pill exposes no action control of its own (test-plan #E1, #E2)", async () => {
+    (globalThis as { fetch?: unknown }).fetch = mockStats(stats({ chunks: 1247 }));
+    const { getByTestId, queryByTestId } = renderSlot();
+    await waitFor(() => expect(getByTestId("folder-kb-count").textContent).toContain("1,247"));
+    for (const id of ["folder-kb-reindex", "folder-kb-index-now", "folder-kb-retry"]) {
+      expect(queryByTestId(id)).toBeNull();
+    }
+    const section = getByTestId("folder-kb-section");
+    const pill = getByTestId("folder-kb-open-settings");
+    expect(
+      Array.from(section.querySelectorAll("button, a, [role='button'], [tabindex]:not([tabindex='-1'])")),
+    ).toEqual([pill]);
+  });
+
+  it("F4: the worktree-card placement registers nothing — its scope has no menu", async () => {
+    (globalThis as { fetch?: unknown }).fetch = mockStats(stats());
+    const { getByTestId, store } = renderSlotPlacement("card");
+    await waitFor(() => expect(getByTestId("folder-kb-open-settings")).toBeTruthy());
+    expect(store.getItems(cwd)).toHaveLength(0);
+  });
+
+  it("not-indexed: the ONE item reads Index now AND settings stay reachable", async () => {
     (globalThis as { fetch?: unknown }).fetch = mockStats(stats({ chunks: 0, indexed: false }));
-    const { getByTestId, findByTestId } = renderSlot();
-    await findByTestId("folder-kb-index-now");
-    expect(getByTestId("folder-kb-section").getAttribute("data-state")).toBe("not-indexed");
+    const { getByTestId, store } = renderSlot();
+    await waitFor(() => expect(getByTestId("folder-kb-section").getAttribute("data-state")).toBe("not-indexed"));
+    await waitFor(() => expect(kbItem(store)?.label).toContain("Index now"));
     // Settings MUST be reachable so a fresh worktree can define sources.
     expect(getByTestId("folder-kb-open-settings")).toBeTruthy();
   });
 
-  it("error: shows Retry (not Index now) AND keeps settings reachable", async () => {
+  it("E10: error state folds to a single Retry item — no extra index-now or reindex item", async () => {
     (globalThis as { fetch?: unknown }).fetch = mockStats(stats({ chunks: 0, indexed: false, jobStatus: "error", lastError: "boom" }));
-    const { getByTestId, findByTestId, queryByTestId } = renderSlot();
-    await findByTestId("folder-kb-retry");
-    expect(queryByTestId("folder-kb-index-now")).toBeNull();
+    const { getByTestId, store } = renderSlot();
+    await waitFor(() => expect(getByTestId("folder-kb-section").getAttribute("data-state")).toBe("error"));
+    // The registration is a passive effect, so it lands a tick after the commit
+    // the DOM assertion above observes.
+    await waitFor(() => expect(kbItem(store)?.label).toContain("Retry"));
+    expect(store.getItems(cwd)).toHaveLength(1);
     expect(getByTestId("folder-kb-open-settings")).toBeTruthy();
   });
 
-  it("stale: shows the stale flag", async () => {
+  it("E11: stale shows the inline pill marker AND puts the stale badge on the menu item", async () => {
     (globalThis as { fetch?: unknown }).fetch = mockStats(stats({ chunks: 88, staleCount: 3 }));
-    const { findByTestId } = renderSlot();
+    const { findByTestId, store } = renderSlot();
     const flag = await findByTestId("folder-kb-stale");
     expect(flag.textContent).toContain("3 stale");
+    await waitFor(() => expect(kbItem(store)?.badge).toContain("3 stale"));
+    // Distinct from the folder's plain refresh: it is the KB's own reindex item.
+    expect(kbItem(store)!.id).toBe("kb-reindex");
   });
 
   it("indexing: shows the spinner state", async () => {
@@ -103,12 +163,12 @@ describe("FolderKbSection render", () => {
     await waitFor(() => expect(row.getAttribute("data-state")).toBe("indexing"));
   });
 
-  it("reindex click POSTs to /api/kb/reindex", async () => {
+  it("activating the menu item POSTs to /api/kb/reindex", async () => {
     const fetchMock = mockStats(stats());
     (globalThis as { fetch?: unknown }).fetch = fetchMock;
-    const { getByTestId } = renderSlot();
-    await waitFor(() => expect(getByTestId("folder-kb-reindex")).toBeTruthy());
-    fireEvent.click(getByTestId("folder-kb-reindex"));
+    const { store } = renderSlot();
+    await waitFor(() => expect(kbItem(store)).toBeTruthy());
+    act(() => kbItem(store)!.onSelect());
     await waitFor(() =>
       expect(fetchMock.mock.calls.some((c) => String(c[0]).includes("/api/kb/reindex") && (c[1] as RequestInit)?.method === "POST")).toBe(true),
     );
@@ -128,9 +188,9 @@ describe("FolderKbSection render", () => {
       if (init?.method === "POST") return jsonResp({ status: "running", jobId: "kb-1" });
       return jsonResp(seq[Math.min(gi++, seq.length - 1)]);
     });
-    const { getByTestId, findByTestId } = renderSlot();
-    await findByTestId("folder-kb-index-now");
-    fireEvent.click(getByTestId("folder-kb-index-now"));
+    const { getByTestId, store } = renderSlot();
+    await waitFor(() => expect(kbItem(store)?.label).toContain("Index now"));
+    act(() => kbItem(store)!.onSelect());
     await waitFor(() => expect(getByTestId("folder-kb-section").getAttribute("data-state")).toBe("indexing"), { timeout: 3000 });
     await waitFor(() => expect(getByTestId("folder-kb-count").textContent).toContain("512"), { timeout: 5000 });
   });
@@ -144,36 +204,38 @@ describe("FolderKbSection render", () => {
       }
       return jsonResp(stats({ chunks: 0, indexed: false }));
     });
-    const { getByTestId, findByTestId, queryByTestId } = renderSlot();
-    await findByTestId("folder-kb-index-now");
-    fireEvent.click(getByTestId("folder-kb-index-now"));
+    const { store } = renderSlot();
+    await waitFor(() => expect(kbItem(store)?.label).toContain("Index now"));
+    act(() => kbItem(store)!.onSelect());
     // Trigger reject surfaces the failed state (was silently swallowed before).
-    await findByTestId("folder-kb-retry");
-    expect(queryByTestId("folder-kb-index-now")).toBeNull();
-    fireEvent.click(getByTestId("folder-kb-retry"));
+    await waitFor(() => expect(kbItem(store)?.label).toContain("Retry"));
+    expect(store.getItems(cwd)).toHaveLength(1);
+    act(() => kbItem(store)!.onSelect());
     await waitFor(() => expect(posts).toBeGreaterThanOrEqual(2));
   });
 
-  it("Index now → spinner synchronously on click, before any /stats resolves (task 2.1)", async () => {
+  it("Index now → the indexing branch renders synchronously on activation (task 2.1)", async () => {
     (globalThis as { fetch?: unknown }).fetch = mockStats(stats({ chunks: 0, indexed: false }));
-    const { getByTestId, findByTestId, container } = renderSlot();
-    await findByTestId("folder-kb-index-now");
-    fireEvent.click(getByTestId("folder-kb-index-now"));
-    // Optimistic: the indexing state + animated spinner render in the SAME commit as the click.
+    const { getByTestId, store } = renderSlot();
+    await waitFor(() => expect(kbItem(store)?.label).toContain("Index now"));
+    act(() => kbItem(store)!.onSelect());
+    // Optimistic: the indexing state renders in the SAME commit as the activation.
     expect(getByTestId("folder-kb-section").getAttribute("data-state")).toBe("indexing");
-    expect(container.querySelector(".animate-spin")).toBeTruthy();
+    expect(getByTestId("folder-kb-count").textContent).toContain("indexing");
   });
 
-  it("disabled during pending: the button is replaced by the non-interactive spinner, no second reindexKb (task 2.2)", async () => {
+  it("E19: the disabled window covers the optimistic `pending` span, not only polled indexing (task 2.2)", async () => {
     const fetchMock = mockStats(stats({ chunks: 0, indexed: false }));
     (globalThis as { fetch?: unknown }).fetch = fetchMock;
-    const { getByTestId, findByTestId, queryByTestId } = renderSlot();
-    await findByTestId("folder-kb-index-now");
-    fireEvent.click(getByTestId("folder-kb-index-now"));
+    const { store } = renderSlot();
+    await waitFor(() => expect(kbItem(store)?.label).toContain("Index now"));
+    expect(kbItem(store)!.disabled).toBe(false);
+    act(() => kbItem(store)!.onSelect());
     const posts = () => fetchMock.mock.calls.filter((c) => (c[1] as RequestInit | undefined)?.method === "POST").length;
     expect(posts()).toBe(1);
-    // The clickable Index now is gone (spinner owns the slot) → no double-submit is possible.
-    expect(queryByTestId("folder-kb-index-now")).toBeNull();
+    // `pending` is true while `stats.indexing` is still false — the item must
+    // already be disabled, or the double-submit guard has a hole.
+    await waitFor(() => expect(kbItem(store)?.disabled).toBe(true));
     await new Promise((r) => setTimeout(r, 50));
     expect(posts()).toBe(1);
   });
@@ -188,14 +250,14 @@ describe("FolderKbSection render", () => {
     (globalThis as { fetch?: unknown }).fetch = vi.fn(async (_url: string, init?: RequestInit) =>
       init?.method === "POST" ? jsonResp({ status: "running", jobId: "kb-1" }, true, 202) : jsonResp(seq[Math.min(gi++, seq.length - 1)]),
     );
-    const { getByTestId, findByTestId } = renderSlot();
-    await findByTestId("folder-kb-index-now");
+    const { getByTestId, store } = renderSlot();
+    await waitFor(() => expect(kbItem(store)?.label).toContain("Index now"));
     const seen = new Set<string>();
     const rec = () => {
       const s = getByTestId("folder-kb-section").getAttribute("data-state");
       if (s) seen.add(s);
     };
-    fireEvent.click(getByTestId("folder-kb-index-now"));
+    act(() => kbItem(store)!.onSelect());
     rec();
     // Continuous: state stays "indexing" across the handoff and lands on the chunk count.
     await waitFor(() => {

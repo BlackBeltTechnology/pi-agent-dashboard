@@ -1,8 +1,8 @@
-import { SidebarFolderSectionSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { SidebarFolderSectionSlot, useFolderMenuRefreshRunner } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { DndContext, type DragEndEvent, type DragOverEvent, type DragStartEvent, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClose, mdiCog, mdiConsoleLine, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiSortVariant, mdiSourceBranch, mdiViewGridPlus } from "@mdi/js";
+import { mdiArchiveOutline, mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClose, mdiCog, mdiConsoleLine, mdiFileDocumentOutline, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiRefresh, mdiSortVariant, mdiSourceBranch, mdiViewGridPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -383,6 +383,9 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
   // Per-folder opt-in urgency sort (default off). See change:
   // improve-dashboard-attention-routing.
   const urgencySort = useFolderUrgencySort();
+  // Fan-out over the refreshers each folder's slot sections registered; the
+  // single MAINTENANCE refresh item calls it. See change: move-slot-actions-to-menu.
+  const runFolderRefreshers = useFolderMenuRefreshRunner();
   const toggleEndedExpanded = useCallback((cwd: string) => {
     setEndedExpanded((prev) => {
       const next = new Set(prev);
@@ -1103,12 +1106,56 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
         onSelect: () => setManageWorktreesCwd(group.cwd),
       });
     }
+    // "Directory Settings" IS the Pi Resources entry point after the
+    // `directory-settings-page` re-label. It stays the folder's ONLY route to
+    // that surface — no `OPEN` duplicate, which would mandate one destination
+    // from two groups. See change: move-slot-actions-to-menu.
     items.push({
       id: "directory-settings",
       group: "directory",
       label: t("folders.directorySettings", undefined, "Directory Settings"),
       icon: mdiCog,
       onSelect: () => onOpenDirectorySettings?.(group.cwd),
+    });
+
+    // OpenSpec contributes HOST-side: its callbacks are already props on this
+    // component. Labels are slot-qualified because a verb group no longer says
+    // which slot an item came from.
+    const openspec = openspecMap?.get(group.cwd);
+    if (openspec?.initialized) {
+      if (onOpenArchive) {
+        items.push({
+          id: "openspec-archive",
+          group: "open",
+          label: t("openspec.folderMenuArchive", undefined, "OpenSpec archive"),
+          icon: mdiArchiveOutline,
+          onSelect: () => onOpenArchive(group.cwd),
+        });
+      }
+      if (onOpenSpecs) {
+        items.push({
+          id: "openspec-specs",
+          group: "open",
+          label: t("openspec.folderMenuSpecs", undefined, "OpenSpec specs"),
+          icon: mdiFileDocumentOutline,
+          onSelect: () => onOpenSpecs(group.cwd),
+        });
+      }
+    }
+
+    // The ONE plain refresh: three per-slot refresh buttons collapsed into a
+    // fan-out over every refresher the folder's sections registered, PLUS the
+    // host-owned OpenSpec refresher. Defining it as "registered refreshers"
+    // alone would silently drop OpenSpec from the item that replaced its button.
+    items.push({
+      id: "refresh-folder",
+      group: "maintenance",
+      label: t("folders.refreshFolder", undefined, "Refresh folder"),
+      icon: mdiRefresh,
+      onSelect: () => {
+        runFolderRefreshers(group.cwd);
+        onOpenSpecRefresh?.(group.cwd);
+      },
     });
     return items;
   }
@@ -1320,10 +1367,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               <FolderOpenSpecSection
                 data={openspecMap.get(group.cwd)!}
                 cwd={group.cwd}
-                onRefresh={() => onOpenSpecRefresh?.(group.cwd)}
                 onOpenBoard={onOpenBoard}
-                onOpenSpecs={onOpenSpecs ? () => onOpenSpecs(group.cwd) : undefined}
-                onOpenArchive={onOpenArchive ? () => onOpenArchive(group.cwd) : undefined}
               />
             )}
           </div>

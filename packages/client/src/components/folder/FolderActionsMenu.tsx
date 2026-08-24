@@ -7,9 +7,19 @@
  * exactly one control.
  *
  * Groups are a FIXED host-owned verb taxonomy rendered in a stable order
- * (`workspace` then `directory`); a group renders only when it holds at least
- * one item. Callers never choose the order — that is what keeps the menu
- * learnable as later changes contribute more items.
+ * (`workspace · directory · create · open · maintenance`); a group renders only
+ * when it holds at least one item. Callers never choose the order — that is
+ * what keeps the menu learnable as later changes contribute more items.
+ * Grouping is by VERB, never one group per plugin: per-plugin groups would be
+ * mostly single-item and would leak the extension architecture into the user's
+ * mental model.
+ *
+ * The menu merges two sources: the HOST items its caller passes (which keep the
+ * `node` / `pressed` escape hatches) and the declarative items plugin slot
+ * sections registered for this folder. Reading the registry HERE — rather than
+ * having the caller pass a merged list — is what makes an ALREADY-OPEN menu
+ * converge when a late-mounting section registers.
+ * See change: move-slot-actions-to-menu.
  *
  * Trigger glyph is `mdiFolderCogOutline`. `mdiDotsHorizontal` is REJECTED:
  * `WorktreeActionsMenu` already renders it on worktree session cards *inside
@@ -23,6 +33,11 @@
  * See change: add-folder-actions-menu.
  */
 
+import {
+  FOLDER_MENU_GROUPS,
+  type FolderMenuGroup,
+  useFolderMenuItems,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import { mdiFolderCogOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React from "react";
@@ -32,13 +47,17 @@ import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/Lay
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 
-/** Host-owned group ids, in render order. */
-export const FOLDER_MENU_GROUPS = ["workspace", "directory"] as const;
-export type FolderMenuGroup = (typeof FOLDER_MENU_GROUPS)[number];
+// The taxonomy lives in the plugin runtime so the plugin-facing contribution
+// type and the host renderer cannot drift apart; re-exported here because every
+// existing host call site imports it from this module.
+export { FOLDER_MENU_GROUPS, type FolderMenuGroup };
 
 const GROUP_LABELS: Record<FolderMenuGroup, string> = {
   workspace: i18nT("folders.menuGroupWorkspace", undefined, "Workspace"),
   directory: i18nT("folders.menuGroupDirectory", undefined, "Directory"),
+  create: i18nT("folders.menuGroupCreate", undefined, "Create"),
+  open: i18nT("folders.menuGroupOpen", undefined, "Open"),
+  maintenance: i18nT("folders.menuGroupMaintenance", undefined, "Maintenance"),
 };
 
 export interface FolderMenuItem {
@@ -48,6 +67,10 @@ export interface FolderMenuItem {
   label: string;
   icon: string;
   onSelect: () => void;
+  /** Short state marker, rendered on the item and part of its accessible name. */
+  badge?: string;
+  /** Renders as a disabled control; its callback is never invoked. */
+  disabled?: boolean;
   /** Toggle state, surfaced as `aria-pressed` (urgency sort). */
   pressed?: boolean;
   /**
@@ -67,6 +90,14 @@ interface Props {
 }
 
 export function FolderActionsMenu({ cwd, items, open, onOpenChange }: Props) {
+  // Plugin contributions for THIS folder, already ordered by (pluginId, id) and
+  // collision-resolved by the registry. Host items keep their declared order
+  // and lead within each group.
+  const contributed = useFolderMenuItems(cwd);
+  const allItems = React.useMemo<FolderMenuItem[]>(
+    () => [...items, ...contributed],
+    [items, contributed],
+  );
   const triggerRef = React.useRef<HTMLButtonElement>(null);
   const panelRef = React.useRef<HTMLDivElement>(null);
   const isMobile = useMobile();
@@ -166,7 +197,7 @@ export function FolderActionsMenu({ cwd, items, open, onOpenChange }: Props) {
       }
     >
       {FOLDER_MENU_GROUPS.map((group) => {
-        const groupItems = items.filter((i) => i.group === group);
+        const groupItems = allItems.filter((i) => i.group === group);
         if (groupItems.length === 0) return null;
         return (
           <div key={group} data-testid={`folder-menu-group-${group}`}>
@@ -185,15 +216,38 @@ export function FolderActionsMenu({ cwd, items, open, onOpenChange }: Props) {
                   role="menuitem"
                   data-testid={`folder-menu-item-${item.id}`}
                   aria-pressed={item.pressed}
+                  // `aria-disabled`, not the `disabled` attribute: a disabled
+                  // menuitem stays focusable so roving focus does not skip it
+                  // (ARIA APG), while still being exposed as a disabled control.
+                  aria-disabled={item.disabled || undefined}
                   onClick={(e) => {
                     e.stopPropagation();
+                    if (item.disabled) return;
                     onOpenChange(false);
-                    item.onSelect();
+                    // A plugin's callback runs inside the host's menu; letting it
+                    // throw here would take the whole sidebar down with it.
+                    try {
+                      item.onSelect();
+                    } catch (err) {
+                      console.error(`[folder-menu] item "${item.id}" onSelect threw:`, err);
+                    }
                   }}
-                  className="flex w-full min-h-[44px] items-center gap-3 px-3 py-2 text-left text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                  className={`flex w-full min-h-[44px] items-center gap-3 px-3 py-2 text-left text-sm ${
+                    item.disabled
+                      ? "text-[var(--text-muted)] cursor-not-allowed"
+                      : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+                  }`}
                 >
                   <Icon path={item.icon} size={0.6} className="shrink-0" />
                   <span className="truncate">{item.label}</span>
+                  {item.badge && (
+                    <span
+                      data-testid={`folder-menu-badge-${item.id}`}
+                      className="ml-auto shrink-0 text-[10px] font-extrabold text-amber-400"
+                    >
+                      {item.badge}
+                    </span>
+                  )}
                 </button>
               ),
             )}

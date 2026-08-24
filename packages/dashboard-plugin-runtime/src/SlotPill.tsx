@@ -4,10 +4,18 @@
  * One presentational chip for every folder slot (Automations / Goals /
  * Knowledge base / OpenSpec): a capsule label overhanging the top border
  * (fieldset-legend style, centered so long labels never truncate), a
- * slot-colored leading glyph, a bold count/value line (with an optional inline
- * state marker), and an optional trailing action cluster. The whole pill is one
- * click target performing the slot's primary navigation; trailing action
- * buttons stop propagation so they fire their own handlers.
+ * slot-colored leading glyph, and a bold count/value line (with an optional
+ * inline state marker). The whole pill is one click target performing the
+ * slot's primary navigation.
+ *
+ * The pill is STATE-ONLY: it exposes no prop for arbitrary action markup.
+ * `actions?: ReactNode` was removed because the host cannot group, order,
+ * keyboard-navigate or mobile-adapt opaque nodes, and nesting real `<button>`s
+ * inside a `role="button"` root is an ARIA anti-pattern. Slot actions are
+ * declarative items contributed to the folder actions menu instead. State
+ * markers that are FACTS rather than controls (the KB pill's `⚠ N stale`)
+ * stay in the pill as children.
+ * See change: move-slot-actions-to-menu (directory-card-layout spec).
  *
  * Exported from `dashboard-plugin-runtime` (design D1) so all four folder
  * sections — living in separate plugin packages — share one source without a
@@ -65,8 +73,6 @@ export interface SlotPillProps {
   activateTitle?: string;
   /** Test id for the click/navigation target (the pill root). */
   activateTestId?: string;
-  /** Trailing action button cluster (section-owned; each stops propagation). */
-  actions?: ReactNode;
   /** Body surface variant (default `raised`). See {@link SlotSurface}. */
   surface?: SlotSurface;
 }
@@ -79,7 +85,6 @@ export function SlotPill({
   onActivate,
   activateTitle,
   activateTestId,
-  actions,
   surface = "raised",
 }: SlotPillProps) {
   const tone = ACCENT[accent];
@@ -113,11 +118,6 @@ export function SlotPill({
       <span className="text-[13px] font-extrabold text-[var(--text-primary)] flex items-baseline gap-1.5 min-w-0 flex-1 leading-tight">
         {children}
       </span>
-      {actions && (
-        <span className="shrink-0 flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
-          {actions}
-        </span>
-      )}
     </div>
   );
 }
