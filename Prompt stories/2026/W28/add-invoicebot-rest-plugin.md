@@ -167,7 +167,7 @@ a multi-cwd service.
 
 **Inputs to have ready:**
 - The OpenSpec change name + its `tasks.md`/`proposal.md`/`api-contract.md`.
-- Path to the sibling source repo (`/Users/robson/Project/pi-invoice-bot`) and its port
+- Path to the sibling source repo (`<invoicebot-checkout>`) and its port
   source-of-truth (`extensions/invoicebot/index.ts`, `flows/invoicebot/process/*`).
 - Awareness that the sibling test suite is pre-broken (use jiti to smoke).
 

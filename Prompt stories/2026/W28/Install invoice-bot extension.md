@@ -18,7 +18,7 @@ upgrade_status: pending
 
 ## 1. Goal (the ask)
 
-The user opened with a one-liner: *"Install ../pi-invoice-bot as extension to pi"*. The
+The user opened with a one-liner: *"Install the pi-invoice-bot checkout as extension to pi"*. The
 real objective, once the follow-ups clarified it, was broader: register the local
 pi-package `@blackbelt-technology/invoicebot` **globally** so its LLM tools (`ib_query`,
 `ib_review`, `ib_setup`, `ib_rules`) and Hungarian invoice skills load in every pi
@@ -28,9 +28,9 @@ finally document the install method in this repo's `docs/`.
 
 ## 2. TL;DR playbook
 
-1. **Inspect the package first.** `ls -la ../pi-invoice-bot && cat ../pi-invoice-bot/package.json` — confirm it's a local pi-package and check whether `node_modules` exists.
+1. **Inspect the package first.** `ls -la pi-invoice-bot && cat ../pi-invoice-bot/package.json` — confirm it's a local pi-package and check whether `node_modules` exists.
 2. **`npm install` inside the package.** Local-path pi installs do **not** auto-run it, and invoicebot needs its bundled `file:../pi-flows` dependency: `cd ../pi-invoice-bot && npm install`.
-3. **Register globally with an absolute path.** `pi install /Users/robson/Project/pi-invoice-bot` — writes the entry into `~/.pi/agent/settings.json`.
+3. **Register globally with an absolute path.** `pi install <invoicebot-checkout>` — writes the entry into `~/.pi/agent/settings.json`.
 4. **Smoke-test headless.** From `/tmp`: `timeout 60 pi -p "List your tools that start with 'ib_', then stop."` — confirms the extension loads and tools resolve.
 5. **If tools collide, filter the bundled pi-flows.** Convert the settings entry to object form so invoicebot loads only its own extension and reuses the existing global pi-flows: `"extensions": ["!node_modules/**"]`.
 6. **Re-run the smoke test** — `ib_query/ib_review/ib_setup/ib_rules` should now register cleanly.
@@ -73,9 +73,9 @@ excluding unrelated pre-existing changes.
 
 ## 4. Prompts that worked
 
-- **Goal prompt** — *"Install ../pi-invoice-bot as extension to pi"*. Concise and
+- **Goal prompt** — *"Install the pi-invoice-bot checkout as extension to pi"*. Concise and
   actionable; it named the exact path. It *would* have been stronger with the scope baked in:
-  *"Install ../pi-invoice-bot globally as a pi extension; it bundles pi-flows which I already have installed globally — don't double-register."*
+  *"Install the pi-invoice-bot checkout globally as a pi extension; it bundles pi-flows which I already have installed globally — don't double-register."*
 - **High-leverage follow-ups:**
   - *"Save the installation method to docs"* — turned a one-off fix into a durable artifact.
   - *"is the invoice-bot extension?"* — forced the useful extension-vs-plugin clarification.

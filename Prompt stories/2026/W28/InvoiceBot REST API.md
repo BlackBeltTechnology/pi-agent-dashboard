@@ -43,7 +43,7 @@ validated, committed design.
    contract pasted inline.
 2. **Ground before designing** — read both codebases in parallel (`ctx_batch_execute`):
    the pattern-to-mirror (`packages/automation-plugin`) and the engine to expose
-   (`../pi-invoice-bot`). Find the one load-bearing fact — here, `STATE_DIR` in
+   (`pi-invoice-bot`). Find the one load-bearing fact — here, `STATE_DIR` in
    `_store.ts` is a `process.cwd()`-derived **module-load const** with an `IB_STATE_DIR`
    override.
 3. State the single decisive constraint back to the user and let their domain knowledge
@@ -84,7 +84,7 @@ the other plugins." That collided with a real constraint the AI surfaced: every 
 plugin is self-contained on in-monorepo deps, and `@blackbelt-technology/invoicebot` is
 `private`+unpublished. Resolution went through an **engine port** (plugin codes against an
 `InvoiceEngine` interface; Fake ships now, Real later), then — on the user's call — a direct
-`file:../pi-invoice-bot` link marked loudly as **release-blocking tech debt** (it resolves
+`file:` link to pi-invoice-bot link marked loudly as **release-blocking tech debt** (it resolves
 for local dev but not in CI/`release-cut`, which bind the Fake).
 
 **Phase 4 — Session-seam hardening.** Successive steering upgraded the seam from a stub to a
@@ -156,7 +156,7 @@ and worth capturing as skills next time:
   existing `openspec/changes/*/` folder's file structure directly, then `validate --strict`.
 - **Correlate flow ops by `runId`, not `cwd`** — a cwd-FIFO bind delivers `flow:run` to the
   wrong session (documented automation-plugin footgun).
-- **`file:../pi-invoice-bot` resolves locally but NOT in CI/`release-cut`** (no sibling
+- **`file:` link to pi-invoice-bot resolves locally but NOT in CI/`release-cut`** (no sibling
   checkout there) — those builds must bind `FakeInvoiceEngine`; mark the `file:` dep as
   release-blocking everywhere it touches.
 - **Repeated "stray property" edit failures** — three edit retries came from re-adding an
