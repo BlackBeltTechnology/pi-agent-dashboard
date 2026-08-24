@@ -142,13 +142,14 @@ Exemplar for all of §3–§6: `tests/e2e/subagent-tick-throttle.spec.ts` (same
       sensitivity table with medians and spread, P4 four-arm curve — cross-
       referencing the archived parent's `heap-evidence.md` §3/§4 by path. Do NOT
       edit the archived file.
-- [ ] 7.2 Manual verification of the replayed X1 card beyond the automated
-      checks — a human confirms it is not visually corrupt
-      (test-plan: manual-only, #X5).
-- [ ] 7.3 Manual review of the finished `heap-evidence.md` — every number
-      reported with its watch pattern / bus cadence / arm, the synthetic
-      substrate's fidelity boundary stated, the archived evidence referenced and
-      unedited (test-plan: manual-only, #M1).
+- [ ] 7.2 (test-plan: manual-only, #X5) Manual verification of the replayed X1
+      card beyond the automated checks — a human confirms it is not visually
+      corrupt.
+- [ ] 7.3 (test-plan: manual-only, #M1) Manual review of the finished
+      `heap-evidence.md` — every number reported with its watch pattern / bus
+      cadence / arm, the synthetic substrate's fidelity boundary stated, the
+      archived evidence referenced and unedited. (Numeric transcription is
+      already verified MECHANICALLY: 24/24 values match measurements.json.)
 - [x] 7.4 Update the per-file rows in `qa/fixtures/AGENTS.md`,
       `tests/e2e/AGENTS.md`, `docker/AGENTS.md`, and the row for every other
       file touched; delegate any `docs/` prose to DocScribe.
