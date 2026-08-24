@@ -23,7 +23,22 @@ const FOCUSABLE_SELECTOR = [
 function getFocusable(container: HTMLElement): HTMLElement[] {
   return Array.from(
     container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
-  ).filter((el) => !el.hasAttribute("hidden") && el.getAttribute("aria-hidden") !== "true");
+  ).filter((el) => !isHiddenWithin(el, container));
+}
+
+/**
+ * `hidden` / `aria-hidden` on an ANCESTOR hides the element just as effectively
+ * as on the element itself, so checking only the candidate's own attributes
+ * would let focus land inside a subtree assistive technology cannot see. Walk
+ * up to (and excluding) the container, which is where this dialog's world ends.
+ */
+function isHiddenWithin(el: HTMLElement, container: HTMLElement): boolean {
+  let node: HTMLElement | null = el;
+  while (node && node !== container) {
+    if (node.hasAttribute("hidden") || node.getAttribute("aria-hidden") === "true") return true;
+    node = node.parentElement;
+  }
+  return false;
 }
 
 export function useFocusTrap(

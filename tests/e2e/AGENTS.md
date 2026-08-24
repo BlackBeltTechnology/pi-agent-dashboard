@@ -32,10 +32,10 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `fixtures.ts` | The suite's `test`/`expect` entry point — EVERY spec imports from here, not `@playwright/test` (guard:… → see `fixtures.ts.AGENTS.md` |
 | `flow-roundtrip.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Real pi-flows engine + faux agents. → see `flow-roundtrip.spec.ts.AGENTS.md` |
 | `folder-membership-drag.spec.ts` | L3 for `drag-folders-across-workspaces` (test-plan #F11-#F13, #F16, #F18, #F20, #X6) — the scenarios needing… → see `folder-membership-drag.spec.ts.AGENTS.md` |
-| `gateway-origin-surfaces.spec.ts` | L3 for the transport/identity CLIENT surfaces (test-plan #F1–#F5 → tasks 12.47–12.51). → see `gateway-origin-surfaces.spec.ts.AGENTS.md` |
-| `gateway-qr-selector.spec.ts` | Browser E2E for the Gateway single-QR network selector (change: add-gateway-qr-network-selector; automates… → see `gateway-qr-selector.spec.ts.AGENTS.md` |
 | `gateway-board-mobile.spec.ts` | 6.8/6.9 (D11) — the readiness board at 375×667: one 52px line per row, no horizontal overflow, ≥44px targets,… → see `gateway-board-mobile.spec.ts.AGENTS.md` |
+| `gateway-origin-surfaces.spec.ts` | L3 for the transport/identity CLIENT surfaces (test-plan #F1–#F5 → tasks 12.47–12.51). → see `gateway-origin-surfaces.spec.ts.AGENTS.md` |
 | `gateway-primary-offer.spec.ts` | F7/F8 of add-zrok-custom-reserved-name — confirm-gated primary switch and the registration offer. → see `gateway-primary-offer.spec.ts.AGENTS.md` |
+| `gateway-qr-selector.spec.ts` | Browser E2E for the Gateway single-QR network selector (change: add-gateway-qr-network-selector; automates… → see `gateway-qr-selector.spec.ts.AGENTS.md` |
 | `gateway-readiness-board.spec.ts` | F1–F6 + F9 — readiness board, poll lifecycle and the degraded banner. → see `gateway-readiness-board.spec.ts.AGENTS.md` |
 | `gateway-reserved-name.spec.ts` | Setup step 3 — the reserved-name control and its typed outcomes. → see `gateway-reserved-name.spec.ts.AGENTS.md` |
 | `gateway-url-action.spec.ts` | L3 spec (change: config-override-oauth-redirect-base, D12/D13/D15). → see `gateway-url-action.spec.ts.AGENTS.md` |
@@ -53,13 +53,13 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `large-session-replay.spec.ts` | L3 wire-level gate for `compact-warm-replay-stream` (#399): P1 zero superseded `message_update`, F5, F6… → see `large-session-replay.spec.ts.AGENTS.md` |
 | `lifecycle.ts` | Shared E2E lifecycle module. Port dynamic: probes free port in managed mode; `PW_E2E_PORT` (default 18000) +… → see `lifecycle.ts.AGENTS.md` |
 | `list-models-registry-ready.spec.ts` | Playwright spec (L3). Live proof of the `list_models` registry-readiness discriminator. → see `list-models-registry-ready.spec.ts.AGENTS.md` |
+| `manage-worktrees.spec.ts` | L3 for the manage-worktrees surface (test-plan F4, F3, F7, X5, X11, X12, X13): menu gate is… → see `manage-worktrees.spec.ts.AGENTS.md` |
 | `mermaid-colorize.spec.ts` | Playwright spec. Mermaid default-node colorization end-to-end via faux model. → see `mermaid-colorize.spec.ts.AGENTS.md` |
 | `model-proxy-oauth-filter.spec.ts` | Playwright spec (`request` fixture, no page). Model-proxy OAuth-incompatible filtering. → see `model-proxy-oauth-filter.spec.ts.AGENTS.md` |
 | `navigation.spec.ts` | Scenario 5.6 spec. Registers `page.on(pageerror)`. `gotoDashboard`, clicks `settings-btn`, asserts… → see `navigation.spec.ts.AGENTS.md` |
 | `notify-channel.spec.ts` | Playwright spec. Drives `[[faux:notify-probe]]` (→ `e2e_notify` fixture tool → `ctx.ui.notify`) and asserts… → see `notify-channel.spec.ts.AGENTS.md` |
 | `notify-min-level.spec.ts` | L3 spec (change: gate-notify-rows-by-level). Drives `[[faux:notify-levels]]` (four notifies, one per… → see `notify-min-level.spec.ts.AGENTS.md` |
 | `oauth-redirect-base.spec.ts` | L3 spec (change: config-override-oauth-redirect-base, review of PR #409). → see `oauth-redirect-base.spec.ts.AGENTS.md` |
-| `manage-worktrees.spec.ts` | L3 for the manage-worktrees surface (test-plan F4, F3, F7, X5, X11, X12, X13): menu gate is… → see `manage-worktrees.spec.ts.AGENTS.md` |
 | `openspec-artifact-dialog.spec.ts` | L3 spec (change: openspec-artifact-dialog-desktop). Drives the non-mobile artifact dialog off the board… → see `openspec-artifact-dialog.spec.ts.AGENTS.md` |
 | `openspec-board-drop-contrast.spec.ts` | L3 spec (change: fix-openspec-board-drop-targeting). Marker + active-rail contrast on the LIVE drag… → see `openspec-board-drop-contrast.spec.ts.AGENTS.md` |
 | `openspec-board-drop-indicator.spec.ts` | L3 spec (change: fix-openspec-board-drop-targeting). Drag-time indication + cost:… → see `openspec-board-drop-indicator.spec.ts.AGENTS.md` |
@@ -67,15 +67,13 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `openspec-locality-gate.spec.ts` | L3 spec (change: scope-openspec-auto-attach-to-session-cwd). → see `openspec-locality-gate.spec.ts.AGENTS.md` |
 | `optimistic-prompt.spec.ts` | Playwright E2E for optimistic-prompt-progress. Two faux round-trip tests. → see `optimistic-prompt.spec.ts.AGENTS.md` |
 | `out-of-cwd-session-diffs.spec.ts` | L3 spec (change: opt-in-out-of-cwd-session-diffs). Faux `tool-write-out-of-cwd` (writes… → see `out-of-cwd-session-diffs.spec.ts.AGENTS.md` |
+| `overlay-layering.spec.ts` | Browser E2E gate for `add-overlay-layering-system` (test-plan #F3/#F4): folder-actions menu paints ABOVE the… → see `overlay-layering.spec.ts.AGENTS.md` |
 | `overlay-layout.spec.ts` | L3 GENERIC reachability gate for ALL route-backed overlays (`shell-overlay-route`). → see `overlay-layout.spec.ts.AGENTS.md` |
 | `oversized-event-liveness.spec.ts` | Playwright E2E for the per-event size ceiling (change: bound-subagent-event-serialization). → see `oversized-event-liveness.spec.ts.AGENTS.md` |
 | `package-queue-visible.spec.ts` | Browser E2E gate for `unify-pi-core-into-package-queue` (D9 rewritten — visible queue). → see `package-queue-visible.spec.ts.AGENTS.md` |
 | `pairing-qr.spec.ts` | Browser E2E for the camera-scannable pairing QR (change: make-pairing-qr-camera-scannable). → see `pairing-qr.spec.ts.AGENTS.md` |
 | `pi-runtime-picker.spec.ts` | L3 spec for the Settings → Developer "Pi runtime" picker (test-plan #F1-#F17, #X13). → see `pi-runtime-picker.spec.ts.AGENTS.md` |
 | `plugin-settings-pages.spec.ts` | L3 spec (test-plan rows F1-F14, X1-X5, X7; change: plugin-settings-pages). → see `plugin-settings-pages.spec.ts.AGENTS.md` |
-| `resource-scope-routes.spec.ts` | S-25 scope × path decision table: the 10 resource destinations (5 global `/settings/<page>` + 5 folder… → see `resource-scope-routes.spec.ts.AGENTS.md` |
-| `route-backed-overlay.spec.ts` | Route-backed overlay contract: S-12/S-12b (one overlay per URL, tunnel replaces settings), S-13 (cold-load… → see `route-backed-overlay.spec.ts.AGENTS.md` |
-| `overlay-layering.spec.ts` | Browser E2E gate for `add-overlay-layering-system` (test-plan #F3/#F4): folder-actions menu paints ABOVE the… → see `overlay-layering.spec.ts.AGENTS.md` |
 | `popover-container-clip.spec.ts` | Browser E2E gate for `fix-popover-container-clip` (F5–F8, F11–F12). → see `popover-container-clip.spec.ts.AGENTS.md` |
 | `project-init-button.spec.ts` | Playwright E2E for the polymorphic Initialize button (Level 1). → see `project-init-button.spec.ts.AGENTS.md` |
 | `project-trust-headless-spawn.spec.ts` | L3 spec (test-plan #X4, change: adopt-pi-074-080-features). → see `project-trust-headless-spawn.spec.ts.AGENTS.md` |
@@ -90,6 +88,8 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `replay-in-flight-pill.spec.ts` | Playwright spec. Replay-in-flight pill: visible over a slowed multi-batch cold replay (F9/X6), overlays… → see `replay-in-flight-pill.spec.ts.AGENTS.md` |
 | `replay-truncate.spec.ts` | Playwright spec. Strategy B: full replay in fresh browser context pre-truncates heavy (>200-line) tool result… → see `replay-truncate.spec.ts.AGENTS.md` |
 | `resource-activation-trust.spec.ts` | L3 spec (change: project-scope-disable-global-resources). → see `resource-activation-trust.spec.ts.AGENTS.md` |
+| `resource-scope-routes.spec.ts` | S-25 scope × path decision table: the 10 resource destinations (5 global `/settings/<page>` + 5 folder… → see `resource-scope-routes.spec.ts.AGENTS.md` |
+| `route-backed-overlay.spec.ts` | Route-backed overlay contract: S-12/S-12b (one overlay per URL, tunnel replaces settings), S-13 (cold-load… → see `route-backed-overlay.spec.ts.AGENTS.md` |
 | `scroll-to-top.spec.ts` | Browser E2E gate for `fix-chat-scroll-to-top-estimate-drift` (the ONLY layer that reproduces the… → see `scroll-to-top.spec.ts.AGENTS.md` |
 | `session-context-injection.spec.ts` | Playwright spec. Spawns session, sends `[[faux:echo-system-context]]`, asserts rendered text contains… → see `session-context-injection.spec.ts.AGENTS.md` |
 | `session-reap.spec.ts` | L3 gate on the reap fixture itself, driven headless over `BusClient` (no browser page); port from… → see `session-reap.spec.ts.AGENTS.md` |
@@ -98,8 +98,8 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `settings-default-model-catalogue.spec.ts` | L3 gate on the zero-session Default Model picker (test-plan #F4): stubs `GET /api/models`, asserts populate → save → reload, plus the 503 sibling callout. |
 | `severity-contrast.spec.ts` | L3 gate for `unify-message-severity-colors`. Sweeps 5 tiers × 9 themes × {light,dark} via `localStorage`… → see `severity-contrast.spec.ts.AGENTS.md` |
 | `skill-provenance.spec.ts` | L3 for the Resources skills grid (F1-F10, X7). Fulfils `/api/pi-resources` with crafted payloads and drives the… → see `skill-provenance.spec.ts.AGENTS.md` |
-| `spawn-correlation-recovery.spec.ts` | L3 F2-F6: a late spawn register clears the banner AND adds the card; `dashboardSpawned` visibility;… → see `spawn-correlation-recovery.spec.ts.AGENTS.md` |
 | `smoke.spec.ts` | Smoke spec, wiring proof only. Asserts shell renders (title `PI Dashboard` + `header-app-bar`), no… → see `smoke.spec.ts.AGENTS.md` |
+| `spawn-correlation-recovery.spec.ts` | L3 F2-F6: a late spawn register clears the banner AND adds the card; `dashboardSpawned` visibility;… → see `spawn-correlation-recovery.spec.ts.AGENTS.md` |
 | `split-composer-overflow.spec.ts` | Browser E2E gate for `fix-split-composer-overflow`. Opens `split-toggle` at viewport 1280 (≥ md); asserts… → see `split-composer-overflow.spec.ts.AGENTS.md` |
 | `subagent-detail-dialog.spec.ts` | Playwright spec (change: fix-subagent-live-detail-reliability D4). → see `subagent-detail-dialog.spec.ts.AGENTS.md` |
 | `subagent-inspector.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Drives `[[faux:subagent-spawn]]` — parent emits an `Agent` tool…… → see `subagent-inspector.spec.ts.AGENTS.md` |

@@ -80,7 +80,10 @@ const ROUTES: OverlayRoute[] = [
     pattern: "/folder/:cwd/view",
     url: `/folder/${CWD}/view?path=tall.md`,
     overlay: "preview-route-overlay",
-    content: (p) => p.getByTestId("preview-overlay"),
+    // The LAST section, not the shell: the preview frame mounts immediately and
+    // its markdown body arrives async, so probing the frame would measure an
+    // empty box and make every geometry assertion on this route vacuous.
+    content: (p) => p.getByText("Section 120", { exact: false }),
   },
   {
     pattern: "/pi-view",
@@ -286,15 +289,46 @@ test.describe("overlay layout — reachability gate", () => {
     expectReachable(geo, "tall.md");
     expect(geo.scrollers, "tall content must produce a working scroller").toBeGreaterThan(0);
     expect(geo.height).toBeLessThanOrEqual(0.92 * geo.viewportHeight + EPS);
+
+    // "A working scroller exists" is NOT the contract — the contract is that the
+    // OVERFLOWING CONTENT is reachable, and a scroller elsewhere in the panel
+    // satisfies the weaker form while the document stays clipped. Drive the
+    // scroller to its end and prove the LAST rendered content lands inside the
+    // panel's own box.
+    const reached = await panel.evaluate(async (el) => {
+      const scroller = Array.from(el.querySelectorAll<HTMLElement>("*")).find((n) => {
+        const o = getComputedStyle(n).overflowY;
+        return (o === "auto" || o === "scroll") && n.scrollHeight > n.clientHeight + 4;
+      });
+      if (!scroller) return { ok: false, why: "no scroller" };
+      scroller.scrollTop = scroller.scrollHeight;
+      await new Promise((r) => requestAnimationFrame(() => r(null)));
+      const last = scroller.lastElementChild?.lastElementChild ?? scroller.lastElementChild;
+      if (!last) return { ok: false, why: "scroller has no content" };
+      const lastBox = last.getBoundingClientRect();
+      const panelBox = el.getBoundingClientRect();
+      return {
+        ok: lastBox.bottom <= panelBox.bottom + 4 && lastBox.top >= panelBox.top - 4,
+        why: `last content bottom=${Math.round(lastBox.bottom)} panel bottom=${Math.round(panelBox.bottom)}`,
+        atEnd: scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 4,
+      };
+    });
+    expect(reached.atEnd, `scroller did not reach its end: ${reached.why}`).toBe(true);
+    expect(reached.ok, `end of content is NOT reachable: ${reached.why}`).toBe(true);
   });
 
   // 2.9 / E6 — short content still shrinks to fit; the cap is a cap, not a size.
   test("E6: short flush content does not expand to the cap", async ({ page }) => {
     const panel = await openRoute(page, {
       pattern: "/folder/:cwd/view",
-      url: `/folder/${CWD}/view?path=hello.txt`,
+      // `notes.md`, not `hello.txt`: a `.txt` renders the "can't preview this
+      // file" state, which is short for the WRONG reason and would make this
+      // assertion pass without any content ever being laid out.
+      url: `/folder/${CWD}/view?path=notes.md`,
       overlay: "preview-route-overlay",
-      content: (p) => p.getByTestId("preview-overlay"),
+      // The fixture's own text, so a shell rendered around an unloaded body
+      // cannot satisfy the "short content" precondition.
+      content: (p) => p.getByText("Second tracked markdown file", { exact: false }),
     });
     const geo = await measure(panel);
     expectReachable(geo, "hello.txt");
@@ -357,12 +391,20 @@ test.describe("overlay layout — no interactive element is occluded", () => {
   for (const route of ROUTES) {
     test(`F5: ${route.url} — nothing overlaps the effective close control`, async ({ page }) => {
       const panel = await openRoute(page, route);
-      const overlaps = await panel.evaluate((el) => {
+      // `locator.evaluate(fn, arg)` calls fn(element, arg) — the element is
+      // ALWAYS the first parameter; the extra argument is the second.
+      const overlaps = await panel.evaluate((el: HTMLElement, overlayTestId: string) => {
         // EFFECTIVE close control: the container's own ✕ where one is rendered,
         // otherwise the surface's own dismissal control. After this change the
         // first branch is vacuous on a flush surface — which is the point, and
         // the branch stays so `showClose` cannot reintroduce the collision.
-        const containerClose = el.querySelector<HTMLElement>('[data-testid$="-close"]');
+        // EXACT testid, not a `$="-close"` suffix match: a suffix match resolves
+        // any descendant ending in `-close` (a banner's dismiss, a hint chip),
+        // which would short-circuit the curated list below and measure the
+        // wrong box — the very failure the comment beneath warns about.
+        const containerClose = el.querySelector<HTMLElement>(
+          `[data-testid="${overlayTestId}-close"]`,
+        );
         // No bare-`button` fallback on purpose: the first button in the panel
         // is not necessarily a dismissal control (it can be a save or a primary
         // action), and measuring occlusion against the WRONG element is a test
@@ -406,7 +448,7 @@ test.describe("overlay layout — no interactive element is occluded", () => {
           if (intersects) hits.push(`${n.tagName.toLowerCase()}@${Math.round(r.x)},${Math.round(r.y)}`);
         }
         return { control: own.getAttribute("data-testid") ?? own.tagName, hits };
-      });
+      }, route.overlay);
       expect(overlaps.control, `${route.url}: no dismissal control found at all`).not.toBeNull();
       expect(overlaps.hits, `${route.url}: elements overlap ${overlaps.control}`).toEqual([]);
     });

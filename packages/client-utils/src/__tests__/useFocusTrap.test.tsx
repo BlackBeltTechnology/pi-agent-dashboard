@@ -121,9 +121,34 @@ describe("useFocusTrap — late-arriving focusables", () => {
 
     rerender(<LateHarness late />);
     await waitFor(() => expect(getByTestId("late")).toBeTruthy());
+    // Node existence is NOT observer delivery: MutationObserver callbacks run at
+    // the microtask checkpoint, so a macrotask hop is what guarantees any
+    // pending handoff has already had its chance to fire. Without it this
+    // assertion could pass before the observer ever ran.
+    await new Promise((r) => setTimeout(r, 0));
     // The late focusable exists — and focus was left exactly where the user put it.
     expect(document.activeElement).toBe(outside);
     outside.remove();
+  });
+
+  it("does NOT focus a late focusable inside an aria-hidden subtree", async () => {
+    function HiddenLate() {
+      const ref = useRef<HTMLDivElement>(null);
+      const [ready, setReady] = React.useState(false);
+      useFocusTrap(ref, true);
+      React.useEffect(() => setReady(true), []);
+      return (
+        <div ref={ref} tabIndex={-1} data-testid="trap">
+          <div aria-hidden="true">{ready && <button data-testid="buried">Buried</button>}</div>
+        </div>
+      );
+    }
+    const { getByTestId } = render(<HiddenLate />);
+    await waitFor(() => expect(getByTestId("buried")).toBeTruthy());
+    await new Promise((r) => setTimeout(r, 0));
+    // The button exists but lives under `aria-hidden` — focus must stay put
+    // rather than land somewhere assistive technology cannot see.
+    expect(document.activeElement).toBe(getByTestId("trap"));
   });
 
   it("leaves a genuinely focusable-less child on the container", async () => {
