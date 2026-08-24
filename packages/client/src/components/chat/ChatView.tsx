@@ -24,7 +24,13 @@ import { findActiveInteractiveToolResultIds, findRetriedErrorIds, findSurfaceSup
 import type { ChatImage, InteractiveUiRequest, SessionState } from "../../lib/chat/event-reducer.js";
 import { type BurstItem, groupToolBursts, type ToolBurstGroup as ToolBurstGroupData } from "../../lib/chat/group-tool-bursts.js";
 import type { ToolCallGroup } from "../../lib/chat/group-tool-calls.js";
-import { type HistoryGapState, isHeadFree, SETTLE_MS, shouldAutoLoadHistory } from "../../lib/chat/history-gap.js";
+import {
+  type HistoryGapState,
+  HISTORY_GAP_ROW_ID,
+  isHeadFree,
+  SETTLE_MS,
+  shouldAutoLoadHistory,
+} from "../../lib/chat/history-gap.js";
 import { computeAnchorCorrection } from "../../lib/chat/selection-anchor.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { REPLAY_PILL_DELAY_MS } from "../../lib/replay/loading-history.js";
@@ -909,6 +915,55 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     scrollRef,
     mapChatRange,
   );
+
+  /**
+   * Remap the retained-selection span across a backfill splice.
+   *
+   * `selectionSpanRef` holds a row INDEX span, and `rangeExtractor` unions it
+   * into the mounted range so the selected rows are never unmounted. A splice
+   * inserts rows BELOW the divider, which shifts the index of every row after
+   * it — so the stored span silently comes to designate DIFFERENT rows. The
+   * selected row then falls outside the retained union, the virtualizer
+   * unmounts it, and the Range collapses: the selection is destroyed outright,
+   * not merely displaced.
+   *
+   * Measured in a real browser against `tail-only`, where a ~500-row splice
+   * lands above the reading position: a triple-click selection came back as the
+   * empty string. It is a PRE-EXISTING defect that `tail-only` exposes rather
+   * than causes — `head-tail` shifts indices too, just by less, and its own
+   * gate missed it by installing a programmatic `Range` (which never populates
+   * this span) over a splice that does not move `scrollTop`.
+   *
+   * DURING RENDER, deliberately, not in a layout effect: `rangeExtractor` is
+   * consulted while the virtualizer computes its range, so by the time any
+   * effect could run the rows are already gone and the selection with them.
+   * Render-time ref writes are an established pattern in this component
+   * (`rowCountRef`, `headFreeGapRef`).
+   *
+   * Only spans strictly BELOW the gap row shift. A `head-tail` selection ABOVE
+   * the divider keeps its indices, and shifting it would corrupt a span that
+   * was correct.
+   * See change: add-tail-only-replay-window (D7a, test-plan F18).
+   */
+  const prevSpliceRevRef = useRef(historySpliceRev);
+  const prevRowCountRef = useRef(displayRows.length);
+  if (historySpliceRev !== prevSpliceRevRef.current) {
+    const delta = displayRows.length - prevRowCountRef.current;
+    const span = selectionSpanRef.current;
+    if (delta > 0 && span) {
+      const gapIndex = displayRows.findIndex(
+        (row) => (row as { id?: string }).id === HISTORY_GAP_ROW_ID,
+      );
+      // `gapIndex < 0` means the divider was spliced out entirely by this same
+      // update (the two-sided exhaustion path). Everything that was below it
+      // still shifted, so the span still needs the correction.
+      if (gapIndex < 0 || span.min > gapIndex) {
+        selectionSpanRef.current = { min: span.min + delta, max: span.max + delta };
+      }
+    }
+    prevSpliceRevRef.current = historySpliceRev;
+  }
+  prevRowCountRef.current = displayRows.length;
   // Freeze/flush the streaming tail around an anchored selection (change:
   // preserve-streaming-tail-selection). On the isSelecting false→true edge, if
   // the selection sits inside the live tail, snapshot streamingText so the tail
