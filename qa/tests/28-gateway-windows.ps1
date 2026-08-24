@@ -44,6 +44,8 @@ function Cleanup {
   if ($script:otherUserCreated) {
     Remove-LocalUser -Name $script:otherUser -ErrorAction SilentlyContinue
   }
+  $probe = Join-Path $script:repo "qa-reconnect-probe.cjs"
+  if (Test-Path $probe) { Remove-Item $probe -Force -ErrorAction SilentlyContinue }
   if (Test-Path $script:qaHome) {
     Remove-Item -Recurse -Force $script:qaHome -ErrorAction SilentlyContinue
   }
@@ -154,12 +156,16 @@ const register = (ws) => ws.send(JSON.stringify({
   process.exit(0);
 })().catch((e) => { console.error('FAIL: ' + e.message); process.exit(1); });
 '@
-  $reconnectPath = Join-Path $qaHome "reconnect.cjs"
+  # The probe lives in the REPO, not in $TEMP: CommonJS resolves `ws` by
+  # walking up from the FILE's directory, so a script in the temp profile
+  # cannot see node_modules no matter what the working directory is.
+  $reconnectPath = Join-Path $repo "qa-reconnect-probe.cjs"
   Set-Content -Path $reconnectPath -Value $reconnectScript -Encoding UTF8
   Push-Location $repo
   $reconnectOut = & node $reconnectPath 2>&1
   $reconnectCode = $LASTEXITCODE
   Pop-Location
+  Remove-Item $reconnectPath -Force -ErrorAction SilentlyContinue
   if ($reconnectCode -ne 0 -or "$reconnectOut" -notmatch "reconnected") {
     Write-Error "FAIL: bridge connect/reconnect over loopback failed: $reconnectOut"
     exit 1
