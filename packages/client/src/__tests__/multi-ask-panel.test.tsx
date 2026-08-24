@@ -84,6 +84,21 @@ describe("MultiAskPanel — grouped concurrent asks", () => {
     expect(onRespond.mock.calls[0][0]).toBe("p2");
   });
 
+  it("C2b cancelling a card resolves its own requestId with cancelled=true only", () => {
+    const onRespond = vi.fn();
+    const { getByTestId } = renderPanel(
+      <MultiAskPanel
+        requests={[confirmReq("p1", "Q1", "A"), confirmReq("p2", "Q2", "B")]}
+        onRespondToUi={onRespond}
+      />,
+    );
+    // ConfirmRenderer buttons: [Yes, No, Cancel] — Cancel is the third.
+    const p2Buttons = getByTestId("multi-ask-card-p2").querySelectorAll("button");
+    fireEvent.click(p2Buttons[p2Buttons.length - 1]);
+    expect(onRespond).toHaveBeenCalledTimes(1);
+    expect(onRespond.mock.calls[0]).toEqual(["p2", undefined, true]);
+  });
+
   it("C4 late arrival appends a card to the stack", () => {
     const { rerender, getAllByTestId } = renderPanel(
       <MultiAskPanel requests={[confirmReq("p1", "Q1", "A")]} onRespondToUi={vi.fn()} />,
