@@ -110,7 +110,7 @@ fallback would be the only path ever exercised by the real provider.
 
 Resolve every capability field independently, first hit wins:
 
-```
+```text
 native models.json  →  endpoint-advertised  →  catalog probe*  →  api-typed floor
                                                (*in-session surface only)
 ```

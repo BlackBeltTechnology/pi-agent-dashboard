@@ -7,8 +7,10 @@ Preserve model capability metadata that custom providers advertise in their `/v1
 ### Requirement: Custom-provider discovery SHALL preserve advertised model metadata
 
 The dashboard SHALL provide a model-discovery function that returns, for each model a
-custom provider advertises, a record carrying BOTH the model id AND every capability field
-the provider advertised. Discovery SHALL NOT reduce the provider response to ids.
+custom provider advertises, a record carrying BOTH the model id AND every SUPPORTED
+capability field the provider advertised (the mapped fields enumerated in the mapping
+requirement below; advertised fields with no destination in the model shape are ignored).
+Discovery SHALL NOT reduce the provider response to ids.
 
 The existing ids-only helpers SHALL remain behaviourally unchanged: `extractModelIds`,
 `listProviderModelIds`, and `probeProvider` keep their current signatures and return
@@ -124,18 +126,19 @@ for numeric capacity fields — not a finite number greater than zero.
 - **THEN** each SHALL fall back to the api-typed floor for that field
 - **AND** discovery SHALL NOT throw
 
-### Requirement: thinkingLevelMap SHALL be synthesized only when determined
+### Requirement: Advertised thinking capability SHALL NOT synthesize a thinkingLevelMap
 
-`thinkingLevelMap` SHALL be synthesized only when the advertised thinking capability
-determines it. When `thinkingFormat` is absent, or `thinkingRange` is `null` or otherwise
-underdetermined, `thinkingLevelMap` SHALL be left ABSENT rather than guessed.
+Discovery SHALL NOT synthesize a `thinkingLevelMap` from advertised thinking capability.
+The advertised `thinkingFormat`, `thinkingCanDisable`, and `thinkingRange` fields are not
+mapped: they cannot reliably determine a level table, and guessing one risks replacing "no
+thinking levels" with WRONG levels. `thinkingLevelMap` SHALL be left ABSENT for a discovered
+model unless the user authored one in `~/.pi/agent/models.json`.
 
-`reasoning: true` from the endpoint SHALL be adopted independently of
-`thinkingLevelMap`, so thinking-level availability is restored by the `reasoning` flag
-even when no map is synthesized.
+`reasoning: true` from the endpoint SHALL be adopted independently, so thinking-level
+availability is restored by the `reasoning` flag even though no map is synthesized.
 
-A synthesized `thinkingLevelMap` SHALL NOT override a `thinkingLevelMap` declared for that
-model in the user-authored `~/.pi/agent/models.json`.
+A `thinkingLevelMap` declared for that model in the user-authored
+`~/.pi/agent/models.json` SHALL always be used.
 
 #### Scenario: Underdetermined thinking capability yields no map
 
@@ -144,9 +147,9 @@ model in the user-authored `~/.pi/agent/models.json`.
 - **THEN** the model SHALL report `reasoning: true`
 - **AND** `thinkingLevelMap` SHALL be absent
 
-#### Scenario: Native declaration outranks synthesis
+#### Scenario: Native declaration is used regardless of advertised thinking capability
 
-- **GIVEN** a model whose advertised thinking capability would determine a map
+- **GIVEN** a model advertising thinking capability in its provider response
 - **AND** `~/.pi/agent/models.json` declares a `thinkingLevelMap` for that same `provider/id`
 - **WHEN** the catalogue is built
 - **THEN** the native `thinkingLevelMap` SHALL be used

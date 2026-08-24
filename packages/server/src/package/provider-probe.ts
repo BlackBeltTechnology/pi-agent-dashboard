@@ -209,9 +209,11 @@ async function fetchProviderModelBody(input: ProbeInput): Promise<unknown | null
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // Clear in `finally` so the abort timer stays armed through `response.json()`:
+  // a provider that stalls the response BODY (not just the headers) is still
+  // aborted rather than hanging until the socket dies.
   try {
     const response = await fetch(req.url, { method: "GET", headers: req.headers, signal: controller.signal });
-    clearTimeout(timer);
     if (!response.ok) return null;
     try {
       return await response.json();
@@ -219,8 +221,9 @@ async function fetchProviderModelBody(input: ProbeInput): Promise<unknown | null
       return null;
     }
   } catch {
-    clearTimeout(timer);
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
