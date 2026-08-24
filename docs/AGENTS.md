@@ -22,7 +22,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `embedding-chat-view.md` | Subpath export `@blackbelt-technology/pi-dashboard-web/chat-embed` mounts live chat in sibling workspace. → see `embedding-chat-view.md.AGENTS.md` |
 | `examples/c4-example.md` | C4-model diagram example. Mermaid fenced blocks: `C4Context`, `C4Container`. → see `examples/c4-example.md.AGENTS.md` |
 | `faq.md` | Recurring how-to + troubleshooting questions. Caveman style. Cross-refs README.md + docs/. → see `faq.md.AGENTS.md` |
-| `install-invoice-bot-extension.md` | Install `@blackbelt-technology/invoicebot` (local `../pi-invoice-bot`) as global pi extension. → see `install-invoice-bot-extension.md.AGENTS.md` |
+| `install-invoice-bot-extension.md` | Install `@blackbelt-technology/invoicebot` (from a local `pi-invoice-bot` checkout) as global pi extension. → see `install-invoice-bot-extension.md.AGENTS.md` |
 | `installation-windows.md` | Windows 10/11 install guide. 2 paths: Electron Setup.exe NSIS (per-user, bundled Node) + tarball/npm (advanced). Runtime layout `%USERPROFILE%\.pi-dashboard\` + `%USERPROFILE%\.pi\`. |
 | `migration/from-pi-model-proxy.md` | Migration guide `@blackbelt-technology/pi-model-proxy` → dashboard built-in proxy. → see `migration/from-pi-model-proxy.md.AGENTS.md` |
 | `perf-ws-broadcast-load.md` | WS broadcast load harness. Measures head-of-line blocking on single browser WS. `createDrainingWs` timing-aware fake socket drives real gateway. Test-only, regression-gated. |
