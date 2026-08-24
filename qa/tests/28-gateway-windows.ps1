@@ -90,7 +90,10 @@ try {
 
   # The field the settings UI renders. A string here would mean something
   # tried to hand Windows a socket path.
-  if ($health.piGatewayPort -isnot [int]) {
+  # The distinction under test is number-vs-STRING: a socket path would arrive
+  # as a string. Do not pin the numeric WIDTH — ConvertFrom-Json hands back
+  # Int64 here, and demanding Int32 fails a correct server for a JSON detail.
+  if ($health.piGatewayPort -is [string] -or ($health.piGatewayPort -as [int64]) -eq $null) {
     Write-Error "FAIL: expected a numeric loopback port on /api/health, got '$($health.piGatewayPort)' ($($health.piGatewayPort.GetType().Name))"
     exit 1
   }
