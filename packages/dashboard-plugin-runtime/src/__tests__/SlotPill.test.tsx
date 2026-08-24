@@ -32,9 +32,9 @@ describe("SlotPill surface variant", () => {
     expect(root.className).toContain("shadow-[0_1px_2px_var(--shadow-card)]");
   });
 
-  it("surface=\"flat\" uses the translucent subcard surface and NO shadow", () => {
+  it("surface=\"flat\" has NO fill and NO shadow (border only)", () => {
     const root = pillRoot("pill-flat", { surface: "flat" });
-    expect(root.className).toContain("bg-[color-mix(in_srgb,var(--bg-surface)_50%,transparent)]");
+    expect(root.className).not.toContain("bg-[");
     expect(root.className).not.toMatch(/shadow-/);
     expect(root.className).not.toContain("bg-[var(--bg-secondary)]");
   });

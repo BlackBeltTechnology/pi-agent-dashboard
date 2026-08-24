@@ -21,8 +21,8 @@ describe("SessionSubcard", () => {
     expect(title.className).toContain("rounded-full");
     expect(screen.getByText("hello")).toBeTruthy();
     const panel = container.firstChild as HTMLElement;
-    // Panel uses color-mix to render bg-surface at 50% alpha so child content stays opaque.
-    expect(panel.className).toContain("bg-[color-mix(in_srgb,var(--bg-surface)_50%,transparent)]");
+    // Panel has no fill — border only, so the card background shows through.
+    expect(panel.className).not.toContain("bg-[");
     expect(panel.className).toContain("rounded-lg");
     expect(panel.className).toContain("border");
     expect(panel.className).toContain("relative");

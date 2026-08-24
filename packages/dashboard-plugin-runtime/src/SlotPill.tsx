@@ -31,9 +31,9 @@ export type SlotAccent = "blue" | "indigo" | "cyan" | "teal" | "purple" | "red";
 
 /**
  * Body surface variant. `raised` (default) = opaque `--bg-secondary` + shadow,
- * for sidebar folder cards. `flat` = translucent `color-mix(--bg-surface 50%)`
- * with NO shadow, matching SessionSubcard so a folder section rendered inside a
- * session card is visually consistent with its OPENSPEC/GIT/PROCESS siblings.
+ * for sidebar folder cards. `flat` = NO fill and NO shadow (border only),
+ * matching SessionSubcard so a folder section rendered inside a session card is
+ * visually consistent with its OPENSPEC/GIT/PROCESS siblings.
  * See change: align-session-card-kb-slot-surface.
  */
 export type SlotSurface = "raised" | "flat";
@@ -43,7 +43,15 @@ export type SlotSurface = "raised" | "flat";
 // strings so Tailwind JIT-compiles both.
 const SURFACE: Record<SlotSurface, string> = {
   raised: "bg-[var(--bg-secondary)] shadow-[0_1px_2px_var(--shadow-card)]",
-  flat: "bg-[color-mix(in_srgb,var(--bg-surface)_50%,transparent)]",
+  flat: "",
+};
+
+// The capsule legend must mask the border line it overhangs, so its fill
+// follows the surface it sits on: the pill body when raised, the session-card
+// background when the body itself is unfilled.
+const LEGEND_BG: Record<SlotSurface, string> = {
+  raised: "bg-[var(--bg-tertiary)]",
+  flat: "bg-[var(--bg-primary)]",
 };
 
 // Static accent map — Tailwind cannot JIT-scan a dynamic `text-${accent}-400`,
@@ -109,7 +117,7 @@ export function SlotPill({
           (matches SessionSubcard's titled panel). Centered on the full pill
           width, so long labels (e.g. "Knowledge base") never truncate as they
           did inline. See change: slot-pill-capsule-label. */}
-      <span className="absolute -top-1.5 left-1/2 -translate-x-1/2 max-w-[calc(100%-12px)] truncate px-1.5 py-px rounded-full bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] text-[9px] font-semibold tracking-wider uppercase text-[var(--text-secondary)] leading-none">
+      <span className={`absolute -top-1.5 left-1/2 -translate-x-1/2 max-w-[calc(100%-12px)] truncate px-1.5 py-px rounded-full ${LEGEND_BG[surface]} border border-[var(--border-subtle)] text-[9px] font-semibold tracking-wider uppercase text-[var(--text-secondary)] leading-none`}>
         {label}
       </span>
       <span className={`shrink-0 w-[26px] h-[26px] rounded-lg flex items-center justify-center ${tone.glyphBg} ${tone.icon}`}>

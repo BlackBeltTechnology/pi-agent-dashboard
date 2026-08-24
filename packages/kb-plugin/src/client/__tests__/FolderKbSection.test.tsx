@@ -274,7 +274,7 @@ describe("FolderKbSection render", () => {
     const { getByTestId } = renderSlotPlacement("card");
     await waitFor(() => expect(getByTestId("folder-kb-open-settings")).toBeTruthy());
     const pill = getByTestId("folder-kb-open-settings");
-    expect(pill.className).toContain("bg-[color-mix(in_srgb,var(--bg-surface)_50%,transparent)]");
+    expect(pill.className).not.toContain("bg-[");
     expect(pill.className).not.toMatch(/shadow-/);
   });
 
