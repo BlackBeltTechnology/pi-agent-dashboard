@@ -119,7 +119,11 @@ describe("useSessionActions — idle-scoped optimistic pendingPrompt", () => {
 });
 
 describe("useSessionActions — settled provider Retry", () => {
-  it("E7/E8 sends one hidden retry command without replaying a user prompt or changing messages", () => {
+  // test-plan #1: the settled-error Retry is dispatched as a first-class
+  // retry_session protocol message, NEVER the legacy /__dashboard_retry
+  // send_prompt sentinel. See change:
+  // replace-dashboard-retry-command-with-protocol-message.
+  it("#1 dispatches retry_session (not the sentinel) without replaying a user prompt or changing messages", () => {
     const state = idle();
     state.lastError = { message: "503 overloaded", timestamp: 1 };
     const states = new Map([["s1", state]]);
@@ -129,14 +133,39 @@ describe("useSessionActions — settled provider Retry", () => {
     actions.handleRetrySession("s1");
 
     expect(send).toHaveBeenCalledTimes(1);
-    expect(send).toHaveBeenCalledWith({
-      type: "send_prompt",
-      sessionId: "s1",
-      text: "/__dashboard_retry",
-    });
+    expect(send).toHaveBeenCalledWith({ type: "retry_session", sessionId: "s1" });
+    expect(send).not.toHaveBeenCalledWith(
+      expect.objectContaining({ type: "send_prompt", text: "/__dashboard_retry" }),
+    );
     expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ text: "503 overloaded" }));
     expect(getStates().get("s1")!.messages).toBe(beforeMessages);
     expect(getStates().get("s1")!.retryState).toBeUndefined();
+  });
+
+  // test-plan #2: decision table over the 4 guard flags. Exactly one eligible
+  // baseline dispatches; every ineligible state dispatches zero.
+  it("#2 stale-click guard blocks retry_session in every ineligible state", () => {
+    const withLastError = (over: Partial<SessionState>): SessionState => ({
+      ...idle(),
+      lastError: { message: "503 overloaded", timestamp: 1 },
+      ...over,
+    });
+    const cases: Array<{ name: string; state: SessionState }> = [
+      { name: "lastError absent", state: { ...idle(), lastError: undefined } },
+      { name: "retryState set", state: withLastError({ retryState: { attempt: 1, maxAttempts: 3, startedAt: 0, waiting: false, delayMs: 0 } as any }) },
+      { name: "retryCancelled true", state: withLastError({ retryCancelled: true }) },
+      { name: "isStreaming true", state: withLastError({ isStreaming: true }) },
+    ];
+    for (const c of cases) {
+      const { actions, send } = setup("s1", new Map([["s1", c.state]]));
+      actions.handleRetrySession("s1");
+      expect(send, `ineligible: ${c.name}`).not.toHaveBeenCalled();
+    }
+    // Eligible baseline: exactly one dispatch.
+    const { actions, send } = setup("s1", new Map([["s1", withLastError({})]]));
+    actions.handleRetrySession("s1");
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith({ type: "retry_session", sessionId: "s1" });
   });
 
   it("drops a stale Retry callback after the lifecycle has already recovered", () => {

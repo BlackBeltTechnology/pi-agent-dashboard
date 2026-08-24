@@ -95,7 +95,11 @@ export function DirectorySettings({ cwd, page, onBack }: Props) {
   };
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 h-full" data-testid="directory-settings">
+    // `min-h-0`, not `h-full` — same reason as SettingsPanel: the flush Dialog
+    // panel has a cap but no definite height. Three mount contexts share this
+    // root (flush overlay, live chain, mobile).
+    // See change: fix-flush-dialog-scroll-and-close-collision.
+    <div className="flex-1 flex flex-col min-w-0 min-h-0" data-testid="directory-settings">
       {/* Header */}
       <div className="flex items-center gap-3 p-4 border-b border-[var(--border-primary)] shrink-0">
         <button

@@ -279,9 +279,12 @@ export function useSessionActions(deps: SessionActionDeps) {
     const current = sessionStatesRef.current.get(sessionId);
     if (!current?.lastError || current.retryState || current.retryCancelled || current.isStreaming) return;
     // Active settled sessions cannot use resume_session (that path safely
-    // rejects live carriers). The hidden command is intercepted by the bridge
-    // and starts a non-user custom turn via pi.sendMessage(triggerTurn:true).
-    send({ type: "send_prompt", sessionId, text: "/__dashboard_retry" });
+    // rejects live carriers). The typed retry_session message is forwarded by
+    // the server to the owning bridge, which starts a non-user custom turn via
+    // pi.sendMessage(triggerTurn:true). Replaces the legacy send_prompt sentinel
+    // `/__dashboard_retry`. See change:
+    // replace-dashboard-retry-command-with-protocol-message.
+    send({ type: "retry_session", sessionId });
   }, [send, sessionStatesRef]);
 
   const handleResumeSession = useCallback((sessionId: string, mode: "continue" | "fork", entryId?: string) => {

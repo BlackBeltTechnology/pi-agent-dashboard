@@ -73,7 +73,26 @@ describe("CommandHandler", () => {
     );
   });
 
-  it("E7/E8 internal retry triggers a non-user custom turn", async () => {
+  it("retry_session triggers a non-user custom turn", async () => {
+    const pi = createMockPi();
+    const handler = createCommandHandler(pi as any, "s1");
+
+    await handler.handle({ type: "retry_session", sessionId: "s1" } as ServerToExtensionMessage);
+
+    expect(pi.sendMessage).toHaveBeenCalledOnce();
+    expect(pi.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ customType: "pi-dashboard:retry", display: false }),
+      { triggerTurn: true },
+    );
+    expect(pi.sendUserMessage).not.toHaveBeenCalled();
+  });
+
+  // test-plan #7: an un-upgraded client still sends the /__dashboard_retry
+  // send_prompt sentinel; the bridge routes it to the SAME retry dispatch and
+  // never replays it as a user message. Deprecated alias, kept for the
+  // version-skew window. See change:
+  // replace-dashboard-retry-command-with-protocol-message.
+  it("#7 legacy /__dashboard_retry sentinel still triggers a retry, no user replay", async () => {
     const pi = createMockPi();
     const handler = createCommandHandler(pi as any, "s1");
 
@@ -91,7 +110,24 @@ describe("CommandHandler", () => {
     expect(pi.sendUserMessage).not.toHaveBeenCalled();
   });
 
-  it("reports a failed internal Retry dispatch without classifying it as abort", async () => {
+  // test-plan #6: the manual retry disarms the RetryTracker chain before the
+  // re-drive so its native agent_start is never mapped onto the auto-retry
+  // counter surface.
+  it("#6 retry_session disarms the retry chain before dispatch", async () => {
+    const pi = createMockPi();
+    const disarmRetryChain = vi.fn();
+    const handler = createCommandHandler(pi as any, "s1", { disarmRetryChain });
+
+    await handler.handle({ type: "retry_session", sessionId: "s1" } as ServerToExtensionMessage);
+
+    expect(disarmRetryChain).toHaveBeenCalledOnce();
+    expect(pi.sendMessage).toHaveBeenCalledOnce();
+  });
+
+  // test-plan #4: a SYNCHRONOUS throw from pi.sendMessage surfaces as a single
+  // auto_retry_end{success:false, attempt:0}; no agent_start, not classified as
+  // an abort.
+  it("#4 retry_session sync dispatch failure emits auto_retry_end", async () => {
     const pi = createMockPi();
     pi.sendMessage.mockImplementation(() => {
       throw new Error("retry dispatch failed");
@@ -99,12 +135,14 @@ describe("CommandHandler", () => {
     const eventSink = vi.fn();
     const handler = createCommandHandler(pi as any, "s1", { eventSink });
 
-    await expect(handler.handle({
-      type: "send_prompt",
-      sessionId: "s1",
-      text: "/__dashboard_retry",
-    } as ServerToExtensionMessage)).resolves.toBeUndefined();
+    await expect(
+      handler.handle({ type: "retry_session", sessionId: "s1" } as ServerToExtensionMessage),
+    ).resolves.toBeUndefined();
 
+    const failures = eventSink.mock.calls.filter(
+      ([m]) => m?.event?.eventType === "auto_retry_end",
+    );
+    expect(failures).toHaveLength(1); // exactly one — sync path must not also hit .catch()
     expect(eventSink).toHaveBeenCalledWith({
       type: "event_forward",
       sessionId: "s1",
@@ -114,6 +152,60 @@ describe("CommandHandler", () => {
         data: { success: false, attempt: 0, finalError: "retry dispatch failed" },
       },
     });
+  });
+
+  // test-plan #5: pi.sendMessage is async at runtime; an ASYNC rejection must
+  // ALSO emit auto_retry_end via the .catch() path (not only the sync
+  // try/catch), or the dispatch failure strands the retry surface.
+  it("#5 retry_session async rejection also emits auto_retry_end", async () => {
+    const pi = createMockPi();
+    pi.sendMessage.mockImplementation(() => Promise.reject(new Error("async boom")));
+    const eventSink = vi.fn();
+    const handler = createCommandHandler(pi as any, "s1", { eventSink });
+
+    await handler.handle({ type: "retry_session", sessionId: "s1" } as ServerToExtensionMessage);
+    // Drain the microtask queue so the .catch() handler runs.
+    await new Promise((r) => setTimeout(r, 0));
+
+    const failures = eventSink.mock.calls.filter(
+      ([m]) => m?.event?.eventType === "auto_retry_end",
+    );
+    expect(failures).toHaveLength(1); // exactly one — async path must not also hit sync try/catch
+    expect(eventSink).toHaveBeenCalledWith({
+      type: "event_forward",
+      sessionId: "s1",
+      event: {
+        eventType: "auto_retry_end",
+        timestamp: expect.any(Number),
+        data: { success: false, attempt: 0, finalError: "async boom" },
+      },
+    });
+  });
+
+  // test-plan #10: a retry_session that lands while the session streams (guard
+  // bypassed) degrades to a single pi dispatch — pi queues it internally; the
+  // bridge never double-dispatches or corrupts state.
+  it("#10 retry_session while streaming dispatches exactly once", async () => {
+    const pi = createMockPi();
+    const eventSink = vi.fn();
+    const handler = createCommandHandler(pi as any, "s1", {
+      eventSink,
+      isStreaming: () => true,
+    });
+
+    await handler.handle({ type: "retry_session", sessionId: "s1" } as ServerToExtensionMessage);
+
+    expect(pi.sendMessage).toHaveBeenCalledOnce();
+    expect(pi.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ customType: "pi-dashboard:retry", display: false }),
+      { triggerTurn: true },
+    );
+    // No failure event on a successful (queued) dispatch.
+    expect(eventSink).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        event: expect.objectContaining({ eventType: "auto_retry_end" }),
+      }),
+    );
   });
 
   it("should ignore messages for different sessionIds", async () => {

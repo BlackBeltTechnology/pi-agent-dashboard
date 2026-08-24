@@ -235,6 +235,10 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
 
   const detailDialog = agentId && session ? (
     <Dialog open={detailOpen} onClose={() => setDetailOpen(false)} size="lg" flush>
+      {/* STAYS after the flush panel became a flex column: a DEFINITE height,
+          not a duplicated flex context. The popout must keep a stable height as
+          transcript entries stream in; shrink-to-fit would make the dialog jump.
+          See change: fix-flush-dialog-scroll-and-close-collision. */}
       <div className="h-[70vh] overflow-hidden flex flex-col">
         <SubagentDetailView
           session={session}

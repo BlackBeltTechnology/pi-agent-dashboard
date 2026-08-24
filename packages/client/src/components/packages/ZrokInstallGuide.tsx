@@ -130,7 +130,10 @@ export function ZrokInstallGuide({ onBack }: Props) {
   const osLabel = serverOs === "darwin" ? "macOS" : serverOs === "win32" ? "Windows" : "Linux";
 
   return (
-    <div className="flex flex-col h-full bg-[var(--bg-primary)]">
+    // ADDS `flex-1` (this root never had one) and swaps `h-full` for `min-h-0`,
+    // so it grows inside the flush Dialog's capped flex column and its body can
+    // scroll. See change: fix-flush-dialog-scroll-and-close-collision.
+    <div className="flex-1 flex flex-col min-h-0 bg-[var(--bg-primary)]">
       {/* Header */}
       <div className="flex items-center gap-2 px-4 py-3 border-b border-[var(--border-primary)]">
         <button

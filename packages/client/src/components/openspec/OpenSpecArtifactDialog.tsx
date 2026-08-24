@@ -38,15 +38,19 @@ export function OpenSpecArtifactDialog({ cwd, changeName, initialArtifact, opens
   // NOT the reader's generic "Failed to fetch" on a missing file).
   const reader = useOpenSpecReader(cwd, changeName, activeTab, artifacts);
 
-  // No back button: the host Dialog supplies the standard close (✕ / Escape /
-  // backdrop). `closeInset` reserves header space so search doesn't collide.
+  // The child owns dismissal. A flush Dialog renders no ✕ of its own (it would
+  // paint over this header's search box — what the deleted `closeInset` existed
+  // to dodge), so without an `onBack` on EVERY branch this dialog would have no
+  // visible way out. See change: fix-flush-dialog-scroll-and-close-collision.
+  const backLabel = i18nT("common.close", undefined, "Close");
   const body = isWaitingForReplay ? (
-    <MarkdownPreviewView title={changeName} isLoading closeInset />
+    <MarkdownPreviewView title={changeName} isLoading onBack={onClose} backLabel={backLabel} />
   ) : !change ? (
     <MarkdownPreviewView
       title={changeName}
       error={i18nT("openspec.changeNotFoundInFolder", { changeName }, 'No OpenSpec change named "{changeName}" in this folder.')}
-      closeInset
+      onBack={onClose}
+      backLabel={backLabel}
     />
   ) : (
     <MarkdownPreviewView
@@ -57,17 +61,19 @@ export function OpenSpecArtifactDialog({ cwd, changeName, initialArtifact, opens
       tabs={reader.tabs}
       activeTab={reader.activeTab}
       onTabChange={setActiveTab}
-      closeInset
+      onBack={onClose}
+      backLabel={backLabel}
     />
   );
 
   return (
     <Dialog open size="full" flush onClose={onClose} ariaLabel={changeName} testId="openspec-artifact-dialog">
-      {/* Height-constrained flex box is load-bearing: MarkdownPreviewView's
-          root uses `flex-1`, which needs a flex parent to grow. The flush
-          Dialog container is not flex, so without this wrapper the header/tabs
-          collapse and the content area is invisible. */}
-      <div className="h-[85vh] flex flex-col">{body}</div>
+      {/* No wrapper: the flush Dialog panel is itself a capped flex column now,
+          so `MarkdownPreviewView`'s `flex-1 min-h-0` root is bounded by it. The
+          old `h-[85vh] flex flex-col` box was a local re-creation of exactly
+          that context. See change:
+          fix-flush-dialog-scroll-and-close-collision. */}
+      {body}
     </Dialog>
   );
 }

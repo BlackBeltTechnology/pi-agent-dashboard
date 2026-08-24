@@ -1051,6 +1051,33 @@ export function useMessageHandler(
         }
         break;
 
+      case "retry_session_error": {
+        // Delivery failed (unknown/disconnected session, or a bridge lacking
+        // the handler). The retry never reached a bridge, so no agent_start /
+        // lastError change will self-heal the disabled one-shot Retry. Re-stamp
+        // lastError.timestamp to bump `retryRevision`, which resets the banner's
+        // one-shot guard and re-enables the button. Same re-enable mechanism as
+        // the auto_retry_end reducer path. See change:
+        // replace-dashboard-retry-command-with-protocol-message.
+        setSessionStates((prev) => {
+          const current = prev.get(msg.sessionId);
+          if (!current?.lastError) return prev;
+          const previousRevision = current.lastError.timestamp;
+          const nextRevision =
+            typeof previousRevision === "number" && Number.isFinite(previousRevision)
+              ? Math.max(Date.now(), previousRevision + 1)
+              : Date.now();
+          const next = new Map(prev);
+          next.set(msg.sessionId, {
+            ...current,
+            lastError: { ...current.lastError, timestamp: nextRevision },
+          });
+          return next;
+        });
+        showToast?.(msg.error, "error");
+        break;
+      }
+
       case "spawn_error": {
         // Enriches the spawn_result error with strategy + optional stderr tail.
         // Carried as its own message so esbuild preserves this switch case in
