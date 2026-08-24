@@ -1,4 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+import { WebSocketServer } from "ws";
 import { ConnectionManager } from "../connection.js";
 
 // Mock WebSocket
@@ -340,5 +344,200 @@ describe("ConnectionManager", () => {
 
       cm.disconnect();
     });
+  });
+});
+
+// ──────────────────────────────────────────────────────────
+// (test-plan #E19) `ws+unix://` client dial — defect-2 regression.
+//
+// `globalThis.WebSocket` rejects `ws+unix://` outright with
+// `DOMException: expected a ws: or wss: url`, so a build that falls back to it
+// cannot reach the local socket at all. This test dials a REAL unix socket, so
+// it fails on any such regression rather than asserting a constructor name.
+//
+// See change: add-pi-gateway-transport-identity (task 2.6).
+// ──────────────────────────────────────────────────────────
+describe("ConnectionManager over ws+unix", () => {
+  it("dials ws+unix://<path>:/ with the default WebSocket implementation", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-conn-uds-"));
+    const sockPath = path.join(dir, "gateway-test.sock");
+    const wss = new WebSocketServer({ noServer: true });
+    const http = await import("node:http");
+    const server = http.createServer();
+    server.on("upgrade", (req, socket, head) => {
+      wss.handleUpgrade(req, socket as never, head, (ws) => wss.emit("connection", ws, req));
+    });
+    await new Promise<void>((r) => server.listen(sockPath, () => r()));
+
+    const connected = new Promise<void>((resolve) => wss.once("connection", () => resolve()));
+    // No WebSocketImpl injected: this exercises the production default.
+    const cm = new ConnectionManager({ url: `ws+unix://${sockPath}:/`, onMessage: () => {} });
+    cm.connect();
+    try {
+      await expect(
+        Promise.race([
+          connected,
+          new Promise((_, rej) => setTimeout(() => rej(new Error("no UDS connection")), 3000)),
+        ]),
+      ).resolves.toBeUndefined();
+    } finally {
+      cm.disconnect();
+      wss.close();
+      await new Promise<void>((r) => server.close(() => r()));
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("onOpen fires on the FIRST open, unlike onReconnect (task 9.4)", () => {
+  beforeEach(() => vi.useRealTimers());
+
+  it("fires on the initial connection, where a provisional register must be sent", async () => {
+    // `onReconnect` deliberately skips the first open, so a move's target had
+    // no hook at which to announce itself — and `send()` before the socket is
+    // live is silently dropped, which would hang the handshake to its timeout.
+    const opens: string[] = [];
+    const server = new WebSocketServer({ port: 0 });
+    await new Promise<void>((r) => server.on("listening", () => r()));
+    const port = (server.address() as { port: number }).port;
+
+    const cm = new ConnectionManager({
+      url: `ws://127.0.0.1:${port}`,
+      onOpen: () => opens.push("open"),
+      onReconnect: () => opens.push("reconnect"),
+    });
+    cm.connect();
+    await vi.waitFor(() => expect(opens).toContain("open"), { timeout: 3000 });
+    expect(opens).toEqual(["open"]);
+
+    cm.disconnect();
+    server.close();
+  });
+});
+
+/**
+ * #X7 (task 12.26 / 9.3a-i) — a provisional refusal must never be terminal.
+ *
+ * `register_rejected` sets `intentionalClose` and stops the reconnect loop for
+ * good: correct for a contention refusal, catastrophic for a move, where the
+ * origin is still serving the session perfectly well. The two message types
+ * differ by one word, and nothing but this test stops a future rename or a
+ * `startsWith` from collapsing them.
+ */
+describe("provisional_rejected is not a terminal registration refusal (#X7)", () => {
+  // Real timers: an earlier describe's `beforeEach` installs fake ones, and
+  // `vi.waitFor` cannot advance a real socket handshake under them.
+  beforeEach(() => vi.useRealTimers());
+
+  it("does not stop the reconnect loop the way register_rejected does", async () => {
+    const rejected: string[] = [];
+    const server = new WebSocketServer({ port: 0 });
+    await new Promise<void>((r) => server.on("listening", () => r()));
+    const port = (server.address() as { port: number }).port;
+    server.on("connection", (ws) => {
+      ws.send(JSON.stringify({ type: "provisional_rejected" }));
+    });
+
+    const cm = new ConnectionManager({
+      url: `ws://127.0.0.1:${port}`,
+      onRegisterRejected: (sid) => rejected.push(sid),
+    });
+    cm.connect();
+    await vi.waitFor(() => expect(cm.isConnected).toBe(true), { timeout: 3000 });
+    await new Promise((r) => setTimeout(r, 60));
+
+    // The refusal reached the client, and the connection is untouched by it.
+    expect(rejected).toEqual([]);
+    expect(cm.isConnected).toBe(true);
+
+    cm.disconnect();
+    server.close();
+  });
+
+  it("still treats register_rejected as terminal — the discriminating control", async () => {
+    const rejected: string[] = [];
+    const server = new WebSocketServer({ port: 0 });
+    await new Promise<void>((r) => server.on("listening", () => r()));
+    const port = (server.address() as { port: number }).port;
+    server.on("connection", (ws) => {
+      ws.send(JSON.stringify({ type: "register_rejected", sessionId: "s1", reason: "taken" }));
+    });
+
+    const cm = new ConnectionManager({
+      url: `ws://127.0.0.1:${port}`,
+      onRegisterRejected: (sid) => rejected.push(sid),
+    });
+    cm.connect();
+    await vi.waitFor(() => expect(rejected).toEqual(["s1"]), { timeout: 3000 });
+
+    cm.disconnect();
+    server.close();
+  });
+});
+
+/**
+ * A remote bridge's gateway ticket is SINGLE-USE with a 15s TTL. Minting it
+ * once at startup would authorise the first connection and no other, so any
+ * drop would reconnect with a spent ticket and be refused — the failure would
+ * look like an outage rather than a credential problem.
+ */
+describe("per-attempt connection preparation", () => {
+  beforeEach(() => vi.useRealTimers());
+
+  it("re-prepares on EVERY attempt, not just the first", async () => {
+    const urls: string[] = [];
+    let n = 0;
+    const mgr = new ConnectionManager({
+      url: "ws://dash:9999",
+      prepareConnect: async () => ({ url: `ws://dash:9999?ticket=t${++n}` }),
+      WebSocketImpl: class {
+        onopen?: () => void;
+        onclose?: () => void;
+        onerror?: () => void;
+        onmessage?: () => void;
+        readyState = 1;
+        constructor(url: string) {
+          urls.push(url);
+          setTimeout(() => this.onclose?.(), 5);
+        }
+        close() {}
+        send() {}
+      } as never,
+      reconnectDelayMs: 5,
+    } as never);
+
+    mgr.connect();
+    await vi.waitFor(() => expect(urls.length).toBeGreaterThanOrEqual(2), { timeout: 3000 });
+    mgr.disconnect();
+
+    // Distinct tickets: the second attempt did not replay the first.
+    expect(urls[0]).toContain("ticket=t1");
+    expect(urls[1]).toContain("ticket=t2");
+  });
+
+  it("does not dial unauthenticated when preparation fails", async () => {
+    const urls: string[] = [];
+    const mgr = new ConnectionManager({
+      url: "ws://dash:9999",
+      prepareConnect: async () => {
+        throw new Error("no bearer");
+      },
+      WebSocketImpl: class {
+        constructor(url: string) {
+          urls.push(url);
+        }
+        close() {}
+        send() {}
+      } as never,
+      reconnectDelayMs: 5,
+    } as never);
+
+    mgr.connect();
+    await new Promise((r) => setTimeout(r, 120));
+    mgr.disconnect();
+
+    // The server would refuse it anyway; dialling would report an outage
+    // instead of a credential failure.
+    expect(urls).toHaveLength(0);
   });
 });

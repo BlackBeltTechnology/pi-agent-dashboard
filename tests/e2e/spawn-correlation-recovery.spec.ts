@@ -1,5 +1,7 @@
 import type { APIRequestContext } from "@playwright/test";
 import { expect, test } from "./fixtures.js";
+import { gatewayUrlWithTicket, pairDeviceBearer } from "./helpers/bridge-credential.js";
+import { BASE_URL } from "./lifecycle.js";
 
 /**
  * test-plan #F2/#F3/#F4/#F5 (L3) — change: fix-spawn-correlation-ttl-coupling.
@@ -55,9 +57,18 @@ async function spawnFailures(request: APIRequestContext): Promise<SpawnFailureEn
 }
 
 /** Open a raw socket to the pi gateway, the way a bridge does. */
-function connect(port: number): Promise<WebSocket> {
+/**
+ * A ticket per connection. This spec runs on the HOST and reaches the gateway
+ * through a published port, so the container sees the docker bridge address
+ * rather than loopback: bridge auth classifies it remote and requires a
+ * bridge-scoped credential. Tickets are single-use, so mint one per connect.
+ */
+let cachedBearer: string | undefined;
+async function connect(port: number): Promise<WebSocket> {
+  cachedBearer ??= await pairDeviceBearer(BASE_URL);
+  const url = await gatewayUrlWithTicket(BASE_URL, port, cachedBearer);
   return new Promise((resolve, reject) => {
-    const ws = new WebSocket(`ws://127.0.0.1:${port}`);
+    const ws = new WebSocket(url);
     const timer = setTimeout(() => reject(new Error("open timeout")), 5_000);
     ws.addEventListener(
       "open",

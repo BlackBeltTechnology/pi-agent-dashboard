@@ -8,7 +8,11 @@
  *
  * See change: spawn-correlation-token.
  */
-import { describe, expect, it, afterEach } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { getGatewaySocketPath } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mintSpawnToken, SPAWN_TOKEN_ENV_VAR } from "../auth/spawn-token.js";
 import { buildSpawnEnv, setSpawnDashboardPiPort } from "../spawn-process/process-manager.js";
 
@@ -85,4 +89,64 @@ describe("buildSpawnEnv: PI_DASHBOARD_URL injection", () => {
 		buildSpawnEnv(base);
 		expect(base.PI_DASHBOARD_URL).toBeUndefined();
 	});
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// (test-plan #E16) The spawn pin must survive losing the TCP listener.
+//
+// `PI_DASHBOARD_SOCKET` was handled NOWHERE in `packages/` on the emit side:
+// only `PI_DASHBOARD_URL=ws://localhost:<piPort>` was set. Task 8.1 removes
+// the default TCP listener, which would break that pin and send a non-default
+// instance's spawned sessions to the wrong dashboard — the exact bug
+// `setSpawnDashboardPiPort` exists to prevent (task 2.0f).
+// ──────────────────────────────────────────────────────────────────────────
+describe("buildSpawnEnv: PI_DASHBOARD_SOCKET injection", () => {
+	let home: string;
+
+	beforeEach(() => {
+		home = fs.mkdtempSync(path.join(os.tmpdir(), "pi-spawn-sock-"));
+	});
+	afterEach(() => {
+		setSpawnDashboardPiPort(null);
+		fs.rmSync(home, { recursive: true, force: true });
+	});
+
+	const seedSocket = (piPort: number) => {
+		const p = getGatewaySocketPath({ homedir: home }, piPort);
+		fs.mkdirSync(path.dirname(p), { recursive: true });
+		fs.writeFileSync(p, "");
+		return p;
+	};
+
+	it.skipIf(process.platform === "win32")(
+		"pins the spawn to the gateway socket when one is being served",
+		() => {
+			setSpawnDashboardPiPort(9234);
+			const sock = seedSocket(9234);
+			const env = buildSpawnEnv({ HOME: home });
+			expect(env.PI_DASHBOARD_SOCKET).toBe(sock);
+		},
+	);
+
+	it("does not invent a socket pin when no socket is being served", () => {
+		setSpawnDashboardPiPort(9234);
+		const env = buildSpawnEnv({ HOME: home });
+		expect(env.PI_DASHBOARD_SOCKET).toBeUndefined();
+		expect(env.PI_DASHBOARD_URL).toBe("ws://localhost:9234");
+	});
+
+	it.skipIf(process.platform === "win32")(
+		"clears an inherited socket pin that names another instance's socket",
+		() => {
+			// Otherwise a session spawned by instance B inherits A's pin and
+			// registers with A — precisely the cross-instance capture this pin
+			// exists to prevent, just via a different variable.
+			setSpawnDashboardPiPort(9234);
+			const env = buildSpawnEnv({
+				HOME: home,
+				PI_DASHBOARD_SOCKET: "/tmp/somewhere-else/gateway-9999.sock",
+			});
+			expect(env.PI_DASHBOARD_SOCKET).toBeUndefined();
+		},
+	);
 });

@@ -26,6 +26,9 @@ const DEFAULTS: ServerConfig = {
   port: 0,
   piPort: 0,
   host: "127.0.0.1",
+  // The corpus dials `ws://127.0.0.1:<piPort>`; TCP is opt-in in production
+  // (task 8.1) but is still a supported transport, so tests bind it.
+  gatewayTcp: true,
   dev: true,
   autoShutdown: false,
   shutdownIdleSeconds: 999,

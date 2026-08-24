@@ -21,6 +21,7 @@ import {
 import { Icon } from "@mdi/react";
 import React, { useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { isRemoteOrigin } from "../../lib/session/session-origin-view.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 import { ExploreDialog } from "../openspec/ExploreDialog.js";
 import { NewChangeDialog } from "../openspec/NewChangeDialog.js";
@@ -149,7 +150,9 @@ export function MobileActionMenu({ session, openspecChanges, onRename, onHide, o
           )}
 
           {/* Resume / Fork */}
-          {onResume && session.sessionFile && (
+          {/* Remote-origin sessions live on another host (server answers 409). */}
+          {/* See change: add-pi-gateway-transport-identity. */}
+          {onResume && session.sessionFile && !isRemoteOrigin(session) && (
             <>
               {(!isAlive || isHidden) && (
                 <MenuRow icon={mdiPlay} label={i18nT("session.resume", undefined, "Resume")} onClick={() => act(() => onResume("continue"))} />

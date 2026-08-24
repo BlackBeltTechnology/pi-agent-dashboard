@@ -18,6 +18,7 @@ import {
   dispatchReload,
 } from "../rpc-keeper/dispatch-reload.js";
 import { createBranchedSessionFile } from "../session/session-file-reader.js";
+import { decideResume } from "../session/session-origin.js";
 import { keeperOptsFromSpawnResult } from "../spawn-process/headless-pid-registry.js";
 import { getKeeperManager, spawnPiSession } from "../spawn-process/process-manager.js";
 import { appendSpawnFailure } from "../spawn-process/spawn-failure-log.js";
@@ -485,6 +486,33 @@ export async function handleResumeSession(
   // "keep" so the dropped slot is preserved through the resume round-trip.
   // See change: differentiate-resume-intent-by-trigger.
   const placement: "front" | "keep" = msg.placement ?? "front";
+  // D13: a remote-origin session is read-only here. The REST endpoint has
+  // always refused it, but the dashboard client resumes over THIS path, so the
+  // only thing standing between a drag-to-resume and a local pi writing a
+  // foreign transcript was the client hiding a button. Hiding is not refusing.
+  //
+  // Deliberately BEFORE the `sessionFile` guard, like the REST twin: the
+  // dangerous case is not a missing path but a present, plausible one, because
+  // two hosts with the same username produce identical paths (#E15). Reporting
+  // "pre-migration session" there would hide the real reason.
+  // See change: add-pi-gateway-transport-identity (task 13.6).
+  const resumeVerdict = decideResume({
+    origin: session.originDeviceId
+      ? { local: false, deviceId: session.originDeviceId }
+      : { local: true },
+    status: session.status,
+  });
+  if (!resumeVerdict.allow) {
+    sendTo(ws, {
+      type: "resume_result",
+      sessionId: msg.sessionId,
+      success: false,
+      message: resumeVerdict.reason,
+      code: `resume.${resumeVerdict.cause.replace(/-/g, "_")}`,
+      requestId: msg.requestId,
+    });
+    return;
+  }
   if (!session.sessionFile) {
     sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session file is unknown (pre-migration session)", code: "resume.session_file_unknown", requestId: msg.requestId });
     return;

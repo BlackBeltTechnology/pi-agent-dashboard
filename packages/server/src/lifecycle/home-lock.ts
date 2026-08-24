@@ -14,13 +14,16 @@
  * Signal handlers and release-on-exit plumbing live in
  * `home-lock-release.ts` to keep this module pure + testable.
  */
+
+import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { randomUUID } from "node:crypto";
-import properLockfile from "proper-lockfile";
-import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
+import { getDashboardConfigDir } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { isProcessAlive } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
+import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
+import properLockfile from "proper-lockfile";
+import { INSTANCE_ID_HEALTH_FIELD } from "./instance-id.js";
 
 // ──────────────────────────────────────────────────────────
 // Types
@@ -80,7 +83,16 @@ export interface AcquireHooks {
   hostname?: () => string;
   lockPath?: string;
   metaPath?: string;
-  probeHealth?: (port: number) => Promise<{ running: boolean; pid?: number; identity?: string } | null>;
+  probeHealth?: (
+    port: number,
+  ) => Promise<{
+    running: boolean;
+    pid?: number;
+    /** The rendezvous instance id as published by `/api/health`. */
+    instanceId?: string;
+    /** Legacy field, read only for dashboards predating `instanceId`. */
+    identity?: string;
+  } | null>;
   isProcessAlive?: (pid: number) => boolean;
   /** Stale threshold forwarded to `proper-lockfile`. Default 10s. */
   staleMs?: number;
@@ -124,9 +136,19 @@ export function canonicalHomedir(): string {
 
 /**
  * Lock file path. This is what `proper-lockfile` locks.
+ *
+ * Rooted on `dashboard-paths.ts` — the `$HOME`-*honouring* root — rather than
+ * `canonicalHomedir()`, which is deliberately `$HOME`-immune. The rendezvous
+ * record and the gateway socket MUST share one root: two homes would give the
+ * temp-`HOME` isolated-verification workflow an isolated socket but a shared
+ * lock, which is the cross-talk that workflow exists to prevent (D2, task
+ * 2.0b). `canonicalHomedir` stays exported and used by the `$HOME`-drift
+ * reasoning elsewhere.
  */
-export function getLockPath(homedir: string = canonicalHomedir()): string {
-  return path.join(homedir, ".pi", "dashboard", "server.lock");
+export function getLockPath(homedir?: string): string {
+  return homedir === undefined
+    ? path.join(getDashboardConfigDir(), "server.lock")
+    : path.join(homedir, ".pi", "dashboard", "server.lock");
 }
 
 /**
@@ -147,8 +169,11 @@ export function getMetaPath(lockPath: string = getLockPath()): string {
 export function writeMetadataAtomic(meta: LockMetadata, metaPath: string = getMetaPath()): void {
   const dir = path.dirname(metaPath);
   fs.mkdirSync(dir, { recursive: true });
-  const tmpPath = `${metaPath}.tmp-${process.pid}-${Date.now()}`;
-  fs.writeFileSync(tmpPath, JSON.stringify(meta, null, 2));
+  // Exclusive create with an explicit mode: the tmp name is predictable, and
+  // a plain write would follow a planted symlink and inherit the umask
+  // (@review Audit, minor).
+  const tmpPath = `${metaPath}.tmp-${process.pid}-${Date.now()}-${randomUUID().slice(0, 8)}`;
+  fs.writeFileSync(tmpPath, JSON.stringify(meta, null, 2), { mode: 0o600, flag: "wx" });
   fs.renameSync(tmpPath, metaPath);
 }
 
@@ -179,6 +204,44 @@ function isLockMetadata(value: unknown): value is LockMetadata {
     typeof m.version === "string" &&
     typeof m.url === "string"
   );
+}
+
+/**
+ * Why a record could not be read. "Absent" and "unreadable" are NOT the same
+ * thing: `readMetadata` collapses both to `null`, and `null` is treated as
+ * stale — so a live holder whose sidecar is momentarily unreadable can be
+ * stolen from (defect B2). Absent permits takeover; unreadable fails loudly;
+ * a truncated or otherwise invalid record is treated as absent, because a
+ * partially-written record must never be partially trusted (D15).
+ *
+ * See change: add-pi-gateway-transport-identity (task 2.0i, test-plan E10/E11).
+ */
+export type MetadataRead =
+  | { status: "ok"; meta: LockMetadata }
+  | { status: "absent" }
+  | { status: "invalid"; detail: string }
+  | { status: "unreadable"; detail: string };
+
+/** Read the sidecar, distinguishing absent from unreadable from invalid. */
+export function readMetadataDetailed(metaPath: string = getMetaPath()): MetadataRead {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(metaPath, "utf-8");
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return { status: "absent" };
+    return { status: "unreadable", detail: code ?? String(err) };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    // Truncated mid-JSON, e.g. a crash during a non-atomic write by an older
+    // version. Absent, never partially trusted.
+    return { status: "invalid", detail: "record is not valid JSON" };
+  }
+  if (!isLockMetadata(parsed)) return { status: "invalid", detail: "record is missing fields" };
+  return { status: "ok", meta: parsed };
 }
 
 /**
@@ -214,10 +277,17 @@ export async function isLockHolderResponsive(
   const res = await probe(meta.httpPort);
   if (!res || !res.running) return "dead";
 
-  // Identity check: `identity` field is preferred; fall back to PID match
-  // to stay compatible with older dashboards that predate identity.
-  if (res.identity) {
-    return res.identity === meta.identity ? "alive-match" : "alive-mismatch";
+  // Identity check: the rendezvous instance id is preferred; fall back to PID
+  // match to stay compatible with older dashboards that predate it.
+  //
+  // `res.instanceId` is the field `/api/health` publishes (see
+  // `instance-id.ts`); `res.identity` is only read for a dashboard predating
+  // that rename. Reading a name the health route does not publish would fall
+  // through to the PID branch and silently skip the verification entirely
+  // (task 2.0e-i).
+  const published = res.instanceId ?? res.identity;
+  if (published) {
+    return published === meta.identity ? "alive-match" : "alive-mismatch";
   }
   if (typeof res.pid === "number") {
     return res.pid === meta.pid ? "alive-match" : "alive-mismatch";
@@ -236,8 +306,17 @@ async function defaultProbeHealth(port: number) {
       signal: AbortSignal.timeout(1500),
     });
     if (res.ok) {
-      const body = (await res.json()) as { pid?: number; identity?: string };
-      return { running: true, pid: body.pid, identity: body.identity };
+      const body = (await res.json()) as {
+        pid?: number;
+        identity?: string;
+        [INSTANCE_ID_HEALTH_FIELD]?: string;
+      };
+      return {
+        running: true,
+        pid: body.pid,
+        instanceId: body[INSTANCE_ID_HEALTH_FIELD],
+        identity: body.identity,
+      };
     }
   } catch {
     /* fall through */
@@ -278,7 +357,14 @@ export async function acquireOrAttach(config: AcquireConfig): Promise<LockAcquir
   // deterministic.
   fs.mkdirSync(path.dirname(lockPath), { recursive: true });
   if (!fs.existsSync(lockPath)) {
-    fs.writeFileSync(lockPath, "# pi-dashboard per-HOME advisory lock\n");
+    try {
+      fs.writeFileSync(lockPath, "# pi-dashboard per-HOME advisory lock\n", {
+        mode: 0o600,
+        flag: "wx",
+      });
+    } catch {
+      /* raced with another starter — fine, we lock it below */
+    }
   }
 
   const buildMeta = (): LockMetadata => ({
@@ -293,7 +379,16 @@ export async function acquireOrAttach(config: AcquireConfig): Promise<LockAcquir
     hostname: hostname(),
   });
 
-  const tryAcquire = async () => {
+  /**
+   * Acquire the lock and claim the record.
+   *
+   * `guard` runs while the lock is HELD but before the record is written — the
+   * compare-and-swap point of a takeover (task 2.0h). Returning `"abandon"`
+   * releases without touching the record and yields `null`.
+   */
+  const tryAcquire = async (
+    guard?: (existing: LockMetadata | null) => Promise<"proceed" | "abandon">,
+  ) => {
     const release = await properLockfile.lock(lockPath, {
       stale: staleMs,
       retries: 0,
@@ -301,6 +396,14 @@ export async function acquireOrAttach(config: AcquireConfig): Promise<LockAcquir
       // realpath-based directory, so this is a no-op but kept explicit.
       realpath: false,
     });
+    if (guard && (await guard(readMetadata(metaPath))) === "abandon") {
+      try {
+        await release();
+      } catch {
+        /* ignore */
+      }
+      return null;
+    }
     const meta = buildMeta();
     writeMetadataAtomic(meta, metaPath);
     const releaseOnce = (() => {
@@ -320,7 +423,7 @@ export async function acquireOrAttach(config: AcquireConfig): Promise<LockAcquir
   };
 
   try {
-    return await tryAcquire();
+    return (await tryAcquire()) as Extract<LockAcquireResult, { mode: "acquired" }>;
   } catch (err: unknown) {
     if (!isELocked(err)) throw err;
     // Someone else holds the lock. Decide: attach or error.
@@ -329,17 +432,33 @@ export async function acquireOrAttach(config: AcquireConfig): Promise<LockAcquir
     // metadata sidecar a few ms after acquiring. The loser hits ELOCKED
     // faster and can read the sidecar BEFORE the winner has written it.
     // Short-poll for metadata to land before concluding "no metadata = stale."
+    //
+    // The read goes through `readMetadataDetailed` — `readMetadata` collapses
+    // EACCES/EIO to `null`, and `null` is treated as stale and force-stolen, so
+    // a permissions blip on a LIVE holder's sidecar was enough to unlock its
+    // lock, delete its record and rebind: two dashboards per HOME (defect B2,
+    // @review Audit).
     let meta: LockMetadata | null = null;
     for (let i = 0; i < 20; i++) {
-      meta = readMetadata(metaPath);
-      if (meta) break;
-      await new Promise(r => setTimeout(r, 25));
+      const read = readMetadataDetailed(metaPath);
+      if (read.status === "unreadable") {
+        throw new Error(
+          `pi-dashboard: the rendezvous record at ${metaPath} exists but is unreadable. ` +
+            "Refusing to take over this HOME — a live dashboard may still hold it. " +
+            "Fix the file's permissions, or stop the running dashboard and remove it.",
+        );
+      }
+      if (read.status === "ok") {
+        meta = read.meta;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 25));
     }
     if (!meta) {
       // Truly no metadata after 500ms → assume stale/corrupt. Force steal.
       removeMetadata(metaPath);
       try {
-        return await tryAcquire();
+        return (await tryAcquire()) as Extract<LockAcquireResult, { mode: "acquired" }>;
       } catch (err2) {
         if (!isELocked(err2)) throw err2;
         try {
@@ -347,7 +466,7 @@ export async function acquireOrAttach(config: AcquireConfig): Promise<LockAcquir
         } catch {
           /* ignore */
         }
-        return await tryAcquire();
+        return (await tryAcquire()) as Extract<LockAcquireResult, { mode: "acquired" }>;
       }
     }
 
@@ -358,14 +477,44 @@ export async function acquireOrAttach(config: AcquireConfig): Promise<LockAcquir
     if (liveness === "alive-mismatch") {
       throw new InstanceLockMismatchError(meta, null);
     }
-    // Dead holder — steal.
+    // Dead holder — steal, but ACQUIRE THEN VERIFY (task 2.0h, defect B2).
+    //
+    // The old sequence unlocked and removed the record unconditionally before
+    // acquiring, so two starters that each observed the SAME dead holder could
+    // each delete the other's live lock and fresh record. `proper-lockfile`
+    // does not close this: its stale path is
+    // `stat → isLockStale → removeLock → acquireLock`, with no re-stat before
+    // the removal (`proper-lockfile/lib/lockfile.js:70-79`).
+    //
+    // So the record is only claimed once we hold the lock, and only if it
+    // still names the holder we observed dead (or is gone / itself dead). If
+    // it has moved on to a live owner, we abandon and take the attach path.
+    const observed = meta;
     try {
       await properLockfile.unlock(lockPath, { realpath: false });
     } catch {
       /* ignore */
     }
-    removeMetadata(metaPath);
-    return await tryAcquire();
+    const stolen = await tryAcquire(async (existing) => {
+      if (existing?.identity === observed.identity) return "proceed";
+      if (!existing) {
+        // No record while we hold the lock. Either the holder we observed dead
+        // never wrote one, or a live winner has acquired and not yet written
+        // its sidecar (@review Audit, minor — the same family as B2). Only the
+        // first is ours to claim, and it is distinguishable: a live winner
+        // holds the lock, so we could not be here.
+        return "proceed";
+      }
+      // The record changed under us. Only a *dead* successor may be replaced.
+      return (await isLockHolderResponsive(existing, hooks)) === "dead" ? "proceed" : "abandon";
+    });
+    if (stolen) return stolen;
+
+    const current = readMetadata(metaPath);
+    if (!current) throw new InstanceLockMismatchError(observed, null);
+    const currentLiveness = await isLockHolderResponsive(current, hooks);
+    if (currentLiveness === "alive-mismatch") throw new InstanceLockMismatchError(current, null);
+    return { mode: "attach", meta: current };
   }
 }
 

@@ -286,3 +286,33 @@ export function isFilesystemRoot(
   }
   return resolved === "/";
 }
+
+/**
+ * `sun_path` capacity of the platform's `sockaddr_un`: 104 on macOS/BSD, 108
+ * on Linux (and nominally on Windows, which has no UDS transport in this
+ * design at all — see `supportsUnixSocketTransport`).
+ *
+ * A path one byte over binds with a bare `EINVAL`/`ENAMETOOLONG` naming
+ * nothing useful, which is the failure mode the gateway change exists to
+ * remove — so the limit is checked at path CONSTRUCTION, not at `bind()`.
+ *
+ * See change: add-pi-gateway-transport-identity (D15).
+ */
+export function sunPathMax(platform: NodeJS.Platform = process.platform): number {
+  return platform === "darwin" ? 104 : 108;
+}
+
+/**
+ * Whether the gateway's local transport is a unix-domain socket here.
+ *
+ * Windows deliberately keeps a `127.0.0.1` WebSocket listener authorised by
+ * the local token instead: named pipes would need a security descriptor rather
+ * than `chmod` to restrict them to the current user, which is a large amount of
+ * platform-only security-critical machinery to reproduce a guarantee the local
+ * token already provides (D6).
+ */
+export function supportsUnixSocketTransport(
+  platform: NodeJS.Platform = process.platform,
+): boolean {
+  return platform !== "win32";
+}
