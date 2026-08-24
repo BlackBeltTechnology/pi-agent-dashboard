@@ -92,6 +92,29 @@ describe("SessionBanner — settled error (no retry)", () => {
     expect((getByTestId("error-banner-retry") as HTMLButtonElement).disabled).toBe(false);
   });
 
+  // test-plan #9: an undeliverable retry is negatively acked. The client's
+  // retry_session_error handler bumps retryRevision (re-stamps lastError), which
+  // re-enables the one-shot Retry at the banner boundary so the user can try
+  // again. See change: replace-dashboard-retry-command-with-protocol-message.
+  it("#9 negative-ack (bumped retryRevision) re-enables the one-shot Retry after a failed dispatch", () => {
+    const onRetry = vi.fn();
+    const error = { error: { kind: "error" as const, message: "503 overloaded" } };
+    const { getByTestId, rerender } = render(
+      <SessionBanner state={error} retryRevision={100} onRetry={onRetry} onDismiss={vi.fn()} now={clock} />,
+    );
+
+    // Press Retry → one-shot disables the button.
+    fireEvent.click(getByTestId("error-banner-retry"));
+    expect(onRetry).toHaveBeenCalledOnce();
+    expect((getByTestId("error-banner-retry") as HTMLButtonElement).disabled).toBe(true);
+
+    // retry_session_error arrives → retryRevision bumps → button re-enables.
+    rerender(
+      <SessionBanner state={error} retryRevision={101} onRetry={onRetry} onDismiss={vi.fn()} now={clock} />,
+    );
+    expect((getByTestId("error-banner-retry") as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it("F5 omits Retry without a callback but keeps Copy and X", () => {
     const { getByTestId, getByTitle, container } = render(
       <SessionBanner

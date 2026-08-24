@@ -1458,6 +1458,10 @@ function initBridge(pi: ExtensionAPI) {
     // may be buffered rather than start a run, so retry cancellation is released
     // only by the observed user message_start below.
     noteUserPrompt: () => abortLatch.clear(sessionId),
+    // Disarm a still-armed provider-retry chain so a manual retry's native
+    // agent_start is not converted into a synthetic auto_retry_start.
+    // See change: replace-dashboard-retry-command-with-protocol-message.
+    disarmRetryChain: () => retryTracker.noteExplicitRun(sessionId),
   });
 
   // Reload support: extension events only provide ExtensionContext (no reload).

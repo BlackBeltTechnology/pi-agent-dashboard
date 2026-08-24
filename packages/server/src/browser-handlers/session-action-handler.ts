@@ -940,6 +940,31 @@ export function handleAbort(
 }
 
 /**
+ * Forward a browser `retry_session` to the owning session bridge. On an
+ * undeliverable session (unknown or no reachable bridge — `sendToSession`
+ * returns false) emit a structured `retry_session_error` back to the sender,
+ * mirroring the `plugin_action_error` "never a silent drop" convention. The
+ * client re-enables the one-shot Retry + toasts on it.
+ * See change: replace-dashboard-retry-command-with-protocol-message.
+ */
+export function handleRetrySession(
+  msg: Extract<BrowserToServerMessage, { type: "retry_session" }>,
+  ctx: BrowserHandlerContext,
+): void {
+  const delivered = ctx.piGateway.sendToSession(msg.sessionId, {
+    type: "retry_session",
+    sessionId: msg.sessionId,
+  });
+  if (!delivered) {
+    ctx.sendTo(ctx.ws, {
+      type: "retry_session_error",
+      sessionId: msg.sessionId,
+      error: `Cannot retry: session ${msg.sessionId} has no reachable bridge`,
+    });
+  }
+}
+
+/**
  * Graceful stop-after-turn: forward to the bridge, which sets a per-session
  * flag and shuts down cleanly at the next turn_end. Distinct from abort
  * (mid-stream interrupt) and force_kill (SIGKILL).

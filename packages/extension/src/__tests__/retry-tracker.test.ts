@@ -55,6 +55,23 @@ describe("RetryTracker (observe-based, agent_end/agent_settled model)", () => {
     expect(t.observeAgentStart("s1")).toBeNull();
   });
 
+  // test-plan #6: a manual dashboard retry (retry_session / legacy sentinel)
+  // disarms the chain via noteExplicitRun BEFORE its re-drive, so the manual
+  // turn's native agent_start is NOT converted into a synthetic
+  // auto_retry_start — no attempt counter renders for a user-initiated retry.
+  // See change: replace-dashboard-retry-command-with-protocol-message.
+  it("#6 an armed chain disarmed by noteExplicitRun yields no counter for the next agent_start", () => {
+    const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 2000 });
+    t.observeMessageEnd("s1", { ...errAssistant });
+    t.observeAgentEnd("s1", errAgentEnd); // arms the next attempt
+    expect(t.isRetrying("s1")).toBe(true);
+
+    t.noteExplicitRun("s1"); // the disarm the bridge performs before a manual retry
+
+    expect(t.isRetrying("s1")).toBe(false);
+    expect(t.observeAgentStart("s1")).toBeNull();
+  });
+
   it("increments delay geometrically across the chain", () => {
     const t = new RetryTracker({ maxRetries: 5, baseDelayMs: 2000 });
     t.observeMessageEnd("s1", { ...errAssistant });

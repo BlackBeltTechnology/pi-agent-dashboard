@@ -779,6 +779,19 @@ export interface AbortToExtensionMessage {
   sessionId: string;
 }
 
+/**
+ * Server → extension: re-drive a settled-error turn. Forwarded by the server
+ * gateway from a browser `retry_session`. The bridge re-drives the turn via
+ * `pi.sendMessage({ customType: "pi-dashboard:retry", display: false },
+ * { triggerTurn: true })` — the same pi call the legacy `/__dashboard_retry`
+ * sentinel made. See change:
+ * replace-dashboard-retry-command-with-protocol-message.
+ */
+export interface RetrySessionExtensionMessage {
+  type: "retry_session";
+  sessionId: string;
+}
+
 export interface RequestCommandsMessage {
   type: "request_commands";
   sessionId: string;
@@ -1116,6 +1129,7 @@ export type AutoNamerStopState = Pick<
 export type ServerToExtensionMessage =
   | AutoNameStateRestoreMessage
   | SendPromptToExtensionMessage
+  | RetrySessionExtensionMessage
   | AbortToExtensionMessage
   | ExtensionUiResponseMessage
   | RequestCommandsMessage
