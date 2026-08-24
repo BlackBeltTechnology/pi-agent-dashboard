@@ -1,5 +1,5 @@
-import { expect, type Locator, type Page } from "@playwright/test";
 import type { Browser } from "@playwright/test";
+import { expect, type Locator, type Page } from "@playwright/test";
 import { DASHBOARD_PORT } from "../lifecycle.js";
 import { sendPrompt, spawnFreshGitSession } from "./index.js";
 
@@ -56,7 +56,7 @@ export type MemoryLimits = Record<string, number | string>;
 
 /** The gap divider's row. Present only once `history_window` has landed. */
 export const divider = (page: Page): Locator => page.getByTestId("history-gap-divider");
-const loadEarlier = (page: Page): Locator => page.getByTestId("history-gap-load");
+export const loadEarlier = (page: Page): Locator => page.getByTestId("history-gap-load");
 export const scroller = (page: Page): Locator => page.getByTestId("chat-scroll-container");
 
 /**
@@ -414,6 +414,113 @@ export function watchBackfillFrames(page: Page) {
     });
   });
   return { sent, received };
+}
+
+/**
+ * Produce a genuine UPWARD user ascent into the proximity band.
+ *
+ * Writing `scrollTop = 0` while already AT 0 fires no scroll event at all, so
+ * `pendingUserIntent` is never set and the settle timer never starts \u2014 the
+ * trigger simply never evaluates. Observed directly: a nudge-to-zero from the
+ * top produced zero `history_backfill` frames across a 120s wait.
+ *
+ * Descending first makes the return trip a real rising edge, which is exactly
+ * what D7's trigger is keyed on.
+ */
+export async function nudgeAscent(page: Page, from = 600): Promise<void> {
+  const el = scroller(page);
+  await el.evaluate((n, y) => {
+    n.scrollTop = y;
+  }, from);
+  await page.waitForTimeout(300);
+  await el.evaluate((n) => {
+    n.scrollTop = 0;
+  });
+  // Past SETTLE_MS (120), so the evaluation actually runs.
+  await page.waitForTimeout(400);
+}
+
+/** Geometry of the anchor row at the instant a backfill was REQUESTED. */
+export interface AnchorSnapshot {
+  key: string;
+  top: number;
+  scrollTop: number;
+  scrollHeight: number;
+}
+
+/**
+ * Snapshot the anchor row's geometry SYNCHRONOUSLY inside `WebSocket.send`,
+ * at the moment a `history_backfill` frame goes out.
+ *
+ * Why this exists: in `tail-only` the splice is issued by the AUTO-LOAD
+ * trigger, not by a click the test controls, so there is no test-side moment
+ * that is reliably "just before the splice". Polling for one is a race — the
+ * request goes out on a settle timer and the response can land within a frame
+ * or two.
+ *
+ * Wrapping `send` removes the race entirely: this runs on the same tick the
+ * product's own `captureSpliceAnchor` runs, against the same DOM, so the test
+ * and the implementation are measuring the identical row at the identical
+ * instant. It observes only — the original `send` is always called.
+ *
+ * Must be installed BEFORE navigation (`addInitScript`).
+ */
+export async function installAnchorProbe(page: Page): Promise<void> {
+  await page.addInitScript(() => {
+    (window as unknown as { __anchorSnapshot: unknown }).__anchorSnapshot = null;
+    const origSend = WebSocket.prototype.send;
+    // biome-ignore lint/complexity/useArrowFunction: needs `this` binding
+    WebSocket.prototype.send = function (this: WebSocket, data: string | ArrayBufferLike | Blob | ArrayBufferView) {
+      try {
+        if (typeof data === "string" && data.includes('"history_backfill"')) {
+          const scroll = document.querySelector('[data-testid="chat-scroll-container"]');
+          const dividerRow = scroll
+            ?.querySelector('[data-testid="history-gap-divider"]')
+            ?.closest("[data-index]") as HTMLElement | null;
+          if (scroll && dividerRow) {
+            const di = Number(dividerRow.dataset.index);
+            let best: HTMLElement | null = null;
+            let bi = Number.POSITIVE_INFINITY;
+            for (const n of Array.from(
+              scroll.querySelectorAll<HTMLElement>("[data-index]"),
+            )) {
+              const i = Number(n.dataset.index);
+              if (Number.isFinite(i) && i > di && i < bi) {
+                best = n;
+                bi = i;
+              }
+            }
+            if (best?.dataset.rowKey) {
+              (window as unknown as { __anchorSnapshot: unknown }).__anchorSnapshot = {
+                key: best.dataset.rowKey,
+                top: best.getBoundingClientRect().top,
+                scrollTop: scroll.scrollTop,
+                scrollHeight: scroll.scrollHeight,
+              };
+            }
+          }
+        }
+      } catch {
+        // Never let the probe break the product's send.
+      }
+      return origSend.apply(this, [data]);
+    } as typeof WebSocket.prototype.send;
+  });
+}
+
+/** Read the most recent anchor snapshot, or `null` if no backfill went out. */
+export async function readAnchorSnapshot(page: Page): Promise<AnchorSnapshot | null> {
+  return await page.evaluate(
+    () => (window as unknown as { __anchorSnapshot: AnchorSnapshot | null }).__anchorSnapshot,
+  );
+}
+
+/** Current viewport `top` of a row addressed by its stable `data-row-key`. */
+export async function rowTop(page: Page, key: string): Promise<number | null> {
+  return await page.evaluate((k: string) => {
+    const node = document.querySelector<HTMLElement>(`[data-row-key="${CSS.escape(k)}"]`);
+    return node?.isConnected ? node.getBoundingClientRect().top : null;
+  }, key);
 }
 
 /** Wait for at least `n` backfill RESULTS to have landed. */
