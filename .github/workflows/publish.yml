@@ -573,28 +573,35 @@ jobs:
             echo "${#MAC_YML[@]} latest-mac.yml found — no merge needed"; exit 0
           fi
           python3 -m pip install --quiet pyyaml
-          python3 - "${MAC_YML[@]}" <<'PY'
-          import sys, os, yaml
-          paths = sys.argv[1:]
-          merged, seen, files = None, set(), []
-          for p in paths:
-              with open(p) as fh:
-                  d = yaml.safe_load(fh)
-              if merged is None:
-                  merged = dict(d)
-              for fe in d.get("files", []):
-                  if fe["url"] not in seen:
-                      seen.add(fe["url"]); files.append(fe)
-          merged["files"] = files
-          # path/sha512 mirror the first file for single-file legacy readers.
-          merged["path"] = files[0]["url"]
-          merged["sha512"] = files[0]["sha512"]
-          with open(paths[0], "w") as fh:
-              yaml.safe_dump(merged, fh, sort_keys=False)
-          for extra in paths[1:]:
-              os.remove(extra)
-          print(f"Merged {len(files)} macOS file(s) into {paths[0]}")
-          PY
+          # The merge lives in scripts/merge-latest-mac.py (not an inline
+          # heredoc) so its semantics — notably the minimumSystemVersion
+          # agreement check that keeps the update gate independent of glob
+          # order — are covered by a test. See change: upgrade-electron-runtime.
+          python3 scripts/merge-latest-mac.py "${MAC_YML[@]}"
+
+      # The merged file is what electron-updater actually reads, so assert the
+      # OS gate survived the merge here rather than trusting the per-leg
+      # intermediate. test-plan U6. See change: upgrade-electron-runtime.
+      - name: Assert the macOS update gate survived the merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          # `|| true`: with no electron-darwin-* dir the glob stays literal and
+          # find exits 1, which pipefail propagates through `head` — killing the
+          # step under `set -e` BEFORE the guard below can skip cleanly. Same
+          # guard the merge step above already uses.
+          MERGED=$(find electron-darwin-* -name 'latest-mac.yml' 2>/dev/null | head -1 || true)
+          if [ -z "$MERGED" ]; then
+            echo "No latest-mac.yml present (no darwin artifacts) — nothing to assert"; exit 0
+          fi
+          EXPECTED=$(node -e "import('./packages/electron/scripts/macos-floor.mjs').then(m=>console.log(m.UPDATE_MINIMUM_SYSTEM_VERSION))")
+          VALUE=$(sed -n 's/^minimumSystemVersion:[[:space:]]*//p' "$MERGED" | head -1)
+          if [ "$VALUE" != "$EXPECTED" ]; then
+            echo "::error::$MERGED has minimumSystemVersion='$VALUE', expected '$EXPECTED'. Below-floor macOS clients would be offered an artifact their OS refuses to launch."
+            cat "$MERGED"
+            exit 1
+          fi
+          echo "OK merged latest-mac.yml carries minimumSystemVersion: $VALUE"
 
       # Fail the release if any platform produced an installer but no matching
       # update-metadata file — a partial upload would brick that platform's

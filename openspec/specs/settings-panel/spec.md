@@ -16,7 +16,11 @@ The sidebar header SHALL include a gear icon button positioned at the end of the
 - **THEN** the app SHALL navigate to `/settings` and the main content area SHALL show the settings panel
 
 ### Requirement: Settings panel view
-The settings panel SHALL render as a full-page view in the main content area when the route matches `/settings/:page?`. It SHALL display a fixed header (back button, title, Restart button), a navigation listing pages grouped by concern, and a content area for the active page. The header SHALL remain visible at all times regardless of scroll position. A single `SettingsPanel` instance SHALL remain mounted across page changes so unsaved edits on any page persist until Save. Persistence SHALL be driven by a dirty-gated **Save Bar** (see "Settings Save Bar"), not by a header Save button.
+The settings panel SHALL render in a route-backed overlay container in the main content area when the route matches `/settings/:page?/:sub?`: a `Dialog` over a scrim over the pinned background underlay on desktop, and a `MobileShell` depth-1 detail panel on mobile. The route that launched it SHALL remain visible behind it as the pinned underlay, rendered from the frozen background path rather than the current location. It SHALL display a fixed header (back button, title, Restart button), a navigation listing pages grouped by concern, and a content area for the active page. The header SHALL remain visible at all times regardless of scroll position. A single `SettingsPanel` instance SHALL remain mounted across page changes so unsaved edits on any page persist until Save. Persistence SHALL be driven by a dirty-gated **Save Bar** (see "Settings Save Bar"), not by a header Save button.
+
+Dismissing the panel — via the back button, `Esc`, or a backdrop click — SHALL leave the settings surface entirely and return to the route that launched it. Because in-panel navigation pushes history entries, dismissal SHALL NOT be implemented as a single history step.
+
+When the panel holds unsaved edits, a dismissal gesture SHALL prompt before discarding. Confirming the discard SHALL return to the launching route and SHALL NOT navigate to `/`.
 
 The navigation + content layout SHALL be responsive. The wrapper element containing the nav and the content area SHALL stack vertically on narrow (mobile) viewports and arrange side-by-side on wide (desktop, `md` breakpoint and up) viewports. On mobile the navigation SHALL render as a full-width horizontal, horizontally-scrollable tab strip positioned above the content, and the content area SHALL fill the remaining space below it with a non-zero width. On desktop the navigation SHALL render as a fixed-width vertical rail to the left of the content. At no viewport width SHALL the content area collapse to zero width or be positioned outside the visible viewport.
 
@@ -115,6 +119,27 @@ A config key's Save Bar page attribution is resolved from `CONFIG_FIELD_PAGE` by
 - **GIVEN** the Security page displays the bind reachability advisory
 - **WHEN** the advisory condition no longer holds
 - **THEN** the remediation control SHALL no longer be rendered
+
+#### Scenario: Panel renders in an overlay container on desktop
+- **WHEN** the route matches `/settings/:page?/:sub?` on a desktop viewport
+- **THEN** the settings panel SHALL render in a `Dialog` over a scrim
+- **AND** the launching route SHALL be rendered behind it as the pinned underlay, `aria-hidden` and non-interactive
+
+#### Scenario: Panel renders as a depth panel on mobile
+- **WHEN** the route matches `/settings/:page?/:sub?` on a mobile viewport
+- **THEN** the settings panel SHALL render as a `MobileShell` depth-1 detail panel with swipe-back
+
+#### Scenario: Dismissal after in-panel navigation leaves the surface
+- **GIVEN** the user opened `/settings/general` from `/session/abc` and navigated to `/settings/plugins/x`
+- **WHEN** the user presses `Esc`
+- **THEN** the settings surface SHALL be dismissed entirely
+- **AND** the URL SHALL return to `/session/abc`, NOT to `/settings/general`
+
+#### Scenario: Discard confirmation returns to the launching route
+- **GIVEN** the user opened the settings surface from `/session/abc` and has unsaved edits
+- **WHEN** the user dismisses it and confirms the discard
+- **THEN** the URL SHALL return to `/session/abc`
+- **AND** SHALL NOT navigate to `/`
 
 ### Requirement: Canonical and legacy settings URLs
 The settings panel SHALL be addressable at the canonical path `/settings/:page?` and SHALL continue to honor the legacy query form `/settings?tab=<id>` indefinitely. Resolution SHALL run inside the single mounted panel in this order: (1) a valid route `:page`; (2) a valid legacy `?tab=<id>`, which SHALL trigger a history-`replace` navigation to `/settings/<id>`; (3) otherwise default to `/settings/general` via history-`replace`. The alias map `advanced → developer` and `servers → remote` SHALL be applied before validation so old links resolve to the new page homes.
@@ -1253,13 +1278,18 @@ The Memory Limits section of the settings panel SHALL expose a numeric control f
 #### Scenario: Control renders the default when the field is absent
 
 - **WHEN** the settings panel loads a config with no `maxReplayEvents`
-- **THEN** the control SHALL display `0`
+- **THEN** the control SHALL display the positive default window the server applies
 
 #### Scenario: Edited value is written back
 
 - **WHEN** the user changes the control to `500` and saves
 - **THEN** the config write SHALL include `memoryLimits.maxReplayEvents` of `500`
-- **AND** the other `memoryLimits` values SHALL be written unchanged
+- **AND** the other `memoryLimits` values SHALL be preserved on disk
+
+Note: preserved, not re-written. The write carries only the CHANGED fields and
+the server deep-merges them over the raw config file, so an untouched sibling
+keeps whatever the file holds — including an absent key, which a whole-object
+write would have materialized into an explicit value the user never chose.
 
 #### Scenario: Change is marked as requiring a restart
 
@@ -1274,4 +1304,49 @@ The control's label and hint SHALL be provided through the translation layer wit
 
 - **WHEN** the settings panel renders in a supported locale
 - **THEN** the control's label SHALL resolve through the translation layer rather than a hard-coded string
+
+### Requirement: Memory Limits documents the replay-window and retention interaction
+
+The Memory Limits section SHALL carry unconditional help text explaining that event retention bounds what the replay window's elided middle can later serve. It SHALL NOT gate that text on a comparison between `maxReplayEvents` and `maxEventsPerSession`, because whether retention will actually trim the gap depends on a session's eventual size and is not decidable from configuration.
+
+#### Scenario: Help text is always present
+
+- **WHEN** the Memory Limits section renders
+- **THEN** the interaction between the replay window and event retention SHALL be explained
+
+#### Scenario: No conditional warning is shown
+
+- **WHEN** `maxReplayEvents` and `maxEventsPerSession` are both positive in any relative ordering
+- **THEN** no warning specific to that pairing SHALL be displayed
+
+#### Scenario: Saving is never blocked on the pairing
+
+- **WHEN** the user saves any combination of the two values
+- **THEN** the save SHALL NOT be blocked
+- **AND** neither value SHALL be rewritten on the basis of the other
+- **AND** the existing minimum-replay-window clamp SHALL continue to apply unchanged
+
+#### Scenario: Help text is localized
+
+- **WHEN** the Memory Limits section renders in a supported locale
+- **THEN** the help text SHALL resolve through the translation layer rather than a hard-coded string
+
+### Requirement: Saving an unrelated Memory Limits field does not pin `maxReplayEvents`
+
+The settings panel SHALL NOT convert a defaulted `maxReplayEvents` into an explicitly configured one as a side effect of editing a different field. Because the config read returns a parsed config in which the field is always materialized, a whole-object write of `memoryLimits` would persist a value the user never chose.
+
+#### Scenario: Editing a sibling field does not persist the default
+
+- **WHEN** the user edits a different Memory Limits field and saves, having never touched `maxReplayEvents`
+- **THEN** the written config SHALL NOT gain an explicit `maxReplayEvents` that the stored config did not already have
+
+#### Scenario: An explicitly configured value survives a sibling edit
+
+- **WHEN** the stored config sets `maxReplayEvents` to `0` and the user edits a different Memory Limits field and saves
+- **THEN** the written config SHALL still set `maxReplayEvents` to `0`
+
+#### Scenario: The control displays the effective value
+
+- **WHEN** the settings panel loads a config with no stored `maxReplayEvents`
+- **THEN** the control SHALL display the positive default window the server applies
 

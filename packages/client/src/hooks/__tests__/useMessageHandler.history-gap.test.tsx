@@ -157,7 +157,7 @@ describe("history_backfill_result — the splice (F6, F8, D10)", () => {
     return h;
   };
 
-  it("F6/F8: spliced rows land INSIDE the gap; head and tail rows keep their identity", () => {
+  it("F5: spliced rows land BELOW the divider, above the tail; both sides keep identity", () => {
     const h = primed();
     const before = h.get().states.get(SID)!.messages;
     const headIds = before.slice(0, gapIndex(h.get())).map((m) => m.id);
@@ -167,23 +167,74 @@ describe("history_backfill_result — the splice (F6, F8, D10)", () => {
       type: "history_backfill_result",
       sessionId: SID,
       events: [
-        { seq: 21, event: evt("message_start", "mid A") },
-        { seq: 22, event: evt("message_start", "mid B") },
+        { seq: 4798, event: evt("message_start", "mid A") },
+        { seq: 4799, event: evt("message_start", "mid B") },
       ],
-      servedFrom: 21,
-      servedTo: 22,
+      servedFrom: 4798,
+      servedTo: 4799,
       remainingGapCount: 1198,
     } as ServerToBrowserMessage);
 
     const after = h.get().states.get(SID)!.messages;
     const at = gapIndex(h.get());
     expect(at).toBeGreaterThan(0);
-    // The spliced rows sit immediately ABOVE the divider — the gap fills from
-    // the head side, which is what makes remainingGapCount shrink.
-    expect(after.slice(at - 2, at).map((m) => m.content)).toEqual(["mid A", "mid B"]);
+    // Tail-anchored events are the NEWEST remaining gap events, so they belong
+    // immediately above the tail — i.e. just BELOW the divider, in seq order.
+    // See change: fix-lazy-history-backfill-ux (D3).
+    expect(after.slice(at + 1, at + 3).map((m) => m.content)).toEqual(["mid A", "mid B"]);
     // Identity preserved on both sides: the transcript was NOT rebuilt.
     expect(after.slice(0, headIds.length).map((m) => m.id)).toEqual(headIds);
-    expect(after.slice(at + 1).map((m) => m.id)).toEqual(tailIds);
+    expect(after.slice(at + 3).map((m) => m.id)).toEqual(tailIds);
+  });
+
+  /**
+   * D2 — only the TAIL edge retreats. Moving both edges from one response would
+   * double-shrink a gap the server credited exactly once, and the two views
+   * would diverge into an inverted range the server refuses forever.
+   */
+  it("D2: the result retreats tailMinSeq from servedFrom and leaves headMaxSeq alone", () => {
+    const h = primed();
+    h.fire({
+      type: "history_backfill_result",
+      sessionId: SID,
+      events: [{ seq: 4799, event: evt("message_start", "mid") }],
+      servedFrom: 4300,
+      servedTo: 4799,
+      remainingGapCount: 700,
+    } as ServerToBrowserMessage);
+    const gap = h.get().gaps.get(SID)!;
+    expect(gap.tailMinSeq).toBe(4300);
+    expect(gap.headMaxSeq).toBe(20);
+  });
+
+  /**
+   * D5 — a segment ending mid-turn orphans a `tool_execution_start` whose end
+   * lies in already-delivered content and can never arrive. The row must reach
+   * a truthful terminal state at splice time, not spin forever.
+   */
+  it("D5: an unfinished tool in the segment is spliced in as `elided`, never `running`", () => {
+    const h = primed();
+    h.fire({
+      type: "history_backfill_result",
+      sessionId: SID,
+      events: [
+        {
+          seq: 4799,
+          event: {
+            eventType: "tool_execution_start",
+            timestamp: Date.now(),
+            data: { toolCallId: "tc-orphan", toolName: "Bash", args: {} },
+          },
+        },
+      ],
+      servedFrom: 4799,
+      servedTo: 4799,
+      remainingGapCount: 700,
+    } as ServerToBrowserMessage);
+
+    const rows = h.get().states.get(SID)!.messages;
+    const tool = rows.find((m) => m.toolCallId === "tc-orphan");
+    expect(tool?.toolStatus).toBe("elided");
   });
 
   it("D10: the splice does not move the live seq high-water mark", () => {

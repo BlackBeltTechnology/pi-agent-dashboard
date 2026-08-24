@@ -128,7 +128,8 @@ export interface SlotPropsMap {
     pluginContext: AnyPluginContext;
     // ─── newly optional (mirror built-in ToolRendererProps) ───
     // See change: wire-tool-renderer-slot.
-    status?: "running" | "complete" | "error";
+    // `elided` = result not loadable. See change: fix-lazy-history-backfill-ux (D5).
+    status?: "running" | "complete" | "error" | "elided";
     result?: string;
     toolDetails?: Record<string, unknown>;
     images?: ToolRendererImage[];

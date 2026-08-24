@@ -112,11 +112,11 @@ React-based responsive web UI that:
 - Works on mobile with responsive layout and swipe gestures
 - Shows an onboarding `LandingPage` whenever the main pane is empty, narrating the three steps needed to go from install → first running session (Setup credentials → Add folder → Start session). Each step is a card in **pending**, **done**, or **locked** state, derived purely from client state: `useProvidersReady()` (from `GET /api/providers`), `pinnedDirectories.length`, and `sessions.size`. Satisfied steps collapse to single-line ✔ rows, so returning users see a compact status strip rather than a full onboarding wall. Step ② sidebar "Add folder" button opens multi-select `AddFoldersDialog` (destination: None); pinning implicit (adding folder pins it). App uses `pinDialogOpen` state to gate dialog.
 
-**Unified dialog system** (`packages/client-utils/`): `Dialog` primitive + `Confirm` preset + `useFocusTrap` hook. `Dialog` owns portal/overlay (`bg-black/60`)/Esc/click-outside/focus-trap/ARIA/`z-[60]`/size variants (sm/md/lg)/header+footer slots (`Dialog.Footer`/`Dialog.Cancel`/`Dialog.Action`). `Confirm` wraps `Dialog` (size sm) for confirm flows. `ui:dialog` registry key exposes shell to plugins; `ui:confirm-dialog` re-skinned as adapter over `Confirm`. ~20 dialogs migrated. Legacy `ConfirmDialog` removed. See change: unify-dialog-system.
+**Unified dialog system** (`packages/client-utils/`): `Dialog` primitive + `Confirm` preset + `useFocusTrap` hook. `Dialog` owns portal/overlay (`bg-black/60`)/Esc/click-outside/focus-trap/ARIA/`z-dialog`/size variants (sm/md/lg)/header+footer slots (`Dialog.Footer`/`Dialog.Cancel`/`Dialog.Action`). `Confirm` wraps `Dialog` (size sm) for confirm flows. `ui:dialog` registry key exposes shell to plugins; `ui:confirm-dialog` re-skinned as adapter over `Confirm`. ~20 dialogs migrated. Legacy `ConfirmDialog` removed. See changes: unify-dialog-system, add-route-backed-overlay-dialogs.
 
 **Global Escape dismissal** (`packages/client-utils/src/escape-stack.ts`): single module-stable `document` `keydown` listener arbitrates Escape dismissal for portaled dismissible surfaces via LIFO stack. On Escape, only TOPMOST registered layer's `onEscape` fires (`preventDefault` + `stopImmediatePropagation`). Guarded against `e.repeat` + `e.defaultPrevented`. Listener attaches once on first registration; never detaches. New dismissible portaled overlays SHOULD use `useEscapeDismiss(active, onEscape)` hook; stacked surfaces peel one layer per Escape instead of collapsing multiple layers at once. Adopted by `Dialog`, `ImageLightbox`, `FilePreviewOverlay`; `MermaidBlock` deferred (inline, not portaled). See change: fix-stacked-escape-closes-layers.
 
-**Overlay layering (z-index)** (change: add-overlay-layering-system): single stacking order source. `packages/client/src/index.css` defines CSS custom properties `--z-base:0`, `--z-raised:10`, `--z-sidebar:20`, `--z-overlay:30`, `--z-popover:40`, `--z-dialog:50`, `--z-toast:60`, `--z-lightbox:70`. Ascending values = paints later = on top. Theme-independent; one scale covers all themes. Matching Tailwind utilities `z-base` through `z-lightbox` bind to the vars. Layer roles: base = flow content; raised = sticky headers; sidebar = sidebar/folder chrome; overlay = scrims/mobile backdrops; popover = menus/dropdowns/folder flyouts; dialog = modals/full-pane; toast = notifications; lightbox = full-screen media. Toast > dialog intentional — notification visible over modal. Preserves prior raw order (ToastSlot `z-[100]` already above dialog `z-[60]`).
+**Overlay layering (z-index)** (change: add-overlay-layering-system): single stacking order source. `packages/client/src/index.css` defines CSS custom properties `--z-base:0`, `--z-raised:10`, `--z-sidebar:20`, `--z-overlay:30`, `--z-popover:40`, `--z-dialog:50`, `--z-toast:60`, `--z-lightbox:70`. Ascending values = paints later = on top. Theme-independent; one scale covers all themes. Matching Tailwind utilities `z-base` through `z-lightbox` bind to the vars. Layer roles: base = flow content; raised = sticky headers; sidebar = sidebar/folder chrome; overlay = scrims/mobile backdrops; popover = menus/dropdowns/folder flyouts; dialog = modals/full-pane; toast = notifications; lightbox = full-screen media. Toast (60) > dialog (50) intentional — notification visible over modal. Shared `Dialog` (`packages/client-utils/src/Dialog.tsx:77`) uses `z-dialog` utility (`--z-dialog: 50`), not raw `z-[60]`. Nested dialogs tie at 50; later portal/DOM mount wins — repo-standard for stacked dialogs. Gate gap: `z-layer-lint` `SCAN_DIR = "packages/client/src"` excludes `packages/client-utils`; raw `z-[60]` survived there (raw-z gate blind spot). See change: add-route-backed-overlay-dialogs.
 
 **Portal-or-perish rule:** any box-escaping overlay (menu/popover/dropdown/dialog/toast/lightbox) MUST portal to top-level layer root (`document.body`), never inline `position:absolute`. Reason: numeric z-index orders only within nearest ancestor stacking context. Inline absolute overlay trapped by ancestor `transform`/`will-change`/`opacity`/`isolate`/`z-*`. `SessionCard` sets `isolate` per card → trapped folder popover UNDERLAPS cards. Portaling escapes contexts; token then orders portaled layers. Portal primitives: `packages/client-utils/src/LayerPortal.tsx` (portal to body, no scroll lock) for menus/popovers; `DialogPortal.tsx` (portal + body scroll lock) for modals. Portaled panel positions `fixed` from `usePopoverFlip` `triggerRect`; capture-phase window scroll re-measure → tracks ancestor (sidebar) scroll.
 
@@ -612,10 +612,11 @@ Descriptor-only slots (existing in `extension-ui-system`): `management-modal`, `
 `packages/dashboard-plugin-runtime/` is a new workspace package containing all runtime pieces:
 
 - **`src/slot-registry.ts`** — `createSlotRegistry()` returns a typed `Map<SlotId, ClaimEntry[]>` sorted by `(priority, pluginId)`. Filter helpers: `forSession`, `forSessionRendered`, `forFolder`, `forCommand`, `forToolName`, `forActionId`. Registry also exposes read-only `isPluginEnabled(id)`.
-- **`src/manifest-validator.ts`** — hand-rolled manifest validator; throws `ManifestValidationError` with `pluginId` and `reason`.
+- **`src/manifest-validator.ts`** — hand-rolled manifest validator; throws `ManifestValidationError` with `pluginId` and `reason`. Validates `shell-overlay-route` `presentation` is `"page"`|`"dialog"`; unknown value FATAL, not warn-and-default — typo like `"modal"` would silently restore the behaviour the author opted out of. See change: add-route-backed-overlay-dialogs.
 - **`src/plugin-context.tsx`** — `PluginContextProvider` wraps the entire app. A nested `CurrentPluginLayer` is pushed per contribution so `usePluginConfig<T>()` and `logger` resolve to the contributing plugin's id. `applyPluginConfigUpdate` updates the in-memory config store and re-renders subscribers.
-- **`src/slot-consumers.tsx`** — one component per slot id. Each wraps contributions in a `SlotErrorBoundary` (per-claim scope). Reads registry from the provider.
+- **`src/slot-consumers.tsx`** — one component per slot id. Each wraps contributions in a `SlotErrorBoundary` (per-claim scope). Reads registry from the provider. `ShellOverlayRouteSlot` renders matched claim body ONLY, inside `flex-1 min-h-0 relative` height wrapper. No dialog chrome, no container selection. `dialogContainer` prop + `OverlayContainerProps`/`OverlayContainerComponent` types removed. Container choice belongs to HOST (`App.tsx`): reads claim's effective `presentation` via exported `useShellOverlayRoutePresentation` hook (default `"dialog"`; `"page"` opts out → full viewport desktop + mobile), lifts dialog claim out of content region into `RouteBackedOverlay`. Seam could not work — underlay must cover VIEWPORT; wrapping from inside slot puts underlay inside content region. Hook returns string, avoids `client-utils` → `dashboard-plugin-runtime` dependency cycle. Rationale: design D2a (SUPERSEDED). See change: add-route-backed-overlay-dialogs.
 - **`src/slot-error-boundary.tsx`** — React error boundary scoped to one claim. Logs with plugin id and slot id; renders nothing for the failing claim without suppressing siblings.
+- **`src/__tests__/bundled-overlay-claims.test.ts`** — repo gate on BUNDLED `shell-overlay-route` claims: explicit `depth`; `depth: 2` requires `parentPath`; `parentPath` interpolable from claim path's own `:params`; claim nested under `/folder/:x` or `/session/:x` must NOT declare `depth: 1`. Third-party manifests keep runtime degradation to `/` as safety net. See change: add-route-backed-overlay-dialogs.
 - **`src/vite-plugin/index.ts`** — `viteDashboardPluginsPlugin` generates `packages/client/src/generated/plugin-registry.tsx` with named imports (tree-shaking). Watches manifests during dev and triggers HMR.
 - **`src/server/loader.ts`** — `discoverPlugins(repoRoot?)` (single module-level cache), `loadServerEntries(deps)` (per-plugin dynamic-import, failure isolated), `getPluginStatusStore()`.
 - **`src/server/server-context.ts`** — `createServerPluginContext(deps, pluginId)` — namespaced logger, typed config accessors.
@@ -2182,7 +2183,7 @@ Measured (synthetic #399-shaped window, 140 messages × ~150 snapshot updates):
 
 See change: `compact-warm-replay-stream`.
 
-**Replay windowing + gap backfill** (change: `lazy-load-session-history`): full-stream replay can exceed the browser budget. `memoryLimits.maxReplayEvents` (default `0` = unlimited) caps it. Above `0`, `sendEventBatches` ships head + tail windows, then browser backfills the middle on demand.
+**Replay windowing + gap backfill** (change: `lazy-load-session-history`, `fix-lazy-history-backfill-ux`): full-stream replay can exceed the browser budget. `memoryLimits.maxReplayEvents` (default `2000`; explicit `0` = unlimited) caps it. Above `0`, `sendEventBatches` ships head + tail windows, then browser backfills the middle on demand.
 
 #### Windowing (`packages/server/src/browser-handlers/subscription-handler.ts`)
 - `sendEventBatches(ws, sessionId, stored, sendTo, windowLimit?)`.
@@ -2192,6 +2193,7 @@ See change: `compact-warm-replay-stream`.
 - `computeReplayWindow(compacted, windowLimit)` returns `{headEnd, tailStart}` or `null`.
 - Short-circuit: `compacted.length <= windowLimit` → no window, `gapCount` 0.
 - `HEAD_RATIO` 0.1, `HEAD_MIN` 20, `HEAD_CAP` 200. `head = clamp(floor(limit*0.1), 20, 200)`, `tail = limit - head`.
+- Default geometry at 2000: head 200 (at `HEAD_CAP`, protected chat head maximal), tail 1800. `compacted.length <= windowLimit` short-circuit → sessions compacting under the limit take the pre-change path exactly.
 - Tail leading edge snaps FORWARD to next `message_start`/`turn_start`. Head trailing edge snaps BACKWARD to a `message_end`. Both bounded by `SNAP_LOOKUP` 200. Both SHRINK the window, so budget stays a hard cap.
 - Windowed `lastSeq === 0` path sends `session_state_reset` before replay.
 
@@ -2206,19 +2208,24 @@ See change: `compact-warm-replay-stream`.
 - Serves in-memory store only. Never reads the session file.
 - `EventStore.getEventsRange(sessionId, minSeq, maxSeq)` — binary search both bounds + one slice, O(log n + k). `getRangeProbe()` is test-only instrumentation.
 - Span clamped to `BACKFILL_MAX_SPAN` 500 events. Range clamped into the disclosed gap.
+- Span clamp moves the NON-abutting bound: raises `from` on a tail-adjacent request, lowers `to` on a head-adjacent one. Oversized tail-adjacent slice keeps its tail adjacency (lowering `to` would break crediting and invert the next request → failure loop).
 - Single-flight per (socket, session) → second concurrent request refused `in_flight`.
 - Subscription generation bumped on every subscribe; completion at a stale generation replies `stale_generation`, never dropped.
 - Response compacted with `compactEventsForReplay(slice, slice.length)` — explicit supersession boundary, because the boundary is array-relative and a gap slice's `message_end` lives outside it.
-- Served range advances the recorded `headMaxSeq`, so `remainingGapCount` shrinks and the client loop terminates.
+- Gap is SYMMETRIC: `tailMinSeq` mutable like `headMaxSeq`. Served range credited to whichever edge it abuts — tail-adjacent → `tailMinSeq = servedFrom`; head-adjacent → `headMaxSeq = servedTo`; a both-adjacent final request credits the TAIL (exclusive). `remainingGapCount` store read over both edges terminates the loop.
+- Slice snaps its GAP-FACING edge: lower for a tail-anchored request, upper for a head-anchored one, chosen by request ORIENTATION so a legacy head-first client stays correct. Snap only shrinks, never empties (empty `events` array = client termination signal). Credit edge from POST-SNAP served bounds.
 
 #### Client gap UI
-- `packages/client/src/lib/chat/history-gap.ts` — `HistoryGapState`, `HISTORY_GAP_ROW_ID`, `nextBackfillRange`, `captureScrollAnchor`/`restoreScrollAnchor`.
+- `packages/client/src/lib/chat/history-gap.ts` — `HistoryGapState`, `HISTORY_GAP_ROW_ID`, `nextBackfillRange`. `nextBackfillRange` walks DOWN from `tailMinSeq` (tail-anchored), so "Load earlier" delivers the events immediately preceding what the user reads. `HistoryGapState.tailMinSeq` mutable, updated from `servedFrom`; `headMaxSeq = servedTo` update dropped (two-edge move double-shrinks a gap credited once).
 - Synthetic `ChatMessage` role `historyGap`, spliced at the head→tail boundary during the `event_replay` fold. Never produced by `reduceEvent`.
 - `packages/client/src/components/chat/HistoryGapDivider.tsx` — click-to-load interstitial. States: idle / loading / refused / unavailable / removed-when-filled.
 - Backfill splice touches `messages[]` only: no `maxSeqMapRef` move, no `publishSessionEvents`, no `replayPersister` write.
+- Backfill segment stamped before merge: every still-running tool row → `elided` (`ChatMessage.toolStatus`, `ToolCall.status`). Terminal status, "result not loadable"; renders neutral "result not loaded", never spinner, never error styling. Also finalizes assistant rows the segment left `isStreaming`. Backfill segments ONLY, never the initial windowed replay (a live mid-tool run must stay on the supersede-heal path).
 - A windowed replay is NOT written to the client replay cache. Prevents caching a sparse array as contiguous, which would make the next reload a cache hit that delta-subscribes and hides the gap permanently.
 - Backfill armed only after the initial replay terminates (`isLast: true`).
 - Gap state cleared on `session_state_reset` and on re-subscribe.
+
+Measured (docker harness, 4825-event session, median of 5): full-replay completion 715ms → 341ms (2.10x), wire bytes 1958KB → 834KB (-57%), delivered events 4825 → 1996. Time-to-first-rendered-row unchanged (340ms → 349ms): replay ships in `REPLAY_BATCH_SIZE` 200-event batches, so the first batch lands identically regardless of what follows.
 
 See change: `lazy-load-session-history`.
 
@@ -2519,25 +2526,28 @@ Precedence: CLI flags → environment variables → config file (`~/.pi/dashboar
 | `tunnel.reservedToken` | _(auto)_ | Legacy bare zrok token. Read-time shim resolves to `{provider:"zrok", mode:"public", zrok:{reservedToken}}` in loadConfig. No disk rewrite until next save. Explicit `provider` wins on conflict |
 | `auth.redirectBaseUrl` | — | Optional OAuth redirect base for reverse-proxy deployments (`https://host[/prefix]`). Overrides tunnel/localhost base in `buildRedirectUri`. No default; absent = previous behaviour |
 | `publicBaseUrls` | — | Top-level reachable base URLs. Pairing QR + `GET /api/tunnel/endpoints` surfaces. `resolvePublicBaseUrls` reads top-level first, legacy `pairing.publicBaseUrls` fallback, else `[]`. No default; absent = legacy. Not an OAuth tier (D7) |
-| `memoryLimits.maxReplayEvents` | 0 | Max events in full-stream replay window. `0` = unlimited (default). Requires server restart. UI: Settings → Server → Memory Limits |
+| `memoryLimits.maxReplayEvents` | 2000 | Max events in full-stream replay window. Default `2000`; explicit `0` = unlimited (rollback lever). Absent/negative/non-numeric → `2000`; explicit `0` → `0`. Requires server restart. UI: Settings → Server → Memory Limits |
 
 ### Memory Limits
 
-`memoryLimits.maxReplayEvents` bounds full-stream replay. Default `0` = unlimited.
+`memoryLimits.maxReplayEvents` bounds full-stream replay. Default `2000`. Explicit `0` = unlimited, the documented rollback lever.
 
-Parsing (`parseMemoryLimits`, `packages/shared/src/config.ts`):
-- Absent / non-numeric / negative / NaN / Infinity → `0`.
+Parsing (`parseMaxReplayEvents`, `packages/shared/src/config.ts`):
+- Absent / non-numeric / negative / NaN / Infinity → default `2000`.
+- Explicit `0` → `0` (presence detected; never clamped).
 - Positive below `MIN_REPLAY_WINDOW` (100) clamps up to 100.
-- `0` never clamped.
 - Fractional floored.
+
+Defaults + types live in `packages/shared/src/memory-limits.ts`, a BROWSER-SAFE module re-exported by `config.ts`. Reason: `config.ts` imports `node:fs`/`node:os`/`node:path` at module scope, so a VALUE import from `packages/client` ships node built-ins to the browser and the SPA dies at boot with `uv.homedir is not a function` (blank page; tsc/vitest/build all stay green). `import type` is safe. Guarded by `packages/client/src/__tests__/no-node-only-shared-imports.test.ts`.
 
 Requires server restart. Surfaced in Settings → Server → Memory Limits.
 
 Threading:
 - `cli.ts` → `server.ts` (`ServerConfig.maxReplayEvents`)
 - → `createBrowserGateway(..., maxReplayEvents)` → `BrowserHandlerContext.maxReplayEvents`.
+- Programmatic server falls back to shared DEFAULT, not `0`; stays unlimited only when threaded explicitly.
 
-See change: `lazy-load-session-history`.
+See change: `lazy-load-session-history`, `fix-lazy-history-backfill-ux`.
 
 ### Tunnel Lifecycle
 
@@ -4077,3 +4087,113 @@ Reproduce + full variant table: `packages/kb/eval/` (`run-fixtures.ts`, `measure
 Lane quota is the cost: its `agents` lane is a second FTS query, and `doc_type` is an UNINDEXED FTS5 column — cannot be answered by an index, scans the full match set. Scaled 31,121 → ~22,000 chunks: ≈38 ms median (passes 50 ms budget), ≈60 ms p95 (fails).
 
 See change: fix-kb-search-retrieval-quality.
+
+## Pi Gateway Transport & Identity
+
+Bridge↔server gateway transport + identity. Ground truth: `openspec/changes/add-pi-gateway-transport-identity/design.md` (decisions D0–D16), `packages/extension/src/endpoint-resolution.ts`, `packages/server/src/pi/gateway-transport-policy.ts`, `gateway-socket-bind.ts`, `bridge-upgrade-auth.ts`, `provisional-registration.ts`.
+
+See change: add-pi-gateway-transport-identity.
+
+### Transport: unix socket default, TCP by opt-in
+
+- Default listener = unix socket `<dashboardConfigDir>/gateway-<piPort>.sock` (`~/.pi/dashboard/gateway-<piPort>.sock`).
+- Socket mode `0600`, directory `0700`. Kernel enforces ownership; no token to mint, leak, rotate, replay (D5).
+- Socket path per instance, keyed by `piPort`. Same-HOME instances collide structurally never (D2).
+- Bridge dials `ws+unix://<path>:/`. Same WS protocol over the socket (D1) — `ws.ping()`/`pong` liveness oracle intact.
+- `ConnectionManager` constructed with `ws` package as `WebSocketImpl`. Global WebSocket rejects `ws+unix://` and cannot set upgrade headers.
+- TCP = opt-in only. `PI_GATEWAY_TCP` truthy (`1`/`true`/`yes`/`on`) binds listener; absent → no TCP listener (`decideGatewayListeners`, `packages/server/src/pi/gateway-transport-policy.ts`).
+- Opt-in TCP widens to configured bind host. No-socket fallback listener pins `127.0.0.1` regardless of `--host`.
+- Docker container sets `PI_GATEWAY_TCP: "${PI_GATEWAY_TCP:-1}"` (`docker/compose.yml`) — external pi sessions cannot reach the in-container socket; TCP kept with bridge auth mandatory (D10b).
+- Windows = always loopback. No unix socket. `ws://127.0.0.1:<piPort>`, authorised by `X-Pi-Local-Token` (D6).
+- sun_path fallback: path length checked at construction, never at `bind`. `SUN_PATH_MAX` = 104 macOS/BSD, 108 Linux. Over limit → loopback + local token, reason in log (D15).
+- Stale-socket fail-closed (D9, defect B3): probe/unlink/bind serialized under exclusive companion lock `gateway-<piPort>.sock.lock` (`proper-lockfile`). Probe `live` → `GatewaySocketConflictError`, never unlink. Reclaim only on `ENOENT`, or `refused` + `<socketPath>.pid` records a provably dead owner (`isProcessAlive`). Timeout fails closed — saturated live backlog looks exactly like it.
+- On unbind: socket path + `.pid` + `.lock` sentinels removed. Idempotent (task 2.5).
+
+### Endpoint resolution: precedence ladder (D3)
+
+`resolveEndpoint` (`packages/extension/src/endpoint-resolution.ts`) — pure decision table. Every input passed in; the ladder is enumerable, not emergent from I/O order. Highest first:
+
+| # | source | input | class |
+|---|---|---|---|
+| 1 | `PI_DASHBOARD_SOCKET` | explicit local socket path | **PINNED** |
+| 2 | `PI_DASHBOARD_URL` | explicit endpoint | **PINNED** |
+| 3 | pinned instance | operator config | **PINNED** |
+| 4 | rendezvous record | `~/.pi/dashboard/server.lock.meta.json` (HOME-derived) | default |
+| 5 | paired remote | remote-join feature | — |
+| 6 | mDNS / discovery | suggestion only | **never overrides** |
+
+- mDNS never wins. Discovered candidate surfaces as `suggestion` only, informational, for deliberate operator action.
+- Absence = unavailable, never discovery (D0). Resolution `available:false` + reason. No silent substitute.
+- Rendezvous record written by the lock holder only (D2). Truncated / partially-written record = absent, never partially trusted (D15).
+- Stickiness (D4): once registered with instance X, bridge reconnects only to X. Re-target requires all of: current endpoint unpinned, current endpoint failed, candidate identity verified (`decideRetarget`).
+- Pinned endpoint unreachable → visible, retrying failure — never silent migration to something else.
+
+```mermaid
+flowchart TD
+  A["bridge starts"] --> B["resolveEndpoint"]
+  B --> C1{"PI_DASHBOARD_SOCKET set?"}
+  C1 -- "yes" --> P1["dial socket — pinned"]
+  C1 -- "no" --> C2{"PI_DASHBOARD_URL set?"}
+  C2 -- "yes" --> P2["dial endpoint — pinned"]
+  C2 -- "no" --> C3{"pinned instance configured?"}
+  C3 -- "yes" --> P3["dial pinned instance — pinned"]
+  C3 -- "no" --> C4{"rendezvous record?"}
+  C4 -- "yes" --> P4["dial record endpoint — not pinned"]
+  C4 -- "no" --> C5{"paired remote?"}
+  C5 -- "yes" --> P5["dial paired remote — not pinned"]
+  C5 -- "no" --> U["unavailable + reason; mDNS = suggestion only"]
+  P1 --> D["dial, verify instance id, register"]
+  P2 --> D
+  P3 --> D
+  P4 --> D
+  P5 --> D
+  D --> R{"current endpoint failed?"}
+  R -- "no" --> SERVE["serve"]
+  R -- "yes" --> G["decideRetarget"]
+  G -- "pinned / not failed / identity unverified" --> STAY["keep retrying current endpoint"]
+  G -- "unpinned + failed + identity verified" --> B
+```
+
+### Auth model
+
+`decideBridgeUpgrade` (`packages/server/src/pi/bridge-upgrade-auth.ts`) — pure per-transport gate. Asymmetry is the point:
+
+| transport | credential | mechanism |
+|---|---|---|
+| unix socket | none | kernel via `0600` socket in `0700` dir (D5) |
+| loopback TCP | `X-Pi-Local-Token` | 32-byte secret `~/.pi/dashboard/local/token`, verified with `crypto.timingSafeEqual` (D6) |
+| remote TCP | single-use bridge-scoped ws ticket | minted from paired-device bearer or genuinely-local caller; rides upgrade only |
+
+- Loopback = `127.0.0.1`/`::1` AND absence of proxy-forwarding headers (`hasProxyForwardingHeaders`). `ssh -L`, zrok, host nginx present as loopback → not genuinely local.
+- Ticket scope `bridge` added to `WsRouteScope` (`packages/server/src/auth/ws-ticket.ts`). Single-use, ~15 s TTL, path `/ws/bridge`. Carried in `?ticket=` query or `sec-websocket-protocol` `pi-ticket.` entry. Durable bearer never rides the WebSocket.
+- Remote TCP requires a valid ticket always. No grace, ever.
+- Tokenless loopback accepted during deprecation window, logged `deprecated: true`; refused after horizon (1.0.0).
+- Refusal causes distinct — no-credential ≠ bad-credential: `local-token-missing`, `local-token-invalid`, `no-ticket`.
+- Server identity = Ed25519 fingerprint (`auth/identity.ts` → `~/.pi/dashboard/identity.key`), per-HOME, stable across restarts. Stored at pairing; verified by nonce challenge before registering (D8). Stale or hostile server cannot impersonate a pinned identity.
+- Rendezvous instance id = separate concept (D14, defect B1): `<dashboardConfigDir>/instances/<piPort>.id`, `0600`, per-instance, stable across restarts. Identifier, never a capability — `/api/health` publishes it unauthenticated. Answers "which instance answered"; never proof of entitlement.
+- Local token (or socket ownership) proves entitlement; instance id only names the instance (D14).
+
+### Move command (D11)
+
+- `/dashboard-connect <target>` — move the live session to another dashboard. Target: exact `instanceId` | port | unambiguous id prefix (git-short-sha style) | explicit socket path / `ws://` URL | `default` (D11b).
+- Ambiguous id prefix refused, never resolved — silently choosing moves the session wrong and still looks like it worked.
+- `/dashboard-list` — every gateway instance under this HOME, default first (display-only scan, `packages/shared/src/instance-directory.ts`). Never auto-picks an endpoint.
+- `/dashboard-where` — current endpoint, identity, pinned? for this session.
+- Sequence: connect target → provisional registration → verify instance id → commit. Origin keeps serving until commit succeeds (D11).
+- Provisional registration (`provisional-registration.ts`) claims NO routing entry, no contention slot, no heartbeat. Returns target `instanceId` + token. TTL 30 s (`PROVISIONAL_TTL`). Refusal = `provisional_rejected`, cause never on the wire — no session-enumeration oracle.
+- Routing transfers only on `session_move_commit`. Send-ring ownership: exactly one owner at every instant; origin owns until target acknowledges, then single swap instant.
+- `session_moved` → server sets `movedTo` + `status: "ended"` + `endedAt` (`packages/server/src/event-wiring.ts`). Card reads *moved*, never *crashed*.
+- Every failure — refusal, identity mismatch, timeout (30 s), transport error — drops the target and keeps the origin. Move that cannot complete = no-op, never an outage.
+- Move pin in-memory, process-lifetime only (D11a). Nothing on disk. Restarted pi re-resolves through the D3 ladder. Feeds existing `decideRetarget({ pinned })` stickiness gate.
+- Cross-host target: transcript stays on origin host — history and resume do not follow (`assessTranscriptFollow`, locality decided from endpoint, never path sent on wire). Warning surfaced before move.
+
+### Remote transcripts + read-only boundary (D12, D13)
+
+- Sessions addressed by id ONLY. `decideTranscriptRequest` (`packages/extension/src/transcript-request-guard.ts`) refuses any path-bearing field: `path`, `file`, `filePath`, `filepath`, `sessionFile`, `sessionDir`, `dir`, `cwd`. Refusal on field presence, never value validation — validating values is a traversal-parsing contest.
+- Shape checked before subject: two refusals cannot be differenced into an existence check. Foreign `sessionId` refused — bridge serves only its own session.
+- Backfill: lazy, interruptible, background after registration. Live events forward eagerly. Cursor = offset + length + hash of last consumed line; mismatch → re-read from start, never resume (append-only is measured, not provable over time).
+- Retention: `<dashboardConfigDir>/remote-transcripts/<sessionId>.jsonl` (`~/.pi/dashboard/remote-transcripts/`). File `0600`, dir `0700`. `sessionId` validated `^[A-Za-z0-9_-]{1,64}$` — rejected, never sanitised (write-anywhere guard).
+- Restarted read REPLACES, never appends — duplicated second pass corrupts the retained copy. `.complete` sidecar marker; transcript byte-identical to origin.
+- Origin derived from the authenticated bridge credential, never bridge-claimed (`attributeOrigin`, `packages/server/src/session/session-origin.ts`). unix / loopback → local. Remote + `deviceId` → remote. Unattributable remote → remote, fail closed. Claimed fields (`claimedDeviceId`, `claimedLocal`, …) ignored.
+- Remote-origin sessions refuse local file reads (`mayReadLocalSessionFile`: `remote-origin` | `no-session-file`) — same-username path collision would serve an unrelated host's transcript.
+- Remote-origin sessions refuse resume (`decideResume`: `remote-origin-ended` | `remote-origin-live`) — local resume would attach a writer to another host's transcript. Read-only after bridge ends (D13).

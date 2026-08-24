@@ -11,7 +11,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { ensureConfig, loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { discoverDashboard } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
-import type { ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
+import type {
+  ServerToExtensionMessage,
+  TranscriptRequestMessage,
+} from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
+import { rendezvousEndpoint } from "@blackbelt-technology/pi-dashboard-shared/rendezvous.js";
 import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
 import type { FlowInfo, ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -29,6 +33,7 @@ import { type AutoNamer, adoptRestoredNamerState, createAutoNamer, type Persiste
 import type { BridgeContext } from "./bridge-context.js";
 import { extractFirstMessage, extractLatestTurnWindow, filterHiddenCommands, getCurrentModelString, isHeadlessRpcSession, safeCwd } from "./bridge-context.js";
 import { shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
+import { mintBridgeTicket, readDeviceToken, withTicket } from "./bridge-ticket-client.js";
 import { registerCanvasTool } from "./canvas-tool.js";
 import {
   buildUserMessageContent,
@@ -45,6 +50,7 @@ import { DashboardDefaultAdapter } from "./dashboard-default-adapter.js";
 import { runDevBuild } from "./dev-build.js";
 import { EmptyActionableGuard, SURFACE_MESSAGE } from "./empty-actionable-guard.js";
 import { resolveGuardConfig } from "./empty-actionable-guard-config.js";
+import { decideRetarget, instanceIdFileForSocket, resolveEndpoint } from "./endpoint-resolution.js";
 import { mapEventToProtocol } from "./event-forwarder.js";
 import {
   FLOW_EVENT_MAP,
@@ -55,6 +61,8 @@ import {
 import { createFollowupBuffer } from "./followup-buffer.js";
 import { runGitPollTick } from "./git-poll.js";
 import { flipHasUI } from "./hasui-flip.js";
+import { healthUrlForInstance, verifyInstanceIdentity } from "./instance-verification.js";
+import { localTokenHeaders } from "./local-token-header.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
 import { reportRefresh } from "./model-refresh.js";
 import { resetReconnectCaches as _resetReconnectCaches, sendCwdMissingIfChanged as _sendCwdMissingIfChanged, sendGitInfoIfChanged as _sendGitInfoIfChanged, sendModelUpdateIfChanged as _sendModelUpdateIfChanged, sendPiVersionIfChanged as _sendPiVersionIfChanged, sendSessionNameIfChanged as _sendSessionNameIfChanged, defaultReadPiVersion } from "./model-tracker.js";
@@ -68,11 +76,13 @@ import { decideProjectTrust, readEventCwd } from "./project-trust.js";
 import { PromptBus } from "./prompt-bus.js";
 import { expandPromptTemplateFromDisk } from "./prompt-expander.js";
 import { activate as activateProviderRegister, buildProviderCatalogue, onProviderChanged, reloadProviders, toModelInfo } from "./provider-register.js";
+import { gateRemoteRegistration, httpBaseUrlFor, isRemoteEndpoint } from "./remote-registration-gate.js";
 import { RetryTracker } from "./retry-tracker.js";
 import { activate as activateRoleManager, lookupRole, resolveNamingModel } from "./role-manager.js";
 import { registerRoleModelTools } from "./role-model-tools.js";
 import { autoStartServer } from "./server-auto-start.js";
 import { launchServer } from "./server-launcher.js";
+import { loadServerPins, notePinEndpoint, serverPinsPath } from "./server-pin-store.js";
 import { handleSessionChange as _handleSessionChange, replaySessionEntries as _replaySessionEntries, sendStateSync as _sendStateSync, consumeSpawnToken, filterByEnabledModels } from "./session-sync.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 import { detectSessionSource } from "./source-detector.js";
@@ -81,6 +91,9 @@ import { SubagentFrameBuffer } from "./subagent-frame-buffer.js";
 import { stripForForward } from "./subagent-frame-strip.js";
 import { isSubagentTick, SubagentTickThrottle } from "./subagent-tick-throttle.js";
 import { inlineToolResultImages } from "./tool-result-image-inliner.js";
+import { readTranscriptChunk, type TranscriptCursor } from "./transcript-backfill.js";
+import { decideTranscriptRequest } from "./transcript-request-guard.js";
+import { createTransportDiagnostics } from "./transport-diagnostics.js";
 import { createTuiPromptAdapter } from "./tui-prompt-adapter.js";
 import { classifyTurnActionability } from "./turn-actionability.js";
 import { handleUiManagement, refreshUiModules, subscribeUiInvalidate, type UiModulesBridgeCtx } from "./ui-modules.js";
@@ -816,7 +829,83 @@ function initBridge(pi: ExtensionAPI) {
   // Load config to determine WebSocket URL
   ensureConfig();
   const config = loadConfig();
-  const dashboardUrl = process.env.PI_DASHBOARD_URL ?? `ws://localhost:${config.piPort}`;
+  // The ONE place an endpoint is chosen (D3, task 3.1). Explicit configuration
+  // is pinned and outranks everything; the HOME-derived rendezvous record is
+  // the default; discovery may only suggest. The legacy
+  // `ws://localhost:<configured piPort>` is the last resort, kept so a new
+  // bridge still works against a dashboard that predates the record (task 8.3).
+  const rendezvous = rendezvousEndpoint();
+  const endpointChoice = resolveEndpoint({
+    socketEnv: process.env.PI_DASHBOARD_SOCKET,
+    urlEnv: process.env.PI_DASHBOARD_URL,
+    record: rendezvous ?? undefined,
+  });
+  // The instance this bridge believes it is talking to (task 3.4). Any
+  // re-target is judged against THIS id, not against the endpoint string —
+  // the same instance may legitimately move, and a different instance may
+  // legitimately answer at the same endpoint.
+  let registeredInstanceId: string | undefined = endpointChoice.available
+    ? endpointChoice.instanceId
+    : undefined;
+  // A socket-pinned bridge learns its instance from the FILESYSTEM, beside the
+  // socket it was pinned to. Without this every dashboard-spawned session
+  // answered `/dashboard-where` with `instance: unverified`, because only the
+  // record-sourced path carried an id — and the record could not be used here,
+  // since it names the HOME's owner rather than whichever instance owns this
+  // socket. Best-effort: a missing or unreadable file leaves the id unset,
+  // which is the honest answer and exactly today's behaviour.
+  // See change: add-pi-gateway-transport-identity (task 9.6).
+  if (registeredInstanceId === undefined && endpointChoice.available && process.env.PI_DASHBOARD_SOCKET) {
+    const idFile = instanceIdFileForSocket(process.env.PI_DASHBOARD_SOCKET);
+    if (idFile) {
+      try {
+        const id = fs.readFileSync(idFile, "utf8").trim();
+        if (id) registeredInstanceId = id;
+      } catch {
+        /* absent or unreadable — stay unverified rather than guess */
+      }
+    }
+  }
+  // `let`: a completed move re-points this, so diagnostics and `/dashboard-where`
+  // report where the session actually IS rather than where it started.
+  // biome-ignore lint/style/useConst: reassigned by the move command.
+  let dashboardUrl = endpointChoice.available
+    ? endpointChoice.url
+    : `ws://localhost:${config.piPort}`;
+  // Pinned endpoints refuse every re-target, including a discovered one (D3).
+  const endpointPinned = endpointChoice.available && endpointChoice.pinned;
+  // Task 10.1: log the winning precedence rule, or diagnosing "it connected to
+  // the wrong dashboard" means guessing which source won.
+  const endpointDetail = `${dashboardUrl} (source=${
+    endpointChoice.available ? endpointChoice.source : "legacy-config-piPort"
+  } pinned=${endpointPinned})`;
+  console.log(`[dashboard] endpoint ${endpointDetail}`);
+  // ...and again over the wire, because the line above is discarded under the
+  // default `capturePiOutput:false` (task 10.5).
+  const transportDiagnostics = createTransportDiagnostics();
+  transportDiagnostics.record({ event: "endpoint_resolved", detail: endpointDetail });
+
+  /**
+   * Mint a fresh, single-use bridge ticket for a REMOTE endpoint.
+   *
+   * Returns undefined for a local endpoint (nothing to mint) and THROWS when a
+   * remote endpoint cannot be authorised, so ConnectionManager retries on its
+   * backoff rather than dialling a credential-less upgrade the gateway will
+   * refuse. The reason is logged once per attempt: "refused" here means the
+   * bearer is missing, unpaired or revoked, which is an operator problem and
+   * must not be reported as an unreachable dashboard.
+   */
+  async function prepareRemoteUpgrade(endpoint: string): Promise<{ url?: string } | undefined> {
+    if (!isRemoteEndpoint(endpoint)) return undefined;
+    const httpBase = httpBaseUrlFor(endpoint);
+    if (!httpBase) return undefined;
+    const minted = await mintBridgeTicket({ httpBase, token: readDeviceToken() });
+    if (!minted.ok) {
+      console.error(`[dashboard] bridge ticket ${minted.cause}: ${minted.reason}`);
+      throw new Error(minted.reason);
+    }
+    return { url: withTicket(endpoint, minted.ticket) };
+  }
 
   // Long-lived ctx wrapper for the Extension UI System (Phase 1) — see
   // change: add-extension-ui-modal. `getSessionId` reads the closed-over
@@ -828,8 +917,23 @@ function initBridge(pi: ExtensionAPI) {
     getSessionId: () => sessionId,
   };
 
-  const connection = new ConnectionManager({
+  // `let`, not `const`: a completed move REBINDS this to the target's
+  // connection, and every closure in this module captured the BINDING rather
+  // than the value, so all ~100 `connection.send(...)` sites follow the session
+  // to its new dashboard without being rewritten (task 9.4).
+  // biome-ignore lint/style/useConst: reassigned by the move command below.
+  let connection = new ConnectionManager({
     url: dashboardUrl,
+    // D6 (task 5.3): a LOOPBACK TCP dial carries this HOME's local token, the
+    // credential that replaces the socket's file mode where there is no socket
+    // (Windows, or a sun_path fallback). Undefined over a socket and never
+    // sent to a remote endpoint.
+    headers: localTokenHeaders(dashboardUrl),
+    // A REMOTE endpoint needs a bridge ticket per attempt (§6 made TCP bridge
+    // auth mandatory). Local dials — unix socket or loopback — are authorised
+    // by file mode or the local token and mint nothing.
+    // See change: add-pi-gateway-transport-identity (D10b).
+    prepareConnect: () => prepareRemoteUpgrade(dashboardUrl),
     // Routing field for a drop report — the reporting bridge's OWN session,
     // never the id the dropped message named.
     // See change: fix-spawn-correlation-ttl-coupling (D6).
@@ -837,6 +941,46 @@ function initBridge(pi: ExtensionAPI) {
     onMessage: safe(async (data: unknown) => {
       if (!isActive()) return; // Stale listener guard
       const msg = data as ServerToExtensionMessage;
+      // D12: the dashboard asking for a slice of THIS session's transcript.
+      // Guarded before any filesystem touch — a request naming a path, or
+      // another session, never reaches the reader. See change:
+      // add-pi-gateway-transport-identity (tasks 11.3/11.4/11.6).
+      if ((msg as any).type === "transcript_request") {
+        const req = msg as unknown as TranscriptRequestMessage;
+        const verdict = decideTranscriptRequest({
+          request: req as never,
+          ownSessionId: sessionId,
+        });
+        if (!verdict.allow) {
+          console.warn(`[dashboard] transcript request refused: ${verdict.reason}`);
+          connection.send({
+            type: "transcript_chunk",
+            // Echo the caller's id: routing is the connection, and the server
+            // must be able to correlate a refusal with what it asked for.
+            sessionId: req.sessionId,
+            entries: [],
+            complete: false,
+            restarted: false,
+            refused: { cause: verdict.cause, reason: verdict.reason },
+          });
+          return;
+        }
+        if (!lastSessionFile) return;
+        const chunk = readTranscriptChunk(
+          lastSessionFile,
+          req.cursor as TranscriptCursor | undefined,
+          { maxBytes: req.maxBytes },
+        );
+        connection.send({
+          type: "transcript_chunk",
+          sessionId: req.sessionId,
+          entries: chunk.entries,
+          cursor: chunk.cursor,
+          complete: chunk.complete,
+          restarted: chunk.restarted,
+        });
+        return;
+      }
       // Extension UI System (Phase 1): browser-originated action / data
       // request. Re-emit on pi.events; the listener either populates
       // data.items synchronously or calls _reply asynchronously.
@@ -1480,6 +1624,10 @@ function initBridge(pi: ExtensionAPI) {
     // may be buffered rather than start a run, so retry cancellation is released
     // only by the observed user message_start below.
     noteUserPrompt: () => abortLatch.clear(sessionId),
+    // Disarm a still-armed provider-retry chain so a manual retry's native
+    // agent_start is not converted into a synthetic auto_retry_start.
+    // See change: replace-dashboard-retry-command-with-protocol-message.
+    disarmRetryChain: () => retryTracker.noteExplicitRun(sessionId),
   });
 
   // Reload support: extension events only provide ExtensionContext (no reload).
@@ -1495,6 +1643,163 @@ function initBridge(pi: ExtensionAPI) {
         (globalThis as any)[RELOAD_KEY] = () => ctx.reload();
         await ctx.reload();
       }
+    },
+  });
+
+  /**
+   * `/dashboard-connect <target>` — move this live session to another dashboard
+   * (D11, task 9.4).
+   *
+   * The overlap is the point: the target proves it can serve BEFORE the origin
+   * is released, so a failed move is a no-op rather than an outage. On success
+   * the module-level `connection` binding is rebound, which is what carries
+   * every existing send site over to the new dashboard.
+   */
+  pi.registerCommand("dashboard-connect", {
+    handler: async (args: string) => {
+      const { parseConnectTarget, describeConnectTarget, resolveConnectTarget } = await import(
+        "./connect-target.js"
+      );
+      const { listLocalInstances } = await import(
+        "@blackbelt-technology/pi-dashboard-shared/instance-directory.js"
+      );
+      const { createMoveCoordinator } = await import("./session-move.js");
+      const { rendezvousEndpoint } = await import(
+        "@blackbelt-technology/pi-dashboard-shared/rendezvous.js"
+      );
+
+      const parsed = parseConnectTarget(args ?? "");
+      const resolved = resolveConnectTarget(parsed, {
+        defaultEndpoint: () => rendezvousEndpoint()?.endpoint ?? null,
+        instances: () => listLocalInstances(),
+      });
+      if (!resolved.ok) {
+        console.error(`[dashboard] connect refused: ${resolved.reason}`);
+        return;
+      }
+      if (resolved.endpoint === dashboardUrl) {
+        console.error(`[dashboard] already on ${describeConnectTarget(parsed)}`);
+        return;
+      }
+
+      // The target's identity must be known BEFORE the move: the coordinator
+      // refuses a target whose instance id is not the expected one, and
+      // "whatever answers" is not an expectation (D14).
+      const expectInstanceId =
+        resolved.instanceId ??
+        listLocalInstances().find((i) => i.endpoint === resolved.endpoint)?.instanceId;
+      if (!expectInstanceId) {
+        console.error(
+          `[dashboard] connect refused: cannot determine the instance id of ${describeConnectTarget(parsed)} — refusing to move to an unverified dashboard`,
+        );
+        return;
+      }
+
+      let targetManager: ConnectionManager | undefined;
+      const coordinator = createMoveCoordinator({
+        origin: {
+          connect: () => connection.connect(),
+          disconnect: () => connection.disconnect(),
+          send: (m) => connection.send(m),
+          get isConnected() {
+            return connection.isConnected;
+          },
+          // The coordinator never subscribes to the origin; only the target
+          // answers the handshake.
+          onMessage: () => {},
+        },
+        sessionId,
+        sessionFile: lastSessionFile,
+        originEndpoint: dashboardUrl,
+        connect: (url) => {
+          let handler: (msg: unknown) => void = () => {};
+          targetManager = new ConnectionManager({
+            url,
+            headers: localTokenHeaders(url),
+            getSessionId: () => sessionId,
+            onMessage: (data) => handler(data),
+            // On the FIRST open, not just reconnects: this is where the
+            // provisional registration is announced, and a send before the
+            // socket is live would be silently dropped.
+            onOpen: () => {
+              targetManager?.send({
+                type: "session_register",
+                sessionId,
+                cwd: process.cwd(),
+                source: "tui",
+                pid: process.pid,
+                provisional: true,
+              });
+            },
+          });
+          const mgr = targetManager;
+          return {
+            connect: () => mgr.connect(),
+            disconnect: () => mgr.disconnect(),
+            send: (m) => mgr.send(m),
+            get isConnected() {
+              return mgr.isConnected;
+            },
+            onMessage: (h) => {
+              handler = h;
+            },
+          };
+        },
+      });
+
+      const result = await coordinator.begin({
+        targetUrl: resolved.endpoint,
+        expectInstanceId,
+        initiator: "/dashboard-connect",
+      });
+
+      if (!result.ok) {
+        console.error(
+          `[dashboard] move to ${describeConnectTarget(parsed)} failed: ${result.cause} — still on ${dashboardUrl}`,
+        );
+        return;
+      }
+
+      // Rebind: from here every `connection.send(...)` in this module reaches
+      // the new dashboard.
+      if (targetManager) connection = targetManager;
+      dashboardUrl = resolved.endpoint;
+      registeredInstanceId = expectInstanceId;
+      console.error(`[dashboard] moved to ${describeConnectTarget(parsed)} (${expectInstanceId})`);
+    },
+  });
+
+  // `/dashboard-list` — every dashboard instance visible under this HOME
+  // (task 9.6). This is the DISPLAY-only side of the D2 carve-out: it scans so
+  // a human can choose, and never feeds automatic endpoint selection.
+  pi.registerCommand("dashboard-list", {
+    handler: async () => {
+      const { listLocalInstances, formatInstanceLine } = await import(
+        "@blackbelt-technology/pi-dashboard-shared/instance-directory.js"
+      );
+      const found = listLocalInstances();
+      if (found.length === 0) {
+        console.error("[dashboard] no dashboard instances found under this HOME");
+        return;
+      }
+      console.error(
+        `[dashboard] instances (* = default for this HOME):\n${found.map(formatInstanceLine).join("\n")}`,
+      );
+    },
+  });
+
+  // `/dashboard-where` — endpoint + identity + pinned, for the session that
+  // cannot otherwise answer "which dashboard am I actually on?" (task 9.6).
+  // Written with console.error because pi's stdout is discarded under the
+  // default `capturePiOutput:false`.
+  pi.registerCommand("dashboard-where", {
+    handler: async () => {
+      const lines = [
+        `endpoint: ${dashboardUrl}`,
+        `instance: ${registeredInstanceId ?? "unverified"}`,
+        `pinned:   ${endpointPinned ? "yes (explicit configuration)" : "no (resolved from the $HOME rendezvous record)"}`,
+      ];
+      console.error(`[dashboard] where:\n${lines.join("\n")}`);
     },
   });
 
@@ -2612,7 +2917,92 @@ function initBridge(pi: ExtensionAPI) {
 
     // Connect first, then auto-start if needed.
     // session_register must be buffered before any event_forward messages.
-    connection.connect();
+    //
+    // (tasks 7.2/7.3) A REMOTE endpoint is challenged BEFORE the connection
+    // opens: across a network an address proves nothing, so the pinned Ed25519
+    // identity is the only thing that answers "is this my dashboard?" (D8).
+    // Local endpoints are unaffected — the socket/loopback token already
+    // authorises them — so this adds no latency to the common path.
+    if (isRemoteEndpoint(dashboardUrl)) {
+      const pinsFile = serverPinsPath();
+      const connectIfIdentityVerifies = async () => {
+        const verdict = await gateRemoteRegistration({
+          endpoint: dashboardUrl,
+          store: loadServerPins(pinsFile),
+        });
+        // Task 10.3: the cause is distinguishable in the log, not folded into
+        // a generic connection failure.
+        const line = `[dashboard] remote identity ${verdict.cause}: ${verdict.reason}`;
+        if (!verdict.allow) {
+          console.error(`${line} — not registering`);
+          return;
+        }
+        console.log(line);
+        // Only a VERIFIED identity gets its address remembered.
+        if (verdict.fingerprint) notePinEndpoint(pinsFile, verdict.fingerprint, dashboardUrl);
+        connection.connect();
+      };
+      // Guarded discard: a failure here must be OBSERVED, never take the host
+      // pi agent down.
+      void connectIfIdentityVerifies().catch((err) => console.error("[dashboard]", err));
+    } else {
+      connection.connect();
+    }
+    // Drain the buffered transport diagnostics through the live connection
+    // (task 10.5). `send()` buffers while the socket is down, which is the
+    // right behaviour here: the detail is self-describing, so a late delivery
+    // is still a true one.
+    transportDiagnostics.attach({
+      send: (m) => connection.send(m),
+      getSessionId: () => sessionId,
+    });
+
+    // (task 3.8) Verify the instance answering at the recorded endpoint really
+    // is the one the record named. The socket's mode and the local token are
+    // both per-HOME, so a same-HOME impostor passes them — only the published
+    // `instanceId` distinguishes instances. Refusal is loud and does NOT fall
+    // back to a discovered substitute: that substitution is the bug.
+    if (
+      endpointChoice.available &&
+      endpointChoice.source === "rendezvous-record" &&
+      rendezvous?.instanceId
+    ) {
+      const verifyRecordedInstance = async () => {
+        const verdict = await verifyInstanceIdentity({
+          healthUrl: healthUrlForInstance(rendezvous.httpPort),
+          expectedInstanceId: rendezvous.instanceId,
+        });
+        if (verdict.adopt) {
+          registeredInstanceId = rendezvous.instanceId;
+          return;
+        }
+        // Only a CONFLICT justifies tearing the connection down. `disconnect()`
+        // sets `intentionalClose`, so nothing rearms the backoff loop and the
+        // session is dead until pi itself restarts — right for an impostor,
+        // catastrophic for an outage. `/api/health` is unreachable for seconds
+        // on every `POST /api/restart` while the gateway socket stays healthy,
+        // so treating silence as refusal would kill every bridge on the host on
+        // every rebuild. Unverified means we simply do not claim an identity.
+        if (!verdict.conflict) {
+          console.error(
+            `[dashboard] instance verification ${verdict.reason} — keeping the connection, identity unclaimed`,
+          );
+          registeredInstanceId = undefined;
+          return;
+        }
+        console.error(`[dashboard] instance verification ${verdict.reason} — disconnecting`);
+        registeredInstanceId = undefined;
+        try {
+          connection.disconnect();
+        } catch {
+          /* already down */
+        }
+      };
+      // Guarded discard: the verification runs alongside the connection and
+      // must never take the host pi agent down, but its failure must still be
+      // OBSERVED rather than dropped on the floor.
+      void verifyRecordedInstance().catch((err) => console.error("[dashboard]", err));
+    }
 
     // Extract first message (sessionFile/sessionDir already extracted above)
     const firstMessage = extractFirstMessage(ctx);
@@ -2835,8 +3225,29 @@ function initBridge(pi: ExtensionAPI) {
     }).then((result) => {
       stopSpinner(); // safety net — covers onLaunchEnd not firing
       if (result.server && result.server.piPort !== config.piPort) {
-        // Server found on a different piPort than configured — update connection URL
-        connection.updateUrl(`ws://${result.server.host === 'localhost' ? 'localhost' : result.server.host}:${result.server.piPort}`);
+        const candidateUrl = `ws://${result.server.host === "localhost" ? "localhost" : result.server.host}:${result.server.piPort}`;
+        // D3/D4: a DISCOVERED candidate may suggest, never override. Before
+        // this gate an explicit `PI_DASHBOARD_URL` could be silently replaced
+        // by whatever mDNS answered, and the only defence was remembering
+        // `PI_DASHBOARD_NO_MDNS` — that is the hijack.
+        const decision = decideRetarget({
+          current: { endpoint: dashboardUrl, instanceId: registeredInstanceId },
+          candidate: { endpoint: candidateUrl },
+          pinned: endpointPinned,
+          failed: !connection.isConnected,
+          // A discovered candidate has proved nothing about who it is; identity
+          // verification is the remote-pinning path (D8), not this one.
+          identityVerified: false,
+        });
+        // Task 10.2: every refusal names both endpoints.
+        const retargetDetail = `${dashboardUrl} -> ${candidateUrl}: ${
+          decision.retarget ? "accepted" : decision.reason
+        }`;
+        console.log(`[dashboard] re-target ${retargetDetail}`);
+        if (!decision.retarget) {
+          transportDiagnostics.record({ event: "retarget_refused", detail: retargetDetail });
+        }
+        if (decision.retarget) connection.updateUrl(candidateUrl);
       }
     }).catch(() => { stopSpinner(); });
 

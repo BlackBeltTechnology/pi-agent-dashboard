@@ -7,6 +7,7 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserHandlerContext } from "../handler-context.js";
 import {
+  handleRetrySession,
   handleSendPrompt,
   handleStopAfterTurn,
   handleSubagentResyncRequest,
@@ -98,6 +99,57 @@ describe("handleSendPrompt retry routing", () => {
         delivery: undefined,
       },
     }]);
+  });
+});
+
+// test-plan #3: the first-class retry_session is forwarded to the owning bridge
+// via an explicit gateway case; on undeliverable session it emits a structured
+// retry_session_error to the sender (never a silent drop). See change:
+// replace-dashboard-retry-command-with-protocol-message.
+describe("handleRetrySession", () => {
+  it("#3 forwards retry_session to the owning bridge, not the unknown-type default", () => {
+    const sent: { sessionId: string; msg: unknown }[] = [];
+    const ctx = {
+      ws: { id: "ws1" },
+      piGateway: {
+        sendToSession(sessionId: string, msg: unknown) {
+          sent.push({ sessionId, msg });
+          return true;
+        },
+      },
+      sendTo() {
+        throw new Error("must not negative-ack on a delivered retry_session");
+      },
+    } as unknown as BrowserHandlerContext;
+
+    handleRetrySession({ type: "retry_session", sessionId: "s1" }, ctx);
+
+    expect(sent).toEqual([
+      { sessionId: "s1", msg: { type: "retry_session", sessionId: "s1" } },
+    ]);
+  });
+
+  it("emits retry_session_error to the sender when no bridge is reachable", () => {
+    const errs: { target: unknown; msg: any }[] = [];
+    const ws = { id: "ws1" };
+    const ctx = {
+      ws,
+      piGateway: {
+        sendToSession() {
+          return false;
+        },
+      },
+      sendTo(target: unknown, msg: unknown) {
+        errs.push({ target, msg });
+      },
+    } as unknown as BrowserHandlerContext;
+
+    handleRetrySession({ type: "retry_session", sessionId: "gone" }, ctx);
+
+    expect(errs).toHaveLength(1);
+    expect(errs[0].target).toBe(ws);
+    expect(errs[0].msg).toMatchObject({ type: "retry_session_error", sessionId: "gone" });
+    expect(typeof errs[0].msg.error).toBe("string");
   });
 });
 

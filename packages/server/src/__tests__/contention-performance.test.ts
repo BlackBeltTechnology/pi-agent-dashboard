@@ -14,9 +14,9 @@
 
 import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
+import { CONTENTION_RATE_LIMIT } from "../pi/bridge-contention.js";
 import { createPiGateway } from "../pi/pi-gateway.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
-import { CONTENTION_RATE_LIMIT } from "../pi/bridge-contention.js";
 
 const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -29,10 +29,10 @@ function waitForOpen(ws: WebSocket): Promise<void> {
   });
 }
 
-async function waitForBind(gateway: { address(): number | null }): Promise<number> {
+async function waitForBind(gateway: { address(): number | string | null }): Promise<number> {
   for (let i = 0; i < 200; i++) {
     const port = gateway.address();
-    if (port !== null) return port;
+    if (typeof port === "number") return port;
     await delay(10);
   }
   throw new Error("gateway did not bind a port");

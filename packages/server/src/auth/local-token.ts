@@ -11,14 +11,24 @@
  */
 import crypto from "node:crypto";
 import fs from "node:fs";
-import os from "node:os";
 import path from "node:path";
+import {
+  type DashboardPathsEnv,
+  getDashboardConfigDir,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 
 export const LOCAL_TOKEN_HEADER = "x-pi-local-token";
 const TOKEN_BYTES = 32;
 
-export function defaultLocalTokenDir(): string {
-  return path.join(os.homedir(), ".pi", "dashboard", "local");
+/**
+ * Rooted on `dashboard-paths.ts`, the same root as the rendezvous record and
+ * the gateway socket (task 2.0g). `os.homedir()` would ignore an injected
+ * `homedir`, so isolated verification under a temp HOME would read its token
+ * from the real home while writing its record and socket under the temp one;
+ * on Windows `env.homedir` and `USERPROFILE` disagree even without injection.
+ */
+export function defaultLocalTokenDir(env?: DashboardPathsEnv): string {
+  return path.join(getDashboardConfigDir(env), "local");
 }
 
 /**

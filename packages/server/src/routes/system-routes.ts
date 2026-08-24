@@ -32,6 +32,7 @@ import { localhostGuard } from "../auth/localhost-guard.js";
 import { deleteAuthProvider, readConfigRedacted, writeConfigPartial } from "../config-api.js";
 import type { DirectoryService } from "../directory-service.js";
 import { bootParentPid, computeBootParentAlive, readLivePpid } from "../lifecycle/boot-parent-liveness.js";
+import { ensureInstanceId, instanceIdHealthFields } from "../lifecycle/instance-id.js";
 import { computeEffectiveLaunchSource } from "../lifecycle/launch-source-effective.js";
 import type { EventLoopSpikeMetrics } from "../metrics/eventloop-spike-metrics.js";
 import type { HydrationMetrics } from "../metrics/hydration-metrics.js";
@@ -740,6 +741,12 @@ export function registerSystemRoutes(
     return { ok: true };
   });
 
+  // Resolved ONCE at registration, not per request: the id is immutable for the
+  // process, and `ensureInstanceId` touches the filesystem. Inside the handler
+  // it made an unauthenticated, frequently-polled route do file I/O
+  // (CodeQL js/missing-rate-limiting).
+  const healthInstanceFields = instanceIdHealthFields(ensureInstanceId(undefined, config.piPort));
+
   // Health endpoint — includes server + agent process metrics
   fastify.get("/api/health", async () => {
     const mem = process.memoryUsage();
@@ -764,6 +771,12 @@ export function registerSystemRoutes(
     return {
       ok: true,
       pid: process.pid,
+      // Rendezvous instance id (NOT the Ed25519 `identity`): names which
+      // same-HOME instance answered, so a bridge can tell its own dashboard
+      // from a foreign listener on a recycled port. An IDENTIFIER, never a
+      // credential — this route has no preHandler, so the value is public.
+      // See change: add-pi-gateway-transport-identity (D14).
+      ...healthInstanceFields,
       // launchSource: single source of truth for arm-aware client gating
       // (e.g. hide pi-core update UI under Electron, since bundled
       // node_modules/ is read-only). See change:

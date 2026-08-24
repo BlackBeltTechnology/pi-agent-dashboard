@@ -1,0 +1,3 @@
+# route-backed-overlay.spec.ts — index
+
+Route-backed overlay contract: S-12/S-12b (one overlay per URL, tunnel replaces settings), S-13 (cold-load dismissal), 5.5a/S-10 (in-place overlay navigation keeps the frozen background, DOM-expando remount probe), inert underlay, 6.5 (clean surface dismisses with no prompt), D1 (underlay shows the LAUNCHING surface, not the landing page — drive it via a real in-app affordance; `page.goto` is a hard load that exercises the cold-load path instead), S-32 (missing preview target explains itself rather than rendering a blank dialog). See change: add-route-backed-overlay-dialogs.

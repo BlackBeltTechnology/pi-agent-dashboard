@@ -75,10 +75,41 @@ export interface InboundDropReportMessage {
   suppressed?: number;
 }
 
+/** Which transport fact a bridge is reporting. */
+export type BridgeDiagnosticEvent = "endpoint_resolved" | "retarget_refused";
+
+/**
+ * Bridge -> server: how this bridge chose its endpoint, and every refusal to
+ * move off it.
+ *
+ * Same motivation as `inbound_drop_report`: the bridge-side `console.log` lands
+ * in /dev/null under the default `keeperLog.capturePiOutput:false`, so the
+ * only durable record is the one the server writes.
+ *
+ * `detail` is a preformatted human string, not structured fields — these are
+ * read by a person diagnosing "why that dashboard", never matched on.
+ * See change: add-pi-gateway-transport-identity (tasks 10.1, 10.2, 10.5).
+ */
+export interface BridgeDiagnosticMessage {
+  type: "bridge_diagnostic";
+  sessionId: string;
+  event: BridgeDiagnosticEvent;
+  detail: string;
+}
+
 // ── Extension → Server ──────────────────────────────────────────────
 
 export interface SessionRegisterMessage {
   type: "session_register";
+  /**
+   * Announce intent to serve this session WITHOUT claiming it (D11, task
+   * 9.3a). The gateway takes no routing entry and no contention slot, creates
+   * no placeholder session, and replies `provisional_accepted` (carrying its
+   * instance id + a commit token) or `provisional_rejected`. Routing transfers
+   * only on an explicit commit.
+   * See change: add-pi-gateway-transport-identity.
+   */
+  provisional?: boolean;
   sessionId: string;
   cwd: string;
   name?: string;
@@ -718,6 +749,8 @@ export interface PluginPiMessage {
 }
 
 export type ExtensionToServerMessage =
+  | SessionMovedMessage
+  | SessionMoveCommitMessage
   | SessionRegisterMessage
   | SessionUnregisterMessage
   | SessionHeartbeatMessage
@@ -756,7 +789,113 @@ export type ExtensionToServerMessage =
   | AutoNameOutcomeMessage
   | AutoNameStateMessage
   | PromptReceivedToServerMessage
-  | InboundDropReportMessage;
+  | InboundDropReportMessage
+  | BridgeDiagnosticMessage
+  | TranscriptChunkMessage;
+
+
+/**
+ * Server -> bridge: send the next slice of this session's transcript.
+ *
+ * Addressing is by session id ONLY — there is deliberately no path field, and
+ * the bridge refuses any request that carries one (`transcript-request-guard`).
+ * `cursor` is opaque to the server: it is minted by the bridge, echoed back
+ * unchanged, and carries a witness so a rewritten or truncated origin file
+ * restarts the read instead of resuming into misaligned bytes.
+ * See change: add-pi-gateway-transport-identity (D12, task 11.6).
+ */
+export interface TranscriptRequestMessage {
+  type: "transcript_request";
+  sessionId: string;
+  cursor?: unknown;
+  /** Read budget for this slice; the bridge may overshoot to finish a line. */
+  maxBytes?: number;
+}
+
+/**
+ * Bridge -> server: one bounded slice of the transcript.
+ *
+ * `restarted` means the bridge could not trust its cursor and re-read from the
+ * beginning — the server MUST replace what it retained rather than append, or
+ * the retained copy silently doubles. `complete` means a clean end of file was
+ * reached; until then the retained transcript is explicitly partial (#X18).
+ */
+export interface TranscriptChunkMessage {
+  type: "transcript_chunk";
+  sessionId: string;
+  /** Whole `.jsonl` lines, verbatim. Never a partial line. */
+  entries: string[];
+  cursor?: unknown;
+  complete: boolean;
+  restarted: boolean;
+  /** Set instead of `entries` when the bridge refused the request. */
+  refused?: { cause: string; reason: string };
+}
+
+
+/**
+ * Bridge -> server: this session has moved to another instance (D11, task 9.3).
+ *
+ * Sent to the ORIGIN in the window between a successful commit and releasing
+ * the origin connection — the only moment both facts are known and the origin
+ * can still be told. Without it the origin sees an abrupt disconnect and
+ * renders a crash.
+ */
+export interface SessionMovedMessage {
+  type: "session_moved";
+  sessionId: string;
+  /** Identity of the instance now serving it; an address would not survive a move. */
+  instanceId: string;
+  endpoint?: string;
+}
+
+/**
+ * Bridge -> server: commit a provisional, transferring routing to this socket
+ * (D11, task 9.3b). Single-use and TTL-bounded; the token is the only proof,
+ * so a commit cannot be replayed after the origin has been released.
+ */
+export interface SessionMoveCommitMessage {
+  type: "session_move_commit";
+  sessionId: string;
+  token: string;
+}
+
+/** Server -> bridge: the provisional was opened. Carries no routing claim. */
+export interface ProvisionalAcceptedMessage {
+  type: "provisional_accepted";
+  sessionId: string;
+  /** The TARGET's instance id, so the origin can verify identity (task 9.7). */
+  instanceId: string;
+  /** Single-use, TTL-bounded (30s) token that commits the move. */
+  token: string;
+}
+
+/**
+ * Server -> bridge: the provisional was refused.
+ *
+ * Deliberately detail-free: a cause would let a caller difference two refusals
+ * into "does this session exist here" (task 9.3a-iv). The true cause is logged
+ * server-side. Distinct from `register_rejected`, which the bridge treats as
+ * TERMINAL for the session — a refused move must not kill the session it was
+ * trying to preserve (task 9.3a-i).
+ */
+/**
+ * Positive acknowledgement that routing has ACTUALLY transferred.
+ *
+ * Without it the mover could only observe that its commit was *sent*, so a
+ * commit the gateway rejected (expired or replayed token, a mismatched
+ * sessionId, a live incumbent) still looked like success — the origin was
+ * released and the target owned nothing, losing the session outright. This
+ * is what makes "a failed move is a no-op" true rather than aspirational.
+ */
+export interface SessionMoveCommittedMessage {
+  type: "session_move_committed";
+  sessionId: string;
+}
+
+export interface ProvisionalRejectedMessage {
+  type: "provisional_rejected";
+}
 
 // ── Server → Extension ──────────────────────────────────────────────
 
@@ -777,6 +916,19 @@ export interface SendPromptToExtensionMessage {
 
 export interface AbortToExtensionMessage {
   type: "abort";
+  sessionId: string;
+}
+
+/**
+ * Server → extension: re-drive a settled-error turn. Forwarded by the server
+ * gateway from a browser `retry_session`. The bridge re-drives the turn via
+ * `pi.sendMessage({ customType: "pi-dashboard:retry", display: false },
+ * { triggerTurn: true })` — the same pi call the legacy `/__dashboard_retry`
+ * sentinel made. See change:
+ * replace-dashboard-retry-command-with-protocol-message.
+ */
+export interface RetrySessionExtensionMessage {
+  type: "retry_session";
   sessionId: string;
 }
 
@@ -1120,8 +1272,13 @@ export type AutoNamerStopState = Pick<
 >;
 
 export type ServerToExtensionMessage =
+  | ProvisionalAcceptedMessage
+  | SessionMoveCommittedMessage
+  | ProvisionalRejectedMessage
+  | TranscriptRequestMessage
   | AutoNameStateRestoreMessage
   | SendPromptToExtensionMessage
+  | RetrySessionExtensionMessage
   | AbortToExtensionMessage
   | ExtensionUiResponseMessage
   | RequestCommandsMessage

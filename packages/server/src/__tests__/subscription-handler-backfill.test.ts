@@ -346,3 +346,232 @@ describe("history_backfill — refusal paths (X1, X2, X3, X4, X6)", () => {
     expect(loadSessionEvents).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Symmetric-gap backfill — test-plan scenarios E13–E23 and X4.
+ *
+ * The gap is bounded on BOTH sides and both edges are mutable now, so the two
+ * properties under test are (a) which edge a served range is credited to, and
+ * (b) that the credited bound is the POST-SNAP served one, not the requested
+ * one. See change: fix-lazy-history-backfill-ux (D1, D1a, D4, D4a).
+ */
+describe("history_backfill — symmetric gap (E13–E23, X4)", () => {
+  /**
+   * Seeds `n` events, overriding the eventType at specific SEQS. Seqs are
+   * 1-based and dense, so seq === index + 1.
+   *
+   * Every override below sits strictly inside the gap, never inside either
+   * snap-scan range of `computeReplayWindow` itself, so the announced window
+   * geometry stays the deterministic `headMaxSeq: 50` / `tailMinSeq: 4551`
+   * that these assertions are written against.
+   */
+  function seedWithTypes(ctx: BrowserHandlerContext, n: number, overrides: Record<number, string> = {}) {
+    for (let i = 1; i <= n; i++) ctx.eventStore.insertEvent("s1", makeEvent(overrides[i] ?? "tool_execution_end"));
+  }
+
+  async function primed(n = 5000, overrides: Record<number, string> = {}) {
+    const ctx = createMockContext({ maxReplayEvents: 500 });
+    seedWithTypes(ctx, n, overrides);
+    const subs = new Set<string>();
+    handleSubscribe({ type: "subscribe", sessionId: "s1", lastSeq: 0 }, subs, ctx);
+    await settle();
+    const win = windowsOf(ctx)[0];
+    (ctx.sendTo as any).mockClear();
+    return { ctx, subs, win };
+  }
+
+  const backfill = (ctx: BrowserHandlerContext, subs: Set<string>, fromSeq: number, toSeq: number) =>
+    handleHistoryBackfill({ type: "history_backfill", sessionId: "s1", fromSeq, toSeq }, subs, ctx);
+
+  it("the window geometry these scenarios assume is the one actually announced", async () => {
+    const { win } = await primed();
+    expect(win.headMaxSeq).toBe(50);
+    expect(win.tailMinSeq).toBe(4551);
+  });
+
+  /**
+   * E13 — the crediting decision table. Crediting is EXCLUSIVE, so the
+   * both-adjacent row is a real decision and not an implementation detail:
+   * credit the TAIL, keeping one consistent direction of travel (D1a).
+   */
+  describe("E13: edge crediting is exclusive and orientation-driven", () => {
+    // A gap SMALLER than one max span, so a request can abut both edges at once
+    // without the span clamp destroying one of the adjacencies.
+    const small = () => primed(800);
+
+    it("(head-adjacent, tail-adjacent) credits the TAIL and leaves the head alone", async () => {
+      const { ctx, subs, win } = await small();
+      await backfill(ctx, subs, win.headMaxSeq + 1, win.tailMinSeq - 1);
+      const gap = peekGapState(ctx.ws, "s1")!;
+      expect(gap.tailMinSeq).toBe(win.headMaxSeq + 1);
+      expect(gap.headMaxSeq).toBe(win.headMaxSeq);
+    });
+
+    it("(head-adjacent, NOT tail-adjacent) credits the head", async () => {
+      const { ctx, subs, win } = await small();
+      const to = win.tailMinSeq - 20;
+      await backfill(ctx, subs, win.headMaxSeq + 1, to);
+      const gap = peekGapState(ctx.ws, "s1")!;
+      expect(gap.headMaxSeq).toBe(to);
+      expect(gap.tailMinSeq).toBe(win.tailMinSeq);
+    });
+
+    it("(NOT head-adjacent, tail-adjacent) credits the tail", async () => {
+      const { ctx, subs, win } = await small();
+      const from = win.headMaxSeq + 20;
+      await backfill(ctx, subs, from, win.tailMinSeq - 1);
+      const gap = peekGapState(ctx.ws, "s1")!;
+      expect(gap.tailMinSeq).toBe(from);
+      expect(gap.headMaxSeq).toBe(win.headMaxSeq);
+    });
+
+    it("(neither) serves the events and credits NOTHING", async () => {
+      const { ctx, subs, win } = await small();
+      await backfill(ctx, subs, win.headMaxSeq + 20, win.tailMinSeq - 20);
+      const [res] = resultsOf(ctx);
+      expect(res.error).toBeUndefined();
+      expect(res.events.length).toBeGreaterThan(0);
+      const gap = peekGapState(ctx.ws, "s1")!;
+      expect(gap.headMaxSeq).toBe(win.headMaxSeq);
+      expect(gap.tailMinSeq).toBe(win.tailMinSeq);
+    });
+  });
+
+  /**
+   * E14/E15 — the span clamp must move the NON-abutting bound (D4a). Lowering
+   * `to` on a tail-adjacent request would destroy the adjacency the response is
+   * credited for: the server would credit nothing while the client still
+   * retreats its own `tailMinSeq`, and the next derived range inverts into a
+   * permanent `out_of_range` loop.
+   */
+  it("E14: an over-long TAIL-adjacent request raises `from`, keeping the tail credited", async () => {
+    const { ctx, subs, win } = await primed();
+    await backfill(ctx, subs, win.tailMinSeq - 900, win.tailMinSeq - 1);
+    const [res] = resultsOf(ctx);
+    expect(res.error).toBeUndefined();
+    expect(res.servedTo).toBe(win.tailMinSeq - 1);
+    expect(res.servedFrom).toBe(win.tailMinSeq - BACKFILL_MAX_SPAN);
+    expect(res.servedFrom).toBeGreaterThan(win.tailMinSeq - 900);
+    expect(peekGapState(ctx.ws, "s1")!.tailMinSeq).toBe(res.servedFrom);
+  });
+
+  it("E15: an over-long HEAD-adjacent request lowers `to`, keeping the head credited", async () => {
+    const { ctx, subs, win } = await primed();
+    await backfill(ctx, subs, win.headMaxSeq + 1, win.headMaxSeq + 900);
+    const [res] = resultsOf(ctx);
+    expect(res.error).toBeUndefined();
+    expect(res.servedFrom).toBe(win.headMaxSeq + 1);
+    expect(res.servedTo).toBe(win.headMaxSeq + BACKFILL_MAX_SPAN);
+    expect(res.servedTo).toBeLessThan(win.headMaxSeq + 900);
+    expect(peekGapState(ctx.ws, "s1")!.headMaxSeq).toBe(res.servedTo);
+  });
+
+  /**
+   * E18–E22 — gap-facing edge snapping. The snap may only SHRINK, is bounded by
+   * `SNAP_LOOKUP`, and must never empty the slice: an empty `events` array is
+   * the client's TERMINATION signal, so an over-eager snap would silently
+   * strand the gap.
+   */
+  it("E18/E21: a tail-anchored slice snaps its LOWER edge, and the tail is credited POST-snap", async () => {
+    // A completed message boundary 40 events into the slice.
+    const { ctx, subs, win } = await primed(5000, { 4090: "message_end", 4091: "message_start" });
+    await backfill(ctx, subs, win.tailMinSeq - BACKFILL_MAX_SPAN, win.tailMinSeq - 1);
+    const [res] = resultsOf(ctx);
+    expect(res.error).toBeUndefined();
+    // E18: the served range BEGINS at the boundary, not at the raw cut.
+    expect(res.servedFrom).toBe(4091);
+    expect(res.events[0].seq).toBe(4091);
+    // E21: the recorded edge is the post-snap bound, never the pre-snap one.
+    expect(peekGapState(ctx.ws, "s1")!.tailMinSeq).toBe(4091);
+    expect(peekGapState(ctx.ws, "s1")!.tailMinSeq).not.toBe(win.tailMinSeq - BACKFILL_MAX_SPAN);
+  });
+
+  it("E19: no boundary within SNAP_LOOKUP serves the RAW cut, with no error", async () => {
+    const { ctx, subs, win } = await primed();
+    const from = win.tailMinSeq - BACKFILL_MAX_SPAN;
+    await backfill(ctx, subs, from, win.tailMinSeq - 1);
+    const [res] = resultsOf(ctx);
+    expect(res.error).toBeUndefined();
+    expect(res.servedFrom).toBe(from);
+  });
+
+  it("E20: a snap that would empty the slice is not applied, and the gap is not reported exhausted", async () => {
+    const from = 4551 - BACKFILL_MAX_SPAN;
+    // The ONLY boundary is the slice's own first event.
+    const { ctx, subs, win } = await primed(5000, { [from]: "message_start" });
+    await backfill(ctx, subs, from, win.tailMinSeq - 1);
+    const [res] = resultsOf(ctx);
+    expect(res.error).toBeUndefined();
+    expect(res.servedFrom).toBe(from);
+    expect(res.events.length).toBeGreaterThan(0);
+    expect(res.remainingGapCount).toBeGreaterThan(0);
+  });
+
+  it("E22: a head-anchored request snaps its UPPER edge instead, chosen by orientation", async () => {
+    const { ctx, subs, win } = await primed(5000, { 500: "message_end" });
+    await backfill(ctx, subs, win.headMaxSeq + 1, win.headMaxSeq + BACKFILL_MAX_SPAN);
+    const [res] = resultsOf(ctx);
+    expect(res.error).toBeUndefined();
+    // Lower edge untouched (it is not the gap-facing one for this orientation).
+    expect(res.servedFrom).toBe(win.headMaxSeq + 1);
+    expect(res.servedTo).toBe(500);
+    expect(res.events.at(-1)!.seq).toBe(500);
+    expect(peekGapState(ctx.ws, "s1")!.headMaxSeq).toBe(500);
+  });
+
+  /**
+   * E23/X4 — `remainingGapCount` is a STORE READ, never seq arithmetic. A
+   * middle-trimmed store makes the seq distance an overstatement, and a divider
+   * reading "N earlier messages" would then promise rows trimmed months ago.
+   */
+  describe("a holey store", () => {
+    const HOLE_LO = 2000;
+    const HOLE_HI = 3000;
+
+    async function holey() {
+      const p = await primed();
+      const real = p.ctx.eventStore.getEventsRange.bind(p.ctx.eventStore);
+      p.ctx.eventStore.getEventsRange = ((sid: string, from: number, to: number) =>
+        real(sid, from, to).filter((e) => e.seq < HOLE_LO || e.seq > HOLE_HI)) as any;
+      return p;
+    }
+
+    it("E23: remainingGapCount equals the STORED count, strictly below the seq distance", async () => {
+      const { ctx, subs, win } = await holey();
+      await backfill(ctx, subs, win.tailMinSeq - 10, win.tailMinSeq - 1);
+      const [res] = resultsOf(ctx);
+      const gap = peekGapState(ctx.ws, "s1")!;
+      const seqDistance = gap.tailMinSeq - gap.headMaxSeq - 1;
+      expect(res.remainingGapCount).toBeLessThan(seqDistance);
+      expect(res.remainingGapCount).toBe(seqDistance - (HOLE_HI - HOLE_LO + 1));
+    });
+
+    it("X4: a range inside the gap but absent from the store is EMPTY, not an error", async () => {
+      const { ctx, subs } = await holey();
+      await backfill(ctx, subs, HOLE_LO + 10, HOLE_HI - 10);
+      const [res] = resultsOf(ctx);
+      expect(res.error).toBeUndefined();
+      expect(res.events).toEqual([]);
+      // Still truthful about what remains: unservable here, not exhausted.
+      expect(res.remainingGapCount).toBeGreaterThan(0);
+    });
+  });
+
+  it("walking DOWN from the tail terminates, exactly as the head walk does", async () => {
+    const { ctx, subs, win } = await primed();
+    let remaining = win.gapCount;
+    let guard = 0;
+    while (remaining > 0 && guard++ < 20) {
+      const gap = peekGapState(ctx.ws, "s1")!;
+      // The client's own `nextBackfillRange` shape: walk DOWN from the tail.
+      const toSeq = gap.tailMinSeq - 1;
+      const fromSeq = Math.max(gap.headMaxSeq + 1, toSeq - BACKFILL_MAX_SPAN + 1);
+      await backfill(ctx, subs, fromSeq, toSeq);
+      const res = resultsOf(ctx).at(-1)!;
+      expect(res.error).toBeUndefined();
+      expect(res.remainingGapCount).toBeLessThan(remaining);
+      remaining = res.remainingGapCount;
+    }
+    expect(remaining).toBe(0);
+  });
+});

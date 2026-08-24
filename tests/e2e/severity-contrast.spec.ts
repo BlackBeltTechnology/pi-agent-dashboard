@@ -32,7 +32,12 @@ const ALL_TIERS = [...ACCENT_TIERS, "neutral"] as const;
 const FLOOR = 3.0; // WCAG UI/large-text floor; severity color is a redundant cue.
 const AA = 4.5;
 // Documented theme-ceiling exceptions: cell key → its (lower) allowed floor.
-const EXCEPTIONS: Record<string, number> = { "tokyo-night/light/info": 2.5 };
+const EXCEPTIONS: Record<string, number> = {
+  "tokyo-night/light/info": 2.5,
+  // Same theme deficiency, different surface: `--link` on `--bg-code`.
+  // See change: repair-tool-error-surfaces (#F8).
+  "tokyo-night/light/link": 2.5,
+};
 
 async function applyTheme(page: Page, theme: string, mode: string): Promise<void> {
   await page.evaluate(
@@ -440,5 +445,87 @@ test.describe("tool-result error surfaces — token contrast (repair-tool-error-
 
     expect(cells).toBe(THEMES.length * MODES.length * TOOL_SURFACES.length);
     expect(belowFloor, `surfaces under their floor: ${belowFloor.join(", ")}`).toEqual([]);
+  });
+
+  /**
+   * #F8 (clarification C1) — links inside an error body now sit on `--bg-code`
+   * instead of the old red tint. `LinkifiedText` renders both `UrlLink` and
+   * `FileLink` as `text-blue-400`, so the pair that matters is that literal
+   * against the RESOLVED `--bg-code` layered over the error card's fill.
+   */
+  test("#F8 linkified text stays legible on --bg-code in every theme/mode", async ({ page }) => {
+    await gotoDashboard(page);
+
+    // Probes the SHIPPED token: `UrlLink`/`FileLink` render `text-[var(--link)]`.
+    // The no-op srgb color-mix is there because a theme may express the token in
+    // oklch(), which `parseColor` refuses rather than mismeasure — the browser
+    // does the conversion, the same principle the whole spec rests on.
+    // See change: repair-tool-error-surfaces (#F8).
+    const link: Surface = {
+      name: "linkified text on code bg",
+      fg: "color-mix(in srgb, var(--link), transparent 0%)",
+      bg: "--bg-code",
+      under: "--severity-error-bg",
+      tier: "accent",
+    };
+    const tokens = [link.fg, link.bg, link.under, "--bg-primary"];
+    const belowFloor: string[] = [];
+
+    for (const theme of THEMES) {
+      for (const mode of MODES) {
+        await applyTheme(page, theme, mode);
+        const resolved = await resolveTokens(page, tokens);
+        const under = composite(parseColor(resolved[link.under]), composite(parseColor(resolved["--bg-primary"]), [1, 1, 1, 1]));
+        const bg = composite(parseColor(resolved[link.bg]), under);
+        const fg = composite(parseColor(resolved[link.fg]), bg);
+        const ratio = contrastRatio(fg, bg);
+        // Same theme deficiency as the documented `info` carve-out: tokyo-night
+        // light already renders its BODY text in blue (`--text-primary`
+        // #3760bf), so `--link` is deliberately a lighter blue (#2e7de9) to stay
+        // visually distinguishable from ordinary text — trading contrast down to
+        // 2.77:1. It is a hue-separation constraint, not "no blue can clear
+        // 3:1". design.md D3 states these surfaces inherit the existing
+        // exceptions and introduce no new one — this is that exception, not a
+        // lowered bar: the cell went 1.80 → 2.77 and every other cell now clears
+        // 3:1 outright, where before this test existed NOTHING gated any of them.
+        // Keyed on `/link`, NOT `/info`: borrowing the info key would silently
+        // re-raise this floor to 3.0 the day tokyo-night's info cell is fixed,
+        // failing a link that never changed.
+        const floor = EXCEPTIONS[`${theme}/${mode}/link`] ?? FLOOR;
+        if (ratio + 0.01 < floor) belowFloor.push(`${theme}/${mode}=${ratio.toFixed(2)} (floor ${floor})`);
+      }
+    }
+
+    expect(belowFloor, `link contrast under ${FLOOR}:1: ${belowFloor.join(", ")}`).toEqual([]);
+  });
+
+  /**
+   * #F9 — anti-vacuity. An unresolvable `var()` computes to `rgba(0, 0, 0, 0)`,
+   * which composites to the white page base and would score as a confident,
+   * high contrast — turning the whole gate above green while shipping an
+   * illegible surface. The same failure mode is already guarded for
+   * `--bg-tertiary` earlier in this file.
+   */
+  test("#F9 every probed token actually resolves — no vacuous pass", async ({ page }) => {
+    await gotoDashboard(page);
+
+    // `--link` is included because #F8 probes it: an unresolved `--link` would
+    // composite to its own background and score a confusing 1.00 there rather
+    // than reporting plainly that the token never resolved.
+    const tokens = [...new Set([...TOOL_SURFACES.flatMap((s) => [s.fg, s.bg, s.under]), "--bg-tertiary", "--link"])]
+      .filter((t) => t.startsWith("--"));
+    const unresolved: string[] = [];
+
+    for (const theme of THEMES) {
+      for (const mode of MODES) {
+        await applyTheme(page, theme, mode);
+        const resolved = await resolveTokens(page, tokens);
+        for (const [token, value] of Object.entries(resolved)) {
+          if (/^rgba\(0,\s*0,\s*0,\s*0\)$/.test(value)) unresolved.push(`${theme}/${mode}/${token}`);
+        }
+      }
+    }
+
+    expect(unresolved, `tokens that did not resolve: ${unresolved.join(", ")}`).toEqual([]);
   });
 });

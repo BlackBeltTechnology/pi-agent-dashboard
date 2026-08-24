@@ -848,6 +848,20 @@ export interface PluginActionErrorMessage {
   error: string;
 }
 
+/**
+ * Server → browser: a `retry_session` could not be delivered (unknown or
+ * disconnected session, or a bridge lacking the handler). Structured
+ * negative-ack, mirroring `plugin_action_error` — never a silent drop. The
+ * client re-enables the one-shot Retry control and surfaces a toast on receipt.
+ * See change: replace-dashboard-retry-command-with-protocol-message.
+ */
+export interface RetrySessionErrorMessage {
+  type: "retry_session_error";
+  sessionId: string;
+  /** Human-readable error description. */
+  error: string;
+}
+
 /** Sent when a plugin's config changes; carries only that plugin's namespace. */
 export interface PluginConfigUpdateMessage {
   type: "plugin_config_update";
@@ -952,6 +966,7 @@ export type ServerToBrowserMessage =
   | RecoveryOfferMessage
   | PluginConfigUpdateMessage
   | PluginActionErrorMessage
+  | RetrySessionErrorMessage
   | SessionAddedMessage
   | SessionUpdatedMessage
   | SessionRemovedMessage
@@ -1096,6 +1111,20 @@ export interface SendPromptToBrowserMessage {
 
 export interface AbortToBrowserMessage {
   type: "abort";
+  sessionId: string;
+}
+
+/**
+ * Browser → server: re-drive a settled-error turn as a first-class protocol
+ * message. Replaces the legacy `send_prompt` sentinel `/__dashboard_retry`,
+ * which smuggled a control signal through the user-prompt channel. The server
+ * forwards a `retry_session` to the owning bridge, which re-drives the turn via
+ * `pi.sendMessage({ customType: "pi-dashboard:retry", display: false },
+ * { triggerTurn: true })`. See change:
+ * replace-dashboard-retry-command-with-protocol-message.
+ */
+export interface RetrySessionBrowserMessage {
+  type: "retry_session";
   sessionId: string;
 }
 
@@ -1718,6 +1747,7 @@ export type BrowserToServerMessage =
   | HistoryBackfillRequestMessage
   | BrowserExtensionUiResponseMessage
   | SendPromptToBrowserMessage
+  | RetrySessionBrowserMessage
   | AbortToBrowserMessage
   | RequestCommandsToBrowserMessage
   | FetchContentMessage

@@ -12,6 +12,10 @@
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import {
+  type DiscoveredModelRecord,
+  mapAdvertisedModels,
+} from "@blackbelt-technology/pi-dashboard-shared/provider-model-metadata.js";
 
 const CONFIG_PATH = join(homedir(), ".pi", "agent", "providers.json");
 const REDACTED = "***";
@@ -187,31 +191,63 @@ function extractModelIds(body: any): string[] {
  *
  * See change: add-agent-role-model-tools (server custom-provider registry).
  */
-export async function listProviderModelIds(input: ProbeInput): Promise<string[]> {
+/**
+ * Fetch a provider's model-list body and return the parsed JSON, or `null` on
+ * any failure (bad request build, non-2xx, non-JSON body, network error,
+ * timeout). Never throws. Shared by both `listProviderModelIds` (ids only, for
+ * the Test button) and `listProviderModels` (metadata-preserving), so the two
+ * cannot drift on request construction, timeout handling, or error semantics.
+ * See change: fix-custom-provider-model-metadata (design D1).
+ */
+async function fetchProviderModelBody(input: ProbeInput): Promise<unknown | null> {
   let req: ProbeRequest;
   try {
     req = buildProbeRequest(input);
   } catch {
-    return [];
+    return null;
   }
   const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
+  // Clear in `finally` so the abort timer stays armed through `response.json()`:
+  // a provider that stalls the response BODY (not just the headers) is still
+  // aborted rather than hanging until the socket dies.
   try {
     const response = await fetch(req.url, { method: "GET", headers: req.headers, signal: controller.signal });
-    clearTimeout(timer);
-    if (!response.ok) return [];
-    let body: any = null;
+    if (!response.ok) return null;
     try {
-      body = await response.json();
+      return await response.json();
     } catch {
-      return [];
+      return null;
     }
-    return extractModelIds(body);
   } catch {
+    return null;
+  } finally {
     clearTimeout(timer);
-    return [];
   }
+}
+
+export async function listProviderModelIds(input: ProbeInput): Promise<string[]> {
+  const body = await fetchProviderModelBody(input);
+  return body === null ? [] : extractModelIds(body);
+}
+
+/**
+ * Metadata-preserving model discovery: fetch the provider's model list and
+ * return a record per model carrying the id AND every capability field the
+ * provider advertised (mapped by RESPONSE SHAPE — see the shared mapper).
+ *
+ * Deliberately a SEPARATE function from `listProviderModelIds`: the Test button
+ * (`probeProvider`) genuinely wants ids only, and widening one shared helper
+ * would re-couple two consumers with different needs. Returns [] on any
+ * failure (never throws) so one unreachable provider cannot break the
+ * catalogue.
+ *
+ * See change: fix-custom-provider-model-metadata (design D1).
+ */
+export async function listProviderModels(input: ProbeInput): Promise<DiscoveredModelRecord[]> {
+  const body = await fetchProviderModelBody(input);
+  return body === null ? [] : mapAdvertisedModels(body);
 }
 
 export async function probeProvider(input: ProbeInput): Promise<ProbeResult> {

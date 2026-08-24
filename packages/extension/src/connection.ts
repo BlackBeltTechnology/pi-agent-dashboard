@@ -3,9 +3,25 @@
  * and message buffering during disconnection.
  */
 
+import { WebSocket as WsWebSocket } from "ws";
+
 export interface ConnectionManagerOptions {
   url: string;
   WebSocketImpl?: any;
+  /**
+   * Runs before EVERY connection attempt, including reconnects, and may
+   * override the URL for that attempt. Exists because a remote bridge's
+   * gateway ticket is single-use with a 15s TTL: minting it once at startup
+   * would authorise the first connection and no other, so a reconnect after
+   * any drop would be refused. Returning nothing leaves the URL as-is.
+   */
+  prepareConnect?: () => Promise<{ url?: string } | undefined>;
+  /**
+   * Extra WebSocket upgrade headers, e.g. the Windows `X-Pi-Local-Token`
+   * local credential (D6). Requires the `ws` client — the global WebSocket
+   * cannot set headers at all.
+   */
+  headers?: Record<string, string>;
   maxBufferSize?: number;
   /**
    * Bound on the SERIALIZED INBOUND queue. Distinct from `maxBufferSize`, which
@@ -23,6 +39,13 @@ export interface ConnectionManagerOptions {
   /** Server liveness watchdog: force reconnect after this many ms without any received message. Default 60000. Set 0 to disable. */
   watchdogTimeout?: number;
   onMessage?: (data: unknown) => void | Promise<void>;
+  /**
+   * Fired on EVERY open, including the first — unlike `onReconnect`, which
+   * deliberately skips it. A move's target connection needs the first one:
+   * that is when it must announce its provisional registration, and `send()`
+   * before the socket is live is silently dropped (task 9.4).
+   */
+  onOpen?: () => void;
   onReconnect?: () => void;
   /**
    * Fired when the server terminally refuses this bridge's registration for a
@@ -55,6 +78,7 @@ export class ConnectionManager {
   private intentionalClose = false;
   private hasConnectedBefore = false;
   private onMessage?: (data: unknown) => void | Promise<void>;
+  private onOpen?: () => void;
   private onReconnect?: () => void;
   private onRegisterRejected?: (sessionId: string, reason: string) => void;
   private getSessionIdForReports?: () => string | undefined;
@@ -182,9 +206,24 @@ export class ConnectionManager {
    */
   private suppressUntil = 0;
 
+  /** Upgrade headers presented on every (re)connect. */
+  private headers?: Record<string, string>;
+  private prepareConnect?: () => Promise<{ url?: string } | undefined>;
+
   constructor(options: ConnectionManagerOptions) {
     this.url = options.url;
-    this.WS = options.WebSocketImpl ?? (globalThis as any).WebSocket;
+    this.headers = options.headers;
+    // The `ws` package, NOT `globalThis.WebSocket`.
+    //
+    // Two independent requirements force this, and one swap satisfies both:
+    //   - `ws+unix://<path>:/` is rejected outright by the global/undici
+    //     WebSocket (`DOMException: expected a ws: or wss: url`), so the
+    //     local socket transport is unreachable without it (D1);
+    //   - the Windows local-token credential rides an `X-Pi-Local-Token`
+    //     upgrade header, and the global WebSocket cannot set headers (D6).
+    // See change: add-pi-gateway-transport-identity (task 2.6).
+    this.WS = options.WebSocketImpl ?? WsWebSocket;
+    this.prepareConnect = options.prepareConnect;
     // Validate the numeric options up front: a negative bound would refuse
     // every message and a NaN/Infinity bound would disable the limit entirely
     // (`length >= NaN` is always false), both silently.
@@ -198,6 +237,7 @@ export class ConnectionManager {
       0,
     );
     this.onMessage = options.onMessage;
+    this.onOpen = options.onOpen;
     this.onReconnect = options.onReconnect;
     this.onRegisterRejected = options.onRegisterRejected;
     this.getSessionIdForReports = options.getSessionId;
@@ -426,8 +466,35 @@ export class ConnectionManager {
   }
 
   private createConnection(): void {
+    if (!this.prepareConnect) {
+      this.openSocket();
+      return;
+    }
+    void this.prepareThenOpen().catch(() => this.onPrepareFailed());
+  }
+
+  /** Apply a per-attempt URL override (e.g. a freshly minted ticket). */
+  private async prepareThenOpen(): Promise<void> {
+    const override = await this.prepareConnect?.();
+    if (override?.url) this.url = override.url;
+    this.openSocket();
+  }
+
+  /**
+   * Preparation failed (no credential, dashboard unreachable). Retry on the
+   * normal backoff rather than dialling without it: the server would refuse
+   * the upgrade anyway, and the operator would see a connection error instead
+   * of a credential one.
+   */
+  private onPrepareFailed(): void {
+    if (!this.intentionalClose) this.scheduleReconnect();
+  }
+
+  private openSocket(): void {
     try {
-      this.ws = new this.WS(this.url);
+      this.ws = this.headers
+        ? new this.WS(this.url, { headers: this.headers })
+        : new this.WS(this.url);
     } catch {
       // Constructor failed — schedule reconnect
       this.ws = null;
@@ -447,6 +514,7 @@ export class ConnectionManager {
         this.onReconnect?.();
       }
       this.hasConnectedBefore = true;
+      this.onOpen?.();
 
       // Flush buffer
       const buffered = [...this.buffer];
