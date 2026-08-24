@@ -666,6 +666,7 @@ const zhCN: Record<string, string> = {
   "session.abortedMaxTurnsExceeded": "已中止（超出最大回合数）",
   "session.activePiSession": "活动 pi 会话",
   "session.askUserPromptTimeoutSeconds": "ask_user 提示超时",
+  "session.attachedImages": "附加的图片",
   "session.backToChat": "返回聊天",
   "session.clearAllFollowUp": "清除所有后续消息",
   "session.clearAllFollowUpEntries": "清除所有后续消息",

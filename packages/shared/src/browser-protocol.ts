@@ -17,6 +17,7 @@ import type {
   ExtensionUiModule,
   FileEntry,
   FlowInfo,
+  FollowUpEntryView,
   GoalRecord,
   ImageContent,
   ModelInfo,
@@ -1149,13 +1150,17 @@ export interface ClearFollowupEntriesFromBrowserMessage {
   indices: number[] | "all";
 }
 
-/** Replaces `bridgeFollowUp[index]`. Mutates bridge buffer only — no pi call. */
+/**
+ * Replaces the TEXT of `bridgeFollowUp[index]`; the entry's buffered images are
+ * preserved. Mutates bridge buffer only — no pi call. The former `images` field
+ * was retired in `fix-bridge-followup-image-drop` (design D5): the browser never
+ * holds the bytes after the initial `send_prompt`, so it was unpopulatable.
+ */
 export interface EditFollowupEntryFromBrowserMessage {
   type: "edit_followup_entry";
   sessionId: string;
   index: number;
   text: string;
-  images?: ImageContent[];
 }
 
 /** Splices `bridgeFollowUp[index]`. Mutates bridge buffer only — no pi call. */
@@ -1181,7 +1186,8 @@ export interface QueueUpdateToBrowserMessage {
   type: "queue_update";
   sessionId: string;
   steering: string[];
-  followUp: string[];
+  /** Entry views: text + image COUNT. Image bytes never cross the wire (design D2). */
+  followUp: FollowUpEntryView[];
 }
 
 /**
