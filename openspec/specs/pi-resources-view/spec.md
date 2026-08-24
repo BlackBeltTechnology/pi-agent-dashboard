@@ -2,17 +2,6 @@
 
 The Pi Resources view is the workspace's content-area surface for browsing every pi-resource (skill, extension, prompt) available to a session — loose files in `<cwd>/.pi/` and `~/.pi/agent/` plus the resources contributed by installed packages — and for managing the workspace's installed packages.
 ## Requirements
-### Requirement: Folder header navigation button
-The sidebar folder header SHALL include a button to navigate to the Pi Resources view.
-
-#### Scenario: Button presence
-- **WHEN** a folder group is rendered in the sidebar
-- **THEN** a Pi Resources button SHALL appear in the button row alongside [+ Session] and [+ Terminal]
-
-#### Scenario: Button click
-- **WHEN** the user clicks the Pi Resources button
-- **THEN** the content area SHALL display the PiResourcesView for that folder's cwd
-
 ### Requirement: PiResourcesView content area
 The dashboard SHALL display a PiResourcesView in the main content area.
 
@@ -105,14 +94,6 @@ The PiResourcesView SHALL work on mobile using MobileShell patterns.
 - **WHEN** the user navigates to PiResourcesView on mobile
 - **THEN** it SHALL render as a full-screen panel with slide transition
 - **AND** swipe-back gesture SHALL return to the previous view
-
-### Requirement: Pi Resources button icon
-The Pi Resources button in the folder action bar SHALL use `mdiToyBrickOutline` (or `mdiPackageVariantClosed`) from the MDI icon set instead of `mdiPuzzleOutline`.
-
-#### Scenario: Icon displayed
-- **WHEN** the folder action bar is rendered
-- **THEN** the Pi Resources button SHALL display the updated icon
-- **THEN** the button SHALL retain its right-aligned position in the action bar
 
 ### Requirement: Resources view shows installed pi resources for a workspace
 The PiResourcesView SHALL include a tab bar with "Installed" (existing view) and "Packages" (new) tabs. The "Packages" tab SHALL display the PackageBrowser in local scope, showing installed local packages and allowing search/install/remove/update for the workspace's `.pi/settings.json`.

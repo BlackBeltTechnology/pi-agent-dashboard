@@ -29,6 +29,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `knip-baseline.json` | (repo root) Knip dead-code baseline. Per-class debt counts, measured 2026-08-13. Debt ceiling, not target. → see `knip-baseline.json.AGENTS.md` |
 | `knip.json` | (repo root) Knip 6.32.2 whole-graph dead-code config. 38 workspaces. → see `knip.json.AGENTS.md` |
 | `migration/from-pi-model-proxy.md` | Migration guide `@blackbelt-technology/pi-model-proxy` → dashboard built-in proxy. → see `migration/from-pi-model-proxy.md.AGENTS.md` |
+| `migration/slot-pill-actions-to-folder-menu.md` | Plugin-author migration guide. `SlotPill.actions?: ReactNode` removed; replace with `useFolderMenuItem` + `useFolderMenuRefresher`. See change: move-slot-actions-to-menu. → see `migration/slot-pill-actions-to-folder-menu.md.AGENTS.md` |
 | `perf-ws-broadcast-load.md` | WS broadcast load harness. Measures head-of-line blocking on single browser WS. `createDrainingWs` timing-aware fake socket drives real gateway. Test-only, regression-gated. |
 | `plan/electron-app.md` | Comprehensive Electron desktop-app plan. Bundle dashboard standalone macOS/Linux/Windows, zero prereqs,… → see `plan/electron-app.md.AGENTS.md` |
 | `playwright.config.ts` | (repo root) Playwright config. testDir `tests/e2e`, `use.baseURL` imports `BASE_URL` from lifecycle.ts,… → see `playwright.config.ts.AGENTS.md` |

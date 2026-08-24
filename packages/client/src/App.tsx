@@ -164,6 +164,7 @@ import {
   ContentHeaderStickySlot,
   ContentInlineFooterSlot,
   ContentViewSlot,createSlotRegistry, 
+  FolderMenuProvider,
   forSession,
   ShellOverlayRouteSlot,
   ShellSessionsProvider,
@@ -2333,6 +2334,7 @@ export default function App() {
         t={t}
         language={language}
       >
+      <FolderMenuProvider>
       <ShellSessionsProvider value={sessions}>
         <ErrorBoundary fallback={
           <div className="min-h-screen flex items-center justify-center p-8 bg-[var(--bg-primary)] text-[var(--text-primary)]" data-testid="shell-error-fallback">
@@ -2376,6 +2378,7 @@ export default function App() {
           </SplitWorkspaceProvider>
         </ErrorBoundary>
       </ShellSessionsProvider>
+      </FolderMenuProvider>
       </PluginContextProvider>
       </ModelConfigProvider>
       </CommitDialogProvider>

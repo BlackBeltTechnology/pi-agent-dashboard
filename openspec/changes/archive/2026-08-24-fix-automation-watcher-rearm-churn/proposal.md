@@ -64,6 +64,14 @@ None.
   change. See the note in Why.
 - **Replacing `fs.watch` with a different watch strategy** (chokidar, polling,
   a single watcher with path prefix routing). Larger surface, no measured need.
+- **Re-arming a silently-stalled `fs.watch` handle.** The old 2 s detach-all/
+  re-attach-all cycle incidentally healed a handle that stopped delivering events
+  without emitting `error` (FSEvents-after-sleep, inotify exhaustion). The
+  steady-state no-op removes that accidental self-heal. Consciously accepted:
+  the stall mode is unobserved in this codebase, and paying ~300 handle rebuilds
+  every 2 s as an unmeasured insurance premium is what this change exists to
+  stop. A watch-liveness probe or a low-frequency forced re-arm is the follow-up
+  if the mode is ever observed.
 - **The identical pattern in `openspec-change-watcher.ts`**, which this module was
   cloned from. It is already guarded against re-attach and is a bounded one-time
   cost — mentioned, not touched.

@@ -45,6 +45,10 @@ export default defineConfig({
       "packages/subagents-plugin",
       "packages/goal-plugin",
       "packages/grammar-plugin",
+      // kb-plugin carries the KB folder slot's state→menu-item contract; it was
+      // collected by no project, so its suite never ran. A gate no CI job runs
+      // is not a gate. See change: move-slot-actions-to-menu.
+      "packages/kb-plugin",
       "packages/blackhole-plugin",
       "packages/mcp-server-plugin",
       "scripts",
