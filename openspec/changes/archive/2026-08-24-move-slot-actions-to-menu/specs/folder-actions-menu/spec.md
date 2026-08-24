@@ -30,6 +30,12 @@ another's.
 - **THEN** no mutation control SHALL render outside the folder actions menu, other than the tier-0 banner's call to action
 - **AND** the slot pills SHALL render no action buttons
 
+#### Scenario: Controls outside the header row are unaffected
+
+- **WHEN** an expanded folder card renders while `FolderActionBar` holds an Initialize or cleanup control
+- **THEN** those controls SHALL continue to render on their own row
+- **AND** their presence SHALL NOT be treated as a violation of this requirement
+
 #### Scenario: Opening the menu neither navigates nor collapses
 
 - **GIVEN** an expanded folder
@@ -43,8 +49,6 @@ another's.
 - **GIVEN** two folder headers rendered in the sidebar
 - **WHEN** the user opens one folder's actions menu
 - **THEN** the other folder's menu SHALL remain closed
-
-## ADDED Requirements
 
 ### Requirement: Menu groups are a fixed host-owned taxonomy
 
@@ -68,6 +72,11 @@ an add-to-workspace item SHALL appear only where that affordance renders today, 
 remove-from-workspace item only for workspace-owned folders, and a pin item only where pinning
 is meaningful.
 
+The `directory` group SHALL additionally contain a **manage-worktrees** item,
+opening the shared worktree list in `manage` mode for that folder's `cwd`. It is
+the only session-independent entry point to worktree removal, so it SHALL be
+gated on the folder being a git repository rather than on any session state.
+
 **Within** a group, items SHALL be ordered by an explicit, registration-independent key:
 host-owned items first in their declared order, then contributed items sorted by the
 contributing plugin's identity and, within one plugin, by contribution id. Declaring only that
@@ -76,9 +85,10 @@ mounted.
 
 #### Scenario: Top-level folder outside a workspace
 
-- **WHEN** the folder actions menu opens for a top-level folder outside any workspace
+- **WHEN** the folder actions menu opens for a top-level folder outside any workspace **that is a git repository**
 - **THEN** the workspace group SHALL contain an add-to-workspace item
-- **AND** the directory group SHALL contain pin, urgency sort, and directory settings
+- **AND** the directory group SHALL contain pin, urgency sort, directory settings, and manage worktrees
+- **AND** for a folder that is NOT a git repository the same groups SHALL appear WITHOUT the manage-worktrees item
 
 #### Scenario: Workspace-owned folder omits what does not apply
 
@@ -86,6 +96,16 @@ mounted.
 - **THEN** the workspace group SHALL contain a remove-from-workspace item
 - **AND** it SHALL NOT contain an add-to-workspace item
 - **AND** the directory group SHALL NOT contain a pin item
+
+#### Scenario: Manage worktrees is gated on the folder being a git repository
+
+- **WHEN** the folder actions menu opens for a folder that is not a git repository
+- **THEN** the directory group SHALL NOT contain a manage-worktrees item
+
+#### Scenario: Manage worktrees does not depend on session state
+
+- **WHEN** the folder actions menu opens for a git repository with no live sessions
+- **THEN** the directory group SHALL still contain a manage-worktrees item
 
 #### Scenario: Create actions land in CREATE
 
@@ -103,6 +123,8 @@ mounted.
 - **GIVEN** a folder for which no workspace-group item applies
 - **WHEN** the menu opens
 - **THEN** the workspace group heading SHALL NOT render
+
+## ADDED Requirements
 
 ### Requirement: The three plain slot refreshes collapse to one
 
