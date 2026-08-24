@@ -2,20 +2,24 @@
  * FolderGoalsSection — `sidebar-folder-section` slot claim.
  *
  * Sibling of the OpenSpec / Automations folder nav slots: shows
- * `Goals (N) →` (opens the goals board for this folder) plus a `+ Goal`
- * create affordance that opens the shared `CreateGoalDialog` modal (parity
- * with the automation plugin's `CreateAutomationDialog`).
+ * `Goals (N) →` (opens the goals board for this folder). The pill is
+ * STATE-ONLY — goal creation is a `CREATE`-group item and the refetch is a
+ * refresher folded into the menu's single `MAINTENANCE` refresh.
  *
  * Plugin-local: navigates the shell in-app via wouter's `useLocation`; no
  * core/shell edit. See change: add-goals-folder-page (tasks 3.1, 3.2);
- * redesign-goal-create-dialog (task 2.1).
+ * redesign-goal-create-dialog (task 2.1); move-slot-actions-to-menu.
  */
-import { SlotPill, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import {
+  SlotPill,
+  useFolderMenuItem,
+  useFolderMenuRefresher,
+  useT,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { FolderDescriptor } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
-import { mdiPlus, mdiRefresh, mdiTarget } from "@mdi/js";
-import { Icon } from "@mdi/react";
+import { mdiPlus, mdiTarget } from "@mdi/js";
 import type React from "react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { useLocation } from "wouter";
 import { CreateGoalDialog } from "./CreateGoalDialog.js";
 import { goalsBoardUrl } from "./goals-api.js";
@@ -28,6 +32,22 @@ export function FolderGoalsSection({ folder }: { folder: FolderDescriptor }): Re
   const { goals, refetch } = useGoals(cwd);
   const [creating, setCreating] = useState(false);
 
+  const newGoalLabel = t("goalButton", undefined, "New goal");
+  useFolderMenuItem(
+    cwd,
+    useMemo(
+      () => ({
+        id: "new-goal",
+        group: "create" as const,
+        label: newGoalLabel,
+        icon: mdiPlus,
+        onSelect: () => setCreating(true),
+      }),
+      [newGoalLabel],
+    ),
+  );
+  useFolderMenuRefresher(cwd, refetch);
+
   if (!cwd) return null;
 
   return (
@@ -39,29 +59,6 @@ export function FolderGoalsSection({ folder }: { folder: FolderDescriptor }): Re
         activateTestId="folder-goals-open-board"
         activateTitle={t("openGoalsBoard", undefined, "Open goals board")}
         onActivate={() => navigate(goalsBoardUrl(cwd))}
-        actions={
-          <>
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); refetch(); }}
-              className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-1"
-              title={t("refresh", undefined, "Refresh")}
-              data-testid="folder-goals-refresh"
-            >
-              <Icon path={mdiRefresh} size={0.5} />
-            </button>
-            <button
-              type="button"
-              onClick={(e) => { e.stopPropagation(); setCreating((v) => !v); }}
-              className="text-[10px] px-1 py-0.5 rounded border text-indigo-400 border-indigo-500/40 bg-indigo-500/5 hover:text-indigo-300 hover:border-indigo-500/70"
-              data-testid="folder-goal-new-btn"
-              title={t("goalButton", undefined, "New goal")}
-              aria-label={t("goalButton", undefined, "New goal")}
-            >
-              <Icon path={mdiPlus} size={0.5} />
-            </button>
-          </>
-        }
       >
         <span data-testid="folder-goals-count">{goals.length}</span>
         <span className="text-[10px] font-semibold text-[var(--text-tertiary)]">{t("goalsUnit", undefined, "active")}</span>

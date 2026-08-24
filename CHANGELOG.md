@@ -99,6 +99,26 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **BREAKING (dashboard plugins): `SlotPill.actions?: ReactNode` is removed.**
+  A plugin can no longer render arbitrary markup into a directory-card slot pill;
+  the pill is state-only. Passing `actions` is now a compile-time error, with no
+  runtime shim that accepts or converts it.
+
+  Plugins instead contribute declarative items to the folder actions menu:
+  `useFolderMenuItem(scope, { id, group, label, icon, onSelect, badge?, disabled? })`,
+  plus `useFolderMenuRefresher(scope, refresh)` for a callback with no item of
+  its own. `group` is one of the host-owned verb taxonomy
+  `workspace · directory · create · open · maintenance`. Migration guide:
+  [`docs/migration/slot-pill-actions-to-folder-menu.md`](docs/migration/slot-pill-actions-to-folder-menu.md).
+
+- **The directory card's ten slot-pill action buttons became menu items.** The
+  per-slot Automations/Goals/OpenSpec refreshes collapse into one "Refresh
+  folder" item, the KB `Reindex` / `Index now` / `Retry` controls collapse into
+  one state-varying item that keeps its stale badge, `+ Automation` / `+ Goal`
+  move to `CREATE`, and the OpenSpec Archive/Specs shortcuts move to `OPEN` with
+  slot-qualified labels. Every pill is now a single click target that reads a
+  number; the menu is what changes something.
+
 - **BREAKING (macOS): the desktop app now requires macOS 12 (Monterey) or newer.**
   macOS 10.15 (Catalina) and 11 (Big Sur) are no longer supported.
 

@@ -3,9 +3,7 @@
 ## Purpose
 
 The kb-plugin registers a per-folder KB section into the dashboard's folder and worktree card slots, plus an overlay route for the per-folder KB settings page. The section surfaces a folder's KB index state and offers a link into settings; navigation carries the folder's working directory encoded as a URL-safe base64url token.
-
 ## Requirements
-
 ### Requirement: Folder KB section slot registration
 
 The plugin SHALL register a KB section component into the dashboard's folder-row and worktree-card slots so every folder and worktree surface shows a KB entry.
@@ -82,35 +80,49 @@ The section SHALL render a KB status summary derived from the folder's KB stats 
 
 ### Requirement: Reindex action affordance
 
-The section SHALL expose a per-state action control, separate from the settings label, that triggers a reindex of the folder's KB.
+The KB folder section SHALL NOT render an action control inside its pill. It SHALL instead contribute a single declarative reindex item to the `folder-actions-menu` slot, in the `MAINTENANCE` group, which triggers a reindex of the folder's KB.
 
-#### Scenario: Action control varies by state
+That contribution SHALL be made ONLY from the section's **sidebar** placement. The same section also renders in the worktree-card placement, whose scope has no folder actions menu, and it SHALL register nothing there — otherwise its item lands in a scope with nothing to render it. See `folder-actions-menu` → "Card-placement sections do not register".
 
-- **WHEN** the section renders in the `error` state
-- **THEN** a "Retry" button is shown that calls `reindex()` on activation
-- **WHEN** the section renders in the `indexing` state
-- **THEN** a spinning refresh icon is shown in place of an action button
-- **WHEN** the section renders in the `not-indexed` state
-- **THEN** an "Index now" button is shown that calls `reindex()` on activation
-- **WHEN** the section renders in the `stale` or `populated` state
-- **THEN** a refresh-icon button is shown that calls `reindex()` on activation
-- **AND** the reindex control activation does not also open settings (click propagation is stopped)
+That one item SHALL express every former state through its own label, badge and disabled state — not through separate items: "Retry" in the `error` state, disabled with an in-progress indication in the `indexing` state, "Index now" in the `not-indexed` state, and "Reindex" in the `stale` or `populated` state, carrying the stale badge when stale. Because activation now happens in the menu, the former click-propagation carve-out (stopping the action from also opening settings) no longer applies.
+
+#### Scenario: State varies the single menu item
+
+- **WHEN** the KB is in the `error` state
+- **THEN** the menu SHALL show one KB item labelled "Retry" that calls `reindex()` on activation
+- **WHEN** the KB is in the `indexing` state
+- **THEN** the menu SHALL show one KB item that is disabled and indicates progress
+- **WHEN** the KB is in the `not-indexed` state
+- **THEN** the menu SHALL show one KB item labelled "Index now" that calls `reindex()` on activation
+- **WHEN** the KB is in the `stale` or `populated` state
+- **THEN** the menu SHALL show one KB item labelled "Reindex" that calls `reindex()` on activation
+
+#### Scenario: Never more than one KB action
+
+- **WHEN** the menu renders for any KB state
+- **THEN** exactly one KB reindex item SHALL render
+
+#### Scenario: Pill carries no action control
+
+- **WHEN** the KB folder section renders its pill
+- **THEN** no reindex, retry or index-now control SHALL render inside the pill
 
 ### Requirement: Optimistic pending and double-submit prevention
 
-The section SHALL reflect a reindex click immediately and SHALL prevent a second submission while a reindex is in flight.
+The section SHALL reflect a reindex activation immediately and SHALL prevent a second submission while a reindex is in flight.
 
-#### Scenario: Click renders the indexing branch optimistically
+#### Scenario: Activation renders the indexing branch optimistically
 
-- **WHEN** the user activates the reindex control and `pending` becomes true
+- **WHEN** the user activates the reindex menu item and `pending` becomes true
 - **THEN** the section renders the `indexing` branch immediately, before the server's 202 response or first stats poll
 - **AND** an `error` condition still outranks `pending` so a rejected trigger shows the error/Retry state instead of a spinner
 
-#### Scenario: Action controls disabled while busy
+#### Scenario: Menu item disabled while busy
 
 - **WHEN** `busy` is true, where `busy` is `pending` OR `stats.indexing`
-- **THEN** the "Index now" and refresh-icon reindex buttons are disabled
+- **THEN** the KB reindex menu item SHALL render disabled and SHALL NOT invoke its callback
 - **AND** this covers the whole pending-plus-indexing window to prevent double-submit
+- **AND** the guard SHALL cover the optimistic `pending` window, not only the polled `indexing` state
 
 ### Requirement: Error state from client-side and poll failures
 
@@ -125,3 +137,4 @@ The section SHALL treat a rejected reindex trigger or a persistent stats-poll ou
 - **WHEN** the folder's KB stats report `jobStatus === "error"`
 - **THEN** the section renders the `error` state
 - **AND** the client-side error (`reindexError` or `error`) takes precedence over the stats-derived state when present
+

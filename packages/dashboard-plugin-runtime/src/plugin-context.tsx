@@ -202,6 +202,16 @@ export function useT(): (
   };
 }
 
+/**
+ * @public — the id of the plugin whose slot contribution is currently
+ * rendering, or `null` outside a `CurrentPluginLayer`. Registration APIs stamp
+ * plugin identity from HERE rather than from a caller-supplied payload, so a
+ * plugin cannot declare itself as another.
+ */
+export function useCurrentPluginId(): string | null {
+  return useContext(CurrentPluginContext)?.pluginId ?? null;
+}
+
 /** @public — the active UI language code, or "en" when unwired. */
 export function useLanguage(): string {
   const outer = useContext(PluginReactContext);
