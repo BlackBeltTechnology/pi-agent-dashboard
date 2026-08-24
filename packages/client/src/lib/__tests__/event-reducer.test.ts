@@ -1376,14 +1376,17 @@ describe("command_feedback events", () => {
       expect(s2.messages).toHaveLength(1);
     });
 
-    it("should ignore duplicate pending request with same method+title but different requestId", () => {
+    it("should surface two concurrent pending requests sharing a title but with distinct requestIds", () => {
+      // Two parallel tool calls (e.g. update_roles) mint distinct ids with a
+      // constant title; both must surface and be independently answerable. The
+      // former content dedup (method+title) dropped the second.
+      // See change: surface-concurrent-ask-user-prompts.
       const initial = createInitialState();
 
       const s1 = addInteractiveRequest(initial, "req-1", "confirm", { title: "Continue?" });
-      // Different requestId, same method+title (recursive proxy scenario)
       const s2 = addInteractiveRequest(s1, "req-2", "confirm", { title: "Continue?" });
-      expect(s2).toBe(s1);
-      expect(s2.interactiveRequests).toHaveLength(1);
+      expect(s2.interactiveRequests).toHaveLength(2);
+      expect(s2.interactiveRequests.map((r) => r.requestId)).toEqual(["req-1", "req-2"]);
     });
 
     it("should allow same title after previous request is resolved", () => {
