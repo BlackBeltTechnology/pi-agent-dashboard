@@ -1,0 +1,232 @@
+{
+  "X1": {
+    "killMechanism": "force_kill",
+    "resyncRequestsDuringRun": 0,
+    "replayedFrames": 8,
+    "storedTerminalFrames": 0,
+    "storedTimelineFrames": 0,
+    "lastObservedTickIndex": -1,
+    "renderedEntryCount": 0
+  },
+  "F1": {
+    "convergedBeforeTerminal": true,
+    "pushFramesObserved": 102,
+    "fatPushFrames": 0,
+    "repliesObserved": 3,
+    "cadenceRequests": 2,
+    "openRequests": 1,
+    "maxEntriesInAnyOpenTimeReply": 5,
+    "maxRenderedDuringRun": 30,
+    "terminalFrameEntryCount": 30,
+    "observed": "on completion the Agent row is re-grouped into a tool-burst-group header with no reachable Details pill, so the inline timeline unmounts. Pinned as observed; out of scope for this change."
+  },
+  "P1-harness-ceiling": {
+    "windowMs": 6000,
+    "samples": [
+      {
+        "n": 1,
+        "frames": 145
+      },
+      {
+        "n": 3,
+        "frames": 143
+      },
+      {
+        "n": 5,
+        "frames": 143
+      }
+    ],
+    "baseline": 145,
+    "ceiling": 5
+  },
+  "F4": {
+    "stripOffPushesAreFat": true
+  },
+  "P2-P3-push-arm": {
+    "windowMs": 6000,
+    "N": 3,
+    "rows": [
+      {
+        "bus": 250,
+        "run": 0,
+        "N": 3,
+        "replyBytesPerSec": 379,
+        "pushBytesPerSec": 53635,
+        "repliesPerSec": 0.16666666666666666,
+        "frames": 142,
+        "toolCarrierFrames": 117,
+        "busCarrierFrames": 25
+      },
+      {
+        "bus": 250,
+        "run": 1,
+        "N": 3,
+        "replyBytesPerSec": 379,
+        "pushBytesPerSec": 53229.166666666664,
+        "repliesPerSec": 0.16666666666666666,
+        "frames": 142,
+        "toolCarrierFrames": 118,
+        "busCarrierFrames": 24
+      },
+      {
+        "bus": 250,
+        "run": 2,
+        "N": 3,
+        "replyBytesPerSec": 379,
+        "pushBytesPerSec": 53209.5,
+        "repliesPerSec": 0.16666666666666666,
+        "frames": 142,
+        "toolCarrierFrames": 118,
+        "busCarrierFrames": 24
+      },
+      {
+        "bus": 100,
+        "run": 0,
+        "N": 3,
+        "replyBytesPerSec": 379,
+        "pushBytesPerSec": 65534.833333333336,
+        "repliesPerSec": 0.16666666666666666,
+        "frames": 178,
+        "toolCarrierFrames": 118,
+        "busCarrierFrames": 60
+      },
+      {
+        "bus": 1000,
+        "run": 0,
+        "N": 3,
+        "replyBytesPerSec": 379,
+        "pushBytesPerSec": 47336.83333333333,
+        "repliesPerSec": 0.16666666666666666,
+        "frames": 124,
+        "toolCarrierFrames": 117,
+        "busCarrierFrames": 7
+      }
+    ],
+    "headline": {
+      "busIntervalMs": 250,
+      "pushBytesPerSecMedian": 53229.166666666664,
+      "pushBytesPerSecSpread": 425.5
+    },
+    "note": "pushBytesPerSec EXCLUDES __resyncRequestId frames: the client still pulls in this arm, so counting replies here would inflate 'the bytes the strip removes'."
+  },
+  "P2-P3-pull-arm": {
+    "windowMs": 6000,
+    "N": 3,
+    "rows": [
+      {
+        "bus": 250,
+        "run": 0,
+        "N": 3,
+        "replyBytesPerSec": 1050.1666666666667,
+        "pushBytesPerSec": 15574.833333333334,
+        "repliesPerSec": 0.5,
+        "frames": 142,
+        "toolCarrierFrames": 116,
+        "busCarrierFrames": 26
+      },
+      {
+        "bus": 250,
+        "run": 1,
+        "N": 3,
+        "replyBytesPerSec": 1059.8333333333335,
+        "pushBytesPerSec": 15554.5,
+        "repliesPerSec": 0.5,
+        "frames": 142,
+        "toolCarrierFrames": 116,
+        "busCarrierFrames": 26
+      },
+      {
+        "bus": 250,
+        "run": 2,
+        "N": 3,
+        "replyBytesPerSec": 1059.8333333333335,
+        "pushBytesPerSec": 15653,
+        "repliesPerSec": 0.5,
+        "frames": 143,
+        "toolCarrierFrames": 116,
+        "busCarrierFrames": 27
+      },
+      {
+        "bus": 100,
+        "run": 0,
+        "N": 3,
+        "replyBytesPerSec": 1069.5,
+        "pushBytesPerSec": 18315.333333333336,
+        "repliesPerSec": 0.5,
+        "frames": 177,
+        "toolCarrierFrames": 116,
+        "busCarrierFrames": 61
+      },
+      {
+        "bus": 1000,
+        "run": 0,
+        "N": 3,
+        "replyBytesPerSec": 1050.1666666666667,
+        "pushBytesPerSec": 14371.666666666666,
+        "repliesPerSec": 0.5,
+        "frames": 126,
+        "toolCarrierFrames": 117,
+        "busCarrierFrames": 9
+      }
+    ],
+    "headline": {
+      "busIntervalMs": 250,
+      "replyBytesPerSecMedian": 1059.8333333333335,
+      "replyBytesPerSecSpread": 9.666666666666742
+    },
+    "note": "Pull = bytes/s of frames bearing __resyncRequestId, per subscriber. The bytes the strip REMOVES are (push_stripOff - push_stripOn), the push arm coming from the separate PI_DASHBOARD_SUBAGENT_STRIP=0 harness start. A verdict inside the run-to-run spread is INCONCLUSIVE — a shippable outcome, since the measurement infrastructure is the deliverable."
+  },
+  "P4-inspector-open-share": {
+    "note": "A scripted harness cannot yield a FIELD-representative share — the number is whatever the watch pattern makes it. Each reading is reported WITH its pattern. The 50% arm sits ON the C4 boundary by construction. The field number still comes from the production counter.",
+    "readings": [
+      {
+        "id": "unwatched",
+        "pattern": "never opened",
+        "openAt": -1,
+        "holdFor": 0,
+        "runtimeMs": 12000,
+        "telemetry": {
+          "runtimeMs": 11175,
+          "inspectorOpenMs": 0,
+          "share": 0
+        }
+      },
+      {
+        "id": "glance",
+        "pattern": "open at 25% of runtime, hold 25%",
+        "openAt": 0.25,
+        "holdFor": 0.25,
+        "runtimeMs": 12000,
+        "telemetry": {
+          "runtimeMs": 17292,
+          "inspectorOpenMs": 3055,
+          "share": 0.17667129308350682
+        }
+      },
+      {
+        "id": "threshold",
+        "pattern": "open at 25% of runtime, hold 50%",
+        "openAt": 0.25,
+        "holdFor": 0.5,
+        "runtimeMs": 12000,
+        "telemetry": {
+          "runtimeMs": 20311,
+          "inspectorOpenMs": 6071,
+          "share": 0.2989020727684506
+        }
+      },
+      {
+        "id": "watched",
+        "pattern": "open before the first entry, never closed",
+        "openAt": 0,
+        "holdFor": 1,
+        "runtimeMs": 12000,
+        "telemetry": {
+          "runtimeMs": 12051,
+          "inspectorOpenMs": 12003,
+          "share": 0.996016928055763
+        }
+      }
+    ]
+  }
+}

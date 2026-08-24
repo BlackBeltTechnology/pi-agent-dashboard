@@ -116,6 +116,14 @@ services:
       # coexist (first-registration-wins). Requires PI_E2E_SEED=1. Unset =
       # harness unchanged (real subagents).
       PI_SYNTH_AGENT_TICKS: "${PI_SYNTH_AGENT_TICKS:-}"
+      # Bridge subagent-timeline strip (change: reduce-subagent-details-payload,
+      # D2). `0` forwards every frame UNSTRIPPED — the push arm of the
+      # pull-vs-push A/B, and the anti-vacuity arm proving the strip is what
+      # makes the pushes thin. Read per call by the bridge, but a container env
+      # var is fixed for the life of the harness, so each arm is a SEPARATE
+      # test-up. Unset = strip ON (production default).
+      # See change: verify-subagent-pull-under-load.
+      PI_DASHBOARD_SUBAGENT_STRIP: "${PI_DASHBOARD_SUBAGENT_STRIP:-}"
 
     volumes:
       # Path-parity: host CWD as the read-only overlay lower layer. The
