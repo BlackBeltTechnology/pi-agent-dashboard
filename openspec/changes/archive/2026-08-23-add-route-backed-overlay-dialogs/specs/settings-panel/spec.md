@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Settings panel view
-The settings panel SHALL render in a route-backed overlay container in the main content area when the route matches `/settings/:page?/:sub?`: a `Dialog` over a plain backdrop on desktop, and a `MobileShell` depth-1 detail panel on mobile. The route that launched it SHALL NOT remain mounted behind it. It SHALL display a fixed header (back button, title, Restart button), a navigation listing pages grouped by concern, and a content area for the active page. The header SHALL remain visible at all times regardless of scroll position. A single `SettingsPanel` instance SHALL remain mounted across page changes so unsaved edits on any page persist until Save. Persistence SHALL be driven by a dirty-gated **Save Bar** (see "Settings Save Bar"), not by a header Save button.
+The settings panel SHALL render in a route-backed overlay container in the main content area when the route matches `/settings/:page?/:sub?`: a `Dialog` over a scrim over the pinned background underlay on desktop, and a `MobileShell` depth-1 detail panel on mobile. The route that launched it SHALL remain visible behind it as the pinned underlay, rendered from the frozen background path rather than the current location. It SHALL display a fixed header (back button, title, Restart button), a navigation listing pages grouped by concern, and a content area for the active page. The header SHALL remain visible at all times regardless of scroll position. A single `SettingsPanel` instance SHALL remain mounted across page changes so unsaved edits on any page persist until Save. Persistence SHALL be driven by a dirty-gated **Save Bar** (see "Settings Save Bar"), not by a header Save button.
 
 Dismissing the panel — via the back button, `Esc`, or a backdrop click — SHALL leave the settings surface entirely and return to the route that launched it. Because in-panel navigation pushes history entries, dismissal SHALL NOT be implemented as a single history step.
 
@@ -107,8 +107,8 @@ A config key's Save Bar page attribution is resolved from `CONFIG_FIELD_PAGE` by
 
 #### Scenario: Panel renders in an overlay container on desktop
 - **WHEN** the route matches `/settings/:page?/:sub?` on a desktop viewport
-- **THEN** the settings panel SHALL render in a `Dialog` over a plain backdrop
-- **AND** the launching route SHALL NOT be rendered behind it
+- **THEN** the settings panel SHALL render in a `Dialog` over a scrim
+- **AND** the launching route SHALL be rendered behind it as the pinned underlay, `aria-hidden` and non-interactive
 
 #### Scenario: Panel renders as a depth panel on mobile
 - **WHEN** the route matches `/settings/:page?/:sub?` on a mobile viewport

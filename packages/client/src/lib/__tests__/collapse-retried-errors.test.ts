@@ -1,7 +1,7 @@
-import { describe, it, expect } from "vitest";
-import { findRetriedErrorIds, findActiveInteractiveToolResultIds, findSurfaceSuppressedErrorIds } from "../chat/collapse-retried-errors.js";
-import { createInitialState, reduceEvent, type ChatMessage } from "../chat/event-reducer.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it } from "vitest";
+import { findActiveInteractiveToolResultIds, findRetriedErrorIds, findSurfaceSuppressedErrorIds } from "../chat/collapse-retried-errors.js";
+import { type ChatMessage, createInitialState, reduceEvent } from "../chat/event-reducer.js";
 
 let _counter = 0;
 function nextId() {
@@ -244,5 +244,29 @@ describe("retried-error pill survives [text, toolCall] reorder (fix-text-tool-re
     expect(errorTool.toolStatus).toBe("error");
     const retried = findRetriedErrorIds(state.messages);
     expect(retried.has(errorTool.id)).toBe(true);
+  });
+});
+
+/**
+ * An `elided` retry must NOT collapse the error before it — test-plan E29's
+ * sibling case, found by the review's renderer audit rather than by the
+ * original D5 table.
+ *
+ * `elided` means the retry's result is not loadable, so its outcome is UNKNOWN.
+ * Collapsing the preceding error behind it would present that unknown as a
+ * recovery, which is exactly the misattribution `elided` exists to prevent.
+ * See change: fix-lazy-history-backfill-ux (D5).
+ */
+describe("findRetriedErrorIds — an elided retry (fix-lazy-history-backfill-ux)", () => {
+  it("does not collapse an error whose retry is elided", () => {
+    const failed = tool({ toolStatus: "error" });
+    const retry = tool({ toolStatus: "elided" });
+    expect(findRetriedErrorIds([failed, retry]).has(failed.id)).toBe(false);
+  });
+
+  it("CONTROL: the same shape with a complete retry still collapses", () => {
+    const failed = tool({ toolStatus: "error" });
+    const retry = tool({ toolStatus: "complete" });
+    expect(findRetriedErrorIds([failed, retry]).has(failed.id)).toBe(true);
   });
 });

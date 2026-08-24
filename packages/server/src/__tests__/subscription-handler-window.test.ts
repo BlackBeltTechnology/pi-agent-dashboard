@@ -11,6 +11,7 @@
  * See change: lazy-load-session-history.
  */
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it } from "vitest";
 import {
@@ -223,5 +224,45 @@ describe("replay windowing — gapCount is what the store HOLDS (E22)", () => {
     expect(w.gapCount).toBe(heldInGap);
     expect(w.gapCount).toBeLessThan(w.tailMinSeq - w.headMaxSeq - 1);
     expect(w.oldestGapSeq).toBe(w.headMaxSeq + 1);
+  });
+});
+
+/**
+ * The geometry at the SHIPPED default — test-plan scenarios E7, E8, E9.
+ *
+ * These pin `DEFAULT_MEMORY_LIMITS.maxReplayEvents` itself, not the parametric
+ * maths already covered above: the default is the value every user who never
+ * touched the field now gets, so its window shape is a shipped contract.
+ * See change: fix-lazy-history-backfill-ux (D7).
+ */
+describe("replay windowing at the default budget (E7, E8, E9)", () => {
+  const DEFAULT = DEFAULT_MEMORY_LIMITS.maxReplayEvents;
+
+  it("the default under test is the shipped one", () => {
+    expect(DEFAULT).toBe(2000);
+  });
+
+  it("E7: a compacted stream exactly AT the default is not windowed at all", async () => {
+    // The fits-entirely short-circuit is what makes the flip safe: any session
+    // compacting below the default takes the pre-change code path exactly.
+    const { events, windows } = await deliver(filler(DEFAULT), DEFAULT);
+    expect(computeReplayWindow(filler(DEFAULT), DEFAULT)).toBeNull();
+    expect(events).toHaveLength(DEFAULT);
+    expect(windows).toHaveLength(0);
+  });
+
+  it("E8: one event past the default windows into head 200 / tail 1800", async () => {
+    const win = computeReplayWindow(filler(DEFAULT + 1), DEFAULT);
+    if (!win) throw new Error("expected a window");
+    // Head is AT `HEAD_CAP`, so the protected chat head is maximal.
+    expect(win.headEnd).toBe(HEAD_CAP);
+    expect(DEFAULT + 1 - win.tailStart).toBe(DEFAULT - HEAD_CAP);
+  });
+
+  it("E9: at the minimum window the head floor still beats the ratio", () => {
+    const win = computeReplayWindow(filler(500), 100);
+    if (!win) throw new Error("expected a window");
+    expect(win.headEnd).toBe(HEAD_MIN);
+    expect(500 - win.tailStart).toBe(80);
   });
 });

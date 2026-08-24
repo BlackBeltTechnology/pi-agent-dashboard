@@ -7,6 +7,7 @@ import type {
   HistoryBackfillResultMessage,
   ServerToBrowserMessage,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
+import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { WebSocket } from "ws";
 import {
   type PendingAttachment,
@@ -65,11 +66,47 @@ export const SNAP_LOOKUP = 200;
  */
 export const BACKFILL_MAX_SPAN = 500;
 
+/**
+ * Snap an inclusive LOWER cut forward to the next `message_start` / `turn_start`
+ * within `SNAP_LOOKUP`. Returns `start` when no boundary is found — snapping is
+ * best-effort and may only ever SHRINK the range.
+ *
+ * Extracted from `computeReplayWindow` so a backfill slice can snap its
+ * gap-facing edge with the identical rule.
+ * See change: fix-lazy-history-backfill-ux (D4).
+ */
+function snapLowerEdgeForward(events: StoredEvent[], start: number): number {
+  const ceil = Math.min(events.length - 1, start + SNAP_LOOKUP);
+  for (let i = start; i <= ceil; i++) {
+    const type = events[i].event.eventType;
+    if (type === "message_start" || type === "turn_start") return i;
+  }
+  return start;
+}
+
+/**
+ * Snap an EXCLUSIVE upper cut backward to just past the last completed
+ * `message_end` within `SNAP_LOOKUP`. Returns `end` when no boundary is found.
+ * See change: fix-lazy-history-backfill-ux (D4).
+ */
+function snapUpperEdgeBack(events: StoredEvent[], end: number): number {
+  const floor = Math.max(0, end - SNAP_LOOKUP);
+  for (let i = end - 1; i >= floor; i--) {
+    if (events[i].event.eventType === "message_end") return i + 1;
+  }
+  return end;
+}
+
 /** Per-(socket, session) gap bookkeeping for the backfill handler. */
 interface GapState {
   /** Last seq the client holds in the head; ADVANCES as backfill fills the gap. */
   headMaxSeq: number;
-  /** First seq of the tail segment — fixed for the life of the subscription. */
+  /**
+   * First seq of the tail segment; RETREATS as backfill fills the gap from the
+   * tail side. Both edges are mutable: the gap is symmetric, and a served range
+   * is credited to whichever edge it abuts (tail wins when it abuts both).
+   * See change: fix-lazy-history-backfill-ux (D1, D1a).
+   */
   tailMinSeq: number;
   /** Monotonic subscribe counter; a completion at a different value is stale. */
   generation: number;
@@ -161,27 +198,10 @@ export function computeReplayWindow(
   const head = Math.min(HEAD_CAP, Math.max(HEAD_MIN, Math.floor(windowLimit * HEAD_RATIO)));
   const tail = windowLimit - head;
 
-  let headEnd = head;
-  let tailStart = compacted.length - tail;
-
   // Head trailing edge → backward to a completed `message_end` (shrinks).
-  const headFloor = Math.max(0, headEnd - SNAP_LOOKUP);
-  for (let i = headEnd - 1; i >= headFloor; i--) {
-    if (compacted[i].event.eventType === "message_end") {
-      headEnd = i + 1;
-      break;
-    }
-  }
-
+  const headEnd = snapUpperEdgeBack(compacted, head);
   // Tail leading edge → forward to the next message/turn start (shrinks).
-  const tailCeil = Math.min(compacted.length - 1, tailStart + SNAP_LOOKUP);
-  for (let i = tailStart; i <= tailCeil; i++) {
-    const type = compacted[i].event.eventType;
-    if (type === "message_start" || type === "turn_start") {
-      tailStart = i;
-      break;
-    }
-  }
+  const tailStart = snapLowerEdgeForward(compacted, compacted.length - tail);
 
   // A snap must never invert the split (possible only for a degenerate array).
   if (tailStart < headEnd) return null;
@@ -201,10 +221,20 @@ export function computeReplayWindow(
  * Exported so unit tests can drive the batching / backpressure / socket-close
  * paths directly, mirroring `replayUiState` / `replaySessionAssets`.
  *
- * `windowLimit` (optional, 0 = disabled) bounds what reaches the browser. The
- * caller passes it ONLY when the array it hands over is a full stream (D1) —
- * windowing a genuine delta would punch a seq gap between what the client holds
- * and what it receives. When a window applies, a `history_window` message is
+ * `windowLimit` has THREE distinct meanings, and they must not be collapsed:
+ *   - a POSITIVE number — the budget to window this full stream to;
+ *   - `0` — explicitly unlimited;
+ *   - ABSENT — "this array is not a windowable full stream" (a delta, or an
+ *     empty payload). NOT "the caller forgot the config".
+ *
+ * Absent therefore must NOT fall back to the configured default: windowing a
+ * genuine delta would punch a seq gap between what the client holds and what it
+ * receives. The config default is applied once, at the config boundary in
+ * `handleSubscribe`, which is the only place a programmatically constructed
+ * server can arrive with no value at all.
+ * See change: fix-lazy-history-backfill-ux (D7).
+ *
+ * The caller passes it ONLY when the array it hands over is a full stream (D1). When a window applies, a `history_window` message is
  * emitted BEFORE the first `event_replay` so the client can render the gap
  * affordance in the right place.
  * See change: lazy-load-session-history (D1, D2).
@@ -456,16 +486,65 @@ export async function handleHistoryBackfill(
     return refuse("out_of_range");
   }
   // Clamp into the gap the client was actually told about.
-  const from = Math.max(requestedFrom, gap.headMaxSeq + 1);
+  let from = Math.max(requestedFrom, gap.headMaxSeq + 1);
   let to = Math.min(requestedTo, gap.tailMinSeq - 1);
   if (to < from) return refuse("out_of_range");
+  /**
+   * Request ORIENTATION, decided on the gap-clamped bounds and BEFORE the span
+   * clamp. It selects both the edge to snap and the bound the span clamp may
+   * move.
+   *
+   * The span clamp must move the NON-abutting bound. Lowering `to` on a
+   * tail-adjacent request would destroy the very adjacency the response is
+   * credited for: the server would credit nothing while the client still
+   * retreats its own `tailMinSeq`, the two views diverge, and the next derived
+   * range inverts into a permanent `out_of_range` loop.
+   * See change: fix-lazy-history-backfill-ux (D4, D4a).
+   */
+  const tailAnchored = to === gap.tailMinSeq - 1;
   // Clamp the SPAN last, so a clamp into the gap can never re-inflate it.
-  if (to - from + 1 > BACKFILL_MAX_SPAN) to = from + BACKFILL_MAX_SPAN - 1;
+  if (to - from + 1 > BACKFILL_MAX_SPAN) {
+    if (tailAnchored) from = to - BACKFILL_MAX_SPAN + 1;
+    else to = from + BACKFILL_MAX_SPAN - 1;
+  }
 
   const generation = gap.generation;
   gap.inFlight = true;
   try {
-    const slice = eventStore.getEventsRange(sessionId, from, to);
+    const raw = eventStore.getEventsRange(sessionId, from, to);
+    /**
+     * Snap the slice's GAP-FACING edge — the lower edge for a tail-anchored
+     * request, the upper edge for a head-anchored one. Orientation, not a
+     * hardcoded side, so a legacy head-first client stays correct.
+     *
+     * The value is not "this slice has no orphan": within `[from, to]` a
+     * dangling `tool_execution_start`'s end is always ABOVE `to`, so the lower
+     * cut can only ever produce orphan ENDS. What a clean lower cut buys is the
+     * NEXT slice's top seam, which is exactly this cut minus one.
+     *
+     * A snap may only SHRINK, and never to empty: an empty `events` array is
+     * the client's termination signal, so an over-eager snap would silently
+     * strand the gap. No boundary within `SNAP_LOOKUP` → serve the raw cut.
+     * See change: fix-lazy-history-backfill-ux (D4).
+     */
+    let slice = raw;
+    let servedFrom = from;
+    let servedTo = to;
+    if (raw.length > 1) {
+      if (tailAnchored) {
+        const cut = snapLowerEdgeForward(raw, 0);
+        if (cut > 0 && cut < raw.length) {
+          slice = raw.slice(cut);
+          servedFrom = slice[0].seq;
+        }
+      } else {
+        const cut = snapUpperEdgeBack(raw, raw.length);
+        if (cut > 0 && cut < raw.length) {
+          slice = raw.slice(0, cut);
+          servedTo = slice[slice.length - 1].seq;
+        }
+      }
+    }
     // Yield once before responding. The generation is re-checked AFTER this
     // point, which is what makes an unsubscribe/re-subscribe racing a backfill
     // observable rather than a silent overlap.
@@ -486,20 +565,27 @@ export async function handleHistoryBackfill(
     const compacted = compactEventsForReplay(slice, slice.length);
 
     /**
-     * Backfill extends the head, so the next request starts above what was just
-     * served — this is what terminates the client's loop.
+     * Credit the abutting edge, from the POST-SNAP served bounds. The gap is
+     * symmetric: a tail-adjacent range retreats `tailMinSeq`, a head-adjacent
+     * one advances `headMaxSeq`. This is what terminates the client's loop.
      *
-     * ONLY when the served range is genuinely head-ADJACENT. `from` is clamped
-     * up to `headMaxSeq + 1` as a lower bound, so a client is free to ask for a
-     * range starting well above the head. Advancing the head past a range that
-     * was never served would permanently orphan everything below it, with the
-     * client's own stop rule none the wiser. The server must not trust the
-     * client to only ever walk forward from the edge.
+     * ONLY when the served range genuinely abuts. The bounds are clamped INTO
+     * the gap, so a client is free to ask for a range floating in its middle;
+     * moving an edge past a range that was never served would permanently
+     * orphan everything beyond it, with the client's own stop rule none the
+     * wiser. The server must not trust the client to walk from an edge.
+     *
+     * Crediting is EXCLUSIVE and the final short request can abut both edges at
+     * once, so the order is a real decision: credit the TAIL, keeping one
+     * consistent direction of travel.
+     * See change: fix-lazy-history-backfill-ux (D1, D1a, D4).
      */
-    const headAdjacent = from === current.headMaxSeq + 1;
-    if (headAdjacent) current.headMaxSeq = to;
-    // Truthful count of what the store STILL HOLDS above the head edge — never
-    // the seq distance, which overstates a middle-trimmed store.
+    const tailAdjacent = servedTo === current.tailMinSeq - 1;
+    const headAdjacent = servedFrom === current.headMaxSeq + 1;
+    if (tailAdjacent) current.tailMinSeq = servedFrom;
+    else if (headAdjacent) current.headMaxSeq = servedTo;
+    // Truthful count of what the store STILL HOLDS inside the gap — never the
+    // seq distance, which overstates a middle-trimmed store.
     const remainingGapCount = eventStore.getEventsRange(
       sessionId,
       current.headMaxSeq + 1,
@@ -510,8 +596,8 @@ export async function handleHistoryBackfill(
       type: "history_backfill_result",
       sessionId,
       events: compacted.map((e) => ({ seq: e.seq, event: truncateToolResultForReplay(e.event) })),
-      servedFrom: from,
-      servedTo: to,
+      servedFrom,
+      servedTo,
       remainingGapCount,
     });
   } finally {
@@ -526,7 +612,10 @@ export function handleSubscribe(
   ctx: BrowserHandlerContext,
 ): void {
   const { ws, sessionManager, eventStore, directoryService, piGateway, sendTo, broadcast, getSubscribers, replayPendingUiRequests, replayNotifyLog, markReplaying, clearReplaying } = ctx;
-  const maxReplayEvents = ctx.maxReplayEvents ?? 0;
+  // A programmatically constructed server must not silently stay unlimited:
+  // fall back to the shared DEFAULT, not to 0.
+  // See change: fix-lazy-history-backfill-ux (D7).
+  const maxReplayEvents = ctx.maxReplayEvents ?? DEFAULT_MEMORY_LIMITS.maxReplayEvents;
   subs.add(msg.sessionId);
   // Every subscribe starts a new generation; any backfill still in flight from
   // the previous one now completes stale (D9).

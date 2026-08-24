@@ -3,6 +3,12 @@
  * (state, event) → new state
  */
 
+import {
+  imageBlockData,
+  imageBlockMime,
+  isRenderableImageBlock,
+  isTruncatedImageBlock,
+} from "@blackbelt-technology/pi-dashboard-shared/image-block.js";
 // Flow + architect state derivation moved into flows-plugin per change
 // pluginize-flows-via-registry. The shell carries no flow knowledge.
 // Plugins consume `useSessionEvents(sessionId)` from
@@ -10,12 +16,6 @@
 // state; useMessageHandler.ts mirrors every msg.event into the
 // per-session-events store the plugin runtime owns.
 import { parseSkillBlock, type SkillBlock } from "@blackbelt-technology/pi-dashboard-shared/skill-block-parser.js";
-import {
-  imageBlockData,
-  imageBlockMime,
-  isRenderableImageBlock,
-  isTruncatedImageBlock,
-} from "@blackbelt-technology/pi-dashboard-shared/image-block.js";
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 
 export interface ChatImage {
@@ -52,7 +52,15 @@ export interface ChatMessage {
   timestamp: number;
   args?: Record<string, unknown>;
   result?: string;
-  toolStatus?: "running" | "complete" | "error";
+  /**
+   * `elided` is a TERMINAL status meaning "the result is not loadable", not
+   * "the tool failed": a backfill segment ends mid-turn, orphaning a
+   * `tool_execution_start` whose end lies in already-delivered content and can
+   * therefore never arrive. Renderers must show a neutral "result not loaded"
+   * affordance — no spinner, no error styling.
+   * See change: fix-lazy-history-backfill-ux (D5).
+   */
+  toolStatus?: "running" | "complete" | "error" | "elided";
   /** Epoch ms when the block started (for live elapsed counter) */
   startedAt?: number;
   /** Duration in ms (set when complete) */
@@ -120,7 +128,8 @@ export interface ToolCallState {
   toolCallId: string;
   toolName: string;
   args?: Record<string, unknown>;
-  status: "running" | "complete" | "error";
+  /** See `ChatMessage.toolStatus` for the `elided` contract. */
+  status: "running" | "complete" | "error" | "elided";
   result?: string;
   /**
    * Epoch ms when `tool_execution_start` fired. Used by the session
@@ -1236,6 +1245,43 @@ export function deriveBannerState(state: SessionState): BannerState {
     };
   }
   return out;
+}
+
+/**
+ * Correctness floor for a fully-reduced BACKFILL segment: stamp every row still
+ * `running` as `elided`, and finalize every row the segment left mid-stream.
+ *
+ * Stamp ALL of them, not "the ones at a seam". Within a slice a dangling
+ * `tool_execution_start`'s end is always ABOVE the slice — i.e. in content the
+ * client already holds — and later slices are strictly lower, so every
+ * still-running row in a COMPLETED backfill segment is provably unjoinable. A
+ * seam-scoped rule would fire nowhere and ship the bug intact.
+ *
+ * Scoped to backfill segments, never the initial windowed replay: a live
+ * session reopened mid-tool-run has a dangling start whose end simply has not
+ * happened yet. Stamping that would label a genuinely running tool "not
+ * loaded" AND remove it from supersede-heal eligibility (the heal selects
+ * `status === "running"`).
+ *
+ * Row-level, because the splice merges `messages` only and discards
+ * `seg.toolCalls` — renderers read `msg.toolStatus`, so a status written into
+ * the tool-call map would be unobservable.
+ *
+ * `isStreaming` is the identical defect one type over: a slice whose top edge
+ * lands mid-message produces an assistant row nothing ever clears, i.e. a
+ * permanently "streaming" bubble.
+ * See change: fix-lazy-history-backfill-ux (D5).
+ */
+export function finalizeBackfillSegment(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map((m) => {
+    const elide = m.toolStatus === "running";
+    const finalize = m.isStreaming === true;
+    if (!elide && !finalize) return m;
+    const out = { ...m };
+    if (elide) out.toolStatus = "elided";
+    if (finalize) out.isStreaming = false;
+    return out;
+  });
 }
 
 export function reduceEvent(

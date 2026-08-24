@@ -105,7 +105,14 @@ describe("Dialog", () => {
     const overlay = baseElement.querySelector("[data-testid='d-overlay']")!;
     expect(overlay.className).toContain("bg-black/60");
     const root = overlay.parentElement!;
-    expect(root.className).toContain("z-[60]");
+    // The `z-dialog` TOKEN, not a raw z-index. This used to be a raw `z-[60]`,
+    // which put every dialog on the toast layer and ABOVE the documented
+    // dialog layer -- so a confirm raised from inside a dialog (and correctly
+    // tokenised at z-dialog) rendered underneath the dialog that raised it.
+    // Nested dialogs now tie and resolve by portal/DOM order.
+    // See change: add-route-backed-overlay-dialogs (task 6.2).
+    expect(root.className).toContain("z-dialog");
+    expect(root.className).not.toMatch(/z-\[\d+\]/);
     const container = baseElement.querySelector("[data-testid='d']")!;
     expect(container.className).toContain("bg-[var(--bg-primary)]");
     expect(container.className).toContain("border-[var(--border-primary)]");

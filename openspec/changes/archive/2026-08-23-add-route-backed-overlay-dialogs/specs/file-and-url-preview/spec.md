@@ -4,7 +4,7 @@
 
 Every renderer (`MarkdownPreview`, `AsciiDocPreview`, `HtmlPreview`, `PdfPreview`, `VideoPreview`, `ImagePreview`, `YouTubePreview`, `DocxPreview`, `PptxPreview`, `SpreadsheetPreview`, `EmlPreview`, `FallbackPreview`) SHALL be usable in two contexts: the `/pi-view` / `…/view` overlay route (FileLink / OpenFileButton / canvas) and the internal editor pane (`viewer-registry` + `UrlViewer`). The renderer component SHALL NOT contain navigation or surface chrome; the shell is owned by the overlay route component or the editor-pane viewer wrapper. There is no longer an in-chat `PreviewCard` surface.
 
-The overlay route SHALL render in a route-backed overlay container: a `Dialog` over a plain backdrop on desktop, and a `MobileShell` depth panel on mobile. It is no longer full-screen on desktop. The URL SHALL be unchanged by this container choice, and the renderer components SHALL be unaffected — the container is owned by the overlay route component, which is exactly the boundary this requirement already draws.
+The overlay route SHALL render in a route-backed overlay container: a `Dialog` over a scrim over the pinned background underlay on desktop, and a `MobileShell` depth panel on mobile. It is no longer full-screen on desktop. The URL SHALL be unchanged by this container choice, and the renderer components SHALL be unaffected — the container is owned by the overlay route component, which is exactly the boundary this requirement already draws.
 
 #### Scenario: Same component, two shells
 
@@ -15,7 +15,7 @@ The overlay route SHALL render in a route-backed overlay container: a `Dialog` o
 #### Scenario: Overlay route renders in a dialog container on desktop
 
 - **WHEN** `/pi-view?url=…` or `/folder/:cwd/view?path=…` matches on a desktop viewport
-- **THEN** the preview SHALL render in a `Dialog` over a plain backdrop
+- **THEN** the preview SHALL render in a `Dialog` over a scrim over the pinned underlay
 - **AND** the URL SHALL be unchanged from the pre-conversion path
 
 #### Scenario: Renderers are unchanged by the container swap

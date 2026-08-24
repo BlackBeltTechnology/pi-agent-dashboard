@@ -5,6 +5,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DEFAULT_MEMORY_LIMITS, type MemoryLimitsConfig, MIN_REPLAY_WINDOW } from "./memory-limits.js";
 import type { WindowsGitSourceSetting } from "./platform/select-git-source.js";
 import {
   providerSupportsMode,
@@ -86,40 +87,19 @@ export interface AuthConfig {
   admin?: string;
 }
 
-export interface MemoryLimitsConfig {
-  /** Max events stored per session (0 = unlimited). Default: 200 */
-  maxEventsPerSession: number;
-  /** Max chars before truncating string fields in events (0 = no truncation). Default: 0 (disabled) */
-  maxStringFieldSize: number;
-  /** Max bytes in browser WebSocket send buffer before dropping messages (0 = no limit). Default: 4194304 (4MB) */
-  maxWsBufferBytes: number;
-  /**
-   * Max events replayed to a browser on a FULL-stream subscribe (0 = unlimited).
-   * Positive values below `MIN_REPLAY_WINDOW` clamp up. Default: 0.
-   * See change: lazy-load-session-history (D3, D13).
-   */
-  maxReplayEvents: number;
-}
-
 /**
- * Smallest representable replay window. A positive `maxReplayEvents` below this
- * clamps UP to it, so `HEAD_MIN` (20) always fits inside the budget and a
- * head-free window is unreachable by configuration. `0` is never clamped — it
- * means "unlimited", not "tiny". See change: lazy-load-session-history (D3).
+ * Memory-limit types + defaults live in a BROWSER-SAFE module and are
+ * re-exported here so existing `config.js` importers are unaffected. The client
+ * settings panel needs `DEFAULT_MEMORY_LIMITS` as a VALUE, and a value import of
+ * THIS module would drag `node:fs`/`node:os`/`node:path` into the browser
+ * bundle — a blank page at boot, not a build error.
+ * See change: fix-lazy-history-backfill-ux (D7).
  */
-export const MIN_REPLAY_WINDOW = 100;
-
-export const DEFAULT_MEMORY_LIMITS: MemoryLimitsConfig = {
-  // 20000 (was 5000): subagent-heavy turns forward thousands of inner events
-  // into the parent buffer; the old cap trimmed the chat head.
-  // See change: preserve-chat-head-on-event-trim.
-  maxEventsPerSession: 20000,
-  maxStringFieldSize: 0,
-  maxWsBufferBytes: 4 * 1024 * 1024,
-  // 0 = unlimited. A non-zero default would silently truncate history for every
-  // existing user on upgrade. See change: lazy-load-session-history (D13).
-  maxReplayEvents: 0,
-};
+export {
+  DEFAULT_MEMORY_LIMITS,
+  type MemoryLimitsConfig,
+  MIN_REPLAY_WINDOW,
+} from "./memory-limits.js";
 
 export interface OpenSpecPollConfig {
   /**
@@ -835,8 +815,20 @@ function parseKeeperLogConfig(raw: any): KeeperLogConfig {
   };
 }
 
+/**
+ * Absent / negative / non-numeric → the DEFAULT; explicit `0` → `0`.
+ *
+ * Presence detection is load-bearing once the default is non-zero: the previous
+ * shape collapsed absent, negative, non-numeric and explicit `0` into `0`, so a
+ * non-zero default would have been unreachable from a config file that simply
+ * omits the field. The `MIN_REPLAY_WINDOW` clamp is unchanged.
+ * See change: fix-lazy-history-backfill-ux (D7).
+ */
 function parseMaxReplayEvents(raw: unknown): number {
-  if (typeof raw !== "number" || !Number.isFinite(raw) || raw <= 0) return 0;
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) {
+    return DEFAULT_MEMORY_LIMITS.maxReplayEvents;
+  }
+  if (raw === 0) return 0;
   return Math.max(MIN_REPLAY_WINDOW, Math.floor(raw));
 }
 
@@ -846,9 +838,9 @@ function parseMemoryLimits(raw: any): MemoryLimitsConfig {
     maxEventsPerSession: typeof raw.maxEventsPerSession === "number" ? raw.maxEventsPerSession : DEFAULT_MEMORY_LIMITS.maxEventsPerSession,
     maxStringFieldSize: typeof raw.maxStringFieldSize === "number" ? raw.maxStringFieldSize : DEFAULT_MEMORY_LIMITS.maxStringFieldSize,
     maxWsBufferBytes: typeof raw.maxWsBufferBytes === "number" ? raw.maxWsBufferBytes : DEFAULT_MEMORY_LIMITS.maxWsBufferBytes,
-    // Absent / non-numeric / negative → 0 (unlimited). A positive value below
-    // MIN_REPLAY_WINDOW clamps up; 0 itself is preserved, never clamped.
-    // See change: lazy-load-session-history (D3).
+    // Absent / non-numeric / negative → the default. A positive value below
+    // MIN_REPLAY_WINDOW clamps up; an explicit 0 is preserved, never clamped.
+    // See change: lazy-load-session-history (D3), fix-lazy-history-backfill-ux (D7).
     maxReplayEvents: parseMaxReplayEvents(raw.maxReplayEvents),
   };
 }
