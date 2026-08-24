@@ -18,7 +18,6 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `plugin-row-parts.tsx` | Shared presentational plugin-row parts extracted from `PluginsSection.tsx`: `StatusPill`, `CopyableErrorBlock`, `MissingRequirementsBlock`, and the `WARN_*`/`ERR_*`/`OK_*`/`LINK_*` theme-token fragments. Consumed by both the activation index and `PluginSettingsPage` chrome. See change: plugin-settings-pages. |
 | `PluginsSection.tsx` | Settings ▸ Plugins activation list. Renders every plugin (enabled or not) with display name, description,… → see `PluginsSection.tsx.AGENTS.md` |
 | `PluginStalenessBanner.tsx` | Banner on stale plugin bundle. Fetches `/api/health.bundleHash` on mount. → see `PluginStalenessBanner.tsx.AGENTS.md` |
-| `ProjectInitButton.tsx` | Presentational "Set up project" scaffold button (indigo, `mdiFolderPlusOutline`, testid `project-init-btn`). → see `ProjectInitButton.tsx.AGENTS.md` |
 | `RecommendedExtensions.tsx` | Panel rendering curated recommended extensions. Exports `RecommendedExtensions`. Props: `scope`, `cwd`. → see `RecommendedExtensions.tsx.AGENTS.md` |
 | `UnifiedPackagesSection.tsx` | Exports `UnifiedPackagesSection`. Settings → Packages "Pi Ecosystem" section. Core rows read pi-core in-flight state from the singleton `packageQueue` (no local `useState`). → see `UnifiedPackagesSection.tsx.AGENTS.md` |
 | `WhatsNewDialog.tsx` | Exports `WhatsNewDialog` + `WhatsNewDialogProps`. Modal rendering parsed CHANGELOG between two versions. → see `WhatsNewDialog.tsx.AGENTS.md` |

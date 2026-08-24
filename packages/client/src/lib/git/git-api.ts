@@ -241,6 +241,16 @@ export interface WorktreeInitHook {
     | { type: "agent"; prompt: string; model?: string; settings?: unknown };
 }
 
+/**
+ * One entry of the per-artifact setup checklist. Reported for a fixed five-entry
+ * set; exactly one (`settings`) is `required`. See change: add-folder-action-banner.
+ */
+export interface SetupArtifact {
+  id: "settings" | "agents" | "prompts" | "openspec" | "kb";
+  present: boolean;
+  required: boolean;
+}
+
 /** GET /api/git/worktree/init-status result. */
 export interface WorktreeInitStatus {
   hasHook: boolean;
@@ -249,12 +259,24 @@ export interface WorktreeInitStatus {
   /** Present only when hasHook === true. */
   trusted?: boolean;
   /**
-   * Present only when hasHook === false. Distinguishes an unconfigured
-   * directory (`false`, state ① → offer scaffold) from a configured project
-   * with no worktreeInit hook (`true`, state ③ → no button). Absent on the
-   * fail-open path. See change: distinguish-initialize-actions.
+   * @deprecated Transitional. Superseded by `checklist`; consumers SHALL read
+   * the checklist first and consult `configured` only in its absence. Present
+   * only when hasHook === false. Absent on the fail-open path.
+   * See change: distinguish-initialize-actions, add-folder-action-banner.
    */
   configured?: boolean;
+  /**
+   * Per-artifact setup checklist, computed on every response at the config root.
+   * Absent (omitted) on the fail-open path — absence means "unknown", NOT "zero
+   * present". See change: add-folder-action-banner.
+   */
+  checklist?: SetupArtifact[];
+  /**
+   * Templates moved on since the directory was scaffolded. A menu-badge signal
+   * only, never a banner. No server emits it yet (detection is a follow-up);
+   * absent SHALL be treated as "not outdated". See change: add-folder-action-banner.
+   */
+  setupOutdated?: boolean;
 }
 
 /** GET /api/git/worktree/init-status?cwd=<path>. Fail-open: returns hasHook:false on error. */

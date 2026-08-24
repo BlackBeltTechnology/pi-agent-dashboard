@@ -1,14 +1,17 @@
 import { SidebarFolderSectionSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { DndContext, type DragEndEvent, type DragOverEvent, type DragStartEvent, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClose, mdiCog, mdiConsoleLine, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiSortVariant, mdiSourceBranch, mdiViewGridPlus } from "@mdi/js";
+import { mdiBroom, mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClose, mdiCog, mdiConsoleLine, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiSortVariant, mdiSourceBranch, mdiTextBoxCheckOutline, mdiViewGridPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useFolderUrgencySort } from "../../hooks/useFolderUrgencySort.js";
+import { useInitStatus } from "../../hooks/useInitStatus.js";
 import { useInstallPrompt } from "../../hooks/useInstallPrompt.js";
 import { maybeAutoInitWorktreeOnSpawn } from "../../lib/git/auto-init-worktree.js";
+import type { WorktreeInitStatus } from "../../lib/git/git-api.js";
 import { t as i18nT, useI18n } from "../../lib/i18n/i18n.js";
 import { compatibleClosestCenter, resolveFolderMove, resolveWorkspaceFolderReorder, resolveWorkspaceReorder, SPRING_LOAD_DWELL_MS } from "../../lib/layout/sidebar-dnd.js";
 import { buildFolderHomeUrl } from "../../lib/nav/route-builders.js";
@@ -34,10 +37,11 @@ import { floatAskUserFirst } from "../../lib/session/session-status-visuals.js";
 import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
 import { truncatePathMiddle } from "../../lib/util/truncate-path.js";
 import { TunnelButton } from "../connectivity/TunnelButton.js";
-import { FolderActionBar } from "../folder/FolderActionBar.js";
+import { FolderActionBanner } from "../folder/FolderActionBanner.js";
 import { FolderActionsMenu, type FolderMenuItem } from "../folder/FolderActionsMenu.js";
 import { FolderSpawnButtons } from "../folder/FolderSpawnButtons.js";
 import { FolderStatusCapsule } from "../folder/FolderStatusCapsule.js";
+import { projectSetupLabel } from "../folder/folder-menu-labels.js";
 import { FolderOpenSpecSection } from "../openspec/FolderOpenSpecSection.js";
 import { InstallButton } from "../packages/InstallButton.js";
 import { PiLogo } from "../primitives/PiLogo.js";
@@ -487,6 +491,9 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
   // same way `addToWsMenuFor` is — a cwd key would co-open a folder row and a
   // same-cwd card. See change: add-folder-actions-menu.
   const [folderMenuFor, setFolderMenuFor] = React.useState<string | null>(null);
+  // Broken-session cleanup confirm (moved off the deleted FolderActionBar into
+  // the folder actions menu). See change: add-folder-action-banner.
+  const [cleanupCwd, setCleanupCwd] = React.useState<string | null>(null);
   const [newWsOpen, setNewWsOpen] = React.useState<{ pendingFolder: string | null } | null>(null);
   // Workspace id awaiting a path-picker selection. When set, a
   // PinDirectoryDialog is open; on confirm the picked folder is added to
@@ -1039,12 +1046,13 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
    * Directory-group order is pin · urgency sort · directory settings.
    * See change: add-folder-actions-menu.
    */
-  function folderMenuItems({ group, isPinned, inWorkspace, workspaceId, headerAction }: {
+  function folderMenuItems({ group, isPinned, inWorkspace, workspaceId, headerAction, initStatus }: {
     group: DirectoryGroup;
     isPinned: boolean;
     inWorkspace: boolean;
     workspaceId?: string;
     headerAction?: React.ReactNode;
+    initStatus: WorktreeInitStatus | null;
   }): FolderMenuItem[] {
     const items: FolderMenuItem[] = [];
 
@@ -1110,6 +1118,28 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
       icon: mdiCog,
       onSelect: () => onOpenDirectorySettings?.(group.cwd),
     });
+    // Permanent Project setup item: the banner carries urgency, the menu carries
+    // availability. Tally `n/N` from the checklist (5 artifacts); `● update`
+    // badge when the payload reports template drift. Absent checklist (fail-open)
+    // shows the bare label. See change: add-folder-action-banner.
+    items.push({
+      id: "project-setup",
+      group: "directory",
+      label: projectSetupLabel(initStatus, t("folders.projectSetup", undefined, "Project setup…")),
+      icon: mdiTextBoxCheckOutline,
+      onSelect: () => onSpawnSession?.(group.cwd, undefined, { initialPrompt: "/skill:project-init" }),
+    });
+    // Broken-session cleanup — housekeeping, NOT a tier-0 banner. Hidden at zero.
+    const brokenCount = group.sessions.filter((s) => s.cwdMissing === true && s.status === "ended" && !s.hidden).length;
+    if (brokenCount > 0 && onHideSession) {
+      items.push({
+        id: "cleanup-broken",
+        group: "directory",
+        label: `${t("common.cleanUpBroken", undefined, "Clean up broken (")}${brokenCount})`,
+        icon: mdiBroom,
+        onSelect: () => setCleanupCwd(group.cwd),
+      });
+    }
     return items;
   }
 
@@ -1159,6 +1189,11 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             onToggle={() => handleToggleCollapse(group.cwd)}
           />
           <div className="flex-1 min-w-0">
+          {/* One shared init-status probe per row feeds BOTH the tier-0 banner
+              (below the git row) and the folder actions menu's Project setup
+              tally. A component owner keeps the hook out of this map callback.
+              See change: add-folder-action-banner. */}
+          <FolderInitScope cwd={group.cwd}>{({ status: initStatus, refetch: refetchInit }) => (<>
           {/* Whole header row is clickable to open the directory home page —
               same affordance as clicking a session card selects its session.
               Collapse/expand lives solely on the chevron in the drag gutter
@@ -1267,7 +1302,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 cwd={group.cwd}
                 open={folderMenuFor === `folder:${group.cwd}`}
                 onOpenChange={(next) => setFolderMenuFor(next ? `folder:${group.cwd}` : null)}
-                items={folderMenuItems({ group, isPinned, inWorkspace, workspaceId, headerAction })}
+                items={folderMenuItems({ group, isPinned, inWorkspace, workspaceId, headerAction, initStatus })}
               />
             </span>
           </div>
@@ -1287,26 +1322,27 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               running / failed `WorktreeInitChip`, min-w ~240px) wraps to its own
               line instead of overflowing and overlapping the git row.
               See change: compact-folder-header-actions. */}
-          <div className="mt-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-            <div className="min-w-0">
-              <GroupGitInfo
-                sessions={group.sessions}
-                cwd={group.cwd}
-                folderBranch={folderGitMap?.has(group.cwd) ? folderGitMap.get(group.cwd) : undefined}
-                onBranchClick={() => setBranchDialogCwd(group.cwd)}
-              />
-            </div>
-            <FolderActionBar
+          {/* Git row — tier 2, FACTS ONLY (branch/dirty). Its former call-to-
+              action controls moved to the tier-0 banner below and the folder
+              actions menu. See change: add-folder-action-banner. */}
+          <div className="mt-1 min-w-0">
+            <GroupGitInfo
+              sessions={group.sessions}
               cwd={group.cwd}
-              onInitializeProject={onSpawnSession ? (cwd) => onSpawnSession(cwd, undefined, { initialPrompt: "/skill:project-init" }) : undefined}
-              brokenSessionCount={group.sessions.filter((s) => s.cwdMissing === true && s.status === "ended" && !s.hidden).length}
-              onCleanUpBroken={onHideSession ? () => {
-                for (const s of group.sessions) {
-                  if (s.cwdMissing === true && s.status === "ended" && !s.hidden) onHideSession(s.id);
-                }
-              } : undefined}
+              folderBranch={folderGitMap?.has(group.cwd) ? folderGitMap.get(group.cwd) : undefined}
+              onBranchClick={() => setBranchDialogCwd(group.cwd)}
             />
           </div>
+          {/* Tier-0 call-to-action banner — renders only when the folder cannot
+              proceed (setup / init needed / re-trust / running / failure). */}
+          <FolderActionBanner
+            cwd={group.cwd}
+            status={initStatus}
+            isProjectRoot={isPinned || inWorkspace || folderIsGitRepo(group)}
+            onInitializeProject={onSpawnSession ? (c) => onSpawnSession(c, undefined, { initialPrompt: "/skill:project-init" }) : undefined}
+            onStatusChange={refetchInit}
+            sessions={group.sessions}
+          />
           {/* Slot-pill grid: the plugin slot sections (Automations / Goals /
               KB) + OpenSpec render as single-concern pills in a 2-col grid that
               collapses to 1-col at mobile width. A section that renders null
@@ -1328,7 +1364,8 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             )}
           </div>
           </>)}
-
+          </>)}{/* end FolderInitScope render-prop */}
+          </FolderInitScope>
           </div>{/* end content column */}
         </div>
         </div>{/* end content layer (relative z-1) */}
@@ -1928,6 +1965,20 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
           onClose={() => setManageWorktreesCwd(null)}
         />
       )}
+      {cleanupCwd && (() => {
+        const broken = sessions.filter((s) => s.cwd === cleanupCwd && s.cwdMissing === true && s.status === "ended" && !s.hidden);
+        return (
+          <Confirm
+            open
+            testId="cleanup-broken-confirm"
+            title={t("session.hideBrokenSessions", undefined, "Hide broken sessions?")}
+            message={`Hide ${broken.length} session${broken.length === 1 ? "" : "s"} whose cwd no longer exists?`}
+            confirmLabel={t("common.hide", undefined, "Hide")}
+            onConfirm={() => { for (const s of broken) onHideSession?.(s.id); setCleanupCwd(null); }}
+            onClose={() => setCleanupCwd(null)}
+          />
+        );
+      })()}
       {worktreeDialogCwd && (
         <WorktreeSpawnDialog
           cwd={worktreeDialogCwd}
@@ -1988,6 +2039,23 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
  * folders stay reorderable via their always-visible chevron. Mirrors the
  * SessionCard gutter pattern.
  */
+/**
+ * Per-row owner of the shared `GET /init-status` probe. A component (not a call
+ * inside `renderGroup`'s `.map`) so the hook obeys the rules of hooks, exposing
+ * `{ status, refetch }` to both the tier-0 banner and the menu's setup tally.
+ * See change: add-folder-action-banner.
+ */
+function FolderInitScope({
+  cwd,
+  children,
+}: {
+  cwd: string;
+  children: (s: { status: WorktreeInitStatus | null; refetch: () => void }) => React.ReactNode;
+}) {
+  const { status, refetch } = useInitStatus(cwd);
+  return <>{children({ status, refetch })}</>;
+}
+
 function FolderDragGutter({
   isCollapsed,
   onToggle,

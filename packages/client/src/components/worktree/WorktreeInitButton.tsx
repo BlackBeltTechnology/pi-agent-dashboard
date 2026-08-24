@@ -24,7 +24,7 @@
 
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { WorktreeInitTrustScope } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import { mdiCogPlayOutline } from "@mdi/js";
+import { mdiScriptTextPlayOutline } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
@@ -33,15 +33,15 @@ import {
   type WorktreeInitHook,
   type WorktreeInitStatus,
 } from "../../lib/git/git-api.js";
-import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { initStore, useInitRun } from "../../lib/git/worktree-init-store.js";
-import { WorktreeInitChip } from "./WorktreeInitChip.js";
+import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { logRejection } from "../../lib/report-error.js";
+import { WorktreeInitChip } from "./WorktreeInitChip.js";
 
 /**
  * Whether the hook-runner button itself renders (ignoring live-run feedback).
- * Exported so `FolderActionBar` can decide it has nothing to show without
- * duplicating the predicate. See change: add-folder-actions-menu (3.8).
+ * Exported so the tier-0 `FolderActionBanner` can decide which rung applies
+ * without duplicating the predicate. See change: add-folder-action-banner.
  */
 export function shouldShowWorktreeInitButton(status: WorktreeInitStatus | null): boolean {
   return !!status && status.hasHook === true && (status.trusted === false || status.needsInit === true);
@@ -118,8 +118,10 @@ export function WorktreeInitButton({ cwd, status: externalStatus, onStatusChange
 
   // Show when init is needed, OR when a hook exists but isn't trusted yet.
   const showButton = shouldShowWorktreeInitButton(status);
-  // Re-trust label: hook edited (trusted:false) but gate already satisfied.
-  const reTrust = !!status && status.hasHook === true && status.trusted === false && status.needsInit === false;
+  // Re-trust label: any untrusted hook must be reviewed & trusted before it can
+  // run from a UI click, so the control frames itself as a trust review rather
+  // than a plain "Initialize". See change: add-folder-action-banner.
+  const reTrust = !!status && status.hasHook === true && status.trusted === false;
   const label = reTrust ? "Review & trust changes" : "Initialize";
 
   // Live run feedback takes over the row while a run is in flight / terminal.
@@ -145,7 +147,7 @@ export function WorktreeInitButton({ cwd, status: externalStatus, onStatusChange
         title={i18nT("common.initializeThisCheckoutRunItsDeclared", undefined, "Initialize this checkout (run its declared worktree-init hook)")}
       >
         <span className="inline-flex items-center gap-0.5">
-          <Icon path={mdiCogPlayOutline} size={0.5} />
+          <Icon path={mdiScriptTextPlayOutline} size={0.5} />
           {label}
         </span>
       </button>
