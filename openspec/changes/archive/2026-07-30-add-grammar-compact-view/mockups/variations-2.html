@@ -1,0 +1,384 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Grammar — A3 family + L2 with full metadata</title>
+<style>
+  :root {
+    --bg-primary: #0a0a0a; --bg-secondary: #141414; --bg-tertiary: #1e1e1e; --bg-surface: #2a2a2a;
+    --bg-hover: rgba(255,255,255,0.06);
+    --text-primary: #e5e5e5; --text-secondary: #b0b0b0; --text-tertiary: #808080; --text-muted: #585858;
+    --border-primary: #252525; --border-secondary: #333333;
+    --accent-blue: #3b82f6; --accent-green: #22c55e; --accent-yellow: #eab308; --accent-red: #ef4444;
+    --accent-purple: #a855f7; --accent-orange: #f97316; --accent-primary: #3b82f6;
+    --elevation-rim: rgba(255,255,255,0.10);
+  }
+  [data-theme="light"] {
+    --bg-primary: #ffffff; --bg-secondary: #fafafa; --bg-tertiary: #f0f0f0; --bg-surface: #e0e0e0;
+    --bg-hover: rgba(0,0,0,0.04);
+    --text-primary: #1a1a1a; --text-secondary: #444444; --text-tertiary: #777777; --text-muted: #aaaaaa;
+    --border-primary: #e0e0e0; --border-secondary: #cccccc;
+    --accent-primary: #2563eb;
+    --elevation-rim: rgba(255,255,255,0.9);
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg-primary); color: var(--text-secondary);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; font-size: 14px; line-height: 1.5;
+    padding: 24px 16px 120px; }
+  .wrap { max-width: 720px; margin: 0 auto; }
+  header.page { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; flex-wrap: wrap; }
+  header.page h1 { font-size: 18px; color: var(--text-primary); margin: 0; font-weight: 650; }
+  header.page p { margin: 4px 0 0; color: var(--text-muted); font-size: 12.5px; flex-basis: 100%; }
+  .toggle-theme { margin-left: auto; border: 1px solid var(--border-secondary); background: var(--bg-tertiary);
+    color: var(--text-secondary); border-radius: 8px; padding: 6px 12px; font-size: 12.5px; cursor: pointer; }
+  .toggle-theme:hover { background: var(--bg-hover); }
+
+  .group-title { margin: 34px 0 4px; font-size: 12px; letter-spacing: .08em; text-transform: uppercase;
+    color: var(--text-tertiary); font-weight: 700; border-bottom: 1px solid var(--border-primary); padding-bottom: 6px; }
+  section.variant { margin-top: 22px; }
+  .v-label { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+  .v-label .tag { font-size: 10.5px; letter-spacing: .04em; font-weight: 700; color: var(--bg-primary);
+    background: var(--accent-primary); border-radius: 5px; padding: 2px 7px; }
+  .v-label h2 { font-size: 14px; color: var(--text-primary); margin: 0; font-weight: 600; }
+  .v-label .note { color: var(--text-muted); font-size: 12px; }
+
+  .composer-stack { border: 1px solid var(--border-primary); border-radius: 12px; overflow: hidden;
+    background: var(--bg-secondary); box-shadow: inset 0 1px 0 var(--elevation-rim); }
+  .panel { border-bottom: 1px solid var(--border-primary);
+    background: color-mix(in srgb, var(--bg-secondary) 60%, transparent); padding: 8px 12px;
+    display: flex; flex-direction: column; gap: 8px; }
+  .panel-head { display: flex; align-items: center; gap: 8px; }
+  .panel-head .ico { color: var(--accent-primary); font-size: 14px; }
+  .summary { color: var(--text-secondary); flex: 1; font-size: 13px; }
+  .btn-apply-all { display: inline-flex; align-items: center; gap: 5px; border: none; cursor: pointer;
+    background: var(--accent-primary); color: #fff; font-weight: 600; font-size: 12px; border-radius: 7px; padding: 5px 10px; }
+  .btn-apply-all:hover { opacity: .9; }
+  .btn-close { width: 26px; height: 26px; border: none; background: transparent; color: var(--text-secondary);
+    border-radius: 7px; cursor: pointer; font-size: 15px; }
+  .btn-close:hover { background: var(--bg-hover); }
+  .field { margin: 0; padding: 9px 12px; color: var(--text-primary); background: var(--bg-tertiary);
+    font-size: 13px; white-space: pre-wrap; border-top: 1px solid var(--border-primary); }
+  .field b { color: var(--text-muted); font-weight: 500; font-size: 11px; }
+
+  .redline { font-size: 13.5px; line-height: 2.3; color: var(--text-secondary); }
+  .redline.plain .was { color: var(--accent-red); }
+  .redline.plain .now { color: var(--accent-green); }
+
+  /* segmented lens toggle (Redline / Original / Corrected) */
+  .segmented { display: inline-flex; align-self: flex-start; border: 1px solid var(--border-secondary);
+    border-radius: 8px; overflow: hidden; }
+  .segmented button { border: none; background: transparent; color: var(--text-secondary); font-size: 11.5px;
+    padding: 4px 11px; cursor: pointer; }
+  .segmented button + button { border-left: 1px solid var(--border-secondary); }
+  .segmented button.active { background: var(--accent-primary); color: #fff; }
+  .segmented button:not(.active):hover { background: var(--bg-hover); }
+
+  .footer { display: flex; align-items: center; gap: 10px; font-size: 12px; color: var(--text-muted);
+    padding-top: 4px; border-top: 1px dashed var(--border-primary); flex-wrap: wrap; }
+  .footer .count { color: var(--text-secondary); }
+  .legend { display: flex; gap: 12px; flex-wrap: wrap; font-size: 11px; color: var(--text-muted); }
+  .legend .dot { display: inline-block; width: 9px; height: 9px; border-radius: 3px; margin-right: 4px; vertical-align: middle; }
+  .rbtn { border: none; border-radius: 6px; cursor: pointer; background: transparent; font-size: 13px; padding: 2px 6px; }
+  .rbtn.ok { color: var(--accent-green); } .rbtn.no { color: var(--text-secondary); } .rbtn:hover { background: var(--bg-hover); }
+
+  /* shared popover */
+  .pop { position: absolute; left: 50%; transform: translateX(-50%); top: -34px; display: none; align-items: center;
+    gap: 6px; white-space: nowrap; background: var(--bg-surface); border: 1px solid var(--border-secondary);
+    border-radius: 8px; padding: 3px 7px; box-shadow: 0 6px 16px rgba(0,0,0,.4); z-index: 5; font-size: 12px; }
+  .pop .now { color: var(--accent-green); font-weight: 600; }
+  .pop button { border: none; border-radius: 5px; background: transparent; cursor: pointer; font-size: 12px; padding: 2px 6px; }
+  .pop .apply { color: var(--accent-green); } .pop .ignore { color: var(--text-secondary); }
+  .pop button:hover { background: var(--bg-hover); }
+
+  /* ── A3-i: squiggle (spell-check feel) ── */
+  .sq .chg { position: relative; cursor: pointer; text-decoration: underline wavy var(--kind);
+    text-decoration-thickness: 1.5px; text-underline-offset: 3px; }
+  .sq .chg:hover .pop, .sq .chg:focus .pop { display: inline-flex; }
+  .sq .chg:focus { outline: none; }
+  .sq .chg.applied { text-decoration: none; color: var(--text-primary); }
+  .sq .chg.rejected { text-decoration: none; color: var(--text-muted); }
+
+  /* ── A3-ii: solid tint + click (refined current) ── */
+  .tint .chg { position: relative; cursor: pointer; border-radius: 5px; padding: 0 3px;
+    background: color-mix(in srgb, var(--kind) 16%, transparent);
+    box-shadow: inset 0 -2px 0 color-mix(in srgb, var(--kind) 65%, transparent); }
+  .tint .chg:hover { background: color-mix(in srgb, var(--kind) 28%, transparent); }
+  .tint .chg:focus { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
+  .tint .chg .tip { position: absolute; left: 50%; transform: translateX(-50%); top: -26px; display: none;
+    white-space: nowrap; background: var(--bg-surface); border: 1px solid var(--border-secondary);
+    border-radius: 7px; padding: 2px 7px; font-size: 11.5px; z-index: 5; }
+  .tint .chg .tip .now { color: var(--accent-green); }
+  .tint .chg:hover .tip { display: block; }
+  .tint .chg.applied { background: color-mix(in srgb, var(--accent-green) 16%, transparent);
+    box-shadow: inset 0 -2px 0 var(--accent-green); color: var(--text-primary); }
+
+  /* ── A3-iii: pill toggle (reversible) ── */
+  .pill .chg { cursor: pointer; border-radius: 999px; padding: 1px 9px; font-size: 12.5px; white-space: nowrap;
+    background: color-mix(in srgb, var(--kind) 20%, transparent);
+    border: 1px solid color-mix(in srgb, var(--kind) 55%, transparent); color: var(--text-primary); }
+  .pill .chg:hover { background: color-mix(in srgb, var(--kind) 32%, transparent); }
+  .pill .chg:focus { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
+  .pill .chg.applied { background: color-mix(in srgb, var(--accent-green) 22%, transparent);
+    border-color: var(--accent-green); }
+  .pill .chg .mark { font-size: 10px; margin-left: 4px; opacity: .8; }
+
+  /* ── A3-iv: dotted + always-visible inline hint ── */
+  .peek .chg { position: relative; cursor: pointer; border-bottom: 1.5px dotted var(--kind); }
+  .peek .chg:hover { background: var(--bg-hover); }
+  .peek .chg:focus { outline: 2px solid var(--accent-primary); outline-offset: 1px; }
+  .peek .ghost { color: color-mix(in srgb, var(--accent-green) 70%, var(--text-muted)); font-size: 12px; margin: 0 2px 0 3px; }
+  .peek .ghost .arr { color: var(--text-muted); }
+  .peek .chg.applied { border-bottom: none; color: var(--text-primary); }
+  .peek .chg.applied + .ghost { display: none; }
+
+  /* ── L2 + full metadata ── */
+  .l2m { display: grid; grid-template-columns: 1fr auto 1fr auto auto auto; gap: 3px 12px; align-items: center; }
+  .l2m .before { color: var(--accent-red); text-decoration: line-through; text-align: right; }
+  .l2m .arrow { color: var(--text-muted); }
+  .l2m .after { color: var(--accent-green); }
+  .l2m .kindtag { justify-self: start; font-size: 9.5px; text-transform: uppercase; letter-spacing: .04em;
+    color: var(--text-secondary); background: color-mix(in srgb, var(--kind) 20%, transparent);
+    border: 1px solid color-mix(in srgb, var(--kind) 45%, transparent); border-radius: 4px; padding: 1px 6px; }
+  .l2m .msg { grid-column: 1 / -1; font-size: 11.5px; color: var(--text-muted); padding-left: 2px; }
+  .l2m .msg::before { content: "↳ "; color: var(--text-faint, var(--border-secondary)); }
+  .l2m .sep { grid-column: 1 / -1; height: 1px; background: var(--border-primary); opacity: .55; margin: 3px 0; }
+
+  .caption { font-size: 12px; color: var(--text-muted); margin-top: 12px; }
+  .caption b { color: var(--text-tertiary); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="page">
+    <h1>A3 family + L2 with full metadata</h1>
+    <button class="toggle-theme" id="themeBtn">◐ Light / dark</button>
+    <p>All live. A3 variants share the base idea — <b>your original text, issues tinted by kind, tap to fix</b> — but differ in the underline treatment + apply gesture. Draft: <em>"i beleive their are alot of things that dont work good."</em></p>
+  </header>
+
+  <div class="group-title">A3 family — highlighted original, tap to fix</div>
+
+  <section class="variant" data-variant="SQ" data-family="redline">
+    <div class="v-label"><span class="tag">A3-i</span><h2>Squiggle (spell-check feel)</h2><span class="note">wavy kind underline · hover → popover with the fix + Apply / Ignore</span></div>
+    <div class="composer-stack"><div class="panel">
+      <div class="panel-head"><span class="ico">✎</span><span class="summary"></span><button class="btn-apply-all">✓ Apply all</button><button class="btn-close">✕</button></div>
+      <div class="segmented"><button data-mode="redline" class="active">Redline</button><button data-mode="original">Original</button><button data-mode="corrected">Corrected</button></div>
+      <div class="redline sq"></div>
+      <div class="footer"><span class="count"></span><span class="legend"></span></div>
+    </div><p class="field"></p></div>
+  </section>
+
+  <section class="variant" data-variant="TINT" data-family="redline">
+    <div class="v-label"><span class="tag">A3-ii</span><h2>Solid tint + click (refined original)</h2><span class="note">kind-tinted bg + bar · hover tooltip preview · click the word to apply</span></div>
+    <div class="composer-stack"><div class="panel">
+      <div class="panel-head"><span class="ico">✎</span><span class="summary"></span><button class="btn-apply-all">✓ Apply all</button><button class="btn-close">✕</button></div>
+      <div class="segmented"><button data-mode="redline" class="active">Redline</button><button data-mode="original">Original</button><button data-mode="corrected">Corrected</button></div>
+      <div class="redline tint"></div>
+      <div class="footer"><span class="count"></span><span class="legend"></span></div>
+    </div><p class="field"></p></div>
+  </section>
+
+  <section class="variant" data-variant="PILL" data-family="redline">
+    <div class="v-label"><span class="tag">A3-iii</span><h2>Pill toggle (reversible)</h2><span class="note">kind-colored pill · click flips original ↔ corrected · message on hover</span></div>
+    <div class="composer-stack"><div class="panel">
+      <div class="panel-head"><span class="ico">✎</span><span class="summary"></span><button class="btn-apply-all">✓ Apply all</button><button class="btn-close">✕</button></div>
+      <div class="segmented"><button data-mode="redline" class="active">Redline</button><button data-mode="original">Original</button><button data-mode="corrected">Corrected</button></div>
+      <div class="redline pill"></div>
+      <div class="footer"><span class="count"></span><span class="legend"></span></div>
+    </div><p class="field"></p></div>
+  </section>
+
+  <section class="variant" data-variant="PEEK" data-family="redline">
+    <div class="v-label"><span class="tag">A3-iv</span><h2>Dotted + always-on hint</h2><span class="note">no hover needed — the fix is shown inline as a green ghost · click to apply</span></div>
+    <div class="composer-stack"><div class="panel">
+      <div class="panel-head"><span class="ico">✎</span><span class="summary"></span><button class="btn-apply-all">✓ Apply all</button><button class="btn-close">✕</button></div>
+      <div class="segmented"><button data-mode="redline" class="active">Redline</button><button data-mode="original">Original</button><button data-mode="corrected">Corrected</button></div>
+      <div class="redline peek"></div>
+      <div class="footer"><span class="count"></span><span class="legend"></span></div>
+    </div><p class="field"></p></div>
+  </section>
+
+  <div class="group-title">List view L2 — with all metadata</div>
+
+  <section class="variant" data-variant="L2M" data-family="list">
+    <div class="v-label"><span class="tag">L2 ✓</span><h2>Before → after + kind + message</h2><span class="note">the aligned columns you picked, now carrying every field</span></div>
+    <div class="composer-stack"><div class="panel">
+      <div class="panel-head"><span class="ico">✎</span><span class="summary"></span><button class="btn-apply-all">✓ Apply all</button><button class="btn-close">✕</button></div>
+      <div class="l2m"></div>
+    </div></div>
+  </section>
+
+  <p class="caption"><b>Kind colors:</b> spelling·red, grammar·blue, punctuation·orange, style·purple. Every A3 variant supports per-change apply <b>and</b> Apply all; the footer counts progress. L2 now shows the same metadata as the old row view (kind + message) without losing the scannable columns.</p>
+</div>
+
+<script>
+  const KIND_COLOR = { spelling: "var(--accent-red)", grammar: "var(--accent-blue)", punctuation: "var(--accent-orange)", style: "var(--accent-purple)" };
+  const makeParts = () => ([
+    { t: "chg", id: "s0", del: "i", ins: "I", kind: "grammar", msg: "Capitalize the sentence start" },
+    { t: "txt", v: " " },
+    { t: "chg", id: "s1", del: "beleive", ins: "believe", kind: "spelling", msg: "Misspelling of \u201cbelieve\u201d" },
+    { t: "txt", v: " " },
+    { t: "chg", id: "s2", del: "their", ins: "there", kind: "grammar", msg: "Wrong word: their vs there" },
+    { t: "txt", v: " are " },
+    { t: "chg", id: "s3", del: "alot", ins: "a lot", kind: "spelling", msg: "\u201calot\u201d should be two words" },
+    { t: "txt", v: " of things that " },
+    { t: "chg", id: "s4", del: "dont", ins: "don't", kind: "punctuation", msg: "Missing apostrophe" },
+    { t: "txt", v: " " },
+    { t: "chg", id: "s5", del: "work good", ins: "work well", kind: "style", msg: "Use the adverb \u201cwell\u201d" },
+    { t: "txt", v: "." },
+  ]);
+  const SUMMARY = "2 spelling · 2 grammar · 1 punctuation · 1 style";
+  const LEGEND = `<span><span class="dot" style="background:var(--accent-red)"></span>spelling</span>
+    <span><span class="dot" style="background:var(--accent-blue)"></span>grammar</span>
+    <span><span class="dot" style="background:var(--accent-orange)"></span>punctuation</span>
+    <span><span class="dot" style="background:var(--accent-purple)"></span>style</span>`;
+  const changes = (v) => v.parts.filter((p) => p.t === "chg");
+
+  const views = {};
+  document.querySelectorAll("section.variant").forEach((sec) => {
+    const id = sec.dataset.variant;
+    const v = views[id] = { sec, id, family: sec.dataset.family, parts: makeParts(), status: {}, mode: "redline" };
+    for (const p of changes(v)) v.status[p.id] = "open";
+    sec.querySelector(".summary").textContent = SUMMARY;
+    const lg = sec.querySelector(".legend"); if (lg) lg.innerHTML = LEGEND;
+    sec.querySelector(".btn-apply-all").addEventListener("click", () => applyAll(id));
+    sec.querySelector(".btn-close").addEventListener("click", () => { sec.querySelector(".panel").style.display = "none"; });
+    sec.querySelectorAll(".segmented button").forEach((b) => b.addEventListener("click", () => {
+      v.mode = b.dataset.mode;
+      sec.querySelectorAll(".segmented button").forEach((x) => x.classList.toggle("active", x === b));
+      render(id);
+    }));
+    render(id);
+  });
+
+  function draftText(v) { return v.parts.map((p) => p.t === "txt" ? p.v : (v.status[p.id] === "applied" ? p.ins : p.del)).join(""); }
+  function resolve(id, sid, d) { const v = views[id]; v.status[sid] = (v.status[sid] === d ? "open" : d); render(id); }
+  function set(id, sid, d) { views[id].status[sid] = d; render(id); }
+  function applyAll(id) { const v = views[id]; for (const k in v.status) if (v.status[k] !== "applied") v.status[k] = "applied"; render(id); }
+
+  function render(id) {
+    const v = views[id];
+    const fld = v.sec.querySelector(".field");
+    if (fld) fld.innerHTML = "<b>composer →</b> " + draftText(v);
+    if (v.family === "redline" && v.mode !== "redline") renderPlain(v);
+    else ({ SQ: renderSquiggle, TINT: renderTint, PILL: renderPill, PEEK: renderPeek, L2M: renderL2M }[id])(v);
+    const applied = Object.values(v.status).filter((s) => s === "applied").length;
+    const total = changes(v).length;
+    const cnt = v.sec.querySelector(".count"); if (cnt) cnt.textContent = `${applied} of ${total} applied`;
+    const remaining = Object.values(v.status).filter((s) => s === "open").length;
+    v.sec.querySelector(".summary").textContent = remaining ? SUMMARY : "All changes resolved";
+    v.sec.querySelector(".btn-apply-all").style.display = (applied < total) ? "" : "none";
+  }
+  function host(v, cls) { const h = v.sec.querySelector(cls); h.innerHTML = ""; return h; }
+
+  // Plain before/after lens (Original / Corrected): read-only tinted text.
+  function renderPlain(v) {
+    const h = v.sec.querySelector(".redline"); h.className = "redline plain"; h.innerHTML = "";
+    for (const p of v.parts) {
+      if (p.t === "txt") { h.appendChild(document.createTextNode(p.v)); continue; }
+      const s = document.createElement("span");
+      s.className = v.mode === "original" ? "was" : "now";
+      s.textContent = v.mode === "original" ? p.del : p.ins;
+      h.appendChild(s);
+    }
+  }
+
+  function renderSquiggle(v) {
+    const h = v.sec.querySelector(".redline"); h.className = "redline sq"; h.innerHTML = "";
+    for (const p of v.parts) {
+      if (p.t === "txt") { h.appendChild(document.createTextNode(p.v)); continue; }
+      const st = v.status[p.id];
+      const s = document.createElement("span"); s.tabIndex = 0;
+      s.className = "chg" + (st !== "open" ? " " + st : "");
+      s.style.setProperty("--kind", KIND_COLOR[p.kind]);
+      s.textContent = st === "applied" ? p.ins : p.del;
+      if (st === "open") {
+        const pop = document.createElement("span"); pop.className = "pop";
+        pop.innerHTML = `<span class="now">${p.ins}</span><button class="apply">✓ Apply</button><button class="ignore">✕ Ignore</button>`;
+        pop.querySelector(".apply").onclick = (e) => { e.stopPropagation(); set("SQ", p.id, "applied"); };
+        pop.querySelector(".ignore").onclick = (e) => { e.stopPropagation(); set("SQ", p.id, "rejected"); };
+        s.appendChild(pop);
+      }
+      h.appendChild(s);
+    }
+  }
+
+  function renderTint(v) {
+    const h = v.sec.querySelector(".redline"); h.className = "redline tint"; h.innerHTML = "";
+    for (const p of v.parts) {
+      if (p.t === "txt") { h.appendChild(document.createTextNode(p.v)); continue; }
+      const st = v.status[p.id];
+      const s = document.createElement("span"); s.tabIndex = 0;
+      s.className = "chg" + (st === "applied" ? " applied" : "");
+      s.style.setProperty("--kind", KIND_COLOR[p.kind]);
+      s.textContent = st === "applied" ? p.ins : p.del;
+      if (st !== "applied") {
+        s.onclick = () => set("TINT", p.id, "applied");
+        const tip = document.createElement("span"); tip.className = "tip";
+        tip.innerHTML = `→ <span class="now">${p.ins}</span>`;
+        s.appendChild(tip);
+      }
+      h.appendChild(s);
+    }
+  }
+
+  function renderPill(v) {
+    const h = v.sec.querySelector(".redline"); h.className = "redline pill"; h.innerHTML = "";
+    for (const p of v.parts) {
+      if (p.t === "txt") { h.appendChild(document.createTextNode(p.v)); continue; }
+      const st = v.status[p.id];
+      const s = document.createElement("span"); s.tabIndex = 0; s.title = p.msg;
+      s.className = "chg" + (st === "applied" ? " applied" : "");
+      s.style.setProperty("--kind", KIND_COLOR[p.kind]);
+      s.innerHTML = (st === "applied" ? p.ins : p.del) + `<span class="mark">${st === "applied" ? "✓" : "↺"}</span>`;
+      s.onclick = () => set("PILL", p.id, st === "applied" ? "open" : "applied");
+      h.appendChild(s);
+    }
+  }
+
+  function renderPeek(v) {
+    const h = v.sec.querySelector(".redline"); h.className = "redline peek"; h.innerHTML = "";
+    for (const p of v.parts) {
+      if (p.t === "txt") { h.appendChild(document.createTextNode(p.v)); continue; }
+      const st = v.status[p.id];
+      const s = document.createElement("span"); s.tabIndex = 0; s.title = p.msg;
+      s.className = "chg" + (st === "applied" ? " applied" : "");
+      s.style.setProperty("--kind", KIND_COLOR[p.kind]);
+      s.textContent = st === "applied" ? p.ins : p.del;
+      if (st !== "applied") s.onclick = () => set("PEEK", p.id, "applied");
+      h.appendChild(s);
+      if (st !== "applied") {
+        const g = document.createElement("span"); g.className = "ghost";
+        g.innerHTML = `<span class="arr">→</span> ${p.ins}`;
+        h.appendChild(g);
+      }
+    }
+  }
+
+  function renderL2M(v) {
+    const h = host(v, ".l2m");
+    const list = changes(v).filter((p) => v.status[p.id] === "open");
+    list.forEach((p, i) => {
+      const c = KIND_COLOR[p.kind];
+      const frag = document.createElement("template");
+      frag.innerHTML = `
+        <span class="before">${p.del}</span><span class="arrow">→</span><span class="after">${p.ins}</span>
+        <span class="kindtag" style="--kind:${c}">${p.kind}</span>
+        <button class="rbtn ok">✓</button><button class="rbtn no">✕</button>
+        <span class="msg">${p.msg}</span>` + (i < list.length - 1 ? `<span class="sep"></span>` : "");
+      const nodes = [...frag.content.childNodes];
+      nodes.forEach((n) => h.appendChild(n));
+      const btns = h.querySelectorAll(".rbtn");
+      btns[btns.length - 2].onclick = () => set("L2M", p.id, "applied");
+      btns[btns.length - 1].onclick = () => set("L2M", p.id, "rejected");
+    });
+    if (!list.length) { h.innerHTML = '<span class="msg" style="color:var(--text-muted)">All changes resolved</span>'; }
+  }
+
+  document.getElementById("themeBtn").addEventListener("click", () => {
+    const html = document.documentElement;
+    html.dataset.theme = html.dataset.theme === "dark" ? "light" : "dark";
+  });
+</script>
+</body>
+</html>

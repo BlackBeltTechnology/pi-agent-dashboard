@@ -1177,6 +1177,9 @@ export default function App() {
     [selectedId],
   );
 
+  // Composer grammar/spell check is now fully owned by the grammar plugin
+  // (composer-panel slot). See change: make-grammar-fully-plugin-contained.
+
   const clearDraftForSession = useCallback((sid: string) => {
     setDrafts((m) => {
       if (!m.has(sid)) return m;

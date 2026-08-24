@@ -145,6 +145,12 @@ export const DEFAULT_OPENSPEC_POLL: OpenSpecPollConfig = {
   jitterSeconds: 5,
 };
 
+// ── Grammar / spell check ───────────────────────────────────────────
+
+// Composer grammar/spell-check config moved into the grammar plugin
+// (packages/grammar-plugin) — persisted under `plugins.grammar.*`, not core.
+// See change: make-grammar-fully-plugin-contained.
+
 export interface SessionsConfig {
   /**
    * When `true` (the default) session-event hydration (JSONL parse + replay)

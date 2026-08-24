@@ -36,8 +36,8 @@ import type {
   GoalRecordStatus,
   GoalRespawn,
 } from "@blackbelt-technology/pi-dashboard-shared/types.js";
-import type { GoalStore } from "./goal-store.js";
 import { mintSpawnToken } from "../auth/spawn-token.js";
+import type { GoalStore } from "./goal-store.js";
 
 // ── Tunables (design Decision 2; scales match automation's 60s rhythm) ──────
 

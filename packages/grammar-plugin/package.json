@@ -1,0 +1,64 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-grammar-plugin",
+  "version": "0.7.0",
+  "private": true,
+  "description": "First-party dashboard plugin: fully self-contained composer grammar/spell-check \u2014 client composer UI (composer-panel), server route + backends (server entry), and settings (settings-section). See change: make-grammar-fully-plugin-contained.",
+  "license": "MIT",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/grammar-plugin"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/index.tsx",
+      "default": "./src/index.tsx"
+    },
+    "./client": {
+      "types": "./src/index.tsx",
+      "default": "./src/index.tsx"
+    },
+    "./server": {
+      "types": "./src/server/index.ts",
+      "default": "./src/server/index.ts"
+    }
+  },
+  "files": [
+    "src/",
+    "configSchema.json"
+  ],
+  "peerDependencies": {
+    "react": ">=18.0.0"
+  },
+  "dependencies": {
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.7.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
+    "diff": "^8.0.3"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.0",
+    "fastify": "^5.0.0",
+    "react": "^19.0.0"
+  },
+  "pi-dashboard-plugin": {
+    "id": "grammar",
+    "displayName": "Grammar & Spelling",
+    "i18nCatalog": "catalog",
+    "priority": 100,
+    "client": "./src/index.tsx",
+    "server": "./src/server/index.ts",
+    "claims": [
+      {
+        "slot": "settings-section",
+        "component": "GrammarSettings",
+        "tab": "general"
+      },
+      {
+        "slot": "composer-panel",
+        "component": "GrammarComposerPanel"
+      }
+    ],
+    "configSchema": "./configSchema.json"
+  }
+}

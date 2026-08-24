@@ -38,6 +38,14 @@ describe("validateManifest — valid cases", () => {
     expect(m.fixture).toBe(true);
   });
 
+  it("accepts a composer-panel claim (change: make-grammar-fully-plugin-contained)", () => {
+    const m = validateManifest({
+      ...validManifest,
+      claims: [{ slot: "composer-panel", component: "GrammarPanel" }],
+    });
+    expect(m.claims[0].slot).toBe("composer-panel");
+  });
+
   it("accepts settings-section claim without tab (defaults handled downstream)", () => {
     const m = validateManifest({
       ...validManifest,
