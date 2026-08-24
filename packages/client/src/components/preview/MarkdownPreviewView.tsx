@@ -19,14 +19,19 @@ interface Props {
   tabs?: PreviewTab[];
   activeTab?: string;
   onTabChange?: (tabId: string) => void;
-  /** Back-navigation handler. When omitted, no back button is rendered (e.g.
-   *  when hosted in a Dialog that supplies its own standard close). */
+  /** Back-navigation handler. When omitted, no back button is rendered — pass it
+   *  whenever this view is the whole surface, including inside a `flush` Dialog:
+   *  a flush Dialog renders NO built-in ✕, so omitting it there leaves the user
+   *  no visible way out. See change:
+   *  fix-flush-dialog-scroll-and-close-collision. */
   onBack?: () => void;
+  /** Tooltip for the back button. Defaults to "Back to chat", which is correct
+   *  for the chat popout and wrong for every other host — an artifact reader
+   *  goes back to the folder, not to a chat. See change:
+   *  fix-flush-dialog-scroll-and-close-collision. */
+  backLabel?: string;
   /** Enable text search overlay (default: true) */
   searchable?: boolean;
-  /** Reserve right padding in the header so a host Dialog's close (✕) button
-   *  does not overlap the search box. */
-  closeInset?: boolean;
 }
 
 export function MarkdownPreviewView({
@@ -38,20 +43,23 @@ export function MarkdownPreviewView({
   activeTab,
   onTabChange,
   onBack,
+  backLabel,
   searchable = true,
-  closeInset = false,
 }: Props) {
   const contentRef = useRef<HTMLDivElement>(null);
   return (
     <div className="flex-1 flex flex-col min-h-0" data-testid="markdown-preview">
       {/* Header with optional back button and title */}
-      <div className={`flex items-center gap-2 px-4 py-2 border-b border-[var(--border-secondary)]${closeInset ? " pr-12" : ""}`}>
+      {/* No corner reservation: a flush host Dialog no longer paints its own ✕
+          over this header. See change:
+          fix-flush-dialog-scroll-and-close-collision. */}
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-[var(--border-secondary)]">
         {onBack && (
           <button
             onClick={onBack}
             className="text-[var(--text-secondary)] hover:text-[var(--text-primary)] p-1 rounded hover:bg-[var(--bg-surface)]"
             data-testid="preview-back"
-            title={i18nT("session.backToChat", undefined, "Back to chat")}
+            title={backLabel ?? i18nT("session.backToChat", undefined, "Back to chat")}
           >
             <Icon path={mdiArrowLeft} size={0.7} />
           </button>

@@ -2640,7 +2640,14 @@ export default function App() {
                 slot's `flex-1 min-h-0` gets 0, and a claim body positioned
                 `absolute inset-0` (the KB page) disappears entirely. 92vh
                 matches the panel's own cap, so nothing overflows.
-                Caught by kb-folder-slot.spec.ts. */}
+                Caught by kb-folder-slot.spec.ts.
+                STAYS even though the flush Dialog panel is now a capped flex
+                column: that panel is deliberately height-INDEFINITE, and an
+                `absolute inset-0` claim body contributes zero intrinsic height,
+                so the flex item would still resolve to 0. This is a definite-
+                height PIN like `h-[70vh]`, not a workaround the primitive
+                subsumes. See change:
+                fix-flush-dialog-scroll-and-close-collision. */}
             <div className="flex flex-col h-[92vh] min-h-0">
               <ShellOverlayRouteSlot onBack={dismissOverlay} registry={_pluginRegistry} />
             </div>

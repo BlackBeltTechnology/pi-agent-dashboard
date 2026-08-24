@@ -296,13 +296,18 @@ test.describe("blackhole settings page (L3)", () => {
   });
 
   // ── R1: overlay dismissal must not discard unsaved edits ─────────────────
-  // Converting Settings into a route-backed overlay added three dismissal
-  // gestures the full page never had. Each one reaches `Dialog`'s onClose, so
-  // without the opt-in guard it navigates away and eats the edit. This is the
+  // Converting Settings into a route-backed overlay added dismissal gestures
+  // the full page never had. Each one reaches `Dialog`'s onClose, so without
+  // the opt-in guard it navigates away and eats the edit. This is the
   // highest-severity risk in add-route-backed-overlay-dialogs.
+  //
+  // The ✕ row is GONE, not skipped: a route-backed overlay is a flush Dialog
+  // and a flush Dialog renders no built-in ✕ (it duplicated and overlapped the
+  // child's own header controls). Its absence is asserted directly below, so
+  // this list shrinking cannot be mistaken for lost guard coverage.
+  // See change: fix-flush-dialog-scroll-and-close-collision.
   for (const [name, dismiss] of [
     ["Escape", async (page) => await page.keyboard.press("Escape")],
-    ["the ✕ affordance", async (page) => await page.getByTestId("settings-overlay-close").click()],
     ["a backdrop click", async (page) => await page.getByTestId("settings-overlay-overlay").click({ position: { x: 5, y: 5 } })],
   ] as [string, (page: import("@playwright/test").Page) => Promise<void>][]) {
     test(`dismissing a dirty settings overlay via ${name} prompts instead of discarding`, async ({
@@ -317,6 +322,9 @@ test.describe("blackhole settings page (L3)", () => {
       await input.fill("90000");
       await input.blur();
       await expect(page.getByTestId("settings-save-bar")).toBeVisible();
+
+      // The removed gesture, asserted rather than merely dropped from the list.
+      await expect(page.getByTestId("settings-overlay-close")).toHaveCount(0);
 
       await dismiss(page);
 
