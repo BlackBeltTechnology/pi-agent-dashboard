@@ -183,4 +183,4 @@ skill.
 
 ---
 
-_Generated from session `019f6257` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-14. Source extract: facts sheet from `2026-07-14T20-35-34-260Z_019f6257-92f4-77d3-906d-c4d7dde2f586.jsonl`._
+_Generated from session `019f6257` · `pi-agent-dashboard` · 2026-07-14. Source extract: facts sheet from `2026-07-14T20-35-34-260Z_019f6257-92f4-77d3-906d-c4d7dde2f586.jsonl`._

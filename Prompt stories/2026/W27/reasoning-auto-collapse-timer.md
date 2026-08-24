@@ -96,4 +96,4 @@ Both are strong candidates for a project memory so the next worktree change does
 
 ---
 
-_Generated from session `019f2ca1-c7e5-7d80-bd0b-3abc6e68c45e` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-04. Source extract: `/tmp/facts-11932-1784849431.md`._
+_Generated from session `019f2ca1-c7e5-7d80-bd0b-3abc6e68c45e` · `pi-agent-dashboard` · 2026-07-04. Source extract: `/tmp/facts-11932-1784849431.md`._

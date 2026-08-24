@@ -199,4 +199,4 @@ updated `docs/faq.md` + `docs/architecture.md` + `CHANGELOG.md`; PR #54 merged a
 
 ---
 
-_Generated from session `019e7a00-0a90-77dd-abf4-619056d1931e` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-30. Source extract: deterministic facts sheet._
+_Generated from session `019e7a00-0a90-77dd-abf4-619056d1931e` · `pi-agent-dashboard` · 2026-05-30. Source extract: deterministic facts sheet._

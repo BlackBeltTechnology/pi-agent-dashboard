@@ -196,4 +196,4 @@ target, the CodeRabbit CLI.
 
 ---
 
-_Generated from session `019ef5ff-dc12-7423-8605-ffd1f990354f` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-23. Source extract: `/tmp/cr_facts.md`._
+_Generated from session `019ef5ff-dc12-7423-8605-ffd1f990354f` · `pi-agent-dashboard` · 2026-06-23. Source extract: `/tmp/cr_facts.md`._

@@ -272,7 +272,7 @@ reproduce the error locally. Got a 404 before hitting the proxy code.
 ## 8. Reproduce it faster — checklist
 
 **Inputs you need:**
-- Current working directory: `/Users/robson/Project/pi-agent-dashboard`
+- Current working directory: `pi-agent-dashboard`
 - Dashboard server running or restarted (to verify the fix)
 - Git access to `develop` branch
 
@@ -304,4 +304,4 @@ reproduce the error locally. Got a 404 before hitting the proxy code.
 
 ---
 
-_Generated from session `019f6b35-83f8-73e8-b7d5-1bcf1d057528` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-16→2026-07-17._
+_Generated from session `019f6b35-83f8-73e8-b7d5-1bcf1d057528` · `pi-agent-dashboard` · 2026-07-16→2026-07-17._

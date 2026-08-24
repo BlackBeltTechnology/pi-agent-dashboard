@@ -146,4 +146,4 @@ archived change `openspec/changes/archive/2026-04-19-add-release-notes/`. Commit
 
 ---
 
-_Generated from session `019da6db` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-19. Source extract: session facts sheet (mktemp)._
+_Generated from session `019da6db` · `pi-agent-dashboard` · 2026-04-19. Source extract: session facts sheet (mktemp)._

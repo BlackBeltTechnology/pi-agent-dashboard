@@ -99,4 +99,4 @@ No new skills or memories were created — this session **consumed** existing on
 
 ---
 
-_Generated from session `019ef707` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-24. Source extract: `/tmp/facts-1784847629N.md`._
+_Generated from session `019ef707` · `pi-agent-dashboard` · 2026-06-24. Source extract: `/tmp/facts-1784847629N.md`._

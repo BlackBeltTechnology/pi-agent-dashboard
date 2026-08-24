@@ -138,4 +138,4 @@ specs/pi-flows-extension-ui-adoption/spec.md + tasks.md) and an updated
 
 ---
 
-_Generated from session `019e1259` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-10. Source extract: deterministic facts sheet._
+_Generated from session `019e1259` · `pi-agent-dashboard` · 2026-05-10. Source extract: deterministic facts sheet._

@@ -146,4 +146,4 @@ local branch (`os/fix-settings-mobile-layout`), and remote branch all removed.
 
 ---
 
-_Generated from session `019ee17d` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-20. Source extract: session facts sheet (deterministic extract)._
+_Generated from session `019ee17d` · `pi-agent-dashboard` · 2026-06-20. Source extract: session facts sheet (deterministic extract)._

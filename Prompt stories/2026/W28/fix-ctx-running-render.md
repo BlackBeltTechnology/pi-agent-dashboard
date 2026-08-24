@@ -135,4 +135,4 @@ aren't already documented:
 
 ---
 
-_Generated from session `019f5855` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-13. Source extract: deterministic facts sheet._
+_Generated from session `019f5855` · `pi-agent-dashboard` · 2026-07-13. Source extract: deterministic facts sheet._

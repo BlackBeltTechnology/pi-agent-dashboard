@@ -98,4 +98,4 @@ No new skill or memory was persisted this session — it *consumed* the existing
 
 ---
 
-_Generated from session `019f1654` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-30. Source extract: deterministic facts sheet._
+_Generated from session `019f1654` · `pi-agent-dashboard` · 2026-06-30. Source extract: deterministic facts sheet._

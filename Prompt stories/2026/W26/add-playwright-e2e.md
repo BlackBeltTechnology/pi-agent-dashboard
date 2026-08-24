@@ -175,4 +175,4 @@ supplying the ship sequence.
 
 ---
 
-_Generated from session `019ef264-5d03-7759-9f33-536b7a10d564` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-23. Source extract: `/tmp/facts-10124-1784864105.md`._
+_Generated from session `019ef264-5d03-7759-9f33-536b7a10d564` · `pi-agent-dashboard` · 2026-06-23. Source extract: `/tmp/facts-10124-1784864105.md`._

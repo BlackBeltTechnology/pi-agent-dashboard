@@ -160,4 +160,4 @@ requirements in `openspec/specs/first-run-wizard/spec.md`, updated
 
 ---
 
-_Generated from session `019e6114` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-26. Source extract: deterministic facts sheet._
+_Generated from session `019e6114` · `pi-agent-dashboard` · 2026-05-26. Source extract: deterministic facts sheet._

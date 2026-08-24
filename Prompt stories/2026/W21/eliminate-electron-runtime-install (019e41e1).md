@@ -165,4 +165,4 @@ exist (and would have saved the two failed DMG builds) is a **build-host gotcha 
 
 ---
 
-_Generated from session `019e41e1-036a-7389-a288-d30e441be1c5` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-19. Source extract: session facts sheet (mktemp)._
+_Generated from session `019e41e1-036a-7389-a288-d30e441be1c5` · `pi-agent-dashboard` · 2026-05-19. Source extract: session facts sheet (mktemp)._

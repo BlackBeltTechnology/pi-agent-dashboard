@@ -164,4 +164,4 @@ updated `docs/architecture.md`, and one isolated docs commit on `develop`.
 
 ---
 
-_Generated from session `019dedab-3519-757e-89b8-845e30098c79` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-03. Source extract: `/tmp/facts-8OK4dRwu`._
+_Generated from session `019dedab-3519-757e-89b8-845e30098c79` · `pi-agent-dashboard` · 2026-05-03. Source extract: `/tmp/facts-8OK4dRwu`._

@@ -186,4 +186,4 @@ scenarios; specs archived → `openspec/changes/archive/2026-07-07-enhance-tool-
 
 ---
 
-_Generated from session `019f3cdf-b399-7207-9fff-0ad50c0a0a0c` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-07. Source extract: deterministic facts sheet._
+_Generated from session `019f3cdf-b399-7207-9fff-0ad50c0a0a0c` · `pi-agent-dashboard` · 2026-07-07. Source extract: deterministic facts sheet._

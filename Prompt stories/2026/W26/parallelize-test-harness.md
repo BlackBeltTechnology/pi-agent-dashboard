@@ -186,4 +186,4 @@ Final artifacts produced:
 
 ---
 
-_Generated from session `019ef60c-7c3b-774d-8cf7-44516495c3b8` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-23. Source extract: session facts sheet (parallelize-test-harness)._
+_Generated from session `019ef60c-7c3b-774d-8cf7-44516495c3b8` · `pi-agent-dashboard` · 2026-06-23. Source extract: session facts sheet (parallelize-test-harness)._

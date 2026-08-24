@@ -182,4 +182,4 @@ and access to the real `openspec` CLI. Final artifacts: PR #109 (merged squash
 
 ---
 
-_Generated from session `019ec38c` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-optimize-openspec-poll-derive-artifacts-locally` · 2026-06-14. Source extract: session facts sheet._
+_Generated from session `019ec38c` · `pi-agent-dashboard/.worktrees/os-optimize-openspec-poll-derive-artifacts-locally` · 2026-06-14. Source extract: session facts sheet._

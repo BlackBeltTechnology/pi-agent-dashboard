@@ -196,4 +196,4 @@ the DMG.
 
 ---
 
-_Generated from session `019f103d-4bb9-7bc9-851c-ea6d0c1cb9b9` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-29. Source extract: `/tmp/facts-story-run.md`._
+_Generated from session `019f103d-4bb9-7bc9-851c-ea6d0c1cb9b9` · `pi-agent-dashboard` · 2026-06-29. Source extract: `/tmp/facts-story-run.md`._

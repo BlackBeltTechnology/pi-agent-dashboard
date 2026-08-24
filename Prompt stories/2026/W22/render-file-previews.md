@@ -162,4 +162,4 @@ to rebase onto.
 
 ---
 
-_Generated from session `019e7b82-1ead-77cc-b1a4-07beb6856e88` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-31. Source extract: `sessfacts.XXXXXX.vuzqVcLvwx.md`._
+_Generated from session `019e7b82-1ead-77cc-b1a4-07beb6856e88` · `pi-agent-dashboard` · 2026-05-31. Source extract: `sessfacts.XXXXXX.vuzqVcLvwx.md`._

@@ -107,4 +107,4 @@ If anything *should* be captured: a one-line memory that **fresh worktrees lack 
 
 ---
 
-_Generated from session `019ef724-f48f-7160-b317-f513aac28630` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-24. Source extract: session facts sheet._
+_Generated from session `019ef724-f48f-7160-b317-f513aac28630` · `pi-agent-dashboard` · 2026-06-24. Source extract: session facts sheet._

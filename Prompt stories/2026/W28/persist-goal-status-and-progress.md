@@ -156,4 +156,4 @@ checked out; `gh` authed; awareness that OpenSpec skills live at the main repo r
 
 ---
 
-_Generated from session `019f5877-43db-72fe-a258-d97b88535310` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-13. Source extract: `/tmp/facts-25140-1784848316.md`._
+_Generated from session `019f5877-43db-72fe-a258-d97b88535310` · `pi-agent-dashboard` · 2026-07-13. Source extract: `/tmp/facts-25140-1784848316.md`._

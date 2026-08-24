@@ -206,4 +206,4 @@ Commits: `557da6475`, `0dbeb39a4`, `69b9b655d` on `develop`.
 
 ---
 
-_Generated from session `019f538e` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-12. Source extract: session-to-guideline facts sheet._
+_Generated from session `019f538e` · `pi-agent-dashboard` · 2026-07-12. Source extract: session-to-guideline facts sheet._

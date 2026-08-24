@@ -149,4 +149,4 @@ name. **Artifacts produced:** fixed
 
 ---
 
-_Generated from session `019e6c26-5ec9-7e32-9695-2bc7ae241e3f` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-28. Source extract: session facts sheet._
+_Generated from session `019e6c26-5ec9-7e32-9695-2bc7ae241e3f` · `pi-agent-dashboard` · 2026-05-28. Source extract: session facts sheet._

@@ -109,4 +109,4 @@ No new skills or memories were created this session — the work rode entirely o
 
 ---
 
-_Generated from session `019ec010-4252-77f9-a1d1-05af62a4ef36` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-13. Source extract: `/tmp/facts-1784847634N.md`._
+_Generated from session `019ec010-4252-77f9-a1d1-05af62a4ef36` · `pi-agent-dashboard` · 2026-06-13. Source extract: `/tmp/facts-1784847634N.md`._

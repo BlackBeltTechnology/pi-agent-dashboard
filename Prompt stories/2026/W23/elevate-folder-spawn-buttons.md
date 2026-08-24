@@ -95,4 +95,4 @@ No new skills or memories were created this session; the value was in *chaining 
 
 ---
 
-_Generated from session `019e9994` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-elevate-folder-spawn-buttons` · 2026-06-05. Source extract: session facts sheet (deterministic extract)._
+_Generated from session `019e9994` · `pi-agent-dashboard/.worktrees/os-elevate-folder-spawn-buttons` · 2026-06-05. Source extract: session facts sheet (deterministic extract)._

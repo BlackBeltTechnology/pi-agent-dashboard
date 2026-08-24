@@ -168,4 +168,4 @@ deltas), `gh` authed for the repo, the parent repo's `node_modules` path (worktr
 
 ---
 
-_Generated from session `019f1481` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-29. Source extract: session facts sheet (mktemp)._
+_Generated from session `019f1481` · `pi-agent-dashboard` · 2026-06-29. Source extract: session facts sheet (mktemp)._

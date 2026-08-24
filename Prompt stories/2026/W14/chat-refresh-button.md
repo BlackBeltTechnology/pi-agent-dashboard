@@ -158,4 +158,4 @@ touches `src/client/`.
 
 ---
 
-_Generated from session `cbf91a8f` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-05. Source extract: `/tmp/session_facts_72413_5799.md`._
+_Generated from session `cbf91a8f` · `pi-agent-dashboard` · 2026-04-05. Source extract: `/tmp/session_facts_72413_5799.md`._

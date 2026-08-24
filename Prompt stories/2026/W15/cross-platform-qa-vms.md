@@ -179,4 +179,4 @@ Commits: `a80a720` (feat), `3aab66e` (fix), `9510702` (archive/sync).
 
 ---
 
-_Generated from session `f0bd58b1` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-11. Source extract: session-to-guideline facts sheet._
+_Generated from session `f0bd58b1` · `pi-agent-dashboard` · 2026-04-11. Source extract: session-to-guideline facts sheet._

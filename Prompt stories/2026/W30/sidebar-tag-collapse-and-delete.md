@@ -197,4 +197,4 @@ change under `openspec/changes/archive/`.
 
 ---
 
-_Generated from session `019f8757-bfb3-7705-909f-d0b639e39553` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-22. Source extract: session facts sheet (deterministic extract)._
+_Generated from session `019f8757-bfb3-7705-909f-d0b639e39553` · `pi-agent-dashboard` · 2026-07-22. Source extract: session facts sheet (deterministic extract)._

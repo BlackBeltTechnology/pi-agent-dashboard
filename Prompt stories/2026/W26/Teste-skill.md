@@ -102,4 +102,4 @@ If repeating this extraction pattern often, create a **"harvest an external skil
 
 ---
 
-_Generated from session `019f05a7-c3b7-7bbc-835c-755f5221eb9e` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-26. Source extract: `/tmp/facts-77819-1784852434.md`._
+_Generated from session `019f05a7-c3b7-7bbc-835c-755f5221eb9e` · `pi-agent-dashboard` · 2026-06-26. Source extract: `/tmp/facts-77819-1784852434.md`._

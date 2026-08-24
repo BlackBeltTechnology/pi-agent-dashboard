@@ -188,4 +188,4 @@ in the parent repo (worktree-collision guard).
 
 ---
 
-_Generated from session `019f53d4-822a-7656-8ab0-c460016bc391` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-fix-chat-scroll-to-top-estimate-drift` · 2026-07-12. Source extract: session-to-guideline facts sheet._
+_Generated from session `019f53d4-822a-7656-8ab0-c460016bc391` · `pi-agent-dashboard/.worktrees/os-fix-chat-scroll-to-top-estimate-drift` · 2026-07-12. Source extract: session-to-guideline facts sheet._

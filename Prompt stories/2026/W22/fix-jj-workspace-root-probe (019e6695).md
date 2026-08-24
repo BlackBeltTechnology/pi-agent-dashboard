@@ -177,4 +177,4 @@ PR #37 with 2 commits (`767927c1` spec, `2302fdbf` implementation).
 
 ---
 
-_Generated from session `019e6695-51b0-7c4e-af90-368fd3e3ccf3` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-27. Source extract: `facts-XXXXXX.4WsvXhSZUX`._
+_Generated from session `019e6695-51b0-7c4e-af90-368fd3e3ccf3` · `pi-agent-dashboard` · 2026-05-27. Source extract: `facts-XXXXXX.4WsvXhSZUX`._

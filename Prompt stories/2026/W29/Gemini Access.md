@@ -145,4 +145,4 @@ on `develop` (5 files, +183). Start building from `tasks.md §1` (the spike).
 
 ---
 
-_Generated from session `019f6161` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-14. Source extract: session-to-guideline facts sheet._
+_Generated from session `019f6161` · `pi-agent-dashboard` · 2026-07-14. Source extract: session-to-guideline facts sheet._

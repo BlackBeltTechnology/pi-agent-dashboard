@@ -99,4 +99,4 @@ The session opened with a single slash command: `/skill:openspec-apply-change ad
 
 ---
 
-_Generated from session `019ea150` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-add-inline-terminal-card` · 2026-06-07. Source extract: deterministic facts sheet (session-to-guideline)._
+_Generated from session `019ea150` · `pi-agent-dashboard/.worktrees/os-add-inline-terminal-card` · 2026-06-07. Source extract: deterministic facts sheet (session-to-guideline)._

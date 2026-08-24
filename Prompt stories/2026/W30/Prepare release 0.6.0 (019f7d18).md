@@ -222,4 +222,4 @@ consistent cut in a fresh session.
 
 ---
 
-_Generated from session `019f7d18-2fc9-79f8-85e9-107aa45e6579` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-24. Source extract: `/tmp/facts-1784863705N.md`._
+_Generated from session `019f7d18-2fc9-79f8-85e9-107aa45e6579` · `pi-agent-dashboard` · 2026-07-24. Source extract: `/tmp/facts-1784863705N.md`._

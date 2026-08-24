@@ -203,4 +203,4 @@ a system Chrome/Edge install; `gh` authenticated; parent repo's vitest available
 
 ---
 
-_Generated from session `019f1599-8026-78ef-bb53-f528cbca27d6` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-30. Source extract: `/tmp/facts-adopt071.md`._
+_Generated from session `019f1599-8026-78ef-bb53-f528cbca27d6` · `pi-agent-dashboard` · 2026-06-30. Source extract: `/tmp/facts-adopt071.md`._

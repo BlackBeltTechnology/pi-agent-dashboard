@@ -166,4 +166,4 @@ merged PR #230 (squash SHA `0d6e5990`).
 
 ---
 
-_Generated from session `019f2c9d` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-04. Source extract: deterministic facts sheet (`extract_session.ts`)._
+_Generated from session `019f2c9d` · `pi-agent-dashboard` · 2026-07-04. Source extract: deterministic facts sheet (`extract_session.ts`)._

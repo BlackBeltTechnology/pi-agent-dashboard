@@ -189,4 +189,4 @@ diff); stale nvm 1.3.1 removed; 10 live dashboard sessions left running.
 
 ---
 
-_Generated from session `019f6d97-767a-74b3-9268-e79c819ce3e2` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-17. Source extract: `/tmp/session_facts.md`._
+_Generated from session `019f6d97-767a-74b3-9268-e79c819ce3e2` · `pi-agent-dashboard` · 2026-07-17. Source extract: `/tmp/session_facts.md`._

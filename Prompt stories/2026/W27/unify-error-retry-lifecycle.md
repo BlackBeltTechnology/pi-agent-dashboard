@@ -138,4 +138,4 @@ rename-mismatch fix is the missing pitfall to fold into it.)
 
 ---
 
-_Generated from session `019f159a` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-30. Source extract: `/tmp/session_facts_87575_12799.md`._
+_Generated from session `019f159a` · `pi-agent-dashboard` · 2026-06-30. Source extract: `/tmp/session_facts_87575_12799.md`._

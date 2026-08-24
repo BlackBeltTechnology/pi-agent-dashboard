@@ -194,4 +194,4 @@ new, `dialog-primitive` + `image-lightbox` modified). Commits `4a20bf4aa`
 
 ---
 
-_Generated from session `019f7c53` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-24. Source extract: `/tmp/facts-6nQDvC`._
+_Generated from session `019f7c53` · `pi-agent-dashboard` · 2026-07-24. Source extract: `/tmp/facts-6nQDvC`._

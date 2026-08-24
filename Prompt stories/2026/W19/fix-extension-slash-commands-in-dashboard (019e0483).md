@@ -90,4 +90,4 @@ No skill or memory was created this session. The workflow is, however, clearly r
 
 ---
 
-_Generated from session `019e0483-6551-7515-96ba-8a2939df750f` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-08. Source extract: `/tmp/facts-1784851991N.md`._
+_Generated from session `019e0483-6551-7515-96ba-8a2939df750f` · `pi-agent-dashboard` · 2026-05-08. Source extract: `/tmp/facts-1784851991N.md`._

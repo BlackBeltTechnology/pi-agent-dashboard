@@ -191,4 +191,4 @@ a multi-cwd service.
 
 ---
 
-_Generated from session `019f451f-731d-7a63-8add-c1678e0d7027` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/private-invoicebot-plugin` · 2026-07-09. Source extract: session facts sheet._
+_Generated from session `019f451f-731d-7a63-8add-c1678e0d7027` · `pi-agent-dashboard/.worktrees/private-invoicebot-plugin` · 2026-07-09. Source extract: session facts sheet._

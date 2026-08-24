@@ -177,4 +177,4 @@ archived change `2026-06-21-remove-project-readme-button`.
 
 ---
 
-_Generated from session `019eec11` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-21. Source extract: deterministic facts sheet._
+_Generated from session `019eec11` · `pi-agent-dashboard` · 2026-06-21. Source extract: deterministic facts sheet._

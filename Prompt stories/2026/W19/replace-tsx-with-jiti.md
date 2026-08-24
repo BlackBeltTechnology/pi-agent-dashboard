@@ -174,4 +174,4 @@ synced `dashboard-server` / `packaging` / new `jiti-loader` specs;
 
 ---
 
-_Generated from session `019e0987` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-10. Source extract: deterministic facts sheet (session-to-guideline)._
+_Generated from session `019e0987` · `pi-agent-dashboard` · 2026-05-10. Source extract: deterministic facts sheet (session-to-guideline)._

@@ -167,4 +167,4 @@ a dirty working tree.
 
 ---
 
-_Generated from session `019da879` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-20. Source extract: deterministic facts sheet from `session-to-guideline/scripts/extract_session.ts`._
+_Generated from session `019da879` · `pi-agent-dashboard` · 2026-04-20. Source extract: deterministic facts sheet from `session-to-guideline/scripts/extract_session.ts`._

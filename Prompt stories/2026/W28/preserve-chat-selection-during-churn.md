@@ -166,4 +166,4 @@ follow-up change scaffolds, PR #278 (merged, `872e1573`), archived change under
 
 ---
 
-_Generated from session `019f547f` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-12. Source extract: session facts sheet (deterministic extract)._
+_Generated from session `019f547f` · `pi-agent-dashboard` · 2026-07-12. Source extract: session facts sheet (deterministic extract)._

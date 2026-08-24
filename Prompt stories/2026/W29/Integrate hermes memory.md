@@ -168,4 +168,4 @@ be systematized:
 
 ---
 
-_Generated from session `019f6d5e-4b2e-7781-b8d1-3be73cdffaa2` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-17._
+_Generated from session `019f6d5e-4b2e-7781-b8d1-3be73cdffaa2` · `pi-agent-dashboard` · 2026-07-17._

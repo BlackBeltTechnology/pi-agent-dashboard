@@ -131,7 +131,7 @@ so `tsc` resolves `shared` to the main repo and misses new fields; use a temp ts
 - **Archive blocked by a stale delta header.** The target main spec had `## ADDED Requirements`
   (delta) where a main spec needs `## Requirements`; the surgical rename unblocked `openspec archive`.
 - **Shell pinned to a deleted worktree.** After removing the worktree, the Bash tool's CWD was gone;
-  run cleanup + verification **from the main repo path** (`/Users/robson/Project/pi-agent-dashboard`).
+  run cleanup + verification **from the main repo path** (`pi-agent-dashboard`).
 - **`.pi/settings.json` auto-rewritten by the harness** (relative `..` → absolute path) — restore it
   and exclude it from the commit; it's environment noise, not part of the change.
 
@@ -153,4 +153,4 @@ so `tsc` resolves `shared` to the main repo and misses new fields; use a temp ts
 
 ---
 
-_Generated from session `019ec54c-3605-7144-b4fc-555531ed699e` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-14. Source extract: session-to-guideline facts sheet._
+_Generated from session `019ec54c-3605-7144-b4fc-555531ed699e` · `pi-agent-dashboard` · 2026-06-14. Source extract: session-to-guideline facts sheet._

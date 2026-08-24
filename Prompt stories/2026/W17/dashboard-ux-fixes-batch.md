@@ -142,4 +142,4 @@ updated `openspec/specs/{bridge-extension,event-reducer,model-selector,package-i
 
 ---
 
-_Generated from session `019da895` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-20. Source extract: `facts.NeBpUNZZiY.md`._
+_Generated from session `019da895` · `pi-agent-dashboard` · 2026-04-20. Source extract: `facts.NeBpUNZZiY.md`._

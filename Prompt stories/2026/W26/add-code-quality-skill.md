@@ -105,4 +105,4 @@ turns then pushed it through **isolation-testing feasibility** and finally **shi
 
 ---
 
-_Generated from session `019ef6d4-801c-7225-8b02-6a0c41f25da9` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-24. Source extract: session facts sheet._
+_Generated from session `019ef6d4-801c-7225-8b02-6a0c41f25da9` · `pi-agent-dashboard` · 2026-06-24. Source extract: session facts sheet._

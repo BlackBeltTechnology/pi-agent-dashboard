@@ -150,4 +150,4 @@ dirty paths are unrelated), push access to `develop`.
 
 ---
 
-_Generated from session `019f34b9` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-06. Source extract: `/tmp/facts.KUDo2a`._
+_Generated from session `019f34b9` · `pi-agent-dashboard` · 2026-07-06. Source extract: `/tmp/facts.KUDo2a`._

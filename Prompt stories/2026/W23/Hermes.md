@@ -155,4 +155,4 @@ and `~/.pi/agent/hermes-memory-config.json`; the target model id (`gemma-4-31b-i
 
 ---
 
-_Generated from session `019e8486` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-02. Source extract: `/tmp/session_facts_58045_30707.md`._
+_Generated from session `019e8486` · `pi-agent-dashboard` · 2026-06-02. Source extract: `/tmp/session_facts_58045_30707.md`._

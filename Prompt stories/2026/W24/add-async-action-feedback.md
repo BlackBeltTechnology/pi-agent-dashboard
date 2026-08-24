@@ -199,4 +199,4 @@ worktree branched off fresh `develop`, `gh` authenticated.
 
 ---
 
-_Generated from session `019ebdfc` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-13. Source extract: facts sheet (mktemp)._
+_Generated from session `019ebdfc` · `pi-agent-dashboard` · 2026-06-13. Source extract: facts sheet (mktemp)._

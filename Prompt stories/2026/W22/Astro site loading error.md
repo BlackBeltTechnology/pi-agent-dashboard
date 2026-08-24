@@ -148,4 +148,4 @@ jj, `site/` Astro workspace. **Artifacts produced:** edited
 
 ---
 
-_Generated from session `019e7a1e` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-30. Source extract: session facts sheet (Astro site loading error)._
+_Generated from session `019e7a1e` · `pi-agent-dashboard` · 2026-05-30. Source extract: session facts sheet (Astro site loading error)._

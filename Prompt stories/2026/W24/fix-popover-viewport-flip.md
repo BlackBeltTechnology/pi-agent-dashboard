@@ -155,4 +155,4 @@ sweep a repeatable one-command move instead of manual grepping.
 
 ---
 
-_Generated from session `019ec6b5-a88c-78f8-878a-11f10f97b8b4` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-14. Source extract: session-to-guideline facts sheet._
+_Generated from session `019ec6b5-a88c-78f8-878a-11f10f97b8b4` · `pi-agent-dashboard` · 2026-06-14. Source extract: session-to-guideline facts sheet._

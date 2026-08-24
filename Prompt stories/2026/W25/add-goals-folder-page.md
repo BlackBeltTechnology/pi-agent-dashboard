@@ -170,4 +170,4 @@ reference patterns, `gh` auth for the PR, a repo where CI + CodeRabbit run on PR
 
 ---
 
-_Generated from session `019eec14` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-21. Source extract: deterministic facts sheet from the session JSONL._
+_Generated from session `019eec14` · `pi-agent-dashboard` · 2026-06-21. Source extract: deterministic facts sheet from the session JSONL._

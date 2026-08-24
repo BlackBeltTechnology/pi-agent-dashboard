@@ -150,4 +150,4 @@ Artifacts produced:
 
 ---
 
-_Generated from session `019e7b7f` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-31. Source extract: session facts sheet (mktemp)._
+_Generated from session `019e7b7f` · `pi-agent-dashboard` · 2026-05-31. Source extract: session facts sheet (mktemp)._

@@ -124,4 +124,4 @@ recurs, promote it to a project skill so future worktree builds don't re-derive 
 
 ---
 
-_Generated from session `019ec585` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-14. Source extract: deterministic facts sheet._
+_Generated from session `019ec585` · `pi-agent-dashboard` · 2026-06-14. Source extract: deterministic facts sheet._

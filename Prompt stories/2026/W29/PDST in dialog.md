@@ -306,4 +306,4 @@ with a specific change name). It runs all gates and stops at the git-worktree bo
 
 ---
 
-_Generated from session `019f6a01-b4eb-7a18-a5db-4076e89c1792` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-16. Source extract: `/tmp/facts_019f6a01.md`._
+_Generated from session `019f6a01-b4eb-7a18-a5db-4076e89c1792` · `pi-agent-dashboard` · 2026-07-16. Source extract: `/tmp/facts_019f6a01.md`._

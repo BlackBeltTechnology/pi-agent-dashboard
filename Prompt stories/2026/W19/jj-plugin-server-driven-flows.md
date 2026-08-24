@@ -172,4 +172,4 @@ Final artifacts produced (paths):
 
 ---
 
-_Generated from session `019df056` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-04. Source extract: `/tmp/facts (session-to-guideline extract)`._
+_Generated from session `019df056` · `pi-agent-dashboard` · 2026-05-04. Source extract: `/tmp/facts (session-to-guideline extract)`._

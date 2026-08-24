@@ -199,4 +199,4 @@ new `src/server/__tests__/auto-attach.test.ts`. Landed on `develop` as `1d9e40d`
 
 ---
 
-_Generated from session `83c66861` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-08. Source extract: deterministic facts sheet._
+_Generated from session `83c66861` · `pi-agent-dashboard` · 2026-04-08. Source extract: deterministic facts sheet._

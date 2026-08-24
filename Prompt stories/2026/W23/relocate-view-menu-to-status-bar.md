@@ -103,7 +103,7 @@ fixed), re-ran CI green, squash-merged, and removed the worktree.
   advanced a full phase because the AI already held the PR/branch context.
 - **Rewrite of the weak worktree-skill correction** (it took two tries): state up front —
   *"This is a git worktree; load all OpenSpec skills from the parent repo root
-  (`/Users/robson/Project/pi-agent-dashboard`), not the `.worktrees` checkout."*
+  (`pi-agent-dashboard`), not the `.worktrees` checkout."*
 
 ## 5. Steering & corrections (what to watch for)
 
@@ -177,4 +177,4 @@ in `openspec/specs/chat-display-preferences/spec.md`; merged PR #71.
 
 ---
 
-_Generated from session `019e8a50` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-03. Source extract: `/var/folders/qb/m1_q3v6d5bnfzbpmc0dkkqx40000gn/T/session_facts.XXXXXX.6GnWNI6Fru`._
+_Generated from session `019e8a50` · `pi-agent-dashboard` · 2026-06-03. Source extract: `/var/folders/qb/m1_q3v6d5bnfzbpmc0dkkqx40000gn/T/session_facts.XXXXXX.6GnWNI6Fru`._

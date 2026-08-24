@@ -144,4 +144,4 @@ daemon for the harness; `gh` auth for the PR.
 
 ---
 
-_Generated from session `019f6c81` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-fix-plugin-action-fanout-and-handlers` · 2026-07-16. Source extract: `/var/folders/qb/m1_q3v6d5bnfzbpmc0dkkqx40000gn/T/session_facts.PERfvgn98D.md`._
+_Generated from session `019f6c81` · `pi-agent-dashboard/.worktrees/os-fix-plugin-action-fanout-and-handlers` · 2026-07-16. Source extract: `/var/folders/qb/m1_q3v6d5bnfzbpmc0dkkqx40000gn/T/session_facts.PERfvgn98D.md`._

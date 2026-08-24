@@ -199,4 +199,4 @@ E2E spec + fixture) across 4 packages, PR **#316** squash-merged to `develop`
 
 ---
 
-_Generated from session `019f5cb0` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-add-session-uncommitted-indicator-and-commit` · 2026-07-13. Source extract: deterministic facts sheet (`session-to-guideline`)._
+_Generated from session `019f5cb0` · `pi-agent-dashboard/.worktrees/os-add-session-uncommitted-indicator-and-commit` · 2026-07-13. Source extract: deterministic facts sheet (`session-to-guideline`)._

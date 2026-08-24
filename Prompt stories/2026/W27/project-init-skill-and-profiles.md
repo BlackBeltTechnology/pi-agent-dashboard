@@ -165,4 +165,4 @@ with two scenarios).
 
 ---
 
-_Generated from session `019f279a` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-03. Source extract: session facts sheet._
+_Generated from session `019f279a` · `pi-agent-dashboard` · 2026-07-03. Source extract: session facts sheet._

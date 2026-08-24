@@ -183,4 +183,4 @@ second-model provider/model id, and the renderer file (`wizard.html`) whose toke
 
 ---
 
-_Generated from session `019f2d45-bb6a-724c-b2fc-7cef90f77642` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-04. Source extract: session facts sheet._
+_Generated from session `019f2d45-bb6a-724c-b2fc-7cef90f77642` · `pi-agent-dashboard` · 2026-07-04. Source extract: session facts sheet._

@@ -168,4 +168,4 @@ merged via PR #229.
 
 ---
 
-_Generated from session `019f2ad7` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-bundle-disciplines-in-project-init` · 2026-07-04. Source extract: session facts sheet (deterministic)._
+_Generated from session `019f2ad7` · `pi-agent-dashboard/.worktrees/os-bundle-disciplines-in-project-init` · 2026-07-04. Source extract: session facts sheet (deterministic)._

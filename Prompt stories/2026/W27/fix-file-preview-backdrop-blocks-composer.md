@@ -163,4 +163,4 @@ installed, `gh` authenticated, the OpenSpec change already proposed with `design
 
 ---
 
-_Generated from session `019f186b-7588-7f00-ab75-e94d81cdeb06` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-24. Source extract: deterministic facts sheet._
+_Generated from session `019f186b-7588-7f00-ab75-e94d81cdeb06` · `pi-agent-dashboard` · 2026-07-24. Source extract: deterministic facts sheet._

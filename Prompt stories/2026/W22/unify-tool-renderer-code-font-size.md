@@ -129,4 +129,4 @@ screenshot static cards, back it with a vitest style assert).
 
 ---
 
-_Generated from session `019e7b68` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-unify-tool-renderer-code-font-size` · 2026-05-31. Source extract: deterministic facts sheet._
+_Generated from session `019e7b68` · `pi-agent-dashboard/.worktrees/os-unify-tool-renderer-code-font-size` · 2026-05-31. Source extract: deterministic facts sheet._

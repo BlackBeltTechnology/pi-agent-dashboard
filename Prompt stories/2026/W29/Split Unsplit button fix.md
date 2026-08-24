@@ -167,4 +167,4 @@ reference; a configured non-Claude `@propose-review-1` role for cross-model revi
 
 ---
 
-_Generated from session `019f6781-3e57-7633-bb63-57658b0d171e` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-15. Source extract: session facts sheet._
+_Generated from session `019f6781-3e57-7633-bb63-57658b0d171e` · `pi-agent-dashboard` · 2026-07-15. Source extract: session facts sheet._

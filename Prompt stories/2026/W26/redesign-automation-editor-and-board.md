@@ -190,4 +190,4 @@ proposal + design + `tasks.md`); a worktree checked out; `gh` authed; the repo's
 
 ---
 
-_Generated from session `019ef265` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-23. Source extract: deterministic facts sheet._
+_Generated from session `019ef265` · `pi-agent-dashboard` · 2026-06-23. Source extract: deterministic facts sheet._

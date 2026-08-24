@@ -156,4 +156,4 @@ test, synced `openspec/specs/event-reducer/spec.md`, archived change, merged PR 
 
 ---
 
-_Generated from session `019f34e6-9b57-7335-a181-3457262b387e` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-06. Source extract: `/tmp/facts-91033.md`._
+_Generated from session `019f34e6-9b57-7335-a181-3457262b387e` · `pi-agent-dashboard` · 2026-07-06. Source extract: `/tmp/facts-91033.md`._

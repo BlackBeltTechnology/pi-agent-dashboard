@@ -147,4 +147,4 @@ session history containing it), a running dashboard on `localhost:8000`.
 
 ---
 
-_Generated from session `019de313-7a05-759e-9dc5-a6fe97df9bc2` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-01. Source extract: session facts sheet._
+_Generated from session `019de313-7a05-759e-9dc5-a6fe97df9bc2` · `pi-agent-dashboard` · 2026-05-01. Source extract: session facts sheet._

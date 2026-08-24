@@ -177,4 +177,4 @@ protocol/bridge/renderers; 7 ADDED requirements synced into `ask-user-tool` spec
 
 ---
 
-_Generated from session `019ea14d` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-07. Source extract: `session_facts.LIpvh3`._
+_Generated from session `019ea14d` · `pi-agent-dashboard` · 2026-06-07. Source extract: `session_facts.LIpvh3`._

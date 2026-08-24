@@ -312,4 +312,4 @@ from project MEMORY); it came up when commit time arrived.
 
 ---
 
-_Generated from session `019f6dcb-5b04-7a3a-b9e4-3a53770608ae` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-17_
+_Generated from session `019f6dcb-5b04-7a3a-b9e4-3a53770608ae` · `pi-agent-dashboard` · 2026-07-17_

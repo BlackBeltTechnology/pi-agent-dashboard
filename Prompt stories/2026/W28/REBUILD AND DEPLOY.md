@@ -170,4 +170,4 @@ the OpenSpec CLI. **Artifacts produced:** `openspec/changes/collapse-tool-calls-
 
 ---
 
-_Generated from session `019f364e` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-06. Source extract: `/tmp/session_facts_3458_1784850552.md`._
+_Generated from session `019f364e` · `pi-agent-dashboard` · 2026-07-06. Source extract: `/tmp/session_facts_3458_1784850552.md`._

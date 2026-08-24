@@ -202,4 +202,4 @@ running; system Chrome (`PW_CHANNEL=chrome`, no Playwright Chromium cache needed
 
 ---
 
-_Generated from session `019f2e2d-80d7-7060-bff8-5fd4036ee800` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-04. Source extract: `/tmp/facts-*.md`._
+_Generated from session `019f2e2d-80d7-7060-bff8-5fd4036ee800` · `pi-agent-dashboard` · 2026-07-04. Source extract: `/tmp/facts-*.md`._

@@ -79,7 +79,7 @@ and the faux e2e spawns a *real* subagent. Plus the test-plan's expected placeho
 string was the *inline* component's message, not the deep-link **route**'s. **Decision
 point (human):** rather than fudge, the AI wrote `SHIP_IT_BLOCKED.md` and — on the
 user's steer — authored a full producer proposal (`emit-agent-session-id`) in
-`/Users/robson/Project/pi-dashboard-subagents`, validated with that repo's openspec CLI.
+`<checkout>/pi-dashboard-subagents`, validated with that repo's openspec CLI.
 
 **Phase 4 — Producer ships, re-triage.** The user returned with *"Shipped —
 emit-agent-session-id … @blackbelt-technology/pi-dashboard-subagents@0.2.3 (live)."*
@@ -181,7 +181,7 @@ disagrees with a passing vitest run on the same edit.
 ## 8. Reproduce it faster — checklist
 
 **Inputs to have ready:** the OpenSpec change name + its planning artifacts, `gh` auth,
-the sibling repo path (`/Users/robson/Project/pi-dashboard-subagents`), and — for the
+the sibling repo path (`<checkout>/pi-dashboard-subagents`), and — for the
 unblock — the producer's published version + release SHAs.
 
 1. `openspec status --change <name> --json` + read test-plan/tasks; confirm clean tree.
@@ -202,4 +202,4 @@ live; sibling proposal `emit-agent-session-id` (proposal+design+delta spec+tasks
 
 ---
 
-_Generated from session `019f742e-2354-713f-88ee-4fa72b23a2fd` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-18. Source extract: session facts sheet (deterministic extract)._
+_Generated from session `019f742e-2354-713f-88ee-4fa72b23a2fd` · `pi-agent-dashboard` · 2026-07-18. Source extract: session facts sheet (deterministic extract)._

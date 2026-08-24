@@ -160,4 +160,4 @@ Final artifacts produced:
 
 ---
 
-_Generated from session `3f9ccca8` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-04. Source extract: session facts sheet (`specs-browser-and-search`)._
+_Generated from session `3f9ccca8` · `pi-agent-dashboard` · 2026-04-04. Source extract: session facts sheet (`specs-browser-and-search`)._

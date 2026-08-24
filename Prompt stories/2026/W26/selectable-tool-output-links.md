@@ -116,4 +116,4 @@ No new skill was created, but the session leaned on and validated several:
 
 ---
 
-_Generated from session `019f065c-793f-7135-b37d-7351a3ad1a3e` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-27. Source extract: `/tmp/facts-1784864141N.md`._
+_Generated from session `019f065c-793f-7135-b37d-7351a3ad1a3e` · `pi-agent-dashboard` · 2026-06-27. Source extract: `/tmp/facts-1784864141N.md`._

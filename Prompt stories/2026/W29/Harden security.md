@@ -222,4 +222,4 @@ in one shot — this session did all of that by hand.
 
 ---
 
-_Generated from session `019f6886-2823-7855-9fbc-7852a3ff4bdc` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-17. Source extract: `/tmp/session_facts.md`._
+_Generated from session `019f6886-2823-7855-9fbc-7852a3ff4bdc` · `pi-agent-dashboard` · 2026-07-17. Source extract: `/tmp/session_facts.md`._

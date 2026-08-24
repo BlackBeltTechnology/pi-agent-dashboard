@@ -198,4 +198,4 @@ system Google Chrome installed; awareness of any live dashboard on :8000.
 
 ---
 
-_Generated from session `019f164a-a1ab-7162-b636-6f1230c7bdfa` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-30. Source extract: `/tmp/facts-82506-23696.md`._
+_Generated from session `019f164a-a1ab-7162-b636-6f1230c7bdfa` · `pi-agent-dashboard` · 2026-06-30. Source extract: `/tmp/facts-82506-23696.md`._

@@ -105,4 +105,4 @@ No new skills or memories were created; the session was a clean *consumption* of
 
 ---
 
-_Generated from session `019f159c-f8bb-743b-a2d3-245aefbb6562` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-30. Source extract: `/tmp/facts-66664-1784847435.md`._
+_Generated from session `019f159c-f8bb-743b-a2d3-245aefbb6562` · `pi-agent-dashboard` · 2026-06-30. Source extract: `/tmp/facts-66664-1784847435.md`._

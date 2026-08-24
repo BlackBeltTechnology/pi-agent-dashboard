@@ -153,4 +153,4 @@ the sibling reference repo (`pi-model-proxy`) for the OIDC pattern.
 
 ---
 
-_Generated from session `b6abda91-077e-49ac-bed3-84cd8c7d406d` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-13. Source extract: session facts sheet (extract_session.ts)._
+_Generated from session `b6abda91-077e-49ac-bed3-84cd8c7d406d` · `pi-agent-dashboard` · 2026-04-13. Source extract: session facts sheet (extract_session.ts)._

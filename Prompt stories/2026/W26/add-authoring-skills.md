@@ -151,4 +151,4 @@ should be captured as a project skill.
 
 ---
 
-_Generated from session `019f065a-08f0-7693-9c91-d5e6b1ff68b4` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-27. Source extract: `/tmp/session_facts_gO1pUG.md`._
+_Generated from session `019f065a-08f0-7693-9c91-d5e6b1ff68b4` · `pi-agent-dashboard` · 2026-06-27. Source extract: `/tmp/session_facts_gO1pUG.md`._

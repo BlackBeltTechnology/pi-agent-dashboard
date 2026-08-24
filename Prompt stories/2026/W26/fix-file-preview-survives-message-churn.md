@@ -192,4 +192,4 @@ Docker running; the main repo checked out alongside the worktree.
 
 ---
 
-_Generated from session `019f0a55-1196-7619-be17-39f6c11151b8` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-27. Source extract: deterministic facts sheet (session-to-guideline)._
+_Generated from session `019f0a55-1196-7619-be17-39f6c11151b8` · `pi-agent-dashboard` · 2026-06-27. Source extract: deterministic facts sheet (session-to-guideline)._

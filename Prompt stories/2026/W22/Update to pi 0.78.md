@@ -171,4 +171,4 @@ tasks, `specs/event-reducer/spec.md`) — committed as `e05d8b19` with `[ci skip
 
 ---
 
-_Generated from session `019e7986-b69b-796a-b81b-e60dcb755319` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-30. Source extract: session facts sheet (mktemp)._
+_Generated from session `019e7986-b69b-796a-b81b-e60dcb755319` · `pi-agent-dashboard` · 2026-05-30. Source extract: session facts sheet (mktemp)._

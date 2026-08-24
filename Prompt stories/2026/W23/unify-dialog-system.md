@@ -198,4 +198,4 @@ deleted `ConfirmDialog` shim, two new synced spec capabilities
 
 ---
 
-_Generated from session `019ea14c` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-07. Source extract: `/var/folders/qb/.../session_facts.XXXXXX`._
+_Generated from session `019ea14c` · `pi-agent-dashboard` · 2026-06-07. Source extract: `/var/folders/qb/.../session_facts.XXXXXX`._

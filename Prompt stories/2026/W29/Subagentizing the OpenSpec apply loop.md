@@ -115,4 +115,4 @@ The recurring meta-lesson: **the human kept the AI honest about scope and eviden
 
 ---
 
-_Generated from session `019f6d24-4d5e-769d-9fbf-e94c80eb296c` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-17. Source extract: `/tmp/session_facts.md`._
+_Generated from session `019f6d24-4d5e-769d-9fbf-e94c80eb296c` · `pi-agent-dashboard` · 2026-07-17. Source extract: `/tmp/session_facts.md`._

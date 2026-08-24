@@ -186,4 +186,4 @@ tests + a `createServer` port-guard canary; PR #87 merged to `develop` (≈5.6×
 
 ---
 
-_Generated from session `019e9f24` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-07. Source extract: facts sheet (mktemp)._
+_Generated from session `019e9f24` · `pi-agent-dashboard` · 2026-06-07. Source extract: facts sheet (mktemp)._

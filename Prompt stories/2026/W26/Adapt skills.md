@@ -170,4 +170,4 @@ out; `openspec` CLI.
 
 ---
 
-_Generated from session `019f05ec-6ab4-77d6-a368-dd004fb7a20e` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-27. Source extract: `/tmp/facts-1784853403N.md`._
+_Generated from session `019f05ec-6ab4-77d6-a368-dd004fb7a20e` · `pi-agent-dashboard` · 2026-06-27. Source extract: `/tmp/facts-1784853403N.md`._

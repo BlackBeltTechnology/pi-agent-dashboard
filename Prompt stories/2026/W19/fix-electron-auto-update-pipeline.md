@@ -146,4 +146,4 @@ gets the checklist instead of re-deriving it.
 
 ---
 
-_Generated from session `019e1309` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-10. Source extract: deterministic facts sheet._
+_Generated from session `019e1309` · `pi-agent-dashboard` · 2026-05-10. Source extract: deterministic facts sheet._

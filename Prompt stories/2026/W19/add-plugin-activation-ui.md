@@ -170,4 +170,4 @@ repeatable and *should* be captured as a project skill — call it
 
 ---
 
-_Generated from session `019e0e64-efc2-708b-aad9-111d07332f08` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-09. Source extract: session facts sheet._
+_Generated from session `019e0e64-efc2-708b-aad9-111d07332f08` · `pi-agent-dashboard` · 2026-05-09. Source extract: session facts sheet._

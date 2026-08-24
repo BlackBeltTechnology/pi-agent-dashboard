@@ -196,4 +196,4 @@ commit with extreme care).
 
 ---
 
-_Generated from session `019da559-8b6d-7269-8f63-06e2133190f0` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-20. Source extract: deterministic facts sheet._
+_Generated from session `019da559-8b6d-7269-8f63-06e2133190f0` · `pi-agent-dashboard` · 2026-04-20. Source extract: deterministic facts sheet._

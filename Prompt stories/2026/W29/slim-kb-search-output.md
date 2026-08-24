@@ -168,4 +168,4 @@ merged as PR #365 (sha `0bfdb9e5`), archived to
 
 ---
 
-_Generated from session `019f756e-8031-774c-8fff-30048eefd4c2` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-20. Source extract: session facts sheet (slim-kb-search-output)._
+_Generated from session `019f756e-8031-774c-8fff-30048eefd4c2` · `pi-agent-dashboard` · 2026-07-20. Source extract: session facts sheet (slim-kb-search-output)._

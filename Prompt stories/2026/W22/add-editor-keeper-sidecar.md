@@ -183,4 +183,4 @@ CJS-purity lint + mock-child integration test). It would remove the ~10 minutes 
 
 ---
 
-_Generated from session `019e6c4b-eafa-7fa4-9355-ea23d82a691d` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-28. Source extract: `/tmp/facts-8368-1784847343.md`._
+_Generated from session `019e6c4b-eafa-7fa4-9355-ea23d82a691d` · `pi-agent-dashboard` · 2026-05-28. Source extract: `/tmp/facts-8368-1784847343.md`._

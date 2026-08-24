@@ -146,4 +146,4 @@ batch wizard`; PR #76 (merged to `develop`); 10 new + 19 modified files includin
 
 ---
 
-_Generated from session `019e9538` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-05. Source extract: `/var/folders/qb/m1_q3v6d5bnfzbpmc0dkkqx40000gn/T/facts.XXXXXX.5R3nXwOAQH`._
+_Generated from session `019e9538` · `pi-agent-dashboard` · 2026-06-05. Source extract: `/var/folders/qb/m1_q3v6d5bnfzbpmc0dkkqx40000gn/T/facts.XXXXXX.5R3nXwOAQH`._

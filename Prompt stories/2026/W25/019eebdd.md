@@ -170,4 +170,4 @@ codifying:
 
 ---
 
-_Generated from session `019eebdd-308f-7d42-8eee-112175dff401` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-21. Source extract: session facts sheet (Fix Automation)._
+_Generated from session `019eebdd-308f-7d42-8eee-112175dff401` · `pi-agent-dashboard` · 2026-06-21. Source extract: session facts sheet (Fix Automation)._

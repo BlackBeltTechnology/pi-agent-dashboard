@@ -91,4 +91,4 @@ No new skill or memory was saved this session — it was a pure OpenSpec authori
 
 ---
 
-_Generated from session `019deeec-86e8-716d-a3a6-3ea96b2946d5` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-03. Source extract: session-to-guideline facts sheet._
+_Generated from session `019deeec-86e8-716d-a3a6-3ea96b2946d5` · `pi-agent-dashboard` · 2026-05-03. Source extract: session-to-guideline facts sheet._

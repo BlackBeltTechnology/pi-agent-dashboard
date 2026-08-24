@@ -157,4 +157,4 @@ the worktree on the feature branch.
 
 ---
 
-_Generated from session `019eecc7-23cc-7566-b211-b6f9a6948ae8` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-22. Source extract: session facts sheet._
+_Generated from session `019eecc7-23cc-7566-b211-b6f9a6948ae8` · `pi-agent-dashboard` · 2026-06-22. Source extract: session facts sheet._

@@ -180,4 +180,4 @@ would remove the ~30 min of trial-and-error around auth and the tarball `files` 
 
 ---
 
-_Generated from session `019ebdd7` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-13. Source extract: `/var/folders/qb/.../facts.XXXXXX.Q6YaStKaZj.md`._
+_Generated from session `019ebdd7` · `pi-agent-dashboard` · 2026-06-13. Source extract: `/var/folders/qb/.../facts.XXXXXX.Q6YaStKaZj.md`._

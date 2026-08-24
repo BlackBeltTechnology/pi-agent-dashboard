@@ -178,4 +178,4 @@ merged **PR #275** (`6ae606d0a`).
 
 ---
 
-_Generated from session `019f5459-f16e-7e10-ad88-e701f131838f` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-fix-virtualized-image-row-measurement` · 2026-07-12. Source extract: session-to-guideline facts sheet._
+_Generated from session `019f5459-f16e-7e10-ad88-e701f131838f` · `pi-agent-dashboard/.worktrees/os-fix-virtualized-image-row-measurement` · 2026-07-12. Source extract: session-to-guideline facts sheet._

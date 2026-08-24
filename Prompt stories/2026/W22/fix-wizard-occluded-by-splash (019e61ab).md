@@ -197,4 +197,4 @@ external facts (test results) and the branch name.
 
 ---
 
-_Generated from session `019e61ab-7f99-73a2-b2ac-1dda2a561e10` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-26. Source extract: `/tmp/facts-1784862771-82392.md`._
+_Generated from session `019e61ab-7f99-73a2-b2ac-1dda2a561e10` · `pi-agent-dashboard` · 2026-05-26. Source extract: `/tmp/facts-1784862771-82392.md`._

@@ -183,4 +183,4 @@ with x86 emulation, `packer` + `vmrun` installed.
 
 ---
 
-_Generated from session `019e5bc0` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-25. Source extract: deterministic facts sheet._
+_Generated from session `019e5bc0` · `pi-agent-dashboard` · 2026-05-25. Source extract: deterministic facts sheet._

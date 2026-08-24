@@ -28,7 +28,7 @@ finally document the install method in this repo's `docs/`.
 
 ## 2. TL;DR playbook
 
-1. **Inspect the package first.** `ls -la pi-invoice-bot && cat ../pi-invoice-bot/package.json` — confirm it's a local pi-package and check whether `node_modules` exists.
+1. **Inspect the package first.** `ls -la pi-invoice-bot && cat pi-invoice-bot/package.json` — confirm it's a local pi-package and check whether `node_modules` exists.
 2. **`npm install` inside the package.** Local-path pi installs do **not** auto-run it, and invoicebot needs its bundled `file:../pi-flows` dependency: `cd ../pi-invoice-bot && npm install`.
 3. **Register globally with an absolute path.** `pi install <invoicebot-checkout>` — writes the entry into `~/.pi/agent/settings.json`.
 4. **Smoke-test headless.** From `/tmp`: `timeout 60 pi -p "List your tools that start with 'ib_', then stop."` — confirms the extension loads and tools resolve.
@@ -144,4 +144,4 @@ bundled deps are already installed globally; dashboard running on `localhost:800
 
 ---
 
-_Generated from session `019f4460` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-09. Source extract: deterministic facts sheet._
+_Generated from session `019f4460` · `pi-agent-dashboard` · 2026-07-09. Source extract: deterministic facts sheet._

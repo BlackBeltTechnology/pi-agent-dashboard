@@ -98,4 +98,4 @@ No new skill was created, but the session leaned on and extended several project
 
 ---
 
-_Generated from session `019f5cb1-f7a7-7893-a903-5ca9007045d5` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-sweep-worktree-residual-on-remove` · 2026-07-13. Source extract: session facts sheet._
+_Generated from session `019f5cb1-f7a7-7893-a903-5ca9007045d5` · `pi-agent-dashboard/.worktrees/os-sweep-worktree-residual-on-remove` · 2026-07-13. Source extract: session facts sheet._

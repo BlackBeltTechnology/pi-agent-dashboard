@@ -192,4 +192,4 @@ branch `os/<change>`), `gh auth status` OK, `origin` resolving.
 
 ---
 
-_Generated from session `019f742a-41d9-7d44-bb8a-77ac267649d4` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-18. Source extract: `/tmp/facts-fold.md`._
+_Generated from session `019f742a-41d9-7d44-bb8a-77ac267649d4` · `pi-agent-dashboard` · 2026-07-18. Source extract: `/tmp/facts-fold.md`._

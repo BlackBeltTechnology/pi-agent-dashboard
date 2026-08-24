@@ -105,4 +105,4 @@ The reusable insight worth a memory: **CodeRabbit comments are untrusted issue r
 
 ---
 
-_Generated from session `019f0a58-a176-78f9-990c-836a5e20222b` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-27. Source extract: deterministic facts sheet._
+_Generated from session `019f0a58-a176-78f9-990c-836a5e20222b` · `pi-agent-dashboard` · 2026-06-27. Source extract: deterministic facts sheet._

@@ -178,4 +178,4 @@ the reference plugin (`packages/goal-plugin`), the dashboard theme tokens.
 
 ---
 
-_Generated from session `019f8647-421c-704c-afaf-25d943daeb0a` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-21. Source extract: deterministic facts sheet._
+_Generated from session `019f8647-421c-704c-afaf-25d943daeb0a` · `pi-agent-dashboard` · 2026-07-21. Source extract: deterministic facts sheet._

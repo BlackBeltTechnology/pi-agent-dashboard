@@ -144,4 +144,4 @@ platform wrapper (`@blackbelt-technology/pi-dashboard-shared/platform/exec.js`).
 
 ---
 
-_Generated from session `019e0cfe` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-09. Source extract: deterministic facts sheet (Honcho test fail fix)._
+_Generated from session `019e0cfe` · `pi-agent-dashboard` · 2026-05-09. Source extract: deterministic facts sheet (Honcho test fail fix)._

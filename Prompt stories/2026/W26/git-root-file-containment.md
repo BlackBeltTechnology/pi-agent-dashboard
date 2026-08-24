@@ -181,4 +181,4 @@ commit `f3f7a24e`).
 
 ---
 
-_Generated from session `019f09aa` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-git-root-file-containment` · 2026-06-27. Source extract: session facts sheet (git-root-file-containment)._
+_Generated from session `019f09aa` · `pi-agent-dashboard/.worktrees/os-git-root-file-containment` · 2026-06-27. Source extract: session facts sheet (git-root-file-containment)._

@@ -89,4 +89,4 @@ No new skill was created — the session *composed* three existing ones (`opensp
 
 ---
 
-_Generated from session `019f28f1-af63-7e18-9425-7ed722c9c435` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-03. Source extract: session facts sheet._
+_Generated from session `019f28f1-af63-7e18-9425-7ed722c9c435` · `pi-agent-dashboard` · 2026-07-03. Source extract: session facts sheet._

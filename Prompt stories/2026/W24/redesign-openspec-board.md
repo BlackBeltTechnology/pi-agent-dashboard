@@ -166,4 +166,4 @@ Final artifacts produced:
 
 ---
 
-_Generated from session `019ec387-eeb4-78e5-b293-0a9bc319a02c` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-14. Source extract: `/var/folders/qb/m1_q3v6d5bnfzbpmc0dkkqx40000gn/T/facts-XXXXXX.nR0kNE9Jvi`._
+_Generated from session `019ec387-eeb4-78e5-b293-0a9bc319a02c` · `pi-agent-dashboard` · 2026-06-14. Source extract: `/var/folders/qb/m1_q3v6d5bnfzbpmc0dkkqx40000gn/T/facts-XXXXXX.nR0kNE9Jvi`._

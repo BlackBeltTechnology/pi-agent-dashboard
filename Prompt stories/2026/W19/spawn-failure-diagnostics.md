@@ -208,4 +208,4 @@ One subagent was spawned (`general-purpose`) to update docs for spawn-failure-di
 
 ---
 
-_Generated from session `019df054-b1fa-77fe-bd64-c3190e9d8151` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-04. Source extract: `/tmp/facts-Y2knuo.md`._
+_Generated from session `019df054-b1fa-77fe-bd64-c3190e9d8151` · `pi-agent-dashboard` · 2026-05-04. Source extract: `/tmp/facts-Y2knuo.md`._

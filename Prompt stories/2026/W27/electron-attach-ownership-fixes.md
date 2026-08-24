@@ -172,4 +172,4 @@ scratch.
 
 ---
 
-_Generated from session `019f2d47-1d66-725e-89f5-8efa02155bc2` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-04. Source extract: session-to-guideline deterministic facts sheet._
+_Generated from session `019f2d47-1d66-725e-89f5-8efa02155bc2` · `pi-agent-dashboard` · 2026-07-04. Source extract: session-to-guideline deterministic facts sheet._

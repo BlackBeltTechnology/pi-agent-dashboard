@@ -163,4 +163,4 @@ synced `openspec/specs/{folder-action-bar,image-paste,openspec-dialogs}/spec.md`
 
 ---
 
-_Generated from session `019da4ce` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-19. Source extract: session-to-guideline facts sheet._
+_Generated from session `019da4ce` · `pi-agent-dashboard` · 2026-04-19. Source extract: session-to-guideline facts sheet._

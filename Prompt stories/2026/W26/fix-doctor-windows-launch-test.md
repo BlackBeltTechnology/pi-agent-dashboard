@@ -200,4 +200,4 @@ merged to `develop` as `17e69044`.
 
 ---
 
-_Generated from session `019f103b-7808-73ba-9268-8bf2e98b5386` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-29. Source extract: session facts sheet for fix-doctor-windows-launch-test._
+_Generated from session `019f103b-7808-73ba-9268-8bf2e98b5386` · `pi-agent-dashboard` · 2026-06-29. Source extract: session facts sheet for fix-doctor-windows-launch-test._

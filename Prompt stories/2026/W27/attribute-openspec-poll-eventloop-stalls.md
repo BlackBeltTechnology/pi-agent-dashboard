@@ -159,4 +159,4 @@ Final artifacts (this run): 5 edited/created change files under
 
 ---
 
-_Generated from session `019f2ac8` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-04. Source extract: deterministic facts sheet._
+_Generated from session `019f2ac8` · `pi-agent-dashboard` · 2026-07-04. Source extract: deterministic facts sheet._

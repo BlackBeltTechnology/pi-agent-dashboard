@@ -181,4 +181,4 @@ via `mktemp -d`.
 
 ---
 
-_Generated from session `019e0471-2e2b-726e-84a1-94e90a850f2b` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-08. Source extract: deterministic facts sheet._
+_Generated from session `019e0471-2e2b-726e-84a1-94e90a850f2b` · `pi-agent-dashboard` · 2026-05-08. Source extract: deterministic facts sheet._

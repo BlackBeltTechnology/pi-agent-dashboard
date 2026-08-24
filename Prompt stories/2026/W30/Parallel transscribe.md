@@ -190,4 +190,4 @@ session is a clean template for it.
 
 ---
 
-_Generated from session `019f8ec4-5381-72fc-8f25-3d2b8c89ab34` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-23. Source extract: `/tmp/facts-91012-1128.md`._
+_Generated from session `019f8ec4-5381-72fc-8f25-3d2b8c89ab34` · `pi-agent-dashboard` · 2026-07-23. Source extract: `/tmp/facts-91012-1128.md`._

@@ -188,4 +188,4 @@ bridge + command-handler + session-meta-handler + event-wiring edits. Landed as 
 
 ---
 
-_Generated from session `019f0b13-adbe-7865-95b3-818887dd4997` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-27. Source extract: `/tmp/facts-inject-29329.md`._
+_Generated from session `019f0b13-adbe-7865-95b3-818887dd4997` · `pi-agent-dashboard` · 2026-06-27. Source extract: `/tmp/facts-inject-29329.md`._

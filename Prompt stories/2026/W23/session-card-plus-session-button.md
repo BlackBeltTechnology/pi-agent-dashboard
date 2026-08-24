@@ -112,4 +112,4 @@ Quality bars the human imposed: **surgical commits** (revert dev-server side eff
 
 ---
 
-_Generated from session `019e9447-8fc9-7cc2-a4ce-4a9aa2aa38e9` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-05. Source extract: `facts sheet (session-card-plus-session-button)`._
+_Generated from session `019e9447-8fc9-7cc2-a4ce-4a9aa2aa38e9` · `pi-agent-dashboard` · 2026-06-05. Source extract: `facts sheet (session-card-plus-session-button)`._

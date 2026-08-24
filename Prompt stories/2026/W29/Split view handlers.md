@@ -200,4 +200,4 @@ have been avoided entirely.
 
 ---
 
-_Generated from session `019f6c8e-a19a-7e7e-9e6b-65f220d8aaf1` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-17. Source extract: `/tmp/session_facts.md`._
+_Generated from session `019f6c8e-a19a-7e7e-9e6b-65f220d8aaf1` · `pi-agent-dashboard` · 2026-07-17. Source extract: `/tmp/session_facts.md`._

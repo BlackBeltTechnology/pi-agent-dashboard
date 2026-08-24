@@ -137,4 +137,4 @@ churn), write access to `develop`. **Artifacts produced:** archived change under
 
 ---
 
-_Generated from session `019f397e` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-07. Source extract: session facts sheet (mktemp)._
+_Generated from session `019f397e` · `pi-agent-dashboard` · 2026-07-07. Source extract: session facts sheet (mktemp)._

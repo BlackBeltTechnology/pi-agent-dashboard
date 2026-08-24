@@ -190,4 +190,4 @@ the `themes.ts` token values.
 
 ---
 
-_Generated from session `019f6ccc` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-17. Source extract: `/tmp/facts-niL5oi.md`._
+_Generated from session `019f6ccc` · `pi-agent-dashboard` · 2026-07-17. Source extract: `/tmp/facts-niL5oi.md`._

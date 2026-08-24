@@ -190,4 +190,4 @@ output of the session is the **audit + clean abandonment**, not the code.
 
 ---
 
-_Generated from session `019ec402-5c3d-7e35-ad69-6b29454b150b` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-fix-openspec-worktree-cwd-keying` · 2026-06-14. Source extract: `/tmp/facts-XXXX.md`._
+_Generated from session `019ec402-5c3d-7e35-ad69-6b29454b150b` · `pi-agent-dashboard/.worktrees/os-fix-openspec-worktree-cwd-keying` · 2026-06-14. Source extract: `/tmp/facts-XXXX.md`._

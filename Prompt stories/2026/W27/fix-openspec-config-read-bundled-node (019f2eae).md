@@ -176,4 +176,4 @@ skill **should** be captured:
 
 ---
 
-_Generated from session `019f2eae-d65a-7e2e-97dd-61b12a3fb249` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-05. Source extract: deterministic facts sheet from `extract_session.ts`._
+_Generated from session `019f2eae-d65a-7e2e-97dd-61b12a3fb249` · `pi-agent-dashboard` · 2026-07-05. Source extract: deterministic facts sheet from `extract_session.ts`._

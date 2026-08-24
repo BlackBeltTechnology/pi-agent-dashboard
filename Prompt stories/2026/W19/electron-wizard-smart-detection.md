@@ -189,4 +189,4 @@ plus `CHANGELOG.md` and `AGENTS.md` edits. Commits: `1f2e553`, `f947960`, `211a9
 
 ---
 
-_Generated from session `019dfa91` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-09. Source extract: `/tmp/session_facts.v2Vhxd.md`._
+_Generated from session `019dfa91` · `pi-agent-dashboard` · 2026-05-09. Source extract: `/tmp/session_facts.v2Vhxd.md`._

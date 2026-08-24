@@ -170,4 +170,4 @@ Progress: **32/71 tasks** (Phases 1–5), full suite green (5374 tests).
 
 ---
 
-_Generated from session `019e1307` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-10. Source extract: `/tmp/session_facts.wuzWb1.md`._
+_Generated from session `019e1307` · `pi-agent-dashboard` · 2026-05-10. Source extract: `/tmp/session_facts.wuzWb1.md`._

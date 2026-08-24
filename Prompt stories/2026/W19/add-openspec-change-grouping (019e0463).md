@@ -191,4 +191,4 @@ and delta specs; archived to
 
 ---
 
-_Generated from session `019e0463` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-08. Source extract: `/tmp/facts_openspec.md`._
+_Generated from session `019e0463` · `pi-agent-dashboard` · 2026-05-08. Source extract: `/tmp/facts_openspec.md`._

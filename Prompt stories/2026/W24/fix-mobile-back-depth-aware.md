@@ -174,4 +174,4 @@ merged PR #110 on `develop`.
 
 ---
 
-_Generated from session `019ec38a-3c5a-724a-9c56-b458076990e7` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-14. Source extract: session facts sheet._
+_Generated from session `019ec38a-3c5a-724a-9c56-b458076990e7` · `pi-agent-dashboard` · 2026-06-14. Source extract: session facts sheet._

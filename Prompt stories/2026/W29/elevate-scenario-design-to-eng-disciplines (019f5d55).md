@@ -151,7 +151,7 @@ would encode the *automatic when*.
 ## 8. Reproduce it faster — checklist
 
 **Inputs to have ready:** `gh` authenticated; the OpenSpec change name; parent checkout
-path (`/Users/robson/Project/pi-agent-dashboard`); knowledge that worktrees may be stale.
+path (`pi-agent-dashboard`); knowledge that worktrees may be stale.
 
 - [ ] `gh pr list --head os/<change> --state all --json number,state` — merged? If yes, STOP.
 - [ ] `git fetch origin && git ls-tree -r --name-only origin/develop | grep <change-path>` — already on develop?
@@ -170,4 +170,4 @@ Stale `os-elevate-scenario-design-to-eng-disciplines` worktree + branch removed.
 
 ---
 
-_Generated from session `019f5d55-1581-7ee9-a7c1-2982a148eb3a` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-14. Source extract: `/tmp/facts-40964-1784849640.md`._
+_Generated from session `019f5d55-1581-7ee9-a7c1-2982a148eb3a` · `pi-agent-dashboard` · 2026-07-14. Source extract: `/tmp/facts-40964-1784849640.md`._

@@ -194,4 +194,4 @@ change, the `.pi/settings.json` gate fix on `develop`, and **merged PR #322**
 
 ---
 
-_Generated from session `019f6256` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-14. Source extract: facts sheet (mktemp)._
+_Generated from session `019f6256` · `pi-agent-dashboard` · 2026-07-14. Source extract: facts sheet (mktemp)._

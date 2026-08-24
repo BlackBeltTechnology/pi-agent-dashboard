@@ -202,4 +202,4 @@ Committed `9c570ab39` on `develop`.
 
 ---
 
-_Generated from session `019f686b-0951-7edb-b483-fb78491738ab` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-17. Source extract: `/tmp/session_facts.md`._
+_Generated from session `019f686b-0951-7edb-b483-fb78491738ab` · `pi-agent-dashboard` · 2026-07-17. Source extract: `/tmp/session_facts.md`._

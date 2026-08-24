@@ -178,4 +178,4 @@ archive — a good pattern for isolating the spec-merge from the main context.)
 
 ---
 
-_Generated from session `019e0e28-487f-765f-b78d-8987896a3108` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-09. Source extract: `/tmp/facts-1784850449N.md`._
+_Generated from session `019e0e28-487f-765f-b78d-8987896a3108` · `pi-agent-dashboard` · 2026-05-09. Source extract: `/tmp/facts-1784850449N.md`._

@@ -187,4 +187,4 @@ commit `deceebc2` on `origin/develop`.
 
 ---
 
-_Generated from session `019e7b30` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-31. Source extract: `/tmp/session_facts_dMPYVQ.md`._
+_Generated from session `019e7b30` · `pi-agent-dashboard` · 2026-05-31. Source extract: `/tmp/session_facts_dMPYVQ.md`._

@@ -202,4 +202,4 @@ worktree, docker + system Chrome, `gh` auth.
 
 ---
 
-_Generated from session `019f5cae-7866-738d-91a1-17008678ffcb` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-13. Source extract: `/tmp/facts-71399-29296.md`._
+_Generated from session `019f5cae-7866-738d-91a1-17008678ffcb` · `pi-agent-dashboard` · 2026-07-13. Source extract: `/tmp/facts-71399-29296.md`._

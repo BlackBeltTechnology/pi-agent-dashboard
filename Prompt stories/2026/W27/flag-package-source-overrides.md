@@ -156,4 +156,4 @@ did it by hand across five artifacts; it's clearly repeatable.
 
 ---
 
-_Generated from session `019f2adf-b783-732f-a916-ba69e611edd1` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-04. Source extract: `/tmp/facts-49166-1784847724.md`._
+_Generated from session `019f2adf-b783-732f-a916-ba69e611edd1` · `pi-agent-dashboard` · 2026-07-04. Source extract: `/tmp/facts-49166-1784847724.md`._

@@ -202,4 +202,4 @@ squash-merged to `develop` as `f36a0cf7e`.
 
 ---
 
-_Generated from session `019f2e36-005c-73d9-bfeb-7e724473d211` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-04. Source extract: deterministic facts sheet._
+_Generated from session `019f2e36-005c-73d9-bfeb-7e724473d211` · `pi-agent-dashboard` · 2026-07-04. Source extract: deterministic facts sheet._

@@ -169,4 +169,4 @@ This one fact reframed the entire first phase and is worth not re-deriving.
 
 ---
 
-_Generated from session `1b99d96c` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-24. Source extract: facts sheet for "Incremental connection handling"._
+_Generated from session `1b99d96c` · `pi-agent-dashboard` · 2026-07-24. Source extract: facts sheet for "Incremental connection handling"._

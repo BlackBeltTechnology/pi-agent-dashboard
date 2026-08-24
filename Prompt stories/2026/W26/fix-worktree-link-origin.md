@@ -172,4 +172,4 @@ worktree at `…/repo/.worktrees/<slug>`, and `gh` auth for the PR/merge steps.
 
 ---
 
-_Generated from session `019f0a9c-710e-754f-8b0e-16495d4f0f2c` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-24. Source extract: `/var/folders/qb/m1_q3v6d5bnfzbpmc0dkkqx40000gn/T/facts.XXXXXX.07XCrruMqW`._
+_Generated from session `019f0a9c-710e-754f-8b0e-16495d4f0f2c` · `pi-agent-dashboard` · 2026-07-24. Source extract: `/var/folders/qb/m1_q3v6d5bnfzbpmc0dkkqx40000gn/T/facts.XXXXXX.07XCrruMqW`._

@@ -157,4 +157,4 @@ because shared-primitive changes ripple. If this recurs, promote it to a skill.
 
 ---
 
-_Generated from session `019f7c50-464a-7294-ba3f-94c8cd331bea` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-19. Source extract: deterministic facts sheet._
+_Generated from session `019f7c50-464a-7294-ba3f-94c8cd331bea` · `pi-agent-dashboard` · 2026-07-19. Source extract: deterministic facts sheet._

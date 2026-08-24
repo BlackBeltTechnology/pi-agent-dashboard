@@ -192,4 +192,4 @@ workflow is highly repeatable, so **the reusable assets are the tools already le
 
 ---
 
-_Generated from session `019de886` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-02. Source extract: `/tmp/session_facts_43393_1784861587.md`._
+_Generated from session `019de886` · `pi-agent-dashboard` · 2026-05-02. Source extract: `/tmp/session_facts_43393_1784861587.md`._

@@ -133,4 +133,4 @@ risking the live server.
 
 ---
 
-_Generated from session `019e9993` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-05. Source extract: session facts sheet (deterministic)._
+_Generated from session `019e9993` · `pi-agent-dashboard` · 2026-06-05. Source extract: session facts sheet (deterministic)._

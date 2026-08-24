@@ -184,4 +184,4 @@ merged PR #72 (squash `cc147414` on `develop`).
 
 ---
 
-_Generated from session `019e8a4c` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-03. Source extract: `/tmp/facts-1784849709N.md`._
+_Generated from session `019e8a4c` · `pi-agent-dashboard` · 2026-06-03. Source extract: `/tmp/facts-1784849709N.md`._

@@ -141,4 +141,4 @@ files — commit `14bc7f6b`.
 
 ---
 
-_Generated from session `019f0644-282a-71ff-9191-b59216b44fc7` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-27. Source extract: session-to-guideline facts sheet._
+_Generated from session `019f0644-282a-71ff-9191-b59216b44fc7` · `pi-agent-dashboard` · 2026-06-27. Source extract: session-to-guideline facts sheet._

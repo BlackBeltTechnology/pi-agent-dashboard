@@ -167,4 +167,4 @@ Artifacts produced:
 
 ---
 
-_Generated from session `019ef264-e1bd-7490-a670-d55c34cefd38` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-23. Source extract: `/tmp/session_facts.LQ50MG`._
+_Generated from session `019ef264-e1bd-7490-a670-d55c34cefd38` · `pi-agent-dashboard` · 2026-06-23. Source extract: `/tmp/session_facts.LQ50MG`._

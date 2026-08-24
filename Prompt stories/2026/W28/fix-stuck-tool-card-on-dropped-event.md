@@ -96,4 +96,4 @@ The `gotoDashboard` auto-dismiss helper itself is the reusable artifact: one add
 
 ---
 
-_Generated from session `019f533d-7d0d-7bc8-890e-eebfdf14e215` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-12. Source extract: `/tmp/facts-16281-1784850088.md`._
+_Generated from session `019f533d-7d0d-7bc8-890e-eebfdf14e215` · `pi-agent-dashboard` · 2026-07-12. Source extract: `/tmp/facts-16281-1784850088.md`._

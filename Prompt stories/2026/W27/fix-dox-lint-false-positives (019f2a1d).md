@@ -136,4 +136,4 @@ intact; 16 dox tests green.
 
 ---
 
-_Generated from session `019f2a1d-2d45-7885-ab32-e70c0f755918` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-04. Source extract: session facts sheet (mktemp)._
+_Generated from session `019f2a1d-2d45-7885-ab32-e70c0f755918` · `pi-agent-dashboard` · 2026-07-04. Source extract: session facts sheet (mktemp)._

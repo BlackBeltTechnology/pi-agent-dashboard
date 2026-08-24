@@ -165,4 +165,4 @@ source edits in commit `04b6fa2e` on bookmark `bump-pi-compat-to-0-75`, active f
 
 ---
 
-_Generated from session `019e6ad2-9f12-79c2-949b-c1f1d0bf7331` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-28. Source extract: `/tmp/facts-bump-69130.md`._
+_Generated from session `019e6ad2-9f12-79c2-949b-c1f1d0bf7331` · `pi-agent-dashboard` · 2026-05-28. Source extract: `/tmp/facts-bump-69130.md`._

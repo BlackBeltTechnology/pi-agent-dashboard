@@ -163,4 +163,4 @@ the repo's vitest workspace + Biome config unchanged.
 
 ---
 
-_Generated from session `019f58f0` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-13. Source extract: deterministic facts sheet from `extract_session.ts`._
+_Generated from session `019f58f0` · `pi-agent-dashboard` · 2026-07-13. Source extract: deterministic facts sheet from `extract_session.ts`._

@@ -95,4 +95,4 @@ The user kicked off with a single skill invocation: **`/skill:openspec-apply-cha
 
 ---
 
-_Generated from session `019f5458-380b-7d7e-8aa7-7019693aec51` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-12. Source extract: `/tmp/facts-XXXXXX.md`._
+_Generated from session `019f5458-380b-7d7e-8aa7-7019693aec51` · `pi-agent-dashboard` · 2026-07-12. Source extract: `/tmp/facts-XXXXXX.md`._

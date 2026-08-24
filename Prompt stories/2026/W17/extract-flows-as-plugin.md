@@ -162,4 +162,4 @@ tests); corrected `extract-flows-as-plugin/{proposal,design,tasks}.md` + spec de
 
 ---
 
-_Generated from session `019dc9f2` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-26. Source extract: session facts sheet._
+_Generated from session `019dc9f2` · `pi-agent-dashboard` · 2026-04-26. Source extract: session facts sheet._

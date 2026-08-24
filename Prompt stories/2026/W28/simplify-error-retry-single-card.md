@@ -174,4 +174,4 @@ squash-merged (`1a9c6df`), remote branch deleted, worktree removed.
 
 ---
 
-_Generated from session `019f587b-ec32-7454-8285-6d7e03ef7dc8` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-13. Source extract: `/tmp/facts-1784847744N.md`._
+_Generated from session `019f587b-ec32-7454-8285-6d7e03ef7dc8` · `pi-agent-dashboard` · 2026-07-13. Source extract: `/tmp/facts-1784847744N.md`._

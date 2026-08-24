@@ -188,4 +188,4 @@ Commits: `9c1c961b` (feature), `efffdb74` (PR-base + error-toast fix), `f264a086
 
 ---
 
-_Generated from session `019e6633` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-26. Source extract: deterministic facts sheet (session-to-guideline)._
+_Generated from session `019e6633` · `pi-agent-dashboard` · 2026-05-26. Source extract: deterministic facts sheet (session-to-guideline)._

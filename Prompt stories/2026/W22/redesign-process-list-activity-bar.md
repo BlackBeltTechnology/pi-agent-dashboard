@@ -177,4 +177,4 @@ exact loop for React surfaces in `packages/client`; it is clearly repeatable.
 
 ---
 
-_Generated from session `019e763b-6b08-7692-bb23-f17dd1e257ae` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-30. Source extract: deterministic facts sheet from `extract_session.ts`._
+_Generated from session `019e763b-6b08-7692-bb23-f17dd1e257ae` · `pi-agent-dashboard` · 2026-05-30. Source extract: deterministic facts sheet from `extract_session.ts`._

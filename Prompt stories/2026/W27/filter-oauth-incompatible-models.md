@@ -107,4 +107,4 @@ Final artifacts produced:
 
 ---
 
-_Generated from session `019f24a4` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-filter-oauth-incompatible-models` · 2026-07-02. Source extract: deterministic facts sheet._
+_Generated from session `019f24a4` · `pi-agent-dashboard/.worktrees/os-filter-oauth-incompatible-models` · 2026-07-02. Source extract: deterministic facts sheet._

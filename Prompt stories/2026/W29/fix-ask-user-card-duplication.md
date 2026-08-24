@@ -154,4 +154,4 @@ change archived at `openspec/changes/archive/2026-07-14-fix-ask-user-card-duplic
 
 ---
 
-_Generated from session `019f627a-0a72-7736-88d1-072bfb9d1b6a` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-14. Source extract: session-to-guideline facts sheet._
+_Generated from session `019f627a-0a72-7736-88d1-072bfb9d1b6a` · `pi-agent-dashboard` · 2026-07-14. Source extract: session-to-guideline facts sheet._

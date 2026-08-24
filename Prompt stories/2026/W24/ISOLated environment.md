@@ -91,7 +91,7 @@ explore mode.
 - **The goal prompt** — invoking `openspec-explore` set the *stance* (think, capture in
   artifacts, never implement). Effective because it kept a 1h+ design session from
   prematurely writing Dockerfiles; the output is reviewable spec, not half-built code.
-- **"same directory structure as in host machine … mounted as /Users/robson/Project/…"**
+- **"same directory structure as in host machine … mounted as <checkout>/…"**
   (steering #1) — a short, concrete instruction that unlocked the entire **path-parity**
   design. The reason given ("keep log messages clean") was the real requirement.
 - **"yes"** (steering #3) — a high-leverage one-word unlock: it accepted the AI's proposed
@@ -163,4 +163,4 @@ commit `c971edf4` on `develop`.
 
 ---
 
-_Generated from session `019ec015-e84f-7384-a25c-20bb9e867cf0` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-13. Source extract: deterministic facts sheet (session-to-guideline)._
+_Generated from session `019ec015-e84f-7384-a25c-20bb9e867cf0` · `pi-agent-dashboard` · 2026-06-13. Source extract: deterministic facts sheet (session-to-guideline)._

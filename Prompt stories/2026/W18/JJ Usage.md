@@ -191,4 +191,4 @@ design.md, specs/jj-fold-back-server/spec.md, specs/jj-workspace-plugin/spec.md,
 
 ---
 
-_Generated from session `019defe1-0460-716e-a99b-dcbf6e1c5cf9` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-04. Source extract: deterministic facts sheet (session-to-guideline)._
+_Generated from session `019defe1-0460-716e-a99b-dcbf6e1c5cf9` · `pi-agent-dashboard` · 2026-05-04. Source extract: deterministic facts sheet (session-to-guideline)._

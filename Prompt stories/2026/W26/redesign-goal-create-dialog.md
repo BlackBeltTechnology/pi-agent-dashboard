@@ -172,4 +172,4 @@ updated call sites + tests, `publish.yml` allowlist entry — PR #159, merged `f
 
 ---
 
-_Generated from session `019ef611-75ec-7362-8590-de8f9e7405f4` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-redesign-goal-create-dialog` · 2026-06-23. Source extract: deterministic facts sheet._
+_Generated from session `019ef611-75ec-7362-8590-de8f9e7405f4` · `pi-agent-dashboard/.worktrees/os-redesign-goal-create-dialog` · 2026-06-23. Source extract: deterministic facts sheet._

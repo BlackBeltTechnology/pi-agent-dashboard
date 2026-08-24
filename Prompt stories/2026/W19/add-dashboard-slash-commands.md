@@ -200,4 +200,4 @@ repeatable and two skills *should* exist (and largely do in this repo):
 
 ---
 
-_Generated from session `019e0daf` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-09. Source extract: `/tmp/session_facts.15787.14817.md`._
+_Generated from session `019e0daf` · `pi-agent-dashboard` · 2026-05-09. Source extract: `/tmp/session_facts.15787.14817.md`._

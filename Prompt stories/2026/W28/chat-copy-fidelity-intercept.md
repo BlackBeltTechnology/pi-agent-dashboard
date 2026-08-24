@@ -174,4 +174,4 @@ merged **PR #287** (squash `6f7840a31`).
 
 ---
 
-_Generated from session `019f5859-4124-7bed-956a-4639cdd2bb57` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-13. Source extract: deterministic facts sheet._
+_Generated from session `019f5859-4124-7bed-956a-4639cdd2bb57` · `pi-agent-dashboard` · 2026-07-13. Source extract: deterministic facts sheet._

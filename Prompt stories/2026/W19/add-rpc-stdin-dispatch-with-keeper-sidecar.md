@@ -173,4 +173,4 @@ Artifacts produced:
 
 ---
 
-_Generated from session `019e13e4-e9c3-77cb-b1cb-e1b7c5107543` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-11. Source extract: session-to-guideline facts sheet._
+_Generated from session `019e13e4-e9c3-77cb-b1cb-e1b7c5107543` · `pi-agent-dashboard` · 2026-05-11. Source extract: session-to-guideline facts sheet._

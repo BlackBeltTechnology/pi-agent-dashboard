@@ -153,4 +153,4 @@ dashboard's `countStale` too."
 
 ---
 
-_Generated from session `019f8575` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-21. Source extract: deterministic facts sheet._
+_Generated from session `019f8575` · `pi-agent-dashboard` · 2026-07-21. Source extract: deterministic facts sheet._

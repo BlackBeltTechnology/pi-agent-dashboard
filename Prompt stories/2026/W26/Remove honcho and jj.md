@@ -175,4 +175,4 @@ red *before* you start).
 
 ---
 
-_Generated from session `019f05da` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-27. Source extract: `/tmp/facts-1260-3901.md`._
+_Generated from session `019f05da` · `pi-agent-dashboard` · 2026-06-27. Source extract: `/tmp/facts-1260-3901.md`._

@@ -93,4 +93,4 @@ No new skills or memories were created — this session **consumed** existing pr
 
 ---
 
-_Generated from session `019f1679` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-30. Source extract: deterministic `extract_session.ts` facts sheet._
+_Generated from session `019f1679` · `pi-agent-dashboard` · 2026-06-30. Source extract: deterministic `extract_session.ts` facts sheet._

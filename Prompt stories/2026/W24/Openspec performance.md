@@ -136,4 +136,4 @@ JSON round-trip. Invoke it whenever "the server blocks / sessions drop" surfaces
 
 ---
 
-_Generated from session `019ec0b6-4ba9-7521-ade8-441bed4de835` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-13. Source extract: session facts sheet._
+_Generated from session `019ec0b6-4ba9-7521-ade8-441bed4de835` · `pi-agent-dashboard` · 2026-06-13. Source extract: session facts sheet._

@@ -112,4 +112,4 @@ No pi *skill* was created, but this workflow is clearly repeatable — a `split-
 
 ---
 
-_Generated from session `019f2713-364f-78ca-aa03-5e0c24b335f4` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-03. Source extract: deterministic facts sheet from `session-to-guideline/scripts/extract_session.ts`._
+_Generated from session `019f2713-364f-78ca-aa03-5e0c24b335f4` · `pi-agent-dashboard` · 2026-07-03. Source extract: deterministic facts sheet from `session-to-guideline/scripts/extract_session.ts`._

@@ -325,4 +325,4 @@ cat "$FACTS"
 
 ---
 
-_Generated from session `019f6810-e9ec-7e66-b15c-bc12964f97b7` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-16._
+_Generated from session `019f6810-e9ec-7e66-b15c-bc12964f97b7` · `pi-agent-dashboard` · 2026-07-16._

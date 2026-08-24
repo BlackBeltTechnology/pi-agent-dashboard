@@ -104,4 +104,4 @@ Scope expansions the human imposed: **spike on CI** (Prompt 3), **full apply not
 
 ---
 
-_Generated from session `019ec774-fad3-755c-8c15-453b6226c719` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-14. Source extract: `/tmp/facts-embed-git-bash.md`._
+_Generated from session `019ec774-fad3-755c-8c15-453b6226c719` · `pi-agent-dashboard` · 2026-06-14. Source extract: `/tmp/facts-embed-git-bash.md`._

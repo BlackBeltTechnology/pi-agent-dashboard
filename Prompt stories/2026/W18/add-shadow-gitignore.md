@@ -129,4 +129,4 @@ strong candidate for a saved memory.
 
 ---
 
-_Generated from session `019de93e-18fe-7140-acb2-cb7ceae36a1e` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-02. Source extract: `/tmp/session-facts.XXXXXX.md`._
+_Generated from session `019de93e-18fe-7140-acb2-cb7ceae36a1e` · `pi-agent-dashboard` · 2026-05-02. Source extract: `/tmp/session-facts.XXXXXX.md`._

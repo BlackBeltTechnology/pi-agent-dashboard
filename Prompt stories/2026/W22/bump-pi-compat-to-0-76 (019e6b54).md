@@ -151,7 +151,7 @@ No skill or memory was created in this session. The workflow is clearly repeatab
 
 ## 8. Reproduce it faster — checklist
 
-**Inputs to have ready:** repo at `/Users/robson/Project/pi-agent-dashboard` on `develop`;
+**Inputs to have ready:** repo at `pi-agent-dashboard` on `develop`;
 the target change name (`bump-pi-compat-to-0-76`) and its predecessor (`0-75`); knowledge
 of the compat fields (`engines.node`, `piCompatibility.minimum/recommended`,
 `node-guard.ts`, `bundled-node-meets-pi-floor.test.ts`).
@@ -171,4 +171,4 @@ of the compat fields (`engines.node`, `piCompatibility.minimum/recommended`,
 
 ---
 
-_Generated from session `019e6b54-d478-7e03-9046-8a886238b0e3` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-28. Source extract: `/tmp/facts-95942-6390.md`._
+_Generated from session `019e6b54-d478-7e03-9046-8a886238b0e3` · `pi-agent-dashboard` · 2026-05-28. Source extract: `/tmp/facts-95942-6390.md`._

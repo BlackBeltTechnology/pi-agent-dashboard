@@ -180,4 +180,4 @@ however, highly repeatable, and two lessons deserve durable capture:
 
 ---
 
-_Generated from session `019f065e-4cf9-74a2-a6ea-eaef8666fb03` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-27. Source extract: session facts sheet._
+_Generated from session `019f065e-4cf9-74a2-a6ea-eaef8666fb03` · `pi-agent-dashboard` · 2026-06-27. Source extract: session facts sheet._

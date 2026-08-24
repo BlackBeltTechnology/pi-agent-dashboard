@@ -151,4 +151,4 @@ in `packages/client/src/components/`, adoption test `state-feedback-adoption.tes
 
 ---
 
-_Generated from session `019f0965` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-24. Source extract: session-to-guideline facts sheet._
+_Generated from session `019f0965` · `pi-agent-dashboard` · 2026-07-24. Source extract: session-to-guideline facts sheet._

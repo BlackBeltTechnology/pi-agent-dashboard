@@ -160,4 +160,4 @@ project memory.
 
 ---
 
-_Generated from session `019f2a52` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-04. Source extract: deterministic facts sheet (stdout)._
+_Generated from session `019f2a52` · `pi-agent-dashboard` · 2026-07-04. Source extract: deterministic facts sheet (stdout)._

@@ -23,7 +23,7 @@ proposal_excerpt: "The InvoiceBot React app (Board / Opened-invoice / Ask / Sett
 The operator wanted to give the InvoiceBot React app a real backend. The kickoff
 prompt (via `/skill:openspec-explore`):
 
-> *"I would like to add REST API for pi-invoicebot plugin (../pi-invoice-bot) to expose
+> *"I would like to add REST API for pi-invoicebot plugin (pi-invoice-bot) to expose
 > rest API. It handle CWD, because the database, events, operations related to CWD
 > sessions currently."*
 
@@ -198,4 +198,4 @@ specs/invoicebot-rest-api/spec.md · tasks.md · api-contract.md · gaps.md`.
 
 ---
 
-_Generated from session `019f4485` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-09. Source extract: `/tmp/session_facts_1784847817N.md`._
+_Generated from session `019f4485` · `pi-agent-dashboard` · 2026-07-09. Source extract: `/tmp/session_facts_1784847817N.md`._

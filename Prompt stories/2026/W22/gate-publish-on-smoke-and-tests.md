@@ -149,4 +149,4 @@ authenticated `gh`.
 
 ---
 
-_Generated from session `019e7937` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-30. Source extract: session facts sheet (mktemp)._
+_Generated from session `019e7937` · `pi-agent-dashboard` · 2026-05-30. Source extract: session facts sheet (mktemp)._

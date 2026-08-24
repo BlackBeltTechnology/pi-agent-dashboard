@@ -184,4 +184,4 @@ a data doc and a method doc), delegated to DocScribe per the repo's caveman-styl
 
 ---
 
-_Generated from session `019f71e1-93a9-7687-8ad9-927d4ac918e6` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-18. Source extract: deterministic facts sheet (session-to-guideline)._
+_Generated from session `019f71e1-93a9-7687-8ad9-927d4ac918e6` · `pi-agent-dashboard` · 2026-07-18. Source extract: deterministic facts sheet (session-to-guideline)._

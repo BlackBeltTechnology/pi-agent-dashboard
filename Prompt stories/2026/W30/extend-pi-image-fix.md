@@ -104,4 +104,4 @@ No new skill or memory was created — the session was a *consumer* of three exi
 
 ---
 
-_Generated from session `019f8612-20ee-7e73-bb8c-2d7d66da2a8e` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-21. Source extract: `facts.XXXXXX.h4Bx5tZLXE`._
+_Generated from session `019f8612-20ee-7e73-bb8c-2d7d66da2a8e` · `pi-agent-dashboard` · 2026-07-21. Source extract: `facts.XXXXXX.h4Bx5tZLXE`._

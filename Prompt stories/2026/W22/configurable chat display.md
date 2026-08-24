@@ -155,4 +155,4 @@ lockfile commit `ffaa2340`, all 10 CI jobs green (run 26692638808); edited files
 
 ---
 
-_Generated from session `019e79eb-5456-7fc2-81c6-77e5ec51691a` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/configurable-chat-display` · 2026-05-30. Source extract: `/tmp/facts-PG7GPx`._
+_Generated from session `019e79eb-5456-7fc2-81c6-77e5ec51691a` · `pi-agent-dashboard/.worktrees/configurable-chat-display` · 2026-05-30. Source extract: `/tmp/facts-PG7GPx`._

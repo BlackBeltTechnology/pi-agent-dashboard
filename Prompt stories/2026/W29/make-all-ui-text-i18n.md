@@ -213,4 +213,4 @@ doctor), tests under `packages/client/src/__tests__/` — all merged via PR #319
 
 ---
 
-_Generated from session `019f6111-8b57-7d26-bf70-fee42c1ac790` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-14. Source extract: session facts sheet (make-all-ui-text-i18n)._
+_Generated from session `019f6111-8b57-7d26-bf70-fee42c1ac790` · `pi-agent-dashboard` · 2026-07-14. Source extract: session facts sheet (make-all-ui-text-i18n)._

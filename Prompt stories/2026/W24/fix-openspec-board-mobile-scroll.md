@@ -140,7 +140,7 @@ the running server — worth capturing as a `verify-worktree-css-at-runtime` not
 - **`gh pr merge --delete-branch` failed** because `develop` is checked out in the main
   worktree. Delete the remote branch directly with `git push origin --delete <branch>`.
 - **The shell was pinned to the deleted worktree** after removal. Re-anchor to the main
-  repo (`cd /Users/robson/Project/pi-agent-dashboard`) before further git commands.
+  repo (`cd pi-agent-dashboard`) before further git commands.
 
 ## 8. Reproduce it faster — checklist
 
@@ -168,4 +168,4 @@ the running server — worth capturing as a `verify-worktree-css-at-runtime` not
 
 ---
 
-_Generated from session `019ec570-7165-7e80-a6b5-72c4eeaa8089` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-14. Source extract: `facts-session` sheet._
+_Generated from session `019ec570-7165-7e80-a6b5-72c4eeaa8089` · `pi-agent-dashboard` · 2026-06-14. Source extract: `facts-session` sheet._

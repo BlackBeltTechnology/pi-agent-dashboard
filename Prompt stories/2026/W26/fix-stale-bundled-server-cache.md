@@ -177,4 +177,4 @@ synced into `openspec/specs/electron-build-pipeline/spec.md`; CHANGELOG `### Bui
 
 ---
 
-_Generated from session `019f103e-4694-7923-9b32-fc1da93ca8ab` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-29. Source extract: `/tmp/facts-53516-1784849662.md`._
+_Generated from session `019f103e-4694-7923-9b32-fc1da93ca8ab` · `pi-agent-dashboard` · 2026-06-29. Source extract: `/tmp/facts-53516-1784849662.md`._

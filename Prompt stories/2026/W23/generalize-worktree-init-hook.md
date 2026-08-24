@@ -211,4 +211,4 @@ sequence by hand across 12 steering turns.
 
 ---
 
-_Generated from session `019e8aa5-ccd1-7cfa-9c5a-819376574114` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-05. Source extract: session-to-guideline facts sheet._
+_Generated from session `019e8aa5-ccd1-7cfa-9c5a-819376574114` · `pi-agent-dashboard` · 2026-06-05. Source extract: session-to-guideline facts sheet._

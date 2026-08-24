@@ -101,4 +101,4 @@ No new skill or memory was created this session, but three existing skills carri
 
 ---
 
-_Generated from session `019f277b-fde9-7cc3-b656-61c8f215b649` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-03. Source extract: `/tmp/facts-019f277b.md`._
+_Generated from session `019f277b-fde9-7cc3-b656-61c8f215b649` · `pi-agent-dashboard` · 2026-07-03. Source extract: `/tmp/facts-019f277b.md`._

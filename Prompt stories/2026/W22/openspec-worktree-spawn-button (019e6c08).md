@@ -177,4 +177,4 @@ worktree at `.worktrees/<change>/`; awareness that plain git (not `jj`) is requi
 
 ---
 
-_Generated from session `019e6c08-fb00-7095-a071-05c73192b90f` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-28. Source extract: session facts sheet (openspec-worktree-spawn-button)._
+_Generated from session `019e6c08-fb00-7095-a071-05c73192b90f` · `pi-agent-dashboard` · 2026-05-28. Source extract: session facts sheet (openspec-worktree-spawn-button)._

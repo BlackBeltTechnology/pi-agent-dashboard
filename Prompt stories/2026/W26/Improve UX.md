@@ -173,4 +173,4 @@ skills, and the real `packages/client/src` component sources.
 
 ---
 
-_Generated from session `019f05ee-99b0-74a1-9198-a74cf9c23b3e` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-27. Source extract: session-to-guideline facts sheet._
+_Generated from session `019f05ee-99b0-74a1-9198-a74cf9c23b3e` · `pi-agent-dashboard` · 2026-06-27. Source extract: session-to-guideline facts sheet._

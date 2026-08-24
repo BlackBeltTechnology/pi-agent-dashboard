@@ -98,4 +98,4 @@ No new skill or memory was created — the session ran on existing ones (`opensp
 
 ---
 
-_Generated from session `019f5487` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-12. Source extract: `/tmp/facts-1784849728N.md`._
+_Generated from session `019f5487` · `pi-agent-dashboard` · 2026-07-12. Source extract: `/tmp/facts-1784849728N.md`._

@@ -180,4 +180,4 @@ whole session.
 
 ---
 
-_Generated from session `019f28f0-a7cf-74ca-bcb9-2088183206af` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-03. Source extract: deterministic session facts sheet._
+_Generated from session `019f28f0-a7cf-74ca-bcb9-2088183206af` · `pi-agent-dashboard` · 2026-07-03. Source extract: deterministic session facts sheet._

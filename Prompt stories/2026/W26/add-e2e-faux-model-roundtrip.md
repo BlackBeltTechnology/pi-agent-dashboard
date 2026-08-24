@@ -193,4 +193,4 @@ awareness that the worktree has no `node_modules`.
 
 ---
 
-_Generated from session `019f065b-ba27-7ef8-b1b5-ad5ede43ca47` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-27. Source extract: deterministic facts sheet._
+_Generated from session `019f065b-ba27-7ef8-b1b5-ad5ede43ca47` · `pi-agent-dashboard` · 2026-06-27. Source extract: deterministic facts sheet._
