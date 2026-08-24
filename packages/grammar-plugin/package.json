@@ -34,12 +34,16 @@
   "dependencies": {
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
+    "@mdi/js": "^7.4.47",
+    "@mdi/react": "^1.6.1",
     "diff": "^8.0.3"
   },
   "devDependencies": {
+    "@testing-library/react": "^16.1.0",
     "@types/react": "^19.0.0",
     "fastify": "^5.0.0",
-    "react": "^19.0.0"
+    "react": "^19.0.0",
+    "vitest": "^4.0.0"
   },
   "pi-dashboard-plugin": {
     "id": "grammar",
