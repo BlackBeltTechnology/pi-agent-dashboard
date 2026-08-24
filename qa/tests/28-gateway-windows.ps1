@@ -159,7 +159,14 @@ const register = (ws) => ws.send(JSON.stringify({
   // from "registered, then reaped" — two very different verdicts.
   const res = await fetch('http://127.0.0.1:' + DASH_PORT + '/api/sessions');
   const body = await res.json();
-  const all = Array.isArray(body.sessions) ? body.sessions : [];
+  // The envelope is { success, data: [...] } — NOT { sessions }. Reading the
+  // wrong key yields an empty list, which is indistinguishable from a genuine
+  // registration failure, so refuse to interpret an unexpected shape at all.
+  if (!Array.isArray(body.data)) {
+    console.error('FAIL: /api/sessions did not return a data array; keys=' + JSON.stringify(Object.keys(body)));
+    process.exit(1);
+  }
+  const all = body.data;
   const mine = all.filter((s) => s.id === SESSION_ID);
   console.log('reconnected sessions=' + mine.length + ' total=' + all.length);
   if (mine.length !== 1) {
