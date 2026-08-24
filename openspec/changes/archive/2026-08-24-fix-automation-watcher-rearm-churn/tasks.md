@@ -21,9 +21,9 @@ checked against code already in the working tree.
 ## 3. Verification
 
 - [x] 3.1 Measure re-arm rate against the running server before/after — 54 → 8 per 120 s (7× reduction).
-- [ ] 3.2 Confirm no automation arms late in practice after the 2 s → 15 s debounce change (manual: add a folder with an automation, observe it arms within 15 s).
+- [x] 3.2 Confirm no automation arms late in practice after the 2 s → 15 s debounce change (manual: add a folder with an automation, observe it arms within 15 s).
 
 ## 4. Docs
 
-- [ ] 4.1 Update the `automation-watcher.ts` row in `packages/automation-plugin/src/server/AGENTS.md` (purpose + `See change: fix-automation-watcher-rearm-churn`).
-- [ ] 4.2 Update the `index.ts` row in the same tree file if its summary mentions the 2 s rescan.
+- [x] 4.1 Update the `automation-watcher.ts` row in `packages/automation-plugin/src/server/AGENTS.md` (purpose + `See change: fix-automation-watcher-rearm-churn`).
+- [x] 4.2 Update the `index.ts` row in the same tree file if its summary mentions the 2 s rescan.
