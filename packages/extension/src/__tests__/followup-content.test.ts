@@ -106,5 +106,20 @@ describe("validateImages", () => {
 
   it("treats an absent images array as an empty, complaint-free set", () => {
     expect(validateImages()).toEqual({ valid: [], dropped: [] });
+    expect(validateImages(null)).toEqual({ valid: [], dropped: [] });
+  });
+
+  it("reports a non-array container instead of throwing on it", () => {
+    // `for...of` over a plain object throws, which would fail the whole prompt
+    // rather than reporting an unusable attachment. The wire is untrusted.
+    for (const junk of [{ 0: "img" }, "not-a-list", 42, true]) {
+      const result = validateImages(junk);
+      expect(result.valid).toEqual([]);
+      expect(result.dropped).toHaveLength(1);
+    }
+  });
+
+  it("builds a bare string when the container is not a list", () => {
+    expect(buildUserMessageContent("plain", { 0: "img" })).toBe("plain");
   });
 });

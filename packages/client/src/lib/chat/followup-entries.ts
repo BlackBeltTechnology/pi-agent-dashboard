@@ -26,7 +26,15 @@ export function normalizeFollowUpEntry(entry: unknown): FollowUpEntryView {
     const e = entry as { text?: unknown; imageCount?: unknown };
     return {
       text: typeof e.text === "string" ? e.text : "",
-      imageCount: typeof e.imageCount === "number" && e.imageCount > 0 ? e.imageCount : 0,
+      // Only a positive SAFE INTEGER is a count. A fractional or infinite
+      // value from a malformed entry would render as "1.5" / "Infinity" on
+      // the chip.
+      imageCount:
+        typeof e.imageCount === "number" &&
+        Number.isSafeInteger(e.imageCount) &&
+        e.imageCount > 0
+          ? e.imageCount
+          : 0,
     };
   }
   return { text: "", imageCount: 0 };

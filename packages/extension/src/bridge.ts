@@ -483,7 +483,7 @@ function initBridge(pi: ExtensionAPI) {
    * entry fit, because delivering a prompt whose attachment vanished is the
    * original bug. See change: fix-bridge-followup-image-drop.
    */
-  function bufferFollowupSend(text: string, images?: readonly unknown[]): void {
+  function bufferFollowupSend(text: string, images?: unknown): void {
     if (!getBridgeState().isAgentStreaming) return;
     const { valid, dropped } = validateImages(images);
     const admitted = bridgeFollowUp.push({

@@ -417,7 +417,7 @@ export function createCommandHandler(
      * dropping them here was the original bug.
      * See change: fix-bridge-followup-image-drop.
      */
-    onFollowupSent?: (text: string, images?: readonly unknown[]) => void;
+    onFollowupSent?: (text: string, images?: unknown) => void;
     /**
      * Returns true iff the agent was streaming at the moment of the call.
      * Used to capture pre-send streaming state before `pi.sendUserMessage`
@@ -1052,10 +1052,17 @@ export interface ImageValidation {
  *
  * See change: fix-bridge-followup-image-drop (design D6, D7, D3c).
  */
-export function validateImages(images?: readonly unknown[]): ImageValidation {
+export function validateImages(images?: unknown): ImageValidation {
   const valid: ImageContent[] = [];
   const dropped: string[] = [];
-  for (const img of images ?? []) {
+  if (images === undefined || images === null) return { valid, dropped };
+  // A non-array container would throw on `for...of`, failing the whole prompt
+  // instead of reporting an unusable attachment. The wire is untrusted.
+  if (!Array.isArray(images)) {
+    dropped.push("attachments were not a list");
+    return { valid, dropped };
+  }
+  for (const img of images) {
     if (!img || typeof img !== "object") {
       dropped.push("attachment was not an image block");
       continue;
@@ -1089,7 +1096,7 @@ export function validateImages(images?: readonly unknown[]): ImageValidation {
  */
 export function buildUserMessageContent(
   text: string,
-  images?: readonly unknown[],
+  images?: unknown,
 ): string | Array<{ type: "text"; text: string } | ImageContent> {
   const { valid } = validateImages(images);
   if (valid.length === 0) return text;
@@ -1103,7 +1110,7 @@ export function buildUserMessageContent(
 function sendUserMessageWithImages(
   pi: ExtensionAPI,
   text: string,
-  images?: readonly unknown[],
+  images?: unknown,
   delivery?: "steer" | "followUp",
 ): void {
   const deliverAs = delivery ?? ("followUp" as const);

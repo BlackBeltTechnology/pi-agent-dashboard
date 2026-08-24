@@ -403,7 +403,8 @@ export interface DashboardSession {
    * Mirror of pi's native steering + follow-up queues for this session.
    * Populated from pi's `queue_update` event, forwarded by the bridge.
    * `steering[]` typically empties every turn boundary (1-15 s); `followUp`
-   * is dashboard-enforced capacity 1 and drains on `agent_end`.
+   * holds up to 20 entries (and a 32 MiB aggregate byte ceiling, both bridge-
+   * enforced) and drains ONE entry per `agent_end`.
    * `followUp` carries entry objects (text + image COUNT); `steering` stays a
    * plain string array (pi-owned, display-only).
    * See capability `mid-turn-prompt-queue`. See change: add-followup-edit-and-steer-cancel,

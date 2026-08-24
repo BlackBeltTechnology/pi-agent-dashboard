@@ -276,6 +276,26 @@ describe("followup buffer — mutation semantics", () => {
     expect(buffer.push({ text: "e".repeat(KIB) })).toEqual({ ok: true });
   });
 
+  it("dedupes clear indices, so [0,0] never takes an unselected entry", () => {
+    const buffer = createFollowupBuffer();
+    buffer.push({ text: "a" });
+    buffer.push({ text: "b" });
+    buffer.push({ text: "c" });
+
+    expect(buffer.clearIndices([0, 0])).toBe(true);
+
+    expect(buffer.views().map((v) => v.text)).toEqual(["b", "c"]);
+  });
+
+  it("ignores fractional and negative clear indices rather than truncating them", () => {
+    const buffer = createFollowupBuffer();
+    buffer.push({ text: "a" });
+    buffer.push({ text: "b" });
+
+    expect(buffer.clearIndices([1.5, -1])).toBe(false);
+    expect(buffer.views().map((v) => v.text)).toEqual(["a", "b"]);
+  });
+
   it("finds a drained entry by exact text and splices it (message_start matcher)", () => {
     const buffer = createFollowupBuffer();
     buffer.push({ text: "alpha" });

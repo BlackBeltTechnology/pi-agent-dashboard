@@ -83,7 +83,7 @@ Both structures feed the same `queue_update { sessionId, steering: [...], follow
 
 ### Requirement: Follow-up send appends to the queue (v2 replace of v1 send-while-occupied semantics)
 
-When the user presses Alt+Enter (or equivalent send-with-followup gesture), the client SHALL dispatch `send_prompt { delivery: "followUp", text, images? }`. The bridge SHALL append the new entry to `bridgeFollowUp[]` (never replace existing entries), carrying any `images` from the `send_prompt` message onto the entry. The client SHALL update `currentIndex` to point at the newly-appended entry.
+When the user presses Alt+Enter (or equivalent send-with-followup gesture), the client SHALL dispatch `send_prompt { delivery: "followUp", text, images? }`. The bridge SHALL append the new entry to `bridgeFollowUp[]` (never replace existing entries), carrying any `images` from the `send_prompt` message onto the entry. The client SHALL update `currentIndex` to point at the newly-appended entry ONLY once the append is observed in `pendingQueues.followUp` (a refused send appends nothing, so there is no entry at the new index).
 
 A send is admitted only when it passes BOTH the entry-count cap and the aggregate byte ceiling. A refused send SHALL NOT be partially admitted: the bridge SHALL NOT strip images from an entry to make it fit.
 
@@ -282,7 +282,7 @@ Out-of-range indices SHALL cause the handler to emit `command_feedback { command
 - **AND** the bridge SHALL emit `command_feedback { command: "edit_followup_entry", status: "error" }` naming the byte ceiling
 - **AND** the bridge SHALL NOT emit `queue_update`
 
-### Requirement: User abort resets shadow queues and clears pi's native queues
+### Requirement: User abort preserves shadow queues and never clears pi's native queues
 
 When the bridge's `abort` extension command is invoked (via a browser `abort { sessionId }` message routed through the server to pi), the bridge SHALL:
 

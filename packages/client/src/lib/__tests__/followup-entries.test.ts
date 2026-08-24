@@ -39,6 +39,12 @@ describe("normalizeFollowUpEntry", () => {
     expect(normalizeFollowUpEntry({ text: "a", imageCount: -3 }).imageCount).toBe(0);
     expect(normalizeFollowUpEntry({ text: "a", imageCount: "2" }).imageCount).toBe(0);
   });
+
+  it("rejects a fractional or infinite count, which would render as \"1.5\" on a chip", () => {
+    expect(normalizeFollowUpEntry({ text: "a", imageCount: 1.5 }).imageCount).toBe(0);
+    expect(normalizeFollowUpEntry({ text: "a", imageCount: Number.POSITIVE_INFINITY }).imageCount).toBe(0);
+    expect(normalizeFollowUpEntry({ text: "a", imageCount: Number.NaN }).imageCount).toBe(0);
+  });
 });
 
 describe("normalizeFollowUpEntries", () => {

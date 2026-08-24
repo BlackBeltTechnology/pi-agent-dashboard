@@ -186,11 +186,21 @@ export function createFollowupBuffer(options: FollowupBufferOptions = {}): Follo
 
     clearIndices(indices: number[]): boolean {
       if (!Array.isArray(indices)) return false;
+      // DEDUPE, and require whole numbers. A duplicate (`[0, 0]`) would splice
+      // twice and take an entry the user never selected; a fractional index
+      // passes a naive range check and `splice` silently truncates it.
+      const unique = [
+        ...new Set(
+          indices.filter(
+            (i): i is number => typeof i === "number" && Number.isInteger(i) && i >= 0,
+          ),
+        ),
+      ];
       // Descending so earlier splices do not shift later indices.
-      const sorted = [...indices].sort((a, b) => b - a);
+      const sorted = unique.sort((a, b) => b - a);
       let mutated = false;
       for (const i of sorted) {
-        if (typeof i === "number" && i >= 0 && i < entries.length) {
+        if (i < entries.length) {
           entries.splice(i, 1);
           mutated = true;
         }
