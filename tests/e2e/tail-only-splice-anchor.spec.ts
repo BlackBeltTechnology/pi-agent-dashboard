@@ -97,7 +97,10 @@ test.describe("tail-only — the splice anchors on the first previously-loaded r
     // 60s default), and this hook builds a whole transcript AND restarts the
     // daemon. Raise it here or the file fails in setup, not in an assertion.
     test.setTimeout(1_500_000);
-    session = await buildWindowedSession(browser, { mode: "tail-only" });
+    // THREE transcripts: the gap must outlast more than one BACKFILL_MAX_SPAN
+    // slice, or F18 has no substantial second splice to hold a selection
+    // across. See `buildWindowedSession`.
+    session = await buildWindowedSession(browser, { mode: "tail-only", transcripts: 3 });
   });
 
   test.afterAll(async ({ browser }) => {
@@ -365,42 +368,59 @@ test.describe("tail-only — the splice anchors on the first previously-loaded r
       "the gap drained on the opening ascent; no further splice to hold a selection across",
     );
 
-    // Hold a real selection over a mounted transcript row, and capture where it
-    // sits on screen.
-    const selected = await page.evaluate(() => {
+    /**
+     * Establish the selection with a REAL GESTURE, not `document.createRange`.
+     *
+     * The distinction is load-bearing: the retention machinery this row asserts
+     * on \u2014 the rangeExtractor union that keeps selected rows mounted, and the
+     * anchor compensator itself \u2014 is gated on `isSelectingRef`, which the hook
+     * publishes from the `selectionchange` listener during a real drag. A
+     * programmatic Range is not obviously equivalent, and the sibling
+     * `head-tail` F4 cannot settle it because its splice never moves
+     * `scrollTop`.
+     *
+     * TRIPLE-CLICK, not a drag. Measured against this harness: a horizontal
+     * drag across a row selects the empty string (it lands on the flex
+     * wrapper's padding rather than a text node), while a click gesture at a
+     * text point selects reliably. Triple-click takes the whole paragraph, so
+     * the captured text is long enough to compare meaningfully.
+     */
+    const candidates = await page.evaluate(() => {
       const scroll = document.querySelector('[data-testid="chat-scroll-container"]');
       const dividerRow = scroll
         ?.querySelector('[data-testid="history-gap-divider"]')
         ?.closest("[data-index]") as HTMLElement | null;
-      if (!scroll || !dividerRow) return null;
-      /**
-       * Select a real TRANSCRIPT row, never the divider's own row.
-       *
-       * The divider renders the REMAINING GAP COUNT, which legitimately changes
-       * when the gap shrinks — observed here as "504 earlier messages" becoming
-       * "4 earlier messages". A selection held over that row then compares
-       * unequal because its CONTENT changed, not because the selection moved:
-       * a false failure about the very property this row exists to prove.
-       */
+      if (!scroll || !dividerRow) return [];
       const di = Number(dividerRow.dataset.index);
-      let best: HTMLElement | null = null;
-      let bi = Number.POSITIVE_INFINITY;
+      const view = scroll.getBoundingClientRect();
+      const out: Array<{ key: string; x: number; y: number }> = [];
       for (const n of Array.from(scroll.querySelectorAll<HTMLElement>("[data-index]"))) {
         const i = Number(n.dataset.index);
-        if (Number.isFinite(i) && i > di && i < bi && n.textContent?.trim()) {
-          best = n;
-          bi = i;
-        }
+        // Below the divider, VISIBLE (not merely mounted in the overscan band
+        // \u2014 a click is dispatched at viewport coordinates), and text-bearing.
+        if (!Number.isFinite(i) || i <= di || !n.dataset.rowKey) continue;
+        const r = n.getBoundingClientRect();
+        if (r.height < 24 || r.top < view.top + 8 || r.bottom > view.bottom - 8) continue;
+        if ((n.textContent?.trim().length ?? 0) < 20) continue;
+        out.push({ key: n.dataset.rowKey, x: r.x + r.width / 2, y: r.y + r.height / 2 });
       }
-      if (!best) return null;
-      const range = document.createRange();
-      range.selectNodeContents(best);
-      const sel = window.getSelection();
-      sel?.removeAllRanges();
-      sel?.addRange(range);
-      return sel?.toString() ?? null;
+      return out;
     });
-    expect(selected, "a selection was established over a transcript row").toBeTruthy();
+    expect(candidates.length, "a visible transcript row was available").toBeGreaterThan(0);
+
+    let selected: string | null = null;
+    for (const c of candidates) {
+      await page.mouse.click(c.x, c.y, { clickCount: 3 });
+      await page.waitForTimeout(250);
+      const got = await page.evaluate(() => window.getSelection()?.toString() ?? null);
+      // Several candidates are tried because a row's midpoint can still land
+      // between inline children; the first that yields real text wins.
+      if (got && got.trim().length > 10) {
+        selected = got;
+        break;
+      }
+    }
+    expect(selected, "a real gesture selected transcript text").toBeTruthy();
 
     const rectBefore = await page.evaluate(() => {
       const r = window.getSelection()?.getRangeAt(0).getBoundingClientRect();

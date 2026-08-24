@@ -113,7 +113,7 @@ export interface WindowedSession {
  */
 export async function buildWindowedSession(
   browser: Browser,
-  opts: { mode?: "head-tail" | "tail-only"; window?: number } = {},
+  opts: { mode?: "head-tail" | "tail-only"; window?: number; transcripts?: number } = {},
 ): Promise<WindowedSession> {
   const ctx = await browser.newContext();
   const page = await ctx.newPage();
@@ -133,10 +133,26 @@ export async function buildWindowedSession(
     await composer.fill("warmup");
     await expect(page.getByTestId("send-button")).toBeEnabled({ timeout: 120_000 });
     await composer.fill("");
-    await sendPrompt(page, "[[faux:long-transcript]] go");
-    await expect(page.getByText(/long-transcript complete/).first()).toBeVisible({
-      timeout: 240_000,
-    });
+    /**
+     * `transcripts` controls how many gap SLICES the session can serve.
+     *
+     * One `long-transcript` is ~604 events, so against a 100-event window the
+     * gap is ~504 \u2014 and `BACKFILL_MAX_SPAN` is 500, so the FIRST load very
+     * nearly drains it and any second load splices ~4 rows. Rows that assert on
+     * a second, substantial splice (a selection held across one, for instance)
+     * cannot be satisfied by such a session at all: they fail on their own
+     * non-vacuity gate rather than on the property under test.
+     *
+     * Each extra transcript adds ~604 events, i.e. roughly one more full slice.
+     */
+    const transcripts = Math.max(1, opts.transcripts ?? 1);
+    for (let i = 0; i < transcripts; i++) {
+      await sendPrompt(page, "[[faux:long-transcript]] go");
+      await expect(
+        page.getByText(/long-transcript complete/).nth(i),
+      ).toBeVisible({ timeout: 240_000 });
+      await page.waitForTimeout(1_000);
+    }
     await page.waitForTimeout(2_000);
 
     await writeLimits(page, {
