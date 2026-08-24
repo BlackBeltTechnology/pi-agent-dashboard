@@ -701,7 +701,13 @@ export function createBrowserGateway(
           // would let the server silently swallow the message. See change:
           // replace-dashboard-retry-command-with-protocol-message.
           case "retry_session":
-            handleRetrySession(msg, ctx);
+            // Validate the wire input before dispatch (JSON.parse does not check
+            // the discriminated union at runtime), mirroring the adjacent
+            // stop_after_turn guard. A malformed payload is ignored rather than
+            // driving a negative-ack with a bogus sessionId.
+            if (typeof msg.sessionId === "string" && msg.sessionId.length > 0) {
+              handleRetrySession(msg, ctx);
+            }
             break;
           case "stop_after_turn":
             if (typeof msg.sessionId === "string" && msg.sessionId.length > 0) {
