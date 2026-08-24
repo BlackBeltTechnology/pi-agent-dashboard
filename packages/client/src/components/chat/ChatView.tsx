@@ -485,13 +485,56 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     anchorTopRef.current = best.getBoundingClientRect().top - containerTop;
   }, []);
 
+  /**
+   * Whether the load in flight came from the TRIGGER rather than from the user
+   * pressing the affordance.
+   *
+   * The announcement is scoped to AUTOMATIC loads in a head-free window
+   * (F16/F21): a user who pressed "Load earlier" already knows what they asked
+   * for, so announcing it is redundant chatter, and a `head-tail` user who
+   * never opted into this change must observe nothing new.
+   * See change: add-tail-only-replay-window (D6).
+   */
+  const lastLoadWasAutoRef = useRef(false);
+  /** Rows added by the most recent AUTOMATIC splice. `null` announces nothing. */
+  const [autoLoadedCount, setAutoLoadedCount] = useState<number | null>(null);
+  const messagesLenRef = useRef(state.messages.length);
+
   const handleLoadEarlier = useCallback(() => {
     // Clearing on ISSUE is what bounds this to one request per expression of
     // intent, for the button and the trigger alike.
     pendingUserIntentRef.current = false;
+    lastLoadWasAutoRef.current = false;
     captureSpliceAnchor();
     onLoadEarlier?.();
   }, [onLoadEarlier, captureSpliceAnchor]);
+
+  /** The trigger's issue path: identical, but marks the load automatic. */
+  const autoLoadEarlier = useCallback(() => {
+    pendingUserIntentRef.current = false;
+    lastLoadWasAutoRef.current = true;
+    captureSpliceAnchor();
+    onLoadEarlier?.();
+  }, [onLoadEarlier, captureSpliceAnchor]);
+
+  /**
+   * Produce the announcement from the SPLICE, not from the response.
+   *
+   * The row count is what the user is told about, and it is not the response's
+   * event count: a backfilled segment reduces to fewer rows than it carries
+   * events (a `message_start`/`update`/`end` trio is one row). Measuring the
+   * rendered delta keeps the announced number equal to what actually appeared.
+   */
+  useEffect(() => {
+    const prev = messagesLenRef.current;
+    const now = state.messages.length;
+    messagesLenRef.current = now;
+    const added = now - prev;
+    if (added > 0 && lastLoadWasAutoRef.current) {
+      lastLoadWasAutoRef.current = false;
+      setAutoLoadedCount(added);
+    }
+  }, [state.messages.length]);
 
   /**
    * Evaluate the auto-load trigger. Called at the SETTLE timer's expiry and at
@@ -527,8 +570,8 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       unservable: gap.unservable,
       atFloor: gap.atFloor,
     });
-    if (fire) handleLoadEarlier();
-  }, [handleLoadEarlier]);
+    if (fire) autoLoadEarlier();
+  }, [autoLoadEarlier]);
 
   // Intent never survives a mount or a session switch: a restored transcript
   // can land at `scrollTop === 0` with no intent ever recorded, and `nearTop`
@@ -1548,6 +1591,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
               key={msg.id}
               gap={historyGap}
               onLoadEarlier={handleLoadEarlier}
+              autoLoadedCount={autoLoadedCount}
             />
           );
         }
