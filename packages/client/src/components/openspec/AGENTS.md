@@ -10,7 +10,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `NewChangeDialog.tsx` | Dialog launching `/skill:openspec-new-change`. Exports `NewChangeDialog`, `formatNewChangePrompt(name,… → see `NewChangeDialog.tsx.AGENTS.md` |
 | `openspec-helpers.tsx` | Shared OpenSpec UI helpers. Exports `LETTER_MAP`, `artifactLetter(id)`, `statusColor(status)`,… → see `openspec-helpers.tsx.AGENTS.md` |
 | `OpenSpecActivityBadge.tsx` | Session-card sub-badge showing active OpenSpec phase. Exports `OpenSpecActivityBadge`. → see `OpenSpecActivityBadge.tsx.AGENTS.md` |
-| `OpenSpecArtifactDialog.tsx` | Non-mobile artifact reader in a flush full `Dialog` (URL unchanged). No back arrow; closes via Dialog ✕/Esc/backdrop (passes `closeInset`, no `onBack`). → see `OpenSpecArtifactDialog.tsx.AGENTS.md` |
+| `OpenSpecArtifactDialog.tsx` | Non-mobile artifact reader in a flush full `Dialog` (URL unchanged). Owns its dismissal: passes `onBack={onClose}` + `backLabel` on ALL THREE branches (loading/not-found/loaded) because a flush Dialog renders no ✕; `closeInset` and the `h-[85vh]` wrapper are GONE (the panel is itself a capped flex column). See change: fix-flush-dialog-scroll-and-close-collision. → see `OpenSpecArtifactDialog.tsx.AGENTS.md` |
 | `OpenSpecBoardView.tsx` | Full-page OpenSpec kanban board. Route `/folder/:encodedCwd/openspec`. → see `OpenSpecBoardView.tsx.AGENTS.md` |
 | `OpenSpecGroupManager.tsx` | CRUD manager: create/rename/recolor/reorder(dnd-kit)/delete groups. See change: add-openspec-change-grouping. |
 | `OpenSpecGroupPicker.tsx` | Per-row chip+dropdown assigning change to group; inline create. See change: add-openspec-change-grouping. |

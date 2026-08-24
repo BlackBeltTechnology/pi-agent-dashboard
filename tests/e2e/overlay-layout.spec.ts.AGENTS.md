@@ -1,0 +1,3 @@
+# overlay-layout.spec.ts — index
+
+L3 GENERIC reachability gate for ALL route-backed overlays (`shell-overlay-route`). Route table is COMPLETENESS-CHECKED against `back-target.ts` STATIC_DESCRIPTORS + plugin `pi-dashboard-plugin.claims` manifests, so a new overlay route missing from it fails. Asserts per route: panel `scrollHeight-clientHeight <= 4` (ε=4px), no interactive box intersecting the effective close control, no container ✕, a visible exit + working Escape, focus on a focusable CHILD. Plus tall/short/at-cap/resize geometry, plugin-collapse (F1), mobile shells (F7/F10), dirty-guard (X5), empty-state anti-vacuity (X3). Fixture `docker/fixtures/sample-git/tall.md` supplies the over-cap content. See change: fix-flush-dialog-scroll-and-close-collision.
