@@ -103,6 +103,9 @@ function CapIcon({ path, uncertain, title }: { path: string; uncertain?: boolean
  *   - reasoning:true  → brain icon (purple)
  *   - vision:true     → eye icon (green)
  *   - metadataSource "fallback" → muted eye? + brain? (assumed; provider gave no signal)
+ *   - metadataSource "endpoint" → confirmed, same as "catalog": the provider
+ *     advertised every field itself. Only "fallback" is uncertain.
+ *     See change: fix-custom-provider-model-metadata.
  *   - no capability fields → nothing rendered
  */
 function CapBadges({ m }: { m: ModelInfo }) {

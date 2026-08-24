@@ -21,6 +21,12 @@ export interface UnregisterOptions {
 export interface RegisterSessionParams {
   id: string;
   cwd: string;
+  /**
+   * Paired-device id when the registering bridge was REMOTE. Absent means the
+   * session's files are on this host. Derived by the gateway from the
+   * connection credential — never from anything the bridge sent.
+   */
+  originDeviceId?: string;
   name?: string;
   source: SessionSource;
   model?: string;
@@ -162,6 +168,7 @@ export function createMemorySessionManager(
         // Apply registration params (always override)
         id: params.id,
         cwd: params.cwd,
+        originDeviceId: params.originDeviceId,
         name: params.name ?? existing?.name,
         source: params.source,
         status: "active",

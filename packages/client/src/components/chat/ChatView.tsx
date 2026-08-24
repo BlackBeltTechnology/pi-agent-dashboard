@@ -33,6 +33,8 @@ import { buildTurnSummaries, type TurnSummary } from "../../lib/util/lineDelta.j
 import { isOutOfCwd, normalizeUnderCwd } from "../../lib/util/normalize-path.js";
 import { ChangeSummaryBlock } from "../diff/ChangeSummaryBlock.js";
 import { getInteractiveRenderer } from "../interactive-renderers/registry.js";
+import { derivePendingFreeFloating } from "../../lib/chat/pending-free-floating.js";
+import { MultiAskPanel } from "./MultiAskPanel.js";
 import { FilePreviewHost, FilePreviewProvider } from "../preview/FilePreviewContext.js";
 import { ImageLightbox } from "../preview/ImageLightbox.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
@@ -552,6 +554,20 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     }
     return ids;
   }, [filteredMessages]);
+  // Concurrently-pending free-floating asks (no `toolCallId`, not widget-bar)
+  // are pulled out of the inline stream and grouped into one MultiAskPanel
+  // below. Tool-paired asks keep their inline placement; notifies never enter
+  // `interactiveRequests` so they are excluded here by construction.
+  // `toolCallId` lives on the pushed `interactiveUi` row, so map requestId →
+  // toolCallId off `state.messages`. See change: surface-concurrent-ask-user-prompts.
+  const pendingFreeFloating = useMemo(
+    () => derivePendingFreeFloating(state.messages, state.interactiveRequests),
+    [state.messages, state.interactiveRequests],
+  );
+  const panelRequestIds = useMemo(
+    () => new Set(pendingFreeFloating.map((r) => r.requestId)),
+    [pendingFreeFloating],
+  );
   // Drop the redundant `ask_user` tool card BEFORE tool-burst grouping (every
   // toolResult is wrapped in a burst — threshold 1 — so post-group row filtering
   // never reaches it). The interactive card is the single render while its
@@ -599,6 +615,10 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         }
         case "interactiveUi": {
           const args = msg.args as Record<string, unknown> | undefined;
+          // Pending free-floating asks render in the grouped MultiAskPanel, not
+          // inline. See change: surface-concurrent-ask-user-prompts.
+          const rid = args?.requestId as string | undefined;
+          if (rid && panelRequestIds.has(rid)) return false;
           const cmp = (args?.params as Record<string, unknown> | undefined)?._promptBusComponent as
             | { type?: string }
             | undefined;
@@ -622,7 +642,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           return true;
       }
     },
-    [prefs, showDebugTools, hiddenToolResultIds],
+    [prefs, showDebugTools, hiddenToolResultIds, panelRequestIds],
   );
   const displayRows = useMemo(() => {
     const rows = groupedMessages.filter(isRowVisible);
@@ -1440,6 +1460,13 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           </div>
         </div>
       ))}
+
+      {/* Grouped multi-ask panel: concurrently-pending free-floating asks
+          render here as one cohesive stack, each answering its own requestId.
+          Hidden inline (isRowVisible) while pending; reappears inline as an
+          answered/history card once resolved. See change:
+          surface-concurrent-ask-user-prompts. */}
+      <MultiAskPanel requests={pendingFreeFloating} onRespondToUi={onRespondToUi} />
 
       {/* Optimistic pending-prompt card (idle-scoped). Re-wired write site in
           useSessionActions.handleSend / handleSendPromptToSession. Two progress

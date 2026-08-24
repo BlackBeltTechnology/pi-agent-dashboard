@@ -553,7 +553,10 @@ echo "[test-entrypoint] launching dashboard daemon via base entrypoint..."
 # server is spawned DETACHED (unref'd) and SURVIVES that timeout — cold-start
 # via the jiti TS loader can exceed 30s on a loaded host. Tolerate a non-zero
 # return; our own health poll below is the authority on readiness.
-/usr/local/bin/entrypoint.sh "$@" \
+# NO_SUPERVISE: the base entrypoint now supervises the daemon itself, which
+# would block before this script's smoke checks ever ran. We do our own
+# supervising in step 4, with the same shared helper.
+PI_ENTRYPOINT_NO_SUPERVISE=1 /usr/local/bin/entrypoint.sh "$@" \
   || echo "[test-entrypoint] base launcher exited non-zero (likely readiness timeout); daemon is detached, polling health..."
 
 # --- 3. Fail-fast smoke check ----------------------------------------------
@@ -637,33 +640,9 @@ if [ "${PI_E2E_INDEPENDENT_SESSION:-0}" = "1" ] && [ "${PI_E2E_SEED:-}" = "1" ];
 fi
 
 # --- 4. Keep PID 1 alive for the daemon's lifetime -------------------------
-SERVER_PID="$(cat "${PIDFILE}" 2>/dev/null || true)"
-[ -n "${SERVER_PID}" ] || smoke_fail "server.pid not found at ${PIDFILE}"
-# Always signal whoever owns the pidfile NOW, not the pid captured at boot — an
-# in-place restart replaces it.
-trap 'kill -TERM "$(cat "${PIDFILE}" 2>/dev/null || echo "${SERVER_PID}")" 2>/dev/null || true' TERM INT
-# Re-read the pidfile each tick and tolerate a restart window. Watching the
-# BOOT pid alone made `POST /api/restart` fatal to the container: the server
-# exits and comes back under a NEW pid, the old `kill -0` went false, PID 1
-# fell through, and the whole harness died mid-test. The grace window keeps the
-# supervisor alive across that gap while still exiting when the daemon is
-# genuinely gone. See change: restore-ask-user-tool-state-on-reconnect.
-RESTART_GRACE_TICKS=24   # x5s = up to 120s down before we call it dead
-missed=0
-while :; do
-  cur="$(cat "${PIDFILE}" 2>/dev/null || true)"
-  if [ -n "${cur}" ] && kill -0 "${cur}" 2>/dev/null; then
-    if [ "${cur}" != "${SERVER_PID}" ]; then
-      echo "[test-entrypoint] daemon restarted: pid ${SERVER_PID} -> ${cur}"
-      SERVER_PID="${cur}"
-    fi
-    missed=0
-  else
-    missed=$((missed + 1))
-    if [ "${missed}" -ge "${RESTART_GRACE_TICKS}" ]; then
-      break
-    fi
-  fi
-  sleep 5
-done
-echo "[test-entrypoint] dashboard daemon (pid ${SERVER_PID}) exited"
+# Same helper the base entrypoint uses, so the harness and the deployment
+# cannot drift apart again — this loop existing ONLY here is what let the
+# deployment ship without supervision while every E2E run stayed green.
+# shellcheck source=docker/supervise-daemon.sh
+. /usr/local/bin/supervise-daemon.sh
+supervise_daemon "${PIDFILE}" "dashboard daemon" || smoke_fail "server.pid not found at ${PIDFILE}"

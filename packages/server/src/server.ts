@@ -35,6 +35,7 @@ import {
   formatBindReachabilityWarning,
   initBindReachability,
 } from "./auth/bind-reachability-service.js";
+import { decideBridgeTicketMint } from "./auth/bridge-ticket-eligibility.js";
 import { isCorsOriginAllowed } from "./auth/cors-origin.js";
 import { registerCsp, resolveCspMode } from "./auth/csp.js";
 import { ensureServerIdentity } from "./auth/identity.js";
@@ -64,6 +65,7 @@ import { createGoalStore } from "./goal/goal-store.js";
 import { createGoalSupervisor, type GoalDriverSpawnRequest, type GoalSupervisor } from "./goal/goal-supervisor.js";
 import { createGoalVerdictAccumulator } from "./goal/goal-verdict-accumulator.js";
 import { runBoundedStartup } from "./lifecycle/bounded-startup.js";
+import { ensureInstanceId } from "./lifecycle/instance-id.js";
 import { createLiveServerManager } from "./live-server/live-server-manager.js";
 import { handleLiveServerUpgrade, registerLiveServerProxy } from "./live-server/live-server-proxy.js";
 import { startEventLoopSampler } from "./metrics/eventloop-sampler.js";
@@ -137,6 +139,7 @@ import { deriveEndedAt } from "./session/derive-ended-at.js";
 import { createMemorySessionManager, type SessionManager } from "./session/memory-session-manager.js";
 import { applyReattachPolicy } from "./session/reattach-placement.js";
 import { reconcileSessionOrder } from "./session/reconcile-session-order.js";
+import { createRemoteTranscriptStore } from "./session/remote-transcript-store.js";
 import { resolveOrderKey } from "./session/resolve-order-key.js";
 import { registerSessionApi } from "./session/session-api.js";
 import { discoverAndBroadcastSessions } from "./session/session-bootstrap.js";
@@ -169,6 +172,12 @@ export interface ServerConfig {
    * next start too. See change: warn-unreachable-trusted-networks.
    */
   hostFlag?: string | null;
+  /**
+   * Bind the gateway's TCP listener. Defaults to the `PI_GATEWAY_TCP` opt-in;
+   * the POSIX default is socket-only (D10, task 8.1). Explicit here so a test
+   * server can exercise the TCP path without mutating process env.
+   */
+  gatewayTcp?: boolean;
   dev: boolean;
   autoShutdown: boolean;
   shutdownIdleSeconds: number;
@@ -727,8 +736,32 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   let secondFastify: Awaited<ReturnType<typeof import("fastify").default>> | null = null;
   const peerServers = new Map<string, DiscoveredServer>();
 
+  /** This process's place in the per-HOME rendezvous (task 2.0a). */
+  let homeRendezvous: import("./lifecycle/home-rendezvous.js").HomeRendezvous | null = null;
+
   const piGateway = createPiGateway(sessionManager, {
     ...(config.pingInterval !== undefined ? { pingInterval: config.pingInterval } : {}),
+    // The identity a move TARGET announces on `provisional_accepted`, so the
+    // mover can prove it reached the instance it named (D14). Unset, every
+    // destination reported "" and the coordinator's identity check compared
+    // empty strings — verification that always passes verifies nothing.
+    instanceId: ensureInstanceId(undefined, config.piPort),
+    // Every TCP bridge upgrade passes the auth gate (D10b, task 6.3). Without
+    // it the gateway accepts anything that can reach it and lets it register
+    // an arbitrary sessionId — harmless on loopback, fatal as the container's
+    // `0.0.0.0:9999` default. The unix socket is exempt by design: the kernel
+    // already decided (D5).
+    bridgeAuth: {
+      consumeTicket: (ticket) => wsTicketStore.consumeDetailed(ticket, "bridge"),
+      // The D10b deprecation window is open: a tokenless LOOPBACK bridge is
+      // still accepted (and logged) through 0.9.x, refused from 1.0.0. Remote
+      // peers never get that grace.
+      requireTicketOnLoopback: false,
+      // A loopback bridge that presents the local token is authorised on its
+      // own credential rather than on the grace — the only local credential
+      // Windows has, since it gets no unix socket (D6, task 5.3).
+      verifyLocalToken: (headers) => verifyLocalToken(headers, localToken),
+    },
   });
 
   // Relay for AI-drafted commit messages (bridge fork-subagent ↔ HTTP).
@@ -1096,6 +1129,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Wire up event forwarding from pi gateway to browser gateway
   wireEvents({
     sessionManager,
+    remoteTranscriptStore: createRemoteTranscriptStore(),
     eventStore,
     fitWorkerPool,
     piGateway,
@@ -1694,9 +1728,35 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
     { preHandler: networkGuard },
     async (request, reply) => {
       const scope = request.body?.scope;
-      if (scope !== "browser" && scope !== "terminal" && scope !== "live") {
+      // `bridge` is mintable by any authenticated caller (networkGuard: a
+      // paired device's durable bearer, a cookie, or a trusted network). The
+      // bearer authenticates this REST call and never rides the socket
+      // (task 6.2/6.4).
+      if (scope !== "browser" && scope !== "terminal" && scope !== "live" && scope !== "bridge") {
         reply.code(400);
         return { success: false as const, error: "invalid scope" };
+      }
+      if (scope === "bridge") {
+        // networkGuard's OR branches include a cookie session and any
+        // trusted-network host; the bridge surface is more privileged than
+        // `/ws` (it registers sessions and attributes events), so it is
+        // narrowed to actual bridges (@review Audit, major).
+        const verdict = decideBridgeTicketMint({
+          authorization: request.headers.authorization,
+          ip: request.ip,
+          headers: request.headers as Record<string, unknown>,
+          verifyDeviceBearer: (token) => pairedDeviceRegistry.verify(token),
+        });
+        if (!verdict.allow) {
+          reply.code(403);
+          return { success: false as const, error: verdict.reason };
+        }
+        // The ticket carries the minting device so the bridge that presents it
+        // registers ATTRIBUTABLE sessions (origin gate, #E15).
+        return {
+          success: true as const,
+          data: { ticket: wsTicketStore.mint(scope, verdict.deviceId) },
+        };
       }
       return { success: true as const, data: { ticket: wsTicketStore.mint(scope) } };
     },
@@ -1916,7 +1976,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       return null;
     },
     piPort() {
-      return piGateway.address();
+      // TCP only: a UDS listener has no port, and callers of `piPort()` are
+      // building `ws://host:<port>` URLs. Socket-transport callers read
+      // `piGateway.transport()` instead. See change:
+      // add-pi-gateway-transport-identity (task 2.9).
+      const addr = piGateway.address();
+      return typeof addr === "number" ? addr : null;
     },
 
     async start(opts: { deadlineMs?: number | null } = {}) {
@@ -1975,7 +2040,73 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         setSpawnDashboardPiPort(config.piPort);
       }
 
-      piGateway.start(config.piPort, config.host);
+      // Claim (or attach to) this HOME's rendezvous BEFORE the gateway starts
+      // listening: the record is what an unpinned bridge resolves its
+      // dashboard through, and until this call existed no `server.lock` was
+      // ever written for a running dashboard (task 2.0a).
+      //
+      // An attach-mode instance still binds its own per-instance socket and
+      // serves pinned bridges — it just never claims the HOME's default
+      // (task 2.0c).
+      try {
+        const { ensureInstanceId } = await import("./lifecycle/instance-id.js");
+        const { establishHomeRendezvous } = await import("./lifecycle/home-rendezvous.js");
+        homeRendezvous = await establishHomeRendezvous({
+          httpPort: config.port,
+          piPort: config.piPort,
+          version: pkgVersion,
+          identity: ensureInstanceId(undefined, config.piPort),
+          // NO signal handlers. `installReleaseHandlers` ends in
+          // `process.exit(0)`, and `cli.ts` already owns SIGTERM/SIGINT
+          // (`recordExitIntent` → `flush` → exit). A second exit-forcing
+          // handler registered from inside `start()` races that teardown and
+          // can cost the exit-intent record. Release happens in `stop()`; a
+          // record left behind by a signal is safe, because every reader
+          // verifies liveness + identity before trusting it, and the next
+          // starter takes over through acquire-then-verify.
+          installHandlers: false,
+        });
+        console.log(`[home-lock] rendezvous mode: ${homeRendezvous.mode}`);
+      } catch (err) {
+        // A dashboard that cannot claim the rendezvous still serves pinned
+        // bridges; refusing to boot would be a worse failure than no default.
+        console.warn("[home-lock] could not establish the rendezvous:", err);
+      }
+
+      // D10/D15 (tasks 8.1, 8.6, 5.2): the default POSIX start binds the unix
+      // socket and NO TCP port. TCP survives as an explicit `PI_GATEWAY_TCP`
+      // opt-in (bridge auth mandatory — section 6) and as the loopback
+      // fallback where a socket is unrepresentable, pinned to 127.0.0.1.
+      {
+        const { resolveLocalGatewayEndpoint } = await import(
+          "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js"
+        );
+        const { decideGatewayListeners, isTcpOptIn } = await import("./pi/gateway-transport-policy.js");
+        const policy = decideGatewayListeners({
+          local: resolveLocalGatewayEndpoint(undefined, config.piPort),
+          tcpOptIn: config.gatewayTcp ?? isTcpOptIn(process.env),
+          host: config.host,
+          piPort: config.piPort,
+        });
+        console.log(`[pi-gateway] ${policy.reason}`);
+        // TCP first: `startOnSocket` installs the shared WebSocketServer, and
+        // `start()` refuses to run after it rather than orphan the listener.
+        if (policy.tcp) piGateway.start(policy.tcp.port, policy.tcp.host);
+        if (policy.socketPath) {
+          try {
+            await piGateway.startOnSocket(policy.socketPath);
+          } catch (err) {
+            // A refused socket bind (a live incumbent — D9) must not leave the
+            // gateway with no listener at all. Fall back to loopback, never to
+            // discovery.
+            console.error(`[pi-gateway] socket bind refused: ${err}`);
+            if (!policy.tcp) {
+              console.warn(`[pi-gateway] falling back to 127.0.0.1:${config.piPort}`);
+              piGateway.start(config.piPort, "127.0.0.1");
+            }
+          }
+        }
+      }
 
       // Load plugin server entries BEFORE fastify.listen() so plugins can
       // register routes. Fastify rejects route registration after listen().
@@ -2202,6 +2333,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // scope. Origin check is defense-in-depth only (absent-Origin exists),
         // never the sole gate.
         const scope = routeScopeForUrl(request.url);
+        // `bridge` belongs to the pi-gateway listener, not to this one. Letting
+        // it through would CONSUME the single-use ticket here and then fall to
+        // the routing `default:` and destroy the socket — a bridge that dialled
+        // the dashboard port would silently burn its ticket and see a bare TCP
+        // close (@review Audit, minor).
+        if (scope === "bridge") {
+          socket.write("HTTP/1.1 400 Bad Request\r\n\r\n");
+          socket.destroy();
+          return;
+        }
         const ticket = extractTicket(request.url, secWsProtocol);
         const consumeTicket = (t: string, s: WsRouteScope) => wsTicketStore.consume(t, s);
         const wsHeaders = request.headers as unknown as Record<string, unknown>;
@@ -2594,6 +2735,14 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
 
       stopTunnelWatchdog();
       await deleteTunnel(config.port);
+      // Release the HOME's rendezvous before the gateway stops answering, so
+      // no bridge resolves a record whose endpoint is already dead.
+      try {
+        await homeRendezvous?.stop();
+      } catch {
+        /* ignore */
+      }
+      homeRendezvous = null;
       piGateway.stop();
       for (const client of browserGateway.wss.clients) {
         client.terminate();

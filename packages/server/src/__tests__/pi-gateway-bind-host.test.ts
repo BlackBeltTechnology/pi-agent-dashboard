@@ -24,10 +24,10 @@ function waitForOpen(ws: WebSocket): Promise<void> {
 }
 
 /** Poll gateway.address() until the async listen resolves a port. */
-async function waitForBind(gateway: { address(): number | null }): Promise<number> {
+async function waitForBind(gateway: { address(): number | string | null }): Promise<number> {
   for (let i = 0; i < 100; i++) {
     const port = gateway.address();
-    if (port !== null) return port;
+    if (typeof port === "number") return port;
     await new Promise((r) => setTimeout(r, 10));
   }
   throw new Error("gateway did not bind a port");
