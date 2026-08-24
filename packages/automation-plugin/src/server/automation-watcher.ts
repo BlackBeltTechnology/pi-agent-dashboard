@@ -44,7 +44,9 @@ export interface AutomationWatcher {
  * bases no longer wanted, attach newly-wanted ones. Steady state (want ==
  * attached) is a no-op — no watcher teardown/rebuild. Replaces the prior
  * detach-all + re-attach-all cycle that thrashed every recursive FSEvents
- * handle on each rescan tick, leaking native memory.
+ * handle on each rescan tick, burning FSEvents/CPU churn for no configuration
+ * change. (Churn only — this was found during a memory-leak hunt but is not
+ * that leak; see change: fix-automation-watcher-rearm-churn.)
  */
 export function reconcileWatchers(
   watcher: Pick<AutomationWatcher, "attach" | "detach" | "attachedBases">,
