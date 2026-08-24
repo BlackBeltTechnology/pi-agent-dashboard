@@ -59,6 +59,10 @@ async function postFollowUp(
 async function streamingSession(page: import("@playwright/test").Page): Promise<string> {
   const card = await spawnFreshGitSession(page);
   await card.click();
+  // Dismiss any overlay left open by a prior spec in the shared container — its
+  // backdrop intercepts the composer's send click. Same precedent as
+  // replay-delta-on-reload.spec.ts.
+  await page.keyboard.press("Escape").catch(() => {});
   await sendPrompt(page, SLOW_STREAM);
   // Streaming has begun once the first scripted chunk renders.
   await expect(page.getByText("slow-chunk-0").first()).toBeVisible({ timeout: 30_000 });

@@ -72,9 +72,9 @@ export function entryBytes(entry: FollowUpEntry): number {
 }
 
 /** A refused admission carries the reason so the caller can surface it. */
-export type AdmitRefusal = { ok: false; reason: "cap" | "bytes"; message: string };
-export type AdmitResult = { ok: true } | AdmitRefusal;
-export type EditResult = { ok: true } | { ok: false; reason: "range" | "bytes"; message: string };
+type AdmitRefusal = { ok: false; reason: "cap" | "bytes"; message: string };
+type AdmitResult = { ok: true } | AdmitRefusal;
+type EditResult = { ok: true } | { ok: false; reason: "range" | "bytes"; message: string };
 
 export interface FollowupBuffer {
   /** Live entries, for read-only inspection. */

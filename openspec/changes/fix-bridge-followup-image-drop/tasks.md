@@ -143,5 +143,5 @@ Exemplar for all rows in this section: `tests/e2e/optimistic-prompt.spec.ts` (ch
 
 - [x] 16.1 `npm test` green (pipe once to a tmp file, then grep — per AGENTS.md)
 - [x] 16.2 `npm run quality:changed` clean
-- [ ] 16.3 E2E rows verified against a harness built from this worktree (`run-dashboard-e2e-local-changes`)
+- [x] 16.3 E2E rows verified against a harness built from this worktree (`run-dashboard-e2e-local-changes`)
 - [ ] 16.4 Manual: send an image-bearing follow-up mid-turn against a real model and confirm the model receives the image
