@@ -1023,12 +1023,14 @@ export function addInteractiveRequest(
   // is sent to the dashboard exactly once, with the correct component.
   // No more client-side guessing about which prompts to suppress.
 
-  // Deduplicate by requestId (re-sent on reconnect) or by content
-  // (recursive proxy generates multiple requestIds for the same dialog)
-  if (state.interactiveRequests.some((r) =>
-    r.requestId === requestId ||
-    (r.status === "pending" && r.method === method && r.params.title === params.title),
-  )) {
+  // Deduplicate by requestId only. Under the PromptBus each prompt mints a
+  // unique id and is sent to the dashboard exactly once; a new requestId always
+  // denotes a new prompt. The only legitimate duplicate is a re-send of the
+  // SAME id (reconnect replay). The former content fallback (method +
+  // params.title) dropped two genuinely-distinct concurrent prompts that merely
+  // shared a title (e.g. two parallel `update_roles` confirms).
+  // See change: surface-concurrent-ask-user-prompts.
+  if (state.interactiveRequests.some((r) => r.requestId === requestId)) {
     return state;
   }
   const request: InteractiveUiRequest = { requestId, method, params, status: "pending" };
