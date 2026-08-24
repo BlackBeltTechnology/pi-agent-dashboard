@@ -73,6 +73,7 @@ import { EMPTY_CANVAS_STATE } from "./lib/canvas/canvas-gate.js";
 // the subagents-plugin's `shell-overlay-route` claim and mounted through
 // `<ShellOverlayRouteSlot>` below. See change: add-flow-agent-popout.
 import { applyPromptTimeout, createInitialState, deriveBannerState, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/chat/event-reducer.js";
+import { normalizeFollowUpEntries } from "./lib/chat/followup-entries.js";
 import { nextBackfillRange } from "./lib/chat/history-gap.js";
 import { refreshChat } from "./lib/chat/refresh-chat.js";
 import { maybeAutoInitWorktreeOnSpawn } from "./lib/git/auto-init-worktree.js";
@@ -2012,8 +2013,11 @@ export default function App() {
               corrupted pi's queue with append-duplicates. Empirical test:
               /tmp/pi-queue-experiment.mjs. See change:
               unify-status-banner-and-terminal-limit-stop. */}
+          {/* Tolerant read of the follow-up wire shape: normalise legacy
+              `string[]` and current `{text,imageCount}[]` to ONE shape before
+              the queue surface sees it. See change: fix-bridge-followup-image-drop (D2b). */}
           <QueuePanel
-            followUp={selectedSession?.pendingQueues?.followUp ?? []}
+            followUp={normalizeFollowUpEntries(selectedSession?.pendingQueues?.followUp)}
             onEdit={(index, text) => editFollowUpEntry(index, text)}
             onRemove={removeFollowUpEntry}
             onPromote={promoteFollowUpEntry}

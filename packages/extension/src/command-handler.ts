@@ -4,6 +4,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, relative } from "node:path";
+import { imageBlockData, imageBlockMime } from "@blackbelt-technology/pi-dashboard-shared/image-block.js";
 import { diffOr } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type {
   ExtensionToServerMessage,
@@ -11,7 +12,7 @@ import type {
   ServerToExtensionMessage,
 } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
-import type { FileEntry, MissingToolError, PiSessionInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FileEntry, ImageContent, MissingToolError, PiSessionInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { filterHiddenCommands } from "./bridge-context.js";
 import { draftCommitMessage } from "./commit-draft.js";
@@ -410,7 +411,13 @@ export function createCommandHandler(
      * source of truth. See change: add-followup-edit-and-steer-cancel.
      */
     onSteerSent?: (text: string) => void;
-    onFollowupSent?: (text: string) => void;
+    /**
+     * `images` carries the attachments sent with a buffered follow-up. Passing
+     * them is what makes the bridge buffer able to deliver them on drain;
+     * dropping them here was the original bug.
+     * See change: fix-bridge-followup-image-drop.
+     */
+    onFollowupSent?: (text: string, images?: unknown) => void;
     /**
      * Returns true iff the agent was streaming at the moment of the call.
      * Used to capture pre-send streaming state before `pi.sendUserMessage`
@@ -736,11 +743,9 @@ export function createCommandHandler(
           // idle→streaming synchronously on the first user message, so
           // checking after sendUserMessage gives false positives.
           //
-          // Image attachments are NOT carried in the bridge buffer in v1
-          // (text-only). Image-bearing follow-ups buffered during streaming
-          // will lose their images on drain (Known Limitation).
-          //
-          // See change: rework-mid-turn-prompt-queue (design.md D1).
+          // Image attachments RIDE the bridge buffer and are delivered on
+          // drain. See change: rework-mid-turn-prompt-queue (design.md D1),
+          //                   fix-bridge-followup-image-drop.
           const wasStreaming = options?.isStreaming?.() ?? false;
           // Per-send ack carrying the capture-before-send streaming verdict.
           // Drives the optimistic `pendingPrompt` bubble: fresh:true → "sent",
@@ -762,8 +767,10 @@ export function createCommandHandler(
             ...(msg.promptId && !buffered ? { promptId: msg.promptId } : {}),
           });
           if (buffered) {
-            // Bridge-owned buffer path — do NOT call pi.sendUserMessage.
-            options?.onFollowupSent?.(outgoing);
+            // Bridge-owned buffer path — do NOT call pi.sendUserMessage. The
+            // images ride into the buffer so the drain can deliver them.
+            // See change: fix-bridge-followup-image-drop.
+            options?.onFollowupSent?.(outgoing, msg.images);
           } else {
             // Idle or steer — forward to pi directly.
             sendUserMessageWithImages(pi, outgoing, msg.images, msg.delivery);
@@ -1020,6 +1027,82 @@ export function createCommandHandler(
   };
 }
 
+/** The image MIME types pi accepts inline. NEVER widened by this codebase. */
+const VALID_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+
+/** Outcome of the image allow-list filter: what survives, and what did not. */
+export interface ImageValidation {
+  valid: ImageContent[];
+  /** One human-readable reason per DROPPED image, for `command_feedback`. */
+  dropped: string[];
+}
+
+/**
+ * Filter an image array down to the blocks pi will accept.
+ *
+ * Mime and bytes are read through the canonical accessors (design D3c), never
+ * through a direct `.mimeType` / `.data` property read: the direct read is
+ * correct only for the flat pi shape and silently destroys a valid nested
+ * Anthropic block (`{type:"image", source:{media_type, data}}`) as "invalid
+ * mimeType". Survivors are normalised to the flat shape pi consumes.
+ *
+ * Dropped images are RETURNED rather than only logged — a bare `console.error`
+ * is invisible to a dashboard user, which is the same defect class as the image
+ * drop this change fixes (design D7).
+ *
+ * See change: fix-bridge-followup-image-drop (design D6, D7, D3c).
+ */
+export function validateImages(images?: unknown): ImageValidation {
+  const valid: ImageContent[] = [];
+  const dropped: string[] = [];
+  if (images === undefined || images === null) return { valid, dropped };
+  // A non-array container would throw on `for...of`, failing the whole prompt
+  // instead of reporting an unusable attachment. The wire is untrusted.
+  if (!Array.isArray(images)) {
+    dropped.push("attachments were not a list");
+    return { valid, dropped };
+  }
+  for (const img of images) {
+    if (!img || typeof img !== "object") {
+      dropped.push("attachment was not an image block");
+      continue;
+    }
+    const mimeType = imageBlockMime(img);
+    if (!mimeType || !VALID_IMAGE_MIME_TYPES.has(mimeType)) {
+      dropped.push(`unsupported image type "${mimeType ?? "unknown"}"`);
+      continue;
+    }
+    const data = imageBlockData(img);
+    if (!data) {
+      dropped.push("attachment carried no image data");
+      continue;
+    }
+    valid.push({ type: "image", data, mimeType });
+  }
+  return { valid, dropped };
+}
+
+/**
+ * Assemble the pi message content for `text` + `images`: a bare string when
+ * there is no surviving attachment, otherwise a `[{text}, {image}…]` content
+ * array — the shape pi already accepts on the idle and steer paths.
+ *
+ * Deliberately carries NO send options. `sendUserMessageWithImages` used to
+ * fuse validation, assembly and `deliverAs`; the bridge drain must reuse the
+ * first two while passing NO options, because `{deliverAs:"followUp"}` is a
+ * known-broken path there (pi has already exited `getFollowUpMessages()`, so
+ * the entry never drains). Splitting the concerns makes that confusion
+ * structurally impossible (design D6).
+ */
+export function buildUserMessageContent(
+  text: string,
+  images?: unknown,
+): string | Array<{ type: "text"; text: string } | ImageContent> {
+  const { valid } = validateImages(images);
+  if (valid.length === 0) return text;
+  return [{ type: "text" as const, text }, ...valid];
+}
+
 /** Send a user message with optional image validation.
  * Uses deliverAs: "followUp" by default so messages queue properly when the agent is streaming.
  * Pass deliverAs: "steer" for steering messages (delivered after current turn).
@@ -1027,50 +1110,21 @@ export function createCommandHandler(
 function sendUserMessageWithImages(
   pi: ExtensionAPI,
   text: string,
-  images?: Array<{ type: string; data: string; mimeType: string }>,
+  images?: unknown,
   delivery?: "steer" | "followUp",
 ): void {
   const deliverAs = delivery ?? ("followUp" as const);
-  const sendOptions = { deliverAs };
   // POST-rework-mid-turn-prompt-queue: this helper is called for STEER and
   // for IDLE sends only — followUp-while-streaming is intercepted upstream
   // (bridge buffer path; never calls this helper). The deliverAs parameter
   // is preserved for steer routing.
   // See change: rework-mid-turn-prompt-queue (design.md D1).
-  if (images && images.length > 0) {
-    const validMimeTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
-    const validImages = images.filter((img) => {
-      if (!img || typeof img !== "object") {
-        console.error("[dashboard] Dropping non-object image entry");
-        return false;
-      }
-      if (!img.mimeType || typeof img.mimeType !== "string" || !validMimeTypes.has(img.mimeType)) {
-        console.error(`[dashboard] Dropping image with invalid mimeType: "${img.mimeType}" (type: ${typeof img.mimeType})`);
-        return false;
-      }
-      if (!img.data || typeof img.data !== "string") {
-        console.error(`[dashboard] Dropping image with invalid data (type: ${typeof img.data}, length: ${img.data?.length ?? 0})`);
-        return false;
-      }
-      return true;
-    });
-    if (validImages.length > 0) {
-      const content = [
-        { type: "text" as const, text },
-        ...validImages.map((img) => ({
-          type: "image" as const,
-          data: img.data,
-          mimeType: img.mimeType,
-        })),
-      ];
-      console.error(`[dashboard] Sending message with ${validImages.length} image(s), mimeTypes: ${validImages.map(i => i.mimeType).join(", ")}`);
-      (pi.sendUserMessage as any)(content, sendOptions);
-    } else {
-      (pi.sendUserMessage as any)(text, sendOptions);
-    }
-  } else {
-    (pi.sendUserMessage as any)(text, sendOptions);
-  }
+  //
+  // Drops are logged here rather than surfaced: this path has no event sink.
+  // The buffer path emits `command_feedback` instead (design D7).
+  const { dropped } = validateImages(images);
+  for (const reason of dropped) console.error(`[dashboard] Dropping image — ${reason}`);
+  (pi.sendUserMessage as any)(buildUserMessageContent(text, images), { deliverAs });
 }
 
 /**

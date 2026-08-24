@@ -62,6 +62,16 @@ export const TESTIDS = {
   // See change: optimistic-prompt-progress.
   pendingPromptCard: "pending-prompt-card",
   queueChipFollowup: "queue-chip-followup",
+  // Follow-up chip surface: the panel, the per-entry attachment-count
+  // indicator, and the inline editor controls. The indicator renders only when
+  // the entry carries images; bytes never cross the wire, so it is a COUNT and
+  // never a thumbnail. See change: fix-bridge-followup-image-drop.
+  queuePanel: "queue-panel",
+  queueFollowupAttachments: "queue-followup-attachments",
+  queueFollowupEdit: "queue-followup-edit",
+  queueFollowupEditor: "queue-followup-editor",
+  queueFollowupEditorSubmit: "queue-followup-editor-submit",
+  queueFollowupPosition: "queue-followup-position",
   // VCS panels (scenario backlog).
   composerGitGroup: "composer-git-group",
   composerStatusGroup: "composer-status-group",

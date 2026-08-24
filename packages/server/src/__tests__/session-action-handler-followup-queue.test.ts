@@ -11,12 +11,12 @@
  * See change: rework-mid-turn-prompt-queue.
  */
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   handleClearFollowupEntries,
   handleEditFollowupEntry,
-  handleRemoveFollowupEntry,
   handlePromoteFollowupEntry,
+  handleRemoveFollowupEntry,
 } from "../browser-handlers/session-action-handler.js";
 
 function makeCtx(opts: { sessionExists: boolean }) {
@@ -71,11 +71,10 @@ describe("handleClearFollowupEntries", () => {
 });
 
 describe("handleEditFollowupEntry", () => {
-  it("forwards { index, text, images? } when session exists", () => {
+  it("forwards { index, text } when session exists", () => {
     const { ctx, piGateway } = makeCtx({ sessionExists: true });
-    const images = [{ type: "image", data: "...", mimeType: "image/png" }];
     handleEditFollowupEntry(
-      { type: "edit_followup_entry", sessionId: "S1", index: 1, text: "BETA", images } as any,
+      { type: "edit_followup_entry", sessionId: "S1", index: 1, text: "BETA" } as any,
       ctx,
     );
     expect(piGateway.sendToSession).toHaveBeenCalledWith("S1", {
@@ -83,14 +82,23 @@ describe("handleEditFollowupEntry", () => {
       sessionId: "S1",
       index: 1,
       text: "BETA",
-      images,
     });
   });
 
-  it("forwards without images when absent", () => {
+  /**
+   * `images` was retired from the message (design D5): under the count-only
+   * wire the browser never holds the bytes after the initial `send_prompt`, so
+   * no producer could populate it. An edit replaces TEXT; the bridge preserves
+   * the entry's images. A stale client sending one must not have it forwarded.
+   * See change: fix-bridge-followup-image-drop.
+   */
+  it("never forwards an images field, even when a stale client sends one", () => {
     const { ctx, piGateway } = makeCtx({ sessionExists: true });
     handleEditFollowupEntry(
-      { type: "edit_followup_entry", sessionId: "S1", index: 0, text: "x" } as any,
+      {
+        type: "edit_followup_entry", sessionId: "S1", index: 0, text: "x",
+        images: [{ type: "image", data: "...", mimeType: "image/png" }],
+      } as any,
       ctx,
     );
     expect(piGateway.sendToSession).toHaveBeenCalledWith("S1", {
@@ -98,7 +106,6 @@ describe("handleEditFollowupEntry", () => {
       sessionId: "S1",
       index: 0,
       text: "x",
-      images: undefined,
     });
   });
 
