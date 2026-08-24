@@ -911,3 +911,79 @@ describe("loadConfig memoryLimits.maxReplayEvents", () => {
     expect(loadConfig().memoryLimits.maxReplayEvents).toBe(500);
   });
 });
+
+/**
+ * `memoryLimits.replayWindowMode` — the head/tail split becomes a configured
+ * SHAPE rather than a hard-coded one. Unknown values coerce to the default
+ * rather than throwing, matching every sibling in `parseMemoryLimits`.
+ * See change: add-tail-only-replay-window (D1).
+ */
+describe("loadConfig memoryLimits.replayWindowMode", () => {
+  let testDir: string;
+  let configFile: string;
+  let origHome: string;
+
+  beforeEach(() => {
+    testDir = path.join(os.tmpdir(), `test-config-rwm-${Date.now()}`);
+    fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
+    configFile = path.join(testDir, ".pi", "dashboard", "config.json");
+    origHome = process.env.HOME!;
+    process.env.HOME = testDir;
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true });
+  });
+
+  const writeLimits = (limits: Record<string, unknown>) =>
+    fs.writeFileSync(configFile, JSON.stringify({ memoryLimits: limits }));
+
+  // #E1 — the field ABSENT is today's behaviour, for everyone who never opts in.
+  it("defaults to head-tail when the field is absent", () => {
+    fs.writeFileSync(configFile, JSON.stringify({}));
+    expect(loadConfig().memoryLimits.replayWindowMode).toBe("head-tail");
+    expect(DEFAULT_MEMORY_LIMITS.replayWindowMode).toBe("head-tail");
+  });
+
+  // #E2 — every invalid class coerces, and NONE of them throws.
+  it.each([
+    ["a near-miss string", "tail"],
+    ["a number", 7],
+    ["null", null],
+    ["an array", []],
+    ["wrong case", "TAIL-ONLY"],
+  ])("coerces %s to head-tail without throwing", (_label, input) => {
+    writeLimits({ replayWindowMode: input });
+    expect(() => loadConfig()).not.toThrow();
+    expect(loadConfig().memoryLimits.replayWindowMode).toBe("head-tail");
+  });
+
+  // #E3 — the one valid opt-in value survives verbatim.
+  it("returns tail-only verbatim", () => {
+    writeLimits({ replayWindowMode: "tail-only" });
+    expect(loadConfig().memoryLimits.replayWindowMode).toBe("tail-only");
+  });
+
+  /**
+   * #E4 — the MIN_REPLAY_WINDOW clamp is MODE-INDEPENDENT. A mode switch that
+   * silently doubled a configured `50` would be a worse surprise than the
+   * documented floor, so both modes must agree for every input.
+   */
+  it.each([
+    [0, 0],
+    [1, 100],
+    [5, 100],
+    [99, 100],
+    [100, 100],
+    [101, 101],
+  ])("clamps maxReplayEvents %i to %i identically in both modes", (input, expected) => {
+    writeLimits({ maxReplayEvents: input, replayWindowMode: "head-tail" });
+    const headTail = loadConfig().memoryLimits.maxReplayEvents;
+    writeLimits({ maxReplayEvents: input, replayWindowMode: "tail-only" });
+    const tailOnly = loadConfig().memoryLimits.maxReplayEvents;
+    expect(headTail).toBe(expected);
+    expect(tailOnly).toBe(expected);
+    expect(headTail).toBe(tailOnly);
+  });
+});

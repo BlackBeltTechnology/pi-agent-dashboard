@@ -22,6 +22,7 @@ import {
   createHistoryGapRow,
   createHistoryGapState,
   HISTORY_GAP_ROW_ID,
+  isHeadFree,
   type HistoryGapState,
 } from "../lib/chat/history-gap.js";
 import { dispatchInitEvent } from "../lib/git/worktree-init-bus.js";
@@ -774,6 +775,15 @@ export function useMessageHandler(
           publishGap(msg.sessionId, { ...gap, pending: false, failed: true });
           break;
         }
+        /**
+         * A divider-less splice is a silent no-op that would still advance the
+         * bookkeeping below, desyncing gap state from `messages[]`. Under
+         * click-to-load the divider necessarily existed before the button
+         * could be pressed; an AUTOMATIC trigger firing around a session switch
+         * can reach this. Detect it once, here, and skip the whole response.
+         * See change: add-tail-only-replay-window (D7, test-plan X6).
+         */
+        if (!gap.dividerPlaced) break;
         if (msg.events.length > 0) {
           setHistorySpliceRev?.((n) => n + 1);
           setSessionStates((prev) => {
@@ -809,8 +819,30 @@ export function useMessageHandler(
         // reports nothing left — keyed on the RESPONSE, not on arithmetic, so
         // it terminates correctly over a holey store.
         const exhausted = msg.events.length === 0 || msg.remainingGapCount === 0;
+        /**
+         * A HEAD-FREE gap resolves to a TERMINUS rather than disappearing.
+         * With no head above it, splicing the row out would leave a transcript
+         * that silently starts mid-conversation — and an empty final response
+         * would be labelled `unservable` ("cannot be loaded") when what
+         * actually happened is that the walk REACHED THE FLOOR.
+         * See change: add-tail-only-replay-window (D6).
+         */
+        if (exhausted && isHeadFree(gap)) {
+          publishGap(msg.sessionId, {
+            ...gap,
+            tailMinSeq: msg.servedFrom > 0 ? msg.servedFrom : gap.tailMinSeq,
+            gapCount: msg.remainingGapCount,
+            pending: false,
+            failed: false,
+            atFloor: true,
+            // NOT unservable: nothing failed and nothing is recoverable-but-missing.
+            unservable: false,
+          });
+          break;
+        }
         if (exhausted && msg.remainingGapCount === 0 && msg.events.length > 0) {
-          // A6 — fully filled: remove the divider entirely, nothing left to disclose.
+          // A6 — two-sided gap, fully filled: remove the divider entirely. The
+          // head above it already explains where the transcript begins.
           setSessionStates((prev) => {
             const current = prev.get(msg.sessionId);
             if (!current) return prev;

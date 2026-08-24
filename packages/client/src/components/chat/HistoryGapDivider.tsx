@@ -1,15 +1,25 @@
 /**
- * Interstitial divider disclosing the elided middle of a WINDOWED replay.
+ * Divider disclosing the elided region of a WINDOWED replay. It has TWO shapes,
+ * and which one applies is decided by the announced `windowShape`:
  *
- * NOT the Slack/WhatsApp "load older" pattern: those anchor at the TOP because
- * their missing region is unbounded upward. This gap is bounded on BOTH sides
- * — head above, tail below — so the affordance sits between two loaded regions,
- * mid-scroll. It is an interstitial, not a header.
+ *  - `head-tail` — an INTERSTITIAL, not a header. The gap is bounded on both
+ *    sides (head above, tail below), so the affordance sits between two loaded
+ *    regions, mid-scroll. Click-to-load only: retrieving a specific earlier
+ *    exchange is a FIND task, and NN/g's guidance is pagination-with-visible-
+ *    position for find tasks, infinite scroll only for exploratory feeds. On
+ *    exhaustion the row is spliced out — the head above already explains where
+ *    the transcript begins.
  *
- * Click-to-load, not scroll-triggered auto-fetch: retrieving a specific earlier
- * exchange in your own transcript is a FIND task, and NN/g's guidance is
- * pagination-with-visible-position for find tasks, infinite scroll only for
- * exploratory feeds. It also removes the auto-fetch loop risk entirely.
+ *  - `tail-only` — a HEADER, and the Slack/WhatsApp "load older" pattern after
+ *    all, because in this mode the missing region genuinely IS unbounded
+ *    upward. It is the transcript's first row, it auto-loads on scroll
+ *    proximity, and on exhaustion it must RESOLVE TO A TERMINUS rather than
+ *    disappear: with no head above it, removing the row would leave a
+ *    transcript that silently starts mid-conversation.
+ *
+ * The original docblock asserted the first shape as though it were the only
+ * one ("It is an interstitial, not a header"), which is exactly inverted here.
+ * See change: add-tail-only-replay-window (D6, D2a).
  *
  * Weight is deliberately secondary — the composer's send button is this view's
  * one focal action, so the pill reuses the shipped floating-pill treatment
@@ -17,12 +27,22 @@
  *
  * See change: lazy-load-session-history (task 7.1, mockups/ui-plan.md § A).
  */
-import type { HistoryGapState } from "../../lib/chat/history-gap.js";
+import { type HistoryGapState, historyGapTerminus, isHeadFree } from "../../lib/chat/history-gap.js";
 import { t } from "../../lib/i18n/i18n.js";
 
 interface Props {
   gap: HistoryGapState;
   onLoadEarlier: () => void;
+  /**
+   * Count of rows spliced by the most recent AUTOMATIC load, announced once
+   * through the polite live region. `null` → nothing to announce.
+   *
+   * Scoped to automatic loads in `tail-only` on purpose: a user who pressed
+   * "Load earlier" already knows what they asked for, and a non-opted-in
+   * `head-tail` user must observe nothing new.
+   * See change: add-tail-only-replay-window (test-plan F16, F21).
+   */
+  autoLoadedCount?: number | null;
 }
 
 function WarningIcon() {
@@ -52,7 +72,7 @@ const PILL =
   "text-xs cursor-pointer hover:bg-[var(--bg-hover)] disabled:cursor-default disabled:opacity-85 " +
   "focus-visible:outline-2 focus-visible:outline-[var(--focus-ring)] focus-visible:outline-offset-2";
 
-export function HistoryGapDivider({ gap, onLoadEarlier }: Props) {
+export function HistoryGapDivider({ gap, onLoadEarlier, autoLoadedCount = null }: Props) {
   /**
    * `--text-muted` is BANNED on this surface (2.77:1 dark / 2.32:1 light — both
    * fail AA for text) and `--text-tertiary` is unsafe as text in the LIGHT
@@ -60,7 +80,33 @@ export function HistoryGapDivider({ gap, onLoadEarlier }: Props) {
    * non-text overlay boundary). Every text token here is `--text-secondary`
    * (9.07:1 dark / 9.74:1 light) or `--text-primary`.
    */
+  const terminus = historyGapTerminus(gap);
   const body = (() => {
+    /**
+     * TERMINUS — the head-free walk reached the store floor. This is a SUCCESS
+     * state, not `unservable`: nothing failed and nothing is recoverable-but-
+     * missing. It replaces the row rather than removing it, because in this
+     * mode nothing else tells the reader where the transcript begins.
+     *
+     * `oldestGapSeq === 1` is the session's genuine beginning. Above 1, earlier
+     * events are simply not retained — and the wording must name NEITHER
+     * retention NOR compaction, because the floor answers "is anything below",
+     * never "why is it gone".
+     * See change: add-tail-only-replay-window (D6).
+     */
+    if (terminus) {
+      return (
+        <span
+          role="status"
+          className="text-xs text-[var(--text-secondary)] whitespace-nowrap"
+          data-testid={terminus === "session-start" ? "history-gap-session-start" : "history-gap-not-retained"}
+        >
+          {terminus === "session-start"
+            ? t("chat.historyGap.sessionStart", undefined, "Beginning of the session")
+            : t("chat.historyGap.notRetained", undefined, "Earlier messages are no longer retained")}
+        </span>
+      );
+    }
     /**
      * A5 — the gap exists but the store cannot serve it. Deliberately NOT an
      * error: nothing failed. No retry is offered because there is nothing to
@@ -135,6 +181,22 @@ export function HistoryGapDivider({ gap, onLoadEarlier }: Props) {
       <div className={RULE} />
       <div className="flex items-center gap-2.5 shrink-0 flex-wrap justify-center w-full sm:w-auto">{body}</div>
       <div className={RULE} />
+      {/*
+        Content inserted ABOVE the reading position with no gesture of the
+        user's own needs an announcement. POLITE, never assertive: the
+        insertion is never urgent and must not interrupt reading. The splice
+        itself never moves focus.
+        See change: add-tail-only-replay-window (test-plan F16, F21).
+      */}
+      <div aria-live="polite" className="sr-only" data-testid="history-gap-live-region">
+        {isHeadFree(gap) && autoLoadedCount != null && autoLoadedCount > 0
+          ? t(
+              "chat.historyGap.announced",
+              { count: autoLoadedCount.toLocaleString() },
+              `${autoLoadedCount.toLocaleString()} earlier messages loaded`,
+            )
+          : ""}
+      </div>
     </div>
   );
 }

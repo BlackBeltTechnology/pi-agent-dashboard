@@ -24,7 +24,7 @@ import { findActiveInteractiveToolResultIds, findRetriedErrorIds, findSurfaceSup
 import type { ChatImage, InteractiveUiRequest, SessionState } from "../../lib/chat/event-reducer.js";
 import { type BurstItem, groupToolBursts, type ToolBurstGroup as ToolBurstGroupData } from "../../lib/chat/group-tool-bursts.js";
 import type { ToolCallGroup } from "../../lib/chat/group-tool-calls.js";
-import type { HistoryGapState } from "../../lib/chat/history-gap.js";
+import { type HistoryGapState, isHeadFree, SETTLE_MS, shouldAutoLoadHistory } from "../../lib/chat/history-gap.js";
 import { computeAnchorCorrection } from "../../lib/chat/selection-anchor.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { REPLAY_PILL_DELAY_MS } from "../../lib/replay/loading-history.js";
@@ -391,9 +391,89 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   }, [replayInFlight, sessionId]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  /**
+   * ONE suppression window shared by EVERY programmatic `scrollTop` /
+   * `scrollToIndex` writer in this file, rather than a list of per-writer refs.
+   *
+   * Enumerating the writers is how the previous revision failed: the list grows
+   * and each omission is a silent auto-fetch. A writer stamps this immediately
+   * before it writes, and the trigger ignores any edge inside the window — one
+   * mechanism, closed to future writers by convention.
+   * See change: add-tail-only-replay-window (D7).
+   */
+  const programmaticScrollUntilRef = useRef(0);
+  const stampProgrammaticScroll = useCallback(() => {
+    programmaticScrollUntilRef.current = Date.now() + SETTLE_MS;
+  }, []);
+  /**
+   * The user has asked to go UP since the last request. Tracks INTENT, not
+   * position: `scrollTop` clamps at 0, so a user parked on the loading head
+   * produces no further upward delta, and a splice smaller than the proximity
+   * band produces no new rising edge either. Cleared on issue, at mount, and on
+   * session change. See change: add-tail-only-replay-window (D7).
+   */
+  const pendingUserIntentRef = useRef(false);
+  const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const historyGapRef = useRef(historyGap);
+  historyGapRef.current = historyGap;
+
   const handleLoadEarlier = useCallback(() => {
+    // Clearing on ISSUE is what bounds this to one request per expression of
+    // intent, for the button and the trigger alike.
+    pendingUserIntentRef.current = false;
     onLoadEarlier?.();
   }, [onLoadEarlier]);
+
+  /**
+   * Evaluate the auto-load trigger. Called at the SETTLE timer's expiry and at
+   * the suppression window's expiry — never per scroll event: momentum is a
+   * stream of scroll events, each restarting the timer, so evaluating at expiry
+   * runs this exactly once when inertia stops.
+   *
+   * A SUPPRESSED evaluation changes NO state — it is deferred, not consumed —
+   * and re-schedules itself for when the stamp lapses. That is what makes the
+   * scroll-to-top landing deterministic regardless of how many frames the
+   * ascent took. See change: add-tail-only-replay-window (D7).
+   */
+  const evaluateAutoLoad = useCallback(() => {
+    const el = scrollRef.current;
+    const gap = historyGapRef.current;
+    if (!el || !gap) return;
+    const now = Date.now();
+    const suppressedUntil = programmaticScrollUntilRef.current;
+    if (now < suppressedUntil) {
+      // Defer: re-evaluate when the stamp lapses, consuming nothing.
+      if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = setTimeout(evaluateAutoLoad, suppressedUntil - now + 1);
+      return;
+    }
+    const fire = shouldAutoLoadHistory({
+      headFree: isHeadFree(gap),
+      nearTop: el.scrollTop <= SCROLL_THRESHOLD,
+      pendingUserIntent: pendingUserIntentRef.current,
+      suppressed: false,
+      armed: gap.armed,
+      pending: gap.pending,
+      failed: gap.failed,
+      unservable: gap.unservable,
+      atFloor: gap.atFloor,
+    });
+    if (fire) handleLoadEarlier();
+  }, [handleLoadEarlier]);
+
+  // Intent never survives a mount or a session switch: a restored transcript
+  // can land at `scrollTop === 0` with no intent ever recorded, and `nearTop`
+  // alone must never fire. See change: add-tail-only-replay-window (D7).
+  useEffect(() => {
+    pendingUserIntentRef.current = false;
+    return () => {
+      if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = null;
+    };
+  }, []);
+  useEffect(() => {
+    pendingUserIntentRef.current = false;
+  }, [sessionId]);
   /**
    * Backfill splice scroll ownership (D6): the correct invariant is ABSOLUTE
    * `scrollTop`, and it needs no correction at all.
@@ -798,6 +878,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       // A backfill splice grows the content from ABOVE the reading position, so
       // any user inside the near-bottom band would be yanked to the bottom (D6).
       if (grew && stickToBottomRef.current && !isSelectingRef.current && !spliceSuppressRef.current) {
+        stampProgrammaticScroll();
         el.scrollTop = el.scrollHeight;
       }
       // Ascending: re-target index 0 whenever a measurement grows the total
@@ -806,7 +887,10 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       // so without this a late remeasure would leave the view off index 0.
       if (ascendingRef.current) {
         if (el.scrollTop <= 0) ascendingRef.current = false;
-        else if (grew) virtualizer.scrollToIndex(0, { align: "start" });
+        else if (grew) {
+          stampProgrammaticScroll();
+          virtualizer.scrollToIndex(0, { align: "start" });
+        }
       }
     },
   });
@@ -892,7 +976,19 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         nearBottom,
       });
     }
-  }, [sessionId, virtualizer]);
+    /**
+     * Trigger bookkeeping ONLY — this never evaluates the predicate. An edge
+     * inside the suppression window is a programmatic scroll and records no
+     * intent; anything else is the user asking to move. The settle timer is
+     * restarted on every event, so the evaluation happens once, when motion
+     * stops. See change: add-tail-only-replay-window (D7).
+     */
+    if (Date.now() >= programmaticScrollUntilRef.current) {
+      pendingUserIntentRef.current = true;
+    }
+    if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+    settleTimerRef.current = setTimeout(evaluateAutoLoad, SETTLE_MS);
+  }, [sessionId, virtualizer, evaluateAutoLoad]);
 
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -901,6 +997,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     // animation cannot race with incoming chunks and re-introduce jumps.
     const isStreaming = Boolean(state.streamingText || state.streamingThinking || pendingSteering?.length);
     descendingRef.current = true;
+    stampProgrammaticScroll();
     el.scrollTo({ top: el.scrollHeight, behavior: isStreaming ? "instant" : "smooth" });
     stickToBottomRef.current = true;
     setShowScrollButton(false);
@@ -921,8 +1018,19 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     ascendingRef.current = true;
     stickToBottomRef.current = false;
     setShowScrollButton(true);
+    /**
+     * ACTIVATION is intent, even though the motion it causes is programmatic:
+     * the user asked to go to the top, and the loading head is what they land
+     * on. The stamp suppresses the ascent's own scroll events; the intent flag
+     * set here is what the post-ascent evaluation reads.
+     * See change: add-tail-only-replay-window (D7).
+     */
+    pendingUserIntentRef.current = true;
+    stampProgrammaticScroll();
     virtualizer.scrollToIndex(0, { align: "start" });
-  }, [virtualizer]);
+    if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+    settleTimerRef.current = setTimeout(evaluateAutoLoad, SETTLE_MS);
+  }, [virtualizer, stampProgrammaticScroll, evaluateAutoLoad]);
 
   // Save scroll state when leaving, restore when arriving. Layout effect keeps
   // the restored position synchronized with the first paint so there is no flash.
@@ -948,19 +1056,26 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         const anchorId = saved.anchorRowId;
         const idx = displayRows.findIndex((r, i) => virtualRowKey(r, i) === anchorId);
         if (idx >= 0) {
+          // A session restored to the TOP drives `scrollTop → 0` on first
+          // paint. Unstamped, that is an unlatched ascent and a silent
+          // auto-fetch. See change: add-tail-only-replay-window (D7).
+          stampProgrammaticScroll();
           virtualizer.scrollToIndex(idx, { align: "start" });
           const off = saved.offset;
           requestAnimationFrame(() => {
             const el = scrollRef.current;
+            stampProgrammaticScroll();
             if (el) el.scrollTop += off;
           });
         } else {
+          stampProgrammaticScroll();
           scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
         }
       } else {
         // Near bottom or first visit: scroll to end and follow new content.
         stickToBottomRef.current = true;
         setShowScrollButton(false);
+        stampProgrammaticScroll();
         scrollRef.current?.scrollTo(0, scrollRef.current!.scrollHeight);
       }
     }
@@ -998,6 +1113,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     wasSelectingRef.current = false;
     if (resumedFromSelection && el) lastScrollHeightRef.current = el.scrollHeight;
     if (stickToBottomRef.current && el) {
+      stampProgrammaticScroll();
       el.scrollTop = el.scrollHeight;
       lastScrollHeightRef.current = el.scrollHeight;
     }
@@ -1061,6 +1177,9 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       return;
     }
 
+    // The selection-anchor compensator writes `scrollTop`, so it stamps like
+    // every other writer. See change: add-tail-only-replay-window (D7).
+    stampProgrammaticScroll();
     el.scrollTop = nextScrollTop + correction;
     // Re-baseline immediately after the write, inside the same effect, so the
     // next commit does not observe our own correction as new drift (the feedback
@@ -1087,9 +1206,13 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       descendingRef.current = false;
       stickToBottomRef.current = false;
       setShowScrollButton(true);
+      // `scrollToTurn` to an early turn drives the view near the top with no
+      // ascent latch of its own — the design's named unlatched ascent source.
+      // See change: add-tail-only-replay-window (D7, test-plan F19).
+      stampProgrammaticScroll();
       virtualizer.scrollToIndex(rowIndex, { align: "start" });
     },
-  }), [turnToFirstRowIndex, virtualizer]);
+  }), [turnToFirstRowIndex, virtualizer, stampProgrammaticScroll]);
 
   return (
     // Key by sessionId so switching sessions (ChatView is reused, not remounted)

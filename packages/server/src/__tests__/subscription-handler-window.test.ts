@@ -34,9 +34,9 @@ function filler(n: number, startSeq = 1): StoredEvent[] {
 
 const openWs = () => ({ readyState: 1, OPEN: 1, bufferedAmount: 0 }) as any;
 
-async function deliver(stored: StoredEvent[], windowLimit?: number) {
+async function deliver(stored: StoredEvent[], windowLimit?: number, mode?: "head-tail" | "tail-only") {
   const sent: ServerToBrowserMessage[] = [];
-  const seq = await sendEventBatches(openWs(), "s1", stored, (_w, m) => sent.push(m), windowLimit);
+  const seq = await sendEventBatches(openWs(), "s1", stored, (_w, m) => sent.push(m), windowLimit, mode);
   const replays = sent.filter((m): m is Extract<ServerToBrowserMessage, { type: "event_replay" }> => m.type === "event_replay");
   const windows = sent.filter((m): m is Extract<ServerToBrowserMessage, { type: "history_window" }> => m.type === "history_window");
   const events = replays.flatMap((b) => b.events);
@@ -264,5 +264,210 @@ describe("replay windowing at the default budget (E7, E8, E9)", () => {
     if (!win) throw new Error("expected a window");
     expect(win.headEnd).toBe(HEAD_MIN);
     expect(500 - win.tailStart).toBe(80);
+  });
+});
+
+/**
+ * `tail-only` — the head-free window shape.
+ *
+ * The whole budget goes to the tail; `headEnd === 0` and the elided region is
+ * unbounded above. The sharpest item here is E6: the announcement block derives
+ * `full[replayWindow.headEnd - 1].seq`, which at `headEnd === 0` indexes
+ * `full[-1]` and throws on EVERY tail-only windowed replay.
+ * See change: add-tail-only-replay-window (D2, D2a).
+ */
+describe("replay windowing — the tail-only shape (E5, E6, E7, E8, E9)", () => {
+  // #E5 — the fits-entirely short-circuit is UNCONDITIONAL: it makes the
+  // overlap case unrepresentable, which is mode-independent.
+  it("E5: 499 and 500 fit entirely and announce nothing; 501 windows to exactly 500", async () => {
+    for (const n of [499, 500]) {
+      const { events, windows } = await deliver(filler(n), 500, "tail-only");
+      expect(windows).toHaveLength(0);
+      expect(events).toHaveLength(n);
+    }
+    const { events, windows } = await deliver(filler(501), 500, "tail-only");
+    expect(windows).toHaveLength(1);
+    expect(events).toHaveLength(500);
+  });
+
+  // #E6 — pins the `full[-1]` crash. The announcement must emit `headMaxSeq: 0`
+  // rather than throwing, and `0` means "nothing above the gap".
+  it("E6: a head-free window returns headEnd 0 and announces headMaxSeq 0 without throwing", async () => {
+    const win = computeReplayWindow(filler(5000), 500, "tail-only");
+    expect(win).not.toBeNull();
+    expect(win?.headEnd).toBe(0);
+
+    const { windows } = await deliver(filler(5000), 500, "tail-only");
+    expect(windows).toHaveLength(1);
+    expect(windows[0].headMaxSeq).toBe(0);
+    expect(windows[0].tailMinSeq).toBeGreaterThan(1);
+    // The gap scan (`e.seq > headMaxSeq && e.seq < tailMinSeq`) is correct as
+    // written once `headMaxSeq` is 0: everything below the tail is elided.
+    expect(windows[0].gapCount).toBe(windows[0].tailMinSeq - 1);
+    expect(windows[0].oldestGapSeq).toBe(1);
+  });
+
+  // #E7 — the decision table. Limit 0 is "unlimited" in BOTH modes; the mode
+  // only chooses the SHAPE of a window that applies.
+  it("E7: limit 0 is unlimited in both modes; limit 500 delivers 500 shaped per mode", async () => {
+    for (const mode of ["head-tail", "tail-only"] as const) {
+      const unlimited = await deliver(filler(5000), 0, mode);
+      expect(unlimited.events).toHaveLength(5000);
+      expect(unlimited.windows).toHaveLength(0);
+
+      const windowed = await deliver(filler(5000), 500, mode);
+      expect(windowed.events).toHaveLength(500);
+      expect(windowed.windows).toHaveLength(1);
+    }
+    // Shape per mode: head-tail keeps a head beginning at the lowest seq;
+    // tail-only does not.
+    const ht = await deliver(filler(5000), 500, "head-tail");
+    expect(ht.events[0].seq).toBe(1);
+    expect(ht.windows[0].headMaxSeq).toBeGreaterThanOrEqual(1);
+    const to = await deliver(filler(5000), 500, "tail-only");
+    expect(to.events[0].seq).toBeGreaterThan(1);
+    expect(to.windows[0].headMaxSeq).toBe(0);
+  });
+
+  /**
+   * #E8 — the tail's leading edge still snaps FORWARD (shrinking, so the budget
+   * stays a hard cap). There is no head edge to snap, so no head-edge scan is
+   * performed — asserted structurally via `headEnd === 0`.
+   */
+  it("E8: the tail edge still snaps forward and no head-edge scan is performed", () => {
+    const n = 5000;
+    const limit = 500;
+    const events = filler(n);
+    // Naive tail cut, then a `message_start` 30 events forward of it.
+    const naiveStart = n - limit;
+    events[naiveStart + 30] = { seq: naiveStart + 31, event: makeEvent("message_start") };
+
+    const win = computeReplayWindow(events, limit, "tail-only");
+    if (!win) throw new Error("expected a window");
+    expect(win.headEnd).toBe(0);
+    expect(win.tailStart).toBe(naiveStart + 30);
+    expect(events[win.tailStart].event.eventType).toBe("message_start");
+    // Forward snap SHRINKS: delivered count stays under the hard cap.
+    expect(n - win.tailStart).toBeLessThanOrEqual(limit);
+  });
+
+  // #E9 — the shape is ANNOUNCED, never inferred from a `headMaxSeq === 0`
+  // sentinel. The field is optional in the type; both modes set it explicitly.
+  it("E9: the announcement carries windowShape for each mode", async () => {
+    const to = await deliver(filler(5000), 500, "tail-only");
+    expect(to.windows[0].windowShape).toBe("tail-only");
+    const ht = await deliver(filler(5000), 500);
+    expect(ht.windows[0].windowShape).toBe("head-tail");
+  });
+});
+
+/**
+ * The reset relocation — D3. `session_state_reset` moves OUT of the call-site
+ * guards and INTO `sendEventBatches`, the only function that knows a window was
+ * actually applied. That fixes the latent bug (the cold-hydration fan-out had
+ * no guard at all and relied on the reducer's `firstSeq === 1` rule, which
+ * holds only because a head-tail window always starts at seq 1) and changes two
+ * sequences for existing `head-tail` users, both pinned below.
+ * See change: add-tail-only-replay-window (D3), test-plan X1-X4.
+ */
+describe("windowed replay resets client state explicitly (X1, X2, X3, X4)", () => {
+  /**
+   * #X1 — a tail-only replay opens at seq 4501, so the reducer's
+   * `firstSeq === 1` rule CANNOT fire. The explicit reset is the only thing
+   * stopping the tail being appended beneath stale rows. Asserted on the reset
+   * message and on the delivered first seq, never on `firstSeq === 1`.
+   */
+  it("X1: a tail-only window whose first seq is far above 1 still resets first", async () => {
+    const { sent, events } = await deliver(filler(5000), 500, "tail-only");
+    expect(events[0].seq).toBeGreaterThan(1);
+    expect(events[0].seq).not.toBe(1);
+
+    const resets = sent.filter((m) => m.type === "session_state_reset");
+    expect(resets).toHaveLength(1);
+    // The wipe precedes the transcript it applies to.
+    expect(sent.indexOf(resets[0])).toBeLessThan(sent.findIndex((m) => m.type === "event_replay"));
+  });
+
+  // #X2 — ordering holds wherever a window applies, and the reset is emitted by
+  // the callee, so every call site that windows inherits it by construction.
+  it("X2: session_state_reset precedes history_window whenever a window applies", async () => {
+    for (const mode of ["head-tail", "tail-only"] as const) {
+      const { sent } = await deliver(filler(5000), 500, mode);
+      const resetAt = sent.findIndex((m) => m.type === "session_state_reset");
+      const windowAt = sent.findIndex((m) => m.type === "history_window");
+      const replayAt = sent.findIndex((m) => m.type === "event_replay");
+      expect(resetAt).toBeGreaterThanOrEqual(0);
+      expect(windowAt).toBeGreaterThan(resetAt);
+      expect(replayAt).toBeGreaterThan(windowAt);
+    }
+  });
+
+  /**
+   * #X2 (contrast) — the never-windowed delta call site passes no window limit,
+   * so it sends NO reset. This is what makes the delta site correct by
+   * construction rather than by a guard that could drift.
+   */
+  it("X2: an unwindowed stream sends no reset and no announcement", async () => {
+    const { sent } = await deliver(filler(400), 500, "tail-only");
+    expect(sent.filter((m) => m.type === "session_state_reset")).toHaveLength(0);
+    expect(sent.filter((m) => m.type === "history_window")).toHaveLength(0);
+    // A delta (no limit at all) likewise.
+    const delta = await deliver(filler(400, 9000));
+    expect(delta.sent.filter((m) => m.type === "session_state_reset")).toHaveLength(0);
+  });
+
+  /**
+   * #X3 — D3 sequence change (a). The old guard keyed on the UNCOMPACTED count
+   * while the window is computed on the COMPACTED array, so a stream over the
+   * limit uncompacted but under it compacted used to reset and now does not.
+   * Equivalent because that replay starts at seq 1 and the reducer's
+   * `firstSeq === 1` rule resets anyway — the store-invariant dependency is
+   * removed where it matters (windowed replays) and kept where it is sound.
+   */
+  it("X3: a stream over the limit uncompacted but under it compacted sends no reset", async () => {
+    // 600 superseded `message_update` snapshots inside one message compact away
+    // to a handful, leaving the compacted array under the limit.
+    const stored: StoredEvent[] = [
+      { seq: 1, event: makeEvent("message_start", { messageId: "m1" }) },
+      ...Array.from({ length: 600 }, (_, i) => ({
+        seq: 2 + i,
+        event: makeEvent("message_update", { messageId: "m1", content: `c${i}` }),
+      })),
+      { seq: 602, event: makeEvent("message_end", { messageId: "m1" }) },
+    ];
+    expect(stored.length).toBeGreaterThan(500);
+
+    const { sent, events } = await deliver(stored, 500, "head-tail");
+    // Compacted below the limit → the fits-entirely short-circuit → no window.
+    expect(sent.filter((m) => m.type === "history_window")).toHaveLength(0);
+    expect(sent.filter((m) => m.type === "session_state_reset")).toHaveLength(0);
+    // The transcript is still correct: the replay starts at seq 1.
+    expect(events[0].seq).toBe(1);
+  });
+
+  /**
+   * #X4 — D3 sequence change (b). The reset now lands AFTER `replaySessionAssets`
+   * rather than before it. Safe because `session_state_reset` reduces to
+   * `createInitialState()` — transcript state only — and `asset_register` is a
+   * documented no-op in that reducer, so the asset registry is not cleared and
+   * `pi-asset:` tokens in the delivered window still resolve.
+   */
+  it("X4: pi-asset tokens in the delivered window survive a reset that follows the asset replay", async () => {
+    const n = 5000;
+    const stored = filler(n);
+    // A token-bearing event inside the tail segment.
+    stored[n - 10] = {
+      seq: n - 9,
+      event: makeEvent("message_end", { messageId: "m1", content: "![x](pi-asset:abc123)" }),
+    };
+
+    const { sent, events } = await deliver(stored, 500, "tail-only");
+    const delivered = events.find((e) => e.seq === n - 9);
+    expect(delivered).toBeDefined();
+    expect(JSON.stringify(delivered)).toContain("pi-asset:abc123");
+    // The reset is a transcript-state wipe; it carries no asset payload and so
+    // cannot clear a registry replayed before it.
+    const reset = sent.find((m) => m.type === "session_state_reset");
+    expect(reset).toEqual({ type: "session_state_reset", sessionId: "s1" });
   });
 });

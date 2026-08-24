@@ -8,6 +8,7 @@ import type {
   ServerToBrowserMessage,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { ReplayWindowMode } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
 import type { WebSocket } from "ws";
 import {
   type PendingAttachment,
@@ -99,8 +100,25 @@ function snapUpperEdgeBack(events: StoredEvent[], end: number): number {
 
 /** Per-(socket, session) gap bookkeeping for the backfill handler. */
 interface GapState {
-  /** Last seq the client holds in the head; ADVANCES as backfill fills the gap. */
+  /**
+   * Last seq the client holds in the head; ADVANCES as backfill fills the gap
+   * from the head side — but ONLY when `hasHead`. In a `tail-only` window it
+   * stays `0` forever and the TAIL bound is the sole termination mechanism.
+   * See change: add-tail-only-replay-window (D4).
+   */
   headMaxSeq: number;
+  /**
+   * Whether this window HAS a head segment, derived from the configured mode
+   * at the moment the window is computed — never read back from the
+   * announcement, and never inferred from `headMaxSeq === 0`.
+   *
+   * The sentinel would work by accident and fail silently: `from === 1` with
+   * `headMaxSeq === 0` satisfies `from === headMaxSeq + 1`, so the head credit
+   * fires on a head that does not exist and sets `headMaxSeq = to`, poisoning
+   * every later `remainingGapCount`.
+   * See change: add-tail-only-replay-window (D4).
+   */
+  hasHead: boolean;
   /**
    * First seq of the tail segment; RETREATS as backfill fills the gap from the
    * tail side. Both edges are mutable: the gap is symmetric, and a served range
@@ -141,7 +159,7 @@ function bumpSubscriptionGeneration(ws: WebSocket, sessionId: string): number {
   const map = gapMapFor(ws);
   const prev = map.get(sessionId);
   const generation = (prev?.generation ?? 0) + 1;
-  map.set(sessionId, { headMaxSeq: 0, tailMinSeq: 0, generation, inFlight: false });
+  map.set(sessionId, { headMaxSeq: 0, tailMinSeq: 0, hasHead: true, generation, inFlight: false });
   return generation;
 }
 
@@ -186,14 +204,27 @@ export interface ReplayWindow {
  * Both are BEST-EFFORT: neither may find a boundary within `SNAP_LOOKUP`, so
  * the reducer must tolerate an orphan at either edge. Snapping raises quality;
  * reducer tolerance is the correctness guarantee.
- * See change: lazy-load-session-history (D3, D4).
+ * MODE selects the SHAPE. In `tail-only` the whole budget goes to the tail and
+ * `headEnd` is `0`: `HEAD_RATIO` / `HEAD_MIN` / `HEAD_CAP` are not consulted at
+ * all, and the head-edge backward snap becomes INAPPLICABLE rather than
+ * violated — there is no head edge to snap. The fits-entirely short-circuit
+ * and the tail-edge forward snap are UNCONDITIONAL: the first makes the overlap
+ * case unrepresentable and the second is what keeps the budget a hard cap, and
+ * neither has anything to do with the head.
+ * See change: lazy-load-session-history (D3, D4), add-tail-only-replay-window (D2).
  */
 export function computeReplayWindow(
   compacted: StoredEvent[],
   windowLimit: number,
+  mode: ReplayWindowMode = "head-tail",
 ): ReplayWindow | null {
   if (windowLimit <= 0) return null;
   if (compacted.length <= windowLimit) return null;
+
+  if (mode === "tail-only") {
+    const tailStart = snapLowerEdgeForward(compacted, compacted.length - windowLimit);
+    return { headEnd: 0, tailStart };
+  }
 
   const head = Math.min(HEAD_CAP, Math.max(HEAD_MIN, Math.floor(windowLimit * HEAD_RATIO)));
   const tail = windowLimit - head;
@@ -245,6 +276,7 @@ export async function sendEventBatches(
   stored: StoredEvent[],
   sendTo: (ws: WebSocket, msg: ServerToBrowserMessage) => void,
   windowLimit?: number,
+  mode: ReplayWindowMode = "head-tail",
 ): Promise<number> {
   // High-water mark is computed from the PRE-compaction window (D4).
   const preCompactionMaxSeq = stored.length > 0 ? stored[stored.length - 1].seq : 0;
@@ -263,11 +295,36 @@ export async function sendEventBatches(
   // `message_update`) and the window can drop more. Deriving the return value
   // from `compacted` would return a lower seq and make `clearReplaying`
   // re-send already-delivered events.
-  const replayWindow = computeReplayWindow(full, windowLimit ?? 0);
+  const replayWindow = computeReplayWindow(full, windowLimit ?? 0, mode);
   let compacted = full;
   if (replayWindow) {
+    /**
+     * The RESET lives here, not at the call sites. `sendEventBatches` is the
+     * only function that knows a window was ACTUALLY applied, and the guard
+     * previously sat at two of the four call sites — the cold-hydration
+     * fan-out had none and relied on the reducer's `firstSeq === 1` rule,
+     * which holds only because a head-tail window always starts at seq 1. In
+     * `tail-only` the first delivered seq is `tailMinSeq > 1`, so a client
+     * holding prior state would get the tail APPENDED onto stale rows.
+     *
+     * Emitting it here also makes the genuine-delta call site correct by
+     * construction: it never windows, so it never resets.
+     *
+     * Ordering: reset → `history_window` → `event_replay`. The gap affordance
+     * must never be announced ahead of the state wipe that precedes its
+     * transcript. Landing AFTER `replaySessionAssets` is safe:
+     * `session_state_reset` reduces to `createInitialState()` — transcript
+     * state only — and `asset_register` is a documented no-op in that reducer,
+     * so the asset registry survives and `pi-asset:` tokens still resolve.
+     * See change: add-tail-only-replay-window (D3).
+     */
+    if (ws.readyState === ws.OPEN) {
+      sendTo(ws, { type: "session_state_reset", sessionId });
+    }
     compacted = [...full.slice(0, replayWindow.headEnd), ...full.slice(replayWindow.tailStart)];
-    const headMaxSeq = full[replayWindow.headEnd - 1].seq;
+    // `headEnd === 0` (tail-only) would index `full[-1]`. `0` is the ANNOUNCED
+    // value and means "nothing above the gap", not "no window".
+    const headMaxSeq = replayWindow.headEnd === 0 ? 0 : full[replayWindow.headEnd - 1].seq;
     const tailMinSeq = full[replayWindow.tailStart].seq;
     // `gapCount` counts the gap events the store ACTUALLY HOLDS — never the seq
     // distance. For a middle-trimmed session the stored array is itself
@@ -281,15 +338,17 @@ export async function sendEventBatches(
         if (oldestGapSeq === 0) oldestGapSeq = e.seq;
       }
     }
-    // Record the gap bounds so `handleHistoryBackfill` can clamp into them
-    // without re-deriving the window. `headMaxSeq` ADVANCES as backfill fills
-    // the gap from the head side, which is what makes `remainingGapCount`
-    // — and therefore the client's stop rule — terminate.
     /**
      * Record the bounds so `handleHistoryBackfill` can clamp into them without
-     * re-deriving the window. `headMaxSeq` ADVANCES as backfill fills the gap
-     * from the head side, which is what makes `remainingGapCount` — and
-     * therefore the client's stop rule — terminate.
+     * re-deriving the window.
+     *
+     * TERMINATION is driven by whichever bound the served range abuts. Since
+     * `fix-lazy-history-backfill-ux` made backfill tail-anchored, that is
+     * normally `tailMinSeq` RETREATING; `headMaxSeq` advances only in a
+     * `head-tail` window, and in a `tail-only` one it never moves at all. The
+     * old comment here named head-side advancement as THE mechanism, which was
+     * already wrong after `fix-lazy` and is doubly wrong now.
+     * See change: add-tail-only-replay-window (D4).
      *
      * Absent entry = this socket has no live subscription for the session (it
      * unsubscribed, or a direct call registered none). The announcement still
@@ -303,9 +362,11 @@ export async function sendEventBatches(
     if (gap) {
       gap.headMaxSeq = headMaxSeq;
       gap.tailMinSeq = tailMinSeq;
+      // Derived from the MODE that produced this window, not from the bound.
+      gap.hasHead = replayWindow.headEnd > 0;
     }
     if (ws.readyState === ws.OPEN) {
-      sendTo(ws, { type: "history_window", sessionId, headMaxSeq, tailMinSeq, gapCount, oldestGapSeq });
+      sendTo(ws, { type: "history_window", sessionId, headMaxSeq, tailMinSeq, gapCount, oldestGapSeq, windowShape: mode });
     }
   }
   // Terminate an empty payload explicitly. The loop below cannot run when there
@@ -581,7 +642,11 @@ export async function handleHistoryBackfill(
      * See change: fix-lazy-history-backfill-ux (D1, D1a, D4).
      */
     const tailAdjacent = servedTo === current.tailMinSeq - 1;
-    const headAdjacent = servedFrom === current.headMaxSeq + 1;
+    // `hasHead` gates the head credit. Without it a head-free window credits a
+    // head that does not exist on the final slice of an untrimmed gap
+    // (`from === 1`, `headMaxSeq === 0`). Tail wins when a range abuts both.
+    // See change: add-tail-only-replay-window (D4).
+    const headAdjacent = current.hasHead && servedFrom === current.headMaxSeq + 1;
     if (tailAdjacent) current.tailMinSeq = servedFrom;
     else if (headAdjacent) current.headMaxSeq = servedTo;
     // Truthful count of what the store STILL HOLDS inside the gap — never the
@@ -616,6 +681,7 @@ export function handleSubscribe(
   // fall back to the shared DEFAULT, not to 0.
   // See change: fix-lazy-history-backfill-ux (D7).
   const maxReplayEvents = ctx.maxReplayEvents ?? DEFAULT_MEMORY_LIMITS.maxReplayEvents;
+  const replayWindowMode = ctx.replayWindowMode ?? DEFAULT_MEMORY_LIMITS.replayWindowMode;
   subs.add(msg.sessionId);
   // Every subscribe starts a new generation; any backfill still in flight from
   // the previous one now completes stale (D9).
@@ -648,6 +714,23 @@ export function handleSubscribe(
 
     // Stale lastSeq: client has higher seq than server (e.g. server restarted)
     if (lastSeq > 0 && lastSeq > maxSeq) {
+      /**
+       * This reset is UNCONDITIONAL and stays. D3 classifies it as one of two
+       * "windowed-replay guards" to delete; that is a misclassification. The
+       * warm guard at the sibling branch tested `events.length >
+       * fullStreamLimit` and was genuinely window-gated — it is gone. THIS one
+       * never consulted the window: it fires whenever the client holds seqs
+       * the server does not (`lastSeq > maxSeq`), which is a STALE-STATE
+       * condition, not a windowing one, and it is asserted by a shipped test
+       * against a 3-event store where no window can ever apply.
+       *
+       * Deleting it would be a third behaviour change D3 does not enumerate.
+       * Kept, so `head-tail` stays observably equivalent. The cost is that a
+       * WINDOWED stale-lastSeq replay now emits two resets — both before any
+       * `event_replay`, and `session_state_reset` reduces to
+       * `createInitialState()`, so the second is idempotent.
+       * See change: add-tail-only-replay-window (D3, deviation from task 2.11).
+       */
       sendTo(ws, { type: "session_state_reset", sessionId: msg.sessionId });
       // Full replay from seq 1
       const events = eventStore.getEvents(msg.sessionId, 1);
@@ -657,7 +740,7 @@ export function handleSubscribe(
       replaySessionAssets(ws, msg.sessionId, ctx);
       markReplaying(ws, msg.sessionId);
       // Stale lastSeq is ALWAYS a full stream — window it (D1).
-      sendEventBatches(ws, msg.sessionId, events, sendTo, maxReplayEvents)
+      sendEventBatches(ws, msg.sessionId, events, sendTo, maxReplayEvents, replayWindowMode)
         .then((lastSent) => {
           clearReplaying(ws, msg.sessionId, lastSent);
           replayPendingUiRequests(ws, msg.sessionId);
@@ -681,14 +764,15 @@ export function handleSubscribe(
        */
       const fullStreamLimit = lastSeq === 0 ? maxReplayEvents : 0;
       /**
-       * This path does NOT otherwise send `session_state_reset` — it relies on
-       * the reducer's `firstSeq === 1` rule. A windowed replay must not depend
-       * on that store invariant, so reset explicitly before one.
-       * See change: lazy-load-session-history (D5).
+       * The guard that used to sit here is GONE: it keyed on the UNCOMPACTED
+       * `events.length` while the window is computed on the COMPACTED array,
+       * so it could reset for a stream that then turned out to fit. The reset
+       * now lives inside `sendEventBatches`, keyed on `replayWindow !== null`.
+       * A stream over the limit uncompacted but under it compacted therefore
+       * no longer resets — and does not need to, because that replay starts at
+       * seq 1 and the reducer's `firstSeq === 1` rule handles it.
+       * See change: add-tail-only-replay-window (D3).
        */
-      if (fullStreamLimit > 0 && events.length > fullStreamLimit) {
-        sendTo(ws, { type: "session_state_reset", sessionId: msg.sessionId });
-      }
       // Replay asset registry on every subscribe (delta or full). Cheap when
       // empty; assets already known to the client are simply re-overwritten
       // with identical bytes. See change: chat-markdown-local-images-and-math.
@@ -702,7 +786,7 @@ export function handleSubscribe(
       // See change: fix-cold-subscribe-replay-interleave.
       if (events.length > 0) {
         markReplaying(ws, msg.sessionId);
-        sendEventBatches(ws, msg.sessionId, events, sendTo, fullStreamLimit)
+        sendEventBatches(ws, msg.sessionId, events, sendTo, fullStreamLimit, replayWindowMode)
           .then((lastSent) => {
             clearReplaying(ws, msg.sessionId, lastSent);
             replayPendingUiRequests(ws, msg.sessionId);
@@ -779,7 +863,7 @@ export function handleSubscribe(
             // Cold hydration is ALWAYS a full stream — window it (D1). The
             // `history_window` message is emitted per subscriber inside this
             // loop by `sendEventBatches` itself.
-            await sendEventBatches(sub, msg.sessionId, stored, sendTo, maxReplayEvents);
+            await sendEventBatches(sub, msg.sessionId, stored, sendTo, maxReplayEvents, replayWindowMode);
             replayPendingUiRequests(sub, msg.sessionId);
             replayNotifyLog(sub, msg.sessionId);
             replayUiState(sub, msg.sessionId, ctx);
