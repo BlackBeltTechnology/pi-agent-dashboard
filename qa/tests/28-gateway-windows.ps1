@@ -127,9 +127,11 @@ try {
   # session has to come back without human help.
   $env:PI_PORT = $piPort
   $env:QA_SESSION = "qa-win-gw-$PID"
+  $env:DASH_PORT = $port
   $reconnectScript = @'
 const WebSocket = require('ws');
 const PI_PORT = process.env.PI_PORT;
+const DASH_PORT = process.env.DASH_PORT;
 const SESSION_ID = process.env.QA_SESSION;
 const open = (ws) => new Promise((res, rej) => {
   ws.on('open', res); ws.on('error', rej);
@@ -152,7 +154,17 @@ const register = (ws) => ws.send(JSON.stringify({
   await open(b);
   register(b);
   await new Promise((r) => setTimeout(r, 800));
-  console.log('reconnected');
+  // Ask WHILE STILL CONNECTED. Asking after this process exits would race the
+  // gateway's own disconnect handling and could not tell "never registered"
+  // from "registered, then reaped" — two very different verdicts.
+  const res = await fetch('http://127.0.0.1:' + DASH_PORT + '/api/sessions');
+  const body = await res.json();
+  const all = Array.isArray(body.sessions) ? body.sessions : [];
+  const mine = all.filter((s) => s.id === SESSION_ID);
+  console.log('reconnected sessions=' + mine.length + ' total=' + all.length);
+  if (mine.length !== 1) {
+    console.log('ids=' + JSON.stringify(all.slice(0, 8).map((s) => s.id)));
+  }
   process.exit(0);
 })().catch((e) => { console.error('FAIL: ' + e.message); process.exit(1); });
 '@
@@ -170,10 +182,8 @@ const register = (ws) => ws.send(JSON.stringify({
     Write-Error "FAIL: bridge connect/reconnect over loopback failed: $reconnectOut"
     exit 1
   }
-  $sessions = Invoke-RestMethod -Uri "http://localhost:$port/api/sessions" -TimeoutSec 5
-  $mine = @($sessions.sessions | Where-Object { $_.id -eq $env:QA_SESSION })
-  if ($mine.Count -ne 1) {
-    Write-Error "FAIL: expected exactly 1 session after a reconnect, found $($mine.Count) — a reconnect must not mint a twin"
+  if ("$reconnectOut" -notmatch "sessions=1\b") {
+    Write-Error "FAIL: expected exactly 1 session after a reconnect — a reconnect must not mint a twin, nor vanish. Probe said: $reconnectOut"
     exit 1
   }
   Write-Host "  a bridge connected, dropped hard, and reconnected as ONE session"
