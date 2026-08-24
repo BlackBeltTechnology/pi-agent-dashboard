@@ -282,6 +282,45 @@ Out-of-range indices SHALL cause the handler to emit `command_feedback { command
 - **AND** the bridge SHALL emit `command_feedback { command: "edit_followup_entry", status: "error" }` naming the byte ceiling
 - **AND** the bridge SHALL NOT emit `queue_update`
 
+### Requirement: User abort resets shadow queues and clears pi's native queues
+
+When the bridge's `abort` extension command is invoked (via a browser `abort { sessionId }` message routed through the server to pi), the bridge SHALL:
+
+1. Latch the abort (`abortLatch.request(sessionId)`) BEFORE invoking `cachedCtx.abort()`, so a long provider backoff that outlives the 2 s persistent-abort scheduler still stops pi when it wakes to retry.
+2. Invoke `cachedCtx.abort()`.
+3. Call `retryTracker.noteAbort(sessionId)` (clears the in-flight attempt counter). The bridge SHALL NOT call `usageLimitOrderer.noteRetryEnd(sessionId)`; the orderer's `pending` flag MUST survive user-initiated abort so that pi's eventual terminal `agent_end` can still surface the real provider `errorMessage` via the orderer's `maybeSynthesize` path.
+
+The bridge SHALL NOT reset `bridgeSteering` or `bridgeFollowUp` on abort, and SHALL NOT emit a `queue_update` from the abort path. Pi's ExtensionAPI exposes no queue-clear primitive, so the shadows continue to mirror pi's actual retained queues; emptying them would make the dashboard claim a state pi is not in.
+
+Because the follow-up buffer survives abort, its retained bytes also survive. The aggregate byte ceiling is unaffected: the accounted total is derived from the live entries at each check, so a surviving buffer simply continues to be accounted.
+
+The wrapper-abort SHALL run exactly ONCE on the initial `abort` command. Subsequent persistent-abort scheduler ticks (see `provider-retry-state` "Bridge persistent-abort scheduler closes retry race") SHALL invoke `cachedCtx.abort()` directly (raw), NOT the wrapper.
+
+#### Scenario: Abort does not clear the follow-up buffer
+- **WHEN** `bridgeFollowUp` holds two entries, one carrying images
+- **AND** the bridge's `abort` extension command is invoked
+- **THEN** the bridge SHALL invoke `cachedCtx.abort()`
+- **AND** `bridgeFollowUp` SHALL still hold both entries with their images
+- **AND** the bridge SHALL NOT emit `queue_update` from the abort path
+
+#### Scenario: Abort latches before invoking abort
+- **WHEN** the user dispatches `abort`
+- **THEN** `abortLatch.request(sessionId)` SHALL be called BEFORE `cachedCtx.abort()`
+- **AND** `retryTracker.noteAbort(sessionId)` SHALL be called after
+- **AND** the bridge SHALL NOT call `usageLimitOrderer.noteRetryEnd(sessionId)`
+
+#### Scenario: Orderer pending survives user abort during retry
+- **GIVEN** the orderer's `pending` flag is `true` for the session (retry chain in flight)
+- **WHEN** the user dispatches `abort`
+- **THEN** `usageLimitOrderer.hasPending(sessionId)` SHALL remain `true` after the wrapper completes
+- **AND** when pi subsequently emits `agent_end` with `errorMessage` matching `USAGE_LIMIT_PATTERN`, the orderer's `maybeSynthesize` SHALL fire and forward the synthesized terminal `auto_retry_end{finalError}` carrying the real provider message
+
+#### Scenario: Wrapper-abort runs once, persistent ticks run raw
+- **WHEN** the user dispatches `abort` for a session with a non-empty buffer
+- **THEN** the wrapper-abort body SHALL execute exactly once
+- **AND** subsequent persistent-abort scheduler ticks within the 2 s window SHALL each invoke `cachedCtx.abort()` directly
+- **AND** the persistent ticks SHALL NOT reset bridge shadows or emit `queue_update`
+
 ## ADDED Requirements
 
 ### Requirement: Follow-up buffer enforces an aggregate byte ceiling
@@ -432,45 +471,6 @@ This guards the window in which an already-loaded browser tab running pre-change
 - **THEN** the chip SHALL render "hello"
 - **AND** `queue-followup-attachments` SHALL NOT be present
 - **AND** no `[object Object]` text SHALL appear
-
-### Requirement: User abort resets shadow queues and clears pi's native queues
-
-When the bridge's `abort` extension command is invoked (via a browser `abort { sessionId }` message routed through the server to pi), the bridge SHALL:
-
-1. Latch the abort (`abortLatch.request(sessionId)`) BEFORE invoking `cachedCtx.abort()`, so a long provider backoff that outlives the 2 s persistent-abort scheduler still stops pi when it wakes to retry.
-2. Invoke `cachedCtx.abort()`.
-3. Call `retryTracker.noteAbort(sessionId)` (clears the in-flight attempt counter). The bridge SHALL NOT call `usageLimitOrderer.noteRetryEnd(sessionId)`; the orderer's `pending` flag MUST survive user-initiated abort so that pi's eventual terminal `agent_end` can still surface the real provider `errorMessage` via the orderer's `maybeSynthesize` path.
-
-The bridge SHALL NOT reset `bridgeSteering` or `bridgeFollowUp` on abort, and SHALL NOT emit a `queue_update` from the abort path. Pi's ExtensionAPI exposes no queue-clear primitive, so the shadows continue to mirror pi's actual retained queues; emptying them would make the dashboard claim a state pi is not in.
-
-Because the follow-up buffer survives abort, its retained bytes also survive. The aggregate byte ceiling is unaffected: the accounted total is derived from the live entries at each check, so a surviving buffer simply continues to be accounted.
-
-The wrapper-abort SHALL run exactly ONCE on the initial `abort` command. Subsequent persistent-abort scheduler ticks (see `provider-retry-state` "Bridge persistent-abort scheduler closes retry race") SHALL invoke `cachedCtx.abort()` directly (raw), NOT the wrapper.
-
-#### Scenario: Abort does not clear the follow-up buffer
-- **WHEN** `bridgeFollowUp` holds two entries, one carrying images
-- **AND** the bridge's `abort` extension command is invoked
-- **THEN** the bridge SHALL invoke `cachedCtx.abort()`
-- **AND** `bridgeFollowUp` SHALL still hold both entries with their images
-- **AND** the bridge SHALL NOT emit `queue_update` from the abort path
-
-#### Scenario: Abort latches before invoking abort
-- **WHEN** the user dispatches `abort`
-- **THEN** `abortLatch.request(sessionId)` SHALL be called BEFORE `cachedCtx.abort()`
-- **AND** `retryTracker.noteAbort(sessionId)` SHALL be called after
-- **AND** the bridge SHALL NOT call `usageLimitOrderer.noteRetryEnd(sessionId)`
-
-#### Scenario: Orderer pending survives user abort during retry
-- **GIVEN** the orderer's `pending` flag is `true` for the session (retry chain in flight)
-- **WHEN** the user dispatches `abort`
-- **THEN** `usageLimitOrderer.hasPending(sessionId)` SHALL remain `true` after the wrapper completes
-- **AND** when pi subsequently emits `agent_end` with `errorMessage` matching `USAGE_LIMIT_PATTERN`, the orderer's `maybeSynthesize` SHALL fire and forward the synthesized terminal `auto_retry_end{finalError}` carrying the real provider message
-
-#### Scenario: Wrapper-abort runs once, persistent ticks run raw
-- **WHEN** the user dispatches `abort` for a session with a non-empty buffer
-- **THEN** the wrapper-abort body SHALL execute exactly once
-- **AND** subsequent persistent-abort scheduler ticks within the 2 s window SHALL each invoke `cachedCtx.abort()` directly
-- **AND** the persistent ticks SHALL NOT reset bridge shadows or emit `queue_update`
 
 ## REMOVED Requirements
 
