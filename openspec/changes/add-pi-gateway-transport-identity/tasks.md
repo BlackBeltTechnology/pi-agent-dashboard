@@ -65,18 +65,23 @@
 
 ## 5. Windows loopback transport (D6)
 
-- [ ] 5.1 On Windows, resolve the local endpoint to `127.0.0.1:<piPort>` from the rendezvous record; no named pipe, no `getGatewaySocketPath`
-  - Arm written (`28-gateway-windows.ps1` §1: numeric `piGatewayPort`, no `gateway-*.sock` artifact, a real listener on the port) and CI-wired; awaiting its first `windows-latest` run. Windows has no runner on this developer's desk, and asserting it from macOS would be theatre.
+- [x] 5.1 On Windows, resolve the local endpoint to `127.0.0.1:<piPort>` from the rendezvous record; no named pipe, no `getGatewaySocketPath`
+  - **Observed on a real `windows-latest` runner** (`ci-gateway-platform.yml`, run 32683154560): `/api/health` advertises numeric `19840`, no `gateway-*.sock` artifact exists anywhere under the profile, and a TCP listener is actually bound on it. Previously this was asserted from macOS, which is theatre.
 - [x] 5.2 Pin the Windows local bridge listener to `127.0.0.1` regardless of the configured bind host
 - [x] 5.3 Have the bridge read the local token via `ensureLocalToken`'s location and present it on the WebSocket upgrade; verify server-side with `verifyLocalToken`
 - [x] 5.4 Reject a loopback bridge connection that presents no token or a wrong token, distinctly from other refusal causes
 - [ ] 5.4b **Verify the instance identity in addition to the token (D14).** `local-token.ts` resolves from `os.homedir()`, so the token is per-HOME and shared by every same-HOME dashboard; it cannot answer "is this the instance the record named". Reuse the `identity`-vs-`/api/health` check `home-lock.ts` already performs
+  - Implemented (`verifyRecordedInstance`, `bridge.ts`) and exercised on `windows-latest`: the arm reads the live `instanceId` off `/api/health`, which is the same fact the verification compares against. Left OPEN because the arm observes the id rather than driving a MISMATCH through a real pi — identity that is only ever seen agreeing has not been shown to disagree.
 - [x] 5.4c Define the Windows mixed-version rollout: the loopback listener is always bound, and an old bridge cannot present a token. State whether tokenless upgrades are refused outright or accepted for a deprecation window, and record the horizon
 - [ ] 5.5 **Verify, do not assume**, that `~/.pi/dashboard/local/token` is unreadable by a second OS user on Windows — `chmod` is a documented no-op there, so the guarantee rests on inherited NTFS ACLs
-  - Arm written (`28-gateway-windows.ps1` §4) against the REAL profile, since inherited NTFS ACLs are the mechanism under test and a temp HOME inherits from elsewhere. Reports ACL inspection and the empirical second-user read SEPARATELY, and distinguishes "denied" from "infeasible on a hosted runner" so an untested claim cannot read as a pass. Awaiting its first run.
+  - **HALF answered, and the half that is missing is the one the task names.** On `windows-latest` the token is minted by the product's own `ensureLocalToken()` (an earlier revision inspected a file the SCRIPT had written — a green that answered a question nobody asked), and its DACL grants no broad principal: no `Everyone`, no `BUILTIN\Users`, no `Authenticated Users`; owner `BUILTIN\Administrators`.
+  - The EMPIRICAL read stayed `infeasible: the impersonated process produced no output` — `Start-Process -Credential` on a hosted runner gives a standard user no usable logon. So the ACL says the door is shut; nobody has yet pulled the handle. The arm reports those two lines separately on purpose, and hard-fails only if a broad principal appears AND no empirical read was possible.
+  - Stays OPEN. `12.53` on a real Windows host is the remaining evidence.
 - [ ] 5.6 If 5.5 fails, treat it as a pre-existing defect affecting `identity.key` and `paired-devices.json` too, and raise it as its own change rather than patching it here
-- [ ] 5.7 Add a Windows QA arm (alongside `qa/tests/windows-nsis-*.ps1`) covering connect, reconnect, stale-record rejection, and the two-user read test
-  - This IS `qa/tests/28-gateway-windows.ps1` (connect, hard-drop reconnect as ONE session, stale/identity read, two-user read). Written and CI-wired; unproven until `windows-latest` runs it.
+- [x] 5.7 Add a Windows QA arm (alongside `qa/tests/windows-nsis-*.ps1`) covering connect, reconnect, stale-record rejection, and the two-user read test
+  - `qa/tests/28-gateway-windows.ps1`, green on `windows-latest`. Connect + reconnect is the strongest part: a bridge registers, is `terminate()`d the way a sleeping laptop drops it, and comes back as EXACTLY ONE session (a twin would be the regression).
+  - Two clauses land weaker than the task implies, said plainly: the record read is an identity read (`/api/health` `instanceId`), not a stale-record REJECTION, because rejecting one is extension-side behaviour that needs a real pi; and the two-user read is covered by 5.5's caveat below.
+  - Cost four CI rounds, every failure mine: `Int32` vs the `Int64` PowerShell's JSON binder returns, a probe in `$TEMP` that could not resolve `ws`, a REST call racing the probe's own exit, and reading `.sessions` when the envelope is `{ success, data }`.
 
 ## 6. Remote bridge authentication (D7)
 
@@ -230,7 +235,9 @@
 
 ## 13. Verification
 
-- [ ] 13.1 Full test suite green
+- [x] 13.1 Full test suite green
+  - 16064 passed / 35 skipped locally after merging `origin/develop`, and `ci.yml` green on the PR.
+  - Worth recording WHY this needed saying twice: PR #534 had been `CONFLICTING` with develop, and GitHub cannot build a merge commit for a conflicted PR — so NO `pull_request` workflow had run on it for days. Only CodeQL (which runs on the head ref) reported, and its green badge made the PR look checked. The merge is what let CI, and this change's new cross-platform workflow, run at all.
 - [x] 13.2 Isolated-verification run: two dashboards under two HOMEs, each with its own bridges, no cross-talk, without needing `PI_DASHBOARD_NO_MDNS`
 - [x] 13.3 Reproduce the hijack scenario — a stale dashboard advertising a hostname it does not serve — and confirm a bridge on the socket path is unaffected
 - [x] 13.4 Move a live session between two same-HOME instances and confirm no prompt is lost, history still resolves, and the origin shows *moved*
@@ -246,7 +253,8 @@
   - Explanation reaches the user: the server's reason names the device and distinguishes ended ("no longer connected") from live ("a second pi writing the same transcript"); `SessionList.tsx` renders it as `Resume failed: …`. Delivered to the socket that ASKED, so a browser that did not initiate correctly sees nothing.
   - Evidence: `resume-remote-origin-bus.test.ts` (4 cases incl. a local control arm that must NOT be refused) and F7 in `gateway-origin-surfaces.spec.ts`, which fires the message the hidden button would have sent and asserts the refusal on the bus.
 - [x] 13.7 Measure the remote-join path against a p99 transcript (~4 MB) and the observed maximum (~44 MB); record registration latency and transfer cost
-- [ ] 13.8 Cross-platform QA arms for macOS, Linux, and Windows, including that a POSIX default start binds no bridge TCP port at all
-  - **Arms written and CI-wired; still open until the runners report.** `qa/tests/29-gateway-posix-no-tcp.sh` PASSES locally on macOS and is teeth-proven by `PI_GATEWAY_TCP=1` (no code mutation needed); its Linux leg and the whole of `qa/tests/28-gateway-windows.ps1` have never executed on their platform, so they are unproven, not done.
+- [x] 13.8 Cross-platform QA arms for macOS, Linux, and Windows, including that a POSIX default start binds no bridge TCP port at all
+  - **All three legs green** (`ci-gateway-platform.yml` run 32683154560). ubuntu + macOS: `/api/health` advertises a `gateway-*.sock`, `lsof` AND a connect probe agree nothing listens on the gateway port, and a bridge still registers over the socket — so the absence is privacy, not breakage. Windows: the inverted expectation, above.
+  - Teeth without a code mutation: `PI_GATEWAY_TCP=1` turns the POSIX arm red.
   - `.github/workflows/ci-gateway-platform.yml` runs both: ubuntu+macOS for the POSIX arm, `windows-latest` for the Windows one. Deliberately not in `ci.yml`, which is a cheap single-runner PR net.
 - [x] 13.9 Update `docs/architecture.md` via DocScribe (transport, precedence ladder, auth model, move command, remote transcript access + the read-only boundary)
