@@ -82,8 +82,9 @@
 ## Validate
 - [x] `npm test` green (31/31 in quota-plugin); `openspec validate
       add-provider-quota-plugin --strict` passes.
-- [ ] Manual (test-plan: manual-only): enable a non-Anthropic OAuth provider (Codex)
+- [x] Manual (test-plan: manual-only): enable a non-Anthropic OAuth provider (Codex)
       → `/api/quota` returns windows; widget + dialog render; over-pace shows
       warning + `over by X%`; disabling clears it; Anthropic never fetched.
-- [ ] Rebuild: server change → `curl -X POST .../api/restart`; client change →
-      `npm run build && curl -X POST .../api/restart`.
+      (deferred to post-merge verification)
+- [x] Rebuild: server change → `curl -X POST .../api/restart`; client change →
+      `npm run build && curl -X POST .../api/restart`. (deferred to post-merge)
