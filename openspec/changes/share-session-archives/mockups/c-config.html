@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C · Archive configuration — share-session-archives</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="app.css">
+<script src="nav.js"></script>
+</head>
+<body>
+<div class="shell">
+  <div data-chrome data-title="Archive configuration" data-sub="Connect a project to an archive · task 6.6"></div>
+
+  <!-- EMPTY STATE: names the outcome, one CTA -->
+  <h3 class="h-sec">Not configured</h3>
+  <div class="card card-pad" style="text-align:center;padding:32px 16px;margin-bottom:24px">
+    <div style="font-size:13px;font-weight:600">Share this project’s sessions across your machines</div>
+    <div class="muted" style="font-size:11px;max-width:420px;margin:6px auto 14px">
+      Sessions are scrubbed of local paths, scanned for credentials, and encrypted before they leave this machine.
+      You bring the bucket.
+    </div>
+    <button class="btn btn-primary" type="button">Connect an archive</button>
+  </div>
+
+  <!-- FORM -->
+  <h3 class="h-sec">Editing — with a failed connection test</h3>
+  <div class="card card-pad">
+
+    <!-- GOV.UK error summary: linked, above the form -->
+    <div class="callout callout-error" style="margin-bottom:18px" role="alert" tabindex="-1">
+      <span class="glyph" aria-hidden="true">▲</span>
+      <div>
+        <strong>Couldn’t connect to the archive</strong>
+        <ul style="margin:6px 0 0 16px;padding:0">
+          <li><a href="#endpoint" style="color:inherit">Endpoint refused the connection</a></li>
+          <li><a href="#secretkey" style="color:inherit">Secret access key is required</a></li>
+        </ul>
+      </div>
+    </div>
+
+    <form onsubmit="return false">
+      <div class="field">
+        <label for="projkey">Project key</label>
+        <input class="input mono" id="projkey" value="github.com/blackbelt-technology/pi-agent-dashboard" readonly>
+        <div class="hint">Derived from your git remote, so the same project matches on every machine.</div>
+      </div>
+
+      <div class="field">
+        <label for="endpoint">Endpoint</label>
+        <input class="input mono" id="endpoint" value="s3.eu-central-1.amazonaws.com" aria-invalid="true" aria-describedby="endpoint-err">
+        <div class="field-error" id="endpoint-err">
+          <span aria-hidden="true">▲</span>
+          <span>Connection refused. Check the region and that the host is reachable from this machine.</span>
+        </div>
+        <div class="hint">Works with or without <code style="font-family:var(--mono)">https://</code>. We normalise it on save.</div>
+      </div>
+
+      <div class="field">
+        <label for="bucket">Bucket</label>
+        <input class="input mono" id="bucket" value="pi-session-archive">
+      </div>
+
+      <div class="field">
+        <label for="accesskey">Access key ID</label>
+        <input class="input mono" id="accesskey" value="AKIA3QX7NMFR2LT4WBZ9">
+      </div>
+
+      <div class="field">
+        <label for="secretkey">Secret access key</label>
+        <div class="row">
+          <input class="input mono" id="secretkey" type="password" value="" aria-invalid="true" aria-describedby="secret-err" style="flex:1">
+          <button class="btn btn-sm" type="button" aria-pressed="false">Reveal</button>
+        </div>
+        <div class="field-error" id="secret-err">
+          <span aria-hidden="true">▲</span><span>Enter the secret key that pairs with this access key ID.</span>
+        </div>
+        <div class="hint">Stored on this machine only. Never published to the archive.</div>
+      </div>
+
+      <div class="field">
+        <label for="alias">This machine’s display name</label>
+        <input class="input" id="alias" value="studio-mini">
+        <div class="hint">Shown to teammates when this machine holds a session. Your hostname is never published.</div>
+      </div>
+
+      <div class="divider"></div>
+
+      <h3 class="h-sec">Recipients</h3>
+      <div class="panel" style="padding:4px 0;margin-bottom:16px;max-width:520px">
+        <div class="row" style="padding:8px 12px">
+          <span class="chip chip-success"><span class="glyph" aria-hidden="true">✓</span> you</span>
+          <span style="font-size:12px">studio-mini</span>
+          <span class="path">age1q9x…4k2f</span>
+          <div class="spacer"></div>
+        </div>
+        <div class="row" style="padding:8px 12px;border-top:1px solid var(--border-subtle)">
+          <span class="chip chip-neutral">peer</span>
+          <span style="font-size:12px">robson-mbp</span>
+          <span class="path">age1v7t…9dm3</span>
+          <div class="spacer"></div>
+          <button class="btn btn-sm btn-quiet" type="button">Remove</button>
+        </div>
+      </div>
+      <button class="btn btn-sm" type="button">Add recipient key</button>
+
+      <div class="divider"></div>
+
+      <!-- PROGRESSIVE DISCLOSURE: six numeric fields nobody usually touches -->
+      <details>
+        <summary style="cursor:pointer;font-size:12px;color:var(--text-secondary);min-height:24px;display:flex;align-items:center">
+          Advanced: sealing and claims
+        </summary>
+        <div class="panel" style="padding:14px;margin-top:10px">
+          <div class="callout callout-info" style="margin-bottom:14px">
+            <span class="glyph" aria-hidden="true">◆</span>
+            <div><span class="body">Defaults are provisional pending measurement (spike 1.1). Change these only if sync is too slow or too chatty.</span></div>
+          </div>
+          <div class="field"><label for="sb">Seal after <span class="optional">(bytes)</span></label><input class="input mono" id="sb" value="262144"></div>
+          <div class="field"><label for="sl">Seal after <span class="optional">(lines)</span></label><input class="input mono" id="sl" value="2000"></div>
+          <div class="field"><label for="si">Seal after idle <span class="optional">(seconds)</span></label><input class="input mono" id="si" value="60"></div>
+          <div class="field"><label for="cr">Claim renewal <span class="optional">(seconds)</span></label><input class="input mono" id="cr" value="60"></div>
+          <div class="field"><label for="cd">Claim expiry deadline <span class="optional">(seconds)</span></label><input class="input mono" id="cd" value="300"></div>
+          <div class="field"><label for="ck">Clock skew tolerance <span class="optional">(seconds)</span></label><input class="input mono" id="ck" value="30"></div>
+          <div class="field" style="margin-bottom:0"><label for="lim">Storage limit warning <span class="optional">(GB)</span></label><input class="input mono" id="lim" value="5"></div>
+        </div>
+      </details>
+
+      <div class="divider"></div>
+
+      <div class="row">
+        <button class="btn btn-primary" type="submit">Connect archive</button>
+        <button class="btn" type="button">Test connection</button>
+        <div class="spacer"></div>
+        <button class="btn btn-quiet" type="button">Cancel</button>
+      </div>
+    </form>
+  </div>
+
+  <!-- SUCCESS -->
+  <h3 class="h-sec" style="margin-top:24px">Connected</h3>
+  <div class="card card-pad">
+    <div class="callout callout-success">
+      <span class="glyph" aria-hidden="true">✓</span>
+      <div>
+        <strong>Archive reachable</strong>
+        <span class="body">Resolved <code style="font-family:var(--mono)">https://s3.eu-central-1.amazonaws.com/pi-session-archive</code> · 2 recipients · read and write verified.</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="note" style="margin-top:20px">
+    <b>Rules applied:</b> labels above fields and single column (<b>NN/g web-form-design</b>) ·
+    validate on blur, not per keystroke (<b>Baymard</b>) · linked error summary plus inline errors (<b>GOV.UK</b>) ·
+    seven advanced numbers deferred behind disclosure (<b>Hick’s Law</b>) ·
+    CTA is an outcome verb, never “Submit” (<b>NN/g ui-copy</b>) ·
+    endpoint accepts liberal input and is normalised (<b>Postel’s Law</b>).
+  </div>
+</div>
+</body>
+</html>

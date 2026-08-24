@@ -12,6 +12,22 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **Settings → Developer → "Pi runtime"**: pick which discovered pi install each
+  of the two consumers uses — the binary sessions spawn (`pi`) and the module the
+  server imports (`pi-coding-agent`). One candidate list, two selection columns,
+  and a "Keep both in sync" checkbox that is checked by default and DERIVED from
+  the install both consumers resolve to, never stored. Unchecking is the
+  deliberate act that permits a mismatch. `Automatic` is itself a row showing
+  what the resolution chain currently lands on, so it is never a black box and
+  reverting is one click. Installs below `piCompatibility.minimum` are disabled
+  with the required version named; installs whose version cannot be read stay
+  selectable with an explicit "not floor-checked" warning. Applying writes both
+  consumers in ONE transaction, so a crash cannot leave the runtime split in half.
+- `GET /api/pi/installs` and `POST /api/pi/runtime`, both behind the same network
+  guard as `/api/tools`. `/api/health` gains `piRuntime`, reporting CONSUMER
+  divergence (the two consumers on different installs) and INSTALL-SET divergence
+  (more than one pi version present) under distinct labels — versions only, no
+  filesystem paths, since `/api/health` is unauthenticated.
 - Skill cards in the Resources view now carry provenance. The server joins pi's
   resolved skills against what an attached session actually loaded (from the
   `commands_list` it already sends) on canonicalized real paths, so a card reads
@@ -83,6 +99,49 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **BREAKING (macOS): the desktop app now requires macOS 12 (Monterey) or newer.**
+  macOS 10.15 (Catalina) and 11 (Big Sur) are no longer supported.
+
+  The Electron runtime moved from `32.3.3` to `43.4.1`. The 32.x line is
+  end-of-life and receives **no security backports**, and the desktop app ships a
+  full Chromium to end users and auto-updates it into every install — so staying
+  on it meant shipping ~22 Chromium majors of known renderer CVEs in a released
+  artifact. Every currently-supported Electron line requires macOS 12, so the
+  floor move is not optional: Electron dropped 10.15 at v33 and 11 at v38. Both
+  are also past Apple's own security window (Catalina EOL 2022-09, Big Sur EOL
+  2023-09).
+
+  **If you are on macOS 10.15 or 11:** you keep the version you have installed
+  today and will **not** be offered this or any later update. The update stream
+  is gated on the minimum supported OS (`minimumSystemVersion` in the published
+  `latest-mac.yml`), specifically so your client does not download a build macOS
+  would then refuse to launch and retry it forever. There is no action to take,
+  and nothing breaks — your current install keeps working. To move forward you
+  need macOS 12 or newer.
+
+  Intel Macs are **not** dropped: the `darwin/x64` build is retained, and Apple
+  supports Intel hardware on macOS 12+. Windows and Linux are unaffected.
+
+- **tmux sessions now launch the pi the dashboard resolved, not the first `pi` on
+  the shell's `PATH`.** `buildTmuxCommand` returns an argv array and the tmux CLI
+  is invoked without a dashboard-side shell. This aligns tmux with the headless
+  and Windows Terminal mechanisms, which already resolved through the tool
+  registry — but it is a real change on the DEFAULT interactive path for macOS and
+  Linux, and it applies whether or not you ever open the new picker. If your shell
+  `pi` differs from the dashboard's, those sessions change which binary they run.
+  WSL-tmux is unaffected: it still resolves `pi` inside the WSL namespace.
+- **A pre-existing `pi`-only override now surfaces as divergence.** Setting a `pi`
+  path override through Settings → Tools without also setting `pi-coding-agent`
+  has always split the runtime in half; nothing reported it before. After this
+  release that state opens the new section unchecked with a banner naming both
+  versions. This is a disclosure of an existing condition, not a regression, and
+  the banner offers one-click re-linking. Your existing pin is never overwritten
+  just by opening the section.
+- `PUT /api/tools/pi` and `PUT /api/tools/pi-coding-agent` now validate the path
+  before persisting it: it must exist and must not be a directory (a directory is
+  illegal for both consumers). The 400 names the check that failed. An executable
+  with no adjacent `package.json` (a Windows `.cmd` shim) is still accepted, with
+  an unknown version. No other tool's override behaviour changes.
 - Upgraded the pinned pi runtime to `@earendil-works/pi-coding-agent@0.84.1`.
   `piCompatibility.recommended` moves to `0.84.1`, the server dependency to
   `^0.84.1`, and the Docker image pin to `@0.84.1`. The broad-support floor
@@ -118,6 +177,16 @@ see [`docs/release-process.md`](docs/release-process.md).
   cannot leak a plain-http address into a QR code. A legacy-sourced value never
   feeds OAuth: that value was chosen to answer a different question, and an
   OAuth redirect URI must be one origin the operator states explicitly.
+
+### Security
+
+- **Fixed a command-injection vector in tmux session spawning.** `buildTmuxCommand`
+  interpolated `cd <cwd> &&` into a double-quoted, shell-executed string, so a
+  workspace path containing `$(…)` or backticks executed its contents when a
+  session was spawned into it. The tmux invocation is now an argv array with the
+  cwd as a literal `-c` element, and the redundant `cd` prefix is gone. Values
+  interpolated into the pane command are still shell-escaped, because tmux runs
+  that argument through a shell of its own. Tracked as `fix-tmux-cwd-command-injection`.
 
 ### Fixed
 

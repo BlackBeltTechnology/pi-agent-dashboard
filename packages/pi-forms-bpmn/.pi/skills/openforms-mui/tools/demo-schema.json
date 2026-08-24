@@ -1,0 +1,80 @@
+{
+  "formTitle": "Konferencia Regisztráció 2026",
+  "formDescription": "OpenForms MUI skill demó — több mezőtípus, feltételes láthatóság és számított összeg.",
+  "pages": [
+    {
+      "pageId": "reg",
+      "title": "Résztvevő adatai",
+      "sections": [
+        {
+          "sectionId": "personal",
+          "title": "Személyes adatok",
+          "rows": [
+            {
+              "columns": [
+                { "width": 6, "fields": [
+                  { "key": "fullName", "type": "text", "label": "Teljes név", "required": true, "placeholder": "Csákány Róbert" }
+                ]},
+                { "width": 6, "fields": [
+                  { "key": "email", "type": "text", "label": "E-mail", "required": true, "validationRegex": "^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$", "errorMessage": "Érvényes e-mail címet adj meg." }
+                ]}
+              ]
+            },
+            {
+              "columns": [
+                { "width": 6, "fields": [
+                  { "key": "attendeeType", "type": "radio", "label": "Jegytípus", "required": true, "options": [
+                    { "label": "Standard (50 000 Ft)", "value": "standard" },
+                    { "label": "VIP (90 000 Ft)", "value": "vip" },
+                    { "label": "Diák (20 000 Ft)", "value": "student" }
+                  ]}
+                ]},
+                { "width": 6, "fields": [
+                  { "key": "attendDate", "type": "date", "label": "Melyik napra jössz?", "required": true }
+                ]}
+              ]
+            }
+          ]
+        },
+        {
+          "sectionId": "student",
+          "title": "Diák igazolás",
+          "conditionalRules": [
+            { "targetProperty": "visibility", "andGroups": [
+              { "conditions": [ { "dependentFieldKey": "attendeeType", "operator": "equals", "equalsValue": "student" } ] }
+            ]}
+          ],
+          "rows": [
+            { "columns": [ { "width": 12, "fields": [
+              { "key": "studentId", "type": "text", "label": "Diákigazolvány szám", "required": true, "helpText": "Csak diák jegynél kötelező." }
+            ]}]}
+          ]
+        },
+        {
+          "sectionId": "extras",
+          "title": "Kiegészítők",
+          "rows": [
+            { "columns": [ { "width": 12, "fields": [
+              { "key": "addons", "type": "checkbox", "label": "Extra opciók", "options": [
+                { "label": "Workshop belépő (+15 000 Ft)", "value": "workshop" },
+                { "label": "Gála vacsora (+25 000 Ft)", "value": "dinner" },
+                { "label": "Konferencia póló", "value": "tshirt" }
+              ]}
+            ]}]},
+            { "columns": [
+              { "width": 6, "fields": [
+                { "key": "quantity", "type": "number", "label": "Jegyek száma", "required": true, "min": 1, "max": 10 }
+              ]},
+              { "width": 6, "fields": [
+                { "key": "notes", "type": "textarea", "label": "Megjegyzés a szervezőknek", "rows": 3, "maxLength": 200 }
+              ]}
+            ]},
+            { "columns": [ { "width": 12, "fields": [
+              { "key": "newsletter", "type": "boolean", "label": "Kérek hírlevelet a jövőbeli eseményekről" }
+            ]}]}
+          ]
+        }
+      ]
+    }
+  ]
+}

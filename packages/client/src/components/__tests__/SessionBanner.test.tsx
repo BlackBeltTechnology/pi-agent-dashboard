@@ -6,8 +6,8 @@
  * never two sibling cards. Observe-only: pi owns the retry loop, so the banner
  * has NO "Stop retrying" control. The trailing control's icon states its action:
  * a chevron that COLLAPSES while retrying (component-local — it never clears
- * `retryState`, so the session Stop stays mounted), and a real ✕ once retrying
- * stops. There is NO Retry control.
+ * `retryState`, so the session Stop stays mounted), and Retry + Copy + a real
+ * ✕ once retrying stops with a provider error.
  * See change: raw-error-render-and-retry-authority.
  *
  * The selector (`deriveBannerState`) is tested in event-reducer.test.ts.
@@ -53,21 +53,56 @@ describe("SessionBanner — hidden + single-card composition", () => {
 });
 
 describe("SessionBanner — settled error (no retry)", () => {
-  it("shows the message, a clear-only ✕, and NO Stop / NO Retry", () => {
+  it("F1/E7 shows Retry, Copy, and a clear-only ✕ with no Stop", () => {
     const onDismiss = vi.fn();
-    const { getByTestId, container } = render(
+    const onRetry = vi.fn();
+    const { getByTestId, getByTitle, container } = render(
       <SessionBanner
         state={{ error: { kind: "error", message: "fetch failed: ECONNRESET" } }}
         onDismiss={onDismiss}
+        onRetry={onRetry}
         now={clock}
       />,
     );
     expect(getByTestId("error-banner-text").textContent).toContain("fetch failed: ECONNRESET");
-    expect(container.querySelector('[data-testid="error-banner-retry"]')).toBeNull();
+    const retryButton = getByTestId("error-banner-retry") as HTMLButtonElement;
+    fireEvent.click(retryButton);
+    fireEvent.click(retryButton);
+    expect(onRetry).toHaveBeenCalledOnce();
+    expect(retryButton.disabled).toBe(true);
+    expect(getByTitle("Copy error message")).toBeTruthy();
     expect(container.querySelector('[data-testid="error-banner-stop"]')).toBeNull();
-    // ✕ clears via onDismiss.
     fireEvent.click(getByTestId("error-banner-dismiss"));
     expect(onDismiss).toHaveBeenCalledOnce();
+  });
+
+  it("E9 re-enables Retry when the same provider message settles with a new revision", () => {
+    const onRetry = vi.fn();
+    const error = { error: { kind: "error" as const, message: "503 overloaded" } };
+    const { getByTestId, rerender } = render(
+      <SessionBanner state={error} retryRevision={1} onRetry={onRetry} onDismiss={vi.fn()} now={clock} />,
+    );
+
+    fireEvent.click(getByTestId("error-banner-retry"));
+    expect((getByTestId("error-banner-retry") as HTMLButtonElement).disabled).toBe(true);
+
+    rerender(
+      <SessionBanner state={error} retryRevision={2} onRetry={onRetry} onDismiss={vi.fn()} now={clock} />,
+    );
+    expect((getByTestId("error-banner-retry") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("F5 omits Retry without a callback but keeps Copy and X", () => {
+    const { getByTestId, getByTitle, container } = render(
+      <SessionBanner
+        state={{ error: { kind: "error", message: "provider failed" } }}
+        onDismiss={vi.fn()}
+        now={clock}
+      />,
+    );
+    expect(container.querySelector('[data-testid="error-banner-retry"]')).toBeNull();
+    expect(getByTitle("Copy error message")).toBeTruthy();
+    expect(getByTestId("error-banner-dismiss")).toBeTruthy();
   });
 
   it("a billing/quota error renders as an ordinary error (no special variant)", () => {
@@ -98,6 +133,7 @@ describe("SessionBanner — trailing control states its own action", () => {
     );
     expect(getByTestId("error-banner-collapse")).toBeTruthy();
     expect(container.querySelector('[data-testid="error-banner-dismiss"]')).toBeNull();
+    expect(container.querySelector('[data-testid="error-banner-retry"]')).toBeNull();
     expect(container.querySelector('[data-testid="error-banner-stop"]')).toBeNull();
   });
 
@@ -111,6 +147,7 @@ describe("SessionBanner — trailing control states its own action", () => {
     );
     expect(getByTestId("error-banner-collapse")).toBeTruthy();
     expect(container.querySelector('[data-testid="error-banner-dismiss"]')).toBeNull();
+    expect(container.querySelector('[data-testid="error-banner-retry"]')).toBeNull();
   });
 
   it("collapsing does NOT invoke onDismiss and dispatches no abort", () => {
@@ -166,17 +203,28 @@ describe("SessionBanner — trailing control states its own action", () => {
     expect(getByTestId("error-banner-text").textContent).toContain("overloaded");
   });
 
-  it("a collapsed surface re-expands when retrying stops, and offers a real dismiss", () => {
-    const { getByTestId, rerender, container } = render(
-      <SessionBanner state={errRetry} onDismiss={vi.fn()} now={clock} />,
+  it("F2 a collapsed surface re-expands when retrying stops with Retry + Copy + X", () => {
+    const { getByTestId, getByTitle, rerender, container } = render(
+      <SessionBanner state={errRetry} onDismiss={vi.fn()} onRetry={vi.fn()} now={clock} />,
     );
     fireEvent.click(getByTestId("error-banner-collapse"));
     expect(container.querySelector('[data-testid="error-banner-text"]')).toBeNull();
     // Retry ends, error remains → expanded + closable.
-    rerender(<SessionBanner state={{ error: { kind: "error", message: "overloaded" } }} onDismiss={vi.fn()} now={clock} />);
+    rerender(<SessionBanner state={{ error: { kind: "error", message: "overloaded" } }} onDismiss={vi.fn()} onRetry={vi.fn()} now={clock} />);
     expect(getByTestId("error-banner-text").textContent).toContain("overloaded");
+    expect(getByTestId("error-banner-retry")).toBeTruthy();
+    expect(getByTitle("Copy error message")).toBeTruthy();
     expect(getByTestId("error-banner-dismiss")).toBeTruthy();
     expect(container.querySelector('[data-testid="error-banner-collapse"]')).toBeNull();
+  });
+
+  it("F3 automatic recovery rerender removes the whole banner", () => {
+    const { container, rerender } = render(
+      <SessionBanner state={errRetry} onDismiss={vi.fn()} onRetry={vi.fn()} now={clock} />,
+    );
+    expect(container.querySelector('[data-testid="error-banner"]')).not.toBeNull();
+    rerender(<SessionBanner state={{ variant: "hidden" }} onDismiss={vi.fn()} onRetry={vi.fn()} now={clock} />);
+    expect(container.querySelector('[data-testid="error-banner"]')).toBeNull();
   });
 
   it("NO stop-retrying control exists in ANY state", () => {

@@ -38,7 +38,7 @@ export const SUBAGENT_CHANNELS = new Set<string>([
 ]);
 
 /** Channels that terminate a subagent run (drop it from the resync snapshots). */
-const TERMINAL_CHANNELS = new Set<string>(["subagents:completed", "subagents:failed"]);
+export const TERMINAL_CHANNELS = new Set<string>(["subagents:completed", "subagents:failed"]);
 
 export interface SubagentFrameStats {
   /** Frames forwarded live (ready path). */
@@ -61,6 +61,14 @@ export interface SubagentFrameStats {
   resyncByAgentSessionId: number;
   /** Resync requests for an unknown/finished agent (no-op). */
   resyncNoop: number;
+  /**
+   * Resync requests issued by the open-inspector PULL LOOP rather than by a
+   * user opening a view. Sits beside the counters above so the D4 v1 cadence is
+   * provably not a new firehose: `resyncCadence / resyncRequests` is the share
+   * of the pull traffic the loop is responsible for.
+   * See change: reduce-subagent-details-payload (D6, task 9.4).
+   */
+  resyncCadence: number;
 }
 
 export class SubagentFrameBuffer {
@@ -80,9 +88,21 @@ export class SubagentFrameBuffer {
     resyncByAgentId: 0,
     resyncByAgentSessionId: 0,
     resyncNoop: 0,
+    resyncCadence: 0,
   };
 
-  /** @param maxAgents bound on distinct buffered agents (drop-oldest beyond it). */
+  /**
+   * @param maxAgents bound on distinct buffered agents (drop-oldest beyond it).
+   *
+   * The bound stays 64 now that resync is the ONLY mid-run timeline source
+   * (task 7.1). Raising it was considered and rejected: 64 concurrent RUNNING
+   * subagents in one session is already far past any observed workload, and a
+   * higher ceiling would trade a bounded, counted loss for unbounded retention
+   * on the bridge. The ceiling is instead made observable — `overflowEvicted`
+   * counts every eviction, and an evicted still-running agent answers with an
+   * explicit `resyncNoop` so the client keeps its last rendered state rather
+   * than blanking (C3). See change: reduce-subagent-details-payload.
+   */
   constructor(private readonly maxAgents = 64) {}
 
   static isSubagentChannel(channel: string): boolean {
@@ -188,8 +208,9 @@ export class SubagentFrameBuffer {
    * user-initiated cold path. Terminal/evicted runs retain no snapshot, so both
    * ids resolve to nothing. See change: resolve-subagent-inspector-by-session-id (D3).
    */
-  resync(id: string): SubagentFrame | undefined {
+  resync(id: string, reason?: "open" | "cadence"): SubagentFrame | undefined {
     this.stats.resyncRequests += 1;
+    if (reason === "cadence") this.stats.resyncCadence += 1;
     const byAgentId = this.snapshots.get(id);
     if (byAgentId) {
       this.stats.resyncServed += 1;

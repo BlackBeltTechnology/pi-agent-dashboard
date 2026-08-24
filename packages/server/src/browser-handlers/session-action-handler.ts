@@ -13,14 +13,20 @@ import {
 import {
   findPidByMarker,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process-identify.js";
+import {
+  type DispatchReloadContext,
+  dispatchReload,
+} from "../rpc-keeper/dispatch-reload.js";
 import { createBranchedSessionFile } from "../session/session-file-reader.js";
+import { decideResume } from "../session/session-origin.js";
 import { keeperOptsFromSpawnResult } from "../spawn-process/headless-pid-registry.js";
 import { getKeeperManager, spawnPiSession } from "../spawn-process/process-manager.js";
 import { appendSpawnFailure } from "../spawn-process/spawn-failure-log.js";
 import { preflightSpawn } from "../spawn-process/spawn-preflight.js";
+import { deriveSpawnCorrelationTtlMs } from "../spawn-process/spawn-recovery-window.js";
 import { armSpawnWatchdog, getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
 import type { BrowserHandlerContext } from "./handler-context.js";
-import { shouldInterceptReload } from "./session-action-helpers.js";
+import { isBareReloadCommand } from "./session-action-helpers.js";
 
 /**
  * Status message + code emitted when fork is attempted on a session whose
@@ -34,6 +40,58 @@ import { shouldInterceptReload } from "./session-action-helpers.js";
 export const FORK_DEGRADED_TO_NEW_MESSAGE =
   "Started a fresh session \u2014 the source had no persisted history to fork from.";
 export const FORK_DEGRADED_TO_NEW_CODE = "FORK_DEGRADED_TO_NEW";
+
+/**
+ * The slice of `BrowserHandlerContext` the reload path actually needs.
+ *
+ * Narrower than the full handler context on purpose: the automated fan-out
+ * triggers live in `server.ts` and `routes/`, where there is no browser
+ * WebSocket to hang a full `BrowserHandlerContext` off. Without this slice
+ * those call sites could not share the ladder, which is exactly how they
+ * ended up hand-rolling `sendToSession` loops that bypassed it.
+ *
+ * See change: fix-out-of-band-reload.
+ */
+export type ReloadHostContext = Pick<
+  BrowserHandlerContext,
+  "sessionManager" | "eventStore" | "piGateway" | "headlessPidRegistry" | "broadcast"
+>;
+
+/**
+ * Respawn a headless session because its pi-core BINARY changed.
+ *
+ * Shares the mechanism with a reload but not the policy: a reload of a BUSY
+ * session is refused (respawning mid-stream destroys in-flight work), whereas
+ * a runtime swap cannot be deferred that way — the operator has replaced the
+ * binary under every running session, so this path respawns unconditionally,
+ * including connected and streaming ones. Sessions that cannot be swapped
+ * report `error` rather than silently succeeding (design.md D6).
+ *
+ * See change: fix-out-of-band-reload.
+ */
+export async function respawnForRuntimeSwap(
+  sessionId: string,
+  ctx: ReloadHostContext,
+): Promise<void> {
+  // A session with no registered PID is not ours to respawn: spawning here
+  // would start a SECOND pi process against a terminal-hosted session's file.
+  // Reported as an error rather than silently succeeding, so a pi-core swap
+  // never claims to have swapped a session it structurally cannot swap.
+  if (ctx.headlessPidRegistry.getPid(sessionId) === undefined) {
+    emitCommandFeedback(
+      ctx,
+      sessionId,
+      "error",
+      "Not a headless session — pi-core update cannot swap its runtime",
+    );
+    return;
+  }
+  await handleHeadlessReload(
+    { type: "send_prompt", sessionId, text: "/reload" } as any,
+    ctx,
+    { ignoreStreamingGuard: true },
+  );
+}
 
 /**
  * Find headless pi PIDs associated with a session-id marker and kill them.
@@ -71,18 +129,53 @@ function killHeadlessBySessionId(sessionId: string): boolean {
  * See change: headless-reload-via-respawn.
  */
 function emitCommandFeedback(
-  ctx: BrowserHandlerContext,
+  ctx: ReloadHostContext,
   sessionId: string,
   status: "started" | "completed" | "error",
   message?: string,
+  command = "/reload",
 ): void {
   const event = {
     eventType: "command_feedback",
     timestamp: Date.now(),
-    data: { command: "/reload", status, ...(message ? { message } : {}) },
+    data: { command, status, ...(message ? { message } : {}) },
   };
   const seq = ctx.eventStore.insertEvent(sessionId, event);
   ctx.broadcast({ type: "event", sessionId, seq, event } as any);
+}
+
+/**
+ * Bind a `BrowserHandlerContext` to the reload ladder's dependency surface.
+ *
+ * Exported so the fan-out call sites in `server.ts` and
+ * `resource-activation-routes.ts` reload through exactly the same ladder as
+ * the reload button, instead of each hand-rolling a `sendToSession` loop that
+ * bypasses the interception entirely.
+ *
+ * See change: fix-out-of-band-reload.
+ */
+export function buildDispatchReloadContext(
+  ctx: ReloadHostContext,
+): DispatchReloadContext {
+  return {
+    headlessPidRegistry: ctx.headlessPidRegistry,
+    getSession: (sid) => ctx.sessionManager.get(sid),
+    isSessionConnected: (sid) => ctx.piGateway.isSessionConnected(sid),
+    sendToSession: (sid, text) =>
+      ctx.piGateway.sendToSession(sid, {
+        type: "send_prompt",
+        sessionId: sid,
+        text,
+      }),
+    respawn: (sid, opts) =>
+      handleHeadlessReload(
+        { type: "send_prompt", sessionId: sid, text: "/reload" } as any,
+        ctx,
+        opts,
+      ),
+    emitCommandFeedback: (sid, command, status, message) =>
+      emitCommandFeedback(ctx, sid, status, message, command),
+  };
 }
 
 /**
@@ -102,11 +195,28 @@ function emitCommandFeedback(
  * context usage, attachedProposal) when the same sessionId re-registers,
  * the user-visible session state survives the respawn.
  *
+ * Since change: fix-out-of-band-reload this is reached through
+ * `dispatchReload` (which owns the busy decision) and through
+ * `respawnForRuntimeSwap` for a pi-core binary swap — but it remains the
+ * DEFAULT mechanism for a headless session, because pi's RPC `{type:"prompt"}`
+ * performs no slash-command dispatch and there is therefore no in-process path
+ * to reach. See `rpc-keeper/dispatch-reload.ts` for the measurement.
+ *
  * See change: headless-reload-via-respawn.
  */
 export async function handleHeadlessReload(
   msg: Extract<BrowserToServerMessage, { type: "send_prompt" }>,
-  ctx: BrowserHandlerContext,
+  ctx: ReloadHostContext,
+  opts: {
+    /**
+     * Skip the `status === "streaming"` refusal. Set by callers that have
+     * already made the busy decision with information this helper lacks:
+     * `dispatchReload` (a bridge-dead session pinned at a stale `streaming`
+     * must stay respawnable, design.md D4) and the pi-core runtime swap (the
+     * process is being replaced, not reloaded under a live runner, D6).
+     */
+    ignoreStreamingGuard?: boolean;
+  } = {},
 ): Promise<void> {
   const { sessionManager, headlessPidRegistry } = ctx;
   const session = sessionManager.get(msg.sessionId);
@@ -123,7 +233,7 @@ export async function handleHeadlessReload(
     );
     return;
   }
-  if (session.status === "streaming") {
+  if (session.status === "streaming" && !opts.ignoreStreamingGuard) {
     emitCommandFeedback(
       ctx,
       msg.sessionId,
@@ -200,12 +310,13 @@ export async function handleSendPrompt(
 ): Promise<void> {
   const { sessionManager, piGateway, headlessPidRegistry, pendingResumeRegistry, pendingResumeIntents, pendingDashboardSpawns, broadcast } = ctx;
 
-  // Intercept `/reload` on active headless sessions — forward the request to
-  // our kill-and-respawn handler instead of routing the prompt to the bridge
-  // (the bridge has no programmatic reload path on RPC).
-  // See change: headless-reload-via-respawn.
-  if (shouldInterceptReload(msg, headlessPidRegistry)) {
-    await handleHeadlessReload(msg, ctx);
+  // Route the bare `/reload` through the single server-side reload entry
+  // point: busy → refuse, headless PID → respawn, live bridge → forward, else
+  // an honest error. Routing here (rather than only in the four automated
+  // fan-outs) is what makes every trigger converge on one observable outcome.
+  // See change: fix-out-of-band-reload.
+  if (isBareReloadCommand(msg)) {
+    await dispatchReload(msg.sessionId, buildDispatchReloadContext(ctx));
     return;
   }
 
@@ -375,6 +486,33 @@ export async function handleResumeSession(
   // "keep" so the dropped slot is preserved through the resume round-trip.
   // See change: differentiate-resume-intent-by-trigger.
   const placement: "front" | "keep" = msg.placement ?? "front";
+  // D13: a remote-origin session is read-only here. The REST endpoint has
+  // always refused it, but the dashboard client resumes over THIS path, so the
+  // only thing standing between a drag-to-resume and a local pi writing a
+  // foreign transcript was the client hiding a button. Hiding is not refusing.
+  //
+  // Deliberately BEFORE the `sessionFile` guard, like the REST twin: the
+  // dangerous case is not a missing path but a present, plausible one, because
+  // two hosts with the same username produce identical paths (#E15). Reporting
+  // "pre-migration session" there would hide the real reason.
+  // See change: add-pi-gateway-transport-identity (task 13.6).
+  const resumeVerdict = decideResume({
+    origin: session.originDeviceId
+      ? { local: false, deviceId: session.originDeviceId }
+      : { local: true },
+    status: session.status,
+  });
+  if (!resumeVerdict.allow) {
+    sendTo(ws, {
+      type: "resume_result",
+      sessionId: msg.sessionId,
+      success: false,
+      message: resumeVerdict.reason,
+      code: `resume.${resumeVerdict.cause.replace(/-/g, "_")}`,
+      requestId: msg.requestId,
+    });
+    return;
+  }
   if (!session.sessionFile) {
     sendTo(ws, { type: "resume_result", sessionId: msg.sessionId, success: false, message: "Session file is unknown (pre-migration session)", code: "resume.session_file_unknown", requestId: msg.requestId });
     return;
@@ -455,7 +593,13 @@ export async function handleResumeSession(
       strategy: degradeConfig.spawnStrategy,
     });
     // Zombie reopen is a spawn entry point.
-    armSpawnWatchdog(session.cwd, degradeConfig.spawnStrategy as any, degradeResult, ws);
+    const degradeTimeoutMs = armSpawnWatchdog(
+      session.cwd,
+      degradeConfig.spawnStrategy as any,
+      degradeResult,
+      ws,
+      degradeConfig.spawnRegisterTimeoutMs,
+    );
     if (degradeResult.process && degradeResult.pid) {
       headlessPidRegistry.register(
         degradeResult.pid,
@@ -465,8 +609,15 @@ export async function handleResumeSession(
         keeperOptsFromSpawnResult(degradeResult),
       );
     }
-    if (msg.requestId && degradeResult.spawnToken && pendingClientCorrelations) {
-      pendingClientCorrelations.record(degradeResult.spawnToken, msg.requestId);
+    if (msg.requestId && degradeResult.spawnToken && pendingClientCorrelations && degradeTimeoutMs !== undefined) {
+      // TTL derived from the SAME timeout that armed the watchdog above, so the
+      // correlation always outlives the recovery window.
+      // See change: fix-spawn-correlation-ttl-coupling (D1).
+      pendingClientCorrelations.record(
+        degradeResult.spawnToken,
+        msg.requestId,
+        deriveSpawnCorrelationTtlMs(degradeTimeoutMs),
+      );
     }
     if (degradeResult.dashboardSpawned && degradeResult.success) {
       pendingDashboardSpawns?.set(
@@ -511,16 +662,30 @@ export async function handleResumeSession(
     strategy: resumeConfig.spawnStrategy,
   });
   // WebSocket drag-to-resume / fork is a spawn entry point.
-  armSpawnWatchdog(session.cwd, resumeConfig.spawnStrategy as any, result, ws);
+  const resumeTimeoutMs = armSpawnWatchdog(
+    session.cwd,
+    resumeConfig.spawnStrategy as any,
+    result,
+    ws,
+    resumeConfig.spawnRegisterTimeoutMs,
+  );
   // Record fork parent keyed by spawn token (was: keyed by cwd, racy on
   // multi-fork-in-same-cwd). See change: spawn-correlation-token.
   if (msg.mode === "fork" && pendingForkRegistry && result.spawnToken) {
-    pendingForkRegistry.recordFork(result.spawnToken, msg.sessionId);
+    pendingForkRegistry.recordFork(
+      result.spawnToken,
+      msg.sessionId,
+      deriveSpawnCorrelationTtlMs(resumeTimeoutMs ?? resumeConfig.spawnRegisterTimeoutMs),
+    );
   }
   // Record client-correlation so the eventual session_added carries
   // spawnRequestId. See change: spawn-correlation-token.
-  if (msg.requestId && result.spawnToken && pendingClientCorrelations) {
-    pendingClientCorrelations.record(result.spawnToken, msg.requestId);
+  if (msg.requestId && result.spawnToken && pendingClientCorrelations && resumeTimeoutMs !== undefined) {
+    pendingClientCorrelations.record(
+      result.spawnToken,
+      msg.requestId,
+      deriveSpawnCorrelationTtlMs(resumeTimeoutMs),
+    );
   }
   if (result.dashboardSpawned && result.success) {
     pendingDashboardSpawns?.set(session.cwd, (pendingDashboardSpawns?.get(session.cwd) ?? 0) + 1);
@@ -608,7 +773,13 @@ export async function handleSpawnSession(
     // Record client-correlation so the eventual session_added carries
     // spawnRequestId. See change: spawn-correlation-token.
     if (msg.requestId && spawnResult.spawnToken && pendingClientCorrelations) {
-      pendingClientCorrelations.record(spawnResult.spawnToken, msg.requestId);
+      // `config` is the same read used to arm this spawn's watchdog below.
+      // See change: fix-spawn-correlation-ttl-coupling (D1).
+      pendingClientCorrelations.record(
+        spawnResult.spawnToken,
+        msg.requestId,
+        deriveSpawnCorrelationTtlMs(config.spawnRegisterTimeoutMs),
+      );
     }
     if (spawnResult.dashboardSpawned && spawnResult.success) {
       pendingDashboardSpawns?.set(msg.cwd, (pendingDashboardSpawns?.get(msg.cwd) ?? 0) + 1);
@@ -895,10 +1066,24 @@ export function handleSubagentResyncRequest(
   msg: Extract<BrowserToServerMessage, { type: "subagent_resync_request" }>,
   ctx: BrowserHandlerContext,
 ): void {
+  // Requester-scoped delivery (C5): remember who asked, and pass the token to
+  // the bridge so it can echo it on the reply. A client that sends no token
+  // still works — its reply takes the ordinary broadcast path.
+  // See change: reduce-subagent-details-payload.
+  // The WS path casts parsed JSON straight to the message union, so these two
+  // fields are untrusted: validate their RUNTIME shape before they reach the
+  // registry or the bridge. A malformed token degrades to fan-out delivery
+  // rather than poisoning the registry.
+  const requestId =
+    typeof msg.requestId === "string" && msg.requestId.length > 0 ? msg.requestId : undefined;
+  const reason = msg.reason === "open" || msg.reason === "cadence" ? msg.reason : undefined;
+  if (requestId) ctx.recordResyncRequester?.(requestId, ctx.ws);
   ctx.piGateway.sendToSession(msg.sessionId, {
     type: "subagent_resync_request",
     sessionId: msg.sessionId,
     agentId: msg.agentId,
+    ...(requestId ? { requestId } : {}),
+    ...(reason ? { reason } : {}),
   });
 }
 

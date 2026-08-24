@@ -4,18 +4,19 @@
  * Covers: list, get single, rescan (all / one), set override, clear
  * override, unknown-tool 404, bad-body 400, diagnostics text format.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import Fastify, { type FastifyInstance } from "fastify";
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
-  ToolRegistry,
   OverridesStore,
   registerDefaultTools,
   type Strategy,
+  ToolRegistry,
 } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
-import { registerToolRoutes, formatDiagnostics } from "../routes/tool-routes.js";
+import Fastify, { type FastifyInstance } from "fastify";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { formatDiagnostics, registerToolRoutes } from "../routes/tool-routes.js";
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -160,18 +161,78 @@ describe("POST /api/tools/rescan", () => {
 });
 
 describe("PUT /api/tools/:name (set override)", () => {
+  // `pi` and `pi-coding-agent` overrides are validated at the write boundary
+  // as of change: select-pi-runtime-install (design D6), so this case now
+  // uses a real on-disk entry file instead of an invented path.
   it("sets the override and returns refreshed Resolution", async () => {
     const r = buildRegistry();
     const fastify = buildServer(r);
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tool-routes-pi-"));
+    const entry = path.join(dir, "cli.js");
+    fs.writeFileSync(entry, "#!/usr/bin/env node\n");
 
     const res = await fastify.inject({
       method: "PUT", url: "/api/tools/pi",
-      payload: { path: "/custom/pi" },
+      payload: { path: entry },
     });
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.data.source).toBe("override");
-    expect(body.data.path).toBe("/custom/pi");
+    // The pi write paths persist the validator's REALPATH'd value, so PUT and
+    // POST /api/pi/runtime normalize identically (macOS: /tmp -> /private/tmp).
+    expect(body.data.path).toBe(fs.realpathSync(entry));
+    fs.rmSync(dir, { recursive: true, force: true });
+    await fastify.close();
+  });
+
+  it("E11: 400s on a non-existent pi override, naming the failed check", async () => {
+    const fastify = buildServer(buildRegistry());
+    const res = await fastify.inject({
+      method: "PUT", url: "/api/tools/pi", payload: { path: "/nonexistent/pi" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("exists");
+    // The previously-active resolution is untouched.
+    const after = await fastify.inject({ method: "GET", url: "/api/tools/pi" });
+    expect(after.json().data.source).not.toBe("override");
+    await fastify.close();
+  });
+
+  it("E12: 400s on a DIRECTORY pi override and persists nothing", async () => {
+    const fastify = buildServer(buildRegistry());
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tool-routes-dir-"));
+    const res = await fastify.inject({
+      method: "PUT", url: "/api/tools/pi", payload: { path: dir },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("not-a-directory");
+    const after = await fastify.inject({ method: "GET", url: "/api/tools/pi" });
+    expect(after.json().data.source).not.toBe("override");
+    fs.rmSync(dir, { recursive: true, force: true });
+    await fastify.close();
+  });
+
+  it("E13: accepts an executable with no adjacent package.json", async () => {
+    const fastify = buildServer(buildRegistry());
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "tool-routes-shim-"));
+    const shim = path.join(dir, "pi");
+    fs.writeFileSync(shim, "#!/bin/sh\nexec pi \"$@\"\n", { mode: 0o755 });
+    const res = await fastify.inject({
+      method: "PUT", url: "/api/tools/pi", payload: { path: shim },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.source).toBe("override");
+    fs.rmSync(dir, { recursive: true, force: true });
+    await fastify.close();
+  });
+
+  it("3.6: a NON-pi tool's override is not validated (behaviour unchanged)", async () => {
+    const fastify = buildServer(buildRegistry());
+    const res = await fastify.inject({
+      method: "PUT", url: "/api/tools/ghost", payload: { path: "/still/unvalidated" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().data.path).toBe("/still/unvalidated");
     await fastify.close();
   });
 
@@ -197,7 +258,7 @@ describe("PUT /api/tools/:name (set override)", () => {
 describe("DELETE /api/tools/:name (clear override)", () => {
   it("clears the override and returns refreshed Resolution", async () => {
     const r = buildRegistry();
-    r.setOverride("pi", "/custom/pi");
+    r.setOverride("pi", "/custom/pi"); // registry-level: no route validation
     const fastify = buildServer(r);
 
     const res = await fastify.inject({ method: "DELETE", url: "/api/tools/pi" });

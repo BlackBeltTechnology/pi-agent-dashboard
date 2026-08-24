@@ -3,6 +3,12 @@
  * (state, event) → new state
  */
 
+import {
+  imageBlockData,
+  imageBlockMime,
+  isRenderableImageBlock,
+  isTruncatedImageBlock,
+} from "@blackbelt-technology/pi-dashboard-shared/image-block.js";
 // Flow + architect state derivation moved into flows-plugin per change
 // pluginize-flows-via-registry. The shell carries no flow knowledge.
 // Plugins consume `useSessionEvents(sessionId)` from
@@ -32,7 +38,12 @@ export interface ChatImage {
 
 export interface ChatMessage {
   id: string;
-  role: "user" | "assistant" | "toolResult" | "thinking" | "bashOutput" | "commandFeedback" | "interactiveUi" | "turnSeparator" | "rawEvent" | "inlineTerminal";
+  /**
+   * `historyGap` is a SYNTHETIC interstitial — never produced by `reduceEvent`.
+   * It is spliced into `messages[]` by the message handler to disclose a
+   * windowed replay's elided middle. See change: lazy-load-session-history.
+   */
+  role: "user" | "assistant" | "toolResult" | "thinking" | "bashOutput" | "commandFeedback" | "interactiveUi" | "turnSeparator" | "rawEvent" | "inlineTerminal" | "historyGap";
   content: string;
   images?: ChatImage[];
   toolName?: string;
@@ -41,7 +52,15 @@ export interface ChatMessage {
   timestamp: number;
   args?: Record<string, unknown>;
   result?: string;
-  toolStatus?: "running" | "complete" | "error";
+  /**
+   * `elided` is a TERMINAL status meaning "the result is not loadable", not
+   * "the tool failed": a backfill segment ends mid-turn, orphaning a
+   * `tool_execution_start` whose end lies in already-delivered content and can
+   * therefore never arrive. Renderers must show a neutral "result not loaded"
+   * affordance — no spinner, no error styling.
+   * See change: fix-lazy-history-backfill-ux (D5).
+   */
+  toolStatus?: "running" | "complete" | "error" | "elided";
   /** Epoch ms when the block started (for live elapsed counter) */
   startedAt?: number;
   /** Duration in ms (set when complete) */
@@ -109,7 +128,8 @@ export interface ToolCallState {
   toolCallId: string;
   toolName: string;
   args?: Record<string, unknown>;
-  status: "running" | "complete" | "error";
+  /** See `ChatMessage.toolStatus` for the `elided` contract. */
+  status: "running" | "complete" | "error" | "elided";
   result?: string;
   /**
    * Epoch ms when `tool_execution_start` fired. Used by the session
@@ -342,8 +362,11 @@ export interface SessionState {
    * inputs. See change: surface-input-streaming-behavior.
    */
   pendingInputBehavior?: "steer" | "followUp";
-  /** Last LLM provider error (set from agent_end, cleared on agent_start or dismiss) */
+  /** Last LLM provider error. Persists through retry; clears on recovery, abort, dismissal, or removal. */
   lastError?: { message: string; timestamp: number };
+  /** Cancellation tombstone for an aborted retry chain. Suppresses delayed
+   * provider/retry events until settle or a deliberate user run. */
+  retryCancelled?: boolean;
   /**
    * Non-error notice: the model returned only reasoning, no answer
    * (empty-actionable turn surfaced by the bridge guard). Set from the
@@ -1224,6 +1247,43 @@ export function deriveBannerState(state: SessionState): BannerState {
   return out;
 }
 
+/**
+ * Correctness floor for a fully-reduced BACKFILL segment: stamp every row still
+ * `running` as `elided`, and finalize every row the segment left mid-stream.
+ *
+ * Stamp ALL of them, not "the ones at a seam". Within a slice a dangling
+ * `tool_execution_start`'s end is always ABOVE the slice — i.e. in content the
+ * client already holds — and later slices are strictly lower, so every
+ * still-running row in a COMPLETED backfill segment is provably unjoinable. A
+ * seam-scoped rule would fire nowhere and ship the bug intact.
+ *
+ * Scoped to backfill segments, never the initial windowed replay: a live
+ * session reopened mid-tool-run has a dangling start whose end simply has not
+ * happened yet. Stamping that would label a genuinely running tool "not
+ * loaded" AND remove it from supersede-heal eligibility (the heal selects
+ * `status === "running"`).
+ *
+ * Row-level, because the splice merges `messages` only and discards
+ * `seg.toolCalls` — renderers read `msg.toolStatus`, so a status written into
+ * the tool-call map would be unobservable.
+ *
+ * `isStreaming` is the identical defect one type over: a slice whose top edge
+ * lands mid-message produces an assistant row nothing ever clears, i.e. a
+ * permanently "streaming" bubble.
+ * See change: fix-lazy-history-backfill-ux (D5).
+ */
+export function finalizeBackfillSegment(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map((m) => {
+    const elide = m.toolStatus === "running";
+    const finalize = m.isStreaming === true;
+    if (!elide && !finalize) return m;
+    const out = { ...m };
+    if (elide) out.toolStatus = "elided";
+    if (finalize) out.isStreaming = false;
+    return out;
+  });
+}
+
 export function reduceEvent(
   state: SessionState,
   event: DashboardEvent,
@@ -1239,12 +1299,9 @@ export function reduceEvent(
       next.status = "streaming";
       next.streamingText = "";
       next.pendingPrompt = undefined;
-      // lastError is NOT cleared here. The error anchor persists across the
-      // start of a retry/continuation turn and clears only on a confirmed
-      // non-error response (message_end end_turn / clean agent_end). This
-      // removes the optimistic-clear desync where the error vanished before
-      // the retry was confirmed good. See change: unify-error-retry-lifecycle.
-      next.retryState = undefined;
+      // lastError and retryState persist across pi-owned continuation. The
+      // typed auto_retry_start updates waiting → in-flight; the first non-error
+      // assistant completion clears both. See change: fix-retry-error-lifecycle.
       // A fresh turn clears any stale empty-actionable notice.
       // See change: fix-gemini-subagent-silent-tool-schema-failure.
       next.notice = undefined;
@@ -1275,14 +1332,15 @@ export function reduceEvent(
       next.streamingText = "";
       next.currentTool = undefined;
       next.pendingPrompt = undefined;
-      const errorMsg = extractAgentEndError(data);
-      if (errorMsg) {
-        next.lastError = { message: errorMsg, timestamp: event.timestamp };
-      } else if (isCleanAgentEnd(data)) {
-        // Confirmed-good clear: a terminal agent_end whose last message is a
-        // non-error stop clears the persistent error anchor.
-        // See change: unify-error-retry-lifecycle.
-        next.lastError = undefined;
+      if (!state.retryCancelled) {
+        const errorMsg = extractAgentEndError(data);
+        if (errorMsg) {
+          next.lastError = { message: errorMsg, timestamp: event.timestamp };
+        } else if (isCleanAgentEnd(data)) {
+          // Fallback recovery for sources that omit message_end.
+          next.lastError = undefined;
+          next.retryState = undefined;
+        }
       }
       // retryState is NOT cleared here: pi fires one agent_end PER attempt, so
       // clearing would wipe the waiting/in-flight state between every attempt.
@@ -1292,6 +1350,14 @@ export function reduceEvent(
     }
 
     case "agent_settled": {
+      // Floor-pi emits a compatibility settle after every agent_end. While the
+      // bridge still observes pi as busy, this is not terminal: preserve retry
+      // and abort suppression so Retry cannot overlap an automatic attempt.
+      if (data.retryPending === true) {
+        next.isStreaming = false;
+        next.status = "ended";
+        break;
+      }
       // The single terminal signal that resolves `"idle"`. The bridge
       // guarantees exactly one per run (real on pi ≥ 0.80.4, synthesized
       // synchronously after `agent_end` on floor pi), so this arm needs no
@@ -1305,6 +1371,7 @@ export function reduceEvent(
       // matching auto_retry_end (bridge-synthesized before this settle) already
       // set lastError on failure. See change: retry-forever-with-stop-control.
       next.retryState = undefined;
+      next.retryCancelled = undefined;
       break;
     }
 
@@ -1314,6 +1381,7 @@ export function reduceEvent(
       // countdown. No fresh-error guard here — this signal is EXPECTED to arrive
       // right after an error agent_end (which sets lastError).
       // See change: retry-forever-with-stop-control.
+      if (state.retryCancelled) break;
       const attempt = typeof data.attempt === "number" ? data.attempt : 1;
       const maxAttempts = typeof data.maxAttempts === "number" ? data.maxAttempts : 0;
       const delayMs = typeof data.delayMs === "number" ? data.delayMs : 0;
@@ -1332,23 +1400,7 @@ export function reduceEvent(
     }
 
     case "auto_retry_start": {
-      // Defensive guard: drop the event when a fresh same-turn lastError is
-      // already set and the session is not streaming. This prevents the
-      // (yellow + red) banner-overlap state if any future bridge ordering
-      // bug ever delivers an `auto_retry_start` AFTER `agent_end` for the
-      // same terminal turn. Existing carry-over behavior (stale red from a
-      // prior turn + fresh yellow on a new turn) is preserved because by
-      // the time the new turn's `auto_retry_start` arrives, `agent_start`
-      // has already cleared `lastError` (so the guard's first precondition
-      // is false). See change: fix-retry-banner-stuck-on-limit-exceeded.
-      const FRESH_ERROR_WINDOW_MS = 1500;
-      if (
-        state.lastError &&
-        !state.isStreaming &&
-        event.timestamp - state.lastError.timestamp <= FRESH_ERROR_WINDOW_MS
-      ) {
-        break;
-      }
+      if (state.retryCancelled) break;
       const attempt = typeof data.attempt === "number" ? data.attempt : 1;
       const maxAttempts = typeof data.maxAttempts === "number" ? data.maxAttempts : 0;
       const delayMs = typeof data.delayMs === "number" ? data.delayMs : 0;
@@ -1367,14 +1419,29 @@ export function reduceEvent(
     }
 
     case "auto_retry_end": {
-      // No-op if no retry was tracked (covers stale events / multi-call turns).
-      if (!state.retryState) {
+      const attempt = typeof data.attempt === "number" ? data.attempt : undefined;
+      if (attempt === -1) {
+        next.retryState = undefined;
+        next.lastError = undefined;
+        next.retryCancelled = true;
         break;
       }
+      if (state.retryCancelled) break;
+
       next.retryState = undefined;
-      // Surface terminal error early when no other lastError has fired yet.
-      if (data.success === false && typeof data.finalError === "string" && !state.lastError) {
-        next.lastError = { message: data.finalError, timestamp: event.timestamp };
+      if (data.success === true) {
+        next.lastError = undefined;
+        break;
+      }
+      if (data.success === false && typeof data.finalError === "string" && data.finalError.length > 0) {
+        const previousRevision = state.lastError?.timestamp;
+        const observedRevision = Number.isFinite(event.timestamp) ? event.timestamp : 0;
+        const nextRevision = typeof previousRevision === "number" && Number.isFinite(previousRevision)
+          ? Math.max(observedRevision, previousRevision + 1)
+          : observedRevision;
+        next.lastError = state.lastError
+          ? { ...state.lastError, timestamp: nextRevision }
+          : { message: data.finalError, timestamp: nextRevision };
       }
       break;
     }
@@ -1438,6 +1505,7 @@ export function reduceEvent(
       }
       if (msg?.role === "user") {
         next.pendingPrompt = undefined;
+        next.retryCancelled = undefined;
         let text = "";
         let images: ChatImage[] | undefined;
         if (Array.isArray(msg.content)) {
@@ -1449,17 +1517,31 @@ export function reduceEvent(
           // slot, otherwise the attachment position is lost and the later
           // `attachment_fitted` event has nothing to fill. Legacy inline blocks
           // (bytes present, no attachmentId) keep the original predicate.
-          // See change: fit-attachments-for-display (D12).
-          const imgBlocks = msg.content.filter(
-            (c: any) => c.type === "image" && c.mimeType && (c.data || c.attachmentId),
-          );
+          // Tolerate BOTH image block shapes via the shared detector: the flat
+          // pi shape `{data,mimeType}` and the nested Anthropic shape
+          // `{source:{media_type,data}}` (some provider/import/replay paths).
+          // See change: fit-attachments-for-display (D12); nested-shape
+          // tolerance: fix-pasted-image-message-vanishes.
+          const imgBlocks = msg.content.filter((c: any) => isRenderableImageBlock(c));
           if (imgBlocks.length > 0) {
-            images = imgBlocks.map((c: any) => ({
-              data: c.data ?? "",
-              mimeType: c.mimeType,
-              ...(c.attachmentId ? { attachmentId: c.attachmentId } : {}),
-              ...(c.attachmentState ? { attachmentState: c.attachmentState } : {}),
-            }));
+            // `isRenderableImageBlock` already guaranteed a non-empty mime, so
+            // the `?? ""` fallback is unreachable — it only narrows the type
+            // from `string | undefined` to `string` for ChatImage.mimeType.
+            images = imgBlocks.map((c: any) => {
+              // A RESCUED block (server stripped over-ceiling image bytes) has
+              // no bytes and no attachmentId — nothing will ever fill it, so it
+              // resolves straight to the explicit unavailable slot rather than
+              // pending forever. An existing attachmentState always wins.
+              // See change: fix-pasted-image-message-vanishes.
+              const attachmentState =
+                c.attachmentState ?? (isTruncatedImageBlock(c) ? "failed" : undefined);
+              return {
+                data: imageBlockData(c) ?? "",
+                mimeType: imageBlockMime(c) ?? "",
+                ...(c.attachmentId ? { attachmentId: c.attachmentId } : {}),
+                ...(attachmentState ? { attachmentState } : {}),
+              };
+            });
           }
         } else {
           text = String(msg.content ?? "");
@@ -1615,15 +1697,15 @@ export function reduceEvent(
     case "message_end": {
       const msg = data.message as any;
       if (msg?.role === "assistant") {
-        // Confirmed-good clear: an assistant message that completed with a
-        // terminal SUCCESS stop (pi-ai `"stop"`; `"end_turn"` accepted too)
-        // clears the persistent error anchor. Mid-turn / non-success stops
-        // (`toolUse`, `error`, `aborted`, `length`) do NOT clear — the turn can
-        // still error afterward, and clearing on them would flicker / drop the
-        // anchor across an interactive pause.
-        // See change: unify-error-retry-lifecycle.
-        if (CONFIRMED_GOOD_STOP_REASONS.has(msg.stopReason)) {
+        // Any structurally valid non-error, non-aborted assistant completion
+        // confirms provider recovery, including pi-owned continuation without
+        // a user message. Missing/non-string runtime data proves no disposition
+        // and must preserve the unresolved lifecycle.
+        // See change: fix-retry-error-lifecycle.
+        const stopReason = typeof msg.stopReason === "string" ? msg.stopReason : undefined;
+        if (!state.retryCancelled && stopReason && stopReason !== "error" && stopReason !== "aborted") {
           next.lastError = undefined;
+          next.retryState = undefined;
         }
         // Reasoning reconstruction on REPLAY. Live turns build `thinking` rows
         // from thinking_start/delta/end events (see message_update), but the

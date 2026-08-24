@@ -1,5 +1,7 @@
+import { execFileSync } from "node:child_process";
 import { expect, type Locator, type Page, test } from "./fixtures.js";
-import { FIXTURE_GIT, gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import { ensureGitSession, expandFolder, FIXTURE_GIT, folderCard, folderHeaderBranch, gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import { DASHBOARD_PORT } from "./lifecycle.js";
 
 /**
  * Browser E2E — the folder header status capsule.
@@ -27,14 +29,6 @@ function capsule(page: Page): Locator {
 
 function segment(page: Page, key: "needs-you" | "error" | "working" | "idle"): Locator {
   return page.getByTestId(`folder-capsule-seg-${key}-${CWD}`).first();
-}
-
-/** The folder card owning this cwd (scopes the non-cwd-keyed collapse chevron). */
-function folderCard(page: Page, cwd: string): Locator {
-  return page
-    .locator('[data-testid="sortable-workspace-folder"], [data-testid="sortable-pinned-group"]')
-    .filter({ has: page.getByTestId(`folder-home-row-${cwd}`) })
-    .first();
 }
 
 async function isCollapsed(page: Page): Promise<boolean> {
@@ -342,5 +336,225 @@ test.describe("folder status capsule", () => {
     // stop counting that state entirely rather than keep a segment whose only
     // target is unreachable.
     await expect(errorSeg).toHaveCount(0, { timeout: 15_000 });
+  });
+});
+
+/**
+ * Browser E2E — the folder header's git identity must never be borrowed from a
+ * child session rooted in a DIFFERENT checkout.
+ *
+ * Covers test-plan #F1, #F2, #F3, #F4.
+ * See change: fix-folder-header-worktree-branch-leak.
+ *
+ * Only a rendered UI against a real server can prove these: the leak is caused
+ * by the server's `maybeRekeyOrder` moving a fresh worktree session to position
+ * 0 of the PARENT folder's order, which no jsdom render can reproduce.
+ */
+
+/** Thin same-origin API caller (page context). Mirrors manage-worktrees.spec.ts. */
+async function wtApi(page: Page, path: string, init?: RequestInit): Promise<Record<string, unknown>> {
+  return page.evaluate(
+    async ([p, i]) => {
+      const res = await fetch(p as string, (i ?? undefined) as RequestInit | undefined);
+      return { status: res.status, ...(await res.json().catch(() => ({}))) };
+    },
+    [path, init ? (JSON.parse(JSON.stringify(init)) as RequestInit) : null] as const,
+  );
+}
+
+function postBody(body: unknown): RequestInit {
+  return {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  } as RequestInit;
+}
+
+/** The fixture repo's own default branch — never assumed. */
+async function fixtureBaseBranch(page: Page): Promise<string> {
+  const res = await wtApi(page, `/api/git/worktrees?cwd=${encodeURIComponent(CWD)}`);
+  const entries = ((res.data as { worktrees?: Array<Record<string, unknown>> })?.worktrees ?? []);
+  const main = entries.find((e) => e.isMain === true);
+  const branch = main?.branch as string | undefined;
+  if (!branch) throw new Error(`could not resolve base branch: ${JSON.stringify(entries)}`);
+  return branch;
+}
+
+/**
+ * The `GroupGitInfo` container of a folder header — scoped to the CARD, since
+ * it is a SIBLING of the `folder-home-row-<cwd>` name row, not a descendant.
+ */
+function folderGitRow(page: Page, cwd: string): Locator {
+  return folderCard(page, cwd).getByTestId("git-branch-btn");
+}
+
+/** Branch text as the user reads it in the folder header, or "" when absent. */
+const folderBranchText = folderHeaderBranch;
+
+/** Worktrees + branches this block creates, so the shared container stays clean. */
+const wtCreated = new Set<string>();
+const wtBranches = new Set<string>();
+
+test.describe("folder header git identity (worktree leak)", () => {
+  // Teardown runs IN the container, matching manage-worktrees.spec.ts: the
+  // fixture repo persists across spec runs, so a leftover `.worktrees/<name>`
+  // makes the next create fail `path_exists`. Advisory — never fails a test.
+  test.afterAll(() => {
+    if (wtCreated.size === 0 && wtBranches.size === 0) return;
+    // EVERYTHING inside the try, container discovery included: if the harness
+    // has already stopped, `docker ps`/`docker exec` throws and would fail an
+    // otherwise-completed spec. Teardown is advisory, never a verdict.
+    try {
+      const out = execFileSync(
+        "docker",
+        ["ps", "--filter", `publish=${DASHBOARD_PORT}`, "--format", "{{.Names}}"],
+        { encoding: "utf8" },
+      ).trim();
+      const container = out.split("\n").filter(Boolean)[0];
+      if (container) {
+        const git = (args: string[]) =>
+          execFileSync("docker", ["exec", container, "git", "-C", CWD, ...args], { encoding: "utf8" });
+        for (const p of wtCreated) { try { git(["worktree", "remove", "--force", p]); } catch { /* gone */ } }
+        for (const b of wtBranches) { try { git(["branch", "-D", b]); } catch { /* gone */ } }
+        try { git(["worktree", "prune"]); } catch { /* best-effort */ }
+      }
+    } catch {
+      // teardown is advisory
+    }
+    wtCreated.clear();
+    wtBranches.clear();
+  });
+
+  /**
+   * Create a worktree in the fixture repo and spawn a session INSIDE it, then
+   * wait for the bridge's `git_info_update` to fold it into the PARENT folder's
+   * group (and re-key it to the FRONT of the order) — the exact leak trigger.
+   * Returns the worktree branch name.
+   */
+  async function foldWorktreeChildIntoParent(page: Page, tag: string): Promise<string> {
+    const base = await fixtureBaseBranch(page);
+    const branch = `${tag}-${Date.now().toString(36)}`;
+    const created = await wtApi(page, "/api/git/worktree", postBody({ cwd: CWD, base, newBranch: branch }));
+    expect(created.success, JSON.stringify(created)).toBe(true);
+    const wtPath = (created.data as { path: string }).path;
+    wtCreated.add(wtPath);
+    wtBranches.add(branch);
+    const spawned = await wtApi(page, "/api/session/spawn", postBody({ cwd: wtPath }));
+    expect(spawned.success, JSON.stringify(spawned)).toBe(true);
+    // Poll until the server actually reports the fold, so a later assertion
+    // cannot pass merely because the ineligible child never arrived.
+    await expect
+      .poll(async () => {
+        const res = await wtApi(page, "/api/sessions");
+        const rows = (res.data ?? []) as Array<{ cwd?: string; gitWorktree?: { mainPath?: string } }>;
+        return rows.some((r) => r.cwd === wtPath && r.gitWorktree?.mainPath === CWD);
+      }, { timeout: 60_000 })
+      .toBe(true);
+    return branch;
+  }
+
+  test("main folder header never shows a worktree branch (test-plan #F1)", async ({ page }) => {
+    await gotoDashboard(page);
+    // A main-checkout session so the folder group exists and is expanded.
+    await ensureGitSession(page);
+    await expandFolder(page, CWD);
+
+    const base = await fixtureBaseBranch(page);
+    await expect
+      .poll(() => folderBranchText(page, CWD), { timeout: 30_000 })
+      .toBe(base);
+
+    // Sample the header CONTINUOUSLY across the whole sequence: the leak was a
+    // transient wrong value, so a converged end-state assertion alone would
+    // pass against the bug.
+    const samples: string[] = [];
+    let sampling = true;
+    const sampler = (async () => {
+      while (sampling) {
+        samples.push(await folderBranchText(page, CWD).catch(() => ""));
+        await page.waitForTimeout(150);
+      }
+    })();
+
+    // Create the worktree + spawn a session inside it, and WAIT (polled) until
+    // the server reports the fold. A fixed sleep here would make the whole test
+    // vacuous on a loaded runner: if `git_info_update` were slower than the
+    // window, the leak trigger never fires and the assertions below still pass.
+    const branch = await foldWorktreeChildIntoParent(page, "wtleak");
+
+    // Give the re-keyed group a moment to render, then stop sampling.
+    await page.waitForTimeout(2_000);
+    sampling = false;
+    await sampler;
+
+    expect(samples.length).toBeGreaterThan(10);
+    expect(samples.filter((s) => s.includes(branch))).toEqual([]);
+    await expect
+      .poll(() => folderBranchText(page, CWD), { timeout: 30_000 })
+      .toBe(base);
+  });
+
+  test("folder header renders no branch LINK and no PR pill from a child (test-plan #F2)", async ({ page }) => {
+    // The whole git-identity tuple moves together: with the fallback restricted
+    // to children rooted at the folder, an ineligible worktree child can supply
+    // neither the branch URL nor the PR affordance.
+    await gotoDashboard(page);
+    await ensureGitSession(page);
+    // An INELIGIBLE child must actually exist in the group, or the absence
+    // assertions below would hold trivially and pass against the old code too.
+    const wtBranch = await foldWorktreeChildIntoParent(page, "wtf2");
+    await expandFolder(page, CWD);
+    const btn = folderGitRow(page, CWD).first();
+    await expect(btn).toBeVisible({ timeout: 30_000 });
+    // The ineligible child's branch is never the header's branch.
+    expect(await folderBranchText(page, CWD)).not.toContain(wtBranch);
+    // No borrowed branch link: the branch label is plain text, not an anchor.
+    const anchors = await btn.evaluate(
+      (el) => el.parentElement?.querySelectorAll("a").length ?? 0,
+    );
+    expect(anchors).toBe(0);
+    // No borrowed PR pill (`#<number>` link) either.
+    const prPill = await btn.evaluate(
+      (el) => /#\d+/.test(el.parentElement?.textContent ?? ""),
+    );
+    expect(prPill).toBe(false);
+  });
+
+  test("reload shows the parent branch from first paint (test-plan #F3)", async ({ page }) => {
+    // The connect snapshot: `git_head_update` is broadcast only on
+    // first-seen-or-change, so a reloaded tab used to receive NOTHING and fell
+    // back to the (wrong) positional child branch indefinitely.
+    await gotoDashboard(page);
+    await ensureGitSession(page);
+    const base = await fixtureBaseBranch(page);
+    // Per test-plan #F3 the folder must hold a worktree session grouped under
+    // its parent. Without it, a reloaded tab falling back to a positional child
+    // would still show the right value and the test would prove nothing.
+    await foldWorktreeChildIntoParent(page, "wtf3");
+    await expandFolder(page, CWD);
+
+    // `gotoDashboard` already does `page.goto("/")` — that IS the fresh
+    // connection this test needs, so a preceding `page.reload()` is redundant.
+    await gotoDashboard(page);
+    await expandFolder(page, CWD);
+
+    // Short timeout ON PURPOSE: the value must arrive from the connect
+    // snapshot, not from the next 60s poll cycle or a genuine HEAD change.
+    await expect
+      .poll(() => folderBranchText(page, CWD), { timeout: 20_000 })
+      .toBe(base);
+  });
+
+  test("header never renders an Init-git label for a git folder (test-plan #F4)", async ({ page }) => {
+    // The resolved gate: a folder with no eligible child renders the existing
+    // dimmed branch icon with NO new affordance. "Init git" stays gated on a
+    // confirmed non-git signal, so it must never appear for the git fixture.
+    await gotoDashboard(page);
+    await ensureGitSession(page);
+    await expandFolder(page, CWD);
+    await expect(folderGitRow(page, CWD).first()).toBeVisible({ timeout: 30_000 });
+    await expect(
+      folderCard(page, CWD).getByText("Init git", { exact: true }),
+    ).toHaveCount(0);
   });
 });

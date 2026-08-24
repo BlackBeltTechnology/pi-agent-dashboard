@@ -2,7 +2,7 @@ import { SidebarFolderSectionSlot } from "@blackbelt-technology/dashboard-plugin
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { DndContext, type DragEndEvent, type DragOverEvent, type DragStartEvent, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClose, mdiCog, mdiConsoleLine, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiSortVariant, mdiViewGridPlus } from "@mdi/js";
+import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClose, mdiCog, mdiConsoleLine, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiSortVariant, mdiSourceBranch, mdiViewGridPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -55,6 +55,7 @@ import { SortableWorkspace } from "../workspace/SortableWorkspace.js";
 import { SortableWorkspaceFolder } from "../workspace/SortableWorkspaceFolder.js";
 import { WorkspaceHeader } from "../workspace/WorkspaceHeader.js";
 import { BranchSwitchDialog } from "../worktree/BranchSwitchDialog.js";
+import { ManageWorktreesDialog } from "../worktree/ManageWorktreesDialog.js";
 import { WorktreeSpawnDialog } from "../worktree/WorktreeSpawnDialog.js";
 import { DashboardSpawnButtons } from "./DashboardSpawnButtons.js";
 import { PlaceholderSessionCard } from "./PlaceholderSessionCard.js";
@@ -233,6 +234,19 @@ interface Props {
 // Re-export for backwards compatibility
 export { type DirectoryGroup, filterSessions, groupSessionsByDirectory } from "../../lib/session/session-grouping.js";
 
+/**
+ * Whether a folder group should be treated as a git repository for menu
+ * gating. Session-INDEPENDENT by construction: a folder with zero sessions
+ * has no negative evidence, so it stays eligible. Only a positive
+ * `isGitRepo === false` excludes it — the same rule the worktree spawn button
+ * already uses.
+ *
+ * See change: manage-worktrees-filter-cleanup.
+ */
+export function folderIsGitRepo(group: { sessions: Array<{ isGitRepo?: boolean }> }): boolean {
+  return !group.sessions.some((s) => s.isGitRepo === false);
+}
+
 function ToggleButton({
   active,
   onClick,
@@ -330,6 +344,8 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
   // Worktree spawn dialog: when set, render the modal scoped to this cwd.
   // See change: add-worktree-spawn-dialog.
   const [worktreeDialogCwd, setWorktreeDialogCwd] = useState<string | null>(null);
+  // Manage-worktrees surface (change: manage-worktrees-filter-cleanup).
+  const [manageWorktreesCwd, setManageWorktreesCwd] = useState<string | null>(null);
   // Per-change worktree spawn state. When set, render the dialog prefilled
   // with `os/<changeName>` + `attachProposal=<changeName>`. Reuses the
   // existing `WorktreeSpawnDialog` component to avoid duplicate state.
@@ -1073,6 +1089,20 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
       pressed: urgencySort.isOn(group.cwd),
       onSelect: () => urgencySort.toggle(group.cwd),
     });
+    // Manage worktrees: gated on the folder being a git repository, and
+    // deliberately INDEPENDENT of live sessions — the surface exists to clean
+    // up worktrees that have none. Absent only on positive evidence that the
+    // folder is not a repo; unknown keeps the item (same rule as the worktree
+    // spawn button). See change: manage-worktrees-filter-cleanup.
+    if (gitWorktreeEnabled && folderIsGitRepo(group)) {
+      items.push({
+        id: "manage-worktrees",
+        group: "directory",
+        label: t("worktree.manageWorktrees", undefined, "Manage worktrees"),
+        icon: mdiSourceBranch,
+        onSelect: () => setManageWorktreesCwd(group.cwd),
+      });
+    }
     items.push({
       id: "directory-settings",
       group: "directory",
@@ -1735,7 +1765,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
           </div>
         )}
       </div>
-      <div ref={listRef} className="flex-1 overflow-y-auto">
+      <div ref={listRef} data-testid="session-list-scroll" className="flex-1 overflow-y-auto">
       {filteredSessions.length === 0 && pinnedGroups.length === 0 && (workspaces?.length ?? 0) === 0 ? (
         <div className="p-4 text-sm text-[var(--text-tertiary)]">{t("sessionList.noActiveSessions", undefined, "No active sessions")}</div>
       ) : (
@@ -1889,6 +1919,14 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
         <div className="p-2 text-center text-[11px] text-[var(--text-muted)]">
           {t("sessionList.hiddenCount", { count: hiddenCount }, `${hiddenCount} hidden`)}
         </div>
+      )}
+      {manageWorktreesCwd && (
+        <ManageWorktreesDialog
+          cwd={manageWorktreesCwd}
+          allSessions={sessions}
+          onShutdownSession={(id) => onShutdown?.(id)}
+          onClose={() => setManageWorktreesCwd(null)}
+        />
       )}
       {worktreeDialogCwd && (
         <WorktreeSpawnDialog

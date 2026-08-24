@@ -33,6 +33,15 @@ jobs:
       # on develop, not only at release. See change: provision-openspec-cli-in-sessions.
       - name: Verify release dependency shape
         run: node scripts/verify-release-deps.mjs
+      # Spec-integrity gate. The openspec-version gate above checks the CLI, not
+      # the specs it reads. In that blind spot 80 of 546 main specs had drifted
+      # into unparseable states (delta headers copied verbatim by the archive
+      # path), hiding 384 requirement blocks from validate/list/show/archive.
+      # A change that archives into a corrupt spec now fails here instead of
+      # rotting. Reproduce locally with `npm run spec:validate`.
+      # See change: repair-corrupted-main-specs.
+      - name: Validate OpenSpec main specs
+        run: npm run spec:validate
       # Skill frontmatter guard. Errors (missing/empty/unparseable `description`
       # — pi drops the skill) block the PR; warnings (pi's length/charset limits
       # and the repository description budget) only annotate.

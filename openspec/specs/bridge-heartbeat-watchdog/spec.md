@@ -1,4 +1,10 @@
-## ADDED Requirements
+# bridge-heartbeat-watchdog Specification
+
+## Purpose
+
+Lets the bridge notice that the dashboard server has gone away rather than holding a dead socket open indefinitely. Tracks the timestamp of the last message received and runs a liveness watchdog that fires when nothing has arrived within the expected window.
+
+## Requirements
 
 ### Requirement: Track last message received timestamp
 The `ConnectionManager` SHALL track the timestamp of the last message received from the server. This timestamp SHALL be updated on every incoming WebSocket message.

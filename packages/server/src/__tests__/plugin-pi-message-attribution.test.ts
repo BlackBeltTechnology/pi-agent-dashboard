@@ -14,8 +14,9 @@
  *
  * See change: add-dashboard-mcp-server.
  */
-import { WebSocket } from "ws";
+
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { WebSocket } from "ws";
 import { createPiGateway } from "../pi/pi-gateway.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 
@@ -50,10 +51,10 @@ afterEach(async () => {
 });
 
 /** Poll gateway.address() until the async listen resolves a port. */
-async function waitForBind(g: { address(): number | null }): Promise<number> {
+async function waitForBind(g: { address(): number | string | null }): Promise<number> {
   for (let i = 0; i < 100; i++) {
     const port = g.address();
-    if (port !== null) return port;
+    if (typeof port === "number") return port;
     await new Promise((r) => setTimeout(r, 10));
   }
   throw new Error("gateway did not bind a port");

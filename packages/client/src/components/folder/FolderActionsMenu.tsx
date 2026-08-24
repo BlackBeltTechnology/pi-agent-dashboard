@@ -28,6 +28,7 @@ import { Icon } from "@mdi/react";
 import React from "react";
 import { useMobile } from "../../hooks/useMobile.js";
 import { usePopoverFlip } from "../../hooks/usePopoverFlip.js";
+import { LayerPortal } from "@blackbelt-technology/pi-dashboard-client-utils/LayerPortal";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 
@@ -69,10 +70,38 @@ export function FolderActionsMenu({ cwd, items, open, onOpenChange }: Props) {
   const triggerRef = React.useRef<HTMLButtonElement>(null);
   const panelRef = React.useRef<HTMLDivElement>(null);
   const isMobile = useMobile();
-  const { flipUp, maxHeight, minHeight, anchorRight, maxWidth } = usePopoverFlip(triggerRef, {
-    open: open && !isMobile,
-    estimatedWidth: 240,
-  });
+  const { flipUp, maxHeight, minHeight, anchorRight, maxWidth, triggerRect } = usePopoverFlip(
+    triggerRef,
+    {
+      open: open && !isMobile,
+      estimatedWidth: 240,
+    },
+  );
+
+  // Desktop panel is PORTALED to the layer root (escapes the `isolate` stacking
+  // context every SessionCard creates, which used to trap this inline-absolute
+  // panel and make it UNDERLAP the cards). Being portaled, it is no longer
+  // anchored by a `relative` wrapper, so it positions itself `fixed` from the
+  // trigger's viewport rect + the flip/anchor decision. See change:
+  // add-overlay-layering-system.
+  const GAP = 4; // matches the previous mt-1 / mb-1
+  const desktopStyle: React.CSSProperties = {
+    maxHeight,
+    minHeight,
+    maxWidth,
+    // Hidden until the first measure lands, so we never flash at (0,0).
+    visibility: triggerRect ? "visible" : "hidden",
+    ...(triggerRect
+      ? flipUp
+        ? { bottom: Math.round(window.innerHeight - triggerRect.top + GAP) }
+        : { top: Math.round(triggerRect.bottom + GAP) }
+      : {}),
+    ...(triggerRect
+      ? anchorRight
+        ? { right: Math.max(0, Math.round(window.innerWidth - triggerRect.right)) }
+        : { left: Math.round(triggerRect.left) }
+      : {}),
+  };
 
   const close = React.useCallback(
     (restoreFocus: boolean) => {
@@ -129,13 +158,11 @@ export function FolderActionsMenu({ cwd, items, open, onOpenChange }: Props) {
       data-testid={`folder-actions-menu-panel-${cwd}`}
       data-menu-form={isMobile ? "sheet" : "popover"}
       onKeyDown={onPanelKeyDown}
-      style={isMobile ? undefined : { maxHeight, minHeight, maxWidth }}
+      style={isMobile ? undefined : desktopStyle}
       className={
         isMobile
-          ? "fixed inset-x-0 bottom-0 z-50 max-h-[70vh] w-full overflow-y-auto overflow-x-hidden rounded-t-xl border-t border-[var(--border-secondary)] bg-[var(--bg-secondary)] py-1 shadow-lg"
-          : `absolute z-50 min-w-[220px] overflow-y-auto overflow-x-hidden rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-secondary)] py-1 shadow-lg ${
-              anchorRight ? "right-0" : "left-0"
-            } ${flipUp ? "bottom-full mb-1" : "top-full mt-1"}`
+          ? "fixed inset-x-0 bottom-0 z-popover max-h-[70vh] w-full overflow-y-auto overflow-x-hidden rounded-t-xl border-t border-[var(--border-secondary)] bg-[var(--bg-secondary)] py-1 shadow-lg"
+          : "fixed z-popover min-w-[220px] overflow-y-auto overflow-x-hidden rounded-lg border border-[var(--border-secondary)] bg-[var(--bg-secondary)] py-1 shadow-lg"
       }
     >
       {FOLDER_MENU_GROUPS.map((group) => {
@@ -202,7 +229,7 @@ export function FolderActionsMenu({ cwd, items, open, onOpenChange }: Props) {
       >
         <Icon path={mdiFolderCogOutline} size={0.6} />
       </button>
-      {open && (isMobile ? <DialogPortal>{panel}</DialogPortal> : panel)}
+      {open && (isMobile ? <DialogPortal>{panel}</DialogPortal> : <LayerPortal>{panel}</LayerPortal>)}
     </span>
   );
 }

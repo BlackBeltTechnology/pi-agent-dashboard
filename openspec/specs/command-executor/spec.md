@@ -1,4 +1,10 @@
-## ADDED Requirements
+# command-executor Specification
+
+## Purpose
+
+Single source of truth for spawning child processes on the server. Consolidates process execution behind one module and one `run()` function that always applies the safety defaults (including `windowsHide`), expresses per-tool invocations as pure-data recipes with binary resolution done by the runner, and returns errors as a result value instead of throwing. Also owns cross-platform process-tree termination so no caller reimplements killing a process.
+
+## Requirements
 
 ### Requirement: Single-source child_process module
 All code in `packages/server/src`, `packages/extension/src`, `packages/electron/src`, and `packages/shared/src` (excluding `packages/shared/src/platform/exec.ts` and `packages/shared/src/platform/runner.ts`) SHALL import subprocess functions from `@blackbelt-technology/pi-dashboard-shared/platform/exec.js`, not directly from `node:child_process`. A repo-level test SHALL enforce this invariant.
@@ -105,8 +111,6 @@ The runner SHALL resolve the command name (first element of `recipe.argv(input)`
 #### Scenario: Cache reset for tests
 - **WHEN** the test-only helper `resetResolverCache()` is called
 - **THEN** the next `run()` call SHALL re-invoke `ToolResolver.which`
-
-## ADDED Requirements — Tool Modules
 
 ### Requirement: platform/git.ts exports a Recipe-based API
 The `packages/shared/src/platform/git.ts` module SHALL expose typed functions for the git operations currently invoked via inline `execSync` across the codebase: `diff`, `status`, `branches`, `currentBranch`, `headSha`, `remoteUrl`, `isGitRepo`, `checkout`, `stash`, `stashPop`. Each function SHALL internally call `run(GIT_RECIPES.X, input, ctx)` and SHALL NOT contain `execSync`, `spawn`, or `process.platform`.

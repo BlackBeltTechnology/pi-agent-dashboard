@@ -8,10 +8,10 @@
  */
 import React, { useEffect, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { logRejection } from "../../lib/report-error.js";
 import { FallbackPreview } from "./FallbackPreview.js";
 import { rawUrl, sheetUrl } from "./raw-url.js";
 import { TruncationBanner } from "./TruncationBanner.js";
-import { logRejection } from "../../lib/report-error.js";
 
 interface Props {
   target: { kind: "file"; cwd: string; path: string };
@@ -101,7 +101,7 @@ export function SpreadsheetPreview({ target }: Props) {
               data-active={i === active ? "1" : "0"}
               className={`px-2 py-0.5 rounded text-xs whitespace-nowrap ${
                 i === active
-                  ? "bg-[var(--accent)] text-white"
+                  ? "bg-[var(--accent-solid)] text-white"
                   : "text-[var(--text-muted)] hover:bg-[var(--bg-surface)]"
               }`}
             >

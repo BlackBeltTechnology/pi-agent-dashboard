@@ -21,8 +21,9 @@
  *
  * See change: fix-skill-discovery-parity, fix-skill-frontmatter-yaml.
  */
+import { execFileSync } from "node:child_process";
 import { readdirSync, readFileSync } from "node:fs";
-import { basename, dirname, join, relative, resolve } from "node:path";
+import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { parse as parseYaml } from "yaml";
 
 export const REPO_ROOT = resolve(import.meta.dirname, "..");
@@ -49,8 +50,21 @@ export const REPO_DESCRIPTION_BUDGET = 400;
  * Skills whose description wording is locked by the shipped
  * `skill-frontmatter-validity` requirement "The three previously-broken skills
  * load". The budget yields to that requirement rather than silently overriding it.
+ *
+ * The three entries after the original three carry deliberately trigger-rich
+ * descriptions — that phrasing IS their discovery surface, so trimming them to
+ * the budget would change which prompts auto-load them. Exempted rather than
+ * reworded, which is the honest trade: the budget exists to bound context cost,
+ * not to break skill discovery. Revisit if the exempt set keeps growing.
  */
-export const BUDGET_EXEMPT_SKILLS = new Set(["ship-change", "frontend-mockup-loop", "anti-slop-frontend"]);
+export const BUDGET_EXEMPT_SKILLS = new Set([
+  "ship-change",
+  "frontend-mockup-loop",
+  "anti-slop-frontend",
+  "software-cost-estimator",
+  "bpmn-package-explorer",
+  "openforms-mui",
+]);
 
 /** Recursively collect every SKILL.md path under `root`, skipping heavy dirs. */
 export function collectSkillManifests(root) {
@@ -138,10 +152,40 @@ export function analyzeSkillFile(file, text) {
   return [...checkDescription(file, basename(dirname(file)), parsed), ...checkName(file, parsed)];
 }
 
-/** Analyse every `SKILL.md` under `root`. */
+/**
+ * Git-tracked `SKILL.md` paths, or null when `root` is not a git checkout
+ * (published tarball, vendored copy) and every file should be judged.
+ */
+function trackedSkillManifests(root) {
+  try {
+    const out = execFileSync("git", ["ls-files", "*SKILL.md"], {
+      cwd: root,
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return new Set(out.split("\n").filter(Boolean));
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Analyse every git-tracked `SKILL.md` under `root`.
+ *
+ * Tracked-only because the walk also reaches MATERIALIZED skills that this
+ * repo does not author and cannot fix: `packages/electron/resources/
+ * bundled-extensions/**` is build output bundled from npm, and locally
+ * installed skills land in a gitignored `.pi/skills/`. Judging those reports
+ * budget violations against upstream packages and only ever fails locally —
+ * CI's clean checkout has neither.
+ */
 export function analyzeRepository(root = REPO_ROOT) {
   const findings = [];
-  const files = collectSkillManifests(root);
+  const tracked = trackedSkillManifests(root);
+  const files = collectSkillManifests(root).filter(
+    (file) => tracked === null || tracked.has(relative(root, file).split(sep).join("/")),
+  );
   for (const file of files) {
     findings.push(...analyzeSkillFile(relative(root, file), readFileSync(file, "utf8")));
   }

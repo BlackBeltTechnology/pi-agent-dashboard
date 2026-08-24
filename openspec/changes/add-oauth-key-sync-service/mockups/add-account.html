@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>keysync — add another account</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="tokens.css" />
+<script src="theme-init.js"></script>
+<style>
+  .panel { background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 0.75rem; }
+  .row { background: var(--bg-tertiary); border: 1px solid var(--border-subtle); border-radius: 0.5rem; }
+  .pill { border-radius: 999px; font-size: 0.6875rem; padding: 0.125rem 0.5rem; font-weight: 600; }
+  .step { width: 1.5rem; height: 1.5rem; border-radius: 999px; display: grid; place-items: center; font-size: 0.75rem; font-weight: 700; }
+</style>
+</head>
+<body class="min-h-screen" style="background:var(--bg-primary)">
+<div class="max-w-3xl mx-auto p-4 sm:p-8">
+
+  <header class="flex items-start justify-between mb-6 gap-4">
+    <div>
+      <h1 class="text-lg font-semibold" style="color:var(--text-primary)">Add another anthropic account</h1>
+      <p class="text-sm mt-1" style="color:var(--text-tertiary)">Sign in once here; the server keeps it alive from then on.</p>
+    </div>
+    <a href="index.html" class="px-3 py-1.5 rounded border text-sm shrink-0" style="border-color:var(--border-primary); color:var(--text-secondary)">← All mockups</a>
+  </header>
+
+  <!-- The reassurance that matters: adding does not clobber -->
+  <div class="panel p-3 mb-6 flex items-start gap-2" style="border-color:var(--severity-info-border); background:var(--severity-info-bg)">
+    <span style="color:var(--severity-info-fg)">ℹ</span>
+    <p class="text-xs" style="color:var(--text-secondary)">
+      Signing in here <b>adds</b> an account to the pool. It never replaces <b>robson@semmi.se</b>, which stays
+      your primary unless you change it below, and it does not touch any sign-in already on this machine.
+    </p>
+  </div>
+
+  <!-- STATE 1: idle -->
+  <section class="panel p-4 mb-5">
+    <div class="text-xs font-semibold mb-3" style="color:var(--text-tertiary)">STATE 1 — before you start</div>
+    <div class="row p-4">
+      <p class="text-sm mb-3" style="color:var(--text-secondary)">
+        A browser window will open for Anthropic. Sign in with the <b>other</b> account you want to add —
+        it is sent straight to the keysync server and not kept here.
+      </p>
+      <div class="flex items-center gap-3 flex-wrap">
+        <button class="text-sm px-3 py-1.5 rounded font-medium" style="background:var(--accent-primary); color:#fff">Open Anthropic sign-in</button>
+        <label class="flex items-center gap-2 text-xs cursor-pointer" style="color:var(--text-secondary)">
+          <input type="checkbox" /> Share with the team once added
+        </label>
+      </div>
+    </div>
+  </section>
+
+  <!-- STATE 2: in progress -->
+  <section class="panel p-4 mb-5">
+    <div class="text-xs font-semibold mb-3" style="color:var(--text-tertiary)">STATE 2 — waiting for the browser</div>
+    <div class="row p-4">
+      <div class="flex items-center gap-3 mb-3">
+        <span class="step" style="background:var(--accent-yellow); color:#000">●</span>
+        <div>
+          <div class="text-sm font-medium" style="color:var(--text-primary)">Waiting for you to finish signing in…</div>
+          <div class="text-xs mt-0.5" style="color:var(--text-tertiary)">Times out in 4:12</div>
+        </div>
+      </div>
+      <p class="text-xs mb-3" style="color:var(--text-muted)">
+        Nothing has changed yet. Your current account is untouched until this finishes.
+      </p>
+      <button class="text-xs px-3 py-1.5 rounded border" style="border-color:var(--border-secondary); color:var(--text-secondary)">Cancel</button>
+    </div>
+  </section>
+
+  <!-- STATE 3: captured -->
+  <section class="panel p-4 mb-5">
+    <div class="text-xs font-semibold mb-3" style="color:var(--text-tertiary)">STATE 3 — added</div>
+    <div class="row p-4" style="border-color:var(--severity-success-border)">
+      <div class="flex items-center gap-2 mb-3 flex-wrap">
+        <span class="step" style="background:var(--accent-green); color:#000">✓</span>
+        <span class="text-sm font-medium" style="color:var(--text-primary)">robson.alt@gmail.com</span>
+        <span class="pill" style="background:var(--severity-success-bg); color:var(--severity-success-fg)">Added</span>
+      </div>
+      <p class="text-xs mb-3" style="color:var(--text-secondary)">
+        Stored on the keysync server and used automatically if your primary runs out. Nothing was written
+        to this machine.
+      </p>
+      <div class="flex flex-col gap-2 mb-3">
+        <label class="flex items-center gap-2 text-xs cursor-pointer" style="color:var(--text-secondary)">
+          <input type="checkbox" /> Share with the team
+        </label>
+        <label class="flex items-center gap-2 text-xs cursor-pointer" style="color:var(--text-secondary)">
+          <input type="checkbox" /> Make this my primary instead of robson@semmi.se
+        </label>
+      </div>
+      <button class="text-sm px-3 py-1.5 rounded font-medium" style="background:var(--accent-primary); color:#fff">Done</button>
+    </div>
+  </section>
+
+  <!-- STATE 4: duplicate -->
+  <section class="panel p-4 mb-5">
+    <div class="text-xs font-semibold mb-3" style="color:var(--text-tertiary)">STATE 4 — you signed in with an account you already have</div>
+    <div class="row p-4" style="border-color:var(--severity-warning-border)">
+      <div class="text-sm font-medium mb-1" style="color:var(--severity-warning-fg)">That account is already in the pool</div>
+      <p class="text-xs mb-3" style="color:var(--text-secondary)">
+        <b>robson@semmi.se</b> is already enrolled, so nothing was added or changed. To add a different account,
+        sign out of Anthropic in your browser first, then try again.
+      </p>
+      <button class="text-xs px-3 py-1.5 rounded border" style="border-color:var(--border-secondary); color:var(--text-secondary)">Try again</button>
+    </div>
+  </section>
+
+  <!-- STATE 5: failure -->
+  <section class="panel p-4">
+    <div class="text-xs font-semibold mb-3" style="color:var(--text-tertiary)">STATE 5 — sign-in failed</div>
+    <div class="row p-4" style="border-color:var(--severity-error-border)">
+      <div class="text-sm font-medium mb-1" style="color:var(--severity-error-fg)">Sign-in did not complete</div>
+      <p class="text-xs mb-3" style="color:var(--text-secondary)">
+        The browser window closed before finishing. Nothing was added, nothing was left on this machine,
+        and your existing accounts are unchanged.
+      </p>
+      <button class="text-xs px-3 py-1.5 rounded border" style="border-color:var(--border-secondary); color:var(--text-secondary)">Try again</button>
+    </div>
+  </section>
+
+  <footer class="mt-8 text-xs" style="color:var(--text-muted)">
+    Capture runs pi's own login against a scratch <code>PI_CODING_AGENT_DIR</code> (design D10), uploads the
+    result to keysync, and deletes the scratch directory — the real <code>auth.json</code> is never written.
+  </footer>
+</div>
+</body>
+</html>

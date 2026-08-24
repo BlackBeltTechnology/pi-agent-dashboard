@@ -122,7 +122,9 @@ describe("ContextUsageBar", () => {
       expect(screen.getByTestId("compaction-badge").textContent).toBe("overflow-retry \u22128k");
     });
 
-    it("renders the badge in compact mode too", () => {
+    // Compact mode is icon-only: the text pill squeezed the w-16 bar to a stub
+    // and read as a mode toggle ("manual") rather than a compaction event.
+    it("renders an icon-only marker in compact mode, no label text", () => {
       render(
         <ContextUsageBar
           tokens={7600}
@@ -131,7 +133,23 @@ describe("ContextUsageBar", () => {
           compaction={{ reason: "threshold", preCompactionTokens: 20000, estimatedPostCompactionTokens: 7600 }}
         />,
       );
-      expect(screen.getByTestId("compaction-badge").textContent).toBe("auto-threshold \u221212.4k");
+      const badge = screen.getByTestId("compaction-badge");
+      expect(badge.textContent).toBe("");
+      expect(badge.querySelector("svg")).toBeTruthy();
+      expect(badge.getAttribute("title")).toBe("Compacted (auto-threshold) \u221212.4k tokens");
+    });
+
+    it("keeps the compact bar at full width when a compaction marker is present", () => {
+      render(
+        <ContextUsageBar
+          tokens={7600}
+          contextWindow={200000}
+          compact
+          compaction={{ reason: "manual" }}
+        />,
+      );
+      expect(screen.getByTestId("context-usage-bar").className).toContain("w-16");
+      expect(screen.getByTestId("compaction-badge").getAttribute("title")).toBe("Compacted (manual)");
     });
   });
 });

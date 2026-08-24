@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>F · Claim refusal</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="app.css">
+<script src="nav.js"></script>
+</head>
+<body>
+<div class="shell">
+  <div data-chrome data-title="Claim refusal &amp; handover" data-sub="Session held by another machine · F9, X20"></div>
+  <div class="stack-loose">
+    <div>
+      <h3 class="h-sec">Held by another machine</h3>
+      <div class="scrim">
+        <div class="card card-pad dialog" role="dialog" aria-modal="true" aria-labelledby="cl-title">
+          <h2 id="cl-title">robson-mbp is working on this session</h2>
+          <p class="lede">Only one machine can add to a session at a time, so this one is locked while robson-mbp has it.</p>
+
+          <div class="panel" style="padding:12px">
+            <div class="row" style="font-size:12px"><span class="dim" style="width:110px">Held by</span><b>robson-mbp</b></div>
+            <div class="row" style="font-size:12px;margin-top:6px"><span class="dim" style="width:110px">Active since</span>14:02 today (18 minutes)</div>
+            <div class="row" style="font-size:12px;margin-top:6px"><span class="dim" style="width:110px">Last heartbeat</span>12 seconds ago</div>
+          </div>
+
+          <div class="callout callout-info" style="margin-top:12px">
+            <span class="glyph" aria-hidden="true">◆</span>
+            <div><span class="body">If robson-mbp goes idle, this session frees up automatically after 5 minutes.</span></div>
+          </div>
+
+          <div class="dialog-actions">
+            <button class="btn btn-quiet" type="button">Cancel</button>
+            <button class="btn" type="button">Open read-only</button>
+            <button class="btn" type="button">Work on a copy</button>
+          </div>
+        </div>
+      </div>
+      <div class="note">
+        Three forward paths, never a dead end (<b>H3</b>). Plain language over machine vocabulary —
+        “is working on this” beats “claim CAS rejected” (<b>H2</b>). The holder is a <b>display alias</b>;
+        hostnames are forbidden in the index.
+      </div>
+    </div>
+
+    <div>
+      <h3 class="h-sec">Holder idle — expiry approaching</h3>
+      <div class="card card-pad">
+        <div class="row" style="align-items:flex-start;gap:10px">
+          <span style="font-size:12px;margin-top:2px" aria-hidden="true">▮</span>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:600">robson-mbp stopped responding</div>
+            <div class="muted" style="font-size:11px;margin-top:2px">Available to take over in 1 min 47 s</div>
+            <div class="bar" style="margin-top:10px"><span style="width:79%"></span></div>
+          </div>
+          <button class="btn btn-sm" type="button" disabled>Take over</button>
+        </div>
+      </div>
+      <div class="note">
+        A countdown converts an invisible lease into a legible progress state
+        (<b>H1</b>; <b>Zeigarnik / goal-gradient</b>).
+      </div>
+    </div>
+
+    <div>
+      <h3 class="h-sec">Released — promoted in place</h3>
+      <div class="card card-pad">
+        <div class="callout callout-success">
+          <span class="glyph" aria-hidden="true">✓</span>
+          <div style="flex:1">
+            <strong>This session is free now</strong>
+            <span class="body">robson-mbp finished and released it.</span>
+            <div class="row" style="margin-top:10px"><button class="btn btn-sm btn-primary" type="button">Resume now</button></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

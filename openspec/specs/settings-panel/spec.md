@@ -16,7 +16,11 @@ The sidebar header SHALL include a gear icon button positioned at the end of the
 - **THEN** the app SHALL navigate to `/settings` and the main content area SHALL show the settings panel
 
 ### Requirement: Settings panel view
-The settings panel SHALL render as a full-page view in the main content area when the route matches `/settings/:page?`. It SHALL display a fixed header (back button, title, Restart button), a navigation listing pages grouped by concern, and a content area for the active page. The header SHALL remain visible at all times regardless of scroll position. A single `SettingsPanel` instance SHALL remain mounted across page changes so unsaved edits on any page persist until Save. Persistence SHALL be driven by a dirty-gated **Save Bar** (see "Settings Save Bar"), not by a header Save button.
+The settings panel SHALL render in a route-backed overlay container in the main content area when the route matches `/settings/:page?/:sub?`: a `Dialog` over a scrim over the pinned background underlay on desktop, and a `MobileShell` depth-1 detail panel on mobile. The route that launched it SHALL remain visible behind it as the pinned underlay, rendered from the frozen background path rather than the current location. It SHALL display a fixed header (back button, title, Restart button), a navigation listing pages grouped by concern, and a content area for the active page. The header SHALL remain visible at all times regardless of scroll position. A single `SettingsPanel` instance SHALL remain mounted across page changes so unsaved edits on any page persist until Save. Persistence SHALL be driven by a dirty-gated **Save Bar** (see "Settings Save Bar"), not by a header Save button.
+
+Dismissing the panel — via the back button, `Esc`, or a backdrop click — SHALL leave the settings surface entirely and return to the route that launched it. Because in-panel navigation pushes history entries, dismissal SHALL NOT be implemented as a single history step.
+
+When the panel holds unsaved edits, a dismissal gesture SHALL prompt before discarding. Confirming the discard SHALL return to the launching route and SHALL NOT navigate to `/`.
 
 The navigation + content layout SHALL be responsive. The wrapper element containing the nav and the content area SHALL stack vertically on narrow (mobile) viewports and arrange side-by-side on wide (desktop, `md` breakpoint and up) viewports. On mobile the navigation SHALL render as a full-width horizontal, horizontally-scrollable tab strip positioned above the content, and the content area SHALL fill the remaining space below it with a non-zero width. On desktop the navigation SHALL render as a fixed-width vertical rail to the left of the content. At no viewport width SHALL the content area collapse to zero width or be positioned outside the visible viewport.
 
@@ -115,6 +119,27 @@ A config key's Save Bar page attribution is resolved from `CONFIG_FIELD_PAGE` by
 - **GIVEN** the Security page displays the bind reachability advisory
 - **WHEN** the advisory condition no longer holds
 - **THEN** the remediation control SHALL no longer be rendered
+
+#### Scenario: Panel renders in an overlay container on desktop
+- **WHEN** the route matches `/settings/:page?/:sub?` on a desktop viewport
+- **THEN** the settings panel SHALL render in a `Dialog` over a scrim
+- **AND** the launching route SHALL be rendered behind it as the pinned underlay, `aria-hidden` and non-interactive
+
+#### Scenario: Panel renders as a depth panel on mobile
+- **WHEN** the route matches `/settings/:page?/:sub?` on a mobile viewport
+- **THEN** the settings panel SHALL render as a `MobileShell` depth-1 detail panel with swipe-back
+
+#### Scenario: Dismissal after in-panel navigation leaves the surface
+- **GIVEN** the user opened `/settings/general` from `/session/abc` and navigated to `/settings/plugins/x`
+- **WHEN** the user presses `Esc`
+- **THEN** the settings surface SHALL be dismissed entirely
+- **AND** the URL SHALL return to `/session/abc`, NOT to `/settings/general`
+
+#### Scenario: Discard confirmation returns to the launching route
+- **GIVEN** the user opened the settings surface from `/session/abc` and has unsaved edits
+- **WHEN** the user dismisses it and confirms the discard
+- **THEN** the URL SHALL return to `/session/abc`
+- **AND** SHALL NOT navigate to `/`
 
 ### Requirement: Canonical and legacy settings URLs
 The settings panel SHALL be addressable at the canonical path `/settings/:page?` and SHALL continue to honor the legacy query form `/settings?tab=<id>` indefinitely. Resolution SHALL run inside the single mounted panel in this order: (1) a valid route `:page`; (2) a valid legacy `?tab=<id>`, which SHALL trigger a history-`replace` navigation to `/settings/<id>`; (3) otherwise default to `/settings/general` via history-`replace`. The alias map `advanced → developer` and `servers → remote` SHALL be applied before validation so old links resolve to the new page homes.
@@ -371,17 +396,26 @@ The settings panel SHALL include a "Packages" section for managing globally inst
 - **THEN** the package is updated via `POST /api/packages/update` with the package source and `scope: "global"`
 
 ### Requirement: Provider save refreshes available models
-When LLM providers are saved via the Settings panel, the server SHALL broadcast a `credentials_updated` message to all connected pi sessions. This MUST cause the model registry to refresh and push updated `models_list` messages back to the dashboard client. The Default Model selector SHALL display the updated model list without requiring a server restart.
+When LLM providers are saved via the Settings panel, the server SHALL broadcast a `credentials_updated` message to all connected pi sessions. This MUST cause the model registry to refresh and push updated `models_list` messages back to the dashboard client, keeping every session-scoped model selector current.
+
+The Settings panel's **Default Model** selector SHALL NOT depend on that broadcast for its own correctness. It is sourced from the union of the session-independent `GET /api/models` catalogue and the per-session model lists, and the catalogue half is refreshed by the panel's own refetch, so the selector SHALL display the updated model list without requiring a server restart **and without requiring any connected pi session**.
 
 #### Scenario: Saving new provider populates model selector
 - **WHEN** the user adds a new LLM provider and clicks Save
 - **THEN** the server broadcasts `credentials_updated` to all sessions
 - **AND** each session's bridge refreshes its model registry
-- **AND** the Default Model selector in Settings shows models from the new provider
+- **AND** each session-scoped model selector shows models from the new provider
+
+#### Scenario: Saving new provider populates the Default Model selector
+- **WHEN** the user adds a new LLM provider and clicks Save
+- **THEN** the Settings panel refetches `GET /api/models`
+- **AND** the Default Model selector shows models from the new provider
+- **AND** this holds whether or not any pi session is connected
 
 #### Scenario: Removing a provider updates model selector
 - **WHEN** the user removes an LLM provider and clicks Save
-- **THEN** models from the removed provider no longer appear in the Default Model selector
+- **THEN** models from the removed provider no longer appear in the Default Model selector, unless a live session still reports them
+- **AND** they no longer appear in session-scoped selectors once each bridge has refreshed
 
 #### Scenario: Models available immediately after save
 - **WHEN** the user saves provider changes and opens the Default Model selector
@@ -978,4 +1012,341 @@ The Trusted Networks section on the Security tab SHALL render the bind reachabil
 - **GIVEN** the bind reachability condition holds
 - **WHEN** the Trusted Networks section renders
 - **THEN** the advisory SHALL appear between the section description and the trusted-entry list
+
+### Requirement: Default Model options are the union of the server catalogue and session models
+
+The Settings panel SHALL source the Default Model selector's options from the union of:
+
+1. the server's session-independent model catalogue, fetched from `GET /api/models` without the
+   `annotated` query parameter, and
+2. every per-session `models_list` the client holds.
+
+The union SHALL be deduplicated by fully-qualified `"provider/id"`. When the same
+`"provider/id"` is present in both, the **session-supplied entry SHALL be used**, because it
+carries display name and capability-confidence fields the catalogue rows do not.
+
+The selector SHALL be fully usable when no pi session is connected, in which case the union is
+the catalogue alone.
+
+#### Scenario: Selector is populated with zero live sessions
+- **GIVEN** no pi session is connected to the dashboard
+- **AND** `GET /api/models` returns a non-empty catalogue
+- **WHEN** the user opens Settings and views the Default Model control
+- **THEN** the selector SHALL list every model from the catalogue
+- **AND** the user SHALL be able to select one and save it as `defaultModel`
+
+#### Scenario: Union is a superset of the session-only list
+- **GIVEN** `GET /api/models` returns model A
+- **AND** the only connected session pushed a `models_list` containing model B
+- **WHEN** the Default Model selector is rendered
+- **THEN** it SHALL list both A and B
+
+#### Scenario: Session entry wins on collision
+- **GIVEN** `GET /api/models` returns a row for `openai/gpt-5` with no `name`
+- **AND** a connected session pushed a `models_list` entry for `openai/gpt-5` with `name` `"GPT-5"` and `metadataSource` `"catalog"`
+- **WHEN** the Default Model selector is rendered
+- **THEN** exactly one `openai/gpt-5` option SHALL be listed
+- **AND** that option SHALL carry `name` `"GPT-5"` and `metadataSource` `"catalog"`
+
+#### Scenario: Env-credentialed models remain reachable
+- **GIVEN** a provider whose credential exists only as an environment variable, so `GET /api/models` does not list its models
+- **AND** a connected session pushed a `models_list` containing those models
+- **WHEN** the Default Model selector is rendered
+- **THEN** those models SHALL be listed
+
+### Requirement: Model proxy editors are sourced from the catalogue alone
+
+The Settings panel SHALL supply `ModelProxySection` — its preferred-models editor, model-aliases
+editor, and availability indicators — with the `GET /api/models` catalogue **only**, not the
+union defined above. These controls configure what the model proxy routes, and the catalogue is
+the proxy's routable set by construction.
+
+#### Scenario: Proxy editors exclude a session-only model
+- **GIVEN** a model is present in a session's `models_list` but absent from `GET /api/models`
+- **WHEN** the model proxy preferred-models and aliases editors are rendered
+- **THEN** that model SHALL NOT be offered
+- **AND** the Default Model selector SHALL still offer it
+
+#### Scenario: Proxy editors are populated with zero live sessions
+- **GIVEN** no pi session is connected
+- **AND** `GET /api/models` returns a non-empty catalogue
+- **WHEN** the model proxy editors are rendered
+- **THEN** they SHALL offer every model from the catalogue
+
+### Requirement: Catalogue rows are projected by a single shared pure mapper
+
+Catalogue rows SHALL be projected to the client `ModelInfo` shape by one shared pure mapper,
+which SHALL:
+
+- take `provider` from the row's own `provider` field, and derive the bare `id` by stripping the
+  leading `"<provider>/"` prefix from the row's `id` — it SHALL NOT determine the provider by
+  splitting the row id;
+- set `vision` to `input?.includes("image")`, preserving `undefined` when the row carries no
+  `input` (the route omits `input` when falsy), and SHALL NOT throw on such a row;
+- pass `reasoning` and `contextWindow` through unchanged;
+- **omit** `metadataSource`, because the wire row does not distinguish authored capabilities from
+  registry-floored defaults;
+- drop `thinkingLevelMap`, `maxTokens`, and `cost`, and SHALL NOT derive `supportedThinkingLevels`.
+
+#### Scenario: Full row projection
+- **GIVEN** a catalogue row `{ id: "openai/gpt-5", provider: "openai", reasoning: true, input: ["text","image"], contextWindow: 400000, maxTokens: 128000, thinkingLevelMap: {...}, cost: {...} }`
+- **WHEN** the row is mapped
+- **THEN** the result SHALL be `{ provider: "openai", id: "gpt-5", reasoning: true, vision: true, contextWindow: 400000 }`
+- **AND** the result SHALL NOT carry `metadataSource`, `supportedThinkingLevels`, `thinkingLevelMap`, `maxTokens`, or `cost`
+
+#### Scenario: Row with no input field does not throw
+- **GIVEN** a catalogue row that carries no `input` property
+- **WHEN** the row is mapped
+- **THEN** the mapper SHALL return a result whose `vision` is `undefined`
+- **AND** it SHALL NOT throw
+
+#### Scenario: Text-only model maps to vision false
+- **GIVEN** a catalogue row whose `input` is `["text"]`
+- **WHEN** the row is mapped
+- **THEN** `vision` SHALL be `false`
+
+#### Scenario: Model id containing a slash
+- **GIVEN** a catalogue row with `provider` `"openrouter"` and `id` `"openrouter/meta-llama/llama-3-70b"`
+- **WHEN** the row is mapped
+- **THEN** `provider` SHALL be `"openrouter"` and `id` SHALL be `"meta-llama/llama-3-70b"`
+
+#### Scenario: Provider name containing a slash
+- **GIVEN** a catalogue row with `provider` `"my/proxy"` and `id` `"my/proxy/some-model"`
+- **WHEN** the row is mapped
+- **THEN** `provider` SHALL be `"my/proxy"` and `id` SHALL be `"some-model"`
+
+### Requirement: Catalogue refetches after a credential change made from Settings
+
+The Settings panel SHALL own an explicit catalogue-refetch action and SHALL invoke it after each
+of the following succeeds: an API-key save, a custom-provider save or removal, and an OAuth or
+device-code authorization completion. Invoking it SHALL re-issue `GET /api/models` and re-render
+both the Default Model selector and the model proxy editors, without a page reload, a server
+restart, or any connected pi session.
+
+Because the server's registry refresh is asynchronous and not awaited by those endpoints, a
+refetch MAY observe the pre-refresh catalogue. The refetch SHALL therefore be triggered by the
+originating request's success response and SHALL NOT be implemented as a fixed delay.
+
+#### Scenario: Saving an API key surfaces its models with no session connected
+- **GIVEN** no pi session is connected
+- **AND** the Default Model selector lists no models of provider `P`
+- **WHEN** the user saves an API key for provider `P` and the request succeeds
+- **THEN** the panel SHALL issue a new `GET /api/models`
+- **AND** the selector SHALL list provider `P`'s models once that response reflects the credential
+
+#### Scenario: OAuth completion refetches the catalogue
+- **GIVEN** the user completes an OAuth or device-code authorization for provider `P` from Settings
+- **WHEN** the authorization completes successfully
+- **THEN** the panel SHALL issue a new `GET /api/models`
+
+#### Scenario: Removing a provider drops its models
+- **GIVEN** the Default Model selector lists models of custom provider `Q`
+- **WHEN** the user removes provider `Q` and the save succeeds
+- **THEN** the panel SHALL refetch the catalogue
+- **AND** provider `Q`'s models SHALL NOT be listed, unless a live session still reports them
+
+#### Scenario: Refetch is not a timed guess
+- **WHEN** the panel refetches after a credential write
+- **THEN** the refetch SHALL be triggered by that write's success response
+- **AND** it SHALL NOT be triggered by a fixed delay
+
+### Requirement: Catalogue fetch has a loading state, a bounded timeout, and a defined concurrency rule
+
+The Settings panel SHALL render an explicit loading state for the Default Model control while a
+catalogue request is in flight. The loading state SHALL be distinguishable from both a resolved
+empty catalogue and the catalogue-unavailable callout.
+
+The catalogue request SHALL be bounded by a client timeout of 10 seconds. On expiry the panel
+SHALL render the catalogue-unavailable callout rather than remaining in the loading state
+indefinitely.
+
+When more than one catalogue request is in flight, the panel SHALL apply **last-response-wins**:
+the most recently received response replaces the rendered catalogue, regardless of request order.
+A stale response MAY therefore transiently replace fresher data; this is corrected by the next
+refetch and SHALL NOT be treated as a defect.
+
+#### Scenario: Loading state on a cold first fetch
+- **GIVEN** the Settings panel has issued `GET /api/models` and no response has arrived
+- **WHEN** the Default Model control is rendered
+- **THEN** a loading state SHALL be shown
+- **AND** neither the empty state nor the catalogue-unavailable callout SHALL be shown
+
+#### Scenario: Loading state clears on success
+- **GIVEN** the Default Model control is in its loading state
+- **WHEN** `GET /api/models` responds `200` with a non-empty list
+- **THEN** the loading state SHALL be replaced by the model options
+
+#### Scenario: Hung request times out into the unavailable callout
+- **GIVEN** `GET /api/models` has not responded
+- **WHEN** 10 seconds elapse since the request was issued
+- **THEN** the catalogue-unavailable callout SHALL be shown
+- **AND** the loading state SHALL NOT persist
+
+#### Scenario: Out-of-order responses resolve last-response-wins
+- **GIVEN** refetch R1 is issued, then refetch R2 is issued
+- **WHEN** R2's response arrives first and R1's response arrives second
+- **THEN** the rendered catalogue SHALL be the one carried by R1's response
+
+### Requirement: Catalogue-unavailable renders as a callout beside the Default Model control
+
+When the catalogue request fails — `503` with code `MODEL_PROXY_RUNTIME_MISSING`, any other
+non-2xx status, or a network failure — the Settings panel SHALL render an explicit callout
+adjacent to the Default Model control stating that the model catalogue could not be loaded. The
+callout SHALL be rendered by the Settings panel itself and SHALL NOT require the model selector
+popover to be openable.
+
+A successful response carrying an empty list SHALL NOT render this callout.
+
+#### Scenario: pi-ai unresolvable
+- **GIVEN** `GET /api/models` responds `503 { code: "MODEL_PROXY_RUNTIME_MISSING" }`
+- **WHEN** the Sessions settings page is rendered
+- **THEN** a catalogue-unavailable callout SHALL be shown beside the Default Model control
+
+#### Scenario: Network failure is also surfaced
+- **GIVEN** `GET /api/models` fails with a network error
+- **WHEN** the Sessions settings page is rendered
+- **THEN** the catalogue-unavailable callout SHALL be shown
+
+#### Scenario: Empty catalogue is not an error
+- **GIVEN** `GET /api/models` responds `200` with an empty `data` array
+- **WHEN** the Sessions settings page is rendered
+- **THEN** the catalogue-unavailable callout SHALL NOT be shown
+
+#### Scenario: Session models still offered when the catalogue is unavailable
+- **GIVEN** `GET /api/models` fails
+- **AND** a connected session pushed a non-empty `models_list`
+- **WHEN** the Default Model selector is rendered
+- **THEN** it SHALL still offer that session's models
+
+### Requirement: Default thinking level control paired with the default model
+
+The Sessions page SHALL render a thinking-level control inside the same
+`--severity-info-*` callout that hosts the `defaultModel` control, positioned
+beside the Default Model selector. The control SHALL be bound to
+`config.defaultThinkingLevel`. When the user changes it, the Settings panel SHALL
+include `defaultThinkingLevel` in the partial sent to `PUT /api/config`.
+
+The control's selectable levels SHALL be derived from the currently selected
+Default Model's supported thinking levels (the same `supportedThinkingLevels`
+source used elsewhere in the client). When the selected Default Model changes, the
+selectable levels SHALL re-derive from the newly selected model.
+
+When **no** Default Model is selected, the control SHALL be locked to `off`: it
+renders and displays `off`, and no other level is selectable. In this locked
+state any selection interaction SHALL be a no-op for persistence — it SHALL NOT
+add `defaultThinkingLevel` to the `PUT /api/config` partial and SHALL NOT write
+`"off"`. The persisted `defaultThinkingLevel` SHALL remain `""` (empty — "do not
+override"), never a spurious `off` override.
+
+#### Scenario: Control renders beside the default model
+
+- **WHEN** the Sessions page is rendered with a Default Model selected
+- **THEN** a thinking-level control SHALL appear inside the Default Model callout beside the Default Model selector
+
+#### Scenario: Levels filter to the selected model
+
+- **WHEN** a Default Model with a limited set of supported thinking levels is selected
+- **THEN** the thinking-level control SHALL offer only that model's supported levels
+
+#### Scenario: Levels re-derive when the default model changes
+
+- **WHEN** the user changes the Default Model to a different model
+- **THEN** the thinking-level control's selectable levels SHALL re-derive from the newly selected model
+
+#### Scenario: Locked to off when no model is selected
+
+- **WHEN** the Sessions page is rendered with no Default Model selected
+- **THEN** the thinking-level control SHALL display `off`
+- **AND** no level other than `off` SHALL be selectable
+- **AND** interacting with the locked control SHALL NOT persist any value
+- **AND** the persisted `defaultThinkingLevel` SHALL remain an empty string
+
+#### Scenario: Selecting a level persists it
+
+- **WHEN** the user selects a supported thinking level with a Default Model selected
+- **THEN** the Settings panel SHALL include `defaultThinkingLevel` set to that level in the partial sent to `PUT /api/config`
+
+### Requirement: Memory Limits section exposes `maxReplayEvents`
+
+The Memory Limits section of the settings panel SHALL expose a numeric control for `memoryLimits.maxReplayEvents`, alongside the existing memory-limit controls, with a hint explaining that `0` disables the bound and that earlier history remains loadable on demand.
+
+#### Scenario: Control renders with the configured value
+
+- **WHEN** the settings panel loads with `maxReplayEvents` set to `500`
+- **THEN** the Memory Limits section SHALL display a control showing `500`
+
+#### Scenario: Control renders the default when the field is absent
+
+- **WHEN** the settings panel loads a config with no `maxReplayEvents`
+- **THEN** the control SHALL display the positive default window the server applies
+
+#### Scenario: Edited value is written back
+
+- **WHEN** the user changes the control to `500` and saves
+- **THEN** the config write SHALL include `memoryLimits.maxReplayEvents` of `500`
+- **AND** the other `memoryLimits` values SHALL be preserved on disk
+
+Note: preserved, not re-written. The write carries only the CHANGED fields and
+the server deep-merges them over the raw config file, so an untouched sibling
+keeps whatever the file holds — including an absent key, which a whole-object
+write would have materialized into an explicit value the user never chose.
+
+#### Scenario: Change is marked as requiring a restart
+
+- **WHEN** the user changes the control
+- **THEN** the panel SHALL indicate the change requires a server restart, consistent with the other Memory Limits controls
+
+### Requirement: The `maxReplayEvents` control is localized
+
+The control's label and hint SHALL be provided through the translation layer with an English fallback, consistent with the sibling Memory Limits controls.
+
+#### Scenario: Label resolves in each supported locale
+
+- **WHEN** the settings panel renders in a supported locale
+- **THEN** the control's label SHALL resolve through the translation layer rather than a hard-coded string
+
+### Requirement: Memory Limits documents the replay-window and retention interaction
+
+The Memory Limits section SHALL carry unconditional help text explaining that event retention bounds what the replay window's elided middle can later serve. It SHALL NOT gate that text on a comparison between `maxReplayEvents` and `maxEventsPerSession`, because whether retention will actually trim the gap depends on a session's eventual size and is not decidable from configuration.
+
+#### Scenario: Help text is always present
+
+- **WHEN** the Memory Limits section renders
+- **THEN** the interaction between the replay window and event retention SHALL be explained
+
+#### Scenario: No conditional warning is shown
+
+- **WHEN** `maxReplayEvents` and `maxEventsPerSession` are both positive in any relative ordering
+- **THEN** no warning specific to that pairing SHALL be displayed
+
+#### Scenario: Saving is never blocked on the pairing
+
+- **WHEN** the user saves any combination of the two values
+- **THEN** the save SHALL NOT be blocked
+- **AND** neither value SHALL be rewritten on the basis of the other
+- **AND** the existing minimum-replay-window clamp SHALL continue to apply unchanged
+
+#### Scenario: Help text is localized
+
+- **WHEN** the Memory Limits section renders in a supported locale
+- **THEN** the help text SHALL resolve through the translation layer rather than a hard-coded string
+
+### Requirement: Saving an unrelated Memory Limits field does not pin `maxReplayEvents`
+
+The settings panel SHALL NOT convert a defaulted `maxReplayEvents` into an explicitly configured one as a side effect of editing a different field. Because the config read returns a parsed config in which the field is always materialized, a whole-object write of `memoryLimits` would persist a value the user never chose.
+
+#### Scenario: Editing a sibling field does not persist the default
+
+- **WHEN** the user edits a different Memory Limits field and saves, having never touched `maxReplayEvents`
+- **THEN** the written config SHALL NOT gain an explicit `maxReplayEvents` that the stored config did not already have
+
+#### Scenario: An explicitly configured value survives a sibling edit
+
+- **WHEN** the stored config sets `maxReplayEvents` to `0` and the user edits a different Memory Limits field and saves
+- **THEN** the written config SHALL still set `maxReplayEvents` to `0`
+
+#### Scenario: The control displays the effective value
+
+- **WHEN** the settings panel loads a config with no stored `maxReplayEvents`
+- **THEN** the control SHALL display the positive default window the server applies
 

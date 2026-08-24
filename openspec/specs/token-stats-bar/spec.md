@@ -1,4 +1,10 @@
-## ADDED Requirements
+# token-stats-bar Specification
+
+## Purpose
+
+Visualises token usage per turn and against the context window. Defines the per-turn butterfly bar chart and context progress bar, their independent visibility gating and independent normalization, token counters and cost, the stats panel with scale labels, and the interaction and layout rules: click-to-scroll to a turn, cursor feedback on clickable bars, solid input bars, a fixed bar width cap, and a turn index carried on both `TurnStat` and messages.
+
+## Requirements
 
 ### Requirement: Per-turn bar chart
 The token stats bar SHALL display a mini bar chart showing token usage for each turn. Each bar SHALL be a stacked vertical bar with segments for cache read tokens (orange, `bg-orange-400`), cache write tokens (yellow, `bg-yellow-400`), input tokens (blue, `bg-blue-500`), and output tokens (purple, `bg-purple-500`). Bars SHALL be scaled relative to the maximum token count across all displayed turns.

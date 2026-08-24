@@ -7,11 +7,12 @@
  *
  * See change: add-automation-plugin.
  */
-import { describe, it, expect } from "vitest";
+
 import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { validateManifest } from "@blackbelt-technology/dashboard-plugin-runtime/manifest-validator";
+import { describe, expect, it } from "vitest";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -54,5 +55,15 @@ describe("automation-plugin manifest discoverability", () => {
     expect(validated.configSchema).toBe("./src/configSchema.json");
     const schemaPath = resolve(__dirname, "../..", validated.configSchema!);
     expect(() => readFileSync(schemaPath, "utf-8")).not.toThrow();
+  });
+
+  // E27 — see change: add-automation-concurrent-spawn.
+  it("configSchema accepts `maxConcurrentSpawns` under additionalProperties:false", async () => {
+    const { default: Ajv } = await import("ajv");
+    const schema = JSON.parse(readFileSync(resolve(__dirname, "../configSchema.json"), "utf-8"));
+    const validate = new Ajv({ allErrors: true, strict: false }).compile(schema);
+    expect(validate({ maxConcurrentSpawns: 6 })).toBe(true);
+    // An unknown property is still rejected (guards the closed schema).
+    expect(validate({ bogusSetting: 1 })).toBe(false);
   });
 });

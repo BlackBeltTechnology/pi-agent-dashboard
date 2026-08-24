@@ -1,3 +1,5 @@
 # memory-session-manager.ts — index
 
 Pure in-memory session registry; replaces SQLite-backed session-manager. Exports `RegisterSessionParams`, `OnChangeContext`, `SessionManager`, `createMemorySessionManager`. `register` carries over accumulated tokens/cost/context on reattach, auto-hides headless non-dashboard workers, resets `pendingQueues`. Hooks `onChange` (with `registerReason`/`priorStatus`), `onUnregister` — the transport-independent death signal fanned to plugin `onSessionEnded`. See change: finalize-automation-run-on-session-death.
+
+See change: fix-spawn-correlation-ttl-coupling (D3). `RegisterSessionParams.dashboardSpawned` replaces `params.source` in the auto-hide heuristic: `source` is the bridge's SELF-REPORT, evaluated before `decideDashboardSource` stamps `"dashboard"`, so it could never carry the value the heuristic tested for and a dashboard spawn reporting `hasUI:false` was hidden from its own sidebar. Final branch is `hasUI === false && dashboardSpawned !== true`; reattach and `visibilityIntent` precedence unchanged.

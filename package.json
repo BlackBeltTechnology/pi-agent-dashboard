@@ -56,6 +56,7 @@
     "test": "HOME=$(mktemp -d -t pi-test-XXXXXX) NODE_OPTIONS=\"--localstorage-file=$(mktemp -t pi-test-ls-XXXXXX)\" vitest run",
     "test:watch": "HOME=$(mktemp -d -t pi-test-XXXXXX) NODE_OPTIONS=\"--localstorage-file=$(mktemp -t pi-test-ls-XXXXXX)\" vitest",
     "test:ci-scenarios": "RUN_CI_SCENARIOS=1 HOME=$(mktemp -d -t pi-test-XXXXXX) NODE_OPTIONS=\"--localstorage-file=$(mktemp -t pi-test-ls-XXXXXX)\" vitest run --project scripts",
+    "spec:validate": "openspec validate --specs --no-interactive",
     "generate:plugin-registry": "node scripts/generate-plugin-registry.mjs",
     "i18n:parity": "node scripts/i18n-parity.mjs",
     "i18n:lint": "node scripts/i18n-lint.mjs",
@@ -63,7 +64,7 @@
     "lint:e2e": "tsc -p tests/tsconfig.json --noEmit && node scripts/check-e2e-fixture-import.mjs",
     "lint:biome": "biome lint .",
     "fix:changed": "biome check --changed --write",
-    "quality:changed": "biome check --changed --error-on-warnings --write && tsc --noEmit && npm run lint:e2e && npm test",
+    "quality:changed": "biome check --changed --error-on-warnings --write && tsc --noEmit && npm run lint:e2e && node scripts/z-layer-lint.mjs && npm test",
     "quality:report": "biome lint . --reporter=github",
     "reload": "./scripts/reload-all.sh",
     "reload:check": "./scripts/reload-all.sh --check",
@@ -92,6 +93,7 @@
     "test:e2e:electron": "playwright test --config playwright.electron.config.ts",
     "knip": "knip --no-progress",
     "knip:ratchet": "node scripts/knip-ratchet.mjs",
+    "z-layer:lint": "node scripts/z-layer-lint.mjs",
     "knip:config": "node scripts/knip-config.mjs"
   },
   "engines": {

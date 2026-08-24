@@ -1,6 +1,6 @@
-import { describe, it, expect } from "vitest";
-import { groupConsecutiveToolCalls, type ChatItem, type ToolCallGroup } from "../chat/group-tool-calls.js";
+import { describe, expect, it } from "vitest";
 import type { ChatMessage } from "../chat/event-reducer.js";
+import { type ChatItem, groupConsecutiveToolCalls, type ToolCallGroup } from "../chat/group-tool-calls.js";
 
 function toolMsg(overrides: Partial<ChatMessage> = {}): ChatMessage {
   return {
@@ -202,5 +202,46 @@ describe("groupConsecutiveToolCalls", () => {
     const result = groupConsecutiveToolCalls(msgs);
     expect(result).toHaveLength(3);
     expect(result.every((r) => !isGroup(r))).toBe(true);
+  });
+});
+
+/**
+ * `elided` must not be absorbed into a collapsed group — test-plan E29.
+ *
+ * `elided` is TERMINAL, so unlike `running` it would group happily under the
+ * old predicate. That is exactly the hazard: inside a collapsed ≥3 group the
+ * "result not loaded" affordance never renders at all, so an unloadable result
+ * would silently read as a succeeded one.
+ * See change: fix-lazy-history-backfill-ux (D5).
+ */
+describe("groupConsecutiveToolCalls — elided rows (E29)", () => {
+  it("E29: an elided row between two complete ones is not collapsed away", () => {
+    const first = toolMsg();
+    const middle = toolMsg({ toolStatus: "elided" });
+    const last = toolMsg();
+    const result = groupConsecutiveToolCalls([first, middle, last]);
+
+    // No collapsed group forms across it, and every row survives verbatim.
+    expect(result.some(isGroup)).toBe(false);
+    expect(result.map((r) => (r as ChatMessage).id)).toEqual([first.id, middle.id, last.id]);
+  });
+
+  it("E29b: an elided row is never counted inside a group's member list", () => {
+    const elided = toolMsg({ toolStatus: "elided" });
+    const result = groupConsecutiveToolCalls([toolMsg(), toolMsg(), toolMsg(), elided]);
+    const groups = result.filter(isGroup);
+    for (const g of groups) {
+      expect(g.messages.map((m) => m.id)).not.toContain(elided.id);
+      expect(g.rendered.map((m) => m.id)).not.toContain(elided.id);
+    }
+    // ...and it is still emitted as a standalone row, so the affordance renders.
+    expect(result.some((r) => !isGroup(r) && (r as ChatMessage).id === elided.id)).toBe(true);
+  });
+
+  it("an elided row STARTING a run does not seed a group either", () => {
+    const elided = toolMsg({ toolStatus: "elided" });
+    const result = groupConsecutiveToolCalls([elided, toolMsg(), toolMsg(), toolMsg()]);
+    expect((result[0] as ChatMessage).id).toBe(elided.id);
+    expect(result.filter(isGroup)).toHaveLength(1);
   });
 });

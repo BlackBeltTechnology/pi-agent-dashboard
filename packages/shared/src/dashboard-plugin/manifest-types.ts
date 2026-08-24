@@ -55,6 +55,40 @@ export interface PluginClaim {
    * See change: fix-plugin-and-scoped-back-navigation.
    */
   parentPath?: string;
+  /**
+   * How a `shell-overlay-route` claim is presented. Defaults to `"dialog"`.
+   *
+   * - `"dialog"` — the shell renders the claim in a route-backed overlay: a
+   *   `Dialog` over a plain backdrop on desktop, and the `MobileShell` depth
+   *   slide on mobile. The URL stays canonical either way, so deep links, the
+   *   browser back button, and `depth`/`parentPath` all still apply.
+   *
+   *   The launching route is NOT kept mounted behind the dialog. A route-backed
+   *   dialog moves the URL to its own path, so the launching route stops
+   *   matching and cannot render. The guarantee is that DISMISSAL returns to
+   *   it — not that it stays visible.
+   *
+   * - `"page"` — the claim takes the full viewport on BOTH desktop and
+   *   mobile, outside the `MobileShell` panel. Opting out of the dialog opts
+   *   out of the mobile depth slide too: a surface that declares it needs the
+   *   whole viewport needs it on a phone most of all, and rendering it inside
+   *   a depth-1 detail panel would reintroduce exactly the constraint the
+   *   opt-out exists to escape.
+   *
+   * Declare `"page"` only for width-hungry surfaces (boards, wide tables) that
+   * a dialog would visibly cramp. `depth` remains REQUIRED for `"page"` claims —
+   * it is the only thing driving their back action. `parentPath` follows the
+   * ordinary rule (required when `depth: 2`), not an extra `"page"` condition.
+   *
+   * NOTE: a claim nested under `/folder/:cwd` or `/session/:id` MUST NOT declare
+   * `depth: 1`. The history fast-path needs a strictly shallower predecessor, so
+   * a surface at the same depth as its own parent falls through to the depth-1
+   * default `/` — ejecting the user from the folder or session it was opened
+   * from. Declare `depth: 2` plus a `parentPath` naming that parent.
+   *
+   * See change: add-route-backed-overlay-dialogs.
+   */
+  presentation?: "page" | "dialog";
   /** Slot-specific extra config (escape hatch — prefer first-class fields). */
   config?: Record<string, unknown>;
   /**

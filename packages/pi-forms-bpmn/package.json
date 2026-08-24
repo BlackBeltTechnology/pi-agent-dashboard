@@ -1,0 +1,45 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-forms-bpmn",
+  "version": "0.7.0",
+  "description": "Two pi skills bundled together: openforms-mui (render/author OpenForms FormSchemaJSON as themed, accessible MUI) and bpmn-package-explorer (generate/view vendor-neutral BPMN 2.0 + DMN process packages). Rendering either on the pi-dashboard canvas is documented by the dashboard extension's own canvas-webapp skill.",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BlackBeltTechnology/pi-agent-dashboard.git",
+    "directory": "packages/pi-forms-bpmn"
+  },
+  "license": "MIT",
+  "engines": {
+    "node": ">=20.12"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-skill",
+    "pi-dashboard",
+    "openforms",
+    "form-builder",
+    "mui",
+    "bpmn",
+    "dmn",
+    "process-modeling",
+    "canvas"
+  ],
+  "pi": {
+    "skills": [
+      ".pi/skills/openforms-mui",
+      ".pi/skills/bpmn-package-explorer"
+    ]
+  },
+  "scripts": {
+    "postinstall": "node scripts/ensure-openforms-deps.mjs"
+  },
+  "files": [
+    ".pi/skills/",
+    "scripts/",
+    "README.md",
+    "NOTICE"
+  ]
+}

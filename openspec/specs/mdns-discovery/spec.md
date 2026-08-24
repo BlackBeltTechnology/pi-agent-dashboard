@@ -1,3 +1,11 @@
+# mdns-discovery Specification
+
+## Purpose
+
+Lets dashboard servers and browsers find each other on a local network without hand-entered addresses. Covers server-side advertisement, client-side browsing including continuous background browsing, a preference for localhost when it is among the candidates, and a fallback to config-based probing when mDNS yields nothing.
+
+## Requirements
+
 ### Requirement: Server mDNS advertisement
 The dashboard server SHALL advertise itself via mDNS as `_pi-dashboard._tcp` on startup and unpublish on shutdown.
 

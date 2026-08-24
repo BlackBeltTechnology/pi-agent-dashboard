@@ -1,151 +1,46 @@
 # Workflow Taxonomy
 
-All 6 GitHub Actions workflows in `.github/workflows/`, what each does, when it fires, and what it can't do.
+`.github/workflows/` contains 10 workflow files: 8 entry workflows and 2 reusable workflows.
 
-## Push-triggered
+## Entry workflows
 
-### `ci.yml` — main CI
+| Workflow | Trigger | Purpose | Mutates releases? |
+|---|---|---|---|
+| `ci.yml` | Push and pull request to `develop` | Node 22 lint, type checks, tests, and build | No |
+| `deploy-site.yml` | `site/**` push, release publication, manual | Build and deploy GitHub Pages | Site only |
+| `ci-e2e-electron.yml` | Path-filtered pull request, manual | Native Electron Playwright checks on Linux and Windows | No |
+| `ci-electron.yml` | Manual | Build selected Electron installer matrix legs | No |
+| `ci-smoke.yml` | Manual | Run the standalone installation smoke matrix | No |
+| `nightly.yml` | Manual; schedule currently disabled | Full-fidelity Verdaccio and Electron round-trip | No public release mutation |
+| `publish.yml` | `v*` tag or manual version dispatch | Gate, tag when dispatched, publish npm packages, build Electron, create GitHub Release | Yes |
+| `sync-release-version.yml` | Release published or edited, manual | Write release metadata to the site and push `develop` | Site metadata commit |
 
-| Field | Value |
-|-------|-------|
-| Triggers | `push` (any branch) |
-| Jobs | `ci`, `standalone-install-smoke-linux` (matrix), `standalone-install-smoke-windows` (matrix) |
-| Runs on | ubuntu-latest + matrix legs (Debian/Ubuntu/Alpine images for Linux, windows-latest) |
+## Reusable workflows
 
-`ci` runs tests + lint + type-check + repo-lint tests. The smoke matrix exercises `pi install npm:@blackbelt-technology/pi-agent-dashboard` from a clean container/VM.
+| Workflow | Called by | Purpose |
+|---|---|---|
+| `_smoke.yml` | `ci-smoke.yml`, `publish.yml` | Seven-leg standalone installation smoke matrix |
+| `_electron-build.yml` | `ci-electron.yml`, `nightly.yml`, `publish.yml` | Six-leg Electron build matrix |
 
-Smoke jobs verify:
-- npm install resolves cleanly with the freshly-published packages
-- Bridge starts, server bootstraps, `/api/health` responds
-- No platform-specific regressions (Alpine musl, Windows path quirks, etc.)
+## Dependency graph
 
-### `deploy-site.yml` — site deploy
-
-| Field | Value |
-|-------|-------|
-| Triggers | `push` on main, paths: `site/**` |
-| Job | Build + deploy the marketing/docs site |
-
-Lightweight. Only runs if site files changed. Failures here don't block code releases.
-
-## Release flow (publish.yml + helpers)
-
-### `publish.yml` — release orchestrator
-
-| Field | Value |
-|-------|-------|
-| Triggers | `push` of tag `v*` **OR** `workflow_dispatch` with `version` input |
-| Jobs | `prepare` → `publish` → `electron` → `github-release` |
-| Permissions | `contents: write` on prepare; OIDC for publish |
-
-Two entry paths:
-
-1. **Tag push** (`v0.4.1` → workflow). `prepare` resolves the version from the tag, skips bump steps, jumps straight to publish.
-2. **Dispatch** (operator types `0.4.1` in UI). `prepare` bumps every workspace package.json, runs `scripts/sync-versions.js`, regenerates lockfile, promotes `[Unreleased]` in CHANGELOG, commits + tags + pushes.
-
-After `prepare`, both paths converge: publish → electron → github-release.
-
-### `_electron-build.yml` — reusable Electron matrix
-
-| Field | Value |
-|-------|-------|
-| Triggers | `workflow_call` only (never directly) |
-| Jobs | 6-leg matrix: DMG (arm64+x64), AppImage, DEB, Windows ZIP, Windows portable .exe |
-| Consumed by | `publish.yml` (release flow, `source_only_bundle=false`) and `ci-electron.yml` (on-demand, `source_only_bundle=true`) |
-
-**Critical:** does NOT publish to npm or create a GitHub Release. Only produces artifacts via `actions/upload-artifact`. Publishing is the caller's job.
-
-Inputs:
-- `version`: SemVer string set via `npm version` on every workspace
-- `ref`: Git ref to check out
-- `legs`: Matrix subset (`all` / `darwin` / `linux` / `win32` / comma-list like `darwin-arm64,linux-x64`)
-- `source_only_bundle`: If true, `bundle-server.mjs --source-only` skips host-side `npm install` and resolves `@blackbelt-technology/*` from local workspace source. Required for CI dev builds where the dispatched version isn't on npm.
-- `artifact_retention_days`: 14 for CI, 90 for release.
-
-### `sync-release-version.yml` — site cache updater
-
-| Field | Value |
-|-------|-------|
-| Triggers | `release: { types: [published, edited] }` **OR** `workflow_dispatch` |
-| Job | Writes `site/src/data/latest-release.json` with the latest release metadata and commits to develop |
-
-After committing, `deploy-site.yml` picks up the change via its `paths: ["site/**"]` filter and redeploys.
-
-## Manual-dispatch only
-
-### `ci-electron.yml` — on-demand Electron smoke
-
-| Field | Value |
-|-------|-------|
-| Triggers | `workflow_dispatch` only |
-| Inputs | `legs` (matrix subset, default `all`) |
-| Uses | `_electron-build.yml` with `source_only_bundle=true` |
-
-**Purpose** — smoke-test that the full Electron matrix still builds green on a feature branch, WITHOUT publishing or creating a Release.
-
-Use cases:
-- Verify `bundle-server.mjs` / `forge.config.ts` changes without burning a SemVer slot
-- Hand a teammate a one-off installer to reproduce a packaging bug
-- Confirm matrix legs still green before cutting a release
-
-**Safety invariants** (locked by repo-lint tests):
-- No `npm publish`
-- No GitHub Release (drafts, prereleases, or full)
-- No tag push
-- Version slug is a SemVer prerelease ranked **below** the base stable, so an accidental Release publish wouldn't reach electron-updater clients with `allowPrerelease: false`
-
-Re-dispatching on the same branch cancels the prior run. Different branches run in parallel.
-
-## Workflow dependency graph
-
-```
-                  ┌────────────┐
-                  │  push tag  │
-                  │    v*      │
-                  └─────┬──────┘
-                        │
-              ┌─────────┴──────────┐
-              ▼                    ▼
-      ┌──────────────┐   ┌─────────────────┐
-      │  publish.yml │   │ ci.yml (always) │
-      └──────┬───────┘   └─────────────────┘
-             │
-       ┌─────┴──────┐
-       │ prepare    │
-       └─────┬──────┘
-             │
-       ┌─────┴──────┐
-       │ publish    │
-       └─────┬──────┘
-             │
-       ┌─────┴───────────────────┐
-       │ electron                │
-       │ (calls _electron-build) │
-       └─────┬───────────────────┘
-             │
-       ┌─────┴──────────┐
-       │ github-release │
-       └─────┬──────────┘
-             │
-             ▼ (release event)
-   ┌────────────────────────┐
-   │ sync-release-version.yml│
-   └─────┬──────────────────┘
-         │ (commits site/**)
-         ▼
-   ┌─────────────────┐
-   │ deploy-site.yml │
-   └─────────────────┘
+```mermaid
+flowchart LR
+  ci[ci.yml] --> checks[tests + lint + build]
+  deploy[deploy-site.yml] --> pages[GitHub Pages]
+  native[ci-e2e-electron.yml] --> nativeTests[native Electron E2E]
+  ciSmoke[ci-smoke.yml] --> smoke[_smoke.yml]
+  publish[publish.yml] --> smoke
+  ciElectron[ci-electron.yml] --> electron[_electron-build.yml]
+  nightly[nightly.yml] --> electron
+  publish --> electron
+  publish --> release[GitHub Release]
+  release --> sync[sync-release-version.yml]
 ```
 
-## Quick "where is X configured" cheatsheet
+## Safety boundaries
 
-| Question | Workflow |
-|----------|----------|
-| Which Node versions are tested? | `ci.yml` matrix.node-version |
-| Which Linux distros are smoked? | `ci.yml` matrix.image |
-| Which Windows is tested? | `ci.yml` standalone-install-smoke-windows |
-| What npm packages publish? | `publish.yml` publish job (sub-packages first, root last) |
-| Which Electron platforms build? | `_electron-build.yml` matrix (6 legs) |
-| How is the site updated after release? | `sync-release-version.yml` + `deploy-site.yml` |
-| Can I test the Electron matrix without releasing? | `ci-electron.yml` (workflow_dispatch) |
+- `_smoke.yml`, `_electron-build.yml`, `ci-smoke.yml`, `ci-electron.yml`, `ci-e2e-electron.yml`, and `nightly.yml` do not publish to public npm or create a GitHub Release.
+- `publish.yml` is the only public release orchestrator.
+- `deploy-site.yml` and `sync-release-version.yml` mutate only site deployment or release metadata.
+- Current per-file contracts live in `.github/workflows/AGENTS.md`; consult it when a workflow changes.

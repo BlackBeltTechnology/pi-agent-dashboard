@@ -5,6 +5,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DEFAULT_MEMORY_LIMITS, type MemoryLimitsConfig, MIN_REPLAY_WINDOW } from "./memory-limits.js";
 import type { WindowsGitSourceSetting } from "./platform/select-git-source.js";
 import {
   providerSupportsMode,
@@ -86,23 +87,19 @@ export interface AuthConfig {
   admin?: string;
 }
 
-export interface MemoryLimitsConfig {
-  /** Max events stored per session (0 = unlimited). Default: 200 */
-  maxEventsPerSession: number;
-  /** Max chars before truncating string fields in events (0 = no truncation). Default: 0 (disabled) */
-  maxStringFieldSize: number;
-  /** Max bytes in browser WebSocket send buffer before dropping messages (0 = no limit). Default: 4194304 (4MB) */
-  maxWsBufferBytes: number;
-}
-
-export const DEFAULT_MEMORY_LIMITS: MemoryLimitsConfig = {
-  // 20000 (was 5000): subagent-heavy turns forward thousands of inner events
-  // into the parent buffer; the old cap trimmed the chat head.
-  // See change: preserve-chat-head-on-event-trim.
-  maxEventsPerSession: 20000,
-  maxStringFieldSize: 0,
-  maxWsBufferBytes: 4 * 1024 * 1024,
-};
+/**
+ * Memory-limit types + defaults live in a BROWSER-SAFE module and are
+ * re-exported here so existing `config.js` importers are unaffected. The client
+ * settings panel needs `DEFAULT_MEMORY_LIMITS` as a VALUE, and a value import of
+ * THIS module would drag `node:fs`/`node:os`/`node:path` into the browser
+ * bundle — a blank page at boot, not a build error.
+ * See change: fix-lazy-history-backfill-ux (D7).
+ */
+export {
+  DEFAULT_MEMORY_LIMITS,
+  type MemoryLimitsConfig,
+  MIN_REPLAY_WINDOW,
+} from "./memory-limits.js";
 
 export interface OpenSpecPollConfig {
   /**
@@ -308,16 +305,41 @@ export interface DashboardConfig {
   autoStart: boolean;
   autoShutdown: boolean;
   shutdownIdleSeconds: number;
+  /**
+   * Coalescing window (ms) the bridge applies to subagent `Agent` ticks on the
+   * `tool_execution_update` carrier. `0` disables the throttle entirely and is
+   * the byte-identical rollback path. Only Agent updates carrying a
+   * `details.agentId` are affected; every other tool forwards 1:1.
+   * Non-numeric / negative values fall back to the default.
+   * See change: reduce-bridge-tick-bandwidth (D2/D3/D4).
+   */
+  subagentTickThrottleMs: number;
   spawnStrategy: SpawnStrategy;
   tunnel: {
     enabled: boolean;
     /**
-     * Which provider backs the tunnel. Required (non-undefined) once a
-     * post-migration config is written; a legacy config with only
-     * `reservedToken` is normalized to `provider: "zrok"` at read time.
+     * Which provider backs the tunnel — now specifically **the PRIMARY**.
+     *
+     * The field keeps its shape and gains a meaning, which is what keeps
+     * concurrency cheap: `getTunnelUrl()` returns the primary's URL, so every
+     * existing OAuth, cookie and redirect scenario stays true verbatim and the
+     * legacy `reservedToken` migration is untouched. Additional providers opt
+     * in via `tunnel.<id>.enabled`.
+     *
+     * Required (non-undefined) once a post-migration config is written; a
+     * legacy config with only `reservedToken` is normalized to
+     * `provider: "zrok"` at read time.
      */
     provider?: TunnelProviderId;
-    /** public reverse-proxy vs private mesh. Required when enabled + provider set. */
+    /**
+     * public reverse-proxy vs private mesh, for the PRIMARY.
+     *
+     * A single shared mode cannot express "zrok primary + zerotier enabled":
+     * `PROVIDER_MODES` makes zerotier private-only and zrok public-only, so one
+     * field would make that combination inexpressible. Non-primary providers
+     * carry their own `tunnel.<id>.mode`. See change:
+     * add-zrok-custom-reserved-name (D3).
+     */
     mode?: TunnelMode;
     /**
      * Legacy top-level zrok reserved token. Preserved on read for downgrade
@@ -331,10 +353,10 @@ export interface DashboardConfig {
      * `persistent` (default false) opts in to minting/serving a reserved name.
      * See change: support-zrok-v2.
      */
-    zrok?: { reservedToken?: string; reservedName?: string; persistent?: boolean };
-    ngrok?: { authtoken?: string; domain?: string };
-    tailscale?: { authKey?: string };
-    zerotier?: { networkId?: string };
+    zrok?: { reservedToken?: string; reservedName?: string; persistent?: boolean; enabled?: boolean; mode?: TunnelMode };
+    ngrok?: { authtoken?: string; domain?: string; enabled?: boolean; mode?: TunnelMode };
+    tailscale?: { authKey?: string; enabled?: boolean; mode?: TunnelMode };
+    zerotier?: { networkId?: string; enabled?: boolean; mode?: TunnelMode };
     watchdog?: {
       enabled: boolean;
       intervalMs: number;
@@ -345,6 +367,13 @@ export interface DashboardConfig {
   devBuildOnReload: boolean;
   auth?: AuthConfig;
   defaultModel: string;
+  /**
+   * Default thinking level applied to brand-new startup sessions alongside
+   * `defaultModel`. Empty string means "do not override" — the bridge leaves
+   * pi's own thinking-level resolution intact (mirrors `defaultModel: ""`).
+   * See change: add-default-thinking-level.
+   */
+  defaultThinkingLevel: string;
   memoryLimits: MemoryLimitsConfig;
   /** OpenSpec background polling behavior (interval, concurrency, change detection, jitter) */
   openspec: OpenSpecPollConfig;
@@ -620,6 +649,9 @@ const DEFAULTS: DashboardConfig = {
   autoStart: true,
   autoShutdown: false,
   shutdownIdleSeconds: 300,
+  // Rollout default `0` (off). Flipped to 500 once the throttle's suites are
+  // green. See change: reduce-bridge-tick-bandwidth (D4, task 6.1).
+  subagentTickThrottleMs: 0,
   spawnStrategy: "headless",
   tunnel: {
     enabled: true,
@@ -633,6 +665,7 @@ const DEFAULTS: DashboardConfig = {
   },
   devBuildOnReload: false,
   defaultModel: "",
+  defaultThinkingLevel: "",
   memoryLimits: { ...DEFAULT_MEMORY_LIMITS },
   openspec: { ...DEFAULT_OPENSPEC_POLL },
   sessions: { ...DEFAULT_SESSIONS },
@@ -788,12 +821,33 @@ function parseKeeperLogConfig(raw: any): KeeperLogConfig {
   };
 }
 
+/**
+ * Absent / negative / non-numeric → the DEFAULT; explicit `0` → `0`.
+ *
+ * Presence detection is load-bearing once the default is non-zero: the previous
+ * shape collapsed absent, negative, non-numeric and explicit `0` into `0`, so a
+ * non-zero default would have been unreachable from a config file that simply
+ * omits the field. The `MIN_REPLAY_WINDOW` clamp is unchanged.
+ * See change: fix-lazy-history-backfill-ux (D7).
+ */
+function parseMaxReplayEvents(raw: unknown): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) {
+    return DEFAULT_MEMORY_LIMITS.maxReplayEvents;
+  }
+  if (raw === 0) return 0;
+  return Math.max(MIN_REPLAY_WINDOW, Math.floor(raw));
+}
+
 function parseMemoryLimits(raw: any): MemoryLimitsConfig {
   if (!raw || typeof raw !== "object") return { ...DEFAULT_MEMORY_LIMITS };
   return {
     maxEventsPerSession: typeof raw.maxEventsPerSession === "number" ? raw.maxEventsPerSession : DEFAULT_MEMORY_LIMITS.maxEventsPerSession,
     maxStringFieldSize: typeof raw.maxStringFieldSize === "number" ? raw.maxStringFieldSize : DEFAULT_MEMORY_LIMITS.maxStringFieldSize,
     maxWsBufferBytes: typeof raw.maxWsBufferBytes === "number" ? raw.maxWsBufferBytes : DEFAULT_MEMORY_LIMITS.maxWsBufferBytes,
+    // Absent / non-numeric / negative → the default. A positive value below
+    // MIN_REPLAY_WINDOW clamps up; an explicit 0 is preserved, never clamped.
+    // See change: lazy-load-session-history (D3), fix-lazy-history-backfill-ux (D7).
+    maxReplayEvents: parseMaxReplayEvents(raw.maxReplayEvents),
   };
 }
 
@@ -936,6 +990,32 @@ const KNOWN_TUNNEL_MODES: TunnelMode[] = ["public", "private"];
  *  - an explicit `provider` wins over a stray legacy `reservedToken`.
  * See change: add-tunnel-providers.
  */
+/**
+ * The per-provider concurrency flags (D3), validated.
+ *
+ * `zrok` is RECONSTRUCTED rather than spread (it carries the legacy token
+ * migration), so without this helper its `enabled`/`mode` were silently dropped
+ * on every load: the operator's second tunnel never connected and the config
+ * showed nothing to explain it. An invalid value is DROPPED rather than
+ * preserved — `resolveTunnelPlan` treats absent `enabled` as false, which is
+ * the safe reading; a bogus `mode` string would instead surface later as an
+ * unsupported-mode connect failure far from its cause.
+ */
+function perProviderFlags(raw: any): { enabled?: boolean; mode?: TunnelMode } {
+  return {
+    ...(typeof raw?.enabled === "boolean" ? { enabled: raw.enabled } : {}),
+    ...(typeof raw?.mode === "string" && (KNOWN_TUNNEL_MODES as string[]).includes(raw.mode)
+      ? { mode: raw.mode as TunnelMode }
+      : {}),
+  };
+}
+
+/** A provider sub-config with its flags re-derived from the validated pair. */
+function withProviderFlags(raw: any): Record<string, unknown> {
+  const { enabled: _e, mode: _m, ...rest } = raw as Record<string, unknown>;
+  return { ...rest, ...perProviderFlags(raw) };
+}
+
 export function normalizeTunnelConfig(
   raw: any,
   defaults: DashboardConfig["tunnel"],
@@ -964,6 +1044,7 @@ export function normalizeTunnelConfig(
   const zrok = {
     ...(zrokToken ? { reservedToken: zrokToken } : {}),
     ...(zrokReservedName ? { reservedName: zrokReservedName } : {}),
+    ...perProviderFlags(rawZrok),
     persistent: zrokPersistent,
   };
 
@@ -973,9 +1054,16 @@ export function normalizeTunnelConfig(
     ...(mode ? { mode } : {}),
     ...(legacyToken ? { reservedToken: legacyToken } : {}),
     zrok,
-    ...(raw?.ngrok && typeof raw.ngrok === "object" ? { ngrok: { ...raw.ngrok } } : {}),
-    ...(raw?.tailscale && typeof raw.tailscale === "object" ? { tailscale: { ...raw.tailscale } } : {}),
-    ...(raw?.zerotier && typeof raw.zerotier === "object" ? { zerotier: { ...raw.zerotier } } : {}),
+    // The raw `enabled`/`mode` are STRIPPED before the spread and re-added from
+    // the validated pair, so a junk value cannot ride the spread into the
+    // concurrency resolver.
+    ...(raw?.ngrok && typeof raw.ngrok === "object" ? { ngrok: withProviderFlags(raw.ngrok) } : {}),
+    ...(raw?.tailscale && typeof raw.tailscale === "object"
+      ? { tailscale: withProviderFlags(raw.tailscale) }
+      : {}),
+    ...(raw?.zerotier && typeof raw.zerotier === "object"
+      ? { zerotier: withProviderFlags(raw.zerotier) }
+      : {}),
     watchdog: {
       enabled: raw?.watchdog?.enabled ?? defaults.watchdog!.enabled,
       intervalMs:
@@ -1047,10 +1135,18 @@ export function loadConfig(): DashboardConfig {
       autoStart: parsed.autoStart ?? defaults.autoStart,
       autoShutdown: parsed.autoShutdown ?? defaults.autoShutdown,
       shutdownIdleSeconds: parsed.shutdownIdleSeconds ?? defaults.shutdownIdleSeconds,
+      subagentTickThrottleMs:
+        typeof parsed.subagentTickThrottleMs === "number" &&
+        Number.isFinite(parsed.subagentTickThrottleMs) &&
+        parsed.subagentTickThrottleMs >= 0
+          ? parsed.subagentTickThrottleMs
+          : defaults.subagentTickThrottleMs,
       spawnStrategy,
       tunnel: normalizeTunnelConfig(parsed.tunnel, defaults.tunnel),
       devBuildOnReload: parsed.devBuildOnReload ?? defaults.devBuildOnReload,
       defaultModel: typeof parsed.defaultModel === "string" ? parsed.defaultModel : defaults.defaultModel,
+      defaultThinkingLevel:
+        typeof parsed.defaultThinkingLevel === "string" ? parsed.defaultThinkingLevel : defaults.defaultThinkingLevel,
       auth: parseAuthConfig(parsed.auth),
       memoryLimits: parseMemoryLimits(parsed.memoryLimits),
       openspec: parseOpenSpecPollConfig(parsed.openspec),
@@ -1137,6 +1233,7 @@ export function ensureConfig(): void {
     autoStart: DEFAULTS.autoStart,
     autoShutdown: DEFAULTS.autoShutdown,
     shutdownIdleSeconds: DEFAULTS.shutdownIdleSeconds,
+    subagentTickThrottleMs: DEFAULTS.subagentTickThrottleMs,
     spawnStrategy: DEFAULTS.spawnStrategy,
     tunnel: DEFAULTS.tunnel,
     devBuildOnReload: DEFAULTS.devBuildOnReload,

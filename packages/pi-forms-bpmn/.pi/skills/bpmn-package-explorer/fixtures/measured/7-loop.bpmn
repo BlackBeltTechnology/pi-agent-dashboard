@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_loop" isExecutable="false">
+    <bpmn:startEvent id="Start_s" name="Start"><bpmn:outgoing>Flow_1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:userTask id="Task_attempt" name="Attempt"><bpmn:incoming>Flow_1</bpmn:incoming><bpmn:incoming>Flow_4</bpmn:incoming><bpmn:outgoing>Flow_2</bpmn:outgoing></bpmn:userTask>
+    <bpmn:exclusiveGateway id="Gateway_ok" name="Passed?"><bpmn:incoming>Flow_2</bpmn:incoming><bpmn:outgoing>Flow_3</bpmn:outgoing><bpmn:outgoing>Flow_4</bpmn:outgoing></bpmn:exclusiveGateway>
+    <bpmn:endEvent id="End_e" name="End"><bpmn:incoming>Flow_3</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_1" sourceRef="Start_s" targetRef="Task_attempt"/>
+    <bpmn:sequenceFlow id="Flow_2" sourceRef="Task_attempt" targetRef="Gateway_ok"/>
+    <bpmn:sequenceFlow id="Flow_3" sourceRef="Gateway_ok" targetRef="End_e"/>
+    <bpmn:sequenceFlow id="Flow_4" sourceRef="Gateway_ok" targetRef="Task_attempt"/>
+  </bpmn:process>
+</bpmn:definitions>

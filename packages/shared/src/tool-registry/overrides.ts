@@ -13,8 +13,8 @@
  *   - Malformed files are treated as empty. No throw, no crash.
  */
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
 
 /** Path to the overrides file. Exposed for tests and the settings UI. */
 export function defaultOverridesPath(): string {
@@ -70,6 +70,27 @@ export class OverridesStore {
     this.persist(current);
   }
 
+  /**
+   * Apply several overrides in ONE transaction. A `null` value clears that
+   * key. Every change is applied to a COPY, persisted once, and the cache is
+   * swapped only after the write succeeds — so a failed persist leaves both
+   * the file and the in-memory cache untouched.
+   *
+   * `set()`/`clear()` are atomic per single write only; two sequential calls
+   * leave a crash window in which one consumer is pinned and the other is
+   * not. See change: select-pi-runtime-install (design D7).
+   */
+  setMany(changes: Record<string, string | null>): void {
+    const current = this.cache ?? this.load();
+    const next: Record<string, string> = { ...current };
+    for (const [name, value] of Object.entries(changes)) {
+      if (value === null) delete next[name];
+      else next[name] = value;
+    }
+    this.persist(next);
+    this.cache = next;
+  }
+
   /** Drop the in-memory cache; next `list()` re-reads the file. */
   invalidate(): void {
     this.cache = null;
@@ -102,7 +123,8 @@ export class OverridesStore {
     }
   }
 
-  private persist(overrides: Record<string, string>): void {
+  /** Protected so tests can inject a throwing persist (fault-injection). */
+  protected persist(overrides: Record<string, string>): void {
     const dir = path.dirname(this.filePath);
     fs.mkdirSync(dir, { recursive: true });
     const data: OverridesFile = {

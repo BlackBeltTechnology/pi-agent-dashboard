@@ -3,12 +3,11 @@ import { mdiRefresh } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Redirect, Route, Switch, useLocation, useRoute, useSearchParams } from "wouter";
+import { Redirect, Route, Switch, useLocation, useRoute, useSearch, useSearchParams } from "wouter";
 import { CanvasDriver } from "./components/canvas/CanvasDriver.js";
 import { ChatView, type ChatViewHandle } from "./components/chat/ChatView.js";
 import { ChatViewMenu } from "./components/chat/ChatViewMenu.js";
 import { CommandInput } from "./components/chat/CommandInput.js";
-import { ModelConfigProvider, type ModelConfigValue } from "./lib/state/ModelConfigContext.js";
 import { ConnectionStatusBanner } from "./components/connectivity/ConnectionStatusBanner.js";
 import { ServerSelector } from "./components/connectivity/ServerSelector.js";
 import { DirectorySettings, type DirectorySettingsPage } from "./components/DirectorySettings/DirectorySettings.js";
@@ -20,6 +19,7 @@ import { ArchiveBrowserView } from "./components/openspec/ArchiveBrowserView.js"
 import { OpenSpecArtifactDialog } from "./components/openspec/OpenSpecArtifactDialog.js";
 import { OpenSpecBoardView } from "./components/openspec/OpenSpecBoardView.js";
 import { SpecsBrowserView } from "./components/openspec/SpecsBrowserView.js";
+import { RouteBackedOverlay } from "./components/overlay/RouteBackedOverlay.js";
 import { InstallBanner } from "./components/packages/InstallBanner.js";
 import { PiUpdateBadge } from "./components/packages/PiUpdateBadge.js";
 import { PluginStalenessBanner } from "./components/packages/PluginStalenessBanner.js";
@@ -45,6 +45,7 @@ import { LandingPage } from "./components/shell/LandingPage.js";
 import { HamburgerButton, MobileOverlay } from "./components/shell/MobileOverlay.js";
 import { MobileShell } from "./components/shell/MobileShell.js";
 import { ResizableSidebar } from "./components/shell/ResizableSidebar.js";
+import { ShellContent, type ShellContentRenderers } from "./components/shell/ShellContent.js";
 import { StatusBar } from "./components/shell/StatusBar.js";
 import { SessionSplitView, SplitRouteSync } from "./components/split/SessionSplitView.js";
 import { SplitWorkspaceProvider } from "./components/split/SplitWorkspaceContext.js";
@@ -72,6 +73,8 @@ import { EMPTY_CANVAS_STATE } from "./lib/canvas/canvas-gate.js";
 // the subagents-plugin's `shell-overlay-route` claim and mounted through
 // `<ShellOverlayRouteSlot>` below. See change: add-flow-agent-popout.
 import { applyPromptTimeout, createInitialState, deriveBannerState, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/chat/event-reducer.js";
+import { nextBackfillRange } from "./lib/chat/history-gap.js";
+import { refreshChat } from "./lib/chat/refresh-chat.js";
 import { maybeAutoInitWorktreeOnSpawn } from "./lib/git/auto-init-worktree.js";
 import { fetchActiveInits } from "./lib/git/git-api.js";
 import { refreshGitStatus } from "./lib/git/git-status-cache.js";
@@ -86,6 +89,13 @@ import {
   recordNavigation,
   resetNavStack,
 } from "./lib/nav/nav-tracker.js";
+import {
+  captureBackground,
+  clearBackground,
+  recordLauncher,
+  resolveBackground,
+  resolveDismissTarget,
+} from "./lib/nav/overlay-background.js";
 import {
   buildFolderSettingsUrl,
   buildOpenSpecArchiveUrl,
@@ -103,8 +113,8 @@ import { rehydrateSession } from "./lib/replay/rehydrate-session.js";
 // Strategy A (reduce-session-replay-traffic): durable replay cursor.
 import { deriveServerKey, replayCache } from "./lib/replay/replay-cache.js";
 import { createReplayPersister } from "./lib/replay/replay-persist.js";
-import { refreshChat } from "./lib/chat/refresh-chat.js";
 import { deleteDraft, readAllDrafts, writeDraft } from "./lib/state/draft-storage.js";
+import { ModelConfigProvider, type ModelConfigValue } from "./lib/state/ModelConfigContext.js";
 import { clearRecoveryOffer } from "./lib/state/recovery-offer-bus.js";
 import { decodeFolderPath, encodeFolderPath } from "./lib/util/folder-encoding.js";
 
@@ -114,19 +124,18 @@ const NAV_TRACKER = { predecessor, popNav };
 
 import { applyPluginConfigUpdate, initPluginConfigs, PluginContextProvider, type SubagentStateSnapshot } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
-import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
+import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { CommandInfo, DashboardSession, FileEntry, ImageContent, ModelInfo, OpenSpecData, OpenSpecGroup, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { GenericExtensionDialog } from "./components/extension-ui/GenericExtensionDialog.js";
 import { ToastSlot } from "./components/extension-ui/ToastSlot.js";
 import { DialogPortal } from "./components/primitives/DialogPortal.js";
 import { ErrorBoundary } from "./components/primitives/ErrorBoundary.js";
-import { AddFoldersDialog } from "./components/workspace/AddFoldersDialog.js";
 import { SearchableSelectDialog, type SelectOption } from "./components/primitives/SearchableSelectDialog.js";
 import { FirstLaunchDisplayModal } from "./components/settings/FirstLaunchDisplayModal.js";
 import type { ToolContext } from "./components/tool-renderers/index.js";
 import { makeToolContext } from "./components/tool-renderers/make-tool-context.js";
-import { PinDirectoryDialog } from "./components/workspace/PinDirectoryDialog.js";
+import { AddFoldersDialog } from "./components/workspace/AddFoldersDialog.js";
 import { useOpenSpecActions } from "./hooks/useOpenSpecActions.js";
 import { usePendingPromptTimeout } from "./hooks/usePendingPromptTimeout.js";
 import { useProvidersReady } from "./hooks/useProvidersReady.js";
@@ -135,8 +144,8 @@ import { useViewDispatcher } from "./hooks/useViewDispatcher.js";
 import { ApiContext, deriveApiBase, setGlobalApiBase, VITE_API_URL } from "./lib/api/api-context.js";
 import { buildContextUsageMap } from "./lib/context-usage.js";
 import { registerPluginCatalog, useI18n } from "./lib/i18n/i18n.js";
-import { SessionAssetsProvider } from "./lib/session/SessionAssetsContext.js";
 import { deriveRetryProjection } from "./lib/session/retry-projection.js";
+import { SessionAssetsProvider } from "./lib/session/SessionAssetsContext.js";
 import { deriveSelectedSessionId } from "./lib/session/selectedSessionId.js";
 import { selectViewedSessionId } from "./lib/session/selectViewedSessionId.js";
 import { DisplayPrefsProvider } from "./lib/state/DisplayPrefsContext.js";
@@ -157,7 +166,8 @@ import {
   forSession,
   ShellOverlayRouteSlot,
   ShellSessionsProvider,
-  useShellOverlayRouteMatched
+  useShellOverlayRouteMatched,
+  useShellOverlayRoutePresentation
 } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { claimsToRouteDescriptors } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/route-descriptor.js";
 import { PLUGIN_REGISTRY } from "./generated/plugin-registry.js";
@@ -358,7 +368,8 @@ export default function App() {
     setGlobalApiBase(base);
     return base;
   }, [wsUrl]);
-  const [, rawNavigate] = useLocation();
+  const [overlayLocation, rawNavigate] = useLocation();
+  const overlaySearch = useSearch();
   // Instrument the single navigation path so every navigate records into the
   // in-app depth-tagged nav tracker (change: fix-mobile-back-depth-aware).
   // wouter pushState/replaceState does not fire popstate, so record here; the
@@ -453,12 +464,24 @@ export default function App() {
   // null at this call site. See change: fix-flows-plugin-polish
   // (hook-outside-provider fix).
   const pluginOverlayMatched = useShellOverlayRouteMatched(_pluginRegistry);
+  // `presentation: "page"` opts a claim out of the mobile depth panel as well as
+  // the desktop dialog (D3a) — it renders full-viewport on both. Read here in
+  // App's body for the same reason as `pluginOverlayMatched` above.
+  const pluginOverlayPresentation = useShellOverlayRoutePresentation(_pluginRegistry);
   const hasShellOverlayRoute =
     !!openspecPreviewMatch || !!openspecBoardMatch || !!archiveMatch || !!specsMatch ||
     !!piResourcesMatch || !!diffMatch || !!editorMatch ||
     !!(fileViewMatch && fileViewPath) || !!(urlViewMatch && urlViewUrl) ||
     pluginOverlayMatched;
   const hasPiResourceRouteFlag = !!piResourceFileMatch && !!piResourceFilePath;
+  // The three preview routes share one overlay container (5.3). Each conjunct
+  // requires its payload, not just the route match: `/pi-view` with no `url=`
+  // must fall through to the content region exactly as it does today, or a
+  // malformed link would open an empty dialog over a scrim with nothing in it.
+  const previewOverlayOpen =
+    hasPiResourceRouteFlag ||
+    !!(fileViewMatch && fileViewCwd && fileViewPath) ||
+    !!(urlViewMatch && urlViewUrl);
   const selectedId =
     deriveSelectedSessionId(!!match, params, !!diffMatch, diffParams) ??
     (editorMatch ? editorParams?.id : undefined);
@@ -491,6 +514,8 @@ export default function App() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [sessions, setSessions] = useState<Map<string, DashboardSession>>(new Map());
   const [sessionStates, setSessionStates] = useState<Map<string, SessionState>>(new Map());
+  const sessionStatesRef = useRef(sessionStates);
+  sessionStatesRef.current = sessionStates;
   // Per-session dashboard-local `/view` preview rows. Lives separately from
   // event-reducer state so the reducer never sees them. Merged with
   // `state.messages` by timestamp when passing to ChatView.
@@ -613,6 +638,12 @@ export default function App() {
   // failure edge / safety net) rather than by first content. Drives the
   // ChatView in-flight pill. See change: show-replay-in-flight-indicator.
   const [replayInFlight, setReplayInFlight] = useState<Map<string, boolean>>(new Map());
+  // Per-session windowed-replay gap. Non-empty only for sessions the server
+  // bounded via `maxReplayEvents`. See change: lazy-load-session-history.
+  const [historyGaps, setHistoryGaps] = useState<Map<string, import("./lib/chat/history-gap.js").HistoryGapState>>(new Map());
+  // Bumped once per successful backfill splice; drives ChatView's scroll-anchor
+  // restore. See change: lazy-load-session-history.
+  const [historySpliceRev, setHistorySpliceRev] = useState(0);
   const replayInFlightTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   // After overlay-url-routing: shell overlays are URL-driven via the
   // useRoute matches declared above. `previewState`, `specsBrowserCwd`,
@@ -656,6 +687,13 @@ export default function App() {
           // a stale notice from server A must not render against server B.
           // See change: upgrade-model-selector-primitives.
           setModelRefreshErrorsMap(new Map());
+          // Gap bookkeeping is scoped to ONE server's replay window. Server B
+          // may hold the same sessionId and replay it unwindowed; a surviving
+          // `tailMinSeq` / `gapCount` from server A would then splice a false
+          // divider into a transcript that has no gap at all.
+          // See change: lazy-load-session-history.
+          setHistoryGaps(new Map());
+          setHistorySpliceRev(0);
           subscribedRef.current.clear();
           // Strategy A (reduce-session-replay-traffic): drop the replay-cursor
           // guards too. Otherwise switching back to a server that still has the
@@ -819,8 +857,30 @@ export default function App() {
     }).catch(logRejection("App.handleRefreshChat"));
   }, [send, beginLoadingHistory, beginReplayInFlight]);
 
+  /**
+   * Request the gap slice adjacent to the head. Single-flight is enforced
+   * server-side too (a second concurrent request is refused with `in_flight`,
+   * not queued); the local `pending` flip is the UI half of the same rule.
+   * See change: lazy-load-session-history (D6, D9).
+   */
+  const handleLoadEarlier = useCallback(() => {
+    const sid = selectedSessionIdRef.current;
+    if (!sid) return;
+    const gap = historyGaps.get(sid);
+    // D11: the trigger stays disarmed until the initial replay has terminated.
+    if (!gap || !gap.armed || gap.pending || gap.unservable) return;
+    const { fromSeq, toSeq } = nextBackfillRange(gap);
+    if (toSeq < fromSeq) return;
+    setHistoryGaps((prev) => {
+      const next = new Map(prev);
+      next.set(sid, { ...gap, pending: true, failed: false });
+      return next;
+    });
+    send({ type: "history_backfill", sessionId: sid, fromSeq, toSeq });
+  }, [send, historyGaps]);
+
   const handleMessage = useMessageHandler(
-    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap },
+    { setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setSpawnErrors, setResumeErrors, setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev },
     { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, cwdVisibilityInputsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister: replayPersisterRef.current, showToast },
   );
 
@@ -975,7 +1035,18 @@ export default function App() {
             if (seen.has(sub.id)) continue;
             seen.add(sub.id);
             if (sub.status === "running" && (!sub.entries || sub.entries.length === 0)) {
-              send({ type: "subagent_resync_request", sessionId: sid, agentId: sub.id });
+              send({
+                type: "subagent_resync_request",
+                sessionId: sid,
+                agentId: sub.id,
+                // Requester-scoped like the other two call sites (C5), so a
+                // reconnect resync is not fanned out to every subscriber.
+                // See change: reduce-subagent-details-payload.
+                requestId:
+                  globalThis.crypto?.randomUUID?.() ??
+                  `rs-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+                reason: "open",
+              });
             }
           }
         }
@@ -1041,11 +1112,12 @@ export default function App() {
     : createInitialState();
 
   // Per-session draft text + history recall for CommandInput.
-  const selectedDraft = selectedId ? (drafts.get(selectedId) ?? "") : "";
+  // `selectedDraft` / `selectedImages` / `selectedCommands` /
+  // `selectedContextUsage` now live inside `renderSessionDetail`, derived from
+  // its session-id argument. See change: add-route-backed-overlay-dialogs.
   // Per-session pending images. Returns the stable EMPTY_IMAGES ref
   // when the session has no entry, so unrelated re-renders don't
   // produce a fresh `[]` and re-render <CommandInput>.
-  const selectedImages = (selectedId ? pendingImagesMap.get(selectedId) : undefined) ?? (EMPTY_IMAGES as ImageContent[]);
   const selectedHistory = useMemo(
     () => extractUserPromptHistory(selectedState.messages),
     [selectedState.messages],
@@ -1174,9 +1246,6 @@ export default function App() {
     }
   }, [selectedId, setSessionStates]));
 
-  const selectedCommands = selectedId
-    ? sessionCommands.get(selectedId) ?? []
-    : [];
 
   // selectedFlows derivation removed — flows-plugin's SessionFlowActions
   // claim reads flows from the per-session-data store directly. See
@@ -1245,12 +1314,10 @@ export default function App() {
   // shared two-tier map (live event-reducer value, else persisted fallback),
   // falling back to raw live state only if the map has no entry.
   // See change: align-content-header-context-usage.
-  const selectedContextUsage =
-    (selectedId ? contextUsageMap.get(selectedId) : undefined) ?? selectedState.contextUsage;
 
   const sessionActions = useSessionActions({
     selectedId, send, navigate, setMobileOpen,
-    sessions, setSessions, setSessionStates, setSpawningCwds, setTerminals,
+    sessions, setSessions, setSessionStates, sessionStatesRef, setSpawningCwds, setTerminals,
     clearSpawningCwd, spawnTimeoutsRef, pendingTerminalCwdRef, terminals,
     pendingSpawnsRef,
   });
@@ -1261,7 +1328,7 @@ export default function App() {
     // honest-mid-turn-queue-surface.
     handleAbort, handleForceKill, handleStopAfterTurn, handleCancelPending, handleRespondToUi, handleSend,
     handleSelect, handleRenameSession, handleShutdownSession, handleKillProcess,
-    handleSendPromptToSession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
+    handleSendPromptToSession, handleRetrySession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
     handleHideSession, handleUnhideSession, handleSetSessionTags, removeTagGlobally,
     handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle,
     handleOpenInlineTerminal, handleCloseInlineTerminal,
@@ -1578,7 +1645,8 @@ export default function App() {
 
   // Full-page OpenSpec board overlay element. Shared across the three overlay
   // render sites (desktop + responsive layouts). See change: redesign-openspec-board.
-  const openspecBoardOverlay = openspecBoardMatch && openspecBoardCwd ? (
+  // Parameterised by cwd for the same reason as `renderDirectoryHome`.
+  const renderOpenSpecBoardView = (openspecBoardCwd: string) => (
     <OpenSpecBoardView
       cwd={openspecBoardCwd}
       data={openspecMap.get(openspecBoardCwd) ?? { initialized: false, pending: false, changes: [], hasOpenspecDir: false }}
@@ -1605,7 +1673,7 @@ export default function App() {
       gitWorktreeEnabled={gitWorktreeEnabled}
       selectedId={selectedId}
     />
-  ) : null;
+  );
 
   const connectionBanner = (
     <>
@@ -1630,7 +1698,69 @@ export default function App() {
     </>
   );
 
-  const sessionDetail = selectedId ? (
+  // ── Route-backed overlay background (D1, option C) ────────────────────────
+  // The launching location is frozen at navigation time so the overlay can
+  // render it underneath itself. `captureBackground` ignores overlay routes, so
+  // sitting at `/settings` never overwrites the capture — which is what keeps
+  // an in-overlay navigation from moving the dismissal target mid-surface.
+  const fullLocation = overlayLocation + (overlaySearch ? `?${overlaySearch}` : "");
+  // Where the PREVIOUS render sat, so an overlay opened from another overlay can
+  // be dismissed back into it (D5). This is not the background: settings is not
+  // part of the shell content tree, so an underlay pinned to it would render
+  // nothing. Two questions, two answers — see overlay-background.ts.
+  const previousLocationRef = useRef(fullLocation);
+  useEffect(() => {
+    const from = previousLocationRef.current;
+    previousLocationRef.current = fullLocation;
+    if (from !== fullLocation) recordLauncher(from, fullLocation);
+    // Plugin claim routes are overlay routes too, but `isOverlayRoute` only
+    // knows the static list — the registry is dynamic. Skipping the capture
+    // here stops a plugin overlay freezing ITSELF as its own underlay.
+    if (!pluginOverlayAsDialogRef.current) captureBackground(fullLocation);
+  }, [fullLocation]);
+  const overlayBackground = resolveBackground(fullLocation);
+  // A plugin claim renders as a DIALOG unless it opted out with
+  // `presentation: "page"` (D2/D3a). Only the dialog case is lifted out of the
+  // content region; a page claim keeps rendering in place.
+  // See change: add-route-backed-overlay-dialogs (task 4.7 wiring).
+  const pluginOverlayAsDialog = pluginOverlayMatched && pluginOverlayPresentation !== "page";
+  const pluginOverlayAsDialogRef = useRef(pluginOverlayAsDialog);
+  pluginOverlayAsDialogRef.current = pluginOverlayAsDialog;
+  // Memoised: it flows into the overlay's dismiss-guard context value, so a
+  // fresh identity each render would re-render every consumer under the overlay.
+  // See change: add-route-backed-overlay-dialogs (audit finding, task 8.7).
+  const dismissOverlay = useCallback(() => {
+    const target = resolveDismissTarget(fullLocation);
+    // Drop the capture first: the navigation below lands on a non-overlay route,
+    // which immediately re-captures it as the next overlay's background.
+    clearBackground();
+    navigate(target);
+  }, [fullLocation, navigate]);
+
+  // Live-selection aliases, captured BEFORE the shadowing block below.
+  const liveSelectedId = selectedId;
+  const liveSelectedHistory = selectedHistory;
+
+  // Session chat, parameterised by session id so a FROZEN underlay can render a
+  // session that is not the live selection. The four `selected*` names below
+  // deliberately SHADOW their live counterparts, which is what lets the ~360
+  // lines of JSX stay byte-identical instead of being rewritten reference by
+  // reference. No hooks are called inside, so conditional invocation is safe.
+  // See change: add-route-backed-overlay-dialogs.
+  const renderSessionDetail = (sessionIdArg: string, frozen = false) => {
+    const selectedId = sessionIdArg;
+    const selectedSession = sessions.get(selectedId);
+    const selectedCwd = selectedSession?.cwd;
+    const selectedState = sessionStates.get(selectedId) ?? createInitialState();
+    const selectedDraft = drafts.get(selectedId) ?? "";
+    const selectedImages = pendingImagesMap.get(selectedId) ?? (EMPTY_IMAGES as ImageContent[]);
+    const selectedCommands = sessionCommands.get(selectedId) ?? [];
+    const selectedContextUsage = contextUsageMap.get(selectedId) ?? selectedState.contextUsage;
+    // Reuse the memoised history for the LIVE session; only a frozen underlay
+    // pays the extraction, and only for a session it is actually showing.
+    const selectedHistory =
+      sessionIdArg === liveSelectedId ? liveSelectedHistory : extractUserPromptHistory(selectedState.messages);
+    return (
     <div className="flex-1 flex flex-col min-w-0 h-full">
       {connectionBanner}
       <SessionHeader
@@ -1728,28 +1858,36 @@ export default function App() {
           />
         );
       })()}
-      {openspecBoardMatch && openspecBoardCwd ? (
-        openspecBoardOverlay
-      ) : archiveMatch && archiveCwd ? (
+      {/* This chain reads LIVE route matches and is still load-bearing: on
+          desktop `/session/:id/diff` and the `/folder/:cwd/pi-resources`
+          redirect reach their surface through here, because `ShellContent`
+          skips those branches once a session is selected.
+
+          A FROZEN underlay must not evaluate it. The live matches answer for
+          the OVERLAY's URL, so the underlay behind a preview would render that
+          preview again instead of the session it was pinned to.
+          See change: add-route-backed-overlay-dialogs (CodeRabbit, PR #536). */}
+      {!frozen && openspecBoardMatch && openspecBoardCwd ? (
+        renderOpenSpecBoardView(openspecBoardCwd)
+      ) : !frozen && archiveMatch && archiveCwd ? (
         <ArchiveBrowserView cwd={archiveCwd} onBack={goBack} />
-      ) : specsMatch && specsCwd ? (
+      ) : !frozen && specsMatch && specsCwd ? (
         <SpecsBrowserView cwd={specsCwd} onBack={goBack} />
-      ) : piResourceFileMatch && piResourceFilePath ? (
+      ) : !frozen && piResourceFileMatch && piResourceFilePath ? (
         <PiResourceFileRoute
           filePath={piResourceFilePath}
           title={piResourceFileTitle}
           onBack={goBack}
         />
-      ) : piResourcesMatch && piResourcesCwd ? (
+      ) : !frozen && piResourcesMatch && piResourcesCwd ? (
         <Redirect to={buildFolderSettingsUrl(piResourcesCwd, "packages")} replace />
-      ) : folderSettingsMatch && folderSettingsCwd ? (
+      ) : !frozen && folderSettingsMatch && folderSettingsCwd ? (
         <DirectorySettings
           cwd={folderSettingsCwd}
           page={folderSettingsPage}
           onBack={goBack}
-          onViewFile={handleViewPiResourceFile}
         />
-      ) : openspecPreviewMatch && openspecPreviewCwd && openspecPreviewParams ? (
+      ) : !frozen && openspecPreviewMatch && openspecPreviewCwd && openspecPreviewParams ? (
         <OpenSpecPreview
           cwd={openspecPreviewCwd}
           changeName={decodeURIComponent(openspecPreviewParams.changeName)}
@@ -1757,17 +1895,17 @@ export default function App() {
           openspecMap={openspecMap}
           onBack={goBack}
         />
-      ) : fileViewMatch && fileViewCwd && fileViewPath ? (
+      ) : !frozen && fileViewMatch && fileViewCwd && fileViewPath ? (
         <PreviewOverlayView
           target={{ kind: "file", cwd: fileViewCwd, path: fileViewPath }}
           onBack={goBack}
         />
-      ) : urlViewMatch && urlViewUrl ? (
+      ) : !frozen && urlViewMatch && urlViewUrl ? (
         <PreviewOverlayView
           target={{ kind: "url", url: urlViewUrl }}
           onBack={goBack}
         />
-      ) : diffMatch && diffSessionId ? (
+      ) : !frozen && diffMatch && diffSessionId ? (
         <FileDiffView sessionId={diffSessionId} onBack={goBack} />
       ) : (
         <SessionSplitView
@@ -1791,7 +1929,7 @@ export default function App() {
             </div>
           }>
             <SessionAssetsProvider assets={selectedSession?.assets}>
-            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? handleForkFromMessage : undefined} onCloseInlineTerminal={selectedId ? handleCloseInlineTerminalForSelected : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? EMPTY_STEERING} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} replayInFlight={selectedId ? replayInFlight.get(selectedId) ?? false : false} onCollapseStreamingThinking={selectedId ? handleCollapseStreamingThinking : undefined} />
+            <ChatView ref={chatViewRef} sessionId={selectedId} state={selectedState} toolContext={toolContext} onRespondToUi={handleRespondToUi} onAbort={handleAbort} onForceKill={handleForceKill} onForkFromMessage={selectedId ? handleForkFromMessage : undefined} onCloseInlineTerminal={selectedId ? handleCloseInlineTerminalForSelected : undefined} pendingSteering={selectedSession?.pendingQueues?.steering ?? EMPTY_STEERING} loadingHistory={selectedId ? loadingHistory.get(selectedId) ?? false : false} replayInFlight={selectedId ? replayInFlight.get(selectedId) ?? false : false} historyGap={selectedId ? historyGaps.get(selectedId) : undefined} onLoadEarlier={selectedId ? handleLoadEarlier : undefined} historySpliceRev={historySpliceRev} onCollapseStreamingThinking={selectedId ? handleCollapseStreamingThinking : undefined} />
             </SessionAssetsProvider>
           </ErrorBoundary>
           {/* Single-card error-lifecycle surface. Sticky above the command
@@ -1802,11 +1940,14 @@ export default function App() {
               abort entry point). The trailing control's icon states its action:
               a chevron that COLLAPSES while retrying (component-local — it never
               clears `retryState`, so the session Stop stays mounted), and a real
-              ✕ once retrying stops. The surface also clears itself on a
-              confirmed-good resume.
-              See change: error-banner-observe-only, raw-error-render-and-retry-authority. */}
+              ✕ once retrying stops. Settled provider errors offer one-shot
+              Retry via a hidden non-user turn on the active bridge; success,
+              abort, or removal hides the surface.
+              See change: error-banner-observe-only, fix-retry-error-lifecycle. */}
           <SessionBanner
             state={deriveBannerState(selectedState)}
+            retryRevision={selectedState.lastError?.timestamp}
+            onRetry={selectedId ? () => handleRetrySession(selectedId) : undefined}
             onDismiss={selectedId ? () => {
               setSessionStates((prev) => {
                 const next = new Map(prev);
@@ -1989,7 +2130,9 @@ export default function App() {
         />
       )}
     </div>
-  ) : null;
+    );
+  };
+
 
   // Get terminals for a specific folder cwd
   const getTerminalsForCwd = useCallback((cwd: string) => {
@@ -2045,17 +2188,86 @@ export default function App() {
     </DialogPortal>
   ) : null;
 
-  const directoryHomeView = folderHomeCwd ? (
+  // Parameterised by cwd so a FROZEN underlay can render the folder the user
+  // launched from. Previously this closed over the LIVE `folderHomeCwd`, so
+  // opening Settings from /folder/<cwd> put the onboarding LandingPage behind
+  // the scrim instead of the folder — the opposite of what option C promises.
+  // See change: add-route-backed-overlay-dialogs (audit finding, task 8.7).
+  const renderDirectoryHome = (cwd: string) => (
     <DirectoryHomeView
-      cwd={folderHomeCwd}
-      sessions={allSessionsList.filter((s) => s.cwd === folderHomeCwd)}
+      cwd={cwd}
+      sessions={allSessionsList.filter((s) => s.cwd === cwd)}
       onSpawnSession={handleSpawnSession}
       onSelectSession={handleSelect}
-      onOpenTerminals={(cwd) => navigate(`/folder/${encodeFolderPath(cwd)}/editor`)}
-      onOpenEditor={(cwd) => navigate(`/folder/${encodeFolderPath(cwd)}/editor`)}
-      onOpenSettings={(cwd) => navigate(buildFolderSettingsUrl(cwd))}
+      onOpenTerminals={(c) => navigate(`/folder/${encodeFolderPath(c)}/editor`)}
+      onOpenEditor={(c) => navigate(`/folder/${encodeFolderPath(c)}/editor`)}
+      onOpenSettings={(c) => navigate(buildFolderSettingsUrl(c))}
     />
-  ) : null;
+  );
+
+  // Renderers for the route-derived content region. `ShellContent` owns the
+  // branch SELECTION (so it can re-derive under a frozen router); App keeps the
+  // state and handlers and supplies the surfaces, parameterised by the resolved
+  // route params.
+  //
+  // STAGED LIMITATION: three renderers below (`renderOpenSpecBoard`,
+  // `renderFolderHome`, `renderSession`) delegate to variables still computed
+  // from the LIVE route, so they answer only for the live params and return
+  // null otherwise. That is exactly today's behaviour for the live tree, which
+  // is what keeps this step a pure refactor. It also means these three cannot
+  // yet back a FROZEN underlay — parameterising them (chiefly the ~360-line
+  // `sessionDetail`) is the next step, and is required before an overlay
+  // launched from `/session/:id` can show that session behind the scrim.
+  // See change: add-route-backed-overlay-dialogs.
+  const shellRenderers: Omit<ShellContentRenderers, "renderSession"> = {
+    renderOpenSpecBoard: (cwd) => renderOpenSpecBoardView(cwd),
+    renderArchive: (cwd) => <ArchiveBrowserView cwd={cwd} onBack={goBack} />,
+    renderSpecs: (cwd) => <SpecsBrowserView cwd={cwd} onBack={goBack} />,
+    renderDiff: (sessionId) => <FileDiffView sessionId={sessionId} onBack={goBack} />,
+    renderPiResourceFile: (filePath, title) => (
+      <PiResourceFileRoute filePath={filePath} title={title} onBack={goBack} />
+    ),
+    renderPiResourcesRedirect: (cwd) => <Redirect to={buildFolderSettingsUrl(cwd, "packages")} replace />,
+    renderFolderSettings: (cwd, page) => (
+      <DirectorySettings cwd={cwd} page={page} onBack={goBack} />
+    ),
+    renderOpenSpecPreview: (cwd, changeName, artifactId) => (
+      <OpenSpecPreview
+        cwd={cwd}
+        changeName={changeName}
+        initialArtifact={artifactId}
+        openspecMap={openspecMap}
+        onBack={goBack}
+      />
+    ),
+    renderFilePreview: (cwd, path) => (
+      <PreviewOverlayView target={{ kind: "file", cwd, path }} onBack={goBack} />
+    ),
+    renderUrlPreview: (url) => <PreviewOverlayView target={{ kind: "url", url }} onBack={goBack} />,
+    renderFolderEditor: (cwd) => (
+      <FolderEditorView
+        cwd={cwd}
+        onClose={handleEditorClose}
+        terminals={getTerminalsForCwd(cwd)}
+        onCreateTerminal={handleCreateTerminal}
+        onKillTerminal={handleKillTerminal}
+        onRenameTerminal={handleRenameTerminal}
+        onTerminalTitle={handleTerminalTitle}
+      />
+    ),
+    renderFolderHome: (cwd) => renderDirectoryHome(cwd),
+    renderLanding: () => (
+      <LandingPage
+        providersReady={providersReady.ready}
+        pinnedCount={pinnedDirectories.length}
+        sessionsCount={sessions.size}
+        firstPinnedCwd={pinnedDirectories[0] ?? null}
+        onOpenPinDialog={() => setPinDialogOpen(true)}
+        onSpawnSession={handleSpawnSession}
+        navigate={navigate}
+      />
+    ),
+  };
 
   // Outer chrome ErrorBoundary — defense-in-depth for first-party shell
   // components (sidebar, session list, content header, MobileShell). The
@@ -2169,6 +2381,17 @@ export default function App() {
 
   // Mobile: two-step full-screen navigation
   if (isMobile) {
+    // A `presentation: "page"` claim renders full-viewport OUTSIDE the two-panel
+    // shell — no list panel behind it, no depth slide, no swipe-back — which is
+    // the whole point of the opt-out (D3a). Returning before `MobileShell` is
+    // what keeps it out of the detail panel.
+    if (pluginOverlayMatched && pluginOverlayPresentation === "page") {
+      return apiProvider(
+        <div className="fixed inset-0 flex flex-col bg-[var(--bg-primary)] text-[var(--text-primary)]">
+          <ShellOverlayRouteSlot onBack={goBack} registry={_pluginRegistry} />
+        </div>,
+      );
+    }
     const mobileDepth = getMobileDepth({
       hasSessionRoute: !!selectedId,
       hasFolderRoute: !!folderEditorCwd || !!folderHomeCwd,
@@ -2216,70 +2439,13 @@ export default function App() {
               // We pass `_pluginRegistry` explicitly for the same reason the
               // hook does — see change: fix-flows-plugin-polish.
               <ShellOverlayRouteSlot onBack={goBack} registry={_pluginRegistry} />
-            ) : openspecBoardMatch && openspecBoardCwd ? (
-              openspecBoardOverlay
-            ) : archiveMatch && archiveCwd ? (
-              <ArchiveBrowserView cwd={archiveCwd} onBack={goBack} />
-            ) : specsMatch && specsCwd ? (
-              <SpecsBrowserView cwd={specsCwd} onBack={goBack} />
-            ) : diffMatch && diffSessionId ? (
-              <FileDiffView sessionId={diffSessionId} onBack={goBack} />
-            ) : piResourceFileMatch && piResourceFilePath ? (
-              <PiResourceFileRoute
-                filePath={piResourceFilePath}
-                title={piResourceFileTitle}
-                onBack={goBack}
-              />
-            ) : piResourcesMatch && piResourcesCwd ? (
-              <Redirect to={buildFolderSettingsUrl(piResourcesCwd, "packages")} replace />
-            ) : folderSettingsMatch && folderSettingsCwd ? (
-              <DirectorySettings
-                cwd={folderSettingsCwd}
-                page={folderSettingsPage}
-                onBack={goBack}
-                onViewFile={handleViewPiResourceFile}
-              />
-            ) : openspecPreviewMatch && openspecPreviewCwd && openspecPreviewParams ? (
-              <OpenSpecPreview
-                cwd={openspecPreviewCwd}
-                changeName={decodeURIComponent(openspecPreviewParams.changeName)}
-                initialArtifact={decodeURIComponent(openspecPreviewParams.artifactId)}
-                openspecMap={openspecMap}
-                onBack={goBack}
-              />
-            ) : fileViewMatch && fileViewCwd && fileViewPath ? (
-              <PreviewOverlayView
-                target={{ kind: "file", cwd: fileViewCwd, path: fileViewPath }}
-                onBack={goBack}
-              />
-            ) : urlViewMatch && urlViewUrl ? (
-              <PreviewOverlayView
-                target={{ kind: "url", url: urlViewUrl }}
-                onBack={goBack}
-              />
-            ) : folderEditorCwd ? (
-              <FolderEditorView
-                cwd={folderEditorCwd}
-                onClose={handleEditorClose}
-                terminals={getTerminalsForCwd(folderEditorCwd)}
-                onCreateTerminal={handleCreateTerminal}
-                onKillTerminal={handleKillTerminal}
-                onRenameTerminal={handleRenameTerminal}
-                onTerminalTitle={handleTerminalTitle}
-              />
-            ) : folderHomeCwd ? (
-              directoryHomeView
-            ) : sessionDetail ?? (
-            // Legacy /terminal/:id branch removed — see change:
-            // fix-terminal-half-height-dual-mount.
-              <LandingPage
-                providersReady={providersReady.ready}
-                pinnedCount={pinnedDirectories.length}
-                sessionsCount={sessions.size}
-                firstPinnedCwd={pinnedDirectories[0] ?? null}
-                onOpenPinDialog={() => setPinDialogOpen(true)}
-                onSpawnSession={handleSpawnSession}
-                navigate={navigate}
+            ) : (
+              // Legacy /terminal/:id branch removed — see change:
+              // fix-terminal-half-height-dual-mount.
+              <ShellContent
+                variant="mobile"
+                {...shellRenderers}
+                renderSession={(id, isFrozen) => renderSessionDetail(id, isFrozen)}
               />
             )
           }
@@ -2318,84 +2484,193 @@ export default function App() {
           <div className="flex-1 flex flex-col min-w-0 min-h-0">{folderViewContent}</div>
         )}
         {/* Show session detail or landing page when no folder view is selected */}
-        {!folderEditorCwd && !settingsMatch && !tunnelSetupMatch && (
+        {!folderEditorCwd && !settingsMatch && !tunnelSetupMatch && !folderSettingsMatch && !previewOverlayOpen && !openspecPreviewMatch && !pluginOverlayAsDialog && (
           pluginOverlayMatched ? (
             // Plugin-owned overlay routes — see change: add-flow-agent-popout.
             // Pass `_pluginRegistry` explicitly (see comment on
             // `pluginOverlayMatched` declaration above).
             <ShellOverlayRouteSlot onBack={goBack} registry={_pluginRegistry} />
-          ) : openspecBoardMatch && openspecBoardCwd ? (
-            openspecBoardOverlay
-          ) : archiveMatch && archiveCwd ? (
-            <ArchiveBrowserView cwd={archiveCwd} onBack={goBack} />
-          ) : specsMatch && specsCwd ? (
-            <SpecsBrowserView cwd={specsCwd} onBack={goBack} />
-          ) : piResourceFileMatch && piResourceFilePath ? (
-            <PiResourceFileRoute
-              filePath={piResourceFilePath}
-              title={piResourceFileTitle}
-              onBack={goBack}
+          ) : (
+            <ShellContent
+              variant="desktop"
+              {...shellRenderers}
+              renderSession={(id) => {
+                /* Plugin slot: content-view — only render when at least one
+                   registered claim's predicate returns true for the current
+                   session. Each claim's predicate closes over the plugin's
+                   own UI-state store; a `false` predicate means "this claim
+                   doesn't want to render right now" and the slot returns
+                   null. Without this gate, plugins that registered
+                   content-view claims with all-false predicates would cause
+                   `<ContentViewSlot>` to return null while still satisfying
+                   the `??` operator, masking sessionDetail / LandingPage.
+                   See change: pluginize-flows-via-registry (design.md
+                   Decision 3 RECONSIDERED). */
+                const contentView =
+                  selectedId && selectedSession && forSession(_pluginRegistry.getClaims("content-view"), selectedSession).length > 0
+                    ? <ContentViewSlot session={selectedSession} routeParams={{}} onClose={() => { /* Plugin claim clears its own UI state on dismiss, revealing the chat at the current /session/:id; the shell must NOT navigate away. See change: fix-settings-back-to-launching-route. */ }} />
+                    : null;
+                return contentView ?? renderSessionDetail(id);
+              }}
             />
-          ) : piResourcesMatch && piResourcesCwd && !selectedId ? (
-            <Redirect to={buildFolderSettingsUrl(piResourcesCwd, "packages")} replace />
-          ) : folderSettingsMatch && folderSettingsCwd && !selectedId ? (
-            <DirectorySettings
-              cwd={folderSettingsCwd}
-              page={folderSettingsPage}
-              onBack={goBack}
-              onViewFile={handleViewPiResourceFile}
-            />
-          ) : openspecPreviewMatch && openspecPreviewCwd && openspecPreviewParams && !selectedId ? (
+          )
+        )}
+        {/* The first-launch display gate is a BLOCKING onboarding step, and the
+            shared `Dialog` paints at a raw z-index of 60 while that modal sits at the
+            `z-dialog` token (50) — so a route-backed overlay would cover it and
+            swallow its clicks. Not rendering the overlay until the gate is
+            answered is narrower than re-tiering the layer scale, and says the
+            right thing: onboarding blocks the app. (Any other raw-60 dialog
+            covers that gate too; that is pre-existing and left alone.)
+            See change: add-route-backed-overlay-dialogs. */}
+        {/* The deep-linked OpenSpec artifact (D6, as corrected). The ROUTE gets a
+            dialog container on desktop; it keeps `OpenSpecPreview` as its content
+            because a route-backed surface must drive its tabs through the URL.
+            The ephemeral `OpenSpecArtifactDialog` below is deliberately NOT
+            deleted — it is URL-less by design (badge opens it without
+            navigating, tabs are local state, a reload does not restore it), so
+            the two are different behaviours rather than a duplicate.
+            Mobile keeps the full page: E9 pins that the badge navigates there
+            and that no dialog appears.
+            See change: add-route-backed-overlay-dialogs. */}
+        {openspecPreviewMatch && openspecPreviewCwd && openspecPreviewParams && !firstLaunchModal && (
+          <RouteBackedOverlay
+            background={overlayBackground}
+            backgroundContent={
+              <ShellContent
+                variant="desktop"
+                frozen
+                {...shellRenderers}
+                renderSession={(id, isFrozen) => renderSessionDetail(id, isFrozen)}
+              />
+            }
+            onDismiss={dismissOverlay}
+            ariaLabel="OpenSpec artifact"
+            testId="openspec-artifact-route-overlay"
+          >
             <OpenSpecPreview
               cwd={openspecPreviewCwd}
               changeName={decodeURIComponent(openspecPreviewParams.changeName)}
               initialArtifact={decodeURIComponent(openspecPreviewParams.artifactId)}
               openspecMap={openspecMap}
-              onBack={goBack}
+              onBack={dismissOverlay}
             />
-          ) : fileViewMatch && fileViewCwd && fileViewPath && !selectedId ? (
-            <PreviewOverlayView
-              target={{ kind: "file", cwd: fileViewCwd, path: fileViewPath }}
-              onBack={goBack}
-            />
-          ) : urlViewMatch && urlViewUrl && !selectedId ? (
-            <PreviewOverlayView
-              target={{ kind: "url", url: urlViewUrl }}
-              onBack={goBack}
-            />
-          ) : folderHomeCwd && !selectedId ? (
-            directoryHomeView
-          ) : (
-            /* Plugin slot: content-view — only render when at least one
-               registered claim's predicate returns true for the current
-               session. Each claim's predicate closes over the plugin's
-               own UI-state store; a `false` predicate means "this claim
-               doesn't want to render right now" and the slot returns
-               null. Without this gate, plugins that registered
-               content-view claims with all-false predicates would cause
-               `<ContentViewSlot>` to return null while still satisfying
-               the `??` operator, masking sessionDetail / LandingPage.
-               See change: pluginize-flows-via-registry (design.md
-               Decision 3 RECONSIDERED). */
-            (selectedId && selectedSession && forSession(_pluginRegistry.getClaims("content-view"), selectedSession).length > 0
-              ? <ContentViewSlot session={selectedSession} routeParams={{}} onClose={() => { /* Plugin claim clears its own UI state on dismiss, revealing the chat at the current /session/:id; the shell must NOT navigate away. See change: fix-settings-back-to-launching-route. */ }} />
-              : null
-            ) ?? sessionDetail ?? (
-              <LandingPage
-                providersReady={providersReady.ready}
-                pinnedCount={pinnedDirectories.length}
-                sessionsCount={sessions.size}
-                firstPinnedCwd={pinnedDirectories[0] ?? null}
-                onOpenPinDialog={() => setPinDialogOpen(true)}
-                onSpawnSession={handleSpawnSession}
-                navigate={navigate}
-              />
-            )
-          )
+          </RouteBackedOverlay>
         )}
-        {settingsMatch && <SettingsPanel availableModels={(() => {
+        {/* The three preview routes. One container for all three because they are
+            one surface with three sources; the inner renderers are untouched, as
+            the file-and-url-preview spec requires. They take `dismissOverlay`
+            rather than `goBack` so the container's Esc/backdrop/close and the
+            renderer's own back affordance agree — the content-region copies below
+            keep `goBack` because they serve mobile, where back is a depth pop.
+            See change: add-route-backed-overlay-dialogs. */}
+        {previewOverlayOpen && !firstLaunchModal && (
+          <RouteBackedOverlay
+            background={overlayBackground}
+            backgroundContent={
+              <ShellContent
+                variant="desktop"
+                frozen
+                {...shellRenderers}
+                renderSession={(id, isFrozen) => renderSessionDetail(id, isFrozen)}
+              />
+            }
+            onDismiss={dismissOverlay}
+            ariaLabel="Preview"
+            testId="preview-route-overlay"
+          >
+            {piResourceFileMatch && piResourceFilePath ? (
+              <PiResourceFileRoute
+                filePath={piResourceFilePath}
+                title={piResourceFileTitle}
+                onBack={dismissOverlay}
+              />
+            ) : fileViewMatch && fileViewCwd && fileViewPath ? (
+              <PreviewOverlayView
+                target={{ kind: "file", cwd: fileViewCwd, path: fileViewPath }}
+                onBack={dismissOverlay}
+              />
+            ) : urlViewMatch && urlViewUrl ? (
+              <PreviewOverlayView target={{ kind: "url", url: urlViewUrl }} onBack={dismissOverlay} />
+            ) : null}
+          </RouteBackedOverlay>
+        )}
+        {/* Folder-scoped settings, same container contract as global settings.
+            Suppressed from the live content region below (`!folderSettingsMatch`)
+            so it is not rendered twice — the underlay supplies the launching
+            folder from the frozen path. See change:
+            add-route-backed-overlay-dialogs. */}
+        {folderSettingsMatch && folderSettingsCwd && !firstLaunchModal && (
+          <RouteBackedOverlay
+            background={overlayBackground}
+            backgroundContent={
+              <ShellContent
+                variant="desktop"
+                frozen
+                {...shellRenderers}
+                renderSession={(id, isFrozen) => renderSessionDetail(id, isFrozen)}
+              />
+            }
+            onDismiss={dismissOverlay}
+            ariaLabel="Folder settings"
+            testId="folder-settings-overlay"
+          >
+            <DirectorySettings
+              cwd={folderSettingsCwd}
+              page={folderSettingsPage}
+              onBack={dismissOverlay}
+            />
+          </RouteBackedOverlay>
+        )}
+        {pluginOverlayAsDialog && !firstLaunchModal && (
+          <RouteBackedOverlay
+            background={overlayBackground}
+            backgroundContent={
+              <ShellContent
+                variant="desktop"
+                frozen
+                {...shellRenderers}
+                renderSession={(id, isFrozen) => renderSessionDetail(id, isFrozen)}
+              />
+            }
+            onDismiss={dismissOverlay}
+            ariaLabel="Plugin overlay"
+            testId="plugin-overlay"
+          >
+            {/* A DEFINITE height, not `h-full`. The Dialog panel sets only
+                `max-h-[92vh]` for size="full", so a percentage height here
+                resolves against nothing and the whole chain collapses: the
+                slot's `flex-1 min-h-0` gets 0, and a claim body positioned
+                `absolute inset-0` (the KB page) disappears entirely. 92vh
+                matches the panel's own cap, so nothing overflows.
+                Caught by kb-folder-slot.spec.ts. */}
+            <div className="flex flex-col h-[92vh] min-h-0">
+              <ShellOverlayRouteSlot onBack={dismissOverlay} registry={_pluginRegistry} />
+            </div>
+          </RouteBackedOverlay>
+        )}
+        {settingsMatch && !firstLaunchModal && (
+          <RouteBackedOverlay
+            background={overlayBackground}
+            backgroundContent={
+              <ShellContent
+                variant="desktop"
+                frozen
+                {...shellRenderers}
+                renderSession={(id, isFrozen) => renderSessionDetail(id, isFrozen)}
+              />
+            }
+            onDismiss={dismissOverlay}
+            ariaLabel="Settings"
+            testId="settings-overlay"
+          >
+            <SettingsPanel availableModels={(() => {
           const seen = new Set<string>();
-          const models: Array<{ provider: string; id: string }> = [];
+          // Whole rows, not a 3-field projection: Settings merges these with the
+          // `GET /api/models` catalogue and the session row must win on collision
+          // BECAUSE it carries `name` + `metadataSource`.
+          // See change: settings-default-model-without-session.
+          const models: ModelInfo[] = [];
           for (const list of modelsMap.values()) {
             for (const m of list) {
               const key = `${m.provider}/${m.id}`;
@@ -2403,8 +2678,33 @@ export default function App() {
             }
           }
           return models;
-        })()} onMessage={onMessage} onBack={goBack} selectedCwd={selectedCwd} />}
-        {tunnelSetupMatch && <ZrokInstallGuide onBack={goBack} />}
+        })()} onMessage={onMessage} onBack={dismissOverlay} selectedCwd={selectedCwd} />
+          </RouteBackedOverlay>
+        )}
+        {/* Tunnel setup REPLACES settings rather than stacking on it (D5): at
+            `/tunnel-setup` the settings block above does not match, so it is not
+            mounted and there is no layer to stack on. Dismissal returns to
+            `/settings/gateway` because `recordLauncher` saw the cross-surface
+            move — the background stays a base route for the underlay (D1d).
+            See change: add-route-backed-overlay-dialogs. */}
+        {tunnelSetupMatch && !firstLaunchModal && (
+          <RouteBackedOverlay
+            background={overlayBackground}
+            backgroundContent={
+              <ShellContent
+                variant="desktop"
+                frozen
+                {...shellRenderers}
+                renderSession={(id, isFrozen) => renderSessionDetail(id, isFrozen)}
+              />
+            }
+            onDismiss={dismissOverlay}
+            ariaLabel="Tunnel setup"
+            testId="tunnel-setup-overlay"
+          >
+            <ZrokInstallGuide onBack={dismissOverlay} />
+          </RouteBackedOverlay>
+        )}
       </div>
       {artifactDialog && (
         <OpenSpecArtifactDialog

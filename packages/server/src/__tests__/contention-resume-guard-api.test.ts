@@ -9,6 +9,9 @@
  * See change: fix-duplicate-bridge-registration (D4, D5).
  */
 
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
 import { createServer, type DashboardServer } from "../server.js";
@@ -191,17 +194,27 @@ describe("session-file resume guard (REST)", () => {
   }, 25000);
 
   // ── F3 / F1 ───────────────────────────────────────────────────────────────
-  it("F3: an uncontended prompt is a plain success", async () => {
+  // E31 — transmission is now reported explicitly on the mainline path too:
+  // a bare `{success:true}` left "written but unacknowledged" with no field to
+  // land in. See change: fix-spawn-correlation-ttl-coupling (D7).
+  it("F3: an uncontended prompt reports transmission and a prompt handle", async () => {
     await connectBridge("plain", { pid: 11, sessionFile: "/t/plain.jsonl" });
 
     const res = await postJson("/api/session/plain/prompt", { text: "hi" });
     const body = (await res.json()) as any;
 
     expect(res.status).toBe(200);
-    expect(body).toEqual({ success: true });
+    expect(body.success).toBe(true);
+    expect(body.transmitted).toBe(true);
+    expect(typeof body.promptId).toBe("string");
+    expect(body).not.toHaveProperty("delivered");
   }, 25000);
 
-  it("F1: a contended prompt is annotated, names the bridge state, and reports delivery", async () => {
+  // E30 — the former `delivered: true` was asserted on exactly the branch least
+  // able to know it (a displaced bridge). It reports TRANSMISSION now; the
+  // annotation and the non-plain-success shape are unchanged.
+  // See change: fix-spawn-correlation-ttl-coupling (D7).
+  it("F1: a contended prompt is annotated, names the bridge state, and reports transmission", async () => {
     await connectBridge("contended", { pid: 37660, sessionFile: "/t/c.jsonl" });
 
     // A second bridge claims the same id and loses.
@@ -227,12 +240,16 @@ describe("session-file resume guard (REST)", () => {
 
     // Not a plain success …
     expect(body).not.toEqual({ success: true });
-    // … but explicitly delivered, so a caller does not retry and double-send.
+    // … but explicitly transmitted, so a caller does not retry and double-send —
+    // and it no longer claims a delivery this branch cannot know.
     expect(body.success).toBe(true);
-    expect(body.delivered).toBe(true);
+    expect(body.transmitted).toBe(true);
+    expect(body).not.toHaveProperty("delivered");
+    expect(typeof body.promptId).toBe("string");
     expect(body.bridgeState).toBe("contended");
     expect(body.warning).toContain("37660");
     expect(body.warning).toContain("17579");
+    expect(body.warning).toContain("transmitted");
   }, 25000);
 
   // ── F7 ────────────────────────────────────────────────────────────────────
@@ -244,4 +261,103 @@ describe("session-file resume guard (REST)", () => {
     expect(Array.isArray(body.contendedSessionIds)).toBe(true);
     expect(body.contendedSessionIds).toContain("contended");
   }, 25000);
+
+  // ── #X19 (task 11.11) ─────────────────────────────────────────────────────
+  // Resume is refused for a session that ran on ANOTHER host, while a local
+  // session is untouched (task 11.12). The pairing is the test: a gate that
+  // refused everything would satisfy the remote assertions alone, so the local
+  // control is what proves it discriminates.
+  // See change: add-pi-gateway-transport-identity (D13).
+  it("refuses an ENDED remote session and names the originating device", async () => {
+    server.sessionManager.register({
+      id: "remote-ended",
+      cwd: "/tmp/test",
+      source: "tui" as const,
+      sessionFile: "/Users/robson/.pi/agent/sessions/collides.jsonl",
+      startedAt: Date.now(),
+    });
+    server.sessionManager.update("remote-ended", {
+      status: "ended",
+      endedAt: Date.now(),
+      originDeviceId: "device-7",
+    });
+
+    const res = await postJson("/api/session/remote-ended/resume", { mode: "continue" });
+    expect(res.status).toBe(409);
+    const body = (await res.json()) as any;
+    expect(body.success).toBe(false);
+    // The explanation names the host, not a missing file: "not found" would
+    // send an operator hunting a transcript that was never here.
+    expect(body.error).toMatch(/device-7/);
+    expect(body.error).not.toMatch(/file is unknown/);
+    expect(spawnCalls).toHaveLength(0);
+  });
+
+  it("refuses a LIVE remote session as a second writer, not as a revival", async () => {
+    server.sessionManager.register({
+      id: "remote-live",
+      cwd: "/tmp/test",
+      source: "tui" as const,
+      sessionFile: "/Users/robson/.pi/agent/sessions/collides.jsonl",
+      startedAt: Date.now(),
+    });
+    server.sessionManager.update("remote-live", { originDeviceId: "device-7" });
+
+    const res = await postJson("/api/session/remote-live/resume", { mode: "continue" });
+    expect(res.status).toBe(409);
+    expect(((await res.json()) as any).error).toMatch(/second pi writing/);
+    expect(spawnCalls).toHaveLength(0);
+  });
+
+  it("leaves a LOCAL ended session resumable (task 11.12)", async () => {
+    server.sessionManager.register({
+      id: "local-ended",
+      cwd: "/tmp/test",
+      source: "tui" as const,
+      sessionFile: "/t/local-only.jsonl",
+      startedAt: Date.now(),
+    });
+    server.sessionManager.update("local-ended", { status: "ended", endedAt: Date.now() });
+
+    const res = await postJson("/api/session/local-ended/resume", { mode: "continue" });
+    expect(res.status).toBe(200);
+    expect(spawnCalls.length).toBeGreaterThan(0);
+  });
+});
+
+/**
+ * #E15 / task 11.8 — /api/session-file confines reads to `session.cwd`, but a
+ * remote session's cwd is a path on ANOTHER host. Two machines with the same
+ * username yield the same path, so the confinement passes while the file
+ * served is an unrelated local one. A correctness bug before a security one.
+ */
+describe("/api/session-file refuses a remote-origin session", () => {
+  it("refuses by naming the device, and never serves the local path", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "origin-gate-"));
+    writeFileSync(join(dir, "README.md"), "local-secret");
+
+    // Same cwd for both: the whole point is that the PATH cannot discriminate.
+    server.sessionManager.register({
+      id: "remote-sess",
+      cwd: dir,
+      source: "tui",
+      originDeviceId: "device-7",
+    });
+    server.sessionManager.register({ id: "local-sess", cwd: dir, source: "tui" });
+
+    const remote = await fetch(url("/api/session-file?sessionId=remote-sess&path=README.md"));
+    expect(remote.status).toBe(403);
+    const body = (await remote.json()) as { success: boolean; error: string };
+    expect(body.success).toBe(false);
+    expect(body.error).toMatch(/device-7/);
+    expect(body.error).toMatch(/not on this host/);
+    expect(JSON.stringify(body)).not.toContain("local-secret");
+
+    // The discriminating control: an identical read for a LOCAL session is
+    // served, so the refusal is about ORIGIN and not about the path.
+    const local = await fetch(url("/api/session-file?sessionId=local-sess&path=README.md"));
+    expect(local.status).toBe(200);
+    const okBody = (await local.json()) as { data: { content: string } };
+    expect(okBody.data.content).toBe("local-secret");
+  });
 });

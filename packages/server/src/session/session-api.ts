@@ -3,6 +3,8 @@
  * These expose WebSocket-only operations as HTTP endpoints
  * for use by skills, scripts, and external tooling.
  */
+
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
@@ -19,8 +21,10 @@ import type { PendingResumeIntentRegistry } from "../pending/pending-resume-inte
 import type { PiGateway } from "../pi/pi-gateway.js";
 import { keeperOptsFromSpawnResult } from "../spawn-process/headless-pid-registry.js";
 import { spawnPiSession } from "../spawn-process/process-manager.js";
+import { deriveSpawnCorrelationTtlMs } from "../spawn-process/spawn-recovery-window.js";
 import { armSpawnWatchdog } from "../spawn-process/spawn-register-watchdog.js";
 import type { SessionManager } from "./memory-session-manager.js";
+import { decideResume } from "./session-origin.js";
 
 export interface SessionApiDeps {
   sessionManager: SessionManager;
@@ -42,6 +46,11 @@ export interface SessionApiDeps {
    * See change: fix-fork-empty-session-silent-timeout.
    */
   pendingAttachRegistry?: import("../pending/pending-attach-registry.js").PendingAttachRegistry;
+  /**
+   * Prompts transmitted and awaiting a bridge acknowledgement.
+   * See change: fix-spawn-correlation-ttl-coupling (D7).
+   */
+  pendingPromptAcks?: import("../pending/pending-prompt-acks.js").PendingPromptAcks;
 }
 
 type IdParams = { Params: { id: string } };
@@ -54,7 +63,7 @@ function getSessionOrFail(sessionManager: SessionManager, id: string): { session
 }
 
 export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDeps) {
-  const { sessionManager, piGateway, browserGateway, pendingForkRegistry, pendingDashboardSpawns, pendingResumeIntents, pendingAttachRegistry } = deps;
+  const { sessionManager, piGateway, browserGateway, pendingForkRegistry, pendingDashboardSpawns, pendingResumeIntents, pendingAttachRegistry, pendingPromptAcks } = deps;
 
   // Bootstrap gate + queue removed under change: eliminate-electron-runtime-install
   // (task 3.5). pi/openspec/tsx ship as regular npm deps so pi is always
@@ -67,45 +76,83 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
     async (request, reply) => {
       const { id } = request.params;
       const { text, images } = request.body ?? {};
-      if (!text) {
+      // Untrusted input: a bare truthiness check accepted objects and numbers,
+      // which then reached the bridge as a `send_prompt.text`.
+      // See change: fix-spawn-correlation-ttl-coupling.
+      if (typeof text !== "string" || text.length === 0) {
         reply.code(400);
         return { success: false, error: "text is required" } satisfies ApiResponse;
+      }
+      if (images !== undefined && !Array.isArray(images)) {
+        reply.code(400);
+        return { success: false, error: "images must be an array" } satisfies ApiResponse;
       }
       const result = getSessionOrFail(sessionManager, id);
       if ("error" in result) {
         reply.code(404);
         return result.error;
       }
+      // The handle rides OUT on `send_prompt` and comes back on the bridge's
+      // `prompt_received`, which is what makes delivery observable without
+      // gating this response on a round trip.
+      // See change: fix-spawn-correlation-ttl-coupling (D7).
+      const promptId = randomUUID();
       const sent = piGateway.sendToSession(id, {
         type: "send_prompt",
         sessionId: id,
         text,
         images,
+        promptId,
       });
       if (!sent) {
         reply.code(502);
-        return { success: false, error: "no bridge connection for session" } satisfies ApiResponse;
+        return {
+          success: false,
+          transmitted: false,
+          error: "no bridge connection for session",
+        } satisfies ApiResponse;
       }
+      // Bounded on the same derived window as the spawn correlations, and on
+      // the session unregistering (`event-wiring`). Sharing the spawn formula
+      // is DELIBERATE, not incidental: the ack has no watchdog of its own to
+      // outlive, and a change whose thesis is TTL discipline should not invent
+      // a second unexplained number for the same "how long can a bridge stay
+      // silent before we stop waiting" question.
+      // A prompt whose text is a slash command is dispatched by a bridge path
+      // that never echoes the handle, so its delivery stays unobservable and
+      // the entry simply TTL-evicts. Recorded, not fixed here.
+      // See change: fix-spawn-correlation-ttl-coupling (D7).
+      pendingPromptAcks?.record(
+        promptId,
+        id,
+        deriveSpawnCorrelationTtlMs(loadConfig().spawnRegisterTimeoutMs),
+      );
       // A live contention record means a second bridge recently claimed this
       // id. The routing table cannot hold a usurper any more, so the prompt WAS
       // delivered to the one owner — but the caller must not read a plain
       // success while the session's bridge state is disputed. Annotated, not
       // failed: reporting a bare failure would invite a retry and double-send.
       // See change: fix-duplicate-bridge-registration (D4).
+      //
+      // It reports TRANSMISSION only. The former `delivered: true` here was
+      // false advertising: this branch is exactly the displaced-bridge case
+      // where a socket write is least likely to have reached pi.
+      // See change: fix-spawn-correlation-ttl-coupling (D7).
       const record = piGateway.contention?.get(id);
       if (record) {
         return {
           success: true,
-          delivered: true,
+          transmitted: true,
+          promptId,
           bridgeState: "contended",
           warning:
             `another bridge recently claimed session ${id} and was refused ` +
             `(incumbent pid ${record.incumbentPid ?? "unknown"}, ` +
             `newcomer pid ${record.newcomerPid ?? "unknown"}); ` +
-            "the prompt was delivered to the bridge that owns this session",
+            "the prompt was transmitted to the bridge that owns this session",
         };
       }
-      return { success: true } satisfies ApiResponse;
+      return { success: true, transmitted: true, promptId } satisfies ApiResponse;
     },
   );
 
@@ -259,6 +306,21 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
         return result.error;
       }
       const session = result.session;
+      // D13 / task 11.11: a session that ran on ANOTHER host is read-only here.
+      // Checked before the `sessionFile` guard because the interesting remote
+      // failure is not an absent path but a present, unrelated one — two hosts
+      // with the same username produce identical paths, so resuming would
+      // attach a local pi as a second writer to a stranger's transcript (#E15).
+      const resumeVerdict = decideResume({
+        origin: session.originDeviceId
+          ? { local: false, deviceId: session.originDeviceId }
+          : { local: true },
+        status: session.status,
+      });
+      if (!resumeVerdict.allow) {
+        reply.code(409);
+        return { success: false, error: resumeVerdict.reason } satisfies ApiResponse;
+      }
       if (!session.sessionFile) {
         reply.code(400);
         return { success: false, error: "session file is unknown" } satisfies ApiResponse;
@@ -351,12 +413,23 @@ export function registerSessionApi(fastify: FastifyInstance, deps: SessionApiDep
         strategy: config.spawnStrategy,
       });
       // REST resume — the exact path that minted the incident's duplicate.
-      armSpawnWatchdog(session.cwd, config.spawnStrategy as any, spawnResult);
+      const resumeTimeoutMs = armSpawnWatchdog(
+        session.cwd,
+        config.spawnStrategy as any,
+        spawnResult,
+        undefined,
+        config.spawnRegisterTimeoutMs,
+      );
       // Fork bookkeeping uses the spawn token (not cwd) so two concurrent
-      // forks in the same cwd correlate correctly. See change:
-      // spawn-correlation-token.
+      // forks in the same cwd correlate correctly. Its TTL derives from the
+      // same timeout that armed the watchdog above. See change:
+      // spawn-correlation-token, fix-spawn-correlation-ttl-coupling.
       if (mode === "fork" && pendingForkRegistry && spawnResult.spawnToken) {
-        pendingForkRegistry.recordFork(spawnResult.spawnToken, id);
+        pendingForkRegistry.recordFork(
+          spawnResult.spawnToken,
+          id,
+          deriveSpawnCorrelationTtlMs(resumeTimeoutMs ?? config.spawnRegisterTimeoutMs),
+        );
       }
       if (spawnResult.dashboardSpawned && spawnResult.success) {
         pendingDashboardSpawns?.set(session.cwd, (pendingDashboardSpawns?.get(session.cwd) ?? 0) + 1);

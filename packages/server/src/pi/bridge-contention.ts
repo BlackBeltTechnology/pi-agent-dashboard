@@ -39,6 +39,13 @@ export function isSocketAlive(ws: ProbeableSocket): boolean {
 }
 
 export type ClaimDecision =
+  /**
+   * The newcomer announced INTENT only (D11, task 9.3a-v). It claims no
+   * routing entry and no contention slot, and — critically — never reaches the
+   * same-pid fast-accept below: a move is the same pi process by construction,
+   * so that exemption would hand over routing with no probe at all.
+   */
+  | { outcome: "provisional" }
   /** The newcomer takes the routing entry; no incumbent to displace. */
   | { outcome: "accept"; reason: "unheld" | "same-socket" | "incumbent-closed" | "placeholder" | "same-pid" }
   /** The incumbent must be probed before the claim can be decided. */
@@ -59,6 +66,12 @@ export interface ClaimInput {
   incumbentPid?: number;
   /** pid the newcomer self-reports on its register message. */
   newcomerPid?: number;
+  /**
+   * The newcomer is announcing intent to serve, not claiming the session.
+   * Short-circuits every other branch, including the unheld fast path — a
+   * provisional must claim nothing in EVERY case, not just the remembered ones.
+   */
+  provisional?: boolean;
 }
 
 /**
@@ -68,6 +81,9 @@ export interface ClaimInput {
  */
 export function decideClaim(input: ClaimInput): ClaimDecision {
   const { incumbent, newcomer, incumbentSource, incumbentPid, newcomerPid } = input;
+
+  // First, before anything can claim: intent is not a claim (task 9.3a-v).
+  if (input.provisional) return { outcome: "provisional" };
 
   if (!incumbent) return { outcome: "accept", reason: "unheld" };
   if (incumbent === newcomer) return { outcome: "accept", reason: "same-socket" };

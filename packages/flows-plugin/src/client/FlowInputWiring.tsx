@@ -181,7 +181,7 @@ export function FlowInputWiring({ payload, onChange, cwd }: FlowInputWiringProps
                     className={`px-2 text-[10px] ${
                       boundToTrigger
                         ? "text-[var(--text-secondary)]"
-                        : "bg-[var(--accent,#6366f1)] text-white"
+                        : "bg-[var(--accent-solid)] text-white"
                     }`}
                   >
                     literal
@@ -192,7 +192,7 @@ export function FlowInputWiring({ payload, onChange, cwd }: FlowInputWiringProps
                     onClick={() => setInput(f.name, TRIGGER_TOKEN)}
                     className={`border-l border-[var(--border-secondary)] px-2 text-[10px] ${
                       boundToTrigger
-                        ? "bg-[var(--accent,#6366f1)] text-white"
+                        ? "bg-[var(--accent-solid)] text-white"
                         : "text-[var(--text-secondary)]"
                     }`}
                   >

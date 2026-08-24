@@ -1,5 +1,11 @@
 /**
- * Run monitor (shell-overlay-route `/automation/run/:sid`). Resolves the run
+ * Run monitor (shell-overlay-route `/folder/:encodedCwd/automations/run/:sid`).
+ * The route carries the board's `:encodedCwd` so a cold-load back resolves to
+ * the owning board instead of degrading to the card list — the old
+ * `/automation/run/:sid` shape declared a `parentPath` it could never
+ * interpolate. See change: add-route-backed-overlay-dialogs.
+ *
+ * Resolves the run
  * session by id (slot `sessionParam`) and shows it live: while running it
  * surfaces the run header + status and lets the user open the standard chat
  * (the run is a real session — its live tool calls + messages render via the

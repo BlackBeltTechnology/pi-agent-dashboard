@@ -107,7 +107,40 @@ export interface CreateAutomationDialogProps {
 type VisibilityChoice = "default" | Visibility;
 type ModelMode = "role" | "model";
 
+/** One additional (non-primary) fan-out action entry drafted in the editor. */
+interface AdditionalActionDraft {
+  actionId: string;
+  count: number;
+  skill: string;
+  payload: Record<string, string>;
+}
+
 const DEFAULT_ROLE_KEYS = ["fast", "planning", "coding", "compact", "vision", "research"];
+
+/**
+ * Canonical thinking levels, in pi's own order. `off` is the NO-OVERRIDE
+ * option: it writes a bare model ref and lets pi's default stand.
+ * See change: add-default-thinking-level.
+ */
+const THINKING_LEVELS = ["off", "minimal", "low", "medium", "high", "xhigh", "max"];
+
+/**
+ * Split `"<provider>/<id>[:<level>]"`. Only a CANONICAL level tail is split off
+ * — provider ids legitimately contain `:` (e.g. `openrouter/vendor:free`).
+ */
+function splitModelLevel(ref: string): { base: string; level?: string } {
+  const idx = ref.lastIndexOf(":");
+  if (idx <= 0) return { base: ref };
+  const tail = ref.slice(idx + 1);
+  if (!THINKING_LEVELS.includes(tail)) return { base: ref };
+  return { base: ref.slice(0, idx), level: tail };
+}
+
+/** Inverse of {@link splitModelLevel}. `off`/undefined write a bare ref. */
+function joinModelLevel(base: string, level?: string): string {
+  if (!base || !level || level === "off") return base;
+  return `${base}:${level}`;
+}
 
 /** Trigger category → leading icon for the level-1 pills. */
 const CATEGORY_ICON: Record<string, string> = {
@@ -164,13 +197,14 @@ export function CreateAutomationDialog({
   const t = useT();
   const editing = !!initialConfig;
   const ModelSelector = useUiPrimitive(UI_PRIMITIVE_KEYS.modelSelector);
+  const ThinkingLevelSelector = useUiPrimitive(UI_PRIMITIVE_KEYS.thinkingLevelSelector);
 
   // Roles + models live in the host's "roles" plugin config (routed there by
   // the WS layer). Read non-reactively at render — by the time the editor is
   // open the config is populated.
   const rolesCfg = getPluginConfig("roles") as {
     roles?: Record<string, string>;
-    models?: Array<{ provider: string; id: string }>;
+    models?: Array<{ provider: string; id: string; supportedThinkingLevels?: string[] }>;
   };
   const roleKeys = Object.keys(rolesCfg.roles ?? {});
   const roleOptions = (roleKeys.length > 0 ? roleKeys : DEFAULT_ROLE_KEYS).map((k) => `@${k}`);
@@ -178,6 +212,18 @@ export function CreateAutomationDialog({
 
   const initialModel = initialConfig?.model ?? "@fast";
   const initialModelMode: ModelMode = initialModel.startsWith("@") ? "role" : "model";
+
+  // Fan-out: the first action entry is the "primary" (drives the existing
+  // single-action editor); any further entries are additional. On submit we
+  // write `actions:` when >1 entry, else the single `action:` block.
+  // See change: add-automation-concurrent-spawn.
+  const initialPrimary = initialConfig?.action ?? initialConfig?.actions?.[0];
+  const initialExtras: AdditionalActionDraft[] = (initialConfig?.actions?.slice(1) ?? []).map((a) => ({
+    actionId: normalizeActionId(a.kind),
+    count: a.count ?? 1,
+    skill: a.skill ?? "",
+    payload: coercePayload(a.payload),
+  }));
 
   const [name, setName] = useState(initialName ?? "");
   const [scope, setScope] = useState<AutomationScope>(initialScope ?? "folder");
@@ -200,18 +246,20 @@ export function CreateAutomationDialog({
   );
 
   const [actionId, setActionId] = useState<string>(
-    normalizeActionId(initialConfig?.action.kind ?? "core.prompt"),
+    normalizeActionId(initialPrimary?.kind ?? "core.prompt"),
   );
+  const [primaryCount, setPrimaryCount] = useState<number>(initialPrimary?.count ?? 1);
+  const [extraEntries, setExtraEntries] = useState<AdditionalActionDraft[]>(initialExtras);
   const [actions, setActions] = useState<ActionDescriptor[]>(BUILTIN_ACTIONS);
   const [actionSearch, setActionSearch] = useState("");
   const [actionPayload, setActionPayload] = useState<Record<string, string>>(() =>
-    coercePayload(initialConfig?.action.payload),
+    coercePayload(initialPrimary?.payload),
   );
   // Object payload written by a contributed `automation-action-editor` (e.g.
   // flows-plugin's input wiring). Persisted as `payload.inputs`. Kept separate
   // from the string-map above. See change: wire-flow-inputs-in-automation.
   const [actionInputs, setActionInputs] = useState<Record<string, unknown>>(() =>
-    extractInputs(initialConfig?.action.payload),
+    extractInputs(initialPrimary?.payload),
   );
   // File-trigger folder path (`on.path`). See change: wire-flow-inputs-in-automation.
   const [filePath, setFilePath] = useState<string>(
@@ -219,11 +267,16 @@ export function CreateAutomationDialog({
   );
   const [openSources, setOpenSources] = useState<Record<string, boolean>>({ core: true });
   const [promptBody, setPromptBody] = useState(initialPromptBody ?? "");
-  const [skill, setSkill] = useState(initialConfig?.action.skill ?? "");
+  const [skill, setSkill] = useState(initialPrimary?.skill ?? "");
 
   const [modelMode, setModelMode] = useState<ModelMode>(initialModelMode);
   const [roleValue, setRoleValue] = useState(initialModelMode === "role" ? initialModel : "@fast");
-  const [modelValue, setModelValue] = useState(initialModelMode === "model" ? initialModel : "");
+  // The thinking level rides `model` as a `:<level>` suffix (pi parses it the
+  // same way for `--model`), so an existing value is SPLIT for display and
+  // rejoined on submit. See change: add-default-thinking-level (design D7).
+  const initialSplit = splitModelLevel(initialModelMode === "model" ? initialModel : "");
+  const [modelValue, setModelValue] = useState(initialSplit.base);
+  const [modelLevel, setModelLevel] = useState<string | undefined>(initialSplit.level);
 
   const [mode, setMode] = useState<RunMode>(initialConfig?.mode ?? "local");
   const [sandbox, setSandbox] = useState<Sandbox>(initialConfig?.sandbox ?? "workspace-write");
@@ -295,7 +348,8 @@ export function CreateAutomationDialog({
     return next ? relativeFuture(next) : null;
   }, [effectiveCron]);
 
-  const model = modelMode === "role" ? roleValue.trim() : modelValue.trim();
+  const model =
+    modelMode === "role" ? roleValue.trim() : joinModelLevel(modelValue.trim(), modelLevel);
 
   // Submission gating.
   const categoryPlanned = activeCategory?.status === "planned";
@@ -337,32 +391,46 @@ export function CreateAutomationDialog({
       : isFile
         ? { kind: "file", path: filePath.trim(), events: selectedEvents, settle: "rename-only" }
         : { kind: mapCategoryToKind(category), events: selectedEvents };
-    let actionBlock: AutomationConfig["action"];
-    if (actionId === "core.prompt") {
-      actionBlock = { kind: "prompt", prompt: "./prompt.md" };
-    } else if (actionId === "core.skill") {
-      actionBlock = { kind: "skill", skill: skill.trim().startsWith("$") ? skill.trim() : `$${skill.trim()}` };
-    } else {
-      const payload: Record<string, unknown> = { ...actionPayload };
-      if (Object.keys(actionInputs).length > 0) payload.inputs = actionInputs;
-      actionBlock = { kind: actionId, payload };
-    }
-    const config: AutomationConfig = {
-      on: onBlock,
-      action: actionBlock,
-      model,
-      mode,
-      sandbox,
-      concurrency,
-      ...(visibility !== "default" ? { visibility } : {}),
-    };
+    const primaryBlock = toActionBlock(actionId, {
+      skill,
+      payload: actionPayload,
+      inputs: actionInputs,
+      count: primaryCount,
+    });
+    // Single entry → `action:`; more than one → `actions:` (fan-out).
+    // See change: add-automation-concurrent-spawn.
+    const config: AutomationConfig =
+      extraEntries.length === 0
+        ? {
+            on: onBlock,
+            action: primaryBlock,
+            model,
+            mode,
+            sandbox,
+            concurrency,
+            ...(visibility !== "default" ? { visibility } : {}),
+          }
+        : {
+            on: onBlock,
+            actions: [
+              primaryBlock,
+              ...extraEntries.map((e) =>
+                toActionBlock(e.actionId, { skill: e.skill, payload: e.payload, inputs: {}, count: e.count }),
+              ),
+            ],
+            model,
+            mode,
+            sandbox,
+            concurrency,
+            ...(visibility !== "default" ? { visibility } : {}),
+          };
     setBusy(true);
     const body = {
       scope,
       ...(scope === "folder" && cwd ? { cwd } : {}),
       name: name.trim(),
       config,
-      ...(actionId === "core.prompt" ? { promptBody } : {}),
+      ...(extraEntries.length === 0 && actionId === "core.prompt" ? { promptBody } : {}),
     };
     const res = editing ? await updateAutomation(body) : await createAutomation(body);
     setBusy(false);
@@ -449,7 +517,7 @@ export function CreateAutomationDialog({
                   onClick={() => setCategory(c.category)}
                   className={`inline-flex items-center gap-1 px-2 py-1 text-xs rounded-full border ${
                     selected
-                      ? "border-[var(--accent,#6366f1)] text-[var(--accent,#6366f1)] bg-[var(--accent-soft,rgba(99,102,241,0.12))]"
+                      ? "border-[var(--accent)] text-[var(--accent-text)] bg-[var(--accent-soft)]"
                       : "border-[var(--border-secondary)] text-[var(--text-secondary)]"
                   } ${planned ? "opacity-40 cursor-not-allowed" : ""}`}
                   title={planned ? t("comingSoon", undefined, "Coming soon") : c.label}
@@ -561,7 +629,7 @@ export function CreateAutomationDialog({
                     {t("filePathHelp", undefined, "Fires once per new file that arrives here (settle: rename-only).")}
                   </p>
                   {filePathMissing && (
-                    <p className="text-[10px] text-[var(--danger,#ef4444)]" data-testid="file-path-missing">
+                    <p className="text-[10px] text-[var(--severity-error-fg)]" data-testid="file-path-missing">
                       {t("filePathRequired", undefined, "Folder to watch is required.")}
                     </p>
                   )}
@@ -591,7 +659,7 @@ export function CreateAutomationDialog({
               })}
               </div>
               {eventsMissing && (
-                <p className="text-[10px] text-[var(--danger,#ef4444)]" data-testid="events-missing">
+                <p className="text-[10px] text-[var(--severity-error-fg)]" data-testid="events-missing">
                   {t("eventsMissing", undefined, "Select at least one event type.")}
                 </p>
               )}
@@ -663,6 +731,92 @@ export function CreateAutomationDialog({
               />
             </>
           )}
+          <Field label={t("fieldCount", undefined, "Spawn count")}>
+            <input
+              type="number"
+              min={1}
+              value={primaryCount}
+              onChange={(e) => setPrimaryCount(Math.max(1, Number(e.target.value) || 1))}
+              data-testid="create-action-count"
+              className="input w-24"
+            />
+          </Field>
+
+          {/* Additional fan-out action entries (writes `actions:` when present). */}
+          <div className="space-y-2" data-testid="extra-actions">
+            {extraEntries.map((entry, i) => (
+              <div key={i} data-testid={`extra-action-${i}`} className="rounded border border-[var(--border-secondary)] p-2 space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-[10px] uppercase tracking-wide text-[var(--text-muted)]">
+                    {t("actionEntry", { n: i + 2 }, `Action ${i + 2}`)}
+                  </span>
+                  <button
+                    type="button"
+                    data-testid={`remove-action-entry-${i}`}
+                    onClick={() => setExtraEntries((prev) => prev.filter((_, j) => j !== i))}
+                    className="text-[10px] text-[var(--severity-error-fg)]"
+                  >
+                    {t("remove", undefined, "Remove")}
+                  </button>
+                </div>
+                <Field label={t("fieldAction", undefined, "Action")}>
+                  <select
+                    value={entry.actionId}
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      setExtraEntries((prev) => prev.map((x, j) => (j === i ? { ...x, actionId: v } : x)));
+                    }}
+                    data-testid={`entry-action-${i}`}
+                    className="input font-mono"
+                  >
+                    {actions.map((a) => (
+                      <option key={a.id} value={a.id} disabled={!a.available}>
+                        {a.id}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+                {entry.actionId === "core.skill" && (
+                  <Field label={t("fieldSkill", undefined, "Skill ($skill-name)")}>
+                    <input
+                      type="text"
+                      value={entry.skill}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        setExtraEntries((prev) => prev.map((x, j) => (j === i ? { ...x, skill: v } : x)));
+                      }}
+                      data-testid={`entry-skill-${i}`}
+                      className="input font-mono"
+                    />
+                  </Field>
+                )}
+                <Field label={t("fieldCount", undefined, "Spawn count")}>
+                  <input
+                    type="number"
+                    min={1}
+                    value={entry.count}
+                    onChange={(e) => {
+                      const v = Math.max(1, Number(e.target.value) || 1);
+                      setExtraEntries((prev) => prev.map((x, j) => (j === i ? { ...x, count: v } : x)));
+                    }}
+                    data-testid={`entry-count-${i}`}
+                    className="input w-24"
+                  />
+                </Field>
+              </div>
+            ))}
+            <button
+              type="button"
+              data-testid="add-action-entry"
+              onClick={() =>
+                setExtraEntries((prev) => [...prev, { actionId: "core.skill", count: 1, skill: "", payload: {} }])
+              }
+              className="text-[11px] px-2 py-1 rounded border border-[var(--border-secondary)] text-[var(--text-secondary)]"
+            >
+              {t("addAction", undefined, "+ Add action")}
+            </button>
+          </div>
+
           <Field label={t("fieldModel", undefined, "Model")}>
             <div className="flex gap-1 mb-1">
               <button
@@ -671,7 +825,7 @@ export function CreateAutomationDialog({
                 onClick={() => setModelMode("role")}
                 className={`px-2 py-0.5 text-[10px] rounded border ${
                   modelMode === "role"
-                    ? "border-[var(--accent,#6366f1)] text-[var(--accent,#6366f1)]"
+                    ? "border-[var(--accent)] text-[var(--accent-text)]"
                     : "border-[var(--border-secondary)] text-[var(--text-secondary)]"
                 }`}
               >
@@ -683,7 +837,7 @@ export function CreateAutomationDialog({
                 onClick={() => setModelMode("model")}
                 className={`px-2 py-0.5 text-[10px] rounded border ${
                   modelMode === "model"
-                    ? "border-[var(--accent,#6366f1)] text-[var(--accent,#6366f1)]"
+                    ? "border-[var(--accent)] text-[var(--accent-text)]"
                     : "border-[var(--border-secondary)] text-[var(--text-secondary)]"
                 }`}
               >
@@ -691,27 +845,71 @@ export function CreateAutomationDialog({
               </button>
             </div>
             {modelMode === "role" ? (
-              <select
-                value={roleValue}
-                onChange={(e) => setRoleValue(e.target.value)}
-                data-testid="create-model-role"
-                className="input font-mono"
-              >
-                {roleOptions.map((r) => (
-                  <option key={r} value={r}>
-                    {r}
-                  </option>
-                ))}
-              </select>
+              <>
+                <select
+                  value={roleValue}
+                  onChange={(e) => setRoleValue(e.target.value)}
+                  data-testid="create-model-role"
+                  className="input font-mono"
+                >
+                  {roleOptions.map((r) => (
+                    <option key={r} value={r}>
+                      {r}
+                    </option>
+                  ))}
+                </select>
+                {/* No level control on this branch — the role's own ref owns it
+                    (one owner per value). Naming the owner keeps the absence
+                    from reading as a missing feature.
+                    See change: add-default-thinking-level (design D9). */}
+                <p
+                  data-testid="create-model-role-level-hint"
+                  className="text-[10px] text-[var(--text-secondary)] mt-1"
+                >
+                  {t("roleLevelHint", { role: roleValue }, `Thinking level comes from ${roleValue} — set it in Settings → Roles.`)}
+                </p>
+              </>
             ) : (
+              /* Model + level are ONE decision: model left, level right, in one
+                 enclosure, with the ref that gets written echoed below.
+                 See openspec/changes/add-default-thinking-level/mockups/ui-plan.md. */
               <div data-testid="create-model-selector">
-                <ModelSelector
-                  current={modelValue || undefined}
-                  models={models}
-                  onSelect={(label: string) => setModelValue(label)}
-                />
+                <div className="flex flex-col md:flex-row md:items-end gap-1 md:gap-3.5 border border-[var(--border-primary)] rounded bg-[var(--bg-tertiary)] px-2 py-1.5">
+                  <div className="flex flex-col gap-0.5 min-w-0 flex-1">
+                    <span className="text-[10px] uppercase tracking-wider text-[var(--text-secondary)]">
+                      {t("modelLabel", undefined, "Model")}
+                    </span>
+                    <ModelSelector
+                      current={modelValue || undefined}
+                      models={models}
+                      onSelect={(label: string) => {
+                        setModelValue(label);
+                        const picked = models.find((m) => `${m.provider}/${m.id}` === label);
+                        const supported = picked?.supportedThinkingLevels;
+                        if (modelLevel && supported?.length && !supported.includes(modelLevel)) {
+                          setModelLevel(undefined);
+                        }
+                      }}
+                    />
+                  </div>
+                  <div className="flex flex-col gap-0.5 shrink-0">
+                    <span className="text-[10px] uppercase tracking-wider text-[var(--text-secondary)]">
+                      {t("thinkingLabel", undefined, "Thinking")}
+                    </span>
+                    <ThinkingLevelSelector
+                      current={modelLevel}
+                      supportedLevels={
+                        models.find((m) => `${m.provider}/${m.id}` === modelValue)
+                          ?.supportedThinkingLevels
+                      }
+                      onSelect={(lvl: string) => setModelLevel(lvl === "off" ? undefined : lvl)}
+                    />
+                  </div>
+                </div>
                 {modelValue && (
-                  <p className="text-[10px] text-[var(--text-muted)] font-mono mt-1">{modelValue}</p>
+                  <p className="text-[10px] text-[var(--text-secondary)] font-mono mt-1">
+                    {joinModelLevel(modelValue, modelLevel)}
+                  </p>
                 )}
               </div>
             )}
@@ -794,7 +992,7 @@ export function CreateAutomationDialog({
         </div>
 
         {error && (
-          <p className="text-xs text-[var(--danger,#ef4444)]" data-testid="create-error">
+          <p className="text-xs text-[var(--severity-error-fg)]" data-testid="create-error">
             {error}
           </p>
         )}
@@ -813,7 +1011,7 @@ export function CreateAutomationDialog({
             onClick={submit}
             disabled={submitDisabled}
             data-testid="create-submit"
-            className="px-3 py-1 text-xs rounded bg-[var(--accent,#6366f1)] text-white disabled:opacity-50"
+            className="px-3 py-1 text-xs rounded bg-[var(--accent-solid)] text-white disabled:opacity-50"
           >
             {busy ? t("saving", undefined, "Saving…") : editing ? t("save", undefined, "Save") : t("create", undefined, "Create")}
           </button>
@@ -821,6 +1019,26 @@ export function CreateAutomationDialog({
       </div>
     </div>
   );
+}
+
+/** Build one `AutomationAction` from an editor entry's draft state. */
+function toActionBlock(
+  actionId: string,
+  draft: { skill: string; payload: Record<string, string>; inputs: Record<string, unknown>; count: number },
+): AutomationConfig["action"] & object {
+  let block: NonNullable<AutomationConfig["action"]>;
+  if (actionId === "core.prompt") {
+    block = { kind: "prompt", prompt: "./prompt.md" };
+  } else if (actionId === "core.skill") {
+    const s = draft.skill.trim();
+    block = { kind: "skill", skill: s.startsWith("$") ? s : `$${s}` };
+  } else {
+    const payload: Record<string, unknown> = { ...draft.payload };
+    if (Object.keys(draft.inputs).length > 0) payload.inputs = draft.inputs;
+    block = { kind: actionId, payload };
+  }
+  if (draft.count > 1) block.count = draft.count;
+  return block;
 }
 
 /** UI category id → on-disk `on.kind` (scheduled → schedule). */
@@ -871,7 +1089,7 @@ function Segmented<T extends string>({
             onClick={() => onChange(o.value)}
             className={`px-2 py-0.5 text-[11px] rounded ${
               selected
-                ? "bg-[var(--accent,#6366f1)] text-white"
+                ? "bg-[var(--accent-solid)] text-white"
                 : "text-[var(--text-secondary)]"
             } ${disabled ? "opacity-60 cursor-not-allowed" : ""}`}
           >
@@ -981,7 +1199,7 @@ function ActionPicker({
                           data-testid={`create-action-${a.id}`}
                           className={`flex items-center gap-2 rounded border px-2 py-1.5 text-left text-[11px] ${
                             selected
-                              ? "border-[var(--accent,#6366f1)] bg-[var(--accent,#6366f1)]/10"
+                              ? "border-[var(--accent)] bg-[var(--accent)]/10"
                               : "border-[var(--border-secondary)]"
                           } ${a.available ? "" : "opacity-50 cursor-not-allowed"}`}
                         >

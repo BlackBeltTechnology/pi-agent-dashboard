@@ -15,7 +15,9 @@
       "!**/plugin-registry.generated.*",
       "!openspec/changes/archive/**",
       "!**/*.css",
-      "!**/__tests__/fixtures/**"
+      "!**/__tests__/fixtures/**",
+      "!**/*.production.min.js",
+      "!packages/pi-forms-bpmn/.pi/skills/**/assets/**"
     ]
   },
   "formatter": {
@@ -96,6 +98,7 @@
     {
       "includes": [
         "**/vitest.config.ts",
+        "**/vitest.*.config.ts",
         "**/vite.config.ts",
         "**/vite.*.config.ts",
         "**/forge.config.ts",

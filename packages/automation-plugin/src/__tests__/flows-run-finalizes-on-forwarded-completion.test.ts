@@ -19,7 +19,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { flowsActionContributions } from "../../../flows-plugin/src/server/automation-actions.js";
 import { registerPlugin } from "../server/index.js";
-import { listRuns } from "../server/run-store.js";
+import { listRuns, readChildRuns } from "../server/run-store.js";
 
 const ENGINE_INIT_WAIT_MS = 1400;
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -109,7 +109,14 @@ async function boot(
     },
     emitted,
     sentPrompts,
-    stampSession: (sessionId, runId) => sessions.set(sessionId, { automationRun: { runId } }),
+    // Children own the session stamp: resolve the (single) child of the parent
+    // occurrence and stamp the session with the CHILD run id.
+    // See change: add-automation-concurrent-spawn.
+    stampSession: (sessionId, runId) => {
+      const parent = listRuns(repo).find((r) => r.runId === runId);
+      const childId = parent?.children?.length ? readChildRuns(repo, parent)[0]!.runId : runId;
+      sessions.set(sessionId, { automationRun: { runId: childId } });
+    },
     fire: async (name) => {
       lastRunId = "";
       browserHandler?.({ pluginId: "automation", action: "run", payload: { scope: "folder", cwd: repo, name } });
@@ -119,8 +126,9 @@ async function boot(
     runs: () => listRuns(repo),
     run: (runId) => listRuns(repo).find((r) => r.runId === runId),
     resultOf: (runId) => {
-      const rec = listRuns(repo).find((r) => r.runId === runId);
-      const file = rec ? path.join(rec.dir, "result.md") : "";
+      const parent = listRuns(repo).find((r) => r.runId === runId);
+      const dir = parent?.children?.length ? readChildRuns(repo, parent)[0]!.dir : parent?.dir;
+      const file = dir ? path.join(dir, "result.md") : "";
       return file && fs.existsSync(file) ? fs.readFileSync(file, "utf8") : "";
     },
   };

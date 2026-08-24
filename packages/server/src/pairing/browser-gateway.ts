@@ -70,11 +70,12 @@ import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspac
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
 import { handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handleRemoveFollowupEntry, handleResumeSession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
 import { handleAcceptReplaceProposal, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleHideSession, handleListSessions, handleRemoveTagGlobally, handleRenameSession, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnhideSession } from "../browser-handlers/session-meta-handler.js";
-import { handleSubscribe } from "../browser-handlers/subscription-handler.js";
+import { clearGapState, handleHistoryBackfill, handleSubscribe } from "../browser-handlers/subscription-handler.js";
 import { handleCloseInlineTerminal, handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "../browser-handlers/terminal-handler.js";
 import { createPendingResumeRegistry, type PendingResumeRegistry } from "../pending/pending-resume-registry.js";
 import { createViewedSessionTracker, type ViewedSessionTracker } from "../session/viewed-session-tracker.js";
 import type { TerminalManager } from "../terminal/terminal-manager.js";
+import { ResyncRequesterRegistry, resyncRequestIdOf } from "./subagent-resync-routing.js";
 
 
 
@@ -260,6 +261,9 @@ export function createBrowserGateway(
   /** Display-fit pool, so session hydration fits inline images like the live
    *  path does. See change: fit-attachments-for-display (test-plan #E9). */
   fitWorkerPool?: import("../attachments/fit-worker-pool.js").FitWorkerPool,
+  /** Max events replayed on a FULL-stream subscribe (0 = unlimited).
+   *  See change: lazy-load-session-history (D1). */
+  maxReplayEvents?: number,
 ): BrowserGateway {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -296,6 +300,8 @@ export function createBrowserGateway(
   // Track which browser is viewing which session (for unread state machine).
   // See change: session-card-unread-stripes.
   const viewedSessionTracker = createViewedSessionTracker();
+  /** requestId → the browser awaiting that subagent-resync reply (C5). */
+  const resyncRequesters = new ResyncRequesterRegistry<WebSocket>();
 
   // Track pending interactive UI requests per session for replay on reconnect
   const pendingUiRequests = new Map<string, Map<string, { requestId: string; method: string; params: Record<string, unknown> }>>();
@@ -579,6 +585,18 @@ export function createBrowserGateway(
       for (const msg of buildOpenSpecConnectSnapshot(directoryService, hasOpenSpecDir, hasOpenSpecRoot)) {
         sendTo(ws, msg);
       }
+      // Replay the cached folder-HEAD map to THIS socket only. `git_head_update`
+      // is broadcast on first-seen-or-change, so a browser connecting after the
+      // server cached a folder would otherwise never learn its HEAD. Unicast
+      // replay of already-computed state — no git read, no diff, no fan-out.
+      // `typeof` guard: hand-built `DirectoryService` fakes lack the accessor
+      // (precedent: `preferencesStore.getDisplayPrefs` above).
+      // See change: fix-folder-header-worktree-branch-leak.
+      if (typeof directoryService.folderHeadSnapshot === "function") {
+        for (const { cwd, branch } of directoryService.folderHeadSnapshot()) {
+          sendTo(ws, { type: "git_head_update", cwd, branch });
+        }
+      }
     }
 
     // Send active terminals on connect
@@ -610,6 +628,7 @@ export function createBrowserGateway(
           pendingForkRegistry, sessionOrderManager, preferencesStore,
           metaPersistence,
           fitWorkerPool,
+          maxReplayEvents,
           directoryService, terminalManager,
           headlessPidRegistry, pendingResumeRegistry, pendingDashboardSpawns,
           pendingAttachRegistry,
@@ -618,6 +637,8 @@ export function createBrowserGateway(
           pendingClientCorrelations,
           pendingWorktreeBaseRegistry,
           isRecoveryLivenessPending: gateway.isRecoveryLivenessPending,
+          recordResyncRequester: (requestId, requesterWs) =>
+            resyncRequesters.record(requestId, requesterWs),
           sendTo, broadcast, getSubscribers, replayPendingUiRequests, replayNotifyLog,
           broadcastEvent: gateway.broadcastEvent,
           trackUiRequest: trackUiRequest,
@@ -651,8 +672,15 @@ export function createBrowserGateway(
           case "subscribe":
             handleSubscribe(msg, subs, ctx);
             break;
+          // Backfill for the gap left by a windowed replay. Serves the
+          // in-memory store only; `clearReplaying` catch-up is untouched.
+          // See change: lazy-load-session-history.
+          case "history_backfill":
+            await handleHistoryBackfill(msg, subs, ctx);
+            break;
           case "unsubscribe":
             subs.delete(msg.sessionId);
+            clearGapState(ws, msg.sessionId);
             // Cancel an in-flight hydration once the last subscriber leaves,
             // so clicking session A then B doesn't waste A's parse+replay and
             // deliver an event_replay to a now-unsubscribed ws. Guarded by the
@@ -1010,6 +1038,9 @@ export function createBrowserGateway(
       console.error(`[browser-gw] browser client disconnected (remaining: ${subscriptions.size - 1})`);
       subscriptions.delete(ws);
       replayingSessions.delete(ws);
+      // A disconnected requester can never receive its reply; drop its tokens
+      // so the map cannot accumulate them. See change: reduce-subagent-details-payload.
+      resyncRequesters.forget(ws);
       // Drop this ws from every viewed-session entry so disconnected browsers
       // don't hold sessions in the viewed state. See change: session-card-unread-stripes.
       viewedSessionTracker.unviewAll(ws);
@@ -1061,6 +1092,21 @@ export function createBrowserGateway(
         seq,
         event,
       };
+      // Requester-scoped resync delivery (C5): a reply carrying a known
+      // correlation token goes to the ONE connection that asked, so a cadence
+      // of fat replies is not multiplied by the number of viewers. An unknown
+      // or expired token falls through to the ordinary fan-out below.
+      // See change: reduce-subagent-details-payload.
+      const requestId = resyncRequestIdOf(event?.data as Record<string, unknown> | undefined);
+      if (requestId) {
+        const requester = resyncRequesters.take(requestId);
+        if (requester && subscribers.includes(requester)) {
+          if (!replayingSessions.get(requester)?.has(sessionId)) {
+            sendTo(requester, msg, { sessionId, seq });
+          }
+          return;
+        }
+      }
       for (const ws of subscribers) {
         // Skip WebSockets that are mid-replay for this session
         const replaying = replayingSessions.get(ws);

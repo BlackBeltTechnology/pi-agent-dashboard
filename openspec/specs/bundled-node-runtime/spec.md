@@ -1,4 +1,10 @@
-## ADDED Requirements
+# bundled-node-runtime Specification
+
+## Purpose
+
+Lets the packaged application run without a system Node.js install by shipping a platform-appropriate Node binary. Defines how the correct binary is selected per platform and how the bundled runtime is resolved at execution time so bundled and development modes behave identically.
+
+## Requirements
 
 ### Requirement: Bundled Node.js binary
 The Electron app SHALL include a standalone Node.js v22 LTS binary as `extraResources`. The bundle SHALL include the `node` (or `node.exe`) executable, the `npm` CLI module under `node_modules/npm/`, and on Windows the `npm.cmd` and `npx.cmd` shim scripts shipped with the upstream Node Windows distribution.

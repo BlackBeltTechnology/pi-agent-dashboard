@@ -21,7 +21,7 @@ export function AutomationBadge({
   return (
     <span
       data-testid="automation-badge"
-      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-[var(--accent-soft,rgba(99,102,241,0.15))] text-[var(--accent,#6366f1)]"
+      className="inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[10px] font-medium bg-[var(--accent-soft)] text-[var(--accent-text)]"
       title={name ? t("badgeTitleNamed", { name }, `Automation run: ${name}`) : t("badgeTitle", undefined, "Automation run")}
     >
       ⏱ {name ?? t("automationFallback", undefined, "automation")}

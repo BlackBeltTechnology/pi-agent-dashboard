@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>collapse-pairing-into-gateway — mockups</title>
+<link rel="stylesheet" href="tokens.css">
+<script src="theme-init.js"></script>
+<style>
+  .wrap { max-width: 640px; margin: 0 auto; padding: 40px 16px; }
+  ul { list-style: none; padding: 0; margin: 24px 0 0; }
+  li + li { margin-top: 10px; }
+  a.card {
+    display: block; text-decoration: none; color: inherit;
+    border: 1px solid var(--border-primary); border-radius: 8px;
+    background: var(--bg-secondary); padding: 14px 16px; min-height: 44px;
+  }
+  a.card:hover { background: var(--bg-hover); }
+  a.card b { color: var(--text-primary); }
+  a.card span { display: block; color: var(--text-secondary); font-size: 13px; margin-top: 3px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+    <h1 style="margin:0;font-size:20px;">collapse-pairing-into-gateway</h1>
+    <button class="btn" id="theme-toggle" type="button">Light theme</button>
+  </div>
+  <p class="muted" style="margin-top:8px;">
+    Two surfaces change. Both render dark and light; append <code>?theme=light</code> to force light.
+  </p>
+  <ul>
+    <li><a class="card" href="security-pair.html"><b>Settings ▸ Security — Pair a device</b>
+      <span>The duplicate removed, replaced by a route. Includes the not-chosen A2 variant and why.</span></a></li>
+    <li><a class="card" href="gateway-empty.html"><b>Gateway ▸ Access &amp; QR — empty state</b>
+      <span>The two spec-required behaviours ported up before the delete.</span></a></li>
+  </ul>
+</div>
+</body>
+</html>

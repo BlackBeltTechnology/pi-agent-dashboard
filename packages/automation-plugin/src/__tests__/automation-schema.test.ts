@@ -2,8 +2,9 @@
  * Schema parser/validator tests, including unknown-kind isolation.
  * See change: add-automation-plugin.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import { parseAutomationYaml } from "../server/automation-schema.js";
+import { resolveChildren } from "../server/resolve-children.js";
 
 const KNOWN = new Set(["schedule"]);
 
@@ -151,8 +152,8 @@ model: "@fast"
       new Set(["flows.run"]),
     );
     expect(error).toBeUndefined();
-    expect(config?.action.kind).toBe("flows.run");
-    expect(config?.action.payload).toEqual({ flow: "nightly-build-and-tag", task: "build and tag" });
+    expect(config?.action?.kind).toBe("flows.run");
+    expect(config?.action?.payload).toEqual({ flow: "nightly-build-and-tag", task: "build and tag" });
   });
 
   it("rejects an unregistered action kind, naming it, isolating the automation", () => {
@@ -180,5 +181,140 @@ model: x
       new Set(["flows.run"]),
     );
     expect(error).toContain("payload");
+  });
+});
+
+// See change: add-automation-concurrent-spawn.
+describe("parseAutomationYaml — fan-out (actions/count/maxConcurrentSpawns)", () => {
+  const IDS = new Set(["flows.run", "core.skill"]);
+
+  it("E1: both `action` and `actions` declared is rejected, naming the conflict", () => {
+    const { config, error } = parseAutomationYaml(
+      `
+on: { kind: schedule, cron: "* * * * *" }
+action: { kind: prompt, prompt: ./p.md }
+actions: [ { kind: flows.run } ]
+model: x
+`,
+      KNOWN,
+      IDS,
+    );
+    expect(config).toBeUndefined();
+    expect(error).toMatch(/action/);
+    expect(error).toMatch(/actions/);
+  });
+
+  it("E2: two distinct actions parse and resolve to two distinct child dispatches", () => {
+    const { config, error } = parseAutomationYaml(
+      `
+on: { kind: schedule, cron: "* * * * *" }
+actions:
+  - { kind: flows.run, payload: { flow: "A" } }
+  - { kind: core.skill, payload: { skill: "B" } }
+model: x
+`,
+      KNOWN,
+      IDS,
+    );
+    expect(error).toBeUndefined();
+    expect(config?.actions).toHaveLength(2);
+    expect(config?.action).toBeUndefined();
+    const automation = { name: "a", scope: "folder" as const, dir: "/x", valid: true, config: config! };
+    const { specs } = resolveChildren(automation, 10);
+    expect(specs).toHaveLength(2);
+    expect(specs[0]!.action.kind).toBe("flows.run");
+    expect(specs[0]!.action.payload?.flow).toBe("A");
+    expect(specs[1]!.action.kind).toBe("core.skill");
+    expect(specs[1]!.action.payload?.skill).toBe("B");
+  });
+
+  it("E3: an empty actions list is invalid", () => {
+    const { config, error } = parseAutomationYaml(
+      `
+on: { kind: schedule, cron: "* * * * *" }
+actions: []
+model: x
+`,
+      KNOWN,
+      IDS,
+    );
+    expect(config).toBeUndefined();
+    expect(error).toBeTruthy();
+  });
+
+  it("E4: an unregistered entry kind names the offending index", () => {
+    const { config, error } = parseAutomationYaml(
+      `
+on: { kind: schedule, cron: "* * * * *" }
+actions:
+  - { kind: flows.run }
+  - { kind: bogus.kind }
+model: x
+`,
+      KNOWN,
+      IDS,
+    );
+    expect(config).toBeUndefined();
+    expect(error).toContain("actions[1]");
+  });
+
+  it("E6: count boundary values", () => {
+    for (const bad of ["0", "-1", "1.5", '"2"']) {
+      const { config, error } = parseAutomationYaml(
+        `
+on: { kind: schedule, cron: "* * * * *" }
+action: { kind: flows.run, count: ${bad} }
+model: x
+`,
+        KNOWN,
+        IDS,
+      );
+      expect(config, `count=${bad} should be invalid`).toBeUndefined();
+      expect(error).toContain("count");
+    }
+    const one = parseAutomationYaml(
+      `on: { kind: schedule, cron: "* * * * *" }\naction: { kind: flows.run, count: 1 }\nmodel: x\n`,
+      KNOWN,
+      IDS,
+    );
+    expect(one.config?.action?.count).toBe(1);
+    const three = parseAutomationYaml(
+      `on: { kind: schedule, cron: "* * * * *" }\naction: { kind: flows.run, count: 3 }\nmodel: x\n`,
+      KNOWN,
+      IDS,
+    );
+    expect(three.config?.action?.count).toBe(3);
+  });
+
+  it("E7: count defaults to a single child", () => {
+    const { config } = parseAutomationYaml(
+      `on: { kind: schedule, cron: "* * * * *" }\naction: { kind: flows.run }\nmodel: x\n`,
+      KNOWN,
+      IDS,
+    );
+    const automation = { name: "a", scope: "folder" as const, dir: "/x", valid: true, config: config! };
+    expect(resolveChildren(automation, 10).specs).toHaveLength(1);
+  });
+
+  it("E8: count on the single action block resolves to N children", () => {
+    const { config } = parseAutomationYaml(
+      `on: { kind: schedule, cron: "* * * * *" }\naction: { kind: flows.run, count: 3 }\nmodel: x\n`,
+      KNOWN,
+      IDS,
+    );
+    const automation = { name: "a", scope: "folder" as const, dir: "/x", valid: true, config: config! };
+    expect(resolveChildren(automation, 10).specs).toHaveLength(3);
+  });
+
+  it("E14: an invalid maxConcurrentSpawns is rejected", () => {
+    for (const bad of ["0", "-1", "2.5"]) {
+      const { config, error } = parseAutomationYaml(
+        `on: { kind: schedule, cron: "* * * * *" }\naction: { kind: flows.run }\nmodel: x\nmaxConcurrentSpawns: ${bad}\n`,
+        KNOWN,
+        IDS,
+      );
+      expect(config, `bound=${bad} should be invalid`).toBeUndefined();
+      expect(error).toContain("maxConcurrentSpawns");
+    }
   });
 });

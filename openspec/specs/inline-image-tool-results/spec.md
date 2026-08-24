@@ -1,4 +1,10 @@
-## ADDED Requirements
+# inline-image-tool-results Specification
+
+## Purpose
+
+Makes images produced by tools visible in the chat rather than reduced to opaque tool output. Requires the event reducer to extract image blocks from live tool results and the replay path to extract them from persisted sessions, so a reloaded session shows the same images as a live one.
+
+## Requirements
 
 ### Requirement: Event reducer extracts images from tool results
 The client event reducer SHALL extract `type: "image"` content blocks from `tool_execution_end` event data (from `data.result.content`) and store them as `images` on the corresponding `ChatMessage`. The existing `ChatImage` type (`{data: string, mimeType: string}`) SHALL be reused.

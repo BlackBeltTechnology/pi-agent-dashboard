@@ -25,9 +25,37 @@
   line-height: 1.5;
 }
 
+/* ── Overlay layer scale (z-index) ────────────────────────────────
+   Single source of truth for stacking order. Portaled overlays
+   reference a layer UTILITY (z-popover, z-dialog, …) — never a raw
+   z-[NNNN], which carries no ordering intent and cannot be reasoned
+   about against the other overlays. In-flow, non-portaled decorations
+   (sticky headers, scrollbar shims) keep a small local z-* and are
+   out of scope. Ascending = paints later = on top.
+   See openspec spec overlay-layering. See change: add-overlay-layering-system. */
+@utility z-base { z-index: var(--z-base); }
+@utility z-raised { z-index: var(--z-raised); }
+@utility z-sidebar { z-index: var(--z-sidebar); }
+@utility z-overlay { z-index: var(--z-overlay); }
+@utility z-popover { z-index: var(--z-popover); }
+@utility z-dialog { z-index: var(--z-dialog); }
+@utility z-toast { z-index: var(--z-toast); }
+@utility z-lightbox { z-index: var(--z-lightbox); }
+
 /* ── Theme Variables ─────────────────────────────────────────── */
 
 :root {
+  /* Overlay layer scale — see the @utility block above for the rule.
+     One ascending, gap-spaced scale, inherited by every theme. */
+  --z-base: 0;
+  --z-raised: 10;
+  --z-sidebar: 20;
+  --z-overlay: 30;
+  --z-popover: 40;
+  --z-dialog: 50;
+  --z-toast: 60;
+  --z-lightbox: 70;
+
   /* Backgrounds — wider contrast gaps for dark mode */
   --bg-primary: #0a0a0a;       /* page background */
   --bg-secondary: #141414;     /* panels, sidebar, expanded areas */
@@ -51,6 +79,11 @@
   --border-primary: #252525;   /* main borders */
   --border-secondary: #333333; /* subtle dividers */
   --border-subtle: rgba(255, 255, 255, 0.06);
+  /* Perceivable boundary for an overlay surface floating on --bg-primary.
+     Exists to satisfy WCAG 2.1 SC 1.4.11 (3:1 non-text contrast): measures
+     5.01:1 against --bg-primary. No other border token qualifies
+     (--border-secondary is 1.57:1). See change: fix-replay-pill-a11y-and-collision. */
+  --border-strong: #808080;
 
   /* Sidebar directory rail: the gray vertical line that represents the folder
      owning a session list, + the drag-grip dots that ride it in an opaque
@@ -68,6 +101,20 @@
   --accent-primary: #3b82f6;
   --link: #60a5fa;
   --link-hover: #93bbfd;
+
+  /* Accent RAMP — four role-scoped tokens, one contrast floor each.
+     Before this existed, `--accent` and `--accent-soft` were referenced by
+     component code but declared NOWHERE, so every `var(--accent-soft,#1d3a63)`
+     call site painted its dark-navy fallback literal in BOTH themes while the
+     text on top stayed theme-aware — 1.52:1 on the light Gateway Setup tab.
+     Roles are not interchangeable: `--accent` carries the 3:1 non-text
+     border/ring floor and is NOT a valid fill under white text (white on
+     #3b82f6 is 3.68:1 in BOTH themes), which is why `--accent-solid` is
+     #2563eb in dark mode too. See change: add-zrok-custom-reserved-name. */
+  --accent: #3b82f6;        /* border, ring, focus — 3:1 non-text */
+  --accent-soft: #1d3a63;   /* fill behind --text-primary — 9.07:1 */
+  --accent-solid: #2563eb;  /* fill behind white text — 5.17:1 */
+  --accent-text: #60a5fa;   /* link text on --bg-primary — 7.79:1 */
 
   /* Semantic session-status tokens (derive from accents; theme overrides via
      inline vars for non-base themes). See change:
@@ -166,6 +213,9 @@
   --border-primary: #e0e0e0;
   --border-secondary: #cccccc;
   --border-subtle: rgba(0, 0, 0, 0.06);
+  /* WCAG 2.1 SC 1.4.11 overlay boundary — 4.48:1 against light --bg-primary.
+     See change: fix-replay-pill-a11y-and-collision. */
+  --border-strong: #777777;
   --rail-directory: rgba(0, 0, 0, 0.18);
   --grip-dot: #8a8a8a;
 
@@ -173,6 +223,15 @@
   --accent-primary: #2563eb;
   --link: #2563eb;
   --link-hover: #1d4ed8;
+
+  /* Accent ramp — light scope. See the :root block for the role contract.
+     --accent-solid is #2563eb in BOTH themes on purpose: it is the only value
+     in the ramp that carries white text at AA. See change:
+     add-zrok-custom-reserved-name. */
+  --accent: #2563eb;        /* border, ring, focus — 3:1 non-text */
+  --accent-soft: #dbeafe;   /* fill behind --text-primary — 14.27:1 */
+  --accent-solid: #2563eb;  /* fill behind white text — 5.17:1 */
+  --accent-text: #1d4ed8;   /* link text on --bg-primary — 6.70:1 */
   --focus-ring: var(--accent-primary);
 
   /* Shadows */
@@ -916,3 +975,13 @@ mark.markdown-search-highlight-active {
    viewer while pages keep their authored (light) colour. Overrides pdf_viewer.css's
    default light gutter. See change: pdf-preview-continuous-scroll. */
 .pdfViewerContainer { background: var(--bg-canvas); }
+
+/* ── Replay-in-flight indicator: reduced motion ───────────────
+   The spinner is a Tailwind `animate-spin` utility on an <Icon> SVG, so the
+   rule is scoped through the label's data-testid rather than a class that
+   could change. The label stays RENDERED — reducing motion must not remove
+   the status. See change: fix-replay-pill-a11y-and-collision. */
+@media (prefers-reduced-motion: reduce) {
+  [data-testid="replay-in-flight-pill"] .animate-spin,
+  [data-testid="replay-in-flight-pill"] svg { animation: none; }
+}

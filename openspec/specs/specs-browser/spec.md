@@ -1,4 +1,10 @@
-## ADDED Requirements
+# specs-browser Specification
+
+## Purpose
+
+Lets the user read the project's main specs from the dashboard: all specs concatenated into one view, a combobox for jump-to navigation by spec name, and the `useMainSpecsReader` hook that fetches and concatenates them.
+
+## Requirements
 
 ### Requirement: Specs browser view displays all main specs concatenated
 The dashboard SHALL provide a `SpecsBrowserView` component that fetches all directories from `openspec/specs/`, reads each `{specName}/spec.md` file in parallel, and displays them concatenated in the content area. Each spec SHALL be preceded by a heading containing the spec directory name and separated visually from the next spec.

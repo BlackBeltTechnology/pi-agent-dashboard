@@ -150,6 +150,10 @@ export const DEFAULT_ROLE_NAMES = [
   "fast",
   "vision",
   "research",
+  // Auto session naming resolves `@naming` first and falls back to `@fast`, so
+  // making naming work does not force a global downgrade of the shared `fast`
+  // slot. See change: fix-auto-naming-reasoning-model (design D1).
+  "naming",
 ] as const;
 
 /**
@@ -275,6 +279,22 @@ export function lookupRole(ref: string): { literal?: string; reason?: string } {
 /** Look up the model literal assigned to `role`. Returns undefined if unset. */
 export function getModelRole(role: string): string | undefined {
   return lookupRole(role).literal;
+}
+
+/**
+ * Resolve the auto-naming model: `@naming` first, falling back to `@fast` so an
+ * install that never assigned `naming` resolves EXACTLY as it did before the
+ * role existed. `slot` names which role supplied the reference, so a stop error
+ * can tell the operator which slot to change. When neither is configured the
+ * reason names BOTH slots — naming only one would send the operator to a role
+ * that is not the one in force. See change: fix-auto-naming-reasoning-model.
+ */
+export function resolveNamingModel(): { literal?: string; reason?: string; slot?: string } {
+  const naming = lookupRole("@naming");
+  if (naming.literal) return { literal: naming.literal, slot: "naming" };
+  const fast = lookupRole("@fast");
+  if (fast.literal) return { literal: fast.literal, slot: "fast" };
+  return { reason: `${naming.reason ?? "role 'naming' unset"}; ${fast.reason ?? "role 'fast' unset"}` };
 }
 
 // -- Extension entry point ------------------------------------------------

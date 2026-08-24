@@ -280,6 +280,35 @@ function buildLongTranscript(turns = 120): FauxResponseStep[] {
 }
 
 /**
+ * Steps for `subagent-streaming-inner`: pure token streaming, no sleeps.
+ *
+ * At the faux provider's default `FAUX_TPS=50`, ~50 streamed tokens cost ~1 s of
+ * wall clock and produce ~50 inner `message_update` deltas. `messages` blocks of
+ * `wordsPerMessage` words therefore span ~`messages * wordsPerMessage / 50`
+ * seconds while ticking continuously — the streaming burst P1/P2 measure. The
+ * default (12 x 60 = 720 words) targets ~14 s, comfortably past the >= 10 s
+ * measurement window with margin for a slower runner.
+ * See change: reduce-bridge-tick-bandwidth (task 1.2).
+ */
+function buildStreamingBurst(messages = 12, wordsPerMessage = 60): FauxResponseStep[] {
+  const steps: FauxResponseStep[] = [];
+  for (let i = 0; i < messages; i++) {
+    const words = Array.from({ length: wordsPerMessage }, (_, w) => `stream-${i}-${w}`).join(" ");
+    // A trivial (non-sleeping) tool call is what keeps the inner agent loop
+    // running to the next streamed block — same continuation device as
+    // `buildLongTranscript`. `echo` returns instantly, so it adds no idle.
+    steps.push(
+      fauxAssistantMessage(
+        [fauxText(words), fauxToolCall("bash", { command: `echo stream-${i}` })],
+        { stopReason: "toolUse" },
+      ),
+    );
+  }
+  steps.push(fauxAssistantMessage([fauxText("streaming inner complete")]));
+  return steps;
+}
+
+/**
  * Tail marker for the `scroll-top-heavy` scenario (change: fix-chat-scroll-to-
  * top-estimate-drift). The scroll-to-top e2e waits for it to know the transcript
  * settled at the bottom before climbing.
@@ -949,6 +978,90 @@ export const SCENARIOS: Record<string, Scenario> = {
       fauxAssistantMessage([fauxText("sustained subagent complete")]),
     ],
     expect: { text: "sustained subagent complete" },
+  },
+
+  // NOTE: the `subagent-slow-inner-long` / `subagent-sustained-long` fixtures
+  // (task 1.1) were REMOVED. A nested faux subagent cannot sustain a >= 10 s
+  // tick stream in the harness (its inner `createAgentSession` resolves an empty
+  // faux response queue and dies after ~2 no-op turns; see measurement.md Bug 2),
+  // so F1/P3/F5 could never run on them. Those cadence rows now use the synthetic
+  // `faux-agent-ticks.ext.ts` producer (`synthetic-agent-ticks`[-quiet]).
+  // See change: reduce-bridge-tick-bandwidth.
+
+  // Inner scenario for `subagent-streaming`: STREAMING-heavy, minimal idle. The
+  // faux provider streams at `FAUX_TPS` (default 50 tok/s), and every inner
+  // `message_update` delta drives one producer `pushUpdate` -> one parent
+  // `tool_execution_update`. So token volume, not sleeping, sets the tick rate
+  // here — which is exactly the burst this change throttles. `subagent-slow-
+  // inner` is ~50 % asleep and under-represents it, so P1/P2 would measure the
+  // fixture rather than the throttle.
+  // See change: reduce-bridge-tick-bandwidth (task 1.2).
+  "subagent-streaming-inner": {
+    script: buildStreamingBurst(),
+    expect: { text: "streaming inner complete" },
+  },
+
+  // Parent spawning the streaming-heavy inner run. Drives P1 (throttled rate
+  // <= 2.2 frames/s) and P2 (throttle OFF is >= 4x that).
+  // See change: reduce-bridge-tick-bandwidth (task 1.2).
+  "subagent-streaming": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "faux streaming subagent",
+            prompt: "[[faux:subagent-streaming-inner]] run the streaming subagent probe",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("streaming subagent complete")]),
+    ],
+    expect: { text: "streaming subagent complete" },
+  },
+
+  // Parent that spawns the SYNTHETIC Agent-tick producer (qa/fixtures/faux-
+  // agent-ticks.ext.ts, registered as the `Agent` tool under
+  // PI_SYNTH_AGENT_TICKS=1). The `[[ticks:N@Mms]]` sentinel sets the source
+  // cadence: 240 ticks @ 50 ms ≈ 12 s of 20 fps — a deterministic ≥ 10 s
+  // Agent-tick stream the throttle L3 rows (F1/P1/P2/P3/P4) assert against,
+  // with no nested faux subagent. See change: reduce-bridge-tick-bandwidth.
+  "synthetic-agent-ticks": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "synthetic agent ticks",
+            prompt: "[[ticks:240@50]] stream synthetic agent ticks",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("synthetic ticks scenario complete")]),
+    ],
+    expect: { text: "synthetic ticks scenario complete" },
+  },
+
+  // A quiet-producer variant for F5: a > 2 s gap before tick index 30, so the
+  // cadence floor may not be asserted across that stretch.
+  // See change: reduce-bridge-tick-bandwidth (F5).
+  "synthetic-agent-ticks-quiet": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "synthetic agent ticks (quiet)",
+            prompt: "[[ticks:120@50+gap2500@30]] stream synthetic agent ticks with a quiet gap",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("synthetic ticks scenario complete")]),
+    ],
+    expect: { text: "synthetic ticks scenario complete" },
   },
 
   // ── OpenSpec auto-attach locality gate (change:

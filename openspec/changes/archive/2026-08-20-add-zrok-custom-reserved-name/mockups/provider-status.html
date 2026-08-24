@@ -1,0 +1,588 @@
+<!doctype html>
+<html lang="en" data-mode="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Gateway — provider readiness &amp; concurrent tunnels</title>
+<style>
+/* Tokens verbatim from packages/client/src/index.css, plus the four PROPOSED
+   accent tokens this change declares (see specs/theme-system). */
+[data-mode="dark"]{
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e;
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+  --border-primary:#252525; --border-secondary:#333333;
+  --accent-blue:#3b82f6; --accent-red:#ef4444; --accent-green:#22c55e; --accent-orange:#f97316;
+  --accent-primary:#3b82f6;
+  --accent:#3b82f6; --accent-soft:#1d3a63; --accent-solid:#2563eb; --accent-text:#60a5fa;
+}
+[data-mode="light"]{
+  --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0;
+  --text-primary:#1a1a1a; --text-secondary:#444444; --text-tertiary:#777777; --text-muted:#aaaaaa;
+  --border-primary:#e0e0e0; --border-secondary:#cccccc;
+  --accent-blue:#3b82f6; --accent-red:#ef4444; --accent-green:#22c55e; --accent-orange:#f97316;
+  --accent-primary:#2563eb;
+  --accent:#2563eb; --accent-soft:#dbeafe; --accent-solid:#2563eb; --accent-text:#1d4ed8;
+}
+/* Severity ramp — same color-mix formula as index.css */
+[data-mode]{
+  --severity-error-bg:color-mix(in srgb, var(--accent-red) 10%, var(--bg-tertiary));
+  --severity-error-fg:color-mix(in srgb, var(--accent-red) 46%, var(--text-primary));
+  --severity-error-border:color-mix(in srgb, var(--accent-red) 40%, transparent);
+  --severity-warning-bg:color-mix(in srgb, var(--accent-orange) 10%, var(--bg-tertiary));
+  --severity-warning-fg:color-mix(in srgb, var(--accent-orange) 46%, var(--text-primary));
+  --severity-warning-border:color-mix(in srgb, var(--accent-orange) 40%, transparent);
+  --severity-success-bg:color-mix(in srgb, var(--accent-green) 10%, var(--bg-tertiary));
+  --severity-success-fg:color-mix(in srgb, var(--accent-green) 46%, var(--text-primary));
+  --severity-success-border:color-mix(in srgb, var(--accent-green) 40%, transparent);
+  --severity-info-bg:color-mix(in srgb, var(--accent-blue) 10%, var(--bg-tertiary));
+  --severity-info-fg:color-mix(in srgb, var(--accent-blue) 46%, var(--text-primary));
+  --severity-info-border:color-mix(in srgb, var(--accent-blue) 40%, transparent);
+  --severity-neutral-bg:var(--bg-tertiary);
+  --severity-neutral-fg:var(--text-secondary);
+  --severity-neutral-border:var(--border-secondary);
+}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg-primary);color:var(--text-primary);
+  font:14px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;
+  background:var(--bg-tertiary);padding:1px 5px;border-radius:4px;color:var(--text-primary)}
+.wrap{max-width:1080px;margin:0 auto;padding:24px 20px 72px}
+.topbar{display:flex;flex-wrap:wrap;gap:12px;align-items:flex-start;justify-content:space-between;margin-bottom:8px}
+h1{font-size:19px;margin:0 0 2px}
+.sub{color:var(--text-secondary);font-size:13px;margin:0}
+.toggle{display:flex;gap:4px}
+.toggle button{min-height:44px;padding:0 14px;border-radius:8px;cursor:pointer;
+  border:1px solid var(--border-secondary);background:var(--bg-secondary);color:var(--text-secondary);font-size:13px}
+.toggle button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--text-primary)}
+button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+h2{font-size:15px;margin:34px 0 6px;padding-top:16px;border-top:1px solid var(--border-primary)}
+.lede{color:var(--text-secondary);font-size:13px;margin:0 0 14px;max-width:76ch}
+
+.panel{border:1px solid var(--border-primary);border-radius:12px;background:var(--bg-secondary);overflow:hidden}
+.panel>header{padding:10px 14px;border-bottom:1px solid var(--border-primary);
+  display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.ptitle{font-size:12px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--text-secondary)}
+.pad{padding:14px}
+/* min(Npx,100%) so the track floor can never exceed the viewport — a bare
+   minmax(420px,1fr) forces a 420px column at 375 and overflows the page sideways. */
+.cols{display:grid;gap:16px;grid-template-columns:repeat(auto-fit,minmax(min(310px,100%),1fr))}
+.cols.two{grid-template-columns:repeat(auto-fit,minmax(min(420px,100%),1fr))}
+
+/* ── readiness row ─────────────────────────────── */
+.prow{display:flex;flex-wrap:wrap;gap:10px;align-items:center;padding:11px 0;border-bottom:1px solid var(--border-primary)}
+.prow:last-child{border-bottom:0}
+.pname{display:flex;align-items:center;gap:8px;min-width:132px;font-size:13.5px}
+.dot{width:9px;height:9px;border-radius:50%;flex:0 0 auto}
+.badge{display:inline-flex;align-items:center;gap:6px;font-size:11.5px;padding:3px 9px;
+  border-radius:999px;border:1px solid;white-space:nowrap}
+.b-connected{background:var(--severity-success-bg);color:var(--severity-success-fg);border-color:var(--severity-success-border)}
+.b-disconnected{background:var(--severity-warning-bg);color:var(--severity-warning-fg);border-color:var(--severity-warning-border)}
+.b-notset{background:var(--severity-info-bg);color:var(--severity-info-fg);border-color:var(--severity-info-border)}
+.b-notinstalled{background:var(--severity-neutral-bg);color:var(--severity-neutral-fg);border-color:var(--severity-neutral-border)}
+.d-connected{background:var(--accent-green)} .d-disconnected{background:var(--accent-orange)}
+.d-notset{background:var(--accent-blue)}     .d-notinstalled{background:var(--text-tertiary)}
+.endp{flex:1 1 190px;min-width:0;color:var(--text-secondary);font-size:12px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pact{display:flex;gap:6px;flex-wrap:wrap}
+
+button.btn{min-height:44px;padding:0 13px;border-radius:8px;font-size:12.5px;cursor:pointer;
+  border:1px solid var(--border-secondary);background:var(--bg-tertiary);color:var(--text-primary)}
+button.btn.primary{background:var(--accent-solid);border-color:var(--accent-solid);color:#fff;font-weight:600}
+button.btn.quiet{background:transparent;color:var(--text-secondary)}
+button.btn.caution{background:var(--severity-warning-bg);color:var(--severity-warning-fg);
+  border-color:var(--severity-warning-border)}
+button.btn[disabled]{opacity:.5;cursor:not-allowed}
+.inlist{display:inline-flex;align-items:center;gap:5px;font-size:11px;color:var(--severity-success-fg);
+  white-space:nowrap;margin-left:8px}
+.modes{display:flex;flex-wrap:wrap;gap:7px;margin:8px 0 2px}
+.mode{display:inline-flex;align-items:center;gap:7px;min-height:44px;padding:0 11px;border-radius:8px;
+  border:1px solid var(--border-secondary);background:var(--bg-tertiary);font-size:12.5px;cursor:pointer}
+.mode input{width:16px;height:16px;accent-color:var(--accent-solid)}
+.mode.on{border-color:var(--accent);background:var(--accent-soft);color:var(--text-primary)}
+.mode.no{opacity:.55;cursor:not-allowed}
+.mode .why{font-size:10.5px;color:var(--text-secondary)}
+
+/* primary radio */
+.prim{display:inline-flex;align-items:center;gap:7px;font-size:12px;color:var(--text-secondary);
+  min-height:44px;padding:0 4px;cursor:pointer}
+.prim input{width:16px;height:16px;accent-color:var(--accent-solid);cursor:pointer}
+.prim.on{color:var(--text-primary)}
+.tagp{font-size:10.5px;padding:2px 7px;border-radius:999px;background:var(--accent-soft);
+  color:var(--text-primary);border:1px solid var(--accent)}
+
+/* ── steps ─────────────────────────────── */
+.step{display:flex;gap:10px;padding:10px 0;border-bottom:1px solid var(--border-primary)}
+.step:last-child{border-bottom:0}
+.num{width:22px;height:22px;flex:0 0 auto;border-radius:50%;display:grid;place-items:center;
+  font-size:11px;background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border-secondary)}
+.num.done{background:var(--severity-success-bg);color:var(--severity-success-fg);border-color:var(--severity-success-border)}
+.num.now{background:var(--accent-soft);color:var(--text-primary);border-color:var(--accent)}
+.sbody{flex:1 1 auto;min-width:0}
+.stitle{font-size:13px;margin-bottom:3px}
+.stitle.muted{color:var(--text-secondary)}
+.sm{font-size:11.5px;color:var(--text-secondary)}
+.cmd{display:flex;gap:6px;align-items:center;margin-top:6px;background:var(--bg-tertiary);
+  border:1px solid var(--border-primary);border-radius:8px;padding:7px 9px}
+.cmd code{background:transparent;padding:0;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis}
+.row{display:flex;gap:8px;margin-top:7px;flex-wrap:wrap}
+input[type=text]{flex:1 1 170px;min-width:0;min-height:44px;padding:0 11px;border-radius:8px;
+  border:1px solid var(--border-secondary);background:var(--bg-primary);color:var(--text-primary);font-size:13px}
+
+/* ── notes ─────────────────────────────── */
+.note{display:flex;gap:9px;padding:10px 12px;border-radius:10px;border:1px solid;margin:10px 0;font-size:12.5px}
+.note>div>b:first-child{display:block;margin-bottom:2px}
+.note .body{color:inherit;opacity:.92}
+.n-warn{background:var(--severity-warning-bg);color:var(--severity-warning-fg);border-color:var(--severity-warning-border)}
+.n-info{background:var(--severity-info-bg);color:var(--severity-info-fg);border-color:var(--severity-info-border)}
+.n-ok{background:var(--severity-success-bg);color:var(--severity-success-fg);border-color:var(--severity-success-border)}
+.n-neutral{background:var(--severity-neutral-bg);color:var(--severity-neutral-fg);border-color:var(--severity-neutral-border)}
+
+.meta{display:flex;gap:9px;align-items:center;flex-wrap:wrap;font-size:11.5px;color:var(--text-secondary)}
+.spin{width:8px;height:8px;border-radius:50%;background:var(--accent-green);flex:0 0 auto}
+table{border-collapse:collapse;width:100%;font-size:12.5px;margin-top:6px}
+th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--border-primary);vertical-align:top}
+th{color:var(--text-secondary);font-weight:600;font-size:11.5px;text-transform:uppercase;letter-spacing:.03em}
+.cite{font-size:11.5px;color:var(--text-secondary);margin-top:8px}
+@media (max-width:560px){
+  /* Panel header: label on one line, freshness + refresh sharing the next. */
+  .panel>header{flex-direction:column;align-items:stretch;gap:9px}
+  /* Freshness shortens so the refresh control stays on the SAME line as it,
+     rather than claiming a full-width row of its own in a height-starved dialog. */
+  .smhide{display:none}
+  .meta{width:100%;justify-content:flex-start;gap:7px}
+  .meta>button{margin-left:auto}
+
+  /* Each provider becomes a card so one row is visibly one provider. */
+  .prow{
+    padding:10px;margin:8px 0;border:1px solid var(--border-primary);
+    border-radius:10px;background:var(--bg-tertiary);gap:6px;
+  }
+  .prow:first-child{margin-top:0}
+  .prow:last-child{margin-bottom:0;border-bottom:1px solid var(--border-primary)}
+
+  /* Compact reflow: name + state chips SHARE line 1, url line 2, actions line 3.
+     The board sits in a dialog, so every line saved is dialog height given back. */
+  .pname{flex:0 1 auto;min-width:0;font-weight:600;font-size:13.5px}
+  .badge{margin-left:auto}
+  .badge,.tagp{flex:0 0 auto}
+  .endp{flex:1 1 100%;white-space:normal;overflow:visible;text-overflow:clip;
+    overflow-wrap:anywhere;font-size:12px}
+  .inlist{margin-left:6px}
+
+  /* Cap the list instead of letting 5 providers push the dialog past the viewport. */
+  .board .pad{max-height:56vh;overflow-y:auto}
+
+  /* THE BOARD IS A NAVIGATION LIST ON MOBILE.
+     One provider = one 52px line: state in, detail out. The URL and the action
+     buttons are not deleted — they live in that provider's Setup panel, which the
+     row opens. Nothing is lost; it stops being duplicated into a dialog that has
+     no vertical room for it. */
+  .board .prow{
+    display:flex;align-items:center;gap:8px;flex-wrap:nowrap;
+    min-height:52px;padding:0 2px;margin:0;background:transparent;
+    border:0;border-bottom:1px solid var(--border-primary);border-radius:0;
+    cursor:pointer;
+  }
+  .board .prow:last-child{border-bottom:0}
+  .board .prow::after{content:"›";margin-left:2px;font-size:17px;line-height:1;
+    color:var(--text-secondary)}
+  .board .endp,.board .pact{display:none}
+  .board .pname{flex:0 1 auto;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .board .badge{margin-left:auto}
+
+  /* Two buttons per line rather than one — a 3-action row stays 2 lines, not 3. */
+  .pact{flex:1 1 100%;gap:6px;align-items:stretch}
+  /* 12px/8px keeps the longest label ('Add gateway URL…') on a single line at 2-up */
+  .pact button{flex:1 1 calc(50% - 3px);min-width:0;font-size:12px;padding:0 8px}
+
+  .modes{flex-direction:column;align-items:stretch}
+  .mode{justify-content:flex-start}
+  .tbl{overflow-x:auto;-webkit-overflow-scrolling:touch}
+  table{min-width:460px}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="topbar">
+    <div>
+      <h1>Gateway Setup — provider readiness &amp; concurrent tunnels</h1>
+      <p class="sub">Mockup for Gaps 4–5 · <code>add-zrok-custom-reserved-name</code></p>
+    </div>
+    <div class="toggle" role="group" aria-label="Colour mode">
+      <button type="button" id="b-dark" aria-pressed="true">Dark</button>
+      <button type="button" id="b-light" aria-pressed="false">Light</button>
+    </div>
+  </div>
+
+  <!-- ══ 1. READINESS BOARD ══ -->
+  <h2>1 · Readiness board — all four states at once</h2>
+  <p class="lede">One row per known provider, independent of which is configured.
+    State comes from <code>detectBinary()</code> → <code>isEnrolled()</code> →
+    <code>status().active</code>. Every state carries a text label, never colour
+    alone (WCAG 1.4.1).</p>
+
+  <div class="panel board">
+    <header>
+      <span class="ptitle">Providers</span>
+      <div class="meta">
+        <span class="spin" aria-hidden="true"></span>
+        <span>Checked 2s ago<span class="smhide"> · re-checking every 5s</span></span>
+        <button class="btn quiet" type="button">Refresh now</button>
+      </div>
+    </header>
+    <div class="pad">
+
+      <div class="prow">
+        <div class="pname"><span class="dot d-connected"></span>zrok</div>
+        <span class="badge b-connected">✓ Connected</span>
+        <span class="tagp">Primary</span>
+        <span class="endp"><code>robson-home-mac.shares.zrok.io</code>
+          <span class="inlist">✓ in gateway URLs</span></span>
+        <div class="pact"><button class="btn" type="button">Disconnect</button></div>
+      </div>
+
+      <div class="prow">
+        <div class="pname"><span class="dot d-connected"></span>tailscale</div>
+        <span class="badge b-connected">✓ Connected</span>
+        <span class="endp"><code>macbook.tail9f2a.ts.net</code></span>
+        <div class="pact">
+          <button class="btn" type="button">Make primary</button>
+          <button class="btn caution" type="button">Add gateway URL…</button>
+          <button class="btn" type="button">Disconnect</button>
+        </div>
+      </div>
+
+      <div class="prow">
+        <div class="pname"><span class="dot d-disconnected"></span>zerotier</div>
+        <span class="badge b-disconnected">◍ Disconnected</span>
+        <span class="endp">Enrolled · network <code>8056c2e21c000001</code></span>
+        <div class="pact"><button class="btn primary" type="button">Connect</button></div>
+      </div>
+
+      <div class="prow">
+        <div class="pname"><span class="dot d-notset"></span>ngrok</div>
+        <span class="badge b-notset">! Not set up</span>
+        <span class="endp">Binary found · no authtoken</span>
+        <div class="pact"><button class="btn" type="button">Set up</button></div>
+      </div>
+
+      <div class="prow">
+        <div class="pname"><span class="dot d-notinstalled"></span>cloudflared</div>
+        <span class="badge b-notinstalled">○ Not installed</span>
+        <span class="endp">Not found on PATH</span>
+        <div class="pact"><button class="btn" type="button">Install…</button></div>
+      </div>
+
+    </div>
+  </div>
+  <p class="cite">Two tunnels live at once; exactly one carries the <b>Primary</b> tag.
+    <b>Make primary</b> sits first in the action group and only appears on a connected,
+    non-primary provider. <b>Add gateway URL…</b> appears only while that provider's live URL is
+    absent from the gateway list; once registered the row shows <span class="inlist">✓ in gateway URLs</span> instead.
+    <code>cloudflared</code> shown only to exercise the not-installed row — it is not a shipped provider.</p>
+
+  <!-- ══ 2. STATE-DRIVEN STEPS ══ -->
+  <h2>2 · Setup content follows the state</h2>
+  <p class="lede">The same provider, four states. A step whose precondition is already
+    met renders as satisfied, not as outstanding work — so the list shrinks as you progress
+    instead of staying a fixed wall of instructions.</p>
+
+  <div class="cols two">
+
+    <div class="panel">
+      <header><span class="ptitle">○ Not installed</span></header>
+      <div class="pad">
+        <div class="step">
+          <span class="num now">1</span>
+          <div class="sbody">
+            <div class="stitle">Install the zrok client</div>
+            <div class="cmd"><code>brew install openziti/tap/zrok</code>
+              <button class="btn quiet" type="button">Copy</button></div>
+          </div>
+        </div>
+        <div class="step">
+          <span class="num">2</span>
+          <div class="sbody"><div class="stitle muted">Enable your environment</div>
+            <div class="sm">Available once the client is installed.</div></div>
+        </div>
+        <div class="step">
+          <span class="num">3</span>
+          <div class="sbody"><div class="stitle muted">Choose your public URL</div></div>
+        </div>
+        <div class="note n-neutral"><div><b>Nothing is actionable yet.</b>
+          <span class="body">Enroll and connect stay non-actionable until the binary resolves.</span></div></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <header><span class="ptitle">! Not set up</span></header>
+      <div class="pad">
+        <div class="step">
+          <span class="num done">✓</span>
+          <div class="sbody"><div class="stitle muted">Client installed</div>
+            <div class="sm"><code>/opt/homebrew/bin/zrok</code> · v1.0.4</div></div>
+        </div>
+        <div class="step">
+          <span class="num now">2</span>
+          <div class="sbody">
+            <div class="stitle">Enable your environment</div>
+            <div class="sm">Paste the token from your zrok account.</div>
+            <div class="row"><input type="text" placeholder="zrok account token">
+              <button class="btn primary" type="button">Authenticate</button></div>
+          </div>
+        </div>
+        <div class="step">
+          <span class="num">3</span>
+          <div class="sbody"><div class="stitle muted">Choose your public URL</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <header><span class="ptitle">◍ Disconnected</span></header>
+      <div class="pad">
+        <div class="step">
+          <span class="num done">✓</span>
+          <div class="sbody"><div class="stitle muted">Client installed</div></div>
+        </div>
+        <div class="step">
+          <span class="num done">✓</span>
+          <div class="sbody"><div class="stitle muted">Environment enabled</div></div>
+        </div>
+        <div class="step">
+          <span class="num now">3</span>
+          <div class="sbody">
+            <div class="stitle">Choose your public URL</div>
+            <div class="row"><input type="text" value="robson-home-mac">
+              <button class="btn" type="button">Reserve</button></div>
+            <div class="sm" style="margin-top:6px">Reserved · will be reused on every connect.</div>
+          </div>
+        </div>
+        <div class="step">
+          <span class="num now">4</span>
+          <div class="sbody"><div class="stitle">Start the tunnel</div>
+            <div class="row"><button class="btn primary" type="button">Connect</button></div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <header><span class="ptitle">✓ Connected</span></header>
+      <div class="pad">
+        <div class="note n-ok"><div><b>Serving on your reserved URL</b>
+          <span class="body"><code>https://robson-home-mac.shares.zrok.io</code></span></div></div>
+        <div class="step">
+          <span class="num done">✓</span>
+          <div class="sbody"><div class="stitle muted">Client installed</div></div>
+        </div>
+        <div class="step">
+          <span class="num done">✓</span>
+          <div class="sbody"><div class="stitle muted">Environment enabled</div></div>
+        </div>
+        <div class="step">
+          <span class="num done">✓</span>
+          <div class="sbody"><div class="stitle muted">Reserved name · <code>robson-home-mac</code></div></div>
+        </div>
+        <div class="row">
+          <button class="btn" type="button">Disconnect</button>
+          <button class="btn quiet" type="button">Release name…</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ══ 3. PRIMARY ══ -->
+  <h2>3 · Which tunnel is primary</h2>
+  <p class="lede">Concurrency forces one question the UI must answer out loud: several URLs
+    reach the dashboard, but only one may mint OAuth redirect URIs and pin the session-cookie
+    origin. Naming it explicitly is what keeps the existing auth invariant intact.</p>
+
+  <div class="panel">
+    <header><span class="ptitle">Primary provider</span></header>
+    <div class="pad">
+      <div class="prow">
+        <div class="pname"><span class="dot d-connected"></span>zrok</div>
+        <span class="tagp">Primary</span>
+        <span class="endp"><code>robson-home-mac.shares.zrok.io</code></span>
+        <div class="pact"><button class="btn" type="button" disabled>Make primary</button></div>
+      </div>
+      <div class="prow">
+        <div class="pname"><span class="dot d-connected"></span>tailscale</div>
+        <span class="badge b-connected">✓ Connected</span>
+        <span class="endp"><code>macbook.tail9f2a.ts.net</code></span>
+        <div class="pact"><button class="btn" type="button">Make primary</button></div>
+      </div>
+      <div class="note n-info"><div><b>The primary decides your sign-in origin.</b>
+        <span class="body">OAuth redirect URIs and the session cookie derive from
+        <code>https://robson-home-mac.shares.zrok.io</code>. The tailscale URL still reaches the
+        dashboard and is allowed by CORS — it just never mints a redirect URI.</span></div></div>
+      <div class="note n-warn"><div><b>Switching primary re-mints your redirect URI.</b>
+        <span class="body">Any OAuth provider with the old URI registered byte-for-byte will
+        reject sign-in until you register the new one. Confirmed, not one-click.</span></div></div>
+    </div>
+  </div>
+
+  <!-- ══ 4. ADD GATEWAY URL ══ -->
+  <h2>4 · Registering a live tunnel as a gateway URL</h2>
+  <p class="lede">A <b>gateway URL</b> is not the same object as a tunnel. A tunnel is a live
+    process; a gateway record is a persisted address the dashboard answers on, and it carries
+    <b>how people get in</b>. That is why this cannot be silently automatic —
+    <code>gateway-action.ts</code> rejects a record with no auth mode outright:
+    <i>“a gateway with none is either unreachable or unprotected.”</i></p>
+
+  <div class="cols two">
+
+    <div class="panel">
+      <header><span class="ptitle">TLS URL — all three modes legal</span></header>
+      <div class="pad">
+        <div class="sm" style="margin-bottom:6px">tailscale ·
+          <code>https://macbook.tail9f2a.ts.net</code></div>
+        <div class="note n-warn"><div><b>Adding this publishes an address.</b>
+          <span class="body">The dashboard will answer on it and it becomes a CORS-allowed origin.
+          Choose at least one way in.</span></div></div>
+        <div class="modes">
+          <label class="mode on"><input type="checkbox" checked> Trusted network</label>
+          <label class="mode"><input type="checkbox"> QR pairing</label>
+          <label class="mode"><input type="checkbox"> OAuth sign-in</label>
+        </div>
+        <div class="row">
+          <button class="btn primary" type="button">Add gateway URL</button>
+          <button class="btn quiet" type="button">Cancel</button>
+        </div>
+        <p class="sm" style="margin:9px 0 0">Publicly-trusted TLS — pairing and OAuth are both
+          eligible. This does <b>not</b> change your sign-in origin;
+          <code>publicBaseUrls</code> is never an OAuth redirect source.</p>
+      </div>
+    </div>
+
+    <div class="panel">
+      <header><span class="ptitle">http mesh URL — one mode legal</span></header>
+      <div class="pad">
+        <div class="sm" style="margin-bottom:6px">zerotier ·
+          <code>http://10.147.20.4:8000</code></div>
+        <div class="note n-warn"><div><b>No TLS on this address.</b>
+          <span class="body">Two of the three ways in are unavailable, so the choice is made for
+          you — but it is still shown, not hidden.</span></div></div>
+        <div class="modes">
+          <label class="mode on"><input type="checkbox" checked> Trusted network</label>
+          <label class="mode no"><input type="checkbox" disabled> QR pairing
+            <span class="why">needs TLS</span></label>
+          <label class="mode no"><input type="checkbox" disabled> OAuth sign-in
+            <span class="why">providers refuse non-TLS</span></label>
+        </div>
+        <div class="row">
+          <input type="text" value="10.147.20.0/24">
+          <button class="btn primary" type="button">Add gateway URL</button>
+        </div>
+        <p class="sm" style="margin:9px 0 0">A http gateway is only reachable through a trusted
+          network, so the CIDR is required rather than optional.</p>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="note n-info" style="margin-top:14px"><div><b>Why not just add it automatically on connect?</b>
+    <span class="body">Because the auth mode cannot be inferred. Defaulting to trusted-network
+    would silently publish an address protected by a CIDR the user never chose; defaulting to
+    pairing or OAuth is illegal on a http mesh URL. The button is offered the moment a live URL
+    is unregistered — the <i>decision</i> stays with the operator.</span></div></div>
+
+  <!-- ══ 4. EDGES ══ -->
+  <h2>5 · The edges that are easy to get wrong</h2>
+  <p class="lede">Each of these is a scenario in the delta specs, drawn because the honest
+    behaviour is not the convenient one.</p>
+
+  <div class="cols two">
+    <div class="panel">
+      <header><span class="ptitle">Primary not connected</span></header>
+      <div class="pad">
+        <div class="prow">
+          <div class="pname"><span class="dot d-disconnected"></span>zrok</div>
+          <span class="badge b-disconnected">◍ Disconnected</span><span class="tagp">Primary</span>
+        </div>
+        <div class="prow">
+          <div class="pname"><span class="dot d-connected"></span>tailscale</div>
+          <span class="badge b-connected">✓ Connected</span>
+        </div>
+        <div class="note n-warn"><div><b>Sign-in falls back to localhost.</b>
+          <span class="body">tailscale is live but is <b>not</b> promoted to primary. Auto-promoting
+          would move your auth origin without you asking. Connect zrok, or make tailscale primary
+          deliberately.</span></div></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <header><span class="ptitle">One provider's CLI misbehaves</span></header>
+      <div class="pad">
+        <div class="prow">
+          <div class="pname"><span class="dot d-notset"></span>zerotier</div>
+          <span class="badge b-notset">! Not set up</span>
+          <span class="endp">Status check failed</span>
+        </div>
+        <div class="prow">
+          <div class="pname"><span class="dot d-connected"></span>zrok</div>
+          <span class="badge b-connected">✓ Connected</span>
+        </div>
+        <div class="note n-neutral"><div><b>A throwing predicate degrades only its own row.</b>
+          <span class="body">A hung or erroring <code>zerotier-cli</code> resolves that provider to
+          its false-branch state. It cannot blank the readiness of the others.</span></div></div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <header><span class="ptitle">Installed in a terminal, mid-session</span></header>
+      <div class="pad">
+        <div class="note n-neutral"><div><b>Before</b><span class="body">ngrok · ○ Not installed</span></div></div>
+        <div class="meta" style="margin:8px 0"><span class="spin"></span><span>next 5s poll · registry rescan</span></div>
+        <div class="note n-ok"><div><b>After</b><span class="body">ngrok · ! Not set up — no restart needed</span></div></div>
+        <p class="sm" style="margin:8px 0 0">A readiness pass invalidates the cached binary
+          resolution before calling <code>detectBinary()</code>, so a stale cache cannot mask
+          an install you did outside the dashboard.</p>
+      </div>
+    </div>
+
+    <div class="panel">
+      <header><span class="ptitle">A tunnel drops</span></header>
+      <div class="pad">
+        <div class="note n-warn"><div><b>tailscale disconnected</b>
+          <span class="body">Its origin stops being CORS-allowed the moment it is no longer
+          connected — no stale allowance survives the drop.</span></div></div>
+        <div class="note n-ok"><div><b>zrok unaffected</b>
+          <span class="body">Per-provider runtime, PID file and watchdog: one provider's recycle
+          or failure cannot disturb another's.</span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ 5. MAPPING ══ -->
+  <h2>6 · Where each state comes from</h2>
+  <div class="tbl">
+  <table>
+    <thead><tr><th>State</th><th>Predicate that decided it</th><th>Severity token</th></tr></thead>
+    <tbody>
+      <tr><td>○ Not installed</td><td><code>detectBinary()</code> false — later predicates not invoked</td><td><code>neutral</code></td></tr>
+      <tr><td>! Not set up</td><td><code>isEnrolled()</code> false</td><td><code>info</code></td></tr>
+      <tr><td>◍ Disconnected</td><td><code>status().active</code> false</td><td><code>warning</code></td></tr>
+      <tr><td>✓ Connected</td><td><code>status().active</code> true</td><td><code>success</code></td></tr>
+    </tbody>
+  </table>
+  </div>
+  <p class="cite">No new detection logic — all three predicates already ship on
+    <code>TunnelProvider</code> and are implemented by every provider. Severity triples use the
+    existing <code>color-mix</code> ramp from <code>index.css</code>; accent fills use the four
+    tokens this change declares.</p>
+
+</div>
+<script>
+  var root=document.documentElement,l=document.getElementById('b-light'),d=document.getElementById('b-dark');
+  function set(m){root.setAttribute('data-mode',m);
+    l.setAttribute('aria-pressed',String(m==='light'));d.setAttribute('aria-pressed',String(m==='dark'));}
+  l.addEventListener('click',function(){set('light');});
+  d.addEventListener('click',function(){set('dark');});
+</script>
+</body>
+</html>

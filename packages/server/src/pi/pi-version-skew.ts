@@ -9,57 +9,26 @@
  * See change: unified-bootstrap-install \u00a79.
  */
 import fs from "node:fs";
-import path from "node:path";
 import { createRequire } from "node:module";
+import path from "node:path";
+import {
+  isAbove,
+  isBelow,
+  PI_COMPATIBILITY_FALLBACK,
+  readPiCompatibilityRange,
+} from "@blackbelt-technology/pi-dashboard-shared/pi-installs/index.js";
 import { getDefaultRegistry, type ToolRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 
-/**
- * Parse a semver-ish string into its three numeric segments. Returns
- * null when the string doesn't match `<n>.<n>.<n>` (with optional
- * pre-release / build suffix which we ignore for comparison). This is
- * deliberately minimal \u2014 pi versions have always been `0.x.y` and we
- * don't want to pull in the `semver` dep.
- */
-export function parseVersion(v: string): [number, number, number] | null {
-  const m = v.trim().replace(/^v/, "").match(/^(\d+)\.(\d+)\.(\d+)/);
-  if (!m) return null;
-  return [parseInt(m[1], 10), parseInt(m[2], 10), parseInt(m[3], 10)];
-}
-
-/**
- * Compare two version strings. Returns -1 if `a < b`, 0 if equal, 1 if
- * `a > b`. Unparseable strings sort as equal (conservative \u2014 don't flag
- * weird versions as outdated).
- */
-export function compareVersions(a: string, b: string): -1 | 0 | 1 {
-  const A = parseVersion(a);
-  const B = parseVersion(b);
-  if (!A || !B) return 0;
-  for (let i = 0; i < 3; i++) {
-    if (A[i] < B[i]) return -1;
-    if (A[i] > B[i]) return 1;
-  }
-  return 0;
-}
-
-/**
- * Return true if `version` is less than `threshold`. Delegates to
- * `compareVersions` so unparseable strings never flag as "too old".
- */
-export function isBelow(version: string, threshold: string): boolean {
-  return compareVersions(version, threshold) < 0;
-}
-
-/**
- * Return true if `version` is strictly above `threshold`. `threshold`
- * may include a `.x` wildcard in the patch slot (e.g. `"0.9.x"`); in
- * that case the wildcard matches any patch, so `"0.9.5"` is NOT above
- * `"0.9.x"` but `"0.10.0"` is.
- */
-export function isAbove(version: string, threshold: string): boolean {
-  const thresholdClean = threshold.replace(/\.x$/i, ".99999");
-  return compareVersions(version, thresholdClean) > 0;
-}
+// The version comparators moved to `shared/pi-installs/versions.ts` so the
+// shared enumerator + override validator can use them. Re-exported here so
+// this module's public surface is unchanged.
+// See change: select-pi-runtime-install (design D11).
+export {
+  compareVersions,
+  isAbove,
+  isBelow,
+  parseVersion,
+} from "@blackbelt-technology/pi-dashboard-shared/pi-installs/index.js";
 
 /**
  * Pi version compatibility snapshot.
@@ -96,23 +65,7 @@ export function readPiCompatibility(serverPkgJsonPath: string): Pick<
   BootstrapCompatibility,
   "minimum" | "recommended" | "maximum"
 > {
-  try {
-    const raw = fs.readFileSync(serverPkgJsonPath, "utf8");
-    const parsed = JSON.parse(raw) as {
-      piCompatibility?: { minimum?: string; recommended?: string; maximum?: string | null };
-    };
-    const c = parsed.piCompatibility;
-    if (c && typeof c.minimum === "string" && typeof c.recommended === "string") {
-      return {
-        minimum: c.minimum,
-        recommended: c.recommended,
-        maximum: c.maximum ?? null,
-      };
-    }
-  } catch {
-    /* fall through */
-  }
-  return { minimum: "0.6.7", recommended: "0.6.7", maximum: null };
+  return readPiCompatibilityRange(serverPkgJsonPath) ?? PI_COMPATIBILITY_FALLBACK;
 }
 
 /**

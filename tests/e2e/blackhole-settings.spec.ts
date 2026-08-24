@@ -1,5 +1,5 @@
 import { expect, type Page, test } from "./fixtures.js";
-import { gotoDashboard } from "./helpers/index.js";
+import { FIXTURE_GIT, gotoDashboard } from "./helpers/index.js";
 
 /**
  * L3 browser behaviour for the blackhole settings page (change:
@@ -293,6 +293,85 @@ test.describe("blackhole settings page (L3)", () => {
 
     await page.getByTestId("discard-btn").click();
     await expect(page.getByTestId("settings-save-bar")).toHaveCount(0);
+  });
+
+  // ── R1: overlay dismissal must not discard unsaved edits ─────────────────
+  // Converting Settings into a route-backed overlay added three dismissal
+  // gestures the full page never had. Each one reaches `Dialog`'s onClose, so
+  // without the opt-in guard it navigates away and eats the edit. This is the
+  // highest-severity risk in add-route-backed-overlay-dialogs.
+  for (const [name, dismiss] of [
+    ["Escape", async (page) => await page.keyboard.press("Escape")],
+    ["the ✕ affordance", async (page) => await page.getByTestId("settings-overlay-close").click()],
+    ["a backdrop click", async (page) => await page.getByTestId("settings-overlay-overlay").click({ position: { x: 5, y: 5 } })],
+  ] as [string, (page: import("@playwright/test").Page) => Promise<void>][]) {
+    test(`dismissing a dirty settings overlay via ${name} prompts instead of discarding`, async ({
+      page,
+    }) => {
+      await routeInstalled(page);
+      await routeConfig(page, configFixture());
+      await gotoBlackhole(page);
+      await expandGroups(page);
+
+      const input = page.getByTestId("blackhole-input-compactAfterTokens");
+      await input.fill("90000");
+      await input.blur();
+      await expect(page.getByTestId("settings-save-bar")).toBeVisible();
+
+      await dismiss(page);
+
+      // The prompt is raised AND the surface is still mounted with the edit
+      // intact — the URL must not have moved.
+      await expect(page.getByTestId("unsaved-changes-dialog")).toBeVisible();
+      await expect(page).toHaveURL(/\/settings\/plugins\/blackhole/);
+      await expect(page.getByTestId("settings-overlay")).toBeVisible();
+
+      // Cancelling returns to the edit, still unsaved.
+      await page.getByTestId("unsaved-cancel").click();
+      await expect(page.getByTestId("unsaved-changes-dialog")).toHaveCount(0);
+      await expect(page.getByTestId("blackhole-input-compactAfterTokens")).toHaveValue("90000");
+    });
+  }
+
+  // S-17 / D1b — the discard confirm must return to the LAUNCHING route. The
+  // popstate guard used to hardcode setPendingNav("/"), evicting the user to
+  // the card list: the exact defect this change exists to fix.
+  //
+  // MUST navigate in-app. page.goto() is a hard load, which leaves no captured
+  // launcher, and the cold-load path then correctly synthesizes "/" from the
+  // depth table (D4) — a test built on goto() asserts the wrong contract.
+  test("confirming the discard returns to the launching route, not the card list", async ({
+    page,
+  }) => {
+    const cwd = Buffer.from(FIXTURE_GIT).toString("base64url");
+    await routeInstalled(page);
+    await routeConfig(page, configFixture());
+    await gotoDashboard(page);
+    await page.goto(`/folder/${cwd}`);
+    await expect(page.getByTestId("directory-home")).toBeVisible({ timeout: 20_000 });
+
+    // Client-side navigation, so the launching route is actually captured.
+    await page.evaluate((to) => {
+      window.history.pushState({}, "", to);
+      window.dispatchEvent(new PopStateEvent("popstate"));
+    }, PLUGIN_PATH);
+    await expandGroups(page);
+
+    const input = page.getByTestId("blackhole-input-compactAfterTokens");
+    await input.fill("90000");
+    await input.blur();
+    await expect(page.getByTestId("settings-save-bar")).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("unsaved-changes-dialog")).toBeVisible();
+
+    // Stop stubbing before the navigation: an in-flight routed request would
+    // otherwise be torn down mid-fetch ("Response has been disposed").
+    await page.unrouteAll({ behavior: "ignoreErrors" });
+    await page.getByTestId("unsaved-discard").click();
+
+    // Back to the FOLDER the user launched from — not the card list.
+    await expect(page).toHaveURL(new RegExp(`/folder/${cwd}$`));
   });
 
   // ── No per-session state on the global surface (test-plan #F9) ────────────

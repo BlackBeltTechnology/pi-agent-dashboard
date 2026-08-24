@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Settings ▸ Security — Pair a device</title>
+<link rel="stylesheet" href="tokens.css">
+<script src="theme-init.js"></script>
+<style>
+  .wrap { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+  .bar { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; margin-bottom: 24px; }
+  .crumb { font-size: 12px; color: var(--text-tertiary); }
+  .stack > * + * { margin-top: 28px; }
+
+  /* Grouped region: the pairing ACT and the pairing RECORD are related.
+     Common region + proximity (rubric 10). */
+  .region {
+    border: 1px solid var(--border-primary);
+    border-radius: 8px;
+    padding: 16px;
+    background: var(--bg-secondary);
+  }
+  .region + .region { margin-top: 12px; }
+
+  .device-row {
+    display: flex; align-items: center; gap: 12px;
+    padding: 10px 0; border-top: 1px solid var(--border-subtle);
+  }
+  .device-row:first-of-type { border-top: 0; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent-green); flex: none; }
+  .device-name { font-weight: 500; }
+  .grow { flex: 1; }
+  .revoke {
+    background: transparent; border: 1px solid var(--border-secondary); border-radius: 6px;
+    color: var(--text-secondary); font-size: 12px; font-family: inherit;
+    min-height: 32px; padding: 4px 10px; cursor: pointer;
+  }
+  .revoke:hover { background: var(--bg-hover); color: var(--text-primary); }
+
+  .label {
+    display: inline-block; font-size: 10px; font-weight: 700; letter-spacing: .08em;
+    text-transform: uppercase; padding: 3px 7px; border-radius: 4px; margin-bottom: 10px;
+  }
+  .label-new { background: var(--accent-soft); color: var(--text-primary); }
+  .label-old { background: var(--bg-surface); color: var(--text-secondary); }
+
+  .before {
+    border: 1px dashed var(--border-secondary); border-radius: 8px;
+    padding: 16px; opacity: .75;
+  }
+  .fake-qr {
+    width: 110px; height: 110px; border-radius: 4px;
+    background:
+      repeating-linear-gradient(0deg, var(--text-muted) 0 6px, transparent 6px 12px),
+      repeating-linear-gradient(90deg, var(--text-muted) 0 6px, transparent 6px 12px);
+    background-color: var(--bg-tertiary);
+  }
+  /* A not-chosen variant must not compete for the eye with the chosen one:
+     exactly one visually-dominant primary action per view (rubric 6 / Von Restorff). */
+  .variant-off { border: 1px dashed var(--border-secondary); background: transparent; opacity: .75; }
+  .note {
+    border-left: 2px solid var(--border-strong); padding-left: 12px;
+    font-size: 12px; color: var(--text-secondary); margin-top: 10px;
+  }
+  .rulecite { font-size: 11px; color: var(--text-tertiary); margin-top: 6px; }
+  .rulecite b { color: var(--text-secondary); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <div class="bar">
+    <div>
+      <div class="crumb">Settings ▸ Network ▸ Security</div>
+      <h1 style="margin:2px 0 0;font-size:20px;">Security</h1>
+    </div>
+    <button class="btn" id="theme-toggle" type="button">Light theme</button>
+  </div>
+
+  <div class="stack">
+
+    <!-- ────────────────────────────────────────────────────────────────── -->
+    <section>
+      <span class="label label-old">Today — the duplicate being removed</span>
+      <h2 class="section-title">Pair a device</h2>
+      <div class="before">
+        <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:flex-start;">
+          <div class="fake-qr" role="img" aria-label="Non-scannable bare-payload QR (illustrative)"></div>
+          <div class="grow" style="min-width:220px;">
+            <div style="background:var(--bg-code);border-radius:6px;padding:8px 10px;font-family:ui-monospace,Menlo,monospace;font-size:11px;color:var(--text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">eyJ2IjoxLCJpZCI6IjNhOWY0…</div>
+            <p class="hint" style="margin:8px 0 0;">Fingerprint: <code>3a9f4c…</code><br>Code expires in 0s</p>
+            <p style="margin:10px 0 4px;font-size:13px;">Type the confirmation code shown on the device</p>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <span style="display:inline-block;width:130px;height:30px;border:1px solid var(--border-secondary);border-radius:6px;background:var(--bg-tertiary);"></span>
+              <span class="btn" style="min-height:30px;padding:4px 12px;opacity:.45;cursor:not-allowed;" aria-disabled="true">Approve</span>
+              <span class="hint">disabled at 0s</span>
+            </div>
+          </div>
+        </div>
+        <p class="note">
+          Three defects live in this block: the QR encodes a bare payload no phone camera can act on,
+          the payload skips the client-side TLS re-guard, and <b>Approve is disabled at 0s</b> — contradicting
+          <code>qr-device-pairing</code> → “Advisory countdown does not gate approval”.
+        </p>
+      </div>
+    </section>
+
+    <!-- ────────────────────────────────────────────────────────────────── -->
+    <section>
+      <span class="label label-new">Proposed — A1, the chosen design</span>
+      <h2 class="section-title">Devices</h2>
+
+      <div class="region">
+        <p class="eyebrow">Pair a device</p>
+        <p class="muted" style="margin:0 0 14px;max-width:56ch;">
+          Pairing happens on the <b style="color:var(--text-primary)">Gateway</b> page, where you pick which
+          endpoint the device connects over, scan the QR, and approve it with the code shown on the device.
+        </p>
+        <a class="btn btn-primary" href="gateway-empty.html">Open Gateway ▸ Access &amp; QR →</a>
+        <p class="rulecite">
+          <b>H4 Consistency &amp; standards</b> — mirrors the shape and grammar of the existing
+          <code>Open Security →</code> button on the Gateway page, so the two cross-links read as one pattern.
+          <b>Rubric 19 / Von Restorff</b> — exactly one primary action in this region.
+        </p>
+      </div>
+
+      <div class="region">
+        <p class="eyebrow">Paired devices</p>
+        <div class="device-row">
+          <span class="dot" aria-hidden="true"></span>
+          <span class="device-name">Pixel 8 — Robson</span>
+          <span class="grow hint">last seen 4 minutes ago</span>
+          <button class="revoke" type="button">Revoke</button>
+        </div>
+        <div class="device-row">
+          <span class="dot" aria-hidden="true"></span>
+          <span class="device-name">iPad Pro — kitchen</span>
+          <span class="grow hint">last seen 2 days ago</span>
+          <button class="revoke" type="button">Revoke</button>
+        </div>
+        <p class="rulecite">
+          <b>Gestalt common region + proximity (rubric 10)</b> — the pairing <i>act</i> and the pairing
+          <i>record</i> are one subject, so they share an enclosing “Devices” heading while staying
+          separately bounded. Security keeps every durable control: the list, last-seen, and revoke.
+        </p>
+      </div>
+    </section>
+
+    <!-- ────────────────────────────────────────────────────────────────── -->
+    <section>
+      <span class="label label-old">Alternative — A2, not chosen</span>
+      <h2 class="section-title">Pair a device (with readiness line)</h2>
+      <div class="region variant-off">
+        <p class="eyebrow">Pair a device</p>
+        <p class="muted" style="margin:0 0 8px;max-width:56ch;">
+          Pairing happens on the <b style="color:var(--text-primary)">Gateway</b> page, where you pick which
+          endpoint the device connects over, scan the QR, and approve it with the code shown on the device.
+        </p>
+        <p style="margin:0 0 14px;font-size:13px;color:var(--amber);">
+          ⚠ No TLS endpoint is configured — pairing is not possible until the Gateway is set up.
+        </p>
+        <a class="btn" href="gateway-empty.html">Open Gateway ▸ Access &amp; QR →</a>
+        <p class="rulecite">
+          <b>For:</b> H1 visibility of system status + H5 error prevention — stops an operator walking into a
+          dead end one click away.
+          <b>Against:</b> it adds a <code>GET /api/pair/payload</code> call to a page that no longer performs the
+          act, and status that lives in two places drifts — the exact failure this change exists to end.
+          Deferred as a follow-up if the dead-end proves real in use.
+        </p>
+      </div>
+    </section>
+
+  </div>
+</div>
+</body>
+</html>

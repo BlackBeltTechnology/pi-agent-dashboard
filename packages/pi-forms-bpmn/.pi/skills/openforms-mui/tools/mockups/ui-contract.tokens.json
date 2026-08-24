@@ -1,0 +1,16 @@
+{
+  "color": {
+    "primary": { "$type": "color", "$value": "#1565c0" },
+    "secondary": { "$type": "color", "$value": "#6a1b9a" },
+    "error": { "$type": "color", "$value": "#c62828" },
+    "warning": { "$type": "color", "$value": "#ed6c02" },
+    "success": { "$type": "color", "$value": "#2e7d32" },
+    "background": {
+      "default": { "$type": "color", "$value": "#ffffff" },
+      "paper": { "$type": "color", "$value": "#ffffff" }
+    }
+  },
+  "radius": { "base": { "$type": "dimension", "$value": 8 } },
+  "font": { "family": { "base": { "$type": "fontFamily", "$value": "Roboto, \"Helvetica Neue\", Arial, sans-serif" } } },
+  "spacing": { "unit": { "$type": "dimension", "$value": 8 } }
+}

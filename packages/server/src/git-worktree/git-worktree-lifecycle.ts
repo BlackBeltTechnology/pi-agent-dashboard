@@ -14,12 +14,49 @@
 
 // ── Codes ──────────────────────────────────────────────────────────
 
-export type RemoveCode =
-  | "ok"
-  | "dirty_worktree"
-  | "branch_not_merged"
-  | "not_a_worktree"
-  | "git_failed";
+/**
+ * Runtime source of truth for `RemoveCode`. The union is DERIVED from this
+ * array so a disjointness test can evaluate a real set intersection rather
+ * than a type-only assertion (which erases and proves nothing).
+ */
+export const REMOVE_CODES = [
+  "ok",
+  "dirty_worktree",
+  "branch_not_merged",
+  "not_a_worktree",
+  "git_failed",
+] as const;
+
+export type RemoveCode = (typeof REMOVE_CODES)[number];
+
+/**
+ * Outcome of the optional post-removal `git branch -d` step.
+ *
+ * DELIBERATELY DISJOINT from `RemoveCode` (asserted by a test): these codes
+ * describe a *branch delete* that ran AFTER a successful removal, never a
+ * failed removal. In particular the generic failure is `delete_failed`, not
+ * `git_failed` (a `RemoveCode` member), and `unmerged` is NOT spelled
+ * `branch_not_merged` — that `RemoveCode` means "removal failed" and makes
+ * `CloseWorktreeDialog` auto-tick `--force` and retry.
+ *
+ * See change: manage-worktrees-filter-cleanup.
+ */
+export const BRANCH_DELETE_CODES = [
+  "deleted",
+  "unmerged",
+  "no_branch",
+  "branch_gone",
+  "delete_failed",
+] as const;
+
+export type BranchDeleteCode = (typeof BRANCH_DELETE_CODES)[number];
+
+/** Map `git branch -d` stderr → stable `BranchDeleteCode`. */
+export function mapBranchDeleteStderr(stderr: string): BranchDeleteCode {
+  if (/not fully merged|not merged|has unmerged commit/i.test(stderr)) return "unmerged";
+  if (/not found|branch .* not found|no branch named/i.test(stderr)) return "branch_gone";
+  return "delete_failed";
+}
 
 export type MergeCode =
   | "ok"

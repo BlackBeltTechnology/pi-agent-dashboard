@@ -33,9 +33,17 @@ interface Props {
   onShutdownSession: (sessionId: string) => void;
   onClose: () => void;
   onRemoved?: () => void;
+  /**
+   * Also `git branch -d` after a successful removal. Threaded into the POST
+   * body — `attempt()` posts `{ cwd, force }` only, so without this the
+   * manage surface's "Delete branch too" intent is silently dropped.
+   *
+   * See change: manage-worktrees-filter-cleanup.
+   */
+  deleteBranch?: boolean;
 }
 
-export function CloseWorktreeDialog({ cwd, allSessions, onShutdownSession, onClose, onRemoved }: Props) {
+export function CloseWorktreeDialog({ cwd, allSessions, onShutdownSession, onClose, onRemoved, deleteBranch }: Props) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<{ code: string; stderr?: string } | null>(null);
   const [activeIds, setActiveIds] = useState<string[] | null>(null);
@@ -44,9 +52,18 @@ export function CloseWorktreeDialog({ cwd, allSessions, onShutdownSession, onClo
   const attempt = async (opts: { force?: boolean } = {}) => {
     setBusy(true);
     setError(null);
-    const result = await removeWorktree({ cwd, force: opts.force });
+    const result = await removeWorktree({ cwd, force: opts.force, deleteBranch });
     setBusy(false);
     if (result.ok) {
+      onRemoved?.();
+      onClose();
+      return;
+    }
+    // TOCTOU: the directory vanished between the list fetch and this click, so
+    // `validateCwd` 400s before git ever runs. That is "already gone", not an
+    // error — rendering the raw 400 surfaces an implementation detail as a
+    // dead end. The two-dialogs-same-cwd race lands here too.
+    if (result.code === "cwd_invalid") {
       onRemoved?.();
       onClose();
       return;

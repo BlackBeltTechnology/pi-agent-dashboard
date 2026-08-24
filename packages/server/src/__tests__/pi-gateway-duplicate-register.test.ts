@@ -13,6 +13,10 @@ import { afterEach, describe, expect, it } from "vitest";
 import { WebSocket } from "ws";
 import { createPiGateway } from "../pi/pi-gateway.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
+import {
+  _setSpawnRegisterWatchdogForTests,
+  SpawnRegisterWatchdog,
+} from "../spawn-process/spawn-register-watchdog.js";
 
 export const delay = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -26,10 +30,10 @@ export function waitForOpen(ws: WebSocket): Promise<void> {
 }
 
 /** Poll gateway.address() until the async listen resolves a port. */
-export async function waitForBind(gateway: { address(): number | null }): Promise<number> {
+export async function waitForBind(gateway: { address(): number | string | null }): Promise<number> {
   for (let i = 0; i < 200; i++) {
     const port = gateway.address();
-    if (port !== null) return port;
+    if (typeof port === "number") return port;
     await delay(10);
   }
   throw new Error("gateway did not bind a port");
@@ -621,4 +625,195 @@ describe("pi-gateway duplicate register", () => {
     await until(() => !gateway.contention.isContended("S"), 3000);
     expect(gateway.contention.contendedIds()).not.toContain("S");
   }, 20000);
+});
+
+/**
+ * Tier-aware watchdog clearing and the dashboard-spawn signal plumbing.
+ *
+ * See change: fix-spawn-correlation-ttl-coupling (test-plan E22, E23, E28, E29).
+ */
+describe("pi-gateway: register-time watchdog clears and visibility signal", () => {
+  let gateway: ReturnType<typeof createPiGateway>;
+  const sockets: Client[] = [];
+
+  afterEach(() => {
+    for (const c of sockets) c.ws.terminate();
+    sockets.length = 0;
+    gateway?.stop();
+    _setSpawnRegisterWatchdogForTests(null);
+  });
+
+  async function start() {
+    const sessionManager = createMemorySessionManager();
+    gateway = createPiGateway(sessionManager, { pingInterval: 0 });
+    gateway.start(0, "127.0.0.1");
+    const port = await waitForBind(gateway);
+    const client = await connect(port);
+    sockets.push(client);
+    return { sessionManager, client };
+  }
+
+  // E22 — registering A must not disarm B's same-cwd watchdog.
+  it("a token clear does not cancel a concurrent same-cwd spawn's arm", async () => {
+    const fired: string[] = [];
+    const watchdog = new SpawnRegisterWatchdog(60_000, {
+      findPidsBySpawnToken: () => [],
+      kill: () => {},
+    });
+    _setSpawnRegisterWatchdogForTests(watchdog);
+    const { sessionManager, client } = await start();
+
+    const ws = { readyState: 1, send: (raw: string) => fired.push(raw) } as any;
+    watchdog.arm({ cwd: "/tmp/dup-test", mechanism: "tmux", ws, spawnToken: "tok_A", timeoutMs: 5_000 });
+    watchdog.arm({ cwd: "/tmp/dup-test", mechanism: "tmux", ws, spawnToken: "tok_B", timeoutMs: 5_000 });
+
+    register(client, "S_A", { spawnToken: "tok_A" });
+    await until(() => sessionManager.get("S_A") !== undefined);
+
+    // B never registered: its watchdog must still fire.
+    await until(() => fired.some((m) => m.includes("spawn_register_timeout")), 8_000);
+    const timeouts = fired.filter((m) => m.includes("spawn_register_timeout"));
+    expect(timeouts).toHaveLength(1);
+  }, 15_000);
+
+  // E23 — a token-less tmux spawn still clears through the cwd tier.
+  it("a register with no token clears a cwd-armed watchdog", async () => {
+    const fired: string[] = [];
+    const watchdog = new SpawnRegisterWatchdog(60_000, {
+      findPidsBySpawnToken: () => [],
+      kill: () => {},
+    });
+    _setSpawnRegisterWatchdogForTests(watchdog);
+    const { sessionManager, client } = await start();
+
+    const ws = { readyState: 1, send: (raw: string) => fired.push(raw) } as any;
+    watchdog.arm({ cwd: "/tmp/dup-test", mechanism: "tmux", ws, timeoutMs: 5_000 });
+
+    register(client, "S_tmux");
+    await until(() => sessionManager.get("S_tmux") !== undefined);
+    // The arm is gone: a second cwd clear finds nothing left to cancel …
+    await until(() => watchdog.clearByCwd("/tmp/dup-test") === false);
+    // … and nothing ever fires.
+    await delay(6_000);
+    expect(fired).toHaveLength(0);
+  }, 15_000);
+
+  // E29 — the signal reaches `register` params rather than being dropped.
+  it("forwards dashboardSpawned:true so a headless dashboard spawn stays visible", async () => {
+    const { sessionManager, client } = await start();
+    register(client, "S_dash", { hasUI: false, dashboardSpawned: true });
+    await until(() => sessionManager.get("S_dash") !== undefined);
+    expect(sessionManager.get("S_dash")?.hidden).toBe(false);
+  });
+
+  // E28 — a non-`true` value is coerced and cannot un-hide.
+  it("coerces a bogus dashboardSpawned value and leaves the session hidden", async () => {
+    const { sessionManager, client } = await start();
+    register(client, "S_bogus", { hasUI: false, dashboardSpawned: "yes" });
+    register(client, "S_num", { hasUI: false, dashboardSpawned: 1 });
+    await until(() => sessionManager.get("S_num") !== undefined);
+    expect(sessionManager.get("S_bogus")?.hidden).toBe(true);
+    expect(sessionManager.get("S_num")?.hidden).toBe(true);
+  });
+
+  it("a headless register with no signal at all stays hidden", async () => {
+    const { sessionManager, client } = await start();
+    register(client, "S_worker", { hasUI: false });
+    await until(() => sessionManager.get("S_worker") !== undefined);
+    expect(sessionManager.get("S_worker")?.hidden).toBe(true);
+  });
+});
+
+/**
+ * Inbound drop reports and prompt acknowledgements are routed by OWNERSHIP.
+ *
+ * See change: fix-spawn-correlation-ttl-coupling (test-plan X7, X9, D6, D7).
+ */
+describe("pi-gateway: drop reports and prompt acks", () => {
+  let gateway: ReturnType<typeof createPiGateway>;
+  const sockets: Client[] = [];
+
+  afterEach(() => {
+    for (const c of sockets) c.ws.terminate();
+    sockets.length = 0;
+    gateway?.stop();
+  });
+
+  async function start() {
+    const sessionManager = createMemorySessionManager();
+    gateway = createPiGateway(sessionManager, { pingInterval: 0 });
+    const seen: Array<{ sessionId: string; msg: any }> = [];
+    gateway.onEvent = (sessionId, msg) => seen.push({ sessionId, msg: msg as any });
+    gateway.start(0, "127.0.0.1");
+    const port = await waitForBind(gateway);
+    return { sessionManager, port, seen };
+  }
+
+  async function newClient(port: number): Promise<Client> {
+    const c = await connect(port);
+    sockets.push(c);
+    return c;
+  }
+
+  // X7 — a report NAMING another session must still reach the handler: the
+  // dropped id is payload, the routing id is the reporter's own.
+  it("delivers a drop report that names a session the reporter does not own", async () => {
+    const { port, seen } = await start();
+    const a = await newClient(port);
+    register(a, "S_owner");
+    await until(() => seen.some((e) => e.msg.type === "session_register"));
+
+    a.ws.send(
+      JSON.stringify({
+        type: "inbound_drop_report",
+        sessionId: "S_owner",
+        dropClass: "session_mismatch",
+        messageType: "send_prompt",
+        droppedSessionId: "S_someone_else",
+      }),
+    );
+
+    await until(() => seen.some((e) => e.msg.type === "inbound_drop_report"));
+    const report = seen.find((e) => e.msg.type === "inbound_drop_report")!;
+    expect(report.sessionId).toBe("S_owner");
+    expect(report.msg.droppedSessionId).toBe("S_someone_else");
+  });
+
+  // X9 — an acknowledgement from a connection that does NOT own the id is
+  // refused by the routing guard, so the prompt is never marked delivered.
+  it("drops a prompt_received naming a session another connection owns", async () => {
+    const { port, seen } = await start();
+    const owner = await newClient(port);
+    register(owner, "S_owned");
+    await until(() => seen.some((e) => e.msg.type === "session_register"));
+
+    const stranger = await newClient(port);
+    stranger.ws.send(
+      JSON.stringify({
+        type: "prompt_received",
+        sessionId: "S_owned",
+        fresh: true,
+        promptId: "p-stranger",
+      }),
+    );
+
+    // Give it every chance to arrive, then assert it never did.
+    await delay(200);
+    expect(seen.some((e) => e.msg.type === "prompt_received")).toBe(false);
+  });
+
+  it("accepts the owner's acknowledgement carrying the promptId", async () => {
+    const { port, seen } = await start();
+    const owner = await newClient(port);
+    register(owner, "S_ack");
+    await until(() => seen.some((e) => e.msg.type === "session_register"));
+
+    owner.ws.send(
+      JSON.stringify({ type: "prompt_received", sessionId: "S_ack", fresh: true, promptId: "p-1" }),
+    );
+    await until(() => seen.some((e) => e.msg.type === "prompt_received"));
+    const ack = seen.find((e) => e.msg.type === "prompt_received")!;
+    expect(ack.sessionId).toBe("S_ack");
+    expect(ack.msg.promptId).toBe("p-1");
+  });
 });

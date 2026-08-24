@@ -1,15 +1,17 @@
 /**
  * Bridge `agent_settled` normalization — pure decision logic.
  *
- * The bridge guarantees exactly ONE terminal `agent_settled` per run on every
- * supported pi: native (≥ 0.80.4) is forwarded as-is with no synth; floor pi
- * (< 0.80.4) gets a synthetic settle synchronously after each `agent_end`.
+ * Native pi forwards its terminal settle. Floor pi marks each per-attempt
+ * compatibility settle `retryPending:true`, then reconciles an unstarted armed
+ * attempt to one terminal settle after observed delay plus grace.
  *
  * See change: adopt-pi-074-080-features (A.1 — E1, E2, F8, X2).
  */
 import { describe, expect, it } from "vitest";
 import {
   NATIVE_AGENT_SETTLED_FLOOR,
+  floorRetryReconcileDelay,
+  markFloorSettle,
   nativeAgentSettledSupported,
   settleFollowUp,
   synthesizeAgentSettledEvent,
@@ -68,6 +70,34 @@ describe("settleFollowUp", () => {
   it("other events never synthesize", () => {
     expect(settleFollowUp("agent_start", false, 100)).toBeNull();
     expect(settleFollowUp("turn_end", false, 100)).toBeNull();
+  });
+});
+
+describe("floor retry reconciliation", () => {
+  it("waits through the observed delay plus grace", () => {
+    expect(floorRetryReconcileDelay(4000)).toBe(5000);
+    expect(floorRetryReconcileDelay(0)).toBe(3000);
+  });
+
+  it("falls back for non-finite retry delays", () => {
+    expect(floorRetryReconcileDelay(Number.POSITIVE_INFINITY)).toBe(3000);
+    expect(floorRetryReconcileDelay(Number.NaN)).toBe(3000);
+  });
+});
+
+describe("markFloorSettle", () => {
+  it("X9 marks a busy floor-pi settle as retry-pending compatibility", () => {
+    const event = synthesizeAgentSettledEvent(42);
+    expect(markFloorSettle(event, false)).toEqual({
+      eventType: "agent_settled",
+      timestamp: 42,
+      data: { retryPending: true },
+    });
+  });
+
+  it("leaves a truly idle floor-pi settle terminal", () => {
+    const event = synthesizeAgentSettledEvent(42);
+    expect(markFloorSettle(event, true)).toBe(event);
   });
 });
 

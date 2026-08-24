@@ -2288,6 +2288,51 @@ See change: fix-pi-flows-end-to-end.
 Cross-refs:
 - packages/roles-plugin/src/RolesSettingsSection.tsx
 
+## Why are my sessions never auto-named?
+
+Check Settings → Diagnostics → auto-naming outcomes.
+One retained outcome per session.
+`starved` and `waiting` shown separately.
+
+**`starved`** = model could not emit title under output cap.
+Reasoning model spends whole cap on reasoning tokens.
+Stream truncated. `done` reason `"length"`. No text.
+Truncated text NEVER applied as a name.
+Fix: assign a different model to the `naming` role.
+
+**`waiting`** = model behaved correctly. No nameable topic.
+Cause: `NULL` sentinel, or over-40-chars, or over-6-words.
+Nothing to fix. Session simply has no clear topic.
+
+**Budget.**
+3 attempts per session.
+Shared by `starved` + `waiting`.
+Exhaustion ⇒ permanent stop + exactly one `auto_name_error`.
+Remedy matches dominant cause. Tie ⇒ `starved`.
+Transient errors + aborts spend no budget.
+
+**Stop.**
+Persists in session `.meta.json` (`autoNamerState`).
+Survives process restart.
+Clears when resolved naming reference changes.
+Clears when blocking cause (credentials/registry) resolves.
+Clearing resets budget + re-arms error.
+
+**Naming model.**
+`@naming` first. Fallback `@fast`.
+Neither configured ⇒ stop + `auto_name_error` naming both slots.
+Configure in Settings → Roles (`/settings/plugins/roles`).
+Not on the sessions page. Toggle there carries a pointer.
+
+**Old bug (pre-fix).**
+Empty text mapped onto `wait`. Same verdict as legitimate `NULL`.
+Naming retried forever. Applied nothing. Emitted nothing.
+Zero successes AND zero errors.
+Measured: 0 of 3380 sessions `nameSource: "auto"`.
+Measured: 0 `auto_name_error` lines in 6.8 MB `server.log`.
+
+See change: fix-auto-naming-reasoning-model.
+
 ## Why does Doctor sometimes show server "Not running" while dashboard works?
 
 Old bug: `probeServer` inside `/api/doctor` shelled out `curl http://localhost:8000/api/health` via `execSync`. Server was handling the request when curl called — self-deadlock. After 3 s timeout, curl failed and probe reported "Not running". Fixed in change `harvest-bootstrap-survivor-fixes`: server-side probe reads process state directly; Electron Doctor uses native `fetch`. No subprocess spawned. Result: Doctor reports "ok" correctly while server handles load.

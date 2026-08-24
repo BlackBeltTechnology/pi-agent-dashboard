@@ -1,8 +1,10 @@
+# server-session-reader Specification
+
 ## Purpose
 
 Server-side session discovery and event loading. The server imports `SessionManager` from `@mariozechner/pi-coding-agent` to discover historical sessions and load session events directly from disk, without requiring a bridge connection.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Server reads session history directly from disk
 The server SHALL import `SessionManager` from `@mariozechner/pi-coding-agent` and call `SessionManager.list(cwd)` to discover historical sessions for a directory, without requiring a bridge connection.

@@ -1,4 +1,4 @@
-import { mdiAlertOutline, mdiClose, mdiCommentQuestion, mdiConsoleLine, mdiEyeOffOutline, mdiEyeOutline, mdiFlash, mdiLoading, mdiPaperclip, mdiPencil, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiPlus, mdiRefresh, mdiSourceBranch, mdiSourceBranchPlus, mdiSourceFork } from "@mdi/js";
+import { mdiAlertOutline, mdiArrowRightCircleOutline, mdiClose, mdiCommentQuestion, mdiConsoleLine, mdiEyeOffOutline, mdiEyeOutline, mdiFlash, mdiLoading, mdiPaperclip, mdiPencil, mdiPencilOutline, mdiPlay, mdiPlayCircleOutline, mdiPlus, mdiRefresh, mdiRemoteDesktop, mdiSourceBranch, mdiSourceBranchPlus, mdiSourceFork } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useState } from "react";
 import { getApiBase } from "../../lib/api/api-context.js";
@@ -32,30 +32,32 @@ import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
 import { useFxVisibility } from "../../hooks/useFxVisibility.js";
 import type { InflightBashTool } from "../../hooks/useInflightBashTools.js";
 import { useMobile } from "../../hooks/useMobile.js";
-import { formatRelativeTime, formatTokens } from "../../lib/util/format.js";
 import { refreshGitStatus, setCachedGitStatus, useGitStatus } from "../../lib/git/git-status-cache.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { useOpenSpecConfig } from "../../lib/openspec/openspec-config-api.js";
 import { selectBadgeTimestamp } from "../../lib/session/session-card-time.js";
 import { getSessionDisplayName } from "../../lib/session/session-display-name.js";
-import { useCommitDialog } from "../worktree/CommitDialog.js";
-import { ContextUsageBar } from "./ContextUsageBar.js";
-import { CwdGonePill } from "../folder/CwdGonePill.js";
+import { inferPlatform, pathKey } from "../../lib/session/session-grouping.js";
+import { hasMovedAway, isRemoteOrigin } from "../../lib/session/session-origin-view.js";
+import { formatRelativeTime, formatTokens } from "../../lib/util/format.js";
 // flows-plugin components (FlowActivityBadge, SessionFlowActions) are
 // rendered exclusively via plugin slot consumers (SessionCardBadgeSlot /
 // SessionCardActionBarSlot) per change pluginize-flows-via-registry.
 import { CollapseSummary } from "../chat/collapse-summary.js";
-import { GitDirtyPill } from "../worktree/GitDirtyPill.js";
-import { InlineRenameInput } from "../primitives/InlineRenameInput.js";
+import { CwdGonePill } from "../folder/CwdGonePill.js";
 import { OpenSpecActivityBadge } from "../openspec/OpenSpecActivityBadge.js";
+import { SessionOpenSpecActions } from "../openspec/SessionOpenSpecActions.js";
+import { InlineRenameInput } from "../primitives/InlineRenameInput.js";
+import { TagStrip } from "../tags/TagStrip.js";
 import { type ProcessEntry, ProcessList } from "../terminal/ProcessList.js";
+import { useCommitDialog } from "../worktree/CommitDialog.js";
+import { GitDirtyPill } from "../worktree/GitDirtyPill.js";
+import { WorktreeActionsMenu } from "../worktree/WorktreeActionsMenu.js";
+import { ContextUsageBar } from "./ContextUsageBar.js";
 import { formatElapsed, SessionActivityBar, truncateCommand } from "./SessionActivityBar.js";
 import type { ContextUsageInfo } from "./SessionList.js";
-import { SessionOpenSpecActions } from "../openspec/SessionOpenSpecActions.js";
 import { SessionSubcard } from "./SessionSubcard.js";
 import { useSessionCardDragHandle } from "./SortableSessionCard.js";
-import { TagStrip } from "../tags/TagStrip.js";
-import { WorktreeActionsMenu } from "../worktree/WorktreeActionsMenu.js";
 
 /**
  * The card's single activity slot. Precedence:
@@ -123,6 +125,47 @@ export function StatusShapeBadge({ shape, colorClass }: { shape: StatusShape; co
       className={`absolute -bottom-1 -right-1 inline-flex rounded-full bg-[var(--bg-tertiary)] leading-none ${colorClass}`}
     >
       <Icon path={path} size={0.34} />
+    </span>
+  );
+}
+
+/**
+ * MOVED marker. A session that moved to another dashboard instance keeps
+ * `status === "ended"` (the `SessionStatus` union gained no "moved" member),
+ * so without this pill it reads as crashed/dead. Renders nothing for a session
+ * that did not move. See change: add-pi-gateway-transport-identity.
+ */
+function MovedBadge({ session }: { session: DashboardSession }) {
+  if (!hasMovedAway(session)) return null;
+  const target = session.movedTo?.endpoint ?? session.movedTo?.instanceId ?? "";
+  return (
+    <span
+      data-testid={`session-moved-badge-${session.id}`}
+      className="flex-shrink-0 inline-flex items-center gap-0.5 px-1.5 py-0 text-[10px] rounded-full bg-[var(--bg-tertiary)] text-[var(--text-secondary)] border border-[var(--border-subtle)]"
+      title={i18nT("session.movedToTitle", { target }, `Moved to ${target}`)}
+    >
+      <Icon path={mdiArrowRightCircleOutline} size={0.4} />
+      {i18nT("session.moved", undefined, "Moved")}
+    </span>
+  );
+}
+
+/**
+ * Originating device for a REMOTE-origin session. `originDeviceId` absent means
+ * LOCAL, so nothing renders for a local session.
+ * See change: add-pi-gateway-transport-identity.
+ */
+function OriginDeviceChip({ session }: { session: DashboardSession }) {
+  if (!isRemoteOrigin(session)) return null;
+  const device = session.originDeviceId as string;
+  return (
+    <span
+      data-testid={`session-origin-${session.id}`}
+      className="flex-shrink-0 inline-flex items-center gap-0.5 max-w-[10rem] text-[10px] text-[var(--text-tertiary)]"
+      title={i18nT("session.originDeviceTitle", { device }, `Runs on remote device ${device}`)}
+    >
+      <Icon path={mdiRemoteDesktop} size={0.4} />
+      <span className="truncate">{device}</span>
     </span>
   );
 }
@@ -269,7 +312,17 @@ export function GroupGitInfo({ sessions, cwd, folderBranch, onBranchClick, folde
   useEffect(() => {
     if (seededStatus) setCachedGitStatus(cwd, seededStatus);
   }, [cwd, seededStatus]);
-  const session = sessions.find((s) => s.gitBranch);
+  // Only a session ROOTED AT this folder can report this folder's HEAD. A
+  // worktree session folded into its parent's group via `gitWorktree.mainPath`
+  // describes a different checkout, and `maybeRekeyOrder` puts it at position 0
+  // — so a positional `find` leaks its branch into the parent folder header.
+  // Eligibility is cwd identity under the shared `pathKey` canonicalization,
+  // which keeps the PINNED worktree folder correct (there the session's cwd IS
+  // the folder cwd). The whole git-identity tuple comes from this ONE session.
+  // See change: fix-folder-header-worktree-branch-leak.
+  const platform = inferPlatform([cwd, ...sessions.map((s) => s.cwd)]);
+  const folderKey = pathKey(cwd, platform);
+  const session = sessions.find((s) => s.gitBranch && pathKey(s.cwd, platform) === folderKey);
   const cached = branchCache.get(cwd);
   const [fetchedBranch, setFetchedBranch] = useState<string | null>(cached?.branch ?? null);
   const [noGitRepo, setNoGitRepo] = useState(cached?.noGit ?? false);
@@ -617,6 +670,8 @@ export function SessionCard({
             </span>
           )}
           <ActivityIndicator session={session} retryAttempt={retryAttempt} />
+          <MovedBadge session={session} />
+          <OriginDeviceChip session={session} />
           {/* Pi-native queue count badge — sum of steering + follow-up depth.
               Hidden when both queues empty. See change: add-followup-edit-and-steer-cancel. */}
           {(() => {
@@ -845,8 +900,13 @@ export function SessionCard({
             {session.model}{session.thinkingLevel ? ` (${session.thinkingLevel})` : ""}
           </span>
         )}
+        <MovedBadge session={session} />
+        <OriginDeviceChip session={session} />
         <span className="flex-1" />
-        {onResume && session.sessionFile && (
+        {/* Remote-origin sessions live on another host (server answers 409),
+            so resume/fork are not offered at all.
+            See change: add-pi-gateway-transport-identity. */}
+        {onResume && session.sessionFile && !isRemoteOrigin(session) && (
           <>
             {(!isAlive || isHidden) && (
               <button
@@ -1216,7 +1276,7 @@ function MobileProcessSubcard({ activity, processes, onKill, onAbortTool, now, o
       )}
       {sheetOpen && hasProcesses && onKill && (
         <div
-          className="fixed inset-0 bg-[var(--bg-overlay)] flex items-end justify-center z-[60]"
+          className="fixed inset-0 bg-[var(--bg-overlay)] flex items-end justify-center z-dialog"
           onClick={(e) => { e.stopPropagation(); setSheetOpen(false); }}
           data-testid="background-drawer-sheet"
         >

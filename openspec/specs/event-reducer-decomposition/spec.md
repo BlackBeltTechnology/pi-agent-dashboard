@@ -1,4 +1,10 @@
-## ADDED Requirements
+# event-reducer-decomposition Specification
+
+## Purpose
+
+Extracts flow-event handling out of the client's main event reducer into its own reducer with co-located types, so flow state transitions can be reasoned about and tested without the surrounding session reducer.
+
+## Requirements
 
 ### Requirement: Flow reducer extraction
 event-reducer.ts SHALL delegate flow state machine logic (flow_started, flow_agent_started, flow_agent_complete, flow_tool_call, flow_tool_result, flow_assistant_text, flow_thinking_text, flow_loop_iteration, flow_auto_decision, flow_complete) to a `flow-reducer` module.

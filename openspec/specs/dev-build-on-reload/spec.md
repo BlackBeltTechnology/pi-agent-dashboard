@@ -1,4 +1,10 @@
-## ADDED Requirements
+# dev-build-on-reload Specification
+
+## Purpose
+
+Makes the reload action rebuild before restarting when running in development mode, so a reload reflects the working tree instead of the last built artifact.
+
+## Requirements
 
 ### Requirement: Dev build and restart on reload
 When `devBuildOnReload` is `true` in the dashboard config, the bridge extension's cleanup hook (triggered by `/reload`) SHALL synchronously build the Vite client and request the dashboard server to shut down before the reload completes. Progress SHALL be logged to the terminal.

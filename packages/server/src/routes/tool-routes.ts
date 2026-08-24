@@ -12,14 +12,19 @@
  *
  * See change: consolidate-tool-resolution (specs/tool-settings-ui).
  */
-import type { FastifyInstance } from "fastify";
-import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+
+import {
+  isPiOverrideTool,
+  validatePiOverridePath,
+} from "@blackbelt-technology/pi-dashboard-shared/pi-installs/index.js";
 import type {
   Resolution,
   ToolListEntry,
   ToolRegistry,
 } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import { UnknownToolError } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FastifyInstance } from "fastify";
 import type { NetworkGuard } from "./route-deps.js";
 
 export interface ToolRoutesDeps {
@@ -114,8 +119,32 @@ export function registerToolRoutes(
         reply.status(400);
         return { success: false, error: "body.path is required (non-empty string)" } satisfies ApiResponse;
       }
+      // The two pi consumers validate at the WRITE boundary: an override
+      // becomes an executed binary / an imported module, and
+      // `overrideStrategy` only checks `exists(p)`. A directory is illegal
+      // for both (EACCES on spawn, ERR_UNSUPPORTED_DIR_IMPORT on import).
+      // Only `pi` and `pi-coding-agent` adopt this, so no other tool's
+      // override behaviour changes.
+      // See change: select-pi-runtime-install (design D6).
+      //
+      // The persisted value is the validator's REALPATH'd path, matching what
+      // `POST /api/pi/runtime` writes. Two write paths normalizing the same file
+      // differently is the class of drift this change exists to remove, and the
+      // sync/divergence predicates compare realpath'd directories anyway.
+      let toPersist = overridePath.trim();
+      if (isPiOverrideTool(name)) {
+        const check = validatePiOverridePath(toPersist);
+        if (!check.ok) {
+          reply.status(400);
+          return {
+            success: false,
+            error: `${check.reason} (failed check: ${check.failedCheck})`,
+          } satisfies ApiResponse;
+        }
+        toPersist = check.resolvedPath ?? toPersist;
+      }
       try {
-        registry.setOverride(name, overridePath.trim());
+        registry.setOverride(name, toPersist);
       } catch (err) {
         if (err instanceof UnknownToolError) {
           reply.status(404);

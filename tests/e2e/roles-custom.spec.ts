@@ -26,8 +26,12 @@ test.describe("custom roles UI (L3: builtinRoleNames relay)", () => {
     // A live session is the transport for request_roles → roles_list.
     await spawnFreshGitSession(page);
 
-    // General tab hosts the Roles settings section (canonical route).
-    await page.goto("/settings/general");
+    // The Roles settings section renders on its plugin page: since
+    // `plugin-settings-pages`, `claim.tab` is inert and every `settings-section`
+    // claim lives at `/settings/plugins/<id>` (SettingsPanel.tsx). This spec
+    // still pointed at the pre-move `/settings/general` route.
+    // See change: fix-auto-naming-reasoning-model.
+    await page.goto("/settings/plugins/roles");
 
     const roles = page.getByTestId("roles-settings");
     await expect(roles).toBeVisible({ timeout: 30_000 });

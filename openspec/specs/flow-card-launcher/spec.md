@@ -1,4 +1,10 @@
-## ADDED Requirements
+# flow-card-launcher Specification
+
+## Purpose
+
+Lets the user start a pi-flow directly from a session card. Defines the launcher section on the card, how flow commands are distinguished from ordinary commands, a searchable selection dialog built on a shared component, and the task-input step that follows selection.
+
+## Requirements
 
 ### Requirement: Shared SearchableSelectDialog component
 A reusable `SearchableSelectDialog` component SHALL be provided for use by both the flow launcher and OpenSpec attach picker. The dialog SHALL render as a centered overlay (via `DialogPortal`) with a backdrop, a title, a search input field, and a scrollable list of options. Each option SHALL display a label, optional description text, and optional badge.

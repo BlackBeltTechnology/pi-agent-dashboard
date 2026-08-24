@@ -229,6 +229,23 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
     echo "[test-entrypoint] PI_E2E_SEED: staged notify driver → ${NOTIFY_EXT_DIR}"
   fi
 
+  # --- Synthetic Agent-tick producer (throttle L3, change: reduce-bridge-tick-
+  # bandwidth) --- Registers an `Agent` tool that streams tool_execution_update
+  # frames at a deterministic cadence (via a `[[ticks:N@Mms]]` sentinel) for the
+  # cadence rows (F1/P1/P2/P3/F5). It SHADOWS the real subagents Agent tool
+  # (first-registration-wins), so it is staged ONLY under PI_SYNTH_AGENT_TICKS=1
+  # and `register_subagents` is SKIPPED below — the two never coexist. The
+  # nested-faux subagent cannot be scripted in the harness (see change
+  # measurement.md, Bug 2), so a synthetic same-shape producer is the L3
+  # substrate.
+  SYNTH_EXT_DIR="${PI_DIR}/agent/extensions/faux-agent-ticks"
+  if [ "${PI_SYNTH_AGENT_TICKS:-}" = "1" ] && [ -f "${FAUX_SRC}/faux-agent-ticks.ext.ts" ] && [ ! -f "${SYNTH_EXT_DIR}/index.ts" ]; then
+    mkdir -p "${SYNTH_EXT_DIR}"
+    cp "${FAUX_SRC}/faux-agent-ticks.ext.ts" "${SYNTH_EXT_DIR}/index.ts"
+    ln -sfn /app/node_modules "${SYNTH_EXT_DIR}/node_modules"
+    echo "[test-entrypoint] PI_SYNTH_AGENT_TICKS: staged synthetic Agent-tick producer → ${SYNTH_EXT_DIR}"
+  fi
+
   # Also seed pi's own settings.json defaultModel (read at pi startup) so the
   # faux model is selected even before the bridge gate runs. Merge — never
   # clobber existing keys. No-op when already set.
@@ -466,7 +483,14 @@ JSON
       ' "${SETTINGS}" "${SA_GLOBAL}" "/app/packages/extension" \
         && echo "[test-entrypoint] registered pi-dashboard-subagents (tool_execution_update producer)"
     }
-    register_subagents
+    # Skip the real subagents producer on the synthetic-tick arm: the synthetic
+    # `Agent` tool owns the tool name there (first-registration-wins), and the
+    # two must never coexist. See change: reduce-bridge-tick-bandwidth.
+    if [ "${PI_SYNTH_AGENT_TICKS:-}" = "1" ]; then
+      echo "[test-entrypoint] PI_SYNTH_AGENT_TICKS=1: skipping subagents producer (synthetic Agent tool owns the tool name)"
+    else
+      register_subagents
+    fi
 
     case "${PI_TEST_PEERS}" in
       both)
@@ -529,7 +553,10 @@ echo "[test-entrypoint] launching dashboard daemon via base entrypoint..."
 # server is spawned DETACHED (unref'd) and SURVIVES that timeout — cold-start
 # via the jiti TS loader can exceed 30s on a loaded host. Tolerate a non-zero
 # return; our own health poll below is the authority on readiness.
-/usr/local/bin/entrypoint.sh "$@" \
+# NO_SUPERVISE: the base entrypoint now supervises the daemon itself, which
+# would block before this script's smoke checks ever ran. We do our own
+# supervising in step 4, with the same shared helper.
+PI_ENTRYPOINT_NO_SUPERVISE=1 /usr/local/bin/entrypoint.sh "$@" \
   || echo "[test-entrypoint] base launcher exited non-zero (likely readiness timeout); daemon is detached, polling health..."
 
 # --- 3. Fail-fast smoke check ----------------------------------------------
@@ -613,33 +640,9 @@ if [ "${PI_E2E_INDEPENDENT_SESSION:-0}" = "1" ] && [ "${PI_E2E_SEED:-}" = "1" ];
 fi
 
 # --- 4. Keep PID 1 alive for the daemon's lifetime -------------------------
-SERVER_PID="$(cat "${PIDFILE}" 2>/dev/null || true)"
-[ -n "${SERVER_PID}" ] || smoke_fail "server.pid not found at ${PIDFILE}"
-# Always signal whoever owns the pidfile NOW, not the pid captured at boot — an
-# in-place restart replaces it.
-trap 'kill -TERM "$(cat "${PIDFILE}" 2>/dev/null || echo "${SERVER_PID}")" 2>/dev/null || true' TERM INT
-# Re-read the pidfile each tick and tolerate a restart window. Watching the
-# BOOT pid alone made `POST /api/restart` fatal to the container: the server
-# exits and comes back under a NEW pid, the old `kill -0` went false, PID 1
-# fell through, and the whole harness died mid-test. The grace window keeps the
-# supervisor alive across that gap while still exiting when the daemon is
-# genuinely gone. See change: restore-ask-user-tool-state-on-reconnect.
-RESTART_GRACE_TICKS=24   # x5s = up to 120s down before we call it dead
-missed=0
-while :; do
-  cur="$(cat "${PIDFILE}" 2>/dev/null || true)"
-  if [ -n "${cur}" ] && kill -0 "${cur}" 2>/dev/null; then
-    if [ "${cur}" != "${SERVER_PID}" ]; then
-      echo "[test-entrypoint] daemon restarted: pid ${SERVER_PID} -> ${cur}"
-      SERVER_PID="${cur}"
-    fi
-    missed=0
-  else
-    missed=$((missed + 1))
-    if [ "${missed}" -ge "${RESTART_GRACE_TICKS}" ]; then
-      break
-    fi
-  fi
-  sleep 5
-done
-echo "[test-entrypoint] dashboard daemon (pid ${SERVER_PID}) exited"
+# Same helper the base entrypoint uses, so the harness and the deployment
+# cannot drift apart again — this loop existing ONLY here is what let the
+# deployment ship without supervision while every E2E run stayed green.
+# shellcheck source=docker/supervise-daemon.sh
+. /usr/local/bin/supervise-daemon.sh
+supervise_daemon "${PIDFILE}" "dashboard daemon" || smoke_fail "server.pid not found at ${PIDFILE}"

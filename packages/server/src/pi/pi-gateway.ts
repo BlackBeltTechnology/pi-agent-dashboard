@@ -2,10 +2,14 @@
  * Pi Gateway - WebSocket server for bridge extension connections.
  */
 
+import type http from "node:http";
+import type { IncomingMessage } from "node:http";
 import type { ExtensionToServerMessage, ServerToExtensionMessage } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { DashboardSession } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { WebSocket, WebSocketServer } from "ws";
+import type { TicketConsumption } from "../auth/ws-ticket.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
+import { attributeOrigin, UNATTRIBUTED_REMOTE } from "../session/session-origin.js";
 import { getSpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
 import {
   CONTENTION_PROBE_WINDOW,
@@ -18,6 +22,9 @@ import {
   type ProbeableSocket,
   resolveProbe,
 } from "./bridge-contention.js";
+import { decideBridgeUpgrade, isLoopbackAddress } from "./bridge-upgrade-auth.js";
+import { bindGatewaySocket, unbindGatewaySocket } from "./gateway-socket-bind.js";
+import { createProvisionalRegistry } from "./provisional-registration.js";
 
 /**
  * How many times a contended claim may be re-decided when the routing entry's
@@ -34,15 +41,56 @@ export { CONTENTION_PROBE_WINDOW };
 export interface PiGatewayOptions {
   heartbeatTimeout?: number;
   pingInterval?: number;
+  /**
+   * Authorisation for TCP bridge upgrades (D10b, task 6.3). Omitted, the TCP
+   * listener keeps its historical accept-anything behaviour — which is
+   * exactly what makes the container's `0.0.0.0` default indefensible, so
+   * production wiring always supplies it.
+   */
+  bridgeAuth?: {
+    consumeTicket: (ticket: string | null | undefined) => TicketConsumption;
+    /** `true` once the D10b deprecation window has closed. */
+    requireTicketOnLoopback?: boolean;
+    /** Checks `X-Pi-Local-Token` for a loopback bridge (D6, task 5.3). */
+    verifyLocalToken?: (headers: Record<string, unknown> | undefined) => boolean;
+    log?: (msg: string) => void;
+  };
   /** Bounded window the contention probe waits for the incumbent's pong. */
   contentionProbeWindow?: number;
+  /** TTL for provisional registrations; test seam for the 30s default. */
+  provisionalTtlMs?: number;
+  /**
+   * Test seam: the peer address the origin gate sees. Every test peer is
+   * loopback (and therefore local), so without this the remote branch of the
+   * gate is unreachable from a test — which is precisely how it shipped inert.
+   */
+  peerAddressForTest?: string;
+  /**
+   * This dashboard's persistent instance id, returned to a bridge opening a
+   * provisional registration so it can verify the target's identity before
+   * committing a move (D11/D14, task 9.7).
+   */
+  instanceId?: string;
 }
 
 export interface PiGateway {
   start(port: number, host?: string): void;
+  /**
+   * Bind the local unix-domain socket. Async and REFUSABLE: a path with a
+   * live listener aborts with `GatewaySocketConflictError` rather than
+   * unlinking an incumbent (D9).
+   */
+  startOnSocket(socketPath: string): Promise<void>;
   stop(): void;
-  /** Resolved listening port after start() (useful when start(0) is used). Returns null if not started or closed. */
-  address(): number | null;
+  /**
+   * Resolved listening endpoint after start(): a port number for TCP, the
+   * socket PATH for a UDS listener, or null when not started. A UDS
+   * `address()` is a string, so the old number-only accessor blanked the
+   * gateway endpoint in the settings UI (task 2.9).
+   */
+  address(): number | string | null;
+  /** The active transport, for callers that must branch on it. */
+  transport(): { transport: "tcp"; port: number } | { transport: "unix"; path: string } | null;
   sendToSession(sessionId: string, msg: ServerToExtensionMessage): boolean;
   broadcast(msg: ServerToExtensionMessage): void;
   connectionCount(): number;
@@ -88,10 +136,27 @@ export function createPiGateway(
   const probeWindow = options?.contentionProbeWindow ?? CONTENTION_PROBE_WINDOW;
   const contention = createContentionTracker();
   let wss: WebSocketServer | null = null;
+  /**
+   * Upgrade requests that arrived over the unix socket. Identity has to
+   * travel with the REQUEST because both transports deliberately share one
+   * `WebSocketServer` (D10), and `verifyClient` sees only the request.
+   */
+  const unixUpgrades = new WeakSet<IncomingMessage>();
   let pingTimer: ReturnType<typeof setInterval> | null = null;
+  /** The UDS listener, when this instance serves bridges over a socket (D1). */
+  let socketServer: http.Server | null = null;
+  let socketPath: string | null = null;
 
   // Map sessionId → WebSocket
   const connections = new Map<string, WebSocket>();
+  // Intent-only registrations (D11, task 9.3a). Deliberately separate from
+  // `connections`: an entry here is NOT a routing claim.
+  const provisionalRegistry = createProvisionalRegistry({ ttlMs: options?.provisionalTtlMs });
+  /**
+   * Device id resolved during the upgrade, keyed by the upgrade request so the
+   * connection handler can read it. Weak: entries die with the request.
+   */
+  const upgradeDeviceId = new WeakMap<IncomingMessage, string>();
   // Track connection liveness for WS ping/pong (miss counter: kill after 2 consecutive misses)
   const aliveMisses = new Map<WebSocket, number>();
   // Map sessionId → heartbeat timeout
@@ -207,39 +272,18 @@ export function createPiGateway(
     );
   }
 
-  return {
-    set onEvent(handler: ((sessionId: string, msg: ExtensionToServerMessage) => void) | undefined) {
-      onEvent = handler;
-    },
-
-    set onEmpty(handler: (() => void) | undefined) {
-      onEmpty = handler;
-    },
-
-    set onConnection(handler: (() => void) | undefined) {
-      onConnection = handler;
-    },
-
-    set onDisconnect(handler: ((sessionId: string) => void) | undefined) {
-      onDisconnect = handler;
-    },
-
-    set onSessionCreated(handler: ((sessionId: string) => void) | undefined) {
-      onSessionCreated = handler;
-    },
-
-    set onSessionRegistered(handler: ((sessionId: string, cwd: string) => void) | undefined) {
-      onSessionRegistered = handler;
-    },
-
-    address() {
-      const addr = wss?.address();
-      if (addr && typeof addr === "object") return addr.port;
-      return null;
-    },
-    start(port: number, host?: string) {
-      wss = new WebSocketServer(host ? { port, host } : { port });
-
+  /**
+   * Install the WS-level ping/pong heartbeat.
+   *
+   * Transport-agnostic ON PURPOSE: `bridge-contention.ts` uses pong frames as
+   * its liveness oracle, and the POSIX default is heading toward a
+   * socket-only listener (D6/D10). Leaving this inside `start()` — the TCP
+   * path — would ship socket-only startup with no heartbeat and a silently
+   * no-op contention probe.
+   * See change: add-pi-gateway-transport-identity.
+   */
+  const startHeartbeat = () => {
+    if (pingTimer) return;
       // WS-level ping/pong: detect truly dead connections.
       // Pong responses are processed in the event loop, so a busy bridge
       // won't respond to pings. We check the underlying TCP socket's
@@ -289,9 +333,49 @@ export function createPiGateway(
           client.ping();
         }
       }, pingMs);
+  };
 
-      wss.on("connection", (ws) => {
+  /**
+   * One connection handler, shared by every transport (D10). Registered on a
+   * `noServer` WebSocketServer for the unix socket and on the TCP listener
+   * alike, so the transport is a per-bridge property rather than a
+   * per-server mode. See change: add-pi-gateway-transport-identity.
+   */
+  const attachConnectionHandler = (target: WebSocketServer, transport: "unix" | "tcp") => {
+      target.on("connection", (ws, req) => {
+        // Origin evidence, derived ONLY from the connection and its credential
+        // — never from anything the bridge says about itself. A unix peer
+        // opened a file in this HOME's 0700 dir; a loopback TCP peer is on this
+        // host; anything else is remote, attributable via its bridge ticket or
+        // (failing closed) not at all.
+        // Per CONNECTION, not per handler: when the TCP listener is enabled the
+        // socket shares its `WebSocketServer` (D10), so this closure's label is
+        // whichever transport attached the handler first — `tcp` in the shipped
+        // container. Trusting it made every in-container session REMOTE, which
+        // withholds Resume/Fork in the UI and is exactly backwards.
+        const connTransport = req && unixUpgrades.has(req) ? "unix" : transport;
+        const sessionOrigin = attributeOrigin({
+          transport: connTransport,
+          remote:
+            connTransport === "tcp" &&
+            !isLoopbackAddress(
+              options?.peerAddressForTest ?? req?.socket?.remoteAddress ?? undefined,
+            ),
+          deviceId: req ? upgradeDeviceId.get(req) : undefined,
+          localInstanceId: options?.instanceId ?? "",
+        });
+        // `originDeviceId` is ABSENT for a local session (that is how every
+        // pre-existing session keeps working), so a remote peer we could not
+        // attribute still needs a value — otherwise "unattributable" would
+        // silently read back as "local", which is the opposite of failing closed.
+        const originDeviceId = sessionOrigin.local
+          ? undefined
+          : (sessionOrigin.deviceId ?? UNATTRIBUTED_REMOTE);
         let currentSessionId: string | null = null;
+        // The session this socket holds an OPEN provisional for, if any. A
+        // provisional announces intent and claims nothing, so this socket must
+        // stay unrouted for that id until it commits.
+        let provisionalSessionId: string | null = null;
         // Serializes this socket's messages. The contention decision is async
         // (it may probe the incumbent), and a bridge sends `session_register`
         // immediately followed by events; without this queue a later message
@@ -447,8 +531,114 @@ export function createPiGateway(
             // This is a claim on the routing table, so it is contention-checked
             // too — but a non-register message never displaces a live
             // incumbent, it is simply not routable.
+            // D11 (task 9.3b): the commit is where routing ACTUALLY transfers.
+              // Until this frame lands the origin is still the live bridge, so a
+              // move that never commits is a no-op rather than an outage.
+              if ((msg as { type?: string }).type === "session_move_commit") {
+                const commit = msg as unknown as { sessionId: string; token: string };
+                const verdict = provisionalRegistry.commit(commit.token);
+                if (!verdict.ok) {
+                  // Same detail-free refusal as the provisional itself: a cause
+                  // here would re-open the enumeration oracle (task 9.3a-iv).
+                  ws.send(
+                    JSON.stringify(
+                      provisionalRegistry.refuseForWire({
+                        sessionId: commit.sessionId,
+                        cause: verdict.cause,
+                      }),
+                    ),
+                  );
+                  return;
+                }
+                // The routing entry transfers for the id the TOKEN was minted
+                // for — never the id on the wire. They are separate inputs, and
+                // trusting the wire made this a hijack primitive: open a
+                // provisional for a throwaway id, then commit naming a victim,
+                // and the victim's routing followed. A mismatch is refused
+                // outright rather than silently corrected, because a mover with
+                // nothing to hide never sends one.
+                const movedId = verdict.sessionId;
+                if (commit.sessionId !== movedId) {
+                  ws.send(
+                    JSON.stringify(
+                      provisionalRegistry.refuseForWire({
+                        sessionId: commit.sessionId,
+                        cause: "unknown-token",
+                      }),
+                    ),
+                  );
+                  return;
+                }
+                // A commit may never displace a LIVE incumbent. Nothing in the
+                // protocol proves the mover is the session's origin — the token
+                // is minted by whoever asked for it — so without this the move
+                // path was a hijack primitive that skipped the contention and
+                // liveness probe a plain register goes through.
+                //
+                // The invariant this restores: a move grants NOTHING a plain
+                // `session_register` does not already grant. Adopting a session
+                // this instance has never heard of is exactly what a register
+                // does; taking one out of a live socket's hands is not.
+                //
+                // A genuine move never trips this — the session is live on the
+                // ORIGIN, not here. Moving back to an instance that once held it
+                // is still fine: that entry is gone once the socket closed.
+                const incumbent = connections.get(movedId);
+                if (incumbent && incumbent !== ws) {
+                  ws.send(
+                    JSON.stringify(
+                      provisionalRegistry.refuseForWire({
+                        sessionId: movedId,
+                        cause: "session-live-elsewhere",
+                      }),
+                    ),
+                  );
+                  return;
+                }
+                // Hand over the routing entry. The previous holder is NOT probed or
+                // refused — this is a cooperative handover the origin asked for,
+                // not contention.
+                currentSessionId = movedId;
+                connections.set(movedId, ws);
+                // Materialise the session if this instance never had one: a
+                // routing entry with no session record would route frames to a
+                // dashboard that cannot render the session.
+                if (!sessionManager.get(movedId) && verdict.register) {
+                  sessionManager.register({
+                    id: movedId,
+                    originDeviceId,
+                    cwd: verdict.register.cwd,
+                    name: verdict.register.name,
+                    source: verdict.register.source as never,
+                    model: verdict.register.model,
+                    sessionFile: verdict.register.sessionFile,
+                    sessionDir: verdict.register.sessionDir,
+                    firstMessage: verdict.register.firstMessage,
+                    pid: verdict.register.pid,
+                  });
+                }
+                resetHeartbeat(movedId);
+                console.log(`[gateway] session move committed: ${movedId}`);
+                // Tell the mover the transfer actually happened. It cannot
+                // infer this from its own send: every refusal above is silent
+                // by design, so no acknowledgement means "assume nothing moved".
+                ws.send(JSON.stringify({ type: "session_move_committed", sessionId: movedId }));
+                return;
+              }
+
+            // Dispatched ahead of the auto-placeholder claim below: that branch
+            // handles ANY named message from a socket holding no entry and then
+            // returns, so it would swallow the commit frame outright.
             if (!currentSessionId && "sessionId" in msg && (msg as any).sessionId) {
               const sid: string = (msg as any).sessionId;
+              // A socket holding an open provisional for this id must NOT be
+              // auto-claimed into owning it. Otherwise the very next frame a
+              // move target sends laundered its "claims nothing" provisional
+              // into a real routing entry, taking the session before the
+              // commit that is meant to be the only transfer point.
+              // Only observable across two instances: on a single gateway the
+              // origin's ownership gate absorbed the frame and hid it.
+              if (sid === provisionalSessionId) return;
               const incumbent = connections.get(sid);
               if (incumbent && incumbent !== ws && incumbent.readyState === WebSocket.OPEN) {
                 // Held by a live socket: this socket never becomes the entry.
@@ -505,6 +695,48 @@ export function createPiGateway(
           // them would strip the incumbent's `sessionFile`, consume its spawn
           // token, or reset its reconnect-grace timer.
           // See change: fix-duplicate-bridge-registration (D0).
+          // D11 (task 9.3a): a PROVISIONAL register announces intent and stops
+          // here — before `claim()`, before `connections.set()`, before every
+          // register side effect. It takes no routing entry and no contention
+          // slot, so the origin keeps serving until an explicit commit.
+          if ((msg as { provisional?: boolean }).provisional) {
+            // A move TARGET has never heard of the session — that is precisely
+            // what makes it a move. Refusing an unknown session here made every
+            // cross-instance move impossible while same-instance ones passed,
+            // which is why the unit tests missed it: they modelled origin and
+            // target as one gateway. Found by real two-instance verification.
+            //
+            // Refusing also LEAKED what the refusal was meant to hide: accepted
+            // vs rejected told any local caller whether a session lived here.
+            // Answering uniformly is both correct and quieter. A provisional
+            // still claims nothing, so accepting one grants nothing; the payload
+            // is carried so the commit can materialise the session.
+            const opened = provisionalRegistry.open({
+              sessionId: msg.sessionId,
+              instanceId: options?.instanceId ?? "",
+              register: {
+                cwd: msg.cwd,
+                source: msg.source,
+                name: msg.name,
+                model: msg.model,
+                sessionFile: msg.sessionFile,
+                sessionDir: msg.sessionDir,
+                firstMessage: msg.firstMessage,
+                pid: msg.pid,
+              },
+            });
+            provisionalSessionId = msg.sessionId;
+            ws.send(
+              JSON.stringify({
+                type: "provisional_accepted",
+                sessionId: msg.sessionId,
+                instanceId: opened.instanceId,
+                token: opened.token,
+              }),
+            );
+            return;
+          }
+
           const ok = await claim(msg.sessionId, msg.pid);
           if (!ok) return;
 
@@ -513,10 +745,15 @@ export function createPiGateway(
             // Priority: token > pid > cwd. Token is the strongest identity
             // (spawn-correlation-token); pid catches headless without token;
             // cwd is the legacy fallback for tmux/wt with neither.
+            // Tier-aware, not an unconditional cascade: with two concurrent
+            // same-cwd spawns, clearing A by its token and then falling through
+            // to `clearByCwd` disarmed B's watchdog too, so a B that never
+            // registered was never diagnosed and never reclaimed.
+            // See change: fix-spawn-correlation-ttl-coupling (D4).
             const watchdog = getSpawnRegisterWatchdog();
-            if (msg.spawnToken) watchdog.clearByToken(msg.spawnToken);
-            if (msg.pid !== undefined) watchdog.clearByPid(msg.pid);
-            watchdog.clearByCwd(msg.cwd);
+            let cleared = msg.spawnToken ? watchdog.clearByToken(msg.spawnToken) : false;
+            if (!cleared && msg.pid !== undefined) cleared = watchdog.clearByPid(msg.pid);
+            if (!cleared) watchdog.clearByCwd(msg.cwd);
 
             // If session ID changed (e.g., after /reload), clean up the old placeholder
             if (currentSessionId && currentSessionId !== msg.sessionId) {
@@ -533,6 +770,8 @@ export function createPiGateway(
 
               sessionManager.register({
                 id: msg.sessionId,
+                // Derived from the credential, not from the payload.
+                originDeviceId,
                 cwd: msg.cwd,
                 name: msg.name,
                 source: msg.source,
@@ -555,6 +794,13 @@ export function createPiGateway(
                   msg.visibilityIntent === "hidden" || msg.visibilityIntent === "visible"
                     ? msg.visibilityIntent
                     : undefined,
+                // The auto-hide heuristic used to read `params.source`, which is
+                // the bridge's PRE-decision self-report ("tui") — it cannot yet
+                // be "dashboard", so a dashboard spawn reporting `hasUI:false`
+                // was hidden from its own sidebar. Same strict-boolean
+                // normalization as the untrusted inputs above.
+                // See change: fix-spawn-correlation-ttl-coupling (D3).
+                dashboardSpawned: msg.dashboardSpawned === true,
               });
               console.error(`[gateway] session registered: ${msg.sessionId} cwd=${msg.cwd}`);
 
@@ -673,6 +919,150 @@ export function createPiGateway(
           aliveMisses.delete(ws);
         });
       });
+  };
+
+  return {
+    set onEvent(handler: ((sessionId: string, msg: ExtensionToServerMessage) => void) | undefined) {
+      onEvent = handler;
+    },
+
+    set onEmpty(handler: (() => void) | undefined) {
+      onEmpty = handler;
+    },
+
+    set onConnection(handler: (() => void) | undefined) {
+      onConnection = handler;
+    },
+
+    set onDisconnect(handler: ((sessionId: string) => void) | undefined) {
+      onDisconnect = handler;
+    },
+
+    set onSessionCreated(handler: ((sessionId: string) => void) | undefined) {
+      onSessionCreated = handler;
+    },
+
+    set onSessionRegistered(handler: ((sessionId: string, cwd: string) => void) | undefined) {
+      onSessionRegistered = handler;
+    },
+
+    address() {
+      // BOTH listeners can be bound at once (socket + opt-in TCP, D10). The
+      // numeric port is the load-bearing answer — `server.piPort()` feeds it to
+      // spawned sessions and the health endpoint — so a bound TCP listener is
+      // reported in preference to the socket path, which `transport()` still
+      // reports for display.
+      // `ws` THROWS on address() in noServer mode (socket-only), so this is a
+      // question that must be asked defensively, not a value to read.
+      let tcpAddr: ReturnType<NonNullable<typeof wss>["address"]> | null = null;
+      try {
+        tcpAddr = wss?.address() ?? null;
+      } catch {
+        tcpAddr = null;
+      }
+      if (tcpAddr && typeof tcpAddr === "object") return tcpAddr.port;
+      const addr = socketServer?.address() ?? tcpAddr;
+      if (addr && typeof addr === "object") return addr.port;
+      // A UDS listener's address() is the socket PATH, not an object. Returning
+      // null here blanked the gateway endpoint in the settings UI (task 2.9),
+      // so the path is reported as-is and the accessor is transport-aware.
+      if (typeof addr === "string") return addr;
+      return null;
+    },
+    transport() {
+      if (socketPath) return { transport: "unix" as const, path: socketPath };
+      const addr = socketServer?.address() ?? wss?.address();
+      if (addr && typeof addr === "object") return { transport: "tcp" as const, port: addr.port };
+      return null;
+    },
+    /**
+     * Bind the local unix-domain socket (POSIX). Separate from `start()`
+     * because binding a socket path is asynchronous and may legitimately
+     * REFUSE (a live incumbent must never be unlinked — D9).
+     *
+     * Shares one `WebSocketServer({ noServer: true })` and therefore one
+     * upgrade/connection handler with the TCP listener, so the transport is a
+     * per-bridge property rather than a per-server mode (D10).
+     */
+    async startOnSocket(path: string) {
+      if (!wss) {
+        wss = new WebSocketServer({ noServer: true });
+        attachConnectionHandler(wss, "unix");
+      }
+      const server = await bindGatewaySocket({ socketPath: path });
+      // Capture the CURRENT wss: routing socket upgrades through a mutable
+      // binding would send them to whatever server a later start() installed.
+      const target = wss;
+      server.on("upgrade", (req, socket, head) => {
+        // Mark the request as having arrived over the socket BEFORE handing it
+        // to the shared server, whose `verifyClient` is a property of the
+        // SERVER and therefore also runs for these. Without the mark, enabling
+        // the TCP listener silently revokes D5 for every socket bridge.
+        unixUpgrades.add(req);
+        target.handleUpgrade(req, socket as never, head, (ws) => {
+          target.emit("connection", ws, req);
+        });
+      });
+      socketServer = server;
+      socketPath = path;
+      startHeartbeat();
+    },
+    start(port: number, host?: string) {
+      // A listener already exists (socket transport): replacing `wss` here
+      // would orphan it and silently re-route socket upgrades into the TCP
+      // server's client set. Both transports are meant to SHARE one
+      // WebSocketServer (D10), so refuse the ordering that cannot.
+      if (wss) {
+        throw new Error(
+          "pi-gateway: start() after startOnSocket() would orphan the socket listener; " +
+            "start the TCP listener first, or serve the socket transport alone",
+        );
+      }
+      // Every TCP upgrade passes the bridge-auth gate; the unix socket does
+      // not (the kernel already decided — D5). `verifyClient` refuses BEFORE
+      // the socket exists, so no unauthenticated bridge connection is ever
+      // accepted and then closed.
+      const bridgeAuth = options?.bridgeAuth;
+      const verifyClient = bridgeAuth
+        ? (info: { req: IncomingMessage }, done: (ok: boolean, code?: number, msg?: string) => void) => {
+            // A unix-socket peer is exempt (D5): the socket is 0600 inside a
+            // 0700 directory, so the kernel decided before we were asked, and
+            // there is no address to authenticate anyway. The gate below is
+            // written for TCP and hardcodes `transport: "tcp"` — running it
+            // here would refuse every local bridge in any deployment that also
+            // enables TCP, which is the shipped container.
+            if (unixUpgrades.has(info.req)) {
+              done(true);
+              return;
+            }
+            const verdict = decideBridgeUpgrade({
+              transport: "tcp",
+              remoteAddress: info.req.socket.remoteAddress ?? undefined,
+              headers: info.req.headers,
+              url: info.req.url,
+              secWebSocketProtocol: info.req.headers["sec-websocket-protocol"],
+              requireTicketOnLoopback: bridgeAuth.requireTicketOnLoopback,
+              consumeTicket: bridgeAuth.consumeTicket,
+              verifyLocalToken: bridgeAuth.verifyLocalToken,
+            });
+            const log = bridgeAuth.log ?? ((m: string) => console.warn(m));
+            if (!verdict.allow) {
+              // Logged server-side only: the client is told nothing beyond
+              // "401", so the named cause is not an oracle.
+              log(`[pi-gateway] ${verdict.reason}`);
+              done(false, 401, "unauthorised bridge upgrade");
+              return;
+            }
+            if (verdict.deprecated) log(`[pi-gateway] ${verdict.reason}`);
+            if (verdict.deviceId) upgradeDeviceId.set(info.req, verdict.deviceId);
+            done(true);
+          }
+        : undefined;
+      wss = new WebSocketServer(
+        host ? { port, host, verifyClient } : { port, verifyClient },
+      );
+      attachConnectionHandler(wss, "tcp");
+      startHeartbeat();
     },
 
     stop() {
@@ -696,6 +1086,20 @@ export function createPiGateway(
       connections.clear();
       wss?.close();
       wss = null;
+      // Remove the socket file on clean shutdown; idempotent w.r.t. a file
+      // that is already gone (task 2.5).
+      if (socketPath) {
+        // `stop()` is synchronous by contract, so the teardown cannot be
+        // awaited here — but it must still be OWNED: an unobserved rejection
+        // would leave the socket path behind with no trace of why.
+        const pending = unbindGatewaySocket(socketServer, socketPath);
+        const path = socketPath;
+        pending.catch((err: unknown) => {
+          console.error(`[gateway] failed to remove socket ${path}: ${String(err)}`);
+        });
+        socketServer = null;
+        socketPath = null;
+      }
     },
 
     sendToSession(sessionId: string, msg: ServerToExtensionMessage): boolean {

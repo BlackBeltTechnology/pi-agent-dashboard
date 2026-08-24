@@ -18,10 +18,10 @@
 
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import type { SpawnFailureCode } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { loadConfig, type SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { resolveLocalGatewayEndpoint } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { MANAGED_BIN } from "@blackbelt-technology/pi-dashboard-shared/managed-paths.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import {
@@ -29,7 +29,12 @@ import {
   waitForNoCrash,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/detached-spawn.js";
 import type { ChildProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
-import { buildSafeArgv, execSync, spawnSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import {
+  buildSafeArgv,
+  execFileSync,
+  execSync,
+  spawnSync,
+} from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { prependManagedNodeToPath } from "@blackbelt-technology/pi-dashboard-shared/platform/managed-node-path.js";
 import { electronAsNodeRequired } from "@blackbelt-technology/pi-dashboard-shared/platform/runner.js";
 import {
@@ -201,6 +206,16 @@ export function buildSpawnEnv(
   // inherited PI_DASHBOARD_URL. See setSpawnDashboardPiPort above.
   if (spawnDashboardPiPort != null) {
     env.PI_DASHBOARD_URL = `ws://localhost:${spawnDashboardPiPort}`;
+    // Pin over the socket too when this instance is serving one. The URL pin
+    // alone stops working the moment the default TCP listener goes away (task
+    // 8.1), and an inherited `PI_DASHBOARD_SOCKET` from another instance would
+    // outrank our URL in the bridge's precedence ladder — the same
+    // cross-instance capture, via a different variable (task 2.0f).
+    delete env.PI_DASHBOARD_SOCKET;
+    const local = resolveLocalGatewayEndpoint({ homedir: env.HOME }, spawnDashboardPiPort);
+    if (local.transport === "unix" && existsSync(local.path)) {
+      env.PI_DASHBOARD_SOCKET = local.path;
+    }
   }
   if (opts?.spawnToken) {
     // Inject the correlation token so the bridge inside the spawned pi
@@ -237,28 +252,43 @@ export function buildInteractivePiArgs(options?: SessionOptions): string[] {
 }
 
 /**
- * Build a tmux shell command string to run pi in a new tmux window/session.
- * Kept as a string (not argv) because tmux is invoked via `execSync(cmd)`.
+ * Build the tmux argv to run pi in a new tmux window/session.
+ *
+ * Returns an argument vector (NOT a shell string): tmux is invoked via
+ * `buildSafeArgv` + `execFileSync` with `shell: false`, so `cwd` travels as a
+ * literal `-c <cwd>` element — no dashboard-side shell interprets it. The
+ * redundant `cd <cwd> &&` prefix is gone: tmux's own `-c` flag already sets the
+ * pane working directory.
+ *
+ * Layers removed: (1) dashboard-side `/bin/sh` from `execSync`, (3) cmd.exe, and
+ * (4) WSL's default shell. Layer (2) — the tmux pane shell that runs
+ * `shell-command` — remains BY DESIGN: tmux executes the pane command through a
+ * shell of its own, so `shellEscape` is still applied to the pane tokens (pi
+ * invocation + session flags). Do not strip it.
  */
-export function buildTmuxCommand(cwd: string, sessionExists: boolean, options?: SessionOptions): string {
-  const safeCwd = shellEscape(cwd);
-  const flags = sessionFlagsToArgv(options ?? {})
-    .map(shellEscape)
-    .join(" ");
-  const piCmd = flags ? `cd ${safeCwd} && pi ${flags}` : `cd ${safeCwd} && pi`;
-  // Per-window token. `execSync(cmd, { env })` only sets the tmux CLIENT's env;
-  // once a `pi-dashboard` server is running, `new-window` inherits the SERVER's
-  // environment, so every later window carried the FIRST spawn's token (three
-  // concurrent panes were measured sharing one). `-e` scopes it to this window,
-  // which is what makes the token a usable identity at all.
+export function buildTmuxCommand(
+  cwd: string,
+  sessionExists: boolean,
+  options?: SessionOptions,
+  piInvocation: string[] = ["pi"],
+): string[] {
+  const paneCommand = [
+    ...piInvocation.map(shellEscape),
+    ...sessionFlagsToArgv(options ?? {}).map(shellEscape),
+  ].join(" ");
+  // Per-window token. `execFileSync(cmd, { env })` only sets the tmux CLIENT's
+  // env; once a `pi-dashboard` server is running, `new-window` inherits the
+  // SERVER's environment, so every later window carried the FIRST spawn's token
+  // (three concurrent panes were measured sharing one). `-e` scopes it to this
+  // window, which is what makes the token a usable identity at all.
   // See change: fix-tmux-session-shutdown-leak (design D5).
-  const tokenEnv = options?.spawnToken
-    ? ` -e PI_DASHBOARD_SPAWN_TOKEN=${shellEscape(options.spawnToken)}`
-    : "";
+  const tokenEnv: string[] = options?.spawnToken
+    ? ["-e", `PI_DASHBOARD_SPAWN_TOKEN=${options.spawnToken}`]
+    : [];
   if (sessionExists) {
-    return `tmux new-window -t pi-dashboard${tokenEnv} -c ${safeCwd} "${piCmd}"`;
+    return ["tmux", "new-window", "-t", "pi-dashboard", ...tokenEnv, "-c", cwd, paneCommand];
   }
-  return `tmux new-session -d -s pi-dashboard${tokenEnv} -c ${safeCwd} "${piCmd}"`;
+  return ["tmux", "new-session", "-d", "-s", "pi-dashboard", ...tokenEnv, "-c", cwd, paneCommand];
 }
 
 // ── Availability probes (isolated, one place) ───────────────────────────────
@@ -431,15 +461,26 @@ export async function spawnPiSession(
 
 // ── Per-mechanism spawn ────────────────────────────────────────────────────
 
-function spawnTmux(cwd: string, options?: SessionOptions): SpawnResult {
+export function spawnTmux(cwd: string, options?: SessionOptions): SpawnResult {
   const exists = dashboardSessionExists();
-  const cmd = buildTmuxCommand(cwd, exists, options);
+  // Carry the registry-resolved pi argv into the pane so tmux sessions honour
+  // the SELECTED runtime instead of the shell's first PATH `pi`. Without this,
+  // the picker's divergence banner and "new sessions use it immediately" would
+  // describe a selection the default interactive path ignores.
+  // See change: select-pi-runtime-install (design D9).
+  const piCmd = resolvePiCommand();
+  if (!piCmd) {
+    return { success: false, code: "PI_NOT_FOUND", message: `pi binary not found. Checked: ${MANAGED_BIN} and system PATH.` };
+  }
+  const cmd = buildTmuxCommand(cwd, exists, options, piCmd);
   // Pass env explicitly so PI_DASHBOARD_SPAWN_TOKEN reaches the tmux pane's
   // pi process (tmux inherits the caller's env into new windows/sessions).
+  // argv0 re-adds the Electron-as-node flag when piCmd[0] is the Electron binary.
   // See change: spawn-correlation-token.
-  const env = buildSpawnEnv(process.env, { spawnToken: options?.spawnToken });
+  const env = buildSpawnEnv(process.env, { spawnToken: options?.spawnToken, argv0: piCmd[0] });
   try {
-    execSync(cmd, { stdio: "ignore", env });
+    const { argv, spawnOptions } = buildSafeArgv(cmd[0], cmd.slice(1));
+    execFileSync(argv[0], argv.slice(1), { stdio: "ignore", env, ...spawnOptions });
     return {
       success: true,
       dashboardSpawned: true,
@@ -450,11 +491,15 @@ function spawnTmux(cwd: string, options?: SessionOptions): SpawnResult {
   }
 }
 
-function spawnWslTmux(cwd: string, options?: SessionOptions): SpawnResult {
+export function spawnWslTmux(cwd: string, options?: SessionOptions): SpawnResult {
   try {
-    const cmd = `wsl ${buildTmuxCommand(cwd, false, options)}`;
+    // `wsl.exe --exec <tmux argv>`: `.exe` bypasses the cmd.exe branch in
+    // buildSafeArgv; `--exec` runs tmux directly instead of through WSL's
+    // default shell. `pi` stays literal so it resolves inside the WSL namespace.
+    const tmuxArgv = buildTmuxCommand(cwd, false, options, ["pi"]);
     const env = buildSpawnEnv(process.env, { spawnToken: options?.spawnToken });
-    execSync(cmd, { stdio: "ignore", env });
+    const { argv, spawnOptions } = buildSafeArgv("wsl.exe", ["--exec", ...tmuxArgv]);
+    execFileSync(argv[0], argv.slice(1), { stdio: "ignore", env, ...spawnOptions });
     return { success: true, dashboardSpawned: true, message: "Pi session spawned via WSL tmux" };
   } catch (err: any) {
     return { success: false, code: "TMUX_MISSING", message: `Failed to spawn via WSL tmux (wsl-tmux mechanism): ${err.message}` };

@@ -39,6 +39,9 @@ export interface ClaimEntry<S extends SlotId = SlotId> {
   depth?: 1 | 2;
   /** Back-action parent path pattern for `depth: 2` `shell-overlay-route` claims. */
   parentPath?: string;
+  /** Presentation for `shell-overlay-route` claims: route-backed dialog (default)
+   *  or full-viewport page on desktop AND mobile. See change: add-route-backed-overlay-dialogs. */
+  presentation?: "page" | "dialog";
   tab?: string;
   /** Slot-specific extra config (escape hatch — prefer first-class fields). */
   config?: Record<string, unknown>;

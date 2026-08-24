@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>D · Remote sessions</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="app.css">
+<script src="nav.js"></script>
+</head>
+<body>
+<div class="shell">
+  <div data-chrome data-title="Remote session listing" data-sub="Listed vs materialised · F4, F5"></div>
+  <div class="stack-loose">
+    <div>
+      <h3 class="h-sec">In the archive, not yet on this machine</h3>
+      <div class="card sc" style="padding:12px 14px;opacity:.82">
+        <div class="row" style="align-items:flex-start;gap:8px">
+          <span style="flex:none;width:10px;height:10px;border-radius:999px;background: var(--text-tertiary);margin-top:3px;position:relative" aria-hidden="true">
+            <span style="position:absolute;right:-4px;bottom:-4px;font-size:8px;background:var(--bg-tertiary);border-radius:999px;padding:1px">☁</span>
+          </span>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:600">Write the docker harness port derivation doc</div>
+            <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">pi-agent-dashboard · claude-opus-4-8 · 47 segments · 18 MB</div>
+            <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+              <span class="chip"><span class="glyph" aria-hidden="true">☁</span> Not downloaded</span>
+              <span class="chip chip-info"><span class="glyph" aria-hidden="true">▼</span> From robson-mbp</span>
+            </div>
+          </div>
+          <button class="btn btn-sm" type="button">Open</button>
+        </div>
+      </div>
+      <div class="note">
+        Dimming alone fails low-vision users, so “not downloaded” is a <b>shape ☁ + label</b>
+        (<b>WCAG 1.4.1</b>). Remote sessions stay in the same list because the user's mental
+        model is one project history (<b>Gestalt common region</b>).
+      </div>
+    </div>
+
+    <div>
+      <h3 class="h-sec">Materialising — determinate, cancellable</h3>
+      <div class="card sc" style="padding:12px 14px">
+        <div style="font-size:13px;font-weight:600">Write the docker harness port derivation doc</div>
+        <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">Fetching 31 of 47 segments · 11.8 MB of 18 MB</div>
+        <div class="bar" style="margin-top:10px"><span style="width:66%"></span></div>
+        <div class="row" style="margin-top:10px">
+          <span class="muted" style="font-size:11px">about 2 seconds left</span>
+          <div class="spacer"></div>
+          <button class="btn btn-sm btn-quiet" type="button">Cancel</button>
+        </div>
+      </div>
+      <div class="note">
+        Budgeted at <b>p95 &lt; 5 s</b> (test-plan P2). Past 1 s a busy indicator is required, and at a
+        5 s budget over a real network <b>NN/g response-times</b> calls for a determinate bar with cancel — not a spinner.
+      </div>
+    </div>
+
+    <div>
+      <h3 class="h-sec">Materialised</h3>
+      <div class="card sc" style="padding:12px 14px">
+        <div class="row" style="align-items:flex-start;gap:8px">
+          <span style="flex:none;width:10px;height:10px;border-radius:999px;background:var(--status-idle);margin-top:3px;position:relative" aria-hidden="true">
+            <span style="position:absolute;right:-4px;bottom:-4px;font-size:8px;background:var(--bg-tertiary);border-radius:999px;padding:1px">▼</span>
+          </span>
+          <div style="flex:1">
+            <div style="font-size:13px;font-weight:600">Write the docker harness port derivation doc</div>
+            <div style="font-size:11px;color:var(--text-secondary);margin-top:2px">pi-agent-dashboard · claude-opus-4-8 · 47k / 1M</div>
+            <div style="display:flex;gap:6px;margin-top:8px">
+              <span class="chip chip-info"><span class="glyph" aria-hidden="true">▼</span> Imported from robson-mbp</span>
+            </div>
+          </div>
+          <span class="chip chip-neutral">idle</span>
+        </div>
+      </div>
+    </div>
+
+    <div>
+      <h3 class="h-sec">Blob store unreachable</h3>
+      <div class="card card-pad">
+        <div class="callout callout-error">
+          <span class="glyph" aria-hidden="true">▲</span>
+          <div>
+            <strong>The archive bucket isn’t responding</strong>
+            <span class="body">The session list is still accurate; it comes from the index. Only the transcript bytes need the bucket.</span>
+            <div class="row" style="margin-top:10px"><button class="btn btn-sm" type="button">Retry</button></div>
+          </div>
+        </div>
+      </div>
+      <div class="note">Says what still works, not just what broke (<b>H9</b>).</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

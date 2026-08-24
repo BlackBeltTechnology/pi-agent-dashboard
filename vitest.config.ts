@@ -26,6 +26,7 @@ export default defineConfig({
       "packages/kb",
       "packages/kb-extension",
       "packages/session-distiller",
+      "packages/cost-estimator",
       "packages/server",
       "packages/extension",
       "packages/image-fit-extension",
@@ -50,11 +51,18 @@ export default defineConfig({
       // ship-it's pure decision helpers. Added by wire-local-review-gate: they
       // gate real ship decisions but were collected by no project before.
       ".pi/skills/ship-it",
-      // NOTE: packages/electron is intentionally NOT included here — it has
-      // pre-existing orphaned tests that depend on ambient PATH/mocks never
-      // wired up. Offline-packages tests are runnable via
+      // NOTE: packages/electron as a WHOLE is intentionally NOT included here
+      // — it has pre-existing orphaned tests that depend on ambient PATH/mocks
+      // never wired up. Offline-packages tests are runnable via
       // `cd packages/electron && npm test`. Bringing electron into the
       // main run is tracked as a separate cleanup.
+      //
+      // Its BUILD-CONTRACT tests are the exception: they pin the shipped
+      // Electron version, the macOS support floor and the update-stream gate,
+      // and a gate no CI job runs is not a gate. That config collects a
+      // hand-listed set of pure config/predicate tests with no ambient deps.
+      // See change: upgrade-electron-runtime.
+      "packages/electron/vitest.build-contract.config.ts",
     ],
   },
 });

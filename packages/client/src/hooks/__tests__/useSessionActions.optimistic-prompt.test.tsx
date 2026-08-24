@@ -14,8 +14,10 @@ import { applyPromptTimeout, createInitialState, type SessionState } from "../..
 
 function setup(selectedId: string | undefined, states: Map<string, SessionState>) {
   let sessionStates = states;
+  const sessionStatesRef = { current: sessionStates };
   const setSessionStates = vi.fn((updater: any) => {
     sessionStates = typeof updater === "function" ? updater(sessionStates) : updater;
+    sessionStatesRef.current = sessionStates;
   });
   const send = vi.fn();
   const deps: any = {
@@ -26,6 +28,7 @@ function setup(selectedId: string | undefined, states: Map<string, SessionState>
     sessions: new Map(),
     setSessions: vi.fn(),
     setSessionStates,
+    sessionStatesRef,
     setSpawningCwds: vi.fn(),
     setTerminals: vi.fn(),
     clearSpawningCwd: vi.fn(),
@@ -35,7 +38,7 @@ function setup(selectedId: string | undefined, states: Map<string, SessionState>
     pendingSpawnsRef: { current: new Map() },
   };
   const { result } = renderHook(() => useSessionActions(deps));
-  return { actions: result.current, send, getStates: () => sessionStates };
+  return { actions: result.current, send, getStates: () => sessionStates, sessionStatesRef };
 }
 
 function idle(): SessionState {
@@ -112,5 +115,38 @@ describe("useSessionActions — idle-scoped optimistic pendingPrompt", () => {
 
     expect(settled.pendingPrompt).toEqual({ text: "quick hello", images: undefined, status: "failed" });
     expect(settled.lastError?.message).toBe("no response");
+  });
+});
+
+describe("useSessionActions — settled provider Retry", () => {
+  it("E7/E8 sends one hidden retry command without replaying a user prompt or changing messages", () => {
+    const state = idle();
+    state.lastError = { message: "503 overloaded", timestamp: 1 };
+    const states = new Map([["s1", state]]);
+    const beforeMessages = states.get("s1")!.messages;
+    const { actions, send, getStates } = setup("s1", states);
+
+    actions.handleRetrySession("s1");
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send).toHaveBeenCalledWith({
+      type: "send_prompt",
+      sessionId: "s1",
+      text: "/__dashboard_retry",
+    });
+    expect(send).not.toHaveBeenCalledWith(expect.objectContaining({ text: "503 overloaded" }));
+    expect(getStates().get("s1")!.messages).toBe(beforeMessages);
+    expect(getStates().get("s1")!.retryState).toBeUndefined();
+  });
+
+  it("drops a stale Retry callback after the lifecycle has already recovered", () => {
+    const state = idle();
+    state.lastError = { message: "503 overloaded", timestamp: 1 };
+    const { actions, send, sessionStatesRef } = setup("s1", new Map([["s1", state]]));
+
+    sessionStatesRef.current = new Map([["s1", idle()]]);
+    actions.handleRetrySession("s1");
+
+    expect(send).not.toHaveBeenCalled();
   });
 });

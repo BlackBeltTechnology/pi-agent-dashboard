@@ -198,7 +198,7 @@ export function FilePreviewOverlay({ cwd, path, line, onClose }: Props) {
     <DialogPortal>
       {/* Outer wrapper spans the viewport but is click-through, so the composer
           cutout at the bottom stays interactive. z-index sits ABOVE the Dialog
-          layer (`z-[60]`) so a preview opened from a dialog renders in front of
+          layer (`z-dialog (50)`) so a preview opened from a dialog renders in front of
           it, not behind. See change: fix-stacked-escape-closes-layers. */}
       <div className="fixed inset-0 z-[70] pointer-events-none">
         {/* Dim + dismiss layer: covers the message area only, stopping above the

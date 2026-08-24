@@ -1,4 +1,10 @@
-## MODIFIED Requirements
+# session-process-tracker Specification
+
+## Purpose
+
+Defines how running pi processes are discovered on Windows, where the POSIX scanning approach does not apply.
+
+## Requirements
 
 ### Requirement: Windows process scanning
 The process scanner SHALL support Windows via `wmic` or `tasklist` instead of returning empty results.

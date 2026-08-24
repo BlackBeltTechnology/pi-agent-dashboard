@@ -22,7 +22,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { beforeAll, describe, expect, it } from "vitest";
 import { newBareVoidSites, SCANNED_EXTENSIONS, scanBareVoidDiscards } from "../bare-void-scan.mjs";
-import { enumerateSites, sitesOwnedBy } from "../lint-ledger.mjs";
+import { enumerateSites, runBiomeRule, sitesOwnedBy } from "../lint-ledger.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
 const CHANGE = "cleanup-async-semantics-server-extension";
@@ -47,15 +47,11 @@ function git(args) {
  * The tracked filter is not cosmetic: sibling tests in this project write
  * transient fixtures into the source tree while running in parallel, and a
  * repo-wide Biome invocation would see them. Same reasoning as
- * `lint-ledger.test.mjs`.
+ * `lint-ledger.test.mjs` — and `runBiomeRule` extends that tolerance to the
+ * process exit code, which Biome sets non-zero for any diagnostic at all.
  */
 function liveSites(rule) {
-  const out = execFileSync(
-    "npx",
-    ["biome", "lint", `--only=lint/nursery/${rule}`, ".", "--max-diagnostics=20000", "--reporter=json"],
-    { cwd: repoRoot, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] },
-  );
-  return enumerateSites(JSON.parse(out)).filter((site) =>
+  return enumerateSites(runBiomeRule(rule, { cwd: repoRoot })).filter((site) =>
     trackedFiles.has(site.slice(0, site.lastIndexOf(":"))),
   );
 }

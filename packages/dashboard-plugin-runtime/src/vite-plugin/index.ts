@@ -292,10 +292,13 @@ function generateRegistryContent(entries: PluginEntry[], repoRoot: string): stri
       // fix-plugin-and-scoped-back-navigation.
       const depthStr = claim.depth !== undefined ? `, depth: ${JSON.stringify(claim.depth)}` : "";
       const parentPathStr = claim.parentPath ? `, parentPath: ${JSON.stringify(claim.parentPath)}` : "";
+      // Presentation for shell-overlay-route claims. See change:
+      // add-route-backed-overlay-dialogs.
+      const presentationStr = claim.presentation ? `, presentation: ${JSON.stringify(claim.presentation)}` : "";
       // Generic config escape hatch (rare — prefer first-class fields).
       const configStr = claim.config ? `, config: ${JSON.stringify(claim.config)}` : "";
       lines.push(
-        `      { pluginId: ${JSON.stringify(manifest.id)}, priority: ${manifest.priority ?? 1000}, slot: ${JSON.stringify(claim.slot)}${tabStr}${toolNameStr}${commandStr}${pathStr}${sessionParamStr}${depthStr}${parentPathStr}${configStr}${componentRef}${predicateRef}${shouldRenderRef} },`,
+        `      { pluginId: ${JSON.stringify(manifest.id)}, priority: ${manifest.priority ?? 1000}, slot: ${JSON.stringify(claim.slot)}${tabStr}${toolNameStr}${commandStr}${pathStr}${sessionParamStr}${depthStr}${parentPathStr}${presentationStr}${configStr}${componentRef}${predicateRef}${shouldRenderRef} },`,
       );
     }
     lines.push("    ],");

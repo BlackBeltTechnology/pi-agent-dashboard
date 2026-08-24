@@ -12,7 +12,7 @@ export function HamburgerButton({ onClick }: HamburgerProps) {
   return (
     <button
       onClick={onClick}
-      className="md:hidden fixed top-2 left-2 z-50 p-1.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+      className="md:hidden fixed top-2 left-2 z-overlay p-1.5 rounded bg-[var(--bg-tertiary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
       data-testid="hamburger-button"
       aria-label={i18nT("common.openMenu", undefined, "Open menu")}
     >
@@ -32,7 +32,7 @@ export function MobileOverlay({ open, onClose, children }: OverlayProps) {
   if (!open) return null;
 
   return (
-    <div className="md:hidden fixed inset-0 z-40" data-testid="mobile-overlay">
+    <div className="md:hidden fixed inset-0 z-overlay" data-testid="mobile-overlay">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-[var(--bg-overlay)]"
@@ -40,7 +40,7 @@ export function MobileOverlay({ open, onClose, children }: OverlayProps) {
         data-testid="mobile-backdrop"
       />
       {/* Sidebar panel */}
-      <div className="absolute inset-y-0 left-0 w-72 bg-[var(--bg-primary)] border-r border-[var(--border-primary)] overflow-y-auto z-50">
+      <div className="absolute inset-y-0 left-0 w-72 bg-[var(--bg-primary)] border-r border-[var(--border-primary)] overflow-y-auto z-overlay">
         <div className="flex justify-end p-2">
           <button
             onClick={onClose}

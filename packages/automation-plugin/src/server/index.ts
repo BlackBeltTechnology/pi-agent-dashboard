@@ -56,6 +56,12 @@ interface AutomationPluginConfig {
    * See change: finalize-automation-run-on-session-death.
    */
   maxRunAgeMs?: number;
+  /**
+   * Settings-default cap on concurrent child spawns per fire when an
+   * automation declares no `maxConcurrentSpawns`. Default 4.
+   * See change: add-automation-concurrent-spawn.
+   */
+  maxConcurrentSpawns?: number;
 }
 
 /** Shared holder so the synchronously-mounted run route can reach the engine
@@ -181,6 +187,7 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
       scanFolder: cfg.scanFolderScope !== false,
       scanGlobal: cfg.scanGlobalScope !== false,
       maxRunAgeMs: cfg.maxRunAgeMs ?? 30 * 60 * 1000,
+      maxConcurrentSpawns: cfg.maxConcurrentSpawns ?? 4,
     };
   }
 

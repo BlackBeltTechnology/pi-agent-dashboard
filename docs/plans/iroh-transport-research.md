@@ -2,7 +2,7 @@
 
 **Date:** 2026-06-25
 **Status:** Research / explore-mode note. No implementation.
-**Verdict:** Not worth it now. Revisit only for the Electron remote-mode path.
+**Verdict:** Not worth it now. [2026-08-13 revisit](#2026-08-13-revisit--ruled-out-with-evidence): ruled out with evidence — no `darwin-x64` binary, silent install-succeeds/require-fails. Superseded by [bridge-transport-and-identity](../research/bridge-transport-and-identity.md).
 
 ## Question
 
@@ -68,3 +68,23 @@ Caveats:
 - https://docs.iroh.computer/languages/javascript (`@number0/iroh` NAPI bindings)
 - https://docs.iroh.computer/concepts/nat-traversal , .../concepts/relays
 - https://kerkour.com/iroh-v1-p2p (deep dive: building block, bring your own protocol)
+
+## 2026-08-13 revisit — ruled out with evidence
+
+Original verdict not wrong, incomplete. iroh reached **1.0 stable 2026-06-15** — five days before the original note — and was never accounted for. Current `@number0/iroh` = **1.1.0** (published 2026-07-16). 17 versions total; first `0.22.1-test4` 2024-08-14. Revisit ran inside the bridge-transport research ([`docs/research/bridge-transport-and-identity.md`](../research/bridge-transport-and-identity.md), openspec change `add-pi-gateway-transport-identity`).
+
+### Package facts (verified)
+
+- **Typed TS API, Rust NAPI implementation** — not a TS/WASM port. Ships `types: iroh-js/index.d.ts`, `typedoc.json`, `Cargo.toml`, `build.rs`, `src/`. `engines: node >= 20.3.0`.
+- **No WASM / browser package exists.** Probed, all 404: `iroh-js`, `iroh-wasm`, `@n0-computer/iroh`, `@n0-computer/iroh-js`, `@number0/iroh-js`, `@number0/iroh-wasm`, `@number0/iroh-browser`.
+- **BLOCKER — no macOS x64 binary.** `optionalDependencies` of 1.1.0 covers 11 platforms (android-arm-eabi, android-arm64, darwin-arm64, linux-arm-gnueabihf, linux-arm-musleabihf, linux-arm64-gnu, linux-arm64-musl, linux-x64-gnu, linux-x64-musl, win32-arm64-msvc, win32-x64-msvc). `darwin-x64` absent. On npm `@number0/iroh-darwin-x64` stranded at `0.22.1-test1` (abandoned ~2024-08) while `darwin-arm64` tracks 1.1.0. Official docs table (docs.iroh.computer/languages/javascript) lists macOS **arm64 only**.
+- **Failure mode silent.** Verified darwin/x64 + node v24.15.0: `npm install @number0/iroh` → "added 1 package in 1s", exit 0; `find node_modules -name '*.node'` → nothing; `require('@number0/iroh')` → `Cannot find native binding.` Install succeeds; runtime fails.
+- **Packaging defect in 1.1.0:** `main` = `iroh-js/index.js`, but published tarball puts `index.js` at package root. Loads only via Node's index.js fallback.
+
+### Why this disqualifies iroh here specifically
+
+Bridge = pi extension loaded into **every pi session on every user machine**. Missing native binary ⇒ bridge never loads ⇒ session starts ⇒ card never appears ⇒ no error surfaced. Same silent-failure signature as the mDNS hijack the transport change was meant to escape.
+
+### Revised verdict
+
+**Ruled out with evidence** — not merely "not worth it". Reconsider only if n0 restores `darwin-x64` AND a native (non-browser) client exists on both ends.
