@@ -21,6 +21,7 @@
  */
 import { spawnSync } from "node:child_process";
 import {
+  chmodSync,
   cpSync,
   existsSync,
   lstatSync,
@@ -31,9 +32,8 @@ import {
   renameSync,
   rmSync,
   statSync,
-  writeFileSync,
-  chmodSync,
   unlinkSync,
+  writeFileSync,
 } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -128,6 +128,7 @@ const BUNDLED_PLUGINS = [
   "subagents-plugin",
   "kb-plugin",
   "hermes-memory-plugin",
+  "grammar-plugin",
   "blackhole-plugin",
   "mcp-server-plugin",
   "apple-tools",

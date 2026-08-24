@@ -1413,6 +1413,21 @@ export const huCatalog: Record<string, string> = {
   "worktree.worktree": "Munkafa",
   "worktree.worktreeActions": "Munkafa-műveletek",
   "worktree.worktreeSession": "+Munkafa-munkamenet",
+  // --- Composer grammar/spell check (change: add-composer-grammar-check) ---
+  "command.grammarCheck": "Nyelvtan ellenőrzése (⌘G)",
+  "grammar.checking": "Nyelvtan ellenőrzése…",
+  "grammar.corrections": "Javítások",
+  "grammar.applyAll": "Összes alkalmazása",
+  "grammar.accept": "Elfogadás",
+  "grammar.dismiss": "Elvetés",
+  "grammar.noIssues": "Nincs hiba",
+  "grammar.truncated": "Csak a piszkozat eleje lett ellenőrizve.",
+  "grammar.staleHint": "Ez a javaslat már nem illik a piszkozathoz.",
+  "grammar.err.unreachable": "A nyelvtani háttérszolgáltatás nem elérhető. Ellenőrizd a beállított modell szolgáltatót.",
+  "grammar.err.timeout": "A nyelvtani ellenőrzés időtúllépés miatt megszakadt.",
+  "grammar.err.unconfigured": "A nyelvtani háttérszolgáltatás nincs beállítva.",
+  "grammar.err.badResponse": "A nyelvtani háttérszolgáltatás váratlan választ adott.",
+  "grammar.err.generic": "A nyelvtani ellenőrzés sikertelen.",
 
   // redesign-folder-workspace-add-flow — Add Folders dialog + cluster affordance
   "folders.selectFolder": "{name} kijelölése",
