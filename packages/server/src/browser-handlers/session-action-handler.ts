@@ -984,7 +984,6 @@ export function handleEditFollowupEntry(
     sessionId: msg.sessionId,
     index: msg.index,
     text: msg.text,
-    images: msg.images,
   });
 }
 

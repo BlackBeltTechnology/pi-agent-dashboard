@@ -382,9 +382,12 @@ export interface DashboardSession {
    * Populated from pi's `queue_update` event, forwarded by the bridge.
    * `steering[]` typically empties every turn boundary (1-15 s); `followUp`
    * is dashboard-enforced capacity 1 and drains on `agent_end`.
-   * See capability `mid-turn-prompt-queue`. See change: add-followup-edit-and-steer-cancel.
+   * `followUp` carries entry objects (text + image COUNT); `steering` stays a
+   * plain string array (pi-owned, display-only).
+   * See capability `mid-turn-prompt-queue`. See change: add-followup-edit-and-steer-cancel,
+   *   fix-bridge-followup-image-drop.
    */
-  pendingQueues?: { steering: string[]; followUp: string[] };
+  pendingQueues?: { steering: string[]; followUp: FollowUpEntryView[] };
   /**
    * Session classification. Currently the only non-default value is
    * `"automation"`, stamped on sessions spawned by the automation-plugin's
@@ -591,6 +594,23 @@ export interface ImageContent {
   type: "image";
   data: string;
   mimeType: string;
+}
+
+/**
+ * One bridge follow-up buffer entry as it crosses the wire.
+ *
+ * Image BYTES never leave the extension (design D2): the browser already had
+ * them when it sent them, so echoing them back would double the hold and put
+ * megabytes on the WebSocket on every queue mutation. `imageCount` is
+ * display-only — it drives the chip's attachment indicator and nothing else.
+ *
+ * BREAKING vs the prior `string[]`: every consumer reads `.text`. The client
+ * normalises `string | FollowUpEntryView` on read for one release (design D2b).
+ * See change: fix-bridge-followup-image-drop.
+ */
+export interface FollowUpEntryView {
+  text: string;
+  imageCount: number;
 }
 
 // PendingPrompt removed in change: add-followup-edit-and-steer-cancel.

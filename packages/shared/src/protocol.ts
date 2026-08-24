@@ -1,7 +1,7 @@
 /**
  * Extension ↔ Server WebSocket protocol messages.
  */
-import type { AutoNamerPersistedState, CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionSource, TurnUsage } from "./types.js";
+import type { AutoNamerPersistedState, CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, FollowUpEntryView, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionSource, TurnUsage } from "./types.js";
 
 // Notify level lives in types.ts (the session record retains a notify log);
 // re-exported here so protocol consumers import it from one place.
@@ -18,7 +18,8 @@ export interface QueueUpdateToServerMessage {
   type: "queue_update";
   sessionId: string;
   steering: string[];
-  followUp: string[];
+  /** Entry views: text + image COUNT. Image bytes never cross the wire (design D2). */
+  followUp: FollowUpEntryView[];
 }
 
 /**
@@ -1026,12 +1027,17 @@ export interface ClearFollowupEntriesToExtensionMessage {
   indices: number[] | "all";
 }
 
+/**
+ * Replaces the entry's TEXT only; its buffered images are preserved by the
+ * bridge. An `images` field was retired in `fix-bridge-followup-image-drop`
+ * (design D5): under the count-only wire the browser never holds the bytes
+ * after the initial `send_prompt`, so no producer could populate it.
+ */
 export interface EditFollowupEntryToExtensionMessage {
   type: "edit_followup_entry";
   sessionId: string;
   index: number;
   text: string;
-  images?: ImageContent[];
 }
 
 export interface RemoveFollowupEntryToExtensionMessage {
