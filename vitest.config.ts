@@ -44,6 +44,7 @@ export default defineConfig({
       "packages/roles-plugin",
       "packages/subagents-plugin",
       "packages/goal-plugin",
+      "packages/grammar-plugin",
       "packages/blackhole-plugin",
       "packages/mcp-server-plugin",
       "scripts",

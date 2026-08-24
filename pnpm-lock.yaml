@@ -235,6 +235,9 @@ importers:
       '@blackbelt-technology/pi-dashboard-goal-plugin':
         specifier: ^0.7.0
         version: link:../goal-plugin
+      '@blackbelt-technology/pi-dashboard-grammar-plugin':
+        specifier: ^0.7.0
+        version: link:../grammar-plugin
       '@blackbelt-technology/pi-dashboard-hermes-memory-plugin':
         specifier: ^0.7.0
         version: link:../hermes-memory-plugin
@@ -706,6 +709,28 @@ importers:
       wouter:
         specifier: ^3.9.0
         version: 3.10.0(react@19.2.7)
+
+  packages/grammar-plugin:
+    dependencies:
+      '@blackbelt-technology/dashboard-plugin-runtime':
+        specifier: ^0.7.0
+        version: link:../dashboard-plugin-runtime
+      '@blackbelt-technology/pi-dashboard-shared':
+        specifier: ^0.7.0
+        version: link:../shared
+      diff:
+        specifier: ^8.0.3
+        version: 8.0.4
+    devDependencies:
+      '@types/react':
+        specifier: ^19.0.0
+        version: 19.2.17
+      fastify:
+        specifier: ^5.0.0
+        version: 5.10.0
+      react:
+        specifier: ^19.0.0
+        version: 19.2.7
 
   packages/hermes-memory-plugin:
     dependencies:
@@ -1642,7 +1667,7 @@ packages:
     engines: {node: '>=22.12.0'}
 
   '@electron/node-gyp@https://codeload.github.com/electron/node-gyp/tar.gz/06b29aafb7708acef8b3669835c8a7857ebc92d2':
-    resolution: {gitHosted: true, tarball: https://codeload.github.com/electron/node-gyp/tar.gz/06b29aafb7708acef8b3669835c8a7857ebc92d2}
+    resolution: {gitHosted: true, integrity: sha512-MXgzlTDEEndJB3TBbvd5uFQO/8gaINo1Hfen8vef5rq/VHVPeB63uuv/uO5+8GFsAJ/rauu6XB79S6K4+aXc+w==, tarball: https://codeload.github.com/electron/node-gyp/tar.gz/06b29aafb7708acef8b3669835c8a7857ebc92d2}
     version: 10.2.0-electron.1
     engines: {node: '>=12.13.0'}
     hasBin: true

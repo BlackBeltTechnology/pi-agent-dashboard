@@ -6,6 +6,7 @@ import { BlackholeSettings, catalog as blackhole_catalog } from "@blackbelt-tech
 import { CostView, CostSettings } from "@blackbelt-technology/pi-dashboard-cost-estimator";
 import { SessionFlowActionsClaim, shouldRenderFlowsSubcard, FlowDashboardClaim, FlowYamlPreviewClaim, isFlowYamlPreviewActive, FlowWriteToolRenderer, FlowAgentsToolRenderer, FlowsSettings, FlowInputWiringClaim, catalog as flows_catalog } from "@blackbelt-technology/pi-dashboard-flows-plugin";
 import { GoalChip, hasGoal, GoalControl, FolderGoalsSection, GoalsBoardClaim, GoalDetailClaim, GoalPluginSettings, catalog as goal_catalog } from "@blackbelt-technology/pi-dashboard-goal-plugin";
+import { GrammarSettings, GrammarComposerPanel, catalog as grammar_catalog } from "@blackbelt-technology/pi-dashboard-grammar-plugin";
 import { HermesMemorySettings, catalog as hermes_memory_catalog } from "@blackbelt-technology/pi-dashboard-hermes-memory-plugin";
 import { FolderKbSection, KbSettingsClaim, catalog as kb_catalog } from "@blackbelt-technology/pi-dashboard-kb-plugin";
 import { BuiltInRolesSettings, catalog as roles_catalog } from "@blackbelt-technology/pi-dashboard-roles-plugin";
@@ -278,6 +279,33 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
   {
     manifest: {
+        "id": "grammar",
+        "displayName": "Grammar & Spelling",
+        "priority": 100,
+        "claims": [
+            {
+                "slot": "settings-section",
+                "component": "GrammarSettings",
+                "tab": "general"
+            },
+            {
+                "slot": "composer-panel",
+                "component": "GrammarComposerPanel"
+            }
+        ],
+        "client": "./src/index.tsx",
+        "server": "./src/server/index.ts",
+        "configSchema": "./configSchema.json",
+        "i18nCatalog": "catalog"
+    },
+    claims: [
+      { pluginId: "grammar", priority: 100, slot: "settings-section", tab: "general", Component: GrammarSettings },
+      { pluginId: "grammar", priority: 100, slot: "composer-panel", Component: GrammarComposerPanel },
+    ],
+    catalog: grammar_catalog,
+  },
+  {
+    manifest: {
         "id": "hermes-memory",
         "displayName": "Hermes Memory",
         "priority": 100,
@@ -417,4 +445,4 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
   },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "9ff3cfb86df09f1f16d86c359b635534df71a1a042bc6b5e60c269c59972c959";
+export const PLUGIN_REGISTRY_HASH = "e13eed24cbea2cf840a2b85c9e8ead073ab0de64df23f7c56a5361e16231ee1a";
