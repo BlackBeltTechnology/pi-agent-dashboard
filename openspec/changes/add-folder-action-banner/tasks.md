@@ -23,7 +23,7 @@ Author these before the implementation in sections 3-5 and verify each fails. Ev
 - [ ] 2.3 Config-root resolution: git worktree whose own dir lacks `.pi/settings.json` while the main checkout has it · init-status probed for the worktree · `settings` reported present (test-plan #E3)
 - [ ] 2.4 Hook-declaring repo still reports setup: directory whose config root declares a `worktreeInit` hook · init-status probed · response carries the checklist alongside the hook fields (test-plan #E4)
 - [ ] 2.5 Probe failure fails open: the artifact probe throws · init-status returned · the checklist field is omitted; no artifact reported absent (test-plan #X1)
-- [ ] 2.6 Cache invalidation after a scaffold: cached checklist reporting `.pi/settings.json` absent · a project-init session completes in that directory · next probe reports it present and does not serve the stale entry (test-plan #X4)
+- [ ] 2.6 No stale checklist: checklist reporting `.pi/settings.json` absent · the file is created and init-status probed again · the probe reports it present, having recomputed rather than cached (test-plan #X4)
 
 ### 2b. Banner logic — L1, new `packages/client/src/components/folder/__tests__/FolderActionBanner.test.tsx`
 
@@ -41,7 +41,7 @@ Author these before the implementation in sections 3-5 and verify each fails. Ev
 
 ### 2c. Menu items — L1, extend the folder-actions-menu tests
 
-- [ ] 2.18 Cleanup lives in the menu: 3 broken sessions and no blocking init state · card renders · no banner, and the `DIRECTORY` group offers `folder-menu-cleanup-broken-<cwd>` naming 3 (test-plan #E9)
+- [ ] 2.18 Cleanup lives in the menu: 3 broken sessions and no blocking init state · card renders · no banner, and the `DIRECTORY` group offers `folder-menu-item-cleanup-broken` naming 3 (test-plan #E9)
 - [ ] 2.19 Cleanup hidden at zero: folder with 0 broken sessions · menu opens · no cleanup item (test-plan #E10)
 - [ ] 2.20 Permanent setup item: directory whose checklist reports every artifact present · menu opens · `DIRECTORY` group contains `Project setup… 5/5` (test-plan #E12)
 - [ ] 2.21 Update badge on the flag: synthetic payload with `setupOutdated:true` · menu opens · item carries a `● update` badge (test-plan #E13)
@@ -66,9 +66,9 @@ Author these before the implementation in sections 3-5 and verify each fails. Ev
 ## 3. Server: per-artifact checklist (D5)
 
 - [ ] 3.1 Implement the `stat`-based checklist over the five pinned entries, resolved at `configRoot`, computed on every response. No hashing, no content inspection.
-- [ ] 3.2 Give the checklist its own cache key (config root) and its own invalidation, NOT the gate's: `gateCache` is written only on the trusted-hook branch and invalidated only by `POST /api/git/worktree/init`, so a no-hook directory — the only kind that banners — would never be cached or invalidated. Invalidate after a project-init session completes in the directory.
+- [ ] 3.2 Do NOT cache the checklist. `gateCache` is written only on the trusted-hook branch and invalidated only by `POST /api/git/worktree/init`, so a no-hook directory — the only kind that banners — would never be cached or invalidated; and a dedicated cache would need a "project-init session completed" invalidation trigger that `SessionManager` (`memory-session-manager.ts`) emits no event for. Recompute the ~5 `existsSync` calls per response.
 - [ ] 3.3 Fail-open by **omitting** the checklist field; do not introduce a second null/sentinel encoding of "unknown".
-- [ ] 3.4 Declare `setupOutdated?: boolean` in the shared type. Emit nothing (D7) — detection is a follow-up.
+- [ ] 3.4 Declare `setupOutdated?: boolean` on `WorktreeInitStatus` — which lives in `packages/client/src/lib/git/git-api.ts` (~:245), NOT in `packages/shared`; the server emits bare object literals from `git-routes.ts`. Do not hoist the type in this change. Emit nothing (D7) — detection is a follow-up.
 - [ ] 3.5 Keep emitting `configured?: boolean` (deprecated) alongside the checklist for the whole of this change, and migrate every consumer found in 1.2 to read the checklist first. Dropping the field is a FOLLOW-UP change — removing it here would make the transitional-precedence requirement describe a state that never ships.
 
 ## 4. Client: the banner (D4)
@@ -77,8 +77,8 @@ Author these before the implementation in sections 3-5 and verify each fails. Ev
 - [ ] 4.2 Colours strictly from `--severity-{info,warning,error}-*`; glyphs per 1.8.
 - [ ] 4.3 Move init progress/failure feedback into the banner, preserving elapsed time, muted last-log preview, opt-in disclosure, retry, and no auto-dismiss. Running swaps the banner's content in place rather than adding a rung.
 - [ ] 4.4 Retain the spawned project-init session id and re-probe init-status when that session reaches `ended`, unconditional on its outcome.
-- [ ] 4.5 Move `Clean up broken (N)` into the folder actions menu's existing `DIRECTORY` group — NOT the banner. Hidden when the count is zero.
-- [ ] 4.6 Delete `FolderActionBar.tsx` and `ProjectInitButton.tsx` plus `FolderActionBar.test.tsx` and `FolderActionBar-cleanup-broken.test.tsx`; update `state-feedback-adoption.test.tsx`'s hardcoded path; re-host `WorktreeInitButton` inside the banner (it is NOT deleted — it owns the trust dialog and the run call); drop the git-row wrapping exception in `SessionList.tsx`.
+- [ ] 4.5 Move `Clean up broken (N)` into the folder actions menu's existing `DIRECTORY` group — NOT the banner. Hidden when the count is zero. Use the menu's own id convention: item id `cleanup-broken` → test id `folder-menu-item-cleanup-broken` (`FolderActionsMenu.tsx:186`), not a bespoke `<cwd>`-suffixed id.
+- [ ] 4.6 Delete `FolderActionBar.tsx` and `ProjectInitButton.tsx` plus `FolderActionBar.test.tsx` and `FolderActionBar-cleanup-broken.test.tsx`; update `state-feedback-adoption.test.tsx`'s hardcoded path; re-host `WorktreeInitButton` inside the banner (it is NOT deleted — it owns the trust dialog and the run call); drop the git-row wrapping exception in `SessionList.tsx`. Also retire `tests/e2e/project-init-button.spec.ts` (+ its `.AGENTS.md` sidecar) and the `projectInitBtn: "project-init-btn"` entry in `tests/e2e/helpers/index.ts` (~:81) — both break when the button is deleted; re-express the coverage against the banner action.
 - [ ] 4.7 Implement the permanent `Project setup…` menu item with its `n/N` tally and `● update` badge.
 
 ## 5. A11y + responsive

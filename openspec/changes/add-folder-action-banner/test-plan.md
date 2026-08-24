@@ -6,8 +6,8 @@ Clarification gate: **passed**. Three unfillable slots were resolved and folded
 back into the spec as requirements — the scaffold-completion trigger (spawned
 session reaching status `ended`), the running-state presentation (in-place
 content swap, no re-rank), and the perf question (no threshold; the checklist is
-cached, and cache correctness is covered functionally by X4 rather than by a
-timing row). No `[NEEDS CLARIFICATION]` markers remain.
+recomputed per response, and freshness is covered functionally by X4 rather than
+by a timing row). No `[NEEDS CLARIFICATION]` markers remain.
 
 ---
 
@@ -25,7 +25,7 @@ timing row). No `[NEEDS CLARIFICATION]` markers remain.
 | E6 | Two setup states only | EP | L1 | automated | `.pi/settings.json` absent | card renders | banner reads "Not a pi project yet" at info severity with a `Set up →` action |
 | E7 | Two setup states only | EP | L1 | automated | every artifact present | card renders | no setup banner renders |
 | E8 | One banner max, fixed ladder | decision-table | L1 | automated | directory with BOTH a failed init run and a revoked hook trust | card renders | exactly one banner renders, the init-failure one |
-| E9 | Cleanup is not a banner | decision-table | L1 | automated | 3 broken sessions, no blocking init state | card renders | no banner renders; menu `DIRECTORY` group offers `folder-menu-cleanup-broken-<cwd>` naming 3 |
+| E9 | Cleanup is not a banner | decision-table | L1 | automated | 3 broken sessions, no blocking init state | card renders | no banner renders; menu `DIRECTORY` group offers `folder-menu-item-cleanup-broken` naming 3 |
 | E10 | Cleanup item hidden at zero | BVA (zero boundary) | L1 | automated | folder with 0 broken sessions | menu opens | no cleanup item renders |
 | E11 | Project-root rows only | decision-table | L1 | automated | row for a non-git directory the user never pinned or added to a workspace | card renders | no "not a pi project" banner renders |
 | E12 | Permanent menu item + tally | EP | L1 | automated | directory whose checklist reports every artifact present | menu opens | `DIRECTORY` group contains `Project setup… 5/5` |
@@ -38,8 +38,8 @@ timing row). No `[NEEDS CLARIFICATION]` markers remain.
 ### Performance
 
 None. The clarification gate resolved that the widened probe (≈5 `existsSync`
-calls behind a cache) does not warrant a threshold. Cache **correctness** — the
-failure mode that actually bites — is covered functionally by X4, not by timing.
+calls, uncached) does not warrant a threshold. **Freshness** — the failure mode
+that actually bites — is covered functionally by X4, not by timing.
 
 ### Frontend-quirk
 
@@ -65,7 +65,7 @@ failure mode that actually bites — is covered functionally by X4, not by timin
 | X1 | Probe failure fails open | fault-injection (abort) | L1 | automated | the artifact probe throws | init-status returned | the checklist field is omitted from the response; no artifact is reported absent |
 | X2 | Absent checklist is not an absent project | fault-injection (missing data) | L1 | automated | response whose checklist field is absent — the client's own fail-open shape | card renders | no banner renders; absence is not read as "zero artifacts present" |
 | X3 | Checklist outranks the legacy boolean | decision-table | L1 | automated | transitional payload where `configured` and the checklist disagree | banner state derived | the checklist is used and the boolean ignored |
-| X4 | Cache invalidated after a scaffold | fault-injection (stale cache) | L1 | automated | cached checklist reporting `.pi/settings.json` absent | a project-init session completes in that directory | the next probe reports it present and does not serve the stale entry |
+| X4 | No stale checklist after a scaffold | fault-injection (stale read) | L1 | automated | checklist reporting `.pi/settings.json` absent | the file is created and init-status probed again | the probe reports it present and does not serve a stale checklist |
 | X5 | Stale client degrades to silence | fault-injection (unparseable input) | L1 | automated | init-status payload the client cannot interpret | card renders | no banner renders |
 
 ---

@@ -80,7 +80,7 @@ The item SHALL carry a `● update` badge when init-status reports `setupOutdate
 
 `Clean up broken (N)` SHALL render as an item in the `DIRECTORY` group, carrying the count of the folder's ended sessions whose directory is missing, and SHALL be absent when that count is zero. It SHALL NOT render in the tier-0 banner: it is housekeeping and does not block the folder.
 
-The item SHALL carry test id `folder-menu-cleanup-broken-<cwd>`, superseding the card-level `folder-cleanup-broken-btn`.
+The item SHALL follow the menu's existing `folder-menu-item-<id>` test-id convention with item id `cleanup-broken`, yielding `folder-menu-item-cleanup-broken` and superseding the card-level `folder-cleanup-broken-btn`.
 
 The `DIRECTORY` group is used deliberately because it already exists; this requirement does not depend on any later change introducing a `MAINTENANCE` group.
 

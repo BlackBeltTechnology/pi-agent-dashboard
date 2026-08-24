@@ -20,7 +20,7 @@ Exactly one artifact is required: `settings`. The DOX doctrine is **not** a memb
 
 The checklist SHALL be computed for **every** init-status response, including one where a hook is declared. Today the boolean is computed only when no hook exists, which leaves a hook-declaring repo unable to report its setup state at all.
 
-The checklist SHALL have **its own cache entry and its own invalidation**, not the gate's. The gate cache is populated only on the trusted-hook branch and invalidated only by a hook run, so a no-hook directory — the only kind that can raise a setup banner — would never gain an entry and never be invalidated. The checklist cache SHALL be keyed on the config root and SHALL be invalidated when the directory's setup could have changed, including after a project-init session completes in that directory.
+The checklist SHALL NOT reuse the gate cache, and SHALL NOT be cached at all. The gate cache is populated only on the trusted-hook branch and invalidated only by a hook run, so a no-hook directory — the only kind that can raise a setup banner — would never gain an entry and never be invalidated. A dedicated cache is rejected too: its correct invalidation trigger is "a project-init session completed here", and the session manager exposes no lifecycle event to hang that on. The probe is a handful of `stat` calls against an already-resolved path, so it SHALL be computed fresh on every response and SHALL never serve a stale answer.
 
 The probe SHALL report the checklist as **unknown** using a single agreed representation: the checklist field is **omitted** from the response. There SHALL NOT be a second "unknown" encoding such as a null or a sentinel object — one absent-means-unknown shape, consumed identically by every client.
 
@@ -60,12 +60,12 @@ The probe SHALL fail open: on error the endpoint SHALL report the checklist as u
 - **THEN** the checklist field SHALL be omitted from the response
 - **AND** SHALL NOT report every artifact as absent
 
-#### Scenario: Checklist cache is invalidated after a scaffold
+#### Scenario: Checklist reflects a scaffold on the next probe
 
-- **GIVEN** a directory whose cached checklist reports `.pi/settings.json` absent
-- **WHEN** a project-init session completes in that directory
-- **THEN** the next init-status probe SHALL report the artifact present
-- **AND** SHALL NOT serve the stale cached checklist
+- **GIVEN** a directory whose checklist reports `.pi/settings.json` absent
+- **WHEN** the file is created and init-status is probed again
+- **THEN** the probe SHALL report the artifact present
+- **AND** SHALL NOT serve a stale checklist
 
 ### Requirement: Init-status declares a template-staleness field
 
