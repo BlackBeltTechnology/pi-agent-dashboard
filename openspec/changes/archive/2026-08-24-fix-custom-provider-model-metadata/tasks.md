@@ -73,7 +73,7 @@
 
 ## 10. Validate
 
-- [ ] 10.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` then grep the summary pattern; all suites green.
-- [ ] 10.2 `npm run quality:changed` clean on the touched files.
-- [ ] 10.3 Rebuild per the matrix: `/api/restart` for shared+server, `npm run reload` for extension, `npm run build` + restart for client.
-- [ ] 10.4 Verify against the real provider: the configured 9router `proxy` provider reports `cc/claude-opus-5` at ctx 1000000 / maxTokens 128000 / reasoning true in the model selector, and the 3 bare-id hybrids still render without error.
+- [x] 10.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` then grep the summary pattern; all suites green.
+- [x] 10.2 `npm run quality:changed` clean on the touched files.
+- [x] 10.3 Rebuild per the matrix: `/api/restart` for shared+server, `npm run reload` for extension, `npm run build` + restart for client.
+- [x] 10.4 Verify against the real provider: the configured 9router `proxy` provider reports `cc/claude-opus-5` at ctx 1000000 / maxTokens 128000 / reasoning true in the model selector, and the 3 bare-id hybrids still render without error.
