@@ -48,6 +48,14 @@ export interface CustomModelEntry {
   cost?: { input: number; output: number; cacheRead?: number; cacheWrite?: number };
   input?: string[];
   headers?: Record<string, string>;
+  /**
+   * Provenance of the capability fields, weakest adopted tier first:
+   * `"catalog"` = user-authored native `models.json`; `"endpoint"` = every
+   * projected field came from the provider's advertised metadata;
+   * `"fallback"` = at least one field is an api-typed floor.
+   * See change: fix-custom-provider-model-metadata (design D6).
+   */
+  metadataSource?: "catalog" | "endpoint" | "fallback";
   /** Routable over an OAuth credential. Default true when absent. See change: filter-oauth-incompatible-models. */
   oauthCompatible?: boolean;
 }
@@ -195,9 +203,13 @@ export class InternalRegistry {
     //    Routing (`baseUrl`, `api`, `oauthCompatible`) comes from live
     //    `/v1/models` discovery; capabilities (`contextWindow`, `maxTokens`,
     //    `reasoning`, `thinkingLevelMap`, `compat`, `input`, `cost`) come from
-    //    the user-authored native `models.json` and WIN on overlap. Native-only
-    //    entries still surface (outer join, routing from providers.json);
-    //    discovered-only entries keep their api-typed fallback floors. A native
+    //    the user-authored native `models.json` and WIN on overlap. Capability
+    //    precedence is per field, first hit wins: native `models.json` →
+    //    endpoint-advertised → api-typed floor — the last two already resolved
+    //    inside the discovery entry, so the `??` chain below expresses the whole
+    //    ladder. Native-only entries still surface (outer join, routing from
+    //    providers.json); a discovered entry keeps api-typed floors only for the
+    //    fields its provider did not advertise. A native
     //    `models.json` entry NEVER overrides `oauthCompatible` (the native
     //    format has no such field — defaulting it true would bypass the
     //    OAuth-incompat filter). See change: honor-native-models-json-metadata.
@@ -218,6 +230,18 @@ export class InternalRegistry {
       const api = routing?.api || providerEntry?.api || caps?.api || "openai-completions";
 
       const headers = caps?.headers ?? routing?.headers;
+      // Provenance by WEAKEST adopted tier over the projected capability
+      // fields. Native supplies every one → "catalog"; otherwise at least one
+      // field comes from discovery, whose own stamp is already the weakest tier
+      // across the endpoint's fields. See change: fix-custom-provider-model-metadata.
+      const nativeCoversAll =
+        caps?.contextWindow !== undefined &&
+        caps?.maxTokens !== undefined &&
+        caps?.reasoning !== undefined &&
+        caps?.input !== undefined;
+      const metadataSource: "catalog" | "endpoint" | "fallback" = nativeCoversAll
+        ? "catalog"
+        : (routing?.metadataSource ?? "fallback");
       const model: any = {
         id,
         name: id,
@@ -233,6 +257,7 @@ export class InternalRegistry {
         // discovered, else the native-only entry's own value (default true).
         // Never taken from native to override a discovered value.
         oauthCompatible: routing ? (routing.oauthCompatible ?? true) : (caps?.oauthCompatible ?? true),
+        metadataSource,
         ...(caps?.thinkingLevelMap ? { thinkingLevelMap: caps.thinkingLevelMap } : {}),
         ...(caps?.compat ? { compat: caps.compat } : {}),
         // pi 0.84.0 advanced custom-model sampling. Omitted when absent, so an

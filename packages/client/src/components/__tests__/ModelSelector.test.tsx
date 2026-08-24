@@ -288,3 +288,65 @@ describe("ModelSelector provider filter persistence", () => {
     expect((screen.getByTestId("provider-filter") as HTMLSelectElement).value).toBe("anthropic");
   });
 });
+
+// ── metadataSource union widening ("endpoint") ────────────────────────────
+//
+// The union gained a third member; `"endpoint"` is CONFIRMED capability (the
+// provider advertised every field itself), and only `"fallback"` keeps the
+// uncertain treatment. Pre-existing branches must be untouched.
+// See change: fix-custom-provider-model-metadata (test-plan F3).
+
+describe("ModelSelector — metadataSource 'endpoint' provenance (F3)", () => {
+  const titles = (row: HTMLElement) =>
+    Array.from(row.querySelectorAll("[title]")).map((e) => e.getAttribute("title") ?? "");
+
+  it("renders endpoint provenance as confirmed, not uncertain", () => {
+    const endpointModels: ModelInfo[] = [
+      {
+        provider: "proxy",
+        id: "cc/claude-opus-5",
+        reasoning: true,
+        vision: true,
+        contextWindow: 1_000_000,
+        metadataSource: "endpoint",
+      },
+    ];
+    render(<ModelSelector models={endpointModels} onSelect={() => {}} favorites={[]} />);
+    open();
+    const row = screen.getByTestId("model-row");
+    expect(titles(row).some((t) => t.includes("Reasoning (confirmed)"))).toBe(true);
+    expect(titles(row).some((t) => t.includes("Vision-capable (confirmed)"))).toBe(true);
+    expect(titles(row).some((t) => t.includes("assumed"))).toBe(false);
+    expect(row.textContent).not.toContain("?");
+  });
+
+  it.each([
+    ["catalog", "catalog" as const],
+    ["endpoint", "endpoint" as const],
+    ["fallback", "fallback" as const],
+    ["undefined", undefined],
+  ])("renders without crashing for metadataSource %s", (_label, source) => {
+    const one: ModelInfo[] = [
+      { provider: "p", id: "m", reasoning: true, vision: true, metadataSource: source },
+    ];
+    expect(() =>
+      render(<ModelSelector models={one} onSelect={() => {}} favorites={[]} />),
+    ).not.toThrow();
+    open();
+    expect(screen.getByTestId("model-row")).toBeTruthy();
+  });
+
+  it("keeps the uncertain treatment exclusive to fallback (non-regression)", () => {
+    const mixed: ModelInfo[] = [
+      { provider: "p", id: "endpoint-model", reasoning: true, vision: true, metadataSource: "endpoint" },
+      { provider: "p", id: "fallback-model", reasoning: false, vision: true, metadataSource: "fallback" },
+    ];
+    render(<ModelSelector models={mixed} onSelect={() => {}} favorites={[]} />);
+    open();
+    const rows = screen.getAllByTestId("model-row");
+    const endpointRow = rows.find((r) => r.textContent?.includes("endpoint-model"))!;
+    const fallbackRow = rows.find((r) => r.textContent?.includes("fallback-model"))!;
+    expect(endpointRow.textContent).not.toContain("?");
+    expect(fallbackRow.textContent).toContain("?");
+  });
+});

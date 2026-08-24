@@ -126,3 +126,48 @@ describe("custom-provider apiKey round-trip (faux provider)", () => {
     expect(leaked).toEqual([]);
   });
 });
+
+// ── Preserved metadata carries no credential material ─────────────────────
+//
+// Preserving the /v1/models body widened what enters the registry. The mapper
+// projects a fixed field allowlist, so a provider echoing a key in its response
+// cannot smuggle it into the catalogue or a log line.
+// See change: fix-custom-provider-model-metadata (test-plan E23, X5).
+
+describe("preserved provider metadata never carries credentials (E23)", () => {
+  it("drops unknown response fields, including any echoed api key", async () => {
+    const { mapAdvertisedModels } = await import(
+      "@blackbelt-technology/pi-dashboard-shared/provider-model-metadata.js"
+    );
+    const records = mapAdvertisedModels({
+      data: [
+        {
+          id: "cc/claude-opus-5",
+          apiKey: "sk-super-secret-123",
+          authorization: "Bearer sk-super-secret-123",
+          context_length: 1_000_000,
+          max_completion_tokens: 128_000,
+          capabilities: { reasoning: true, vision: true, apiKey: "sk-super-secret-123" },
+        },
+      ],
+    });
+
+    const serialized = JSON.stringify(records);
+    expect(serialized).not.toContain("sk-super-secret-123");
+    expect(serialized).not.toMatch(/api_?key|bearer|authorization/i);
+    // The capability data still made it through.
+    expect(records[0].advertised.contextWindow).toBe(1_000_000);
+    expect(records[0].advertised.reasoning).toBe(true);
+  });
+
+  it("carries no raw `compat` object out of the provider response", async () => {
+    const { mapAdvertisedModels } = await import(
+      "@blackbelt-technology/pi-dashboard-shared/provider-model-metadata.js"
+    );
+    const records = mapAdvertisedModels({
+      data: [{ id: "m", compat: { thinkingFormat: "deepseek" }, context_length: 200_000 }],
+    });
+    expect(records[0]).not.toHaveProperty("compat");
+    expect(JSON.stringify(records)).not.toContain("thinkingFormat");
+  });
+});

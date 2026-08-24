@@ -165,3 +165,104 @@ describe("OAUTH_INCOMPATIBLE regression — current Claude-Code allowlist stays 
     expect(ids(await reg.getAvailable())).toEqual([...allowlist].sort());
   });
 });
+
+// ── Custom-provider metadata discovery containment ────────────────────────
+//
+// Discovery iterates only providers.json#providers; built-in pi-ai models are
+// populated separately and must be bit-for-bit unaffected. One unreachable
+// provider must not break the catalogue.
+// See change: fix-custom-provider-model-metadata (test-plan E17, X1, X4).
+
+describe("custom-provider discovery containment (E17, X1, X4)", () => {
+  const BUILTIN = {
+    id: "claude-opus-4-8",
+    provider: "anthropic",
+    contextWindow: 1_000_000,
+    maxTokens: 128_000,
+    reasoning: true,
+    input: ["text", "image"],
+    cost: { input: 5, output: 25 },
+  };
+
+  async function buildWith(discovered: CustomModelEntry[]): Promise<InternalRegistry> {
+    const deps: InternalRegistryDeps = {
+      readProviders: () => ({ proxy: { baseUrl: "https://p/v1", apiKey: "k" } }),
+      readModels: () => [],
+      readAuth: () => ({}),
+      discoverCustomProviders: async () => discovered,
+    };
+    const reg = new InternalRegistry(makePiAi({ anthropic: [BUILTIN] }), {} as any, deps);
+    await reg.discover();
+    return reg;
+  }
+
+  it("leaves built-in model metadata identical to its pre-discovery snapshot (E17)", async () => {
+    const snapshot = JSON.parse(JSON.stringify(BUILTIN));
+    const reg = await buildWith([
+      {
+        id: "cc/claude-opus-5",
+        provider: "proxy",
+        contextWindow: 1_000_000,
+        maxTokens: 128_000,
+        reasoning: true,
+        input: ["text", "image"],
+        metadataSource: "endpoint",
+      },
+    ]);
+
+    const builtin = reg.getAll().find((m) => m.provider === "anthropic" && m.id === "claude-opus-4-8");
+    for (const [k, v] of Object.entries(snapshot)) {
+      expect(builtin[k]).toEqual(v);
+    }
+    // Built-ins are not routed through custom discovery, so they carry no
+    // custom-provider provenance stamp.
+    expect(builtin.metadataSource).toBeUndefined();
+  });
+
+  it("an unreachable provider yields no models and does not throw (X1)", async () => {
+    const deps: InternalRegistryDeps = {
+      readProviders: () => ({ proxy: { baseUrl: "https://p/v1", apiKey: "k" } }),
+      readModels: () => [],
+      readAuth: () => ({}),
+      // discoverAllCustomProviders swallows per-provider failures → [].
+      discoverCustomProviders: async () => [],
+    };
+    const reg = new InternalRegistry(makePiAi({ anthropic: [BUILTIN] }), {} as any, deps);
+    await expect(reg.discover()).resolves.toBeUndefined();
+    expect(reg.getAll().filter((m) => m.provider === "proxy")).toHaveLength(0);
+    expect(reg.getAll().find((m) => m.provider === "anthropic")).toBeDefined();
+  });
+
+  it("a rejecting discovery leaves the catalogue intact rather than throwing (X4)", async () => {
+    const deps: InternalRegistryDeps = {
+      readProviders: () => ({ bad: { baseUrl: "https://b/v1", apiKey: "k" } }),
+      readModels: () => [],
+      readAuth: () => ({}),
+      discoverCustomProviders: async () => {
+        throw new Error("provider blew up");
+      },
+    };
+    const reg = new InternalRegistry(makePiAi({ anthropic: [BUILTIN] }), {} as any, deps);
+    await expect(reg.discover()).resolves.toBeUndefined();
+    expect(reg.getAll().find((m) => m.provider === "anthropic")).toBeDefined();
+  });
+
+  it("a healthy provider still surfaces when a sibling provider failed (X4)", async () => {
+    // discoverAllCustomProviders returns [] for the broken one and the mapped
+    // records for the healthy one; the registry sees only the union.
+    const reg = await buildWith([
+      {
+        id: "good-model",
+        provider: "good",
+        contextWindow: 1_000_000,
+        maxTokens: 128_000,
+        reasoning: true,
+        input: ["text", "image"],
+        metadataSource: "endpoint",
+      },
+    ]);
+    const m = reg.getAll().find((x) => x.provider === "good" && x.id === "good-model");
+    expect(m.contextWindow).toBe(1_000_000);
+    expect(m.metadataSource).toBe("endpoint");
+  });
+});

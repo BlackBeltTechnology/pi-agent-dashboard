@@ -13,7 +13,8 @@
  *
  * See change: add-agent-role-model-tools (Approach C).
  */
-import { listProviderModelIds, type ProbeApi, readProvidersFromDisk, resolveProbeApiKey } from "../package/provider-probe.js";
+import { isFullyAdvertised } from "@blackbelt-technology/pi-dashboard-shared/provider-model-metadata.js";
+import { listProviderModels, type ProbeApi, readProvidersFromDisk, resolveProbeApiKey } from "../package/provider-probe.js";
 import type { CustomModelEntry, CustomProviderEntry } from "./internal-registry.js";
 
 const KNOWN_PROBE_APIS: ReadonlySet<string> = new Set<ProbeApi>([
@@ -24,9 +25,11 @@ const KNOWN_PROBE_APIS: ReadonlySet<string> = new Set<ProbeApi>([
 ]);
 
 // Api-appropriate fallback capability floors, mirroring the extension's
-// enrichModelMetadata FALLBACK_DEFAULTS. Custom `/v1/models` endpoints do not
-// advertise context_window / cost / reasoning, so we apply conservative
-// modern floors keyed by api type.
+// enrichModelMetadata FALLBACK_DEFAULTS. Applied PER FIELD, only where the
+// provider advertised nothing (or something malformed) for that field —
+// metadata-rich proxies DO advertise context_length / max_completion_tokens /
+// capabilities, so an unconditional stamp would discard real data.
+// See change: fix-custom-provider-model-metadata (design D3).
 const FALLBACK: Record<string, { contextWindow: number; maxTokens: number }> = {
   "anthropic-messages": { contextWindow: 200_000, maxTokens: 64_000 },
   "google-generative-ai": { contextWindow: 1_000_000, maxTokens: 65_536 },
@@ -49,18 +52,23 @@ export async function discoverProviderModels(
   const resolved = resolveProbeApiKey({ apiKey: entry.apiKey ?? "", name, readProviders: readProvidersFromDisk });
   if (!resolved.ok) return [];
 
-  const ids = await listProviderModelIds({ baseUrl, apiKey: resolved.key, api });
+  const discovered = await listProviderModels({ baseUrl, apiKey: resolved.key, api });
   const floor = FALLBACK[api] ?? FALLBACK["openai-completions"];
-  return ids.map((id) => ({
+  return discovered.map(({ id, advertised }) => ({
     id,
     provider: name,
     api,
     baseUrl,
-    contextWindow: floor.contextWindow,
-    maxTokens: floor.maxTokens,
-    reasoning: false,
-    input: ["text"],
+    contextWindow: advertised.contextWindow ?? floor.contextWindow,
+    maxTokens: advertised.maxTokens ?? floor.maxTokens,
+    reasoning: advertised.reasoning ?? false,
+    input: advertised.input ?? ["text"],
+    // No probed provider advertises pricing; inventing it is out of scope.
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    // Weakest adopted tier: "endpoint" only when every projected field came
+    // from the provider, else "fallback" — so a floor value is never presented
+    // as confirmed. See change: fix-custom-provider-model-metadata (D6).
+    metadataSource: isFullyAdvertised(advertised) ? ("endpoint" as const) : ("fallback" as const),
   }));
 }
 
