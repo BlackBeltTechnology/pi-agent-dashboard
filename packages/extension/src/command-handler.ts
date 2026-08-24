@@ -433,6 +433,14 @@ export function createCommandHandler(
      * unify-error-retry-lifecycle.
      */
     noteUserPrompt?: () => void;
+    /**
+     * Disarm a still-armed provider-retry chain before a manual retry re-drive
+     * (bridge wires this to `retryTracker.noteExplicitRun`). Without it the
+     * manual turn's native `agent_start` is converted into a synthetic
+     * `auto_retry_start`, rendering pi's attempt counter for a user-initiated
+     * retry. See change: replace-dashboard-retry-command-with-protocol-message.
+     */
+    disarmRetryChain?: () => void;
   },
 ): CommandHandler {
   const getSessionId = typeof sessionIdOrGetter === "function" ? sessionIdOrGetter : () => sessionIdOrGetter;
@@ -590,28 +598,13 @@ export function createCommandHandler(
           }
 
           if (parsed.type === "retry") {
-            try {
-              pi.sendMessage(
-                {
-                  customType: "pi-dashboard:retry",
-                  content: "Continue the interrupted response without repeating the user's request.",
-                  display: false,
-                },
-                { triggerTurn: true },
-              );
-            } catch (error) {
-              const finalError = errText(error);
-              console.error("[dashboard] Internal Retry dispatch failed:", finalError);
-              options?.eventSink?.({
-                type: "event_forward",
-                sessionId,
-                event: {
-                  eventType: "auto_retry_end",
-                  timestamp: Date.now(),
-                  data: { success: false, attempt: 0, finalError },
-                },
-              });
-            }
+            // Deprecated `/__dashboard_retry` sentinel alias: an un-upgraded
+            // client still smuggles retry through send_prompt. Route it to the
+            // SAME dispatch as the typed retry_session, never replaying the
+            // sentinel as a user message. Remove one release after clients are
+            // known upgraded. See change:
+            // replace-dashboard-retry-command-with-protocol-message.
+            dispatchDashboardRetry(pi, sessionId, options);
             return undefined;
           }
 
@@ -778,6 +771,13 @@ export function createCommandHandler(
           }
           return undefined;
         }
+
+        case "retry_session":
+          // First-class settled-error retry. Same dispatch as the deprecated
+          // /__dashboard_retry sentinel, minus the send_prompt channel abuse.
+          // See change: replace-dashboard-retry-command-with-protocol-message.
+          dispatchDashboardRetry(pi, sessionId, options);
+          return undefined;
 
         case "abort":
           // Pi owns both queues now. abort() asks pi to halt the current turn;
@@ -1149,6 +1149,57 @@ interface BashExecOptions {
   env?: Record<string, string>;
   /** Marks the emitted bash_output event so the client renders the footer. */
   source?: "slash-exec";
+}
+
+/**
+ * Re-drive a settled-error turn via the pi custom-message primitive. Shared by
+ * the typed `retry_session` message and the deprecated `/__dashboard_retry`
+ * sentinel alias, so both converge on ONE dispatch. See change:
+ * replace-dashboard-retry-command-with-protocol-message.
+ */
+function dispatchDashboardRetry(
+  pi: ExtensionAPI,
+  sessionId: string,
+  options?: {
+    eventSink?: (msg: ExtensionToServerMessage) => void;
+    /** Disarm a still-armed RetryTracker chain (bridge → retryTracker.noteExplicitRun). */
+    disarmRetryChain?: () => void;
+  },
+): void {
+  // Disarm any still-armed provider-retry chain BEFORE the re-drive. Otherwise
+  // the manual turn's native agent_start is converted into a synthetic
+  // auto_retry_start, rendering pi's attempt counter for a user-initiated retry.
+  options?.disarmRetryChain?.();
+  const emitFailure = (error: unknown) => {
+    const finalError = errText(error);
+    console.error("[dashboard] Internal Retry dispatch failed:", finalError);
+    options?.eventSink?.({
+      type: "event_forward",
+      sessionId,
+      event: {
+        eventType: "auto_retry_end",
+        timestamp: Date.now(),
+        data: { success: false, attempt: 0, finalError },
+      },
+    });
+  };
+  try {
+    // sendMessage is async at runtime (the .d.ts types it void). A SYNC throw is
+    // trapped here; an ASYNC rejection by the .catch() below. Both surface as a
+    // single auto_retry_end{success:false} so a failed dispatch never strands
+    // the retry surface. See change (spike caveat 1).
+    const result = pi.sendMessage(
+      {
+        customType: "pi-dashboard:retry",
+        content: "Continue the interrupted response without repeating the user's request.",
+        display: false,
+      },
+      { triggerTurn: true },
+    ) as unknown as Promise<void> | void;
+    void Promise.resolve(result).catch(emitFailure);
+  } catch (error) {
+    emitFailure(error);
+  }
 }
 
 /** Execute a bash command and forward results */
