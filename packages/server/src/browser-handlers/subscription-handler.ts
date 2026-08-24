@@ -715,23 +715,24 @@ export function handleSubscribe(
     // Stale lastSeq: client has higher seq than server (e.g. server restarted)
     if (lastSeq > 0 && lastSeq > maxSeq) {
       /**
-       * This reset is UNCONDITIONAL and stays. D3 classifies it as one of two
-       * "windowed-replay guards" to delete; that is a misclassification. The
-       * warm guard at the sibling branch tested `events.length >
-       * fullStreamLimit` and was genuinely window-gated — it is gone. THIS one
-       * never consulted the window: it fires whenever the client holds seqs
-       * the server does not (`lastSeq > maxSeq`), which is a STALE-STATE
-       * condition, not a windowing one, and it is asserted by a shipped test
-       * against a 3-event store where no window can ever apply.
+       * The call-site `session_state_reset` that used to sit here is GONE, per
+       * D3: the reset now lives inside `sendEventBatches`, keyed on
+       * `replayWindow !== null`, so the callee that KNOWS a window applied is
+       * the one that announces it.
        *
-       * Deleting it would be a third behaviour change D3 does not enumerate.
-       * Kept, so `head-tail` stays observably equivalent. The cost is that a
-       * WINDOWED stale-lastSeq replay now emits two resets — both before any
-       * `event_replay`, and `session_state_reset` reduces to
-       * `createInitialState()`, so the second is idempotent.
-       * See change: add-tail-only-replay-window (D3, deviation from task 2.11).
+       * This path is unconditionally a full replay from seq 1, so both shapes
+       * stay observably equivalent at the CLIENT:
+       *   - windowed   → `sendEventBatches` emits the reset before
+       *     `history_window`, exactly as before (and now exactly once, not
+       *     twice).
+       *   - unwindowed → no reset frame, and none is needed: the batch starts
+       *     at seq 1 and the reducer's `firstSeq === 1` rule wipes transcript
+       *     state on arrival.
+       *
+       * The wire frame therefore disappears only in the unwindowed stale-
+       * `lastSeq` case; `subscription-handler.test.ts` is updated to match.
+       * See change: add-tail-only-replay-window (D3, task 2.11).
        */
-      sendTo(ws, { type: "session_state_reset", sessionId: msg.sessionId });
       // Full replay from seq 1
       const events = eventStore.getEvents(msg.sessionId, 1);
       // Replay asset registry BEFORE events so pi-asset:<hash> tokens in

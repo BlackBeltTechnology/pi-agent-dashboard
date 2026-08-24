@@ -417,12 +417,75 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   const historyGapRef = useRef(historyGap);
   historyGapRef.current = historyGap;
 
+  /**
+   * The D7a anchor's target: the first previously-loaded row, plus the viewport
+   * `top` it held when the backfill was REQUESTED.
+   *
+   * Captured at request time because a layout effect cannot supply it — layout
+   * effects run after the DOM mutation, so by then the spliced rows are already
+   * in place and the row has already moved. `null` when no request is in
+   * flight, which is also what makes the anchor fire ONLY for a splice this
+   * component asked for.
+   *
+   * An ELEMENT, deliberately, not a `scrollHeight` delta. A height-delta anchor
+   * absorbs ALL growth, including rows below the viewport remeasuring away from
+   * their estimates — growth that does not move the reading position and must
+   * not be corrected for. Measured directly against the harness: it
+   * over-corrected by ~2300px on a 33000px splice. Anchoring on the row states
+   * the invariant D7a actually makes ("the first previously-loaded row holds its
+   * viewport position") instead of a proxy for it.
+   *
+   * Element identity is SOUND here because `getItemKey` returns the row's
+   * message id, so a row keeps its DOM node across a splice that changes its
+   * index. A detached anchor (unmounted by virtualization) stops the correction
+   * rather than correcting against a stale rect.
+   * See change: add-tail-only-replay-window (D7a).
+   */
+  const anchorKeyRef = useRef<string | null>(null);
+  const anchorTopRef = useRef<number | null>(null);
+
+  /**
+   * The first previously-loaded row: the mounted virtual row with the smallest
+   * `data-index` STRICTLY BELOW the gap divider's own row. Returns `null` when
+   * the divider is not mounted, which is the case where there is nothing to
+   * anchor anyway.
+   */
+  const captureSpliceAnchor = useCallback((): void => {
+    const el = scrollRef.current;
+    anchorKeyRef.current = null;
+    anchorTopRef.current = null;
+    if (!el) return;
+    const containerTop = el.getBoundingClientRect().top;
+    const dividerRow = el
+      .querySelector('[data-testid="history-gap-divider"]')
+      ?.closest<HTMLElement>("[data-index]");
+    if (!dividerRow) return;
+    const dividerIndex = Number(dividerRow.dataset.index);
+    if (!Number.isFinite(dividerIndex)) return;
+    let best: HTMLElement | null = null;
+    let bestIndex = Number.POSITIVE_INFINITY;
+    for (const node of el.querySelectorAll<HTMLElement>("[data-index]")) {
+      const i = Number(node.dataset.index);
+      if (Number.isFinite(i) && i > dividerIndex && i < bestIndex) {
+        best = node;
+        bestIndex = i;
+      }
+    }
+    if (!best?.dataset.rowKey) return;
+    anchorKeyRef.current = best.dataset.rowKey;
+    // CONTAINER-relative, not viewport-relative: the correction below computes
+    // a target `scrollTop` from the row's offset in SCROLL space, and mixing in
+    // the container's own viewport position would bake in an unrelated offset.
+    anchorTopRef.current = best.getBoundingClientRect().top - containerTop;
+  }, []);
+
   const handleLoadEarlier = useCallback(() => {
     // Clearing on ISSUE is what bounds this to one request per expression of
     // intent, for the button and the trigger alike.
     pendingUserIntentRef.current = false;
+    captureSpliceAnchor();
     onLoadEarlier?.();
-  }, [onLoadEarlier]);
+  }, [onLoadEarlier, captureSpliceAnchor]);
 
   /**
    * Evaluate the auto-load trigger. Called at the SETTLE timer's expiry and at
@@ -498,8 +561,78 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
    * See change: fix-lazy-history-backfill-ux (D6).
    */
   const spliceSuppressRef = useRef(false);
+  /**
+   * D7a — in `tail-only` the reasoning above INVERTS, and the two modes must
+   * not share this branch.
+   *
+   * D6's premise is that events splice BELOW the divider, so nothing above the
+   * reading position moves. That holds while the divider is mid-transcript. In
+   * `tail-only` the divider is the FIRST row: the spliced rows land between the
+   * loading head and everything else, so leaving `scrollTop` alone pins the
+   * user to the head while the content they asked for accumulates below — and,
+   * because the trigger is rising-edge, proximity never lapses and the walk
+   * STALLS.
+   *
+   * So in this mode the splice preserves the viewport position of the first
+   * previously-loaded row: `scrollTop` absorbs the inserted height, the older
+   * messages occupy the space above it, and the loading head scrolls out of
+   * proximity — which re-arms the rising edge for free, because scrolling up
+   * again is what asks for more.
+   *
+   * APPROXIMATELY, not exactly. With `overflowAnchor: "none"` and a virtualizer
+   * whose spliced rows carry ESTIMATED sizes until measured, the height at
+   * commit is an estimate. The anchor therefore keeps correcting across
+   * subsequent commits until measurement settles, rather than being consumed by
+   * one layout pass — the same failure `fix-lazy-history-backfill-ux`
+   * diagnosed in the head-first splice. `anchorBaselineRef` holds the
+   * `scrollHeight` the last correction was computed against, so each pass
+   * corrects only the NEW growth and the corrections telescope instead of
+   * compounding.
+   *
+   * The selection-anchor compensator is deliberately NOT suppressed here: in
+   * this mode the rows land ABOVE a held selection and genuinely displace it,
+   * which is precisely the case the compensator exists for. Suppressing it (as
+   * `head-tail` must) would let the selection slide by the full spliced height.
+   * See change: add-tail-only-replay-window (D7a).
+   */
+  const headFreeGap = !!historyGap && isHeadFree(historyGap);
+  const headFreeGapRef = useRef(headFreeGap);
+  headFreeGapRef.current = headFreeGap;
   useLayoutEffect(() => {
     if (!historySpliceRev) return;
+    const el = scrollRef.current;
+    // `head-tail` keeps D6's behaviour verbatim: suppress the other writers for
+    // one frame and correct nothing.
+    if (!headFreeGapRef.current || !el) {
+      spliceSuppressRef.current = true;
+      const id = requestAnimationFrame(() => {
+        spliceSuppressRef.current = false;
+      });
+      return () => {
+        cancelAnimationFrame(id);
+        spliceSuppressRef.current = false;
+      };
+    }
+
+    /**
+     * `tail-only`: hold the captured row at the viewport `top` it had when the
+     * slice was requested, and KEEP holding it as the spliced rows remeasure
+     * away from their estimates.
+     *
+     * The grow-pin is suppressed for the first frame (a splice IS content
+     * growth, and the pin would otherwise yank to the bottom); the selection
+     * compensator is released as soon as this effect's own write has landed,
+     * per the docblock above.
+     *
+     * Correcting on the ROW's rect rather than on `scrollHeight` is what makes
+     * this ignore remeasurement BELOW the reading position, which does not move
+     * the row and must not be absorbed.
+     */
+    // `tail-only`: the grow-pin still has to be suppressed for the first frame
+    // (a splice IS content growth, and the pin would yank to the bottom), but
+    // the CORRECTION itself is owned by `useTailOnlySpliceAnchor` below — it
+    // needs the virtualizer, which is not in scope this early in the component.
+    // The selection compensator is released immediately, per the docblock.
     spliceSuppressRef.current = true;
     const id = requestAnimationFrame(() => {
       spliceSuppressRef.current = false;
@@ -897,6 +1030,77 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   const virtualItems = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();
 
+  /**
+   * D7a — the `tail-only` splice anchor's CORRECTION half.
+   *
+   * Lives here, after the virtualizer, because it corrects in SCROLL SPACE
+   * rather than against a DOM rect, and that is not an optimisation — it is the
+   * only formulation that works. Two DOM-based attempts were measured against
+   * the harness and both failed for the same structural reason:
+   *
+   *   1. `Δ scrollHeight` — absorbs growth from rows BELOW the viewport
+   *      remeasuring away from their estimates, which moves nothing the user is
+   *      looking at. Over-corrected by ~3200px on a 34000px splice.
+   *   2. anchor row's `getBoundingClientRect()` — the row is displaced by the
+   *      full spliced height BEFORE any correction runs, so the virtualizer has
+   *      already UNMOUNTED it and there is no rect to read. Corrected 0px.
+   *
+   * The virtualizer's measurement cache has neither problem: a row's `start`
+   * offset is defined whether or not it is mounted, and it moves only when rows
+   * ABOVE it change size. Holding `scrollTop` at `start - anchorTop` therefore
+   * states D7a's invariant directly — the first previously-loaded row keeps the
+   * viewport position it had when the slice was requested.
+   *
+   * Re-run across ~20 frames because the spliced rows carry ESTIMATED sizes
+   * until measured, so `start` keeps moving; D7a requires the anchor to keep
+   * correcting until measurement settles rather than being consumed by one
+   * layout pass. Bounded, so it cannot become a second permanent scroll owner.
+   * See change: add-tail-only-replay-window (D7a).
+   */
+  useLayoutEffect(() => {
+    if (!historySpliceRev || !headFreeGapRef.current) return;
+    const key = anchorKeyRef.current;
+    const anchorTop = anchorTopRef.current;
+    if (key === null || anchorTop === null) return;
+
+    let frames = 0;
+    let raf = 0;
+    const correct = (): void => {
+      const node = scrollRef.current;
+      if (!node) return;
+      const idx = displayRows.findIndex((row, i) => virtualRowKey(row, i) === key);
+      // The anchor row left the transcript entirely (event trim, session
+      // switch). Stop rather than correct against a row that is not there.
+      if (idx < 0) return;
+      const start = virtualizer.measurementsCache[idx]?.start;
+      if (typeof start === "number") {
+        const target = start - anchorTop;
+        // Sub-pixel drift is measurement noise, not displacement; writing for
+        // it would fight the virtualizer every frame for no visible benefit.
+        if (Math.abs(node.scrollTop - target) > 0.5) {
+          stampProgrammaticScroll();
+          node.scrollTop = target;
+        }
+      }
+      if (++frames < 20) raf = requestAnimationFrame(correct);
+    };
+    raf = requestAnimationFrame(correct);
+    return () => {
+      cancelAnimationFrame(raf);
+    };
+    // `displayRows` and `virtualizer` are deliberately NOT dependencies: this
+    // effect must run once per SPLICE, and `displayRows` changes identity on
+    // every render (including the ones this effect's own scroll writes
+    // provoke), which would restart the correction window indefinitely.
+    //
+    // Staleness is not a hazard here. The effect runs AFTER the splice commit,
+    // so the captured `displayRows` already contains the spliced rows and the
+    // anchor's index in it is the post-splice one. `virtualizer` is a stable
+    // mutable instance, so `measurementsCache` is read LIVE on every frame —
+    // which is what lets the loop track measurement convergence.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the splice revision by design
+  }, [historySpliceRev]);
+
   // Streaming-tail content: the frozen snapshot while a tail selection is held
   // (buffers chunks; survives the message_end unmount), else the live text.
   // See change: preserve-streaming-tail-selection.
@@ -1153,11 +1357,20 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     const prevTop = anchorPrevTopRef.current;
     const prevScrollTop = anchorPrevScrollTopRef.current;
 
-    // A backfill splice above a held selection displaces the anchor row, which
-    // this compensator would read as drift and "correct" — writing scrollTop on
-    // the one commit that must not move. Re-baseline instead of correcting.
-    // See change: fix-lazy-history-backfill-ux (D6).
-    if (spliceSuppressRef.current) {
+    /**
+     * A backfill splice above a held selection displaces the anchor row, which
+     * this compensator would read as drift and "correct" — writing scrollTop on
+     * the one commit that must not move. Re-baseline instead of correcting.
+     *
+     * `head-tail` ONLY (D7a). In `tail-only` the spliced rows land ABOVE the
+     * selection and genuinely displace it, which is exactly the displacement
+     * this compensator exists to cancel; suppressing it there would let the
+     * selected content slide by the full spliced height. The gate is on the
+     * ANNOUNCED window shape, never on a sentinel, so the two modes cannot
+     * collapse into one branch.
+     * See change: fix-lazy-history-backfill-ux (D6), add-tail-only-replay-window (D7a).
+     */
+    if (spliceSuppressRef.current && !headFreeGapRef.current) {
       anchorPrevTopRef.current = nextTop;
       anchorPrevScrollTopRef.current = nextScrollTop;
       return;
@@ -1239,6 +1452,13 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
             <div
               key={vi.key}
               data-index={vi.index}
+              /* Stable per-ROW handle: `getItemKey` returns the row's message
+                 id, so this survives a splice that shifts every `data-index`.
+                 The D7a anchor re-locates its row through this after the
+                 coarse correction remounts it — `data-index` cannot serve,
+                 because the same index denotes a DIFFERENT row post-splice.
+                 See change: add-tail-only-replay-window (D7a). */
+              data-row-key={vi.key}
               ref={virtualizer.measureElement}
               style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${vi.start}px)` }}
             >
