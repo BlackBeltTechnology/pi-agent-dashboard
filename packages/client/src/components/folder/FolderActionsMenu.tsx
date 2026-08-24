@@ -52,13 +52,21 @@ import { DialogPortal } from "../primitives/DialogPortal.js";
 // existing host call site imports it from this module.
 export { FOLDER_MENU_GROUPS, type FolderMenuGroup };
 
-const GROUP_LABELS: Record<FolderMenuGroup, string> = {
-  workspace: i18nT("folders.menuGroupWorkspace", undefined, "Workspace"),
-  directory: i18nT("folders.menuGroupDirectory", undefined, "Directory"),
-  create: i18nT("folders.menuGroupCreate", undefined, "Create"),
-  open: i18nT("folders.menuGroupOpen", undefined, "Open"),
-  maintenance: i18nT("folders.menuGroupMaintenance", undefined, "Maintenance"),
-};
+/**
+ * Resolved per RENDER, not once at module init: a language switch re-renders the
+ * menu but cannot re-run module-scope code, so module-init labels would stay
+ * frozen in the language that happened to be active when the chunk first loaded.
+ * See change: move-slot-actions-to-menu.
+ */
+function groupLabels(): Record<FolderMenuGroup, string> {
+  return {
+    workspace: i18nT("folders.menuGroupWorkspace", undefined, "Workspace"),
+    directory: i18nT("folders.menuGroupDirectory", undefined, "Directory"),
+    create: i18nT("folders.menuGroupCreate", undefined, "Create"),
+    open: i18nT("folders.menuGroupOpen", undefined, "Open"),
+    maintenance: i18nT("folders.menuGroupMaintenance", undefined, "Maintenance"),
+  };
+}
 
 export interface FolderMenuItem {
   /** Stable id — drives the item's test id (`folder-menu-item-<id>`). */
@@ -180,6 +188,7 @@ export function FolderActionsMenu({ cwd, items, open, onOpenChange }: Props) {
   }
 
   const label = i18nT("folders.folderActions", undefined, "Folder actions");
+  const GROUP_LABELS = groupLabels();
 
   const panel = (
     <div

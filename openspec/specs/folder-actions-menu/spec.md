@@ -271,7 +271,12 @@ The **host's** own item type MAY retain its existing `node` escape hatch and `pr
 
 Each registration SHALL carry the identity of the contributing plugin — the same `pluginId` the existing slot registry uses, read from the plugin context by the registration API rather than supplied in the contribution payload, so a plugin SHALL NOT be able to declare itself as another. That identity is what makes the ordering and collision rules below evaluable; without it they reference data the model cannot supply.
 
-When two registrations share an `id` within one folder scope, the **most recent** registration SHALL win, so a section that unmounts and remounts (including a development double-mount) keeps a live callback rather than a dropped one. When distinct plugins collide on an `id`, the winner SHALL be chosen by a stable comparison of those plugin identities so the outcome never depends on load order.
+Registrations SHALL be keyed by the PAIR `(pluginId, contributionId)`, and the two collision rules apply to different cases:
+
+- **Same `pluginId` AND same `id`** — a re-registration of one key. The **most recent** registration SHALL win, so a section that unmounts and remounts (including a development double-mount) keeps a live callback rather than a dropped one. Recency SHALL NOT decide anything else.
+- **Different `pluginId`, same `id`** — two distinct keys competing for one rendered item. The winner SHALL be chosen by a stable comparison of the plugin identities (never by recency or mount order), so the outcome is identical across load orders.
+
+Stating only "most recent wins" would make the cross-plugin case depend on mount order, which the ordering rule above exists to eliminate.
 
 #### Scenario: Markup contribution is no longer possible
 

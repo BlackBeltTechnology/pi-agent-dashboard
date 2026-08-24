@@ -82,6 +82,8 @@ The section SHALL render a KB status summary derived from the folder's KB stats 
 
 The KB folder section SHALL NOT render an action control inside its pill. It SHALL instead contribute a single declarative reindex item to the `folder-actions-menu` slot, in the `MAINTENANCE` group, which triggers a reindex of the folder's KB.
 
+That contribution SHALL be made ONLY from the section's **sidebar** placement. The same section also renders in the worktree-card placement, whose scope has no folder actions menu, and it SHALL register nothing there — otherwise its item lands in a scope with nothing to render it. See `folder-actions-menu` → "Card-placement sections do not register".
+
 That one item SHALL express every former state through its own label, badge and disabled state — not through separate items: "Retry" in the `error` state, disabled with an in-progress indication in the `indexing` state, "Index now" in the `not-indexed` state, and "Reindex" in the `stale` or `populated` state, carrying the stale badge when stale. Because activation now happens in the menu, the former click-propagation carve-out (stopping the action from also opening settings) no longer applies.
 
 #### Scenario: State varies the single menu item

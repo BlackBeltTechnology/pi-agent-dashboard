@@ -62,6 +62,11 @@ export interface RegisteredFolderMenuItem extends FolderMenuContribution {
  * A contribution is well-formed only with all five required fields and a group
  * inside the taxonomy. An unknown group is a version mismatch, so the item is
  * DROPPED rather than rendered ungrouped — inventing a home hides the mismatch.
+ *
+ * The OPTIONAL fields are type-checked too, because the host renders them: a
+ * non-string `badge` reaches React as a child and throws while the menu is
+ * opening (one plugin taking the whole menu down), and a truthy non-boolean
+ * `disabled` silently swallows every activation of that item.
  */
 export function isValidFolderMenuContribution(value: unknown): value is FolderMenuContribution {
   if (!value || typeof value !== "object") return false;
@@ -71,7 +76,9 @@ export function isValidFolderMenuContribution(value: unknown): value is FolderMe
     isFolderMenuGroup(c.group) &&
     typeof c.label === "string" && c.label.length > 0 &&
     typeof c.icon === "string" && c.icon.length > 0 &&
-    typeof c.onSelect === "function"
+    typeof c.onSelect === "function" &&
+    (c.badge === undefined || typeof c.badge === "string") &&
+    (c.disabled === undefined || typeof c.disabled === "boolean")
   );
 }
 

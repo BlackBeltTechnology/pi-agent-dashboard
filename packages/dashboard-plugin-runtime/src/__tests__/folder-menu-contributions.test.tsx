@@ -100,6 +100,23 @@ describe("isValidFolderMenuContribution (test-plan #E15, #E16)", () => {
   it("rejects a group outside the taxonomy (version mismatch, not ungrouped)", () => {
     expect(isValidFolderMenuContribution(contribution({ group: "kb" as never }))).toBe(false);
   });
+
+  it("accepts the optional fields when well-typed, and omitted", () => {
+    expect(isValidFolderMenuContribution(contribution({ badge: "3 stale", disabled: true }))).toBe(true);
+    expect(isValidFolderMenuContribution(contribution({ badge: undefined, disabled: undefined }))).toBe(true);
+  });
+
+  // A non-string badge reaches React as a child and throws while the menu is
+  // opening; a truthy non-boolean `disabled` silently swallows every activation.
+  it("rejects a non-string badge", () => {
+    expect(isValidFolderMenuContribution(contribution({ badge: {} as never }))).toBe(false);
+    expect(isValidFolderMenuContribution(contribution({ badge: 3 as never }))).toBe(false);
+  });
+
+  it("rejects a non-boolean disabled", () => {
+    expect(isValidFolderMenuContribution(contribution({ disabled: "false" as never }))).toBe(false);
+    expect(isValidFolderMenuContribution(contribution({ disabled: 1 as never }))).toBe(false);
+  });
 });
 
 describe("selectFolderMenuItems ordering (test-plan #E5, #E6, #F5)", () => {
@@ -129,6 +146,8 @@ describe("store registration (test-plan #E15, #E16, #F1)", () => {
     store.registerItem(SCOPE, "p", contribution({ id: "good" }));
     store.registerItem(SCOPE, "p", contribution({ id: undefined as never }));
     store.registerItem(SCOPE, "p", contribution({ id: "bad-group", group: "nope" as never }));
+    store.registerItem(SCOPE, "p", contribution({ id: "bad-badge", badge: {} as never }));
+    store.registerItem(SCOPE, "p", contribution({ id: "bad-disabled", disabled: "yes" as never }));
     expect(store.getItems(SCOPE).map((i) => i.id)).toEqual(["good"]);
   });
 
