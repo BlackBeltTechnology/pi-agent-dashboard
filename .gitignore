@@ -52,3 +52,8 @@ SHIP_IT_BLOCKED.md
 # mutation-harness crash-safety journal — transient per-worktree recovery state.
 # A committed journal would itself be residue.
 .mutation-journal/
+
+# pytest cache (document-converter python work). Self-ignores via a nested
+# .pytest_cache/.gitignore, which `kb dox lint` does not honour — so it showed
+# up as a missing-row finding. Ignore it from the root instead.
+.pytest_cache/

@@ -7,7 +7,9 @@ pi-dashboard bridge extension; ship inside the published package. Rows relocated
 | File | Purpose |
 |------|---------|
 | `browser/SKILL.md` | Router for the bundled `browser` skill. Step 0a preflight (`command -v agent-browser`, never auto-install);… → see `browser/SKILL.md.AGENTS.md` |
+| `browser/references/electron.md` | Vendored agent-browser Electron-app automation reference. Launch w/ `--remote-debugging-port`, `agent-browser connect <port>`, tab/webview targets, `--session`. Worked example: PI Dashboard `--debug-cdp` / `PI_DEBUG_CDP`, port 9222, `npm run dev:cdp` (packages/electron). |
 | `browser/references/own-browser.md` | AUTHORED. Drive the user's own logged-in browser via Panerelay… → see `browser/references/own-browser.md.AGENTS.md` |
+| `browser/references/web.md` | Vendored agent-browser core reference. Core loop: `snapshot -i` → @eN refs; waits, semantic `find`, tabs, iframes, dialogs, `--session`, `network route`, react devtools, `doctor`. Bundles authentication/commands/profiling/proxy/session-management refs. |
 | `browser/scripts/check-panerelay.sh` | AUTHORED. Panerelay diagnostic; key=value + `NEXT=`… → see `browser/scripts/check-panerelay.sh.AGENTS.md` |
 | `browser/UPSTREAM.md` | Vendoring provenance + refresh procedure. Records upstream tag/SHA/CLI version; marks `own-browser.md` + `check-panerelay.sh` authored, exempt from refresh. |
 | `canvas-webapp/SKILL.md` | Bundled skill: render a web app on the dashboard canvas. Canvas loopback `kind:"url"` loads under `/live/<id>/` in a `sandbox="allow-scripts"` (opaque-origin, NO allow-same-origin) iframe. Vite DEV fails (absolute paths → 404 blank); static build needs RELATIVE `base:'./'` + a static server sending `Access-Control-Allow-Origin: *` (opaque-origin module fetch is CORS w/ Origin:null). Carries a minimal `canvas-serve.mjs`. Pitfalls: `kill %1` not persisting across tool calls, Vite IPv6-only bind → IPv4 ECONNREFUSED 500, `kind:'server'`→tap-chip vs `kind:'url'`→auto-open. |
@@ -17,6 +19,7 @@ pi-dashboard bridge extension; ship inside the published package. Rows relocated
 | `pi-dashboard/commands/dashboard-git-branches.md` | LLM-free bash command. curl `$PI_DASHBOARD_BASE/api/git/branches?cwd=$PWD`, jq prints branches, current marked `*`. |
 | `pi-dashboard/commands/dashboard-git-init.md` | LLM-bound command. POST /api/git/init body {"cwd":"<cwd>"}. Defaults cwd to `$PWD` if no arg. Usage `/dashboard:git-init [cwd]`. |
 | `pi-dashboard/commands/dashboard-git-stash-pop.md` | LLM-bound command. POST /api/git/stash-pop body {"cwd":"<cwd>"}. Defaults cwd to `$PWD` if no arg. Usage `/dashboard:git-stash-pop [cwd]`. |
+| `pi-dashboard/commands/dashboard-list-models.md` | LLM-bound command. GET $BASE/api/models; `annotated` arg → /api/models?annotated=1 adds `excludedReason` (null=reachable). WARN: never parse ~/.pi/agent/providers.json or models.json — silent empty; /api/models only correct surface. Usage `/dashboard:list-models [annotated]`. |
 | `pi-dashboard/commands/dashboard-peer-list.md` | LLM-free bash command. curl `$PI_DASHBOARD_BASE/api/known-servers`, jq prints `label host:port`. |
 | `pi-dashboard/commands/dashboard-peer-scan.md` | LLM-free bash command. POST `$PI_DASHBOARD_BASE/api/discover-servers`, jq prints `host:port v<version> (local)`. |
 | `pi-dashboard/commands/dashboard-pin-list.md` | LLM-free bash command. curl `$PI_DASHBOARD_BASE/api/pinned-dirs`, jq prints each pinned dir. |
@@ -51,3 +54,8 @@ pi-dashboard bridge extension; ship inside the published package. Rows relocated
 | `pi-dashboard/references/slash-commands.md` | Reference catalog of every `/dashboard:*` slash command with args and LLM-free vs LLM-bound classification. Naming grammar `/dashboard:<resource>-<verb>[-<modifier>]`. |
 | `pi-dashboard/scripts/dashboard-api.sh` | Helper script with port auto-detection + auth |
 | `pi-dashboard/SKILL.md` | Bundled skill: monitor + control dashboard from any pi session. → see `pi-dashboard/SKILL.md.AGENTS.md` |
+| `project-init/dox-doctrine.md` | Canonical DOX doctrine; seeds one block into project AGENTS.md (marker `<!-- dox-doctrine -->`). Delimited write/read blocks; `start`/`end` marker pairs `dox:write`, `dox:read:kb`, `dox:read:manual`. Maintain section outside markers — NOT seeded; `kb_search "dox maintenance"`. |
+| `project-init/profiles/coding/prompts/plan-change.md` | Coding-profile prompt. Draft focused implementation plan: state assumptions, list files to touch, define verify step per task. Minimal — surgical changes only. Confirm before implementing. |
+| `project-init/profiles/coding/prompts/tdd-loop.md` | Coding-profile prompt. TDD loop: write/update test → run, confirm fails for right reason → minimal implementation → re-run until green; refactor only with tests green. |
+| `project-init/profiles/docs/prompts/draft-page.md` | Docs-profile prompt. Draft/revise doc page: lead with answer, one idea per section, scannable headings, present tense, active voice, concrete examples/commands/paths, surgical edits. |
+| `project-init/SKILL.md` | Bundled skill: scaffold bare dir into configured pi project. Interactive: profiles (coding/docs; user ~/.pi/project-profiles shadow shipped), stack auto-detect (pnpm/yarn/bun/npm/cargo/go/poetry/pip/maven/gradle), DOX + OpenSpec opt-in; writes AGENTS.md, .pi/settings.json, prompts; worktreeInit hook flips Initialize button. |
