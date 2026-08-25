@@ -105,6 +105,35 @@ export function computePace(win: QuotaWindowInput, now: number = Date.now()): Pa
   };
 }
 
+/**
+ * Compact time-until-reset, e.g. `58m` / `1h 58m` / `5d 20h`. Returns null when
+ * there is nothing truthful to show: an unparseable timestamp, a NaN clock, or
+ * a reset already in the past (which `computePace` separately reports as
+ * `stale`). Callers render nothing on null rather than a bogus duration — Z.ai
+ * ships an epoch-zero sentinel for its 5h window, which must not surface as a
+ * decades-old reset.
+ *
+ * Granularity coarsens with distance: minutes matter for a 5h window, hours for
+ * a 7d one, so days suppress minutes as noise.
+ */
+export function formatResetIn(resetsAt: string, now: number = Date.now()): string | null {
+  if (!Number.isFinite(now)) return null;
+  const resetMs = Date.parse(resetsAt);
+  if (!Number.isFinite(resetMs)) return null;
+
+  const totalSeconds = (resetMs - now) / 1000;
+  if (totalSeconds <= 0) return null;
+  if (totalSeconds < 60) return "<1m";
+
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+
+  if (days > 0) return hours > 0 ? `${days}d ${hours}h` : `${days}d`;
+  if (hours > 0) return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  return `${minutes}m`;
+}
+
 /** Short tooltip label: `over by X%` when warning, `on pace` when green, else a neutral state. */
 export function paceLabel(pace: Pace): string {
   switch (pace.state) {

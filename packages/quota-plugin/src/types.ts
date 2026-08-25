@@ -21,32 +21,47 @@ export interface QuotaWindowDto {
 export interface ProviderQuota {
   provider: string;
   windows: QuotaWindowDto[];
+  /**
+   * True when this snapshot is RETAINED from an earlier successful fetch
+   * because the latest refresh failed (e.g. the provider throttled us with
+   * HTTP 429). The numbers are real but no longer current. Absent on a fresh
+   * result. Retaining beats vanishing: a provider silently disappearing from
+   * the bar reads as "you have no quota", which is a worse lie than slightly
+   * stale figures. See change: publish-quota-plugin.
+   */
+  stale?: boolean;
 }
 
 /**
- * Which peer pi extensions are installed right now. The settings UI gates each
- * provider checkbox on this: a provider is only tickable when an installed
- * source can actually serve it (see sources.ts). Names only — no paths.
- *
- * See change: add-provider-quota-plugin.
+ * Why an ENABLED provider produced no quota. Ticking a provider and seeing
+ * nothing is indistinguishable from a bug, so the server reports which of the
+ * distinct failure paths was taken. See change: publish-quota-plugin.
  */
-export interface QuotaSourceStatusDto {
-  /** `QuotaSourceId` from sources.ts. */
-  id: string;
-  /** npm package that supplies this source. */
-  package: string;
-  installed: boolean;
+export type QuotaUnavailableReason =
+  /** No token could be resolved for this provider (not signed in). */
+  | "no-credential"
+  /** This plugin has no fetcher for the provider (config names an unsupported id). */
+  | "no-adapter"
+  /** The endpoint was called and refused — throttled, expired token, or wrong credential shape. */
+  | "peer-rejected"
+  /** The peer succeeded but returned no usable window. */
+  | "no-data";
+
+/** One enabled-but-empty provider and the reason it is empty. */
+export interface QuotaUnavailableDto {
+  provider: string;
+  reason: QuotaUnavailableReason;
 }
 
 /** `GET /api/quota` response body. */
 export interface ApiQuotaResponse {
   providers: ProviderQuota[];
   /**
-   * Per-source availability. Optional for back-compat with a cached client
-   * bundle; absent → the client falls back to "assume nothing installed" and
-   * shows the install hint rather than silently enabling every checkbox.
+   * Enabled providers that yielded nothing this cycle, with the reason.
+   * Omitted when empty. A provider shown from a retained snapshot is NOT
+   * listed — the user can see it, so it needs no explanation.
    */
-  sources?: QuotaSourceStatusDto[];
+  unavailable?: QuotaUnavailableDto[];
 }
 
 /** Persisted plugin config shape (`plugins.quota.*`). */

@@ -20,17 +20,19 @@ import { useSettingsDraftSource, useT, useUiPrimitive } from "@blackbelt-technol
 import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { computePace, type Pace, type PaceSeverity, paceLabel } from "./pace.js";
-import { type QuotaSourceId, TRACKED_PROVIDERS } from "./sources.js";
-import type { ApiQuotaResponse, ProviderQuota, QuotaPluginConfig, QuotaWindowDto } from "./types.js";
+import { computePace, formatResetIn, type Pace, type PaceSeverity, paceLabel } from "./pace.js";
+import { SUPPORTED_PROVIDERS } from "./providers.js";
+import type {
+  ApiQuotaResponse,
+  ProviderQuota,
+  QuotaPluginConfig,
+  QuotaUnavailableReason,
+  QuotaWindowDto,
+} from "./types.js";
 
 export { catalog } from "./i18n.js";
 
-/** The one peer that can serve Anthropic; named in the gated row's hint. */
-const USAGE_BARS_PKG = "@hk_net/pi-usage-bars";
-
-// Display names for the providers in the capability table (sources.ts owns WHICH
-// providers exist and which peer can serve each; this map only labels them).
+// Display names only; providers.ts owns WHICH providers exist.
 const PROVIDER_LABELS: Record<string, string> = {
   anthropic: "Anthropic",
   "openai-codex": "Codex",
@@ -38,10 +40,7 @@ const PROVIDER_LABELS: Record<string, string> = {
   openrouter: "OpenRouter",
   synthetic: "Synthetic",
   zai: "Z.ai",
-  "opencode-go": "OpenCode Go",
   "kimi-coding": "Kimi Code",
-  deepseek: "DeepSeek",
-  minimax: "MiniMax",
 };
 
 const SEVERITY_COLOR: Record<PaceSeverity, string> = {
@@ -125,17 +124,18 @@ function useQuota(pollMs = 60_000): ProviderQuota[] {
 }
 
 /**
- * Which peer sources are installed, from the same `/api/quota` payload. Drives
- * the settings gating: a provider is only tickable when an installed source can
- * serve it.
+ * Reason-per-provider for every ENABLED provider that produced no quota, from
+ * the same `/api/quota` payload.
  *
- * Fetched once per mount (no poll): installing a pi extension is a deliberate
- * user act, and the Settings panel is short-lived. A failed/absent `sources`
- * field yields `[]` — i.e. "nothing installed", which DISABLES rows rather than
- * silently enabling them.
+ * Every provider is tickable now that the plugin owns each contract — there is
+ * no peer to be missing. But a tick can still yield nothing (not signed in,
+ * endpoint throttled), and silence there is indistinguishable from a bug. The
+ * server names the cause; the settings row prints it.
+ *
+ * Fetched once per mount (no poll): the Settings panel is short-lived.
  */
-function useQuotaSources(): QuotaSourceId[] {
-  const [installed, setInstalled] = useState<QuotaSourceId[]>([]);
+function useQuotaUnavailable(): Record<string, QuotaUnavailableReason> {
+  const [reasons, setReasons] = useState<Record<string, QuotaUnavailableReason>>({});
   useEffect(() => {
     let alive = true;
     void (async () => {
@@ -143,20 +143,16 @@ function useQuotaSources(): QuotaSourceId[] {
         const res = await fetch("/api/quota");
         const json = (await res.json()) as ApiQuotaResponse;
         if (!alive) return;
-        setInstalled(
-          (json.sources ?? [])
-            .filter((s) => s.installed)
-            .map((s) => s.id as QuotaSourceId),
-        );
+        setReasons(Object.fromEntries((json.unavailable ?? []).map((u) => [u.provider, u.reason])));
       } catch {
-        if (alive) setInstalled([]);
+        if (alive) setReasons({});
       }
     })();
     return () => {
       alive = false;
     };
   }, []);
-  return installed;
+  return reasons;
 }
 
 /**
@@ -165,6 +161,22 @@ function useQuotaSources(): QuotaSourceId[] {
  * of being explained elsewhere. Offset is clamped to 6..94% so the centred
  * label never overflows the track at the extremes.
  */
+/**
+ * Time-until-reset caption. Renders NOTHING when `formatResetIn` yields null
+ * (past/epoch-sentinel/unparseable reset), so a bogus upstream timestamp stays
+ * invisible instead of claiming a decades-old reset.
+ */
+function ResetsIn({ resetsAt, now }: { resetsAt: string; now: number }) {
+  const t = useT();
+  const rel = formatResetIn(resetsAt, now);
+  if (rel === null) return null;
+  return (
+    <span data-testid="quota-resets-in" style={{ whiteSpace: "nowrap" }}>
+      {t("resetsIn", { t: rel }, `resets in ${rel}`)}
+    </span>
+  );
+}
+
 function NowCaption({ elapsedPercent }: { elapsedPercent: number }) {
   const t = useT();
   return (
@@ -329,6 +341,24 @@ export function QuotaDialog({
           >
             <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: "var(--text-primary, #e4e4e7)" }}>
               {providerLabel(p.provider)}
+              {/* Retained snapshot: the latest refresh failed (e.g. HTTP 429) so
+                  these are the last known figures, not live. Surfaced in the
+                  dialog ONLY — the footer bar stays quiet by design.
+                  See change: publish-quota-plugin. */}
+              {p.stale === true && (
+                <span
+                  data-testid={`quota-stale-${p.provider}`}
+                  title={t("retainedBody", undefined, "The latest refresh failed, so the last known values are shown.")}
+                  style={{
+                    marginLeft: 6,
+                    fontSize: 10,
+                    fontWeight: 400,
+                    color: "var(--text-muted, #71717a)",
+                  }}
+                >
+                  {t("retained", undefined, "not live")}
+                </span>
+              )}
             </div>
             {p.windows.map((w, i) => {
               const pace = computePace(w, now);
@@ -347,7 +377,18 @@ export function QuotaDialog({
                   </div>
                   <MiniBar pace={pace} usedPercent={w.usedPercent} height={6} />
                   {pace.elapsedPercent !== null && <NowCaption elapsedPercent={pace.elapsedPercent} />}
-                  <div style={{ fontSize: 10, color: "var(--text-muted, #71717a)" }}>{paceText(pace)}</div>
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: "var(--text-muted, #71717a)",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 8,
+                    }}
+                  >
+                    <span>{paceText(pace)}</span>
+                    <ResetsIn resetsAt={w.resetsAt} now={now} />
+                  </div>
                 </div>
               );
             })}
@@ -387,7 +428,21 @@ export function QuotaSettings() {
   const t = useT();
   const config = usePluginConfig<QuotaPluginConfig>();
   const send = usePluginSend();
-  const installedSources = useQuotaSources();
+  const unavailable = useQuotaUnavailable();
+
+  /** Plain-language cause for a ticked provider that returned nothing. */
+  const reasonText = (reason: QuotaUnavailableReason): string => {
+    switch (reason) {
+      case "no-credential":
+        return t("reasonNoCredential", undefined, "not signed in");
+      case "peer-rejected":
+        return t("reasonRejected", undefined, "provider refused the request");
+      case "no-data":
+        return t("reasonNoData", undefined, "no quota reported");
+      case "no-adapter":
+        return t("reasonNoAdapter", undefined, "not supported");
+    }
+  };
 
   const base = useMemo<QuotaPluginConfig>(
     () => ({ enabled: !!config?.enabled, providers: { ...(config?.providers ?? {}) } }),
@@ -402,7 +457,7 @@ export function QuotaSettings() {
 
   const isDirty =
     draft.enabled !== base.enabled ||
-    TRACKED_PROVIDERS.some(
+    SUPPORTED_PROVIDERS.some(
       (id) => !!draft.providers?.[id]?.enabled !== !!base.providers?.[id]?.enabled,
     );
 
@@ -442,42 +497,30 @@ export function QuotaSettings() {
         <legend style={{ fontSize: 11, color: "var(--text-secondary, #a1a1aa)", padding: 0, marginBottom: 4 }}>
           {t("providersLegend", undefined, "Enable per provider")}
         </legend>
-        {TRACKED_PROVIDERS.map((id) => {
-          // Anthropic is the ONLY gated row: it is servable exclusively by
-          // @hk_net/pi-usage-bars, so without that peer the checkbox is dead
-          // weight. Every other provider stays tickable unconditionally -- do
-          // NOT generalise this into per-provider capability gating.
-          const gated = id === "anthropic" && !installedSources.includes("usage-bars");
+        {/* Every provider is tickable: the plugin owns every contract, so there
+            is no peer that can be missing. A tick that yields nothing gets an
+            inline reason instead of silence. */}
+        {SUPPORTED_PROVIDERS.map((id) => {
+          const ticked = !!draft.providers?.[id]?.enabled;
+          const reason = ticked ? unavailable[id] : undefined;
           return (
           <label
             key={id}
-            style={{
-              display: "flex",
-              gap: 6,
-              alignItems: "center",
-              marginBottom: 3,
-              opacity: gated ? 0.55 : 1,
-            }}
+            style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3, flexWrap: "wrap" }}
           >
             <input
               type="checkbox"
               data-testid={`quota-provider-${id}`}
-              disabled={gated}
-              checked={!gated && !!draft.providers?.[id]?.enabled}
+              checked={ticked}
               onChange={(e) => setProvider(id, e.target.checked)}
             />
             {providerLabel(id)}
-            {gated && (
+            {reason && (
               <span
-                data-testid={`quota-provider-${id}-needs`}
-                title={t(
-                  "needsPeerBody",
-                  { pkg: USAGE_BARS_PKG },
-                  `Install ${USAGE_BARS_PKG} (Packages tab) to track this provider.`,
-                )}
-                style={{ fontSize: 10, color: "var(--text-muted, #71717a)", cursor: "help" }}
+                data-testid={`quota-provider-${id}-reason`}
+                style={{ fontSize: 10, color: "var(--text-muted, #71717a)" }}
               >
-                {t("needsPeer", { pkg: USAGE_BARS_PKG }, `needs ${USAGE_BARS_PKG}`)}
+                {reasonText(reason)}
               </span>
             )}
             {/* The ToS caveat is Anthropic-specific, so it sits on that row

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { computePace, paceLabel } from "./pace.js";
+import { computePace, formatResetIn, paceLabel } from "./pace.js";
 
 const NOW = 1_700_000_000_000; // fixed epoch ms
 const iso = (deltaSec: number) => new Date(NOW + deltaSec * 1000).toISOString();
@@ -101,5 +101,44 @@ describe("computePace", () => {
     const p = computePace({ usedPercent: 50, resetsAt: iso(3600), windowSeconds }, NOW);
     expect(Math.round(p.elapsedPercent ?? 0)).toBe(50);
     expect(Math.round(p.projected ?? 0)).toBe(100);
+  });
+});
+
+describe("formatResetIn", () => {
+  it("under an hour: minutes only", () => {
+    expect(formatResetIn(iso(58 * 60), NOW)).toBe("58m");
+  });
+
+  it("under a day: hours and minutes", () => {
+    expect(formatResetIn(iso(3600 + 58 * 60), NOW)).toBe("1h 58m");
+  });
+
+  it("a day or more: days and hours (minutes dropped as noise)", () => {
+    expect(formatResetIn(iso(5 * 86400 + 20 * 3600 + 30 * 60), NOW)).toBe("5d 20h");
+  });
+
+  it("exact hour: omits the zero minutes", () => {
+    expect(formatResetIn(iso(3 * 3600), NOW)).toBe("3h");
+  });
+
+  it("under a minute: floor to a sub-minute marker, never '0m'", () => {
+    expect(formatResetIn(iso(30), NOW)).toBe("<1m");
+  });
+
+  it("already elapsed → null (caller renders nothing, pace says stale)", () => {
+    expect(formatResetIn(iso(-60), NOW)).toBeNull();
+  });
+
+  it("epoch-zero sentinel → null (never '56 years ago')", () => {
+    // Observed live from Z.ai's 5h window.
+    expect(formatResetIn("1970-01-01T00:00:00.000Z", NOW)).toBeNull();
+  });
+
+  it("unparseable timestamp → null", () => {
+    expect(formatResetIn("not-a-date", NOW)).toBeNull();
+  });
+
+  it("NaN now → null (never propagates NaN)", () => {
+    expect(formatResetIn(iso(3600), Number.NaN)).toBeNull();
   });
 });
