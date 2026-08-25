@@ -76,9 +76,6 @@ export const TESTIDS = {
   composerGitGroup: "composer-git-group",
   composerStatusGroup: "composer-status-group",
   gitInitBtn: "git-init-btn",
-  // Polymorphic Initialize on a no-hook folder row → spawns the interactive
-  // project-init scaffolder. See change: project-init-skill-and-profiles.
-  projectInitBtn: "project-init-btn",
   // Worktree-init hook feedback surfaces (folder row). See change:
   // friendlier-worktree-init.
   worktreeInitBtn: "worktree-init-btn",

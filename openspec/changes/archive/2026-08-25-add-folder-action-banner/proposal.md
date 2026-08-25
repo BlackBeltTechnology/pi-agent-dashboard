@@ -39,7 +39,9 @@ Three defects, all visible on an unconfigured directory today:
   the init and cleanup controls gone it has no contents.
 - **`configured?: boolean` becomes a per-artifact checklist** on the init-status payload,
   stat'ed against the **config root** (for a worktree that is the main checkout, not the row's
-  own directory) and computed for every response, including hook-declaring repos:
+  own directory), computed for every response including hook-declaring repos, and **uncached**
+  — the gate cache never covers a no-hook directory, and a dedicated cache would need a
+  session-completion invalidation event the session manager does not emit:
 
   | `.pi/settings.json` | Tier 0 | `⋯ → DIRECTORY` |
   |---|---|---|
@@ -130,13 +132,15 @@ change before commit).
   placement; cleanup moves to the menu), server-side init-status probe.
 - **Tokens**: none added.
 - **Test ids**: `folder-cleanup-broken-btn` is superseded by the menu item
-  `folder-menu-cleanup-broken-<cwd>`; new `folder-banner-{setup,init-needed,retrust,failed,running}-<cwd>`.
+  `folder-menu-item-cleanup-broken` (the menu's own `folder-menu-item-<id>` convention);
+  new `folder-banner-{setup,init-needed,retrust,failed,running}-<cwd>`.
   `project-init-btn` is superseded by the banner's action.
 - **Tests**: `ProjectInitButton.test.tsx`, `FolderActionBar.test.tsx` **and
   `FolderActionBar-cleanup-broken.test.tsx`** (both retire with the component),
   `packages/client/src/__tests__/state-feedback-adoption.test.tsx` (hardcodes the
-  `folder/FolderActionBar.tsx` path), `WorktreeInitButton` tests, plus any E2E that clicks
-  `folder-cleanup-broken-btn`.
+  `folder/FolderActionBar.tsx` path), `WorktreeInitButton` tests, and — following the deleted
+  `project-init-btn` — `tests/e2e/project-init-button.spec.ts` plus the `projectInitBtn`
+  entry in `tests/e2e/helpers/index.ts`. No E2E clicks `folder-cleanup-broken-btn`.
 - **Wire compatibility**: `configured?: boolean` → checklist is a **breaking payload change**
   on init-status. Client and server ship together; a stale client must degrade to no banner,
   not to a false one.

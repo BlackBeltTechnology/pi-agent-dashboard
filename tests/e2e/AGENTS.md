@@ -31,6 +31,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `file-preview-survives-churn.spec.ts` | Playwright spec. Rendered-DOM regression for hoisted file-preview overlay. → see `file-preview-survives-churn.spec.ts.AGENTS.md` |
 | `fixtures.ts` | The suite's `test`/`expect` entry point — EVERY spec imports from here, not `@playwright/test` (guard:… → see `fixtures.ts.AGENTS.md` |
 | `flow-roundtrip.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests). Real pi-flows engine + faux agents. → see `flow-roundtrip.spec.ts.AGENTS.md` |
+| `folder-action-banner.spec.ts` | L3 for `add-folder-action-banner` (test-plan #E6, #F1, #F3, #F9, #F10). Pins the session-less `kb-sample` fixture (no `.pi/settings.json`, pinned → project root) → asserts the `folder-banner-setup-<cwd>` "Not a pi project yet" banner renders below the header row with a keyboard-focusable `folder-banner-setup-action-<cwd>`, the card carries no inline `project-init-btn`, and activating the action does not navigate to the directory home. Expands the folder only when its toggle title reads "Expand folder". |
 | `folder-actions-menu.spec.ts` | Playwright spec. Folder actions menu after the slot-pill controls moved in (test-plan #E1, #E2, #F7, #F8,… → see `folder-actions-menu.spec.ts.AGENTS.md` |
 | `folder-membership-drag.spec.ts` | L3 for `drag-folders-across-workspaces` (test-plan #F11-#F13, #F16, #F18, #F20, #X6) — the scenarios needing… → see `folder-membership-drag.spec.ts.AGENTS.md` |
 | `followup-image-queue.spec.ts` | L3 for `fix-bridge-followup-image-drop` (test-plan #F1, #F2, #F3, #F5, #F6, #F7, #F8). → see `followup-image-queue.spec.ts.AGENTS.md` |
@@ -77,7 +78,6 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `pi-runtime-picker.spec.ts` | L3 spec for the Settings → Developer "Pi runtime" picker (test-plan #F1-#F17, #X13). → see `pi-runtime-picker.spec.ts.AGENTS.md` |
 | `plugin-settings-pages.spec.ts` | L3 spec (test-plan rows F1-F14, X1-X5, X7; change: plugin-settings-pages). → see `plugin-settings-pages.spec.ts.AGENTS.md` |
 | `popover-container-clip.spec.ts` | Browser E2E gate for `fix-popover-container-clip` (F5–F8, F11–F12). → see `popover-container-clip.spec.ts.AGENTS.md` |
-| `project-init-button.spec.ts` | Playwright E2E for the polymorphic Initialize button (Level 1). → see `project-init-button.spec.ts.AGENTS.md` |
 | `project-trust-headless-spawn.spec.ts` | L3 spec (test-plan #X4, change: adopt-pi-074-080-features). → see `project-trust-headless-spawn.spec.ts.AGENTS.md` |
 | `real-flow-regression.spec.ts` | L3 spec (change: add-flow-plugin-e2e-tests, D5 follow-up). → see `real-flow-regression.spec.ts.AGENTS.md` |
 | `reap-core.ts` | Pure, side-effect-free reap logic, unit-tested at L1 in `scripts/__tests__/e2e-reap-core.test.mjs`:… → see `reap-core.ts.AGENTS.md` |

@@ -1,13 +1,14 @@
 /**
  * Single shared `GET /api/git/worktree/init-status` probe for a row.
  *
- * The folder-action-bar row calls this once and feeds the result to BOTH the
- * scaffold `ProjectInitButton` and the hook-run `WorktreeInitButton`, avoiding
- * a double probe per row. `refetch` re-issues the probe (used after a hook run
- * flips the gate). Fail-open: `fetchWorktreeInitStatus` returns `hasHook:false`
- * on error.
+ * The row's `FolderInitScope` calls this once and feeds the result to BOTH the
+ * tier-0 `FolderActionBanner` (setup / init / re-trust / failure rungs) and the
+ * folder actions menu's Project setup tally, avoiding a double probe per row.
+ * `refetch` re-issues the probe (after a hook run flips the gate, or a spawned
+ * project-init session ends). Fail-open: `fetchWorktreeInitStatus` returns
+ * `hasHook:false` on error.
  *
- * See change: distinguish-initialize-actions.
+ * See change: distinguish-initialize-actions, add-folder-action-banner.
  */
 import { useCallback, useEffect, useState } from "react";
 import { fetchWorktreeInitStatus, type WorktreeInitStatus } from "../lib/git/git-api.js";

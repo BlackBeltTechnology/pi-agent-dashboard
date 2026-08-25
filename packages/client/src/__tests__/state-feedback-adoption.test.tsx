@@ -39,10 +39,10 @@ const COVERED_SURFACES = [
   "session/ComposerSessionActions.tsx",
   "session/SessionList.tsx",
   "chat/CommandInput.tsx",
-  "folder/FolderActionBar.tsx",
-  // The Directory Settings cog — FolderActionBar's only focus-ring target —
-  // relocated here as a menu item, and the menu trigger carries the utility.
-  // See change: add-folder-actions-menu (3.6).
+  // FolderActionBar.tsx was deleted; its tier-0 call to action is now the
+  // FolderActionBanner, whose action carries the focus-ring utility.
+  // See change: add-folder-action-banner.
+  "folder/FolderActionBanner.tsx",
   "folder/FolderActionsMenu.tsx",
   "folder/FolderSpawnButtons.tsx",
 ];
@@ -123,10 +123,10 @@ describe("state-feedback adoption ratchet — covered surfaces", () => {
   it("covered focus surfaces adopt the .focus-ring utility", () => {
     // Every focus-target surface refactored by this change must carry the
     // shared focus-ring class so the ratchet trips if a regression drops it.
-    // `folder/FolderActionBar.tsx` left this list with the Directory Settings
-    // cog: after change add-folder-actions-menu the bar hosts no focus target
-    // of its own, and the cog's focus-ring moved to FolderActionsMenu.tsx.
-    for (const name of ["chat/CommandInput.tsx", "session/SessionList.tsx", "folder/FolderActionsMenu.tsx", "folder/FolderSpawnButtons.tsx"]) {
+    // `folder/FolderActionBar.tsx` was deleted (change: add-folder-action-banner);
+    // its tier-0 call to action moved to `folder/FolderActionBanner.tsx`, whose
+    // setup action carries the focus-ring utility.
+    for (const name of ["chat/CommandInput.tsx", "session/SessionList.tsx", "folder/FolderActionBanner.tsx", "folder/FolderActionsMenu.tsx", "folder/FolderSpawnButtons.tsx"]) {
       expect(readSurface(name), `${name} missing focus-ring`).toContain("focus-ring");
     }
   });

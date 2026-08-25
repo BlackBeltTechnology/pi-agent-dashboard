@@ -74,6 +74,42 @@ const gateCache = new Map<string, { needsInit: boolean; evaluatedAt: number }>()
 function invalidateGateCache(checkoutPath: string) { gateCache.delete(checkoutPath); }
 
 /**
+ * Per-artifact setup checklist for the init-status probe (change:
+ * add-folder-action-banner, D5). A `stat` of a fixed five-entry list resolved at
+ * the CONFIG ROOT (for a worktree row that is the main checkout, not the row's
+ * own cwd — matching the legacy `configured` computation). Exactly one entry,
+ * `settings`, is required; its absence is the only state that means "not a pi
+ * project". Computed on EVERY response (D-B) and deliberately UNCACHED: the gate
+ * cache never covers a no-hook directory (the only kind that banners), and a
+ * dedicated cache would need a "project-init session completed" invalidation the
+ * session manager emits no event for. Five `existsSync` calls are cheap.
+ */
+const SETUP_ARTIFACTS = [
+  { id: "settings", rel: [".pi", "settings.json"], required: true },
+  { id: "agents", rel: ["AGENTS.md"], required: false },
+  { id: "prompts", rel: [".pi", "prompts"], required: false },
+  { id: "openspec", rel: ["openspec"], required: false },
+  { id: "kb", rel: [".pi", "dashboard", "knowledge_base.json"], required: false },
+] as const;
+interface SetupArtifact { id: string; present: boolean; required: boolean; }
+/**
+ * Returns the checklist, or `undefined` to fail open (probe threw). A `null`
+ * config root is a valid answer — "nothing here" — not an error, so it reports
+ * every artifact absent rather than omitting the field.
+ */
+function buildSetupChecklist(configRoot: string | null): SetupArtifact[] | undefined {
+  try {
+    return SETUP_ARTIFACTS.map((a) => ({
+      id: a.id,
+      present: configRoot != null && fs.existsSync(join(configRoot, ...a.rel)),
+      required: a.required,
+    }));
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * Last non-empty line of the progress tail, for the ghost preview. The tail is
  * the most recent <= 4KB of combined output; the chip shows only its final line.
  * See change: friendlier-worktree-init.
@@ -353,27 +389,33 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
       // `.pi/settings.json` resolves to itself so its declared hook is read.
       // See change: support-non-git-init-hook.
       const configRoot = resolveConfigRoot(validated.cwd);
+      // Per-artifact checklist (change: add-folder-action-banner). Computed on
+      // every branch; `undefined` (probe threw) omits the field to fail open.
+      const checklist = buildSetupChecklist(configRoot);
+      const withChecklist = <T extends object>(data: T) =>
+        checklist === undefined ? data : { ...data, checklist };
       if (!configRoot) {
         // State ①: no reachable config root at all — truly unconfigured.
-        return { success: true, data: { hasHook: false, configured: false } } satisfies ApiResponse;
+        return { success: true, data: withChecklist({ hasHook: false, configured: false }) } satisfies ApiResponse;
       }
       const hook = readInitHook(configRoot);
       if (!hook) {
         // No worktreeInit hook. Distinguish state ① (git repo, no
         // `.pi/settings.json`) from state ③ (configured project, no hook).
-        // See change: distinguish-initialize-actions.
+        // `configured` is retained (deprecated) alongside the checklist for the
+        // transitional window. See change: distinguish-initialize-actions.
         const configured = fs.existsSync(join(configRoot, ".pi", "settings.json"));
-        return { success: true, data: { hasHook: false, configured } } satisfies ApiResponse;
+        return { success: true, data: withChecklist({ hasHook: false, configured }) } satisfies ApiResponse;
       }
       const trusted = isTrusted(configRoot, hookDefHash(hook));
       // TOFU: do NOT execute the repo-declared `gate` (arbitrary bash) until the
       // hook is trusted. An untrusted hook reports presence only; `needsInit` is
       // unknown until the user confirms. See change: generalize-worktree-init-hook.
       if (!trusted) {
-        return { success: true, data: { hasHook: true, trusted: false } } satisfies ApiResponse;
+        return { success: true, data: withChecklist({ hasHook: true, trusted: false }) } satisfies ApiResponse;
       }
       const gate = await evaluateGateCached(validated.cwd, hook);
-      return { success: true, data: { hasHook: true, needsInit: gate.needsInit, trusted: true } } satisfies ApiResponse;
+      return { success: true, data: withChecklist({ hasHook: true, needsInit: gate.needsInit, trusted: true }) } satisfies ApiResponse;
     },
   );
 

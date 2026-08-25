@@ -99,6 +99,15 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
+- **`GET /api/git/worktree/init-status` payload.** `configured?: boolean` is
+  superseded by a per-artifact `checklist` (`settings`, `agents`, `prompts`,
+  `openspec`, `kb`; exactly one required: `settings`), computed on every
+  response at the config root and uncached. `configured` is still emitted but
+  **deprecated** — consumers must read the checklist first. A new
+  `setupOutdated?: boolean` is declared (nothing emits it yet). Client and server
+  ship together; a client that cannot interpret the payload degrades to no
+  banner, never a false one.
+
 - **BREAKING (dashboard plugins): `SlotPill.actions?: ReactNode` is removed.**
   A plugin can no longer render arbitrary markup into a directory-card slot pill;
   the pill is state-only. Passing `actions` is now a compile-time error, with no
