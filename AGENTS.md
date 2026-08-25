@@ -11,12 +11,14 @@ Web dashboard to monitor + control pi agent sessions remotely. Three components:
 | `grep -rn "SymbolName"` — find where a fn/type/const lives | `kb_search --doc-type agents "SymbolName"` |
 | `grep -rn "topic" src/` — how does X work / where's X handled | `kb_search "feature topic"` |
 | `cat`/`Read` a file to learn its purpose before editing | `kb agents <path>` — purpose + exports + `See change:` |
-| chase imports / callers across files | `kb_neighbors <path\|heading>` |
+| chase imports / callers across files | `rg "<symbol>"` — the Tier-1 graph is markdown-structure only and CANNOT resolve code refs |
 | read one doc section in full | `kb_get <path> <section>` |
 | build / run / install / setup / release / "how do I X" | `grep -i <kw> docs/faq.md README.md docs/` — then quote |
 | derive a fact from a large file / big command output | `ctx_execute_file` / `ctx_execute` **when present** (context-mode is optional); else `Read` w/ `offset`+`limit`, or `rg`/`awk` via Bash |
 
-`kb_search` indexes repo markdown (`docs/ openspec/ packages/ .pi/`). `ctx_search`/`memory_search` index session memory, NOT repo docs — different corpus.
+`kb_search` indexes repo markdown (`docs/ openspec/ packages/ .pi/`) — NOT `tests/ qa/ scripts/ docker/`. `ctx_search`/`memory_search` index session memory, NOT repo docs — different corpus.
+
+**Pick the lane — this is the single highest-yield kb habit.** Looking for a FILE or SYMBOL → pass `doc_type:"agents"` (measured P@1 0.041 → 0.227, MRR 0.198 → 0.345 on 97 real file-lookup queries; unfiltered, verbose `openspec/` spec prose takes rank-1 77% of the time and buries the per-file row at rank 5-10). Asking how something WORKS, or anything conceptual → leave `doc_type` unset; the `agents` filter measurably HURTS prose queries (P@1 0.150 → 0.067).
 
 **Per-file record = directory `AGENTS.md` tree.** Every file (incl. `docker/ scripts/ .pi/skills/ public/ qa/ tests/ .github/`) has a row in its directory's `AGENTS.md`. `docs/` topic docs + root config (`biome.json`, `playwright.config.ts`, `.pi-test-harness.json`) → `docs/AGENTS.md`. `kb agents <path>` returns the root→nearest chain; `kb_search --doc-type agents` ranks rows by symbol/topic. Tree files are tiny — no subagent needed. The `docs/file-index*.md` splits are RETIRED.
 
