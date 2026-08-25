@@ -1,5 +1,10 @@
 import { expect, type Page, test } from "./fixtures.js";
 import { gotoDashboard } from "./helpers/index.js";
+import {
+  buildWindowedSession,
+  teardownWindowedSession,
+  type WindowedSession,
+} from "./helpers/windowed-session.js";
 
 /**
  * L3 gate for the `replayWindowMode` settings control — test-plan rows F14 and
@@ -131,6 +136,116 @@ test.describe("replayWindowMode settings control", () => {
       expect(persisted.maxWsBufferBytes).toBe(baseline.maxWsBufferBytes);
     } finally {
       await page.request.put("/api/config", { data: { memoryLimits: original } });
+    }
+  });
+});
+
+/**
+ * #X8 — retention undercutting the window.
+ *
+ * ── The scenario as written is NOT reachable by configuration ───────────────
+ * The row assumed that setting `maxEventsPerSession` BELOW `maxReplayEvents`
+ * announces a gap the store cannot serve. It does not, and the measurement is
+ * unambiguous: with `maxEventsPerSession: 50` against `maxReplayEvents: 100`
+ * the RETAINED stream (≤50) is smaller than the window (100), so
+ * `computeReplayWindow` takes its fits-entirely short-circuit and announces NO
+ * gap whatsoever. `scrollDividerIntoDom` then times out because there is no
+ * divider to find — which is what this spec originally failed on.
+ *
+ * Raise retention ABOVE the window and the opposite holds: `gapCount` is read
+ * from the store, so everything announced is by construction servable.
+ *
+ * The `unservable` state is therefore a RACE, not a configuration: retention
+ * must evict events, or compaction must drop a whole superseded
+ * `message_update` band, in the interval BETWEEN the window being announced
+ * and the backfill arriving. That is not arrangeable from the settings panel,
+ * which is all this row specified.
+ *
+ * So this asserts the property that IS reachable and is worth pinning: the
+ * combination degrades to no gap at all, rather than to a divider that offers
+ * to load events nothing can serve. The A5 copy itself stays covered at L1
+ * (`HistoryGapDivider.test.tsx`), where the state can be constructed directly.
+ *
+ * Retained below for the wording contract it still guards:
+ *
+ * The divider must state the OUTCOME and nothing else. Two causes produce an
+ * identical empty slice — retention having trimmed the events, and replay
+ * compaction having dropped a whole superseded `message_update` band — and the
+ * client cannot tell them apart. Naming either one would sometimes be false, so
+ * the copy names neither. It must also not be styled or announced as an ERROR:
+ * nothing failed, and offering a retry would invite the user to re-attempt
+ * something that cannot succeed.
+ *
+ * See change: fix-lazy-history-backfill-ux (D8); add-tail-only-replay-window.
+ */
+test.describe("X8: retention below the replay window", () => {
+  test.setTimeout(600_000);
+
+  let built: WindowedSession | undefined;
+
+  test.beforeAll(async ({ browser }) => {
+    test.setTimeout(1_500_000);
+    built = await buildWindowedSession(browser, { mode: "tail-only", transcripts: 1 });
+  });
+
+  test.afterAll(async ({ browser }) => {
+    test.setTimeout(300_000);
+    if (built) await teardownWindowedSession(browser, built);
+  });
+
+  test("X8: retention below the window announces no gap at all, rather than an unloadable one", async ({
+    browser,
+    page,
+  }) => {
+    const ctx = await browser.newContext();
+    const p2 = await ctx.newPage();
+    let limits: Limits = {};
+    try {
+      const cfg = (await (await p2.request.get("/api/config")).json()) as {
+        data?: { memoryLimits?: Limits };
+      };
+      limits = cfg.data?.memoryLimits ?? {};
+      // Squeeze the store BELOW the window.
+      await p2.request.put("/api/config", {
+        data: { memoryLimits: { ...limits, maxEventsPerSession: 50, maxReplayEvents: 100 } },
+      });
+      await p2.request.post("/api/restart").catch(() => undefined);
+    } finally {
+      await ctx.close();
+    }
+    await expect
+      .poll(async () => (await page.request.get("/api/health")).status(), { timeout: 180_000 })
+      .toBe(200);
+
+    try {
+      await gotoDashboard(page);
+      const card = page.locator(`[data-session-id="${built!.sessionId}"]`).first();
+      await card.waitFor({ state: "visible", timeout: 60_000 });
+      await card.click();
+      // Let a full replay land.
+      await page.waitForTimeout(5_000);
+
+      /**
+       * NO divider: the retained stream fits the window, so no gap is
+       * announced. The transcript is short and complete rather than windowed.
+       *
+       * This is the graceful degradation the pairing must produce. The failure
+       * it rules out is a divider offering "Load earlier" over events the store
+       * no longer holds — an affordance that could never succeed.
+       */
+      await expect(page.getByTestId("history-gap-divider")).toHaveCount(0);
+      await expect(page.getByTestId("history-gap-load")).toHaveCount(0);
+      await expect(page.getByTestId("history-gap-unavailable")).toHaveCount(0);
+      // And nothing is presented as a fault, because nothing failed.
+      await expect(page.getByTestId("history-gap-error")).toHaveCount(0);
+    } finally {
+      const ctx2 = await browser.newContext();
+      const p3 = await ctx2.newPage();
+      try {
+        await p3.request.put("/api/config", { data: { memoryLimits: limits } });
+      } finally {
+        await ctx2.close();
+      }
     }
   });
 });
