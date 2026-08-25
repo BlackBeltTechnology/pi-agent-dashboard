@@ -1,6 +1,6 @@
 # Test Plan — verify-subagent-pull-under-load
 
-Stage: design   Generated: 2026-08-27
+Stage: design   Generated: 2026-08-24
 
 No open clarifications — the three decision-forcing gaps (P5 watch pattern, X1
 expected render, P4 inconclusive handling) were answered and folded into

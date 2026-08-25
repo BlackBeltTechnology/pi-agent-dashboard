@@ -171,7 +171,9 @@ async function measureOnce(
     // machine with other test containers), not a product signal. Retry once,
     // then fail loudly rather than recording a silent zero.
     expect(attempt, "a fresh session produced no subagent twice in a row").toBeLessThan(1);
-    return measureOnce(page, context, prompt, subscribers, attempt + 1);
+    // `requireReplies` MUST survive the retry: dropping it would let a pull arm
+    // silently record `replyBytesPerSec: 0` on its second attempt.
+    return measureOnce(page, context, prompt, subscribers, attempt + 1, requireReplies);
   }
   await mountInspector(page);
   const extras: Page[] = [];

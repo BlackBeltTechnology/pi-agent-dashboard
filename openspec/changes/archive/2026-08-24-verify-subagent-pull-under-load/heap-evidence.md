@@ -65,7 +65,7 @@ could have delivered 30 entries; three are excluded by measurement:
 | carrier | excluded by |
 |---|---|
 | terminal frame (never stripped, always fat) | the assertion window closes while the agent is non-terminal — asserted, not assumed |
-| fat push frames | 0 of 27 pushes carried a timeline (§1 table) |
+| fat push frames | 0 of the 102 non-terminal pushes carried a timeline (§1 table) |
 | open-time resync (expand/popout + `App.tsx` subscribe — all three DO fire, since the RENDERED timeline is empty at mount) | excluded by CONTENT, not ordering: the open-time reply carried **5** entries — the timeline as it stood at mount — so it cannot explain a converged count of 30 |
 | **cadence resync** | what remains — and asserted POSITIVELY: the converging reply's `__resyncRequestId` EQUALS a captured `reason: "cadence"` request id |
 

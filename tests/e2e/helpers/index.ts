@@ -453,7 +453,15 @@ export interface SubagentWireCollector {
 }
 
 const SUBAGENT_STATUS_OF = (ev: any): string =>
-  String(ev?.data?.details?.status ?? ev?.data?.partialResult?.details?.status ?? "");
+  String(
+    ev?.data?.details?.status ??
+      ev?.data?.partialResult?.details?.status ??
+      // `tool_execution_end` carries the terminal snapshot under `result`, the
+      // same slot ENTRY_COUNT_OF reads. Omitting it made every status filter
+      // silently miss the terminal carrier.
+      ev?.data?.result?.details?.status ??
+      "",
+  );
 
 const AGENT_ID_OF = (ev: any): string =>
   String(

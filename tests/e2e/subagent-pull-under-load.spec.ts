@@ -269,6 +269,13 @@ test.describe("subagent pull path under load (synthetic watched-growth substrate
       openReplyMax,
       "no open-time reply carried the full timeline, so it cannot explain the convergence",
     ).toBeLessThan(END_ENTRIES);
+    // Stronger than the count bound alone (which an open reply carrying 29
+    // would satisfy): the reply that ACTUALLY carried the converged timeline is
+    // identified by token, and that token is not one of the open-time requests.
+    expect(
+      openIds.has(convergingCadenceReply!.resyncRequestId!),
+      "the reply that carried the converged timeline answered a CADENCE request, not an open-time one",
+    ).toBe(false);
 
     // --- F7: the terminal frame neither loses nor duplicates the timeline ---
     // Asserted where it is decidable. OBSERVED: on completion the finished Agent
