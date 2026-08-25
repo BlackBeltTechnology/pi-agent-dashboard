@@ -9,13 +9,11 @@ Pinned-folder header in the sidebar uses a two-column gutter + content layout. L
 The folder header SHALL use a two-column layout:
 
 1. **Left gutter** (fixed narrow column): the collapse chevron at the top, with the surrounding gutter area acting as the drag handle.
-2. **Content column** (`flex-1 min-w-0`): folder icon + name + count on the first row, with the folder actions menu trigger as the row's single trailing control; branch (`GroupGitInfo`) on the second row, sharing that row with `FolderActionBar` when the bar has controls to render; `SidebarFolderSectionSlot` and (when initialized) `FolderOpenSpecSection` below.
+2. **Content column** (`flex-1 min-w-0`): folder icon + name + count on the first row, with the folder actions menu trigger as the row's single trailing control; branch (`GroupGitInfo`) on the second row, which carries git facts only; the tier-0 call-to-action banner below the branch row when one is warranted; `SidebarFolderSectionSlot` and (when initialized) `FolderOpenSpecSection` below.
 
 The first row SHALL NOT carry a pin button — pinning is an item in the folder actions menu.
 
-`FolderActionBar` SHALL render only when it holds at least one control. With the Directory
-Settings cog moved into the menu, a configured folder with no pending init and no broken
-sessions has none, and the bar SHALL be absent rather than render empty.
+`FolderActionBar` no longer exists. Its initialization controls render in the tier-0 banner and its cleanup action is an item in the folder actions menu, so the git row shares space with nothing and stays facts-only.
 
 #### Scenario: First row carries the menu trigger, not a pin button
 
@@ -23,12 +21,16 @@ sessions has none, and the bar SHALL be absent rather than render empty.
 - **THEN** the first content row SHALL carry the folder icon, name, count, and the folder actions menu trigger
 - **AND** it SHALL NOT carry a pin button
 
-#### Scenario: Action bar shares the git row and hides when empty
+#### Scenario: The git row carries no action controls
 
-- **WHEN** an expanded folder header renders while `FolderActionBar` holds at least one control
-- **THEN** the git info and the action bar SHALL render on the same row
-- **WHEN** the same header renders for a configured folder with no pending init and no broken sessions
-- **THEN** `FolderActionBar` SHALL NOT render
+- **WHEN** an expanded folder header renders for a directory with a pending initialization
+- **THEN** the git row SHALL carry only the branch and dirty-state affordances
+- **AND** the initialization control SHALL render in the banner below it
+
+#### Scenario: A quiet folder renders no banner row
+
+- **WHEN** an expanded folder header renders for a configured folder with no pending init and no blocking state
+- **THEN** no banner SHALL render between the git row and the slot pills
 
 #### Scenario: Gutter holds the chevron and the drag handle
 
@@ -48,7 +50,7 @@ The chevron in the left gutter SHALL toggle the folder's collapsed state.
 
 The folder-name row SHALL navigate to the directory home page rather than toggle collapse.
 
-Interactive controls within that row (the folder actions menu trigger) and on the git row (branch `GroupGitInfo`, and `FolderActionBar` when present) MUST stop click propagation, or live outside the clickable row, so they perform their own action and MUST NOT collapse the folder or trigger row navigation.
+Interactive controls within that row (the folder actions menu trigger), on the git row (branch `GroupGitInfo`), and in the tier-0 banner (its call-to-action) MUST stop click propagation, or live outside the clickable row, so they perform their own action and MUST NOT collapse the folder or trigger row navigation.
 
 #### Scenario: Chevron toggles collapse
 
@@ -58,7 +60,7 @@ Interactive controls within that row (the folder actions menu trigger) and on th
 #### Scenario: Child controls neither collapse nor navigate
 
 - **GIVEN** an expanded folder header
-- **WHEN** the user activates the folder actions menu trigger, the branch control, or a control on `FolderActionBar`
+- **WHEN** the user activates the folder actions menu trigger, the branch control, or the banner's action
 - **THEN** that control's own action SHALL fire
 - **AND** the folder SHALL NOT collapse
 - **AND** the client SHALL NOT navigate to the directory home page

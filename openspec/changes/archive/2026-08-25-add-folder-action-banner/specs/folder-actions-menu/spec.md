@@ -4,20 +4,13 @@
 
 The folder header SHALL expose exactly one trailing control: a folder actions menu trigger.
 
-Every directory mutation that renders in the **header row** SHALL be reachable from that menu
-and SHALL NOT also render as a standalone control in the header row.
+Every directory mutation on the card SHALL be reachable from that menu and SHALL NOT also render as a standalone control. The only mutation permitted outside the menu is the tier-0 banner's own call to action, which exists precisely because the folder cannot proceed without it. The init and cleanup controls that formerly sat on the deleted `FolderActionBar` are no longer an exception: initialization renders in the tier-0 banner, and cleanup is an item in this menu's `DIRECTORY` group.
 
-This requirement is scoped to the header row. The slot pills' own action buttons live elsewhere
-on the card, are outside its scope, and continue to render; consolidating those is the subject of
-a separate change. The init and cleanup controls that formerly sat on `FolderActionBar` are no
-longer an exception to anything: initialization renders in the tier-0 banner, and cleanup is an
-item in this menu's `DIRECTORY` group.
+The previous carve-out — that the slot pills' own action buttons were "outside its scope and continue to render" — no longer holds. Every slot action is now an item in this menu, and the pill grid is state-only.
 
 **Accepted duplication.** The `AddToWorkspaceMenu` popover already offers its own
-remove-from-workspace entry. After this change the gesture is reachable both from that popover
-and from the folder actions menu's workspace group. Both SHALL continue to work and SHALL have
-identical effect. This is a deliberate trade-off, not an oversight: collapsing it would require
-reworking the popover, which this change does not touch.
+remove-from-workspace entry. The gesture is reachable both from that popover and from the folder
+actions menu's workspace group. Both SHALL continue to work and SHALL have identical effect.
 
 Activating the trigger SHALL stop click propagation so it neither navigates to the directory
 home page nor toggles the folder's collapsed state.
@@ -31,16 +24,30 @@ another's.
 - **THEN** exactly one control SHALL render in the cluster
 - **AND** the urgency-sort, pin, add-to-workspace, remove-from-workspace and directory-settings controls SHALL NOT render as separate cluster buttons
 
-#### Scenario: Slot-pill controls are unaffected
+#### Scenario: No mutation control renders outside the menu
 
-- **WHEN** an expanded folder card renders while a slot pill holds its own action button
-- **THEN** that control SHALL continue to render
-- **AND** its presence SHALL NOT be treated as a violation of this requirement
+- **WHEN** an expanded folder card renders
+- **THEN** no mutation control SHALL render outside the folder actions menu, other than the tier-0 banner's call to action
+- **AND** the slot pills SHALL render no action buttons
 
 #### Scenario: The card carries no separate init or cleanup row
 
 - **WHEN** an expanded folder card renders
 - **THEN** no action row SHALL render between the git row and the slot pills other than the tier-0 banner
+
+#### Scenario: Opening the menu neither navigates nor collapses
+
+- **GIVEN** an expanded folder
+- **WHEN** the user activates the folder actions trigger
+- **THEN** the menu SHALL open
+- **AND** the client SHALL NOT navigate to the directory home page
+- **AND** the folder SHALL remain expanded
+
+#### Scenario: Menus are scoped per folder
+
+- **GIVEN** two folder headers rendered in the sidebar
+- **WHEN** the user opens one folder's actions menu
+- **THEN** the other folder's menu SHALL remain closed
 
 ## ADDED Requirements
 

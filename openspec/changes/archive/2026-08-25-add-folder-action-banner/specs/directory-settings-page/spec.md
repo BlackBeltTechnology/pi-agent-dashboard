@@ -17,3 +17,10 @@ The entry-point control SHALL be an item in the folder actions menu, under the d
 
 - **WHEN** an expanded folder card renders
 - **THEN** no Directory Settings cog SHALL render on the git row or in the banner
+
+#### Scenario: Legacy pi-resources route redirects
+
+- **GIVEN** an existing deep-link `/folder/<encoded cwd>/pi-resources`
+- **WHEN** the user navigates to it
+- **THEN** the app replace-redirects to `/folder/<encoded cwd>/settings/packages`
+- **AND** the directory settings page renders with the `packages` page active
