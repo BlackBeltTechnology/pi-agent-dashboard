@@ -340,7 +340,7 @@ Without a registration path distinct from item contribution, the automations and
 
 ### Requirement: Menu carries a permanent Project setup item
 
-The `DIRECTORY` group SHALL contain a permanently rendered `Project setup…` item with one stable label, regardless of the directory's setup state, so its position is learnable. The item SHALL display the per-artifact tally as `n/N`, including `5/5` for a fully set-up directory.
+The `DIRECTORY` group SHALL contain a permanently rendered `Project setup…` item with one stable label, regardless of the directory's setup state, so its position is learnable. The item SHALL display the per-artifact tally as `n/N`, including `5/5` for a fully set-up directory. When the checklist is absent (the fail-open shape from a failed probe), the item SHALL render its bare label with no tally rather than a misleading `0/5`.
 
 Division of labour: the **banner carries urgency**, the **menu carries availability**. A directory with no banner SHALL still expose this item.
 

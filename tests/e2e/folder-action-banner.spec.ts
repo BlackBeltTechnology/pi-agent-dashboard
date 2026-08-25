@@ -45,10 +45,13 @@ test("E6/F1: an unconfigured project root shows the setup banner below the heade
   await expect(banner).toContainText("Not a pi project yet");
   await expect(g.getByTestId(`folder-banner-setup-action-${CWD}`)).toBeVisible();
 
-  // Placement: tier 0 sits BELOW the identity/header row.
+  // Placement: tier 0 sits BELOW the identity/header row. Assert both boxes
+  // exist so a missing element fails the test rather than silently skipping.
   const bannerBox = await banner.boundingBox();
   const headerBox = await g.getByTestId(`folder-home-row-${CWD}`).boundingBox();
-  if (headerBox && bannerBox) expect(bannerBox.y).toBeGreaterThan(headerBox.y);
+  expect(bannerBox).not.toBeNull();
+  expect(headerBox).not.toBeNull();
+  expect(bannerBox!.y).toBeGreaterThan(headerBox!.y);
 });
 
 test("F3: the card carries no inline scaffold control", async ({ page }) => {

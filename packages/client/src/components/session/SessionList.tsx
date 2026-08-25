@@ -1165,7 +1165,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
     items.push({
       id: "project-setup",
       group: "directory",
-      label: projectSetupLabel(initStatus, t("folders.projectSetup", undefined, "Project setup…")),
+      label: projectSetupLabel(initStatus, t("folders.projectSetup", undefined, "Project setup…"), `● ${t("common.update", undefined, "update")}`),
       icon: mdiTextBoxCheckOutline,
       onSelect: () => onSpawnSession?.(group.cwd, undefined, { initialPrompt: "/skill:project-init" }),
     });
@@ -1396,7 +1396,12 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
           <FolderActionBanner
             cwd={group.cwd}
             status={initStatus}
-            isProjectRoot={isPinned || inWorkspace || folderIsGitRepo(group)}
+            // Project-root gate for the "not a pi project" banner: pinned,
+            // workspace-added, or POSITIVE git-root evidence. `folderIsGitRepo`
+            // is optimistic (unknown → true), so it is NOT sufficient on its
+            // own — an unpinned dir with an unknown git probe must not reach
+            // tier 0. See change: add-folder-action-banner (D-D2).
+            isProjectRoot={isPinned || inWorkspace || group.sessions.some((s) => s.isGitRepo === true) || !!folderGitMap?.get(group.cwd)}
             onInitializeProject={onSpawnSession ? (c) => onSpawnSession(c, undefined, { initialPrompt: "/skill:project-init" }) : undefined}
             onStatusChange={refetchInit}
             sessions={group.sessions}

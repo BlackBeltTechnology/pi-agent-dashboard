@@ -99,7 +99,6 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Changed
 
-<<<<<<< HEAD
 - **`GET /api/git/worktree/init-status` payload.** `configured?: boolean` is
   superseded by a per-artifact `checklist` (`settings`, `agents`, `prompts`,
   `openspec`, `kb`; exactly one required: `settings`), computed on every
@@ -108,7 +107,7 @@ see [`docs/release-process.md`](docs/release-process.md).
   `setupOutdated?: boolean` is declared (nothing emits it yet). Client and server
   ship together; a client that cannot interpret the payload degrades to no
   banner, never a false one.
-=======
+
 - **BREAKING (dashboard plugins): `SlotPill.actions?: ReactNode` is removed.**
   A plugin can no longer render arbitrary markup into a directory-card slot pill;
   the pill is state-only. Passing `actions` is now a compile-time error, with no
@@ -128,7 +127,6 @@ see [`docs/release-process.md`](docs/release-process.md).
   move to `CREATE`, and the OpenSpec Archive/Specs shortcuts move to `OPEN` with
   slot-qualified labels. Every pill is now a single click target that reads a
   number; the menu is what changes something.
->>>>>>> origin/develop
 
 - **BREAKING (macOS): the desktop app now requires macOS 12 (Monterey) or newer.**
   macOS 10.15 (Catalina) and 11 (Big Sur) are no longer supported.

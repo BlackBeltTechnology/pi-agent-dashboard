@@ -12,11 +12,15 @@ import type { WorktreeInitStatus } from "../../lib/git/git-api.js";
  * badge when the payload reports template drift. An absent checklist (fail-open)
  * yields the bare base label — never a misleading `0/5`.
  */
-export function projectSetupLabel(status: WorktreeInitStatus | null, base = "Project setup…"): string {
+export function projectSetupLabel(
+  status: WorktreeInitStatus | null,
+  base = "Project setup…",
+  updateBadge = "● update",
+): string {
   const checklist = status?.checklist;
   const tally = Array.isArray(checklist)
     ? ` ${checklist.filter((a) => a.present).length}/${checklist.length}`
     : "";
-  const badge = status?.setupOutdated === true ? "  ● update" : "";
+  const badge = status?.setupOutdated === true ? `  ${updateBadge}` : "";
   return `${base}${tally}${badge}`;
 }

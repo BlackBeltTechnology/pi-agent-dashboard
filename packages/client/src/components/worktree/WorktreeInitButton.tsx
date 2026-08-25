@@ -143,7 +143,7 @@ export function WorktreeInitButton({ cwd, status: externalStatus, onStatusChange
         type="button"
         onClick={(e) => { e.stopPropagation(); void doRun(); }}
         data-testid="worktree-init-btn"
-        className="text-[10px] px-1.5 py-0.5 rounded border text-amber-400 border-amber-500/40 bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/70"
+        className="text-[10px] px-1.5 py-0.5 min-h-[44px] md:min-h-0 rounded border text-amber-400 border-amber-500/40 bg-amber-500/5 hover:text-amber-300 hover:border-amber-500/70"
         title={i18nT("common.initializeThisCheckoutRunItsDeclared", undefined, "Initialize this checkout (run its declared worktree-init hook)")}
       >
         <span className="inline-flex items-center gap-0.5">

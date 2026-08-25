@@ -5,7 +5,7 @@ TBD - created by archiving change add-folder-action-banner. Update Purpose after
 ## Requirements
 ### Requirement: Calls to action render in a full-width tier-0 banner
 
-Every blocking directory-card call to action — project setup, init-hook run, init progress and init failure — SHALL render in a single full-width banner, never inline on the git row. The git row SHALL become facts-only (branch, dirty state, commit affordance) and SHALL carry no call-to-action control.
+Every blocking directory-card call to action — project setup, init-hook run, init progress and init failure — SHALL render in a single full-width banner, never inline on the git row. The git row SHALL become facts-only (branch and dirty state, per the `directory-card-layout` tier-2 contract) and SHALL carry no call-to-action control.
 
 The banner SHALL render **below the git row** when a git row is present, and **directly below the folder header row** when the directory has no git row. It SHALL carry test id `folder-banner-<kind>-<cwd>`.
 
