@@ -5,6 +5,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | File | Purpose |
 |------|---------|
 | `__tests__/assert-bundled-plugins-complete.test.mjs` | Vitest unit tests for packages/electron/scripts/assert-bundled-plugins-complete.mjs (subprocess-driven with… → see `__tests__/assert-bundled-plugins-complete.test.mjs.AGENTS.md` |
+| `__tests__/check-pi-settings-paths.test.mjs` | Drives `absoluteSourceViolations` directly (12 cases) so detection is pinned independently of what `.pi/settings.json` currently holds. Negative cases carry the weight: `npm:`/`git:`/`https://`/`ssh://` sources and the bare-string package form must NOT be flagged, else the guard is unusable. See issue #371. |
 | `__tests__/biome-undeclared-dependencies.test.mjs` | Guardrails for the `noUndeclaredDependencies` config in `biome.json`. → see `__tests__/biome-undeclared-dependencies.test.mjs.AGENTS.md` |
 | `__tests__/dependency-declarations.test.mjs` | Set-based manifest guarantees over ALL 32 non-private workspaces (not a sample). → see `__tests__/dependency-declarations.test.mjs.AGENTS.md` |
 | `__tests__/fixtures/mutation-journal-child.mjs` | Child-process fixture for the mutation-journal crash-safety tests. → see `__tests__/fixtures/mutation-journal-child.mjs.AGENTS.md` |
@@ -31,6 +32,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `__tests__/verify-published-imports.test.mjs` | Tests for `verify-published-imports.mjs`. Fixtures built in `mkdtemp` OUTSIDE the repo and the checker driven… → see `__tests__/verify-published-imports.test.mjs.AGENTS.md` |
 | `check-conventions.mjs` | Deterministic half of the ship gate, run by `ship-it` step 4.4. → see `check-conventions.mjs.AGENTS.md` |
 | `check-e2e-fixture-import.mjs` | Guard: every `tests/e2e/*.spec.ts` MUST import `test` from `./fixtures.js`, never `@playwright/test` directly… → see `check-e2e-fixture-import.mjs.AGENTS.md` |
+| `check-pi-settings-paths.mjs` | Guard, run by ci.yml: no machine-specific absolute path in a committed `.pi/settings.json` `packages[].source`. Exports `absoluteSourceViolations(file, raw)`, `CHECKED_FILES`, `CORRECTION`, `REPO_ROOT`. Flags POSIX `/x`, Windows `C:\x`/UNC, and `~/x`; leaves `npm:`/`git:`/`https://`/`ssh://` specifiers alone; unparseable JSON fails closed. Needed because `pi install <path>` and `pi config` WRITE the absolute form, so a one-time correction regresses. See issue #371. |
 | `check-skill-frontmatter.mjs` | Skill frontmatter guard, run by ci.yml. Exit non-zero iff >=1 error; warnings never fail. → see `check-skill-frontmatter.mjs.AGENTS.md` |
 | `commit-windows-parity.sh` | Stages and commits fix-windows-server-parity + consolidate-platform-handlers work in 5 logical chunks (fix:,… → see `commit-windows-parity.sh.AGENTS.md` |
 | `dox-byte-gate.mjs` | AGENTS.md byte-cap gate for `ship-it` step 4.4. Filters `kb dox lint --json` to `kind:"over-threshold"` +… → see `dox-byte-gate.mjs.AGENTS.md` |

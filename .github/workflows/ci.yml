@@ -48,6 +48,15 @@ jobs:
       # See change: fix-skill-discovery-parity.
       - name: Skill frontmatter guard
         run: node scripts/check-skill-frontmatter.mjs
+      # Portability gate on committed `.pi/settings.json`. `pi install <path>`
+      # and `pi config` both WRITE the resolved absolute path, so the
+      # machine-specific form is the tooling's default output, not a typo. The
+      # repo shipped `/Users/robson/...` long enough that kb-extension silently
+      # failed to load for every other developer. A relative source resolves
+      # against the settings file's own directory, so `".."` is the repo root
+      # everywhere. See issue #371.
+      - name: No machine-specific paths in .pi/settings.json
+        run: node scripts/check-pi-settings-paths.mjs
       # Publish-correctness gate. Stricter than Biome's noUndeclaredDependencies:
       # it derives each workspace's shipped file set from `npm pack --dry-run`
       # and refuses a devDependency as justification for a shipped import,
