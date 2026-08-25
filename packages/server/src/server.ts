@@ -37,6 +37,7 @@ import {
 } from "./auth/bind-reachability-service.js";
 import { decideBridgeTicketMint } from "./auth/bridge-ticket-eligibility.js";
 import { isCorsOriginAllowed } from "./auth/cors-origin.js";
+import { readAuthJson } from "./auth/provider-auth-storage.js";
 import { registerCsp, resolveCspMode } from "./auth/csp.js";
 import { ensureServerIdentity } from "./auth/identity.js";
 import { ensureLocalToken, verifyLocalToken } from "./auth/local-token.js";
@@ -2324,6 +2325,28 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
               // grammar plugin's llm backend) — mirrors the grammar-route wiring
               // above; maps `system`→`context.systemPrompt` (pi-ai contract).
               // See change: make-grammar-fully-plugin-contained.
+              // Stored provider credentials for plugin server entries (e.g. the
+              // quota plugin's usage fetch). Replaces deep-importing
+              // provider-auth-storage from this package — a plugin published to
+              // npm has no pi-dashboard-server source tree to reach into.
+              //
+              // Trust gate is SCOPE-based, deliberately NOT the `priority <= 100`
+              // gate used by spawnSession/abortSession: `priority` also drives
+              // slot render-order, so a plugin that renders late (quota = 600)
+              // cannot raise it without moving its widget AND silently gaining
+              // spawn/abort powers. Returns raw OAuth refresh/access tokens, so
+              // untrusted plugins get `undefined`.
+              // See change: publish-quota-plugin.
+              providerAuth: {
+                getCredential: (provider: string) => {
+                  if (!plugin.packageName.startsWith("@blackbelt-technology/")) return undefined;
+                  try {
+                    return readAuthJson()[provider];
+                  } catch {
+                    return undefined;
+                  }
+                },
+              },
               modelRuntime: {
                 getModelRegistry: async () => {
                   try {

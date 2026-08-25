@@ -2,35 +2,46 @@
  * Provider Quota — dashboard client entry.
  *
  * Two contributions:
- *  - `QuotaWidget` (content-inline-footer): one mini-slider per enabled
- *    provider, fill coloured by pace severity (worst window drives it), a `now`
- *    tick, minimal tooltip. Click → the shared Dialog primitive.
- *  - `QuotaSettings` (settings-section): ToS acknowledgement gate + master
- *    enable + per-provider toggles.
+ *  - `QuotaWidget` (content-inline-footer): ONE COMPACT LINE per enabled
+ *    provider — label + slim bar, no percentage number (the fill and the `now`
+ *    tick carry it; the exact numbers live in the dialog). Fill coloured by
+ *    pace severity (worst window drives it). Click → shared Dialog primitive.
+ *    Stays in `content-inline-footer`: the composer's own context slider is
+ *    draft-conditional (it vanishes when the input is empty), so aligning with
+ *    it would make quota disappear too.
+ *  - `QuotaSettings` (settings-section): a non-blocking ToS WARNING (printed,
+ *    not a gate) + master enable + per-provider toggles, committed through the
+ *    host Settings panel's global Save via `useSettingsDraftSource`.
  *
  * Data comes only from `GET /api/quota` (server-computed, tokens never cross the
  * wire). Absent/empty → nothing renders (honest degradation, never an error).
  */
-import { useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { useSettingsDraftSource, useT, useUiPrimitive } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { usePluginConfig, usePluginSend } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import { useEffect, useMemo, useState } from "react";
-import { computePace, type Pace, type PaceSeverity, paceLabel } from "./pace.js";
-import type { ApiQuotaResponse, ProviderQuota, QuotaPluginConfig, QuotaWindowDto } from "./types.js";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { computePace, formatResetIn, type Pace, type PaceSeverity, paceLabel } from "./pace.js";
+import { SUPPORTED_PROVIDERS } from "./providers.js";
+import type {
+  ApiQuotaResponse,
+  ProviderQuota,
+  QuotaPluginConfig,
+  QuotaUnavailableReason,
+  QuotaWindowDto,
+} from "./types.js";
 
 export { catalog } from "./i18n.js";
 
-// Providers eligible for the subscription tracker (Anthropic excluded).
+// Display names only; providers.ts owns WHICH providers exist.
 const PROVIDER_LABELS: Record<string, string> = {
+  anthropic: "Anthropic",
   "openai-codex": "Codex",
   "github-copilot": "Copilot",
   openrouter: "OpenRouter",
   synthetic: "Synthetic",
   zai: "Z.ai",
-  "opencode-go": "OpenCode Go",
   "kimi-coding": "Kimi Code",
 };
-const TRACKED_PROVIDERS = Object.keys(PROVIDER_LABELS);
 
 const SEVERITY_COLOR: Record<PaceSeverity, string> = {
   green: "#34d399",
@@ -112,6 +123,83 @@ function useQuota(pollMs = 60_000): ProviderQuota[] {
   return providers;
 }
 
+/**
+ * Reason-per-provider for every ENABLED provider that produced no quota, from
+ * the same `/api/quota` payload.
+ *
+ * Every provider is tickable now that the plugin owns each contract — there is
+ * no peer to be missing. But a tick can still yield nothing (not signed in,
+ * endpoint throttled), and silence there is indistinguishable from a bug. The
+ * server names the cause; the settings row prints it.
+ *
+ * Fetched once per mount (no poll): the Settings panel is short-lived.
+ */
+function useQuotaUnavailable(): Record<string, QuotaUnavailableReason> {
+  const [reasons, setReasons] = useState<Record<string, QuotaUnavailableReason>>({});
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const res = await fetch("/api/quota");
+        const json = (await res.json()) as ApiQuotaResponse;
+        if (!alive) return;
+        setReasons(Object.fromEntries((json.unavailable ?? []).map((u) => [u.provider, u.reason])));
+      } catch {
+        if (alive) setReasons({});
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+  return reasons;
+}
+
+/**
+ * Grey `now` caption sitting directly BENEATH the tick, horizontally centred on
+ * it. Replaces the former legend row: the marker names itself in place instead
+ * of being explained elsewhere. Offset is clamped to 6..94% so the centred
+ * label never overflows the track at the extremes.
+ */
+/**
+ * Time-until-reset caption. Renders NOTHING when `formatResetIn` yields null
+ * (past/epoch-sentinel/unparseable reset), so a bogus upstream timestamp stays
+ * invisible instead of claiming a decades-old reset.
+ */
+function ResetsIn({ resetsAt, now }: { resetsAt: string; now: number }) {
+  const t = useT();
+  const rel = formatResetIn(resetsAt, now);
+  if (rel === null) return null;
+  return (
+    <span data-testid="quota-resets-in" style={{ whiteSpace: "nowrap" }}>
+      {t("resetsIn", { t: rel }, `resets in ${rel}`)}
+    </span>
+  );
+}
+
+function NowCaption({ elapsedPercent }: { elapsedPercent: number }) {
+  const t = useT();
+  return (
+    <div style={{ position: "relative", height: 12 }}>
+      <span
+        data-testid="quota-now-caption"
+        style={{
+          position: "absolute",
+          top: 0,
+          left: `${Math.min(94, Math.max(6, elapsedPercent))}%`,
+          transform: "translateX(-50%)",
+          fontSize: 9,
+          lineHeight: "12px",
+          whiteSpace: "nowrap",
+          color: "var(--text-muted, #71717a)",
+        }}
+      >
+        {t("now", undefined, "now")}
+      </span>
+    </div>
+  );
+}
+
 /** Slim track with a fill (0..100) and a `now` tick. */
 function MiniBar({ pace, usedPercent, height = 4 }: { pace: Pace; usedPercent: number; height?: number }) {
   const color = SEVERITY_COLOR[pace.severity];
@@ -162,7 +250,7 @@ export function QuotaWidget() {
   const rows = useMemo(
     () =>
       providers
-        .filter((p) => p.provider !== "anthropic" && p.windows.length > 0)
+        .filter((p) => p.windows.length > 0)
         .map((p) => ({ provider: p.provider, worst: worstWindow(p.windows, now) }))
         .filter((r): r is { provider: string; worst: WindowPace } => r.worst !== null),
     [providers, now],
@@ -173,7 +261,7 @@ export function QuotaWidget() {
   return (
     <div
       data-testid="quota-widget"
-      style={{ display: "flex", flexWrap: "wrap", gap: 12, padding: "4px 8px", fontSize: 11 }}
+      style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 12, padding: "1px 8px", fontSize: 11 }}
     >
       {rows.map(({ provider, worst }) => (
         <button
@@ -183,24 +271,23 @@ export function QuotaWidget() {
           title={paceText(worst.pace)}
           onClick={() => setDialogProvider(provider)}
           style={{
+            // Single compact line: label + bar side by side (no percentage).
             display: "flex",
-            flexDirection: "column",
-            gap: 2,
-            minWidth: 96,
+            flexDirection: "row",
+            alignItems: "center",
+            gap: 6,
             background: "transparent",
             border: "none",
             padding: 0,
+            lineHeight: 1,
             cursor: "pointer",
             color: "var(--text-secondary, #a1a1aa)",
           }}
         >
-          <span style={{ display: "flex", justifyContent: "space-between", gap: 6 }}>
-            <span>{providerLabel(provider)}</span>
-            <span style={{ color: SEVERITY_COLOR[worst.pace.severity] }}>
-              {Math.round(worst.window.usedPercent)}%
-            </span>
+          <span style={{ whiteSpace: "nowrap" }}>{providerLabel(provider)}</span>
+          <span style={{ display: "inline-block", width: 56 }}>
+            <MiniBar pace={worst.pace} usedPercent={worst.window.usedPercent} height={3} />
           </span>
-          <MiniBar pace={worst.pace} usedPercent={worst.window.usedPercent} />
         </button>
       ))}
       {dialogProvider !== null && (
@@ -254,6 +341,24 @@ export function QuotaDialog({
           >
             <div style={{ fontSize: 12, fontWeight: 600, marginBottom: 8, color: "var(--text-primary, #e4e4e7)" }}>
               {providerLabel(p.provider)}
+              {/* Retained snapshot: the latest refresh failed (e.g. HTTP 429) so
+                  these are the last known figures, not live. Surfaced in the
+                  dialog ONLY — the footer bar stays quiet by design.
+                  See change: publish-quota-plugin. */}
+              {p.stale === true && (
+                <span
+                  data-testid={`quota-stale-${p.provider}`}
+                  title={t("retainedBody", undefined, "The latest refresh failed, so the last known values are shown.")}
+                  style={{
+                    marginLeft: 6,
+                    fontSize: 10,
+                    fontWeight: 400,
+                    color: "var(--text-muted, #71717a)",
+                  }}
+                >
+                  {t("retained", undefined, "not live")}
+                </span>
+              )}
             </div>
             {p.windows.map((w, i) => {
               const pace = computePace(w, now);
@@ -271,8 +376,18 @@ export function QuotaDialog({
                     </span>
                   </div>
                   <MiniBar pace={pace} usedPercent={w.usedPercent} height={6} />
-                  <div style={{ fontSize: 10, color: "var(--text-muted, #71717a)", marginTop: 2 }}>
-                    {paceText(pace)}
+                  {pace.elapsedPercent !== null && <NowCaption elapsedPercent={pace.elapsedPercent} />}
+                  <div
+                    style={{
+                      fontSize: 10,
+                      color: "var(--text-muted, #71717a)",
+                      display: "flex",
+                      justifyContent: "space-between",
+                      gap: 8,
+                    }}
+                  >
+                    <span>{paceText(pace)}</span>
+                    <ResetsIn resetsAt={w.resetsAt} now={now} />
                   </div>
                 </div>
               );
@@ -304,28 +419,59 @@ function SelectorPill({ label, active, onClick }: { label: string; active: boole
   );
 }
 
-/** settings-section: master enable + ToS ack gate + per-provider toggles. */
+/**
+ * settings-section: printed ToS warning (NOT a gate) + master enable +
+ * per-provider toggles. Edits buffer into a draft and commit through the host
+ * Settings panel's global Save (`useSettingsDraftSource`) — no local button.
+ */
 export function QuotaSettings() {
   const t = useT();
   const config = usePluginConfig<QuotaPluginConfig>();
   const send = usePluginSend();
+  const unavailable = useQuotaUnavailable();
 
-  const [draft, setDraft] = useState<QuotaPluginConfig>({
-    enabled: !!config?.enabled,
-    acknowledgedToS: !!config?.acknowledgedToS,
-    providers: { ...(config?.providers ?? {}) },
-  });
+  /** Plain-language cause for a ticked provider that returned nothing. */
+  const reasonText = (reason: QuotaUnavailableReason): string => {
+    switch (reason) {
+      case "no-credential":
+        return t("reasonNoCredential", undefined, "not signed in");
+      case "peer-rejected":
+        return t("reasonRejected", undefined, "provider refused the request");
+      case "no-data":
+        return t("reasonNoData", undefined, "no quota reported");
+      case "no-adapter":
+        return t("reasonNoAdapter", undefined, "not supported");
+    }
+  };
 
-  useEffect(() => {
-    setDraft({
-      enabled: !!config?.enabled,
-      acknowledgedToS: !!config?.acknowledgedToS,
-      providers: { ...(config?.providers ?? {}) },
-    });
-  }, [config?.enabled, config?.acknowledgedToS, config?.providers]);
+  const base = useMemo<QuotaPluginConfig>(
+    () => ({ enabled: !!config?.enabled, providers: { ...(config?.providers ?? {}) } }),
+    [config?.enabled, config?.providers],
+  );
+
+  const [draft, setDraft] = useState<QuotaPluginConfig>(base);
+  useEffect(() => setDraft(base), [base]);
 
   const setProvider = (id: string, enabled: boolean) =>
     setDraft((d) => ({ ...d, providers: { ...(d.providers ?? {}), [id]: { enabled } } }));
+
+  const isDirty =
+    draft.enabled !== base.enabled ||
+    SUPPORTED_PROVIDERS.some(
+      (id) => !!draft.providers?.[id]?.enabled !== !!base.providers?.[id]?.enabled,
+    );
+
+  // Refs keep the host's stable commit/reset callbacks reading live values.
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const baseRef = useRef(base);
+  baseRef.current = base;
+
+  const commit = useCallback(async () => {
+    await send({ type: "plugin_config_write", id: "quota", config: draftRef.current });
+  }, [send]);
+  const reset = useCallback(() => setDraft(baseRef.current), []);
+  useSettingsDraftSource({ id: "plugin:quota", isDirty, commit, reset });
 
   return (
     <section
@@ -335,36 +481,6 @@ export function QuotaSettings() {
       <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 8 }}>
         <h3 style={{ fontSize: 13, fontWeight: 600, margin: 0 }}>{t("heading", undefined, "Provider Quota")}</h3>
         <span style={{ fontSize: 10, color: "var(--text-muted, #71717a)" }}>quota</span>
-      </div>
-
-      <div
-        style={{
-          fontSize: 11,
-          color: "var(--text-secondary, #a1a1aa)",
-          background: "rgba(245,158,11,0.1)",
-          border: "1px solid rgba(245,158,11,0.3)",
-          borderRadius: 4,
-          padding: 8,
-          marginBottom: 10,
-        }}
-      >
-        <strong>{t("tosTitle", undefined, "Terms of Service")}</strong>
-        <p style={{ margin: "4px 0 8px 0" }}>
-          {t(
-            "tosBody",
-            undefined,
-            "Quota tracking calls undocumented provider endpoints that may violate provider terms. Anthropic is excluded. Personal/local use only.",
-          )}
-        </p>
-        <label style={{ display: "flex", gap: 6, alignItems: "center" }}>
-          <input
-            type="checkbox"
-            data-testid="quota-ack"
-            checked={!!draft.acknowledgedToS}
-            onChange={(e) => setDraft((d) => ({ ...d, acknowledgedToS: e.target.checked }))}
-          />
-          {t("tosAck", undefined, "I understand and accept")}
-        </label>
       </div>
 
       <label style={{ display: "flex", gap: 6, alignItems: "center", fontSize: 12, marginBottom: 10 }}>
@@ -381,36 +497,51 @@ export function QuotaSettings() {
         <legend style={{ fontSize: 11, color: "var(--text-secondary, #a1a1aa)", padding: 0, marginBottom: 4 }}>
           {t("providersLegend", undefined, "Enable per provider")}
         </legend>
-        {TRACKED_PROVIDERS.map((id) => (
-          <label key={id} style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3 }}>
+        {/* Every provider is tickable: the plugin owns every contract, so there
+            is no peer that can be missing. A tick that yields nothing gets an
+            inline reason instead of silence. */}
+        {SUPPORTED_PROVIDERS.map((id) => {
+          const ticked = !!draft.providers?.[id]?.enabled;
+          const reason = ticked ? unavailable[id] : undefined;
+          return (
+          <label
+            key={id}
+            style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 3, flexWrap: "wrap" }}
+          >
             <input
               type="checkbox"
               data-testid={`quota-provider-${id}`}
-              checked={!!draft.providers?.[id]?.enabled}
+              checked={ticked}
               onChange={(e) => setProvider(id, e.target.checked)}
             />
             {providerLabel(id)}
+            {reason && (
+              <span
+                data-testid={`quota-provider-${id}-reason`}
+                style={{ fontSize: 10, color: "var(--text-muted, #71717a)" }}
+              >
+                {reasonText(reason)}
+              </span>
+            )}
+            {/* The ToS caveat is Anthropic-specific, so it sits on that row
+                alone rather than as a banner over every provider. */}
+            {id === "anthropic" && (
+              <span
+                data-testid="quota-tos-warning"
+                title={t(
+                  "tosBody",
+                  undefined,
+                  "Quota tracking calls undocumented provider endpoints that may violate provider terms. Personal/local use only.",
+                )}
+                style={{ fontSize: 10, color: "#fbbf24", cursor: "help" }}
+              >
+                ⚠ {t("tosTitle", undefined, "Warning")}
+              </span>
+            )}
           </label>
-        ))}
+          );
+        })}
       </fieldset>
-
-      <button
-        type="button"
-        data-testid="quota-save"
-        onClick={() => send({ type: "plugin_config_write", id: "quota", config: draft })}
-        style={{
-          marginTop: 8,
-          fontSize: 11,
-          padding: "3px 10px",
-          border: "1px solid var(--border-subtle, rgba(82,82,91,0.7))",
-          borderRadius: 4,
-          background: "var(--bg-tertiary, rgba(63,63,70,0.4))",
-          color: "var(--text-primary, #e4e4e7)",
-          cursor: "pointer",
-        }}
-      >
-        {t("save", undefined, "Save")}
-      </button>
     </section>
   );
 }

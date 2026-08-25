@@ -149,7 +149,7 @@ import { deriveRetryProjection } from "./lib/session/retry-projection.js";
 import { SessionAssetsProvider } from "./lib/session/SessionAssetsContext.js";
 import { deriveSelectedSessionId } from "./lib/session/selectedSessionId.js";
 import { selectViewedSessionId } from "./lib/session/selectViewedSessionId.js";
-import { DisplayPrefsProvider } from "./lib/state/DisplayPrefsContext.js";
+import { DisplayPrefsProvider, resolveSessionOverride } from "./lib/state/DisplayPrefsContext.js";
 import { openArtifactForViewport } from "./lib/util/artifact-view-gate.js";
 
 // Stable empty references for plugin context's session-state primitives.
@@ -1982,7 +1982,7 @@ export default function App() {
                   {selectedId && (
                     <ChatViewMenu
                       sessionId={selectedId}
-                      currentOverride={selectedSession?.displayPrefsOverride}
+                      currentOverride={selectedSession?.displayPrefsOverride ?? undefined}
                       send={(msg) => send({ type: "setSessionDisplayPrefs", sessionId: selectedId, override: msg.override })}
                     />
                   )}
@@ -2286,8 +2286,7 @@ export default function App() {
   // re-runs only when the relevant session's override actually changes.
   const displayPrefsContextValue = useMemo(() => ({
     global: displayPrefs,
-    getSessionOverride: (sessionId: string | undefined) =>
-      sessionId ? sessions.get(sessionId)?.displayPrefsOverride : undefined,
+    getSessionOverride: (sessionId: string | undefined) => resolveSessionOverride(sessions, sessionId),
   }), [displayPrefs, sessions]);
 
   // First-launch chat-display preset picker. Rendered once (single `onClose`

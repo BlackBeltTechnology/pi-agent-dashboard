@@ -210,6 +210,30 @@ export interface PluginModelRegistry {
   getApiKeyAndHeaders(model: unknown): Promise<{ apiKey: string; headers: Record<string, string> }>;
 }
 
+/**
+ * A stored provider credential as the host holds it (api_key or OAuth).
+ * Structural mirror of the server's `AuthCredential` so the runtime package
+ * needs no dependency on the server package — same rationale as
+ * {@link PluginModelRegistry}. See change: publish-quota-plugin.
+ */
+export type PluginAuthCredential = { type: string; [k: string]: unknown };
+
+/**
+ * Read-only access to the host's stored provider credentials — the seam that
+ * replaces deep-importing `pi-dashboard-server/src/auth/provider-auth-storage`.
+ *
+ * SECURITY: `getCredential` returns the RAW record, including OAuth `refresh`
+ * and `access` tokens. Gated by the host to first-party plugins (package name
+ * scoped `@blackbelt-technology/`); untrusted plugins receive a hook that
+ * always returns `undefined`. Note this gate is scope-based, NOT the
+ * `priority <= 100` gate used by `spawnSession`/`abortSession` — `priority`
+ * doubles as slot render-order, so it cannot express identity.
+ * See change: publish-quota-plugin.
+ */
+export interface PluginProviderAuth {
+  getCredential(provider: string): PluginAuthCredential | undefined;
+}
+
 /** Subset of pi-ai's streamSimple (as adapted by the server) a plugin consumes. */
 export type PluginStreamSimpleFn = (opts: {
   model: unknown;
@@ -297,6 +321,11 @@ export interface ServerPluginContext {
    * the model proxy is unavailable. See change: make-grammar-fully-plugin-contained.
    */
   modelRuntime?: PluginModelRuntime;
+  /**
+   * Stored provider credentials. Optional — absent for untrusted plugins.
+   * See change: publish-quota-plugin.
+   */
+  providerAuth?: PluginProviderAuth;
   logger: PluginLogger;
 }
 
@@ -322,6 +351,8 @@ export interface ServerContextDeps {
   updatePluginConfig: (pluginId: string, partial: Record<string, unknown>) => Promise<void>;
   /** In-process model runtime seam (optional). See change: make-grammar-fully-plugin-contained. */
   modelRuntime?: PluginModelRuntime;
+  /** Provider-credential seam (optional, host-gated). See change: publish-quota-plugin. */
+  providerAuth?: PluginProviderAuth;
 }
 
 /**
@@ -360,6 +391,7 @@ export function createServerPluginContext(
     },
 
     modelRuntime: deps.modelRuntime,
+    providerAuth: deps.providerAuth,
     logger,
   };
 }

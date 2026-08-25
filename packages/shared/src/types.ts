@@ -308,9 +308,12 @@ export interface DashboardSession {
    * Sparse per-session override for chat-view display preferences. Mirror
    * of `SessionMeta.displayPrefsOverride`. Deep-merged onto the global
    * `DisplayPrefs` on the client side via `mergeDisplayPrefs`.
-   * See change: configurable-chat-display.
+   * A clearing `session_updated` broadcast carries `null` (not `undefined`,
+   * which `JSON.stringify` would drop) so the client can overwrite a stale
+   * override; `getSessionOverride` normalizes `null → undefined`.
+   * See change: configurable-chat-display, fix-clear-display-override-broadcast.
    */
-  displayPrefsOverride?: import("./display-prefs.js").PartialDisplayPrefs;
+  displayPrefsOverride?: import("./display-prefs.js").PartialDisplayPrefs | null;
   /**
    * Per-session collapse state for the PROCESS subcard's background-
    * processes drawer. Mirror of `SessionMeta.processDrawerCollapsed`.

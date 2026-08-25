@@ -1,51 +1,58 @@
 /**
- * Provider Quota — dashboard server entry. No bridge.
+ * Provider Quota — dashboard server entry. No bridge, and NO peer extensions.
  *
  * Quota is an ACCOUNT-level fact, not per-session, so the server resolves
- * credentials through its OWN auth abstraction and fetches directly via
- * `@latentminds/pi-quotas` (which owns per-provider TTL caching + in-flight
- * dedup). Three gates guard every fetch: the plugin must be enabled, the ToS
- * acknowledged, and the specific provider enabled — all server-owned config,
- * all default-OFF, none migrated on.
+ * credentials through its own auth abstraction and calls each provider's usage
+ * endpoint DIRECTLY. The contract lives in `./quotas/` — endpoints, headers and
+ * payload parsing are all owned here.
  *
- * Tokens NEVER leave the server: only derived `QuotaWindow[]` reach the client,
- * and the logger records provider ids + error KINDS only (never a message that
- * could carry a URL/header). Anthropic is excluded (pi blocks Claude
- * subscription inference server-side; API-key sessions return `not_applicable`).
+ * This replaced two user-installed peer extensions (`@latentminds/pi-quotas`,
+ * `@hk_net/pi-usage-bars`). Owning the contract removed the whole class of
+ * problems they caused: a provider could be enabled but unservable because the
+ * needed peer was absent, failures were indistinguishable from each other, and
+ * Anthropic never worked through one peer at all because its `sk-ant-` guard
+ * misread the OAuth token as a direct API key.
+ *
+ * Two gates gate every fetch: the plugin must be enabled AND the specific
+ * provider enabled — both server-owned config, both default-off.
+ *
+ * SECURITY: tokens never leave the server. Only derived `QuotaWindow[]` reach
+ * the client; the logger records provider ids and failure KINDS, never a token
+ * and never a raw upstream message (see `quotas/http.ts` scrubbing).
+ *
+ * See change: publish-quota-plugin.
  */
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
-// Host auth abstraction — deep-imported from the server package (no `exports`
-// map, so subpaths resolve; server runs via jiti). NEVER a hardcoded
-// ~/.pi/agent/auth.json path in this plugin.
-import { readAuthJson } from "@blackbelt-technology/pi-dashboard-server/src/auth/provider-auth-storage.js";
-import { getModelRegistry } from "@blackbelt-technology/pi-dashboard-server/src/model-proxy/registry-singleton.js";
-// Pinned raw-TS deep import — see src/pi-quotas.d.ts + design.md "Packaging".
-import {
-  clearQuotaCache,
-  fetchProviderQuotas,
-  SUPPORTED_PROVIDERS,
-} from "@latentminds/pi-quotas/src/lib/quotas.js";
-import type { ApiQuotaResponse, ProviderQuota, QuotaPluginConfig, QuotaWindowDto } from "../types.js";
-
-/** Anthropic is excluded from the subscription tracker (see file header). */
-const EXCLUDED = "anthropic";
+import type {
+  ApiQuotaResponse,
+  ProviderQuota,
+  QuotaPluginConfig,
+  QuotaUnavailableDto,
+} from "../types.js";
+import { type AuthLike, type FetchResult, PROVIDER_FETCHERS, SUPPORTED_PROVIDERS } from "./quotas/fetchers.js";
 
 /**
- * Minimal 2-method `AuthStorage` shape `@latentminds/pi-quotas` consumes,
- * adapted onto the host's own resolver. `get` returns the raw stored
- * credential (OAuth metadata such as the Codex account id); `getApiKey`
- * returns a fresh access token via the host's OAuth-refreshing resolver.
+ * Adapt the host credential seams onto the 2-method shape the fetchers use.
+ * `get` returns the raw stored credential (OAuth metadata such as the Codex
+ * account id); `getApiKey` returns a fresh access token via the host's
+ * OAuth-refreshing resolver.
+ *
+ * Both come from `ServerPluginContext` — NEVER a deep import into the server
+ * package (this plugin ships to npm, where no such source tree exists) and
+ * NEVER a hardcoded ~/.pi/agent/auth.json path. Degrades to "no quota" when
+ * the host withholds either seam.
  */
-function createAuthAdapter(): { get: (p: string) => unknown; getApiKey: (p: string) => Promise<string | undefined> } {
+function createAuthAdapter(ctx: ServerPluginContext): AuthLike {
   return {
-    get: (provider: string) => readAuthJson()[provider],
+    get: (provider: string) => ctx.providerAuth?.getCredential(provider),
     getApiKey: async (provider: string) => {
       try {
-        const registry = await getModelRegistry();
+        const registry = await ctx.modelRuntime?.getModelRegistry();
+        if (!registry) return undefined;
         const { apiKey } = await registry.getApiKeyAndHeaders({ provider, headers: {} });
         return apiKey || undefined;
       } catch {
-        // Missing credential / degraded registry → provider fetch degrades to
+        // Missing credential / degraded registry → the provider degrades to
         // "no quota" honestly. Never surfaces a token.
         return undefined;
       }
@@ -53,100 +60,99 @@ function createAuthAdapter(): { get: (p: string) => unknown; getApiKey: (p: stri
   };
 }
 
-/** Providers eligible for a fetch given current config: enabled, acked, per-provider on, never Anthropic. */
+/** Providers eligible for a fetch: plugin enabled + that provider enabled. */
 function enabledProviders(config: QuotaPluginConfig): string[] {
-  if (config.enabled !== true || config.acknowledgedToS !== true) return [];
-  return SUPPORTED_PROVIDERS.filter(
-    (p) => p !== EXCLUDED && config.providers?.[p]?.enabled === true,
-  );
-}
-
-/** Normalize one lib window to the wire DTO. Drops windows without a usable pace basis. */
-function toDto(w: {
-  label: string;
-  usedPercent: number;
-  resetsAt: Date;
-  windowSeconds: number;
-  isCurrency?: boolean;
-  usedValue?: number;
-  limitValue?: number;
-}): QuotaWindowDto | null {
-  if (!Number.isFinite(w.windowSeconds) || w.windowSeconds <= 0) return null;
-  const resetsAt = w.resetsAt instanceof Date ? w.resetsAt : new Date(w.resetsAt);
-  if (Number.isNaN(resetsAt.getTime())) return null;
-  const usedPercent = Number.isFinite(w.usedPercent)
-    ? Math.min(100, Math.max(0, w.usedPercent))
-    : 0;
-  const dto: QuotaWindowDto = {
-    label: w.label,
-    usedPercent,
-    resetsAt: resetsAt.toISOString(),
-    windowSeconds: w.windowSeconds,
-  };
-  if (w.isCurrency) dto.isCurrency = true;
-  if (Number.isFinite(w.usedValue as number)) dto.usedValue = w.usedValue;
-  if (Number.isFinite(w.limitValue as number)) dto.limitValue = w.limitValue;
-  return dto;
-}
-
-/** Fetch + normalize one provider. Returns null on not_applicable/error/empty (never throws). */
-async function fetchOneProvider(
-  provider: string,
-  authAdapter: ReturnType<typeof createAuthAdapter>,
-  logger?: ServerPluginContext["logger"],
-): Promise<ProviderQuota | null> {
-  try {
-    const result = await fetchProviderQuotas(authAdapter, provider);
-    if (!result.success) {
-      // `not_applicable` (API-key session), errors, timeouts → silently omit.
-      if (result.error.kind !== "not_applicable") {
-        logger?.warn?.(`quota fetch failed for ${provider} (kind=${result.error.kind})`);
-      }
-      return null;
-    }
-    const windows = result.data.windows.map(toDto).filter((w): w is QuotaWindowDto => w !== null);
-    return windows.length > 0 ? { provider, windows } : null;
-  } catch {
-    // Never let one provider's failure break the snapshot; never log the error
-    // object (could carry a header/URL).
-    logger?.warn?.(`quota fetch threw for ${provider}`);
-    return null;
-  }
+  if (config.enabled !== true) return [];
+  return SUPPORTED_PROVIDERS.filter((p) => config.providers?.[p]?.enabled === true);
 }
 
 /**
- * Compute the current quota snapshot. Makes ZERO endpoint calls when the gates
- * are closed. Clears the lib cache for any provider not currently enabled so a
- * disabled provider's data does not linger.
+ * Last successful snapshot per provider, retained across a failed refresh so a
+ * throttled provider stays visible instead of vanishing from the bar. Bounded
+ * in size by the supported-provider list; cleared per-provider on opt-out.
+ */
+const lastGood = new Map<string, ProviderQuota>();
+
+/** Test seam: drop all retained snapshots. */
+export function _resetQuotaRetention(): void {
+  lastGood.clear();
+}
+
+/**
+ * Compute the current quota snapshot.
+ *
+ * Makes ZERO network calls when the gates are closed. Each enabled provider is
+ * fetched in parallel and can fail independently — one provider's failure never
+ * breaks the snapshot.
+ *
+ * TRANSIENT FAILURES RETAIN THE PRIOR SNAPSHOT: a provider whose refresh fails
+ * (throttled 429, network blip) keeps its last successful figures flagged
+ * `stale`. Retention is dropped the moment the provider (or the plugin) is
+ * disabled, so it can never outlive an opt-out.
+ *
+ * Enabled providers that yielded nothing AND have no retained snapshot are
+ * reported in `unavailable` with a reason, so the settings UI can explain the
+ * silence instead of leaving the user guessing.
  */
 export async function computeQuota(
   config: QuotaPluginConfig,
-  authAdapter: ReturnType<typeof createAuthAdapter>,
+  auth: AuthLike,
   logger?: ServerPluginContext["logger"],
 ): Promise<ApiQuotaResponse> {
   const enabled = new Set(enabledProviders(config));
 
-  // Drop cached quota for anything not currently enabled (incl. Anthropic).
-  for (const p of SUPPORTED_PROVIDERS) {
-    if (!enabled.has(p)) {
-      try {
-        clearQuotaCache(p);
-      } catch {
-        /* never throw from cache maintenance */
-      }
-    }
+  // Opt-out drops retention immediately: a disabled provider must not keep
+  // showing figures, and re-enabling must not resurrect pre-opt-out data.
+  for (const p of [...lastGood.keys()]) {
+    if (!enabled.has(p)) lastGood.delete(p);
   }
 
   if (enabled.size === 0) return { providers: [] };
 
+  const order = [...enabled];
   const results = await Promise.all(
-    [...enabled].map((provider) => fetchOneProvider(provider, authAdapter, logger)),
+    order.map(async (provider): Promise<FetchResult> => {
+      const fetcher = PROVIDER_FETCHERS[provider];
+      if (!fetcher) return { failure: "no-adapter" };
+      try {
+        return await fetcher(auth);
+      } catch {
+        // Never log the error object — it can carry a URL or header.
+        logger?.warn?.(`quota fetch threw for ${provider}`);
+        return { failure: "peer-rejected" as const };
+      }
+    }),
   );
-  return { providers: results.filter((p): p is ProviderQuota => p !== null) };
+
+  const providers: ProviderQuota[] = [];
+  const unavailable: QuotaUnavailableDto[] = [];
+
+  for (const [i, provider] of order.entries()) {
+    const result = results[i];
+
+    if (result.windows) {
+      const quota: ProviderQuota = { provider, windows: result.windows };
+      lastGood.set(provider, quota);
+      providers.push(quota);
+      continue;
+    }
+
+    logger?.warn?.(`quota unavailable for ${provider} (${result.failure})`);
+
+    const retained = lastGood.get(provider);
+    if (retained) {
+      // Still visible (stale) → the user needs no explanation.
+      providers.push({ ...retained, stale: true });
+      continue;
+    }
+    unavailable.push({ provider, reason: result.failure });
+  }
+
+  return { providers, ...(unavailable.length > 0 ? { unavailable } : {}) };
 }
 
 export default async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
-  const authAdapter = createAuthAdapter();
+  const auth = createAuthAdapter(ctx);
 
   const httpServer = (ctx.fastify as unknown as { server?: { listening?: boolean } }).server;
   if (httpServer?.listening) {
@@ -157,7 +163,7 @@ export default async function registerPlugin(ctx: ServerPluginContext): Promise<
   try {
     ctx.fastify.get("/api/quota", async () => {
       const config = ctx.getPluginConfig<QuotaPluginConfig>();
-      const snapshot = await computeQuota(config, authAdapter, ctx.logger);
+      const snapshot = await computeQuota(config, auth, ctx.logger);
       // Optional live push for subscribed clients.
       try {
         (ctx as unknown as { broadcastToSubscribers?: (m: unknown) => void }).broadcastToSubscribers?.({

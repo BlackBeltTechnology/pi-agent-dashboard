@@ -24,7 +24,11 @@ export function sessionToMeta(session: DashboardSession): SessionMeta {
     // unrelated save. See change: fix-auto-naming-reasoning-model (design D7).
     autoNamerState: session.autoNamerState,
     attachedProposal: session.attachedProposal,
-    displayPrefsOverride: session.displayPrefsOverride,
+    // Normalize the transient `null` (a just-cleared override, kept null in
+    // memory so the WS broadcast survives JSON) back to `undefined` so the
+    // full-overwrite persistence deletes the field rather than storing null.
+    // See change: fix-clear-display-override-broadcast.
+    displayPrefsOverride: session.displayPrefsOverride ?? undefined,
     processDrawerCollapsed: session.processDrawerCollapsed,
     hidden: session.hidden,
     cwd: session.cwd,

@@ -264,12 +264,20 @@ export function handleSetSessionDisplayPrefs(
   if (!session) return;
 
   const override = msg.override;
-  // Update in-memory session so server.ts onChange + broadcast pick it up.
-  // Setting to `undefined` makes the field disappear on the next debounced
-  // .meta.json write; we also write synchronously below to belt-and-braces.
+  // In-memory + disk representation of "no override" is field-absent
+  // (`undefined`); the next debounced .meta.json write drops the key and we
+  // also write synchronously below to belt-and-braces.
   const updates = { displayPrefsOverride: override === null ? undefined : override };
   sessionManager.update(msg.sessionId, updates);
-  broadcast({ type: "session_updated", sessionId: msg.sessionId, updates });
+  // The broadcast MUST carry `null` (not `undefined`) on clear: `JSON.stringify`
+  // in the gateway drops `undefined`-valued keys, so an `undefined` here reaches
+  // browsers as an empty `updates` object and the stale override survives. The
+  // client `getSessionOverride` normalizes `null → undefined`. See design D1.
+  broadcast({
+    type: "session_updated",
+    sessionId: msg.sessionId,
+    updates: { displayPrefsOverride: override === null ? null : override },
+  });
 
   if (session.sessionFile && metaPersistence) {
     metaPersistence.setDisplayPrefsOverride(session.sessionFile, override);
