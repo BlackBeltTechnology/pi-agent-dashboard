@@ -247,6 +247,13 @@ export { type DirectoryGroup, filterSessions, groupSessionsByDirectory } from ".
  *
  * See change: manage-worktrees-filter-cleanup.
  */
+/**
+ * Initial prompt that spawns the interactive project-init scaffolder. Single
+ * source for the two call sites (tier-0 banner action + `Project setup…` menu
+ * item) so they cannot drift. See change: add-folder-action-banner.
+ */
+const PROJECT_INIT_PROMPT = "/skill:project-init";
+
 export function folderIsGitRepo(group: { sessions: Array<{ isGitRepo?: boolean }> }): boolean {
   return !group.sessions.some((s) => s.isGitRepo === false);
 }
@@ -1167,7 +1174,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
       group: "directory",
       label: projectSetupLabel(initStatus, t("folders.projectSetup", undefined, "Project setup…"), `● ${t("common.update", undefined, "update")}`),
       icon: mdiTextBoxCheckOutline,
-      onSelect: () => onSpawnSession?.(group.cwd, undefined, { initialPrompt: "/skill:project-init" }),
+      onSelect: () => onSpawnSession?.(group.cwd, undefined, { initialPrompt: PROJECT_INIT_PROMPT }),
     });
     // Broken-session cleanup — housekeeping, NOT a tier-0 banner. Hidden at zero.
     // In the DIRECTORY group by spec (does not depend on the MAINTENANCE group).
@@ -1402,7 +1409,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             // own — an unpinned dir with an unknown git probe must not reach
             // tier 0. See change: add-folder-action-banner (D-D2).
             isProjectRoot={isPinned || inWorkspace || group.sessions.some((s) => s.isGitRepo === true) || !!folderGitMap?.get(group.cwd)}
-            onInitializeProject={onSpawnSession ? (c) => onSpawnSession(c, undefined, { initialPrompt: "/skill:project-init" }) : undefined}
+            onInitializeProject={onSpawnSession ? (c) => onSpawnSession(c, undefined, { initialPrompt: PROJECT_INIT_PROMPT }) : undefined}
             onStatusChange={refetchInit}
             sessions={group.sessions}
           />
