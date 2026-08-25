@@ -38,9 +38,6 @@ import {
 
 test.describe.configure({ mode: "serial" });
 
-/** Enough silence to outlast SETTLE_MS, the round trip and a splice. */
-const QUIET_MS = 3_000;
-
 /**
  * Drain the head-free gap by repeatedly ascending, until the walk reports it
  * has nothing left. Bounded: an unbounded loop on a broken build would hang
@@ -145,32 +142,45 @@ test.describe("tail-only loading head", () => {
    * and must not interrupt reading. Focus must not move across the splice.
    */
   test("F16: an automatic load announces politely and does not move focus", async ({ page }) => {
-    // BEFORE the session opens: `watchBackfillFrames` subscribes to
-    // `page.on("websocket")`, which only fires for sockets created AFTER the
-    // listener is attached. Registering it later silently observes nothing and
-    // the row fails as though no request were ever issued.
+    /**
+     * Observes the CLIMB's own automatic loads rather than demanding a spare
+     * slice afterwards.
+     *
+     * An earlier revision nudged for one more load and asserted a new frame.
+     * That is unsatisfiable here: `openWindowedSession`'s climb legitimately
+     * fires several automatic loads, and against a ~504-event gap with
+     * `BACKFILL_MAX_SPAN` 500 they drain it outright — the nudge then finds
+     * `atFloor` with nothing left to announce, and the row failed on its own
+     * setup rather than on the property. Raising the transcript count only
+     * moves the threshold; the climb scales with it.
+     *
+     * The climb's loads ARE automatic loads, which is exactly what F16 is
+     * about, so they are what this asserts against.
+     */
     const frames = watchBackfillFrames(page);
     await openWindowedSession(page, session!.sessionId);
+
+    // Non-vacuity: an automatic load must actually have happened.
+    await expect.poll(() => frames.sent.length, { timeout: 60_000 }).toBeGreaterThan(0);
+
     const region = page.getByTestId("history-gap-live-region");
     await expect(region).toHaveAttribute("aria-live", "polite");
     // Never assertive — that would interrupt a screen reader mid-sentence.
     await expect(region).not.toHaveAttribute("aria-live", "assertive");
+    await expect(region).toContainText(/\d[\d,]* earlier messages loaded/, { timeout: 60_000 });
 
-    const focusBefore = await page.evaluate(
-      () => document.activeElement?.getAttribute("data-testid") ?? document.activeElement?.tagName ?? "",
-    );
-
-    const before = frames.sent.length;
-    await nudgeAscent(page);
-    await expect.poll(() => frames.sent.length, { timeout: 30_000 }).toBeGreaterThan(before);
-    await page.waitForTimeout(QUIET_MS);
-
-    await expect(region).toContainText(/\d[\d,]* earlier messages loaded/);
-
-    const focusAfter = await page.evaluate(
-      () => document.activeElement?.getAttribute("data-testid") ?? document.activeElement?.tagName ?? "",
-    );
-    expect(focusAfter, "the splice moved document focus").toBe(focusBefore);
+    /**
+     * Focus must not follow the splice. Stated as "focus is not INSIDE the
+     * transcript": the hazard is a spliced row or the divider stealing it, and
+     * that is true however the page arrived at its current focus, unlike a
+     * before/after snapshot which only holds if it brackets the splice.
+     */
+    const focusInsideTranscript = await page.evaluate(() => {
+      const el = document.activeElement;
+      const list = document.querySelector('[data-testid="chat-scroll-container"]');
+      return el != null && list?.contains(el) === true;
+    });
+    expect(focusInsideTranscript, "the splice moved focus into the transcript").toBe(false);
   });
 });
 

@@ -99,10 +99,26 @@ test.describe("tail-only trigger suppression", () => {
     await page.waitForTimeout(500);
     const beforeSwitch = frames.sent.length;
 
-    // Switch away and back — the restore path writes scrollTop on first paint.
+    /**
+     * Switch away and back by CLICKING THE CARD — deliberately NOT through
+     * `openWindowedSession`.
+     *
+     * That helper climbs (`scrollDividerIntoDom` + `pinDividerToTop`) with
+     * unstamped `scrollTop` writes, which the product correctly reads as a
+     * genuine user ascent and acts on. Using it for the return leg would make
+     * this row assert "a simulated scroll-up issues no request" — the opposite
+     * of the behaviour every other row in this file pins. It only ever passed
+     * because the divider sometimes happened to be in the DOM already, so the
+     * climb was a no-op; a rebase perturbed that and the contradiction surfaced.
+     *
+     * The restore path under test needs no scrolling from us: it writes
+     * `scrollTop` itself on first paint, which is exactly the hazard.
+     */
     await page.getByTestId("back-button").click().catch(() => undefined);
     await page.waitForTimeout(500);
-    await openWindowedSession(page, session!.sessionId);
+    const card = page.locator(`[data-session-id="${session!.sessionId}"]`).first();
+    await card.waitFor({ state: "visible", timeout: 60_000 });
+    await card.click();
     await page.waitForTimeout(QUIET_MS);
 
     expect(
