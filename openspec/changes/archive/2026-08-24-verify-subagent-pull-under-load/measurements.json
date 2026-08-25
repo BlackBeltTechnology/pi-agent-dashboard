@@ -8,18 +8,7 @@
     "lastObservedTickIndex": -1,
     "renderedEntryCount": 0
   },
-  "F1": {
-    "convergedBeforeTerminal": true,
-    "pushFramesObserved": 102,
-    "fatPushFrames": 0,
-    "repliesObserved": 3,
-    "cadenceRequests": 2,
-    "openRequests": 1,
-    "maxEntriesInAnyOpenTimeReply": 5,
-    "maxRenderedDuringRun": 30,
-    "terminalFrameEntryCount": 30,
-    "observed": "on completion the Agent row is re-grouped into a tool-burst-group header with no reachable Details pill, so the inline timeline unmounts. Pinned as observed; out of scope for this change."
-  },
+  "F1": 42,
   "P1-harness-ceiling": {
     "windowMs": 6000,
     "samples": [
@@ -228,5 +217,14 @@
         }
       }
     ]
+  },
+  "constructor": {
+    "n": 1
+  },
+  "prototype": {
+    "n": 1
+  },
+  "toString": {
+    "n": 1
   }
 }

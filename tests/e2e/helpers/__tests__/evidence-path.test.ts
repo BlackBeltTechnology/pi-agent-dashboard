@@ -18,7 +18,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { EVIDENCE_FILENAME, readEvidence, resolveEvidencePath } from "../evidence-path.js";
+import { EVIDENCE_FILENAME, readEvidence, recordMeasurement, resolveEvidencePath } from "../evidence-path.js";
 
 const CHANGE = "verify-subagent-pull-under-load";
 
@@ -137,6 +137,30 @@ describe("existing evidence is preserved, never silently replaced", () => {
     } finally {
       chmodSync(file, 0o644);
     }
+  });
+});
+
+describe("every key is persisted as an own property", () => {
+  // `current[key] = v` with key "__proto__" mutates the prototype instead of
+  // adding a property, so the measurement never reaches the JSON. Asserted
+  // through the round-trip to disk, not on the in-memory object.
+  it.each(["__proto__", "constructor", "prototype", "toString"])("records the reserved key %o", (key) => {
+    const dir = changeDir(CHANGE);
+    recordMeasurement(CHANGE, key, { n: 1 }, root);
+
+    const onDisk = JSON.parse(readFileSync(join(dir, EVIDENCE_FILENAME), "utf8"));
+    expect(Object.hasOwn(onDisk, key)).toBe(true);
+    expect(onDisk[key]).toEqual({ n: 1 });
+  });
+
+  it("a reserved key does not displace an ordinary measurement", () => {
+    const dir = changeDir(CHANGE);
+    recordMeasurement(CHANGE, "F1", 42, root);
+    recordMeasurement(CHANGE, "__proto__", { n: 1 }, root);
+
+    const onDisk = JSON.parse(readFileSync(join(dir, EVIDENCE_FILENAME), "utf8"));
+    expect(onDisk.F1).toBe(42);
+    expect(Object.hasOwn(onDisk, "__proto__")).toBe(true);
   });
 });
 

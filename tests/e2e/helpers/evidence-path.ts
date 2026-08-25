@@ -119,10 +119,17 @@ export function resolveEvidencePath(changeName: string, repoRoot: string = REPO_
  * not invented. Merges into any existing keys; throws (never creates) when the
  * change directory is gone.
  */
-export function recordMeasurement(changeName: string, key: string, value: unknown): void {
-  const path = resolveEvidencePath(changeName);
+export function recordMeasurement(
+  changeName: string,
+  key: string,
+  value: unknown,
+  repoRoot: string = REPO_ROOT,
+): void {
+  const path = resolveEvidencePath(changeName, repoRoot);
   const current = readEvidence(path);
-  current[key] = value;
+  // NOT `current[key] = value`: for key "__proto__" that mutates the prototype
+  // instead of adding a property, and the measurement never reaches the JSON.
+  Object.defineProperty(current, key, { value, enumerable: true, configurable: true, writable: true });
   writeFileSync(path, `${JSON.stringify(current, null, 2)}\n`);
 }
 
