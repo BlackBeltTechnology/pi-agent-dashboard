@@ -57,8 +57,8 @@ A positive `maxReplayEvents` below the minimum viable window SHALL be clamped up
 - **WHEN** `maxReplayEvents` is present but not a number
 - **THEN** the parsed config SHALL report `0`
 
-#### Scenario: Negative value falls back to unlimited
+#### Scenario: Negative value falls back to the default
 
 - **WHEN** `maxReplayEvents` is set to `-1`
-- **THEN** the parsed config SHALL report `0`
-- **AND** replay SHALL be unbounded rather than clamped to the minimum window
+- **THEN** the parsed config SHALL report the default window
+
