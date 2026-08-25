@@ -236,3 +236,132 @@ describe("P1: the per-event bookkeeping cost stays negligible", () => {
     expect(elapsed / EVENTS, `${(elapsed / EVENTS).toFixed(6)}ms per call`).toBeLessThan(0.1);
   });
 });
+
+/**
+ * Intent must not go STALE — the defect an audit of D7 surfaced.
+ *
+ * `handleScroll` records intent on ANY scroll event outside the stamp window,
+ * regardless of direction, and nothing clears it except an issue, a mount, or a
+ * session change. `scrollToBottom` scrolls with `behavior: "smooth"`, which
+ * emits scroll events for 300-500ms while the stamp covers only `SETTLE_MS`
+ * (120) — so a DOWNWARD smooth scroll latches "the user asked to go up", and a
+ * later programmatic jump that lands `nearTop` reads that stale flag and
+ * fetches something nobody asked for.
+ *
+ * The fix makes `stampProgrammaticScroll()` CLEAR intent: a programmatic
+ * reposition invalidates any intent recorded before it. That imposes an
+ * ordering contract on callers that ARE intent (`scrollToTop`): stamp first,
+ * then set the flag. Both halves are modelled below, because getting the order
+ * backwards silently disables the feature rather than breaking a type.
+ */
+describe("intent does not survive a programmatic reposition", () => {
+  /** Model of the ChatView refs the stamp and the scroll handler share. */
+  function makeRefs() {
+    const refs = { until: 0, intent: false };
+    return {
+      refs,
+      /** `stampProgrammaticScroll` — stamps AND invalidates prior intent. */
+      stamp(now: number) {
+        refs.until = now + SETTLE_MS;
+        refs.intent = false;
+      },
+      /** `handleScroll`'s trigger half. */
+      onScroll(now: number) {
+        if (now >= refs.until) refs.intent = true;
+      },
+    };
+  }
+
+  /**
+   * The reported scenario. A smooth descent outlives the stamp, so its later
+   * scroll events legitimately record intent; the NEXT programmatic writer must
+   * then clear it, or that writer's own landing fires a request.
+   */
+  it("a smooth scroll-to-bottom cannot leave intent latched for a later jump", () => {
+    const { refs, stamp, onScroll } = makeRefs();
+
+    // t=0 scrollToBottom stamps; smooth scrolling emits events past the stamp.
+    stamp(0);
+    onScroll(50); // inside the window — correctly ignored
+    expect(refs.intent).toBe(false);
+    onScroll(400); // smooth scroll STILL emitting, now outside the window
+    expect(refs.intent, "a late smooth-scroll event records intent").toBe(true);
+
+    // t=1000 an unrelated programmatic jump (scrollToTurn / restore) lands near
+    // the top. It stamps, which must invalidate the stale intent above.
+    stamp(1000);
+    expect(
+      shouldAutoLoadHistory(firing({ pendingUserIntent: refs.intent })),
+      "a programmatic jump fired on intent recorded by an earlier descent",
+    ).toBe(false);
+  });
+
+  // The other half of the contract: an activation that IS intent must survive.
+  it("scroll-to-top's own intent survives, because it stamps BEFORE setting it", () => {
+    const { refs, stamp } = makeRefs();
+    stamp(0); // scrollToTop stamps first...
+    refs.intent = true; // ...then records intent
+    expect(shouldAutoLoadHistory(firing({ pendingUserIntent: refs.intent }))).toBe(true);
+  });
+
+  // And the inverted order is exactly the silent-disable this pins against.
+  it("the reversed order would silently disable scroll-to-top", () => {
+    const { refs, stamp } = makeRefs();
+    refs.intent = true; // intent first...
+    stamp(0); // ...then the stamp wipes it
+    expect(shouldAutoLoadHistory(firing({ pendingUserIntent: refs.intent }))).toBe(false);
+  });
+});
+
+/**
+ * The splice-anchor CORRECTION must not eat intent.
+ *
+ * Caught by the E2E non-vacuity row, not by review: making every stamp
+ * invalidate intent fixed the stale-intent jump but broke the walk, because
+ * the D7a anchor stamps on ~20 consecutive frames after every splice. Any
+ * scroll the user starts in that ~333ms window had its intent wiped, so the
+ * next evaluation saw nothing and the walk stalled until they scrolled again.
+ *
+ * A correction PRESERVES position; only a JUMP relocates. See change:
+ * add-tail-only-replay-window (D7, D7a).
+ */
+describe("a splice correction suppresses its own events without eating intent", () => {
+  function makeRefs() {
+    const refs = { until: 0, intent: false };
+    return {
+      refs,
+      stamp(now: number, invalidateIntent = true) {
+        refs.until = now + SETTLE_MS;
+        if (invalidateIntent) refs.intent = false;
+      },
+      onScroll(now: number) {
+        if (now >= refs.until) refs.intent = true;
+      },
+    };
+  }
+
+  it("intent recorded during the correction window survives to the evaluation", () => {
+    const { refs, stamp, onScroll } = makeRefs();
+
+    // The user scrolls up; intent is recorded.
+    onScroll(0);
+    expect(refs.intent).toBe(true);
+
+    // A splice lands and the anchor corrects across 20 frames (~16ms apart).
+    for (let f = 0; f < 20; f++) stamp(f * 16, false);
+
+    expect(
+      shouldAutoLoadHistory(firing({ pendingUserIntent: refs.intent })),
+      "the correction loop wiped a gesture the user actually made",
+    ).toBe(true);
+  });
+
+  // The contrast: a JUMP in the same position still invalidates.
+  it("a jump still invalidates intent recorded before it", () => {
+    const { refs, stamp, onScroll } = makeRefs();
+    onScroll(0);
+    expect(refs.intent).toBe(true);
+    stamp(100); // a relocation
+    expect(shouldAutoLoadHistory(firing({ pendingUserIntent: refs.intent }))).toBe(false);
+  });
+});

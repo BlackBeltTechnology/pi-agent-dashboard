@@ -408,8 +408,31 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
    * See change: add-tail-only-replay-window (D7).
    */
   const programmaticScrollUntilRef = useRef(0);
-  const stampProgrammaticScroll = useCallback(() => {
+  /**
+   * Suppress the scroll events a programmatic write is about to emit.
+   *
+   * `invalidateIntent` splits two genuinely different kinds of write, and the
+   * distinction is load-bearing in both directions:
+   *
+   *  - A JUMP RELOCATES the user (`scrollToBottom`, `scrollToTurn`, restore,
+   *    the bottom-pin). Any intent recorded before it is now about a position
+   *    the user is no longer at, so it must be dropped. Without that,
+   *    `scrollToBottom`'s `behavior: "smooth"` emits scroll events for
+   *    300-500ms against a 120ms stamp, so a DOWNWARD scroll latches "asked to
+   *    go up" and the next jump that lands `nearTop` fetches unbidden.
+   *
+   *  - A CORRECTION PRESERVES the user's position (the D7a splice anchor). It
+   *    must still suppress its own events, but wiping intent here would eat a
+   *    gesture the user really did make: the anchor runs ~20 frames after every
+   *    splice, so an invalidating correction silently discards any scroll
+   *    started during that window and the walk stalls until they scroll again.
+   *
+   * Callers that ARE intent (`scrollToTop`) must stamp FIRST, then set the flag.
+   * See change: add-tail-only-replay-window (D7).
+   */
+  const stampProgrammaticScroll = useCallback((invalidateIntent = true) => {
     programmaticScrollUntilRef.current = Date.now() + SETTLE_MS;
+    if (invalidateIntent) pendingUserIntentRef.current = false;
   }, []);
   /**
    * The user has asked to go UP since the last request. Tracks INTENT, not
@@ -1163,20 +1186,27 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
 
     let frames = 0;
     let raf = 0;
+    /**
+     * Resolved ONCE, not per frame. `displayRows` is deliberately captured for
+     * the whole correction window, so the index cannot change across it; on a
+     * post-splice transcript of ~10k rows, re-scanning on each of 20 frames
+     * costs ~200k comparisons on exactly the frame budget this is protecting.
+     */
+    const idx = displayRows.findIndex((row, i) => virtualRowKey(row, i) === key);
+    // The anchor row left the transcript entirely (event trim, session switch).
+    // Stop rather than correct against a row that is not there.
+    if (idx < 0) return;
     const correct = (): void => {
       const node = scrollRef.current;
       if (!node) return;
-      const idx = displayRows.findIndex((row, i) => virtualRowKey(row, i) === key);
-      // The anchor row left the transcript entirely (event trim, session
-      // switch). Stop rather than correct against a row that is not there.
-      if (idx < 0) return;
       const start = virtualizer.measurementsCache[idx]?.start;
       if (typeof start === "number") {
         const target = start - anchorTop;
         // Sub-pixel drift is measurement noise, not displacement; writing for
         // it would fight the virtualizer every frame for no visible benefit.
         if (Math.abs(node.scrollTop - target) > 0.5) {
-          stampProgrammaticScroll();
+          // PRESERVES position — suppress our own events, keep the user's intent.
+          stampProgrammaticScroll(false);
           node.scrollTop = target;
         }
       }
@@ -1327,8 +1357,9 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
      * set here is what the post-ascent evaluation reads.
      * See change: add-tail-only-replay-window (D7).
      */
-    pendingUserIntentRef.current = true;
+    // Stamp FIRST: the stamp clears intent, and this activation IS intent.
     stampProgrammaticScroll();
+    pendingUserIntentRef.current = true;
     virtualizer.scrollToIndex(0, { align: "start" });
     if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
     settleTimerRef.current = setTimeout(evaluateAutoLoad, SETTLE_MS);

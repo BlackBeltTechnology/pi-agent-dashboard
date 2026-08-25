@@ -1714,3 +1714,63 @@ describe("memory-event-store — getEventsRange", () => {
     expect(store.getEventsRange("nope", 1, 10)).toEqual([]);
   });
 });
+
+/**
+ * `countEventsRange` — the count-only sibling of `getEventsRange`.
+ *
+ * `handleHistoryBackfill` recomputes `remainingGapCount` after every backfill
+ * step and reads ONLY `.length`. Materializing the slice to do that is O(gap)
+ * per step, and `tail-only` makes that the whole remaining gap EVERY step:
+ * `headMaxSeq` stays `0` by design, so the range never shrinks from below.
+ *
+ * See change: add-tail-only-replay-window.
+ */
+describe("countEventsRange — counting without materializing", () => {
+  const seed = (store: ReturnType<typeof createMemoryEventStore>, n: number) => {
+    for (let i = 0; i < n; i++) {
+      store.insertEvent("s1", { eventType: "tool_execution_end", timestamp: 1, data: {} });
+    }
+  };
+
+  it("agrees with getEventsRange().length across every boundary shape", () => {
+    const store = createMemoryEventStore(() => false);
+    seed(store, 500);
+    const cases: Array<[number, number]> = [
+      [1, 500],   // whole stream
+      [1, 1],     // single, at the low edge
+      [500, 500], // single, at the high edge
+      [0, 250],   // minSeq below the floor is normalised to 1
+      [251, 400], // interior
+      [400, 251], // inverted
+      [600, 900], // entirely above
+      [1, 10_000], // maxSeq past the end
+    ];
+    for (const [min, max] of cases) {
+      expect(store.countEventsRange("s1", min, max), `[${min}, ${max}]`).toBe(
+        store.getEventsRange("s1", min, max).length,
+      );
+    }
+  });
+
+  it("returns 0 for an unknown session, matching getEventsRange", () => {
+    const store = createMemoryEventStore(() => false);
+    expect(store.countEventsRange("nope", 1, 10)).toBe(0);
+    expect(store.getEventsRange("nope", 1, 10).length).toBe(0);
+  });
+
+  /**
+   * The point of the method: it must stay SUB-LINEAR, using the same two
+   * binary searches. Asserted through the store's own D8 probe rather than by
+   * timing, so it cannot flake on a loaded machine.
+   */
+  it("examines O(log n) entries, not O(range)", () => {
+    const store = createMemoryEventStore(() => false);
+    seed(store, 4000);
+    store.countEventsRange("s1", 1, 3999);
+    const examined = store.getRangeProbe().lastEntriesExamined;
+    expect(examined).toBeGreaterThan(0);
+    // Two binary searches over 4000 entries ≈ 2 × 12; an O(range) walk would
+    // be ~3999. A generous ceiling still separates the two by two orders.
+    expect(examined).toBeLessThan(64);
+  });
+});

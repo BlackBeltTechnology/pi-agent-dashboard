@@ -651,11 +651,15 @@ export async function handleHistoryBackfill(
     else if (headAdjacent) current.headMaxSeq = servedTo;
     // Truthful count of what the store STILL HOLDS inside the gap — never the
     // seq distance, which overstates a middle-trimmed store.
-    const remainingGapCount = eventStore.getEventsRange(
+    // COUNT-only: the slice was allocated purely to read `.length`, and in
+    // `tail-only` `headMaxSeq` stays 0 by design, so that slice was the whole
+    // remaining gap on EVERY step of the walk.
+    // See change: add-tail-only-replay-window.
+    const remainingGapCount = eventStore.countEventsRange(
       sessionId,
       current.headMaxSeq + 1,
       current.tailMinSeq - 1,
-    ).length;
+    );
 
     sendTo(ws, {
       type: "history_backfill_result",

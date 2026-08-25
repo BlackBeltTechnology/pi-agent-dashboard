@@ -783,7 +783,22 @@ export function useMessageHandler(
          * can reach this. Detect it once, here, and skip the whole response.
          * See change: add-tail-only-replay-window (D7, test-plan X6).
          */
-        if (!gap.dividerPlaced) break;
+        if (!gap.dividerPlaced) {
+          /**
+           * Clear `pending` on the way out. Dropping the response with a bare
+           * `break` strands `pending: true` forever — nothing else clears it —
+           * which both vetoes the trigger permanently and leaves the divider
+           * rendering its spinner (state A2) for the rest of the session.
+           *
+           * Reachable only via the AUTOMATIC trigger firing around a session
+           * switch: under click-to-load the divider necessarily existed before
+           * the button could be pressed. So this change made a previously
+           * unreachable state reachable.
+           * See change: add-tail-only-replay-window (D7).
+           */
+          publishGap(msg.sessionId, { ...gap, pending: false });
+          break;
+        }
         if (msg.events.length > 0) {
           setHistorySpliceRev?.((n) => n + 1);
           setSessionStates((prev) => {

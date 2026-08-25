@@ -531,8 +531,18 @@ describe("history_backfill — symmetric gap (E13–E23, X4)", () => {
     async function holey() {
       const p = await primed();
       const real = p.ctx.eventStore.getEventsRange.bind(p.ctx.eventStore);
-      p.ctx.eventStore.getEventsRange = ((sid: string, from: number, to: number) =>
-        real(sid, from, to).filter((e) => e.seq < HOLE_LO || e.seq > HOLE_HI)) as any;
+      const filtered = (sid: string, from: number, to: number) =>
+        real(sid, from, to).filter((e) => e.seq < HOLE_LO || e.seq > HOLE_HI);
+      p.ctx.eventStore.getEventsRange = filtered as any;
+      /**
+       * `countEventsRange` must be holed TOO, or this scenario silently stops
+       * testing anything: `remainingGapCount` is computed from the COUNT path,
+       * so leaving it unpatched would report the untrimmed total and the
+       * assertion below would compare the seq distance against itself.
+       * See change: add-tail-only-replay-window.
+       */
+      p.ctx.eventStore.countEventsRange = ((sid: string, from: number, to: number) =>
+        filtered(sid, from, to).length) as any;
       return p;
     }
 
