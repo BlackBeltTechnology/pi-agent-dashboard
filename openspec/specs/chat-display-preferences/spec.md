@@ -67,7 +67,7 @@ The server MUST ALSO send a `display_prefs_updated { prefs }` snapshot to each b
 
 A browser-to-server WS message `setSessionDisplayPrefs { sessionId, override }` SHALL update the per-session override. `override: null` clears it.
 
-The server SHALL broadcast `session_updated` with `updates.displayPrefsOverride: null` (not `undefined`) so the field survives JSON serialization. The client's `getSessionOverride` SHALL normalize `null` to `undefined` before returning to consumers.
+The server SHALL broadcast `session_updated` with `updates.displayPrefsOverride: null` (not `undefined`) so the field survives JSON serialization. The client's `getSessionOverride` SHALL normalize `null` to `undefined` before returning to consumers, so a cleared session merges as pure global prefs and its "modified" indicator turns off without a page reload.
 
 #### Scenario: PATCH broadcasts to other tabs
 - **GIVEN** two browser tabs A and B connected to the same server
@@ -92,6 +92,13 @@ The server SHALL broadcast `session_updated` with `updates.displayPrefsOverride:
 - **THEN** the broadcast `session_updated` carries `updates.displayPrefsOverride: null`
 - **AND** `JSON.stringify` does not drop the field
 - **AND** all connected browsers apply the clear
+
+#### Scenario: Client normalizes cleared override to undefined
+- **GIVEN** a session whose in-memory record carries `displayPrefsOverride: null` after applying a clearing `session_updated` broadcast
+- **WHEN** a consumer reads the override via `getSessionOverride(sessionId)`
+- **THEN** the returned value SHALL be `undefined`, not `null`
+- **AND** `useDisplayPrefs` SHALL merge to pure global prefs (no override applied)
+- **AND** the `ChatViewMenu` "modified" pill SHALL NOT render for that session
 
 #### Scenario: PATCH deep-merges toolCalls
 - **GIVEN** stored `toolCalls = { read:true, bash:true, edit:true, agent:true, generic:true }`

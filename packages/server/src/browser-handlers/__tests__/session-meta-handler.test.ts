@@ -5,7 +5,7 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { createMemorySessionManager, type SessionManager } from "../../session/memory-session-manager.js";
 import type { BrowserHandlerContext } from "../handler-context.js";
-import { handleAttachProposal, handleDetachProposal, handleRemoveTagGlobally, handleSetSessionProcessDrawer, handleSetSessionTags, pushAttachProposalChanged } from "../session-meta-handler.js";
+import { handleAttachProposal, handleDetachProposal, handleRemoveTagGlobally, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, pushAttachProposalChanged } from "../session-meta-handler.js";
 
 interface PiSent {
   sessionId: string;
@@ -412,5 +412,45 @@ describe("handleDetachProposal — decision matrix", () => {
       attachedProposal: null, openspecPhase: null, openspecChange: null,
       pendingReplaceProposal: null, rejectedReplaceProposals: [],
     });
+  });
+});
+
+describe("handleSetSessionDisplayPrefs — clearing broadcast", () => {
+  let mgr: SessionManager;
+  beforeEach(() => {
+    mgr = createMemorySessionManager();
+  });
+
+  it("clearing broadcasts displayPrefsOverride: null that survives JSON round-trip", () => {
+    registerSession(mgr, "s1", { displayPrefsOverride: { tokenStatsBar: false } });
+    const { ctx, broadcasts } = makeCtx(mgr);
+
+    handleSetSessionDisplayPrefs(
+      { type: "setSessionDisplayPrefs", sessionId: "s1", override: null } as any,
+      ctx,
+    );
+
+    // In-memory / disk representation stays field-absent (undefined).
+    expect(mgr.get("s1")!.displayPrefsOverride).toBeUndefined();
+
+    // The broadcast payload MUST carry `null`, and it MUST survive the
+    // `JSON.stringify` the gateway applies — `undefined` would be dropped.
+    expect(broadcasts).toHaveLength(1);
+    const roundTripped = JSON.parse(JSON.stringify(broadcasts[0]));
+    expect(roundTripped.updates).toHaveProperty("displayPrefsOverride");
+    expect(roundTripped.updates.displayPrefsOverride).toBeNull();
+  });
+
+  it("setting an override broadcasts the override object", () => {
+    registerSession(mgr, "s1");
+    const { ctx, broadcasts } = makeCtx(mgr);
+
+    handleSetSessionDisplayPrefs(
+      { type: "setSessionDisplayPrefs", sessionId: "s1", override: { tokenStatsBar: false } } as any,
+      ctx,
+    );
+
+    expect(mgr.get("s1")!.displayPrefsOverride).toEqual({ tokenStatsBar: false });
+    expect(broadcasts[0].updates).toEqual({ displayPrefsOverride: { tokenStatsBar: false } });
   });
 });

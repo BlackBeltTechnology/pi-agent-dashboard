@@ -25,6 +25,21 @@ const DEFAULT: DisplayPrefsContextValue = {
   getSessionOverride: () => undefined,
 };
 
+/**
+ * Resolve a session's override from the `sessions` map, normalizing a cleared
+ * session's transient `null` (carried by a clearing `session_updated`
+ * broadcast) to `undefined` so `mergeDisplayPrefs` and the `ChatViewMenu`
+ * "modified" pill treat it as no override.
+ * See change: fix-clear-display-override-broadcast (D2).
+ */
+export function resolveSessionOverride(
+  sessions: Map<string, { displayPrefsOverride?: PartialDisplayPrefs | null }>,
+  sessionId: string | undefined,
+): PartialDisplayPrefs | undefined {
+  if (!sessionId) return undefined;
+  return sessions.get(sessionId)?.displayPrefsOverride ?? undefined;
+}
+
 const DisplayPrefsContext = createContext<DisplayPrefsContextValue>(DEFAULT);
 
 export function DisplayPrefsProvider({
