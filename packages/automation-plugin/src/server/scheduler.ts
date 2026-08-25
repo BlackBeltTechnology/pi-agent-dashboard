@@ -19,6 +19,35 @@ import type { TriggerRegistry, Disposable, ArmDeps, FireContext } from "./trigge
 
 export type OnFire = (automation: DiscoveredAutomation, ctx: FireContext) => void;
 
+/** Node's `setTimeout` delay is a 32-bit signed int; delays above this overflow. */
+export const MAX_DELAY = 2_147_483_647; // 2^31 − 1 ms ≈ 24.855 days
+
+type RawTimer = (fn: () => void, ms: number) => { clear: () => void };
+
+/**
+ * Arm a timer that honors delays beyond the 32-bit `setTimeout` ceiling.
+ *
+ * A wait longer than {@link MAX_DELAY} is split into bounded hops: each hop
+ * sleeps at most `MAX_DELAY`, then on wake recomputes the remaining wait
+ * against the ABSOLUTE target instant (`target − now()`), not by naive
+ * subtraction — keeping the timer self-correcting across long hops, GC pauses,
+ * and OS suspend/resume while the process stays alive. When the recomputed
+ * remaining is `≤ 0` (a hop woke at/after the target), it fires once,
+ * immediately. `clear()` cancels whichever hop is currently pending.
+ *
+ * See change: fix-schedule-timer-overflow.
+ */
+export function setLongTimer(raw: RawTimer, now: () => number, fn: () => void, ms: number): { clear: () => void } {
+  const target = now() + ms;
+  let handle: { clear: () => void } | null = null;
+  const arm = (): void => {
+    const remaining = target - now();
+    handle = remaining > MAX_DELAY ? raw(arm, MAX_DELAY) : raw(fn, Math.max(0, remaining));
+  };
+  arm();
+  return { clear: () => handle?.clear() };
+}
+
 export interface SchedulerDeps extends Partial<ArmDeps> {
   registry: TriggerRegistry;
   onFire: OnFire;
@@ -45,13 +74,18 @@ export interface Scheduler {
 
 export function createScheduler(deps: SchedulerDeps): Scheduler {
   const now = deps.now ?? (() => Date.now());
-  const setTimer =
+  // Raw one-hop primitive (injected fake in tests, real setTimeout otherwise).
+  const rawSetTimer: RawTimer =
     deps.setTimer ??
     ((fn: () => void, ms: number) => {
       const t = setTimeout(fn, ms);
       if (typeof t.unref === "function") t.unref();
       return { clear: () => clearTimeout(t) };
     });
+  // Every trigger arms through the shared chunk-safe seam, so any current or
+  // future trigger kind inherits 32-bit-overflow safety.
+  // See change: fix-schedule-timer-overflow.
+  const setTimer: RawTimer = (fn, ms) => setLongTimer(rawSetTimer, now, fn, ms);
   const armDeps: ArmDeps = { now, setTimer };
   const warn = deps.warn ?? ((m: string) => console.warn(m));
   const log = deps.log ?? (() => {});
