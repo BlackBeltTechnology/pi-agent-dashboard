@@ -32,7 +32,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `implement/scripts/restart-server.ts` | Restart server via `POST /api/restart`. Flags: none (keep mode), `--dev` (body `{"dev":true}`), `--prod`… → see `implement/scripts/restart-server.ts.AGENTS.md` |
 | `implement/scripts/review-changes.ts` | Implementation-phase advisory CodeRabbit review gate. Default `-t uncommitted`; passthrough passthrough flags… → see `implement/scripts/review-changes.ts.AGENTS.md` |
 | `implement/SKILL.md` | Skill: disciplined implementation. Pairs code-discipline rules (TDD, simplicity, surgical) with 3-component… → see `implement/SKILL.md.AGENTS.md` |
-| `manage-flows/SKILL.md` | Skill: create/edit pi-flows flows + agents (`disable-model-invocation: true`). → see `manage-flows/SKILL.md.AGENTS.md` |
+| `manage-flows/SKILL.md` | Stub: only `disable-model-invocation: true` frontmatter; body moved to `edit-flow/SKILL.md`. → see `manage-flows/SKILL.md.AGENTS.md` |
 | `nano-banana-imagegen/references/` | Prompting guide, example prompts |
 | `nano-banana-imagegen/references/headers-and-heroes.md` | Prompt library for header/hero images. Categories: blog/article headers (tech blog, business case study,… → see `nano-banana-imagegen/references/headers-and-heroes.md.AGENTS.md` |
 | `nano-banana-imagegen/references/icons-and-logos.md` | Prompt library for icons + logos. Categories: app icons (meditation, fitness, notes, weather —… → see `nano-banana-imagegen/references/icons-and-logos.md.AGENTS.md` |

@@ -13,5 +13,5 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `spawn-failure-log.ts` | Appends/reads rolling NDJSON log of failed spawns (`~/.pi/dashboard/sessions/spawn-failures.log`). → see `spawn-failure-log.ts.AGENTS.md` |
 | `spawn-preflight.ts` | Pure sync preflight: checks cwd exists/is-dir/writable + pi+node resolvable. → see `spawn-preflight.ts.AGENTS.md` |
 | `spawn-recovery-window.ts` | Single source of `RECOVERY_GRACE_MS`/`ORDERING_MARGIN_MS` + `deriveSpawnCorrelationTtlMs`; every spawn TTL… → see `spawn-recovery-window.ts.AGENTS.md` |
-| `spawn-register-watchdog.ts` | Arms per-spawn timer; fires `spawn_register_timeout` if pi never registers. byPid + byCwd + byToken maps. → see `spawn-register-watchdog.ts.AGENTS.md` |
+| `spawn-register-watchdog.ts` | Arms per-spawn timer. Fires `spawn_register_timeout` if pi never registers, then RECLAIMS — kills the unregistered spawn via its env spawn token (tmux panes included). byPid + byCwd + byToken maps. → see `spawn-register-watchdog.ts.AGENTS.md` |
 | `spawned-turn-log.ts` | Build redacted `server.log` lines for spawned-session turn outcomes. → see `spawned-turn-log.ts.AGENTS.md` |
