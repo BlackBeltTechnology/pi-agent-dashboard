@@ -463,7 +463,13 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
         "client": "./src/client.tsx",
         "server": "./src/server/index.ts",
         "configSchema": "./configSchema.json",
-        "i18nCatalog": "catalog"
+        "i18nCatalog": "catalog",
+        "requires": {
+            "piExtensions": [
+                "@latentminds/pi-quotas",
+                "@hk_net/pi-usage-bars"
+            ]
+        }
     },
     claims: [
       { pluginId: "quota", priority: 600, slot: "content-inline-footer", Component: QuotaWidget },

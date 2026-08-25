@@ -13,9 +13,6 @@
     "sourceMap": true,
     "lib": ["ES2023"],
     "paths": {
-      "@latentminds/pi-quotas/src/lib/quotas.js": [
-        "./packages/quota-plugin/src/pi-quotas.d.ts"
-      ],
       "@earendil-works/pi-coding-agent": [
         "./node_modules/@earendil-works/pi-coding-agent"
       ],

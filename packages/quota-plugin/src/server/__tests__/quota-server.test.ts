@@ -14,10 +14,19 @@ const SUPPORTED = [
 const fetchProviderQuotas = vi.fn();
 const clearQuotaCache = vi.fn();
 
-vi.mock("@latentminds/pi-quotas/src/lib/quotas.js", () => ({
-  SUPPORTED_PROVIDERS: SUPPORTED,
-  fetchProviderQuotas,
-  clearQuotaCache,
+vi.mock("../load-pi-quotas.js", () => ({
+  loadPiQuotas: vi.fn(async () => ({
+    SUPPORTED_PROVIDERS: SUPPORTED,
+    fetchProviderQuotas,
+    clearQuotaCache,
+  })),
+}));
+// Second peer source (`usage-bars`). Default: NOT installed, so the pi-quotas
+// routing assertions below are unaffected by it.
+const fetchClaudeUsage = vi.fn();
+vi.mock("../load-usage-bars.js", () => ({
+  loadUsageBars: vi.fn(async () => null),
+  USAGE_BARS_PACKAGE: "@hk_net/pi-usage-bars",
 }));
 // Module-level host imports are unused by computeQuota but must not load real fs/pi-ai.
 vi.mock("@blackbelt-technology/pi-dashboard-server/src/auth/provider-auth-storage.js", () => ({
@@ -50,21 +59,21 @@ beforeEach(() => {
 
 describe("computeQuota gate", () => {
   it("plugin disabled → no fetch, all caches cleared", async () => {
-    const res = await computeQuota({ enabled: false, acknowledgedToS: true, providers: { "openai-codex": { enabled: true } } }, adapter);
+    const res = await computeQuota({ enabled: false, providers: { "openai-codex": { enabled: true } } }, adapter);
     expect(res.providers).toEqual([]);
     expect(fetchProviderQuotas).not.toHaveBeenCalled();
     expect(clearQuotaCache).toHaveBeenCalledWith("openai-codex");
   });
 
-  it("ToS un-acked → no fetch", async () => {
-    const res = await computeQuota({ enabled: true, acknowledgedToS: false, providers: { "openai-codex": { enabled: true } } }, adapter);
+  it("no provider enabled → no fetch", async () => {
+    const res = await computeQuota({ enabled: true, providers: {} }, adapter);
     expect(res.providers).toEqual([]);
     expect(fetchProviderQuotas).not.toHaveBeenCalled();
   });
 
   it("provider gate: fetches enabled provider only, not the disabled one", async () => {
     await computeQuota(
-      { enabled: true, acknowledgedToS: true, providers: { "openai-codex": { enabled: true }, "github-copilot": { enabled: false } } },
+      { enabled: true, providers: { "openai-codex": { enabled: true }, "github-copilot": { enabled: false } } },
       adapter,
     );
     const fetched = fetchProviderQuotas.mock.calls.map((c) => c[1]);
@@ -83,11 +92,50 @@ describe("computeQuota gate", () => {
 describe("computeQuota fetch behaviour", () => {
   const onAll: Record<string, { enabled: boolean }> = Object.fromEntries(SUPPORTED.map((p) => [p, { enabled: true }]));
 
-  it("excludes anthropic even when enabled", async () => {
-    await computeQuota({ enabled: true, acknowledgedToS: true, providers: onAll }, adapter);
+  // Anthropic is NEVER routed to pi-quotas: its `sk-ant-` guard classifies an
+  // OAuth subscription token as a direct API key and returns not_applicable
+  // unconditionally. See ../../sources.ts.
+  it("never fetches anthropic from pi-quotas, even when enabled", async () => {
+    await computeQuota({ enabled: true, providers: onAll }, adapter);
     const fetched = fetchProviderQuotas.mock.calls.map((c) => c[1]);
     expect(fetched).not.toContain("anthropic");
-    expect(clearQuotaCache).toHaveBeenCalledWith("anthropic");
+  });
+
+  it("serves anthropic from usage-bars when that peer is installed", async () => {
+    const { loadUsageBars } = await import("../load-usage-bars.js");
+    fetchClaudeUsage.mockResolvedValue({
+      session: 40,
+      weekly: 59,
+      sessionResetsAt: new Date(Date.now() + 3600_000).toISOString(),
+      weeklyResetsAt: new Date(Date.now() + 86_400_000).toISOString(),
+    });
+    vi.mocked(loadUsageBars).mockResolvedValueOnce({
+      fetchers: { anthropic: fetchClaudeUsage },
+    } as never);
+
+    const res = await computeQuota({ enabled: true, providers: { anthropic: { enabled: true } } }, adapter);
+    const anthropic = res.providers.find((p) => p.provider === "anthropic");
+    expect(anthropic).toBeDefined();
+    expect(anthropic?.windows.map((w) => w.usedPercent)).toEqual([40, 59]);
+    // Routed to the other source — pi-quotas was never asked.
+    expect(fetchProviderQuotas.mock.calls.map((c) => c[1])).not.toContain("anthropic");
+  });
+
+  it("reports per-source availability so the UI can gate checkboxes", async () => {
+    const res = await computeQuota({ enabled: true, providers: {} }, adapter);
+    expect(res.sources).toEqual([
+      { id: "pi-quotas", package: "@latentminds/pi-quotas", installed: true },
+      { id: "usage-bars", package: "@hk_net/pi-usage-bars", installed: false },
+    ]);
+  });
+
+  it("NO peer installed → empty snapshot, no fetch, sources all absent", async () => {
+    const { loadPiQuotas } = await import("../load-pi-quotas.js");
+    vi.mocked(loadPiQuotas).mockResolvedValueOnce(null);
+    const res = await computeQuota({ enabled: true, providers: onAll }, adapter);
+    expect(res.providers).toEqual([]);
+    expect(fetchProviderQuotas).not.toHaveBeenCalled();
+    expect(res.sources?.every((s) => !s.installed)).toBe(true);
   });
 
   it("omits not_applicable providers with no error surfaced", async () => {
@@ -96,14 +144,14 @@ describe("computeQuota fetch behaviour", () => {
         ? { success: false, error: { message: "api key", kind: "not_applicable" } }
         : okResult(provider),
     );
-    const res = await computeQuota({ enabled: true, acknowledgedToS: true, providers: { "openai-codex": { enabled: true }, zai: { enabled: true } } }, adapter);
+    const res = await computeQuota({ enabled: true, providers: { "openai-codex": { enabled: true }, zai: { enabled: true } } }, adapter);
     const providers = res.providers.map((p) => p.provider);
     expect(providers).not.toContain("openai-codex");
     expect(providers).toContain("zai");
   });
 
   it("normalizes windows and always carries windowSeconds", async () => {
-    const res = await computeQuota({ enabled: true, acknowledgedToS: true, providers: { zai: { enabled: true } } }, adapter);
+    const res = await computeQuota({ enabled: true, providers: { zai: { enabled: true } } }, adapter);
     const win = res.providers[0].windows[0];
     expect(win.windowSeconds).toBe(5 * 3600);
     expect(typeof win.resetsAt).toBe("string");
@@ -121,7 +169,7 @@ describe("computeQuota fetch behaviour", () => {
         ],
       },
     }));
-    const res = await computeQuota({ enabled: true, acknowledgedToS: true, providers: { zai: { enabled: true } } }, adapter);
+    const res = await computeQuota({ enabled: true, providers: { zai: { enabled: true } } }, adapter);
     const windows = res.providers[0].windows;
     expect(windows).toHaveLength(1);
     expect(windows[0].label).toBe("good");

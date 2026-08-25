@@ -1,7 +1,7 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-quota-plugin",
   "version": "0.7.0",
-  "description": "Surface per-account provider subscription quota (Codex, Copilot, OpenRouter, Z.ai, …) in the dashboard. Server-side fetch via @latentminds/pi-quotas; disabled by default, ToS-gated, per-provider, Anthropic excluded. No bridge.",
+  "description": "Surface per-account provider subscription quota (Anthropic, Codex, Copilot, OpenRouter, Z.ai, …) in the dashboard. Server-side fetch via at least one user-installed peer pi extension: @latentminds/pi-quotas (broad) and/or @hk_net/pi-usage-bars (the only one that can serve Anthropic OAuth). Per-provider opt-in, gated on an installed peer that can serve it. No bridge.",
   "license": "MIT",
   "private": true,
   "type": "module",
@@ -52,13 +52,18 @@
         "component": "QuotaSettings",
         "tab": "general"
       }
-    ]
+    ],
+    "requires": {
+      "piExtensions": [
+        "@latentminds/pi-quotas",
+        "@hk_net/pi-usage-bars"
+      ]
+    }
   },
   "dependencies": {
     "@blackbelt-technology/dashboard-plugin-runtime": "^0.7.0",
     "@blackbelt-technology/pi-dashboard-server": "workspace:*",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
-    "@latentminds/pi-quotas": "0.4.0"
+    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0"
   },
   "peerDependencies": {
     "react": ">=18.0.0",

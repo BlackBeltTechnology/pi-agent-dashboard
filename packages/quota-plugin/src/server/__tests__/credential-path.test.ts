@@ -10,10 +10,12 @@ const readAuthJson = vi.fn(() => ({ "openai-codex": { type: "oauth", access: TOK
 const getApiKeyAndHeaders = vi.fn(async () => ({ apiKey: TOKEN, headers: {} }));
 const getModelRegistry = vi.fn(async () => ({ getApiKeyAndHeaders }));
 
-vi.mock("@latentminds/pi-quotas/src/lib/quotas.js", () => ({
-  SUPPORTED_PROVIDERS: SUPPORTED,
-  fetchProviderQuotas,
-  clearQuotaCache,
+vi.mock("../load-pi-quotas.js", () => ({
+  loadPiQuotas: vi.fn(async () => ({
+    SUPPORTED_PROVIDERS: SUPPORTED,
+    fetchProviderQuotas,
+    clearQuotaCache,
+  })),
 }));
 vi.mock("@blackbelt-technology/pi-dashboard-server/src/auth/provider-auth-storage.js", () => ({ readAuthJson }));
 vi.mock("@blackbelt-technology/pi-dashboard-server/src/model-proxy/registry-singleton.js", () => ({ getModelRegistry }));
@@ -48,7 +50,7 @@ beforeEach(() => {
 });
 
 describe("credential resolution via host abstraction", () => {
-  const config = { enabled: true, acknowledgedToS: true, providers: { "openai-codex": { enabled: true } } };
+  const config = { enabled: true, providers: { "openai-codex": { enabled: true } } };
 
   it("resolves creds through readAuthJson + registry.getApiKeyAndHeaders (never a file path)", async () => {
     const { ctx, run } = makeCtx(config);
