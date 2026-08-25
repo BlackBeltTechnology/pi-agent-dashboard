@@ -11,7 +11,7 @@
  */
 
 /** Below this elapsed fraction a window has effectively just reset — pace is not yet meaningful. */
-export const PACE_EPS = 0.01;
+const PACE_EPS = 0.01;
 
 /** Projected-final threshold above which a window is treated as critically over pace. */
 const CRITICAL_PROJECTED = 150;
