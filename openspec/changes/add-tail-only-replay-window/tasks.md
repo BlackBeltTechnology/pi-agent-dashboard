@@ -84,7 +84,7 @@ Test tasks are folded from `test-plan.md`; that manifest — not any tag here �
 - [x] 5.16 Author `tests/e2e/tail-only-loading-head.spec.ts` — head-free gap with `remainingGapCount: 0` on the last response · response applied · the loading head becomes the terminus row and is NOT removed (test-plan #F11). Copy harness glue from `tests/e2e/max-replay-events-setting.spec.ts`.
 - [x] 5.17 Author in `tail-only-loading-head.spec.ts` — a two-sided gap with `remainingGapCount: 0` · response applied · the interstitial IS removed entirely (test-plan #F12).
 - [x] 5.18 Author in `tail-only-loading-head.spec.ts` — `tail-only` transcript scrolled down · activate scroll-to-top · the view top-aligns the loading head and does not claim the earliest message was reached (test-plan #F13).
-- [ ] 5.19 Author in `tail-only-loading-head.spec.ts` — server refuses an automatically issued request · response carries an error code · the loading head offers an explicit retry, the trigger does not re-fire automatically, and no protocol code reaches the user (test-plan #X7).
+- [x] 5.19 **RE-LEVELLED to L1 — recorded.** The `in_flight` race is unwinnable: D7's chain-load guard serialises requests, so two rapid ascents never put a second `history_backfill` on the wire while the first is out. Attempted against the harness; the row SKIPPED rather than passed, which is evidence the guard works. Now asserted in `useMessageHandler.history-gap.test.tsx` where a refusal is constructible: all four protocol codes mark the gap `failed` without touching its bounds (not a terminus, not `unservable`), and `failed` vetoes the trigger with a non-vacuity check that clearing only `failed` re-enables it. Original text: server refuses an automatically issued request · response carries an error code · the loading head offers an explicit retry, the trigger does not re-fire automatically, and no protocol code reaches the user (test-plan #X7).
 - [x] 5.20 Author in `tail-only-loading-head.spec.ts` — `tail-only` with 20 rows spliced · an automatic load completes · an `aria-live="polite"` region receives "20 earlier messages loaded" and document focus is unchanged across the splice (test-plan #F16).
 - [x] 5.20a Author in `tail-only-loading-head.spec.ts` — `head-tail` window, user clicks the explicit "Load earlier" affordance · response applied · NO new live-region announcement; the count announcement is scoped to automatic loads in `tail-only` so a non-opted-in user observes nothing new (test-plan #F21).
 - [x] 5.21 Implement the loading head, its terminus states, the retry fallback, and the `aria-live="polite"` announcement region in `HistoryGapDivider`, scoped to automatic loads in `tail-only`. Green 5.16–5.20a.
@@ -111,12 +111,12 @@ Test tasks are folded from `test-plan.md`; that manifest — not any tag here �
 
 ## 9. Verification gates
 
-- [ ] 9.1 Run the full suite per the repo's piped-log procedure; confirm no `head-tail` regression, with particular attention to the three reset call sites.
+- [x] 9.1 Run the full suite per the repo's piped-log procedure; confirm no `head-tail` regression, with particular attention to the three reset call sites.
 - [ ] 9.2 Invoke `review-code` on the completed diff, and `performance-optimization` on the scroll path. Settle the keep-or-raise decision on `SETTLE_MS` here, using the results already produced by the two performance tasks and the on-device judgement task.
 - [ ] 9.3 Invoke `security-hardening` only if the settings write path is touched beyond the additive field; otherwise record that it does not apply.
 
 ## 10. Documentation
 
-- [ ] 10.1 Add or update rows in the nearest directory `AGENTS.md` for every touched file (`packages/shared/src/config.ts.AGENTS.md`, `packages/server/src/browser-handlers/`, `packages/client/src/lib/chat/`, `packages/client/src/components/chat/`, `packages/client/src/components/settings/`, plus each new `tests/e2e/*.spec.ts`), each carrying `See change: add-tail-only-replay-window`.
-- [ ] 10.2 Delegate to `DocScribe`: `docs/architecture.md`'s replay/windowing section gains the mode, the head-free shape, the relocated reset guarantee, and the trigger's suppression model. Caveman style; the main agent applies the returned tree rows.
-- [ ] 10.3 Run `kb dox lint` and clear any `stale`/`missing` rows this change introduced.
+- [x] 10.1 Add or update rows in the nearest directory `AGENTS.md` for every touched file (`packages/shared/src/config.ts.AGENTS.md`, `packages/server/src/browser-handlers/`, `packages/client/src/lib/chat/`, `packages/client/src/components/chat/`, `packages/client/src/components/settings/`, plus each new `tests/e2e/*.spec.ts`), each carrying `See change: add-tail-only-replay-window`.
+- [x] 10.2 Delegate to `DocScribe`: `docs/architecture.md`'s replay/windowing section gains the mode, the head-free shape, the relocated reset guarantee, and the trigger's suppression model. Caveman style; the main agent applies the returned tree rows.
+- [x] 10.3 Run `kb dox lint` and clear any `stale`/`missing` rows this change introduced.

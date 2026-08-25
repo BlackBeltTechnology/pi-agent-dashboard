@@ -19,7 +19,7 @@ import { IDBFactory } from "fake-indexeddb";
 import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { createInitialState, type SessionState } from "../../lib/chat/event-reducer.js";
-import { HISTORY_GAP_ROW_ID, type HistoryGapState, historyGapTerminus, nextBackfillRange } from "../../lib/chat/history-gap.js";
+import { HISTORY_GAP_ROW_ID, type HistoryGapState, historyGapTerminus, nextBackfillRange, shouldAutoLoadHistory } from "../../lib/chat/history-gap.js";
 import { createReplayCache } from "../../lib/replay/replay-cache.js";
 import { createReplayPersister } from "../../lib/replay/replay-persist.js";
 import { type MessageHandlerSetters, useMessageHandler } from "../useMessageHandler.js";
@@ -566,5 +566,110 @@ describe("head-free window bounds the gap at the store floor (E12, E13, E14)", (
     const after = h.get().gaps.get(SID)!;
     expect(after.tailMinSeq).toBe(before.tailMinSeq);
     expect(after.gapCount).toBe(before.gapCount);
+  });
+});
+
+/**
+ * #X7 — a REFUSED request, asserted here rather than at L3.
+ *
+ * The L3 lever for provoking a real refusal is the server's `in_flight` guard,
+ * and the trigger's own chain-load guard makes that race unwinnable: two
+ * ascents in quick succession are serialised, so a second `history_backfill`
+ * never goes out while the first is in flight. Attempted directly against the
+ * harness — the race did not land and the row skipped rather than passed. That
+ * is evidence D7's guard works, not a gap in it.
+ *
+ * Here the refusal is CONSTRUCTIBLE: a real `history_backfill_result` carrying
+ * an error is fed to the real handler. What matters is that the failure is
+ * TERMINAL until the user acts — an auto-retrying trigger would hammer the
+ * server for as long as the condition persisted.
+ * See change: add-tail-only-replay-window (test-plan X7).
+ */
+describe("X7: a refused request is terminal until the user retries", () => {
+  const openHeadFreeGap = () => {
+    const h = mount();
+    h.fire(
+      windowMsg({
+        headMaxSeq: 0,
+        tailMinSeq: 4501,
+        gapCount: 4500,
+        oldestGapSeq: 1,
+        windowShape: "tail-only",
+      }),
+    );
+    h.fire({
+      type: "event_replay",
+      sessionId: SID,
+      events: [{ seq: 4501, event: evt("message_start", "tail") }],
+      isLast: true,
+    } as ServerToBrowserMessage);
+    return h;
+  };
+
+  // Every protocol code the server may return. All collapse to the same state.
+  it.each([["in_flight"], ["stale_generation"], ["out_of_range"], ["not_subscribed"]])(
+    "X7: %s marks the gap failed without touching its bounds",
+    (code) => {
+      const h = openHeadFreeGap();
+      const before = { ...h.get().gaps.get(SID)! };
+
+      h.fire({
+        type: "history_backfill_result",
+        sessionId: SID,
+        events: [],
+        servedFrom: 0,
+        servedTo: 0,
+        remainingGapCount: before.gapCount,
+        error: code,
+      } as unknown as ServerToBrowserMessage);
+
+      const gap = h.get().gaps.get(SID)!;
+      expect(gap.failed).toBe(true);
+      expect(gap.pending).toBe(false);
+      /**
+       * A refusal is NOT a terminus and NOT unservable: nothing was learned
+       * about what the store holds, so the walk's bounds must be untouched and
+       * the user must still be offered a retry.
+       */
+      expect(gap.atFloor).toBe(false);
+      expect(gap.unservable).toBe(false);
+      expect(gap.tailMinSeq).toBe(before.tailMinSeq);
+      expect(gap.gapCount).toBe(before.gapCount);
+    },
+  );
+
+  /**
+   * The load-bearing half: `failed` VETOES the trigger, so a refusal cannot
+   * spin. Asserted against the predicate with the post-refusal gap state, so
+   * this tracks the real veto rather than restating F4's table.
+   */
+  it("X7: the trigger stays vetoed after a refusal, however hard the user scrolls", () => {
+    const h = openHeadFreeGap();
+    h.fire({
+      type: "history_backfill_result",
+      sessionId: SID,
+      events: [],
+      servedFrom: 0,
+      servedTo: 0,
+      remainingGapCount: 4500,
+      error: "in_flight",
+    } as unknown as ServerToBrowserMessage);
+
+    const gap = h.get().gaps.get(SID)!;
+    const inputs = {
+      headFree: gap.windowShape === "tail-only",
+      nearTop: true,
+      pendingUserIntent: true,
+      suppressed: false,
+      armed: gap.armed,
+      pending: gap.pending,
+      failed: gap.failed,
+      unservable: gap.unservable,
+      atFloor: gap.atFloor,
+    };
+    expect(shouldAutoLoadHistory(inputs)).toBe(false);
+    // Non-vacuity: clearing ONLY `failed` re-enables it, so the veto above is
+    // attributable to the refusal and not to some other disarmed flag.
+    expect(shouldAutoLoadHistory({ ...inputs, failed: false })).toBe(true);
   });
 });

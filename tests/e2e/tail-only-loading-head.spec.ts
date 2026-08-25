@@ -5,7 +5,6 @@ import {
   divider,
   nudgeAscent,
   openWindowedSession,
-  scroller,
   teardownWindowedSession,
   type WindowedSession,
   watchBackfillFrames,
@@ -117,6 +116,26 @@ test.describe("tail-only loading head", () => {
     expect(atStart + notRetained, "exactly one terminus row must show").toBe(1);
     await expect(divider(page)).not.toContainText(/compact|retention polic|trimmed/i);
   });
+
+  /*
+   * #X7 (a refused automatic request) is NOT asserted here.
+   *
+   * The refusal has to be REAL to be worth an L3 row, and the harness cannot
+   * provoke one: the obvious lever is the server's `in_flight` guard, but the
+   * trigger's own chain-load guard serialises requests, so two ascents in quick
+   * succession never put a second `history_backfill` on the wire while the
+   * first is out. Attempted directly — the race did not land, and the row
+   * skipped rather than passed. That the race is unwinnable is evidence D7's
+   * guard works, not a gap in it.
+   *
+   * The scenario's content is asserted at L1, where a refusal is constructible
+   * directly: `useMessageHandler.history-gap.test.tsx` feeds a real
+   * `history_backfill_result` carrying an error and pins that the gap goes
+   * `failed` and that the trigger stays vetoed;
+   * `HistoryGapDivider.test.tsx` pins that every protocol code collapses to one
+   * sentence plus a retry, with no code reaching the user.
+   * See change: add-tail-only-replay-window (test-plan X7).
+   */
 
   /**
    * #F16 — the announcement.
