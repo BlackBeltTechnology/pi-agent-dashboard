@@ -2,6 +2,8 @@
 
 Files in this directory. One row per file. Non-source area (migrated from `docs/file-index-skills-misc.md`; source of truth now here). See change: migrate-file-index-to-agents-tree.
 
+**Deliberately undocumented:** `openspec-*/` (except `openspec-shared/`) and `.pi/prompts/opsx-*.md` are vendored by the openspec CLI and gitignored via `.pi/.gitignore`. `kb dox lint` walks the filesystem, not git, so it reports them `missing` — that finding is expected. Do NOT add rows; they describe files absent from a fresh clone and drift on every openspec upgrade.
+
 | File | Purpose |
 |------|---------|
 | `ci-troubleshoot/references/common-failures.md` | Detailed CI failure catalog: repo-lint tests (`no-raw-node-import`, `no-direct-process-kill`,… → see `ci-troubleshoot/references/common-failures.md.AGENTS.md` |
@@ -40,15 +42,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `nano-banana-imagegen/references/photography-and-editing.md` | Prompt library: photorealistic generation (product, food, portrait, landscape, architecture) + `npx… → see `nano-banana-imagegen/references/photography-and-editing.md.AGENTS.md` |
 | `nano-banana-imagegen/references/prompting-guide.md` | Prompting guide for Gemini image gen. Layered structure… → see `nano-banana-imagegen/references/prompting-guide.md.AGENTS.md` |
 | `nano-banana-imagegen/SKILL.md` | Skill: AI image generation/editing via Google Gemini (nano-banana CLI) |
-| `openspec-apply-change/SKILL.md` | Implement tasks from OpenSpec change. `openspec instructions apply` → contextFiles + progress; loop until done/blocked. Pause on ambiguity/errors, don't guess; checkbox per task; done → suggest archive. |
-| `openspec-archive-change/SKILL.md` | Archive completed change. Never auto-select — AskUserQuestion always. Warn + confirm on incomplete artifacts/tasks. Assess delta-spec sync, offer sync via openspec-sync-specs. `mv` changeRoot → `archive/YYYY-MM-DD-<name>`. |
-| `openspec-continue-change/SKILL.md` | Create next artifact — ONE per invocation. `openspec status` → first `ready` artifact; `openspec instructions <artifact-id>` → template/context/rules. Read dependencies first; no skip/out-of-order; context/rules never copied into file. |
-| `openspec-explore/SKILL.md` | Explore mode — thinking partner, NOT implementer. No fixed workflow; curious, visual, grounded in codebase. NEVER write code/features; MAY create proposal/design/spec artifacts to capture thinking. Offer capture, don't auto-capture. |
-| `openspec-ff-change/SKILL.md` | Fast-forward artifact creation: ALL apply-required artifacts in one pass. `openspec new change <name>` then loop `ready` artifacts via `openspec instructions` until `applyRequires` done. Ask only if critically unclear; verify each file written. |
-| `openspec-new-change/SKILL.md` | Start new change: ask what to build if unclear, derive kebab-case name. `openspec new change "<name>"`, default schema unless `--schema` requested. Show first-artifact template then STOP — no artifact creation, wait for user. |
 | `openspec-shared/scripts/effective-status.sh` | Bash wrapper around `openspec status --change <name> --json`; applies same R1/R2/R3 promotion as dashboard so… → see `openspec-shared/scripts/effective-status.sh.AGENTS.md` |
-| `openspec-sync-specs/SKILL.md` | Sync delta specs → main specs, agent-driven. Apply ADDED/MODIFIED/REMOVED/RENAMED sections from delta spec to `openspec/specs/<capability>/spec.md`; intelligent partial merge — preserve untouched content. Idempotent. No auto-select change. |
-| `openspec-verify-change/SKILL.md` | Verify implementation vs artifacts pre-archive: Completeness (tasks/req coverage), Correctness (req/scenario mapping), Coherence (design adherence). Issues graded CRITICAL/WARNING/SUGGESTION with file:line fixes; graceful degradation on missing artifacts. |
 | `plan-proposal/SKILL.md` | Develop-side planning orchestrator. Chains artifact-gen (openspec-new/-ff/-continue) → doubt-driven-review on proposal.md/design.md (ARTIFACT+CONTRACT only, cross-model offer) → scenario-design → category-routed fold of `automated` manifest scenarios into vanilla `tasks.md` checkboxes (harness-exemplar pointer + Triple; no custom token). Main-session-only (refuses subagent: nested reviewer + ask_user gate). Stops at worktree boundary; hands to ship-it. See change: add-openspec-pipeline-orchestrators. |
 | `release-cut/SKILL.md` | Cuts new release: promotes `## [Unreleased]` in CHANGELOG → dated section, bumps every workspace… → see `release-cut/SKILL.md.AGENTS.md` |
 | `release-revoke/SKILL.md` | `release-revoke` skill. Reverts a release: deletes GitHub Release, removes git tag (local + origin), `npm… → see `release-revoke/SKILL.md.AGENTS.md` |
