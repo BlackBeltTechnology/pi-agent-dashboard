@@ -28,7 +28,8 @@
     ],
     "skills": [
       "packages/extension/.pi/skills/pi-dashboard"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/BlackBeltTechnology/pi-agent-dashboard/develop/docs/cover.png?v=0.7.0"
   },
   "files": [
     "scripts/maybe-patch-package.cjs",

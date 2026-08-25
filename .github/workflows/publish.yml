@@ -314,6 +314,7 @@ jobs:
             "@blackbelt-technology/pi-dashboard-goal-plugin"
             "@blackbelt-technology/pi-dashboard-automation-plugin"
             "@blackbelt-technology/pi-dashboard-quota-plugin"
+            "@blackbelt-technology/pi-dashboard-grammar-plugin"
             "@blackbelt-technology/pi-image-fit-extension"
             "@blackbelt-technology/pi-dashboard-nano-banana"
             "@blackbelt-technology/pi-dashboard-video-production"
