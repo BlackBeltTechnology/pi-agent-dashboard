@@ -7,7 +7,6 @@ import {
   openWindowedSession,
   teardownWindowedSession,
   type WindowedSession,
-  watchBackfillFrames,
 } from "./helpers/windowed-session.js";
 
 /**
@@ -43,22 +42,33 @@ test.describe.configure({ mode: "serial" });
  * has nothing left. Bounded: an unbounded loop on a broken build would hang
  * until the suite timeout with no usable verdict.
  */
-async function drainGap(page: import("@playwright/test").Page, maxRounds = 40): Promise<boolean> {
-  for (let i = 0; i < maxRounds; i++) {
-    const terminal = await page
+async function drainGap(page: import("@playwright/test").Page, maxRounds = 60): Promise<boolean> {
+  const terminalCount = () =>
+    page
       .getByTestId("history-gap-session-start")
       .or(page.getByTestId("history-gap-not-retained"))
       .count();
-    if (terminal > 0) return true;
+
+  for (let i = 0; i < maxRounds; i++) {
+    if ((await terminalCount()) > 0) return true;
+
+    /**
+     * Wait out any in-flight load BEFORE nudging. A gesture that arrives while
+     * `pending` is set is vetoed and dropped, and evaluation only runs at a
+     * settle-timer expiry - so nothing re-evaluates once `pending` clears and
+     * that round is wasted. Real users keep scrolling and never notice; a
+     * scripted one-nudge-per-round loop silently burns its budget instead, and
+     * under harness load that is what makes this flake.
+     */
+    await page
+      .getByTestId("history-gap-loading")
+      .waitFor({ state: "detached", timeout: 30_000 })
+      .catch(() => undefined);
+
     await nudgeAscent(page);
     await page.waitForTimeout(500);
   }
-  return (
-    (await page
-      .getByTestId("history-gap-session-start")
-      .or(page.getByTestId("history-gap-not-retained"))
-      .count()) > 0
-  );
+  return (await terminalCount()) > 0;
 }
 
 test.describe("tail-only loading head", () => {
@@ -143,37 +153,52 @@ test.describe("tail-only loading head", () => {
    */
   test("F16: an automatic load announces politely and does not move focus", async ({ page }) => {
     /**
-     * Observes the CLIMB's own automatic loads rather than demanding a spare
-     * slice afterwards.
+     * Drives its own automatic load rather than depending on the climb's.
      *
-     * An earlier revision nudged for one more load and asserted a new frame.
-     * That is unsatisfiable here: `openWindowedSession`'s climb legitimately
-     * fires several automatic loads, and against a ~504-event gap with
-     * `BACKFILL_MAX_SPAN` 500 they drain it outright — the nudge then finds
-     * `atFloor` with nothing left to announce, and the row failed on its own
-     * setup rather than on the property. Raising the transcript count only
-     * moves the threshold; the climb scales with it.
+     * `openWindowedSession`'s climb is not deterministic about issuing one:
+     * when the divider is already in the DOM the climb is a no-op and NO
+     * backfill reaches the wire, and when it does scroll it can spend the
+     * whole ~504-event gap at once (`BACKFILL_MAX_SPAN` is 500), leaving
+     * nothing for a follow-up nudge. Two earlier revisions of this row each
+     * pinned one of those halves and flaked on the other - once on
+     * `frames.sent.length > 0` with zero frames all test, once on a nudge that
+     * found `atFloor`.
      *
-     * The climb's loads ARE automatic loads, which is exactly what F16 is
-     * about, so they are what this asserts against.
+     * So this asserts the PROPERTY - an automatic load announces politely -
+     * without prescribing which gesture produced it: check the region first
+     * (the climb may already have announced), otherwise nudge until it does or
+     * the gap reaches its terminus.
      */
-    const frames = watchBackfillFrames(page);
     await openWindowedSession(page, session!.sessionId);
-
-    // Non-vacuity: an automatic load must actually have happened.
-    await expect.poll(() => frames.sent.length, { timeout: 60_000 }).toBeGreaterThan(0);
 
     const region = page.getByTestId("history-gap-live-region");
     await expect(region).toHaveAttribute("aria-live", "polite");
-    // Never assertive — that would interrupt a screen reader mid-sentence.
+    // Never assertive - that would interrupt a screen reader mid-sentence.
     await expect(region).not.toHaveAttribute("aria-live", "assertive");
-    await expect(region).toContainText(/\d[\d,]* earlier messages loaded/, { timeout: 60_000 });
+
+    const ANNOUNCEMENT = /\d[\d,]* earlier messages loaded/;
+    let announced = ANNOUNCEMENT.test((await region.textContent()) ?? "");
+    for (let i = 0; i < 40 && !announced; i++) {
+      const terminal = await page
+        .getByTestId("history-gap-session-start")
+        .or(page.getByTestId("history-gap-not-retained"))
+        .count();
+      if (terminal > 0) break;
+      await nudgeAscent(page);
+      await page.waitForTimeout(500);
+      announced = ANNOUNCEMENT.test((await region.textContent()) ?? "");
+    }
+
+    expect(
+      announced,
+      "no automatic load ever announced a count into the polite live region",
+    ).toBe(true);
 
     /**
      * Focus must not follow the splice. Stated as "focus is not INSIDE the
      * transcript": the hazard is a spliced row or the divider stealing it, and
-     * that is true however the page arrived at its current focus, unlike a
-     * before/after snapshot which only holds if it brackets the splice.
+     * that holds however the page arrived at its current focus, unlike a
+     * before/after snapshot which is only meaningful if it brackets the splice.
      */
     const focusInsideTranscript = await page.evaluate(() => {
       const el = document.activeElement;
