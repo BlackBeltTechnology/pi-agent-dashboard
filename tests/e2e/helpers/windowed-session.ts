@@ -211,7 +211,12 @@ export async function teardownWindowedSession(
  * `stickToBottomRef` can stay armed and the next measurement-driven growth
  * re-pins the view to the bottom, unmounting the divider again.
  */
-export async function scrollDividerIntoDom(page: Page): Promise<void> {
+/**
+ * Module-private: every caller is `openWindowedSession`/`climbToDivider` in
+ * this file. Exporting it tripped the knip exports ratchet with no consumer;
+ * `history-backfill-gap.spec.ts` predates this helper and keeps its own copy.
+ */
+async function scrollDividerIntoDom(page: Page): Promise<void> {
   const el = scroller(page);
   await el.waitFor({ state: "visible", timeout: 60_000 });
   await expect
