@@ -1,0 +1,35 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "@blackbelt-technology/pi-dashboard-quota-plugin/configSchema",
+  "title": "Provider Quota config",
+  "description": "Plugin config persisted under plugins['quota'].* in ~/.pi/dashboard/config.json. Read by the server entry. Every gate defaults OFF and is NEVER turned on by migration/upgrade.",
+  "type": "object",
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "description": "Master gate. When false the server entry makes no subscription-quota endpoint call and /api/quota returns no providers.",
+      "default": false
+    },
+    "acknowledgedToS": {
+      "type": "boolean",
+      "description": "One-time acknowledgement that quota tracking calls undocumented provider endpoints that may violate provider terms; personal/local use only. No quota fetch occurs until this is true.",
+      "default": false
+    },
+    "providers": {
+      "type": "object",
+      "description": "Per-provider enablement, keyed by provider id (e.g. openai-codex, github-copilot). Each provider is OFF by default and enabled individually. Anthropic is excluded and ignored if present.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": false
+          }
+        },
+        "additionalProperties": false
+      },
+      "default": {}
+    }
+  },
+  "additionalProperties": false
+}

@@ -133,6 +133,7 @@ const BUNDLED_PLUGINS = [
   "mcp-server-plugin",
   "apple-tools",
   "cost-estimator",
+  "quota-plugin",
 ];
 const BUNDLED_PLUGINS_DIR = path.join(SERVER_BUNDLE, "resources", "plugins");
 mkdirSync(BUNDLED_PLUGINS_DIR, { recursive: true });

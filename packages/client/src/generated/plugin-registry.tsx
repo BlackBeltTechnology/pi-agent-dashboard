@@ -12,6 +12,7 @@ import { FolderKbSection, KbSettingsClaim, catalog as kb_catalog } from "@blackb
 import { BuiltInRolesSettings, catalog as roles_catalog } from "@blackbelt-technology/pi-dashboard-roles-plugin";
 import { SubagentsSettings, SubagentPopoutClaim, catalog as subagents_catalog } from "@blackbelt-technology/pi-dashboard-subagents-plugin";
 import { FlowsAnthropicBridgeSettings, catalog as flows_anthropic_bridge_catalog } from "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin";
+import { QuotaWidget, QuotaSettings, catalog as quota_catalog } from "@blackbelt-technology/pi-dashboard-quota-plugin";
 
 import type { PluginManifest } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/manifest-types.js";
 import type { ClaimEntry } from "@blackbelt-technology/dashboard-plugin-runtime";
@@ -443,6 +444,33 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
     ],
     catalog: flows_anthropic_bridge_catalog,
   },
+  {
+    manifest: {
+        "id": "quota",
+        "displayName": "Provider Quota",
+        "priority": 600,
+        "claims": [
+            {
+                "slot": "content-inline-footer",
+                "component": "QuotaWidget"
+            },
+            {
+                "slot": "settings-section",
+                "component": "QuotaSettings",
+                "tab": "general"
+            }
+        ],
+        "client": "./src/client.tsx",
+        "server": "./src/server/index.ts",
+        "configSchema": "./configSchema.json",
+        "i18nCatalog": "catalog"
+    },
+    claims: [
+      { pluginId: "quota", priority: 600, slot: "content-inline-footer", Component: QuotaWidget },
+      { pluginId: "quota", priority: 600, slot: "settings-section", tab: "general", Component: QuotaSettings },
+    ],
+    catalog: quota_catalog,
+  },
 ];
 
-export const PLUGIN_REGISTRY_HASH = "e13eed24cbea2cf840a2b85c9e8ead073ab0de64df23f7c56a5361e16231ee1a";
+export const PLUGIN_REGISTRY_HASH = "59d19bdd86d8795a0112914867cea8ae37f21953619cfac3a741925e331dbef5";

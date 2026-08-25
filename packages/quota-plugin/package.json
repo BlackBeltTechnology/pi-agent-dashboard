@@ -1,0 +1,74 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-quota-plugin",
+  "version": "0.7.0",
+  "description": "Surface per-account provider subscription quota (Codex, Copilot, OpenRouter, Z.ai, …) in the dashboard. Server-side fetch via @latentminds/pi-quotas; disabled by default, ToS-gated, per-provider, Anthropic excluded. No bridge.",
+  "license": "MIT",
+  "private": true,
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/quota-plugin"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/client.tsx",
+      "default": "./src/client.tsx"
+    },
+    "./client": {
+      "types": "./src/client.tsx",
+      "default": "./src/client.tsx"
+    },
+    "./server": {
+      "types": "./src/server/index.ts",
+      "default": "./src/server/index.ts"
+    }
+  },
+  "files": [
+    "src/",
+    "configSchema.json",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
+  ],
+  "scripts": {
+    "test": "vitest run"
+  },
+  "pi-dashboard-plugin": {
+    "id": "quota",
+    "displayName": "Provider Quota",
+    "i18nCatalog": "catalog",
+    "priority": 600,
+    "client": "./src/client.tsx",
+    "server": "./src/server/index.ts",
+    "configSchema": "./configSchema.json",
+    "claims": [
+      {
+        "slot": "content-inline-footer",
+        "component": "QuotaWidget"
+      },
+      {
+        "slot": "settings-section",
+        "component": "QuotaSettings",
+        "tab": "general"
+      }
+    ]
+  },
+  "dependencies": {
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.7.0",
+    "@blackbelt-technology/pi-dashboard-server": "workspace:*",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
+    "@latentminds/pi-quotas": "0.4.0"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@blackbelt-technology/pi-dashboard-client-utils": "^0.7.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

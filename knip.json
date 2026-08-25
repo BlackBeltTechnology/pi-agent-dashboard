@@ -404,6 +404,18 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
+    "packages/quota-plugin": {
+      "entry": [
+        "src/client.tsx",
+        "src/server/index.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}",
+        "**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
     "packages/roles-plugin": {
       "entry": [
         "src/index.tsx",
