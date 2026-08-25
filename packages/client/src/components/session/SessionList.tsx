@@ -68,6 +68,12 @@ import { SortablePinnedGroup, useFolderDragHandle } from "./SortablePinnedGroup.
 import { SortableSessionCard } from "./SortableSessionCard.js";
 import { SpawnErrorBanner } from "./SpawnErrorBanner.js";
 
+/** Community invite surfaced in the app header. */
+const DISCORD_INVITE_URL = "https://discord.gg/DrNebZ3pF5";
+/** Discord brand glyph — @mdi/js 7.x ships no brand icons, so the path is inlined. */
+const mdiDiscordPath =
+  "M20.317 4.369A19.79 19.79 0 0 0 15.446 3c-.21.375-.455.88-.624 1.28a18.27 18.27 0 0 0-5.644 0A12.6 12.6 0 0 0 8.548 3a19.74 19.74 0 0 0-4.874 1.372C.605 8.98-.232 13.475.186 17.905a19.9 19.9 0 0 0 6.026 3.05c.485-.66.917-1.362 1.29-2.1a12.9 12.9 0 0 1-2.03-.978c.17-.125.337-.256.498-.39a14.2 14.2 0 0 0 12.06 0c.163.135.33.266.5.39-.647.383-1.33.71-2.033.98a15.8 15.8 0 0 0 1.29 2.099 19.86 19.86 0 0 0 6.03-3.05c.49-5.138-.838-9.593-3.5-13.537ZM8.02 15.21c-1.182 0-2.152-1.086-2.152-2.42 0-1.332.95-2.42 2.152-2.42 1.21 0 2.18 1.096 2.16 2.42 0 1.334-.95 2.42-2.16 2.42Zm7.96 0c-1.183 0-2.152-1.086-2.152-2.42 0-1.332.95-2.42 2.152-2.42 1.21 0 2.18 1.096 2.16 2.42 0 1.334-.95 2.42-2.16 2.42Z";
+
 
 export interface ContextUsageInfo {
   tokens: number | null;
@@ -1730,6 +1736,19 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             <InstallButton canInstall={installPrompt.canInstall} isInstalled={installPrompt.isInstalled} prompt={installPrompt.prompt} />
             <TunnelButton showToast={showToast} />
             {headerExtra}
+            {/* Community entry point. MDI 7 dropped brand icons, so the Discord
+                glyph is an inline path constant. See change: add-discord-link. */}
+            <a
+              href={DISCORD_INVITE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+              title={t("sessionList.discord", undefined, "Join our Discord")}
+              aria-label={t("sessionList.discord", undefined, "Join our Discord")}
+              data-testid="discord-btn"
+            >
+              <Icon path={mdiDiscordPath} size={0.6} />
+            </a>
             <button
               onClick={() => navigate("/settings")}
               className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"

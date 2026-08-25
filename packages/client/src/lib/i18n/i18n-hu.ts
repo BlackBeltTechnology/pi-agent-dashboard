@@ -1166,6 +1166,7 @@ export const huCatalog: Record<string, string> = {
   "session.wrappedUpTurnLimit": "Lezárva (körhatár)",
   "sessionList.addToWorkspace": "Hozzáadás munkaterülethez…",
   "sessionList.clearTags": "Címkék törlése",
+  "sessionList.discord": "Csatlakozz a Discordunkhoz",
   "sessionList.emptyWorkspace": "Üres munkaterület",
   "sessionList.filterFolders": "Mappák szűrése útvonal szerint",
   "sessionList.folderPlaceholder": "Mappa…",

@@ -885,6 +885,7 @@ const zhCN: Record<string, string> = {
   "landing.pinFolderFirst": "请先固定文件夹",
   "landing.welcome": "欢迎使用 pi-dashboard",
   "sessionList.addToWorkspace": "添加到工作区",
+  "sessionList.discord": "加入我们的 Discord",
   "sessionList.emptyWorkspace": "空工作区。请在文件夹操作里使用“+ 添加到工作区”分配文件夹。",
   "sessionList.filterFolders": "按路径筛选文件夹",
   "sessionList.folderPlaceholder": "文件夹...",
