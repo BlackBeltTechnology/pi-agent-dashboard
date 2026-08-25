@@ -1,3 +1,12 @@
+// @vitest-environment node
+//
+// The `node` environment is REQUIRED, not cosmetic: this suite reaches
+// `packages/kb`'s sqlite store, and vite's client (jsdom) environment refuses
+// to bundle the `node:sqlite` builtin — the file then collects 0 tests and the
+// transform error surfaces as a bare run failure. The package's default
+// environment is jsdom for its React client tests.
+// See change: move-slot-actions-to-menu (this suite was collected by no vitest
+// project before and therefore never ran).
 /**
  * kb-plugin REST route tests — stats / reindex / config over a real Fastify
  * instance with a temp folder fixture. Covers tasks 1.1–1.5, 4.1–4.4.

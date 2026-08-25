@@ -8,6 +8,12 @@
  *   - Tooltip is generic `git worktree` when `base` is absent.
  *   - Mobile branch never renders the pill (GitInfo isn't invoked there).
  *   - Branch text is unchanged for worktree sessions.
+ *
+ * The pill renders the bare label only. It used to append `· <name>`, but the
+ * name is `slugifyBranch(branch)` by construction, so that suffix repeated the
+ * branch link sitting immediately to its left AND — being unshrinkable inside
+ * GitInfo's flex row — wrapped to two lines and overlapped the GIT subcard
+ * label above it.
  */
 import { describe, it, expect, afterEach, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
@@ -44,23 +50,41 @@ describe("WorktreePill (standalone)", () => {
     render(<WorktreePill session={session} />);
     const pill = screen.getByTestId("worktree-pill");
     expect(pill).toBeTruthy();
-    // Pill text contains both the literal 'worktree' label and the
-    // worktree name (rendered as `worktree · <name>`).
-    expect(pill.textContent).toContain("worktree");
-    expect(screen.getByTestId("worktree-pill-name").textContent).toBe("feat-dark");
     expect(pill.getAttribute("title")).toBe("created from develop");
   });
 
-  it("omits the name suffix when gitWorktree.name is empty", () => {
-    // Defensive: if a future bridge ever sends an empty name we still
-    // render the bare 'worktree' label rather than a dangling separator.
+  it("renders the bare label and NEVER the worktree name", () => {
     const session = mkSession({
-      gitWorktree: { mainPath: "/repo", name: "" },
+      gitBranch: "feat/dark",
+      gitWorktree: { mainPath: "/repo", name: "feat-dark", base: "develop" },
     });
     render(<WorktreePill session={session} />);
     const pill = screen.getByTestId("worktree-pill");
     expect(pill.textContent).toBe("worktree");
+    expect(pill.textContent).not.toContain("feat-dark");
     expect(screen.queryByTestId("worktree-pill-name")).toBeNull();
+  });
+
+  it("stays a bare label for a long name (the wrap-and-collide regression)", () => {
+    const session = mkSession({
+      gitBranch: "os/verify-subagent-pull-under-load",
+      gitWorktree: {
+        mainPath: "/repo",
+        name: "os-verify-subagent-pull-under-load",
+        base: "develop",
+      },
+    });
+    render(<WorktreePill session={session} />);
+    const pill = screen.getByTestId("worktree-pill");
+    expect(pill.textContent).toBe("worktree");
+    // No dangling separator either.
+    expect(pill.textContent).not.toContain("\u00b7");
+  });
+
+  it("renders the bare label when gitWorktree.name is empty", () => {
+    const session = mkSession({ gitWorktree: { mainPath: "/repo", name: "" } });
+    render(<WorktreePill session={session} />);
+    expect(screen.getByTestId("worktree-pill").textContent).toBe("worktree");
   });
 
   it("renders the pill with generic 'git worktree' tooltip when base is absent", () => {
@@ -99,8 +123,10 @@ describe("GitInfo + worktree pill integration", () => {
       gitWorktree: { mainPath: "/repo", name: "feat-dark", base: "develop" },
     });
     const { container } = render(<GitInfo session={session} />);
-    // Branch text preserved verbatim.
+    // Branch text preserved verbatim — the branch stays the primary identity,
+    // which is why the pill no longer repeats it as a name.
     expect(container.textContent).toContain("feat/dark");
+    expect(container.textContent).not.toContain("feat-dark");
     const pill = screen.getByTestId("worktree-pill");
     expect(pill).toBeTruthy();
     // Pill must appear AFTER the branch element in document order.

@@ -241,6 +241,13 @@ export function GitInfo({ session }: { session: DashboardSession }) {
  * ref is known (set at spawn time by the dashboard's worktree dialog),
  * otherwise the generic `git worktree`.
  *
+ * BARE LABEL ONLY — the pill deliberately does NOT print `gitWorktree.name`.
+ * The name is `slugifyBranch(branch)` by construction, so the suffix repeated
+ * the branch link sitting immediately to its left; and being an unshrinkable
+ * `inline-flex` inside GitInfo's `flex items-center` row, a long name wrapped
+ * to two lines INSIDE the rounded pill and overlapped the GIT subcard label
+ * above it. The branch line remains the worktree's identity.
+ *
  * See change: add-worktree-spawn-dialog.
  */
 export function WorktreePill({ session }: { session: DashboardSession }) {
@@ -254,14 +261,6 @@ export function WorktreePill({ session }: { session: DashboardSession }) {
       className="inline-flex items-center px-1.5 py-px rounded-full text-[9px] uppercase tracking-wider border border-[var(--border-subtle)] text-[var(--text-muted)] bg-[var(--bg-tertiary)]"
     >
       <span>worktree</span>
-      {wt.name && (
-        <>
-          <span className="mx-1 text-[var(--text-muted)] opacity-60">·</span>
-          <span data-testid="worktree-pill-name" className="normal-case tracking-normal text-[var(--text-secondary)]">
-            {wt.name}
-          </span>
-        </>
-      )}
     </span>
   );
 }

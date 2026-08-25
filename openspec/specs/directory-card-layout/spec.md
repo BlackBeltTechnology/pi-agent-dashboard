@@ -5,7 +5,13 @@ TBD - created by archiving change redesign-directory-card. Update Purpose after 
 ## Requirements
 ### Requirement: Folder slots render as single-concern pills in a responsive grid
 
-The directory card (`SessionList.renderGroup`) SHALL present its folder slot sections — Automations, Goals, KB, OpenSpec — as discrete pills arranged in a grid, instead of dense one-line `LABEL (n) → ⟳ [action]` rows. Each slot pill SHALL show, at minimum: a slot-colored leading glyph, an uppercase slot label, and the slot's primary count/value; the slot's state (e.g. KB `⚠ N stale`, Automations `⚠ N invalid`) SHALL render inline within the same pill. Each pill SHALL remain a single click target that performs the slot's existing primary navigation (open board / open settings), and each slot section SHALL keep its own data hook and secondary actions (refresh, create). The grid SHALL use two columns at sidebar/desktop width and SHALL collapse to a single column at narrow (mobile) width. A slot section that renders nothing (e.g. a plugin disabled, or data not yet loaded) SHALL simply be absent from the grid without breaking the layout of the remaining pills.
+The directory card (`SessionList.renderGroup`) SHALL present its folder slot sections — Automations, Goals, KB, OpenSpec — as discrete pills arranged in a grid, instead of dense one-line `LABEL (n) → ⟳ [action]` rows. Each slot pill SHALL show, at minimum: a slot-colored leading glyph, an uppercase slot label, and the slot's primary count/value; the slot's state (e.g. KB `⚠ N stale`, Automations `⚠ N invalid`) SHALL render inline within the same pill. Each pill SHALL remain a single click target that performs the slot's existing primary navigation (open board / open settings), and each slot section SHALL keep its own data hook.
+
+Slot pills SHALL be **state-only**: a pill SHALL render no secondary action buttons of any kind — no refresh, no create, no navigation shortcut. Pills read a number; the folder actions menu changes something. Every action a slot needs SHALL be contributed to the folder actions menu instead.
+
+The pill component SHALL NOT expose a prop accepting arbitrary action markup. State markers that are *facts* rather than controls — such as the KB pill's inline stale marker — remain inside the pill; a stale badge appearing both on the pill (as state) and on the menu's reindex item (as that action's context) is intended, not duplication.
+
+The grid SHALL use two columns at sidebar/desktop width and SHALL collapse to a single column at narrow (mobile) width. A slot section that renders nothing (e.g. a plugin disabled, or data not yet loaded) SHALL simply be absent from the grid without breaking the layout of the remaining pills.
 
 #### Scenario: KB stale state renders inline in the KB pill
 - **WHEN** the KB slot for a folder reports `chunks: 20230` and `staleCount: 1`
@@ -14,6 +20,11 @@ The directory card (`SessionList.renderGroup`) SHALL present its folder slot sec
 #### Scenario: Pill click performs the slot's primary navigation
 - **WHEN** the user clicks the OpenSpec slot pill for a folder
 - **THEN** the OpenSpec board for that folder SHALL open (same navigation the previous `OpenSpec (N) →` row performed)
+
+#### Scenario: No slot pill renders an action button
+- **WHEN** the directory card renders all four slot pills
+- **THEN** the pill grid SHALL contain zero focusable or interactive elements other than the pill roots themselves
+- **AND** no `mdiRefresh`, `mdiPlus`, `mdiArchiveOutline` or `mdiFileDocumentOutline` control SHALL render inside a pill
 
 #### Scenario: Grid collapses to one column at mobile width
 - **WHEN** the directory card is rendered below the mobile breakpoint
@@ -89,8 +100,6 @@ A directory card for a folder that is NOT a member of a workspace SHALL render w
 - **WHEN** the active theme changes
 - **THEN** the root-folder tint SHALL derive from that theme's `--accent-blue` (not a hardcoded color), staying subtle in every theme
 
-
-
 ### Requirement: Folder slot pill exposes a surface variant selected by placement
 
 `SlotPill` (`packages/dashboard-plugin-runtime/src/SlotPill.tsx`) SHALL accept an optional
@@ -129,3 +138,4 @@ renders; the `sidebar-folder-section` consumer SHALL NOT set `placement` (defaul
 #### Scenario: KB section stays raised in the sidebar
 - **WHEN** the KB folder section is rendered via the `sidebar-folder-section` slot in the sidebar folder card (no placement supplied)
 - **THEN** the KB pill SHALL render with the raised opaque surface (`bg-[var(--bg-secondary)]` + shadow), unchanged from today
+

@@ -1355,6 +1355,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   });
   registerFileRoutes(fastify, { sessionManager, preferencesStore, networkGuard });
   registerGrepRoutes(fastify, { sessionManager, networkGuard });
+  // Grammar routes moved into the grammar plugin's server entry
+  // (packages/grammar-plugin/src/server), which registers
+  // /api/grammar/* via ctx.fastify + ctx.modelRuntime. See change:
+  // make-grammar-fully-plugin-contained.
   // Full-resolution attachment originals for click-to-zoom. Not load-bearing:
   // the fitted derivative is already inline, so a failure here degrades only
   // the zoom view. See change: fit-attachments-for-display (task 5.7).
@@ -2315,6 +2319,24 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 fs.writeFileSync(tmpFile, JSON.stringify(rawConfig, null, 2) + '\n');
                 fs.renameSync(tmpFile, CONFIG_FILE);
                 browserGateway.broadcast({ type: 'plugin_config_update', id, config: merged } as any);
+              },
+              // In-process model runtime seam for plugin server entries (e.g. the
+              // grammar plugin's llm backend) — mirrors the grammar-route wiring
+              // above; maps `system`→`context.systemPrompt` (pi-ai contract).
+              // See change: make-grammar-fully-plugin-contained.
+              modelRuntime: {
+                getModelRegistry: async () => {
+                  try {
+                    return await getModelRegistry();
+                  } catch {
+                    return null;
+                  }
+                },
+                streamSimple: (opts) => {
+                  const fn = getStreamSimpleFn();
+                  if (!fn) throw new Error("streamSimple not available");
+                  return fn(opts.model, { messages: opts.messages, systemPrompt: opts.system }, opts);
+                },
               },
             },
             plugin.manifest.id,

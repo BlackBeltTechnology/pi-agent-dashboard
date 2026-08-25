@@ -217,6 +217,46 @@ export function WorkspaceActionBarSlot({ session }: { session: DashboardSession 
   );
 }
 
+/**
+ * `composer-panel` — rendered below the chat composer input. Passes slot
+ * components a READ-ONLY composer context `{ draft, language? }` (the current
+ * input value). The slot component owns its own debounce/side-effects (e.g. a
+ * grammar check); core does not debounce or interpret the draft. Renders
+ * nothing when no plugin claims the slot, so the composer is unchanged from
+ * before the slot existed. See change: make-grammar-fully-plugin-contained.
+ */
+export function ComposerPanelSlot({
+  draft,
+  language,
+  sessionId,
+  sessionStatus,
+  onApplyText,
+}: {
+  draft: string;
+  language?: string;
+  sessionId?: string;
+  sessionStatus?: string;
+  onApplyText: (text: string) => void;
+}) {
+  const registry = useSlotRegistryOrNull();
+  if (!registry) return null;
+  const claims = registry.getClaims("composer-panel");
+  if (!claims.length) return null;
+  return (
+    <>
+      {claims.map((c) =>
+        renderClaim(c as Parameters<typeof renderClaim>[0], "composer-panel", {
+          draft,
+          language,
+          sessionId,
+          sessionStatus,
+          onApplyText,
+        }),
+      )}
+    </>
+  );
+}
+
 export function ContentViewSlot({
   session,
   routeParams,

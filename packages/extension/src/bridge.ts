@@ -36,10 +36,12 @@ import { shouldApplyDefaultModel } from "./bridge-default-model-gate.js";
 import { mintBridgeTicket, readDeviceToken, withTicket } from "./bridge-ticket-client.js";
 import { registerCanvasTool } from "./canvas-tool.js";
 import {
+  buildUserMessageContent,
   createCommandHandler,
   NO_RELOAD_PATH_REASON,
   type ReloadOutcome,
   tryExecSlashTemplate,
+  validateImages,
 } from "./command-handler.js";
 import { buildSessionContextText, runForkSubagentDraft } from "./commit-draft-agent.js";
 import { ConnectionManager } from "./connection.js";
@@ -56,6 +58,7 @@ import {
   registerFlowEventListeners,
   SUBAGENT_EVENT_MAP,
 } from "./flow-event-wiring.js";
+import { createFollowupBuffer } from "./followup-buffer.js";
 import { runGitPollTick } from "./git-poll.js";
 import { flipHasUI } from "./hasui-flip.js";
 import { healthUrlForInstance, verifyInstanceIdentity } from "./instance-verification.js";
@@ -409,8 +412,13 @@ function initBridge(pi: ExtensionAPI) {
   //   dashboard-originated follow-up entries while the agent is streaming.
   //   Pi never sees these entries until `drainFollowupQueue()` ships them
   //   one-at-a-time on `agent_end`. Mutated by `bufferFollowupSend`,
-  //   `drainFollowupQueue`, and the five mutation handlers (edit / remove /
-  //   promote / clear / pull-to-editor).
+  //   `drainFollowupQueue`, and the four mutation handlers (edit / remove /
+  //   promote / clear).
+  //
+  //   Entries carry their image attachments (`{ text, images? }`) and the
+  //   buffer is bounded in BYTES as well as depth; the state itself lives in
+  //   `followup-buffer.ts` so the admission arithmetic is testable and the
+  //   ceiling injectable. See change: fix-bridge-followup-image-drop.
   //
   // Both feed the same `queue_update` ExtensionToServerMessage.
   //
@@ -419,14 +427,32 @@ function initBridge(pi: ExtensionAPI) {
   //
   // See change: rework-mid-turn-prompt-queue (spec mid-turn-prompt-queue).
   let bridgeSteering: string[] = [];
-  let bridgeFollowUp: string[] = [];
+  const bridgeFollowUp = createFollowupBuffer();
   function emitQueueUpdate(): void {
     if (!isActive() || !sessionReady) return;
     connection.send({
       type: "queue_update",
       sessionId,
       steering: [...bridgeSteering],
-      followUp: [...bridgeFollowUp],
+      // Views only: text + image COUNT. Image bytes never cross the wire.
+      followUp: bridgeFollowUp.views(),
+    });
+  }
+  /**
+   * Surface a refusal to the user. Every follow-up refusal path emits one:
+   * a bare `console.warn` is invisible in the dashboard, which is the same
+   * defect class this change exists to fix (design D4).
+   */
+  function sendCommandFeedback(command: string, message: string): void {
+    if (!isActive() || !sessionReady) return;
+    connection.send({
+      type: "event_forward",
+      sessionId,
+      event: {
+        eventType: "command_feedback",
+        timestamp: Date.now(),
+        data: { command, status: "error", message },
+      },
     });
   }
   function recordSteerSent(text: string): void {
@@ -437,8 +463,6 @@ function initBridge(pi: ExtensionAPI) {
     bridgeSteering.push(text);
     emitQueueUpdate();
   }
-  /** Soft cap on follow-up buffer depth. See design.md Decision 8. */
-  const FOLLOWUP_QUEUE_CAP = 20;
   /**
    * Push a follow-up entry into the bridge-owned buffer.
    *
@@ -450,18 +474,36 @@ function initBridge(pi: ExtensionAPI) {
    * The `isAgentStreaming` gate is defense-in-depth (callers already gate on
    * `wasStreaming === true` before invoking this function).
    *
-   * Image attachments are NOT carried in the bridge buffer in v1 (text-only).
-   * Image-bearing follow-ups buffered during streaming will lose their images
-   * on drain. Phase 1 archived contract preserved images; restoring this is
-   * deferred. See change: rework-mid-turn-prompt-queue (Known Limitation).
+   * Image attachments ride the entry and are delivered when the drain ships
+   * it. They are validated HERE rather than at drain time so the byte
+   * accounting reflects what will actually be sent, and so a bad attachment is
+   * reported while the user is still looking at the composer (design D7).
+   *
+   * Refused entries are refused WHOLE — images are never stripped to make an
+   * entry fit, because delivering a prompt whose attachment vanished is the
+   * original bug. See change: fix-bridge-followup-image-drop.
    */
-  function bufferFollowupSend(text: string): void {
+  function bufferFollowupSend(text: string, images?: unknown): void {
     if (!getBridgeState().isAgentStreaming) return;
-    if (bridgeFollowUp.length >= FOLLOWUP_QUEUE_CAP) {
-      console.warn("[dashboard] follow-up buffer at soft cap (" + FOLLOWUP_QUEUE_CAP + "); dropping new entry");
+    const { valid, dropped } = validateImages(images);
+    const admitted = bridgeFollowUp.push({
+      text,
+      ...(valid.length > 0 ? { images: valid } : {}),
+    });
+    if (!admitted.ok) {
+      console.warn("[dashboard] follow-up buffer refused entry:", admitted.message);
+      sendCommandFeedback("send_prompt", admitted.message);
       return;
     }
-    bridgeFollowUp.push(text);
+    // Reported only once the entry is actually queued: a refused entry is not
+    // in the queue at all, so telling the user which of its attachments were
+    // dropped is noise on top of the refusal.
+    if (dropped.length > 0) {
+      sendCommandFeedback(
+        "send_prompt",
+        `${dropped.length} attachment(s) dropped: ${dropped.join("; ")}`,
+      );
+    }
     emitQueueUpdate();
   }
   /**
@@ -537,8 +579,14 @@ function initBridge(pi: ExtensionAPI) {
 
       // Hand to pi as a fresh turn (no deliverAs). Pi is now idle, so
       // pi.sendUserMessage starts a new run via Agent.prompt().
+      //
+      // NO send options, deliberately: `{deliverAs:"followUp"}` here is a
+      // known-broken path (pi has already exited `getFollowUpMessages()`, so
+      // the entry would never drain). `buildUserMessageContent` supplies the
+      // content shape WITHOUT inheriting the steer/idle send options.
+      // See change: fix-bridge-followup-image-drop (design D6).
       try {
-        (pi.sendUserMessage as any)(entry);
+        (pi.sendUserMessage as any)(buildUserMessageContent(entry.text, entry.images));
       } catch (err) {
         console.warn(
           "[dashboard] drainFollowupQueue: pi.sendUserMessage threw — entry lost:",
@@ -562,8 +610,13 @@ function initBridge(pi: ExtensionAPI) {
    * user follow-ups: both share the one `bridgeFollowUp` buffer and the
    * `isDraining` lock, shipping one entry per `agent_end`.
    *
-   * Respects `FOLLOWUP_QUEUE_CAP` (drops with warning, same policy as
-   * `bufferFollowupSend`). Schedules `drainFollowupQueue(0)` via
+   * Text-only by design — the plugin path has no image source — so it wraps
+   * into a `{ text }` entry. Subject to BOTH buffer bounds, with the refusal
+   * reported under its OWN command name (`enqueue_followup`): a refused system
+   * nudge is a lost plugin continuation, and attributing it to `send_prompt`
+   * would misreport a programmatic refusal as a user action (design D8).
+   *
+   * Schedules `drainFollowupQueue(0)` via
    * `setTimeout(…, 0)` so the drain re-runs AFTER the async judge verdict
    * resolves (the bridge's own `agent_end` drain already ran against an
    * empty buffer by then).
@@ -573,11 +626,12 @@ function initBridge(pi: ExtensionAPI) {
    */
   function enqueueSystemFollowup(text: string): void {
     if (typeof text !== "string" || text.length === 0) return;
-    if (bridgeFollowUp.length >= FOLLOWUP_QUEUE_CAP) {
-      console.warn("[dashboard] follow-up buffer at soft cap (" + FOLLOWUP_QUEUE_CAP + "); dropping system entry");
+    const admitted = bridgeFollowUp.push({ text });
+    if (!admitted.ok) {
+      console.warn("[dashboard] follow-up buffer refused system entry:", admitted.message);
+      sendCommandFeedback("enqueue_followup", admitted.message);
       return;
     }
-    bridgeFollowUp.push(text);
     emitQueueUpdate();
     setTimeout(() => drainFollowupQueue(0), 0);
   }
@@ -1223,7 +1277,7 @@ function initBridge(pi: ExtensionAPI) {
       }
       // ── Follow-up queue mutation (bridge-owned buffer) ─────────────────
       //
-      // These five handlers mutate `bridgeFollowUp` only. NONE of them
+      // These four handlers mutate `bridgeFollowUp` only. NONE of them
       // call pi.sendUserMessage, pi.clear*Queue, or any other pi method.
       // The bridge owns the buffer; pi never sees these entries until the
       // drain loop ships them on agent_end as fresh-turn sendUserMessage.
@@ -1237,66 +1291,37 @@ function initBridge(pi: ExtensionAPI) {
       // See change: rework-mid-turn-prompt-queue (design.md D3).
       if (msg.type === "edit_followup_entry") {
         const { index, text } = msg as { type: string; index: number; text: string };
-        if (typeof index !== "number" || index < 0 || index >= bridgeFollowUp.length) {
-          connection.send({
-            type: "event_forward",
-            sessionId,
-            event: { eventType: "command_feedback", timestamp: Date.now(), data: {
-              command: "edit_followup_entry", status: "error", message: "Index out of range",
-            } },
-          });
+        // Text-only edit: the entry's images are PRESERVED (design D5). Gated
+        // on the byte ceiling because the inline editor can grow text without
+        // bound; a refused edit leaves the entry untouched and emits no
+        // `queue_update`. See change: fix-bridge-followup-image-drop.
+        const edited = bridgeFollowUp.editText(index, text);
+        if (!edited.ok) {
+          sendCommandFeedback("edit_followup_entry", edited.message);
           return;
         }
-        bridgeFollowUp[index] = text;
         emitQueueUpdate();
         return;
       }
       if (msg.type === "remove_followup_entry") {
         const { index } = msg as { type: string; index: number };
-        if (typeof index !== "number" || index < 0 || index >= bridgeFollowUp.length) {
-          connection.send({
-            type: "event_forward",
-            sessionId,
-            event: { eventType: "command_feedback", timestamp: Date.now(), data: {
-              command: "remove_followup_entry", status: "error", message: "Index out of range",
-            } },
-          });
+        if (!bridgeFollowUp.removeAt(index)) {
+          sendCommandFeedback("remove_followup_entry", "Index out of range");
           return;
         }
-        bridgeFollowUp.splice(index, 1);
         emitQueueUpdate();
         return;
       }
       if (msg.type === "promote_followup_entry") {
         const { index } = msg as { type: string; index: number };
-        // Silent no-op for index 0 or invalid — no emit (D3).
-        if (typeof index !== "number" || index <= 0 || index >= bridgeFollowUp.length) {
-          return;
-        }
-        const [entry] = bridgeFollowUp.splice(index, 1);
-        bridgeFollowUp.unshift(entry);
-        emitQueueUpdate();
+        // Silent no-op for index 0 or invalid — no emit (D3). Carries images.
+        if (bridgeFollowUp.promote(index)) emitQueueUpdate();
         return;
       }
       if (msg.type === "clear_followup_entries") {
         const { indices } = msg as { type: string; indices: number[] | "all" };
-        if (indices === "all") {
-          if (bridgeFollowUp.length > 0) {
-            bridgeFollowUp = [];
-            emitQueueUpdate();
-          }
-          return;
-        }
-        if (!Array.isArray(indices)) return;
-        // Sort descending to avoid index drift across multiple splices.
-        const sorted = [...indices].sort((a, b) => b - a);
-        let mutated = false;
-        for (const i of sorted) {
-          if (typeof i === "number" && i >= 0 && i < bridgeFollowUp.length) {
-            bridgeFollowUp.splice(i, 1);
-            mutated = true;
-          }
-        }
+        const mutated =
+          indices === "all" ? bridgeFollowUp.clearAll() : bridgeFollowUp.clearIndices(indices);
         if (mutated) emitQueueUpdate();
         return;
       }
@@ -2198,9 +2223,9 @@ function initBridge(pi: ExtensionAPI) {
                 bridgeSteering.splice(sIdx, 1);
                 emitQueueUpdate();
               } else {
-                const fIdx = bridgeFollowUp.indexOf(text);
+                const fIdx = bridgeFollowUp.indexOfText(text);
                 if (fIdx !== -1) {
-                  bridgeFollowUp.splice(fIdx, 1);
+                  bridgeFollowUp.removeAt(fIdx);
                   emitQueueUpdate();
                 }
               }
@@ -3328,7 +3353,8 @@ function initBridge(pi: ExtensionAPI) {
     // starts with empty chips. See change: add-followup-edit-and-steer-cancel.
     if (bridgeSteering.length > 0 || bridgeFollowUp.length > 0) {
       bridgeSteering = [];
-      bridgeFollowUp = [];
+      // Drops every entry AND its image bytes, releasing the byte budget.
+      bridgeFollowUp.reset();
       emitQueueUpdate();
     }
     const bc = syncBc();

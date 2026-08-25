@@ -1166,8 +1166,29 @@ describe("CommandHandler delivery routing (pi-native queues)", () => {
     expect(pi.clearFollowUpQueue).not.toHaveBeenCalled();
     expect(pi.clearSteeringQueue).not.toHaveBeenCalled();
     // onFollowupSent (→ bufferFollowupSend) IS called so the bridge can push
-    // the text to bridgeFollowUp + emit queue_update.
-    expect(onFollowupSent).toHaveBeenCalledWith("buffered");
+    // the text to bridgeFollowUp + emit queue_update. The images argument rides
+    // with it — dropping it here was the bug fix-bridge-followup-image-drop fixes.
+    expect(onFollowupSent).toHaveBeenCalledWith("buffered", undefined);
+  });
+
+  it("passthrough followUp while STREAMING hands the buffer its IMAGES", async () => {
+    // The attachments must reach the bridge buffer, or the drain has nothing to
+    // deliver and the model silently never sees the image.
+    // See change: fix-bridge-followup-image-drop (test-plan #E1).
+    const pi = createMockPi();
+    const onFollowupSent = vi.fn();
+    const handler = createCommandHandler(pi as any, "s1", {
+      isStreaming: () => true,
+      onFollowupSent,
+    });
+    const images = [{ type: "image", data: "PNGBYTES", mimeType: "image/png" }];
+
+    await handler.handle({
+      type: "send_prompt", sessionId: "s1", text: "describe", delivery: "followUp", images,
+    } as any);
+
+    expect(pi.sendUserMessage).not.toHaveBeenCalled();
+    expect(onFollowupSent).toHaveBeenCalledWith("describe", images);
   });
 
   it("passthrough delivery absent defaults to followUp (idle path forwards to pi)", async () => {
