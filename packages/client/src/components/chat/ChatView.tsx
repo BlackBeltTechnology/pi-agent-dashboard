@@ -1591,7 +1591,6 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
               key={msg.id}
               gap={historyGap}
               onLoadEarlier={handleLoadEarlier}
-              autoLoadedCount={autoLoadedCount}
             />
           );
         }
@@ -1982,6 +1981,27 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           </div>
         )
       )}
+    </div>
+    {/*
+      Auto-load announcement. Lives HERE, outside the virtualized list, because
+      a live region only announces if it is in the DOM when its text changes —
+      and the gap divider is a virtualized row that the virtualizer unmounts
+      once a splice pushes it out of the overscan band.
+
+      POLITE, never assertive: content inserted above the reading position is
+      not urgent and must not interrupt reading. The splice never moves focus.
+      Scoped to AUTOMATIC loads (see `autoLoadedCount`), so a user who pressed
+      the affordance, or any head-tail user, observes nothing new.
+      See change: add-tail-only-replay-window (test-plan F16, F21).
+    */}
+    <div aria-live="polite" className="sr-only" data-testid="history-gap-live-region">
+      {autoLoadedCount != null && autoLoadedCount > 0
+        ? i18nT(
+            "chat.historyGap.announced",
+            { count: autoLoadedCount.toLocaleString() },
+            `${autoLoadedCount.toLocaleString()} earlier messages loaded`,
+          )
+        : ""}
     </div>
     {/*
       Replay-in-flight indicator: a decorative tail scrim + a centred label.

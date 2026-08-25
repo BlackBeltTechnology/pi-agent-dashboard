@@ -27,22 +27,12 @@
  *
  * See change: lazy-load-session-history (task 7.1, mockups/ui-plan.md § A).
  */
-import { type HistoryGapState, historyGapTerminus, isHeadFree } from "../../lib/chat/history-gap.js";
+import { type HistoryGapState, historyGapTerminus } from "../../lib/chat/history-gap.js";
 import { t } from "../../lib/i18n/i18n.js";
 
 interface Props {
   gap: HistoryGapState;
   onLoadEarlier: () => void;
-  /**
-   * Count of rows spliced by the most recent AUTOMATIC load, announced once
-   * through the polite live region. `null` → nothing to announce.
-   *
-   * Scoped to automatic loads in `tail-only` on purpose: a user who pressed
-   * "Load earlier" already knows what they asked for, and a non-opted-in
-   * `head-tail` user must observe nothing new.
-   * See change: add-tail-only-replay-window (test-plan F16, F21).
-   */
-  autoLoadedCount?: number | null;
 }
 
 function WarningIcon() {
@@ -72,7 +62,33 @@ const PILL =
   "text-xs cursor-pointer hover:bg-[var(--bg-hover)] disabled:cursor-default disabled:opacity-85 " +
   "focus-visible:outline-2 focus-visible:outline-[var(--focus-ring)] focus-visible:outline-offset-2";
 
-export function HistoryGapDivider({ gap, onLoadEarlier, autoLoadedCount = null }: Props) {
+/**
+ * The head-free walk reached the store floor. A SUCCESS state, not
+ * `unservable`: nothing failed and nothing is recoverable-but-missing. It
+ * REPLACES the divider's content rather than removing the row, because in a
+ * head-free window nothing else tells the reader where the transcript begins.
+ *
+ * `oldestGapSeq === 1` is the session's genuine beginning. Above 1, earlier
+ * events are simply not retained — and the wording names NEITHER retention
+ * NOR compaction, because the floor answers "is anything below", never "why is
+ * it gone".
+ * See change: add-tail-only-replay-window (D6).
+ */
+function TerminusRow({ terminus }: { terminus: "session-start" | "not-retained" }) {
+  return (
+    <span
+      role="status"
+      className="text-xs text-[var(--text-secondary)] whitespace-nowrap"
+      data-testid={terminus === "session-start" ? "history-gap-session-start" : "history-gap-not-retained"}
+    >
+      {terminus === "session-start"
+        ? t("chat.historyGap.sessionStart", undefined, "Beginning of the session")
+        : t("chat.historyGap.notRetained", undefined, "Earlier messages are no longer retained")}
+    </span>
+  );
+}
+
+export function HistoryGapDivider({ gap, onLoadEarlier }: Props) {
   /**
    * `--text-muted` is BANNED on this surface (2.77:1 dark / 2.32:1 light — both
    * fail AA for text) and `--text-tertiary` is unsafe as text in the LIGHT
@@ -81,32 +97,16 @@ export function HistoryGapDivider({ gap, onLoadEarlier, autoLoadedCount = null }
    * (9.07:1 dark / 9.74:1 light) or `--text-primary`.
    */
   const terminus = historyGapTerminus(gap);
-  const body = (() => {
-    /**
-     * TERMINUS — the head-free walk reached the store floor. This is a SUCCESS
-     * state, not `unservable`: nothing failed and nothing is recoverable-but-
-     * missing. It replaces the row rather than removing it, because in this
-     * mode nothing else tells the reader where the transcript begins.
-     *
-     * `oldestGapSeq === 1` is the session's genuine beginning. Above 1, earlier
-     * events are simply not retained — and the wording must name NEITHER
-     * retention NOR compaction, because the floor answers "is anything below",
-     * never "why is it gone".
-     * See change: add-tail-only-replay-window (D6).
-     */
-    if (terminus) {
-      return (
-        <span
-          role="status"
-          className="text-xs text-[var(--text-secondary)] whitespace-nowrap"
-          data-testid={terminus === "session-start" ? "history-gap-session-start" : "history-gap-not-retained"}
-        >
-          {terminus === "session-start"
-            ? t("chat.historyGap.sessionStart", undefined, "Beginning of the session")
-            : t("chat.historyGap.notRetained", undefined, "Earlier messages are no longer retained")}
-        </span>
-      );
-    }
+  /**
+   * The TERMINUS is selected OUTSIDE the state IIFE below, not as another
+   * branch inside it. Adding a fifth branch there tripped Biome's cognitive-
+   * complexity rule, and the terminus is genuinely a different kind of state:
+   * the walk is over, so none of the four in-progress states can apply.
+   */
+  const body = terminus ? (
+    <TerminusRow terminus={terminus} />
+  ) : (
+    (() => {
     /**
      * A5 — the gap exists but the store cannot serve it. Deliberately NOT an
      * error: nothing failed. No retry is offered because there is nothing to
@@ -171,7 +171,8 @@ export function HistoryGapDivider({ gap, onLoadEarlier, autoLoadedCount = null }
         </button>
       </>
     );
-  })();
+    })()
+  );
 
   return (
     <div
@@ -182,21 +183,19 @@ export function HistoryGapDivider({ gap, onLoadEarlier, autoLoadedCount = null }
       <div className="flex items-center gap-2.5 shrink-0 flex-wrap justify-center w-full sm:w-auto">{body}</div>
       <div className={RULE} />
       {/*
-        Content inserted ABOVE the reading position with no gesture of the
-        user's own needs an announcement. POLITE, never assertive: the
-        insertion is never urgent and must not interrupt reading. The splice
-        itself never moves focus.
-        See change: add-tail-only-replay-window (test-plan F16, F21).
+        The auto-load ANNOUNCEMENT deliberately does NOT live here.
+
+        This component is a virtualized row. After an automatic load splices
+        ~500 rows above the reading position, the divider sits far outside the
+        overscan band and the virtualizer unmounts it — so a live region hosted
+        here would not be in the DOM at the moment its text changed, and an
+        assistive technology would announce nothing. Observed directly: the
+        region resolved before the splice and was gone after it.
+
+        The region is owned by `ChatView` instead, outside the virtualized
+        list, where it is permanently mounted.
+        See change: add-tail-only-replay-window (test-plan F16).
       */}
-      <div aria-live="polite" className="sr-only" data-testid="history-gap-live-region">
-        {isHeadFree(gap) && autoLoadedCount != null && autoLoadedCount > 0
-          ? t(
-              "chat.historyGap.announced",
-              { count: autoLoadedCount.toLocaleString() },
-              `${autoLoadedCount.toLocaleString()} earlier messages loaded`,
-            )
-          : ""}
-      </div>
     </div>
   );
 }
