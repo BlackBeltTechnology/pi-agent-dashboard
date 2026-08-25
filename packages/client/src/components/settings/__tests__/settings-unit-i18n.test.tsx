@@ -114,7 +114,13 @@ describe("F17: the replay window mode control is localized in en, zh-CN and hu",
     for (const key of MODE_KEYS) {
       expect(source, `${locale} is missing ${key}`).toContain(`"${key}"`);
       // Present AND non-empty: `"key": ""` would resolve to a blank control.
-      expect(source).toMatch(new RegExp(`"${key.replace(/\./g, "\\.")}":\\s*"[^"]+"`));
+      // Escape EVERY regex metacharacter, not just `.`: a dot-only escape
+      // leaves a backslash in a key to be read as an escape sequence rather
+      // than a literal, which silently changes what this asserts (CodeQL
+      // "incomplete string escaping"). Mirrors the escape used elsewhere in
+      // the repo, e.g. `archiveEntryMatcher` in tests/e2e/helpers.
+      const literal = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      expect(source).toMatch(new RegExp(`"${literal}":\\s*"[^"]+"`));
     }
   });
 
