@@ -5,12 +5,12 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | File | Purpose |
 |------|---------|
 | `ArchiveBrowserView.tsx` | Browser view for archived OpenSpec changes. Exports `ArchiveBrowserView`. → see `ArchiveBrowserView.tsx.AGENTS.md` |
-| `ExploreDialog.tsx` | Modal dialog for OpenSpec Explore prompts. Textarea + `useImagePaste` for pasted images; `Cmd/Ctrl+Enter` sends `onSend(text, images?)`. Renders shared `ImagePreviewStrip`. Exports `ExploreDialog`. |
-| `FolderOpenSpecSection.tsx` | Slim single-line navigation entry `OpenSpec (N) →` to board route; Refresh/Archive/Specs are icon-only buttons inside the SlotPill `actions` cluster. → see `FolderOpenSpecSection.tsx.AGENTS.md` |
+| `ExploreDialog.tsx` | Modal dialog for OpenSpec Explore prompts. Textarea + `useImagePaste` for pasted images; `Cmd/Ctrl+Enter` sends `onSend(text, images?)`. Renders shared `ImagePreviewStrip`. Mounts `<ComposerPanelSlot draft={text} onApplyText={setText}/>` under the textarea (grammar plugin's `composer-panel` slot; no `sessionId` — inert until claimed). Exports `ExploreDialog`. See change: grammar-llm-only-with-explore. |
+| `FolderOpenSpecSection.tsx` | Slim single-line navigation entry `OpenSpec (N) →` to board route; STATE-ONLY — Refresh/Archive/Specs are folder-actions-menu items contributed host-side by `SessionList`. → see `FolderOpenSpecSection.tsx.AGENTS.md` |
 | `NewChangeDialog.tsx` | Dialog launching `/skill:openspec-new-change`. Exports `NewChangeDialog`, `formatNewChangePrompt(name,… → see `NewChangeDialog.tsx.AGENTS.md` |
 | `openspec-helpers.tsx` | Shared OpenSpec UI helpers. Exports `LETTER_MAP`, `artifactLetter(id)`, `statusColor(status)`,… → see `openspec-helpers.tsx.AGENTS.md` |
 | `OpenSpecActivityBadge.tsx` | Session-card sub-badge showing active OpenSpec phase. Exports `OpenSpecActivityBadge`. → see `OpenSpecActivityBadge.tsx.AGENTS.md` |
-| `OpenSpecArtifactDialog.tsx` | Non-mobile artifact reader in a flush full `Dialog` (URL unchanged). No back arrow; closes via Dialog ✕/Esc/backdrop (passes `closeInset`, no `onBack`). → see `OpenSpecArtifactDialog.tsx.AGENTS.md` |
+| `OpenSpecArtifactDialog.tsx` | Non-mobile artifact reader in a flush full `Dialog` (URL unchanged). Owns its dismissal: passes `onBack={onClose}` + `backLabel` on ALL THREE branches (loading/not-found/loaded) because a flush Dialog renders no ✕; `closeInset` and the `h-[85vh]` wrapper are GONE (the panel is itself a capped flex column). See change: fix-flush-dialog-scroll-and-close-collision. → see `OpenSpecArtifactDialog.tsx.AGENTS.md` |
 | `OpenSpecBoardView.tsx` | Full-page OpenSpec kanban board. Route `/folder/:encodedCwd/openspec`. → see `OpenSpecBoardView.tsx.AGENTS.md` |
 | `OpenSpecGroupManager.tsx` | CRUD manager: create/rename/recolor/reorder(dnd-kit)/delete groups. See change: add-openspec-change-grouping. |
 | `OpenSpecGroupPicker.tsx` | Per-row chip+dropdown assigning change to group; inline create. See change: add-openspec-change-grouping. |

@@ -125,8 +125,29 @@ export interface UiDialogProps {
   icon?: string;
   /** `full` = near-fullscreen wide stage (max-w-[95vw]/max-h-[92vh]). See change: improve-flow-graph-dialog-and-card-interaction. */
   size?: "sm" | "md" | "lg" | "full";
-  /** Edge-to-edge body (no padding, clipped overflow) for self-framed children. See change: improve-flow-graph-dialog-and-card-interaction. */
+  /**
+   * Edge-to-edge body for a self-framed child: no padding, clipped overflow,
+   * and a flex COLUMN context. The panel carries only a `max-h` cap and no
+   * definite height, so a flush child MUST size itself `flex-1 min-h-0` — an
+   * `h-full` child resolves against an indefinite parent, grows to its content,
+   * and its own `overflow-y-auto` never becomes a scroller while the panel
+   * clips the surplus away unreachably.
+   *
+   * The built-in ✕ is NOT rendered in this mode: a self-framed child owns its
+   * header and its own dismissal affordance, and the panel reserves no corner
+   * for the control. Use `showClose` if your child renders no header.
+   * See change: improve-flow-graph-dialog-and-card-interaction,
+   * fix-flush-dialog-scroll-and-close-collision.
+   */
   flush?: boolean;
+  /**
+   * Restore the built-in ✕ under `flush`. A flush child that renders NO
+   * focusable element of its own MUST set this: without it the focus trap
+   * falls back to the dialog container, leaving keyboard users no target and
+   * no visible way out. Ignored when `flush` is false (the ✕ always renders).
+   * See change: fix-flush-dialog-scroll-and-close-collision.
+   */
+  showClose?: boolean;
   testId?: string;
   /** aria-label fallback when no `title` is supplied. */
   ariaLabel?: string;

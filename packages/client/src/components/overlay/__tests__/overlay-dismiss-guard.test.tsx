@@ -50,7 +50,11 @@ describe("6.1 — a dirty surface survives every dismissal gesture", () => {
   const gestures: [string, () => void][] = [
     ["backdrop click", () => fireEvent.click(screen.getByTestId("ov-overlay"))],
     ["Escape", () => fireEvent.keyDown(document, { key: "Escape" })],
-    ["the ✕ affordance", () => fireEvent.click(screen.getByTestId("ov-close"))],
+    // The ✕ gesture is GONE, not untested: a route-backed overlay is a flush
+    // Dialog, and a flush Dialog no longer renders a built-in ✕ (it duplicated
+    // and overlapped the child's own header controls). Its absence is asserted
+    // below rather than dropped, so this list shrinking cannot be mistaken for
+    // lost coverage. See change: fix-flush-dialog-scroll-and-close-collision.
   ];
 
   for (const [name, fire] of gestures) {
@@ -67,6 +71,11 @@ describe("6.1 — a dirty surface survives every dismissal gesture", () => {
       expect(screen.getByTestId("panel")).toBeTruthy();
     });
   }
+
+  it("renders no container ✕ at all — the removed gesture cannot come back untested", () => {
+    renderOverlay(<GuardedPanel dirty onAttempt={vi.fn()} />, vi.fn());
+    expect(screen.queryByTestId("ov-close")).toBeNull();
+  });
 });
 
 // Audit finding (8.7, high): registration was last-write-wins on a single ref

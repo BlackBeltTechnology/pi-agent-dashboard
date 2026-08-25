@@ -1072,7 +1072,13 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
 
   return (
     <SettingsDraftProvider registry={draftRegistry}>
-    <div className="flex-1 flex flex-col min-w-0 h-full">
+    {/* `min-h-0`, not `h-full`: the flush Dialog panel is a max-h-capped flex
+        column with no definite height, so `h-full` resolves to `auto` and this
+        root grows to content (clipping, no scroller). `min-h-0` releases the
+        flex item's content floor so the body below can scroll. Shared with the
+        MobileShell detail panel, which is also a definite-height flex column.
+        See change: fix-flush-dialog-scroll-and-close-collision. */}
+    <div className="flex-1 flex flex-col min-w-0 min-h-0">
       {/* Header */}
       <div data-testid="settings-header" className="flex items-center gap-3 p-4 border-b border-[var(--border-primary)] shrink-0">
         <button

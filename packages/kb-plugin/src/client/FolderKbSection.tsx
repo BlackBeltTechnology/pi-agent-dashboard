@@ -2,9 +2,17 @@
  * FolderKbSection — `sidebar-folder-section` slot claim.
  *
  * Sibling of the Goals / Automations folder rows: shows the folder's KB entry
- * count + a reindex affordance, in one of five states derived from the KB
- * stats (design §5). The `→` opens the per-folder KB settings page. Plugin-
- * local navigation via wouter; no core/shell edit.
+ * count in one of five states derived from the KB stats (design §5). The `→`
+ * opens the per-folder KB settings page. Plugin-local navigation via wouter;
+ * no core/shell edit.
+ *
+ * The pill is STATE-ONLY. The former three state-variant controls (`retry` /
+ * `index now` / `reindex`) fold into ONE declarative `MAINTENANCE` item in the
+ * folder actions menu, whose label, badge and disabled state vary by KB state.
+ * It stays distinct from the menu's plain refresh — rebuilding an index is not
+ * refetching a view — and carries its own glyph for the same reason. The
+ * worktree-card placement has no folder actions menu, so it registers nothing.
+ * See change: move-slot-actions-to-menu.
  *
  * State derivation is ORDERED — `error` (failed job) wins over `not-indexed`
  * (chunks:0, never run), so a failed first index shows `Retry`, not
@@ -17,11 +25,11 @@
  * add-kb-folder-slot.
  */
 
-import { SlotPill, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { SlotPill, useFolderMenuItem, useT } from "@blackbelt-technology/dashboard-plugin-runtime";
 import type { FolderDescriptor, SlotPlacement } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/slot-props.js";
-import { mdiDatabaseOutline, mdiRefresh } from "@mdi/js";
-import { Icon } from "@mdi/react";
+import { mdiDatabaseOutline, mdiDatabaseRefreshOutline } from "@mdi/js";
 import type React from "react";
+import { useMemo } from "react";
 import { useLocation } from "wouter";
 import type { KbStats } from "../shared/kb-plugin-types.js";
 import { kbSettingsUrl } from "./kb-api.js";
@@ -45,8 +53,6 @@ export function FolderKbSection({ folder, placement = "sidebar" }: { folder: Fol
   const [, navigate] = useLocation();
   const { stats, reindex, reindexError, error, pending } = useKbStats(cwd);
 
-  if (!cwd) return null;
-
   // A rejected trigger (no job started) or a persistent stats-poll outage forces
   // the failed state — but a live `indexing` walk keeps its spinner because a
   // transient poll blip never sets `error` (bounded in useKbStats). See change:
@@ -63,52 +69,47 @@ export function FolderKbSection({ folder, placement = "sidebar" }: { folder: Fol
   const chunks = stats?.chunks ?? 0;
   const files = stats?.files ?? 0;
   const countTip = t("countTip", { files, chunks }, `${files} files · ${chunks} chunks`);
-  const doReindex = (e: React.MouseEvent): void => {
-    e.stopPropagation();
-    reindex();
-  };
+  const staleCount = stats?.staleCount ?? 0;
+
+  // ONE menu item for every state. `busy` (pending OR polled indexing) is the
+  // disabled window, so the optimistic pending span keeps the existing
+  // double-submit guard rather than only the polled `indexing` state.
+  const menuLabel =
+    state === "error" ? t("retry", undefined, "Retry")
+    : state === "indexing" ? t("labelIndexingShort", undefined, "indexing\u2026")
+    : state === "not-indexed" ? t("indexNow", undefined, "Index now")
+    : t("titleReindexNow", undefined, "Reindex now");
+  const menuBadge =
+    state === "stale"
+      ? t("labelStale", { count: staleCount }, `${staleCount} stale`)
+      : undefined;
+  // The worktree-card placement is scoped to the worktree cwd, which has no
+  // folder actions menu — registering there would strand items in a scope with
+  // nothing to render them.
+  const menuScope = placement === "card" ? null : cwd;
+  useFolderMenuItem(
+    menuScope,
+    useMemo(
+      () => ({
+        id: "kb-reindex",
+        group: "maintenance" as const,
+        label: menuLabel,
+        icon: mdiDatabaseRefreshOutline,
+        badge: menuBadge,
+        disabled: busy,
+        onSelect: () => reindex(),
+      }),
+      [menuLabel, menuBadge, busy, reindex],
+    ),
+  );
+
+  if (!cwd) return null;
 
   // The pill itself is ALWAYS the settings link; state drives the tooltip.
   const labelTitle =
     state === "error" ? (clientError ?? stats?.lastError ?? t("titleErrorFallback", undefined, "Reindex failed — open KB settings"))
     : state === "not-indexed" ? t("titleNotIndexed", undefined, "Not indexed — open KB settings to define sources")
     : t("titlePopulated", { tip: countTip }, `${countTip} — open KB settings`);
-
-  const trailing =
-    state === "error" ? (
-      <button
-        type="button"
-        onClick={doReindex}
-        data-testid="folder-kb-retry"
-        className="text-[10px] px-1.5 py-0.5 rounded border text-red-400 border-red-500/40 bg-red-500/5 hover:border-red-500/70"
-      >
-        <Icon path={mdiRefresh} size={0.4} className="inline mr-0.5" />{t("retry", undefined, "Retry")}
-      </button>
-    ) : state === "indexing" ? (
-      <Icon path={mdiRefresh} size={0.5} className="text-teal-400 animate-spin" />
-    ) : state === "not-indexed" ? (
-      <button
-        type="button"
-        onClick={doReindex}
-        disabled={busy}
-        data-testid="folder-kb-index-now"
-        className="text-[10px] px-1.5 py-0.5 rounded border text-teal-300 border-teal-500/40 bg-teal-500/5 hover:border-teal-500/70 disabled:opacity-50 disabled:cursor-not-allowed"
-        title={t("titleBuildKb", undefined, "Build the KB for this folder")}
-      >
-        {t("indexNow", undefined, "Index now")}
-      </button>
-    ) : (
-      <button
-        type="button"
-        onClick={doReindex}
-        disabled={busy}
-        data-testid="folder-kb-reindex"
-        className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-1 disabled:opacity-50 disabled:cursor-not-allowed"
-        title={state === "stale" ? t("titleReindexStale", { count: stats?.staleCount ?? 0 }, `Reindex ${stats?.staleCount} changed files`) : t("titleReindexNow", undefined, "Reindex now")}
-      >
-        <Icon path={mdiRefresh} size={0.5} />
-      </button>
-    );
 
   return (
     <div
@@ -124,7 +125,6 @@ export function FolderKbSection({ folder, placement = "sidebar" }: { folder: Fol
         activateTestId="folder-kb-open-settings"
         activateTitle={labelTitle}
         onActivate={() => navigate(kbSettingsUrl(cwd))}
-        actions={trailing}
       >
         <span data-testid="folder-kb-count" className="flex items-baseline gap-1.5 min-w-0">
           {state === "error" ? (
@@ -142,7 +142,7 @@ export function FolderKbSection({ folder, placement = "sidebar" }: { folder: Fol
               <span className="text-[10px] font-semibold text-[var(--text-tertiary)]">{t("labelChunks", undefined, "chunks")}</span>
               {state === "stale" && (
                 <span className="text-[10px] font-extrabold text-amber-400" data-testid="folder-kb-stale">
-                  ⚠ {t("labelStale", { count: stats?.staleCount ?? 0 }, `${stats?.staleCount} stale`)}
+                  ⚠ {t("labelStale", { count: staleCount }, `${staleCount} stale`)}
                 </span>
               )}
             </>

@@ -383,6 +383,33 @@ def cmd_list_templates(args: argparse.Namespace) -> int:
     return 0
 
 
+def resolve_pdf_output(
+    inputs: list, output: str | None, output_dir: str | None
+) -> tuple:
+    """Split a trailing positional output path off `inputs`.
+
+    `inputs` is `nargs='+'`, so argparse cannot own an optional positional
+    output — it swallows both paths and leaves `output=None` (issue #507).
+    The documented single-file form `convert-pdf in.docx out.pdf` is recovered
+    here, under rules narrow enough that a genuine batch never loses an input:
+
+      * an explicit `--output` / `--output-dir` always wins;
+      * at least two positionals must remain;
+      * the last one must look like a PDF and must NOT already exist
+        (an existing `.pdf` is an input someone asked to convert).
+
+    Returns `(inputs, output)`.
+    """
+    if output is not None or output_dir is not None or len(inputs) < 2:
+        return list(inputs), output
+
+    tail = inputs[-1]
+    if not tail.lower().endswith('.pdf') or Path(tail).exists():
+        return list(inputs), output
+
+    return list(inputs[:-1]), tail
+
+
 def cmd_convert_pdf(args: argparse.Namespace) -> int:
     """Handle the convert-pdf command."""
     from .pdf_converter import (
@@ -395,7 +422,9 @@ def cmd_convert_pdf(args: argparse.Namespace) -> int:
     # Collect input files
     input_files = []
 
-    for pattern in args.inputs:
+    patterns, output = resolve_pdf_output(args.inputs, args.output, args.output_dir)
+
+    for pattern in patterns:
         # Check if it's a glob pattern
         if '*' in pattern or '?' in pattern:
             matches = glob.glob(pattern, recursive=True)
@@ -471,8 +500,8 @@ def cmd_convert_pdf(args: argparse.Namespace) -> int:
             input_path = input_files[0]
 
             # Determine output path
-            if args.output:
-                output_path = Path(args.output)
+            if output:
+                output_path = Path(output)
             else:
                 output_path = input_path.with_suffix('.pdf')
 
@@ -524,8 +553,9 @@ def cmd_convert_pdf(args: argparse.Namespace) -> int:
         return 1
 
 
-def main():
-    """Main CLI entry point."""
+def build_parser() -> argparse.ArgumentParser:
+    """Build the top-level parser. Split out of `main()` so tests can parse an
+    argv vector without executing a command (see tests/test_convert_pdf_output.py)."""
     parser = argparse.ArgumentParser(
         description='Document Converter - Convert between Markdown and DOCX formats',
         formatter_class=argparse.RawDescriptionHelpFormatter
@@ -694,8 +724,12 @@ Examples:
         """
     )
     pdf_parser.add_argument('inputs', nargs='+',
-                            help='Input file(s) or glob pattern (e.g., "*.docx")')
-    pdf_parser.add_argument('output', nargs='?', default=None,
+                            help='Input file(s), glob pattern (e.g., "*.docx"), '
+                                 'optionally followed by the output PDF file')
+    # NOT a positional: `inputs` is nargs='+' and would greedily swallow it,
+    # leaving output=None (issue #507). The documented positional form is
+    # recovered by `resolve_pdf_output` instead.
+    pdf_parser.add_argument('-o', '--output', type=str, default=None,
                             help='Output PDF file (for single file conversion)')
     pdf_parser.add_argument('--output-dir', type=str, default=None,
                             help='Output directory for batch conversion')
@@ -711,6 +745,13 @@ Examples:
                             choices=['png', 'svg', 'auto'],
                             help='Diagram output format (default: png)')
     add_common_args(pdf_parser)
+
+    return parser
+
+
+def main():
+    """Main CLI entry point."""
+    parser = build_parser()
 
     # Parse arguments
     args = parser.parse_args()

@@ -1,0 +1,3 @@
+# folder-actions-menu.spec.ts — index
+
+Playwright spec. Folder actions menu after the slot-pill controls moved in (test-plan #E1, #E2, #F7, #F8, #F9). Trigger neither navigates nor collapses; only one panel open across the sidebar; the rendered card's four slot sections expose exactly ONE interactive node each (their pill root) and none of the ten moved test ids; `refresh-folder` + `directory-settings` reachable from the menu. Own `test.use({viewport:{width:390}})` describe for the mobile sheet: `data-menu-form=sheet`, full viewport width, Escape returns focus to the trigger. Registry mechanics stay L1 in `dashboard-plugin-runtime/src/__tests__/folder-menu-contributions.test.tsx`. See change: move-slot-actions-to-menu.

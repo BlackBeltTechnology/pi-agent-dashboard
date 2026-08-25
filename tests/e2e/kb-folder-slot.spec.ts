@@ -20,6 +20,19 @@ const KB_FIXTURE = "/fixtures/kb-sample";
 const KB_PARENT = "/fixtures/kb-parent";
 const KB_WORKTREE = "/fixtures/kb-parent/worktrees/kb-wt";
 
+/**
+ * Trigger the folder's KB index/reindex from the folder actions menu.
+ *
+ * The KB pill lost its own `index-now` / `retry` / `reindex` controls: they are
+ * ONE `MAINTENANCE` item now. See change: move-slot-actions-to-menu.
+ */
+async function reindexFromMenu(page: Page, cwd: string): Promise<void> {
+  await page.getByTestId(`folder-actions-menu-${cwd}`).first().click();
+  const item = page.getByTestId("folder-menu-item-kb-reindex");
+  await expect(item).toBeVisible({ timeout: 15_000 });
+  await item.click();
+}
+
 /** The folder-kb-section under the nearest folder-card of a cwd's header anchor. */
 function kbRowFor(page: Page, cwd: string) {
   return page.locator(
@@ -82,7 +95,7 @@ test.describe("KB folder slot", () => {
     // /api/kb/reindex runs in the dashboard-server process (no pi session) →
     // chunks>0 → the row flips to populated live.
     if ((await kbRow.getAttribute("data-state")) === "not-indexed") {
-      await kbRow.getByTestId("folder-kb-index-now").click();
+      await reindexFromMenu(page, KB_FIXTURE);
     }
     await expect(kbRow).toHaveAttribute("data-state", "populated", { timeout: 30_000 });
     await expect(kbRow.getByTestId("folder-kb-count")).toContainText(/chunks/i);

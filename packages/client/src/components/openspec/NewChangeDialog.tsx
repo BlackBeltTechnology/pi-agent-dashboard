@@ -1,3 +1,4 @@
+import { ComposerPanelSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import { mdiPlusBoxOutline, mdiSend } from "@mdi/js";
 import { Icon } from "@mdi/react";
@@ -58,6 +59,11 @@ export function NewChangeDialog({ onSend, onClose }: Props) {
           className="w-full h-24 bg-[var(--bg-tertiary)] border border-[var(--border-secondary)] rounded p-2 text-sm text-[var(--text-secondary)] resize-none focus:outline-none focus:border-blue-500"
           data-testid="new-change-description"
         />
+        {/* Grammar/spell-check over the description prose (grammar plugin
+            composer-panel slot). Bound to the description field only; the
+            change-name input is not checked. See change:
+            grammar-llm-only-with-explore. */}
+        <ComposerPanelSlot draft={description} onApplyText={setDescription} />
         {rowElement}
         <Dialog.Footer>
           <Dialog.Cancel onClick={onClose} testId="new-change-cancel" />

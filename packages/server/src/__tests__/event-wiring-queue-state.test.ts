@@ -4,13 +4,14 @@
  * broadcasts session_updated to subscribers.
  * See change: add-followup-edit-and-steer-cancel.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { WebSocket } from "ws";
+
 import { mkdtempSync, readdirSync, writeFileSync } from "node:fs";
-import path from "node:path";
 import os from "node:os";
-import { createServer, type DashboardServer } from "../server.js";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { WebSocket } from "ws";
 import { AUTO_NAME_OUTCOMES, AutoNameOutcomeStore } from "../auto-name-outcome-store.js";
+import { createServer, type DashboardServer } from "../server.js";
 
 const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
@@ -80,12 +81,12 @@ describe("event-wiring: queue_update caches Session.pendingQueues and broadcasts
       type: "queue_update",
       sessionId: SID,
       steering: ["alpha", "beta"],
-      followUp: ["wrap up"],
+      followUp: [{ text: "wrap up", imageCount: 0 }],
     }));
     await wait(60);
     expect(sessionManager.get(SID)?.pendingQueues).toEqual({
       steering: ["alpha", "beta"],
-      followUp: ["wrap up"],
+      followUp: [{ text: "wrap up", imageCount: 0 }],
     });
 
     // 3. Bridge emits empty snapshot (drain finished or clear ran)
@@ -124,7 +125,7 @@ describe("event-wiring: queue_update caches Session.pendingQueues and broadcasts
           type: "queue_update",
           sessionId: SID,
           steering: ["a", "b"],
-          followUp: ["c"],
+          followUp: [{ text: "c", imageCount: 0 }],
         }));
         setTimeout(resolve, 100);
       });
@@ -151,6 +152,51 @@ describe("event-wiring: queue_update caches Session.pendingQueues and broadcasts
     });
     expect(sessionManager.get(SID)?.pendingQueues).toEqual({ steering: [], followUp: [] });
     ws2.close();
+  });
+
+  /**
+   * The server is a pass-through for follow-up entries: it caches and
+   * broadcasts whatever the bridge sent, without inspecting elements. That is
+   * what lets the entry shape change without a server-side migration — and what
+   * makes it worth asserting that image BYTES cannot leak through it.
+   * See change: fix-bridge-followup-image-drop (test-plan #E23, #E24).
+   */
+  it("E23/E24: forwards follow-up ENTRIES verbatim and leaves steering a string array", async () => {
+    const { sessionManager } = server;
+    const SID = "queue-entry-sess";
+    const tmpDir = mkdtempSync(path.join(os.tmpdir(), "pi-queue-entry-"));
+    const sessionFile = path.join(tmpDir, "s.jsonl");
+    writeFileSync(sessionFile, "");
+
+    const bridgeWs = new WebSocket(`ws://127.0.0.1:${piPort}`);
+    await new Promise<void>((resolve, reject) => {
+      bridgeWs.on("error", reject);
+      bridgeWs.on("open", () => {
+        bridgeWs.send(JSON.stringify({
+          type: "session_register", sessionId: SID, cwd: tmpDir, source: "cli", sessionFile,
+        }));
+        bridgeWs.send(JSON.stringify({ type: "replay_complete", sessionId: SID }));
+        resolve();
+      });
+    });
+    await wait(80);
+
+    bridgeWs.send(JSON.stringify({
+      type: "queue_update",
+      sessionId: SID,
+      steering: ["a"],
+      followUp: [{ text: "c", imageCount: 2 }],
+    }));
+    await wait(60);
+
+    const cached = sessionManager.get(SID)?.pendingQueues;
+    expect(cached?.followUp).toEqual([{ text: "c", imageCount: 2 }]);
+    // Steering is pi-owned and display-only — no entry-object coercion (E24).
+    expect(cached?.steering).toEqual(["a"]);
+    // No image bytes anywhere: the bridge sends a count, never a payload (E23).
+    expect(JSON.stringify(cached)).not.toContain("data");
+
+    bridgeWs.close();
   });
 });
 

@@ -1,3 +1,4 @@
+import { ComposerPanelSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
 import { Dialog } from "@blackbelt-technology/pi-dashboard-client-utils/Dialog";
 import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiCompassOutline } from "@mdi/js";
@@ -67,6 +68,10 @@ export function ExploreDialog({ changeName, onSend, onClose }: Props) {
         <p data-testid="explore-field-note" className="text-[11px] text-[var(--text-tertiary)] -mt-2">
           {i18nT("openspec.explorePasteNote", undefined, "Paste a screenshot to include it. Press Cmd/Ctrl+Enter to send.")}
         </p>
+        {/* Grammar/spell-check over the prose draft (grammar plugin composer-panel
+            slot). Inert until the plugin claims it. See change:
+            grammar-llm-only-with-explore. */}
+        <ComposerPanelSlot draft={text} onApplyText={setText} />
         {/* Pasted-image error banner + thumbnail strip (shared component). */}
         <ImagePreviewStrip images={pendingImages} error={imageError} onRemove={removeImage} />
         {rowElement}

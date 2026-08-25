@@ -73,6 +73,7 @@ import { EMPTY_CANVAS_STATE } from "./lib/canvas/canvas-gate.js";
 // the subagents-plugin's `shell-overlay-route` claim and mounted through
 // `<ShellOverlayRouteSlot>` below. See change: add-flow-agent-popout.
 import { applyPromptTimeout, createInitialState, deriveBannerState, reduceEvent, resolveInteractiveRequest, type SessionState } from "./lib/chat/event-reducer.js";
+import { normalizeFollowUpEntries } from "./lib/chat/followup-entries.js";
 import { nextBackfillRange } from "./lib/chat/history-gap.js";
 import { refreshChat } from "./lib/chat/refresh-chat.js";
 import { maybeAutoInitWorktreeOnSpawn } from "./lib/git/auto-init-worktree.js";
@@ -163,6 +164,7 @@ import {
   ContentHeaderStickySlot,
   ContentInlineFooterSlot,
   ContentViewSlot,createSlotRegistry, 
+  FolderMenuProvider,
   forSession,
   ShellOverlayRouteSlot,
   ShellSessionsProvider,
@@ -1176,6 +1178,9 @@ export default function App() {
     [selectedId],
   );
 
+  // Composer grammar/spell check is now fully owned by the grammar plugin
+  // (composer-panel slot). See change: make-grammar-fully-plugin-contained.
+
   const clearDraftForSession = useCallback((sid: string) => {
     setDrafts((m) => {
       if (!m.has(sid)) return m;
@@ -2009,8 +2014,11 @@ export default function App() {
               corrupted pi's queue with append-duplicates. Empirical test:
               /tmp/pi-queue-experiment.mjs. See change:
               unify-status-banner-and-terminal-limit-stop. */}
+          {/* Tolerant read of the follow-up wire shape: normalise legacy
+              `string[]` and current `{text,imageCount}[]` to ONE shape before
+              the queue surface sees it. See change: fix-bridge-followup-image-drop (D2b). */}
           <QueuePanel
-            followUp={selectedSession?.pendingQueues?.followUp ?? []}
+            followUp={normalizeFollowUpEntries(selectedSession?.pendingQueues?.followUp)}
             onEdit={(index, text) => editFollowUpEntry(index, text)}
             onRemove={removeFollowUpEntry}
             onPromote={promoteFollowUpEntry}
@@ -2326,6 +2334,7 @@ export default function App() {
         t={t}
         language={language}
       >
+      <FolderMenuProvider>
       <ShellSessionsProvider value={sessions}>
         <ErrorBoundary fallback={
           <div className="min-h-screen flex items-center justify-center p-8 bg-[var(--bg-primary)] text-[var(--text-primary)]" data-testid="shell-error-fallback">
@@ -2369,6 +2378,7 @@ export default function App() {
           </SplitWorkspaceProvider>
         </ErrorBoundary>
       </ShellSessionsProvider>
+      </FolderMenuProvider>
       </PluginContextProvider>
       </ModelConfigProvider>
       </CommitDialogProvider>
@@ -2640,7 +2650,14 @@ export default function App() {
                 slot's `flex-1 min-h-0` gets 0, and a claim body positioned
                 `absolute inset-0` (the KB page) disappears entirely. 92vh
                 matches the panel's own cap, so nothing overflows.
-                Caught by kb-folder-slot.spec.ts. */}
+                Caught by kb-folder-slot.spec.ts.
+                STAYS even though the flush Dialog panel is now a capped flex
+                column: that panel is deliberately height-INDEFINITE, and an
+                `absolute inset-0` claim body contributes zero intrinsic height,
+                so the flex item would still resolve to 0. This is a definite-
+                height PIN like `h-[70vh]`, not a workaround the primitive
+                subsumes. See change:
+                fix-flush-dialog-scroll-and-close-collision. */}
             <div className="flex flex-col h-[92vh] min-h-0">
               <ShellOverlayRouteSlot onBack={dismissOverlay} registry={_pluginRegistry} />
             </div>
