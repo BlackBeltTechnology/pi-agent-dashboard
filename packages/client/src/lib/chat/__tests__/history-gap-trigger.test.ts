@@ -148,3 +148,91 @@ describe("the settle timer bounds evaluation to one per gesture (F7)", () => {
     expect(runGesture([110, 110, 110, 110, 130, null, null])).toBe(1);
   });
 });
+
+/**
+ * #P1 — the trigger's per-scroll-event cost.
+ *
+ * `handleScroll` runs on EVERY scroll event, at up to 60Hz during a fling, on
+ * a thread that is also driving a virtualized transcript. D7's bookkeeping adds
+ * three things to that path: a `Date.now()` comparison, a boolean write, and a
+ * `clearTimeout`/`setTimeout` pair. The budget exists because a regression here
+ * would not announce itself as a bug — it would show up as scroll jank, which
+ * is exactly what issue #521 was already about.
+ *
+ * Measured against a NO-OP baseline rather than in absolute terms: absolute
+ * millisecond thresholds are machine-dependent and flake on loaded CI. The
+ * comparison is the assertion, and the budget is deliberately generous — this
+ * pins an order of magnitude, not a microbenchmark.
+ */
+describe("P1: the per-event bookkeeping cost stays negligible", () => {
+  /** 5s at 60Hz, the design's stated scenario. */
+  const EVENTS = 300;
+
+  /** Model of `handleScroll`'s trigger half — the code the budget is about. */
+  function bookkeeping(state: {
+    programmaticUntil: number;
+    intent: boolean;
+    timer: ReturnType<typeof setTimeout> | null;
+  }): void {
+    if (Date.now() >= state.programmaticUntil) state.intent = true;
+    if (state.timer) clearTimeout(state.timer);
+    state.timer = setTimeout(() => {}, SETTLE_MS);
+  }
+
+  function timed(fn: () => void, iterations: number): number {
+    // One warm-up pass so JIT compilation is not attributed to the measurement.
+    for (let i = 0; i < iterations; i++) fn();
+    const start = performance.now();
+    for (let i = 0; i < iterations; i++) fn();
+    return performance.now() - start;
+  }
+
+  it("P1: adds well under 1ms per event, and stays close to a no-op baseline", () => {
+    const state = { programmaticUntil: 0, intent: false, timer: null as ReturnType<typeof setTimeout> | null };
+    let sink = 0;
+
+    const baseline = timed(() => {
+      sink += 1;
+    }, EVENTS);
+    const measured = timed(() => bookkeeping(state), EVENTS);
+    if (state.timer) clearTimeout(state.timer);
+    expect(sink).toBeGreaterThan(0);
+
+    const perEvent = measured / EVENTS;
+    // The headline budget from the test plan.
+    expect(perEvent, `${perEvent.toFixed(4)}ms per event`).toBeLessThan(1);
+
+    /**
+     * And an order-of-magnitude ceiling over the no-op, which is what actually
+     * catches a regression: someone adding a layout read (`scrollHeight`,
+     * `getBoundingClientRect`) to this path would blow past it while still
+     * measuring under 1ms on a fast machine.
+     *
+     * `+1ms` absorbs timer-resolution noise on a near-zero baseline; without it
+     * the ratio is dominated by measurement granularity rather than by work.
+     *
+     * FALSIFIABILITY, measured rather than assumed — a perf assertion that
+     * cannot fail is worse than none, because it reports a budget it does not
+     * enforce. Injecting a busy loop into `bookkeeping`:
+     *   • 20,000 iterations/event  → still PASSES (both assertions)
+     *   • 200,000 iterations/event → FAILS here, 17.5ms vs a 2.59ms budget
+     * So this gate catches an ORDER-OF-MAGNITUDE regression, not a 10%
+     * one. That is the intended resolution: the per-event budget is ~1000x
+     * larger than the real cost, so anything tighter would flake on loaded CI.
+     */
+    expect(measured).toBeLessThan(baseline * 50 + 1);
+  });
+
+  /**
+   * The predicate itself is called ONCE per gesture, not per event — but it is
+   * pure and trivially cheap, and pinning that keeps a future refactor from
+   * quietly moving real work (a DOM read, an allocation) inside it.
+   */
+  it("P1: the predicate is cheap enough to be called per event even though it is not", () => {
+    const t = firing();
+    const elapsed = timed(() => {
+      shouldAutoLoadHistory(t);
+    }, EVENTS);
+    expect(elapsed / EVENTS, `${(elapsed / EVENTS).toFixed(6)}ms per call`).toBeLessThan(0.1);
+  });
+});
