@@ -29,6 +29,7 @@
   "files": [
     "src/",
     "configSchema.json",
+    "!**/AGENTS.md",
     "!**/__tests__",
     "!**/*.test.ts",
     "!**/*.test.tsx"
