@@ -13,12 +13,12 @@
  * ones elsewhere. "Throws when neither location exists" is the whole point —
  * a resolver that quietly invents a path reintroduces the bug.
  */
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { EVIDENCE_FILENAME, resolveEvidencePath } from "../evidence-path.js";
+import { EVIDENCE_FILENAME, readEvidence, resolveEvidencePath } from "../evidence-path.js";
 
 const CHANGE = "verify-subagent-pull-under-load";
 
@@ -73,6 +73,70 @@ describe("archived change directory", () => {
     mkdirSync(join(root, "openspec", "changes", "archive"), { recursive: true });
     writeFileSync(join(root, "openspec", "changes", "archive", `2026-08-24-${CHANGE}`), "not a dir");
     expect(() => resolveEvidencePath(CHANGE, root)).toThrow();
+  });
+});
+
+describe("changeName must be a single path component", () => {
+  // `join(changesDir, "../..")` escapes to the repo root, which IS a directory,
+  // so without this guard a traversal name resolves to a real path and the
+  // measurement lands outside openspec/ entirely.
+  it.each(["..", "../..", "a/b", "a\\b", "/abs", ""])("rejects %o", (name) => {
+    changeDir(CHANGE); // a valid change exists, so only the name can be at fault
+    expect(() => resolveEvidencePath(name, root)).toThrow();
+  });
+
+  it("a traversal name cannot resolve to the repo root", () => {
+    changeDir(CHANGE);
+    let resolved: string | null = null;
+    try {
+      resolved = resolveEvidencePath("../..", root);
+    } catch {
+      /* expected */
+    }
+    expect(resolved).toBeNull();
+  });
+});
+
+describe("existing evidence is preserved, never silently replaced", () => {
+  function withEvidence(contents: string): string {
+    const dir = changeDir(CHANGE);
+    const file = join(dir, EVIDENCE_FILENAME);
+    writeFileSync(file, contents);
+    return file;
+  }
+
+  it("returns {} when the file does not exist yet (first write)", () => {
+    changeDir(CHANGE);
+    expect(readEvidence(resolveEvidencePath(CHANGE, root))).toEqual({});
+  });
+
+  it("reads back existing keys", () => {
+    const file = withEvidence('{"P1": 1}\n');
+    expect(readEvidence(file)).toEqual({ P1: 1 });
+  });
+
+  it("THROWS on malformed JSON instead of discarding the file", () => {
+    const file = withEvidence("{ truncated mid-writ");
+    expect(() => readEvidence(file)).toThrow(/parse|JSON/i);
+    // The evidence that could not be parsed must still be on disk.
+    expect(readFileSync(file, "utf8")).toBe("{ truncated mid-writ");
+  });
+
+  it.each(['["a"]', "42", '"text"', "null"])("THROWS on non-object JSON %s", (json) => {
+    const file = withEvidence(json);
+    expect(() => readEvidence(file)).toThrow(/object/i);
+  });
+
+  it("rethrows a read error that is not ENOENT", () => {
+    const file = withEvidence('{"P1": 1}');
+    chmodSync(file, 0o000);
+    try {
+      // Root ignores mode bits; skip rather than assert a false expectation.
+      if (process.getuid?.() === 0) return;
+      expect(() => readEvidence(file)).toThrow();
+    } finally {
+      chmodSync(file, 0o644);
+    }
   });
 });
 

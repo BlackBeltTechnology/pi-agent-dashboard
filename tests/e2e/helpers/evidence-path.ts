@@ -36,6 +36,26 @@ function archiveEntryMatcher(changeName: string): RegExp {
   return new RegExp(`^\\d{4}-\\d{2}-\\d{2}-${escaped}$`);
 }
 
+/**
+ * `changeName` must be ONE path component. Without this, `join(changesDir,
+ * "../..")` escapes to the repo root — a real directory — so a traversal name
+ * resolves successfully and the measurement lands outside `openspec/`.
+ */
+function assertSingleComponent(changeName: string): void {
+  const bad =
+    changeName.length === 0 ||
+    changeName === "." ||
+    changeName === ".." ||
+    changeName.includes("/") ||
+    changeName.includes("\\");
+  if (bad) {
+    throw new Error(
+      `Invalid change name ${JSON.stringify(changeName)}: expected a single directory name ` +
+        "under openspec/changes/, with no path separators.",
+    );
+  }
+}
+
 function isDirectory(path: string): boolean {
   try {
     return statSync(path).isDirectory();
@@ -49,6 +69,7 @@ function isDirectory(path: string): boolean {
  * Returns `null` when the change exists in neither place.
  */
 export function findChangeDir(changeName: string, repoRoot: string = REPO_ROOT): string | null {
+  assertSingleComponent(changeName);
   const changesDir = join(repoRoot, "openspec", "changes");
 
   const active = join(changesDir, changeName);
@@ -100,12 +121,43 @@ export function resolveEvidencePath(changeName: string, repoRoot: string = REPO_
  */
 export function recordMeasurement(changeName: string, key: string, value: unknown): void {
   const path = resolveEvidencePath(changeName);
-  let current: Record<string, unknown> = {};
-  try {
-    current = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
-  } catch {
-    /* first write */
-  }
+  const current = readEvidence(path);
   current[key] = value;
   writeFileSync(path, `${JSON.stringify(current, null, 2)}\n`);
+}
+
+/**
+ * Existing measurements at `path`, or `{}` when the file does not exist yet.
+ *
+ * Every OTHER failure throws. A blanket `catch` here would turn an unreadable
+ * or half-written evidence file into a silent truncation: the next write would
+ * persist only the newest key and drop every measurement recorded before it.
+ * Losing recorded evidence quietly is the failure mode this module exists to
+ * prevent, so a damaged file must stop the run instead of being overwritten.
+ */
+export function readEvidence(path: string): Record<string, unknown> {
+  let raw: string;
+  try {
+    raw = readFileSync(path, "utf8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return {};
+    throw err;
+  }
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (err) {
+    throw new Error(`Refusing to overwrite unparseable evidence at ${path}: ${(err as Error).message}`);
+  }
+
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error(`Refusing to overwrite evidence at ${path}: expected a JSON object, got ${describe(parsed)}.`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
+function describe(value: unknown): string {
+  if (value === null) return "null";
+  return Array.isArray(value) ? "an array" : typeof value;
 }
