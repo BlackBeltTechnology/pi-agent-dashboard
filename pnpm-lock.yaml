@@ -903,9 +903,6 @@ importers:
       '@blackbelt-technology/dashboard-plugin-runtime':
         specifier: ^0.7.0
         version: link:../dashboard-plugin-runtime
-      '@blackbelt-technology/pi-dashboard-server':
-        specifier: workspace:*
-        version: link:../server
       '@blackbelt-technology/pi-dashboard-shared':
         specifier: ^0.7.0
         version: link:../shared
