@@ -76,6 +76,18 @@ describe("computePace", () => {
     expect(p.state).toBe("unavailable");
   });
 
+  it("finite oversized usedPercent → finite projected/overage (no Infinity)", () => {
+    const windowSeconds = 5 * 3600;
+    const p = computePace(
+      { usedPercent: Number.MAX_VALUE, resetsAt: iso(windowSeconds * 0.5), windowSeconds },
+      NOW,
+    );
+    expect(p.state).toBe("ok");
+    expect(Number.isFinite(p.projected ?? Number.NaN)).toBe(true);
+    expect(Number.isFinite(p.overage ?? Number.NaN)).toBe(true);
+    expect(p.severity).toBe("red");
+  });
+
   it("NaN now → unavailable (never propagates NaN)", () => {
     const p = computePace({ usedPercent: 30, resetsAt: iso(3600), windowSeconds: 7200 }, Number.NaN);
     expect(p.state).toBe("unavailable");

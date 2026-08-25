@@ -81,7 +81,10 @@ export function computePace(win: QuotaWindowInput, now: number = Date.now()): Pa
   if (elapsedRaw <= PACE_EPS) return UNAVAILABLE;
 
   const elapsed = Math.min(elapsedRaw, 1);
-  const used = Number.isFinite(usedPercent) ? Math.max(0, usedPercent) : 0;
+  // Clamp to the defined 0..100 domain BEFORE dividing: a finite but oversized
+  // `usedPercent` (e.g. Number.MAX_VALUE) would otherwise yield an Infinite
+  // `projected` and an "over by Infinity%" tooltip.
+  const used = Number.isFinite(usedPercent) ? Math.min(100, Math.max(0, usedPercent)) : 0;
   const projected = used / elapsed;
   const overage = Math.max(0, projected - 100);
 

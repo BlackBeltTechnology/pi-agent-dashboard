@@ -45,6 +45,27 @@ function providerLabel(id: string): string {
   return PROVIDER_LABELS[id] ?? id;
 }
 
+/**
+ * Localized pace-state formatter. `paceLabel` (pure, in pace.ts) supplies the
+ * English fallback; the shell translator localizes it for zh-CN/hu.
+ */
+function usePaceText(): (pace: Pace) => string {
+  const t = useT();
+  return (pace: Pace) => {
+    const fallback = paceLabel(pace);
+    switch (pace.state) {
+      case "unavailable":
+        return t("unavailable", undefined, fallback);
+      case "stale":
+        return t("stale", undefined, fallback);
+      case "ok":
+        return pace.warn
+          ? t("overBy", { pct: Math.round(pace.overage ?? 0) }, fallback)
+          : t("onPace", undefined, fallback);
+    }
+  };
+}
+
 interface WindowPace {
   window: QuotaWindowDto;
   pace: Pace;
@@ -134,6 +155,7 @@ function MiniBar({ pace, usedPercent, height = 4 }: { pace: Pace; usedPercent: n
 /** content-inline-footer: per-provider mini-sliders. Renders nothing when empty. */
 export function QuotaWidget() {
   const providers = useQuota();
+  const paceText = usePaceText();
   const now = Date.now();
   const [dialogProvider, setDialogProvider] = useState<string | null>(null);
 
@@ -158,7 +180,7 @@ export function QuotaWidget() {
           key={provider}
           type="button"
           data-testid={`quota-slider-${provider}`}
-          title={paceLabel(worst.pace)}
+          title={paceText(worst.pace)}
           onClick={() => setDialogProvider(provider)}
           style={{
             display: "flex",
@@ -199,6 +221,7 @@ export function QuotaDialog({
   onClose: () => void;
 }) {
   const t = useT();
+  const paceText = usePaceText();
   const Dialog = useUiPrimitive(UI_PRIMITIVE_KEYS.dialog);
   const [selected, setSelected] = useState<string>(initial);
   const now = Date.now();
@@ -249,7 +272,7 @@ export function QuotaDialog({
                   </div>
                   <MiniBar pace={pace} usedPercent={w.usedPercent} height={6} />
                   <div style={{ fontSize: 10, color: "var(--text-muted, #71717a)", marginTop: 2 }}>
-                    {paceLabel(pace)}
+                    {paceText(pace)}
                   </div>
                 </div>
               );

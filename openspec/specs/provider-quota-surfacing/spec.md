@@ -1,7 +1,11 @@
 # provider-quota-surfacing Specification
 
 ## Purpose
-TBD - created by archiving change add-provider-quota-plugin. Update Purpose after archive.
+Surface per-account provider subscription quota (Codex, Copilot, OpenRouter,
+Synthetic, Z.ai, OpenCode Go, Kimi) in the dashboard's cross-session web UI, so
+operators can see how much subscription budget remains and whether usage is
+outrunning the reset window — server-fetched, disabled by default, ToS-gated,
+per-provider, Anthropic excluded, tokens never leaving the server.
 ## Requirements
 ### Requirement: Quota tracking SHALL be disabled by default, opt-in, per-provider, ToS-gated
 The plugin MAY be bundled but SHALL be **disabled by default** (plugin activation
@@ -72,7 +76,7 @@ tokens and API keys SHALL NOT appear in `/api/quota`, any broadcast, or any log 
 ### Requirement: Client SHALL render a per-provider quota widget and degrade gracefully
 The client entry SHALL render one quota mini-slider per enabled provider (matching
 the context slider's shape), driven by `/api/quota`, and SHALL claim
-`settings-section` for the ToS gate + per-provider toggles + window selection.
+`settings-section` for the ToS gate + master enable + per-provider toggles.
 
 #### Scenario: Widget renders from /api/quota
 - **WHEN** `/api/quota` returns a provider with windows
