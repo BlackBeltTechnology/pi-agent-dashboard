@@ -1,0 +1,188 @@
+/**
+ * Unit tests for the measurement-evidence path resolver (#549).
+ *
+ * These run under the `tests` vitest project, NOT Playwright: the resolver is
+ * pure filesystem logic and must be exercised by normal CI, because both specs
+ * that use it are opt-in (`PI_SYNTH_AGENT_TICKS=1`) and therefore never run
+ * there.
+ *
+ * The negative cases carry the weight. The bug this fixes was a SILENT
+ * misdirected write: `mkdirSync(..., { recursive: true })` conjured a phantom
+ * active-change directory once the change was archived, so a re-measure
+ * appeared to leave the archived numbers untouched while recording different
+ * ones elsewhere. "Throws when neither location exists" is the whole point —
+ * a resolver that quietly invents a path reintroduces the bug.
+ */
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import { EVIDENCE_FILENAME, readEvidence, recordMeasurement, resolveEvidencePath } from "../evidence-path.js";
+
+const CHANGE = "verify-subagent-pull-under-load";
+
+let root: string;
+
+beforeEach(() => {
+  root = mkdtempSync(join(tmpdir(), "evidence-path-"));
+});
+
+afterEach(() => {
+  rmSync(root, { recursive: true, force: true });
+});
+
+/** Create `openspec/changes/<rel>` under the fake repo root. */
+function changeDir(rel: string): string {
+  const dir = join(root, "openspec", "changes", rel);
+  mkdirSync(dir, { recursive: true });
+  return dir;
+}
+
+describe("active change directory", () => {
+  it("resolves into the active dir when it exists", () => {
+    const dir = changeDir(CHANGE);
+    expect(resolveEvidencePath(CHANGE, root)).toBe(join(dir, EVIDENCE_FILENAME));
+  });
+
+  it("prefers the active dir over an archived copy", () => {
+    const active = changeDir(CHANGE);
+    changeDir(`archive/2026-08-24-${CHANGE}`);
+    expect(resolveEvidencePath(CHANGE, root)).toBe(join(active, EVIDENCE_FILENAME));
+  });
+});
+
+describe("archived change directory", () => {
+  it("falls back to the archived dir once the change is archived", () => {
+    const archived = changeDir(`archive/2026-08-24-${CHANGE}`);
+    expect(resolveEvidencePath(CHANGE, root)).toBe(join(archived, EVIDENCE_FILENAME));
+  });
+
+  it("picks the NEWEST archive when a reopened change was archived twice", () => {
+    changeDir(`archive/2026-08-24-${CHANGE}`);
+    const newer = changeDir(`archive/2026-09-02-${CHANGE}`);
+    expect(resolveEvidencePath(CHANGE, root)).toBe(join(newer, EVIDENCE_FILENAME));
+  });
+
+  it("does not match a different change that merely shares a prefix", () => {
+    changeDir(`archive/2026-08-24-${CHANGE}-followup`);
+    expect(() => resolveEvidencePath(CHANGE, root)).toThrow();
+  });
+
+  it("ignores a plain file that happens to match the archive pattern", () => {
+    mkdirSync(join(root, "openspec", "changes", "archive"), { recursive: true });
+    writeFileSync(join(root, "openspec", "changes", "archive", `2026-08-24-${CHANGE}`), "not a dir");
+    expect(() => resolveEvidencePath(CHANGE, root)).toThrow();
+  });
+});
+
+describe("changeName must be a single path component", () => {
+  // `join(changesDir, "../..")` escapes to the repo root, which IS a directory,
+  // so without this guard a traversal name resolves to a real path and the
+  // measurement lands outside openspec/ entirely.
+  it.each(["..", "../..", "a/b", "a\\b", "/abs", ""])("rejects %o", (name) => {
+    changeDir(CHANGE); // a valid change exists, so only the name can be at fault
+    expect(() => resolveEvidencePath(name, root)).toThrow();
+  });
+
+  it("a traversal name cannot resolve to the repo root", () => {
+    changeDir(CHANGE);
+    let resolved: string | null = null;
+    try {
+      resolved = resolveEvidencePath("../..", root);
+    } catch {
+      /* expected */
+    }
+    expect(resolved).toBeNull();
+  });
+});
+
+describe("existing evidence is preserved, never silently replaced", () => {
+  function withEvidence(contents: string): string {
+    const dir = changeDir(CHANGE);
+    const file = join(dir, EVIDENCE_FILENAME);
+    writeFileSync(file, contents);
+    return file;
+  }
+
+  it("returns {} when the file does not exist yet (first write)", () => {
+    changeDir(CHANGE);
+    expect(readEvidence(resolveEvidencePath(CHANGE, root))).toEqual({});
+  });
+
+  it("reads back existing keys", () => {
+    const file = withEvidence('{"P1": 1}\n');
+    expect(readEvidence(file)).toEqual({ P1: 1 });
+  });
+
+  it("THROWS on malformed JSON instead of discarding the file", () => {
+    const file = withEvidence("{ truncated mid-writ");
+    expect(() => readEvidence(file)).toThrow(/parse|JSON/i);
+    // The evidence that could not be parsed must still be on disk.
+    expect(readFileSync(file, "utf8")).toBe("{ truncated mid-writ");
+  });
+
+  it.each(['["a"]', "42", '"text"', "null"])("THROWS on non-object JSON %s", (json) => {
+    const file = withEvidence(json);
+    expect(() => readEvidence(file)).toThrow(/object/i);
+  });
+
+  it("rethrows a read error that is not ENOENT", () => {
+    const file = withEvidence('{"P1": 1}');
+    chmodSync(file, 0o000);
+    try {
+      // Root ignores mode bits; skip rather than assert a false expectation.
+      if (process.getuid?.() === 0) return;
+      expect(() => readEvidence(file)).toThrow();
+    } finally {
+      chmodSync(file, 0o644);
+    }
+  });
+});
+
+describe("every key is persisted as an own property", () => {
+  // `current[key] = v` with key "__proto__" mutates the prototype instead of
+  // adding a property, so the measurement never reaches the JSON. Asserted
+  // through the round-trip to disk, not on the in-memory object.
+  it.each(["__proto__", "constructor", "prototype", "toString"])("records the reserved key %o", (key) => {
+    const dir = changeDir(CHANGE);
+    recordMeasurement(CHANGE, key, { n: 1 }, root);
+
+    const onDisk = JSON.parse(readFileSync(join(dir, EVIDENCE_FILENAME), "utf8"));
+    expect(Object.hasOwn(onDisk, key)).toBe(true);
+    expect(onDisk[key]).toEqual({ n: 1 });
+  });
+
+  it("a reserved key does not displace an ordinary measurement", () => {
+    const dir = changeDir(CHANGE);
+    recordMeasurement(CHANGE, "F1", 42, root);
+    recordMeasurement(CHANGE, "__proto__", { n: 1 }, root);
+
+    const onDisk = JSON.parse(readFileSync(join(dir, EVIDENCE_FILENAME), "utf8"));
+    expect(onDisk.F1).toBe(42);
+    expect(Object.hasOwn(onDisk, "__proto__")).toBe(true);
+  });
+});
+
+describe("neither location exists — fail loud, never create", () => {
+  it("throws instead of returning a path", () => {
+    mkdirSync(join(root, "openspec", "changes"), { recursive: true });
+    expect(() => resolveEvidencePath(CHANGE, root)).toThrow(/verify-subagent-pull-under-load/);
+  });
+
+  it("names both searched locations so the failure is actionable", () => {
+    mkdirSync(join(root, "openspec", "changes"), { recursive: true });
+    expect(() => resolveEvidencePath(CHANGE, root)).toThrow(/archive/);
+  });
+
+  it("throws when openspec/ is absent entirely", () => {
+    expect(() => resolveEvidencePath(CHANGE, root)).toThrow();
+  });
+
+  it("creates no directory as a side effect of failing", () => {
+    mkdirSync(join(root, "openspec", "changes"), { recursive: true });
+    expect(() => resolveEvidencePath(CHANGE, root)).toThrow();
+    // The phantom active-change directory in #549 is exactly what must NOT appear.
+    expect(existsSync(join(root, "openspec", "changes", CHANGE))).toBe(false);
+  });
+});

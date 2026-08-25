@@ -1,7 +1,6 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
 import type { Locator, Page } from "@playwright/test";
 import { expect, test } from "./fixtures.js";
+import { recordMeasurement } from "./helpers/evidence-path.js";
 import {
   collectSubagentWire,
   type SubagentFrameSample,
@@ -65,22 +64,15 @@ const END_ENTRIES = 30;
 /** Matches the fixture's entry text, so a DOM count needs no production hook. */
 const ENTRY_TEXT = /^faux-entry \d+$/;
 const CADENCE_BASE_MS = 2_000;
-const EVIDENCE_PATH = "openspec/changes/verify-subagent-pull-under-load/measurements.json";
+/** Resolved at write time — the change may be active or already archived. */
+const CHANGE_NAME = "verify-subagent-pull-under-load";
 
 /** True on the harness start that disables the bridge strip (the push arm). */
 const STRIP_OFF = process.env.PI_DASHBOARD_SUBAGENT_STRIP === "0";
 
 /** Append one recorded measurement so heap-evidence.md is transcribed, not invented. */
 function record(key: string, value: unknown): void {
-  mkdirSync(dirname(EVIDENCE_PATH), { recursive: true });
-  let current: Record<string, unknown> = {};
-  try {
-    current = JSON.parse(readFileSync(EVIDENCE_PATH, "utf8")) as Record<string, unknown>;
-  } catch {
-    /* first write */
-  }
-  current[key] = value;
-  writeFileSync(EVIDENCE_PATH, `${JSON.stringify(current, null, 2)}\n`);
+  recordMeasurement(CHANGE_NAME, key, value);
 }
 
 /** Start a watched run and return its session id + wire collector. */

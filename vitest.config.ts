@@ -52,6 +52,11 @@ export default defineConfig({
       "packages/blackhole-plugin",
       "packages/mcp-server-plugin",
       "scripts",
+      // Pure helpers under tests/e2e/helpers/. NOT the Playwright specs — the
+      // project's include glob is scoped to `e2e/helpers/__tests__/`. Added
+      // because the evidence-path resolver is used only by opt-in specs, so
+      // normal CI could never execute it. See issue #549.
+      "tests",
       // ship-it's pure decision helpers. Added by wire-local-review-gate: they
       // gate real ship decisions but were collected by no project before.
       ".pi/skills/ship-it",

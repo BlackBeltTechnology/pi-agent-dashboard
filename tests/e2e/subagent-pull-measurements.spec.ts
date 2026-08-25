@@ -1,7 +1,6 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
 import type { BrowserContext, Locator, Page } from "@playwright/test";
 import { expect, test } from "./fixtures.js";
+import { recordMeasurement } from "./helpers/evidence-path.js";
 import {
   collectSubagentWire,
   type SubagentWireCollector,
@@ -43,22 +42,15 @@ const WATCHED_BY_BUS: Record<number, string> = {
   250: "[[faux:subagent-watched-growth]] go",
   1000: "[[faux:subagent-watched-growth-bus1000]] go",
 };
-const EVIDENCE_PATH = "openspec/changes/verify-subagent-pull-under-load/measurements.json";
+/** Resolved at write time — the change may be active or already archived. */
+const CHANGE_NAME = "verify-subagent-pull-under-load";
 const STRIP_OFF = process.env.PI_DASHBOARD_SUBAGENT_STRIP === "0";
 /** Fixture runtime: 240 ticks @ 50 ms. */
 const RUNTIME_MS = 12_000;
 const WINDOW_MS = 6_000;
 
 function record(key: string, value: unknown): void {
-  mkdirSync(dirname(EVIDENCE_PATH), { recursive: true });
-  let current: Record<string, unknown> = {};
-  try {
-    current = JSON.parse(readFileSync(EVIDENCE_PATH, "utf8")) as Record<string, unknown>;
-  } catch {
-    /* first write */
-  }
-  current[key] = value;
-  writeFileSync(EVIDENCE_PATH, `${JSON.stringify(current, null, 2)}\n`);
+  recordMeasurement(CHANGE_NAME, key, value);
 }
 
 async function startWatchedRun(
