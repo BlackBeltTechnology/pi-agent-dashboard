@@ -1064,6 +1064,76 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "synthetic ticks scenario complete" },
   },
 
+  // Watched-growth substrate for the PULL path (change:
+  // verify-subagent-pull-under-load, V1). Same synthetic Agent-tick producer,
+  // with the two additive sentinels switched on:
+  //   [[ticks:240@50]]      — 240 ticks @ 50 ms ≈ 12 s of run
+  //   [[entries:5..30@60]]  — timeline grows 5 → 30 over the first 60 ticks
+  //                           (≈ 3 s), then PLATEAUS for the remaining ≈ 9 s
+  //   [[bus:250]]           — `subagents:*` frames coalesced at the real
+  //                           producer's 250 ms, so the strip → frame-buffer →
+  //                           RESYNC path actually runs
+  // The ≈ 9 s plateau is load-bearing, not padding: it is ≥ 3 cadence intervals
+  // (CADENCE_BASE_MS = 2000), so the rendered count can reach 30 via a cadence
+  // resync reply WHILE THE AGENT IS STILL RUNNING. Without it the count would
+  // only converge on the never-stripped terminal frame and F1 would be vacuous.
+  "subagent-watched-growth": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "watched growing subagent",
+            prompt: "[[ticks:240@50]][[entries:5..30@60]][[bus:250]] stream a watched growing timeline",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("watched growth scenario complete")]),
+    ],
+    expect: { text: "watched growth scenario complete" },
+  },
+
+  // Bus-cadence variants of `subagent-watched-growth`, for the P4 sensitivity
+  // table. The pull-vs-push byte verdict is a function of how fast the PUSH
+  // carrier runs, so a single cadence would report arithmetic on one fixture
+  // constant as if it were a property of the pipeline. 250 ms is the
+  // production-matched headline; these are the faster/slower flanks.
+  // See change: verify-subagent-pull-under-load (V5).
+  "subagent-watched-growth-bus100": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "watched growing subagent",
+            prompt: "[[ticks:240@50]][[entries:5..30@60]][[bus:100]] stream a watched growing timeline",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("watched growth scenario complete")]),
+    ],
+    expect: { text: "watched growth scenario complete" },
+  },
+
+  "subagent-watched-growth-bus1000": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "watched growing subagent",
+            prompt: "[[ticks:240@50]][[entries:5..30@60]][[bus:1000]] stream a watched growing timeline",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("watched growth scenario complete")]),
+    ],
+    expect: { text: "watched growth scenario complete" },
+  },
+
   // ── OpenSpec auto-attach locality gate (change:
   // scope-openspec-auto-attach-to-session-cwd) ───────────────────────────────
   // The verbatim incident shape: an openspec CLI invocation prefixed with a

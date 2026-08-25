@@ -1,0 +1,3 @@
+# supervise-daemon.sh — index
+
+`supervise_daemon <pidfile> [label]` — keeps PID 1 alive for a DETACHED dashboard daemon, sourced by BOTH entrypoints so the deployment and the harness cannot drift (the loop living only in `test-entrypoint.sh` is what let the container ship unsupervised). Waits for the pidfile (a cold jiti start outruns the launcher's 30s readiness window), re-reads it every 5s so `POST /api/restart` survives under a new pid, tolerates `RESTART_GRACE_TICKS` (24 x5s) of downtime, and forwards TERM/INT to the CURRENT owner. Deliberately not a foreground server: PID 1 being the server makes `/api/restart` kill the container. See change: add-pi-gateway-transport-identity.
