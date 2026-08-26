@@ -89,3 +89,50 @@ describe("unit-bearing i18n keys (D5 / C1)", () => {
     });
   }
 });
+
+/**
+ * #F17 — the `replayWindowMode` control is localized in every shipped language.
+ *
+ * The control is a SELECT, so three distinct string classes must all resolve:
+ * the field label, both option labels, and the hint (which carries the
+ * tradeoff AND the server-global scope). A key missing from a catalog must
+ * fall back to the English default text, never to a raw key id — a raw
+ * `settings.replayWindowMode` rendered in the panel is the failure this pins.
+ * See change: add-tail-only-replay-window (D10).
+ */
+describe("F17: the replay window mode control is localized in en, zh-CN and hu", () => {
+  const MODE_KEYS = [
+    "settings.replayWindowMode",
+    "settings.replayWindowMode.headTail",
+    "settings.replayWindowMode.tailOnly",
+    "settings.hint.replayWindowMode",
+    "settings.hint.replayWindowModeInert",
+  ];
+
+  it.each([["zh-CN"], ["hu"]])("%s defines every mode key", (locale) => {
+    const source = SOURCES.find(([name]) => name === locale)![1];
+    for (const key of MODE_KEYS) {
+      expect(source, `${locale} is missing ${key}`).toContain(`"${key}"`);
+      // Present AND non-empty: `"key": ""` would resolve to a blank control.
+      // Escape EVERY regex metacharacter, not just `.`: a dot-only escape
+      // leaves a backslash in a key to be read as an escape sequence rather
+      // than a literal, which silently changes what this asserts (CodeQL
+      // "incomplete string escaping"). Mirrors the escape used elsewhere in
+      // the repo, e.g. `archiveEntryMatcher` in tests/e2e/helpers.
+      const literal = key.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+      expect(source).toMatch(new RegExp(`"${literal}":\\s*"[^"]+"`));
+    }
+  });
+
+  it("en is the fallback text carried at every call site, never a raw key id", () => {
+    const panel = readFileSync(resolve(here, "../SettingsPanel.tsx"), "utf8");
+    for (const key of MODE_KEYS) {
+      // Every `t()` call for these keys supplies an English default, which is
+      // what a catalog miss resolves to.
+      expect(panel).toContain(`"${key}"`);
+    }
+    // The hint must state the SCOPE — it is a deployment setting, not a
+    // per-user preference, and implying otherwise is the documented risk.
+    expect(panel).toMatch(/Affects every client of this server/);
+  });
+});

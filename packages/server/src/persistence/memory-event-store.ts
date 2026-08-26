@@ -27,6 +27,17 @@ export interface EventStore {
    * See change: lazy-load-session-history (D8).
    */
   getEventsRange(sessionId: string, minSeq: number, maxSeq: number): StoredEvent[];
+  /**
+   * COUNT of stored events in `[minSeq, maxSeq]`, without materializing them.
+   *
+   * `handleHistoryBackfill` recomputes `remainingGapCount` after every backfill
+   * step and reads only `.length`, so `getEventsRange(...).length` allocates a
+   * slice of the whole remaining gap purely to discard it. `tail-only` makes
+   * that the worst case on EVERY step: `headMaxSeq` stays `0` by design, so the
+   * counted range never shrinks from below.
+   * See change: add-tail-only-replay-window.
+   */
+  countEventsRange(sessionId: string, minSeq: number, maxSeq: number): number;
   /** Get a single event by sessionId and seq */
   getEvent(sessionId: string, seq: number): DashboardEvent | undefined;
   /**
@@ -1284,6 +1295,31 @@ export function createMemoryEventStore(
       const end = lowerBound(maxSeq + 1);
       if (end <= start) return [];
       return events.slice(start, end);
+    },
+
+    countEventsRange(sessionId: string, minSeq: number, maxSeq: number): number {
+      // Same two binary searches as `getEventsRange`, minus the slice. Shares
+      // the D8 probe so the sub-linearity bound is asserted on this path too.
+      lastRangeEntriesExamined = 0;
+      const buf = buffers.get(sessionId);
+      if (!buf) return 0;
+      buf.lastAccess = Date.now();
+      if (maxSeq < minSeq) return 0;
+      const events = buf.events;
+      const lowerBound = (target: number): number => {
+        let lo = 0;
+        let hi = events.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >>> 1;
+          lastRangeEntriesExamined++;
+          if (events[mid].seq < target) lo = mid + 1;
+          else hi = mid;
+        }
+        return lo;
+      };
+      const start = lowerBound(minSeq > 0 ? minSeq : 1);
+      const end = lowerBound(maxSeq + 1);
+      return end <= start ? 0 : end - start;
     },
 
     getEvent(sessionId: string, seq: number): DashboardEvent | undefined {

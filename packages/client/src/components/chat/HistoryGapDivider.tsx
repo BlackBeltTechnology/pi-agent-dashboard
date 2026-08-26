@@ -1,15 +1,25 @@
 /**
- * Interstitial divider disclosing the elided middle of a WINDOWED replay.
+ * Divider disclosing the elided region of a WINDOWED replay. It has TWO shapes,
+ * and which one applies is decided by the announced `windowShape`:
  *
- * NOT the Slack/WhatsApp "load older" pattern: those anchor at the TOP because
- * their missing region is unbounded upward. This gap is bounded on BOTH sides
- * — head above, tail below — so the affordance sits between two loaded regions,
- * mid-scroll. It is an interstitial, not a header.
+ *  - `head-tail` — an INTERSTITIAL, not a header. The gap is bounded on both
+ *    sides (head above, tail below), so the affordance sits between two loaded
+ *    regions, mid-scroll. Click-to-load only: retrieving a specific earlier
+ *    exchange is a FIND task, and NN/g's guidance is pagination-with-visible-
+ *    position for find tasks, infinite scroll only for exploratory feeds. On
+ *    exhaustion the row is spliced out — the head above already explains where
+ *    the transcript begins.
  *
- * Click-to-load, not scroll-triggered auto-fetch: retrieving a specific earlier
- * exchange in your own transcript is a FIND task, and NN/g's guidance is
- * pagination-with-visible-position for find tasks, infinite scroll only for
- * exploratory feeds. It also removes the auto-fetch loop risk entirely.
+ *  - `tail-only` — a HEADER, and the Slack/WhatsApp "load older" pattern after
+ *    all, because in this mode the missing region genuinely IS unbounded
+ *    upward. It is the transcript's first row, it auto-loads on scroll
+ *    proximity, and on exhaustion it must RESOLVE TO A TERMINUS rather than
+ *    disappear: with no head above it, removing the row would leave a
+ *    transcript that silently starts mid-conversation.
+ *
+ * The original docblock asserted the first shape as though it were the only
+ * one ("It is an interstitial, not a header"), which is exactly inverted here.
+ * See change: add-tail-only-replay-window (D6, D2a).
  *
  * Weight is deliberately secondary — the composer's send button is this view's
  * one focal action, so the pill reuses the shipped floating-pill treatment
@@ -17,7 +27,7 @@
  *
  * See change: lazy-load-session-history (task 7.1, mockups/ui-plan.md § A).
  */
-import type { HistoryGapState } from "../../lib/chat/history-gap.js";
+import { type HistoryGapState, historyGapTerminus } from "../../lib/chat/history-gap.js";
 import { t } from "../../lib/i18n/i18n.js";
 
 interface Props {
@@ -52,6 +62,32 @@ const PILL =
   "text-xs cursor-pointer hover:bg-[var(--bg-hover)] disabled:cursor-default disabled:opacity-85 " +
   "focus-visible:outline-2 focus-visible:outline-[var(--focus-ring)] focus-visible:outline-offset-2";
 
+/**
+ * The head-free walk reached the store floor. A SUCCESS state, not
+ * `unservable`: nothing failed and nothing is recoverable-but-missing. It
+ * REPLACES the divider's content rather than removing the row, because in a
+ * head-free window nothing else tells the reader where the transcript begins.
+ *
+ * `oldestGapSeq === 1` is the session's genuine beginning. Above 1, earlier
+ * events are simply not retained — and the wording names NEITHER retention
+ * NOR compaction, because the floor answers "is anything below", never "why is
+ * it gone".
+ * See change: add-tail-only-replay-window (D6).
+ */
+function TerminusRow({ terminus }: { terminus: "session-start" | "not-retained" }) {
+  return (
+    <span
+      role="status"
+      className="text-xs text-[var(--text-secondary)] whitespace-nowrap"
+      data-testid={terminus === "session-start" ? "history-gap-session-start" : "history-gap-not-retained"}
+    >
+      {terminus === "session-start"
+        ? t("chat.historyGap.sessionStart", undefined, "Beginning of the session")
+        : t("chat.historyGap.notRetained", undefined, "Earlier messages are no longer retained")}
+    </span>
+  );
+}
+
 export function HistoryGapDivider({ gap, onLoadEarlier }: Props) {
   /**
    * `--text-muted` is BANNED on this surface (2.77:1 dark / 2.32:1 light — both
@@ -60,7 +96,17 @@ export function HistoryGapDivider({ gap, onLoadEarlier }: Props) {
    * non-text overlay boundary). Every text token here is `--text-secondary`
    * (9.07:1 dark / 9.74:1 light) or `--text-primary`.
    */
-  const body = (() => {
+  const terminus = historyGapTerminus(gap);
+  /**
+   * The TERMINUS is selected OUTSIDE the state IIFE below, not as another
+   * branch inside it. Adding a fifth branch there tripped Biome's cognitive-
+   * complexity rule, and the terminus is genuinely a different kind of state:
+   * the walk is over, so none of the four in-progress states can apply.
+   */
+  const body = terminus ? (
+    <TerminusRow terminus={terminus} />
+  ) : (
+    (() => {
     /**
      * A5 — the gap exists but the store cannot serve it. Deliberately NOT an
      * error: nothing failed. No retry is offered because there is nothing to
@@ -125,7 +171,8 @@ export function HistoryGapDivider({ gap, onLoadEarlier }: Props) {
         </button>
       </>
     );
-  })();
+    })()
+  );
 
   return (
     <div
@@ -135,6 +182,20 @@ export function HistoryGapDivider({ gap, onLoadEarlier }: Props) {
       <div className={RULE} />
       <div className="flex items-center gap-2.5 shrink-0 flex-wrap justify-center w-full sm:w-auto">{body}</div>
       <div className={RULE} />
+      {/*
+        The auto-load ANNOUNCEMENT deliberately does NOT live here.
+
+        This component is a virtualized row. After an automatic load splices
+        ~500 rows above the reading position, the divider sits far outside the
+        overscan band and the virtualizer unmounts it — so a live region hosted
+        here would not be in the DOM at the moment its text changed, and an
+        assistive technology would announce nothing. Observed directly: the
+        region resolved before the splice and was gone after it.
+
+        The region is owned by `ChatView` instead, outside the virtualized
+        list, where it is permanently mounted.
+        See change: add-tail-only-replay-window (test-plan F16).
+      */}
     </div>
   );
 }

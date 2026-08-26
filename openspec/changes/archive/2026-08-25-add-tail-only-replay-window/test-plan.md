@@ -34,7 +34,7 @@ L3 rows run against the docker harness on the port `docker/test-up.sh` derives i
 | id | requirement | technique | level | disposition | workload | metric + threshold | window |
 |----|-------------|-----------|-------|-------------|----------|--------------------|--------|
 | P1 | head-free gap loads on scroll proximity | micro-benchmark | L1 | automated | 5s of synthesised scroll events at 60Hz (≈300 events) driving the bookkeeping path **plus every settle-expiry evaluation and its dispatch through the `handleLoadEarlier` guards** — not the jsdom-degenerate `scrollTop === 0` path, which is vacuous | added time per event **< 1ms p95** | 5s continuous scroll |
-| P2 | head-free gap loads on scroll proximity | tail-latency vs baseline | L3 | automated | 20k-event session, continuous scroll-up, `tail-only` vs `head-tail` | no additional dropped frames vs the `head-tail` baseline | 5s scroll |
+| P2 | head-free gap loads on scroll proximity | tail-latency vs baseline | L3 | automated (advisory, `PW_PERF=1`) | ~1.8k-event session (3 `long-transcript`s), parked at the bottom then scrolled up continuously, `tail-only` vs `head-tail` — ONE session measured twice with `replayWindowMode` flipped underneath it, so the arms differ only in replay shape | no additional dropped frames vs the `head-tail` baseline, compared as a DISTANCE-NORMALISED rate (`tail-only` travels ~5x further in the same window while loading, so raw counts are not comparable) | 5s scroll |
 
 ### Frontend-quirk
 
@@ -93,6 +93,8 @@ L3 rows run against the docker harness on the port `docker/test-up.sh` derives i
 - Scenarios by class: edge 14 · perf 2 · frontend 23 · error 8 · manual 3
 - Scenarios by level: L1 26 · L2 0 · L3 18 · — 3
 - Scenarios by disposition: automated 47 · manual-only 3
+
+**P2 amendment (task 7.1).** The row originally specified a 20k-event session. One `long-transcript` is ~604 events and `tests/e2e/` has no session-file seeding path, so 20k would mean ~33 sequential prompt rounds — tens of minutes of build per run, and fragile. It is built at ~1.8k events, which still yields a gap several times `BACKFILL_MAX_SPAN` (500) and therefore a real multi-step walk. It is also ADVISORY (`PW_PERF=1`, skipped by default), following `chat-render-perf.spec.ts`: absolute frame budgets in a shared container are machine- and load-dependent and flake as CI gates. Implemented in `tests/e2e/tail-only-scroll-perf.spec.ts`.
 
 ## New infra needed
 

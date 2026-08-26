@@ -182,7 +182,12 @@ export interface EventReplayMessage {
 export interface SessionHistoryWindowMessage {
   type: "history_window";
   sessionId: string;
-  /** Last seq of the head segment; always >= 1 when a window applies. */
+  /**
+   * Last seq of the head segment. `>= 1` in a `head-tail` window; exactly `0`
+   * in a `tail-only` one, where `0` means "nothing above the gap" rather than
+   * "no window". The invariant widened from `>= 1` to `>= 0`.
+   * See change: add-tail-only-replay-window (D2).
+   */
   headMaxSeq: number;
   /** First seq of the tail segment. */
   tailMinSeq: number;
@@ -193,6 +198,18 @@ export interface SessionHistoryWindowMessage {
   gapCount: number;
   /** Lowest gap seq the store can still serve. */
   oldestGapSeq: number;
+  /**
+   * SHAPE of this window, ANNOUNCED rather than inferred from a
+   * `headMaxSeq === 0` sentinel: the client needs the answer in three places
+   * (auto-load on scroll at all, floor the request at `oldestGapSeq`, and
+   * whether exhaustion removes the divider or resolves to a terminus) and it
+   * never sees `memoryLimits`.
+   *
+   * OPTIONAL and additive: an older client that ignores it falls back to
+   * `head-tail`, which is what a server that never sets the mode always sends.
+   * See change: add-tail-only-replay-window (D2a).
+   */
+  windowShape?: "head-tail" | "tail-only";
 }
 
 /**

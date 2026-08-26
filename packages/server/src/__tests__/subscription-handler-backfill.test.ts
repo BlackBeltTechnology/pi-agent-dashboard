@@ -531,8 +531,18 @@ describe("history_backfill — symmetric gap (E13–E23, X4)", () => {
     async function holey() {
       const p = await primed();
       const real = p.ctx.eventStore.getEventsRange.bind(p.ctx.eventStore);
-      p.ctx.eventStore.getEventsRange = ((sid: string, from: number, to: number) =>
-        real(sid, from, to).filter((e) => e.seq < HOLE_LO || e.seq > HOLE_HI)) as any;
+      const filtered = (sid: string, from: number, to: number) =>
+        real(sid, from, to).filter((e) => e.seq < HOLE_LO || e.seq > HOLE_HI);
+      p.ctx.eventStore.getEventsRange = filtered as any;
+      /**
+       * `countEventsRange` must be holed TOO, or this scenario silently stops
+       * testing anything: `remainingGapCount` is computed from the COUNT path,
+       * so leaving it unpatched would report the untrimmed total and the
+       * assertion below would compare the seq distance against itself.
+       * See change: add-tail-only-replay-window.
+       */
+      p.ctx.eventStore.countEventsRange = ((sid: string, from: number, to: number) =>
+        filtered(sid, from, to).length) as any;
       return p;
     }
 
@@ -575,3 +585,109 @@ describe("history_backfill — symmetric gap (E13–E23, X4)", () => {
     expect(remaining).toBe(0);
   });
 });
+
+/**
+ * Edge crediting never credits an ABSENT head — D4.
+ *
+ * `headAdjacent = from === headMaxSeq + 1` is TRUE for the final slice of an
+ * untrimmed `tail-only` gap (`from === 1`, `headMaxSeq === 0`), so without an
+ * explicit `hasHead` the head credit fires on a head that does not exist and
+ * sets `headMaxSeq = to`, poisoning every later `remainingGapCount`.
+ * See change: add-tail-only-replay-window (D4), test-plan E10/E11.
+ */
+describe("history_backfill — edge crediting in a head-free window (E10, E11)", () => {
+  const settleFor = () => new Promise((r) => setTimeout(r, 50));
+
+  async function primedTailOnly(n = 5000) {
+    const ctx = createMockContext({ maxReplayEvents: 500, replayWindowMode: "tail-only" });
+    for (let i = 1; i <= n; i++) ctx.eventStore.insertEvent("s1", makeEvent());
+    const subs = new Set<string>();
+    handleSubscribe({ type: "subscribe", sessionId: "s1", lastSeq: 0 }, subs, ctx);
+    await settleFor();
+    const win = windowsOf(ctx)[0];
+    (ctx.sendTo as any).mockClear();
+    return { ctx, subs, win };
+  }
+
+  /**
+   * #E10 — a request whose `from` is `1` LOOKS head-adjacent against
+   * `headMaxSeq: 0`. The tail must retreat, the head must stay pinned at `0`,
+   * and `remainingGapCount` must still agree with what the store holds.
+   */
+  it("E10: from=1 against headMaxSeq=0 credits the TAIL and never advances the head", async () => {
+    const { ctx, subs, win } = await primedTailOnly();
+    expect(win.headMaxSeq).toBe(0);
+    expect(win.windowShape).toBe("tail-only");
+    const gapBefore = peekGapState(ctx.ws, "s1")!;
+    expect(gapBefore.hasHead).toBe(false);
+
+    // Tail-anchored slice reaching all the way down to seq 1.
+    const to = win.tailMinSeq - 1;
+    const from = Math.max(1, to - BACKFILL_MAX_SPAN + 1);
+    await backfillOn(ctx, subs, from, to);
+
+    const gap = peekGapState(ctx.ws, "s1")!;
+    expect(gap.headMaxSeq).toBe(0);
+    expect(gap.tailMinSeq).toBeLessThan(win.tailMinSeq);
+
+    const [res] = resultsOf(ctx);
+    expect(res.error).toBeUndefined();
+    // `remainingGapCount` must match a real store read, not a poisoned bound.
+    const stillHeld = ctx.eventStore
+      .getEvents("s1", 1)
+      .filter((e) => e.seq > gap.headMaxSeq && e.seq < gap.tailMinSeq).length;
+    expect(res.remainingGapCount).toBe(stillHeld);
+  });
+
+  /**
+   * #E10 (walk to the floor) — the whole point of gating the head credit: an
+   * untrimmed tail-only gap walks down to seq 1 with `headMaxSeq` pinned at 0
+   * the entire way, and `remainingGapCount` reaches 0 rather than being
+   * corrupted by a phantom head credit.
+   */
+  it("E10: the walk terminates at seq 1 with the head pinned at 0 throughout", async () => {
+    const { ctx, subs, win } = await primedTailOnly();
+    let tail = win.tailMinSeq;
+    let remaining = win.gapCount;
+    for (let i = 0; i < 20 && remaining > 0; i++) {
+      const to = tail - 1;
+      const from = Math.max(1, to - BACKFILL_MAX_SPAN + 1);
+      (ctx.sendTo as any).mockClear();
+      await backfillOn(ctx, subs, from, to);
+      const [res] = resultsOf(ctx);
+      expect(res.error).toBeUndefined();
+      const gap = peekGapState(ctx.ws, "s1")!;
+      expect(gap.headMaxSeq).toBe(0);
+      expect(res.remainingGapCount).toBeLessThan(remaining);
+      remaining = res.remainingGapCount;
+      tail = gap.tailMinSeq;
+    }
+    expect(remaining).toBe(0);
+    expect(tail).toBe(1);
+  });
+
+  /**
+   * #E11 — the contrast row. In a `head-tail` window `hasHead` is true, so the
+   * both-adjacent rule from `fix-lazy-history-backfill-ux` (D1a) is unchanged:
+   * the tail is credited, the head is not.
+   */
+  it("E11: a range abutting BOTH edges in a head-tail window still credits only the tail", async () => {
+    const ctx = createMockContext({ maxReplayEvents: 500, replayWindowMode: "head-tail" });
+    for (let i = 1; i <= 800; i++) ctx.eventStore.insertEvent("s1", makeEvent());
+    const subs = new Set<string>();
+    handleSubscribe({ type: "subscribe", sessionId: "s1", lastSeq: 0 }, subs, ctx);
+    await settleFor();
+    const win = windowsOf(ctx)[0];
+    expect(win.headMaxSeq).toBeGreaterThanOrEqual(1);
+    expect(peekGapState(ctx.ws, "s1")!.hasHead).toBe(true);
+    (ctx.sendTo as any).mockClear();
+
+    await backfillOn(ctx, subs, win.headMaxSeq + 1, win.tailMinSeq - 1);
+    const gap = peekGapState(ctx.ws, "s1")!;
+    expect(gap.tailMinSeq).toBe(win.headMaxSeq + 1);
+    expect(gap.headMaxSeq).toBe(win.headMaxSeq);
+  });
+});
+
+const backfillOn = (ctx: BrowserHandlerContext, subs: Set<string>, fromSeq: number, toSeq: number) =>
+  handleHistoryBackfill({ type: "history_backfill", sessionId: "s1", fromSeq, toSeq }, subs, ctx);

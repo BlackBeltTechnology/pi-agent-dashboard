@@ -32,13 +32,38 @@ export interface MemoryLimitsConfig {
    * See change: lazy-load-session-history (D3, D13), fix-lazy-history-backfill-ux (D7).
    */
   maxReplayEvents: number;
+  /**
+   * SHAPE of the replay window when one applies (`maxReplayEvents > 0`); inert
+   * otherwise, like the rest of the window machinery.
+   *
+   * - `head-tail` (default): the shipped behaviour — a protected head segment
+   *   beginning at the lowest stored seq, plus a tail segment.
+   * - `tail-only`: the whole budget goes to the tail; `headEnd === 0` and the
+   *   elided region is unbounded above.
+   *
+   * SERVER-SCOPED, not a per-browser preference: the window is computed before
+   * any per-client preference is consulted, so flipping this changes the
+   * transcript shape for EVERY client of this server.
+   * See change: add-tail-only-replay-window (D1).
+   */
+  replayWindowMode: ReplayWindowMode;
 }
+
+/** See `MemoryLimitsConfig.replayWindowMode`. */
+export type ReplayWindowMode = "head-tail" | "tail-only";
 
 /**
  * Smallest representable replay window. A positive `maxReplayEvents` below this
- * clamps UP to it, so `HEAD_MIN` (20) always fits inside the budget and a
- * head-free window is unreachable by configuration. `0` is never clamped — it
- * means "unlimited", not "tiny". See change: lazy-load-session-history (D3).
+ * clamps UP to it. `0` is never clamped — it means "unlimited", not "tiny".
+ *
+ * Rationale, RE-JUSTIFIED: the original one — "so `HEAD_MIN` (20) always fits
+ * and a head-free window is unreachable by configuration" — is false since
+ * `replayWindowMode: "tail-only"` reaches a head-free window deliberately. The
+ * clamp survives on a REPLACEMENT rationale that is mode-independent: a
+ * sub-100 tail is a degenerate transcript with or without a head, and a mode
+ * switch silently doubling a user's configured `50` would be a worse surprise
+ * than a documented floor.
+ * See change: lazy-load-session-history (D3), add-tail-only-replay-window (D1).
  */
 export const MIN_REPLAY_WINDOW = 100;
 
@@ -58,4 +83,7 @@ export const DEFAULT_MEMORY_LIMITS: MemoryLimitsConfig = {
    * See change: lazy-load-session-history (D13), fix-lazy-history-backfill-ux (D7).
    */
   maxReplayEvents: 2000,
+  // The shipped shape stays the default; `tail-only` is opt-in and is also the
+  // rollback lever (unset the field). See change: add-tail-only-replay-window.
+  replayWindowMode: "head-tail",
 };

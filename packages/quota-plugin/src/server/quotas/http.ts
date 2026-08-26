@@ -41,7 +41,7 @@ export function scrub(text: string): string {
 }
 
 /** Why a request did not produce JSON. */
-export type HttpFailureKind = "http" | "timeout" | "network";
+type HttpFailureKind = "http" | "timeout" | "network";
 
 export type JsonResult =
   | { ok: true; data: unknown }
