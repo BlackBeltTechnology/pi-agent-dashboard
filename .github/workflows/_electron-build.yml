@@ -559,7 +559,19 @@ jobs:
               fi
               echo "All shared-object dependencies resolve on glibc 2.35."
               # Boot proof: reach a healthy /api/health under xvfb.
-              export HOME=/tmp/pi-home
+              #
+              # HOME must NOT live under /tmp. guardTempHomePort() in
+              # packages/server/src/cli.ts refuses to bind the production port
+              # 8000 whenever HOME is under os.tmpdir(), remapping to an
+              # ephemeral port — deliberately, and even against an explicit
+              # --port 8000 (see change: guard-temp-home-production-port; a
+              # temp-HOME instance shadowing a live dashboard was a real
+              # incident). Electron spawns the bundled server with --port 8000,
+              # so a HOME of /tmp/pi-home made this probe assert a port the
+              # guard guarantees is never used: it bound 127.0.0.1:40901 and
+              # the curl loop below could never succeed. A real user HOME is
+              # not under /tmp either, so this is also the faithful setup.
+              export HOME=/root/pi-home
               mkdir -p "$HOME/.pi/dashboard"
               touch "$HOME/.pi/dashboard/first-run-done"
               xvfb-run -a "$BIN" --no-sandbox > /tmp/electron.log 2>&1 &
@@ -592,6 +604,11 @@ jobs:
               echo "--- verbose probe of :8000 ---"
               curl -sS -v --max-time 5 http://localhost:8000/api/health > /tmp/curl.txt 2>&1 || true
               cat /tmp/curl.txt || true
+              # The bundled server is a CHILD process and logs to its own file,
+              # NOT to the Electron stdout captured above — which is why the
+              # port-guard warning was invisible on the first failed run.
+              echo "--- server.log (the bundled server writes here, not stdout) ---"
+              cat "$HOME/.pi/dashboard/server.log" || echo "(no server.log)"
               echo "--- electron.log in full, minus dbus/GPU noise ---"
               TOTAL=$(wc -l < /tmp/electron.log || echo 0)
               grep -vaE "dbus|object_proxy|gpu_|Vulkan|GLX|libva|EGL|angle|viz\." \
