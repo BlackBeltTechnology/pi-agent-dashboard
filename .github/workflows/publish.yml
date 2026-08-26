@@ -451,7 +451,21 @@ jobs:
           echo "Asserting ${#names[@]} package(s) resolve at ${VERSION}"
           missing=()
           for name in "${names[@]}"; do
-            actual=$(npm view "${name}@${VERSION}" version 2>/dev/null || true)
+            # The registry is eventually consistent, and `npm view` will serve a
+            # CACHED packument that predates a version published seconds ago.
+            # v0.8.0's first run failed here naming a package that was in fact
+            # published — the raw registry API showed the version while `npm
+            # view` still 404'd. A single unretried lookup therefore turns a
+            # healthy release into a red gate and skips electron + the GitHub
+            # Release. Revalidate with --prefer-online and back off before
+            # declaring anything missing. Costs nothing when the version is
+            # already visible: the loop breaks on the first attempt.
+            actual=""
+            for attempt in 1 2 3 4 5; do
+              actual=$(npm view --prefer-online "${name}@${VERSION}" version 2>/dev/null || true)
+              [ "$actual" = "$VERSION" ] && break
+              [ "$attempt" -lt 5 ] && sleep $((attempt * 15))
+            done
             if [ "$actual" != "$VERSION" ]; then
               echo "::error::${name} does not resolve at ${VERSION} on the registry (npm view returned '${actual:-<nothing>}')"
               missing+=("$name")
