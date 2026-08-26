@@ -87,7 +87,14 @@ jobs:
   ci-checks:
     needs: [resolve]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Budget must cover install + lint + the FULL suite + build. `ci.yml` runs
+    # the same work with no timeout at all (GitHub default 360) and takes ~27
+    # minutes at 16.7k tests. This job was capped at 15, so once the suite grew
+    # past that the release gate could not pass: v0.8.0 was killed mid-`pnpm
+    # test` at 15m15s and reported as `cancelled` (GitHub marks a timed-out job
+    # cancelled, not failed — it does NOT look like a test failure). Keep this
+    # comfortably above ci.yml's real duration; it still bounds a genuine hang.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
