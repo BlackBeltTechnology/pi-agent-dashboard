@@ -532,7 +532,13 @@ jobs:
               apt-get install -y -qq --no-install-recommends \
                 libgtk-3-0 libnss3 libasound2 libgbm1 libxss1 libxtst6 \
                 libsecret-1-0 xvfb ca-certificates curl >/dev/null
-              ldd --version | head -1
+              # NOT `ldd --version | head -1`: under `set -o pipefail`, head
+              # exits after line 1, ldd takes SIGPIPE on its next write, and
+              # the pipeline returns 141 — aborting the step right here, before
+              # a single assertion below ever runs. Observed deterministically
+              # on ubuntu:22.04 (GLIBC 2.35-0ubuntu3.14). Redirect, then read.
+              ldd --version > /tmp/ldd-version.txt 2>&1
+              head -1 /tmp/ldd-version.txt
               cd /tmp
               cp "/art/$APPIMAGE_NAME" ./app.AppImage
               chmod +x ./app.AppImage
