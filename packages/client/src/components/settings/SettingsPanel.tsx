@@ -107,6 +107,8 @@ interface MemoryLimitsConfig {
   maxWsBufferBytes: number;
   /** See change: lazy-load-session-history. */
   maxReplayEvents: number;
+  /** See change: add-tail-only-replay-window (D10). */
+  replayWindowMode: "head-tail" | "tail-only";
 }
 
 /**
@@ -119,6 +121,7 @@ const MEMORY_LIMITS_SEED: MemoryLimitsConfig = {
   maxStringFieldSize: 4000,
   maxWsBufferBytes: 4194304,
   maxReplayEvents: DEFAULT_MEMORY_LIMITS.maxReplayEvents,
+  replayWindowMode: DEFAULT_MEMORY_LIMITS.replayWindowMode,
 };
 
 interface NetworkInterfaceInfo {
@@ -305,7 +308,11 @@ function computeConfigPartial(config: Config, original: Config): Record<string, 
     const keys = Object.keys(config.memoryLimits ?? {}) as (keyof MemoryLimitsConfig)[];
     for (const key of keys) {
       if (config.memoryLimits[key] !== original.memoryLimits?.[key]) {
-        changed[key] = config.memoryLimits[key];
+        // `MemoryLimitsConfig` is no longer all-numeric (`replayWindowMode` is a
+        // string union), so TS cannot correlate the indexed read with the
+        // indexed write across the key union. The runtime shape is exact.
+        // See change: add-tail-only-replay-window (D10).
+        (changed as Record<string, unknown>)[key] = config.memoryLimits[key];
       }
     }
     if (Object.keys(changed).length > 0) partial.memoryLimits = changed;
@@ -1440,6 +1447,43 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     onChange={(v) => update((c) => {
                       if (!c.memoryLimits) c.memoryLimits = { ...MEMORY_LIMITS_SEED };
                       c.memoryLimits.maxReplayEvents = v;
+                    })}
+                  />
+                  {/* The mode is INERT at `maxReplayEvents: 0` — no window
+                      forms, so there is no shape to choose. Disabled with an
+                      explanation rather than hidden: hiding it would make the
+                      dependency invisible.
+
+                      The hint carries BOTH the tradeoff (opening messages are
+                      omitted) and the SCOPE. Scope is not a detail:
+                      `memoryLimits` is server config consulted before any
+                      per-client preference, so flipping this changes the
+                      transcript shape for every client of this server.
+                      See change: add-tail-only-replay-window (D1, D10). */}
+                  <SelectField
+                    label={i18nT("settings.replayWindowMode", undefined, "Replay window shape")}
+                    hint={
+                      (config.memoryLimits?.maxReplayEvents ?? DEFAULT_MEMORY_LIMITS.maxReplayEvents) === 0
+                        ? i18nT(
+                            "settings.hint.replayWindowModeInert",
+                            undefined,
+                            "Has no effect until Max Replay Events is set to a positive value.",
+                          )
+                        : i18nT(
+                            "settings.hint.replayWindowMode",
+                            undefined,
+                            "Keep start and recent: the session's opening messages stay pinned above the gap. Recent only: the transcript opens on the latest messages and loads earlier ones as you scroll up, omitting the opening messages. Affects every client of this server.",
+                          )
+                    }
+                    disabled={(config.memoryLimits?.maxReplayEvents ?? DEFAULT_MEMORY_LIMITS.maxReplayEvents) === 0}
+                    value={config.memoryLimits?.replayWindowMode ?? DEFAULT_MEMORY_LIMITS.replayWindowMode}
+                    options={[
+                      { value: "head-tail", label: i18nT("settings.replayWindowMode.headTail", undefined, "Keep start and recent") },
+                      { value: "tail-only", label: i18nT("settings.replayWindowMode.tailOnly", undefined, "Recent only") },
+                    ]}
+                    onChange={(v) => update((c) => {
+                      if (!c.memoryLimits) c.memoryLimits = { ...MEMORY_LIMITS_SEED };
+                      c.memoryLimits.replayWindowMode = v as "head-tail" | "tail-only";
                     })}
                   />
                   {/* UNCONDITIONAL. A conditional warning comparing the two

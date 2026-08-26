@@ -37,6 +37,7 @@
     "!**/*.test.tsx"
   ],
   "peerDependencies": {
+    "fastify": "^5.0.0",
     "react": ">=18.0.0"
   },
   "dependencies": {

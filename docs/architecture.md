@@ -2251,22 +2251,30 @@ Measured (synthetic #399-shaped window, 140 messages × ~150 snapshot updates):
 
 See change: `compact-warm-replay-stream`.
 
-**Replay windowing + gap backfill** (change: `lazy-load-session-history`, `fix-lazy-history-backfill-ux`): full-stream replay can exceed the browser budget. `memoryLimits.maxReplayEvents` (default `2000`; explicit `0` = unlimited) caps it. Above `0`, `sendEventBatches` ships head + tail windows, then browser backfills the middle on demand.
+**Replay windowing + gap backfill** (changes: `lazy-load-session-history`, `fix-lazy-history-backfill-ux`, `add-tail-only-replay-window`): full-stream replay can exceed the browser budget. `memoryLimits.maxReplayEvents` (default `2000`; explicit `0` = unlimited) caps it. Above `0`, `sendEventBatches` ships head + tail windows, then browser backfills the middle on demand. Second shape via `memoryLimits.replayWindowMode` (see Memory Limits): `"tail-only"` ships NO head — replay opens at the tail, browser walks down to the store floor.
 
 #### Windowing (`packages/server/src/browser-handlers/subscription-handler.ts`)
-- `sendEventBatches(ws, sessionId, stored, sendTo, windowLimit?)`.
+- `sendEventBatches(ws, sessionId, stored, sendTo, windowLimit?, mode = "head-tail")`.
 - Window applied AFTER `compactEventsForReplay`, never before. Compaction ~20:1.
 - Returned high-water seq stays the PRE-compaction max of the full input array. Windowing never lowers it. `clearReplaying` catch-up depends on this.
 - Keyed on CONTENT not call site: `lastSeq === 0 || lastSeq > maxSeq` = full stream → window. Genuine delta (`lastSeq > 0`) never windowed, never emits `history_window`.
-- `computeReplayWindow(compacted, windowLimit)` returns `{headEnd, tailStart}` or `null`.
+- `computeReplayWindow(compacted, windowLimit, mode)` returns `{headEnd, tailStart}` or `null`.
+- Tail-only → `headEnd: 0`. `HEAD_RATIO` / `HEAD_MIN` / `HEAD_CAP` never consulted.
+- `headMaxSeq` special-cased to `0` when `headEnd === 0`: `full[headEnd - 1]` would index `full[-1]` and throw. `0` = "nothing above the gap", NOT "no window".
+- `MIN_REPLAY_WINDOW` clamp mode-independent: tail-only limit below 100 still clamps up to 100.
 - Short-circuit: `compacted.length <= windowLimit` → no window, `gapCount` 0.
 - `HEAD_RATIO` 0.1, `HEAD_MIN` 20, `HEAD_CAP` 200. `head = clamp(floor(limit*0.1), 20, 200)`, `tail = limit - head`.
 - Default geometry at 2000: head 200 (at `HEAD_CAP`, protected chat head maximal), tail 1800. `compacted.length <= windowLimit` short-circuit → sessions compacting under the limit take the pre-change path exactly.
 - Tail leading edge snaps FORWARD to next `message_start`/`turn_start`. Head trailing edge snaps BACKWARD to a `message_end`. Both bounded by `SNAP_LOOKUP` 200. Both SHRINK the window, so budget stays a hard cap.
-- Windowed `lastSeq === 0` path sends `session_state_reset` before replay.
+- `session_state_reset` emitted INSIDE `sendEventBatches`, keyed on `replayWindow !== null`, immediately before `history_window`. Ordering: reset → `history_window` → `event_replay`. Call-site guards removed (change: `add-tail-only-replay-window`).
+- Fixes latent cold-hydration bug: the fan-out had no guard and relied on the reducer's `firstSeq === 1` rule. Tail-only breaks it — tail replay opens at `tailMinSeq > 1`, so prior client state would get the tail APPENDED onto stale rows.
+- Old call-site guard keyed on UNCOMPACTED `events.length` while the window is computed on the COMPACTED array — could reset a stream that then fit. Gone.
+- Stale-`lastSeq` reset (`lastSeq > maxSeq`) KEPT, NOT window-gated. Windowed → frame from `sendEventBatches`, exactly once. Unwindowed stale case → NO frame; batch starts at seq 1, `firstSeq === 1` rule wipes transcript on arrival.
 
 #### Window protocol (`packages/shared/src/browser-protocol.ts`)
-- Server→browser `history_window { sessionId, headMaxSeq, tailMinSeq, gapCount, oldestGapSeq }`. Sent once per subscriber, before first `event_replay`, full-stream paths only.
+- Server→browser `history_window { sessionId, headMaxSeq, tailMinSeq, gapCount, oldestGapSeq, windowShape? }`. Sent once per subscriber, before first `event_replay`, full-stream paths only.
+- `windowShape` OPTIONAL additive field: `"head-tail"` | `"tail-only"`. Absent → `head-tail` (backward compatible).
+- `headMaxSeq` invariant widened `>= 1` → `>= 0`. Exactly `0` in tail-only = nothing above the gap. Clients READ `windowShape`, NEVER infer from `headMaxSeq === 0`.
 - `gapCount` = gap events the store HOLDS. Never the seq distance. Middle-trimmed store reports fewer.
 - Browser→server `history_backfill { sessionId, fromSeq, toSeq }` (both inclusive).
 - Server→browser `history_backfill_result { sessionId, events, servedFrom, servedTo, remainingGapCount, error? }`. `error` ∈ `not_subscribed | in_flight | out_of_range | stale_generation`.
@@ -2281,10 +2289,15 @@ See change: `compact-warm-replay-stream`.
 - Subscription generation bumped on every subscribe; completion at a stale generation replies `stale_generation`, never dropped.
 - Response compacted with `compactEventsForReplay(slice, slice.length)` — explicit supersession boundary, because the boundary is array-relative and a gap slice's `message_end` lives outside it.
 - Gap is SYMMETRIC: `tailMinSeq` mutable like `headMaxSeq`. Served range credited to whichever edge it abuts — tail-adjacent → `tailMinSeq = servedFrom`; head-adjacent → `headMaxSeq = servedTo`; a both-adjacent final request credits the TAIL (exclusive). `remainingGapCount` store read over both edges terminates the loop.
+- `GapState.hasHead` gates the head credit (change: `add-tail-only-replay-window`). Derived from the MODE that produced the window, never from the bound. Without it, `from === 1` against `headMaxSeq === 0` satisfies `from === headMaxSeq + 1` → credits a head that does not exist → sets `headMaxSeq = to` → poisons every later `remainingGapCount`.
+- Termination driven by whichever bound the served range abuts. Backfill tail-anchored → normally `tailMinSeq` RETREATING. `headMaxSeq` advances only in `head-tail`; in `tail-only` it never moves.
 - Slice snaps its GAP-FACING edge: lower for a tail-anchored request, upper for a head-anchored one, chosen by request ORIENTATION so a legacy head-first client stays correct. Snap only shrinks, never empties (empty `events` array = client termination signal). Credit edge from POST-SNAP served bounds.
 
 #### Client gap UI
 - `packages/client/src/lib/chat/history-gap.ts` — `HistoryGapState`, `HISTORY_GAP_ROW_ID`, `nextBackfillRange`. `nextBackfillRange` walks DOWN from `tailMinSeq` (tail-anchored), so "Load earlier" delivers the events immediately preceding what the user reads. `HistoryGapState.tailMinSeq` mutable, updated from `servedFrom`; `headMaxSeq = servedTo` update dropped (two-edge move double-shrinks a gap credited once).
+- Head-free floor: `nextBackfillRange` floors at `oldestGapSeq` instead of `headMaxSeq + 1` (`isHeadFree(gap) ? gap.oldestGapSeq : gap.headMaxSeq + 1`).
+- `HistoryGapState.atFloor` = walk reached `oldestGapSeq`, nothing further to request. SUCCESS terminus, distinct from `unservable` (store cannot serve; walk continues).
+- `historyGapTerminus(gap)`: `null` for a two-sided gap (divider spliced out), `"session-start"` when `oldestGapSeq <= 1`, else `"not-retained"`. Wording names neither retention nor compaction — the floor answers "is anything below", never "why is it gone".
 - Synthetic `ChatMessage` role `historyGap`, spliced at the head→tail boundary during the `event_replay` fold. Never produced by `reduceEvent`.
 - `packages/client/src/components/chat/HistoryGapDivider.tsx` — click-to-load interstitial. States: idle / loading / refused / unavailable / removed-when-filled.
 - Backfill splice touches `messages[]` only: no `maxSeqMapRef` move, no `publishSessionEvents`, no `replayPersister` write.
@@ -2293,9 +2306,22 @@ See change: `compact-warm-replay-stream`.
 - Backfill armed only after the initial replay terminates (`isLast: true`).
 - Gap state cleared on `session_state_reset` and on re-subscribe.
 
+#### Tail-only auto-load (change: `add-tail-only-replay-window`)
+- Pure `shouldAutoLoadHistory(t)` in `packages/client/src/lib/chat/history-gap.ts`; `SETTLE_MS = 120`. Tail-only only.
+- Keyed on INTENT, not position: `scrollTop` clamps at 0 so a delta rule stalls; a splice smaller than the proximity band yields no new rising edge.
+- ONE `programmaticScrollUntil` stamp (`Date.now() + SETTLE_MS`) shared by all nine `ChatView` scroll writers.
+- `handleScroll` only RECORDS; evaluation happens at settle-timer expiry — a momentum stream evaluates once.
+- Suppressed evaluation DEFERRED, not consumed: re-evaluated at expiry.
+- No `touchend` latch: WebKit fires `touchend` BEFORE inertia begins; a latch would evaluate mid-momentum.
+- A11y announcement lives in `ChatView`, OUTSIDE the virtualized list (`aria-live="polite"`, `data-testid="history-gap-live-region"`). `HistoryGapDivider` is a virtualized row the virtualizer unmounts after a splice — a live region there is not in the DOM when its text changes. Scoped to AUTOMATIC loads in tail-only.
+
 Measured (docker harness, 4825-event session, median of 5): full-replay completion 715ms → 341ms (2.10x), wire bytes 1958KB → 834KB (-57%), delivered events 4825 → 1996. Time-to-first-rendered-row unchanged (340ms → 349ms): replay ships in `REPLAY_BATCH_SIZE` 200-event batches, so the first batch lands identically regardless of what follows.
 
-See change: `lazy-load-session-history`.
+#### Tail-only known limitations (measured)
+- Scroll-to-turn navigation UNAVAILABLE. `turnIndex` assigned in reducer `turnUsage` arm to the last USER message; tail-only reduces only the tail, so anchoring user messages sit in the gap unreduced. All turn bars get `turnIndex: -1`. Measured: 21 bars, 0 clickable.
+- `unservable` is a RACE, not a config. Retention BELOW the window → retained stream smaller than the window → `computeReplayWindow` short-circuits → NO gap announced. Retention ABOVE the window → `gapCount` is store-read → servable by construction.
+
+See change: `lazy-load-session-history`, `add-tail-only-replay-window`.
 
 ### Bridge Reconnection (State Reset)
 When a bridge extension reconnects (e.g., after `pnpm run reload` or network recovery):
@@ -2595,6 +2621,7 @@ Precedence: CLI flags → environment variables → config file (`~/.pi/dashboar
 | `auth.redirectBaseUrl` | — | Optional OAuth redirect base for reverse-proxy deployments (`https://host[/prefix]`). Overrides tunnel/localhost base in `buildRedirectUri`. No default; absent = previous behaviour |
 | `publicBaseUrls` | — | Top-level reachable base URLs. Pairing QR + `GET /api/tunnel/endpoints` surfaces. `resolvePublicBaseUrls` reads top-level first, legacy `pairing.publicBaseUrls` fallback, else `[]`. No default; absent = legacy. Not an OAuth tier (D7) |
 | `memoryLimits.maxReplayEvents` | 2000 | Max events in full-stream replay window. Default `2000`; explicit `0` = unlimited (rollback lever). Absent/negative/non-numeric → `2000`; explicit `0` → `0`. Requires server restart. UI: Settings → Server → Memory Limits |
+| `memoryLimits.replayWindowMode` | `head-tail` | Replay window shape: `"head-tail"` default or `"tail-only"`. Unknown value coerced to default, never throws. Requires server restart. UI: Settings → Server → Memory Limits |
 
 ### Memory Limits
 
@@ -2606,6 +2633,12 @@ Parsing (`parseMaxReplayEvents`, `packages/shared/src/config.ts`):
 - Positive below `MIN_REPLAY_WINDOW` (100) clamps up to 100.
 - Fractional floored.
 
+`memoryLimits.replayWindowMode` picks the window shape. `"head-tail"` (default) ships head + tail, gap backfilled between. `"tail-only"` ships tail only, browser walks to the store floor. Server-scoped: one mode reshapes the transcript for EVERY client of that server. Inert when `maxReplayEvents: 0` — no window forms, mode irrelevant.
+
+Parsing (`parseReplayWindowMode`, `packages/shared/src/config.ts`):
+- Accepts exactly `"tail-only"` and `"head-tail"`.
+- Anything else → default `"head-tail"`. COERCES, never throws.
+
 Defaults + types live in `packages/shared/src/memory-limits.ts`, a BROWSER-SAFE module re-exported by `config.ts`. Reason: `config.ts` imports `node:fs`/`node:os`/`node:path` at module scope, so a VALUE import from `packages/client` ships node built-ins to the browser and the SPA dies at boot with `uv.homedir is not a function` (blank page; tsc/vitest/build all stay green). `import type` is safe. Guarded by `packages/client/src/__tests__/no-node-only-shared-imports.test.ts`.
 
 Requires server restart. Surfaced in Settings → Server → Memory Limits.
@@ -2613,9 +2646,10 @@ Requires server restart. Surfaced in Settings → Server → Memory Limits.
 Threading:
 - `cli.ts` → `server.ts` (`ServerConfig.maxReplayEvents`)
 - → `createBrowserGateway(..., maxReplayEvents)` → `BrowserHandlerContext.maxReplayEvents`.
+- `cli.ts` → `server.ts` (`ServerConfig.replayWindowMode`) → `createBrowserGateway(..., replayWindowMode)` → `BrowserHandlerContext.replayWindowMode`.
 - Programmatic server falls back to shared DEFAULT, not `0`; stays unlimited only when threaded explicitly.
 
-See change: `lazy-load-session-history`, `fix-lazy-history-backfill-ux`.
+See change: `lazy-load-session-history`, `fix-lazy-history-backfill-ux`, `add-tail-only-replay-window`.
 
 ### Tunnel Lifecycle
 

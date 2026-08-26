@@ -164,7 +164,8 @@ describe("handleSubscribe — replayUiState integration", () => {
     const ctx = createCtx();
     ctx.sessionManager.register({ id: "s1", cwd: "/tmp", source: "tui" });
     ctx.sessionManager.update("s1", { uiModules: [sampleModule("a", "/a")] });
-    // Insert 3 events; subscribe with lastSeq > maxSeq triggers session_state_reset + full replay.
+    // Insert 3 events; subscribe with lastSeq > maxSeq takes the stale-lastSeq
+    // full-replay branch.
     for (let i = 0; i < 3; i++) {
       ctx.eventStore.insertEvent("s1", { eventType: `e${i}`, timestamp: Date.now(), data: {} });
     }
@@ -173,7 +174,20 @@ describe("handleSubscribe — replayUiState integration", () => {
     await new Promise((r) => setTimeout(r, 30));
 
     const calls = (ctx.sendTo as any).mock.calls.map(([, m]: any) => m);
-    expect(calls.some((m: any) => m.type === "session_state_reset")).toBe(true);
+    /**
+     * This test's SUBJECT is `replayUiState` firing on the stale-lastSeq
+     * branch. It also used to assert `session_state_reset`, which was
+     * incidental scaffolding for identifying the branch — and is no longer
+     * emitted here when no window applies (D3 moved the reset into
+     * `sendEventBatches`, keyed on `replayWindow !== null`; this 3-event store
+     * forms no window). The branch is identified by the FULL replay from seq 1
+     * instead, which is the property that actually distinguishes it from a
+     * delta and is asserted rather than assumed.
+     * See change: add-tail-only-replay-window (D3, task 2.11).
+     */
+    const replayed = calls.filter((m: any) => m.type === "event_replay");
+    expect(replayed.length).toBeGreaterThan(0);
+    expect(replayed.flatMap((m: any) => m.events)[0].seq).toBe(1);
     expect(calls.some((m: any) => m.type === "ui_modules_list")).toBe(true);
   });
 });

@@ -27,7 +27,7 @@ export interface AuthLike {
 }
 
 /** Why a fetch produced no windows. Mirrors `QuotaUnavailableReason`. */
-export type FetchFailure = "no-credential" | "peer-rejected" | "no-data" | "no-adapter";
+type FetchFailure = "no-credential" | "peer-rejected" | "no-data" | "no-adapter";
 
 export type FetchResult =
   | { windows: QuotaWindowDto[]; failure?: undefined }

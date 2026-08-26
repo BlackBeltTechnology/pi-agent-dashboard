@@ -24,6 +24,11 @@ const gap = (over: Partial<HistoryGapState> = {}): HistoryGapState => ({
   unservable: false,
   dividerPlaced: true,
   armed: true,
+  // The default fixture stays a TWO-SIDED, mid-walk gap, so every scenario
+  // already written against it keeps its meaning.
+  // See change: add-tail-only-replay-window (D6, D2a).
+  atFloor: false,
+  windowShape: "head-tail",
   ...over,
 });
 

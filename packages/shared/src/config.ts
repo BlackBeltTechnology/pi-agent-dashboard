@@ -5,7 +5,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { DEFAULT_MEMORY_LIMITS, type MemoryLimitsConfig, MIN_REPLAY_WINDOW } from "./memory-limits.js";
+import { DEFAULT_MEMORY_LIMITS, type MemoryLimitsConfig, MIN_REPLAY_WINDOW, type ReplayWindowMode } from "./memory-limits.js";
 import type { WindowsGitSourceSetting } from "./platform/select-git-source.js";
 import {
   providerSupportsMode,
@@ -99,6 +99,7 @@ export {
   DEFAULT_MEMORY_LIMITS,
   type MemoryLimitsConfig,
   MIN_REPLAY_WINDOW,
+  type ReplayWindowMode,
 } from "./memory-limits.js";
 
 export interface OpenSpecPollConfig {
@@ -838,6 +839,15 @@ function parseMaxReplayEvents(raw: unknown): number {
   return Math.max(MIN_REPLAY_WINDOW, Math.floor(raw));
 }
 
+/**
+ * An unknown value COERCES to the default rather than throwing, matching the
+ * fallback convention every sibling in `parseMemoryLimits` already follows.
+ * See change: add-tail-only-replay-window (D1).
+ */
+function parseReplayWindowMode(raw: unknown): ReplayWindowMode {
+  return raw === "tail-only" || raw === "head-tail" ? raw : DEFAULT_MEMORY_LIMITS.replayWindowMode;
+}
+
 function parseMemoryLimits(raw: any): MemoryLimitsConfig {
   if (!raw || typeof raw !== "object") return { ...DEFAULT_MEMORY_LIMITS };
   return {
@@ -848,6 +858,7 @@ function parseMemoryLimits(raw: any): MemoryLimitsConfig {
     // MIN_REPLAY_WINDOW clamps up; an explicit 0 is preserved, never clamped.
     // See change: lazy-load-session-history (D3), fix-lazy-history-backfill-ux (D7).
     maxReplayEvents: parseMaxReplayEvents(raw.maxReplayEvents),
+    replayWindowMode: parseReplayWindowMode(raw.replayWindowMode),
   };
 }
 

@@ -118,6 +118,33 @@ The client SHALL insert backfilled events at their seq-ordered position within t
 - **THEN** the spliced rows SHALL be placed directly below the loading head
 - **AND** the loading head SHALL remain the transcript's first row
 
+#### Scenario: Tail-anchored events land adjacent to the tail
+
+- **WHEN** a backfill response carrying the events immediately below the tail edge is applied
+- **THEN** those events SHALL be inserted between the gap divider and the first tail row
+
+#### Scenario: Measurement of spliced rows does not move the viewport
+
+- **WHEN** the virtualizer measures the spliced rows and their measured heights differ from the estimates
+- **THEN** the divider SHALL remain at the same visual position
+
+#### Scenario: Splice does not re-pin the view to the bottom
+
+- **WHEN** a backfill response is applied while the user is scrolled up, including when the divider sits within the near-bottom threshold
+- **THEN** the transcript SHALL NOT scroll to the bottom
+
+#### Scenario: A two-sided splice does not trigger the selection-anchor correction
+
+- **WHEN** a backfill response is applied in `head-tail` while a text selection is held in the transcript
+- **THEN** no selection-anchor scroll correction SHALL be applied for that commit
+
+#### Scenario: A head-free splice keeps the selection anchored
+
+- **WHEN** a backfill response is applied in `tail-only` while a text selection is held in the transcript
+- **THEN** the selection-anchor correction SHALL remain active for that commit
+- **AND** the selected row SHALL keep its viewport position while the head fills
+- **AND** the retained selection's row-index span SHALL be remapped across the splice so the selected row stays mounted
+
 #### Scenario: Splice leaves live-event bookkeeping untouched
 
 - **WHEN** a backfill response is applied
@@ -162,6 +189,12 @@ When the gap exists but the store can no longer serve it, the divider SHALL make
 - **THEN** the divider SHALL state that the earlier events cannot be loaded
 - **AND** it SHALL NOT attribute the loss to retention specifically or to compaction specifically
 - **AND** it SHALL NOT be styled or announced as an error
+
+#### Scenario: Unservable is not an error
+
+- **WHEN** the divider is unservable
+- **THEN** it SHALL NOT use error presentation
+- **AND** it SHALL NOT offer a retry
 
 #### Scenario: Reaching the floor is reported without claiming a cause
 

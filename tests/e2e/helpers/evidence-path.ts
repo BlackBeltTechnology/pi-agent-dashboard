@@ -24,8 +24,12 @@ import { fileURLToPath } from "node:url";
 /** The recorded-measurements file inside a change directory. */
 export const EVIDENCE_FILENAME = "measurements.json";
 
-/** Repo root, derived from this file rather than from cwd (specs run from varying cwds). */
-export const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+/**
+ * Repo root, derived from this file rather than from cwd (specs run from varying cwds).
+ * Module-private: it is the default for the `repoRoot` parameters below, and no
+ * spec imports it. See change: add-tail-only-replay-window.
+ */
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
 
 /**
  * Archived changes are `archive/<YYYY-MM-DD>-<name>`. Anchored at both ends so
@@ -68,7 +72,7 @@ function isDirectory(path: string): boolean {
  * Directory of `changeName`: the active one, else the NEWEST archived one.
  * Returns `null` when the change exists in neither place.
  */
-export function findChangeDir(changeName: string, repoRoot: string = REPO_ROOT): string | null {
+function findChangeDir(changeName: string, repoRoot: string = REPO_ROOT): string | null {
   assertSingleComponent(changeName);
   const changesDir = join(repoRoot, "openspec", "changes");
 

@@ -264,6 +264,9 @@ export function createBrowserGateway(
   /** Max events replayed on a FULL-stream subscribe (0 = unlimited).
    *  See change: lazy-load-session-history (D1). */
   maxReplayEvents?: number,
+  /** Shape of the replay window when one applies. Absent → `head-tail`.
+   *  See change: add-tail-only-replay-window (D1). */
+  replayWindowMode?: import("@blackbelt-technology/pi-dashboard-shared/memory-limits.js").ReplayWindowMode,
 ): BrowserGateway {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -629,6 +632,7 @@ export function createBrowserGateway(
           metaPersistence,
           fitWorkerPool,
           maxReplayEvents,
+          replayWindowMode,
           directoryService, terminalManager,
           headlessPidRegistry, pendingResumeRegistry, pendingDashboardSpawns,
           pendingAttachRegistry,
