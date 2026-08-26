@@ -24,7 +24,9 @@
   },
   "files": [
     ".pi/skills/",
-    "README.md"
+    "README.md",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md"
   ],
   "keywords": [
     "pi-package",

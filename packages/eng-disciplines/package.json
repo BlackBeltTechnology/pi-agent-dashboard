@@ -45,6 +45,8 @@
   "files": [
     ".pi/skills/",
     "README.md",
-    "NOTICE"
+    "NOTICE",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md"
   ]
 }

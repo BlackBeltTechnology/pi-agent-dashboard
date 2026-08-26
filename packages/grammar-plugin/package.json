@@ -1,7 +1,7 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-grammar-plugin",
   "version": "0.7.0",
-  "description": "First-party dashboard plugin: fully self-contained composer grammar/spell-check \u2014 client composer UI (composer-panel), server route + backends (server entry), and settings (settings-section). See change: make-grammar-fully-plugin-contained.",
+  "description": "First-party dashboard plugin: fully self-contained composer grammar/spell-check — client composer UI (composer-panel), server route + backends (server entry), and settings (settings-section). See change: make-grammar-fully-plugin-contained.",
   "license": "MIT",
   "type": "module",
   "publishConfig": {
@@ -29,6 +29,8 @@
   "files": [
     "src/",
     "configSchema.json",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md",
     "!**/__tests__",
     "!**/test-support",
     "!**/*.test.ts",

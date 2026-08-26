@@ -2,6 +2,7 @@
   "name": "@blackbelt-technology/dashboard-plugin-runtime",
   "version": "0.7.0",
   "description": "Plugin loader, slot registry, slot consumers, and context API for pi-dashboard",
+  "license": "MIT",
   "type": "module",
   "repository": {
     "type": "git",
@@ -39,6 +40,8 @@
   },
   "files": [
     "src/",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md",
     "!**/__tests__",
     "!**/*.test.ts",
     "!**/*.test.tsx"

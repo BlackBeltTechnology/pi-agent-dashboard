@@ -28,7 +28,9 @@
   "files": [
     ".pi/skills/",
     "README.md",
-    "NOTICE"
+    "NOTICE",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md"
   ],
   "dependencies": {
     "@blackbelt-technology/pi-dashboard-session-distiller": "^0.7.0"

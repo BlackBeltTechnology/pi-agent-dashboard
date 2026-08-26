@@ -40,6 +40,9 @@
     ".pi/skills/",
     "scripts/",
     "README.md",
-    "NOTICE"
+    "NOTICE",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md",
+    "!**/tools/tests"
   ]
 }

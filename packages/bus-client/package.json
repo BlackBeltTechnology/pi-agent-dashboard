@@ -7,6 +7,7 @@
     "directory": "packages/bus-client"
   },
   "description": "Headless, ticket-authenticated WebSocket bus client for the pi-dashboard control plane. Typed command send, correlated awaits, bus-consistent reads.",
+  "license": "MIT",
   "type": "module",
   "main": "src/index.ts",
   "exports": {
@@ -16,6 +17,8 @@
   },
   "files": [
     "src/",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md",
     "!**/__tests__",
     "!**/*.test.ts",
     "!**/*.test.tsx",

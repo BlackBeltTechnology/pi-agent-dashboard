@@ -40,7 +40,9 @@
     "!src/__tests__",
     ".pi/skills/",
     ".env.example",
-    "README.md"
+    "README.md",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md"
   ],
   "scripts": {
     "test": "vitest run"

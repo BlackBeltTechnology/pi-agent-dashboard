@@ -2,6 +2,7 @@
   "name": "@blackbelt-technology/pi-dashboard-shared",
   "version": "0.7.0",
   "description": "Shared types and utilities for pi-dashboard",
+  "license": "MIT",
   "type": "module",
   "repository": {
     "type": "git",
@@ -19,6 +20,8 @@
   },
   "files": [
     "src/",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md",
     "!**/__tests__",
     "!**/*.test.ts",
     "!**/*.test.tsx"

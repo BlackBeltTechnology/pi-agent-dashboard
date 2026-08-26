@@ -30,6 +30,7 @@
     "src/",
     "configSchema.json",
     "!**/AGENTS.md",
+    "!**/*.AGENTS.md",
     "!**/__tests__",
     "!**/*.test.ts",
     "!**/*.test.tsx"

@@ -30,6 +30,8 @@
   "files": [
     "dist",
     "src",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md",
     "!src/__tests__"
   ],
   "keywords": [

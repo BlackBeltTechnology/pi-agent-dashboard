@@ -83,7 +83,9 @@
     "!**/*.test.ts",
     "!**/*.test.tsx",
     ".pi/skills/",
-    "README.md"
+    "README.md",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md"
   ],
   "scripts": {
     "test": "vitest run"

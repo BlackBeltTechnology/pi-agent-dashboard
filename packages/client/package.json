@@ -2,6 +2,7 @@
   "name": "@blackbelt-technology/pi-dashboard-web",
   "version": "0.7.0",
   "description": "Web client for pi-dashboard",
+  "license": "MIT",
   "type": "module",
   "repository": {
     "type": "git",
@@ -12,7 +13,9 @@
     "access": "public"
   },
   "files": [
-    "dist/"
+    "dist/",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md"
   ],
   "exports": {
     "./chat-embed": "./src/chat-embed/index.ts",

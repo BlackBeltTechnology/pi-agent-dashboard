@@ -37,6 +37,9 @@
     "src",
     "engine",
     ".pi/skills/",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md",
+    "!engine/tests",
     "!**/__tests__",
     "!**/*.test.ts",
     "!**/*.test.tsx"

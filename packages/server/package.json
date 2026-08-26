@@ -2,6 +2,7 @@
   "name": "@blackbelt-technology/pi-dashboard-server",
   "version": "0.7.0",
   "description": "Dashboard server for monitoring and interacting with pi agent sessions",
+  "license": "MIT",
   "type": "module",
   "repository": {
     "type": "git",
@@ -27,6 +28,8 @@
     "bin/",
     "src/",
     "scripts/",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md",
     "!**/__tests__",
     "!**/*.test.ts",
     "!**/*.test.tsx"

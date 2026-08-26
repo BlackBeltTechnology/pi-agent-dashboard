@@ -38,7 +38,9 @@
     "presets-data/",
     ".pi/skills/",
     "references/",
-    "README.md"
+    "README.md",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md"
   ],
   "dependencies": {
     "@axe-core/playwright": "^4.10.0",
