@@ -6,6 +6,7 @@ See change: add-dashboard-bus-client-scripting.
 
 | File | Purpose |
 |------|---------|
+| `README.md` | Package overview. Headless ticket-authenticated WebSocket bus client — typed `send`, correlated `await`/`until`, bus-consistent `read`, `plugin` passthrough. |
 | `src/index.ts` | Barrel. Exports `BusClient`, `connect()` factory, error classes, `Ticket`, denylist, port helpers, `GENERATED_VERBS`/`VERB_INTERFACE`. |
 | `src/client.ts` | `BusClient` class. `connect()`/`mintTicket()`/`connectWithTicket()` (ticket→WS→snapshot); `send<T extends BrowserToServerMessage>`; `waitFor`/`await`/`until` (structural, session-id keyed); `spawn`/`resume` (exact-correlated on spawnRequestId / resume_result.requestId, spawn fails fast on spawn_result failure — exact echo needs headless strategy); `prompt`; `plugin` (goal only, else NoPluginHandlerError); `read.sessions/session` (snapshot+deltas, metadata only). |
 | `src/ticket.ts` | `Ticket` type, `TICKET_TTL_MS`=15000, `isTicketExpired`. Local mint-time + TTL used to classify expired vs consumed before open. |
