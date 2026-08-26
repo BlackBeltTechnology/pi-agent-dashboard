@@ -1,0 +1,445 @@
+<!doctype html>
+<html lang="en">
+<head>
+<script>
+(function(){
+  var mode = 'system';
+  try { mode = localStorage.getItem('pi-theme') || 'system'; } catch (e) {}
+  var mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
+  var root = document.documentElement;
+  function resolve(m){ return m === 'system' ? (mq && mq.matches ? 'light' : 'dark') : m; }
+  function paint(m){
+    if (resolve(m) === 'light') root.setAttribute('data-theme','light');
+    else root.removeAttribute('data-theme');
+    root.dataset.themeChoice = m;
+  }
+  paint(mode);
+  // Follow the OS live, but only while the choice is still "system".
+  if (mq) {
+    var onFlip = function(){
+      var cur = 'system';
+      try { cur = localStorage.getItem('pi-theme') || 'system'; } catch (e) {}
+      if (cur === 'system') paint('system');
+    };
+    if (mq.addEventListener) mq.addEventListener('change', onFlip);
+    else if (mq.addListener) mq.addListener(onFlip);
+  }
+})();
+</script><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Not found — PI Dashboard</title>
+<meta name="robots" content="noindex">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   TOKENS — lifted verbatim from packages/client/src/index.css
+   so the landing page and the product are the same object.
+   ============================================================ */
+:root{
+  --bg-primary:#0a0a0a;
+  --bg-secondary:#141414;
+  --bg-tertiary:#1e1e1e;
+
+  --text-primary:#e5e5e5;    /* 15.9:1 */
+  --text-secondary:#b0b0b0;  /*  9.07:1 */
+  --text-tertiary:#808080;   /*  4.98:1 — dark only */
+
+  --accent:#3b82f6;          /* borders / focus ring, 3:1 non-text */
+  --accent-solid:#2563eb;    /* fill behind white text, 5.17:1 */
+  --accent-text:#60a5fa;     /* accent TEXT on bg-primary, 7.79:1 */
+
+  --status-idle:#22c55e;
+  --status-working:#eab308;
+  --status-needs-you:#a855f7;
+  --attn-fg:#c99bf5;
+
+  /* Semantic alias for small UI labels. ui-contract.md: --text-tertiary is
+     DARK-ONLY (light is #777 = 4.48:1, under the 4.5:1 floor). Anything that
+     must survive BOTH themes resolves to --text-secondary in light. */
+  --label:var(--text-tertiary);
+
+  --border:#2a2a2a;
+  --elevation-rim:rgba(255,255,255,.10);
+  --shadow-card:rgba(0,0,0,.55);
+  --code-border:var(--border);
+
+  --sans:'Instrument Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --mono:'JetBrains Mono','SF Mono',Menlo,Monaco,'Cascadia Code',Consolas,monospace;
+
+  --gut:clamp(20px,5vw,72px);
+  --maxw:1280px;
+}
+
+/* ============================================================
+   LIGHT — [data-theme="light"], values lifted from the same file.
+   ============================================================ */
+[data-theme="light"]{
+  --bg-primary:#ffffff;
+  --bg-secondary:#fafafa;
+  --bg-tertiary:#f0f0f0;
+
+  --text-primary:#1a1a1a;    /* 16.1:1 */
+  --text-secondary:#444444;  /*  9.74:1 */
+  --text-tertiary:#777777;   /*  4.48:1 — decorative only in light */
+  --label:var(--text-secondary);
+
+  --accent:#2563eb;          /* 3:1 non-text */
+  --accent-solid:#2563eb;    /* white text on it, 5.17:1 */
+  --accent-text:#1d4ed8;     /* accent TEXT on white, 6.70:1 */
+
+  /* Status dots are meaningful non-text (WCAG 1.4.11, 3:1 floor). The dark
+     ramp fails on white (#22c55e = 2.28:1), so light gets its own ramp. */
+  --status-idle:#15803d;     /* 4.54:1 */
+  --status-working:#a16207;  /* 4.630:1 */
+  --status-needs-you:#7e22ce;/* 6.94:1 */
+  --attn-fg:#6b21a8;
+
+  --border:#e0e0e0;
+  --elevation-rim:rgba(255,255,255,.9);
+  --shadow-card:rgba(0,0,0,.08);
+  --code-border:#cccccc;
+}
+html{color-scheme:dark}
+html[data-theme="light"]{color-scheme:light}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;background:var(--bg-primary);color:var(--text-primary);
+  font-family:var(--sans);font-size:16px;line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:var(--maxw);margin-inline:auto;padding-inline:var(--gut)}
+
+/* ---------------- 3D field (see field.js) ----------------
+   Fixed, full-viewport, behind every band of the page and never interactive.
+   It shows through the transparent bands (hero, closing CTA) and is covered by
+   the opaque ones (spec strip, feature grid) — that alternation is deliberate:
+   the depth returns at the two moments the page is making a claim, and gets out
+   of the way while it is presenting evidence. Content is raised above it with
+   one rule rather than a z-index on each section. */
+#field{position:fixed;inset:0;z-index:0;display:block;width:100%;height:100%;pointer-events:none}
+/* :not(header) matters: this rule sits AFTER the header rule, so without the
+   exclusion it overwrote position:sticky with position:relative and the header
+   scrolled away. A blanket stacking rule must skip anything already positioned. */
+body > *:not(#field):not(header){position:relative;z-index:1}
+
+/* --- mono UI type: the entire "this is for developers" signal ---------- */
+.mono,nav a,.btn,.eyebrow,.chip,.stat-k,.foot a{
+  font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;
+}
+.eyebrow{color:var(--accent-text);display:flex;align-items:center;gap:8px;margin:0 0 18px}
+.eyebrow::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--accent-text)}
+
+/* ---------------- nav ---------------- */
+header{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg-primary) 86%,transparent);
+  backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
+.nav{display:flex;align-items:center;gap:32px;height:64px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:500;font-size:17px;letter-spacing:-.01em;
+  white-space:nowrap;margin-right:auto}
+/* The real app icon, taken from site/public/app-icon.png (the live site's Nav).
+   No shadow-pi-glow: the site's glow is the AI-slop tell this page avoids. */
+.logo{width:24px;height:24px;flex:none;border-radius:6px;display:block}
+nav{display:flex;gap:26px;margin-left:auto}
+nav a{color:var(--text-secondary);text-decoration:none}
+nav a:hover{color:var(--text-primary)}
+.nav .btn{margin-left:8px}
+/* .ic: a button whose label is preceded by a glyph. gap not margin, so the
+   icon never drifts when the label is hidden at narrow widths. */
+.btn.ic{display:inline-flex;align-items:center;gap:7px}
+.btn.ic svg{width:15px;height:15px;flex:none}
+@media(max-width:860px){
+  nav{display:none}
+  .nav{gap:10px}
+  .nav .btn{margin-left:0;padding:12px 14px;min-height:44px}
+}
+/* The header is a single row of five things; it runs out of room twice on the
+   way down. Shed in order of what the visitor can least afford to lose:
+   GitHub goes first (it is repeated in the footer), then the Discord label
+   (the glyph still carries it), then the in-page section links (every one of
+   those destinations is reachable by scrolling). Install and the theme toggle
+   never leave. */
+.nav{gap:clamp(14px,2.4vw,32px)}
+nav{gap:clamp(14px,1.9vw,26px)}
+@media(max-width:1080px){.nav a[href*="github.com"]{display:none}}
+@media(max-width:1000px){.btn.ic .lbl{display:none}.btn.ic{padding-inline:12px}}
+@media(max-width:720px){.nav nav{display:none}}
+@media(max-width:420px){.brand{font-size:15px}}
+@media(max-width:360px){.wm{display:none}}  /* logo alone; the wordmark is the last thing that fits */
+
+/* ---------------- buttons ---------------- */
+.btn{display:inline-flex;align-items:center;gap:8px;padding:11px 18px;border-radius:6px;
+  text-decoration:none;border:1px solid transparent;cursor:pointer;transition:background .15s,border-color .15s}
+.btn-primary{background:var(--accent-solid);color:#fff}
+.btn-primary:hover{background:#1d4ed8}
+.btn-ghost{border-color:var(--border);color:var(--text-primary);background:transparent}
+.btn-ghost:hover{border-color:var(--accent)}
+@media(max-width:860px){.btn{min-height:44px}}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* ---------------- hero ---------------- */
+/* Single column on purpose. The hero art is a 1920x1200 capture of a dense
+   operator UI; in the old 1.05fr/.95fr split it rendered ~540px wide, where
+   the product's own type is ~37% scale and reads as texture rather than as an
+   interface. Full container width is the smallest size at which a session
+   card, a model id and a cost are legible. */
+.hero{display:block;padding:clamp(56px,9vw,116px) 0 clamp(48px,7vw,88px)}
+
+/* Hero top row: copy only. The previous two-column split existed to hold a
+   boxed WebGL panel beside the title; the field is now the PAGE background, so
+   the box is gone and the headline gets its natural measure back. The right
+   half of the frame is not empty — the fleet's accent card sits there, behind
+   the page rather than inside a rectangle pasted into the layout. */
+.heroTop{margin:0 0 clamp(36px,4.5vw,60px)}
+.hero .copy{max-width:58ch;margin:0}
+h1{font-size:clamp(38px,5.6vw,74px);font-weight:400;line-height:1.03;letter-spacing:-.03em;margin:0 0 26px}
+h1 em{font-style:normal;color:var(--accent-text)}
+.lede{color:var(--text-secondary);font-size:clamp(16px,1.3vw,18px);max-width:46ch;margin:0 0 32px}
+.cta{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.cta code{font-family:var(--mono);font-size:12.5px;color:var(--label);
+  border:1px dashed var(--code-border);border-radius:6px;padding:10px 14px}
+
+
+/* ---------------- hero film (the REAL dashboard, rendered by HyperFrames) --- */
+.dot{width:7px;height:7px;border-radius:50%;flex:none}
+.dot-working{background:var(--status-working);animation:pulse 1.4s ease-in-out infinite}
+.dot-idle{background:var(--status-idle)}
+.dot-needs{background:var(--status-needs-you)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+/* margin:0 because <figure> carries a UA default of 16px 40px, which inset the
+   film 40px from the copy above it and quietly broke the hero's left edge. */
+.film{position:relative;margin:0;border-radius:10px;overflow:hidden;background:var(--bg-secondary);
+  border:1px solid var(--border);
+  box-shadow:inset 0 1px 0 var(--elevation-rim),0 18px 40px var(--shadow-card)}
+/* 16:10 — the source aspect (1440x900 logical, captured at 2880x1800 and
+   rendered at 1920x1200). Declaring it reserves the box before metadata
+   loads, so swapping themes cannot jolt the page height. */
+.film video{display:block;width:100%;height:auto;aspect-ratio:16/10}
+.film figcaption{position:absolute;left:12px;bottom:12px;display:flex;align-items:center;gap:8px;
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:#e5e5e5;background:rgba(10,10,10,.72);backdrop-filter:blur(6px);
+  border:1px solid rgba(255,255,255,.14);border-radius:5px;padding:6px 9px}
+
+/* ---------------- spec strip ---------------- */
+.strip{border-block:1px solid var(--border);background:var(--bg-secondary)}
+.strip .wrap{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;padding-block:0}
+.spec{padding:26px 0}
+.spec .stat-k{color:var(--label);display:block;margin-bottom:6px}
+.spec .v{font-size:clamp(20px,2vw,27px);letter-spacing:-.02em;font-weight:400}
+@media(max-width:860px){.strip .wrap{grid-template-columns:repeat(2,1fr);gap:0 24px}}
+
+/* ---------------- sections ---------------- */
+section{padding-block:clamp(60px,8vw,110px)}
+h2{font-size:clamp(28px,3.6vw,46px);font-weight:400;letter-spacing:-.025em;line-height:1.1;margin:0 0 20px}
+h2 em{font-style:normal;color:var(--accent-text)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:clamp(32px,5vw,72px);align-items:center}
+@media(max-width:960px){.two{grid-template-columns:1fr}}
+.p{color:var(--text-secondary);max-width:52ch;margin:0 0 14px}
+
+/* session grid mock */
+.cards{display:grid;gap:10px}
+.card{background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:13px 15px;
+  box-shadow:inset 0 1px 0 var(--elevation-rim);display:flex;align-items:center;gap:11px}
+.card .nm{font-size:14px}
+.card .sub{font-family:var(--mono);font-size:11px;color:var(--label);margin-top:2px}
+.card .chip{margin-left:auto;color:var(--label);border:1px solid var(--border);
+  border-radius:4px;padding:3px 7px;font-size:10px}
+.card.attn{border-color:color-mix(in srgb,var(--status-needs-you) 45%,transparent)}
+.card.attn .chip{color:var(--attn-fg);border-color:color-mix(in srgb,var(--status-needs-you) 45%,transparent)}
+
+/* feature grid */
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);
+  border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.cell{background:var(--bg-primary);padding:28px 26px 30px}
+.cell h3{font-size:17px;font-weight:500;margin:0 0 8px;letter-spacing:-.01em}
+.cell p{color:var(--text-secondary);font-size:14.5px;margin:0}
+.cell .stat-k{color:var(--label);display:block;margin-bottom:14px}
+
+/* Feature glyphs.
+   Each one is a SCHEMATIC OF THE SURFACE IT LABELS — a two-pane editor, a
+   branch graph, a parent/child flow tree, a trigger firing a session, four
+   providers converging on one proxy, a phone showing a pairing code. Drawn
+   rather than pulled from an icon pack: a generic pencil/branch/clock set is
+   the default-average look this design brief rules out, and none of those
+   glyphs would say anything specific about this product.
+   Stroke inherits from .ico so the whole figure re-colours per theme; exactly
+   one element per glyph carries the accent, which is the same discipline the
+   product UI uses (colour as data, not decoration). */
+.ico{display:block;color:var(--label);margin:0 auto 18px;transition:color .25s ease}
+.ico *{vector-effect:non-scaling-stroke}
+.ico .a{stroke:var(--accent-text)}
+.ico .af{fill:var(--accent-text);stroke:none}
+
+/* Liveness on contact: the glyph takes the accent and the cell lifts off the
+   grid. Colour only, no transform on the card itself -- the cells share 1px
+   gutters, so moving one would tear the grid lines it shares with neighbours. */
+.cell{transition:background .25s ease}
+.cell:hover{background:var(--bg-secondary)}
+.cell:hover .ico{color:var(--accent-text)}
+
+/* ---------------- scroll reveal (two-way, never a retrace) ----------------
+   A block animates IN as it arrives and animates OUT as it leaves. The old
+   objection to that -- exit is entry played backwards, i.e. ping-pong -- is
+   answered by --rv, the offset the block rests at while hidden. It is signed
+   by WHICH EDGE the block is leaving through: enter from below at +34px, exit
+   through the top at -34px. The block therefore keeps travelling in the
+   direction you are scrolling and never reverses through its own path.
+
+   Only opacity and transform animate: both are compositor-only, so this costs
+   the 3D field behind it no frame budget.
+
+   The hidden state is applied BY JS (the .reveal class is added at runtime),
+   never in static CSS. That matters because the prefers-reduced-motion rule
+   further down kills every transition: a static opacity:0 plus a dead
+   transition would leave the whole page permanently blank. Same protection if
+   JS fails or IntersectionObserver is missing -- no class, no hidden state,
+   content present from first paint exactly as before. */
+.reveal{opacity:0;transform:translateY(var(--rv,34px)) scale(.985);
+  transition:opacity .5s ease, transform .72s cubic-bezier(.22,.61,.36,1)}
+.reveal.in{opacity:1;transform:none}
+@media(max-width:960px){.grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:620px){.grid{grid-template-columns:1fr}}
+
+/* ---------------- download + install ----------------
+   Adapted from the live site (site/src/components/DownloadSection.astro and
+   GetStartedSection.astro + InstallTabs.tsx). What changed in the port, and
+   why — the two pages are the same product, so the block keeps its INFORMATION
+   (release line, per-platform assets with sizes, three install routes, the
+   first-run unblocking notes) and drops the styling that contradicts this
+   page's rules:
+     - gradient buttons + shadow-pi-glow  → one flat --accent-solid fill. A glow
+       is the AI-slop tell this mockup's whole palette is built to avoid.
+     - backdrop-blur translucent cards    → flat --bg-secondary and a 1px border,
+       the same card the rest of the page uses.
+     - `data-reveal` fade/rise on scroll  → NOTHING. See the note below.
+     - <details> "other downloads"        → every asset listed. A disclosure that
+       opens and closes is a block appearing and disappearing, which is exactly
+       what this page is not doing.
+
+   NO REVEAL ANIMATION. The site fades and lifts each block in as it crosses the
+   viewport; that is deliberately not carried over. Two reasons: the background
+   field already supplies all the motion this page needs, and a block that
+   animates in also animates OUT on the way back up — the same retrace that was
+   just removed from the field's scroll physics. Content is present from first
+   paint, and scrolling only moves the page. */
+.band{border-block:1px solid var(--border);background:var(--bg-secondary)}
+.head{max-width:56ch;margin:0 0 40px}
+
+/* Release line: version, date, and where to read more. */
+.rel{display:flex;flex-wrap:wrap;align-items:center;gap:16px 22px;
+  padding-bottom:24px;margin-bottom:32px;border-bottom:1px solid var(--border)}
+.tag{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--accent-text);
+  border:1px solid color-mix(in srgb,var(--accent) 45%,transparent);border-radius:999px;padding:5px 11px}
+.rel .ver{font-size:clamp(20px,2vw,26px);letter-spacing:-.02em}
+.rel .when{font-family:var(--mono);font-size:11px;color:var(--label)}
+.rel .links{margin-left:auto;display:flex;gap:18px;flex-wrap:wrap}
+.rel .links a{font-family:var(--mono);font-size:11px;letter-spacing:.06em;
+  color:var(--text-secondary);text-decoration:none}
+.rel .links a:hover{color:var(--text-primary)}
+@media(max-width:620px){.rel .links{margin-left:0;width:100%}}
+
+/* Platform cards reuse the feature grid: same 1px hairline lattice, so the
+   download block reads as part of the page rather than a widget dropped in. */
+.plat{display:flex;align-items:center;gap:11px;margin:0 0 18px}
+.plat svg{color:var(--label);flex:none}
+.plat .nm{font-size:16px}
+.dl{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:11px 14px;border-radius:6px;text-decoration:none;margin-bottom:8px;
+  font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;
+  border:1px solid transparent;transition:background .15s,border-color .15s}
+.dl-1{background:var(--accent-solid);color:#fff}
+.dl-1:hover{background:#1d4ed8}
+.dl-2{border-color:var(--border);color:var(--text-primary)}
+.dl-2:hover{border-color:var(--accent)}
+.dl .sz{opacity:.75;letter-spacing:.04em}
+/* Secondary assets: a plain list, always visible. */
+.alt{list-style:none;margin:14px 0 0;padding:0}
+.alt a{display:flex;justify-content:space-between;gap:12px;padding:8px 0;
+  border-top:1px solid var(--border);text-decoration:none;
+  font-family:var(--mono);font-size:11px;color:var(--label)}
+.alt a:hover{color:var(--text-primary)}
+.foot-note{margin:26px 0 0;font-size:13px;color:var(--label);text-align:center}
+.foot-note a{color:var(--accent-text)}
+
+/* Install tabs. Switching is an instant swap — no cross-fade, no height
+   animation; the panel is sized by its content and the page does not reflow
+   under the pointer. */
+.tabs{display:flex;flex-wrap:wrap;border-bottom:1px solid var(--border)}
+.tab{background:transparent;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;
+  padding:13px 18px;cursor:pointer;color:var(--text-secondary);
+  font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+.tab:hover{color:var(--text-primary)}
+.tab[aria-selected="true"]{color:var(--text-primary);border-bottom-color:var(--accent)}
+/* The panel is OPAQUE while the section around it is not: the fleet keeps
+   drifting past the heading and around the card, but a code block a reader is
+   about to copy never has slabs sliding under it. */
+.panel{border:1px solid var(--border);border-top:0;border-radius:0 0 8px 8px;padding:22px;
+  background:var(--bg-secondary)}
+.panel .sub{color:var(--text-secondary);font-size:14px;margin:0 0 16px}
+.codebox{position:relative}
+.codebox pre{margin:0;overflow-x:auto;padding:16px 90px 16px 16px;border-radius:6px;
+  background:var(--bg-primary);border:1px solid var(--code-border);
+  font-family:var(--mono);font-size:12.5px;line-height:1.7;color:var(--text-secondary)}
+/* NAMED copy-btn, not .copy: the hero block is already .copy, and a bare
+   .copy rule here made the headline absolutely positioned, mono and
+   uppercase, floating over the film. A generic class name in a single-file
+   page is a collision waiting to happen. */
+.copy-btn{position:absolute;top:10px;right:10px;background:var(--bg-secondary);
+  border:1px solid var(--border);border-radius:5px;padding:5px 9px;cursor:pointer;
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--text-secondary)}
+.copy-btn:hover{border-color:var(--accent);color:var(--text-primary)}
+.panel .note{margin:14px 0 0;font-size:13px;color:var(--label)}
+/* First-run unblocking. Kept verbatim in substance from the live site: these
+   builds are unsigned, and a download page that omits the Gatekeeper /
+   SmartScreen step sends every first-time user to a dead end. */
+.unsigned{margin-top:16px;border:1px solid var(--border);border-radius:8px;
+  padding:16px;background:var(--bg-primary)}
+.unsigned h4{margin:0 0 10px;font-size:13px;font-weight:500}
+.unsigned p{margin:0 0 10px;font-size:12.5px;line-height:1.65;color:var(--label)}
+.unsigned p:last-child{margin-bottom:0}
+.unsigned b{color:var(--text-secondary);font-weight:500}
+.unsigned code{font-family:var(--mono);font-size:11.5px;color:var(--text-secondary)}
+.unsigned pre{margin:0 0 10px;padding:10px 12px;border-radius:5px;overflow-x:auto;
+  background:var(--bg-secondary);border:1px solid var(--code-border);
+  font-family:var(--mono);font-size:11.5px;color:var(--text-secondary)}
+
+/* closing CTA */
+
+footer{border-top:1px solid var(--border);padding-block:30px}
+.foot{display:flex;flex-wrap:wrap;gap:18px;align-items:center}
+.foot a{color:var(--label);text-decoration:none}
+.foot a:hover{color:var(--text-primary)}
+.foot .note{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--label);
+  text-transform:none;letter-spacing:0}
+
+/* theme toggle */
+/* Three segments in one bordered box, divided by 1px rules rather than gaps:
+   a radiogroup should read as ONE control with a selected segment, not as
+   three buttons that happen to sit together. */
+.tt{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.tt button{background:transparent;border:0;border-left:1px solid var(--border);
+  color:var(--text-tertiary);cursor:pointer;padding:8px 10px;display:inline-flex;line-height:0}
+.tt button:first-child{border-left:0}
+.tt button:hover{color:var(--text-primary)}
+.tt button[aria-checked="true"]{background:var(--bg-tertiary);color:var(--accent-text)}
+.tt svg{width:14px;height:14px}
+
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<main class="wrap" style="min-height:70vh;display:flex;flex-direction:column;justify-content:center;gap:18px">
+  <p class="eyebrow">404</p>
+  <h1 style="max-width:16ch">This page ran off somewhere.</h1>
+  <p class="lede">The link is dead or the page moved. The dashboard itself is fine.</p>
+  <div class="cta"><a class="btn btn-primary" href="/">Back to the start</a
+    ><a class="btn btn-ghost" href="https://github.com/BlackBeltTechnology/pi-agent-dashboard">GitHub</a></div>
+</main>
+</body>
+</html>

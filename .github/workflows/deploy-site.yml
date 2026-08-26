@@ -5,6 +5,11 @@ on:
     branches: [develop]
     paths:
       - "site/**"
+      # site/design-scratch/ is the design source the site is drawn FROM, not
+      # part of the built site (Astro only builds src/pages and publishes
+      # public/). Without this exclusion every mockup iteration would deploy
+      # production for no change in output.
+      - "!site/design-scratch/**"
       - "packages/shell/**"
       - ".github/workflows/deploy-site.yml"
   # Rebuild and redeploy whenever a new release is published so the
@@ -56,30 +61,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: site/package-lock.json
 
-      # pnpm for the ROOT workspace install below (the neutral shell). The
-      # site/ install stays npm against its own site/package-lock.json
-      # (site is NOT a pnpm workspace member). See change: adopt-pnpm-for-dev-ci (X6).
+      # pnpm for the ROOT workspace install below (the neutral shell). site/
+      # itself has NO dependencies since it became a hand-written static page:
+      # no npm ci, no astro build, no type check, no bundle budget (there is
+      # no bundle). `npm run build` is a copy + reference check.
       - uses: pnpm/action-setup@v4
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Type check
-        run: npm run check
-        continue-on-error: true # don't block deploy on type-only issues
 
       - name: Build
         run: npm run build
-        env:
-          # Higher rate limit when fetching the latest release at build
-          # time from src/lib/github-release.ts.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Enforce JS bundle budget
-        run: npm run size
+      # The page carries release data inline, so a stale page is a page with
+      # dead download links. This does not block the deploy -- publishing the
+      # previous version's links still beats publishing nothing -- but it puts
+      # the drift in the log where the release job can be chased.
+      - name: Check release data is current
+        run: npm run check-release
+        continue-on-error: true
 
       # Neutral device-pairing shell (packages/shell). GitHub Pages allows one
       # site per repo and `site/` owns the pi-dashboard.dev apex, so the shell

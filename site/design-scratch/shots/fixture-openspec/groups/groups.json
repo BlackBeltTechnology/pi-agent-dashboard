@@ -1,0 +1,65 @@
+{
+  "schemaVersion": 1,
+  "groups": [
+    {
+      "id": "now-shipping",
+      "name": "Now — shipping",
+      "color": "#2563eb",
+      "order": 0
+    },
+    {
+      "id": "next-up",
+      "name": "Next up",
+      "color": "#7e22ce",
+      "order": 1
+    },
+    {
+      "id": "investigating",
+      "name": "Investigating",
+      "color": "#a16207",
+      "order": 2
+    },
+    {
+      "id": "blocked",
+      "name": "Blocked",
+      "color": "#b91c1c",
+      "order": 3
+    }
+  ],
+  "assignments": {
+    "redesign-openspec-board": "now-shipping",
+    "speed-up-diff-rendering": "now-shipping",
+    "add-session-cost-rollup": "now-shipping",
+    "add-worktree-auto-cleanup": "next-up",
+    "add-mobile-swipe-actions": "next-up",
+    "add-model-usage-charts": "next-up",
+    "harden-gateway-auth": "investigating",
+    "migrate-plugin-registry": "investigating",
+    "fix-terminal-resize-flicker": "blocked",
+    "fix-flow-retry-storm": "blocked"
+  },
+  "changeOrder": {
+    "__ungrouped__": [
+      "add-keyboard-shortcut-help",
+      "e2e-artifact-demo"
+    ],
+    "now-shipping": [
+      "redesign-openspec-board",
+      "speed-up-diff-rendering",
+      "add-session-cost-rollup"
+    ],
+    "next-up": [
+      "add-worktree-auto-cleanup",
+      "add-mobile-swipe-actions",
+      "add-model-usage-charts"
+    ],
+    "investigating": [
+      "harden-gateway-auth",
+      "migrate-plugin-registry"
+    ],
+    "blocked": [
+      "fix-terminal-resize-flicker",
+      "fix-flow-retry-storm"
+    ]
+  }
+}

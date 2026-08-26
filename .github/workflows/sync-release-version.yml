@@ -1,7 +1,13 @@
 name: Sync Release Version
 
-# Writes the latest release metadata into
-# `site/src/data/latest-release.json` and commits it to develop.
+# Rewrites the download block in `site/index.html` from the latest release and
+# commits it to develop.
+#
+# The site used to be Astro and fetched this at build time into
+# `site/src/data/latest-release.json`. It is now a hand-written static page, so
+# the release data lives INLINE in the markup and this workflow is the only
+# thing that keeps it true. Same script a human runs locally:
+# `npm run sync-release -w site`.
 #
 # Triggers:
 #   - `release: { types: [published, edited] }` — the normal path.
@@ -32,36 +38,19 @@ jobs:
           # Use a token that can push back to main.
           token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Fetch latest release and write cache
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Rewrite download block from latest release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-        run: |
-          set -euo pipefail
-          mkdir -p site/src/data
-
-          echo "Fetching latest release for $REPO"
-          gh api "repos/$REPO/releases/latest" --jq '{
-            "$comment": "Auto-updated by .github/workflows/sync-release-version.yml on every release. Do not edit manually.",
-            tagName: .tag_name,
-            name: (.name // .tag_name),
-            url: .html_url,
-            publishedAt: .published_at,
-            assets: [.assets[] | {
-              name: .name,
-              url: .browser_download_url,
-              size: .size,
-              downloadCount: .download_count
-            }]
-          }' > site/src/data/latest-release.json
-
-          echo "Wrote:"
-          cat site/src/data/latest-release.json | head -20
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: node site/design-scratch/scripts/sync-release.mjs
 
       - name: Commit if changed
         run: |
           set -euo pipefail
-          if git diff --quiet site/src/data/latest-release.json; then
+          if git diff --quiet site/index.html; then
             echo "No change — skipping commit."
             exit 0
           fi
@@ -69,6 +58,6 @@ jobs:
           git config user.name  "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          git add site/src/data/latest-release.json
-          git commit -m "chore(site): sync latest-release.json to ${GITHUB_REF_NAME:-manual-refresh}"
+          git add site/index.html
+          git commit -m "chore(site): sync download block to ${GITHUB_REF_NAME:-manual-refresh}"
           git push origin HEAD:develop
