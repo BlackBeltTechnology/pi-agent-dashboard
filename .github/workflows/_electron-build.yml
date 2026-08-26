@@ -531,7 +531,7 @@ jobs:
               apt-get update -qq
               apt-get install -y -qq --no-install-recommends \
                 libgtk-3-0 libnss3 libasound2 libgbm1 libxss1 libxtst6 \
-                libsecret-1-0 xvfb ca-certificates curl >/dev/null
+                libsecret-1-0 xvfb ca-certificates curl iproute2 procps >/dev/null
               # NOT `ldd --version | head -1`: under `set -o pipefail`, head
               # exits after line 1, ldd takes SIGPIPE on its next write, and
               # the pipeline returns 141 — aborting the step right here, before
@@ -563,6 +563,7 @@ jobs:
               mkdir -p "$HOME/.pi/dashboard"
               touch "$HOME/.pi/dashboard/first-run-done"
               xvfb-run -a "$BIN" --no-sandbox > /tmp/electron.log 2>&1 &
+              APP_PID=$!
               for i in $(seq 1 90); do
                 if curl -fsS -o /dev/null http://localhost:8000/api/health 2>/dev/null; then
                   echo "Reached /api/health on Ubuntu 22.04 after ${i}s"; exit 0
@@ -570,7 +571,34 @@ jobs:
                 sleep 1
               done
               echo "::error::AppImage did not reach /api/health on Ubuntu 22.04 within 90s"
-              tail -80 /tmp/electron.log || true
+              # Diagnostics. A bare `tail -80` proved useless: Chromium floods
+              # stderr with dbus and GPU noise inside a container, so the
+              # interesting server output scrolls out of that window and the
+              # failure cannot be diagnosed at all. Capture process liveness,
+              # listening sockets, a verbose probe, and the FULL de-noised log.
+              # Every command here is guarded so a diagnostic cannot itself
+              # abort the step under `set -e` and hide the real failure.
+              echo "--- process liveness ---"
+              if kill -0 "$APP_PID" 2>/dev/null; then
+                echo "electron pid $APP_PID still alive"
+              else
+                echo "electron pid $APP_PID is gone (crashed or exited early)"
+              fi
+              ps -ef > /tmp/ps.txt 2>&1 || true
+              grep -aE "pi-dashboard|electron|xvfb|node" /tmp/ps.txt || echo "(no matching processes)"
+              echo "--- listening sockets (is it on another port?) ---"
+              ss -ltnp > /tmp/ss.txt 2>&1 || true
+              cat /tmp/ss.txt || true
+              echo "--- verbose probe of :8000 ---"
+              curl -sS -v --max-time 5 http://localhost:8000/api/health > /tmp/curl.txt 2>&1 || true
+              cat /tmp/curl.txt || true
+              echo "--- electron.log in full, minus dbus/GPU noise ---"
+              TOTAL=$(wc -l < /tmp/electron.log || echo 0)
+              grep -vaE "dbus|object_proxy|gpu_|Vulkan|GLX|libva|EGL|angle|viz\." \
+                /tmp/electron.log > /tmp/electron.clean.log || true
+              KEPT=$(wc -l < /tmp/electron.clean.log || echo 0)
+              echo "(log had $TOTAL lines; $KEPT remain after the noise filter)"
+              cat /tmp/electron.clean.log || true
               exit 1
             '
 
