@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-grammar-plugin",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "First-party dashboard plugin: fully self-contained composer grammar/spell-check — client composer UI (composer-panel), server route + backends (server entry), and settings (settings-section). See change: make-grammar-fully-plugin-contained.",
   "license": "MIT",
   "type": "module",
@@ -41,8 +41,8 @@
     "react": ">=18.0.0"
   },
   "dependencies": {
-    "@blackbelt-technology/dashboard-plugin-runtime": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
     "@mdi/js": "^7.4.47",
     "@mdi/react": "^1.6.1",
     "diff": "^8.0.3"

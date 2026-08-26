@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-nano-banana",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "TypeScript port of the nano-banana-imagegen pi skill. Generate and edit images with Google Gemini image models via the @the-focus-ai/nano-banana CLI, with GEMINI_API_KEY resolution, output-path handling and batch generation. Exposed as a pi skill and the pi-nano-banana CLI bin.",
   "type": "module",
   "repository": {
@@ -45,7 +45,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0"
+    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": ">=0.80.10",

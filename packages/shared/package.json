@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-shared",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Shared types and utilities for pi-dashboard",
   "license": "MIT",
   "type": "module",

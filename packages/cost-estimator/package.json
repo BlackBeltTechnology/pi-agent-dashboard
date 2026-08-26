@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-cost-estimator",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Software cost & effort estimation from use cases, functional and non-functional requirements and a tech stack. Sizes with Use Case Points + COCOMO II scale, routes NFRs to derived scope or a residual multiplier, distributes effort across 11 roles, compares four delivery modes (human_only, human_with_ai, ai_steered_human_supervised, agentic_hitl), and runs a Beta-PERT Monte Carlo plus an NPV/ROI business case. Calibrates agent cost and steering time from real pi session telemetry.",
   "type": "module",
   "license": "MIT",
@@ -94,9 +94,9 @@
     "react": ">=18.0.0"
   },
   "dependencies": {
-    "@blackbelt-technology/dashboard-plugin-runtime": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-session-distiller": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0"
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-session-distiller": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
