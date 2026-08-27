@@ -74,12 +74,20 @@ export function replayEntriesAsEvents(
     // context-only and not shown. Distinct from type:"custom" (CustomEntry).
     // See change: greet-as-assistant-message.
     if (entry.type === "custom_message" && entry.display) {
-      const cm = {
+      const cm: Record<string, unknown> = {
         role: "custom",
         customType: entry.customType,
         content: entry.content,
         display: true,
       };
+      // Include custom-message details (e.g. the greeting's state) if present,
+      // matching the tool-details precedent below. Live delivery carries
+      // entry.details; replay must not drop it or consumers cannot render a
+      // state-derived glyph. Only added when present, so a detail-less message
+      // gains no undefined key. See change: restore-greeting-chat-continuity.
+      if (entry.details && typeof entry.details === "object") {
+        cm.details = entry.details;
+      }
       // Keep the greeting discriminator explicit while emitting each greeting
       // inline as chronological chat history. See change:
       // restore-greeting-chat-continuity.
