@@ -30,6 +30,8 @@ function depsWithSharedRegistry(): ServerContextDeps {
     spawnSession: async () => ({ success: true }),
     abortSession: () => true,
     abortSpawnedRun: async () => false,
+    registerCwdPolicy: () => {},
+    unregisterCwdPolicy: () => {},
     provide: (name, value) => { registry.set(name, value); },
     consume: <T = unknown>(name: string) => registry.get(name) as T | undefined,
     getPluginConfig: () => ({}),

@@ -30,6 +30,8 @@ function baseDeps(): ServerContextDeps {
     spawnSession: async () => ({ success: true }),
     abortSession: () => true,
     abortSpawnedRun: async () => false,
+    registerCwdPolicy: () => {},
+    unregisterCwdPolicy: () => {},
     provide: () => {},
     consume: () => undefined,
     getPluginConfig: () => ({}),

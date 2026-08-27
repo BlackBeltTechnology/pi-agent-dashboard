@@ -804,6 +804,42 @@ Automation plugin = `packages/automation-plugin/`. Schedule-triggered background
 - UI via shell slots: sidebar-folder-section, command-route `/automation`, shell-overlay-route, session-card-badge, settings-section general.
 - See change: add-automation-plugin.
 
+### Plugin Spawn Capability Scope (`add-plugin-spawn-scope`)
+
+- `ServerPluginContext.spawnSession(opts: PluginSpawnOptions)` gains optional `scope` block.
+- `scope` constrains spawned session tool/skill/extension surface.
+- First-party trusted plugins only (priority <= 100).
+- `scope.tools` (string[]) → `--tools a,b,c` (comma-joined single arg).
+- `scope.excludeTools` (string[]) → `--exclude-tools a,b,c` (comma-joined single arg).
+- `scope.noBuiltinTools`, `scope.noTools`, `scope.noSkills` (bool) → bare flags.
+- `scope.skills` (string[]) → repeatable `--skill <path>`.
+- `scope.extensions` (string[]) → repeatable `-e <path>`.
+- NO `noExtensions` toggle. Bridge (control channel) must survive. Disabling extension discovery stops dashboard bridge loading → session uncontrollable. (design D2/D6)
+- `scope.extensions` ADDITIVE allowlist. Discovery still runs, bridge loads.
+- `extensionConfig[name][key]` projects to namespaced env `PI_EXT_<NAME>_<KEY>=value` (NOT argv).
+- Name+key uppercased, non-`[A-Z0-9_]` → `_`.
+- Headless mechanism only (plugin spawns headless-only).
+- `extensionConfig` values now `string | string[]`. Scalar env verbatim. Array → `JSON.stringify`. (D8)
+- env NAME normalization splits camelCase first. `allowedRoots` → `ALLOWED_ROOTS`. Then uppercase. Then non-`[A-Z0-9_]` → `_`.
+- Mapper `pluginSpawnToSessionOptions(opts): MappedSpawnOptions` in `packages/dashboard-plugin-runtime/src/server/server-context.ts`.
+- Total + pure. NEVER throws (plugin input untrusted JS).
+- Flattens `scope` → flat `SessionFlags` argv fields + `extensionConfig`.
+- Malformed containers treated absent.
+- Non-string/empty/NUL argv entries dropped.
+- NUL env values dropped.
+- Conflicting `noTools` + `tools` both forwarded. Pi arbitrates precedence. (D3)
+- Empty array ⇒ no flag emitted.
+- `scope` absent ⇒ argv + env byte-identical to pre-change.
+- Host hook (`packages/server/src/server.ts`) calls mapper BEFORE `pendingAutomationRunRegistry.enqueue`.
+- Rejected input cannot strand stale `cwd`-keyed stamp. (D7)
+- Consumers (automation-plugin, flows, REST spawn) do NOT populate `scope` yet. Future opt-in. Plumbing only.
+- Part B: host-cwd-policy registry. `CwdPolicyRegistry` + pure `mergeCwdPolicy` in `packages/server/src/spawn-process/cwd-policy.ts`.
+- cwd-keyed. Tighten-only. Composed across ancestors. Merged into every `spawnPiSession`.
+- `registerCwdPolicy`/`unregisterCwdPolicy` on plugin ctx. Trust-gated.
+- Registration requires CANONICAL containment (no lexical fallback — symlink-escape guard).
+- `resolve()` matches canonical-OR-lexical (fail-toward-applying).
+- See change: add-plugin-spawn-scope.
+
 ### Hermes Memory Settings Plugin (`add-hermes-memory-settings-plugin`)
 
 New package `packages/hermes-memory-plugin` (client + server + shared). Settings-section plugin for the external `pi-hermes-memory` pi extension.
