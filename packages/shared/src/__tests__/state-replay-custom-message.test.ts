@@ -135,4 +135,26 @@ describe("replayEntriesAsEvents — ib-greeting chronological chat history", () 
     expect(greetingEvents(events)).toHaveLength(0);
     expect(events).toHaveLength(0);
   });
+
+  it("T5: a persisted greeting WITH details replays carrying its details intact", () => {
+    const withDetails = { ...greetingEntry("g1", "A"), details: { state: "awaiting-approval", glyph: "clock" } };
+    const events = replayEntriesAsEvents("sess-1", [withDetails]);
+    const ge = greetingEvents(events);
+    expect(ge.map((e) => e.event.eventType)).toEqual(["message_start", "message_end"]);
+    for (const e of ge) {
+      const m = (e.event.data as any).message;
+      expect(m.customType).toBe("ib-greeting");
+      expect(m.details).toEqual({ state: "awaiting-approval", glyph: "clock" });
+    }
+  });
+
+  it("T6: a greeting WITHOUT details injects no `details` key", () => {
+    const events = replayEntriesAsEvents("sess-1", [greetingEntry("g1", "A")]);
+    const ge = greetingEvents(events);
+    expect(ge).toHaveLength(2);
+    for (const e of ge) {
+      const m = (e.event.data as any).message;
+      expect("details" in m).toBe(false);
+    }
+  });
 });
