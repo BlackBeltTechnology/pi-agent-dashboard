@@ -126,6 +126,8 @@
   --code-border:#cccccc;
 }
 html{color-scheme:dark}
+:root{--glass-tint:74%}          /* see .glass — measured, not eyeballed */
+[data-theme="light"]{--glass-tint:70%}
 html[data-theme="light"]{color-scheme:light}
 
 *{box-sizing:border-box}
@@ -251,8 +253,67 @@ h1 em{font-style:normal;color:var(--accent-text)}
   color:#e5e5e5;background:rgba(10,10,10,.72);backdrop-filter:blur(6px);
   border:1px solid rgba(255,255,255,.14);border-radius:5px;padding:6px 9px}
 
+/* ---------------- glass bands ----------------
+   The opaque bands (spec strip, download) stop being opaque: they sit on a
+   blurred, chromatically-split copy of the 3D field instead of hiding it.
+
+   Three layers, in this order, and the ORDER is the whole trick:
+
+     1. `background` — a translucent tint. Not decoration: it is the contrast
+        floor. Everything below is unpredictable moving imagery, so the text
+        can only be legible because this tint is doing the work. Measured, not
+        guessed (see the contrast probe in the commit).
+     2. `backdrop-filter: blur()` — the baseline every engine supports.
+     3. `backdrop-filter: url(#chroma)` — the same blur plus a per-channel
+        offset, applied ONLY where the browser accepts an SVG filter as a
+        backdrop filter (Chromium, Firefox). Safari parses filter functions
+        but not url() here, so it keeps step 2 and loses only the fringe.
+
+   Chromatic aberration is ±1.4px, which is roughly a lens defect and not an
+   effect: at the sizes this page sets type, it reads as depth on the blurred
+   slabs behind and is invisible on the flat tint. Pushed further it stops
+   looking like glass and starts looking like a broken display. */
+.glass{
+  /* Tint strength is per-theme and MEASURED, not chosen by eye. In dark the
+     field's slabs are LIGHTER than the page, so they eat the contrast of the
+     dim `.stat-k` labels; at 78% the worst run measured 4.27:1, under the 4.5
+     AA floor for small text. Light theme has the opposite problem and far more
+     headroom, so it can afford to show more of the field.
+
+     Raising the tint alone could NOT fix it: `--text-tertiary` measures 4.98:1
+     on the opaque background, so a label starts with 0.48 of margin and any
+     translucency spends it. Repeated sampling across random field frames put
+     the worst case at 4.4-4.6 — i.e. straddling the floor, which is a fail,
+     because "usually accessible" is not accessible. So the small labels get a
+     brighter colour ON GLASS ONLY (below); the tint stops being the only
+     lever and both layers keep their own margin. */
+  background:color-mix(in srgb, var(--bg-secondary) var(--glass-tint,86%), transparent);
+  -webkit-backdrop-filter:blur(18px) saturate(1.15);
+  backdrop-filter:blur(18px) saturate(1.15);
+}
+@supports (backdrop-filter: url(#chroma)) {
+  .glass{backdrop-filter:url(#chroma)}
+}
+/* Cost control. A full-width backdrop blur is recomputed EVERY frame while the
+   field animates behind it, and this page already runs a WebGL scene on
+   machines that manage ~30fps. Small screens are the ones least able to pay,
+   and are also where the bands are tallest relative to the viewport, so they
+   get the tint alone — same colour, no per-frame filter. */
+/* Small dim type is the first casualty of a moving backdrop. On glass only,
+   the label steps up one rung (tertiary -> secondary); everything else keeps
+   its designed colour. */
+.glass .spec .stat-k,.glass .rel .when,.glass .foot-note{color:var(--text-secondary)}
+
+@media(max-width:720px){
+  .glass{background:var(--bg-secondary);backdrop-filter:none;-webkit-backdrop-filter:none}
+}
+/* Some people ask the OS for less of exactly this. Honour it. */
+@media(prefers-reduced-transparency:reduce){
+  .glass{background:var(--bg-secondary);backdrop-filter:none;-webkit-backdrop-filter:none}
+}
+
 /* ---------------- spec strip ---------------- */
-.strip{border-block:1px solid var(--border);background:var(--bg-secondary)}
+.strip{border-block:1px solid var(--border)}
 .strip .wrap{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;padding-block:0}
 .spec{padding:26px 0}
 .spec .stat-k{color:var(--label);display:block;margin-bottom:6px}
@@ -353,7 +414,7 @@ h2 em{font-style:normal;color:var(--accent-text)}
    animates in also animates OUT on the way back up — the same retrace that was
    just removed from the field's scroll physics. Content is present from first
    paint, and scrolling only moves the page. */
-.band{border-block:1px solid var(--border);background:var(--bg-secondary)}
+.band{border-block:1px solid var(--border)}
 .head{max-width:56ch;margin:0 0 40px}
 
 /* Release line: version, date, and where to read more. */
@@ -442,6 +503,15 @@ footer{border-top:1px solid var(--border);padding-block:30px}
 .foot{display:flex;flex-wrap:wrap;gap:18px;align-items:center}
 .foot a{color:var(--label);text-decoration:none}
 .foot a:hover{color:var(--text-primary)}
+/* The note is a deliberately low-contrast micro-caption (--label, ~2:1), which
+   is fine for decorative text and NOT fine for something clickable. The one
+   link inside it is lifted and underlined, so the only interactive thing in the
+   caption is both visible and reachable. --text-secondary, not tertiary:
+   tertiary measures 4.48:1 in LIGHT theme (the token is marked "decorative
+   only" there for exactly this reason) and would fail the 4.5 floor. */
+.foot .note a{color:var(--text-secondary);text-decoration:underline;text-underline-offset:2px;
+  text-decoration-thickness:1px;text-decoration-color:color-mix(in srgb,var(--text-secondary) 45%,transparent)}
+.foot .note a:hover{color:var(--text-primary);text-decoration-color:currentColor}
 .foot .note{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--label);
   text-transform:none;letter-spacing:0}
 
@@ -457,12 +527,34 @@ footer{border-top:1px solid var(--border);padding-block:30px}
 .tt button[aria-checked="true"]{background:var(--bg-tertiary);color:var(--accent-text)}
 .tt svg{width:14px;height:14px}
 
+.filters{position:absolute;width:0;height:0;overflow:hidden}
+
 @media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
 </style>
 </head>
 <body>
 
 <canvas id="field" aria-hidden="true"></canvas>
+
+<!-- Backdrop filter for .glass. Blur once, then split the blurred copy into
+     three channel-isolated layers, offset red left and blue right, and screen
+     them back together — which reconstructs the image with a chromatic fringe.
+     `color-interpolation-filters="sRGB"` is REQUIRED: the SVG default is
+     linearRGB, which would silently brighten every backdrop this touches.
+     The filter region is widened to -20%/140% so the blur samples beyond the
+     band edges instead of fading into transparency and leaving a dark seam. -->
+<svg class="filters" aria-hidden="true" focusable="false"><filter id="chroma"
+     x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+  <feGaussianBlur in="SourceGraphic" stdDeviation="9" result="bl"/>
+  <feOffset in="bl" dx="-1.4" dy="0" result="rOff"/>
+  <feOffset in="bl" dx="1.4" dy="0" result="bOff"/>
+  <feColorMatrix in="rOff" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="r"/>
+  <feColorMatrix in="bl"   values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0" result="g"/>
+  <feColorMatrix in="bOff" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" result="b"/>
+  <feBlend in="r" in2="g" mode="screen" result="rg"/>
+  <feBlend in="rg" in2="b" mode="screen" result="rgb"/>
+  <feColorMatrix in="rgb" type="saturate" values="1.15"/>
+</filter></svg>
 
 <header>
   <div class="wrap nav">
@@ -542,7 +634,7 @@ footer{border-top:1px solid var(--border);padding-block:30px}
 </div>
 
 <!-- ============================ SPEC STRIP ============================ -->
-<div class="strip">
+<div class="strip glass">
   <div class="wrap">
     <!-- Not "Transport: WebSocket": how the bytes travel is an implementation
          detail no visitor is choosing on. The strip is four decision facts, so
@@ -760,7 +852,7 @@ footer{border-top:1px solid var(--border);padding-block:30px}
      numbers are shaped like real ones so the layout is judged at real width.
      Band is OPAQUE: this is the block where the page stops asserting and
      starts handing over files, so the depth behind it gets out of the way. -->
-<section class="band" id="download" data-field="control">
+<section class="band glass" id="download" data-field="control">
   <div class="wrap">
     <div class="head">
       <p class="eyebrow mono">Download</p>
@@ -917,7 +1009,10 @@ pi-dashboard start --dev</pre>
     ><a href="https://github.com/BlackBeltTechnology/pi-agent-dashboard/blob/develop/CHANGELOG.md">Changelog</a
     ><a href="https://github.com/BlackBeltTechnology/pi-agent-dashboard/blob/develop/LICENSE">Licence</a
     ><a href="https://discord.gg/DrNebZ3pF5">Discord</a>
-    <span class="note">MIT · © 2026 Robert Csakany · session data in screenshots is illustrative</span>
+    <!-- Name and link taken from the old site's Footer.astro, which is also how
+         packages/electron/package.json spells the author. Note the LICENSE file
+         still names an individual holder — see the commit message. -->
+    <span class="note">MIT · © 2026 <a href="https://blackbelt.hu" target="_blank" rel="noopener">BlackBelt Technology</a> · session data in screenshots is illustrative</span>
   </div>
 </footer>
 
