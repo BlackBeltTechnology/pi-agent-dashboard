@@ -262,11 +262,15 @@ function sanitizeExtensionConfig(
  */
 export function pluginSpawnToSessionOptions(opts: PluginSpawnOptions): MappedSpawnOptions {
   const result: MappedSpawnOptions = { strategy: "headless" };
-  if (isSafeArgvString(opts.model)) result.model = opts.model;
-  const name = opts.automationRun?.name;
+  // Plugin input is untrusted JS: a non-record top-level value (null/undefined/
+  // primitive) must NOT throw — normalize to an empty record and return the
+  // default headless result (design D7: total, pure mapper).
+  const input = isRecord(opts) ? opts : {};
+  if (isSafeArgvString(input.model)) result.model = input.model;
+  const name = isRecord(input.automationRun) ? input.automationRun.name : undefined;
   if (isSafeArgvString(name)) result.name = name;
 
-  const scope: unknown = opts.scope;
+  const scope: unknown = input.scope;
   if (isRecord(scope)) {
     const tools = sanitizeArgvList(scope.tools);
     if (tools) result.tools = tools;

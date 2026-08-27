@@ -2200,6 +2200,16 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 if (!trusted) {
                   return { success: false, message: `spawn not permitted for plugin "${plugin.manifest.id}"` };
                 }
+                // Validate the untrusted root options object BEFORE mapping or
+                // dereferencing `opts.automationRun`/`opts.cwd`. A JS plugin can
+                // call `spawnSession(null)` or omit `cwd`; reject both with a
+                // structured result instead of throwing.
+                if (typeof opts !== "object" || opts === null) {
+                  return { success: false, message: "spawn options must be an object" };
+                }
+                if (typeof opts.cwd !== "string" || opts.cwd.length === 0) {
+                  return { success: false, message: "spawn options require a non-empty cwd" };
+                }
                 // Map plugin-facing options to session options BEFORE the
                 // enqueue below. The mapper is total (never throws) and
                 // sanitizes untrusted plugin input; calling it first closes the

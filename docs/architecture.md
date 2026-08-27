@@ -806,15 +806,38 @@ Automation plugin = `packages/automation-plugin/`. Schedule-triggered background
 
 ### Plugin Spawn Capability Scope (`add-plugin-spawn-scope`)
 
-- `ServerPluginContext.spawnSession(opts: PluginSpawnOptions)` gains optional `scope` block. Constrains spawned session tool/skill/extension surface. First-party trusted plugins only (priority<=100).
-- `scope` fields: `tools` / `excludeTools` (string[]) → `--tools a,b,c` / `--exclude-tools a,b,c` (comma-joined single arg). `noBuiltinTools` / `noTools` / `noSkills` (bool) → bare flags. `skills` (string[]) → repeatable `--skill <path>`. `extensions` (string[]) → repeatable `-e <path>`. `extensionConfig` (Record<name, Record<key, value>>) → env.
-- NO `noExtensions` toggle by design. Disabling extension discovery stops dashboard bridge loading → session uncontrollable. Bridge (control channel) must survive. `extensions` ADDITIVE allowlist — discovery still runs, bridge loads. (design D2/D6)
-- `extensionConfig[name][key]` projected to namespaced env `PI_EXT_<NAME>_<KEY>=value` (NOT argv). Name+key uppercased, non-`[A-Z0-9_]` → `_`. Headless mechanism only (plugin spawns headless-only).
-- Mapper `pluginSpawnToSessionOptions(opts): MappedSpawnOptions` (in `packages/dashboard-plugin-runtime/src/server/server-context.ts`). Total + pure. NEVER throws (plugin input untrusted JS). Flattens `scope` → flat `SessionFlags` argv fields + `extensionConfig`. Malformed containers treated absent. Non-string/empty/NUL argv entries dropped. NUL env values dropped.
+- `ServerPluginContext.spawnSession(opts: PluginSpawnOptions)` gains optional `scope` block.
+- `scope` constrains spawned session tool/skill/extension surface.
+- First-party trusted plugins only (priority <= 100).
+- `scope.tools` (string[]) → `--tools a,b,c` (comma-joined single arg).
+- `scope.excludeTools` (string[]) → `--exclude-tools a,b,c` (comma-joined single arg).
+- `scope.noBuiltinTools`, `scope.noTools`, `scope.noSkills` (bool) → bare flags.
+- `scope.skills` (string[]) → repeatable `--skill <path>`.
+- `scope.extensions` (string[]) → repeatable `-e <path>`.
+- NO `noExtensions` toggle. Bridge (control channel) must survive. Disabling extension discovery stops dashboard bridge loading → session uncontrollable. (design D2/D6)
+- `scope.extensions` ADDITIVE allowlist. Discovery still runs, bridge loads.
+- `extensionConfig[name][key]` projects to namespaced env `PI_EXT_<NAME>_<KEY>=value` (NOT argv).
+- Name+key uppercased, non-`[A-Z0-9_]` → `_`.
+- Headless mechanism only (plugin spawns headless-only).
+- `extensionConfig` values now `string | string[]`. Scalar env verbatim. Array → `JSON.stringify`. (D8)
+- env NAME normalization splits camelCase first. `allowedRoots` → `ALLOWED_ROOTS`. Then uppercase. Then non-`[A-Z0-9_]` → `_`.
+- Mapper `pluginSpawnToSessionOptions(opts): MappedSpawnOptions` in `packages/dashboard-plugin-runtime/src/server/server-context.ts`.
+- Total + pure. NEVER throws (plugin input untrusted JS).
+- Flattens `scope` → flat `SessionFlags` argv fields + `extensionConfig`.
+- Malformed containers treated absent.
+- Non-string/empty/NUL argv entries dropped.
+- NUL env values dropped.
 - Conflicting `noTools` + `tools` both forwarded. Pi arbitrates precedence. (D3)
-- Empty array ⇒ no flag emitted. `scope` absent ⇒ argv + env byte-identical to pre-change.
-- Host hook (`packages/server/src/server.ts`) calls mapper BEFORE `pendingAutomationRunRegistry.enqueue` — rejected input cannot strand stale `cwd`-keyed stamp. (D7)
+- Empty array ⇒ no flag emitted.
+- `scope` absent ⇒ argv + env byte-identical to pre-change.
+- Host hook (`packages/server/src/server.ts`) calls mapper BEFORE `pendingAutomationRunRegistry.enqueue`.
+- Rejected input cannot strand stale `cwd`-keyed stamp. (D7)
 - Consumers (automation-plugin, flows, REST spawn) do NOT populate `scope` yet. Future opt-in. Plumbing only.
+- Part B: host-cwd-policy registry. `CwdPolicyRegistry` + pure `mergeCwdPolicy` in `packages/server/src/spawn-process/cwd-policy.ts`.
+- cwd-keyed. Tighten-only. Composed across ancestors. Merged into every `spawnPiSession`.
+- `registerCwdPolicy`/`unregisterCwdPolicy` on plugin ctx. Trust-gated.
+- Registration requires CANONICAL containment (no lexical fallback — symlink-escape guard).
+- `resolve()` matches canonical-OR-lexical (fail-toward-applying).
 - See change: add-plugin-spawn-scope.
 
 ### Hermes Memory Settings Plugin (`add-hermes-memory-settings-plugin`)

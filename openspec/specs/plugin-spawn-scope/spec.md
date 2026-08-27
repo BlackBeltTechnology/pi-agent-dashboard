@@ -1,7 +1,12 @@
 # plugin-spawn-scope Specification
 
 ## Purpose
-TBD - created by archiving change add-plugin-spawn-scope. Update Purpose after archive.
+Defines how a trusted dashboard plugin constrains the tool / skill / extension
+surface of a session it spawns. `PluginSpawnOptions.scope` flattens through the
+total, pure `pluginSpawnToSessionOptions` mapper into flat `SessionFlags` argv
+fields plus per-extension `PI_EXT_<NAME>_<KEY>` process-env projection, so a
+spawned session inherits a bounded capability surface without the plugin
+assembling argv itself.
 ## Requirements
 ### Requirement: `PluginSpawnOptions` exposes a typed `scope` block
 
@@ -85,7 +90,7 @@ No `scope` field SHALL be able to prevent the spawned session's dashboard bridge
 
 ### Requirement: `extensionConfig` is projected to namespaced env on the headless spawn
 
-On the headless plugin-spawn mechanism (the only mechanism `spawnSession` uses), the host SHALL project each `scope.extensionConfig[name][key]` entry into the spawned process env as a variable named `PI_EXT_<NAME>_<KEY>`, where `<NAME>` and `<KEY>` are the extension name and config key normalized to a valid POSIX env-var identifier by uppercasing and replacing every character outside `[A-Z0-9_]` with `_`.
+On the headless plugin-spawn mechanism (the only mechanism `spawnSession` uses), the host SHALL project each `scope.extensionConfig[name][key]` entry into the spawned process env as a variable named `PI_EXT_<NAME>_<KEY>`, where `<NAME>` and `<KEY>` are the extension name and config key normalized to a valid POSIX env-var identifier by splitting camelCase boundaries (inserting `_` between a lowercase/digit and a following uppercase letter), then uppercasing, then replacing every character outside `[A-Z0-9_]` with `_`. So `allowedRoots` normalizes to `ALLOWED_ROOTS` (not `ALLOWEDROOTS`).
 
 A config value MAY be a `string` or a `string[]`. A `string` value SHALL be projected **verbatim** as the env value. A `string[]` value SHALL be projected as its **JSON encoding** (`JSON.stringify(value)`) as the env value; the consuming extension `JSON.parse`s the value for keys it knows to be array-typed. This encoding SHALL be lossless for values containing characters unsafe for a delimiter-join convention (filesystem paths, commas, spaces): a `string[]` round-tripped through the env and `JSON.parse` SHALL deep-equal the original array. `extensionConfig` SHALL NOT contribute any pi argv element. Routing `scope` through a tmux mechanism would require per-window `-e` env injection (as the spawn-token already does) and is out of scope for this change, since plugin spawns are headless-only.
 
@@ -113,15 +118,15 @@ A config value MAY be a `string` or a `string[]`. A `string` value SHALL be proj
 
 ### Requirement: `PluginSpawnOptions → SessionOptions` mapping is an extractable pure function
 
-The inline `PluginSpawnOptions → SessionOptions` mapping in the `spawnSession` hook SHALL be extracted into an exported pure function `pluginSpawnToSessionOptions(opts: PluginSpawnOptions): SessionOptions` so the field forwarding is unit-testable in isolation, and the `spawnSession` hook SHALL delegate to it.
+The inline `PluginSpawnOptions → SessionOptions` mapping in the `spawnSession` hook SHALL be extracted into an exported pure function `pluginSpawnToSessionOptions(opts: PluginSpawnOptions): MappedSpawnOptions` (where `MappedSpawnOptions` extends `SessionFlags` with `strategy` and `extensionConfig`, a structural superset of `SessionOptions`) so the field forwarding is unit-testable in isolation, and the `spawnSession` hook SHALL delegate to it.
 
 #### Scenario: Mapper forwards existing fields unchanged
 - **WHEN** `pluginSpawnToSessionOptions` receives `{ cwd, model }` with no `scope`
-- **THEN** the returned `SessionOptions` SHALL carry the same `model` and produce the same argv as the prior inline literal
+- **THEN** the returned `MappedSpawnOptions` SHALL carry the same `model` and produce the same argv as the prior inline literal
 
 #### Scenario: Mapper forwards scope fields
 - **WHEN** `pluginSpawnToSessionOptions` receives a `scope` block
-- **THEN** the returned `SessionOptions` SHALL carry each `scope.*` field through to `sessionFlagsToArgv` (argv fields) and `buildSpawnEnv` (`extensionConfig`)
+- **THEN** the returned `MappedSpawnOptions` SHALL carry each `scope.*` field through to `sessionFlagsToArgv` (argv fields) and `buildSpawnEnv` (`extensionConfig`)
 
 ### Requirement: The mapper is total and sanitizes untrusted input
 

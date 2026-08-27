@@ -1,7 +1,12 @@
 # host-cwd-policy Specification
 
 ## Purpose
-TBD - created by archiving change add-plugin-spawn-scope. Update Purpose after archive.
+Defines a host-owned, per-plugin, cwd-keyed capability policy registry. A trusted
+plugin pins a TIGHTENING capability floor (tools / skills allowlists, denylists,
+`no*` toggles — never extensions/extensionConfig) onto a canonical working
+directory; the host composes every ancestor-or-equal policy and merges it into
+EVERY `spawnPiSession` via a non-weakening merge, so a spawned session cannot
+exceed the floor set for its cwd regardless of caller-supplied options.
 ## Requirements
 ### Requirement: Host exposes a per-plugin, cwd-keyed capability policy registry
 

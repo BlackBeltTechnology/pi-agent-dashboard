@@ -256,14 +256,15 @@ export class CwdPolicyRegistry {
     if (this.fold(resolved) === this.fold(home)) {
       throw new CwdPolicyRejectedError(`cwd policy target may not be the user home: ${resolved}`);
     }
+    // Registration requires CANONICAL containment only. The lexical fallback
+    // is deliberately NOT used here: it would admit an external target reached
+    // through a workspace symlink (e.g. `/workspace/link/child` where `link` ->
+    // `/external`), letting a plugin pin a policy onto an unrelated canonical
+    // subtree. Canonical-OR-lexical matching stays in `resolve()` alone, where
+    // over-applying is the safe (fail-toward-applying) direction (B6/B7).
     const roots = this.recognizedRoots();
     const canonicalTarget = this.canonicalize(cwd);
-    const inWorkspaceRoot = roots.some((root) => {
-      const canonicalRoot = this.canonicalize(root);
-      return (
-        prefixMatch(canonicalTarget, canonicalRoot) || prefixMatch(this.lexical(cwd), this.fold(path.resolve(root)))
-      );
-    });
+    const inWorkspaceRoot = roots.some((root) => prefixMatch(canonicalTarget, this.canonicalize(root)));
     if (!inWorkspaceRoot) {
       throw new CwdPolicyRejectedError(
         `cwd policy target is not within a recognized workspace root: ${resolved}`,
