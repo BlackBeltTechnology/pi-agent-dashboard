@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-goal-plugin",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Goal-driven autonomous continuation plugin for pi-dashboard — surfaces the @ricoyudog/pi-goal-hermes judge loop as a live session-card chip plus set/pause/resume/clear controls.",
   "license": "MIT",
   "publishConfig": {
@@ -93,8 +93,8 @@
     "wouter": ">=3.0.0"
   },
   "dependencies": {
-    "@blackbelt-technology/dashboard-plugin-runtime": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
     "@mdi/js": "^7.4.47",
     "@mdi/react": "^1.6.1"
   },

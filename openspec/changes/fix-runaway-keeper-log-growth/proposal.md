@@ -31,10 +31,11 @@ The project already has the right pattern in-tree: `model-proxy/request-log.ts` 
 
 ## What Changes
 
-- **Bound the keeper log.** Size-capped rotation, matching the established `request-log.ts` precedent (rotate at a threshold, retain a bounded number of generations, discard beyond). Applies whether or not `capturePiOutput` is on — the keeper's own lifecycle lines are unbounded today too, merely slower.
+- **Bound the keeper log.** A size cap enforced by in-place truncation, with no retained generation (see `design.md` D1/D2 — the `request-log.ts` rename+generation pattern is unsafe here, and a copy step stalls the RPC path). Applies whether or not `capturePiOutput` is on — the keeper's own lifecycle lines are unbounded today too, merely slower.
 - **Rotation must be safe for a redirected fd.** `stdio: [_, logFd, logFd]` hands the raw descriptor to a child process, so naive rename-and-reopen leaves pi writing into the old inode. The rotation strategy has to account for this; it is the non-obvious part of the change and the reason this is not a two-line fix.
-- **Reclaim existing residue.** A bounded startup sweep, or an explicit maintenance action, that reports and reclaims oversized pre-existing keeper logs. Must not delete a log belonging to a live keeper.
-- **Surface the growth.** Keeper-log total size becomes observable (`/api/health` or the existing store-shed telemetry alongside `getTrimStats()`), so the next occurrence is noticed by the system rather than by accident.
+- **The cap is a config knob, not a literal.** `config.keeperLog` gains `maxBytes` / `checkIntervalMs`, plumbed to the CJS keeper as env vars via the existing `capturePiOutput` path, so the keeper and the server sweep share one source of truth.
+- **Reclaim existing residue.** A bounded startup sweep that reports and reclaims oversized pre-existing keeper logs — by **truncating**, never unlinking (see `design.md` D5: no available liveness predicate can prove nobody holds the fd, and an unlinked-but-written inode is worse than the bug).
+- **Surface the growth.** Keeper-log size becomes observable in `/api/health` alongside `storeTrim`, including a `runawayFiles` signal for "rotation is not working here" — the keeper is a separate process and cannot report a failed truncation itself.
 
 Not in scope: changing what the keeper logs, changing the `capturePiOutput` default, or altering keeper lifecycle and discovery.
 
@@ -52,8 +53,9 @@ Not in scope: changing what the keeper logs, changing the `capturePiOutput` defa
 
 - `packages/server/src/rpc-keeper/keeper.cjs` — rotation at the write path and at the `stdio` handoff. CJS-pure; this constraint is deliberate and must hold.
 - `packages/server/src/rpc-keeper/keeper-manager.ts` — the sweep, and surfacing size.
-- `packages/server/src/routes/` — health/telemetry exposure.
-- **Data loss**: rotation discards old log content by design. Nothing else reads these files programmatically (they are a human debugging aid), but the retention window should be generous enough to stay useful for the debugging session that motivated enabling capture in the first place.
+- `packages/server/src/routes/system-routes.ts` — health/telemetry exposure.
+- `packages/shared/src/config.ts` — `keeperLog.maxBytes` / `keeperLog.checkIntervalMs`, additive with defaults.
+- **Data loss**: rotation discards the whole preceding window by design (no generation is retained). Nothing else reads these files programmatically (they are a human debugging aid); the 128 MiB cap is set so the surviving window stays useful for the debugging session that motivated enabling capture in the first place.
 - **Cross-platform**: Windows cannot rename an open file the way POSIX can. The rotation strategy must work on both, or degrade explicitly rather than silently failing to rotate on one platform.
 
 ## Discipline Skills

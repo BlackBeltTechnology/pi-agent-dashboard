@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en" data-resolution="custom">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1520, height=1000" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      *{margin:0;padding:0;box-sizing:border-box}
+      html,body{width:1520px;height:1000px;overflow:hidden;background:#0a0a0a}
+
+      /* Frame tokens mirrored from packages/client/src/index.css `:root`. The
+         FRAME stays dark on purpose: it is video chrome, not product surface.
+         Only the screenshot repaints, so the theme change reads as the app
+         switching themes rather than the video cutting to another shot.
+         It also keeps every caption on one stable background, which is what
+         the contrast gate can actually reason about — an earlier cut wiped
+         the whole canvas including a duplicated caption, and the checker
+         scored the covered dark caption against the light face behind it. */
+      :root{
+        --bg:#0a0a0a; --rim:rgba(255,255,255,.10); --edge:#2a2a2a;
+        --fg:#e5e5e5; --sub:#808080; --accent:#60a5fa;
+        --mono:"JetBrains Mono","SF Mono",Menlo,Monaco,monospace;
+        --sans:"Instrument Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+      }
+      body{font-family:var(--sans);background:var(--bg)}
+      .clip{position:absolute;inset:0;width:1520px;height:1000px}
+
+      /* Screenshot stage — real UI, framed by nothing but a rim. */
+      .shot{
+        position:absolute;left:40px;top:34px;width:1440px;height:900px;
+        border-radius:12px;overflow:hidden;
+        box-shadow:inset 0 1px 0 var(--rim), 0 40px 90px rgba(0,0,0,.6);
+        outline:1px solid var(--edge);outline-offset:-1px;
+      }
+      .shot img{display:block;width:1440px;height:900px}
+      .shot .base{position:absolute;top:0;left:0}
+
+      /* Wiping window over the dark base. Width animates 0 → 1440; the inner
+         img keeps a fixed 1440px box so it never squashes as the window opens. */
+      .wipe{position:absolute;top:0;left:0;height:900px;width:0;overflow:hidden}
+      .wipe img{position:absolute;top:0}
+
+      .seam{position:absolute;top:0;left:0;width:2px;height:900px;
+        background:#93c5fd;box-shadow:0 0 26px 4px rgba(96,165,250,.6)}
+
+      .cap{position:absolute;left:40px;bottom:26px;display:flex;align-items:baseline;gap:18px}
+      .cap .n{font-family:var(--mono);font-size:15px;letter-spacing:.14em;color:var(--accent)}
+      .cap .t{font-size:31px;font-weight:400;letter-spacing:-.02em;color:var(--fg)}
+      .cap .s{font-family:var(--mono);font-size:15px;color:var(--sub);letter-spacing:.04em}
+
+      /* The real CSS selector that drives the theme, used as the readout. */
+      .sel{position:absolute;right:40px;bottom:30px;width:230px;height:22px}
+      .sel span{position:absolute;right:0;top:0;font-family:var(--mono);font-size:15px;
+        letter-spacing:.04em;color:var(--accent);white-space:nowrap}
+
+      #rail.clip{position:absolute;inset:auto;left:40px;right:40px;bottom:12px;
+        width:auto;height:2px;background:#1e1e1e;border-radius:1px}
+      #railfill{height:100%;width:0;background:var(--accent);border-radius:1px}
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="18"
+         data-width="1520" data-height="1000">
+
+      <!-- SCENE 1 — sessions -->
+      <div id="s1" class="clip scene" data-start="0" data-duration="3.9" data-track-index="1"
+           data-layout-allow-overlap>
+        <div class="shot">
+          <img class="base" src="assets/sessions-dark.png" alt="Session list, dark theme" />
+          <div class="wipe"><img data-layout-allow-overflow src="assets/sessions-light.png" alt="Session list, light theme" /></div>
+          <div class="seam"></div>
+        </div>
+        <div class="cap">
+          <span class="n" data-layout-allow-overlap>01</span>
+          <span class="t" data-layout-allow-overlap>Every session, in one place</span>
+          <span class="s" data-layout-allow-overlap>grouped by folder</span>
+        </div>
+        <div class="sel">
+          <span class="d" data-layout-allow-overlap>:root</span>
+          <span class="l" data-layout-allow-overlap>[data-theme="light"]</span>
+        </div>
+      </div>
+
+      <!-- SCENE 2 — chat -->
+      <div id="s2" class="clip scene" data-start="3.6" data-duration="3.9" data-track-index="2"
+           data-layout-allow-overlap>
+        <div class="shot">
+          <img class="base" src="assets/chat-dark.png" alt="Live transcript, dark theme" />
+          <div class="wipe"><img data-layout-allow-overflow src="assets/chat-light.png" alt="Live transcript, light theme" /></div>
+          <div class="seam"></div>
+        </div>
+        <div class="cap">
+          <span class="n" data-layout-allow-overlap>02</span>
+          <span class="t" data-layout-allow-overlap>Follow the whole transcript</span>
+          <span class="s" data-layout-allow-overlap>tools, tokens, cost</span>
+        </div>
+        <div class="sel">
+          <span class="d" data-layout-allow-overlap>:root</span>
+          <span class="l" data-layout-allow-overlap>[data-theme="light"]</span>
+        </div>
+      </div>
+
+      <!-- SCENE 3 — diff + commit -->
+      <div id="s3" class="clip scene" data-start="7.2" data-duration="3.9" data-track-index="3"
+           data-layout-allow-overlap>
+        <div class="shot">
+          <img class="base" src="assets/diff-commit-dark.png" alt="Commit dialog, dark theme" />
+          <div class="wipe"><img data-layout-allow-overflow src="assets/diff-commit-light.png" alt="Commit dialog, light theme" /></div>
+          <div class="seam"></div>
+        </div>
+        <div class="cap">
+          <span class="n" data-layout-allow-overlap>03</span>
+          <span class="t" data-layout-allow-overlap>Review the diff, then commit</span>
+          <span class="s" data-layout-allow-overlap>per file, from the browser</span>
+        </div>
+        <div class="sel">
+          <span class="d" data-layout-allow-overlap>:root</span>
+          <span class="l" data-layout-allow-overlap>[data-theme="light"]</span>
+        </div>
+      </div>
+
+      <!-- SCENE 4 — openspec board -->
+      <div id="s4" class="clip scene" data-start="10.8" data-duration="3.9" data-track-index="4"
+           data-layout-allow-overlap>
+        <div class="shot">
+          <img class="base" src="assets/openspec-dark.png" alt="OpenSpec board, dark theme" />
+          <div class="wipe"><img data-layout-allow-overflow src="assets/openspec-light.png" alt="OpenSpec board, light theme" /></div>
+          <div class="seam"></div>
+        </div>
+        <div class="cap">
+          <span class="n" data-layout-allow-overlap>04</span>
+          <span class="t" data-layout-allow-overlap>Plan the work on a board</span>
+          <span class="s" data-layout-allow-overlap>grouped, ordered, tallied</span>
+        </div>
+        <div class="sel">
+          <span class="d" data-layout-allow-overlap>:root</span>
+          <span class="l" data-layout-allow-overlap>[data-theme="light"]</span>
+        </div>
+      </div>
+
+      <!-- SCENE 5 — editor -->
+      <div id="s5" class="clip scene" data-start="14.4" data-duration="3.6" data-track-index="5"
+           data-layout-allow-overlap>
+        <div class="shot">
+          <img class="base" src="assets/editor-dark.png" alt="Built-in editor, dark theme" />
+          <div class="wipe"><img data-layout-allow-overflow src="assets/editor-light.png" alt="Built-in editor, light theme" /></div>
+          <div class="seam"></div>
+        </div>
+        <div class="cap">
+          <span class="n" data-layout-allow-overlap>05</span>
+          <span class="t" data-layout-allow-overlap>Open the file right there</span>
+          <span class="s" data-layout-allow-overlap>editor, tree and terminal</span>
+        </div>
+        <div class="sel">
+          <span class="d" data-layout-allow-overlap>:root</span>
+          <span class="l" data-layout-allow-overlap>[data-theme="light"]</span>
+        </div>
+      </div>
+
+      <div id="rail" class="clip" data-start="0" data-duration="18" data-track-index="0">
+        <div id="railfill"></div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      const W = 1440;          // shot width — the wipe travels across the shot
+      const WIPE = 1.7;        // seconds for one theme repaint
+
+      /**
+       * One scene = the same surface in both themes, the light capture
+       * revealed by a moving window. Because the two captures are the same
+       * viewport at the same scroll offset, the seam lines up pixel-for-pixel
+       * and reads as the UI repainting live rather than a crossfade to a
+       * different screenshot. Verified before authoring by compositing the
+       * left half of the dark shot against the right half of the light one.
+       *
+       * Direction alternates so five scenes are not the same gesture five times.
+       */
+      function scene(sel, at, dur, reverse){
+        tl.fromTo(sel, { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "power2.out" }, at);
+
+        const wipe = sel + " .wipe";
+        const seam = sel + " .seam";
+        const img  = sel + " .wipe img";
+        const START = at + 0.9;
+
+        if (!reverse) {
+          // Window opens from the left; its image is pinned left so the
+          // revealed pixels sit exactly over their dark counterparts.
+          tl.set(wipe, { left: 0, right: "auto", width: 0 }, at);
+          tl.set(img,  { left: 0, right: "auto" }, at);
+          tl.to(wipe, { width: W, duration: WIPE, ease: "power2.inOut" }, START);
+          tl.fromTo(seam, { x: 0 }, { x: W, duration: WIPE, ease: "power2.inOut" }, START);
+        } else {
+          // Window opens from the right, so the image must be pinned RIGHT —
+          // pinned left it would slide, breaking the pixel registration that
+          // makes the wipe look like a repaint.
+          tl.set(wipe, { left: "auto", right: 0, width: 0 }, at);
+          tl.set(img,  { left: "auto", right: 0 }, at);
+          tl.to(wipe, { width: W, duration: WIPE, ease: "power2.inOut" }, START);
+          tl.fromTo(seam, { x: W }, { x: 0, duration: WIPE, ease: "power2.inOut" }, START);
+        }
+
+        // The seam is a wipe artefact, not decoration — it exists only while
+        // the wipe is travelling.
+        tl.fromTo(seam, { opacity: 0 }, { opacity: 1, duration: 0.25 }, START);
+        tl.to(seam, { opacity: 0, duration: 0.3 }, START + WIPE - 0.15);
+
+        // Selector readout flips at the wipe midpoint, so the label states
+        // which stylesheet branch the visible pixels came from. The two
+        // labels are right-aligned on top of each other, so the fades must be
+        // SEQUENTIAL — overlapping them renders `:root` on top of
+        // `[data-theme="light"]` as unreadable stacked text.
+        const MID = START + WIPE * 0.5;
+        tl.set(sel + " .sel .l", { opacity: 0 }, at);
+        tl.set(sel + " .sel .d", { opacity: 1 }, at);
+        tl.to(sel + " .sel .d", { opacity: 0, duration: 0.2, ease: "none" }, MID - 0.2);
+        tl.to(sel + " .sel .l", { opacity: 1, duration: 0.2, ease: "none" }, MID);
+
+        tl.fromTo(sel + " .cap", { opacity: 0, y: 14 },
+                                 { opacity: 1, y: 0, duration: 0.7, ease: "power3.out" }, at + 0.2);
+        tl.to(sel, { opacity: 0, duration: 0.45, ease: "power2.in" }, at + dur - 0.45);
+      }
+
+      scene("#s1",  0.0, 3.9, false);
+      scene("#s2",  3.6, 3.9, true);
+      scene("#s3",  7.2, 3.9, false);
+      scene("#s4", 10.8, 3.9, true);
+      scene("#s5", 14.4, 3.6, false);
+
+      tl.fromTo("#railfill", { width: "0%" }, { width: "100%", duration: 18, ease: "none" }, 0);
+
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

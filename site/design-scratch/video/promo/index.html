@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en" data-resolution="landscape">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1080" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      *{margin:0;padding:0;box-sizing:border-box}
+      html,body{width:1920px;height:1080px;overflow:hidden;background:#0a0a0a}
+
+      /* Tokens from packages/client/src/index.css — the promo and the product
+         are the same object. */
+      :root{
+        --bg:#0a0a0a; --panel:#141414; --rim:rgba(255,255,255,.10);
+        --fg:#e5e5e5; --fg2:#b0b0b0; --fg3:#808080;
+        --accent:#60a5fa; --accent-solid:#2563eb;
+        --mono:"JetBrains Mono","SF Mono",Menlo,Monaco,monospace;
+        --sans:"Instrument Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+      }
+      body{font-family:var(--sans);background:var(--bg);color:var(--fg)}
+      .clip{position:absolute;inset:0;width:1920px;height:1080px}
+
+      /* ---- card scenes (title / end) ---- */
+      .card{display:flex;flex-direction:column;justify-content:center;padding:0 180px}
+      .eyebrow{font-family:var(--mono);font-size:19px;letter-spacing:.18em;text-transform:uppercase;
+        color:var(--accent);display:flex;align-items:center;gap:14px;margin-bottom:34px}
+      .eyebrow::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--accent)}
+      .big{font-size:108px;font-weight:400;line-height:1.02;letter-spacing:-.035em}
+      .big em{font-style:normal;color:var(--accent)}
+      .sub{font-size:32px;color:var(--fg2);margin-top:34px;max-width:30ch;line-height:1.4}
+      .cmd{font-family:var(--mono);font-size:29px;color:var(--fg);margin-top:46px;
+        border:1px dashed #2a2a2a;border-radius:10px;padding:22px 30px;display:inline-block}
+      .cmd .p{color:var(--fg3)}
+
+      /* ---- screenshot scenes ---- */
+      .shot{position:absolute;left:50%;top:66px;transform-origin:50% 40%;
+        width:1440px;height:900px;margin-left:-720px;border-radius:14px;overflow:hidden;
+        box-shadow:inset 0 1px 0 var(--rim),0 44px 100px rgba(0,0,0,.78);
+        outline:1px solid #2a2a2a;outline-offset:-1px}
+      .shot img{display:block;width:1440px;height:900px}
+
+      .cap{position:absolute;left:240px;bottom:52px;display:flex;align-items:baseline;gap:20px}
+      .cap .n{font-family:var(--mono);font-size:17px;letter-spacing:.16em;color:var(--accent)}
+      .cap .t{font-size:38px;font-weight:400;letter-spacing:-.022em}
+      .cap .s{font-family:var(--mono);font-size:17px;color:var(--fg3);letter-spacing:.04em}
+
+      #rail.clip{position:absolute;inset:auto;left:240px;right:240px;bottom:30px;
+        width:auto;height:3px;background:#1e1e1e;border-radius:2px}
+      #railfill{height:100%;width:0;background:var(--accent);border-radius:2px}
+
+      /* Sits in the dark band BELOW the screenshot, never over it — a light-theme
+         shot underneath would drop it under the 4.5:1 floor (caught by `check`). */
+      /* Must override .clip's full-canvas box (inset:0 + 1920x1080), otherwise the
+         element still spans the frame and the text lands over the screenshot. */
+      #mark.wordmark.clip{position:absolute;inset:auto;right:240px;bottom:56px;
+        width:auto;height:auto;font-family:var(--mono);font-size:17px;
+        letter-spacing:.2em;text-transform:uppercase;color:var(--fg2)}
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="27"
+         data-width="1920" data-height="1080">
+
+      <!-- ── 00 TITLE ─────────────────────────────────────────── -->
+      <div id="t0" class="clip card" data-start="0" data-duration="3.6" data-track-index="1"
+           data-layout-allow-overlap>
+        <p class="eyebrow" data-layout-allow-overlap>Open source · self hosted</p>
+        <h1 class="big" data-layout-allow-overlap>Your coding agents,<br><em>visible</em> from anywhere.</h1>
+        <p class="sub" data-layout-allow-overlap>Every pi session, mirrored to the browser as it runs.</p>
+      </div>
+
+      <!-- ── 01 SESSIONS ──────────────────────────────────────── -->
+      <div id="s1" class="clip" data-start="3.4" data-duration="5.0" data-track-index="2"
+           data-layout-allow-overlap>
+        <div class="shot"><img src="assets/sessions.png" alt="Sessions grouped by project folder" /></div>
+        <div class="cap">
+          <span class="n" data-layout-allow-overlap>01</span>
+          <span class="t" data-layout-allow-overlap>Every session, in one place</span>
+          <span class="s" data-layout-allow-overlap>grouped by folder</span>
+        </div>
+      </div>
+
+      <!-- ── 02 CHAT ──────────────────────────────────────────── -->
+      <div id="s2" class="clip" data-start="8.2" data-duration="5.0" data-track-index="3"
+           data-layout-allow-overlap>
+        <div class="shot"><img src="assets/chat.png" alt="Live transcript with an interactive decision prompt" /></div>
+        <div class="cap">
+          <span class="n" data-layout-allow-overlap>02</span>
+          <span class="t" data-layout-allow-overlap>It asks. You answer, from anywhere.</span>
+          <span class="s" data-layout-allow-overlap>the run waits for you</span>
+        </div>
+      </div>
+
+      <!-- ── 03 WORKBENCH ─────────────────────────────────────── -->
+      <div id="s3" class="clip" data-start="13.0" data-duration="5.0" data-track-index="4"
+           data-layout-allow-overlap>
+        <div class="shot"><img src="assets/workbench.png" alt="Split view: transcript beside file tree and editor" /></div>
+        <div class="cap">
+          <span class="n" data-layout-allow-overlap>03</span>
+          <span class="t" data-layout-allow-overlap>Editor, files and diff, in the page</span>
+          <span class="s" data-layout-allow-overlap>split view</span>
+        </div>
+      </div>
+
+      <!-- ── 04 LIGHT ─────────────────────────────────────────── -->
+      <div id="s4" class="clip" data-start="17.8" data-duration="4.8" data-track-index="5"
+           data-layout-allow-overlap>
+        <div class="shot"><img src="assets/light.png" alt="The same workbench in the light theme" /></div>
+        <div class="cap">
+          <span class="n" data-layout-allow-overlap>04</span>
+          <span class="t" data-layout-allow-overlap>Dark or light. Desktop or phone.</span>
+          <span class="s" data-layout-allow-overlap>EN · 简体中文</span>
+        </div>
+      </div>
+
+      <!-- ── 05 END CARD ──────────────────────────────────────── -->
+      <div id="t1" class="clip card" data-start="22.4" data-duration="4.6" data-track-index="6"
+           data-layout-allow-overlap>
+        <p class="eyebrow" data-layout-allow-overlap>Start it next to the agent you already run</p>
+        <h1 class="big" data-layout-allow-overlap>PI Dashboard</h1>
+        <div class="cmd" data-layout-allow-overlap><span class="p">$</span> npm i -g pi-dashboard</div>
+      </div>
+
+      <div id="mark" class="wordmark clip" data-start="3.4" data-duration="19.2" data-track-index="0"
+           data-layout-allow-overlap>
+        PI Dashboard
+      </div>
+
+      <div id="rail" class="clip" data-start="0" data-duration="27" data-track-index="0">
+        <div id="railfill"></div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      /* Screenshot scene: fade in, slow settle, fade out. One direction, no bounce. */
+      function shotScene(sel, at, dur){
+        tl.fromTo(sel, { opacity: 0 }, { opacity: 1, duration: 0.6, ease: "power2.out" }, at);
+        tl.fromTo(sel + " .shot", { scale: 1.04 }, { scale: 1, duration: dur, ease: "none" }, at);
+        tl.fromTo(sel + " .cap", { opacity: 0, y: 18 },
+                                 { opacity: 1, y: 0, duration: 0.8, ease: "power3.out" }, at + 0.25);
+        tl.to(sel, { opacity: 0, duration: 0.5, ease: "power2.in" }, at + dur - 0.5);
+      }
+
+      /* Card scene: staggered type, no image. */
+      function cardScene(sel, at, dur){
+        tl.fromTo(sel, { opacity: 0 }, { opacity: 1, duration: 0.5, ease: "power2.out" }, at);
+        tl.fromTo(sel + " > *", { opacity: 0, y: 26 },
+          { opacity: 1, y: 0, duration: 0.85, stagger: 0.14, ease: "power3.out" }, at + 0.15);
+        tl.to(sel, { opacity: 0, duration: 0.5, ease: "power2.in" }, at + dur - 0.5);
+      }
+
+      cardScene("#t0", 0, 3.6);
+      shotScene("#s1", 3.4, 5.0);
+      shotScene("#s2", 8.2, 5.0);
+      shotScene("#s3", 13.0, 5.0);
+      shotScene("#s4", 17.8, 4.8);
+      cardScene("#t1", 22.4, 4.6);
+
+      tl.fromTo("#mark", { opacity: 0 }, { opacity: 1, duration: 0.6 }, 3.4);
+      tl.to("#mark", { opacity: 0, duration: 0.5 }, 22.1);
+      tl.fromTo("#railfill", { width: "0%" }, { width: "100%", duration: 27, ease: "none" }, 0);
+
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

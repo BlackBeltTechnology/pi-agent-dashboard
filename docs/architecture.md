@@ -1,10 +1,6 @@
 # PI Dashboard Architecture
 
-> **Adjacent artifact:** the public marketing site lives at `/site` and is
-> product-adjacent, not part of the dashboard runtime. It has its own Astro
-> build, its own Playwright screenshot pipeline, and its own GitHub Pages
-> deploy workflow (`.github/workflows/deploy-site.yml`). See
-> `/site/README.md` for details.
+> **Adjacent artifact:** public marketing site lives at `/site`. Product-adjacent, not part of dashboard runtime. No framework — one hand-written static page: `site/index.html`, `site/404.html`, `site/field.js` (three.js background), `site/vendor/`, `site/media/`. Zero dependencies. `npm run build -w site` = `node site/build.mjs`: copies explicit allowlist into `site/dist`, verifies every local ref in `index.html` resolves. Artifact path unchanged — `.github/workflows/deploy-site.yml` still uploads `site/dist`, copies `packages/shell` into `site/dist/app`. Release data (download URLs + byte sizes) inline in `index.html`; `site/design-scratch/scripts/sync-release.mjs` rewrites it from GitHub API on `release: published` (`.github/workflows/sync-release-version.yml`), commits to develop. `site/design-scratch/` = design source, not deployed (excluded from build allowlist + deploy push-path filter). Theme: System/Light/Dark modes, storage key `pi-theme`, inline `<head>` script resolves before first paint; dark = absence of `data-theme="light"`. See `/site/README.md` for details.
 
 
 ## Overview

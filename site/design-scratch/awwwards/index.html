@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Awwwards scan — style references for pi-dashboard</title>
+<style>
+  :root{
+    --bg:#0b0d12; --panel:#12151d; --rim:rgba(255,255,255,.07);
+    --fg:#e8eaf0; --fg2:#a2a9b8; --fg3:#6b7285; --accent:#ff2d6f;
+    --mono:ui-monospace,SFMono-Regular,"SF Mono",Menlo,monospace;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--fg);
+    font:16px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    padding:40px 28px 80px;max-width:1180px;margin-inline:auto}
+  h1{font-size:clamp(28px,4vw,44px);font-weight:300;letter-spacing:-.02em;margin:0 0 6px}
+  .sub{color:var(--fg2);max-width:70ch;margin:0 0 40px}
+  .eyebrow{font:11px/1 var(--mono);letter-spacing:.14em;text-transform:uppercase;
+    color:var(--accent);margin:0 0 10px}
+  figure{margin:0 0 44px;background:var(--panel);border-radius:10px;overflow:hidden;
+    box-shadow:inset 0 1px 0 var(--rim),0 6px 18px rgba(0,0,0,.45)}
+  figure img{display:block;width:100%;height:auto;border-bottom:1px solid var(--rim)}
+  figcaption{padding:16px 20px 18px}
+  figcaption h2{font-size:17px;font-weight:600;margin:0 0 6px}
+  figcaption p{margin:0;color:var(--fg2);font-size:14.5px}
+  figcaption .verdict{margin-top:10px;font:12px/1.5 var(--mono);color:var(--fg3)}
+  .verdict b{color:var(--fg);font-weight:600}
+  .yes b{color:#3ddc97}.no b{color:#ff6b6b}
+  a{color:var(--accent)}
+</style>
+</head>
+<body>
+
+<h1>Awwwards scan — what fits pi-dashboard</h1>
+<p class="sub">Six captures from a live pass over awwwards.com. Each caption records what the grid
+actually shows and whether it transfers to this product.</p>
+
+<figure>
+  <img src="aww-winners.png" alt="Awwwards winners grid">
+  <figcaption>
+    <p class="eyebrow">/websites/ — winners grid</p>
+    <h2>Awwwards' own UI</h2>
+    <p>White field, tight 3-column grid, mono <code>DEV</code>/<code>SOTD</code> chips, almost no chrome.
+    The design-award site is itself a dense grid.</p>
+    <p class="verdict yes"><b>TRANSFERS</b> — density is not the enemy of craft.</p>
+  </figcaption>
+</figure>
+
+<figure>
+  <img src="aww-dev.png" alt="Developer category grid">
+  <figcaption>
+    <p class="eyebrow">/websites/developer/</p>
+    <h2>The "developer" tag is a red herring</h2>
+    <p>Architecture bureaus, galleries, studio portfolios (Kononenko, Likova, Cipher, Oimachi).
+    The tag means a developer <em>submitted</em> it — not that it was built for developers.</p>
+    <p class="verdict no"><b>DOES NOT TRANSFER</b> — wrong audience entirely.</p>
+  </figcaption>
+</figure>
+
+<figure>
+  <img src="aww-app-style.png" alt="App-style category grid">
+  <figcaption>
+    <p class="eyebrow">/websites/app-style/</p>
+    <h2>Mockup-showcase, not product UI</h2>
+    <p>Dark UI screenshots floating on soft gradient backdrops inside device mocks. Rewards how you
+    <em>photograph</em> an app, not how it works.</p>
+    <p class="verdict"><b>PARTIAL</b> — useful for a landing page, irrelevant to the dashboard shell.</p>
+  </figcaption>
+</figure>
+
+<figure>
+  <img src="aww-data-visualization.png" alt="Data-visualization category grid">
+  <figcaption>
+    <p class="eyebrow">/websites/data-visualization/ — the real reference</p>
+    <h2>guacamozi (top-left) &amp; Dmitry Golub (top-right)</h2>
+    <p><b>guacamozi</b>: a live tool UI — light neutral chrome, tight panel grid, dense micro-labelled
+    controls, one saturated vector plot carrying all the visual energy. <b>Golub</b>: blueprint/CAD idiom
+    — grey field, mono annotations prefixed <code>// FRS</code>, callout leader lines. Reads as
+    engineering document, not marketing.</p>
+    <p class="verdict yes"><b>TRANSFERS — this is the app-UI direction.</b> "Technical instrument /
+    blueprint": mono for every number, label, path and status; colour only as data or severity.</p>
+  </figcaption>
+</figure>
+
+<figure>
+  <img src="cerebrium.png" alt="Cerebrium hero">
+  <figcaption>
+    <p class="eyebrow">cerebrium.ai — above the fold</p>
+    <h2>The landing-page formula, proven live</h2>
+    <p>Nearest analogue: real-time AI infra for developers, awwwards-winning. Near-black navy with no
+    gradient · oversized light-weight grotesque with one accent word · <b>mono uppercase nav, buttons
+    and eyebrows</b> (the entire "developer" signal, carried by one type choice) · exactly one hot accent,
+    used ~4 times · body copy that states latency numbers instead of adjectives.</p>
+    <p class="verdict yes"><b>COPY THIS</b> — hero formula and type system.</p>
+  </figcaption>
+</figure>
+
+<figure>
+  <img src="cerebrium2.png" alt="Cerebrium second section with purple gradients">
+  <figcaption>
+    <p class="eyebrow">cerebrium.ai — one scroll later</p>
+    <h2>…and where it collapses</h2>
+    <p>Purple gradient blobs — the precise AI-slop tell the <code>anti-slop-frontend</code> skill flags.</p>
+    <p class="verdict no"><b>STOP BEFORE THIS.</b> Where Cerebrium puts a purple blob, we put a real
+    streaming session.</p>
+  </figcaption>
+</figure>
+
+</body>
+</html>
