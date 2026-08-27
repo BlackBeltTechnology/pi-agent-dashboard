@@ -43,12 +43,6 @@ export function replayEntriesAsEvents(
   // during the loop, then emitted sorted by seq so the client's idempotent
   // reduceFlowEvent rebuilds the flow card identically to the live path.
   const flowEventRecords: Array<{ seq: number; eventType: string; data: unknown; ts: number }> = [];
-  // Singleton current greeting (change: replace-replayed-greeting). Tracked
-  // during the loop, emitted once after it so replay carries only the latest
-  // authoritative greeting instead of the full historical opener stack.
-  let latestGreeting: { message: Record<string, unknown>; ts: number; entryId: string } | null = null;
-  let greetingSlot = -1;
-
   let currentModel = "";
 
   for (const entry of entries) {
@@ -86,17 +80,16 @@ export function replayEntriesAsEvents(
         content: entry.content,
         display: true,
       };
-      // ib-greeting is a singleton current-state overlay, not history: defer
-      // it and emit only the latest below. Non-greeting custom messages keep
-      // their inline per-entry emission unchanged. See change:
-      // replace-replayed-greeting.
+      // Keep the greeting discriminator explicit while emitting each greeting
+      // inline as chronological chat history. See change:
+      // restore-greeting-chat-continuity.
       if (entry.customType === "ib-greeting") {
-        if (greetingSlot === -1) greetingSlot = messages.length;
-        latestGreeting = { message: cm, ts, entryId: entry.id };
-        continue;
+        messages.push(makeEvent(sessionId, "message_start", ts, { message: cm, entryId: entry.id }));
+        messages.push(makeEvent(sessionId, "message_end", ts, { message: cm, entryId: entry.id }));
+      } else {
+        messages.push(makeEvent(sessionId, "message_start", ts, { message: cm, entryId: entry.id }));
+        messages.push(makeEvent(sessionId, "message_end", ts, { message: cm, entryId: entry.id }));
       }
-      messages.push(makeEvent(sessionId, "message_start", ts, { message: cm, entryId: entry.id }));
-      messages.push(makeEvent(sessionId, "message_end", ts, { message: cm, entryId: entry.id }));
     }
 
     if (entry.type === "message" && entry.message) {
@@ -203,19 +196,6 @@ export function replayEntriesAsEvents(
       result: "",
       isError: false,
     }));
-  }
-
-  // Emit the single latest greeting at the first greeting's slot so it stays
-  // the opener (not the tail). Earlier greetings are dropped — a greeting is
-  // replacement, not history. See change: replace-replayed-greeting.
-  if (latestGreeting) {
-    const slot = greetingSlot === -1 ? messages.length : greetingSlot;
-    messages.splice(
-      slot,
-      0,
-      makeEvent(sessionId, "message_start", latestGreeting.ts, { message: latestGreeting.message, entryId: latestGreeting.entryId }),
-      makeEvent(sessionId, "message_end", latestGreeting.ts, { message: latestGreeting.message, entryId: latestGreeting.entryId }),
-    );
   }
 
   // Emit persisted flow-run events sorted by seq (defensive: file order already

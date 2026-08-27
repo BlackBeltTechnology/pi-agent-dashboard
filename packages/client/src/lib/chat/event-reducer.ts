@@ -1734,7 +1734,7 @@ export function reduceEvent(
         // touches streamingTextFlushed, or runs the streaming flush (those are
         // exclusive to real assistant inferences). Built at message_end only;
         // the matching message_start is a no-op. Idempotent across re-replay via
-        // a content-stable id. See change: greet-as-assistant-message.
+        // its per-entry id. See change: greet-as-assistant-message.
         const content = Array.isArray(msg.content)
           ? msg.content
               .filter((c: any) => c?.type === "text")
@@ -1742,35 +1742,16 @@ export function reduceEvent(
               .join("")
           : String(msg.content ?? "");
         const entryId = data.entryId as string | undefined;
-        // Singleton current-state overlay (ib-greeting): a newer greeting
-        // REPLACES the prior in place via a stable id, so the opener row keeps
-        // its position and only its content/entryId advance. Non-greeting
-        // custom messages keep per-entry ids (never collapsed). See change:
-        // replace-replayed-greeting.
+        // Keep the greeting discriminator explicit, but give every greeting
+        // its own per-entry row. See change: restore-greeting-chat-continuity.
         const isGreeting = msg.customType === "ib-greeting";
-        const customId = isGreeting ? "custom-ib-greeting" : `custom-${entryId ?? next.messages.length}`;
+        const customId = isGreeting ? `custom-${entryId ?? next.messages.length}` : `custom-${entryId ?? next.messages.length}`;
         const existingIdx = next.messages.findLastIndex((m) => m.id === customId);
         if (existingIdx !== -1) {
-          // Monotonicity guard (change: harden-greeting-collapse-latest). The
-          // greeting is a singleton overlay collapsed by a STABLE id, so the
-          // replace-in-place is blind to arrival order. A live/replay race can
-          // deliver a STALE replay-snapshot greeting AFTER the newest live one
-          // (the snapshot was taken one state behind, but its events land
-          // late); a blind replace would then clobber the newer greeting and
-          // leave the head one state behind. Only advance when the incoming
-          // greeting is not older than the shown one — the NEWEST always wins
-          // regardless of arrival order. Equal ts still replaces (idempotent
-          // re-replay of the same state). Non-greeting customs keep per-entry
-          // ids, so they never collapse and are unaffected.
-          const shownTs = next.messages[existingIdx].timestamp;
-          if (isGreeting && typeof shownTs === "number" && event.timestamp < shownTs) {
-            break;
-          }
           next.messages = [...next.messages];
           next.messages[existingIdx] = {
             ...next.messages[existingIdx],
             content,
-            ...(isGreeting ? { timestamp: event.timestamp } : {}),
             ...(entryId ? { entryId } : {}),
           };
         } else {
