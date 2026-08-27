@@ -52,3 +52,59 @@
 ## 9. Docs
 
 - [ ] 9.1 Document the `scope` block + `PI_EXT_<NAME>_<KEY>` env convention and the deliberate no-`noExtensions` control-channel rule. Update the per-file `AGENTS.md` rows for the changed exports: `packages/dashboard-plugin-runtime/src/server/AGENTS.md` (`PluginSpawnOptions`, `pluginSpawnToSessionOptions`), `packages/shared/src/platform/AGENTS.md` (`SessionFlags`/`sessionFlagsToArgv`), `packages/server/src/spawn-process/AGENTS.md` (`SessionOptions`/`buildSpawnEnv`). Any `docs/` prose is delegated to DocScribe in caveman style.
+
+## 10. Part A consolidation — `extensionConfig` `string | string[]` JSON encoding (design D8)
+
+> These amend the already-implemented (string-only) mapper + env projection to accept array values. Do them before Part B if Part A's env layer was built string-only.
+
+- [ ] 10.1 Widen the `extensionConfig` type to `Record<string, Record<string, string | string[]>>` on `PluginSpawnOptions` + `SessionOptions` (`server-context.ts`, `process-manager.ts`).
+- [ ] 10.2 In `buildSpawnEnv`, project a scalar `string` value verbatim and a `string[]` value as `JSON.stringify(value)` for `PI_EXT_<NAME>_<KEY>`. Update the total-mapper sanitization: accept a value that is a string OR an array of strings; within an array drop elements that are not non-empty strings or contain NUL; drop the entry if no valid elements remain.
+- [ ] 10.3 Round-trip test (extend the Part A env test): `scope.extensionConfig={guard:{allowedRoots:["/a","/b,c"," /d "]}}` → `buildSpawnEnv` → `JSON.parse(env.PI_EXT_GUARD_ALLOWED_ROOTS)` deep-equals the original array; a sibling scalar key still projects verbatim. (test-plan #E15)
+
+## 11. Part B implementation — `host-cwd-policy` (#475)
+
+> Intra-change ordering: Part A's flat `SessionFlags`/`SessionOptions` fields + `sessionFlagsToArgv`/`buildSpawnEnv` emission (§1–§4) must exist before §11.5's merge step. No cross-change dependency remains (folded).
+
+- [ ] 11.1 Add `packages/server/src/spawn-process/cwd-policy.ts`: `CwdPolicyRegistry` with `registerCwdPolicy(cwd, policy)`, `unregisterCwdPolicy(cwd)`, `resolveCwdPolicy(cwd)`; entries keyed by `(owningPluginId, canonicalCwd)`. Canonicalize via `fs.realpathSync` of the longest EXISTING ancestor + lexical trailing segments; case-fold on Windows (design B6).
+- [ ] 11.2 Implement pure `mergeCwdPolicy(policy, options)` composing ONLY tightening fields — `tools`/`skills` INTERSECTION (absent side = universe; policy-present + caller-absent ⇒ policy applies), `excludeTools` UNION, `noBuiltinTools`/`noTools`/`noSkills` sticky-OR; all commutative+associative. Does NOT compose `extensions`/`extensionConfig` (design B2). Empty/absent policy ⇒ `options` unchanged.
+- [ ] 11.3 Plugin-facing `registerCwdPolicy`: REJECT (observable error, register nothing) a policy carrying `extensions`/`extensionConfig` (design B3); REJECT targets that are `/`, `$HOME`, or outside a recognized workspace root (design B7); store a deep-frozen copy (immutability); `unregisterCwdPolicy` removes only the caller's entry + is idempotent (design B5/B6).
+- [ ] 11.4 `resolveCwdPolicy(cwd)` composes EVERY registered entry that is an ancestor-of-or-equal-to the spawn cwd, across all plugins AND matching ancestor dirs, via `mergeCwdPolicy`; match at path-segment boundaries on canonical OR lexical form (design B4/B6). Never overwrite.
+- [ ] 11.5 Wire a single `CwdPolicyRegistry` instance into `spawnPiSession` (`process-manager.ts` ~L446) — resolve + merge policy into `options` BEFORE argv/env; and into every `createServerPluginContext` (design B5).
+- [ ] 11.6 Expose `registerCwdPolicy`/`unregisterCwdPolicy` on `ServerPluginContext` (`server-context.ts`), trust-gated (`priority<=100`, no-op for untrusted); wire in `server.ts`.
+- [ ] 11.7 Drop all of a plugin's registry entries on plugin unload/disable (design B6); hook the existing plugin-unregister lifecycle.
+- [ ] 11.8 Document the registry + non-weakening/tighten-only contract + accepted limitations (TOCTOU, literal-token intersection) in the relevant `AGENTS.md` rows (`packages/server/src/spawn-process/AGENTS.md`).
+
+## 12. Part B folded tests — `host-cwd-policy`
+
+- [ ] 12.1 Register then resolve (new `packages/server/src/spawn-process/__tests__/cwd-policy.test.ts`; `registerCwdPolicy("/w/secrets",{noTools:true})` · `resolveCwdPolicy` · composed policy carries `noTools:true`) (test-plan #CE1)
+- [ ] 12.2 Symlink alias keys same entry (register via tmp symlink `/alias/secrets`→`/real/secrets` · resolve for `/real/secrets` · policy applies) (test-plan #CE2)
+- [ ] 12.3 Not-yet-created dir under symlinked ancestor matches (`/work-link`→`/real/work`, register `/work-link/new` pre-existence, then create+spawn · resolve · policy applies) (test-plan #CE3)
+- [ ] 12.4 Symlink swap does not fail open (register `/projects/target` then replace with elsewhere-symlink · resolve · policy STILL applies via lexical match) (test-plan #CE4)
+- [ ] 12.5 Untrusted plugin cannot register (see `server-context-provider-auth.test.ts`; untrusted plugin calls register · later spawn · nothing registered, spawn unaffected) (test-plan #CE5)
+- [ ] 12.6 Plugin extension fields rejected (`{noTools:true,extensions:["/evil.js"]}` · register · observable error, registers nothing, spawn gains neither `--no-tools` nor `-e /evil.js`) (test-plan #CE6)
+- [ ] 12.7 Overly-broad target rejected (`registerCwdPolicy("/",...)` / `("<home>",...)` · register · rejected, registers nothing) (test-plan #CE7)
+- [ ] 12.8 Registered policy immutable (register `{tools:["read"]}` then push `"exec"` onto passed array · resolve · still `tools:["read"]`) (test-plan #CE8)
+- [ ] 12.9 Unregister owner-scoped (A `{noTools:true}` + B `{noBuiltinTools:true}` for `/w/secrets`, B unregisters · resolve · still `noTools:true` from A) (test-plan #CE9)
+- [ ] 12.10 Unregister unregistered = no-op (unregister `/never/registered` · call · no throw, registry unchanged) (test-plan #CE10)
+- [ ] 12.11 Plugin unload drops its policies (register `{noTools:true}` for `/w/secrets` then unload · later generic spawn · argv lacks `--no-tools`) (test-plan #CE11)
+- [ ] 12.12 Funnel merges policy into argv (new test in `packages/server/src/__tests__/`, see `process-manager.test.ts`; test-injected registry `{noTools:true}` for cwd, `spawnPiSession(cwd,{})` · funnel resolve+merge · assembled argv contains `--no-tools`) (test-plan #CE12)
+- [ ] 12.13 No matching policy byte-identical (spawn cwd with no policy · argv+env assembly · byte-identical to pre-change output) (test-plan #CE13)
+- [ ] 12.14 Policy tools allowlist reaches argv (policy `{tools:["read","grep"]}`, no caller scope · funnel→argv · `--tools read,grep`) (test-plan #CE14)
+- [ ] 12.15 Allowlist intersection tightens (caller `tools:["read","grep","write"]` + policy `tools:["read","grep"]` · merge · `--tools read,grep`, no `write`) (test-plan #CE15)
+- [ ] 12.16 Caller cannot widen host ban (policy `noTools:true` + caller `noTools:false`,`tools:["read"]` · merge · merged `noTools:true`) (test-plan #CE16)
+- [ ] 12.17 Denylist union (caller `excludeTools:["write"]` + policy `excludeTools:["exec"]` · merge · both `write` and `exec`) (test-plan #CE17)
+- [ ] 12.18 Sticky-true booleans (either side `noBuiltinTools:true` · merge · merged `noBuiltinTools:true`) (test-plan #CE18)
+- [ ] 12.19 Policy allowlist applies when caller omits tools (policy `tools:["read"]` + caller omits `tools` · merge · `--tools read`, not "unrestricted") (test-plan #CE19)
+- [ ] 12.20 Composition order-independent across 3+ ancestors (`{noTools:true}`,`{excludeTools:["a"]}`,`{excludeTools:["b"]}` any order · merge · identical result) (test-plan #CE20)
+- [ ] 12.21 Empty policy is identity (`mergeCwdPolicy({},options)` · merge · returns `options` unchanged) (test-plan #CE21)
+- [ ] 12.22 Broad ban survives narrow looser reg (`/work`={noTools:true}, `/work/secrets`={tools:["read"]}, spawn `/work/secrets/deep` · resolve · `noTools:true`, tools not re-enabled) (test-plan #CE22)
+- [ ] 12.23 Same-path second reg composes not replaces (reg `{excludeTools:["exec"]}` then `{excludeTools:["write"]}` for `/w/secrets` · resolve · excludes both) (test-plan #CE23)
+- [ ] 12.24 Sibling prefix no false-match (`/work` registered, spawn `/work-shop/app` · resolve · `/work` policy NOT applied) (test-plan #CE24)
+- [ ] 12.25 No plugin path produces extension-bearing policy (only plugin-facing registrations · resolve · no `extensions`/`extensionConfig`, no `-e`/`PI_EXT_*` from host policy) (test-plan #CE25)
+- [ ] 12.26 Policy applied to a GENERIC (non-plugin) spawn (see `tests/e2e/project-trust-headless-spawn.spec.ts`; cwd policy `{noTools:true}` for a workspace dir + a generic non-plugin session spawned there vs docker harness · session boots · constrained yet loads bridge + registers — card converges, no plugin originated the spawn) (test-plan #CF1)
+
+## 13. Validate (both parts)
+
+- [ ] 13.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` green for the touched packages (shared, dashboard-plugin-runtime, server).
+- [ ] 13.2 Run `security-hardening` (discipline skill) on the full privilege boundary: Part A total-mapper sanitization + JSON array encoding + forgeable-gate `-e` escalation; Part B non-weakening invariant, compose-never-overwrite, plugin-path-cannot-inject-extensions, target-bounding (B7), canonical-OR-lexical fail-toward-applying match (B6).
+- [ ] 13.3 Run `review-code` (discipline skill) once tests pass — shared argv builder + spawn funnel + new security-load-bearing registry.

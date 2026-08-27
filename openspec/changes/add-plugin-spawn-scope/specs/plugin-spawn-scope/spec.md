@@ -11,7 +11,7 @@
 - `skills?: string[]` — explicit skill paths to load
 - `noSkills?: boolean` — disable skill discovery
 - `extensions?: string[]` — explicit extension paths to load (additive; discovery still runs)
-- `extensionConfig?: Record<string, Record<string, string>>` — per-extension config
+- `extensionConfig?: Record<string, Record<string, string | string[]>>` — per-extension config (scalar or array values; arrays are JSON-encoded at the env boundary)
 
 The block SHALL NOT expose a `noExtensions` / `--no-extensions` toggle: disabling extension discovery would prevent the dashboard bridge extension from loading, severing the spawned session's control channel (see the control-channel requirement below).
 
@@ -82,7 +82,9 @@ No `scope` field SHALL be able to prevent the spawned session's dashboard bridge
 
 ### Requirement: `extensionConfig` is projected to namespaced env on the headless spawn
 
-On the headless plugin-spawn mechanism (the only mechanism `spawnSession` uses), the host SHALL project each `scope.extensionConfig[name][key]` entry into the spawned process env as a variable named `PI_EXT_<NAME>_<KEY>`, where `<NAME>` and `<KEY>` are the extension name and config key normalized to a valid POSIX env-var identifier by uppercasing and replacing every character outside `[A-Z0-9_]` with `_`. `extensionConfig` SHALL NOT contribute any pi argv element. Routing `scope` through a tmux mechanism would require per-window `-e` env injection (as the spawn-token already does) and is out of scope for this change, since plugin spawns are headless-only.
+On the headless plugin-spawn mechanism (the only mechanism `spawnSession` uses), the host SHALL project each `scope.extensionConfig[name][key]` entry into the spawned process env as a variable named `PI_EXT_<NAME>_<KEY>`, where `<NAME>` and `<KEY>` are the extension name and config key normalized to a valid POSIX env-var identifier by uppercasing and replacing every character outside `[A-Z0-9_]` with `_`.
+
+A config value MAY be a `string` or a `string[]`. A `string` value SHALL be projected **verbatim** as the env value. A `string[]` value SHALL be projected as its **JSON encoding** (`JSON.stringify(value)`) as the env value; the consuming extension `JSON.parse`s the value for keys it knows to be array-typed. This encoding SHALL be lossless for values containing characters unsafe for a delimiter-join convention (filesystem paths, commas, spaces): a `string[]` round-tripped through the env and `JSON.parse` SHALL deep-equal the original array. `extensionConfig` SHALL NOT contribute any pi argv element. Routing `scope` through a tmux mechanism would require per-window `-e` env injection (as the spawn-token already does) and is out of scope for this change, since plugin spawns are headless-only.
 
 #### Scenario: Config entry becomes a namespaced env var
 - **WHEN** `scope.extensionConfig` is `{ "myext": { "token": "abc" } }`
@@ -92,6 +94,15 @@ On the headless plugin-spawn mechanism (the only mechanism `spawnSession` uses),
 #### Scenario: Names and keys are normalized to valid env identifiers
 - **WHEN** `scope.extensionConfig` is `{ "my-ext": { "api.key": "v" } }`
 - **THEN** the spawned process env SHALL contain `PI_EXT_MY_EXT_API_KEY=v`
+
+#### Scenario: Array value is JSON-encoded into env
+- **WHEN** `scope.extensionConfig` is `{ "guard": { "allowedRoots": ["/a", "/b,c", " /d "] } }`
+- **THEN** the spawned process env SHALL contain `PI_EXT_GUARD_ALLOWED_ROOTS` whose value is `JSON.stringify(["/a", "/b,c", " /d "])`
+- **AND** `JSON.parse` of that value SHALL deep-equal the original array (lossless round-trip, no delimiter ambiguity for paths)
+
+#### Scenario: Scalar and array values coexist under one extension
+- **WHEN** `scope.extensionConfig` is `{ "guard": { "token": "abc", "allowedRoots": ["/a"] } }`
+- **THEN** the env SHALL contain `PI_EXT_GUARD_TOKEN=abc` (scalar verbatim) and `PI_EXT_GUARD_ALLOWED_ROOTS=["/a"]` (array JSON-encoded)
 
 #### Scenario: extensionConfig absent leaves env untouched
 - **WHEN** `scope.extensionConfig` is absent
@@ -113,7 +124,7 @@ The inline `PluginSpawnOptions → SessionOptions` mapping in the `spawnSession`
 
 `pluginSpawnToSessionOptions` SHALL be total — it SHALL NOT throw for any input a plugin can supply at runtime (plugin code is JavaScript; TypeScript types are not enforced at runtime), including malformed containers (`scope`, or any array/record field, supplied as `null`, an array, or a non-object primitive). It SHALL defensively sanitize:
 - Every string it forwards to **argv** (`tools`, `excludeTools`, `skills`, `extensions` entries) SHALL be dropped if it is not a non-empty string OR contains a NUL character (a NUL in any argv element crashes `spawn`).
-- Every `extensionConfig` entry SHALL be dropped if the outer/inner container is not a plain object, or the value is not a string, or the name/value contains a NUL character.
+- Every `extensionConfig` entry SHALL be dropped if the outer/inner container is not a plain object, or the value is neither a string nor an array of strings, or the name/value contains a NUL character. Within a `string[]` value, individual elements that are not non-empty strings or that contain a NUL SHALL be dropped; if no valid elements remain, the entry SHALL be dropped.
 - A non-array array-field or non-object record-field SHALL be treated as absent rather than iterated.
 
 The `spawnSession` hook SHALL call `pluginSpawnToSessionOptions` BEFORE enqueuing any `automationRun` stamp, so a malformed-input rejection cannot strand a pending stamp keyed by `cwd`.
