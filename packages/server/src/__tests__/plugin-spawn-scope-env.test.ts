@@ -62,6 +62,19 @@ describe("plugin-spawn-scope env projection", () => {
     expect(env.PI_EXT_MYEXT_OK).toBe("v");
     expect(env.PI_EXT_MYEXT_TOKEN).toBeUndefined();
   });
+
+  it("E15: array value round-trips losslessly via JSON; sibling scalar stays verbatim", () => {
+    const allowedRoots = ["/a", "/b,c", " /d "];
+    const mapped = pluginSpawnToSessionOptions({
+      cwd: "/w",
+      scope: { extensionConfig: { guard: { allowedRoots, token: "abc" } } },
+    });
+    const env = buildSpawnEnv(cleanBaseEnv(), { extensionConfig: mapped.extensionConfig });
+    // Array key: JSON-encoded, parses back deep-equal to the original.
+    expect(JSON.parse(env.PI_EXT_GUARD_ALLOWED_ROOTS as string)).toEqual(allowedRoots);
+    // Sibling scalar key: still projected verbatim (no JSON quoting).
+    expect(env.PI_EXT_GUARD_TOKEN).toBe("abc");
+  });
 });
 
 describe("plugin-spawn-scope hook ordering (X5)", () => {

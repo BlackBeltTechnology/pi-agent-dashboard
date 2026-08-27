@@ -37,11 +37,11 @@ import {
 } from "./auth/bind-reachability-service.js";
 import { decideBridgeTicketMint } from "./auth/bridge-ticket-eligibility.js";
 import { isCorsOriginAllowed } from "./auth/cors-origin.js";
-import { readAuthJson } from "./auth/provider-auth-storage.js";
 import { registerCsp, resolveCspMode } from "./auth/csp.js";
 import { ensureServerIdentity } from "./auth/identity.js";
 import { ensureLocalToken, verifyLocalToken } from "./auth/local-token.js";
 import { createNetworkGuard, isBypassedHost, isGenuinelyLocal } from "./auth/localhost-guard.js";
+import { readAuthJson } from "./auth/provider-auth-storage.js";
 import { mintSpawnToken } from "./auth/spawn-token.js";
 import { extractTicket, routeScopeForUrl, type WsRouteScope, WsTicketStore } from "./auth/ws-ticket.js";
 import {
@@ -147,9 +147,10 @@ import { discoverAndBroadcastSessions } from "./session/session-bootstrap.js";
 import { createSessionOrderManager, type SessionOrderManager } from "./session/session-order-manager.js";
 import { scanAllSessions } from "./session/session-scanner.js";
 import { sessionToMeta } from "./session/session-to-meta.js";
+import { CwdPolicyRegistry } from "./spawn-process/cwd-policy.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import { createIdleTimer } from "./spawn-process/idle-timer.js";
-import { spawnPiSession } from "./spawn-process/process-manager.js";
+import { setCwdPolicyRegistry, spawnPiSession } from "./spawn-process/process-manager.js";
 import { removePid, writePid } from "./spawn-process/server-pid.js";
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
 import { createTerminalGateway, type TerminalGateway } from "./terminal/terminal-gateway.js";
@@ -320,6 +321,18 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   }
 
   const preferencesStore = createPreferencesStore();
+  // Single cwd-policy registry (Part B — host-cwd-policy). Recognized workspace
+  // roots = pinned directories + every folder in a folder-workspace, evaluated
+  // lazily so a freshly pinned dir is honored without a rebuild. Wired into BOTH
+  // the spawn funnel (below) and every plugin context (createServerPluginContext
+  // deps) so no path observes a divergent registry. See change: add-plugin-spawn-scope.
+  const cwdPolicyRegistry = new CwdPolicyRegistry({
+    recognizedRoots: () => [
+      ...preferencesStore.getPinnedDirectories(),
+      ...preferencesStore.getWorkspaces().flatMap((w) => w.folders),
+    ],
+  });
+  setCwdPolicyRegistry(cwdPolicyRegistry);
   // Server identity + device pairing (D2/D5/D6). Additive; independent of OAuth.
   const serverIdentity = ensureServerIdentity();
   const pairedDeviceRegistry = new PairedDeviceRegistry();
@@ -2265,6 +2278,24 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 }
                 if (spawnToken) return reg.killByToken(spawnToken);
                 return false;
+              },
+              // Pin a tightening cwd capability floor. Same trust gate as
+              // spawnSession (priority <= 100). Untrusted plugins get a no-op
+              // so a forged manifest cannot constrain unrelated sessions.
+              // Throws (observable) when the policy carries extensions/
+              // extensionConfig or the target is overly broad (design B3/B7).
+              // See change: add-plugin-spawn-scope.
+              registerCwdPolicy: (cwd, policy) => {
+                const trusted = (plugin.manifest.priority ?? 1000) <= 100;
+                if (!trusted) return;
+                cwdPolicyRegistry.register(plugin.manifest.id, cwd, policy);
+              },
+              // Remove the caller's own cwd policy (owner-scoped, idempotent).
+              // No-op for untrusted plugins. See change: add-plugin-spawn-scope.
+              unregisterCwdPolicy: (cwd) => {
+                const trusted = (plugin.manifest.priority ?? 1000) <= 100;
+                if (!trusted) return;
+                cwdPolicyRegistry.unregister(plugin.manifest.id, cwd);
               },
               // Emit a configured pi event into a session (relayed as a
               // `plugin_emit_event` control message; the in-session bridge

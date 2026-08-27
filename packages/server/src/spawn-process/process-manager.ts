@@ -49,6 +49,7 @@ import {
   createKeeperManager,
   type KeeperManager,
 } from "../rpc-keeper/keeper-manager.js";
+import { type CwdPolicyRegistry, mergeCwdPolicy } from "./cwd-policy.js";
 
 // ── Resolver seam (injectable for tests) ────────────────────────────────────
 
@@ -79,6 +80,20 @@ let spawnDashboardPiPort: number | null = null;
 /** Set the owning server's piPort so spawned sessions connect back here. */
 export function setSpawnDashboardPiPort(piPort: number | null): void {
   spawnDashboardPiPort = piPort;
+}
+
+// ── Cwd-policy registry seam (Part B — host-cwd-policy) ──────────────────────
+//
+// A SINGLE registry instance is wired here AND into every plugin context by the
+// server. `spawnPiSession` resolves + merges the cwd policy BEFORE building
+// argv/env, so EVERY spawn (plugin or generic) honors the tightening floor.
+// When unset (tests that don't wire one, or the pre-change default), the merge
+// is a no-op and argv/env are byte-identical. See change: add-plugin-spawn-scope.
+let cwdPolicyRegistry: CwdPolicyRegistry | null = null;
+
+/** Wire the shared cwd-policy registry into the spawn funnel. */
+export function setCwdPolicyRegistry(registry: CwdPolicyRegistry | null): void {
+  cwdPolicyRegistry = registry;
 }
 
 // ── KeeperManager seam (injectable for tests) ──────────────────────────
@@ -144,10 +159,11 @@ export interface SessionOptions {
   /**
    * Per-extension config projected to namespaced env (`PI_EXT_<NAME>_<KEY>`)
    * by `buildSpawnEnv` on the headless mechanism. Name+key are uppercased
-   * with every non-`[A-Z0-9_]` char replaced by `_`. See change:
+   * with every non-`[A-Z0-9_]` char replaced by `_`. Scalar values project
+   * verbatim; array values as `JSON.stringify(value)` (design D8). See change:
    * add-plugin-spawn-scope.
    */
-  extensionConfig?: Record<string, Record<string, string>>;
+  extensionConfig?: Record<string, Record<string, string | string[]>>;
 }
 
 export interface SpawnResult {
@@ -212,11 +228,12 @@ export function buildSpawnEnv(
     /**
      * Per-extension config projected to namespaced env. For each
      * `name`/`key`, sets `PI_EXT_<NAME>_<KEY>` where name+key are uppercased
-     * with every `[^A-Z0-9_]` char replaced by `_`. Absent ⇒ env untouched.
-     * Applied on the headless (plugin-spawn) mechanism. See change:
-     * add-plugin-spawn-scope.
+     * with every `[^A-Z0-9_]` char replaced by `_`. Scalar values project
+     * verbatim; array values as `JSON.stringify(value)` (design D8). Absent ⇒
+     * env untouched. Applied on the headless (plugin-spawn) mechanism. See
+     * change: add-plugin-spawn-scope.
      */
-    extensionConfig?: Record<string, Record<string, string>>;
+    extensionConfig?: Record<string, Record<string, string | string[]>>;
   },
 ): NodeJS.ProcessEnv {
   // Defensive copy: never mutate the caller's env (often `process.env`).
@@ -252,18 +269,37 @@ export function buildSpawnEnv(
   }
   if (opts?.extensionConfig) {
     // Project per-extension config into namespaced env. Name+key are
-    // uppercased with every non-`[A-Z0-9_]` char replaced by `_` so the
-    // emitted variable name is always a valid env identifier (design D4).
+    // normalized to a valid env identifier: a camelCase boundary
+    // (`allowedRoots`) gets an underscore inserted, then the token is
+    // uppercased and every non-`[A-Z0-9_]` char replaced by `_` (so
+    // `allowedRoots`→`ALLOWED_ROOTS`, `api.key`→`API_KEY`, design D4).
     // See change: add-plugin-spawn-scope.
     for (const [name, config] of Object.entries(opts.extensionConfig)) {
-      const normName = name.toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+      const normName = normalizeEnvSegment(name);
       for (const [key, value] of Object.entries(config)) {
-        const normKey = key.toUpperCase().replace(/[^A-Z0-9_]/g, "_");
-        env[`PI_EXT_${normName}_${normKey}`] = value;
+        const normKey = normalizeEnvSegment(key);
+        // Scalar string projects verbatim; array projects as JSON so the
+        // value is lossless for filesystem paths (design D8).
+        env[`PI_EXT_${normName}_${normKey}`] =
+          typeof value === "string" ? value : JSON.stringify(value);
       }
     }
   }
   return env;
+}
+
+/**
+ * Normalize an `extensionConfig` name/key segment into a valid uppercase env
+ * identifier: split camelCase boundaries with `_` (`allowedRoots` →
+ * `ALLOWED_ROOTS`), uppercase, then replace every non-`[A-Z0-9_]` char with
+ * `_` (`api.key` → `API_KEY`, `my-ext` → `MY_EXT`). See change:
+ * add-plugin-spawn-scope (design D4).
+ */
+function normalizeEnvSegment(segment: string): string {
+  return segment
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toUpperCase()
+    .replace(/[^A-Z0-9_]/g, "_");
 }
 
 /**
@@ -483,7 +519,13 @@ export async function spawnPiSession(
   // SpawnResult so callers can register it with the registries.
   // See change: spawn-correlation-token.
   const spawnToken = options?.spawnToken ?? mintSpawnToken();
-  const opts: SessionOptions & { electronMode?: boolean } = { ...(options ?? {}), spawnToken };
+  const baseOpts: SessionOptions & { electronMode?: boolean } = { ...(options ?? {}), spawnToken };
+
+  // Resolve + merge the cwd capability floor BEFORE argv/env are built, for
+  // EVERY spawn regardless of origin (design B1). No matching policy ⇒
+  // `mergeCwdPolicy` returns `baseOpts` unchanged ⇒ byte-identical argv/env.
+  const policy = cwdPolicyRegistry?.resolve(cwd);
+  const opts = policy ? mergeCwdPolicy(policy, baseOpts) : baseOpts;
 
   const mechanism = chooseMechanism(opts, opts?.electronMode ?? false);
 

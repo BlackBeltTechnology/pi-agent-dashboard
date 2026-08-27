@@ -43,7 +43,7 @@ If a plugin sets `noTools` + `tools`, the mapper emits both flags and lets pi de
 _Alternatives rejected:_ (a) validate & reject — adds an error surface and policy the mapper shouldn't own; (b) silently drop the loser — surprising, untestable intent.
 
 **D4 — `extensionConfig` keys sanitized to valid env identifiers.**
-`PI_EXT_<NAME>_<KEY>` with `<NAME>`/`<KEY>` uppercased and every char outside `[A-Z0-9_]` replaced by `_`. `my-ext`/`api.key` → `PI_EXT_MY_EXT_API_KEY`. Documented convention; avoids emitting invalid env-var names.
+`PI_EXT_<NAME>_<KEY>` with `<NAME>`/`<KEY>` normalized by `normalizeEnvSegment`: split camelCase boundaries with `_`, uppercase, then replace every char outside `[A-Z0-9_]` with `_`. `my-ext`/`api.key` → `PI_EXT_MY_EXT_API_KEY`; `guard`/`allowedRoots` → `PI_EXT_GUARD_ALLOWED_ROOTS` (the camelCase split is what makes the `plugin-spawn-scope` spec's E15 scenario — `allowedRoots` → `ALLOWED_ROOTS` — hold; the original D4 wording omitted it). Documented convention; avoids emitting invalid env-var names.
 _Alternative rejected:_ pass verbatim — produces illegal env names (`-`, `.`) the OS/pi can't read.
 
 **D5 — Mapper lives in `dashboard-plugin-runtime`, next to `PluginSpawnOptions`.**

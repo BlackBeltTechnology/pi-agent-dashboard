@@ -158,8 +158,14 @@ export interface PluginSpawnOptions {
     noSkills?: boolean;
     /** Additive allowlist → repeatable `-e <path>` per entry. */
     extensions?: string[];
-    /** Per-extension config → namespaced env `PI_EXT_<NAME>_<KEY>`. */
-    extensionConfig?: Record<string, Record<string, string>>;
+    /**
+     * Per-extension config → namespaced env `PI_EXT_<NAME>_<KEY>`. A scalar
+     * `string` value projects verbatim; a `string[]` value projects as
+     * `JSON.stringify(value)` (the consuming extension `JSON.parse`s array
+     * keys). JSON — not a delimiter-join — because values are frequently
+     * filesystem paths, for which every delimiter is unsafe (design D8).
+     */
+    extensionConfig?: Record<string, Record<string, string | string[]>>;
   };
 }
 
@@ -172,7 +178,7 @@ export interface PluginSpawnOptions {
  */
 export interface MappedSpawnOptions extends SessionFlags {
   strategy?: SpawnStrategy;
-  extensionConfig?: Record<string, Record<string, string>>;
+  extensionConfig?: Record<string, Record<string, string | string[]>>;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -198,20 +204,41 @@ function sanitizeArgvList(v: unknown): string[] | undefined {
   return v.filter(isSafeArgvString);
 }
 
+/** A NUL-free string (empty allowed — env values may legitimately be empty). */
+function isSafeEnvString(v: unknown): v is string {
+  return typeof v === "string" && !v.includes("\0");
+}
+
+/**
+ * Keep a single `extensionConfig` value: a NUL-free string (verbatim) OR an
+ * array of such strings (invalid elements dropped; the whole entry dropped
+ * when nothing valid remains). Anything else ⇒ `undefined` (dropped).
+ */
+function sanitizeConfigValue(value: unknown): string | string[] | undefined {
+  if (isSafeEnvString(value)) return value;
+  if (Array.isArray(value)) {
+    const cleaned = value.filter(isSafeEnvString);
+    if (cleaned.length > 0) return cleaned;
+  }
+  return undefined;
+}
+
 /**
  * Sanitize `extensionConfig`. Non-record containers (at any level) are treated
- * as absent; values that are not NUL-free strings are dropped. Never throws.
+ * as absent; values are kept per {@link sanitizeConfigValue}. Never throws
+ * (design D7/D8).
  */
 function sanitizeExtensionConfig(
   v: unknown,
-): Record<string, Record<string, string>> | undefined {
+): Record<string, Record<string, string | string[]>> | undefined {
   if (!isRecord(v)) return undefined;
-  const out: Record<string, Record<string, string>> = {};
+  const out: Record<string, Record<string, string | string[]>> = {};
   for (const [name, config] of Object.entries(v)) {
     if (!isRecord(config)) continue;
-    const inner: Record<string, string> = {};
+    const inner: Record<string, string | string[]> = {};
     for (const [key, value] of Object.entries(config)) {
-      if (typeof value === "string" && !value.includes("\0")) inner[key] = value;
+      const clean = sanitizeConfigValue(value);
+      if (clean !== undefined) inner[key] = clean;
     }
     out[name] = inner;
   }
@@ -257,6 +284,41 @@ export function pluginSpawnToSessionOptions(opts: PluginSpawnOptions): MappedSpa
   }
   return result;
 }
+
+/**
+ * A tightening-only capability policy a plugin may pin to a cwd subtree via
+ * {@link ServerPluginContext.registerCwdPolicy}. Structural mirror of the
+ * server's `CwdPolicy` so the runtime package needs no dependency on the
+ * server package. `extensions`/`extensionConfig` are DELIBERATELY absent: the
+ * host REJECTS a registration carrying them (extension injection is not a
+ * plugin-authorizable widening — design B3). See change: add-plugin-spawn-scope.
+ */
+export interface PluginCwdPolicy {
+  tools?: string[];
+  excludeTools?: string[];
+  noBuiltinTools?: boolean;
+  noTools?: boolean;
+  skills?: string[];
+  noSkills?: boolean;
+}
+
+/**
+ * Pin a tightening capability floor to a cwd subtree. Any pi session spawned
+ * with a cwd inside `cwd` (plugin-originated OR generic) has the policy merged
+ * non-weakeningly into its argv. Gated to first-party / trusted plugins (same
+ * gate as `spawnSession`); an untrusted plugin gets a no-op. THROWS when the
+ * policy carries `extensions`/`extensionConfig` or the target is overly broad
+ * (filesystem root, home, or outside a recognized workspace root).
+ * See change: add-plugin-spawn-scope (Part B).
+ */
+export type RegisterCwdPolicyFn = (cwd: string, policy: PluginCwdPolicy) => void;
+
+/**
+ * Remove the calling plugin's cwd policy for `cwd`. Owner-scoped (never touches
+ * another plugin's entry) and idempotent (no throw when nothing is registered).
+ * No-op for untrusted plugins. See change: add-plugin-spawn-scope (Part B).
+ */
+export type UnregisterCwdPolicyFn = (cwd: string) => void;
 
 /** Result of a plugin session-spawn request. */
 export interface PluginSpawnResult {
@@ -430,6 +492,16 @@ export interface ServerPluginContext {
    */
   abortSpawnedRun: AbortSpawnedRunFn;
   /**
+   * Pin a tightening cwd capability floor. Gated to first-party/trusted
+   * plugins; untrusted plugins get a no-op. See change: add-plugin-spawn-scope.
+   */
+  registerCwdPolicy: RegisterCwdPolicyFn;
+  /**
+   * Remove the caller's cwd policy for a dir (owner-scoped, idempotent).
+   * See change: add-plugin-spawn-scope.
+   */
+  unregisterCwdPolicy: UnregisterCwdPolicyFn;
+  /**
    * Publish a value other plugins can consume. See change:
    * register-plugin-automation-events.
    */
@@ -474,6 +546,8 @@ export interface ServerContextDeps {
   spawnSession: SpawnSessionFn;
   abortSession: AbortSessionFn;
   abortSpawnedRun: AbortSpawnedRunFn;
+  registerCwdPolicy: RegisterCwdPolicyFn;
+  unregisterCwdPolicy: UnregisterCwdPolicyFn;
   provide: ProvideFn;
   consume: ConsumeFn;
   consumeAll: ConsumeAllFn;
@@ -508,6 +582,8 @@ export function createServerPluginContext(
     spawnSession: deps.spawnSession,
     abortSession: deps.abortSession,
     abortSpawnedRun: deps.abortSpawnedRun,
+    registerCwdPolicy: deps.registerCwdPolicy,
+    unregisterCwdPolicy: deps.unregisterCwdPolicy,
     provide: deps.provide,
     consume: deps.consume,
     consumeAll: deps.consumeAll,
