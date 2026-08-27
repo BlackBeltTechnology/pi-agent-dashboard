@@ -8,7 +8,7 @@ import os from "node:os";
 import path from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 import { fileURLToPath } from "node:url";
-import { createServerPluginContext, discoverPlugins, getPluginStatusStore, loadServerEntries, refreshRequirementProbesFor } from "@blackbelt-technology/dashboard-plugin-runtime/server";
+import { createServerPluginContext, discoverPlugins, getPluginStatusStore, loadServerEntries, pluginSpawnToSessionOptions, refreshRequirementProbesFor } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { isRecoveryAllowed } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { findBundledExtension, registerBridgeExtension } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
 import type { AuthConfig, DashboardConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
@@ -2187,6 +2187,13 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 if (!trusted) {
                   return { success: false, message: `spawn not permitted for plugin "${plugin.manifest.id}"` };
                 }
+                // Map plugin-facing options to session options BEFORE the
+                // enqueue below. The mapper is total (never throws) and
+                // sanitizes untrusted plugin input; calling it first closes the
+                // window where a mapping failure could strand a stale
+                // `automationRun` stamp keyed by `cwd`. See change:
+                // add-plugin-spawn-scope (D7).
+                const sessionOptions = pluginSpawnToSessionOptions(opts);
                 if (opts.automationRun) {
                   pendingAutomationRunRegistry.enqueue(opts.cwd, opts.automationRun);
                 }
@@ -2204,13 +2211,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                   );
                 }
                 try {
-                  const result = await spawnPiSession(opts.cwd, {
-                    strategy: "headless",
-                    ...(opts.model ? { model: opts.model } : {}),
-                    // Flow/automation runs know an intended name — set it at
-                    // creation via `--name`. See change: adopt-pi-074-080-features.
-                    ...(opts.automationRun?.name ? { name: opts.automationRun.name } : {}),
-                  });
+                  const result = await spawnPiSession(opts.cwd, sessionOptions);
                   // Plugin/automation spawn: transport-less, reclaim required.
                   armSpawnWatchdog(opts.cwd, "headless", result);
                   if (result.process && result.pid) {

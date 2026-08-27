@@ -4,6 +4,8 @@
  * Creates a ServerPluginContext scoped to a specific plugin id,
  * with a namespaced logger and typed config accessors.
  */
+import type { SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { SessionFlags } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js";
 import type { FastifyInstance } from "fastify";
 import type { PluginLogger } from "../plugin-context.js";
 
@@ -126,6 +128,134 @@ export interface PluginSpawnOptions {
    * run's effective board visibility.
    */
   automationRun?: { name: string; runId: string; visibility?: "hidden" | "shown" };
+  /**
+   * Optional capability-scope block constraining the spawned session's
+   * tool / skill / extension surface, mapped 1:1 to pi CLI flags by
+   * `pluginSpawnToSessionOptions`. Every field is optional; when the block
+   * is absent the produced argv + env are byte-identical to today.
+   *
+   * There is deliberately NO `noExtensions` toggle: disabling extension
+   * discovery would stop the dashboard bridge from loading and make the
+   * spawned session uncontrollable (design D2/D6). The `extensions`
+   * allowlist is additive — discovery still runs, so the bridge still loads.
+   *
+   * `extensionConfig[name][key]` is projected to namespaced env
+   * (`PI_EXT_<NAME>_<KEY>`) rather than argv. See change:
+   * add-plugin-spawn-scope.
+   */
+  scope?: {
+    /** Allowlist → `--tools a,b,c` (comma-joined single arg). */
+    tools?: string[];
+    /** Denylist → `--exclude-tools a,b,c` (comma-joined single arg). */
+    excludeTools?: string[];
+    /** `--no-builtin-tools` (bare toggle). */
+    noBuiltinTools?: boolean;
+    /** `--no-tools` (bare toggle). */
+    noTools?: boolean;
+    /** Repeatable → `--skill <path>` per entry. */
+    skills?: string[];
+    /** `--no-skills` (bare toggle). */
+    noSkills?: boolean;
+    /** Additive allowlist → repeatable `-e <path>` per entry. */
+    extensions?: string[];
+    /** Per-extension config → namespaced env `PI_EXT_<NAME>_<KEY>`. */
+    extensionConfig?: Record<string, Record<string, string>>;
+  };
+}
+
+/**
+ * Result of mapping a {@link PluginSpawnOptions} to the spawn chain's session
+ * options. Structurally a superset of {@link SessionFlags} (the argv builder
+ * layer) plus the headless-only `strategy` and `extensionConfig` (env). Kept
+ * package-local so plugin authors can unit-test the mapper without depending
+ * on the server package. See change: add-plugin-spawn-scope.
+ */
+export interface MappedSpawnOptions extends SessionFlags {
+  strategy?: SpawnStrategy;
+  extensionConfig?: Record<string, Record<string, string>>;
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/**
+ * A non-empty string with no NUL byte. A NUL in any argv element crashes
+ * `spawn`, so such strings are dropped rather than forwarded.
+ */
+function isSafeArgvString(v: unknown): v is string {
+  return typeof v === "string" && v.length > 0 && !v.includes("\0");
+}
+
+/**
+ * Sanitize an allowlist/denylist container. Non-arrays are treated as absent
+ * (returns `undefined`); invalid entries (non-string, empty, NUL-bearing) are
+ * dropped. An empty-but-present array returns `[]` — the argv builder emits
+ * nothing for it, matching the "empty array emits no flag" contract.
+ */
+function sanitizeArgvList(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  return v.filter(isSafeArgvString);
+}
+
+/**
+ * Sanitize `extensionConfig`. Non-record containers (at any level) are treated
+ * as absent; values that are not NUL-free strings are dropped. Never throws.
+ */
+function sanitizeExtensionConfig(
+  v: unknown,
+): Record<string, Record<string, string>> | undefined {
+  if (!isRecord(v)) return undefined;
+  const out: Record<string, Record<string, string>> = {};
+  for (const [name, config] of Object.entries(v)) {
+    if (!isRecord(config)) continue;
+    const inner: Record<string, string> = {};
+    for (const [key, value] of Object.entries(config)) {
+      if (typeof value === "string" && !value.includes("\0")) inner[key] = value;
+    }
+    out[name] = inner;
+  }
+  return out;
+}
+
+/**
+ * Total, pure mapper: {@link PluginSpawnOptions} → {@link MappedSpawnOptions}.
+ *
+ * Reproduces the inline `spawnSession`-hook literal (headless strategy, the
+ * `--model` from `opts.model`, the `--name` from `opts.automationRun?.name`)
+ * and additionally flattens the nested `scope` block into flat argv fields
+ * plus `extensionConfig` (env).
+ *
+ * NEVER throws — plugin code is JavaScript, so runtime input is not
+ * type-constrained. Malformed containers (`scope`/list/record fields supplied
+ * as `null`, an array, or a primitive) are treated as absent, not iterated.
+ * Strings bound for argv or env are dropped when not a non-empty, NUL-free
+ * string. Conflicting fields (`noTools` + `tools`) are BOTH forwarded; pi
+ * arbitrates precedence (design D3). See change: add-plugin-spawn-scope.
+ */
+export function pluginSpawnToSessionOptions(opts: PluginSpawnOptions): MappedSpawnOptions {
+  const result: MappedSpawnOptions = { strategy: "headless" };
+  if (isSafeArgvString(opts.model)) result.model = opts.model;
+  const name = opts.automationRun?.name;
+  if (isSafeArgvString(name)) result.name = name;
+
+  const scope: unknown = opts.scope;
+  if (isRecord(scope)) {
+    const tools = sanitizeArgvList(scope.tools);
+    if (tools) result.tools = tools;
+    const excludeTools = sanitizeArgvList(scope.excludeTools);
+    if (excludeTools) result.excludeTools = excludeTools;
+    if (scope.noBuiltinTools === true) result.noBuiltinTools = true;
+    if (scope.noTools === true) result.noTools = true;
+    const skills = sanitizeArgvList(scope.skills);
+    if (skills) result.skills = skills;
+    if (scope.noSkills === true) result.noSkills = true;
+    const extensions = sanitizeArgvList(scope.extensions);
+    if (extensions) result.extensions = extensions;
+    const extensionConfig = sanitizeExtensionConfig(scope.extensionConfig);
+    if (extensionConfig) result.extensionConfig = extensionConfig;
+  }
+  return result;
 }
 
 /** Result of a plugin session-spawn request. */

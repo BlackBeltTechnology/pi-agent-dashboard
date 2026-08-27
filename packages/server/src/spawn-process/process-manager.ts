@@ -129,6 +129,25 @@ export interface SessionOptions {
    * relying only on post-hoc auto-naming. See change: adopt-pi-074-080-features.
    */
   name?: string;
+  /**
+   * Capability-scope fields threaded to `sessionFlagsToArgv` (they extend
+   * `SessionFlags` structurally). Populated by `pluginSpawnToSessionOptions`
+   * from a plugin's `scope` block. See change: add-plugin-spawn-scope.
+   */
+  tools?: string[];
+  excludeTools?: string[];
+  noBuiltinTools?: boolean;
+  noTools?: boolean;
+  skills?: string[];
+  noSkills?: boolean;
+  extensions?: string[];
+  /**
+   * Per-extension config projected to namespaced env (`PI_EXT_<NAME>_<KEY>`)
+   * by `buildSpawnEnv` on the headless mechanism. Name+key are uppercased
+   * with every non-`[A-Z0-9_]` char replaced by `_`. See change:
+   * add-plugin-spawn-scope.
+   */
+  extensionConfig?: Record<string, Record<string, string>>;
 }
 
 export interface SpawnResult {
@@ -190,6 +209,14 @@ export function buildSpawnEnv(
     argv0?: string;
     /** Injected `execPath`/`electronVersion` for deterministic tests. */
     electronDeps?: { execPath?: string; electronVersion?: string };
+    /**
+     * Per-extension config projected to namespaced env. For each
+     * `name`/`key`, sets `PI_EXT_<NAME>_<KEY>` where name+key are uppercased
+     * with every `[^A-Z0-9_]` char replaced by `_`. Absent ⇒ env untouched.
+     * Applied on the headless (plugin-spawn) mechanism. See change:
+     * add-plugin-spawn-scope.
+     */
+    extensionConfig?: Record<string, Record<string, string>>;
   },
 ): NodeJS.ProcessEnv {
   // Defensive copy: never mutate the caller's env (often `process.env`).
@@ -222,6 +249,19 @@ export function buildSpawnEnv(
     // process can read it and echo back in `session_register`.
     // See change: spawn-correlation-token.
     env.PI_DASHBOARD_SPAWN_TOKEN = opts.spawnToken;
+  }
+  if (opts?.extensionConfig) {
+    // Project per-extension config into namespaced env. Name+key are
+    // uppercased with every non-`[A-Z0-9_]` char replaced by `_` so the
+    // emitted variable name is always a valid env identifier (design D4).
+    // See change: add-plugin-spawn-scope.
+    for (const [name, config] of Object.entries(opts.extensionConfig)) {
+      const normName = name.toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+      for (const [key, value] of Object.entries(config)) {
+        const normKey = key.toUpperCase().replace(/[^A-Z0-9_]/g, "_");
+        env[`PI_EXT_${normName}_${normKey}`] = value;
+      }
+    }
   }
   return env;
 }
@@ -557,7 +597,11 @@ async function spawnHeadless(cwd: string, options?: SessionOptions): Promise<Spa
   // Build env AFTER resolving piCmd so the node-wrapped pi argv[0] re-adds
   // the Electron-as-node flag when it is the Electron binary. This env is
   // the keeper's base env, so the forwarded pi child inherits the flag too.
-  const env = buildSpawnEnv(process.env, { spawnToken: options?.spawnToken, argv0: piCmd[0] });
+  const env = buildSpawnEnv(process.env, {
+    spawnToken: options?.spawnToken,
+    argv0: piCmd[0],
+    extensionConfig: options?.extensionConfig,
+  });
   return spawnHeadlessViaKeeper(cwd, env, args, piCmd);
 }
 
