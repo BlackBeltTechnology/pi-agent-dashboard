@@ -65,64 +65,67 @@ describe("replayEntriesAsEvents — persisted custom messages", () => {
   });
 });
 
-describe("replayEntriesAsEvents — ib-greeting singleton (change: replace-replayed-greeting)", () => {
+describe("replayEntriesAsEvents — ib-greeting chronological chat history", () => {
   function greetingEvents(events: ReturnType<typeof replayEntriesAsEvents>) {
     return events.filter((e) => (e.event.data as any).message?.customType === "ib-greeting");
   }
 
-  it("T1: three historical greetings replay as exactly one latest greeting", () => {
+  it("T1: three historical greetings replay as three chronological greeting pairs", () => {
     const events = replayEntriesAsEvents("sess-1", [
       greetingEntry("g1", "A"),
       greetingEntry("g2", "B"),
       greetingEntry("g3", "C"),
     ]);
     const ge = greetingEvents(events);
-    expect(ge.map((e) => e.event.eventType)).toEqual(["message_start", "message_end"]);
-    for (const e of ge) {
-      expect((e.event.data as any).message.content).toBe("C");
-      expect((e.event.data as any).message.customType).toBe("ib-greeting");
-      expect((e.event.data as any).entryId).toBe("g3");
-    }
+    expect(ge.map((e) => e.event.eventType)).toEqual([
+      "message_start", "message_end", "message_start", "message_end", "message_start", "message_end",
+    ]);
+    expect(ge.filter((e) => e.event.eventType === "message_end").map((e) => ({
+      content: (e.event.data as any).message.content,
+      entryId: (e.event.data as any).entryId,
+    }))).toEqual([
+      { content: "A", entryId: "g1" },
+      { content: "B", entryId: "g2" },
+      { content: "C", entryId: "g3" },
+    ]);
   });
 
-  it("T2: unrelated custom messages replay unchanged alongside a collapsed greeting", () => {
+  it("T2: unrelated custom messages replay unchanged alongside chronological greetings", () => {
     const events = replayEntriesAsEvents("sess-1", [
       greetingEntry("g1", "A"),
       customMessageEntry("c1", "note-one", true),
       greetingEntry("g2", "B"),
     ]);
-    const ge = greetingEvents(events);
-    expect(ge).toHaveLength(2); // one start + one end
-    expect((ge[0].event.data as any).message.content).toBe("B");
-
-    const noteEvents = events.filter((e) => (e.event.data as any).message?.customType === "x-note");
-    expect(noteEvents).toHaveLength(2); // its own start + end, unchanged
-    for (const e of noteEvents) {
-      expect((e.event.data as any).message.content).toBe("note-one");
-      expect((e.event.data as any).entryId).toBe("c1");
-    }
+    expect(events.filter((e) => e.event.eventType === "message_end").map((e) => ({
+      customType: (e.event.data as any).message.customType,
+      content: (e.event.data as any).message.content,
+      entryId: (e.event.data as any).entryId,
+    }))).toEqual([
+      { customType: "ib-greeting", content: "A", entryId: "g1" },
+      { customType: "x-note", content: "note-one", entryId: "c1" },
+      { customType: "ib-greeting", content: "B", entryId: "g2" },
+    ]);
   });
 
-  it("T2b: the single greeting occupies the first greeting's slot (opener, not tail)", () => {
+  it("T2b: greeting and x-note pairs stay interleaved in JSONL order", () => {
     const events = replayEntriesAsEvents("sess-1", [
       greetingEntry("g1", "A"),
       customMessageEntry("c1", "note-one", true),
       greetingEntry("g2", "B"),
     ]);
-    // The greeting pair must precede the x-note pair (first greeting was first).
-    const idxGreeting = events.findIndex((e) => (e.event.data as any).message?.customType === "ib-greeting");
-    const idxNote = events.findIndex((e) => (e.event.data as any).message?.customType === "x-note");
-    expect(idxGreeting).toBeGreaterThanOrEqual(0);
-    expect(idxNote).toBeGreaterThan(idxGreeting);
+    const messageEvents = events.filter((e) => (e.event.data as any).message);
+    expect(messageEvents.map((e) => (e.event.data as any).message.customType)).toEqual([
+      "ib-greeting", "ib-greeting", "x-note", "x-note", "ib-greeting", "ib-greeting",
+    ]);
   });
 
-  it("T3: no greeting leaves replay unchanged (no singleton handling)", () => {
+  it("T3: no greeting leaves replay unchanged", () => {
     const events = replayEntriesAsEvents("sess-1", [
       customMessageEntry("c1", "note-one", true),
       customMessageEntry("c2", "note-two", true),
     ]);
     const noteEvents = events.filter((e) => (e.event.data as any).message?.customType === "x-note");
-    expect(noteEvents).toHaveLength(4); // two entries × (start + end)
+    expect(noteEvents).toHaveLength(4);
     expect(greetingEvents(events)).toHaveLength(0);
   });
 
