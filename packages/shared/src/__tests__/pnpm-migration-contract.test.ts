@@ -134,16 +134,22 @@ describe("X5 — root/workspace workflows install with pnpm", () => {
   });
 });
 
-// ── X6: deploy-site is dual-install — site/ stays npm, root uses pnpm ──────
-describe("X6 — deploy-site.yml dual-install regression", () => {
+// ── X6: deploy-site install shape ──────────────────────────────
+// Updated for c52745af0 (static landing page): site/ has NO dependencies —
+// no npm ci, no cache-dependency-path, no astro build (`npm run build` is a
+// copy + reference check). The old dual-install contract (site/ stays npm)
+// described the Astro site and is retired. Root shell stays pnpm.
+describe("X6 — deploy-site.yml install shape", () => {
   const y = readWf("deploy-site.yml");
-  it("site/ job keeps its own npm lockfile + npm ci (unmigrated)", () => {
-    expect(y).toContain("cache-dependency-path: site/package-lock.json");
-    expect(y, "site/ install must stay `npm ci`").toMatch(/\bnpm ci\b/);
-  });
+  const code = y.split("\n").filter((l) => !l.trim().startsWith("#")).join("\n");
   it("root shell install uses pnpm", () => {
     expect(y).toContain("pnpm/action-setup");
     expect(y).toMatch(/pnpm install --frozen-lockfile/);
+  });
+  it("site/ job runs no npm install machinery (dependency-free static page)", () => {
+    expect(y).toMatch(/itself has NO dependencies/);
+    expect(code, "no npm ci may return").not.toMatch(/\bnpm ci\b/);
+    expect(code, "no site lockfile cache may return").not.toContain("cache-dependency-path");
   });
 });
 
