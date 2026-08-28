@@ -851,12 +851,36 @@ export interface RecoveryDismissMessage {
  * `replay: true` frame as an idempotent state-set (converge to it), never as an
  * incremental delta, so counters/animations driven by live deltas are not
  * double-applied. See change: replay-invoice-domain-events.
+ *
+ * `greetingId` / `greetingOrder` are additive fields carried ONLY on replayed
+ * greeting-type frames (`event.eventType === IB_GREETING_EVENT_TYPE`). They give
+ * a consumer the greeting's stable identity and its per-session emission-ordering
+ * key (epoch-ms) so the greeting stream folds into chronological chat rows and
+ * dedupes idempotently across live+replay delivery. Live greeting frames omit
+ * both (id derived from `event.data.id`, order from arrival time). Non-greeting
+ * frames never carry them. See change: restore-assistant-greeting-stream.
  */
 export interface IbDomainEventMessage {
   type: "ib_domain_event";
   sessionId: string;
   event: { eventType: string; data: unknown };
   replay?: boolean;
+  greetingId?: string;
+  greetingOrder?: number;
+}
+
+/**
+ * Wire `eventType` for greeting-type `ib_domain_event` frames — the mechanical
+ * rename of the engine's `ib:greeting` EventBus channel (`:`/`-` → `_`). The
+ * SINGLE source of truth for the greeting classifier shared by the server
+ * retention/replay path and the client chat reducer, so the two never drift.
+ * See change: restore-assistant-greeting-stream.
+ */
+export const IB_GREETING_EVENT_TYPE = "ib_greeting";
+
+/** True only for greeting-type domain-event frames. */
+export function isIbGreetingEventType(eventType: string | undefined): boolean {
+  return eventType === IB_GREETING_EVENT_TYPE;
 }
 
 /**

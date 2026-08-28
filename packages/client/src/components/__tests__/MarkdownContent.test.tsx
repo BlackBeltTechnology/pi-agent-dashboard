@@ -73,6 +73,33 @@ describe("MarkdownContent — loopback link routing", () => {
   });
 });
 
+/**
+ * Change: restore-assistant-greeting-stream
+ *
+ * PIN the raw-HTML rendering contract. A producer (the InvoiceBot engine)
+ * authors a per-state greeting glyph as raw inline `<svg><path/></svg>` in the
+ * greeting content; this repo renders it via react-markdown + rehypeRaw with NO
+ * HTML sanitizer (MarkdownContent.tsx). If a `rehype-sanitize` (or equivalent)
+ * is added later it would silently strip every glyph — these tests then fail
+ * LOUDLY, forcing that to be an intentional decision, not a silent regression.
+ */
+describe("MarkdownContent — raw-HTML pass-through contract (greeting glyph pin)", () => {
+  it("renders a raw inline <svg><path/></svg> from content as real DOM", () => {
+    const { container } = renderMd('Done <svg data-glyph="mdi"><path d="M0 0h24v24H0z"/></svg>');
+    const svg = container.querySelector("svg");
+    expect(svg).toBeTruthy();
+    expect(svg!.querySelector("path")).toBeTruthy();
+    // The glyph must NOT have been escaped to visible text.
+    expect(container.textContent ?? "").not.toContain("<svg");
+  });
+
+  it("preserves content-embedded data-* attributes on raw inline HTML", () => {
+    const { container } = renderMd('<span data-ib="marker">x</span>');
+    const span = container.querySelector('span[data-ib="marker"]');
+    expect(span).toBeTruthy();
+  });
+});
+
 describe("isFencedBlockComplete — mermaid streaming gate", () => {
   const code = "graph TD; A-->B";
 

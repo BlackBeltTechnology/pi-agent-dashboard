@@ -88,3 +88,100 @@ describe("IbDomainEventCache", () => {
     expect(cache.getAll()).toHaveLength(0);
   });
 });
+
+/**
+ * Greeting-stream retention (change: restore-assistant-greeting-stream): greeting
+ * frames are EXEMPT from latest-per-key convergence and retained as a bounded,
+ * per-session, insertion-ordered stream replayed IN ORDER on connect.
+ */
+function greeting(id: string, state: string, sessionId = "s1", content = "hi") {
+  return frame("ib_greeting", { id, state, content }, sessionId);
+}
+
+describe("IbDomainEventCache greeting stream", () => {
+  let cache: IbDomainEventCache;
+  beforeEach(() => {
+    cache = new IbDomainEventCache();
+  });
+
+  it("retains greetings as an ordered stream, not collapsed to newest, and exempt from getAll()", () => {
+    cache.set(greeting("g1", "partner_pending"));
+    cache.set(greeting("g2", "pending_approval"));
+    cache.set(greeting("g3", "exported"));
+    // Not in the latest-per-key map at all.
+    expect(cache.getAll()).toHaveLength(0);
+    const stream = cache.getGreetingsForConnect();
+    expect(stream.map((g) => (g.frame.event.data as { state: string }).state)).toEqual([
+      "partner_pending",
+      "pending_approval",
+      "exported",
+    ]);
+    // Each carries a stable id + a monotonic ordering key.
+    expect(stream.map((g) => g.id)).toEqual(["g1", "g2", "g3"]);
+    expect(stream[0].order).toBeLessThan(stream[1].order);
+    expect(stream[1].order).toBeLessThan(stream[2].order);
+  });
+
+  it("is idempotent by stable id: a re-delivered greeting updates in place, no duplicate", () => {
+    cache.set(greeting("g1", "partner_pending", "s1", "first"));
+    cache.set(greeting("g2", "exported"));
+    cache.set(greeting("g1", "partner_pending", "s1", "updated")); // same id
+    const stream = cache.getGreetingsForConnect();
+    expect(stream).toHaveLength(2);
+    const g1 = stream.find((g) => g.id === "g1")!;
+    expect((g1.frame.event.data as { content: string }).content).toBe("updated");
+    // Order preserved: g1 stays before g2 despite the late update.
+    expect(stream.map((g) => g.id)).toEqual(["g1", "g2"]);
+  });
+
+  it("non-greeting frames still use latest-per-key convergence alongside greetings", () => {
+    cache.set(frame("ib_invoice_state_changed", { invoice_id: "inv1", state: "received" }));
+    cache.set(frame("ib_invoice_state_changed", { invoice_id: "inv1", state: "exported" }));
+    cache.set(greeting("g1", "exported"));
+    // Card state collapsed to newest; greeting kept separately.
+    expect(cache.getAll()).toHaveLength(1);
+    expect((cache.getAll()[0].event.data as { state: string }).state).toBe("exported");
+    expect(cache.getGreetingsForConnect()).toHaveLength(1);
+  });
+
+  it("session death clears that session's retained greetings only", () => {
+    cache.set(greeting("a1", "exported", "sA"));
+    cache.set(greeting("b1", "exported", "sB"));
+    cache.clearForSession("sA");
+    const stream = cache.getGreetingsForConnect();
+    expect(stream).toHaveLength(1);
+    expect(stream[0].frame.sessionId).toBe("sB");
+  });
+
+  it("bounds each session's stream, evicting the oldest greeting first", () => {
+    const small = new IbDomainEventCache(500, 3);
+    small.set(greeting("g1", "a"));
+    small.set(greeting("g2", "b"));
+    small.set(greeting("g3", "c"));
+    small.set(greeting("g4", "d")); // evicts g1
+    const ids = small.getGreetingsForConnect().map((g) => g.id);
+    expect(ids).toEqual(["g2", "g3", "g4"]);
+  });
+
+  it("orders greetings across sessions by global emission order", () => {
+    cache.set(greeting("a1", "s", "sA"));
+    cache.set(greeting("b1", "s", "sB"));
+    cache.set(greeting("a2", "s", "sA"));
+    const ids = cache.getGreetingsForConnect().map((g) => g.id);
+    expect(ids).toEqual(["a1", "b1", "a2"]);
+  });
+
+  it("synthesizes a positional id when a greeting frame lacks one, no collapse", () => {
+    cache.set(frame("ib_greeting", { state: "a", content: "1" }));
+    cache.set(frame("ib_greeting", { state: "b", content: "2" }));
+    const stream = cache.getGreetingsForConnect();
+    expect(stream).toHaveLength(2);
+    expect(new Set(stream.map((g) => g.id)).size).toBe(2);
+  });
+
+  it("reset also empties the greeting stream", () => {
+    cache.set(greeting("g1", "exported"));
+    cache.reset();
+    expect(cache.getGreetingsForConnect()).toHaveLength(0);
+  });
+});
