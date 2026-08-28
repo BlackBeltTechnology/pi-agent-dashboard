@@ -592,6 +592,16 @@ export function createBrowserGateway(
       sendTo(ws, { ...frame, replay: true });
     }
 
+    // Replay the ordered greeting stream (exempt from latest-per-key
+    // convergence) IN EMISSION ORDER so a mounting/reconnecting browser gets the
+    // full chronological greeting stream, not a single collapsed newest frame.
+    // Each frame carries its stable id + ordering key so the consumer folds it
+    // into chat rows chronologically and dedupes across live+replay.
+    // See change: restore-assistant-greeting-stream.
+    for (const g of ibDomainEventCache.getGreetingsForConnect()) {
+      sendTo(ws, { ...g.frame, replay: true, greetingId: g.id, greetingOrder: g.order });
+    }
+
     // Notify server of new connection (for mDNS peer list etc.)
     if (gateway.onConnect) {
       gateway.onConnect(ws);

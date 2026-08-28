@@ -61,12 +61,16 @@ frames to a browser **on connect**, so a surface that mounts, re-fetches, or
 reconnects after an event was emitted converges on current truth instead of
 waiting for the next accidental delta.
 
-The retained set SHALL be the latest event per key only — the server SHALL NOT
-replay a full historical **log** of domain events, and SHALL NOT be responsible
-for out-of-band baseline snapshots. A replayed frame SHALL be distinguishable from
-a live frame by an additive `replay: true` field (absent/false on live frames), so
-a consumer applies it as an idempotent state-set and never double-applies it. A
-dropped browser connection SHALL NOT corrupt server state.
+The retained set for latest-per-key convergence SHALL be the latest event per key
+only — the server SHALL NOT replay a full historical **log** of those events, and
+SHALL NOT be responsible for out-of-band baseline snapshots. **Greeting-type
+domain events are exempt from this latest-per-key retention**: they form a
+chronological stream and are retained and replayed in order by the
+`invoicebot-greeting-stream` capability rather than collapsed to their newest
+entry. A replayed frame SHALL be distinguishable from a live frame by an additive
+`replay: true` field (absent/false on live frames), so a consumer applies it as an
+idempotent set and never double-applies it. A dropped browser connection SHALL NOT
+corrupt server state.
 
 #### Scenario: Reconnecting client resumes the live stream
 
@@ -91,6 +95,15 @@ dropped browser connection SHALL NOT corrupt server state.
 - **THEN** the connecting browser SHALL receive exactly one replayed
   `ib_invoice_state_changed` frame for that invoice — its latest state
 - **AND** it SHALL NOT receive the superseded intermediate states as replay frames
+
+#### Scenario: Greeting events are not collapsed by latest-per-key retention
+
+- **WHEN** a session emits several greeting-type domain events before a browser
+  connects
+- **THEN** the latest-per-key convergence retention SHALL NOT reduce them to a
+  single newest frame
+- **AND** the connecting browser SHALL instead receive the ordered greeting stream
+  as defined by the `invoicebot-greeting-stream` capability
 
 #### Scenario: Replayed frame is marked and live frame is not
 

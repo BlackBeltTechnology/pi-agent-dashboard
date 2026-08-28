@@ -7,6 +7,8 @@
 import { describe, it, expect } from "vitest";
 import {
   IB_CHANNELS,
+  IB_GREETING_CHANNEL,
+  IB_SUBSCRIBED_CHANNELS,
   IB_PLUGIN_ID,
   IB_DOMAIN_EVENT_MESSAGE,
   renameIbChannel,
@@ -52,5 +54,30 @@ describe("ib-events declaration + mechanical rename", () => {
   it("envelope constants match the generic plugin channel contract", () => {
     expect(IB_PLUGIN_ID).toBe("invoicebot");
     expect(IB_DOMAIN_EVENT_MESSAGE).toBe("ib_domain_event");
+  });
+});
+
+/**
+ * The greeting RENDER channel is declared SEPARATELY from the lifecycle set
+ * (option b): a render event is not a lifecycle domain event, so it must not
+ * dilute IB_CHANNELS' meaning nor the assertion above. See change:
+ * restore-assistant-greeting-stream.
+ */
+describe("greeting render channel — declared separately from the lifecycle set", () => {
+  it("is ib:greeting and renames mechanically to the shared ib_greeting wire type", () => {
+    expect(IB_GREETING_CHANNEL).toBe("ib:greeting");
+    expect(renameIbChannel(IB_GREETING_CHANNEL)).toBe("ib_greeting");
+  });
+
+  it("is NOT part of the lifecycle set (IB_CHANNELS meaning preserved)", () => {
+    expect(IB_CHANNELS).not.toContain("ib:greeting");
+    // A render event is not a declared LIFECYCLE channel.
+    expect(isDeclaredIbChannel("ib:greeting")).toBe(false);
+  });
+
+  it("is included in the bridge's subscribed set alongside every lifecycle channel", () => {
+    expect(IB_SUBSCRIBED_CHANNELS).toContain("ib:greeting");
+    for (const ch of IB_CHANNELS) expect(IB_SUBSCRIBED_CHANNELS).toContain(ch);
+    expect(IB_SUBSCRIBED_CHANNELS).toHaveLength(IB_CHANNELS.length + 1);
   });
 });

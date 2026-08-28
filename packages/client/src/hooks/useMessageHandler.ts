@@ -3,10 +3,11 @@
  * Extracted from App.tsx — maps each message type to the correct state setter.
  */
 
-import type {
-  PreflightReason,
-  ServerToBrowserMessage,
-  SpawnFailureCode,
+import {
+  isIbGreetingEventType,
+  type PreflightReason,
+  type ServerToBrowserMessage,
+  type SpawnFailureCode,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
@@ -491,6 +492,47 @@ export function useMessageHandler(
         publishSessionEvent(msg.sessionId, msg.event);
         break;
 
+      // App-level InvoiceBot domain event (global broadcast, no per-session
+      // subscribe). Only GREETING frames concern the shell chat: fold each into
+      // the originating session's chat rows (live and replayed). Every other
+      // ib_domain_event kind (card state, cost, connectors) is consumed by the
+      // invoicebot UI plugin, not here — ignored. The synthetic `ib_greeting`
+      // reducer event carries the resolved stable id (replay `greetingId` →
+      // live `data.id`/`identity`) and ordering key (replay `greetingOrder` →
+      // live arrival ts). See change: restore-assistant-greeting-stream.
+      case "ib_domain_event": {
+        if (!isIbGreetingEventType(msg.event?.eventType)) break;
+        const gd = (msg.event.data ?? {}) as { id?: unknown; identity?: unknown; state?: unknown; content?: unknown };
+        // Prefer the server-assigned stable id (attached on BOTH live + replay).
+        // Defensively fall back to the producer-carried `state` (design D3: the
+        // per-session greeting identity), then legacy id/identity. The producer
+        // payload carries no id, so `state` is the real keying field.
+        const id =
+          typeof msg.greetingId === "string" && msg.greetingId.length > 0
+            ? msg.greetingId
+            : typeof gd.state === "string" && gd.state.length > 0
+              ? gd.state
+              : typeof gd.id === "string" && gd.id.length > 0
+                ? gd.id
+                : typeof gd.identity === "string" && gd.identity.length > 0
+                  ? gd.identity
+                  : null;
+        if (!id) break;
+        const order = typeof msg.greetingOrder === "number" ? msg.greetingOrder : Date.now();
+        const synthetic = {
+          eventType: "ib_greeting",
+          timestamp: order,
+          data: { id, state: gd.state, content: gd.content },
+        };
+        setSessionStates((prev) => {
+          const next = new Map(prev);
+          const current = next.get(msg.sessionId) ?? createInitialState();
+          next.set(msg.sessionId, reduceEvent(current, synthetic));
+          return next;
+        });
+        break;
+      }
+
       case "commands_list":
         setSessionCommands((prev) => {
           const next = new Map(prev);
@@ -667,10 +709,25 @@ export function useMessageHandler(
           // pendingPrompt across the full-replay reset branch.
           // See change: preserve-pending-prompt-across-replay.
           const carry = shouldReset ? next.get(msg.sessionId)?.pendingPrompt : undefined;
+          // Greeting rows are folded from the app-level ib_domain_event replay
+          // that lands on WS connect — BEFORE this per-session event_replay. A
+          // full-sweep reset (createInitialState) would drop them, so snapshot
+          // and re-fold them after the chat events so they survive and reposition
+          // chronologically. See change: restore-assistant-greeting-stream.
+          const carryGreetings = shouldReset
+            ? (next.get(msg.sessionId)?.messages ?? []).filter((m) => m.id.startsWith("greeting-"))
+            : [];
           let current = shouldReset ? createInitialState() : (next.get(msg.sessionId) ?? createInitialState());
           if (carry) current.pendingPrompt = carry;
           for (const { event } of msg.events) {
             current = reduceEvent(current, event);
+          }
+          for (const g of carryGreetings) {
+            current = reduceEvent(current, {
+              eventType: "ib_greeting",
+              timestamp: g.timestamp,
+              data: { id: g.id.slice("greeting-".length), state: g.state, content: g.content },
+            });
           }
           next.set(msg.sessionId, current);
           return next;

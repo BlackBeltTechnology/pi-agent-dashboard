@@ -123,6 +123,52 @@ describe("invoicebot bridge entry — foreign emissions over the shared bus", ()
     expect(pluginMessages(bus)).toHaveLength(0);
   });
 
+  // restore-assistant-greeting-stream: the greeting RENDER channel is subscribed
+  // ALONGSIDE the lifecycle set (declared separately), so a foreign-facade
+  // greeting emission crosses the seam as ib_greeting with its payload verbatim.
+  // This is the exact hop that was dead before the fix (ib:greeting was not in
+  // the subscribed set) — green layers, nothing rendered.
+  it("forwards ib:greeting as ib_greeting with the render payload verbatim", () => {
+    const bus = makeSharedBus();
+    activateBridge(bus);
+    const foreign = bus.facade(); // the invoice engine extension's facade
+
+    const payload = {
+      customType: "ib-greeting",
+      state: "exported",
+      content: "Kész <svg><path/></svg>",
+      details: { state: "exported" },
+    };
+    foreign.emit("ib:greeting", payload);
+
+    const msgs = pluginMessages(bus);
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toEqual({
+      pluginId: "invoicebot",
+      messageType: "ib_domain_event",
+      payload: { eventType: "ib_greeting", data: payload },
+    });
+  });
+
+  it("buffers a pre-ready greeting emission and flushes it in order", () => {
+    const bus = makeSharedBus();
+    activateBridge(bus, { ready: false });
+    const foreign = bus.facade();
+
+    foreign.emit("ib:greeting", { state: "partner_pending", content: "a", details: { state: "partner_pending" } });
+    foreign.emit("ib:greeting", { state: "exported", content: "b", details: { state: "exported" } });
+    expect(pluginMessages(bus)).toHaveLength(0); // held, not dropped
+
+    bus.facade().emit("dashboard:plugin-listener-ready", {});
+
+    const msgs = pluginMessages(bus).filter((m) => m.payload.eventType === "ib_greeting");
+    expect(msgs).toHaveLength(2);
+    expect(msgs.map((m) => (m.payload.data as { state: string }).state)).toEqual([
+      "partner_pending",
+      "exported",
+    ]);
+  });
+
   it("activation is a no-op without an events surface (never throws)", () => {
     expect(() => activate({ pi: {} })).not.toThrow();
     expect(() => activate({})).not.toThrow();
