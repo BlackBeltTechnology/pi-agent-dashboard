@@ -2,12 +2,30 @@
 
 Stage: design   Generated: 2026-08-28
 
-Clarification gate: **passed**. The one open decision (gate the new action on
-`sources.length` versus on `origin`) was resolved before drafting and is recorded as
-design D1. No `[NEEDS CLARIFICATION]` markers remain.
+Clarification gate: **passed (hard gate)**. Three unfillable observable slots were
+raised via `ask_user` and resolved before this file was written:
 
-Level key: **L1** component/unit (vitest + RTL against `KbSettingsPanel`),
-**L3** browser E2E (`tests/e2e/`, rendered UI vs the docker harness).
+- **C1** — the disabled-action reason is **visible inline text** beside the action, not
+  a `title` tooltip. Blocks `E16`; a tooltip on a disabled button is unreliable across
+  browsers and invisible to a sight-based assertion.
+- **C2** — the single error region's precedence is
+  `bootstrapErr ?? reindexError ?? error ?? statsError` (user-initiated before
+  ambient). Blocks `X5`/`X6`; without it the observable degrades to "some error shows".
+- **C3** — `:221` becomes two variants keyed on `resolvedSources`, keeping the strong
+  "nothing will be indexed" wording only when it is true. Blocks `E14`/`E15`.
+
+No `[NEEDS CLARIFICATION]` markers remain.
+
+Requirement keys used below (from `specs/kb-folder-slot/spec.md`, this change):
+**R1** enabled iff resolved sources non-empty and nothing in flight ·
+**R2** independent of `origin` and of form dirtiness ·
+**R3** page never predicts "indexes nothing" while sources resolve ·
+**R4** no double-submit · **R5** errors surfaced with a fixed precedence ·
+**R0** pre-existing behaviour preserved.
+
+Level key: **L1** `packages/kb-plugin/src/client/__tests__/*.test.tsx` (vitest + RTL) ·
+**L3** `tests/e2e/*.spec.ts` (Playwright vs the docker harness, port read from
+`.pi-test-harness.json` `dashboardPort` — never hardcoded).
 
 ---
 
@@ -17,59 +35,85 @@ Level key: **L1** component/unit (vitest + RTL against `KbSettingsPanel`),
 
 | id | requirement | technique | level | disposition | input | trigger | expected observable |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------|
-| E1 | Rebuild an unchanged configuration | decision-table | L1 | automated | panel with `origin=project`, non-empty `sources[]`, pristine form | panel renders | `kb-reindex-now` is present and NOT disabled |
-| E2 | Rebuild an unchanged configuration | decision-table | L1 | automated | same | activate `kb-reindex-now` | `reindexKb(cwd)` is called and no `PUT /api/kb/config` is issued |
-| E3 | Rebuild regardless of origin | equivalence-partition | L1 | automated | panel with `origin=global`, non-empty `sources[]` | panel renders | `kb-reindex-now` present and enabled, alongside the bootstrap buttons |
-| E4 | Rebuild regardless of origin | equivalence-partition | L1 | automated | panel with `origin=defaults`, non-empty `sources[]` | panel renders | `kb-reindex-now` present and enabled |
-| E5 | Refused with a reason | boundary | L1 | automated | panel with `sources[] = []` (any origin) | panel renders | `kb-reindex-now` present, `disabled`, `title` names the define-a-source remedy |
-| E6 | Refused with a reason | boundary | L1 | automated | same | — | the element is NOT absent from the DOM (guards against re-hiding) |
-| E7 | Not gated on dirtiness | decision-table | L1 | automated | panel with non-empty sources, form edited (dirty) | panel renders | `kb-reindex-now` enabled AND `kb-save-reindex` enabled — both paths available |
-| E8 | Not gated on dirtiness | decision-table | L1 | automated | panel with non-empty sources, pristine form | panel renders | `kb-save-reindex` disabled (unchanged behaviour) while `kb-reindex-now` is enabled |
-| E9 | Existing save path unchanged | regression | L1 | automated | dirty form | activate `kb-save-reindex` | `save({...patch, reindex:true})` called, then `refetchStats()` after the existing delay |
+| E1 | R1 | decision-table | L1 | automated | `origin=project`, `resolvedSources` 1 entry, form pristine, no job running | panel renders | `kb-reindex-now` is in the DOM and not `disabled` |
+| E2 | R1 | decision-table | L1 | automated | as E1 | activate `kb-reindex-now` | `POST /api/kb/reindex?cwd=C` fired exactly once AND no `PUT /api/kb/config` fired |
+| E3 | R1 | BVA (lower, invalid) | L1 | automated | `resolvedSources` length 0 | panel renders | `kb-reindex-now` present and `disabled` |
+| E4 | R1 | BVA (lower+1, valid) | L1 | automated | `resolvedSources` length 1 | panel renders | `kb-reindex-now` present and enabled — the 0↔1 boundary flips exactly here |
+| E5 | R2 | equivalence-partition | L1 | automated | `origin=global`, `resolvedSources` non-empty | panel renders | `kb-reindex-now` enabled AND `kb-copy-parent` + `kb-create-config` still present |
+| E6 | R2 | equivalence-partition | L1 | automated | `origin=defaults` (⇒ `resolvedSources` necessarily empty) | panel renders | `kb-reindex-now` present and `disabled` — no test asserts defaults-with-sources, a state the server cannot produce |
+| E7 | R2 | decision-table | L1 | automated | `resolvedSources` non-empty, form pristine | panel renders | `kb-save-reindex` `disabled` AND `kb-reindex-now` enabled |
+| E8 | R2 | decision-table | L1 | automated | `resolvedSources` non-empty, form dirty | panel renders | BOTH `kb-save-reindex` and `kb-reindex-now` enabled |
+| E9 | R1 | decision-table (false-enable guard) | L1 | automated | `resolvedSources` empty, user has typed a source into the form (dirty, unsaved) | panel renders | `kb-reindex-now` STILL `disabled` — gate follows disk, not the form |
+| E10 | R1 | decision-table (false-disable guard) | L1 | automated | `resolvedSources` non-empty via legacy `roots[]`, `edit.sources` empty | panel renders | `kb-reindex-now` ENABLED |
+| E11 | R1 | decision-table | L1 | automated | `resolvedSources` non-empty, a config save in flight (`saving` true) | panel renders | `kb-reindex-now` `disabled` |
+| E12 | R3 | decision-table | L1 | automated | `origin=global`, `resolvedSources` non-empty, mock includes `resolvedSources` | panel renders | `kb-bootstrap-note` ABSENT — this is the existing `KbSettings.test.tsx` assertion inverted by a faithful mock |
+| E13 | R3 | decision-table | L1 | automated | `origin=defaults`, `resolvedSources` empty | panel renders | `kb-bootstrap-note` PRESENT |
+| E14 | R3 | decision-table | L1 | automated | `edit.sources` empty, `resolvedSources` non-empty | panel renders | the sources notice reads "(no sources defined)" and does NOT contain "nothing will be indexed" |
+| E15 | R3 | decision-table | L1 | automated | `edit.sources` empty, `resolvedSources` empty | panel renders | the sources notice DOES contain "nothing will be indexed" |
+| E16 | R1 (C1) | decision-table | L1 | automated | `resolvedSources` empty | panel renders | the define-a-source explanation is present as VISIBLE text near the action — asserted on rendered text, and NOT satisfied by a `title` attribute alone |
+| E17 | R0 | regression | L1 | automated | form dirty | activate `kb-save-reindex` | `PUT /api/kb/config` with `reindex:true`, then `refetchStats()` after the existing 300ms hand-off — unchanged |
+| E18 | R0 | decision-table (glyph audit) | L1 | automated | footer rendering both actions | panel renders | `kb-save-reindex` carries `mdiRefresh`, `kb-reindex-now` carries `mdiDatabaseRefreshOutline`, and no glyph appears on both |
+| E19 | R1 | type-assertion (fails-closed) | L1 | automated | `KbConfigResponse.config` retyped as `ResolvedConfig` | type-check | `config.resolvedSources` type-checks AND `resolvedSources[0].identity` is a type ERROR — proving the narrow `config.ts` shape was used, not the wide `sources.ts` re-export. The negative arm MUST be verified to fail before it is trusted |
+| E20 | R0 | regression (orthogonality) | L1 | automated | archived `E1` in `FolderKbSection.test.tsx:108` | run UNEDITED | still green — zero focusable elements in the pill grid beyond pill roots |
+| E21 | R0 | regression (orthogonality) | L1 | automated | archived `E2` in `FolderKbSection.test.tsx:108` | run UNEDITED | still green — no `mdiRefresh` inside a pill |
+| E22 | R0 | regression (orthogonality) | L1 | automated | archived `F4` in `FolderKbSection.test.tsx:122` | run UNEDITED | still green — card placement registers no folder menu item |
+
+### Performance
+
+None. This change adds no latency, throughput, memory or soak budget: the reindex job
+is server-owned and already non-blocking, and the new control only changes when a
+button is enabled. Inventing a perf row here would be a smoke test wearing a
+performance label.
+
+### Frontend-quirk
+
+| id | requirement | technique | level | disposition | input | trigger | expected observable (invariant) |
+|----|-------------|-----------|-------|-------------|-------|---------|---------------------------------|
+| F1 | R4 | state-transition | L1 | automated | enabled `kb-reindex-now` | activate once | the action becomes `disabled` synchronously, before any server response resolves (optimistic `pending`) |
+| F2 | R4 | state-transition | L1 | automated | enabled action | activate twice inside the pending window | `reindexKb` called exactly once |
+| F3 | R4 | state-convergence | L1 | automated | pending active | `/stats` poll resolves `indexing:true` | the action stays `disabled` across the pending→indexing hand-off, with no intermediate enabled render |
+| F4 | R4 | state-transition | L1 | automated | job in flight | `/stats` poll resolves `indexing:false` | the action converges to enabled |
+| F5 | R4 | state-transition | L1 | automated | job settles before the first poll observes it | `REINDEX_GUARD_MS` (4000) elapses | the action converges to enabled — no permanent wedge |
+| F6 | R4 | state-transition | L1 | automated | pending reindex on cwd `A` | navigate the panel to cwd `B` | `B` renders enabled with no error carried over from `A` |
+| F7 | R1, R2 | use-case (end-to-end) | L3 | automated | docker harness with a worktree session card exposing the KB slot, worktree has resolvable sources | activate the slot `→`, then `Reindex now` | the settings page for the WORKTREE cwd opens, the action is enabled, and the reindex POST is accepted — the reported complaint, proven fixed on the only path the card offers |
+| F8 | R0 | visual/subjective | — | manual-only | the footer rendering `Save + Reindex` and `Reindex now` together | a human looks at it | [judgment: the two actions read as distinct and it is obvious which applies — no automatable observable] |
 
 ### Error-handling
 
-| id | requirement | technique | level | disposition | input | trigger | expected observable |
+| id | requirement | technique | level | disposition | fault | trigger | expected observable |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------|
-| X1 | Refused trigger is surfaced | error-guessing | L1 | automated | `reindexKb` rejects | activate `kb-reindex-now` | the panel renders the `reindexError` text |
-| X2 | Refused trigger is surfaced | error-guessing | L1 | automated | same | after the rejection settles | `kb-reindex-now` is enabled again (retry is possible) |
-| X3 | Poll outage does not mimic a trigger failure | error-guessing | L1 | automated | `/api/kb/stats` fails once while a job runs | poll misses once | no error is rendered and the busy state persists (inherits `MAX_POLL_MISSES`) |
-
-### State / concurrency
-
-| id | requirement | technique | level | disposition | input | trigger | expected observable |
-|----|-------------|-----------|-------|-------------|-------|---------|---------------------|
-| S1 | No double-submit | state-transition | L1 | automated | enabled action | activate once | the action is disabled synchronously, before any server response (optimistic `pending`) |
-| S2 | No double-submit | state-transition | L1 | automated | action already activated | activate again during the pending window | `reindexKb` was called exactly once |
-| S3 | No double-submit | state-transition | L1 | automated | stats poll reports `indexing:true` | poll resolves | the action stays disabled across the pending→indexing hand-off with no enabled gap |
-| S4 | Busy state settles | state-transition | L1 | automated | job completes (`indexing:false`) | poll resolves | the action re-enables |
-| S5 | No wedge on a fast job | state-transition | L1 | automated | job settles before the first poll | `REINDEX_GUARD_MS` elapses | the action re-enables rather than staying permanently disabled |
-
-### Orthogonality regression
-
-| id | requirement | technique | level | disposition | input | trigger | expected observable |
-|----|-------------|-----------|-------|-------------|-------|---------|---------------------|
-| R1 | Pill stays state-only | regression | L1 | automated | directory card rendering all four slot pills | card renders | archived `E1` still passes — zero focusable elements in the pill grid beyond pill roots |
-| R2 | Pill stays state-only | regression | L1 | automated | same | card renders | archived `E2` still passes — no `mdiRefresh` inside a pill |
-| R3 | Card placement unchanged | regression | L1 | automated | KB section at `placement="card"` | it renders | archived `F4` still passes — it registers no folder menu item |
-| R4 | Glyph carries one meaning | decision-table | L1 | automated | settings footer with both actions | footer renders | `kb-save-reindex` uses `mdiRefresh`, `kb-reindex-now` uses `mdiDatabaseRefreshOutline` — no glyph appears twice |
-
-### Frontend quirk
-
-| id | requirement | technique | level | disposition | input | trigger | expected observable |
-|----|-------------|-----------|-------|-------------|-------|---------|---------------------|
-| Q1 | State does not leak between folders | state-transition | L1 | automated | panel mounted for cwd `A` with a pending reindex | navigate to cwd `B` | `kb-reindex-now` for `B` is enabled and no error from `A` is shown |
-| Q2 | Reachable from the worktree card | use-case | L3 | automated | dashboard with a worktree session card showing the KB slot | activate the slot `→`, then `Reindex now` | the settings page opens for the worktree cwd and the reindex is accepted |
+| X1 | R5 | fault-injection (abort) | L1 | automated | `POST /api/kb/reindex` rejects (no job starts) | activate `kb-reindex-now` | `kb-settings-error` renders the reindex trigger error text |
+| X2 | R5 | fault-injection (abort) | L1 | automated | as X1 | after the rejection settles | the action returns to enabled so a retry is possible |
+| X3 | R5 | fault-injection (delay) | L1 | automated | a single `/api/kb/stats` poll fails during a running job | that one poll misses | no error is rendered and the busy state persists — one blip never trips the threshold |
+| X4 | R5 | fault-injection (abort) | L1 | automated | `/api/kb/stats` fails `MAX_POLL_MISSES` (3) consecutive times during a job | the page settles | `kb-settings-error` surfaces the outage rather than presenting an unexplained idle action |
+| X5 | R5 (C2) | decision-table | L1 | automated | a reindex trigger rejection AND a stats outage both outstanding | panel renders | `kb-settings-error` shows the REINDEX trigger error (user-initiated outranks ambient) |
+| X6 | R5 (C2) | decision-table | L1 | automated | a bootstrap failure AND a reindex trigger rejection both outstanding | panel renders | `kb-settings-error` shows the BOOTSTRAP error (leftmost in the precedence chain) |
 
 ---
 
-## Coverage notes
+## Coverage summary
 
-- `Q2` is the only L3 scenario and is the one that proves the user-visible complaint
-  is fixed end to end: it walks the exact path the card leaves as the sole option.
-- `R1`–`R3` re-run archived assertions from `move-slot-actions-to-menu` untouched.
-  They are the evidence that this change is orthogonal to it rather than a partial
-  revert; if any of them needs editing, the design premise is wrong.
-- `S1`–`S5` and `X3` assert behaviour inherited from `useKbStats`. They are included
-  because the inheritance is the design decision (D3) — a future refactor that gives
-  the panel its own reindex path would silently drop all of it.
+- Requirements covered: 6/6 (R0–R5)
+- Scenarios by class: edge 22 · perf 0 · frontend 8 · error 6 — **36 total**
+- Scenarios by level: L1 34 · L2 0 · L3 1 · manual-only 1
+- Scenarios by disposition: **automated 35 · manual-only 1**
+
+Notes on deliberate omissions:
+
+- **No "defaults origin with non-empty sources" row.** `DEFAULTS.sources` is `[]` and
+  `origin=defaults` means no config file resolved, so that state is unreachable. A row
+  for it could only pass against a mock that lies about the server.
+- **No L2 (qa VM smoke) rows.** Every observable here is either a rendered-UI fact or
+  pure client logic; a process/CLI smoke tier cannot assert either without violating
+  the rendered-UI boundary.
+- **E12 is also the fixture fix.** `KbSettings.test.tsx:92`/`:99` currently asserts the
+  bootstrap note IS present for `origin: "global"`, passing only because the mock omits
+  `resolvedSources`. E12 is that assertion corrected against a faithful mock, not an
+  additional case.
+
+## New infra needed
+
+None. L1 rows extend the existing sibling suites
+`packages/kb-plugin/src/client/__tests__/KbSettings.test.tsx` and
+`FolderKbSection.test.tsx`. The single L3 row copies harness glue from the existing
+`tests/e2e/kb-folder-slot.spec.ts`.
