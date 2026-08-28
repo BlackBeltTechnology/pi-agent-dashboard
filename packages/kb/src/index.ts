@@ -30,3 +30,8 @@ export type { KbSourceKind, ResolvedSource, ResolveCtx, SourceResolver } from ".
 export { isTrusted, recordTrust, canonicalSource, sourceHash } from "./trust.js";
 export { agentsChain, doxInit, doxLint, fallbackManifest, parseRowPaths, resolveRowPath } from "./dox.js";
 export type { AgentsEntry, DoxInitPlan, DoxIssue, DoxLintResult } from "./dox.js";
+export { enrichHits, HASH_CAP_BYTES, COVERAGE_CAP_BYTES, SUBJECT_CAP } from "./verdict.js";
+export type { EnrichCtx, VerdictFs } from "./verdict.js";
+export { ackTargets, applyDecisions, buildWorkItems, parseRows, readStaleness, replaceRowPurpose, STALENESS_VERSION } from "./dox-triage.js";
+export type { AckRecord, StalenessFile } from "./dox-triage.js";
+export type { HitVerdict, VerdictCounts, VerdictLabel } from "./types.js";

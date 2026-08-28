@@ -6,6 +6,7 @@
 import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { readStaleness } from "./dox-triage.js";
 import type { KbStore } from "./types.js";
 
 // delta ②: exclude worktree checkouts, archived openspec proposals, and doc-example noise.
@@ -414,10 +415,10 @@ export function doxLint(opts: DoxLintOptions): DoxLintResult {
   };
   walkAgents(cwd);
 
-  // staleness sidecar
-  let staleness: Record<string, string> = {};
+  // staleness sidecar — v1 (sha strings) / v2 (records with stat baseline)
+  // tolerant reader shared with triage, ack-on-edit, and query-time verdicts.
   const sf = opts.stalenessFile ?? join(cwd, ".pi", "dashboard", "kb", "dox-staleness.json");
-  if (existsSync(sf)) { try { staleness = JSON.parse(readFileSync(sf, "utf8")); } catch { /* */ } }
+  const staleness = readStaleness(sf);
 
   const allMd = new Set(walkMd(cwd).map((f) => relative(cwd, f)));
   const rowPaths = new Set<string>();
@@ -464,7 +465,7 @@ export function doxLint(opts: DoxLintOptions): DoxLintResult {
         const kind = rp.endsWith("AGENTS.md") ? "broken-pointer" : "orphan";
         issues.push({ kind, agentsFile: afRel, path: rp, detail: `${kind}: ${rp} does not exist` });
         if (opts.fix && kind === "orphan") { fixed++; continue; } // prune orphan row
-      } else if (staleness[rel] && fileSha(abs) && staleness[rel] !== fileSha(abs)) {
+      } else if (staleness[rel]?.sha256 && fileSha(abs) && staleness[rel]!.sha256 !== fileSha(abs)) {
         issues.push({ kind: "stale", agentsFile: afRel, path: rp, detail: `tracked source-hash drifted` });
       }
       if (opts.fix) survivingRows.push(line);

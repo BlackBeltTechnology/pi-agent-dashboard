@@ -59,6 +59,15 @@ export interface FrontmatterConfig {
   searchableKeys: string[]; // frontmatter values indexed as searchable meta
   facetKeys: FacetKeyConfig[]; // whitelisted facet keys (+ optional declared type)
 }
+/** kb search-guard enforcement mode (arm B). Shipped default `warn` (resolved
+ *  at planning): a guard that is off does nothing about the measured 10:1
+ *  under-use; `block` can refuse tool calls and is therefore NEVER a default —
+ *  reachable only by explicit config. The KB_GUARD_MODE env override may
+ *  select `off`/`warn` only (it can weaken, never enable blocking — D14). */
+export type GuardMode = "off" | "warn" | "block";
+export interface ReadDisciplineConfig {
+  guard: { mode: GuardMode };
+}
 export interface KbConfig {
   sources: SourceConfig[];
   roots?: Array<{ path: string; priority?: number }>; // legacy alias → filesystem sources
@@ -79,6 +88,7 @@ export interface KbConfig {
   directoryLevelAgents: DirectoryLevelAgentsConfig;
   frontmatter: FrontmatterConfig;
   doxEnforcement: boolean; // opt-in Phase-2 hook Job 2 (default OFF)
+  readDiscipline: ReadDisciplineConfig;
   ranking: RankingConfig;
   expand: ExpandConfig;
   rerank: RerankConfig;
@@ -122,6 +132,7 @@ export const DEFAULTS: KbConfig = {
   directoryLevelAgents: { enabled: true, claudeMd: true, mode: "pull", fallbackManifest: true },
   frontmatter: { searchableKeys: DEFAULT_SEARCHABLE_KEYS, facetKeys: DEFAULT_FACET_KEYS },
   doxEnforcement: false,
+  readDiscipline: { guard: { mode: "warn" } },
   ranking: {
     fieldWeights: { headingPath: 10, heading: 3, body: 1 },
     proximityBoost: true,
@@ -142,7 +153,7 @@ export const DEFAULTS: KbConfig = {
 
 // Nested object keys that need one-level field fill-in (not wholesale replace),
 // so a partial `{ranking:{proximityBoost:false}}` keeps default fieldWeights/diversity.
-const NESTED_KEYS = ["chunking", "dedup", "graph", "directoryLevelAgents", "frontmatter", "ranking", "expand", "rerank", "queryExpansion"] as const;
+const NESTED_KEYS = ["chunking", "dedup", "graph", "directoryLevelAgents", "frontmatter", "readDiscipline", "ranking", "expand", "rerank", "queryExpansion"] as const;
 
 /** Stable hash of the frontmatter routing config. A change forces a full reindex
  *  (design D6) since existing property rows/meta chunks reflect the old routing. */
@@ -183,6 +194,8 @@ export function validateConfig(c: Partial<KbConfig>, origin = "config"): KbConfi
   if (typeof merged.maxFileCount !== "number" && merged.maxFileCount !== null) throw err("maxFileCount must be a number or null");
   if (typeof merged.dbPath !== "string" || !merged.dbPath) throw err("dbPath must be a non-empty string");
   if (!/^(off|prf|synonym|agent)$/.test(merged.queryExpansion.mode)) throw err(`queryExpansion.mode "${merged.queryExpansion.mode}" unknown`);
+  const gm = merged.readDiscipline?.guard?.mode;
+  if (gm !== undefined && !/^(off|warn|block)$/.test(gm)) throw err(`readDiscipline.guard.mode "${gm}" unknown (off | warn | block)`);
   const lq = merged.ranking.laneQuota;
   if (typeof lq !== "number" || !Number.isFinite(lq) || lq < 0 || lq > 1) throw err("ranking.laneQuota must be a number in [0,1]");
   const fm = merged.frontmatter;

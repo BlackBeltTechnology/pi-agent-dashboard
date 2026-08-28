@@ -7,9 +7,9 @@
 // Job 2 (opt-in via doxEnforcement, default OFF): a write/edit to a non-md
 // source file nudges the nearest AGENTS.md row upkeep, once per path, deduped.
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { agentsChain, indexSource, loadConfig, parseRowPaths, type ResolvedConfig, SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
+import { agentsChain, indexSource, loadConfig, parseRowPaths, type AckRecord, type ResolvedConfig, STALENESS_VERSION, SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
 
 /** Resolve a DOX row path relative to its AGENTS.md dir, with a project-root
  *  fallback (a nested AGENTS.md may document a file living at the root).
@@ -45,20 +45,48 @@ export function createReindexState(): ReindexState {
 function stalenessPath(cwd: string): string {
   return join(cwd, ".pi", "dashboard", "kb", "dox-staleness.json");
 }
-function loadStaleness(cwd: string): Record<string, string> {
+/** Tolerant reader (v1 sha-only / v2 records) — shared semantics with lint,
+ *  triage, and query-time verdicts via kb's `readStaleness`. */
+function loadStaleness(cwd: string): Record<string, AckRecord> {
   const p = stalenessPath(cwd);
-  if (!existsSync(p)) return {};
-  try { return JSON.parse(readFileSync(p, "utf8")); } catch { return {}; }
+  let raw: unknown;
+  try {
+    if (!existsSync(p)) return {};
+    raw = JSON.parse(readFileSync(p, "utf8"));
+  } catch {
+    return {};
+  }
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const out: Record<string, AckRecord> = {};
+  if (!("version" in raw)) {
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) if (typeof v === "string") out[k] = { sha256: v };
+    return out;
+  }
+  if ((raw as { version?: unknown }).version !== STALENESS_VERSION) return {};
+  const files = (raw as { files?: unknown }).files;
+  if (files == null || typeof files !== "object") return {};
+  for (const [k, rec] of Object.entries(files as Record<string, unknown>)) {
+    if (rec == null || typeof rec !== "object") continue;
+    const r = rec as { sha256?: unknown; size?: unknown; mtimeMs?: unknown };
+    if (typeof r.sha256 !== "string") continue;
+    out[k] = { sha256: r.sha256, size: typeof r.size === "number" ? r.size : undefined, mtimeMs: typeof r.mtimeMs === "number" ? r.mtimeMs : undefined };
+  }
+  return out;
 }
-function saveStaleness(cwd: string, map: Record<string, string>): void {
+/** Acknowledgement writes v2: hash + stat baseline per documented file. */
+function saveStaleness(cwd: string, map: Record<string, AckRecord>): void {
   const p = stalenessPath(cwd);
-  try { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, JSON.stringify(map, null, 2)); } catch { /* */ }
+  try {
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, `${JSON.stringify({ version: STALENESS_VERSION, files: map }, null, 2)}\n`);
+  } catch { /* */ }
 }
 function fileSha(p: string): string {
   try { return createHash("sha256").update(readFileSync(p)).digest("hex"); } catch { return ""; }
 }
 
-/** Editing an AGENTS.md acknowledges its rows (clears their stale flags). */
+/** Editing an AGENTS.md acknowledges its rows (clears their stale flags) —
+ *  recording sha256 + stat baseline (v2) so query-time freshness can skip the read. */
 export function acknowledgeRows(cwd: string, agentsFile: string): void {
   const abs = isAbsolute(agentsFile) ? agentsFile : resolve(cwd, agentsFile);
   if (!existsSync(abs)) return;
@@ -67,7 +95,10 @@ export function acknowledgeRows(cwd: string, agentsFile: string): void {
   for (const rp of parseRowPaths(abs)) {
     // Rows are relative to their AGENTS.md dir; key staleness by cwd-relative path.
     const ap = resolveRowPath(dir, cwd, rp);
-    if (existsSync(ap)) map[relative(cwd, ap)] = fileSha(ap);
+    if (existsSync(ap)) {
+      const st = statSync(ap);
+      map[relative(cwd, ap)] = { sha256: fileSha(ap), size: st.size, mtimeMs: st.mtimeMs };
+    }
   }
   saveStaleness(cwd, map);
 }
@@ -91,7 +122,7 @@ export function decideNudge(cwd: string, editedPath: string): NudgeDecision {
   if (!rowAbs.has(abs)) return { kind: "missing", agentsFile: nearest.rel };
   const map = loadStaleness(cwd);
   const disk = fileSha(abs);
-  if (map[rel] && disk && map[rel] !== disk) return { kind: "stale", agentsFile: nearest.rel };
+  if (map[rel]?.sha256 && disk && map[rel]!.sha256 !== disk) return { kind: "stale", agentsFile: nearest.rel };
   return null;
 }
 
