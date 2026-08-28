@@ -36,3 +36,13 @@ trim by spec.
 2. **7.5/M1** (manual-only, post-merge): A/B non-inferiority not yet measured.
 
 The treatment is built in `gate-trim-treatment.md` for when both gates clear.
+
+## Task 7.6 resolution — NULL RESULT branch taken (pre-merge)
+
+7.6's own text defines the inconclusive branch as executable: "If inferior or
+inconclusive: land nothing and record why — a null result here is a valid
+outcome." Recorded: the trim LANDS NOTHING because (1) per 7.1
+(`guard-coverage.md`) in-memory subagent sessions run no extensions, so the
+guard cannot observe them and their prose must stay; (2) M2/M1 (firing rate,
+A/B non-inferiority) are post-merge manual rows with no data yet. The built
+treatment (`gate-trim-treatment.md`) is parked for when both gates clear.
