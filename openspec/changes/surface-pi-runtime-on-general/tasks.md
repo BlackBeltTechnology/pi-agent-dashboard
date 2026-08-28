@@ -22,7 +22,7 @@
 ## 5. E2E coverage
 
 - [x] 5.1 Extend `tests/e2e/pi-runtime-picker.spec.ts` (exemplar: itself — reuse its route-stub helpers; stub `/api/health` with `piRuntime` fixture state per the spec's existing health-route stub pattern) covering (test-plan F1, F2): healthy install → General row visible while advisory absent; `Change…` → URL exactly `/settings/developer` with no fragment or extra query and `[data-testid="pi-runtime-section"]` scrolled into view; Developer page still renders the picker immediately above `ToolsSection`
-- [ ] 5.2 Run the extended spec against the docker harness with local changes (per `run-dashboard-e2e-local-changes`) until green
+- [x] 5.2 Run the extended spec against the docker harness with local changes (per `run-dashboard-e2e-local-changes`) until green
 
 ## 6. Docs + gates
 

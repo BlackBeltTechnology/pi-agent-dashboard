@@ -193,11 +193,19 @@ const HEALTHY_PI_RUNTIME = {
  */
 async function stubHealthPiRuntime(page: Page, piRuntime: Record<string, unknown>) {
   await page.route("**/api/health", async (route) => {
-    const response = await route.fetch();
-    const body = await response.json();
-    body.piRuntime = piRuntime;
-    body.compatibility = { minimum: "0.78.0", recommended: "0.80.0", maximum: null, current: "0.80.0" };
-    await route.fulfill({ response, json: body });
+    // The app keeps polling /api/health across navigation, so a request can
+    // still be in flight when the test ends — `route.fetch()` then throws
+    // "Test ended" and would fail an otherwise-green test. Swallow it: at
+    // teardown there is nothing left to fulfill.
+    try {
+      const response = await route.fetch();
+      const body = await response.json();
+      body.piRuntime = piRuntime;
+      body.compatibility = { minimum: "0.78.0", recommended: "0.80.0", maximum: null, current: "0.80.0" };
+      await route.fulfill({ response, json: body });
+    } catch {
+      /* test ended mid-flight */
+    }
   });
 }
 
