@@ -29,13 +29,20 @@ The scroll target SHALL be transient and SHALL NOT be encoded in the route. `/se
 - **THEN** the panel SHALL navigate to `/settings/developer`
 - **AND** SHALL scroll the pi runtime picker into view
 
+#### Scenario: Scroll target survives gated (deferred) navigation
+- **WHEN** navigation with a scroll target is deferred by the navigation guard and later confirmed
+- **THEN** the deferred navigation SHALL still scroll the named section into view after the destination page renders
+- **AND** the target SHALL be carried by the panel alongside its pending navigation — not re-derived from the route
+
 #### Scenario: Navigate without a scroll target
 - **WHEN** navigation is requested with no scroll target, as the Save Bar page chips do
 - **THEN** the panel SHALL navigate to the destination page with no scrolling behaviour change
 
-#### Scenario: Unsaved changes still gate navigation
-- **WHEN** navigation with a scroll target is requested while the panel is dirty
-- **THEN** the same unsaved-changes gating that applies to page navigation SHALL apply
+#### Scenario: Navigation gating is exactly the rail helper's own
+- **WHEN** navigation with a scroll target is requested while the panel is showing a dirty plugin page — the only condition under which the rail helper gates
+- **THEN** the same guard that applies to Save Bar page-chip navigation SHALL apply, including the confirmation round trip
+- **AND** built-in draft state SHALL continue NOT to block page switches, exactly as with the chips (the guard exists for plugin-page edits only)
+- **AND** no new or strengthened gate SHALL be introduced for the scroll-target case
 
 #### Scenario: Route stays unchanged
 - **WHEN** navigation with a scroll target completes
