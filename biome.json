@@ -17,7 +17,8 @@
       "!**/*.css",
       "!**/__tests__/fixtures/**",
       "!**/*.production.min.js",
-      "!packages/pi-forms-bpmn/.pi/skills/**/assets/**"
+      "!packages/pi-forms-bpmn/.pi/skills/**/assets/**",
+      "!site/vendor/**"
     ]
   },
   "formatter": {
