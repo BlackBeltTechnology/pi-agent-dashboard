@@ -16,21 +16,29 @@ record), the KB puts that record at rank 1 **4% of the time**:
 | unfiltered | **0.041** | 0.402 | 0.495 | 0.198 |
 | `doc_type:"agents"` | **0.227** | 0.485 | 0.567 | 0.345 |
 
+> Provenance: measured at mining time on the 97-query snapshot with a hand-built
+> harness (not committed). `golden.source-intent.json` has since been regenerated
+> with 104 items; task 1.2 re-baselines both fixtures before any tuning.
+
 Two facts follow.
 
-**The right record is usually on the page but almost never at the top.** Recall@10 is
+**The right record is on the page for about half the mined queries but almost never at the top.** Recall@10 is
 0.495 while P@1 is 0.041. Rank-1 composition explains it: for those 97 queries rank 1 is
 `openspec` **77%** of the time and docType `doc` **86%** of the time, versus `agents`
 **14%** — verbose requirement prose outranks the terse one-line file record in the KB's
-own index. `laneQuota: 0.5` already reserves page share for the agents lane and demonstrably
-works on recall (0.144 -> 0.495), but it does not contest **slot 1**.
+own index. `laneQuota: 0.5` already reserves page share for the agents lane and measurably
+lifts recall on the bundled fixtures (see `fix-kb-search-retrieval-quality`), but it
+does not contest **slot 1**. (The 0.144 -> 0.495 delta often quoted alongside this is
+the stale-`dist`-vs-`src` whole-engine delta from `fix-kb-eval-measurement-integrity`,
+not `laneQuota`'s isolated effect.)
 
-**The escape hatch exists and nobody uses it.** `doc_type:"agents"` yields 5.5x P@1 and
-1.7x MRR, yet across 563 real `kb_search` calls in `~/.pi/agent/sessions/` `doc_type`
-was passed only **12%** of the time. The reason is visible in
-`packages/kb-extension/src/extension.ts`: the `doc_type` parameter is declared as a bare
-`Type.Optional(Type.Union([...]))` with **no `description`**, and neither `promptGuidelines`
-entry mentions it. The model is never told the parameter exists or when it helps.
+**The escape hatch exists and is rarely used.** `doc_type:"agents"` yields 5.5x P@1 and
+1.7x MRR, yet across 563 real `kb_search` calls in `~/.pi/agent/sessions/` (session-mined
+corpus; no committed reproduction script) `doc_type` was passed only **12%** of the time.
+The reason is visible in `packages/kb-extension/src/extension.ts`: the `doc_type`
+parameter is declared as a bare `Type.Optional(Type.Union([...]))` with **no
+`description`**, and neither `promptGuidelines` entry mentions it. The model is never
+told the trade-off (deployed builds surface at most a bare filter hint).
 
 Critically the filter is **conditional, not a global win** — on conceptual/markdown queries
 it hurts badly (P@1 0.150 -> 0.067), so it must be described as a lane choice rather than
@@ -70,7 +78,9 @@ Explicitly **not** in scope: enabling `doxEnforcement`, any freshness gate, and 
 ## Impact
 
 - `packages/kb-extension/src/extension.ts` (tool schema + guidelines),
-  `packages/kb/src/sqlite-store.ts` (`interleaveLanes`), `packages/kb/src/config.ts` (gate).
+  `packages/kb/src/sqlite-store.ts` (`interleaveLanes`), `packages/kb/src/config.ts` (gate),
+  `packages/kb/src/types.ts` (`SearchOpts`), `packages/kb/src/render.ts` (record-type marks),
+  `packages/kb/src/cli.ts` (option threading), `packages/kb/eval/run-fixtures.ts` (sweep axis).
 - Root `AGENTS.md` already carries the measured `doc_type` rule and the retired
   `kb_neighbors` claim (commit `48d6b35a1`); revisit that wording if the default changes.
 - Risk: promoting the agents lane at rank 1 can regress markdown-intent. Both fixtures must
