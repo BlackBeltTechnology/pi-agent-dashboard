@@ -26,7 +26,7 @@
 // Adapted from Heimdall's kb_search_verify.py (MIT), minus its path-mining
 // heuristic (our chunks carry real paths), its uncalibrated threshold (we have
 // golden sets), and its index-mutating handle_stale (D4).
-import { execFileSync } from "node:child_process";
+import { execFileSync } from "node:child_process"; // ban:child_process-ok (kb package is self-contained; owns the batched git rename scan, no pi-dashboard-shared dep)
 import { createHash } from "node:crypto";
 import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";

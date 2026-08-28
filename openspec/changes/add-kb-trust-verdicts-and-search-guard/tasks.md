@@ -54,7 +54,7 @@ rename/triage assertions); pure-module tests need no pi runtime.
 - [x] 5.3 Deliver warnings by prepending to the tool result; act on block verdicts in `tool_call` (the only hook that can block)
 - [x] 5.4 Register the `kb_guard_pause` tool and tick the turn clock on `turn_start`
 - [x] 5.5 Assert the guard degrades silently — any failure inside it leaves tool results untouched (test-plan #X1)
-- [ ] 5.6 Verify against a real session: guard fires on a source-grep chain, `kb_search` clears it, `kb_guard_pause` suspends it
+- [x] 5.6 Verify against a real session: guard fires on a source-grep chain, `kb_search` clears it, `kb_guard_pause` suspends it
 
 ## 6. Documentation
 
