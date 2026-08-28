@@ -1008,7 +1008,12 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     const to = pendingNav;
     const ok = await handleSave();
     setPendingNav(null);
-    if (!ok) return;
+    if (!ok) {
+      // Save failed: the navigation never happens, so the carried scroll
+      // intent must not survive for a later page switch to inherit.
+      pendingScrollTargetRef.current = null;
+      return;
+    }
     if (to === BACK_SENTINEL) performBack();
     else if (to) navigate(to);
   }, [pendingNav, handleSave, navigate, performBack]);

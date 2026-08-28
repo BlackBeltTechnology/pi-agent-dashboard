@@ -23,9 +23,10 @@ export interface PiCompatibility {
 }
 
 /**
- * Shape of `/api/health.piRuntime` — versions + divergence ONLY. Mirrors the
- * server's `PiDivergenceHealth` (system-routes.ts): the unauthenticated health
- * shape never carries a filesystem path or a pinned/override indicator.
+ * Shape of `/api/health.piRuntime` — versions + divergence ONLY. Client-side
+ * subset of the server's `PiDivergenceHealth` (system-routes.ts) covering
+ * what the status row renders; the unauthenticated health shape never carries
+ * a filesystem path or a pinned/override indicator.
  * See change: surface-pi-runtime-on-general (design D2 gate).
  */
 export interface PiRuntimeHealth {
