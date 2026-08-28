@@ -1,5 +1,12 @@
 ## Why
 
+> **Status update (2026-08-26).** The two blockers below were resolved out-of-band before this
+> change was started: `site/package-lock.json` was regenerated 2026-08-25, `Deploy Site` has since
+> run green three consecutive times, and `https://pi-dashboard.dev/app/` now returns 200 — the shell
+> is live. What remains live in this change is the **spec correction** work, plus one newly
+> discovered defect (see "Release-triggered redeploy is dead code", below) that the original
+> scenarios actively encode as working behaviour. The historical narrative is kept for provenance.
+
 `https://pi-dashboard.dev/app/` returns 404 — the neutral shell, the intended public entry point for
 pairing a phone to a dashboard server, has never been live, and the marketing site has served a
 stale build since 2026-05-30.
@@ -38,14 +45,38 @@ pipeline, not the npm/Electron release pipeline.
   (`^4.0.0` → `^4.1.0`) that `npm ci` still rejects.
 - Correct five stale `marketing-site` scenarios: the deploy trigger branch and the manual-dispatch
   branch are `develop` (spec says `main`, twice); `sync-release-version` pushes to `develop` (spec
-  says it commits back to `main`); the release-published path now re-dispatches on `develop` rather
-  than building inline; and the custom domain is active — `site/public/CNAME` exists, so the
+  says it commits back to `main`); the release-published path is rewritten per the defect below
+  rather than merely re-described; and the custom domain is active — `site/public/CNAME` exists, so the
   "Custom-domain ready but not active" scenario, which posits the site served from
   `username.github.io/pi-agent-dashboard`, is false end to end.
 - Specify the shell's publication contract at the `/app/` subpath: relative asset base (`base:"./"`),
   artifact composition alongside the marketing site, and the fact that the subpath preserves the
   apex origin. It documents — and does not restate — the existing `server-cors` requirement
   "Neutral shell origin trusted by default", which already owns the CORS behaviour.
+
+- **Release-triggered redeploy is dead code — replace the trigger, delete the corpse.** The site is
+  supposed to redeploy itself whenever a release is published. It never has. `publish.yml` creates
+  the GitHub Release with `softprops/action-gh-release` using the default Actions token, and GitHub
+  suppresses workflow runs from events raised by that token. Confirmed empirically: `event=release`
+  has **never** triggered a run in this repository. Two workflows are therefore inert —
+  `sync-release-version.yml` (gated solely on `release` + manual), which is why
+  `site/src/data/latest-release.json` sat frozen at `v0.5.4` from 2026-05-26 until a manual dispatch
+  on 2026-08-26; and `deploy-site.yml`'s `release:` trigger together with its `redispatch-on-release`
+  job, which has never executed once. The v0.8.0 symptom: the live site advertised 0.7.0 until both
+  workflows were dispatched by hand.
+
+  The fix is not a new mechanism. `workflow_dispatch` is an explicit documented exception to the
+  token rule — it *always* creates a run — so the existing dispatch body
+  (`gh workflow run deploy-site.yml --ref develop`) was correct all along and merely hung off an
+  event that cannot fire. Move it to a `publish.yml` job gated on `needs: github-release`, which runs
+  on a real tag-push event, and delete the `release:` trigger plus the orphaned job. `--ref develop`
+  is load-bearing and preserved: the `github-pages` environment rejects deploys from a tag ref.
+
+  Rejected: invoking `deploy-site.yml` via `workflow_call` from `publish.yml`. A called workflow
+  inherits the **caller's** ref, and `publish.yml` runs on the tag — reintroducing exactly the
+  non-default-ref rejection that D7 documents. Also rejected: authoring the Release with a PAT to
+  revive `release:` triggers repo-wide, which buys a secret to rotate for no behaviour this change
+  needs.
 
 Not in scope: the keyring URL-staleness gap (frozen `urls[]`, no read-only refresh route, dead URL
 misreported as identity mismatch). Deferred to a separate change, `refresh-keyring-urls`, which does
@@ -95,6 +126,14 @@ neighbours without inheriting or endorsing them; correcting them is its own chan
 - `.github/workflows/ci.yml` — one step invoking it, alongside the existing
   `verify-release-deps.mjs` / `check-skill-frontmatter.mjs` / `verify-published-imports.mjs` gates,
   so drift fails on the PR rather than at deploy time.
+- `.github/workflows/publish.yml` — **new** terminal job (`needs: github-release`) dispatching
+  `sync-release-version.yml` then `deploy-site.yml` on `develop`, sequenced so the site build sees
+  the committed cache.
+- `.github/workflows/deploy-site.yml` — remove the `release:` trigger and the `redispatch-on-release`
+  job; the `build` job's `if: github.event_name != 'release'` guard becomes dead and goes with them.
+- Verification limit worth stating plainly: every assertion here is an L1 workflow-file parse, which
+  can prove the dead path is gone and the dispatch job exists, but **cannot** prove a release
+  actually redeploys the site. Only the next real release closes that loop; a task covers it.
 - No application code: no server, client, extension, or shell source changes. If pinning the
   workflow contract in a test proves necessary, the precedent is
   `publish-workflow-contract.test.ts` — that would add a test file under `packages/shared/` and this
