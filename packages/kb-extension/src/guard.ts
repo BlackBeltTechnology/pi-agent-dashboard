@@ -18,7 +18,7 @@
 //   D14 — the env override can weaken, never strengthen: KB_GUARD_MODE may
 //         select off/warn only; `block` requires a config-file edit.
 
-export type GuardMode = "off" | "warn" | "block";
+import type { GuardMode } from "@blackbelt-technology/pi-dashboard-kb";
 
 /** Tool calls that ARE search actions (raw-search tools). Bash is parsed. */
 const SEARCH_TOOLS = new Set(["grep", "glob", "rg", "find", "ls", "ag", "ack"]);
@@ -28,10 +28,10 @@ const SEARCH_BINARIES = new Set(["grep", "egrep", "fgrep", "rg", "ripgrep", "ag"
 const KB_TOOLS = new Set(["kb_search", "kb_neighbors", "kb_get"]);
 
 /** Consecutive search actions before the first firing. */
-export const CHAIN_THRESHOLD = 3;
+const CHAIN_THRESHOLD = 3;
 /** Suspension clamp (D9). */
-export const PAUSE_MIN = 1;
-export const PAUSE_MAX = 20;
+const PAUSE_MIN = 1;
+const PAUSE_MAX = 20;
 
 export interface GuardInput {
   command?: string;
@@ -62,7 +62,7 @@ export function resolveGuardMode(configMode: GuardMode | undefined, env: string 
 
 export type GuardVerdict = string | { block: true; reason: string } | null;
 
-export interface GuardState {
+interface GuardState {
   chain: number;
   firings: number;
   suspended: number;

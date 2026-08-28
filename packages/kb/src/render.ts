@@ -30,10 +30,10 @@ function leafHeading(headingPath: string): string {
   return parts[parts.length - 1] || headingPath;
 }
 
-/** Inline trust-verdict form shared by both text renders and the tool's json
- *  format: `LABEL (n of m subjects checked)`. null/absent renders NOTHING —
- *  never a placeholder. See change: add-kb-trust-verdicts-and-search-guard. */
-export function verdictText(v: HitVerdict | null | undefined): string | null {
+/** Inline trust-verdict form shared by both text renders: `LABEL (n of m
+ *  subjects checked)`. null/absent renders NOTHING — never a placeholder.
+ *  See change: add-kb-trust-verdicts-and-search-guard. */
+function verdictText(v: HitVerdict | null | undefined): string | null {
   if (!v) return null;
   return `${v.label} (${v.counts.checked} of ${v.counts.total} subject${v.counts.total === 1 ? "" : "s"} checked)`;
 }
