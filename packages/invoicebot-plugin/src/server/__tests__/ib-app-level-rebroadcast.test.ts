@@ -175,6 +175,68 @@ describe("invoicebot plugin: app-level ib_domain_event rebroadcast", () => {
     browser.close();
   });
 
+  // restore-assistant-greeting-stream — END-TO-END proof through the REAL WS
+  // path (plugin_pi_message → server broadcastToSubscribers → browser) that a
+  // greeting now (a) reaches a client live carrying the server-assigned stable
+  // id + ordering key (the producer payload carries none), and (b) replays IN
+  // ORDER on connect, not collapsed to newest.
+  it("stamps a LIVE greeting with a server-assigned id + order and delivers it to a client", async () => {
+    const session = await connectSession(piPort, "ib-greet");
+    const { ws: browser, messages } = await connectBrowser(browserPort);
+
+    // The producer payload carries NO id — just the structured state (design D3).
+    sendIbPluginMessage(session, "ib-greet", {
+      eventType: "ib_greeting",
+      data: { customType: "ib-greeting", state: "exported", content: "Kész", details: { state: "exported" } },
+    });
+    await wait(150);
+
+    const live = messages.filter((m) => m.type === "ib_domain_event" && (m as { replay?: boolean }).replay !== true);
+    expect(live).toHaveLength(1);
+    expect((live[0].event as { eventType: string }).eventType).toBe("ib_greeting");
+    // Server stamped the stable id (derived from state) + ordering key onto the
+    // LIVE frame, so the client can fold + dedupe it.
+    expect((live[0] as { greetingId?: string }).greetingId).toBe("exported");
+    expect(typeof (live[0] as { greetingOrder?: number }).greetingOrder).toBe("number");
+
+    session.close();
+    browser.close();
+  });
+
+  it("replays the full greeting stream IN ORDER on connect, not collapsed to newest", async () => {
+    const session = await connectSession(piPort, "ib-greet-order");
+
+    // Three greetings emitted BEFORE any browser connects.
+    for (const state of ["partner_pending", "pending_approval", "exported"]) {
+      sendIbPluginMessage(session, "ib-greet-order", {
+        eventType: "ib_greeting",
+        data: { customType: "ib-greeting", state, content: state, details: { state } },
+      });
+      await wait(40);
+    }
+
+    const browser = await connectBrowser(browserPort);
+    await wait(120);
+
+    const replayed = browser.messages.filter(
+      (m) => m.type === "ib_domain_event" && (m as { replay?: boolean }).replay === true && (m.event as { eventType?: string }).eventType === "ib_greeting",
+    );
+    // All three replayed (NOT collapsed to only "exported"), in emission order.
+    expect(replayed.map((m) => (m.event as { data: { state: string } }).data.state)).toEqual([
+      "partner_pending",
+      "pending_approval",
+      "exported",
+    ]);
+    expect(replayed.map((m) => (m as { greetingId?: string }).greetingId)).toEqual([
+      "partner_pending",
+      "pending_approval",
+      "exported",
+    ]);
+
+    session.close();
+    browser.ws.close();
+  });
+
   it("replays the latest cached state on reconnect, then resumes the live stream", async () => {
     // Supersedes the prior "no historical replay" guarantee: a browser that
     // (re)connects now receives the latest cached domain event per key marked
