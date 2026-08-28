@@ -852,13 +852,16 @@ export interface RecoveryDismissMessage {
  * incremental delta, so counters/animations driven by live deltas are not
  * double-applied. See change: replay-invoice-domain-events.
  *
- * `greetingId` / `greetingOrder` are additive fields carried ONLY on replayed
- * greeting-type frames (`event.eventType === IB_GREETING_EVENT_TYPE`). They give
- * a consumer the greeting's stable identity and its per-session emission-ordering
- * key (epoch-ms) so the greeting stream folds into chronological chat rows and
- * dedupes idempotently across live+replay delivery. Live greeting frames omit
- * both (id derived from `event.data.id`, order from arrival time). Non-greeting
- * frames never carry them. See change: restore-assistant-greeting-stream.
+ * `greetingId` / `greetingOrder` are additive fields the server stamps onto
+ * greeting-type frames (`event.eventType === IB_GREETING_EVENT_TYPE`) on BOTH
+ * the replay and the live path. They give a consumer the greeting's stable
+ * identity and its per-session emission-ordering key (epoch-ms) so the greeting
+ * stream folds into chronological chat rows and dedupes idempotently across
+ * live+replay delivery. The producer's greeting payload carries no id of its
+ * own (the identity is the structured `state` field, design D3), so the server
+ * is the single source of the stable id — it MUST ride the live frame too, else
+ * a live greeting arrives id-less and is dropped. Non-greeting frames never
+ * carry them. See change: restore-assistant-greeting-stream.
  */
 export interface IbDomainEventMessage {
   type: "ib_domain_event";

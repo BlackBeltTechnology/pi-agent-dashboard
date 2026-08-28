@@ -6,17 +6,22 @@
  * alongside the invoice engine extension.
  *
  * Behavior (intentionally thin, mirrors goal-plugin): subscribe to the
- * DECLARED `ib:*` lifecycle channels via `pi.events.on` — `on()` observes
+ * DECLARED `ib:*` lifecycle channels PLUS the separately-declared greeting
+ * render channel (`IB_SUBSCRIBED_CHANNELS`) via `pi.events.on` — `on()` observes
  * every emitter on the shared bus, including the engine's foreign extension
  * facade (an emit intercept never would) — and re-emit each event on the
  * generic `dashboard:plugin-message` channel. The main bridge wraps that in a
  * `plugin_pi_message` envelope; the plugin SERVER rebroadcasts it app-level.
+ * The greeting render channel rides the identical envelope + mechanical rename
+ * (`ib:greeting` → `ib_greeting`); it is declared separately from the lifecycle
+ * set so that set's meaning is not diluted. See change:
+ * restore-assistant-greeting-stream.
  *
  * Undeclared channels are NOT forwarded (declared-set semantics). The rename
  * is mechanical (`:`/`-` → `_`). See change:
  * relocate-ib-domain-events-to-plugin.
  */
-import { IB_CHANNELS, IB_DOMAIN_EVENT_MESSAGE, IB_PLUGIN_ID, renameIbChannel } from "../shared/ib-events.js";
+import { IB_DOMAIN_EVENT_MESSAGE, IB_PLUGIN_ID, IB_SUBSCRIBED_CHANNELS, renameIbChannel } from "../shared/ib-events.js";
 
 interface PiEventsLike {
   emit: (channel: string, data: unknown) => void;
@@ -68,7 +73,7 @@ export default function activate(ctx: unknown): void {
     }
   });
 
-  for (const channel of IB_CHANNELS) {
+  for (const channel of IB_SUBSCRIBED_CHANNELS) {
     const eventType = renameIbChannel(channel);
     events.on(channel, (data: unknown) => {
       if (listenerReady) {

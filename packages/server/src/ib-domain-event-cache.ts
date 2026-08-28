@@ -41,11 +41,26 @@ const DEFAULT_MAX_ENTRIES = 500;
  *  so a normal invoice lifecycle's greetings are never evicted. */
 const DEFAULT_MAX_GREETINGS_PER_SESSION = 50;
 
-/** Derive a greeting's stable id from its payload (`id` or `identity`). Returns
- *  null when neither is present so the caller can synthesize a positional id. */
+/**
+ * Derive a greeting's stable id from its payload. The producer emits ONE greeting
+ * per eligible `state` per session and carries the machine-checkable state as a
+ * STRUCTURED field (design D3: "other layers key off `state`, not by parsing
+ * content"), so `state` IS the per-session stable identity: a same-state re-emit
+ * (live after replay, or a per-state refresh) collapses onto one row. Falls back
+ * to the stamp in `details` (`{ state }` or `{ scope: "ask" }`), then a legacy
+ * `id`/`identity`, then null so the caller can synthesize a positional id.
+ * See change: restore-assistant-greeting-stream.
+ */
 function greetingIdOf(data: unknown): string | null {
   if (data && typeof data === "object") {
     const d = data as Record<string, unknown>;
+    if (typeof d.state === "string" && d.state.length > 0) return d.state;
+    const details = d.details;
+    if (details && typeof details === "object") {
+      const dd = details as Record<string, unknown>;
+      if (typeof dd.state === "string" && dd.state.length > 0) return dd.state;
+      if (typeof dd.scope === "string" && dd.scope.length > 0) return dd.scope;
+    }
     for (const k of ["id", "identity"]) {
       const v = d[k];
       if (typeof v === "string" && v.length > 0) return v;
@@ -95,21 +110,20 @@ export class IbDomainEventCache {
    * refreshes insertion recency so an updated key is not the next eviction victim;
    * on overflow the oldest-inserted entry is evicted.
    */
-  set(frame: IbDomainEventFrame): void {
+  set(frame: IbDomainEventFrame): RetainedGreeting | undefined {
     const sessionId = frame?.sessionId;
     const eventType = frame?.event?.eventType;
     const data = frame?.event?.data;
-    if (typeof sessionId !== "string" || sessionId.length === 0) return;
-    if (typeof eventType !== "string" || eventType.length === 0) return;
-    if (data === undefined || data === null) return;
+    if (typeof sessionId !== "string" || sessionId.length === 0) return undefined;
+    if (typeof eventType !== "string" || eventType.length === 0) return undefined;
+    if (data === undefined || data === null) return undefined;
 
     // Greeting-type frames are EXEMPT from latest-per-key convergence: route
     // them to the ordered per-session stream instead, so a reconnect replays the
     // full chronological stream, not a single collapsed newest frame.
     // See change: restore-assistant-greeting-stream.
     if (eventType === IB_GREETING_EVENT_TYPE) {
-      this.appendGreeting(frame);
-      return;
+      return this.appendGreeting(frame);
     }
 
     const k = keyOf(eventType, data);
@@ -121,6 +135,7 @@ export class IbDomainEventCache {
       if (oldest === undefined) break;
       this.map.delete(oldest);
     }
+    return undefined;
   }
 
   /**
@@ -129,27 +144,34 @@ export class IbDomainEventCache {
    * place (preserving its original position + ordering key) rather than adding a
    * duplicate. A frame lacking `id`/`identity` gets a synthesized positional id.
    * Bounded per session — oldest greeting evicted first on overflow. Validation
-   * mirrors `set`. See change: restore-assistant-greeting-stream.
+   * mirrors `set`. Returns the retained greeting (id + ordering key + frame) so a
+   * caller can stamp the SAME stable id + order onto the LIVE broadcast frame it
+   * forwards to connected browsers — the producer payload carries no id, so
+   * without this the client could not fold a live greeting or dedupe it against
+   * its later replay. Returns undefined on a malformed (skipped) frame.
+   * See change: restore-assistant-greeting-stream.
    */
-  appendGreeting(frame: IbDomainEventFrame): void {
+  appendGreeting(frame: IbDomainEventFrame): RetainedGreeting | undefined {
     const sessionId = frame?.sessionId;
     const eventType = frame?.event?.eventType;
     const data = frame?.event?.data;
-    if (typeof sessionId !== "string" || sessionId.length === 0) return;
-    if (typeof eventType !== "string" || eventType.length === 0) return;
-    if (data === undefined || data === null) return;
+    if (typeof sessionId !== "string" || sessionId.length === 0) return undefined;
+    if (typeof eventType !== "string" || eventType.length === 0) return undefined;
+    if (data === undefined || data === null) return undefined;
 
     const list = this.greetings.get(sessionId) ?? [];
     const id = greetingIdOf(data) ?? `${sessionId}\u0000${list.length}`;
     const existing = list.find((g) => g.id === id);
+    this.greetings.set(sessionId, list);
     if (existing) {
       existing.frame = frame;
-    } else {
-      this.lastOrder = Math.max(Date.now(), this.lastOrder + 1);
-      list.push({ id, order: this.lastOrder, frame });
-      while (list.length > this.maxGreetings) list.shift();
+      return existing;
     }
-    this.greetings.set(sessionId, list);
+    this.lastOrder = Math.max(Date.now(), this.lastOrder + 1);
+    const retained: RetainedGreeting = { id, order: this.lastOrder, frame };
+    list.push(retained);
+    while (list.length > this.maxGreetings) list.shift();
+    return retained;
   }
 
   /** Every cached latest frame, oldest-inserted first. */

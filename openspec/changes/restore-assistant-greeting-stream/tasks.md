@@ -46,6 +46,35 @@
 - [x] 4.5 Ensure greetings render only from the domain-event frame; confirm the
       `display:false` transcript copy still produces no row (reducer + replay path).
 
+## 4b. Close the bus→wire seam (greeting never left the producer)
+
+- [x] 4b.1 In `packages/invoicebot-plugin/src/shared/ib-events.ts`, declare the
+      greeting RENDER channel `IB_GREETING_CHANNEL = "ib:greeting"` SEPARATELY from
+      the lifecycle `IB_CHANNELS` (a render event is not a lifecycle event), and
+      export `IB_SUBSCRIBED_CHANNELS = [...IB_CHANNELS, IB_GREETING_CHANNEL]`. Do
+      NOT add greeting to `IB_CHANNELS` (would corrupt the lifecycle set + force
+      weakening `ib-events.test.ts` — forbidden). Chosen: option (b), separate
+      declaration.
+- [x] 4b.2 In `packages/invoicebot-plugin/src/bridge/index.ts`, subscribe over
+      `IB_SUBSCRIBED_CHANNELS` so `ib:greeting` forwards via the identical envelope
+      + mechanical rename (`ib:greeting` → `ib_greeting`, matching
+      `IB_GREETING_EVENT_TYPE`). Boot-window buffering applies unchanged.
+- [x] 4b.3 KEYING: the producer greeting payload is `{ customType, state, content,
+      details }` with NO id/invoice_id (design D3: layers key off `state`). In
+      `ib-domain-event-cache.ts`, derive the greeting's stable id from `state`
+      (then `details.state`/`details.scope`, then legacy id/identity, then
+      positional).
+- [x] 4b.4 LIVE keying gap: `set()`/`appendGreeting` return the retained greeting;
+      in `server.ts` stamp `greetingId`/`greetingOrder` onto the LIVE broadcast
+      frame too (not only replay) so a live greeting reaches the client with a
+      stable identity and dedupes against its later replay. Client
+      (`useMessageHandler.ts`) resolves id = `greetingId` ?? producer `state` ??
+      legacy id/identity.
+- [x] 4b.5 Spec: add a MODIFIED requirement to `invoicebot-event-bridge`
+      declaring the greeting render channel separately (lifecycle set + its test
+      preserved), and specify in `invoicebot-greeting-stream` that the LIVE frame
+      carries the server-assigned id/order.
+
 ## 5. Tests
 
 - [x] 5.1 Server unit test: three greetings for one session replay in order on
@@ -65,3 +94,14 @@
       pass-through, no HTML sanitizer), so adding a sanitizer later fails loudly.
 - [x] 5.6 Run the gate: `HOME=$(mktemp -d) pnpm exec vitest run <touched test files>`
       and `npm run build`; both green.
+- [x] 5.7 Bridge test (`ib-events.test.ts` + `ib-bridge-entry.test.ts`): the
+      greeting channel is declared separately (IB_CHANNELS unchanged, still
+      exactly 16), and a foreign-facade `ib:greeting` emission forwards as
+      `ib_greeting` payload-verbatim (live + boot-buffered). `ib-events.test.ts`
+      lifecycle assertion NOT weakened.
+- [x] 5.8 Cache test: greeting id derives from `state`; same-state re-delivery is
+      one entry; `set()` returns the retained greeting (id+order) for live stamping.
+- [x] 5.9 Client seam test (`useMessageHandler.greeting-fold.test.tsx`): a LIVE
+      greeting folds via `greetingId`, AND via producer `state` when `greetingId`
+      is absent; live+replay dedupe; non-greeting frame yields no row; a greeting
+      folded before `event_replay` survives the reset.

@@ -12,7 +12,16 @@ the session's chat does.
 
 Each greeting frame SHALL carry a stable identifier and an ordering key so a
 consumer can position it chronologically and apply it idempotently across
-re-replay. The retained greeting stream SHALL be bounded per session to protect
+re-replay. The greeting's stable identifier SHALL be derived from the
+producer-carried structured **state** field (the producer emits one greeting per
+eligible state per session and carries the state as a structured field; the ask
+profile's per-session opener uses its stamp scope), NOT from parsing content and
+NOT from any producer-supplied id (the producer payload carries none). Because
+the producer payload carries no id, the server SHALL be the single source of the
+stable id + ordering key and SHALL stamp them onto the **live** broadcast frame
+as well as the replayed frame — otherwise a live greeting arrives without an
+identity and is dropped, and a later replay of the same greeting cannot dedupe
+against it. The retained greeting stream SHALL be bounded per session to protect
 server memory; when the bound is exceeded the oldest greeting in that session SHALL
 be dropped first. A dropped browser connection SHALL NOT corrupt the retained
 greeting stream, and session death SHALL clear that session's retained greetings.
@@ -38,6 +47,22 @@ greeting stream, and session death SHALL clear that session's retained greetings
 
 - **WHEN** the server broadcasts a newly-emitted greeting to connected browsers
 - **THEN** the frame SHALL NOT carry `replay: true` (the field is absent)
+
+#### Scenario: Live greeting carries the server-assigned stable id and ordering key
+
+- **WHEN** the server broadcasts a newly-emitted greeting whose producer payload
+  carries no id of its own
+- **THEN** the live frame SHALL carry the server-assigned stable identifier and
+  ordering key
+- **AND** a consumer SHALL be able to fold that live greeting into a chat row and
+  dedupe it against a later replay of the same greeting using that identifier
+
+#### Scenario: Same-state greeting re-delivery is one retained entry
+
+- **WHEN** a greeting for a given eligible state is delivered, then a greeting for
+  the same state is delivered again (a per-state refresh, or live after replay)
+- **THEN** the retained stream SHALL hold a single entry for that state, updated in
+  place, preserving its original position and ordering key
 
 #### Scenario: Session death clears retained greetings
 

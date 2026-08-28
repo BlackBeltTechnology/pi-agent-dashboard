@@ -503,14 +503,20 @@ export function useMessageHandler(
       case "ib_domain_event": {
         if (!isIbGreetingEventType(msg.event?.eventType)) break;
         const gd = (msg.event.data ?? {}) as { id?: unknown; identity?: unknown; state?: unknown; content?: unknown };
+        // Prefer the server-assigned stable id (attached on BOTH live + replay).
+        // Defensively fall back to the producer-carried `state` (design D3: the
+        // per-session greeting identity), then legacy id/identity. The producer
+        // payload carries no id, so `state` is the real keying field.
         const id =
           typeof msg.greetingId === "string" && msg.greetingId.length > 0
             ? msg.greetingId
-            : typeof gd.id === "string" && gd.id.length > 0
-              ? gd.id
-              : typeof gd.identity === "string" && gd.identity.length > 0
-                ? gd.identity
-                : null;
+            : typeof gd.state === "string" && gd.state.length > 0
+              ? gd.state
+              : typeof gd.id === "string" && gd.id.length > 0
+                ? gd.id
+                : typeof gd.identity === "string" && gd.identity.length > 0
+                  ? gd.identity
+                  : null;
         if (!id) break;
         const order = typeof msg.greetingOrder === "number" ? msg.greetingOrder : Date.now();
         const synthetic = {

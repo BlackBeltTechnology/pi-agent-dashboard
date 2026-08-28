@@ -1904,7 +1904,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
                 // See change: replay-invoice-domain-events.
                 if (m && m.type === "ib_domain_event") {
                   try {
-                    ibDomainEventCache.set(msg as IbDomainEventFrame);
+                    // A greeting frame's producer payload carries no stable id, so
+                    // stamp the cache-assigned id + ordering key onto the LIVE
+                    // broadcast too (replay already carries them). Without this a
+                    // live greeting reaches the client id-less and is dropped, and
+                    // a later replay of the same greeting could not dedupe against
+                    // it. See change: restore-assistant-greeting-stream.
+                    const retained = ibDomainEventCache.set(msg as IbDomainEventFrame);
+                    if (retained) {
+                      (msg as Record<string, unknown>).greetingId = retained.id;
+                      (msg as Record<string, unknown>).greetingOrder = retained.order;
+                    }
                     if (ibDomainEventBroadcasts++ % IB_DOMAIN_EVENT_LOG_SAMPLE === 0) {
                       const ev = (msg as IbDomainEventFrame).event;
                       console.error(`[ib-domain-event] broadcast #${ibDomainEventBroadcasts} type=${ev?.eventType ?? "?"} session=${(msg as IbDomainEventFrame).sessionId ?? "?"}`);
