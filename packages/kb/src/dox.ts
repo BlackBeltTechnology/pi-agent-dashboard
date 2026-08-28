@@ -6,7 +6,7 @@
 import { createHash } from "node:crypto";
 import { appendFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
-import { readStaleness } from "./dox-triage.js";
+import { readStaleness } from "./staleness.js";
 import type { KbStore } from "./types.js";
 
 // delta ②: exclude worktree checkouts, archived openspec proposals, and doc-example noise.

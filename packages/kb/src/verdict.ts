@@ -32,7 +32,8 @@ import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync, sta
 import { dirname, relative, resolve, sep } from "node:path";
 import { chunkMarkdown } from "./chunker.js";
 import { resolveRowPath } from "./dox.js";
-import { type AckRecord, parseRows, readStaleness } from "./dox-triage.js";
+import { parseRows } from "./dox-triage.js";
+import { type AckRecord, readStaleness } from "./staleness.js";
 import type { HitVerdict, KbHit, VerdictCounts, VerdictLabel } from "./types.js";
 
 /** Subjects checked per hit, in DOX row order (design D11). */

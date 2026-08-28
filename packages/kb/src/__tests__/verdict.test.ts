@@ -8,7 +8,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "no
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { ackTargets, readStaleness } from "../dox-triage.js";
+import { ackTargets } from "../dox-triage.js";
+import { readStaleness } from "../staleness.js";
 import type { KbHit } from "../types.js";
 import type { EnrichCtx, VerdictFs } from "../verdict.js";
 import { enrichHits } from "../verdict.js";
