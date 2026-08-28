@@ -68,7 +68,9 @@
   },
   "overrides": [
     {
-      "includes": ["packages/client/**"],
+      "includes": [
+        "packages/client/**"
+      ],
       "linter": {
         "rules": {
           "a11y": {
@@ -83,7 +85,11 @@
       }
     },
     {
-      "includes": ["**/__tests__/**", "**/*.test.ts", "**/*.test.tsx"],
+      "includes": [
+        "**/__tests__/**",
+        "**/*.test.ts",
+        "**/*.test.tsx"
+      ],
       "linter": {
         "rules": {
           "suspicious": {
@@ -119,7 +125,8 @@
         ".pi/flows/**",
         "tests/e2e/**",
         "qa/scripts/**",
-        ".pi/skills/**/scripts/**"
+        ".pi/skills/**/scripts/**",
+        "site/design-scratch/**"
       ],
       "linter": {
         "rules": {
