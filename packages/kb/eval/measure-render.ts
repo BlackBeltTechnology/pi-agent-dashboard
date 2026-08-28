@@ -10,6 +10,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DEFAULTS } from "../src/config.js";
 import { renderHits } from "../src/render.js";
+import { searchOptsFromConfig } from "../src/search-opts.js";
 import { SqliteFtsStore } from "../src/sqlite-store.js";
 import type { KbHit, SearchOpts } from "../src/types.js";
 
@@ -26,9 +27,15 @@ const queries = [
   ...(JSON.parse(readFileSync(join(HERE, "golden.source-intent.json"), "utf8")).items as { q: string }[]),
 ].map((x) => x.q);
 
-const base: SearchOpts = { fieldWeights: DEFAULTS.ranking.fieldWeights, proximityBoost: true, diversity: DEFAULTS.ranking.diversity, limit: 10, expandParent: true, queryExpansion: "off" };
-const BEFORE: SearchOpts = { ...base, sourceDedup: false, laneQuota: 0, coverageRerank: false };
-const AFTER: SearchOpts = { ...base, sourceDedup: true, laneQuota: DEFAULTS.ranking.laneQuota, coverageRerank: DEFAULTS.ranking.coverageRerank };
+// Options derive from the ONE shared config→SearchOpts mapping (design D2,
+// fix-kb-eval-measurement-integrity); BEFORE/AFTER differ by explicit overrides.
+const variant = (ov: Parameters<typeof searchOptsFromConfig>[1]["overrides"]) =>
+  searchOptsFromConfig(DEFAULTS, {
+    sources: [{ id: "repo", dir: "/", priority: 0 }], // rootPriority is inert here (single root index)
+    overrides: { expandParent: true, expandGraph: false, rerank: false, queryExpansion: "off", ...ov },
+  });
+const BEFORE: SearchOpts = variant({ sourceDedup: false, laneQuota: 0, coverageRerank: false });
+const AFTER: SearchOpts = variant({ sourceDedup: true, laneQuota: DEFAULTS.ranking.laneQuota, coverageRerank: DEFAULTS.ranking.coverageRerank });
 
 const TOOL = { leading: "rank", parentGlyph: "\u2937 ", multiline: true } as const;
 // ~4 chars/token is the usual English-prose rule of thumb; used only to compare
@@ -53,8 +60,8 @@ let afterTok = 0;
 let beforeSrc = 0;
 let afterSrc = 0;
 for (const q of queries) {
-  const b = store.search(q, BEFORE);
-  const a = store.search(q, AFTER);
+  const b = store.search(q, { ...BEFORE, limit: 10 });
+  const a = store.search(q, { ...AFTER, limit: 10 });
   beforeTok += tokens(legacyRender(b));
   afterTok += tokens(renderHits(a, TOOL));
   beforeSrc += new Set(b.map((h) => `${h.root}\u001f${h.path}`)).size;
