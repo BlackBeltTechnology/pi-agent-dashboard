@@ -1,17 +1,17 @@
 // Vitest for verdict.ts — query-time trust verdicts over a hit's DOX-row
 // subject set. Uses the temp-git-repo pattern from dox-triage.test.ts.
 // See change: add-kb-trust-verdicts-and-search-guard.
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createHash } from "node:crypto";
-
-import { enrichHits } from "../verdict.js";
-import { readStaleness, ackTargets } from "../dox-triage.js";
-import type { EnrichCtx, VerdictFs } from "../verdict.js";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { ackTargets, readStaleness } from "../dox-triage.js";
 import type { KbHit } from "../types.js";
+import type { EnrichCtx, VerdictFs } from "../verdict.js";
+import { enrichHits } from "../verdict.js";
 
 const sha = (s: string | Buffer) => createHash("sha256").update(s).digest("hex");
 const git = (cwd: string, ...args: string[]) => execFileSync("git", args, { cwd, encoding: "utf8" });

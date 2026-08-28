@@ -31,8 +31,8 @@ import { createHash } from "node:crypto";
 import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync, statSync } from "node:fs";
 import { dirname, relative, resolve, sep } from "node:path";
 import { chunkMarkdown } from "./chunker.js";
-import { type AckRecord, parseRows, readStaleness } from "./dox-triage.js";
 import { resolveRowPath } from "./dox.js";
+import { type AckRecord, parseRows, readStaleness } from "./dox-triage.js";
 import type { HitVerdict, KbHit, VerdictCounts, VerdictLabel } from "./types.js";
 
 /** Subjects checked per hit, in DOX row order (design D11). */
@@ -191,31 +191,44 @@ function sectionSubjects(hit: KbHit, ctx: EnrichCtx, bodyCache: Map<string, stri
  *  committed-then-clean rename, a non-git dir, and a git failure all degrade
  *  to "no rename" → GONE (accepted, D3). An old path mapping to TWO different
  *  successors is ambiguous → GONE, never a guess. Values are cwd-relative. */
-function renameBatch(cwd: string, git: EnrichCtx["git"]): Map<string, string> {
-  const map = new Map<string, string>();
-  const run = git ?? ((args: string[], c: string) => execFileSync("git", args, { cwd: c, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }));
-  let out: string;
-  try {
-    out = run(["diff", "HEAD", "--name-status", "-M", "-z"], cwd);
-  } catch {
-    return map; // non-git / no commits / spawn failure → no renames known
-  }
+/** Apply ONE `-z` name-status record starting at `i`; returns the next index.
+ *  R/C records carry two paths, others one. */
+function applyRenameRecord(map: Map<string, string>, parts: string[], status: string, i: number): number {
+  if (!(status.startsWith("R") || status.startsWith("C"))) return i + 1;
+  const from = parts[i];
+  const to = parts[i + 1];
+  if (!from || !to) return parts.length;
+  const prev = map.get(from);
+  if (prev === undefined) map.set(from, to);
+  else if (prev !== to) map.set(from, "\0ambiguous"); // two successors → guess-free
+  return i + 2;
+}
+
+function parseRenameRecords(out: string, map: Map<string, string>): void {
   const parts = out.split("\0");
   let i = 0;
   while (i < parts.length) {
     const status = parts[i++];
     if (!status) break;
-    if (status.startsWith("R") || status.startsWith("C")) {
-      const from = parts[i++];
-      const to = parts[i++];
-      if (!from || !to) break;
-      const prev = map.get(from);
-      if (prev === undefined) map.set(from, to);
-      else if (prev !== to) map.set(from, "\0ambiguous"); // two successors → guess-free
-    } else {
-      i++; // single-path record (A/D/M…)
-    }
+    i = applyRenameRecord(map, parts, status, i);
   }
+}
+
+/** Shorthand git runner for the rename scan (injectable via ctx.git). */
+function runGit(cwd: string, git: EnrichCtx["git"], args: string[]): string {
+  const run = git ?? ((a: string[], c: string) => execFileSync("git", a, { cwd: c, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 }));
+  return run(args, cwd);
+}
+
+function renameBatch(cwd: string, git: EnrichCtx["git"]): Map<string, string> {
+  const map = new Map<string, string>();
+  let out: string;
+  try {
+    out = runGit(cwd, git, ["diff", "HEAD", "--name-status", "-M", "-z"]);
+  } catch {
+    return map; // non-git / no commits / spawn failure → no renames known
+  }
+  parseRenameRecords(out, map);
   map.forEach((to, from) => {
     if (to === "\0ambiguous") map.delete(from);
   });
@@ -234,13 +247,125 @@ function defaultAcks(cwd: string): Record<string, AckRecord> {
   }
 }
 
-/** Label ONE subject. Order of gates (design D2/D13):
- *  1. existence — absent → MOVED (rename) | GONE. Existence precedes the hash
- *     gate: deleted + never-acked = GONE, never UNVERIFIED.
- *  2. no acked hash → UNVERIFIED (D12 — absence of a hash is not a change).
- *  3. acked stat baseline matches → FRESH with ZERO reads (the read skip).
- *  4. hash fallback (≤1 MiB, binary-skipped): match → FRESH, differ → STALE;
- *     unreadable/oversized/binary where the baseline didn't match → UNVERIFIED. */
+/** The stat/ack/hash ladder for ONE subject (design D2/D13). Callers have
+ *  already resolved existence: `st` is a stat here. Order of gates:
+ *  1. no acked hash -> UNVERIFIED (D12 - absence of a hash is not a change).
+ *  2. acked stat baseline matches -> FRESH with ZERO reads (the read skip).
+ *  3. hash fallback (<=1 MiB, binary-skipped): match -> FRESH, differ -> STALE;
+ *     unreadable/oversized/binary where the baseline didn't match -> UNVERIFIED. */
+function labelExistingSubject(
+  abs: string,
+  st: { size: number; mtimeMs: number },
+  ack: AckRecord | undefined,
+  fs: VerdictFs,
+): VerdictLabel {
+  if (!ack?.sha256) return "UNVERIFIED"; // exists, unproven - the common first-run case
+  if (ack.size != null && ack.mtimeMs != null && ack.size === st.size && ack.mtimeMs === st.mtimeMs) {
+    return "FRESH"; // stat-gated read skip (D2): acked stat still true
+  }
+  if (st.size > HASH_CAP_BYTES) return "UNVERIFIED"; // oversized, baseline didn't match -> cannot hash
+  try {
+    const buf = fs.read(abs, st.size); // whole file (size <= cap)
+    if (isBinary(buf)) return "UNVERIFIED"; // binary is never hashed
+    return sha256(buf) === ack.sha256 ? "FRESH" : "STALE";
+  } catch {
+    return "UNVERIFIED"; // EACCES during hash - no crash, no partial verdict (X2)
+  }
+}
+
+/** Per-label count key, replacing a five-way ternary in the hot loop. */
+const COUNT_KEY: Record<VerdictLabel, "fresh" | "stale" | "moved" | "gone" | "unverified"> = {
+  FRESH: "fresh",
+  STALE: "stale",
+  MOVED: "moved",
+  GONE: "gone",
+  UNVERIFIED: "unverified",
+};
+
+/** An absent subject: MOVED when the batched rename scan found exactly one
+ *  successor (recorded into movedTo), else GONE (existence first — deleted +
+ *  never-acked is GONE too). */
+function absentLabel(rel: string, renames: Map<string, string>, movedTo: string[]): VerdictLabel {
+  const successor = renames.get(rel.split(sep).join("/"));
+  if (successor) {
+    movedTo.push(successor);
+    return "MOVED";
+  }
+  return "GONE";
+}
+
+/** Compute one hit's verdict over its checked subjects. */
+function verdictForHit(
+  checked: Subject[],
+  total: number,
+  stats: Array<{ size: number; mtimeMs: number } | null | "unreadable">,
+  renames: Map<string, string>,
+  acks: Record<string, AckRecord>,
+  fs: VerdictFs,
+): HitVerdict {
+  const counts = emptyCounts();
+  counts.total = total;
+  counts.checked = checked.length;
+  const movedTo: string[] = [];
+  const labels: VerdictLabel[] = [];
+
+  for (let i = 0; i < checked.length; i++) {
+    const s = checked[i];
+    const st = stats[i];
+    const relKey = s.rel.split(sep).join("/");
+    let label: VerdictLabel;
+    if (st === "unreadable") {
+      label = "UNVERIFIED"; // cannot verify is not "changed" (D12/X2)
+    } else if (st === null) {
+      label = absentLabel(s.rel, renames, movedTo);
+    } else {
+      label = labelExistingSubject(s.abs, st, acks[relKey], fs);
+    }
+    labels.push(label);
+    counts[COUNT_KEY[label]]++;
+  }
+
+  // Aggregate worst-of (GONE > MOVED > STALE > UNVERIFIED > FRESH) + attach.
+  const worst = labels.reduce<VerdictLabel>((w, l) => (WORST[l] < WORST[w] ? l : w), "FRESH");
+  const verdict: HitVerdict = { label: worst, counts };
+  if (movedTo.length) verdict.movedTo = movedTo;
+  return verdict;
+}
+
+/** Enrich ONE hit in place. Not eligible (non-agents / zero resolvable rows)
+ *  → `verdict: null` — the honest "no verdict", never a vacuous label. */
+function enrichOne(
+  hit: KbHit,
+  ctx: EnrichCtx,
+  fs: VerdictFs,
+  acks: Record<string, AckRecord>,
+  bodyCache: Map<string, string>,
+): void {
+  if (hit.docType !== "agents") {
+    hit.verdict = null; // prose reports no verdict rather than a vacuous one
+    return;
+  }
+  const subjects = sectionSubjects(hit, ctx, bodyCache);
+  if (subjects.length === 0) {
+    hit.verdict = null;
+    return;
+  }
+  const checked = subjects.slice(0, SUBJECT_CAP);
+  const stats: Array<{ size: number; mtimeMs: number } | null | "unreadable"> = [];
+  for (const s of checked) {
+    try {
+      stats.push(fs.stat(s.abs));
+    } catch {
+      stats.push("unreadable");
+    }
+  }
+  // ONE batched rename scan per enrichment, only when something is absent.
+  const renames = stats.some((s) => s === null) ? renameBatch(ctx.cwd, ctx.git) : new Map<string, string>();
+  hit.verdict = verdictForHit(checked, subjects.length, stats, renames, acks, fs);
+  // Opt-in coverage (D5): own field, its own capped read, verdict untouched.
+  if (ctx.coverage?.query) hit.coverage = coverageScore(checked, fs, ctx.coverage.query);
+}
+
 /** Enrich a page of hits with trust verdicts (and optional coverage). Pure
  *  async post-search stage: reads subjects + the ack sidecar, runs at most ONE
  *  git rename scan per repo, writes NOTHING (D4). Hits not eligible for a
@@ -253,82 +378,7 @@ export async function enrichHits(hits: KbHit[], ctx: EnrichCtx): Promise<KbHit[]
   const pageBodyCache = new Map<string, string>(); // per-page disk-body memo
 
   // Pass 1 — resolve subjects + stat, per eligible hit.
-  for (const hit of hits) {
-    if (hit.docType !== "agents") {
-      hit.verdict = null; // prose reports no verdict rather than a vacuous one
-      continue;
-    }
-    const bodyCache = pageBodyCache;
-    const subjects = sectionSubjects(hit, ctx, bodyCache);
-    if (subjects.length === 0) {
-      hit.verdict = null;
-      continue;
-    }
-    const checked = subjects.slice(0, SUBJECT_CAP);
-    const stats: Array<{ size: number; mtimeMs: number } | null | "unreadable"> = [];
-    for (const s of checked) {
-      try {
-        stats.push(fs.stat(s.abs));
-      } catch {
-        stats.push("unreadable");
-      }
-    }
-    // ONE batched rename scan per enrichment, only when something is absent.
-    const renames = stats.some((s) => s === null) ? renameBatch(ctx.cwd, ctx.git) : new Map<string, string>();
-
-    const counts = emptyCounts();
-    counts.total = subjects.length;
-    counts.checked = checked.length;
-    const movedTo: string[] = [];
-
-    const labels: VerdictLabel[] = [];
-    for (let i = 0; i < checked.length; i++) {
-      const s = checked[i];
-      const st = stats[i];
-      const relKey = s.rel.split(sep).join("/");
-      let label: VerdictLabel;
-      if (st === "unreadable") {
-        label = "UNVERIFIED"; // cannot verify ≠ changed (D12/X2)
-      } else if (st === null) {
-        const successor = renames.get(relKey);
-        if (successor) {
-          label = "MOVED";
-          movedTo.push(successor);
-        } else {
-          label = "GONE"; // deleted + never-acked is GONE too (existence first)
-        }
-      } else {
-        const ack = acks[relKey];
-        if (!ack?.sha256) {
-          label = "UNVERIFIED"; // exists, unproven — the common first-run case
-        } else if (ack.size != null && ack.mtimeMs != null && ack.size === st.size && ack.mtimeMs === st.mtimeMs) {
-          label = "FRESH"; // stat-gated read skip (D2): acked stat still true
-        } else if (st.size > HASH_CAP_BYTES) {
-          label = "UNVERIFIED"; // oversized, baseline didn't match → cannot hash
-        } else {
-          try {
-            const buf = fs.read(s.abs, st.size); // whole file (size ≤ cap)
-            label = isBinary(buf) ? "UNVERIFIED" : sha256(buf) === ack.sha256 ? "FRESH" : "STALE";
-          } catch {
-            label = "UNVERIFIED"; // EACCES during hash — no crash, no partial verdict
-          }
-        }
-      }
-      labels.push(label);
-      counts[label === "FRESH" ? "fresh" : label === "STALE" ? "stale" : label === "MOVED" ? "moved" : label === "GONE" ? "gone" : "unverified"]++;
-    }
-
-    // Aggregate worst-of (GONE > MOVED > STALE > UNVERIFIED > FRESH) + attach.
-    const worst = labels.reduce<VerdictLabel>((w, l) => (WORST[l] < WORST[w] ? l : w), "FRESH");
-    const verdict: HitVerdict = { label: worst, counts };
-    if (movedTo.length) verdict.movedTo = movedTo;
-    hit.verdict = verdict;
-
-    // Opt-in coverage (D5): own field, its own capped read, verdict untouched.
-    if (ctx.coverage?.query) {
-      hit.coverage = coverageScore(checked, fs, ctx.coverage.query);
-    }
-  }
+  for (const hit of hits) enrichOne(hit, ctx, fs, acks, pageBodyCache);
   return hits;
 }
 
@@ -337,19 +387,20 @@ function coverageScore(subjects: Subject[], fs: VerdictFs, query: string): numbe
   const terms = [...new Set(query.toLowerCase().split(/[^a-z0-9_]+/).filter((t) => t.length > 1))];
   if (!terms.length) return undefined;
   let matched = 0;
-  for (const t of terms) {
-    for (const s of subjects) {
-      try {
-        const buf = fs.read(s.abs, COVERAGE_CAP_BYTES);
-        if (isBinary(buf)) continue;
-        if (buf.toString("utf8").toLowerCase().includes(t)) {
-          matched++;
-          break;
-        }
-      } catch {
-        continue; // unreadable subject contributes nothing to coverage
-      }
+  for (const t of terms) if (termCovered(t, subjects, fs)) matched++;
+  return matched / terms.length;
+}
+
+/** Does ONE term appear in ANY (capped) subject's bytes? */
+function termCovered(term: string, subjects: Subject[], fs: VerdictFs): boolean {
+  for (const s of subjects) {
+    try {
+      const buf = fs.read(s.abs, COVERAGE_CAP_BYTES);
+      if (isBinary(buf)) continue;
+      if (buf.toString("utf8").toLowerCase().includes(term)) return true;
+    } catch {
+      continue; // unreadable subject contributes nothing to coverage
     }
   }
-  return matched / terms.length;
+  return false;
 }

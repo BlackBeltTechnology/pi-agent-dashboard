@@ -21,7 +21,7 @@ type Ctx = { cwd?: string };
 import { readFileSync } from "node:fs";
 import { agentsChain, enrichHits, loadConfig, renderHits } from "@blackbelt-technology/pi-dashboard-kb";
 import { Type } from "typebox";
-import { createGuard, guardNoteSafe, resolveGuardMode, type GuardInput, type KbGuard } from "./guard.js";
+import { createGuard, type GuardInput, guardNoteSafe, type KbGuard, resolveGuardMode } from "./guard.js";
 import {acknowledgeRows,closeKb, 
   createReindexState, 
   decideNudge, ensurePopulated, getKb, nudgeText, type ReindexState,reindexNow, scheduleReindex, 

@@ -9,7 +9,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { agentsChain, indexSource, loadConfig, parseRowPaths, readStaleness, type AckRecord, type ResolvedConfig, STALENESS_VERSION, SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
+import { type AckRecord, agentsChain, indexSource, loadConfig, parseRowPaths, type ResolvedConfig, readStaleness, SqliteFtsStore, STALENESS_VERSION } from "@blackbelt-technology/pi-dashboard-kb";
 
 /** Resolve a DOX row path relative to its AGENTS.md dir, with a project-root
  *  fallback (a nested AGENTS.md may document a file living at the root).

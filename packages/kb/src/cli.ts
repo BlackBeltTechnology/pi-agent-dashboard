@@ -11,12 +11,12 @@ import { evaluate, type GoldenItem } from "./eval.js";
 import { runIndexAtomic } from "./index-run.js";
 import { indexSource } from "./indexer.js";
 import { kbInit } from "./init.js";
-import { enrichHits } from "./verdict.js";
 import { renderHits } from "./render.js";
 import { classifyRef, type ResolvedSource as RResolvedSource, resolveAll } from "./sources.js";
 import { SCHEMA_VERSION, SqliteFtsStore } from "./sqlite-store.js";
 import { defaultPromptTrust } from "./trust.js";
 import type { DocType, SearchOpts } from "./types.js";
+import { enrichHits } from "./verdict.js";
 
 interface Flags {
   _: string[];

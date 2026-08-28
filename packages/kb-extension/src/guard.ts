@@ -94,7 +94,6 @@ export function createGuard(opts: { mode?: GuardMode } = {}): KbGuard {
     chain = 0;
     firings = 0;
   };
-
   const isReset = (toolName: string, input?: GuardInput): boolean => {
     if (KB_TOOLS.has(toolName)) return true;
     if (toolName === "bash") return bashSegments(input?.command ?? "").some((seg) => firstToken(seg) === "kb");
@@ -111,6 +110,21 @@ export function createGuard(opts: { mode?: GuardMode } = {}): KbGuard {
   const escalateText = () =>
     `[kb] Repeated source searching, still no kb consult. Stop and run kb_search (or kb agents <path> / kb get) now — if the kb has no answer, carry on; the guard only asks that you check.`;
 
+  /** The ladder, reached only when the chain crosses the threshold. */
+  const ladder = (): GuardVerdict => {
+    firings++;
+    if (firings === 1) return warnText();
+    if (firings === 2) return escalateText();
+    if (mode === "block") {
+      return {
+        block: true,
+        reason:
+          "Search blocked by the kb read-discipline guard (mode=block): consult the knowledge base first — run kb_search for what you are looking for. A kb call or kb_guard_pause re-enables search.",
+      };
+    }
+    return escalateText(); // warn mode never blocks (E20)
+  };
+
   return {
     note(toolName: string, input?: GuardInput): GuardVerdict {
       if (mode === "off") return null; // inert by construction
@@ -123,22 +137,12 @@ export function createGuard(opts: { mode?: GuardMode } = {}): KbGuard {
       if (!isSearchAction(toolName, input)) return null;
       chain++;
       if (chain % CHAIN_THRESHOLD !== 0) return null;
-      firings++;
-      if (firings === 1) return warnText();
-      if (firings === 2) return escalateText();
-      if (mode === "block") {
-        return {
-          block: true,
-          reason:
-            "Search blocked by the kb read-discipline guard (mode=block): consult the knowledge base first — run kb_search for what you are looking for. A kb call or kb_guard_pause re-enables search.",
-        };
-      }
-      return escalateText(); // warn mode never blocks (E20)
+      return ladder();
     },
     suspend(turns: number | string): number {
       const n = typeof turns === "number" ? turns : Number(turns);
       if (!Number.isFinite(n) || n <= 0) return suspended; // junk / non-positive no-op
-      suspended = Math.max(suspended, Math.min(PAUSE_MAX, Math.trunc(n)));
+      suspended = Math.max(suspended, Math.min(PAUSE_MAX, Math.max(PAUSE_MIN, Math.trunc(n))));
       return suspended;
     },
     tickTurn(): void {
