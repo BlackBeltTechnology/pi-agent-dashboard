@@ -56,6 +56,15 @@ export default function kbExtension(pi: ExtensionAPI): void {
   // tool_call can only block, so advisory firings are stashed and prepended to
   // the result the agent actually sees.
   const pendingGuardWarnings = new Map<string, string>();
+  // Bound the map: an aborted warned call never sees its tool_result, so its
+  // entry would otherwise live forever. Evict oldest beyond the cap.
+  const rememberGuardWarning = (id: string, text: string) => {
+    if (pendingGuardWarnings.size >= 32) {
+      const oldest = pendingGuardWarnings.keys().next().value;
+      if (oldest !== undefined) pendingGuardWarnings.delete(oldest);
+    }
+    pendingGuardWarnings.set(id, text);
+  };
 
   // --- native tools (pull retrieval) ---
 
@@ -228,7 +237,7 @@ export default function kbExtension(pi: ExtensionAPI): void {
     if (!v) return;
     if (typeof v === "string") {
       const id = (event as { toolCallId?: string }).toolCallId;
-      if (id) pendingGuardWarnings.set(id, v); // advisory: prepend to the result
+      if (id) rememberGuardWarning(id, v); // advisory: prepend to the result
       return;
     }
     return v; // { block: true, reason } — tool_call is the only hook that blocks

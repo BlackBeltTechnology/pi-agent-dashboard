@@ -153,15 +153,32 @@ function bodyFromDisk(hit: KbHit, cwd: string): string {
   }
 }
 
+/** The DOX-section gate, mirroring lint's own `inDox` rule (dox.ts): only
+ *  headings starting with `DOX` hold file-index rows. Without this, prose
+ *  tables (Subagent Routing, gate tables) would resolve their first cells to
+ *  non-existent files and report spurious `GONE` verdicts. */
+function isDoxSection(headingPath: string): boolean {
+  const leaf = headingPath.split(" > ").pop() ?? headingPath;
+  return /^DOX\b/.test(leaf.trim());
+}
+
 /** Resolve the hit's resolvable DOX-row subject set: the source files its
  *  section's rows document, in row order, capped at SUBJECT_CAP. A row whose
  *  path anchors outside the indexed cwd yields NO subject — never a guess,
- *  never a read outside the root. */
-function sectionSubjects(hit: KbHit, ctx: EnrichCtx): Subject[] {
+ *  never a read outside the root. `bodyCache` memoizes disk reads across the
+ *  page (a 10-hit page often draws on one AGENTS.md). */
+function sectionSubjects(hit: KbHit, ctx: EnrichCtx, bodyCache: Map<string, string>): Subject[] {
+  if (!isDoxSection(hit.headingPath)) return [];
+  const cacheKey = `${hit.root}/${hit.path}/${hit.headingPath}`;
+  let body = bodyCache.get(cacheKey);
+  if (body === undefined) {
+    body = bodyOf(hit, ctx);
+    bodyCache.set(cacheKey, body);
+  }
   const agentsAbs = resolve(ctx.cwd, hit.root, hit.path);
   const agentsDir = dirname(agentsAbs);
   const out: Subject[] = [];
-  for (const row of parseRows(bodyOf(hit, ctx))) {
+  for (const row of parseRows(body)) {
     const abs = resolveRowPath(agentsDir, ctx.cwd, row.path);
     if (!insideRoot(abs, ctx.cwd)) continue;
     out.push({ abs, rel: relative(ctx.cwd, abs) });
@@ -233,6 +250,7 @@ export async function enrichHits(hits: KbHit[], ctx: EnrichCtx): Promise<KbHit[]
   if (ctx.verdicts === false) return hits; // D1: identical to never enriching
   const fs = ctx.fs ?? nodeFs;
   const acks = ctx.acks ?? defaultAcks(ctx.cwd);
+  const pageBodyCache = new Map<string, string>(); // per-page disk-body memo
 
   // Pass 1 — resolve subjects + stat, per eligible hit.
   for (const hit of hits) {
@@ -240,7 +258,8 @@ export async function enrichHits(hits: KbHit[], ctx: EnrichCtx): Promise<KbHit[]
       hit.verdict = null; // prose reports no verdict rather than a vacuous one
       continue;
     }
-    const subjects = sectionSubjects(hit, ctx);
+    const bodyCache = pageBodyCache;
+    const subjects = sectionSubjects(hit, ctx, bodyCache);
     if (subjects.length === 0) {
       hit.verdict = null;
       continue;

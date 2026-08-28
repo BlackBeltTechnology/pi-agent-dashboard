@@ -9,7 +9,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { agentsChain, indexSource, loadConfig, parseRowPaths, type AckRecord, type ResolvedConfig, STALENESS_VERSION, SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
+import { agentsChain, indexSource, loadConfig, parseRowPaths, readStaleness, type AckRecord, type ResolvedConfig, STALENESS_VERSION, SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
 
 /** Resolve a DOX row path relative to its AGENTS.md dir, with a project-root
  *  fallback (a nested AGENTS.md may document a file living at the root).
@@ -45,33 +45,11 @@ export function createReindexState(): ReindexState {
 function stalenessPath(cwd: string): string {
   return join(cwd, ".pi", "dashboard", "kb", "dox-staleness.json");
 }
-/** Tolerant reader (v1 sha-only / v2 records) — shared semantics with lint,
- *  triage, and query-time verdicts via kb's `readStaleness`. */
+/** Tolerant reader (v1 sha-only / v2 records / future rejected) — kb's
+ *  `readStaleness`, shared verbatim with lint + triage + query-time verdicts
+ *  so all four agree on what "acknowledged" means. */
 function loadStaleness(cwd: string): Record<string, AckRecord> {
-  const p = stalenessPath(cwd);
-  let raw: unknown;
-  try {
-    if (!existsSync(p)) return {};
-    raw = JSON.parse(readFileSync(p, "utf8"));
-  } catch {
-    return {};
-  }
-  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return {};
-  const out: Record<string, AckRecord> = {};
-  if (!("version" in raw)) {
-    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) if (typeof v === "string") out[k] = { sha256: v };
-    return out;
-  }
-  if ((raw as { version?: unknown }).version !== STALENESS_VERSION) return {};
-  const files = (raw as { files?: unknown }).files;
-  if (files == null || typeof files !== "object") return {};
-  for (const [k, rec] of Object.entries(files as Record<string, unknown>)) {
-    if (rec == null || typeof rec !== "object") continue;
-    const r = rec as { sha256?: unknown; size?: unknown; mtimeMs?: unknown };
-    if (typeof r.sha256 !== "string") continue;
-    out[k] = { sha256: r.sha256, size: typeof r.size === "number" ? r.size : undefined, mtimeMs: typeof r.mtimeMs === "number" ? r.mtimeMs : undefined };
-  }
-  return out;
+  return readStaleness(stalenessPath(cwd));
 }
 /** Acknowledgement writes v2: hash + stat baseline per documented file. */
 function saveStaleness(cwd: string, map: Record<string, AckRecord>): void {

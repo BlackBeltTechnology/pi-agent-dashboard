@@ -135,6 +135,20 @@ describe("verdict: subject-set resolution (E8/E9, task 2.1)", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("a NON-DOX section (prose table) reports no verdict — no spurious GONE", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "verdict-prose-table-"));
+    try {
+      // Exactly the root-AGENTS.md shape: a prose table whose first cells are
+      // not files. lint's inDox rule excludes it; verdicts must too.
+      const body = "| You're about to… | Do this FIRST instead |\n|---|---|\n| `Explore` | Read-only search. |\n| `grep -rn Symbol` | use the lane. |\n";
+      const [h] = await enrichHits([hit({ body, headingPath: "Subagent Routing" })], { cwd: dir });
+      expect(h.verdict).toBeNull();
+      expect(h.verdict).not.toMatchObject({ label: "GONE" });
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("verdict: the five labels (E1–E6, task 2.2)", () => {
