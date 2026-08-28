@@ -21,6 +21,7 @@ import { useAsyncAction } from "../../hooks/useAsyncAction.js";
 import { useInstalledPackages } from "../../hooks/useInstalledPackages.js";
 import { usePackageOperations } from "../../hooks/usePackageOperations.js";
 import { usePiResources } from "../../hooks/usePiResources.js";
+import { usePiCompatibility } from "../../hooks/usePiCompatibility.js";
 import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
 import { getApiBase } from "../../lib/api/api-context.js";
@@ -54,6 +55,7 @@ import { PackageBrowser } from "../packages/PackageBrowser.js";
 import { PackageInstallConfirmDialog } from "../packages/PackageInstallConfirmDialog.js";
 import { PackageReadmeDialog } from "../packages/PackageReadmeDialog.js";
 import { PiVersionAdvisory } from "../packages/PiVersionAdvisory.js";
+import { PiRuntimeStatusRow } from "./PiRuntimeStatusRow.js";
 import { PluginsSection } from "../packages/PluginsSection.js";
 import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
@@ -903,10 +905,37 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
   // panel's `useState` and survives the switch. See design D5a.
   const pluginPageDirtyRef = useRef(activePluginPageDirty);
   pluginPageDirtyRef.current = activePluginPageDirty;
-  const requestRailNavigate = useCallback((to: string) => {
+  // Transient scroll intent for navigate-then-scroll (e.g. the General runtime
+  // row's `Change…` → the picker on Developer). Carried through the
+  // deferred-navigation round trip in its own ref — deliberately NOT a
+  // `pendingNav` type change, leaving the BACK_SENTINEL string comparisons
+  // untouched — and consumed once the destination page has rendered. Never
+  // encoded in the route. See change: surface-pi-runtime-on-general (D4).
+  const pendingScrollTargetRef = useRef<string | null>(null);
+  const requestRailNavigate = useCallback((to: string, scrollTarget?: string) => {
+    pendingScrollTargetRef.current = scrollTarget ?? null;
     if (pluginPageDirtyRef.current) setPendingNav(to);
     else navigate(to);
   }, [navigate]);
+  // Consume the scroll intent after the destination renders. `activeTab` is
+  // the dependency: the effect fires on the commit that paints the target
+  // page, whose section root (e.g. data-testid="pi-runtime-section") is
+  // rendered synchronously with it.
+  useEffect(() => {
+    const target = pendingScrollTargetRef.current;
+    if (!target) return;
+    pendingScrollTargetRef.current = null;
+    document.querySelector(`[data-testid="${target}"]`)?.scrollIntoView({ block: "start" });
+  }, [activeTab]);
+  // The runtime row + advisory share one navigate-then-scroll affordance.
+  const navigateToRuntimePicker = useCallback(() => {
+    requestRailNavigate("/settings/developer", "pi-runtime-section");
+  }, [requestRailNavigate]);
+  // One `/api/health` poller per panel (the hook is instance-scoped): its
+  // `compatibility` feeds the advisory, its `piRuntime` the status row.
+  // Invoked EXACTLY here — the row and the advisory poll nothing themselves.
+  // See change: surface-pi-runtime-on-general (D2 wiring rule).
+  const { compatibility, piRuntime } = usePiCompatibility();
 
   // Disabling the plugin whose page is open must resolve unsaved edits BEFORE
   // the rail drops the nav child, or a dirty source ends up filed under a page
@@ -1268,7 +1297,12 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
 
             {activeTab === "general" && (
               <>
-                <PiVersionAdvisory />
+                <PiVersionAdvisory compatibility={compatibility} onChangeRuntime={navigateToRuntimePicker} />
+                {/* Always-visible read-only summary — NOT gated on the advisory's
+                    visibility condition (it renders from `piRuntime`, the
+                    advisory from `compatibility`). See change:
+                    surface-pi-runtime-on-general. */}
+                <PiRuntimeStatusRow piRuntime={piRuntime} onChangeRuntime={navigateToRuntimePicker} />
                 <Section title={t("settings.interface", undefined, "Interface")}>
                   <p className="text-xs text-[var(--text-tertiary)] mb-2">
                     {t("settings.interfaceDescription", undefined, "Choose the dashboard interface language. The selection is saved in this browser.")}
@@ -2080,7 +2114,12 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
         saving={saving}
         onSave={confirmSaveLeave}
         onDiscard={confirmDiscardLeave}
-        onCancel={() => setPendingNav(null)}
+        onCancel={() => {
+          // Cancelled navigation: drop the carried scroll intent with the
+          // pending destination, so a later chip navigation can't inherit it.
+          pendingScrollTargetRef.current = null;
+          setPendingNav(null);
+        }}
       />
     )}
 

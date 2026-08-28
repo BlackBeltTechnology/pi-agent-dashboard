@@ -14,7 +14,7 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `PackageReadmeDialog.tsx` | Dialog fetching + rendering a package README. Exports `PackageReadmeDialog`. → see `PackageReadmeDialog.tsx.AGENTS.md` |
 | `PackageRow.tsx` | Generic installed-package row used across unified packages sections. Exports `PackageRow`, `PackageRowProps`. Three non-conflated op-state props `busy`/`queued`/`locked` — `locked` gates ONLY Move + Reset-to-npm. → see `PackageRow.tsx.AGENTS.md` |
 | `PiUpdateBadge.tsx` | Header badge counting available pi-core updates. Exports `PiUpdateBadge`. → see `PiUpdateBadge.tsx.AGENTS.md` |
-| `PiVersionAdvisory.tsx` | NEW. Settings→General advisory. Reads `usePiCompatibility`. → see `PiVersionAdvisory.tsx.AGENTS.md` |
+| `PiVersionAdvisory.tsx` | NEW. Settings→General advisory. Receives `compatibility` via prop (host panel polls once; hook call moved up) + optional `onChangeRuntime` rendering the `Change…` affordance (testid `pi-advisory-change`) in both alert states; renders unchanged without it. → see `PiVersionAdvisory.tsx.AGENTS.md` |
 | `plugin-row-parts.tsx` | Shared presentational plugin-row parts extracted from `PluginsSection.tsx`: `StatusPill`, `CopyableErrorBlock`, `MissingRequirementsBlock`, and the `WARN_*`/`ERR_*`/`OK_*`/`LINK_*` theme-token fragments. Consumed by both the activation index and `PluginSettingsPage` chrome. See change: plugin-settings-pages. |
 | `PluginsSection.tsx` | Settings ▸ Plugins activation list. Renders every plugin (enabled or not) with display name, description,… → see `PluginsSection.tsx.AGENTS.md` |
 | `PluginStalenessBanner.tsx` | Banner on stale plugin bundle. Fetches `/api/health.bundleHash` on mount. → see `PluginStalenessBanner.tsx.AGENTS.md` |
