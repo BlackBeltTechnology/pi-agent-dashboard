@@ -118,6 +118,17 @@ describe("evaluate roots (E10 decision table + metric exclusions)", () => {
     const mv = evaluate(store, golden, { k: 10, roots, verbose: true });
     expect(mv.unreachablePaths).toEqual(["tests/foo.md", "Documents/Projektek/a.md"]);
   });
+
+  it("cwd root + named root: an item under the NAMED root scores (rule (a) survives the empty prefix)", () => {
+    const roots: RootRef[] = [root("", join(dir, "cwd-root")), root("packages", join(dir, "packages-root"))];
+    const store = mockStore(["foo/AGENTS.md"]);
+    // Without rule (a) from the named root, `packages` would fall through to
+    // rule (b), miss, and the item would be silently marked unreachable.
+    const m = evaluate(store, [{ q: "agents", expect: "packages/foo/AGENTS.md" }], { k: 10, roots });
+    expect(m.n).toBe(1);
+    expect(m.unreachable).toBe(0);
+    expect(m["P@1"]).toBe(1);
+  });
 });
 
 describe("evaluate roots (E11 no-shrink invariant on the real fixture)", () => {

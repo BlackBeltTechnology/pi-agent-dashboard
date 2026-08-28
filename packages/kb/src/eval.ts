@@ -86,14 +86,11 @@ export function evaluate(store: KbStore, golden: GoldenItem[], opts: SearchOpts 
   // --- Reachability scaffolding (design D4, filesystem-anchored). ---
   const firstSegs = new Set<string>(); // (a) first segments of configured root prefixes
   const topSegs = new Set<string>(); // (b) top-level entries of the configured root dirs
-  let emptyPrefixRoot = false; // root === cwd: rule (a) counts as satisfied for every item
   for (const r of roots ?? []) {
-    const rel = normPrefix(r.relPrefix);
-    if (!rel) {
-      emptyPrefixRoot = true;
-      continue;
-    }
-    firstSegs.add(rel.split("/")[0]);
+    // An empty-relPrefix root (root === cwd) has NO first segment to contribute
+    // to rule (a); it still contributes its top-level entries to rule (b). Only
+    // named roots can satisfy rule (a) — an item under a named root is inside
+    // the configured roots and must never be marked unreachable (spec R3).
     if (r.dir && existsSync(r.dir)) {
       try {
         for (const e of readdirSync(r.dir)) topSegs.add(e);
@@ -101,11 +98,13 @@ export function evaluate(store: KbStore, golden: GoldenItem[], opts: SearchOpts 
         // unreadable root dir → rule (b) contributes nothing for it
       }
     }
+    const rel = normPrefix(r.relPrefix);
+    if (rel) firstSegs.add(rel.split("/")[0]);
   }
   const isUnreachable = (expect: string): boolean => {
     if (!hasSep(expect)) return false; // bare basename → reachable attempt
     const seg = firstSeg(expect);
-    if (!emptyPrefixRoot && firstSegs.has(seg)) return false; // rule (a)
+    if (firstSegs.has(seg)) return false; // rule (a)
     return !topSegs.has(seg); // rule (b): first segment is a top-level entry of some root dir
   };
   // --- Candidate generation: longest separator-checked prefix strip. ---
