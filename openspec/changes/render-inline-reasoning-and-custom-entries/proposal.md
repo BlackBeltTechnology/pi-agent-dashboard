@@ -12,7 +12,7 @@ Faithful rendering of a third-party entry renderer is impossible in the web UI (
 - **Inline reasoning flow.** New display preference `reasoningInlineFlow` (default `false` — today's behavior). When `true`, the reasoning body renders with no height cap and no inner scrollbar, flowing down the chat transcript like any other row. Interaction with the existing collapse controls (`reasoningAutoCollapseMs`, `keepReasoningOpenUntilTurnEnds`) is unchanged: the pref governs the body's HEIGHT, never its open/closed state.
 - **Custom-entry passthrough.** Unknown `customType` entries reach the chat as a first-class row instead of being dropped. Rendering is a bounded, generic fallback: the `customType` as a label plus a text/JSON rendering of the payload, using the same truncation ceilings the event store already enforces. `display: false` messages stay invisible (they are LLM-context-only by contract). `flow-event` keeps its existing dedicated rendering.
 - **Settings controls.** One control for `reasoningInlineFlow` and one for the custom-entry fallback (`customEntryFallback`, default `true`), both in the existing View settings section, both honoring the global + per-session override plumbing.
-- **Discoverability follow-through.** The reporter could not find the reasoning controls because `reasoning` is off in the `simple`/`standard` presets. The View section SHALL group the reasoning controls together so the sub-controls are visible (disabled) rather than absent when `reasoning` is off.
+- **Discoverability follow-through.** The reporter could not find the reasoning controls because `reasoning` is off in the `simple`/`standard` presets. The grouped, visible-but-disabled presentation of the reasoning sub-controls that already exists SHALL be preserved (not regressed to hidden), and the new `reasoningInlineFlow` control SHALL join that group so it inherits the same discoverability.
 - Not in scope: faithful re-rendering of a TUI entry renderer, ANSI interpretation, or any interactivity in a custom row.
 
 ## Capabilities
@@ -28,8 +28,9 @@ Faithful rendering of a third-party entry renderer is impossible in the web UI (
 ## Impact
 
 - `packages/shared/src/display-prefs.ts` — two new fields, preset defaults, merge arms.
-- `packages/shared/src/state-replay.ts` — stop discarding non-`flow-event` custom entries.
-- `packages/extension/src/` — forward custom entries the bridge currently does not emit.
+- `packages/shared/src/state-replay.ts` — stop discarding non-`flow-event` custom entries: a replay arm for `custom_message` entries (synthesizes `message_end` with `role: "custom"`, skipping `display: false`) and one for generic `type: "custom"` entries (synthesizes `custom_entry`).
+- `packages/extension/src/` — forward custom entries the bridge currently does not emit: a dedicated `entry_appended` subscription forwarding generic `custom_entry` events, excluding `flow-event` (pi-flows appends those live; forwarding them would double-render alongside the dedicated flow card).
+- `packages/server/src/persistence/preferences-store.ts` — legacy-default backfill arms for the two new fields plus the `DisplayPrefs` construction literals (the fields are required; the backfill, not `mergeDisplayPrefs`, is what injects defaults into already-persisted legacy files).
 - `packages/client/src/components/chat/ThinkingBlock.tsx` — conditional height cap.
 - `packages/client/src/components/chat/` — new generic custom-entry row renderer.
 - `packages/client/src/components/settings/SettingsPanel.tsx` — two controls + grouping.
