@@ -296,6 +296,9 @@ export function registerOpenSpecRoutes(
     ".clinerules/workflows", ".roo/commands", ".augment/commands",
     ".factory/commands", ".continue/prompts", ".agent/workflows",
     ".iflow/commands", ".qwen/commands", ".codex/prompts",
+    // opencode + junie are the only `opsx-*` producers — without these two
+    // entries the opsx- prefix check below is dead code (review round 2).
+    ".opencode/command", ".junie/commands",
   ];
 
   async function hasLegacyOpenSpecArtifacts(cwd: string): Promise<boolean> {

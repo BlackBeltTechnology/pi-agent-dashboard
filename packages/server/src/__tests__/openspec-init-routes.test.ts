@@ -255,6 +255,16 @@ describe("POST /api/openspec/init (add-openspec-init-affordances)", () => {
     expect(initAsyncMock).not.toHaveBeenCalled();
   });
 
+  it("review round 2: opencode/junie legacy command files refuse without confirm", async () => {
+    await fs.mkdir(path.join(tmpDir, ".opencode", "command"), { recursive: true });
+    await fs.writeFile(path.join(tmpDir, ".opencode", "command", "opsx-apply.md"), "x");
+    await setup({ sessionCwds: [tmpDir] });
+    const refused = await post({ cwd: tmpDir });
+    expect(refused.statusCode).toBe(400);
+    expect(JSON.parse(refused.payload).code).toBe("confirm_required");
+    expect(initAsyncMock).not.toHaveBeenCalled();
+  });
+
   it("review round 1: CLI-read failure at init time records NO fabricated signature", async () => {
     // currentGlobalWorkflowSignature resolves undefined when the CLI read
     // fails — the route must skip recording instead of fabricating the
