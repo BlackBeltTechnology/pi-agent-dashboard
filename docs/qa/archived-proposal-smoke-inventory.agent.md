@@ -1,6 +1,8 @@
-# electron-qa-smoke-test-inventory — index
+# archived-proposal-smoke-inventory — index
 
 Reference inventory of QA/smoke/verification items across EVERY archived OpenSpec proposal. Extends original Electron QA inventory to all archived proposals. Source: `openspec/changes/archive/`. Purpose: find + build MISSING tests. Extracted by parallel LLM workers (electron/gemma 35, deepseek 539), one worker per proposal.
+
+Note: `.md` body excluded from kb index (`exclude` in `.pi/dashboard/knowledge_base.json`, pattern `**/archived-proposal-smoke-inventory.md`) — 2.1 MB / 572 chunks would swamp `kb_search`. Open `.md` directly; this `.agent.md` companion is the searchable surface.
 
 ## Summary (top of file)
 - Proposals covered: 574 / 574.
