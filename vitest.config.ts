@@ -25,6 +25,10 @@ export default defineConfig({
       // project. See change: fix-kb-search-retrieval-quality.
       "packages/kb",
       "packages/kb-extension",
+      // Pure payload-accounting helpers. The meter itself needs a live pi turn,
+      // but the attribution/diff/budget math is unit-tested here — it is what
+      // catches a context trim that applied cleanly and changed nothing.
+      "packages/context-budget",
       "packages/session-distiller",
       "packages/cost-estimator",
       "packages/server",
