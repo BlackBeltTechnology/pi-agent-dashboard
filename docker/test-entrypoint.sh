@@ -657,6 +657,24 @@ if [ "${PI_E2E_INDEPENDENT_SESSION:-0}" = "1" ] && [ "${PI_E2E_SEED:-}" = "1" ];
   fi
 fi
 
+# Single-dashboard invariant (fix-bridge-autostart-port-resolution, test-plan
+# #X6) — deliberately run AFTER the boot-session step: autoStartServer fires
+# when a SESSION connects, never at daemon boot, so a pre-3b check would pass
+# tautologically. With PI_E2E_INDEPENDENT_SESSION=1 a session has connected
+# above and its bridge has run the full auto-start chain; without it this
+# still guards the daemon itself having come up on the production default
+# port. The original mid-run split-brain (a spec-spawned session launching a
+# competitor on :8000) is exercised by the specs; this smoke catches the
+# boot-time shapes.
+if [ "${PORT}" != "8000" ]; then
+  # No -f: ANY HTTP response (even 4xx/5xx) proves a listener; -f would read
+  # an erroring squatter as "port free".
+  if curl --connect-timeout 1 --max-time 2 -sS "http://localhost:8000/api/health" >/dev/null 2>&1; then
+    smoke_fail "a second dashboard answers on default port 8000 (split-brain: auto-start launched a competitor)"
+  fi
+  echo "[test-entrypoint] single-dashboard invariant OK (nothing on :8000)"
+fi
+
 # --- 4. Keep PID 1 alive for the daemon's lifetime -------------------------
 # Same helper the base entrypoint uses, so the harness and the deployment
 # cannot drift apart again — this loop existing ONLY here is what let the

@@ -9,7 +9,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ensureConfig, loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { ensureConfig, loadConfig, resolveDashboardPorts } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { discoverDashboard } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 import type {
   ServerToExtensionMessage,
@@ -3275,7 +3275,16 @@ function initBridge(pi: ExtensionAPI) {
       // invalidated `ctx`. See ui-stale-guard.ts.
       runUiSafely(() => ctx.ui.setWidget("pi-dashboard-launch", undefined));
     };
-    autoStartServer(config, {
+    // Resolve the ports the auto-start chain uses (health check + launch)
+    // with the shared env → config.json → default precedence, so a session
+    // whose environment names the dashboard's real ports attaches to (or
+    // launches on) THOSE ports instead of a stale config/default — this is
+    // the split-brain fix: without it, a harness/container session with
+    // DASHBOARD_PORT in its env health-checked 8000, found nothing, and
+    // launched a competing dashboard on 8000. `config` is not mutated;
+    // `loadConfig()` stays untouched (design D1/D2).
+    // See change: fix-bridge-autostart-port-resolution.
+    autoStartServer({ ...config, ...resolveDashboardPorts(process.env, config) }, {
       discoverDashboard,
       isDashboardRunning,
       launchServer,

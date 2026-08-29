@@ -19,10 +19,10 @@ entry with no matching runtime plugin on disk).
 - **THEN** its directory name SHALL appear in `BUNDLED_PLUGINS` in `bundle-server.mjs`
 - **AND** `bundle-server.mjs` SHALL copy it into `resources/plugins/<plugin-dir>/`
 
-#### Scenario: grammar-settings-plugin ships in the installer
+#### Scenario: grammar-plugin ships in the installer
 
 - **WHEN** the Electron app is packaged
-- **THEN** `resources/plugins/grammar-settings-plugin/` SHALL be present
+- **THEN** `resources/plugins/grammar-plugin/` SHALL be present
 - **AND** a fresh install SHALL show the Settings ▸ Plugins ▸ "Grammar & Spelling" surface
 
 #### Scenario: No stale BUNDLED_PLUGINS entry

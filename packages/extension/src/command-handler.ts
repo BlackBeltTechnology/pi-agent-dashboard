@@ -4,6 +4,7 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, relative } from "node:path";
+import { resolveDashboardPorts } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { imageBlockData, imageBlockMime } from "@blackbelt-technology/pi-dashboard-shared/image-block.js";
 import { diffOr } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type {
@@ -1129,26 +1130,26 @@ function sendUserMessageWithImages(
 
 /**
  * Resolve the dashboard HTTP port, in precedence order:
- *   1. `PI_DASHBOARD_PORT` / `DASHBOARD_PORT` env — set by the dashboard server
- *      and inherited by spawned sessions (the only reliable source when the
- *      server runs on a non-default port, e.g. the Docker test harness, whose
- *      `config.json` carries no `port` field).
+ *   1. `PI_DASHBOARD_PORT` / `DASHBOARD_PORT` env — set by the session's
+ *      RUNTIME environment (e.g. the docker harness compose env). The
+ *      dashboard server does NOT inject these into spawned sessions; it
+ *      pins them via `PI_DASHBOARD_URL` / `PI_DASHBOARD_SOCKET` instead.
  *   2. `~/.pi/dashboard/config.json` `port` — normal local installs write it.
- *   3. 8000 (default).
- * Note: `PI_DASHBOARD_URL` is the gateway (ws) port, NOT the HTTP port, so it is
- * deliberately not consulted here. See change: add-dashboard-slash-commands.
+ *   3. The shared default.
+ * Delegates to the shared `resolveDashboardPorts` so this path and the
+ * bridge's auto-start port resolution cannot drift.
+ * Note: `PI_DASHBOARD_URL` is the gateway (ws) endpoint, NOT the HTTP port,
+ * so it is deliberately not consulted here.
+ * See change: add-dashboard-slash-commands, fix-bridge-autostart-port-resolution.
  */
 function resolveDashboardPort(): number {
-  for (const v of [process.env.PI_DASHBOARD_PORT, process.env.DASHBOARD_PORT]) {
-    const n = Number(v);
-    if (v && Number.isFinite(n) && n > 0) return n;
-  }
+  let fileConfig: { port?: number } = {};
   try {
     const raw = readFileSync(join(homedir(), ".pi", "dashboard", "config.json"), "utf-8");
     const parsed = JSON.parse(raw);
-    if (typeof parsed?.port === "number" && Number.isFinite(parsed.port)) return parsed.port;
+    if (typeof parsed?.port === "number") fileConfig = { port: parsed.port };
   } catch { /* missing / unparseable config */ }
-  return 8000;
+  return resolveDashboardPorts(process.env, fileConfig).port;
 }
 
 /**

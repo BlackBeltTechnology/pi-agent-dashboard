@@ -28,17 +28,15 @@
 - [ ] 2.8 Implement the latch read + write-when-absent inside the hook, both wrapped so any storage error is swallowed
 - [ ] 2.9 Verify tests pass
 
-## 3. Dispatcher — `provider-auth-event`
+## 3. Dispatcher — `provider-auth-event` (PREREQUISITE, split out)
 
-- [ ] 3.1 Write the failing API-key dispatch test in `packages/client/src/components/__tests__/` — see `packages/client/src/components/__tests__/LandingPage.test.tsx` for component-test harness glue. Triple: providers page mounted with API-key `PUT` mocked 200 · save submitted · exactly one `provider-auth-event` dispatched on `window` (test-plan #D1)
-- [ ] 3.2 Write the failing OAuth dispatch test — Triple: OAuth authorize flow mocked to success · flow completes · `provider-auth-event` dispatched (test-plan #D2)
-- [ ] 3.3 Write the failing device-flow dispatch test — Triple: device-code flow mocked to success · flow completes · `provider-auth-event` dispatched (test-plan #D3)
-- [ ] 3.4 Write the failing custom-LLM-provider dispatch test — Triple: custom-LLM-provider save mocked 200 · save submitted · `provider-auth-event` dispatched (test-plan #D4)
-- [ ] 3.5 Write the failing negative test — Triple: API-key `PUT` returns non-2xx · save submitted · `provider-auth-event` is NOT dispatched (test-plan #X5)
-- [ ] 3.6 Write the failing wiring test — Triple: `useProvidersReady` mounted with both endpoints mocked · `provider-auth-event` dispatched by a save path · both endpoints refetched and `ready` updates with no `focus` event (test-plan #D5)
-- [ ] 3.7 Write the failing endpoint-failure test — Triple: `/api/providers` rejects while `/api/provider-auth/status` returns one authenticated entry · hook evaluated · `step1="done"` (test-plan #X6)
-- [ ] 3.8 Implement the `window.dispatchEvent(new CustomEvent("provider-auth-event"))` calls on all four success paths — API-key `PUT` in `ProviderAuthSection.tsx`, OAuth completion, device-flow completion, and the custom-LLM-provider save. Dispatch only after a successful response
-- [ ] 3.9 Verify tests pass
+The dispatcher moved to its own change, **`dispatch-provider-auth-event`** — it
+fixes a live bug in the shipped `LandingPage` and does not depend on anything
+here. Scenarios #D1–D5 and #X5 moved with it.
+
+- [ ] 3.1 GATE: verify `dispatch-provider-auth-event` has landed before continuing — `rg -n "provider-auth-event" packages/client/src/components/settings/` must show at least one `dispatchEvent`. If it does not, stop and land that change first; the card will display a stale ① without it
+- [ ] 3.2 Write the failing endpoint-failure test — Triple: `/api/providers` rejects while `/api/provider-auth/status` returns one authenticated entry · hook evaluated · `step1="done"` (test-plan #X6)
+- [ ] 3.3 Verify tests pass
 
 ## 4. LandingPage consumes the hook
 
@@ -81,8 +79,8 @@
 ## 7. Shell mounting
 
 - [ ] 7.1 Write the failing both-branches test — Triple: shell rendered at a mobile width and a desktop width · each branch rendered · card present in both with the same props (test-plan #F10)
-- [ ] 7.2 Mount `<OnboardingCard>` UNCONDITIONALLY in `App.tsx` beside `<WorktreeInitStack />` at both sites (`:2144` mobile, `:2253` desktop). Never gate the mount on `allDone` — see design.md D2a
-- [ ] 7.3 Replace `sessionsCount={sessions.size}` at `:2231` and `:2340` with a hidden-filtered visible-session count, for BOTH `<LandingPage>` and the card
+- [ ] 7.2 Mount `<OnboardingCard>` UNCONDITIONALLY in `App.tsx` beside `<WorktreeInitStack />` at both sites (`:2419` mobile, `:2471` desktop). Never gate the mount on `allDone` — see design.md D2a
+- [ ] 7.3 Replace `sessionsCount={sessions.size}` at `:2268` (ONE site since the `ShellContent` extraction — `renderLanding` is shared by both variants) with a hidden-filtered visible-session count, and pass the same count to the card
 - [ ] 7.4 Thread `providersLoading` from the existing `useProvidersReady()` at `:561` into both surfaces
 - [ ] 7.5 Thread the composer-clearing offset prop, derived from `!!selectedId`, into the card at both mount sites
 - [ ] 7.6 Verify tests pass

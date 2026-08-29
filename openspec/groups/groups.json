@@ -151,7 +151,7 @@
     "add-access-grant-dialog": "next-phase",
     "fix-auto-naming-reasoning-model": "ui",
     "add-pi-gateway-transport-identity": "ui",
-    "add-access-grants-and-review": "ui",
+    "add-access-grants-and-review": "next-phase",
     "lazy-load-session-history": "ui",
     "fix-folder-header-worktree-branch-leak": "ui",
     "collapse-pairing-into-gateway": "ui",
@@ -167,18 +167,23 @@
     "fix-automation-watcher-rearm-churn": "ui",
     "fix-lazy-history-backfill-ux": "ui",
     "fix-flush-dialog-scroll-and-close-collision": "ui",
-    "add-tail-only-replay-window": "ui"
+    "add-tail-only-replay-window": "ui",
+    "fix-bridge-autostart-port-resolution": "ui",
+    "surface-pi-runtime-on-general": "ui",
+    "harden-multi-ask-panel": "ui",
+    "fix-corrupt-auth-json-500": "ui",
+    "add-mid-turn-tool-oauth": "next-phase",
+    "add-openspec-init-affordances": "ui",
+    "add-persistent-onboarding-card": "ui",
+    "dispatch-provider-auth-event": "ui",
+    "fix-kb-settings-reindex-gate": "ui"
   },
   "changeOrder": {
     "__ungrouped__": [
       "add-microservice-pattern-selection-skill",
-      "add-mid-turn-tool-oauth",
-      "add-openspec-init-affordances",
-      "add-persistent-onboarding-card",
       "add-session-step-table",
       "add-skill-tool-provisioning",
       "add-voice-assistant-dashboard-plugin",
-      "fix-bridge-autostart-port-resolution",
       "fix-bridge-mdns-migration-hijack",
       "fix-deploy-site-ship-shell",
       "implement-it",
@@ -188,7 +193,16 @@
       "drop-final-update-on-tool-execution-end",
       "investigate-auto-name-provenance-relabel",
       "serve-retained-remote-transcripts",
-      "verify-windows-credential-acls"
+      "verify-windows-credential-acls",
+      "add-grammar-correction-eval",
+      "fix-dox-lint-blind-rows",
+      "fix-grammar-settings-plugin-bundle",
+      "fix-kb-search-lane-composition",
+      "fix-runaway-keeper-log-growth",
+      "fix-schedule-timer-overflow",
+      "add-native-pi-tui-view",
+      "add-prompt-snapshot-audit-trail",
+      "add-session-trajectory-view"
     ],
     "kowledge-base": [
       "add-lora-dataset-export-skill",
@@ -198,18 +212,19 @@
       "memory-retrieval-injection"
     ],
     "ui": [
-      "add-folder-action-banner",
-      "fix-automation-watcher-rearm-churn",
+      "fix-kb-settings-reindex-gate",
       "collapse-pairing-into-gateway",
-      "add-access-grants-and-review",
-      "move-slot-actions-to-menu",
-      "fix-bridge-followup-image-drop",
-      "verify-subagent-pull-under-load",
-      "add-tail-only-replay-window",
-      "fix-flush-dialog-scroll-and-close-collision"
+      "fix-bridge-autostart-port-resolution",
+      "harden-multi-ask-panel",
+      "fix-corrupt-auth-json-500",
+      "add-openspec-init-affordances",
+      "add-persistent-onboarding-card",
+      "dispatch-provider-auth-event"
     ],
     "next-phase": [
       "add-access-grant-dialog",
+      "add-access-grants-and-review",
+      "add-mid-turn-tool-oauth",
       "share-session-archives",
       "add-oauth-key-sync-service",
       "add-codegraph-code-plane",
