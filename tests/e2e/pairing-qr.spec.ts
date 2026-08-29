@@ -91,13 +91,14 @@ test.describe("pairing QR — /pair landing handshake", () => {
     // Seed a manual TLS endpoint (the `pairing.publicBaseUrls` affordance) so
     // the survivor selects a PAIRING endpoint and renders the deep-link QR.
     // Restored at the end — the harness is shared across specs.
+    let prevUrls: string[] = [];
     await page.evaluate(async () => {
       const cur = await (await fetch("/api/config")).json();
-      const prev = cur?.data?.pairing?.publicBaseUrls ?? [];
+      prevUrls = cur?.data?.pairing?.publicBaseUrls ?? [];
       await fetch("/api/config", {
         method: "PUT",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ pairing: { publicBaseUrls: [...prev, `https://localhost:${location.port}`] } }),
+        body: JSON.stringify({ pairing: { publicBaseUrls: [...prevUrls, `https://localhost:${location.port}`] } }),
       });
     });
 
@@ -124,13 +125,12 @@ test.describe("pairing QR — /pair landing handshake", () => {
       await page.goto(`/pair#${fragment}`);
       await expect(page.getByTestId("pair-landing-confirm-code")).toBeVisible({ timeout: 20_000 });
     } finally {
-      await page.evaluate(async () => {
-        await fetch("/api/config", {
+      await page.evaluate((prev) =>
+        fetch("/api/config", {
           method: "PUT",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ pairing: { publicBaseUrls: [] } }),
-        });
-      });
+          body: JSON.stringify({ pairing: { publicBaseUrls: prev } }),
+        }), prevUrls);
     }
   });
 });

@@ -1268,7 +1268,7 @@ export const huCatalog: Record<string, string> = {
   "settings.otherPackagesHint": "A helyben fejlesztett és a felhasználó által hozzáadott csomagok itt jelennek meg.",
   "settings.packages": "Csomagok",
   "settings.pairDevice": "Eszköz párosítása",
-  "settings.pairDeviceBody": "A párosítás az Átjáró oldalon történik: ott választod ki, melyik végponton csatlakozik az eszköz, beolvassad a QR-kódot, majd az eszközön megjelenő kóddal hagyod jóvá.",
+  "settings.pairDeviceBody": "A párosítás az Átjáró oldalon történik: ott választod ki, melyik végponton csatlakozik az eszköz, beolvasod a QR-kódot, majd az eszközön megjelenő kóddal hagyod jóvá.",
   "settings.pairDeviceLink": "Átjáró megnyitása ▸ Eszköz csatlakoztatása →",
   "settings.pairedDevices": "Párosított eszközök",
   "settings.piEcosystem": "Pi ökoszisztéma",
