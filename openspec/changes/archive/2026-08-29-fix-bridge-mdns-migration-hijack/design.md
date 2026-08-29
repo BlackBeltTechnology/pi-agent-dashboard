@@ -83,8 +83,10 @@ event channel rather than adding a log sink.
   Probe only when a migration is actually proposed for an established
   connection, not on every browse event.
 - **`*.local` classification is not purely lexical** — a `.local` name can
-  resolve to a loopback address. → Classify by resolved address, with the
-  hostname as a hint only.
+  resolve to a loopback address. → Classify lexically, never by resolving
+  DNS (the hostname is a hint, not the truth): a loopback-bound server never
+  advertises (D4), and the admission gate re-checks the candidate's actual
+  reachability before any adoption.
 - **Return-to-last-good could ping-pong** between two endpoints that both fail
   intermittently. → Bound the exchange: after returning to last-good, a further
   migration to the same rejected endpoint must wait out a cooldown.

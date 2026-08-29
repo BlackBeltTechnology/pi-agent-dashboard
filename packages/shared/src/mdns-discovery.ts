@@ -69,12 +69,34 @@ export interface AdvertiseVerdict {
  * server advertises NOTHING. Unset/all-interfaces/specific-LAN binds keep
  * advertising — the record is true for those.
  */
+/** Expand an IPv6 literal (including `::` compression) to its canonical
+ * colon form, or undefined when the host is not an IPv6 literal. Group
+ * values are hex-normalized so spelled-out and compressed spellings of the
+ * same address compare equal. */
+function normalizeIPv6(host: string): string | undefined {
+  const halves = host.split("::");
+  if (halves.length > 2) return undefined;
+  const head = halves[0] ? halves[0].split(":") : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(":") : [];
+  if (halves.length === 1 && head.length !== 8) return undefined;
+  const fill = 8 - head.length - tail.length;
+  if (fill < 0 || (halves.length === 2 && fill === 0)) return undefined;
+  const groups = [...head, ...Array<string>(fill).fill("0"), ...tail];
+  if (groups.length !== 8 || groups.some((g) => g === "" || !/^[0-9a-f]{1,4}$/.test(g)))
+    return undefined;
+  return groups.map((g) => Number.parseInt(g, 16).toString(16)).join(":");
+}
+
 export function shouldAdvertise(bindHost: string | undefined): AdvertiseVerdict {
   const h = (bindHost ?? "").trim().toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
+  // Any spelling of the IPv6 loopback address — `::1` and the spelled-out
+  // `0:0:0:0:0:0:0:1` are the SAME address (CodeRabbit review,
+  // fix-bridge-mdns-migration-hijack) — while `::` (all-interfaces) advertises.
+  const ipv6 = h.includes(":") ? normalizeIPv6(h) : undefined;
   if (
     h === "localhost" ||
     h.endsWith(".localhost") ||
-    h === "::1" ||
+    ipv6 === "0:0:0:0:0:0:0:1" ||
     /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)
   ) {
     return {
@@ -101,11 +123,11 @@ export function advertiseDashboard(
   port: number,
   piPort: number,
   opts: { bindHost?: string } & AdvertiseDeps = {},
-): void {
+): AdvertiseVerdict {
   const verdict = shouldAdvertise(opts.bindHost);
   if (!verdict.advertise) {
     console.log(`mDNS: ${verdict.reason}`);
-    return;
+    return verdict;
   }
 
   const bonjour = getBonjour();
@@ -126,6 +148,7 @@ export function advertiseDashboard(
       piPort: String(piPort),
     },
   });
+  return verdict;
 }
 
 /**

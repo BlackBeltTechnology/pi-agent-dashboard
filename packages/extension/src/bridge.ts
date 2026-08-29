@@ -1020,6 +1020,14 @@ function initBridge(pi: ExtensionAPI) {
     // (Windows, or a sun_path fallback). Undefined over a socket and never
     // sent to a remote endpoint.
     headers: localTokenHeaders(dashboardUrl),
+    // Every accepted re-target (and every reversal) re-derives these from the
+    // endpoint actually being dialled — a loopback token must never ride a
+    // dial to a discovered remote host, and a remote candidate needs its own
+    // bridge ticket. (CodeRabbit review, fix-bridge-mdns-migration-hijack.)
+    credentialsFor: (u) => ({
+      headers: localTokenHeaders(u),
+      prepare: () => prepareRemoteUpgrade(u),
+    }),
     // A REMOTE endpoint needs a bridge ticket per attempt (§6 made TCP bridge
     // auth mandatory). Local dials — unix socket or loopback — are authorised
     // by file mode or the local token and mint nothing.

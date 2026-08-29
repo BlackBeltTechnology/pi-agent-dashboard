@@ -17,6 +17,11 @@ describe("shouldAdvertise (bind-host gate)", () => {
   it.each([
     ["127.0.0.1"],
     ["::1"],
+    // Spelled-out IPv6 loopback: identical address, different string — must
+    // classify loopback like `::1`, not slip through as a LAN bind. (CodeRabbit
+    // review, fix-bridge-mdns-migration-hijack.)
+    ["0:0:0:0:0:0:0:1"],
+    ["[::1]"],
     ["localhost"],
     ["LOCALHOST"],
     ["dashboard.localhost"],
@@ -75,5 +80,14 @@ describe("advertiseDashboard (loopback-bound server publishes nothing)", () => {
     advertiseDashboard(8478, 9999, { bindHost: "::1", publish: publish as any });
     expect(publish).not.toHaveBeenCalled();
     stopAdvertising();
+  });
+
+  it("returns the verdict so callers can log the skip honestly (CodeRabbit review)", () => {
+    const skipped = advertiseDashboard(8478, 9999, { bindHost: "127.0.0.1", publish: publish as any });
+    expect(skipped.advertise).toBe(false);
+    expect(skipped.reason).toMatch(/loopback/i);
+    stopAdvertising();
+    const published = advertiseDashboard(8478, 9999, { bindHost: "0.0.0.0", publish: publish as any });
+    expect(published.advertise).toBe(true);
   });
 });

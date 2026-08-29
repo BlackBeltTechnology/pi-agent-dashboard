@@ -27,7 +27,10 @@ class MockWebSocket {
   onerror: ((ev: unknown) => void) | null = null;
   sentMessages: string[] = [];
 
-  constructor(public url: string) {
+  opts?: { headers?: Record<string, string> };
+
+  constructor(public url: string, opts?: { headers?: Record<string, string> }) {
+    this.opts = opts;
     MockWebSocket.instances.push(this);
   }
 
@@ -85,6 +88,9 @@ function makeManager(opts: Partial<ConstructorParameters<typeof ConnectionManage
     WebSocketImpl: MockWebSocket as any,
     watchdogTimeout: 0,
     onMigrationEvent: (r) => records.push(r),
+    // Default in most tests: headers stay at the constructor value. The
+    // credential-derivation tests pass their own credentialsFor.
+    credentialsFor: (url) => ({ headers: url === "ws://localhost:9999" ? { fixed: "1" } : undefined }),
     migrationAttemptsBound: 4,
     migrationCooldownMs: 60_000,
     ...opts,
@@ -102,6 +108,135 @@ function establishRegistered(cm: ConnectionManager): MockWebSocket {
 }
 
 describe("ConnectionManager migration (fix-bridge-mdns-migration-hijack)", () => {
+  describe("review round 3 (CodeRabbit): credential and terminal-state guards", () => {
+    it("dials an adopted remote candidate WITHOUT the previous endpoint's credentials", async () => {
+      // Remote incumbent (a loopback incumbent would refuse the migration —
+      // that is the 1.3 preference rule, not the credential path under test).
+      const url0 = "ws://10.9.9.9:7000";
+      const credentialsFor = (url: string) => ({
+        headers: url === url0 ? { "x-pi-local-token": "first-endpoint-secret" } : undefined,
+      });
+      const { cm } = makeManager({ url: url0, credentialsFor });
+      establishRegistered(cm);
+
+      const accepted = await cm.retargetTo("ws://192.168.1.10:7000", {
+        trigger: "mdns discovery",
+        verify: async () => true,
+      });
+
+      expect(accepted).toBe(true);
+      const adopted = MockWebSocket.instances.at(-1)!;
+      expect(adopted.url).toBe("ws://192.168.1.10:7000");
+      // The first endpoint's credential must not ride a dial to another host.
+      expect(adopted.opts?.headers?.["x-pi-local-token"]).toBeUndefined();
+      cm.disconnect();
+    });
+
+    it("re-derives credentials when the migration falls back to the registered endpoint", async () => {
+      const url0 = "ws://10.9.9.9:7000";
+      const credentialsFor = (url: string) => ({
+        headers: url === url0 ? { "x-pi-local-token": "first-endpoint-secret" } : undefined,
+      });
+      const { cm } = makeManager({ url: url0, credentialsFor });
+      establishRegistered(cm);
+
+      await cm.retargetTo("ws://192.168.1.10:7000", {
+        trigger: "mdns discovery",
+        verify: async () => true,
+      });
+      // Every dial against the adopted remote endpoint fails...
+      const failAdopted = () => {
+        for (const ws of MockWebSocket.instances) {
+          if (ws.url === "ws://192.168.1.10:7000" && ws.readyState !== 3) ws.simulateDialFailure();
+        }
+      };
+      failAdopted();
+      await vi.advanceTimersByTimeAsync(1_000);
+      failAdopted();
+      await vi.advanceTimersByTimeAsync(2_000);
+      failAdopted();
+      await vi.advanceTimersByTimeAsync(4_000);
+      failAdopted();
+      await vi.advanceTimersByTimeAsync(8_000);
+
+      // ...and the fallback dial back to the registered endpoint carries ITS
+      // credential again.
+      const restored = MockWebSocket.instances.at(-1)!;
+      expect(restored.url).toBe(url0);
+      expect(restored.opts?.headers?.["x-pi-local-token"]).toBe("first-endpoint-secret");
+      cm.disconnect();
+    });
+
+    it("reverses a cold-start adoption to the constructor endpoint after repeated failed opens", async () => {
+      const { cm, records } = makeManager({ url: "ws://10.0.0.5:8000" });
+      cm.connect();
+      // Cold-start first dial at the configured endpoint fails into backoff.
+      MockWebSocket.instances[0].simulateDialFailure();
+
+      // Discovery proposes the poisoned record while the manager is mid-backoff;
+      // nothing is established OR registered, so adoption is free (cold start).
+      const accepted = await cm.retargetTo(POISONED_CANDIDATE_URL, {
+        trigger: "mdns discovery",
+      });
+      expect(accepted).toBe(true);
+
+      // Every dial at the candidate fails: the manager must not retry it
+      // forever — it reverses to the CONSTRUCTOR endpoint (the only anchor it
+      // has while nothing was ever registered).
+      const failCandidate = () => {
+        for (const ws of MockWebSocket.instances) {
+          if (ws.url === POISONED_CANDIDATE_URL && ws.readyState !== 3) ws.simulateDialFailure();
+        }
+      };
+      failCandidate(); // the immediate adoption dial
+      await vi.advanceTimersByTimeAsync(1_000);
+      failCandidate();
+      await vi.advanceTimersByTimeAsync(2_000);
+      failCandidate();
+      await vi.advanceTimersByTimeAsync(4_000);
+      failCandidate();
+      await vi.advanceTimersByTimeAsync(8_000);
+
+      const restored = MockWebSocket.instances.at(-1)!;
+      expect(restored.url).toBe("ws://10.0.0.5:8000");
+      const fallback = records.find((r) => r.trigger === "migration-fallback");
+      expect(fallback?.to).toBe("ws://10.0.0.5:8000");
+      cm.disconnect();
+    });
+
+    it("refuses a re-target after the connection is terminally closed (disconnect)", async () => {
+      const { cm, records } = makeManager();
+      establishRegistered(cm);
+      cm.disconnect();
+
+      const accepted = await cm.retargetTo(POISONED_CANDIDATE_URL, {
+        trigger: "mdns discovery",
+        verify: async () => true,
+      });
+
+      expect(accepted).toBe(false);
+      // A terminally closed manager must not be resurrected by discovery.
+      expect(MockWebSocket.instances.filter((w) => w.url === POISONED_CANDIDATE_URL)).toHaveLength(0);
+      expect(records.find((r) => !r.accepted)?.reason).toMatch(/closed/i);
+    });
+
+    it("refuses a re-target after register_rejected (terminal contention refusal)", async () => {
+      const { cm, records } = makeManager();
+      const incumbent = establishRegistered(cm);
+      incumbent.simulateMessage(JSON.stringify({ type: "register_rejected", sessionId: "s", reason: "duplicate" }));
+
+      const accepted = await cm.retargetTo(POISONED_CANDIDATE_URL, {
+        trigger: "mdns discovery",
+        verify: async () => true,
+      });
+
+      expect(accepted).toBe(false);
+      expect(MockWebSocket.instances.filter((w) => w.url === POISONED_CANDIDATE_URL)).toHaveLength(0);
+      expect(records.find((r) => !r.accepted)?.reason).toMatch(/closed/i);
+      cm.disconnect();
+    });
+  });
+
   beforeEach(() => {
     MockWebSocket.instances = [];
     vi.useFakeTimers();

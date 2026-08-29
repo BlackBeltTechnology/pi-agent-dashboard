@@ -37,6 +37,18 @@ export interface ConnectionManagerOptions {
    * cannot set headers at all.
    */
   headers?: Record<string, string>;
+  /**
+   * Per-endpoint dial credentials. A re-target MUST NOT carry the previous
+   * endpoint's credentials: a loopback local token presented to a discovered
+   * remote host is a credential leak, and a ticket minted against the old
+   * host is worthless to the new one. When supplied, adoption and reversal
+   * both re-derive `{headers, prepareConnect}` for the endpoint actually
+   * being dialled. (CodeRabbit review, fix-bridge-mdns-migration-hijack.)
+   */
+  credentialsFor?: (url: string) => {
+    headers?: Record<string, string>;
+    prepare?: () => Promise<{ url?: string } | undefined>;
+  };
   maxBufferSize?: number;
   /**
    * Bound on the SERIALIZED INBOUND queue. Distinct from `maxBufferSize`, which
@@ -273,6 +285,10 @@ export class ConnectionManager {
   /** A registration noted while the socket was still connecting; promoted
    * when the open flushes the buffered register onto the live socket. */
   private pendingRegisterNote = false;
+  /** The configured endpoint, retained as the reversal anchor for a COLD-START
+   * adoption (nothing was ever registered, so `lastRegisteredUrl` is
+   * undefined and reversal would otherwise have nowhere to go). */
+  private fallbackUrl: string | undefined;
   /** Consecutive failed opens against a migrated-to endpoint (D2 counter). */
   private failedOpensSinceMigration = 0;
   /** Endpoint → epoch-ms until which it may not be re-adopted (D2 cooldown). */
@@ -281,9 +297,11 @@ export class ConnectionManager {
   private readonly migrationAttemptsBound: number;
   private readonly migrationCooldownMs: number;
   private readonly isLoopbackEndpoint: (url: string) => boolean;
+  private readonly credentialsFor?: ConnectionManagerOptions["credentialsFor"];
 
   constructor(options: ConnectionManagerOptions) {
     this.url = options.url;
+    this.fallbackUrl = options.url;
     this.headers = options.headers;
     // The `ws` package, NOT `globalThis.WebSocket`.
     //
@@ -296,6 +314,7 @@ export class ConnectionManager {
     // See change: add-pi-gateway-transport-identity (task 2.6).
     this.WS = options.WebSocketImpl ?? WsWebSocket;
     this.prepareConnect = options.prepareConnect;
+    this.credentialsFor = options.credentialsFor;
     // Validate the numeric options up front: a negative bound would refuse
     // every message and a NaN/Infinity bound would disable the limit entirely
     // (`length >= NaN` is always false), both silently.
@@ -593,6 +612,14 @@ export class ConnectionManager {
       this.onMigrationEvent?.({ from, to: newUrl, accepted, trigger: opts.trigger, reason });
       return accepted;
     };
+    // A manager that was terminally closed (explicit disconnect, or a
+    // `register_rejected` contention refusal) must stay closed: discovery
+    // callbacks fire regardless of connection state, and adoption's
+    // `createConnection` would otherwise resurrect a dead manager.
+    // (CodeRabbit review, fix-bridge-mdns-migration-hijack.)
+    if (this.intentionalClose) {
+      return record(false, "refused: connection is terminally closed");
+    }
 
     // Cooldown applies regardless of establishment: an endpoint this manager
     // reversed away from must not be re-adopted into a ping-pong, even in
@@ -604,7 +631,11 @@ export class ConnectionManager {
     }
 
     if (this.lastRegisteredUrl === undefined) {
-      // Nothing established AND registered: no incumbent to protect.
+      // Nothing established AND registered: no incumbent to protect. The
+      // configured endpoint is retained as the reversal anchor — a candidate
+      // adopted in the cold-start window that never opens must fall back to
+      // it after the failed-open bound instead of retrying forever.
+      this.fallbackUrl = from;
       this.adoptEndpoint(newUrl);
       return record(true, "adopted: no established registered connection to protect");
     }
@@ -656,6 +687,7 @@ export class ConnectionManager {
   private adoptEndpoint(newUrl: string): void {
     const hadSocket = this.ws !== null;
     this.url = newUrl;
+    this.applyCredentials(newUrl);
     this.failedOpensSinceMigration = 0;
     this.backoff = 0;
     // Re-adoption clears the endpoint's own cooldown (round-1 review #4):
@@ -682,6 +714,17 @@ export class ConnectionManager {
       this.reconnectTimer = null;
     }
     if (hadSocket || hadReconnectTimer || this.hasConnectedBefore) this.createConnection();
+  }
+
+  /** Re-derive `{headers, prepareConnect}` for the endpoint about to be
+   * dialled. Adoption and reversal both route through here so credentials
+   * always match the endpoint on the wire — a loopback token must never
+   * reach a remote host, and a remote host needs its own ticket. */
+  private applyCredentials(url: string): void {
+    const c = this.credentialsFor?.(url);
+    if (!c) return;
+    this.headers = c.headers;
+    this.prepareConnect = c.prepare;
   }
 
   private createConnection(): void {
@@ -845,15 +888,19 @@ export class ConnectionManager {
 
   private scheduleReconnect(): void {
     // Reversibility (D2): failed opens are only counted against a MIGRATED
-    // endpoint — one that differs from the last registered one. Reconnect
-    // churn against the registered endpoint itself never reverses anywhere.
-    if (this.lastRegisteredUrl !== undefined && this.url !== this.lastRegisteredUrl) {
+    // endpoint — one that differs from the reversal anchor: the last
+    // registered endpoint, or — for a cold-start adoption where nothing was
+    // ever registered — the configured endpoint. Reconnect churn against
+    // the anchor itself never reverses anywhere.
+    const anchor = this.lastRegisteredUrl ?? this.fallbackUrl;
+    if (anchor !== undefined && this.url !== anchor) {
       this.failedOpensSinceMigration++;
       if (this.failedOpensSinceMigration >= this.migrationAttemptsBound) {
         const rejected = this.url;
         this.cooldownUntil.set(rejected, Date.now() + this.migrationCooldownMs);
         const from = this.url;
-        this.url = this.lastRegisteredUrl;
+        this.url = anchor;
+        this.applyCredentials(anchor);
         this.failedOpensSinceMigration = 0;
         this.backoff = 0;
         this.onMigrationEvent?.({
