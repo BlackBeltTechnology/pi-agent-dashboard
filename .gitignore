@@ -5,6 +5,8 @@ dist/
 *.db-journal
 .env
 .DS_Store
+# macOS AppleDouble sidecars — `.DS_Store` alone does not match `._.DS_Store`.
+._*
 .pi/proposal-queue.json
 .pi/flows/agents/
 .pi/flows/results/

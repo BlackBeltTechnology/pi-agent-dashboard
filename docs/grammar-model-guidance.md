@@ -25,6 +25,15 @@ Benchmark: 11 hard composer-draft cases × 2 repeats, live server. Metrics: reca
 
 100% recall. ~2.5s median latency. Zero style churn (silent on clean text). Zero errors. ~4.6× faster than old deepseek incumbent.
 
+**Provider-native Anthropic benchmark** (all 15 models, one error-rich prompt, live server; `…-<date>` entries = dated aliases of same model):
+
+- `claude-haiku-4-5` — ~2.4–4 s. Grammar/spelling/style. Best of the Anthropic set (fast, cheap, keeps writing-improvement, reliable).
+- `claude-opus-4-5` — 7.3 s. Most thorough (8 suggestions). Overkill/pricier for grammar.
+- `sonnet-4-5` — 8 s.
+- `opus-4-6` — 9.6 s.
+- `opus-4-1` — 10.4 s.
+- `sonnet-4-6` — 15 s. Slowest.
+
 ## Tradeoffs
 
 **Style churn** (unsolicited edits on already-correct text) = primary decider. autoCheck fires ~1200 ms; chatty model = constant false corrections. nano edits zero clean sentences.
@@ -41,9 +50,15 @@ Benchmark: 11 hard composer-draft cases × 2 repeats, live server. Metrics: reca
 
 **Reasoning models cost trap:** 166/266 OpenRouter registry = reasoning models. Example: deepseek-v4-flash (~11.5s; "Flash" = DeepSeek size tier, not speed). Thinking tokens bill as output: real per-check cost likely HIGHER than nano's listed rate.
 
+**Provider-rejected models:** `opus-4-0`, `opus-4-7`, `opus-4-20250514`, `sonnet-4-0`, `sonnet-4-20250514` → instant 502 `backend_unreachable`. Provider rejects for this credential.
+
+**Model-selector bug:** `/api/models` lists models account can't call. Picking one in selector just errors.
+
 ## Latency Floor
 
 No LLM instant. Network round-trip + inference floor ≈ 2 seconds minimum.
+
+Only LanguageTool instant (~25 ms); drops style/rewrite.
 
 ## Avoid
 
