@@ -55,6 +55,7 @@ Files in this directory. One row per file. Topic docs + repo-root config (root c
 | `research/oh-my-pi-feature-adaptation.md` | Research artifact. omp (oh-my-pi, pi-mono fork) → pi-dashboard feature adaptation. → see `research/oh-my-pi-feature-adaptation.md.AGENTS.md` |
 | `research/reverse-spec-from-code-session.md` | Method playbook. HOW `reverse-spec-from-code` skill + 102-spec backfill built in one pi session. → see `research/reverse-spec-from-code-session.md.AGENTS.md` |
 | `research/reverse-spec-from-code.md` | Research artifact. `reverse-spec-from-code` skill prompt tuning + generator-model-loss experiment. → see `research/reverse-spec-from-code.md.AGENTS.md` |
+| `research/session-derived-taste-learning.md` | Research dossier. Taste-learning vs CommandCode. Verdict: DO NOT BUILD. → see `research/session-derived-taste-learning.md.AGENTS.md` |
 | `research/session-guideline-fast-vs-research-ab.md` | A/B test — @fast vs @research model for SessionGuideline subagent. N=1 input session 019f8680. → see `research/session-guideline-fast-vs-research-ab.md.AGENTS.md` |
 | `research/site-3d-background-field.md` | Research record. Ribbon candidate vs fleet. Extruded ribbons read 3D; lean+Z-stagger sells depth; shared scene, no stacked canvases; opacity capped 0.58/0.42. A11y trap + session-hazard lessons. |
 | `research/sub1b-stt-diarization-benchmark.md` | Sub-1B open-source STT+diarization benchmark. 4 engines: MOSS-Transcribe-Diarize 0.9B Q5_K GGUF ~1x RT local… → see `research/sub1b-stt-diarization-benchmark.md.AGENTS.md` |
