@@ -49,3 +49,9 @@ specifying.
 
 - **Users:** none directly; this closes the unexplained corner of a fixed bug.
 - **Blast radius:** none while investigation-only.
+
+## Discipline Skills
+
+- `systematic-debugging` — the whole change is a phased-evidence investigation
+  into an unexplained asymmetry; hypotheses get killed by experiments, not
+  guesses.

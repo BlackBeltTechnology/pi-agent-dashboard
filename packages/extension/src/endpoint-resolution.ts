@@ -82,7 +82,7 @@ function present(s: string | undefined): string | undefined {
  * ambiguous "`.local` that resolves loopback" shape is removed at the source
  * by the advertisement gate, and reachability is verified independently.
  */
-export function isLoopbackHost(host: string): boolean {
+function isLoopbackHost(host: string): boolean {
   const h = host.trim().toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
   if (h === "localhost" || h.endsWith(".localhost")) return true;
   if (h === "::1") return true;
