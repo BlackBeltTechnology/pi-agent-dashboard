@@ -19,7 +19,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 type Ctx = { cwd?: string };
 
 import { readFileSync } from "node:fs";
-import { agentsChain, enrichHits, loadConfig, renderHits } from "@blackbelt-technology/pi-dashboard-kb";
+import { agentsChain, enrichHits, loadConfig, renderHits, searchOptsFromConfig } from "@blackbelt-technology/pi-dashboard-kb";
 import { Type } from "typebox";
 import { createGuard, type GuardInput, guardNoteSafe, type KbGuard, resolveGuardMode } from "./guard.js";
 import {acknowledgeRows,closeKb, 
@@ -113,22 +113,14 @@ export default function kbExtension(pi: ExtensionAPI): void {
         console.warn(`[kb] freshness reindex failed, searching existing index: ${(e as Error).message}`);
       }
       const { store, cfg } = getKb(state, cwd);
-      const hits = store.search(query, {
-        limit,
-        docType: docType as any,
-        fieldWeights: cfg.ranking.fieldWeights,
-        proximityBoost: cfg.ranking.proximityBoost,
-        diversity: cfg.ranking.diversity,
-        // Source dedup + agents lane quota + coverage rerank + engine-side PRF.
-        // See change: fix-kb-search-retrieval-quality.
-        sourceDedup: cfg.ranking.sourceDedup,
-        laneQuota: cfg.ranking.laneQuota,
-        coverageRerank: cfg.ranking.coverageRerank,
-        queryExpansion: cfg.queryExpansion.mode,
-        prf: cfg.queryExpansion.prf,
-        expandParent: cfg.expand.parent,
-        rootPriority: Object.fromEntries(cfg.resolvedSources.map((s: { id: string; priority: number }) => [s.id, s.priority])),
-      });
+      // One shared mapping (design D2, fix-kb-eval-measurement-integrity).
+      // expandGraph:false + rerank:false are this tool's long-standing behaviour
+      // (never expand/rerank), now written down as explicit overrides instead of
+      // a silent omission.
+      const hits = store.search(
+        query,
+        { limit, docType: docType as any, ...searchOptsFromConfig(cfg, { overrides: { expandGraph: false, rerank: false } }) },
+      );
       // Post-search trust-verdict enrichment (arm A) — async stage OUTSIDE the
       // store (design D10); store.search() stays sync. Labels only: ordering is
       // byte-identical with enrichment on or off (D1). Default ON for `agents`

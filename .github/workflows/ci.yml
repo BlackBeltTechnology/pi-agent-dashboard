@@ -65,6 +65,13 @@ jobs:
       # See change: cleanup-undeclared-dependencies.
       - name: Verify published imports are declared
         run: node scripts/verify-published-imports.mjs
+      # kb engine freshness gate. dist/ is gitignored, so a CI build is fresh by
+      # construction and can never observe lag; the COMMITTED engine-fingerprint
+      # can. A commit that edits packages/kb src without rebuilding fails here
+      # instead of shipping a `kb` bin that runs a week-old engine against the
+      # fresh kb_search tool. See change: fix-kb-eval-measurement-integrity.
+      - name: kb dist freshness (engine fingerprint)
+        run: node scripts/check-kb-dist-fresh.mjs
       # `ci`-level scenarios (test-plan E15, E26, P1). Held out of `pnpm test`
       # because they shell out to `npm pack`/`npm publish --dry-run` across every
       # workspace; run in parallel with the unit suite their CPU spike starves

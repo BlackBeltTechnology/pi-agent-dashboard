@@ -6,6 +6,13 @@
 - [ ] 1.4 Run `cd site && npm run size` and record the actual gzipped total — if it exceeds 50 KB the change is no longer mechanical and must pause for a budget decision before proceeding
 - [ ] 1.5 Pin any specific dependency that proves hostile in 1.3/1.4, in reaction to observed evidence rather than pre-emptively (design D6)
 
+## 1b. Restore the release-triggered redeploy (design D8)
+
+- [ ] 1b.1 Add a terminal job to `.github/workflows/publish.yml` gated on `needs: github-release` that dispatches `sync-release-version.yml --ref develop`, waits for that run to complete, then dispatches `deploy-site.yml --ref develop`
+- [ ] 1b.2 Delete the `release:` trigger, the `redispatch-on-release` job, and the now-dead `if: github.event_name != 'release'` guard on the `build` job in `.github/workflows/deploy-site.yml`; keep `workflow_dispatch` and the `push` path filters
+- [ ] 1b.3 Correct the stale docstring in `site/src/lib/github-release.ts`, which tells the reader "The deploy-site workflow also triggers on `release: { types: [published] }` so each new release rebuilds and redeploys the site" — the mechanism it names is exactly the one being deleted
+- [ ] 1b.4 Confirm the sequencing is real rather than assumed: the cache commit lands on `develop` before the deploy run checks it out (a back-to-back dispatch races, and the failure is silent because the live API fetch masks a stale cache)
+
 ## 2. Scope the JS budget to the marketing site
 
 - [ ] 2.1 Exclude everything under `dist/app/` from the recursive walk in `site/scripts/check-js-size.mjs` (design D1)
@@ -32,7 +39,9 @@
 ## 4. Workflow contract assertions
 
 - [ ] 4.1 Author test: deploy triggers on site and shell paths — see `packages/shared/src/__tests__/pnpm-migration-contract.test.ts`, which already parses `deploy-site.yml`. Triple: `.github/workflows/deploy-site.yml` · parse the `push` trigger · `branches` is `[develop]` and never `main`, `paths` includes both `site/**` and `packages/shell/**` (test-plan #E9)
-- [ ] 4.2 Author test: a published release never builds inline — see `packages/shared/src/__tests__/pnpm-migration-contract.test.ts`. Triple: `deploy-site.yml` · parse the job graph · build job carries `if: github.event_name != 'release'` and a redispatch job invokes `gh workflow run deploy-site.yml --ref develop` (test-plan #E10)
+- [ ] 4.2 Author test: the dead release path is absent — see `packages/shared/src/__tests__/pnpm-migration-contract.test.ts`. Triple: `deploy-site.yml` · parse triggers and the job graph · no `release:` trigger, no `redispatch-on-release` job, no job gated on `github.event_name != 'release'` (test-plan #E10)
+- [ ] 4.2a Author test: the release pipeline dispatches the redeploy — see `packages/shared/src/__tests__/publish-workflow-contract.test.ts`, which already parses `publish.yml`. Triple: `publish.yml` · parse the job graph · a terminal job carries `needs: github-release` and invokes `gh workflow run` for both `sync-release-version.yml` and `deploy-site.yml`, each with `--ref develop` (test-plan #E10a)
+- [ ] 4.2b Author test: the dispatches are sequenced, not raced — see `packages/shared/src/__tests__/publish-workflow-contract.test.ts`. Triple: `publish.yml` · parse the dispatch step body · the `deploy-site.yml` dispatch is preceded by a wait on the `sync-release-version` run, so the build cannot observe a pre-sync cache (test-plan #E10b)
 - [ ] 4.3 Author test: release-version sync targets develop — see `packages/shared/src/__tests__/pnpm-migration-contract.test.ts`. Triple: `.github/workflows/sync-release-version.yml` · parse the push step · pushes `HEAD:develop`, never `main` (test-plan #E11)
 - [ ] 4.4 Author test: shell is composed into the artifact — see `packages/shared/src/__tests__/pnpm-migration-contract.test.ts`. Triple: `deploy-site.yml` · parse step order and targets · a step copies the shell build into `site/dist/app/` and precedes the Pages artifact upload (test-plan #E12)
 - [ ] 4.5 Author test: custom domain file is present — see `packages/shared/src/__tests__/pnpm-migration-contract.test.ts`. Triple: `site/public/CNAME` · read the file · contents are exactly `pi-dashboard.dev` (test-plan #E13)
@@ -55,6 +64,7 @@
 - [ ] 6.6 Verify the 404 fallthrough is as specified (test-plan: manual-only) — `GET https://pi-dashboard.dev/app/does-not-exist` renders the marketing root 404, not the shell (test-plan #F4)
 - [ ] 6.7 Verify the apex is unaffected (test-plan: manual-only) — `GET https://pi-dashboard.dev/` renders the marketing site (test-plan #F5)
 - [ ] 6.8 Pair a real device against the deployed shell over an https endpoint, confirming the change achieved its actual goal rather than merely turning CI green
+- [ ] 6.9 Close the verification gap on the next real release: every release-redeploy assertion in section 4 is an L1 workflow-file parse, which cannot prove a release actually redeploys the site. On the next `vX.Y.Z` tag, confirm without manual intervention that a `sync-release-version` run and a `deploy-site` run both appear, and that `pi-dashboard.dev` advertises the new version (test-plan #F6)
 
 ## 7. Follow-ups to file, not fix here
 

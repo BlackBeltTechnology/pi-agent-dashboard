@@ -11,7 +11,9 @@ hit while investigating real `kb_search` quality.
 **1. The CLI runs a different engine than the agent.**
 `packages/kb/dist/` is dated 2026-08-05; `packages/kb/src/sqlite-store.ts` is
 2026-08-13 (the `fix-kb-search-retrieval-quality` ship). The built artifact contains
-no `laneQuota`, no `suppressedSections`, and no `render.js` at all.
+no `laneQuota`, no `suppressedSections` anywhere in the artifact (`render.js` does
+exist — an earlier "no render.js" claim here was wrong; the stale-engine diagnosis
+stands on the missing ranking features).
 
 - the extension resolves to `packages/kb/src/index.ts` (fresh engine)
 - the `kb` bin resolves to `packages/kb/dist/cli.js` (pre-fix engine)

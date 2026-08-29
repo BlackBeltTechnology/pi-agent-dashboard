@@ -14,8 +14,8 @@ import { fileURLToPath } from "node:url";
 import { DEFAULTS } from "../src/config.js";
 import { evaluate, type GoldenItem } from "../src/eval.js";
 import { indexSource } from "../src/indexer.js";
+import { searchOptsFromConfig, type SearchOptsOverrides } from "../src/search-opts.js";
 import { SqliteFtsStore } from "../src/sqlite-store.js";
-import type { SearchOpts } from "../src/types.js";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, "..", "..", "..");
@@ -26,24 +26,43 @@ function golden(name: string): GoldenItem[] {
   return (Array.isArray(raw) ? raw : raw.items) as GoldenItem[];
 }
 
-const base: SearchOpts = {
-  fieldWeights: DEFAULTS.ranking.fieldWeights,
-  proximityBoost: DEFAULTS.ranking.proximityBoost,
-  diversity: DEFAULTS.ranking.diversity,
-  expandParent: false,
-};
+// All variants are `overrides` over the ONE shared config→SearchOpts mapping
+// (design D2, fix-kb-eval-measurement-integrity) instead of hand-built literals.
+const REPO_SRC = [{ id: "repo", dir: REPO, priority: 0 }];
+/** A variant = shared base + explicit overrides. CLI-only knobs (expandGraph,
+ *  rerank) and expansion stay pinned to the pre-change shape. */
+const variant = (ov: SearchOptsOverrides) =>
+  searchOptsFromConfig(DEFAULTS, {
+    sources: REPO_SRC,
+    overrides: {
+      expandParent: false,
+      expandGraph: false,
+      rerank: false,
+      queryExpansion: "off",
+      sourceDedup: false,
+      laneQuota: 0,
+      coverageRerank: false,
+      ...ov,
+    },
+  });
 
 // PRE-CHANGE behaviour, reconstructed from the pre-change defaults: body-hash
 // dedup only, no source dedup, no lane quota, no coverage rerank, no expansion.
-const BASELINE: SearchOpts = { ...base, sourceDedup: false, laneQuota: 0, coverageRerank: false, queryExpansion: "off" };
+const BASELINE = variant({});
 
 const VARIANTS: Array<[string, SearchOpts]> = [
   ["baseline (pre-change)", BASELINE],
-  ["+ source dedup (D1/D2)", { ...BASELINE, sourceDedup: true }],
-  ["+ lane quota (D3)", { ...BASELINE, sourceDedup: true, laneQuota: DEFAULTS.ranking.laneQuota }],
-  ["+ coverage rerank (D4a)", { ...BASELINE, sourceDedup: true, laneQuota: DEFAULTS.ranking.laneQuota, coverageRerank: true }],
-  ["+ PRF (D4b) = shipped default", { ...base, sourceDedup: true, laneQuota: DEFAULTS.ranking.laneQuota, coverageRerank: true, queryExpansion: "prf", prf: DEFAULTS.queryExpansion.prf }],
-  ["PRF WITHOUT coverage rerank (must be worse)", { ...BASELINE, sourceDedup: true, laneQuota: DEFAULTS.ranking.laneQuota, queryExpansion: "prf", prf: DEFAULTS.queryExpansion.prf }],
+  ["+ source dedup (D1/D2)", variant({ sourceDedup: true })],
+  ["+ lane quota (D3)", variant({ sourceDedup: true, laneQuota: DEFAULTS.ranking.laneQuota })],
+  ["+ coverage rerank (D4a)", variant({ sourceDedup: true, laneQuota: DEFAULTS.ranking.laneQuota, coverageRerank: true })],
+  [
+    "+ PRF (D4b) = shipped default",
+    variant({ expandParent: DEFAULTS.expand.parent, sourceDedup: true, laneQuota: DEFAULTS.ranking.laneQuota, coverageRerank: true, queryExpansion: "prf" }),
+  ],
+  [
+    "PRF WITHOUT coverage rerank (must be worse)",
+    variant({ sourceDedup: true, laneQuota: DEFAULTS.ranking.laneQuota, queryExpansion: "prf" }),
+  ],
 ];
 
 // Reusable index: a full repo index is minutes of wall time, and every variant
@@ -80,8 +99,8 @@ if (process.argv.includes("--sweep")) {
   // rerank + PRF would tune one knob inside a stack the fixtures say is a net
   // regression, and the share would be fitted to that regression.
   const shipped: SearchOpts = process.argv.includes("--sweep-with-d4")
-    ? { ...base, sourceDedup: true, coverageRerank: true, queryExpansion: "prf", prf: DEFAULTS.queryExpansion.prf }
-    : { ...BASELINE, sourceDedup: true };
+    ? variant({ expandParent: DEFAULTS.expand.parent, sourceDedup: true, coverageRerank: true, queryExpansion: "prf" })
+    : variant({ sourceDedup: true });
   for (const share of [0, 0.2, 0.3, 0.4, 0.5, 0.6, 0.8]) {
     for (const [setName, items] of sets) {
       const m = evaluate(store, items, { ...shipped, laneQuota: share, k: K });

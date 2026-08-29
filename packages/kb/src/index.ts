@@ -27,6 +27,8 @@ export { kbInit } from "./init.js";
 export type { InitOptions, InitResult } from "./init.js";
 export { loadConfig, validateConfig, DEFAULTS, frontmatterConfigHash } from "./config.js";
 export type { KbConfig, SourceConfig, RankingConfig, ResolvedConfig, FrontmatterConfig, GuardMode, ReadDisciplineConfig } from "./config.js";
+export { searchOptsFromConfig } from "./search-opts.js";
+export type { SearchOptsOverrides } from "./search-opts.js";
 export { SCHEMA_VERSION } from "./sqlite-store.js";
 export { resolveAll, classifyRef, sourceIdentity, resolverFor } from "./sources.js";
 export type { KbSourceKind, ResolvedSource, ResolveCtx, SourceResolver } from "./sources.js";
