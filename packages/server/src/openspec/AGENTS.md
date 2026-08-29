@@ -12,3 +12,4 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `openspec-poll-worker.ts` | Pure `deriveAndSerialize(req): {cwd, data, serialized, stampMtimes, racyNames}` + `parentPort` bootstrap. → see `openspec-poll-worker.ts.AGENTS.md` |
 | `openspec-tasks.ts` | Parser + writer for an OpenSpec change's `tasks.md`. Exports `OpenSpecTask`, `NotFoundError`,… → see `openspec-tasks.ts.AGENTS.md` |
 | `proposal-attach-naming.ts` | Pure helpers for idempotent attach/detach auto-rename rule. → see `proposal-attach-naming.ts.AGENTS.md` |
+| `readiness.ts` | PURE readiness fold: `deriveOpenSpecReadiness(inputs, data, {breakReason})` → `{state, reason?}`. Precedence GLOBAL_OFF → OPTED_OUT → PENDING → ABSENT → BROKEN (`missing-changes-dir`/`cli-failed`) → STALE (`missing-skills` wins over `profile-stale`) → READY. Unknown/failed current signature never marks STALE. See change: add-openspec-init-affordances. |

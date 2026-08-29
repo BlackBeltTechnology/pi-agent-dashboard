@@ -20,7 +20,7 @@ Files in this directory. One row per source file.
 | `models-introspection-routes.ts` | Ungated `GET /api/models` model-introspection surface for in-session agents. → see `models-introspection-routes.ts.AGENTS.md` |
 | `network-interfaces.ts` | `buildNetworkInterfaceList(enumerate)` builds the `/api/network-interfaces` payload — one entry per ADDRESS… → see `network-interfaces.ts.AGENTS.md` |
 | `openspec-group-routes.ts` | REST routes for `/api/openspec/groups` CRUD + assignment. → see `openspec-group-routes.ts.AGENTS.md` |
-| `openspec-routes.ts` | REST routes: openspec-archive, pi-resources (cwd optional → falls back to `process.cwd()` for the global… → see `openspec-routes.ts.AGENTS.md` |
+| `openspec-routes.ts` | REST routes: openspec-archive, pi-resources (cwd optional → falls back to `process.cwd()` for the global… → see `openspec-routes.ts.AGENTS.md` Adds `POST /api/openspec/init` (unfiltered known-dir validation, openspec/-presence confirm gate, cached `init --help` support probe, per-cwd 409 lock, signature-on-init, forced refresh) + `knownInitTargets()`. See change: add-openspec-init-affordances. |
 | `package-routes.ts` | Extension/package management routes. Exports `registerPackageRoutes`. → see `package-routes.ts.AGENTS.md` |
 | `pairing-routes.ts` | Server-identity challenge + device-pairing routes. Exports `registerPairingRoutes`,… → see `pairing-routes.ts.AGENTS.md` |
 | `pi-changelog-routes.ts` | `GET /api/pi-core/changelog?pkg&from&to`. Whitelist-validates `pkg` against `CORE_PACKAGE_NAMES`. → see `pi-changelog-routes.ts.AGENTS.md` |
