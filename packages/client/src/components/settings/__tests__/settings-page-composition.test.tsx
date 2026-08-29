@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsPanel } from "../SettingsPanel.js";
 
@@ -22,6 +22,37 @@ vi.mock("../../../lib/api/model-proxy-api.js", () => ({
   refreshRegistry: vi.fn().mockResolvedValue(undefined),
 }));
 
+// Plugin-page seam for the dirty-plugin-page rail gate (#E8a/#E9): a real
+// plugin body needs the plugin runtime's slot machinery, but the gate only
+// needs a registered DIRTY draft source filed under the plugin's page plus a
+// caller that drives `requestRailNavigate` WITH a scroll target. The stub
+// registers exactly that and exposes the trigger button.
+vi.mock("../PluginSettingsPage.js", async () => {
+  const { createElement } = await import("react");
+  const { useSettingsDraftSource } = await import("@blackbelt-technology/dashboard-plugin-runtime");
+  return {
+    PluginNotFoundNotice: ({ pluginId }: { pluginId: string }) =>
+      createElement("div", { "data-testid": "plugin-not-found-notice" }, pluginId),
+    PluginSettingsPage: ({ onNavigate }: { onNavigate: (to: string, scrollTarget?: string) => void }) => {
+      useSettingsDraftSource({
+        id: "test-plugin-draft",
+        page: "plugins/test-plugin",
+        isDirty: true,
+        commit: async () => {},
+        reset: () => {},
+      });
+      return createElement(
+        "button",
+        {
+          "data-testid": "plugin-nav-with-target",
+          onClick: () => onNavigate("/settings/developer", "pi-runtime-section"),
+        },
+        "navigate with target",
+      );
+    },
+  };
+});
+
 const mockConfig = {
   port: 8000,
   piPort: 9999,
@@ -37,6 +68,14 @@ const mockConfig = {
 
 function mockFetchConfig() {
   return vi.fn().mockImplementation((url: string, options?: any) => {
+    // Fixtures for the pi runtime row tests — unset keeps the legacy
+    // everything-else-404 behaviour so pre-existing cases are untouched.
+    if (healthFixture && url === "/api/health") {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve(healthFixture) });
+    }
+    if (pluginsFixture && url === "/api/plugins") {
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, plugins: pluginsFixture }) });
+    }
     if (url === "/api/config" && !options?.method) {
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockConfig }) });
     }
@@ -45,6 +84,67 @@ function mockFetchConfig() {
     }
     return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
   });
+}
+
+// Mutable per-test fixtures. `healthFixture` null = /api/health falls through
+// to the 404 branch (compatibility + piRuntime both null → advisory hidden,
+// row hidden — the pre-change rendering).
+let healthFixture: Record<string, unknown> | null = null;
+let pluginsFixture: Array<Record<string, unknown>> | null = null;
+
+const HEALTHY_COMPATIBILITY = {
+  minimum: "0.78.0",
+  recommended: "0.80.0",
+  maximum: null,
+  current: "0.80.0",
+};
+
+function healthPayload(piRuntime: Record<string, unknown> | null) {
+  return { compatibility: HEALTHY_COMPATIBILITY, piRuntime };
+}
+
+function piRuntimeFixture(over: Record<string, unknown> = {}) {
+  return { spawnVersion: "0.84.1", moduleVersion: "0.84.1", consumerDiverged: false, consumerMessage: null, ...over };
+}
+
+const TEST_PLUGIN_ROW = {
+  id: "test-plugin",
+  displayName: "Test Plugin",
+  priority: 0,
+  hasServer: false,
+  hasBridge: false,
+  hasClient: true,
+  claims: [{ slot: "settings-section" }],
+  status: { id: "test-plugin", displayName: "Test Plugin", enabled: true, loaded: true, claims: 1 },
+};
+
+/** Record every fetch URL so the single-poller assertion can count exactly. */
+function spyOnFetchCalls(): Array<{ url: string; method?: string }> {
+  const inner = global.fetch as unknown as (url: string, options?: any) => Promise<unknown>;
+  const calls: Array<{ url: string; method?: string }> = [];
+  (global as { fetch: unknown }).fetch = vi.fn().mockImplementation((url: string, options?: any) => {
+    calls.push({ url, method: options?.method });
+    return inner(url, options);
+  });
+  (global as { __fetchCalls?: Array<{ url: string; method?: string }> }).__fetchCalls = calls;
+  return calls;
+}
+
+const healthCalls = (calls: Array<{ url: string }>) => calls.filter((c) => c.url === "/api/health");
+
+/** jsdom has no real layout: stub scrollIntoView, restore after the test. */
+function stubScrollIntoView() {
+  const fn = vi.fn();
+  const proto = Element.prototype as unknown as Record<string, unknown>;
+  const prev = proto.scrollIntoView;
+  proto.scrollIntoView = fn;
+  return {
+    fn,
+    restore: () => {
+      if (prev === undefined) delete proto.scrollIntoView;
+      else proto.scrollIntoView = prev;
+    },
+  };
 }
 
 function setPath(path: string) {
@@ -336,5 +436,121 @@ describe("settings page composition", () => {
     // Survives the passive-effect flush that `fireEvent`'s act() ran on exit.
     expect(screen.getByRole("switch", { name: "Token stats bar" }).getAttribute("aria-checked")).toBe("false");
     expect(await waitFor(() => screen.getByTestId("settings-save-bar"))).toBeTruthy();
+  });
+
+  // ── pi runtime status row — surface-pi-runtime-on-general ────────────────
+
+  // #E1 — the row is permanent: healthy fixture (advisory's visibility
+  // condition false) still renders it, with both consumers + shared version.
+  it("renders the runtime row on General although the advisory renders nothing (#E1)", async () => {
+    healthFixture = healthPayload(piRuntimeFixture());
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByText("Interface"));
+
+    const row = screen.getByTestId("pi-runtime-status-row");
+    expect(within(row).getByText("Sessions spawn")).toBeTruthy();
+    expect(within(row).getByText("Server imports")).toBeTruthy();
+    expect(within(row).getAllByText("0.84.1")).toHaveLength(2);
+    // The healthy fixture keeps the advisory hidden — the row is NOT gated on
+    // the advisory's visibility condition.
+    expect(screen.queryByText(/installed;/)).toBeNull();
+  });
+
+  // #E6 — state convergence: ONE polling instance feeds both surfaces. The
+  // panel tree also mounts pre-existing ONE-SHOT /api/health readers
+  // (staleness banner, plugin-enabled-set, launch-source), so the mount count
+  // is ≥1 — what pins the single-poller invariant is the DELTA: exactly +1
+  // across the 90s window (one 60s tick of the panel-owned poller). A second
+  // live poller — e.g. a row-mounted hook — would make the delta ≥2. The row
+  // issuing zero fetches is asserted directly in its own suite (#E5).
+  it("has exactly one health poller: +1 fetch across 90s (#E6)", async () => {
+    healthFixture = healthPayload(piRuntimeFixture());
+    pluginsFixture = null;
+    vi.useFakeTimers();
+    try {
+      const calls = spyOnFetchCalls();
+      render(<SettingsPanel />);
+      await act(async () => { await vi.advanceTimersByTimeAsync(0); });
+      expect(screen.getByTestId("pi-runtime-status-row")).toBeTruthy();
+      const atMount = healthCalls(calls).length;
+      expect(atMount).toBeGreaterThanOrEqual(1);
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(90_000); });
+      expect(healthCalls(calls).length).toBe(atMount + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // #E12 — the row is a status surface, not a field: no CONFIG_FIELD_PAGE
+  // entry, no Save Bar contribution. Clean panel + row → no Save Bar at all.
+  it("the row contributes no dirty state — no Save Bar on a clean panel (#E12)", async () => {
+    healthFixture = healthPayload(piRuntimeFixture());
+    pluginsFixture = null;
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByTestId("pi-runtime-status-row"));
+    expect(screen.queryByTestId("settings-save-bar")).toBeNull();
+  });
+
+  // #E8(b) — built-in draft dirty on General must NOT block the rail helper:
+  // the gate exists for plugin-page edits only. Navigates immediately, no
+  // prompt, and the scroll target is consumed after the destination renders.
+  it("built-in draft dirty on General: Change… navigates immediately, no prompt, scrolls (#E8b)", async () => {
+    healthFixture = healthPayload(piRuntimeFixture());
+    pluginsFixture = null;
+    const scroll = stubScrollIntoView();
+    render(<SettingsPanel />);
+    try {
+      await waitFor(() => screen.getByText("Interface"));
+      // Make the panel dirty through a real General field.
+      const label = screen.getByText("PWA Display Name");
+      const input = label.closest("div")!.querySelector("input")!;
+      fireEvent.change(input, { target: { value: "laptop" } });
+      await waitFor(() => screen.getByTestId("settings-save-bar"));
+
+      fireEvent.click(screen.getByTestId("pi-runtime-status-change"));
+
+      expect(screen.queryByTestId("unsaved-changes-dialog")).toBeNull();
+      expect(window.location.pathname).toBe("/settings/developer");
+      await waitFor(() => expect(scroll.fn).toHaveBeenCalled());
+    } finally {
+      scroll.restore();
+    }
+  });
+
+  // #E8(a) + #E9 — from a DIRTY PLUGIN page the same request takes the same
+  // confirmation round trip the Save Bar chips take, and the scroll target
+  // survives the deferral: consumed when the confirmed navigation renders the
+  // destination. No new or strengthened gate.
+  it("dirty plugin page + scroll target: confirm round trip, target survives deferral (#E8a/#E9)", async () => {
+    healthFixture = healthPayload(piRuntimeFixture());
+    pluginsFixture = [TEST_PLUGIN_ROW];
+    setPath("/settings/plugins/test-plugin");
+    const scroll = stubScrollIntoView();
+    render(<SettingsPanel />);
+    try {
+      const trigger = await waitFor(() => screen.getByTestId("plugin-nav-with-target"));
+      // The stub's dirty draft source must be registered before the click —
+      // the Save Bar appearing proves the registry knows about it.
+      await waitFor(() => screen.getByTestId("settings-save-bar"));
+
+      fireEvent.click(trigger);
+      // (a) same gate as the chips: the confirmation round trip, not a
+      // silent navigate, and not a scroll either.
+      await waitFor(() => screen.getByTestId("unsaved-changes-dialog"));
+      expect(scroll.fn).not.toHaveBeenCalled();
+
+      fireEvent.click(screen.getByTestId("unsaved-discard"));
+      // (e9) deferred navigation completes AND consumes the pending
+      // scroll-target ref — the section scrolls in after the destination
+      // renders; the route stays plain /settings/<page>.
+      await waitFor(() => expect(screen.queryByTestId("unsaved-changes-dialog")).toBeNull());
+      expect(window.location.pathname).toBe("/settings/developer");
+      expect(window.location.search).toBe("");
+      await waitFor(() => expect(scroll.fn).toHaveBeenCalled());
+    } finally {
+      scroll.restore();
+      pluginsFixture = null;
+    }
   });
 });

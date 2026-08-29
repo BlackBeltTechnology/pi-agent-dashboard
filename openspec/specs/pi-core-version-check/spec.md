@@ -378,7 +378,7 @@ When pi cannot be resolved (no global install, no managed install, no override),
 
 ### Requirement: PiVersionAdvisory renders in Settings → General
 
-A small client-side component SHALL surface `compatibility` to users via the Settings panel (NOT a full-app banner). The component reads `/api/health` via a polling hook and renders one of three states:
+A small client-side component SHALL surface `compatibility` to users via the Settings panel (NOT a full-app banner). The component receives `compatibility` from its host panel — which polls `/api/health` via the shared polling hook, once per panel instance — and renders one of three states:
 
 - **Hidden**: `compatibility` is `null`, OR `error` is absent AND `upgradeRecommended` is falsy.
 - **Soft warning**: `upgradeRecommended` is `true`. Yellow pill with one line: current version + recommended version + a link/disclosure for the upgrade command.

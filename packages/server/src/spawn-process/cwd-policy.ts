@@ -122,7 +122,7 @@ function unionDeny(a: string[] | undefined, b: string[] | undefined): string[] |
  *
  * `extensions` / `extensionConfig` are never touched.
  */
-export function mergeCwdPolicy<T extends CwdCapabilityFields>(policy: CwdPolicy, options: T): T {
+export function mergeCwdPolicy<T extends CwdCapabilityFields>(policy: CwdPolicy, options: T): T & CwdCapabilityFields {
   if (isEmptyPolicy(policy)) return options;
   const merged: T = { ...options };
 

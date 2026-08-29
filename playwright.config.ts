@@ -15,6 +15,11 @@ import { BASE_URL } from "./tests/e2e/lifecycle.js";
 const PW_CHANNEL = process.env.PW_CHANNEL;
 export default defineConfig({
   testDir: "tests/e2e",
+  // tests/e2e/helpers/__tests__/ is a VITEST project (vitest.config.ts |e2e|).
+  // Playwright's default `**/*.test.ts` match would execute those files and
+  // die with "Vitest failed to find the runner" — scope them out. See change:
+  // surface-pi-runtime-on-general (gate restored after #553 landed the dir).
+  testIgnore: ["**/helpers/__tests__/**"],
   // Container boot is slow; first run may build the image. Keep generous.
   timeout: 60_000,
   globalTimeout: 15 * 60_000,
