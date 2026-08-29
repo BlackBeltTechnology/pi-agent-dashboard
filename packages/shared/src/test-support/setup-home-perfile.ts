@@ -48,3 +48,22 @@ mkdirSync(join(home, ".pi", "dashboard"), { recursive: true });
 // exercising the TCP transport, which remains supported for remote and
 // container bridges. See change: add-pi-gateway-transport-identity.
 process.env.PI_GATEWAY_TCP ??= "1";
+
+// Scrub the dashboard's session-pin env. When the suite itself is run from a
+// dashboard-spawned session (a very natural way to work in this repo), the
+// child vitest process inherits PI_DASHBOARD_URL / PI_DASHBOARD_SOCKET /
+// PI_DASHBOARD_SPAWN_TOKEN / PI_DASHBOARD_SPAWNED — and every suite that
+// reads them inherits the LIVE dashboard as a phantom dependency:
+// auto-start's pinned-endpoint gate then skips launches suite-wide, and
+// spawned faux pi sessions register against the live dashboard instead of
+// the test server ("did not register within timeout"). Tests that need a
+// pin set their own (per-test) value after this scrub.
+// See change: fix-bridge-autostart-port-resolution.
+for (const k of [
+  "PI_DASHBOARD_URL",
+  "PI_DASHBOARD_SOCKET",
+  "PI_DASHBOARD_SPAWN_TOKEN",
+  "PI_DASHBOARD_SPAWNED",
+] as const) {
+  delete process.env[k];
+}
