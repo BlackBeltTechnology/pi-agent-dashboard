@@ -1,3 +1,5 @@
 # provider-auth-storage.ts — index
 
 Reads/writes `~/.pi/agent/auth.json` for pi provider credentials via `proper-lockfile` + atomic write. Exports `ApiKeyCredential`, `OAuthCredential`, `AuthCredential`, `AuthData`, `getAuthStatus`, `getOAuthProvidersMeta`, `resolveAuthJsonKey`. OAuth rows from `getAllHandlers()`; API-key rows from `provider-catalogue-cache.ts`. Custom providers skipped (managed by LLM Providers settings). See change: replace-hardcoded-provider-lists.
+
+Corrupt-content recovery: reads never fail on bad *content* — internal `readAuthJsonChecked()` returns `{ data, corrupt, quarantined }`, exported `readAuthJson()` is its tolerant `{}` wrapper. Unparseable bytes (empty/truncated/non-object) are COPY-quarantined (never renamed) to `auth.json.corrupt-<YYYYMMDDTHHMMSSsssZ>[-N]`, mode 0600, `wx` + `-N` suffix, SHA-256 content dedup (in-process, recorded only on a successful copy; a dedup hit reports `quarantined: true`). `ENOENT` stays `{}`; `EACCES` etc. still throw. `writeCredential`/`removeCredential` refuse (`corrupt && !quarantined`) under the lock; `withLock` placeholder create is mode 0600. See change: fix-corrupt-auth-json-500.

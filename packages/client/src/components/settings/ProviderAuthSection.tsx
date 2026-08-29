@@ -34,9 +34,25 @@ import { Toast, type ToastVariant, useToast } from "../primitives/Toast.js";
 
 // ── Fetch helpers ────────────────────────────────────────────────────────────
 
+/** Consecutive malformed/non-ok poll responses tolerated before an auth-code login aborts. */
+const POLL_MAX_CONSECUTIVE_FAILURES = 3;
+
+/**
+ * Fail closed on BOTH failure classes — a non-ok response and a body that is
+ * not an array — instead of feeding a Fastify error envelope (or any object)
+ * into `statuses.filter(...)`, which white-screened the whole Settings panel
+ * on a corrupt auth.json. See change: fix-corrupt-auth-json-500.
+ */
 async function fetchStatus(): Promise<ProviderAuthStatus[]> {
   const res = await fetch(`${getApiBase()}/api/provider-auth/status`);
-  return res.json();
+  if (!res.ok) {
+    throw new Error(i18nT("err.providerAuthStatusHttp", undefined, `Provider status request failed (${res.status}).`));
+  }
+  const data: unknown = await res.json();
+  if (!Array.isArray(data)) {
+    throw new Error(i18nT("err.providerAuthStatusShape", undefined, "Provider status response was malformed."));
+  }
+  return data;
 }
 
 /** Provider ids the dashboard can actually complete a login flow for. */
@@ -83,6 +99,10 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
   onCredentialsChanged?: () => void;
 } = {}) {
   const [statuses, setStatuses] = useState<ProviderAuthStatus[]>([]);
+  // Set when fetchStatus fails (non-ok, non-array, network). The section stays
+  // mounted and interactive — the inline error carries a Retry so credentials
+  // remain repairable from this state. See change: fix-corrupt-auth-json-500.
+  const [statusError, setStatusError] = useState<string | null>(null);
   // null = not yet known (loading or fetch failed). Never gate OAuth rows
   // closed while unknown — a secondary capability probe must not become a
   // hard sign-in outage. See change: adopt-pi-071-072-073-features.
@@ -97,7 +117,10 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
     try {
       const data = await fetchStatus();
       setStatuses(data);
-    } catch { /* ignore */ }
+      setStatusError(null);
+    } catch (err: any) {
+      setStatusError(err?.message || i18nT("err.providerAuthStatusUnknown", undefined, "Provider status is unavailable."));
+    }
     setLoading(false);
   }, []);
 
@@ -124,6 +147,23 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
   return (
     <div className="space-y-4">
       <Toast messages={messages} onDismiss={dismissToast} />
+      {statusError && (
+        <InlineMessage
+          severity="error"
+          icon={mdiAlert}
+          testId="provider-auth-status-error"
+          title={statusError}
+          actions={
+            <button
+              type="button"
+              onClick={() => void refresh().catch(logRejection("ProviderAuthSection.refresh"))}
+              className="focus-ring px-2 py-1 text-[11px] rounded border border-current bg-transparent disabled:opacity-60"
+            >
+              {i18nT("common.retry", undefined, "Retry")}
+            </button>
+          }
+        />
+      )}
       {/* OAuth Providers */}
       <div className="space-y-2">
         <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">{i18nT("gateway.subscriptionsOauth", undefined, "Subscriptions (OAuth)")}</h3>
@@ -177,18 +217,36 @@ function OAuthProviderRow({ provider, supported, onChanged, showToast, peerMissi
       if (pollingRef.current) clearInterval(pollingRef.current);
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
 
+      let consecutivePollFailures = 0;
+      const stopPolling = () => {
+        if (pollingRef.current) clearInterval(pollingRef.current);
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      };
+
       pollingRef.current = setInterval(async () => {
         try {
           const statusRes = await fetch(`${getApiBase()}/api/provider-auth/status`);
-          const statuses: ProviderAuthStatus[] = await statusRes.json();
-          const updated = statuses.find((s) => s.id === provider.id);
+          if (!statusRes.ok) throw new Error(`provider-auth status ${statusRes.status}`);
+          const pollStatuses: unknown = await statusRes.json();
+          if (!Array.isArray(pollStatuses)) throw new Error("provider-auth status body is not an array");
+          consecutivePollFailures = 0;
+          const updated = (pollStatuses as ProviderAuthStatus[]).find((s) => s.id === provider.id);
           if (updated?.authenticated) {
-            if (pollingRef.current) clearInterval(pollingRef.current);
-            if (timeoutRef.current) clearTimeout(timeoutRef.current);
+            stopPolling();
             setBusy(false);
             onChanged();
           }
-        } catch { /* retry */ }
+        } catch {
+          // Transient failures keep polling (a mid-login /api/restart must not
+          // kill an in-flight OAuth login), but a PERSISTENT failure must end
+          // the flow instead of silently waiting for the 5-minute timeout.
+          consecutivePollFailures += 1;
+          if (consecutivePollFailures >= POLL_MAX_CONSECUTIVE_FAILURES) {
+            stopPolling();
+            setBusy(false);
+            setError(i18nT("providers.pollLostContact", undefined, "Lost contact with the dashboard while signing in — please try again."));
+          }
+        }
       }, 2000);
 
       // Stop polling after 5 minutes (matches callback server timeout)
