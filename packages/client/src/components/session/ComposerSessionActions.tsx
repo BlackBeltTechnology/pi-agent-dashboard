@@ -22,12 +22,12 @@ import { Icon } from "@mdi/react";
 import type React from "react";
 import { useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { DialogPortal } from "../primitives/DialogPortal.js";
 import { ExploreDialog } from "../openspec/ExploreDialog.js";
 import { deriveStepperState } from "../openspec/OpenSpecStepper.js";
 import { buildOpenSpecTooltips } from "../openspec/SessionOpenSpecActions.js";
-import { TasksPopover } from "./TasksPopover.js";
+import { DialogPortal } from "../primitives/DialogPortal.js";
 import { WorktreeActionsMenu } from "../worktree/WorktreeActionsMenu.js";
+import { TasksPopover } from "./TasksPopover.js";
 
 /**
  * ComposerSessionActions — slim inline session-action row mounted inside

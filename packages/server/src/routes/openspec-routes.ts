@@ -9,18 +9,18 @@ import {
   configListOrAsync,
   configProfile,
   EXPANDED_WORKFLOWS,
+  openSpecConfigFilePath,
   initAsync as openspecInitAsync,
   initHelpAsync as openspecInitHelpAsync,
-  openSpecConfigFilePath,
   update as openspecUpdate,
   workflowSetSignature,
   writeOpenSpecConfigFile,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/openspec.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
-import { currentGlobalWorkflowSignature } from "../openspec/global-signature.js";
 import type { ApiResponse, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import { type DirectoryService, hasOpenSpecRoot } from "../directory-service.js";
+import { currentGlobalWorkflowSignature } from "../openspec/global-signature.js";
 import { scanOpenSpecArchive } from "../openspec/openspec-archive.js";
 import {
   LineMismatchError,

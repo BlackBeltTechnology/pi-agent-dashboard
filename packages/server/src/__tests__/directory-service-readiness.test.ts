@@ -12,11 +12,11 @@
  * See change: add-openspec-init-affordances.
  */
 
-import { DEFAULT_OPENSPEC_POLL } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import type { DashboardSession, OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DEFAULT_OPENSPEC_POLL } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { DashboardSession, OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createDirectoryService, type DirectoryService } from "../directory-service.js";
 import { deriveOpenSpecReadiness, type ReadinessInputs } from "../openspec/readiness.js";

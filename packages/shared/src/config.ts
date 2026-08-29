@@ -6,8 +6,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DEFAULT_MEMORY_LIMITS, type MemoryLimitsConfig, MIN_REPLAY_WINDOW, type ReplayWindowMode } from "./memory-limits.js";
-import { inferPlatform, pathKey } from "./session-group-path.js";
 import type { WindowsGitSourceSetting } from "./platform/select-git-source.js";
+import { inferPlatform, pathKey } from "./session-group-path.js";
 import {
   providerSupportsMode,
   type TunnelMode,

@@ -4,9 +4,10 @@
  *
  * See change: fix-cold-boot-openspec-protocol.
  */
-import { describe, it, expect, vi } from "vitest";
-import { buildOpenSpecConnectSnapshot } from "../pairing/browser-gateway.js";
+
 import type { OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it, vi } from "vitest";
+import { buildOpenSpecConnectSnapshot } from "../pairing/browser-gateway.js";
 
 function ds(map: Record<string, OpenSpecData | undefined>) {
   return {

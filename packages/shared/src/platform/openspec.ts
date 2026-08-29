@@ -9,11 +9,12 @@
  *
  * See change: platform-command-executor.
  */
-import { run, runAsync, unwrap, type Recipe, type Result } from "./runner.js";
+
+import crypto from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import crypto from "node:crypto";
+import { type Recipe, type Result, run, runAsync, unwrap } from "./runner.js";
 
 const OPENSPEC_TIMEOUT = 10_000;
 /** `openspec update` regenerates project skill files; allow more headroom. */

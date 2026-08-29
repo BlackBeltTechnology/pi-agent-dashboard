@@ -63,10 +63,11 @@ export type BrokeReason = Extract<OpenSpecReadinessReason, "missing-changes-dir"
  */
 export function deriveOpenSpecReadiness(
   inputs: ReadinessInputs,
+  // The polled payload rides along so future fold inputs can come off it
+  // without a call-site change; today the fold reads only `inputs`.
   _data: OpenSpecData,
   extra: { breakReason?: BrokeReason } = {},
 ): OpenSpecReadiness {
-  void _data;
   if (!inputs.enabled) return { state: "GLOBAL_OFF" };
   if (inputs.optedOut) return { state: "OPTED_OUT" };
   if (inputs.pending) return { state: "PENDING" };

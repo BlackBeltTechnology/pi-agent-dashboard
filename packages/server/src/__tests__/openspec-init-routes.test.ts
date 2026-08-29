@@ -15,13 +15,14 @@
  *
  * See change: add-openspec-init-affordances.
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import Fastify, { type FastifyInstance } from "fastify";
+
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import { registerOpenSpecRoutes } from "../routes/openspec-routes.js";
 import { OPENSPEC_INIT } from "@blackbelt-technology/pi-dashboard-shared/platform/openspec.js";
+import Fastify, { type FastifyInstance } from "fastify";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { registerOpenSpecRoutes } from "../routes/openspec-routes.js";
 
 // Hoisted mock fns — the route module imports these from the platform module.
 const initAsyncMock = vi.hoisted(() => vi.fn());

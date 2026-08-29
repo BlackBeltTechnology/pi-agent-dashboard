@@ -30,8 +30,8 @@ import { createSemaphore, type Semaphore } from "@blackbelt-technology/pi-dashbo
 import { inferPlatform, pathKey } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
 import type { OpenSpecChange, OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { computeFolderGroupKeys, createFolderHeadPoll, type FolderHeadPoll } from "./git-worktree/folder-head-poll.js";
-import { deriveOpenSpecReadiness, type BrokeReason } from "./openspec/readiness.js";
 import type { EventLoopSpikeMetrics, EventLoopTurn } from "./metrics/eventloop-spike-metrics.js";
+import { type BrokeReason, deriveOpenSpecReadiness } from "./openspec/readiness.js";
 
 /**
  * Debounce for the folder-HEAD entry refresh, so a registration burst collapses
