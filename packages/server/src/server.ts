@@ -2542,7 +2542,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         if (mdnsDisabled) {
           console.log("mDNS: advertising disabled (PI_DASHBOARD_NO_MDNS)");
         } else {
-          advertiseDashboard(config.port, config.piPort);
+          advertiseDashboard(config.port, config.piPort, { bindHost: config.host });
           console.log(`mDNS: advertising _pi-dashboard._tcp on port ${config.port}`);
         }
       } catch (err) {

@@ -123,3 +123,34 @@ export async function verifyInstanceIdentity(input: VerifyInput): Promise<Verify
   }
   return { ...decideAdoption({ expected: input.expectedInstanceId, observed }), observed };
 }
+
+export interface ReachabilityInput {
+  healthUrl: string;
+  fetchImpl?: typeof fetch;
+  timeoutMs?: number;
+}
+
+/**
+ * Probe whether a candidate endpoint is REACHABLE — `GET /api/health`
+ * answering `{ ok: true }` — without caring WHO answers.
+ *
+ * This is the admission gate's probe (fix-bridge-mdns-migration-hijack D1):
+ * it runs BEFORE an established connection is dropped, because the failure
+ * window between "dropped" and "found dead" is exactly the outage the gate
+ * exists to prevent. Identity (who answered) is {@link verifyInstanceIdentity}'s
+ * question; this is only "did anyone answer". Every failure mode —
+ * unreachable, non-OK, unparseable, timeout — is `false`.
+ */
+export async function probeEndpointReachability(input: ReachabilityInput): Promise<boolean> {
+  const doFetch = input.fetchImpl ?? fetch;
+  try {
+    const res = await doFetch(input.healthUrl, {
+      signal: AbortSignal.timeout(input.timeoutMs ?? 1500),
+    });
+    if (!res.ok) return false;
+    const body = (await res.json()) as { ok?: unknown };
+    return body?.ok === true;
+  } catch {
+    return false;
+  }
+}

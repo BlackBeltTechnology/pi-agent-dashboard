@@ -5,6 +5,21 @@
 
 import { WebSocket as WsWebSocket } from "ws";
 
+import { isLoopbackEndpoint as defaultLoopbackClassifier } from "./endpoint-resolution.js";
+
+/** One migration decision, accepted or refused. The bridge's ONLY record
+ * channel for re-targeting — wired to `transportDiagnostics` in bridge.ts so
+ * the record reaches the server even under the default
+ * `keeperLog.capturePiOutput:false` (fix-bridge-mdns-migration-hijack D5).
+ * Every accepted re-target and every refusal produces exactly one record. */
+export interface ConnectionMigrationRecord {
+  from: string;
+  to: string;
+  accepted: boolean;
+  trigger: string;
+  reason: string;
+}
+
 export interface ConnectionManagerOptions {
   url: string;
   WebSocketImpl?: any;
@@ -61,6 +76,27 @@ export interface ConnectionManagerOptions {
    * See change: fix-spawn-correlation-ttl-coupling (D6).
    */
   getSessionId?: () => string | undefined;
+  /**
+   * Records EVERY migration decision this manager makes — accepted or
+   * refused, with both endpoints, the trigger and the reason. The single
+   * chokepoint that makes a re-target un-silent (D5): without it a migration
+   * is visible only as an unexplained `connection closed` in server.log.
+   * See change: fix-bridge-mdns-migration-hijack.
+   */
+  onMigrationEvent?: (record: ConnectionMigrationRecord) => void;
+  /**
+   * Failed connection attempts against a newly adopted endpoint after which
+   * the manager returns to the last registered endpoint (reversibility, D2).
+   * Default 4 — see MIGRATION_MAX_FAILED_OPENS.
+   */
+  migrationAttemptsBound?: number;
+  /** How long a rejected endpoint may not be re-adopted (anti-ping-pong, D2). Default 60s. */
+  migrationCooldownMs?: number;
+  /**
+   * Loopback classifier for the localhost-preference invariant (D3).
+   * Defaults to the pure lexical classifier in endpoint-resolution.ts.
+   */
+  isLoopbackEndpoint?: (url: string) => boolean;
 }
 
 /** Reports per session per window, so an overflow burst cannot amplify. */
@@ -192,6 +228,25 @@ export class ConnectionManager {
   private static readonly WATCHDOG_CHECK_INTERVAL = 15_000;
   private static readonly DEFAULT_WATCHDOG_TIMEOUT = 60_000;
 
+  /**
+   * Failed connection attempts against a migrated-to endpoint before the
+   * manager gives up on it and returns to the last registered endpoint.
+   *
+   * Basis for 4 (design D2, recorded per task 3.4): the reconnect backoff is
+   * 1s → 2s → 4s → 8s, so the fourth failure lands ~15s after adoption. A
+   * deliberate server restart answers again within ~5–10s (observed on
+   * `POST /api/restart`), so 4 attempts ride out a real restart without ever
+   * backing off unbounded against a dead candidate — while still returning
+   * the bridge to the working endpoint within seconds of a mistaken
+   * migration.
+   */
+  private static readonly MIGRATION_MAX_FAILED_OPENS = 4;
+  /** How long a reversed-away endpoint may not be re-adopted (anti-ping-pong, D2).
+   * Long enough to outlive the window in which a flapping pair would
+   * otherwise swap on every discovery tick; short enough that a deliberate
+   * re-discovery a minute later is unaffected. */
+  private static readonly MIGRATION_COOLDOWN_MS = 60_000;
+
   private lastMessageAt = 0;
   private watchdogTimer: ReturnType<typeof setInterval> | null = null;
   private watchdogTimeout: number;
@@ -209,6 +264,23 @@ export class ConnectionManager {
   /** Upgrade headers presented on every (re)connect. */
   private headers?: Record<string, string>;
   private prepareConnect?: () => Promise<{ url?: string } | undefined>;
+
+  // ── Migration state (fix-bridge-mdns-migration-hijack) ─────────────────
+  /** The endpoint on which a `session_register` was last sent on a LIVE
+   * socket. The reversal target (D2) and the marker that the incumbent is
+   * protected by the admission gate. */
+  private lastRegisteredUrl: string | undefined;
+  /** A registration noted while the socket was still connecting; promoted
+   * when the open flushes the buffered register onto the live socket. */
+  private pendingRegisterNote = false;
+  /** Consecutive failed opens against a migrated-to endpoint (D2 counter). */
+  private failedOpensSinceMigration = 0;
+  /** Endpoint → epoch-ms until which it may not be re-adopted (D2 cooldown). */
+  private cooldownUntil = new Map<string, number>();
+  private readonly onMigrationEvent?: (record: ConnectionMigrationRecord) => void;
+  private readonly migrationAttemptsBound: number;
+  private readonly migrationCooldownMs: number;
+  private readonly isLoopbackEndpoint: (url: string) => boolean;
 
   constructor(options: ConnectionManagerOptions) {
     this.url = options.url;
@@ -241,6 +313,20 @@ export class ConnectionManager {
     this.onReconnect = options.onReconnect;
     this.onRegisterRejected = options.onRegisterRejected;
     this.getSessionIdForReports = options.getSessionId;
+    this.onMigrationEvent = options.onMigrationEvent;
+    this.migrationAttemptsBound = ConnectionManager.intOption(
+      options.migrationAttemptsBound,
+      ConnectionManager.MIGRATION_MAX_FAILED_OPENS,
+      "migrationAttemptsBound",
+      1,
+    );
+    this.migrationCooldownMs = ConnectionManager.intOption(
+      options.migrationCooldownMs,
+      ConnectionManager.MIGRATION_COOLDOWN_MS,
+      "migrationCooldownMs",
+      1,
+    );
+    this.isLoopbackEndpoint = options.isLoopbackEndpoint ?? defaultLoopbackClassifier;
   }
 
   /**
@@ -453,15 +539,124 @@ export class ConnectionManager {
   }
 
   /**
-   * Update the WebSocket URL and reconnect.
-   * Used when mDNS discovers the server on a different address/port.
+   * Record that a `session_register` was just sent over this connection.
+   *
+   * "Acknowledged" here means: delivered on a LIVE socket (the server's only
+   * register response is a terminal `register_rejected`; silence is
+   * success). Called by the bridge right after each register send — the
+   * initial registration and every `sendStateSync` — so the manager always
+   * knows the last endpoint that actually accepted it. That endpoint is the
+   * reversal target (D2) and marks the connection as protected by the
+   * admission gate.
+   *
+   * Called while still connecting, the note is promoted on open, when the
+   * buffered register flushes onto the live socket.
    */
-  updateUrl(newUrl: string): void {
-    if (newUrl === this.url) return;
+  noteRegistered(): void {
+    if (this.ws?.readyState === 1) {
+      this.lastRegisteredUrl = this.url;
+      this.pendingRegisterNote = false;
+      this.failedOpensSinceMigration = 0;
+      return;
+    }
+    this.pendingRegisterNote = true;
+  }
+
+  /**
+   * Re-target this connection at a new endpoint — the ONLY way an endpoint
+   * changes after construction (task 2.2). Replaces the ambient `updateUrl`.
+   *
+   * Gates, in order (design D1–D3):
+   *   cooldown — a previously rejected endpoint may not be re-adopted yet;
+   *   protection — an ESTABLISHED AND REGISTERED connection is never dropped
+   *     for an unverified candidate (a connection that is merely dialling or
+   *     established-but-unregistered — the cold-start window — migrates
+   *     freely, which is exactly how init-time discovery attaches);
+   *   localhost preference — a remote candidate never displaces an
+   *     established loopback connection;
+   *   admission — the candidate must pass the caller's health probe BEFORE
+   *     the incumbent is dropped: the drop-then-discover-dead window is the
+   *     outage this gate exists to prevent.
+   *
+   * Resolves true when the connection ends up targeting `newUrl` (including
+   * the current-URL no-op), false when a gate refused. EVERY decision —
+   * accepted or refused — is reported via `onMigrationEvent` (D5); a
+   * re-target cannot happen without a corresponding record.
+   */
+  async retargetTo(
+    newUrl: string,
+    opts: { trigger: string; verify?: () => Promise<boolean> },
+  ): Promise<boolean> {
+    const from = this.url;
+    if (newUrl === from) return true;
+    const record = (accepted: boolean, reason: string): boolean => {
+      this.onMigrationEvent?.({ from, to: newUrl, accepted, trigger: opts.trigger, reason });
+      return accepted;
+    };
+
+    // Cooldown applies regardless of establishment: an endpoint this manager
+    // reversed away from must not be re-adopted into a ping-pong, even in
+    // the cold-start window.
+    const cooledUntil = this.cooldownUntil.get(newUrl);
+    if (cooledUntil !== undefined && Date.now() < cooledUntil) {
+      const remainingS = Math.ceil((cooledUntil - Date.now()) / 1000);
+      return record(false, `refused: candidate is in migration cooldown (${remainingS}s remaining)`);
+    }
+
+    if (this.lastRegisteredUrl === undefined) {
+      // Nothing established AND registered: no incumbent to protect.
+      this.adoptEndpoint(newUrl);
+      return record(true, "adopted: no established registered connection to protect");
+    }
+
+    // Admission gate (D1): verify the candidate BEFORE dropping the
+    // incumbent. No probe result is a refusal, not a pass. Probing runs
+    // before the preference rule so a refusal names the candidate's actual
+    // failure (D5's "failure reason"), per the spec's own scenario order —
+    // "reachable" is judged first, "preferred under the localhost-preference
+    // rule" second.
+    if (!opts.verify) {
+      return record(false, "refused: no health check was performed for the candidate");
+    }
+    let reachable: boolean;
+    try {
+      reachable = await opts.verify();
+    } catch {
+      reachable = false;
+    }
+    if (!reachable) {
+      return record(false, "refused: candidate health check did not return ok");
+    }
+
+    // Localhost preference as an invariant on the connection (D3).
+    if (this.isLoopbackEndpoint(from) && !this.isLoopbackEndpoint(newUrl)) {
+      return record(
+        false,
+        "refused: localhost preference — a remote candidate must not displace the established loopback connection",
+      );
+    }
+
+    this.adoptEndpoint(newUrl);
+    return record(true, "adopted: candidate verified reachable before the incumbent was dropped");
+  }
+
+  /**
+   * Point the manager at a new endpoint and dial it now. The incumbent —
+   * when one exists, even mid-dial — is torn down WITHOUT arming the
+   * reconnect loop; the fresh dial is made directly.
+   */
+  private adoptEndpoint(newUrl: string): void {
     this.url = newUrl;
-    // Force reconnect to new URL
+    this.failedOpensSinceMigration = 0;
+    this.backoff = 0;
     if (this.ws) {
-      this.handleDisconnect();
+      this.intentionalClose = true;
+      try {
+        this.handleDisconnect();
+      } finally {
+        this.intentionalClose = false;
+      }
+      this.createConnection();
     }
   }
 
@@ -473,11 +668,13 @@ export class ConnectionManager {
     void this.prepareThenOpen().catch(() => this.onPrepareFailed());
   }
 
-  /** Apply a per-attempt URL override (e.g. a freshly minted ticket). */
+  /** Apply a per-attempt URL override (e.g. a freshly minted ticket). The
+   * override applies to THIS DIAL only — the base endpoint (`this.url`) is
+   * never mutated by preparation, so `lastRegisteredUrl` and every
+   * migration record name the real endpoint, not a ticketed one-off. */
   private async prepareThenOpen(): Promise<void> {
     const override = await this.prepareConnect?.();
-    if (override?.url) this.url = override.url;
-    this.openSocket();
+    this.openSocket(override?.url);
   }
 
   /**
@@ -490,11 +687,11 @@ export class ConnectionManager {
     if (!this.intentionalClose) this.scheduleReconnect();
   }
 
-  private openSocket(): void {
+  private openSocket(dialUrl: string = this.url): void {
     try {
       this.ws = this.headers
-        ? new this.WS(this.url, { headers: this.headers })
-        : new this.WS(this.url);
+        ? new this.WS(dialUrl, { headers: this.headers })
+        : new this.WS(dialUrl);
     } catch {
       // Constructor failed — schedule reconnect
       this.ws = null;
@@ -508,6 +705,15 @@ export class ConnectionManager {
       // Reset backoff on successful connection
       this.backoff = 0;
       this.lastMessageAt = Date.now();
+
+      // A registration noted while this dial was in flight is now real: the
+      // buffered `session_register` flushes onto THIS live socket below, so
+      // this is the endpoint the server accepted.
+      if (this.pendingRegisterNote) {
+        this.pendingRegisterNote = false;
+        this.lastRegisteredUrl = this.url;
+        this.failedOpensSinceMigration = 0;
+      }
 
       // Notify reconnect if this isn't the first connection
       if (this.hasConnectedBefore) {
@@ -614,6 +820,29 @@ export class ConnectionManager {
   }
 
   private scheduleReconnect(): void {
+    // Reversibility (D2): failed opens are only counted against a MIGRATED
+    // endpoint — one that differs from the last registered one. Reconnect
+    // churn against the registered endpoint itself never reverses anywhere.
+    if (this.lastRegisteredUrl !== undefined && this.url !== this.lastRegisteredUrl) {
+      this.failedOpensSinceMigration++;
+      if (this.failedOpensSinceMigration >= this.migrationAttemptsBound) {
+        const rejected = this.url;
+        this.cooldownUntil.set(rejected, Date.now() + this.migrationCooldownMs);
+        const from = this.url;
+        this.url = this.lastRegisteredUrl;
+        this.failedOpensSinceMigration = 0;
+        this.backoff = 0;
+        this.onMigrationEvent?.({
+          from,
+          to: this.url,
+          accepted: true,
+          trigger: "migration-fallback",
+          reason: `returned to the last registered endpoint after ${this.migrationAttemptsBound} failed opens against ${rejected}`,
+        });
+        // Fall through: normal scheduling dials the restored endpoint.
+      }
+    }
+
     if (this.backoff === 0) {
       this.backoff = ConnectionManager.INITIAL_BACKOFF;
     } else {
