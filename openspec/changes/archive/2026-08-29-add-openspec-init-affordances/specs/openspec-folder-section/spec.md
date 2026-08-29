@@ -41,6 +41,14 @@ missing or broken is not blocked from proceeding.
   `offerInitialization` is `false`
 - **THEN** no OpenSpec section SHALL be rendered in the folder header
 
+#### Scenario: Directory without OpenSpec
+
+- **WHEN** a folder group is rendered for a cwd whose OpenSpec data carries no `readiness`
+  (an older server) and reports neither `initialized: true` nor `pending: true`
+- **THEN** no OpenSpec section SHALL be rendered in the folder header
+- **AND** no disabled or stale state SHALL be inferred from the absent data — the
+  pre-readiness hide behaviour is preserved verbatim for legacy payloads
+
 #### Scenario: Globally disabled renders nothing
 
 - **WHEN** a folder group is rendered for a cwd whose readiness state is `GLOBAL_OFF`
