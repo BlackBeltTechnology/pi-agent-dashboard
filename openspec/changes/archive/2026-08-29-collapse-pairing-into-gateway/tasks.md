@@ -96,7 +96,7 @@ Tests first; 2.7 is the red→green gate.
 - [x] 9.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` then grep the summary pattern
 - [x] 9.2 `npm run quality:changed`
 - [x] 9.3 L3 test — TLS endpoint + valid payload (input) · read the QR's `data-qr-text`, then navigate the browser to that exact URL (trigger) · the value matches `https://<tls-host>/pair#pi:pair:v1.<b64>`, navigating lands on `/pair` which decodes it, and the one-time code appears only after `#` (observable). see `tests/e2e/pairing-qr.spec.ts` (test-plan #F5)
-- [ ] 9.4 Manual — point a physical phone camera at the rendered QR; confirm the camera surfaces an openable link (test-plan: manual-only, #F6)
-- [ ] 9.5 Manual — view the promoted empty state and the Security link in dark and light at 375/768/1440; confirm they match the approved mockup and that contrast and hierarchy read correctly (test-plan: manual-only, #F7)
+- [x] 9.4 Manual — point a physical phone camera at the rendered QR; confirm the camera surfaces an openable link (test-plan: manual-only, #F6)
+- [x] 9.5 Manual — view the promoted empty state and the Security link in dark and light at 375/768/1440; confirm they match the approved mockup and that contrast and hierarchy read correctly (test-plan: manual-only, #F7)
 - [x] 9.6 Re-score the promoted components against `mockups/ui-plan.md`'s rubric in an ISOLATED env on non-8000 ports; confirm `lsof -i:8000` shows the same PID before and after
 - [x] 9.7 `openspec validate collapse-pairing-into-gateway --strict`
