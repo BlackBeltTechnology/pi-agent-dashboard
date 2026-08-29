@@ -198,21 +198,25 @@ function writeAuthJson(data: AuthData, forceMode?: number): void {
   const tmp = AUTH_PATH + ".tmp";
   const content = JSON.stringify(data, null, 2) + "\n";
 
-  // Preserve existing permissions or use 0600 for new file. A corrupt-file
-  // repair forces 0600: the corrupt file may carry wider bits (e.g. created
-  // 0644 by an older build), and the repaired credential file must not
-  // inherit them. See change: fix-corrupt-auth-json-500.
-  let mode: number;
+  // Preserve existing permissions or use 0600 for new file — with group/world
+  // bits always cleared: a legacy 0644 credential file must not stay
+  // group/world-readable forever just because preservation copies its mode
+  // forward. A corrupt-file repair forces 0600 outright: the corrupt file may
+  // carry arbitrary wider bits. See change: fix-corrupt-auth-json-500.
+  let mode = 0o600;
   if (forceMode !== undefined) {
     mode = forceMode;
   } else {
-    mode = 0o600;
     try {
-      mode = fs.statSync(AUTH_PATH).mode & 0o777;
+      mode = fs.statSync(AUTH_PATH).mode & 0o777 & 0o700;
     } catch { /* file doesn't exist yet */ }
   }
 
   fs.writeFileSync(tmp, content, { mode });
+  // writeFileSync's mode applies only at CREATION: a auth.json.tmp surviving
+  // from a crashed earlier write (e.g. 0644 from an older build) would keep
+  // its mode through the rename and publish the credential world-readable.
+  fs.chmodSync(tmp, mode);
   fs.renameSync(tmp, AUTH_PATH);
 }
 

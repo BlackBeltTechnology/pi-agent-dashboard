@@ -49,7 +49,9 @@ async function fetchStatus(): Promise<ProviderAuthStatus[]> {
     throw new Error(i18nT("err.providerAuthStatusHttp", undefined, `Provider status request failed (${res.status}).`));
   }
   const data: unknown = await res.json();
-  if (!Array.isArray(data)) {
+  // Array.isArray accepts [null] — and a null item would still crash the
+  // rows' property access at render. Validate the items too.
+  if (!Array.isArray(data) || !data.every((s) => s !== null && typeof s === "object")) {
     throw new Error(i18nT("err.providerAuthStatusShape", undefined, "Provider status response was malformed."));
   }
   return data;

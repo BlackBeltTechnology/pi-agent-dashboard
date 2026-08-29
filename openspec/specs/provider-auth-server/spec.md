@@ -205,7 +205,7 @@ The server SHALL expose `PUT /api/provider-auth/api-key` accepting `{ provider, 
 - **THEN** the server SHALL remove the `anthropic` key from `auth.json` and return `{ ok: true }`
 
 ### Requirement: auth.json atomic write with locking
-All writes to `auth.json` SHALL use a lockfile (`auth.json.lock`) with retry logic. If the file does not exist, it SHALL be created with `0600` permissions. Existing file permissions SHALL be preserved on update.
+All writes to `auth.json` SHALL use a lockfile (`auth.json.lock`) with retry logic. If the file does not exist, it SHALL be created with `0600` permissions. Existing owner permission bits SHALL be preserved on update, with group/world bits always cleared (normalized to owner-only), so a legacy wider mode cannot persist. The staged `auth.json.tmp` SHALL have its mode explicitly enforced before the rename, because `writeFileSync`'s `mode` argument applies only at file creation. See change: fix-corrupt-auth-json-500.
 
 The lock helper's own placeholder create — the empty `{}` file written so the lockfile has a target to lock — SHALL also use mode `0600`. Writing it without an explicit mode yields `0666 & ~umask` (typically `0644`), which `writeAuthJson`'s permission-preservation then carries forward to every subsequent write, leaving the credential file group- and world-readable.
 

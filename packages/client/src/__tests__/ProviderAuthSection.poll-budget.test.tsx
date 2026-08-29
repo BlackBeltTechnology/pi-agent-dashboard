@@ -64,6 +64,23 @@ describe("ProviderAuthSection auth-code poll failure budget", () => {
     fireEvent.click(signIn);
   }
 
+  // A malformed (non-array) poll body is a counted transient failure: the
+  // login recovers when a later poll is healthy, and no TypeError reaches the
+  // render (the poll never calls an array method on the body).
+  it("a malformed non-array poll body does not abort the login or crash the render", async () => {
+    global.fetch = mockPollFetch(["nonarray", "ok"], { n: 0 }) as typeof fetch;
+    const onCredentialsChanged = vi.fn();
+    render(<ProviderAuthSection onCredentialsChanged={onCredentialsChanged} />);
+
+    await clickSignIn();
+    await vi.advanceTimersByTimeAsync(2500);
+    await vi.advanceTimersByTimeAsync(2500);
+
+    await waitFor(() => expect(onCredentialsChanged).toHaveBeenCalled());
+    expect(screen.queryByText(/lost contact/i)).toBeNull();
+    expect(screen.queryByText(/Render error:/i)).toBeNull();
+  });
+
   // #F3 — two consecutive failures, then success: the login completes.
   it("two consecutive poll failures do not abort the login", async () => {
     global.fetch = mockPollFetch(["fail", "fail", "ok"], { n: 0 }) as typeof fetch;

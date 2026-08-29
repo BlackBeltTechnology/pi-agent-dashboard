@@ -315,4 +315,26 @@ describe("credential writes refuse to clobber un-backed-up bytes", () => {
     writeCredential("openai", { type: "api_key", key: "sk-mode" });
     expect(fs.statSync(authPath).mode & 0o777).toBe(0o600);
   });
+
+  // CodeRabbit Y5NU — a legacy world-readable file normalizes to owner-only
+  // on the next healthy write instead of being preserved forever.
+  it("a healthy write normalizes a 0644 auth.json to 0600", async () => {
+    const { writeCredential } = await storage();
+    writeAuthFile('{"anthropic":{"type":"oauth","refresh":"r","access":"a","expires":1}}');
+    fs.chmodSync(authPath, 0o644);
+    writeCredential("openai", { type: "api_key", key: "sk-norm" });
+    expect(fs.statSync(authPath).mode & 0o777).toBe(0o600);
+  });
+
+  // CodeRabbit Y5NZ — writeFileSync's mode applies only at creation, so a
+  // stale permissive auth.json.tmp must be chmod'ed before the rename.
+  it("a stale world-readable auth.json.tmp does not leak into the renamed file", async () => {
+    const { writeCredential } = await storage();
+    fs.mkdirSync(authDir, { recursive: true });
+    fs.writeFileSync(path.join(authDir, "auth.json.tmp"), "stale");
+    fs.chmodSync(path.join(authDir, "auth.json.tmp"), 0o644);
+    writeCredential("openai", { type: "api_key", key: "sk-tmp" });
+    expect(fs.statSync(authPath).mode & 0o777).toBe(0o600);
+    try { fs.rmSync(path.join(authDir, "auth.json.tmp"), { force: true }); } catch { /* gone */ }
+  });
 });

@@ -70,6 +70,24 @@ it("a non-array 200 body renders an inline error without a TypeError", async () 
   expect(queryByText(/Render error:/i)).toBeNull();
 });
 
+// A rejected fetch (network failure) must degrade the same way as a 500.
+it("a network failure renders an inline error and keeps the section mounted", async () => {
+  vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+    if (url.includes("/api/provider-auth/status")) {
+      throw new TypeError("simulated network failure");
+    }
+    return mockHandlersOk()(url);
+  }));
+
+  const { getByTestId, getByText, queryByText } = render(<ProviderAuthSection />);
+
+  await waitFor(() => {
+    expect(getByTestId("provider-auth-status-error")).toBeTruthy();
+  });
+  expect(getByText(/Subscriptions \(OAuth\)/i)).toBeTruthy();
+  expect(queryByText(/Render error:/i)).toBeNull();
+});
+
 // #F5 — the error state clears when a user-triggered refresh succeeds.
 it("retry after a failure replaces the inline error with the provider rows", async () => {
   let statusCalls = 0;
