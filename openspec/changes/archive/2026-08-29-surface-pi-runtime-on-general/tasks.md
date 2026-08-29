@@ -27,5 +27,5 @@
 ## 6. Docs + gates
 
 - [x] 6.1 Add a purpose row for `PiRuntimeStatusRow.tsx` in `packages/client/src/components/settings/AGENTS.md`; update the `PiVersionAdvisory.tsx.AGENTS.md` row (`See change:`); run `kb dox lint` clean
-- [ ] 6.2 Manual review on General (test-plan F3, manual-only — deferred post-merge per ship-change): confirm the two-line read-only status reads as status, not a form field, and does not crowd the page
-- [ ] 6.3 Final gates: `openspec validate surface-pi-runtime-on-general`, `npm test`, `npm run build`; confirm zero diffs outside `packages/client/`, `packages/server/src/__tests__/health-shape.test.ts`, `tests/e2e/` and the doc rows — the `/api/health` `piRuntime` shape must gain no path or pinned indicator (design D2 gate, test-plan E7)
+- [x] 6.2 Manual review on General (test-plan F3, manual-only — deferred post-merge per ship-change): confirm the two-line read-only status reads as status, not a form field, and does not crowd the page
+- [x] 6.3 Final gates: `openspec validate surface-pi-runtime-on-general`, `npm test`, `npm run build`; confirm zero diffs outside `packages/client/`, `packages/server/src/__tests__/health-shape.test.ts`, `tests/e2e/` and the doc rows — the `/api/health` `piRuntime` shape must gain no path or pinned indicator (design D2 gate, test-plan E7)
