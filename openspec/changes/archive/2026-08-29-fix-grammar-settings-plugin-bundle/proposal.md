@@ -24,8 +24,13 @@ omission and closes that spec gap.
 
 ## What Changes
 
-- Add `"grammar-settings-plugin"` to `BUNDLED_PLUGINS` in
-  `packages/electron/scripts/bundle-server.mjs` so it is copied into `resources/plugins/`.
+> **Recheck (at archive time):** the code fix below was **superseded** before it landed.
+> `make-grammar-fully-plugin-contained` (archived 2026-07-22) absorbed `grammar-settings-plugin`
+> into `grammar-plugin`, which is already in `BUNDLED_PLUGINS`. `bundled-plugins-complete.test.ts`
+> is green (4/4). Only the spec codification below is delivered by this change.
+
+- ~~Add `"grammar-settings-plugin"` to `BUNDLED_PLUGINS` in
+  `packages/electron/scripts/bundle-server.mjs`~~ — superseded; `grammar-plugin` covers it.
 - Codify the completeness invariant in the `electron-build-pipeline` spec: every non-fixture
   runtime plugin in `packages/*` (not bundled as a workspace package) MUST be in
   `BUNDLED_PLUGINS`, and every entry MUST map to an existing runtime plugin — mirroring what
