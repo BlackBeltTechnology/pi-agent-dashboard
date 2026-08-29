@@ -305,8 +305,8 @@ describe("ConnectionManager", () => {
     cm.disconnect();
   });
 
-  describe("updateUrl", () => {
-    it("triggers reconnect when URL changes", () => {
+  describe("retargetTo", () => {
+    it("triggers reconnect when URL changes", async () => {
       const cm = new ConnectionManager({
         url: "ws://localhost:9999",
         WebSocketImpl: MockWebSocket,
@@ -316,9 +316,12 @@ describe("ConnectionManager", () => {
       MockWebSocket.instances[0].simulateOpen();
       expect(MockWebSocket.instances).toHaveLength(1);
 
-      cm.updateUrl("ws://remote:9999");
+      // Established but never registered (cold-start window): migration is
+      // free, no health check required.
+      const accepted = await cm.retargetTo("ws://remote:9999", { trigger: "test" });
+      expect(accepted).toBe(true);
 
-      // Old connection closed, reconnect scheduled
+      // Old connection closed, candidate dialed
       vi.advanceTimersByTime(1000);
       expect(MockWebSocket.instances.length).toBeGreaterThan(1);
       const last = MockWebSocket.instances[MockWebSocket.instances.length - 1];
@@ -327,7 +330,7 @@ describe("ConnectionManager", () => {
       cm.disconnect();
     });
 
-    it("is a no-op when URL is the same", () => {
+    it("is a no-op when URL is the same", async () => {
       const cm = new ConnectionManager({
         url: "ws://localhost:9999",
         WebSocketImpl: MockWebSocket,
@@ -337,8 +340,9 @@ describe("ConnectionManager", () => {
       MockWebSocket.instances[0].simulateOpen();
       const countBefore = MockWebSocket.instances.length;
 
-      cm.updateUrl("ws://localhost:9999");
+      const accepted = await cm.retargetTo("ws://localhost:9999", { trigger: "test" });
 
+      expect(accepted).toBe(true);
       vi.advanceTimersByTime(2000);
       expect(MockWebSocket.instances.length).toBe(countBefore);
 

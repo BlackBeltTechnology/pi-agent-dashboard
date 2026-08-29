@@ -9,3 +9,5 @@ Pure endpoint decision logic for the bridge. The ONLY place an endpoint is chose
 
 Tests: `__tests__/endpoint-resolution.test.ts` (test-plan E7, E8, E9, E12).
 See change: add-pi-gateway-transport-identity (D3, D4).
+
+`isLoopbackHost(host)` / `isLoopbackEndpoint(url)` (fix-bridge-mdns-migration-hijack): PURE lexical loopback classification — `localhost`/`*.localhost`/`127.x`/`::1` are loopback; everything else, including every `*.local` mDNS name, is remote. Deliberately no DNS: the ambiguous "`.local` resolves loopback" shape is removed at the source by the advertisement gate, and strictness can only decline a migration, never adopt a wrong endpoint. Default classifier injected into `ConnectionManager` (D3 invariant).

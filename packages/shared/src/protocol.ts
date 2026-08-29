@@ -76,7 +76,7 @@ export interface InboundDropReportMessage {
 }
 
 /** Which transport fact a bridge is reporting. */
-export type BridgeDiagnosticEvent = "endpoint_resolved" | "retarget_refused";
+export type BridgeDiagnosticEvent = "endpoint_resolved" | "retarget_refused" | "retarget_accepted";
 
 /**
  * Bridge -> server: how this bridge chose its endpoint, and every refusal to

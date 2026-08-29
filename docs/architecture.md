@@ -3054,6 +3054,7 @@ The dashboard uses mDNS (via `bonjour-service`) for zero-config server discovery
 3. **Auto-start** — if no server found and `autoStart` is enabled, spawn detached server
 
 ### Server Advertisement
+- **Advertisement honesty** — `advertiseDashboard(port, piPort, {bindHost})` (`packages/shared/src/mdns-discovery.ts`). Gate: `shouldAdvertise(bindHost)`. Bind loopback (`127.x`/`::1`/`localhost`) → publish NOTHING. Unset/`0.0.0.0`/`::`/LAN → advertise. Server passes `{bindHost: config.host}` at advertise time (`packages/server/src/server.ts`). Reason: loopback-bound server advertising LAN hostname = unreachable poison record.
 - On startup, the server publishes a `_pi-dashboard._tcp` mDNS service with TXT record: `{ version, pid, piPort }`
 - On shutdown, the service is unpublished
 - A continuous mDNS browser discovers peer servers and broadcasts updates to connected browsers via `servers_discovered`/`servers_updated` WebSocket messages
@@ -3062,6 +3063,7 @@ The dashboard uses mDNS (via `bonjour-service`) for zero-config server discovery
 - Bridge extensions use the mDNS discovery chain instead of bare TCP port probes
 - `isDashboardRunning(port)` replaces `isPortOpen(port)` for identity-verified detection
 - After auto-starting, the bridge waits up to 10s for the server's mDNS advertisement
+- **Migration guard** (change: fix-bridge-mdns-migration-hijack) — `ConnectionManager.retargetTo(url, {trigger, verify?})` (`packages/extension/src/connection.ts`) replaces `updateUrl`. Gates, in order: cooldown (60s, `MIGRATION_COOLDOWN_MS`) → established+registered protection → candidate health probe `GET /api/health` `{ok:true}` BEFORE dropping incumbent (`verify`, wired to `probeEndpointReachability`, `packages/extension/src/instance-verification.ts`) → localhost preference (remote candidate never displaces established loopback connection; pure/lexical classification: `isLoopbackEndpoint`, `packages/extension/src/endpoint-resolution.ts`). Reversibility: 4 failed opens (`MIGRATION_MAX_FAILED_OPENS`) against migrated endpoint → return to `lastRegisteredUrl`, reset backoff, cooldown rejected endpoint. `noteRegistered()` marks last registered endpoint (bridge calls at initial `session_register` + `sendStateSync`). Every accepted/refused decision emits `onMigrationEvent` → `bridge_diagnostic` events `retarget_accepted` / `retarget_refused` (protocol `BridgeDiagnosticEvent`) — server-visible under default `keeperLog.capturePiOutput=false`.
 
 ### Known Servers
 - Users can persist remote servers in `config.json` via `knownServers: KnownServer[]`

@@ -62,7 +62,7 @@ import {
 import { createFollowupBuffer } from "./followup-buffer.js";
 import { runGitPollTick } from "./git-poll.js";
 import { flipHasUI } from "./hasui-flip.js";
-import { healthUrlForInstance, verifyInstanceIdentity } from "./instance-verification.js";
+import { healthUrlForInstance, probeEndpointReachability, verifyInstanceIdentity } from "./instance-verification.js";
 import { localTokenHeaders } from "./local-token-header.js";
 import { inlineMessageText, type ReadFileOutcome } from "./markdown-image-inliner.js";
 import { reportRefresh } from "./model-refresh.js";
@@ -1001,11 +1001,33 @@ function initBridge(pi: ExtensionAPI) {
   // biome-ignore lint/style/useConst: reassigned by the move command below.
   let connection = new ConnectionManager({
     url: dashboardUrl,
+    // fix-bridge-mdns-migration-hijack (D5): every migration decision —
+    // accepted or refused, including a reversibility fallback — is reported
+    // through this single chokepoint. `console.log` serves capture-enabled
+    // runs; `bridge_diagnostic` serves the default, where pi's stdout is
+    // discarded and server.log is the only durable record. A re-target
+    // cannot occur without a corresponding record.
+    onMigrationEvent: (r) => {
+      const detail = `${r.from} -> ${r.to} (${r.trigger}): ${r.accepted ? "accepted" : "refused"} — ${r.reason}`;
+      console.log(`[dashboard] bridge migration ${detail}`);
+      transportDiagnostics.record({
+        event: r.accepted ? "retarget_accepted" : "retarget_refused",
+        detail,
+      });
+    },
     // D6 (task 5.3): a LOOPBACK TCP dial carries this HOME's local token, the
     // credential that replaces the socket's file mode where there is no socket
     // (Windows, or a sun_path fallback). Undefined over a socket and never
     // sent to a remote endpoint.
     headers: localTokenHeaders(dashboardUrl),
+    // Every accepted re-target (and every reversal) re-derives these from the
+    // endpoint actually being dialled — a loopback token must never ride a
+    // dial to a discovered remote host, and a remote candidate needs its own
+    // bridge ticket. (CodeRabbit review, fix-bridge-mdns-migration-hijack.)
+    credentialsFor: (u) => ({
+      headers: localTokenHeaders(u),
+      prepare: () => prepareRemoteUpgrade(u),
+    }),
     // A REMOTE endpoint needs a bridge ticket per attempt (§6 made TCP bridge
     // auth mandatory). Local dials — unix socket or loopback — are authorised
     // by file mode or the local token and mint nothing.
@@ -1918,7 +1940,7 @@ function initBridge(pi: ExtensionAPI) {
   }
 
   // Local wrappers that sync bc around extracted module calls
-  function sendStateSync() { const bc = syncBc(); _sendStateSync(bc, getFlowsList); applyBc(bc); }
+  function sendStateSync() { const bc = syncBc(); _sendStateSync(bc, getFlowsList); applyBc(bc); connection.noteRegistered(); }
   function replaySessionEntries() { _replaySessionEntries(syncBc()); }
   function sendModelUpdateIfChanged() { const bc = syncBc(); _sendModelUpdateIfChanged(bc); applyBc(bc); }
   function sendSessionNameIfChanged() { const bc = syncBc(); _sendSessionNameIfChanged(bc); applyBc(bc); }
@@ -3174,6 +3196,12 @@ function initBridge(pi: ExtensionAPI) {
       ...buildVisibilityRegisterFields(cachedHasUI, process.env),
     });
 
+    // The register above just went out (live socket, or buffered for the
+    // open — either way the manager learns its last-registered endpoint for
+    // the migration gate's reversal target).
+    // See change: fix-bridge-mdns-migration-hijack (task 2.1).
+    connection.noteRegistered();
+
     // Allow event forwarding now that session_register is buffered
     sessionReady = true;
 
@@ -3339,28 +3367,44 @@ function initBridge(pi: ExtensionAPI) {
       stopSpinner(); // safety net — covers onLaunchEnd not firing
       if (result.server && result.server.piPort !== config.piPort) {
         const candidateUrl = `ws://${result.server.host === "localhost" ? "localhost" : result.server.host}:${result.server.piPort}`;
-        // D3/D4: a DISCOVERED candidate may suggest, never override. Before
-        // this gate an explicit `PI_DASHBOARD_URL` could be silently replaced
-        // by whatever mDNS answered, and the only defence was remembering
-        // `PI_DASHBOARD_NO_MDNS` — that is the hijack.
-        const decision = decideRetarget({
-          current: { endpoint: dashboardUrl, instanceId: registeredInstanceId },
-          candidate: { endpoint: candidateUrl },
-          pinned: endpointPinned,
-          failed: !connection.isConnected,
-          // A discovered candidate has proved nothing about who it is; identity
-          // verification is the remote-pinning path (D8), not this one.
-          identityVerified: false,
-        });
-        // Task 10.2: every refusal names both endpoints.
-        const retargetDetail = `${dashboardUrl} -> ${candidateUrl}: ${
-          decision.retarget ? "accepted" : decision.reason
-        }`;
-        console.log(`[dashboard] re-target ${retargetDetail}`);
-        if (!decision.retarget) {
-          transportDiagnostics.record({ event: "retarget_refused", detail: retargetDetail });
+        // fix-bridge-mdns-migration-hijack: a DISCOVERED candidate only
+        // SUGGESTS. Whether the connection follows it is decided — and
+        // recorded — by `ConnectionManager.retargetTo`, which refuses to
+        // drop an established, registered connection until the candidate has
+        // PROVEN reachable (`GET /api/health` → `{ok:true}`, D1), honours
+        // localhost preference against a remote candidate (D3), and returns
+        // to the last registered endpoint if the candidate dies after
+        // adoption (D2). The blanket refusal this replaces also blocked
+        // every LEGITIMATE migration (a server that really moved).
+        if (endpointPinned) {
+          // D3 (add-pi-gateway-transport-identity): a pinned endpoint
+          // refuses every re-target. The refusal stays on the record (10.2).
+          const decision = decideRetarget({
+            current: { endpoint: dashboardUrl, instanceId: registeredInstanceId },
+            candidate: { endpoint: candidateUrl },
+            pinned: true,
+            failed: false,
+            identityVerified: false,
+          });
+          const refusedDetail = `${dashboardUrl} -> ${candidateUrl}: ${decision.reason}`;
+          console.log(`[dashboard] re-target ${refusedDetail}`);
+          transportDiagnostics.record({ event: "retarget_refused", detail: refusedDetail });
+          return;
         }
-        if (decision.retarget) connection.updateUrl(candidateUrl);
+        const trigger = `mdns discovery (${result.server.host}:${result.server.port}, gateway ${result.server.piPort})`;
+        // The health probe runs on the candidate's HTTP port — the record's
+        // `port`, not the gateway port — and completes BEFORE the incumbent
+        // is dropped (retargetTo owns that ordering).
+        const healthUrl = `http://${result.server.host}:${result.server.port}/api/health`;
+        connection
+          .retargetTo(candidateUrl, {
+            trigger,
+            verify: () => probeEndpointReachability({ healthUrl }),
+          })
+          .then((accepted) => {
+            console.log(`[dashboard] re-target ${dashboardUrl} -> ${candidateUrl}: ${accepted ? "accepted" : "refused by migration gate"}`);
+          })
+          .catch((err: unknown) => console.error("[dashboard] re-target decision failed:", err));
       }
     }).catch(() => { stopSpinner(); });
 
