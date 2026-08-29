@@ -82,6 +82,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `oversized-event-liveness.spec.ts` | Playwright E2E for the per-event size ceiling (change: bound-subagent-event-serialization). → see `oversized-event-liveness.spec.ts.AGENTS.md` |
 | `package-queue-visible.spec.ts` | Browser E2E gate for `unify-pi-core-into-package-queue` (D9 rewritten — visible queue). → see `package-queue-visible.spec.ts.AGENTS.md` |
 | `pairing-qr.spec.ts` | Browser E2E for the camera-scannable pairing QR (change: make-pairing-qr-camera-scannable). → see `pairing-qr.spec.ts.AGENTS.md` |
+| `security-pair-link.spec.ts` | Browser E2E for the Security→Gateway pairing link, test-plan F3 (change: collapse-pairing-into-gateway). → see `security-pair-link.spec.ts.AGENTS.md` |
 | `pi-runtime-picker.spec.ts` | L3 spec for the Settings → Developer "Pi runtime" picker (test-plan #F1-#F17, #X13). → see `pi-runtime-picker.spec.ts.AGENTS.md` |
 | `plugin-settings-pages.spec.ts` | L3 spec (test-plan rows F1-F14, X1-X5, X7; change: plugin-settings-pages). → see `plugin-settings-pages.spec.ts.AGENTS.md` |
 | `popover-container-clip.spec.ts` | Browser E2E gate for `fix-popover-container-clip` (F5–F8, F11–F12). → see `popover-container-clip.spec.ts.AGENTS.md` |

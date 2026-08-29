@@ -71,6 +71,38 @@ function present(s: string | undefined): string | undefined {
   return t ? t : undefined;
 }
 
+/**
+ * Loopback hosts, lexically: the reserved localhost names plus the loopback
+ * literal addresses. Hostname-as-hint classification (design D3): a `*.local`
+ * mDNS name is REMOTE even though some such names resolve to loopback — the
+ * poisoned advertisement was exactly a `*.local` name, and treating it as
+ * remote is the strict side of the rule: it can only decline a migration,
+ * never adopt a wrong endpoint, and the health gate still guards any
+ * legitimate move. DNS resolution is deliberately NOT performed here — the
+ * ambiguous "`.local` that resolves loopback" shape is removed at the source
+ * by the advertisement gate, and reachability is verified independently.
+ */
+function isLoopbackHost(host: string): boolean {
+  const h = host.trim().toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
+  if (h === "localhost" || h.endsWith(".localhost")) return true;
+  if (h === "::1") return true;
+  if (/^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) return true;
+  return false;
+}
+
+/**
+ * {@link isLoopbackHost} for a URL (any scheme). A URL that cannot be parsed
+ * classifies REMOTE: the strict side never displaces an established loopback
+ * connection on a guess.
+ */
+export function isLoopbackEndpoint(url: string): boolean {
+  try {
+    return isLoopbackHost(new URL(url).hostname);
+  } catch {
+    return false;
+  }
+}
+
 /** `ws+unix://<path>:/` — the `ws` package's unix-socket URL form. */
 function socketUrl(socketPath: string): string {
   return `ws+unix://${socketPath}:/`;

@@ -140,7 +140,8 @@ export function GatewayDialog({ onClose }: { onClose: () => void }) {
         )}
         {tab === "access" && (
           <div className="space-y-4">
-            <GatewayPairQR />
+            {/* The no-secure-road setup action switches to the Setup tab (D3a). */}
+            <GatewayPairQR onSetupRequested={() => setTab("setup")} />
             <div className="h-px bg-[var(--border-primary)]" />
             <GatewayEndpoints />
           </div>

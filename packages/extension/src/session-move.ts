@@ -1,10 +1,10 @@
 /**
  * Explicit session move: overlap the two connections, then commit (D11).
  *
- * `ConnectionManager` owns exactly one socket, and `updateUrl()` sets the URL
- * and immediately tears the socket down. That is a GAP, not a handover — the
- * origin dies before the target exists, and whatever is sent meanwhile is
- * buffered against a socket that never returns.
+ * `ConnectionManager` owns exactly one socket, and a re-target (`retargetTo()`
+ * — formerly `updateUrl()`) tears the socket down. That is a GAP, not a
+ * handover — the origin dies before the target exists, and whatever is sent
+ * meanwhile is buffered against a socket that never returns.
  *
  * So the move is coordinated ABOVE the connection rather than inside it: two
  * connections exist briefly, and the swap happens at a single instant. The

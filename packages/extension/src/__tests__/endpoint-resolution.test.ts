@@ -10,6 +10,7 @@
  */
 import { describe, expect, it } from "vitest";
 import {
+  isLoopbackEndpoint,
   decideRetarget,
   type EndpointInputs,
   type EndpointSource,
@@ -175,5 +176,35 @@ describe("instance id file for a pinned local socket", () => {
     ["an empty path", ""],
   ])("returns undefined for %s", (_label, input) => {
     expect(instanceIdFileForSocket(input)).toBeUndefined();
+  });
+});
+
+describe("isLoopbackEndpoint", () => {
+  // Localhost preference classifies by the endpoint's host, treating the
+  // hostname as a hint: loopback literals and the reserved localhost names
+  // are loopback; everything else — including a `*.local` mDNS name — is
+  // remote. (The poisoned advertisement in fix-bridge-mdns-migration-hijack
+  // was exactly a `*.local` name, so it must classify remote.)
+  it.each([
+    ["ws://localhost:9999"],
+    ["ws://LOCALHOST:9999"],
+    ["ws://127.0.0.1:9999"],
+    ["ws://127.8.8.8:9999"],
+    ["ws://[::1]:9999"],
+    ["ws://sub.localhost:9999"],
+    ["http://localhost:8478/api/health"],
+  ])("classifies %s as loopback", (url) => {
+    expect(isLoopbackEndpoint(url)).toBe(true);
+  });
+
+  it.each([
+    ["ws://home-imac-54922.local:9594"],
+    ["ws://192.168.1.10:9594"],
+    ["ws://example.com:9999"],
+    ["ws://0.0.0.0:9999"],
+    [""],
+    ["not a url"],
+  ])("classifies %s as remote", (url) => {
+    expect(isLoopbackEndpoint(url)).toBe(false);
   });
 });

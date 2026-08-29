@@ -16,6 +16,19 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **Reindex is reachable again from the KB settings page.** The `→` pill's
+  fallback path was a dead end: the footer only offered `Save + Reindex`, which
+  is disabled on a clean form, so a folder with a correct-but-stale config had
+  no way to rebuild without editing it — and `origin=global` folders had no
+  reindex control at all. A standalone **`Reindex now`** now sits in both
+  footer branches, gated on the folder's server-resolved sources — the same
+  list the reindex job walks — never on unsaved form edits or config origin,
+  and it is disabled with a visible reason when there is nothing to index.
+  The page also stops contradicting itself: the bootstrap banner and the
+  sources notice no longer predict "indexes nothing" while a live chunk count
+  is displayed, and the error region now surfaces rebuild-trigger and poll
+  failures with a fixed user-initiated-first precedence.
+
 - **Corrupt `auth.json` no longer breaks the dashboard or loses credentials.**
   An empty or truncated `~/.pi/agent/auth.json` (interrupted write, crashed pi)
   used to make `GET /api/provider-auth/status` return

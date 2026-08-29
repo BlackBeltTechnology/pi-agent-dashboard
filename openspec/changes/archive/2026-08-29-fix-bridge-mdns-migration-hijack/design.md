@@ -83,15 +83,16 @@ event channel rather than adding a log sink.
   Probe only when a migration is actually proposed for an established
   connection, not on every browse event.
 - **`*.local` classification is not purely lexical** — a `.local` name can
-  resolve to a loopback address. → Classify by resolved address, with the
-  hostname as a hint only.
+  resolve to a loopback address. → Classify lexically, never by resolving
+  DNS (the hostname is a hint, not the truth): a loopback-bound server never
+  advertises (D4), and the admission gate re-checks the candidate's actual
+  reachability before any adoption.
 - **Return-to-last-good could ping-pong** between two endpoints that both fail
   intermittently. → Bound the exchange: after returning to last-good, a further
   migration to the same rejected endpoint must wait out a cooldown.
 - **The cwd asymmetry is unexplained**, so a second factor may exist that this
   design does not address. → The fix is behavioural (never adopt an unreachable
   endpoint) and holds regardless of what triggers the migration.
-
 ## Migration Plan
 
 No data or schema migration. Ship in `packages/extension` plus the server's mDNS
@@ -105,10 +106,51 @@ occurred naturally here and is reproducible in a test harness.
 ## Open Questions
 
 - Why is a session whose cwd is the dashboard's own repo immune? Six other cwds
-  migrated; that control never did, twice, two hours apart.
+  migrated; that control never did, twice, two hours apart. (Filed as its own
+  investigation: `openspec/changes/investigate-bridge-cwd-asymmetric-immunity/`.)
 - Should a bridge ever migrate away from a *registered* connection at all, absent
   an explicit user action such as the server switcher? D1–D3 keep the capability
   and constrain it; forbidding it outright is simpler but would break the
   server-moved recovery path.
-- What is the right N and cooldown for D2? Needs a number grounded in real
-  restart timings, not a guess.
+- ~~What is the right N and cooldown for D2?~~ RESOLVED (task 3.4): **N = 4
+  failed opens, cooldown = 60 s**. Basis: the reconnect backoff is
+  1s → 2s → 4s → 8s, so the fourth failure lands ~15 s after adoption; a
+  deliberate server restart (`POST /api/restart`) answers again within ~5–10 s,
+  so 4 attempts ride out a real restart while still returning the bridge to the
+  working endpoint within seconds of a mistaken migration. The 60 s cooldown
+  outlives the window in which a flapping pair would otherwise swap on every
+  discovery tick, while leaving a deliberate re-discovery a minute later
+  unaffected. Constants live in `ConnectionManager`
+  (`MIGRATION_MAX_FAILED_OPENS`, `MIGRATION_COOLDOWN_MS`), overridable via
+  constructor options for tests.
+
+## Resolution Notes (implementation)
+
+- **Classification is lexical.** Loopback = `localhost`/`*.localhost`/`127.x`
+  /`::1`; everything else — including every `*.local` mDNS name — is remote.
+  DNS resolution inside the gate was rejected: it adds latency and failure
+  modes to the migration path, and the ambiguous "`.local` that resolves to
+  loopback" shape is removed at the source by D4 (a loopback-bound server no
+  longer advertises at all), with the health probe as backstop. Treating a
+  loopback-resolving `.local` as remote is the strict side of the rule: it can
+  only decline a migration, never adopt a wrong endpoint.
+- **Gate order**: cooldown → establishment status → health probe → localhost
+  preference. The probe runs before the preference rule so a refusal names the
+  candidate's actual failure (D5's "failure reason"), matching the spec's own
+  scenario order ("reachable" first, "preferred under the localhost-preference
+  rule" second).
+- **`updateUrl` is gone.** The ambient mutation is replaced by the explicit,
+  gated `retargetTo(url, {trigger, verify?})`; the per-attempt ticket override
+  now applies to the dial only, so the base endpoint is never mutated by
+  preparation and `lastRegisteredUrl` always names the real endpoint.
+- **`session_register` "acknowledged"** means sent on a LIVE socket (the
+  server's only register response is a terminal `register_rejected`; silence
+  is success). The bridge notes registration at the initial register and in
+  `sendStateSync()`; a note taken while the socket is still connecting is
+  promoted on open, when the buffered register flushes.
+- **Other discovery consumers audited (task 7.2)** — none replaces a working
+  connection: the server's mDNS browser feeds only the display-only peer list
+  (`servers_updated` broadcast); the config-probe fallback already
+  health-checks before returning; the client's network-discovery scan is
+  user-initiated display. The bridge's re-target site was the only place a
+  discovered endpoint could displace a working one.

@@ -2549,8 +2549,15 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         if (mdnsDisabled) {
           console.log("mDNS: advertising disabled (PI_DASHBOARD_NO_MDNS)");
         } else {
-          advertiseDashboard(config.port, config.piPort);
-          console.log(`mDNS: advertising _pi-dashboard._tcp on port ${config.port}`);
+          // The verdict names skips honestly: a loopback-bound server must not
+          // log "advertising" when nothing was published. (CodeRabbit review,
+          // fix-bridge-mdns-migration-hijack.)
+          const verdict = advertiseDashboard(config.port, config.piPort, { bindHost: config.host });
+          if (verdict.advertise) {
+            console.log(`mDNS: advertising _pi-dashboard._tcp on port ${config.port}`);
+          } else {
+            console.log(`mDNS: ${verdict.reason}`);
+          }
         }
       } catch (err) {
         console.warn(`mDNS advertisement failed (will continue without):`, err);

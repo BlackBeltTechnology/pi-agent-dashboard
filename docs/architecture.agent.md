@@ -76,7 +76,7 @@ Web dashboard monitors + interacts with pi sessions. Three components + shared t
   - Genuine-local trust — D10. `isGenuinelyLocal(ip,headers)` loopback AND no proxy header.
   - CORS default — `https://pi-dashboard.dev` + `*.share.zrok.io`. `cors.allowedOrigins`.
   - Versioned protocol — D9. `PAIRING_PROTOCOL_VERSION`, `SUPPORTED_PAIRING_VERSIONS`.
-  - Operator pairing view (client) — `PairingView.tsx`. Settings→Security. `GET /api/pair/payload`. `qrcode` dep.
+  - Operator pairing view (client) — `GatewayPairQR.tsx`. Gateway page + Gateway dialog. `GET /api/pair/payload`. `qrcode` dep. Sole pairing surface; Settings→Security links to it. See change: collapse-pairing-into-gateway.
 - Settings Panel — gear icon → `/settings`. `GET /api/config` (secrets `***`).
 - Reconnection Flow — browser reconnect `subscribe{lastSeq}`. Server replays missed events, batches of 50 backpressure.
 - Bridge Reconnection (State Reset) — `session_register` with `eventCount` re-registers.
