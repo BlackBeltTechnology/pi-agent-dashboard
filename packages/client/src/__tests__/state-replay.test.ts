@@ -100,12 +100,19 @@ describe("replayEntriesAsEvents", () => {
     expect(replayEntriesAsEvents("sess-1", [])).toEqual([]);
   });
 
-  it("should skip unknown entry types", () => {
+  it("forwards generic custom entries as custom_entry; still skips unknown entry types", () => {
+    // render-inline-reasoning-and-custom-entries: a generic `type: "custom"`
+    // entry is NO LONGER skipped — it synthesizes the `custom_entry` protocol
+    // event so the chat renders it (the bug being fixed is invisibility).
+    // Genuinely unknown entry types (compaction, label, …) stay skipped.
     const entries = [
       { type: "custom", id: "e1", customType: "foo", data: {} },
       { type: "compaction", id: "e2", summary: "..." },
     ];
-    expect(replayEntriesAsEvents("sess-1", entries)).toEqual([]);
+    const events = replayEntriesAsEvents("sess-1", entries);
+    expect(events).toHaveLength(1);
+    expect(events[0].event.eventType).toBe("custom_entry");
+    expect(events[0].event.data).toMatchObject({ customType: "foo", entryId: "e1" });
   });
 
   it("should generate stats_update event from assistant message with usage data", () => {

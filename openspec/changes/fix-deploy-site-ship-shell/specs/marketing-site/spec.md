@@ -36,22 +36,36 @@ surface in sync without manual editing.
 #### Scenario: Release publish updates the committed cache
 
 - **GIVEN** a maintainer publishes a new GitHub release
-- **WHEN** the `sync-release-version` workflow runs
+- **WHEN** the release pipeline dispatches `sync-release-version` on `develop`
 - **THEN** it writes the latest release metadata to
   `site/src/data/latest-release.json` and, if the content changed,
   commits the file back to `develop` with a message of the form
   `chore(site): sync latest-release.json to <tag>`
 
-#### Scenario: Release event redispatches the deploy workflow on develop
+#### Scenario: A release event cannot start the redeploy, so the pipeline dispatches it
+
+- **GIVEN** `publish.yml` creates the GitHub Release with the default Actions token, and GitHub
+  suppresses workflow runs from events raised by that token — so the resulting `release` event
+  CANNOT start a run, and historically never has
+- **WHEN** the `github-release` job completes successfully
+- **THEN** `publish.yml` SHALL dispatch `sync-release-version.yml` and then `deploy-site.yml`, each
+  via `workflow_dispatch` with `--ref develop`, because `workflow_dispatch` is an explicit exception
+  that always creates a run even when triggered by the default token
+- **AND** the `deploy-site.yml` dispatch SHALL follow the `sync-release-version` run's completion, so
+  the build observes the committed cache rather than racing it
+- **AND** the dispatched run builds the site with fresh release data and publishes via
+  `actions/deploy-pages@v4`
+- **AND** `--ref develop` SHALL be preserved on both dispatches, because the `github-pages`
+  environment rejects deploys from a tag ref
+
+#### Scenario: The dead release path is absent from the deploy workflow
 
 - **GIVEN** the deploy-site workflow
-- **WHEN** a GitHub release is published
-- **THEN** the `release: { types: [published] }` trigger fires on the tag ref, and because the
-  `github-pages` environment rejects deploys from a non-default ref, the workflow SHALL NOT build or
-  deploy inline
-- **AND** it SHALL re-dispatch itself on `develop` via `gh workflow run deploy-site.yml --ref develop`
-- **AND** that dispatched run builds the site with fresh release data and publishes via
-  `actions/deploy-pages@v4`
+- **WHEN** its triggers and job graph are inspected
+- **THEN** it SHALL NOT declare a `release:` trigger, SHALL NOT contain a `redispatch-on-release`
+  job, and SHALL NOT gate any job on `github.event_name != 'release'` — none of which can ever
+  execute, and whose presence misleads readers into believing the redeploy is automatic
+- **AND** `workflow_dispatch` SHALL remain available for manual redeploys
 
 ### Requirement: GitHub Pages deployment via GitHub Actions
 

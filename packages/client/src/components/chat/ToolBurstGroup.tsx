@@ -300,6 +300,7 @@ function BurstBodyItem({
         autoCollapseMs={prefs.reasoningAutoCollapseMs}
         keepOpenUntilTurnEnds={prefs.keepReasoningOpenUntilTurnEnds}
         turnActive={turnActive}
+        inlineFlow={prefs.reasoningInlineFlow}
       />
     );
   }

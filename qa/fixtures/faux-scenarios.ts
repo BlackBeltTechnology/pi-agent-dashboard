@@ -399,6 +399,20 @@ export const SUPERSEDE_HEAL_MARKER = "supersede-heal follow-up landed";
  */
 export const OVERSIZED_TURN_MARKER = "oversized-turn complete";
 
+/**
+ * Completion marker for the `custom-entries` scenario (change:
+ * render-inline-reasoning-and-custom-entries). The scenario drives the REAL
+ * custom-entry surfaces through the `e2e_custom_message` / `e2e_custom_entry`
+ * fixture tools: a display:true custom message, a display:false one, a short
+ * appendEntry entry, and a 300-line appendEntry entry (truncation parity).
+ */
+export const CUSTOM_ENTRIES_TAIL = "all custom entries sent";
+
+export const CUSTOM_MESSAGE_VISIBLE = "visible custom message body";
+export const CUSTOM_MESSAGE_HIDDEN = "llm-only custom message body";
+export const CUSTOM_ENTRY_SHORT_TYPE = "e2e:state";
+export const CUSTOM_ENTRY_LONG_TYPE = "e2e:big";
+
 export const SCENARIOS: Record<string, Scenario> = {
   // ── Server-side round-trip scenarios ────────────────────────────────────
   "plain-text": {
@@ -546,6 +560,27 @@ export const SCENARIOS: Record<string, Scenario> = {
       ]),
     ],
     expect: { text: "done thinking" },
+  },
+
+  /**
+   * LONG reasoning block (change: render-inline-reasoning-and-custom-entries,
+   * test-plan #E12/#P1): a body of dozens of lines (30 — ~660px, well past the 400px cap) — genuinely taller than
+   * the 400px cap — so the inline-flow pref's cap removal is observable in the
+   * rendered UI (and the perf gates get a realistic workload).
+   */
+  "thinking-long": {
+    script: [
+      fauxAssistantMessage([
+        fauxThinking(
+          Array.from(
+            { length: 30 },
+            (_, i) => `Reasoning step ${i + 1}: weigh the tradeoff of approach ${(i % 7) + 1}.`,
+          ).join("\n"),
+        ),
+        fauxText("long thinking done"),
+      ]),
+    ],
+    expect: { text: "long thinking done" },
   },
 
   // ── ask_user answer round-trip ──────────────────────────────────────────
@@ -1330,6 +1365,64 @@ export const SCENARIOS: Record<string, Scenario> = {
   "ask-unknown-method": askScenario("totally-unknown-method", {
     title: "Mystery",
   }),
+
+  /**
+   * Custom-entry surfaces end to end (change:
+   * render-inline-reasoning-and-custom-entries). Drives the REAL paths via
+   * the `e2e-custom` fixture extension's tools:
+   * - `e2e_custom_message` display:true  → message_end role=custom → visible row
+   * - `e2e_custom_message` display:false → excluded (LLM-context-only)
+   * - `e2e_custom_entry` short JSON      → custom_entry → generic card
+   * - `e2e_custom_entry` 300-line JSON   → truncation parity live vs replay
+   * Custom MESSAGES are queued and flushed on agent_settled (pi.sendMessage
+   * only steers while streaming); the ENTRY calls flush synchronously.
+   */
+  "custom-entries": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_custom_message", {
+            customType: "e2e:note",
+            content: CUSTOM_MESSAGE_VISIBLE,
+            display: true,
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_custom_message", {
+            customType: "e2e:hidden",
+            content: CUSTOM_MESSAGE_HIDDEN,
+            display: false,
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_custom_entry", {
+            customType: CUSTOM_ENTRY_SHORT_TYPE,
+            data: JSON.stringify({ branch: "main", lines: 3 }),
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_custom_entry", {
+            customType: CUSTOM_ENTRY_LONG_TYPE,
+            data: JSON.stringify({
+              note: Array.from({ length: 300 }, (_, i) => `line-${i + 1}`),
+            }),
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(CUSTOM_ENTRIES_TAIL)]),
+    ],
+    expect: { toolName: "e2e_custom_entry" },
+  },
 };
 
 export type ScenarioId = keyof typeof SCENARIOS;

@@ -229,6 +229,24 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
     echo "[test-entrypoint] PI_E2E_SEED: staged notify driver → ${NOTIFY_EXT_DIR}"
   fi
 
+  # --- Custom-entry driver (change: render-inline-reasoning-and-custom-entries):
+  # the faux model can only emit tool calls, so `pi.sendMessage` /
+  # `pi.appendEntry` need a fixture tool — the `custom-entries` scenario calls
+  # `e2e_custom_message` / `e2e_custom_entry` to drive the REAL bridge forward
+  # + replay paths.
+  CUSTOM_EXT_DIR="${PI_DIR}/agent/extensions/e2e-custom"
+  if [ -f "${FAUX_SRC}/e2e-custom.ext.ts" ]; then
+    # Copy index.ts only when absent; repair the node_modules link whenever
+    # absent — a prior partial seed (index.ts without the link) must still
+    # resolve its imports (CodeRabbit: idempotent seeding).
+    if [ ! -f "${CUSTOM_EXT_DIR}/index.ts" ]; then
+      mkdir -p "${CUSTOM_EXT_DIR}"
+      cp "${FAUX_SRC}/e2e-custom.ext.ts" "${CUSTOM_EXT_DIR}/index.ts"
+      echo "[test-entrypoint] PI_E2E_SEED: staged custom-entry driver → ${CUSTOM_EXT_DIR}"
+    fi
+    [ -e "${CUSTOM_EXT_DIR}/node_modules" ] || ln -sfn /app/node_modules "${CUSTOM_EXT_DIR}/node_modules"
+  fi
+
   # --- Synthetic Agent-tick producer (throttle L3, change: reduce-bridge-tick-
   # bandwidth) --- Registers an `Agent` tool that streams tool_execution_update
   # frames at a deterministic cadence (via a `[[ticks:N@Mms]]` sentinel) for the

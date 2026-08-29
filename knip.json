@@ -336,6 +336,7 @@
     "packages/kb": {
       "entry": [
         "src/index.ts",
+        "src/cli.ts",
         "**/vitest.config.ts",
         "**/__tests__/**/*.test.{ts,tsx}"
       ],

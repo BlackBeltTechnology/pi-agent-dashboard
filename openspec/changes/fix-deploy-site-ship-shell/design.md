@@ -132,12 +132,47 @@ one-line follow-up; leaving it undocumented would be worse than naming it here.
 
 The five corrections are mechanical but easy to re-get-wrong, so the delta pins what each corrected
 scenario asserts: the deploy trigger is `develop`; manual `workflow_dispatch` publishes `develop`
-content; `sync-release-version` pushes `HEAD:develop`; a published release does **not** build inline
-but re-dispatches the workflow on `develop` (because the `github-pages` environment rejects deploys
-from a tag ref); and the custom domain is active via `site/public/CNAME`.
+content; `sync-release-version` pushes `HEAD:develop`; a published release redeploys the site via a
+dispatch from `publish.yml` rather than via any `release:` trigger (see D8); and the custom domain
+is active via `site/public/CNAME`.
 
-The release-redispatch behaviour is the subtle one — a future reader who sees `release: published`
-in the trigger list will assume an inline build unless the scenario says otherwise.
+The release path is the subtle one, and the original framing of this decision got it wrong: it
+described the redispatch as live behaviour a reader might misread as an inline build. In fact the
+redispatch has never executed at all — D8 replaces it.
+
+### D8 — Dispatch the redeploy from `publish.yml`; delete the release trigger
+
+**Problem.** The site is supposed to redeploy on every release and never has. `publish.yml` creates
+the Release with the default Actions token, and GitHub suppresses workflow runs from events raised
+by that token. Verified empirically: `event=release` has never triggered a run in this repository.
+So `sync-release-version.yml` (gated solely on `release` + manual) and `deploy-site.yml`'s `release:`
+trigger plus its `redispatch-on-release` job are all unreachable. The cache sat at `v0.5.4` from
+2026-05-26; at v0.8.0 the live site still advertised 0.7.0 until both were dispatched by hand.
+
+**Chosen: a terminal `publish.yml` job (`needs: github-release`) that dispatches
+`sync-release-version.yml`, waits, then dispatches `deploy-site.yml` — both `--ref develop`.**
+
+The key fact is a documented carve-out: `workflow_dispatch` and `repository_dispatch` *always*
+create workflow runs, even when triggered by the default token. So the existing dispatch body
+(`gh workflow run deploy-site.yml --ref develop`) was correct all along — it was simply hung off an
+event that cannot fire. This change moves it to a real tag-push event and deletes the corpse. That
+also keeps `--ref develop`, which is load-bearing: `github-pages` rejects deploys from a tag ref.
+
+The wait between the two dispatches is not ceremony. `sync-release-version` commits the cache to
+`develop`; a back-to-back dispatch lets `deploy-site` check out `develop` before that commit lands.
+The resulting bug is invisible — the live API fetch masks a stale cache, so the site looks correct
+while its offline fallback silently rots, which is exactly how the cache reached four months stale.
+
+**Rejected: `workflow_call` from `publish.yml`.** A called workflow inherits the caller's ref, and
+`publish.yml` runs on the tag — reintroducing the non-default-ref rejection D7 documents. It looks
+like the tighter coupling and is in fact the broken one.
+
+**Rejected: author the Release with a PAT.** This would revive `release:` triggers repo-wide, but
+buys a long-lived secret to store and rotate for behaviour the dispatch already delivers.
+
+**Residual risk, stated plainly.** Every automated assertion here parses a workflow *file*. None can
+prove an event fired. The change is not proven by green CI — only by the next real tag (test-plan
+#F6, task 6.9).
 
 ### D6 — Regenerate the lockfile wholesale, then verify; pin only if the float bites
 

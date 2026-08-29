@@ -30,7 +30,8 @@ import path from "node:path";
  * infer. `bin`, `main` and `exports` are deliberately excluded: Knip reads
  * those natively, so demanding an explicit entry for them makes this check
  * report gaps that are not gaps (`packages/kb`'s `src/cli.ts` is rooted via
- * `bin` and is correctly absent from the unused-files list).
+ * knip.json's own `entry` — since fix-kb-eval-measurement-integrity the bin is
+ * a shim importing dist at runtime, an edge Knip cannot statically resolve).
  *
  * Pure: returns paths relative to the package dir.
  */

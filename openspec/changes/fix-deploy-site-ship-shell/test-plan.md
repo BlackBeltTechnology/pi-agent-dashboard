@@ -29,7 +29,9 @@ the HARD gate before this catalog was written — no open markers.
 | E7 | marketing-site · budget order independence | invariant | L1 | automated | the E6 fixture, evaluated twice: once with `dist/app/` absent, once present | run the budget check in both states | both runs report an identical total |
 | E8 | marketing-site · JS bundle budget | BVA | L1 | automated | site chunks gzipping to exactly 51200 B, then 51201 B | run the budget check | 51200 B exits zero; 51201 B exits non-zero |
 | E9 | marketing-site · deploy triggers | decision-table | L1 | automated | `.github/workflows/deploy-site.yml` | parse the `push` trigger | `branches` is `[develop]` and never `main`; `paths` includes both `site/**` and `packages/shell/**` |
-| E10 | marketing-site · release redispatch | state-transition | L1 | automated | `.github/workflows/deploy-site.yml` | parse the job graph | the build job carries `if: github.event_name != 'release'`, and a redispatch job invokes `gh workflow run deploy-site.yml --ref develop` — a release never builds or deploys inline |
+| E10 | marketing-site · dead release path absent | state-transition | L1 | automated | `.github/workflows/deploy-site.yml` | parse triggers and the job graph | no `release:` trigger, no `redispatch-on-release` job, and no job gated on `github.event_name != 'release'` — the default Actions token cannot raise a `release` event that starts a run, so all three are unreachable by construction |
+| E10a | marketing-site · pipeline dispatches the redeploy | state-transition | L1 | automated | `.github/workflows/publish.yml` | parse the job graph | a terminal job carries `needs: github-release` and invokes `gh workflow run` for both `sync-release-version.yml` and `deploy-site.yml`, each with `--ref develop` (the ref is load-bearing: `github-pages` rejects a tag ref) |
+| E10b | marketing-site · dispatches sequenced, not raced | state-transition | L1 | automated | `.github/workflows/publish.yml` | parse the dispatch step body | the `deploy-site.yml` dispatch is preceded by a wait on the `sync-release-version` run — a back-to-back dispatch would let the build check out `develop` before the cache commit lands, and the live API fetch would mask it |
 | E11 | marketing-site · release publish updates cache | decision-table | L1 | automated | `.github/workflows/sync-release-version.yml` | parse the push step | pushes `HEAD:develop`, never `main` |
 | E12 | marketing-site · shell composed under /app | EP | L1 | automated | `.github/workflows/deploy-site.yml` | parse step order and targets | a step copies the shell build into `site/dist/app/`, and it precedes the Pages artifact upload |
 | E13 | marketing-site · custom domain active | EP | L1 | automated | `site/public/CNAME` | read the file | contents are exactly `pi-dashboard.dev` — guards silent deletion, which would drop the domain without any build failing |
@@ -52,21 +54,23 @@ the HARD gate before this catalog was written — no open markers.
 | F3 | neutral-shell-publication · hash routing | live-site verification | — | manual-only | the same deploy | open `https://pi-dashboard.dev/app/#/pair` directly | the Pair view renders; the fragment never reaches the server [Pages-only] |
 | F4 | neutral-shell-publication · no SPA fallback at subpath | live-site verification | — | manual-only | the same deploy | `GET https://pi-dashboard.dev/app/does-not-exist` | the marketing root `404.html` renders, not the shell — confirming the shell's own `404.html` is inert here [Pages-only; a local static server resolves 404s differently and would pass for the wrong reason] |
 | F5 | marketing-site · apex unaffected | live-site verification | — | manual-only | the same deploy | `GET https://pi-dashboard.dev/` | the marketing site renders, unaffected by the shell under `/app/` [Pages-only] |
+| F6 | marketing-site · release actually redeploys the site | live-pipeline verification | — | manual-only | the next production `vX.Y.Z` tag | push the tag and take no manual action afterwards | a `sync-release-version` run and a `deploy-site` run both appear without intervention, and `pi-dashboard.dev` advertises the new version [pipeline-only observable: E10/E10a/E10b parse workflow *files* and cannot prove an event actually fired — this is the row that closes that gap, and it is the reason the release-redeploy work is not "done" when CI is green] |
 
 ---
 
 ## Coverage summary
 
 - Requirements covered: 9/9 (`neutral-shell-publication` ×5, `marketing-site` ×3, `ci-cd-pipeline` ×1)
-- Scenarios by class: edge 14 · perf 0 · frontend 5 · error 3
-- Scenarios by level: L1 17 · L2 0 · L3 0 · manual-only 5
-- Scenarios by disposition: automated 17 · manual-only 5
+- Scenarios by class: edge 16 · perf 0 · frontend 6 · error 3
+- Scenarios by level: L1 19 · L2 0 · L3 0 · manual-only 6
+- Scenarios by disposition: automated 19 · manual-only 6
 
 ## New infra needed
 
 None. Every automated row lands in the existing vitest tier; the workflow-parsing rows follow
 `packages/shared/src/__tests__/pnpm-migration-contract.test.ts`, which already parses
-`deploy-site.yml`.
+`deploy-site.yml`. E10a/E10b parse `publish.yml`, for which
+`packages/shared/src/__tests__/publish-workflow-contract.test.ts` is the established precedent.
 
 ## Notes
 
