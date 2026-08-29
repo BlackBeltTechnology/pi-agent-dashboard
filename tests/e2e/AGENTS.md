@@ -53,6 +53,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `helpers/evidence-path.ts` | Resolves a change's `measurements.json` WITHOUT creating it. → see `helpers/evidence-path.ts.AGENTS.md` |
 | `helpers/index.ts` | E2E helpers. `gotoDashboard(page)` navigates `/`, waits for `header-app-bar`, and arms a one-per-page… → see `helpers/index.ts.AGENTS.md` |
 | `helpers/openspec-board.ts` | OpenSpec-board drop-targeting E2E helpers. Fixture `/fixtures/openspec-board` (64 generated `board-card-NN`… → see `helpers/openspec-board.ts.AGENTS.md` |
+| `helpers/windowed-session.ts` | Shared glue for L3 specs needing a REAL replay window. `buildWindowedSession({mode,window,transcripts})`… → see `helpers/windowed-session.ts.AGENTS.md` |
 | `history-backfill-gap.spec.ts` | L3 for `fix-lazy-history-backfill-ux` (F1–F6, F8–F11, X3, X5 — twelve scenarios). → see `history-backfill-gap.spec.ts.AGENTS.md` |
 | `history-backfill-perf.spec.ts` | L3 P1/P2 for `fix-lazy-history-backfill-ux`, metric AMENDED by the task-1.2 measurement. → see `history-backfill-perf.spec.ts.AGENTS.md` |
 | `inline-screenshot.spec.ts` | Playwright E2E for inline agent screenshot artifacts (change: inline-agent-screenshot-artifacts, automates… → see `inline-screenshot.spec.ts.AGENTS.md` |
@@ -116,7 +117,6 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `subagent-thin-tick-liveness.spec.ts` | L3 for the subagent push/pull split: terminal fidelity after refresh, `/api/health`… → see `subagent-thin-tick-liveness.spec.ts.AGENTS.md` |
 | `subagent-tick-throttle.spec.ts` | L3 cadence rows for the subagent-tick throttle (change: reduce-bridge-tick-bandwidth): F1/P1 (floor ≥5 in 10… → see `subagent-tick-throttle.spec.ts.AGENTS.md` |
 | `superseded-heal.spec.ts` | Playwright spec (task 7.1, change: fix-stuck-tool-card-superseded-heal). → see `superseded-heal.spec.ts.AGENTS.md` |
-| `helpers/windowed-session.ts` | Shared glue for L3 specs needing a REAL replay window. `buildWindowedSession({mode,window,transcripts})`… → see `helpers/windowed-session.ts.AGENTS.md` |
 | `tail-only-loading-head.spec.ts` | L3 for the loading head's TERMINAL states (F11, F13, F16 + the `head-tail` F12/F21 contrast). → see `tail-only-loading-head.spec.ts.AGENTS.md` |
 | `tail-only-scroll-perf.spec.ts` | ADVISORY opt-in scroll-smoothness probe for `tail-only` (test-plan #P2, task 7.1). → see `tail-only-scroll-perf.spec.ts.AGENTS.md` |
 | `tail-only-settings.spec.ts` | L3 for the `replayWindowMode` control (F14, F15) plus X8. → see `tail-only-settings.spec.ts.AGENTS.md` |

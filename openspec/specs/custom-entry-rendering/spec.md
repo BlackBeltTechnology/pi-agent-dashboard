@@ -66,7 +66,7 @@ The chat SHALL render `role: "custom"` rows with a generic card showing the `cus
 - **AND** it SHALL NOT emit a `custom_entry` event for it
 
 ### Requirement: Custom entries survive replay
-State replay (`replayEntriesAsEvents`) SHALL synthesize the same events for persisted custom content that the live path emits: `custom_message` entries with `display: true` replay as `message_end` events with `role: "custom"`, and non-`flow-event` `custom` entries replay as `custom_entry` events — so a reloaded session shows the same custom rows as the live view.
+State replay (`replayEntriesAsEvents`) SHALL synthesize the same events for persisted custom content that the live path emits: `custom_message` entries whose `display` is not exactly `false` (the same exact-comparison rule as the live path, so an omitted flag replays visible) replay as `message_end` events with `role: "custom"`, and non-`flow-event` `custom` entries replay as `custom_entry` events — so a reloaded session shows the same custom rows as the live view.
 
 #### Scenario: reload reproduces custom rows
 - **WHEN** a session containing custom messages and custom entries is cold-loaded or re-replayed

@@ -1289,6 +1289,8 @@ export const huCatalog: Record<string, string> = {
   "settings.providers": "Szolgáltatók",
   "settings.reasoningAutoCollapse": "Érvelés automatikus összecsukása",
   "settings.reasoningBlocks": "Érvelési blokkok",
+  "settings.hint.customEntryFallback": "A bővítmények egyéni üzenetei és bejegyzései általános kártyaként jelennek meg a csevegésben. Kikapcsolva elrejti őket (a flow kártyák mindig látszanak).",
+  "settings.hint.reasoningInlineFlow": "Az érvelés magassági korlát nélkül folyik le a csevegésben, saját görgethető doboz helyett. Csak a magasság változik — az összecsukás viselkedése változatlan.",
   "settings.reasoningInlineFlow": "Érvelés beágyazott folyása",
   "settings.recommendedExtensions": "Ajánlott bővítmények",
   "settings.remoteServers": "Távoli szerverek",

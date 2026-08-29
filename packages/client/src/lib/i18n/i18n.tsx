@@ -740,6 +740,8 @@ const zhCN: Record<string, string> = {
   "session.wrappedUpTurnLimit": "已结束（达到回合上限）",
   "sessionList.addCwdToWorkspace": "将工作目录添加到工作区…",
   "settings.help.replayWindowRetention": "最大回放事件数与每会话最大事件数共同起作用：回放窗口决定浏览器一开始收到多少会话内容，事件上限决定服务器还保留多少。只有在服务器仍保留的前提下，更早的消息才能按需加载。",
+  "settings.hint.customEntryFallback": "将扩展的自定义消息和条目渲染为聊天中的通用卡片。关闭后隐藏（flow 卡片始终显示）。",
+  "settings.hint.reasoningInlineFlow": "让推理内容不受高度限制地随聊天向下流动，而不是在自身框内滚动。仅改变高度，折叠行为不变。",
   "settings.hint.maxReplayEvents": "重新打开会话时发送到浏览器的事件上限。保留开头和最近的消息；更早的按需加载。0 = 不限。",
   "settings.hint.replayWindowMode": "保留开头和最近：会话的开场消息固定显示在空缺之上。仅最近：转录从最新消息开始，向上滚动时加载更早的消息，省略开场消息。影响此服务器的每个客户端。",
   "settings.hint.replayWindowModeInert": "在“最大重放事件数”设为正值之前不起作用。",
