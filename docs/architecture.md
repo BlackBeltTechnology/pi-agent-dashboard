@@ -1637,6 +1637,44 @@ Observability: `DEBUG=pi-dashboard:openspec-poll` (or any `DEBUG=...pi-dashboard
 
 **Session-load worker.** Session-event hydration (JSONL parse + replay) runs on a `worker_threads` pool, off main event loop. `packages/server/src/session-load-worker.ts` exports `loadAndReplay(req)`: runs `loadSessionEntries` (JSONL parse + tree-walk) and `replayEntriesAsEvents(...).map(m => m.event)` projection IN-WORKER; only final `events` array crosses thread boundary. `parentPort` bootstrap wires `loadAndReplay` onto a thread; tests + fallback import function directly. Worker output `{jobId, success, events, error, entryCount?}`. `packages/server/src/session-load-worker-pool.ts` runs fixed slots = `max(1, min(maxConcurrentSpawns, os.cpus().length))`; FIFO queue when slots busy; per-request timeout default `30000ms`; lazy spawn per slot via `new Worker(url, {execArgv: process.execArgv})` so jiti hook propagates. Main thread owns per-session `loadingSet` dedup, `eventStore.insertEvent`, and `session_updated` + `event_replay` broadcast (in `directory-service.ts::loadSessionEvents` + `browser-handlers/subscription-handler.ts`); worker never touches store or sockets. `cancel(jobId)`: queued job dropped from queue, resolves `"cancelled"`; in-flight job abandoned, its result discarded on arrival, worker NOT terminated for plain cancel (only timeout/crash terminates slot). `directory-service.ts` exposes `cancelLoad(sessionId)` via `inFlightLoadJobs` map; `subscription-handler.ts` unsubscribe case calls `cancelLoad` when `getSubscribers(sessionId).length === 0`; `subscription-handler.ts` treats `result.error === "cancelled"` as no-op (no `dataUnavailable`, no replay). Fallback: spawn fail / worker crash / non-zero exit / per-request timeout → in-process `loadAndReplay` for that request; `pool.load().result` never rejects. Config: `DashboardConfig.sessions.useLoadWorker` (default `true`) in `packages/shared/src/config.ts`; `false` → permanent in-process path, no `worker_threads` spawn. Plumbed `server.ts` `ServerConfig.sessions` → `cli.ts` → `createDirectoryService` `options.useLoadWorker`. `events` bytes identical to in-process projection; parity test enforces (`packages/server/src/__tests__/session-load-worker.test.ts`). Copies `openspec-poll-worker-pool` scaffold, not extracted (rule-of-three deferred to third consumer). See change: offload-session-events-load-to-worker.
 
+### OpenSpec Readiness (add-openspec-init-affordances)
+
+One server-derived per-cwd readiness state gates every OpenSpec affordance — folder-card section, session-card OPENSPEC subcard. Clients render from `OpenSpecData.readiness`; they never re-derive from raw signals. See change: add-openspec-init-affordances.
+
+**State table.** `deriveOpenSpecReadiness` folds `openspec.enabled`, `openspec.optOutDirectories`, `openspec.offerInitialization`, `hasOpenspecDir`, `initialized`, `pending`, `hasOpenSpecSkills`, recorded-vs-current update signature into `{ state, reason }`. Precedence = table order, first match wins:
+
+| state | condition | folder card | session card OPENSPEC subcard |
+|---|---|---|---|
+| `GLOBAL_OFF` | `openspec.enabled === false` | nothing | hidden |
+| `OPTED_OUT` | cwd in `openspec.optOutDirectories` | nothing (re-enable via folder `⋯` menu) | hidden |
+| `PENDING` | poll in flight | grey loading spinner | existing placeholder |
+| `ABSENT` | no `<cwd>/openspec/` | one-line pill: Initialize + dismiss | hidden (offer made once on folder card, not per session) |
+| `BROKEN` | `hasOpenspecDir && !initialized` — reason `missing-changes-dir` \| `cli-failed` | Repair (`missing-changes-dir` only) \| error text | rendered disabled + reason |
+| `STALE` | `missing-skills` \| `profile-stale` | Update | rendered disabled + reason |
+| `READY` | otherwise | `OpenSpec (N) →` board nav | live controls |
+
+`BROKEN`·`cli-failed` offers no Repair — re-running init cannot fix a failing CLI, and the invocation carries `--force` that would auto-clean a directory holding real proposals. `missing-skills` wins over `profile-stale` when both hold (it breaks the session-card controls). `ABSENT` renders no section when `offerInitialization === false`; `BROKEN`/`STALE` render no dismiss (user already opted in; silencing a broken state is not a resolution). Disabled subcard renders exactly one focusable control — routes to the folder card's OpenSpec section (`missing-changes-dir`/`cli-failed`/`missing-skills`; scrolls + expands + focuses) or Settings → OpenSpec Workflow Profile (`profile-stale`); reason text is the accessible explanation, not a `title` attribute.
+
+**Derivation lives server-side.** `deriveOpenSpecReadiness` in `packages/server/src/openspec/readiness.ts`. `finalizeOpenSpecData` (directory-service.ts) attaches `hasOpenSpecSkills` + `readiness` at every `pollOne` exit; broadcast on every `openspec_update` and WS on-connect snapshot. Disabled-transition cleared payload carries `readiness: { state: "GLOBAL_OFF" }` explicitly, never omits it — a current client is never forced into the legacy gate mid-transition. Legacy fallback: `readiness` absent (older server) → previous `hasOpenspecDir || pending` gate, no disabled or stale presentation.
+
+**Reconfiguration re-broadcast.** `reconfigurePolling` diffs readiness-affecting keys (`enabled`, `optOutDirectories`, `offerInitialization`) against the previous config; poll-tuning writes (interval, concurrency, jitter, worker flag) never trigger a readiness broadcast. `optOutDirectories` membership change re-broadcasts only the affected cwds; `enabled`/`offerInitialization` change re-broadcasts every cached cwd.
+
+**`hasOpenSpecSkills`.** Stat `<configRoot>/.pi/skills/openspec-explore/`. Config root via `resolveConfigRoot` (git-worktree/git-operations.ts): a worktree answers from its main checkout, because `.pi/skills/openspec-*` is gitignored and never checks out into a worktree. Root resolution memoized per cwd (stat-pass budget, P4); unresolvable → fall back to the cwd.
+
+**Config keys** (`OpenSpecPollConfig`): `openspec.optOutDirectories: string[]` (default `[]`; pathKey-normalized at parse, trailing-slash spellings collapse to one entry), `openspec.offerInitialization: boolean` (default `true`; `false` suppresses only the ABSENT offer — `BROKEN`/`STALE`/`READY` unaffected; distinct from `openspec.enabled`, which disables the feature). Both writable via `PUT /api/config` partial `{ openspec: {...} }` — deep-merged, every other key preserved.
+
+**Update-signature provider.** `currentGlobalSignature` option injected into `createDirectoryService` from the routes layer. Signature is machine-global, identical for every cwd → computed at most once per poll tick, memoized per generation. Invalidated by global profile save and successful init/update via `directoryService.invalidateOpenSpecSignatureCache()`. Provider failure → signature check skipped, no cwd ever falsely STALE. A cwd with no recorded signature is never STALE on that basis — only a recorded signature that differs from the current one triggers `profile-stale`.
+
+**POST /api/openspec/init.** Spawns `openspec init <cwd> --tools pi --force` via the tool-registry resolver (never a bare `openspec` command). Contract:
+- Body `{ cwd, confirm? }`. `cwd` validated against union(session cwds, pinned dirs) WITHOUT the `hasOpenSpecRoot` filter — the update-status helper filters to initialized projects and excludes exactly the directories init targets.
+- 400 when `<cwd>/openspec/` exists without `confirm: true` — deliberately coarse presence check; the CLI's internal legacy-artifact definition is unreachable through public exports.
+- `init --help` support probe cached per process; unsupported CLI refused with diagnostic naming the resolved binary, before any spawn.
+- Per-cwd lock: second request while an invocation is in flight → `409 Conflict`, no second spawn.
+- 60 s timeout — runner kills the process, partial stderr returned, lock released.
+- argv exactly `<resolved-cli> init <cwd> --tools pi --force`, passed as an array, never a shell string. No `--profile` (CLI accepts only `core|custom`; dashboard profile may be alias `expanded`); no `--no-animation`/`--no-copilot-cloud` (pinned CLI 1.6.0 registers only `--tools`/`--force`/`--profile`; commander strict). `--tools pi` writes `.pi/skills/openspec-*` + `.pi/prompts/opsx-*.md` — omitting it reproduces the dead-buttons defect.
+- `healExpandedProfileConfig` before the spawn (mirrors the update route).
+- Success: records the cwd's update signature, invalidates the signature cache, forces `refreshOpenSpec` so the new readiness broadcasts without waiting for the poll interval. Failure: `{ success: false, error, stderr? }`.
+
 ### OpenSpec board
 
 Board route `/folder/:encodedCwd/openspec` (`OpenSpecBoardView`) replaces inline `FolderOpenSpecSection` accordion. `FolderOpenSpecSection` now slim nav entry `OpenSpec (N) →` to board route.

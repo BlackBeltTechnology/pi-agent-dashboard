@@ -2390,6 +2390,24 @@ Cross-refs:
 - packages/server/src/routes/openspec-routes.ts
 - packages/shared/src/platform/openspec.ts
 
+## Why do the OpenSpec buttons do nothing?
+
+The dashboard derives one per-directory readiness state (`OpenSpecData.readiness`) and renders exactly the action that resolves that state. A button that does nothing means the state does not offer it. States and their fixes:
+
+- `BROKEN` · `missing-changes-dir` — Repair on the folder card (confirm, then re-runs init).
+- `BROKEN` · `cli-failed` — fix the openspec CLI itself. Error text shown; no Repair — init would auto-clean files in a directory that may hold real proposals.
+- `STALE` · `missing-skills` — Update on the folder card. Runs `openspec update --tools pi`, writes `.pi/skills/openspec-*`.
+- `STALE` · `profile-stale` — Settings → OpenSpec Workflow Profile → Update.
+- `ABSENT` — Initialize on the folder card. Or dismiss (adds cwd to `openspec.optOutDirectories`), or set `openspec.offerInitialization: false` to hide the offer fleet-wide.
+- `OPTED_OUT` — cwd listed in `openspec.optOutDirectories`. Re-enable via folder `⋯` menu → Enable OpenSpec for this folder.
+- `GLOBAL_OFF` — `openspec.enabled === false`. Enable in Settings → Background polling (OpenSpec).
+
+Cross-refs:
+- docs/architecture.md (OpenSpec Readiness section)
+- packages/server/src/openspec/readiness.ts
+- packages/server/src/routes/openspec-routes.ts
+- openspec/changes/add-openspec-init-affordances/
+
 ## Install bash
 
 Dashboard runs `!`/`!!` chat-escape shell commands through bash.
