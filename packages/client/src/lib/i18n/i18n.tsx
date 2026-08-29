@@ -53,6 +53,7 @@ const zhCN: Record<string, string> = {
   "chat.tool.elidedHint": "该工具的结果不在已加载的历史范围内，无法加载。",
   "common.advanced": "高级",
   "piRuntime.title": "Pi 运行时",
+  "piRuntime.changeRuntime": "更改…",
   "piRuntime.loading": "正在加载 pi 安装…",
   "piRuntime.loadFailed": "无法加载 pi 安装。",
   "piRuntime.laneSpawn": "会话启动",

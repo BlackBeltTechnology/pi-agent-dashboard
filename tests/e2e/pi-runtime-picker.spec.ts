@@ -176,6 +176,47 @@ const banner = (page: Page) => page.getByTestId("pi-divergence-banner");
 const spawnLane = (page: Page) => page.getByTestId("pi-lane-spawn");
 const importLane = (page: Page) => page.getByTestId("pi-lane-import");
 
+// ── surface-pi-runtime-on-general: the General status row + Change… path ──
+
+const HEALTHY_PI_RUNTIME = {
+  spawnVersion: "0.84.1",
+  moduleVersion: "0.84.1",
+  consumerDiverged: false,
+  consumerMessage: null,
+};
+
+/**
+ * Merge a `piRuntime` fixture (and a healthy `compatibility`, so the
+ * advisory's absence is deterministic rather than dependent on the harness
+ * host's pi version) into the REAL /api/health response — the same
+ * merge-into-the-real-shape pattern the F14 launchSource stub uses.
+ */
+async function stubHealthPiRuntime(page: Page, piRuntime: Record<string, unknown>) {
+  await page.route("**/api/health", async (route) => {
+    // The app keeps polling /api/health across navigation, so a request can
+    // still be in flight when the test ends — `route.fetch()` then throws
+    // "Test ended" and would fail an otherwise-green test. Swallow it: at
+    // teardown there is nothing left to fulfill.
+    try {
+      const response = await route.fetch();
+      const body = await response.json();
+      body.piRuntime = piRuntime;
+      body.compatibility = { minimum: "0.78.0", recommended: "0.80.0", maximum: null, current: "0.80.0" };
+      await route.fulfill({ response, json: body });
+    } catch {
+      /* test ended mid-flight */
+    }
+  });
+}
+
+/** Settings default-landing page: General. */
+async function openGeneral(page: Page) {
+  await gotoDashboard(page);
+  await page.getByRole("button", { name: "Settings", exact: true }).first().click();
+  await expect(page.getByTestId("settings-nav-rail")).toBeVisible({ timeout: 20_000 });
+  await expect(page.getByTestId("settings-content")).toBeVisible();
+}
+
 test.describe("pi runtime picker", () => {
   // test-plan #F1
   test("F1: sync is checked by default when both chains resolve to one install", async ({ page }) => {
@@ -453,5 +494,62 @@ test.describe("pi runtime picker", () => {
     // The rest of Settings still renders.
     await expect(page.getByTestId("settings-content")).toBeVisible();
     await expect(page.getByTestId("settings-nav-rail")).toBeVisible();
+  });
+
+  // ── surface-pi-runtime-on-general — the General status row ──────────
+
+  // surface-pi-runtime-on-general test-plan #F1 — healthy install: the row
+  // shows on General while the advisory stays hidden, and `Change…` lands on
+  // Developer with the picker scrolled into view. The URL must stay EXACTLY
+  // /settings/developer — the scroll intent is transient, never encoded in
+  // the route (no fragment, no extra query parameter).
+  test("runtime row F1: healthy install shows the General row; Change… reaches the picker scrolled into view", async ({ page }) => {
+    await stubInstalls(page, { installs: [A, B], spawnKey: "managed", moduleKey: "managed" });
+    await stubHealthPiRuntime(page, HEALTHY_PI_RUNTIME);
+    await openGeneral(page);
+
+    const row = page.getByTestId("pi-runtime-status-row");
+    await expect(row).toBeVisible({ timeout: 20_000 });
+    await expect(row).toContainText("Sessions spawn");
+    await expect(row).toContainText("Server imports");
+    await expect(row).toContainText("0.84.1");
+    // Healthy compatibility → the advisory renders nothing while the row
+    // renders: the row is NOT gated on the advisory's visibility condition.
+    await expect(page.getByTestId("pi-advisory-change")).toHaveCount(0);
+
+    await page.getByTestId("pi-runtime-status-change").click();
+
+    const url = new URL(page.url());
+    expect(url.pathname).toBe("/settings/developer");
+    expect(url.search).toBe("");
+    expect(url.hash).toBe("");
+
+    const section = page.getByTestId("pi-runtime-section");
+    await expect(section).toBeVisible({ timeout: 20_000 });
+    // Scroll target consumed: the section top sits within the viewport.
+    const viewport = page.viewportSize()!;
+    const box = await section.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.y).toBeGreaterThanOrEqual(0);
+    expect(box!.y).toBeLessThan(viewport.height);
+  });
+
+  // surface-pi-runtime-on-general test-plan #F2 — D12's load-bearing half is
+  // untouched: the picker stays on Developer, immediately above Tools.
+  test("runtime row F2: the picker stays on Developer immediately above Tools", async ({ page }) => {
+    await stubInstalls(page, { installs: [A, B], spawnKey: "managed", moduleKey: "managed" });
+    await stubHealthPiRuntime(page, HEALTHY_PI_RUNTIME);
+    const section = await openPicker(page);
+    await expect(section).toBeVisible();
+
+    const toolsFollowsPicker = await page.evaluate(() => {
+      const picker = document.querySelector('[data-testid="pi-runtime-section"]');
+      if (!picker) return false;
+      for (let el = picker.nextElementSibling; el; el = el.nextElementSibling) {
+        if ((el.querySelector("h2")?.textContent ?? "").trim() === "Tools") return true;
+      }
+      return false;
+    });
+    expect(toolsFollowsPicker).toBe(true);
   });
 });
