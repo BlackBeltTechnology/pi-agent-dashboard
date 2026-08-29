@@ -16,6 +16,7 @@
  * the `request` fixture is the OPERATOR at the authenticated desktop (approve).
  */
 import { expect, test } from "./fixtures.js";
+import { gotoDashboard } from "./helpers/index.js";
 
 const BEARER_KEY = "pi-dashboard:device-bearer";
 
@@ -73,5 +74,70 @@ test.describe("pairing QR — /pair landing handshake", () => {
     await page.goto("/pair");
     await expect(page.getByTestId("pair-landing-error")).toBeVisible({ timeout: 10_000 });
     await expect(page.getByTestId("pair-landing-restart")).toBeVisible();
+  });
+
+  // collapse-pairing-into-gateway — test-plan F5. The QR the OPERATOR scans is
+  // now rendered only by the surviving GatewayPairQR surface. Read its
+  // `data-qr-text`, prove the deep-link shape (https, /pair, fragment-only
+  // code), then navigate the browser to the SAME fragment on the same-origin
+  // http origin (the harness has no TLS listener; the fragment is byte-
+  // identical, which is the thing F5 puts under test) and watch the landing
+  // decode it into a real handshake.
+  test("F5: the rendered Gateway QR carries an https deep link whose code rides only the fragment", async ({
+    page,
+  }) => {
+    await gotoDashboard(page);
+
+    // Seed a manual TLS endpoint (the `pairing.publicBaseUrls` affordance) so
+    // the survivor selects a PAIRING endpoint and renders the deep-link QR.
+    // Restored at the end — the harness is shared across specs. `prevUrls` is
+    // captured by RETURNING it from the browser context (a Node-side assignment
+    // inside `page.evaluate` cannot cross the context boundary).
+    const prevUrls = (await page.evaluate(async () => {
+      const cur = await (await fetch("/api/config")).json();
+      return (cur?.data?.pairing?.publicBaseUrls ?? []) as string[];
+    })) as string[];
+    await page.evaluate(
+      (urls) =>
+        fetch("/api/config", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            pairing: { publicBaseUrls: [...urls, `https://localhost:${location.port}`] },
+          }),
+        }),
+      prevUrls,
+    );
+
+    try {
+      await page.goto("/settings/gateway");
+      const qr = page.getByTestId("gateway-qr-canvas");
+      await expect(qr).toBeAttached({ timeout: 20_000 });
+      const qrValue = await qr.getAttribute("data-qr-text");
+      expect(qrValue, "QR encodes the scannable deep link").toMatch(
+        /^https:\/\/localhost:\d+\/pair#pi:pair:v1\.[A-Za-z0-9_-]+$/,
+      );
+
+      // The one-time code appears ONLY in the fragment: decode the payload the
+      // QR carries and check the pre-fragment URL never names it. (The payload's
+      // `code` is a base64url token; the 8-DIGIT confirm code is derived from it
+      // on the landing.)
+      const [beforeHash, fragment] = qrValue!.split("#");
+      const payload = JSON.parse(Buffer.from(fragment.replace(/^pi:pair:v1\./, ""), "base64url").toString());
+      expect(payload.code).toMatch(/^[A-Za-z0-9_-]{10,}$/);
+      expect(beforeHash).not.toContain(payload.code);
+
+      // Navigating to the carried fragment lands on /pair, which decodes it —
+      // the REAL challenge→redeem runs and the confirm code is shown.
+      await page.goto(`/pair#${fragment}`);
+      await expect(page.getByTestId("pair-landing-confirm-code")).toBeVisible({ timeout: 20_000 });
+    } finally {
+      await page.evaluate((prev) =>
+        fetch("/api/config", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ pairing: { publicBaseUrls: prev } }),
+        }), prevUrls);
+    }
   });
 });
