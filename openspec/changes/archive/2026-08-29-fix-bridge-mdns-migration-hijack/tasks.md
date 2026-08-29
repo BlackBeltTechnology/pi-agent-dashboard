@@ -38,12 +38,12 @@
 
 ## 6. End-to-end verification
 
-- [ ] 6.1 Stand up a poisoned-discovery environment (second dashboard bound to loopback, advertising a `*.local` host) per the isolated-verification procedure — never against the live instance
-- [ ] 6.2 Spawn a session in a cwd outside the server's repo and assert the bridge stays on the working endpoint
-- [ ] 6.3 Assert `POST /api/session/:id/prompt` returns success AND the prompt appears in the session transcript (transmission is not delivery)
-- [ ] 6.4 Assert a legitimate migration still works: move the real server to a new port and confirm the bridge follows it
-- [ ] 6.5 Re-run the seven-arm cwd matrix from the proposal and confirm every arm now keeps its bridge
-- [ ] 6.6 Remove all temporary probes and confirm `git status` shows no stray edits under `packages/`
+- [x] 6.1 Stand up a poisoned-discovery environment (second dashboard bound to loopback, advertising a `*.local` host) per the isolated-verification procedure — never against the live instance *(DEFERRED, owner-authorized 2026-08-29: attempted 3× in-session; aborted after the harness leaked test arms onto the live dashboard (env-inheritance bug) — needs an isolated second machine; unit-level coverage in connection-migration.test.ts exercises the same gates)*
+- [x] 6.2 Spawn a session in a cwd outside the server's repo and assert the bridge stays on the working endpoint *(DEFERRED, owner-authorized 2026-08-29 — see 6.1)*
+- [x] 6.3 Assert `POST /api/session/:id/prompt` returns success AND the prompt appears in the session transcript (transmission is not delivery) *(DEFERRED, owner-authorized 2026-08-29 — see 6.1)*
+- [x] 6.4 Assert a legitimate migration still works: move the real server to a new port and confirm the bridge follows it *(DEFERRED, owner-authorized 2026-08-29 — see 6.1; covered at unit level by the retargetTo adoption tests)*
+- [x] 6.5 Re-run the seven-arm cwd matrix from the proposal and confirm every arm now keeps its bridge *(DEFERRED, owner-authorized 2026-08-29 — see 6.1)*
+- [x] 6.6 Remove all temporary probes and confirm `git status` shows no stray edits under `packages/`
 
 ## 7. Follow-up
 
