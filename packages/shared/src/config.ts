@@ -863,10 +863,14 @@ function parseOpenSpecPollConfig(raw: any): OpenSpecPollConfig {
   // use, so `/a/b/` and `/a/b` (and case-differing spellings on
   // case-insensitive platforms) collapse to one entry. Non-string entries are
   // dropped. See change: add-openspec-init-affordances.
-  const optOutRaw = Array.isArray(raw.optOutDirectories) ? raw.optOutDirectories : [];
-  const optOutStrings = optOutRaw.filter((p): p is string => typeof p === "string" && p.length > 0);
+  const optOutRaw: unknown[] = Array.isArray(raw.optOutDirectories) ? raw.optOutDirectories : [];
+  const optOutStrings = optOutRaw.filter(
+    (p: unknown): p is string => typeof p === "string" && p.length > 0,
+  );
   const optOutPlatform = inferPlatform(optOutStrings);
-  const optOutDirectories = [...new Set(optOutStrings.map((p) => pathKey(p, optOutPlatform)))];
+  const optOutDirectories = [
+    ...new Set(optOutStrings.map((p: string) => pathKey(p, optOutPlatform))),
+  ];
   return {
     enabled:
       typeof raw.enabled === "boolean" ? raw.enabled : DEFAULT_OPENSPEC_POLL.enabled,

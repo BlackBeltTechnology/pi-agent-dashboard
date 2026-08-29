@@ -101,7 +101,7 @@ describe("POST /api/openspec/init (add-openspec-init-affordances)", () => {
     await fastify.ready();
   }
 
-  const post = (body: unknown) =>
+  const post = (body: Record<string, unknown>) =>
     fastify.inject({ method: "POST", url: "/api/openspec/init", payload: body });
 
   it("E20: pinned directory with no openspec/ is a valid target (accepted, spawn happens)", async () => {
