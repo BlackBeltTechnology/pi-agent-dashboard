@@ -7,6 +7,7 @@ import { join, relative, resolve } from "node:path";
 import { frontmatterConfigHash, loadConfig, type ResolvedConfig, type ResolvedSource } from "./config.js";
 import { agentsChain, doxInit, doxLint } from "./dox.js";
 import { ackTargets, applyDecisions, buildWorkItems } from "./dox-triage.js";
+import { readStaleness } from "./staleness.js";
 import { evaluate, loadGolden } from "./eval.js";
 import { runIndexAtomic } from "./index-run.js";
 import { indexSource } from "./indexer.js";
@@ -17,6 +18,7 @@ import { classifyRef, type ResolvedSource as RResolvedSource, resolveAll } from 
 import { SCHEMA_VERSION, SqliteFtsStore } from "./sqlite-store.js";
 import { defaultPromptTrust } from "./trust.js";
 import type { DocType, SearchOpts } from "./types.js";
+import { enrichHits } from "./verdict.js";
 
 interface Flags {
   _: string[];
@@ -110,8 +112,8 @@ Usage:
   kb search  "<query>" [--limit N] [--root id] [--doc-type doc|agents|source-md]
              [--expand-parent|--no-expand-parent] [--expand-graph] [--rerank]
              [--expand-query] [--json] [--no-reindex] [--source <dir>...] [--db <path>]
-             [--no-source-dedup] [--no-lane-quota] [--no-coverage-rerank]
-             (--limit bounds distinct SOURCES, not chunks)
+             [--no-source-dedup] [--no-lane-quota] [--no-coverage-rerank] [--verdicts]
+             (--limit bounds distinct SOURCES, not chunks; --verdicts = opt-in trust labels)
   kb neighbors "<node>" [--depth N] [--rel child_of|links_to|references|has_tag]
   kb backlinks "<node>"
   kb get <path> [--section "<heading_path>"]
@@ -198,7 +200,7 @@ function main() {
         console.log(`re-acked ${ackTargets({ cwd, targets, stalenessFile })} entries`);
         return;
       }
-      const staleness = existsSync(stalenessFile) ? JSON.parse(readFileSync(stalenessFile, "utf8")) : {};
+      const staleness = readStaleness(stalenessFile);
       const items = buildWorkItems({ cwd, issues: doxLint({ cwd }).issues, staleness, limit: flags.limit ? Number(flags.limit) : undefined });
       if (flags.json) { console.log(JSON.stringify(items, null, 2)); return; }
       const noBase = items.filter((i) => !i.baselineFound);
@@ -271,6 +273,10 @@ async function runCmd(cmd: string, flags: Flags): Promise<void> {
         }),
       };
       const hits = store.search(q, so);
+      // Opt-in trust verdicts (arm A): post-search enrichment OUTSIDE the store
+      // (design D10) — labels only, ordering untouched (D1); bodies from disk.
+      // See change: add-kb-trust-verdicts-and-search-guard.
+      if (flags.verdicts) await enrichHits(hits, { cwd: cfg.cwd });
       if (flags.json) console.log(JSON.stringify(hits, null, 2));
       else if (hits.length) console.log(renderHits(hits, { leading: "score", parentGlyph: "[parent: ", multiline: false }));
     } else if (cmd === "neighbors") {

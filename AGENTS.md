@@ -13,6 +13,7 @@ Web dashboard to monitor + control pi agent sessions remotely. Three components:
 | `cat`/`Read` a file to learn its purpose before editing | `kb agents <path>` — purpose + exports + `See change:` |
 | chase imports / callers across files | `rg "<symbol>"` — the Tier-1 graph is markdown-structure only and CANNOT resolve code refs |
 | read one doc section in full | `kb_get <path> <section>` |
+| a kb hit shows `STALE` / `GONE` / `UNVERIFIED` (trust verdict) | verify the row against source before acting — `MOVED` verifies at its reported successor path; `FRESH` may be acted on without re-reading; see `kb_search` verdicts (trust label, never ranking) |
 | build / run / install / setup / release / "how do I X" | `grep -i <kw> docs/faq.md README.md docs/` — then quote |
 | derive a fact from a large file / big command output | `ctx_execute_file` / `ctx_execute` **when present** (context-mode is optional); else `Read` w/ `offset`+`limit`, or `rg`/`awk` via Bash |
 

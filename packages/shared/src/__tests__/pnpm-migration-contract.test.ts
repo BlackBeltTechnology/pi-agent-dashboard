@@ -135,10 +135,10 @@ describe("X5 — root/workspace workflows install with pnpm", () => {
 });
 
 // ── X6: deploy-site install shape ──────────────────────────────
-// Updated for c52745af0 (static landing page): site/ has NO dependencies —
-// no npm ci, no cache-dependency-path, no astro build (`npm run build` is a
-// copy + reference check). The old dual-install contract (site/ stays npm)
-// described the Astro site and is retired. Root shell stays pnpm.
+// Updated for c52745af0/e305c361b (static landing page): site/ has NO
+// dependencies — no npm ci, no cache-dependency-path, no astro build
+// (`npm run build` is a copy + reference check). The old dual-install contract
+// (site/ stays npm) described the Astro site and is retired. Root stays pnpm.
 describe("X6 — deploy-site.yml install shape", () => {
   const y = readWf("deploy-site.yml");
   // Positives AND negatives are asserted against comment-free content: a stale
@@ -151,6 +151,10 @@ describe("X6 — deploy-site.yml install shape", () => {
   it("site/ job runs no npm install machinery (dependency-free static page)", () => {
     expect(code, "no npm ci may return").not.toMatch(/\bnpm ci\b/);
     expect(code, "no site lockfile cache may return").not.toContain("cache-dependency-path");
+  });
+  it("site/ stays dependency-free — no npm ci sneaks back in", () => {
+    expect(y, "site/ has no dependencies; npm ci must not return as a step").not.toMatch(/run:\s*npm ci/);
+    expect(y, "no site lockfile cache path without a site lockfile").not.toContain("cache-dependency-path");
   });
 });
 

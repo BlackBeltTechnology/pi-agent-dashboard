@@ -28,6 +28,7 @@ import {
   indexSource,
   type KbConfig,
   loadConfig,
+  readStaleness,
   SqliteFtsStore,
   validateConfig,
 } from "@blackbelt-technology/pi-dashboard-kb";
@@ -117,19 +118,15 @@ function openStore(cwd: string): { store: SqliteFtsStore; cfg: ReturnType<typeof
 }
 
 /** Count source files that drifted since their AGENTS.md row was acknowledged.
- *  Reads the extension-written `dox-staleness.json` (`{ rowPath: acknowledgedSha }`).
- *  Source-file drift ONLY — markdown drift is out of scope (design §6). */
+ *  Reads the extension-written `dox-staleness.json` via kb's tolerant
+ *  `readStaleness` (v1 sha-only strings and v2 `{version, files}` records with
+ *  stat baselines both read; a future version reads as empty — never a false
+ *  zero). Source-file drift ONLY — markdown drift is out of scope (design §6). */
 function countStale(cwd: string): number {
   const sf = join(cwd, ".pi", "dashboard", "kb", "dox-staleness.json");
-  if (!existsSync(sf)) return 0;
-  let map: Record<string, string>;
-  try {
-    map = JSON.parse(readFileSync(sf, "utf8")) as Record<string, string>;
-  } catch {
-    return 0;
-  }
+  const records = readStaleness(sf);
   let stale = 0;
-  for (const [rowPath, ackedSha] of Object.entries(map)) {
+  for (const [rowPath, ack] of Object.entries(records)) {
     const abs = isAbsolute(rowPath) ? rowPath : resolve(cwd, rowPath);
     if (!existsSync(abs)) continue;
     let sha: string;
@@ -138,7 +135,7 @@ function countStale(cwd: string): number {
     } catch {
       continue;
     }
-    if (sha !== ackedSha) stale++;
+    if (sha !== ack.sha256) stale++;
   }
   return stale;
 }

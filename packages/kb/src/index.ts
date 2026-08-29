@@ -3,13 +3,16 @@ export type {
   Chunk,
   DocType,
   FileState,
+  Filter,
   GraphEdge,
   GraphNode,
+  HitVerdict,
   KbHit,
   KbStore,
   SearchOpts,
-  Filter,
   StorePropertyRow,
+  VerdictCounts,
+  VerdictLabel,
 } from "./types.js";
 export { parseFrontmatter, buildMeta, buildProperties, strictNumber, strictDate, DEFAULT_SEARCHABLE_KEYS, DEFAULT_FACET_KEYS } from "./frontmatter.js";
 export type { FmValue, FacetKeyConfig, ParsedFrontmatter, PropertyRow } from "./frontmatter.js";
@@ -23,7 +26,7 @@ export type { IndexSource, IndexOptions, IndexStats } from "./indexer.js";
 export { kbInit } from "./init.js";
 export type { InitOptions, InitResult } from "./init.js";
 export { loadConfig, validateConfig, DEFAULTS, frontmatterConfigHash } from "./config.js";
-export type { KbConfig, SourceConfig, RankingConfig, ResolvedConfig, FrontmatterConfig } from "./config.js";
+export type { KbConfig, SourceConfig, RankingConfig, ResolvedConfig, FrontmatterConfig, GuardMode, ReadDisciplineConfig } from "./config.js";
 export { searchOptsFromConfig } from "./search-opts.js";
 export type { SearchOptsOverrides } from "./search-opts.js";
 export { SCHEMA_VERSION } from "./sqlite-store.js";
@@ -32,3 +35,8 @@ export type { KbSourceKind, ResolvedSource, ResolveCtx, SourceResolver } from ".
 export { isTrusted, recordTrust, canonicalSource, sourceHash } from "./trust.js";
 export { agentsChain, doxInit, doxLint, fallbackManifest, parseRowPaths, resolveRowPath } from "./dox.js";
 export type { AgentsEntry, DoxInitPlan, DoxIssue, DoxLintResult } from "./dox.js";
+export { enrichHits, HASH_CAP_BYTES, COVERAGE_CAP_BYTES, SUBJECT_CAP } from "./verdict.js";
+export type { EnrichCtx, VerdictFs } from "./verdict.js";
+export { ackTargets, applyDecisions, buildWorkItems, parseRows, replaceRowPurpose } from "./dox-triage.js";
+export { readStaleness, stalenessVersionOnDisk, STALENESS_VERSION } from "./staleness.js";
+export type { AckRecord, StalenessFile } from "./staleness.js";

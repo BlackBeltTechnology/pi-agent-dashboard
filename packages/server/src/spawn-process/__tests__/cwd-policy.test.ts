@@ -14,7 +14,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  type CwdCapabilityFields,
+  type CwdPolicy,
   CwdPolicyRegistry,
   CwdPolicyRejectedError,
   mergeCwdPolicy,
@@ -52,12 +52,12 @@ describe("mergeCwdPolicy — non-weakening composition algebra", () => {
   });
 
   it("CE18: sticky-true booleans", () => {
-    expect(mergeCwdPolicy({ noBuiltinTools: true }, {} as CwdCapabilityFields).noBuiltinTools).toBe(true);
-    expect(mergeCwdPolicy({}, { noBuiltinTools: true }).noBuiltinTools).toBe(true);
+    expect(mergeCwdPolicy({ noBuiltinTools: true }, {} as CwdPolicy).noBuiltinTools).toBe(true);
+    expect(mergeCwdPolicy({} as CwdPolicy, { noBuiltinTools: true }).noBuiltinTools).toBe(true);
   });
 
   it("CE19: policy allowlist applies when the caller omits tools", () => {
-    const merged = mergeCwdPolicy({ tools: ["read"] }, {} as CwdCapabilityFields);
+    const merged = mergeCwdPolicy({ tools: ["read"] }, {} as CwdPolicy);
     expect(merged.tools).toEqual(["read"]);
   });
 
@@ -65,8 +65,8 @@ describe("mergeCwdPolicy — non-weakening composition algebra", () => {
     const p1 = { noTools: true };
     const p2 = { excludeTools: ["a"] };
     const p3 = { excludeTools: ["b"] };
-    const forward = mergeCwdPolicy(p3, mergeCwdPolicy(p2, mergeCwdPolicy(p1, {} as CwdCapabilityFields)));
-    const reverse = mergeCwdPolicy(p1, mergeCwdPolicy(p2, mergeCwdPolicy(p3, {} as CwdCapabilityFields)));
+    const forward = mergeCwdPolicy(p3, mergeCwdPolicy(p2, mergeCwdPolicy(p1, {} as CwdPolicy)));
+    const reverse = mergeCwdPolicy(p1, mergeCwdPolicy(p2, mergeCwdPolicy(p3, {} as CwdPolicy)));
     expect(forward.noTools).toBe(true);
     expect(reverse.noTools).toBe(true);
     expect([...(forward.excludeTools ?? [])].sort()).toEqual(["a", "b"]);
