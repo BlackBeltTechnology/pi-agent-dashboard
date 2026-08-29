@@ -45,6 +45,7 @@ import {
 } from "./command-handler.js";
 import { buildSessionContextText, runForkSubagentDraft } from "./commit-draft-agent.js";
 import { ConnectionManager } from "./connection.js";
+import { toCustomEntryForward, toCustomMessageForward } from "./custom-entry-forward.js";
 import { registerDashboardContextInjector } from "./dashboard-context-injector.js";
 import { DashboardDefaultAdapter } from "./dashboard-default-adapter.js";
 import { runDevBuild } from "./dev-build.js";
@@ -810,6 +811,79 @@ function initBridge(pi: ExtensionAPI) {
     };
     lastWrappedSm = sm;
     appendMessageWrapped = true;
+  }
+
+  let customPersistenceWrapped = false;
+  let customWrappedSm: any = null;
+
+  /**
+   * Wrap the sessionManager custom-persistence methods so the bridge can
+   * forward BOTH custom surfaces at the single chokepoint where pi commits
+   * them (change: render-inline-reasoning-and-custom-entries, D2):
+   *
+   * - `appendCustomMessageEntry` (pi.sendMessage) → synthesized `message_end`
+   *   with `message.role === "custom"` — pi's idle-path sendMessage emits
+   *   message_start/end to INTERNAL listeners only, so the enriched loop
+   *   never sees it (and is guarded against double-forwarding the
+   *   agent-loop path above).
+   * - `appendCustomEntry` (pi.appendEntry) → `custom_entry` protocol event —
+   *   pi does not dispatch `entry_appended` to extensions at all.
+   *
+   * pi-flows' `flow-event` entries are excluded inside the shared mapper
+   * (they are appended live by pi-flows itself; forwarding would
+   * double-render beside the dedicated flow card).
+   */
+  function wrapCustomPersistenceForCtx(ctx: any): void {
+    const sm = ctx?.sessionManager;
+    if (!sm || typeof sm.appendCustomMessageEntry !== "function" || typeof sm.appendCustomEntry !== "function") {
+      return;
+    }
+    // Re-wrap when sessionManager identity changes (session replacement).
+    if (sm === customWrappedSm && customPersistenceWrapped) return;
+    const origMessage = sm.appendCustomMessageEntry.bind(sm);
+    sm.appendCustomMessageEntry = (customType: any, content: any, display: any, details: any) => {
+      const entryId = origMessage(customType, content, display, details);
+      try {
+        const forward = toCustomMessageForward({ customType, content, display, details, entryId });
+        if (forward && sessionReady && isActive()) {
+          connection.send({
+            type: "event_forward",
+            sessionId,
+            event: {
+              eventType: "message_end",
+              timestamp: Date.now(),
+              data: { type: "message_end", message: forward.message, entryId: forward.entryId },
+            },
+          });
+        }
+      } catch (err) {
+        console.error("[dashboard] custom message forward failed:", err);
+      }
+      return entryId;
+    };
+    const origEntry = sm.appendCustomEntry.bind(sm);
+    sm.appendCustomEntry = (customType: any, data: any) => {
+      const entryId = origEntry(customType, data);
+      try {
+        const forward = toCustomEntryForward({ type: "custom", customType, data, id: entryId });
+        if (forward && sessionReady && isActive()) {
+          connection.send({
+            type: "event_forward",
+            sessionId,
+            event: {
+              eventType: "custom_entry",
+              timestamp: Date.now(),
+              data: { type: "custom_entry", ...forward },
+            },
+          });
+        }
+      } catch (err) {
+        console.error("[dashboard] custom entry forward failed:", err);
+      }
+      return entryId;
+    };
+    customWrappedSm = sm;
+    customPersistenceWrapped = true;
   }
 
   /** Wrap a callback so errors log instead of crashing the host pi agent. */
@@ -2164,7 +2238,16 @@ function initBridge(pi: ExtensionAPI) {
       // streamingTextFlushed reset depends on message_start being processed
       // first. See change: add-followup-edit-and-steer-cancel (chat-order).
       if (eventType === "message_start") {
+        // Custom messages are forwarded by wrapCustomPersistenceForCtx (pi's
+        // idle-path sendMessage emits message_start/end internally only, and
+        // the agent-loop path would double-forward here). See change:
+        // render-inline-reasoning-and-custom-entries (D2).
+        if ((event as any).message?.role === "custom") return;
         wrapAppendMessageForCtx(ctx);
+        // Lazy retry (review round 1): if session_start ran before the
+        // sessionManager exposed its persistence methods, the wrapper would
+        // never engage. Idempotent per-sm — re-invoking here repairs that.
+        wrapCustomPersistenceForCtx(ctx);
         const messageRef = (event as any).message;
         if (messageRef && typeof messageRef === "object") {
           const nonce = nextNonce();
@@ -2251,6 +2334,10 @@ function initBridge(pi: ExtensionAPI) {
       // earlier message_start nonce is what the reducer is waiting on).
       // See change: fix-per-message-fork.
       if (eventType === "message_end") {
+        // Custom messages are forwarded by wrapCustomPersistenceForCtx — see
+        // the message_start guard above. See change:
+        // render-inline-reasoning-and-custom-entries (D2).
+        if ((event as any).message?.role === "custom") return;
         wrapAppendMessageForCtx(ctx);
         const messageRef = (event as any).message;
         const nonce = messageRef && typeof messageRef === "object"
@@ -2438,6 +2525,14 @@ function initBridge(pi: ExtensionAPI) {
     }));
   }
 
+  // Generic custom entries/messages (pi.appendEntry / pi.sendMessage) are NOT
+  // subscribed here: pi does NOT dispatch `entry_appended` to extensions, and
+  // the idle-path sendMessage emits message_start/end to internal listeners
+  // only. The SINGLE chokepoint both surfaces share is the sessionManager
+  // persistence methods — wrapped in `wrapCustomPersistenceForCtx` (same
+  // pattern as wrapAppendMessageForCtx), installed at session_start below.
+  // See change: render-inline-reasoning-and-custom-entries (D2).
+
   // Push external renames the moment they happen (pi 0.80.3+ session_info_changed)
   // instead of waiting for the turn-end name poll. The new name is routed
   // through the auto-namer's self-filter: the bridge's OWN auto-name echoing
@@ -2608,6 +2703,12 @@ function initBridge(pi: ExtensionAPI) {
     appendMessageWrapped = false;
     lastWrappedSm = null;
     wrapAppendMessageForCtx(ctx);
+    // Wrap the custom-persistence chokepoint BEFORE any events flow, so an
+    // extension appending at session_start is still forwarded. See change:
+    // render-inline-reasoning-and-custom-entries (D2).
+    customPersistenceWrapped = false;
+    customWrappedSm = null;
+    wrapCustomPersistenceForCtx(ctx);
 
     // Register ask_user at runtime (not at load time) to avoid static
     // tool-name conflicts with other extensions like pi-flows.

@@ -235,6 +235,16 @@ function backfillDisplayPrefs(prefs: DisplayPrefs | undefined): DisplayPrefs | u
   if (typeof out.notifyMinLevel !== "string") {
     out = { ...out, notifyMinLevel: "all" };
   }
+  // Legacy prefs predating the two render-inline-reasoning-and-custom-entries
+  // fields resolve to the preset defaults: inline flow OFF (today's capped
+  // reasoning body), custom-entry fallback ON (the bug being fixed is
+  // invisibility). See change: render-inline-reasoning-and-custom-entries.
+  if (typeof out.reasoningInlineFlow !== "boolean") {
+    out = { ...out, reasoningInlineFlow: false };
+  }
+  if (typeof out.customEntryFallback !== "boolean") {
+    out = { ...out, customEntryFallback: true };
+  }
   return out;
 }
 
@@ -582,6 +592,8 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
         reserveProcessLineAtIdle: false,
         showOutOfCwdSessionDiffs: false,
         notifyMinLevel: "all",
+        reasoningInlineFlow: false,
+        customEntryFallback: true,
       };
       const merged: DisplayPrefs = {
         tokenStatsBar: partial.tokenStatsBar ?? base.tokenStatsBar,
@@ -602,6 +614,8 @@ export function createPreferencesStore(filePath: string = PREFERENCES_FILE): Pre
         showOutOfCwdSessionDiffs:
           partial.showOutOfCwdSessionDiffs ?? base.showOutOfCwdSessionDiffs,
         notifyMinLevel: partial.notifyMinLevel ?? base.notifyMinLevel,
+        reasoningInlineFlow: partial.reasoningInlineFlow ?? base.reasoningInlineFlow,
+        customEntryFallback: partial.customEntryFallback ?? base.customEntryFallback,
       };
       displayPrefs = merged;
       scheduleSave();

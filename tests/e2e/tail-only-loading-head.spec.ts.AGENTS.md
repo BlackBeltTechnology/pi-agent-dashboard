@@ -1,0 +1,3 @@
+# tail-only-loading-head.spec.ts — index
+
+L3 for the loading head's TERMINAL states (F11, F13, F16 + the `head-tail` F12/F21 contrast). D6's asymmetry: a head-free gap RESOLVES TO A TERMINUS (`history-gap-session-start` / `history-gap-not-retained`), a two-sided one is SPLICED OUT. Written as mode PAIRS so collapsing the branches turns one red whichever way it collapses. F16 pins `aria-live="polite"`, the count, and unchanged focus. X7 is NOT here — the `in_flight` race is unwinnable because D7's chain-load guard serialises requests (attempted; it skipped, not passed), so X7 lives at L1 in `useMessageHandler.history-gap.test.tsx`. See change: add-tail-only-replay-window.

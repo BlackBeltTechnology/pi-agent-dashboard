@@ -9,7 +9,59 @@ import {
   toolCallPrefKey,
 } from "../display-prefs.js";
 
+const PRESET_NAMES = ["simple", "standard", "everything"] as const;
+
 const global: DisplayPrefs = DISPLAY_PRESETS.standard;
+
+// ── render-inline-reasoning-and-custom-entries (E3, E5) ──────────────────────
+describe("reasoningInlineFlow + customEntryFallback", () => {
+  it("defaults reasoningInlineFlow to false in all three presets (E3)", () => {
+    for (const name of PRESET_NAMES) {
+      expect(DISPLAY_PRESETS[name].reasoningInlineFlow).toBe(false);
+    }
+  });
+
+  it("defaults customEntryFallback to true in all three presets (E3)", () => {
+    for (const name of PRESET_NAMES) {
+      expect(DISPLAY_PRESETS[name].customEntryFallback).toBe(true);
+    }
+  });
+
+  it("merges reasoningInlineFlow: override wins when present, global otherwise (E5)", () => {
+    expect(mergeDisplayPrefs(global, { reasoningInlineFlow: true }).reasoningInlineFlow).toBe(true);
+    expect(mergeDisplayPrefs(global, {}).reasoningInlineFlow).toBe(global.reasoningInlineFlow);
+    expect(mergeDisplayPrefs(global, undefined).reasoningInlineFlow).toBe(global.reasoningInlineFlow);
+    // explicit false beats a global true
+    expect(
+      mergeDisplayPrefs({ ...global, reasoningInlineFlow: true }, { reasoningInlineFlow: false })
+        .reasoningInlineFlow,
+    ).toBe(false);
+  });
+
+  it("merges customEntryFallback: override wins when present, global otherwise (E5)", () => {
+    expect(mergeDisplayPrefs(global, { customEntryFallback: false }).customEntryFallback).toBe(false);
+    expect(mergeDisplayPrefs(global, {}).customEntryFallback).toBe(global.customEntryFallback);
+    expect(mergeDisplayPrefs(global, undefined).customEntryFallback).toBe(global.customEntryFallback);
+    // explicit true beats a global false
+    expect(
+      mergeDisplayPrefs({ ...global, customEntryFallback: false }, { customEntryFallback: true })
+        .customEntryFallback,
+    ).toBe(true);
+  });
+
+  it("leaves the toolCalls merge unaffected by the new top-level arms (E5)", () => {
+    const merged = mergeDisplayPrefs(global, {
+      reasoningInlineFlow: true,
+      customEntryFallback: false,
+      toolCalls: { bash: false },
+    });
+    expect(merged.toolCalls.bash).toBe(false);
+    expect(merged.toolCalls.read).toBe(global.toolCalls.read);
+    expect(merged.toolCalls.edit).toBe(global.toolCalls.edit);
+    expect(merged.toolCalls.agent).toBe(global.toolCalls.agent);
+    expect(merged.toolCalls.generic).toBe(global.toolCalls.generic);
+  });
+});
 
 describe("mergeDisplayPrefs", () => {
   it("returns a defensive copy of global when override is undefined", () => {

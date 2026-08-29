@@ -43,8 +43,15 @@ export interface ChatMessage {
    * It is spliced into `messages[]` by the message handler to disclose a
    * windowed replay's elided middle. See change: lazy-load-session-history.
    */
-  role: "user" | "assistant" | "toolResult" | "thinking" | "bashOutput" | "commandFeedback" | "interactiveUi" | "turnSeparator" | "rawEvent" | "inlineTerminal" | "historyGap";
+  role: "user" | "assistant" | "toolResult" | "thinking" | "bashOutput" | "commandFeedback" | "interactiveUi" | "turnSeparator" | "rawEvent" | "inlineTerminal" | "historyGap" | "custom";
   content: string;
+  /**
+   * Extension-authored `customType` label — present ONLY on `role: "custom"`
+   * rows (pi.sendMessage's customType, or pi.appendEntry's customType).
+   * Rendered as the card label by `CustomEntryCard`; never interpreted.
+   * See change: render-inline-reasoning-and-custom-entries.
+   */
+  customType?: string;
   images?: ChatImage[];
   toolName?: string;
   toolCallId?: string;
@@ -532,6 +539,13 @@ export function synthesizeSupersededEnd(toolCallId: string, now: number): Dashbo
  * If a future row role is added, it MUST be classified — add it here if
  * it terminates a turn, otherwise leave it out and it will be reorderable.
  *
+ * Classification record (change: render-inline-reasoning-and-custom-entries,
+ * D9): `custom` is deliberately NOT a boundary. A custom row is side-channel
+ * content INSIDE a turn, not a hard delimiter — adding it would break
+ * thinking-reconstruction turn scans and the flushed-assistant-row stamp
+ * (both walk back to the first boundary). Reorderability is the correct
+ * classification for it.
+ *
  * See change: fix-interactive-ui-reorder.
  */
 const TURN_BOUNDARY_ROLES: ReadonlySet<ChatMessage["role"]> = new Set([
@@ -927,6 +941,69 @@ export function truncateLines(text: string | unknown, maxLines: number): string 
   return lines.slice(0, maxLines).join("\n");
 }
 
+/**
+ * Extract the display body for a custom row from unknown payload content
+ * (design D4 of render-inline-reasoning-and-custom-entries).
+ *
+ * - string → as-is
+ * - content array → text parts joined with newlines, image parts noted as
+ *   `[image]` (a convention LOCAL to this card — the existing text-join
+ *   helpers produce text-only joins)
+ * - object → `JSON.stringify(·, null, 2)`, with a `String()` fallback when
+ *   stringification throws (circular refs — X1)
+ * - null/undefined → ""
+ * - anything else → `String(·)`
+ *
+ * Extraction FIRST, truncation SECOND — the caller truncates via
+ * `truncateOutputForDisplay` at row creation so live and replay render
+ * identically. Plain text throughout: the payload is untrusted
+ * extension-authored input and is never markdown-interpreted.
+ */
+/**
+ * Byte ceiling for a single custom row body, applied before the line
+ * truncation. The line ceiling (200 lines) cannot bound a payload of a few
+ * VERY LONG lines (minified JSON, base64 blobs), which would reach the DOM as
+ * one giant text node. Keeping the TAIL preserves the payload's end, where
+ * state summaries live. Extraction runs identically on live and replay, so
+ * parity holds. See change: render-inline-reasoning-and-custom-entries
+ * (security-hardening pass, advisory #2).
+ */
+const CUSTOM_BODY_MAX_CHARS = 64_000;
+
+function extractCustomEntryBody(content: unknown): string {
+  const body = extractCustomEntryBodyUncapped(content);
+  return body.length > CUSTOM_BODY_MAX_CHARS
+    ? body.slice(-CUSTOM_BODY_MAX_CHARS)
+    : body;
+}
+
+function extractCustomEntryBodyUncapped(content: unknown): string {
+  if (content == null) return "";
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    const parts: string[] = [];
+    for (const part of content) {
+      if (part && typeof part === "object" && (part as any).type === "image") {
+        parts.push("[image]");
+        continue;
+      }
+      const text =
+        typeof part === "string" ? part
+        : part && typeof part === "object" && typeof (part as any).text === "string" ? (part as any).text
+        : "";
+      if (text) parts.push(text);
+    }
+    return parts.join("\n");
+  }
+  if (typeof content === "object") {
+    try {
+      return JSON.stringify(content, null, 2);
+    } catch {
+      return String(content);
+    }
+  }
+  return String(content);
+}
 /** Marker prefix prepended to truncated tool output. U+00AB is visually
  * distinct from literal tool text, so the UI can detect truncation by
  * checking `result.startsWith("«")`. See change:
@@ -1698,6 +1775,36 @@ export function reduceEvent(
 
     case "message_end": {
       const msg = data.message as any;
+      if (msg?.role === "custom") {
+        // Custom MESSAGE row (pi.sendMessage) — change:
+        // render-inline-reasoning-and-custom-entries. EXACT `display ===
+        // false` exclusion (D5): pi normalizes content but NOT display, so
+        // an untyped extension omitting the flag yields undefined — which
+        // RENDERS (absent flag = meant to be seen; a truthiness check would
+        // silently drop it). `display: false` is LLM-context-only. flow-event
+        // is refused for parity with the custom_entry arm (E8; label-
+        // spoofing guard).
+        if (msg.display === false) break;
+        if (msg.customType === "flow-event") break;
+        next.messages = [
+          ...next.messages,
+          {
+            id: `custom-${next.messages.length}`,
+            role: "custom",
+            customType: typeof msg.customType === "string" && msg.customType !== ""
+              ? msg.customType
+              : "custom",
+            // Extraction first, truncation second, AT ROW CREATION — live and
+            // replay render identically (D4).
+            content: truncateOutputForDisplay(extractCustomEntryBody(msg.content)),
+            timestamp: event.timestamp,
+            // entryId/nonce deliberately NOT stamped: bridge id resolution is
+            // unreliable for custom messages (no entry_persisted correlation
+            // guarantee on this path).
+          },
+        ];
+        break;
+      }
       if (msg?.role === "assistant") {
         // Any structurally valid non-error, non-aborted assistant completion
         // confirms provider recovery, including pi-owned continuation without
@@ -1851,6 +1958,36 @@ export function reduceEvent(
         // fix-streaming-text-vs-interactive-ui-order.
         next.streamingTextFlushed = false;
       }
+      break;
+    }
+
+    case "custom_entry": {
+      // Generic custom ENTRY row (pi.appendEntry) — change:
+      // render-inline-reasoning-and-custom-entries. Same row shape as the
+      // message_end role=custom arm, so rendering is single-sourced (D1).
+      // Defense-in-depth (E8): the bridge AND state-replay already exclude
+      // `flow-event` (pi-flows owns its card); the reducer refuses it too, so
+      // a future forward path cannot double-render flow runs.
+      const customType = typeof data.customType === "string" && data.customType !== ""
+        ? data.customType
+        : "custom";
+      if (customType === "flow-event") break;
+      const entryId = typeof data.entryId === "string" ? data.entryId : undefined;
+      next.messages = [
+        ...next.messages,
+        {
+          id: entryId ? `custom-entry-${entryId}` : `custom-${next.messages.length}`,
+          role: "custom",
+          customType,
+          // Extraction first, truncation second, AT ROW CREATION (D4).
+          content: truncateOutputForDisplay(extractCustomEntryBody(data.data)),
+          timestamp: event.timestamp,
+          // The entryId arrives IN the event payload (bridge/replay both know
+          // it exactly), so it is reliable here — unlike the live message_end
+          // custom path above.
+          ...(entryId ? { entryId } : {}),
+        },
+      ];
       break;
     }
 

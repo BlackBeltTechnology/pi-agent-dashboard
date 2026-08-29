@@ -9,4 +9,4 @@ Files in this directory. One row per source file. See change: fold-oversized-age
 | `memory-event-store.ts` | In-memory event store with LRU eviction; replaces SQLite-backed event-store. → see `memory-event-store.ts.AGENTS.md` |
 | `meta-persistence.ts` | Per-session debounced `.meta.json` writer. Exports `MetaPersistence`, `createMetaPersistence`. → see `meta-persistence.ts.AGENTS.md` |
 | `migrate-persistence.ts` | Migration utility: converts `sessions.json` + `state.json` → per-session `.meta.json` + `preferences.json`. → see `migrate-persistence.ts.AGENTS.md` |
-| `preferences-store.ts` | Global UI preferences store — JSON-backed with debounced writes. → see `preferences-store.ts.AGENTS.md` |
+| `preferences-store.ts` | Global UI preferences store — JSON-backed with debounced writes. → see `preferences-store.ts.AGENTS.md` backfillDisplayPrefs + setDisplayPrefs literals gain `reasoningInlineFlow:false` / `customEntryFallback:true` — the backfill is what resolves legacy files. See change: render-inline-reasoning-and-custom-entries. |

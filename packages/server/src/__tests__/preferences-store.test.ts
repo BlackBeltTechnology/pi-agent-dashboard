@@ -708,6 +708,52 @@ describe("preferences-store", () => {
         .toBe(true);
       store2.dispose();
     });
+
+    // ── render-inline-reasoning-and-custom-entries (E4) ──────────────────
+    // Legacy persisted displayPrefs predating the two new fields must load
+    // with the fields RESOLVED to defaults, never undefined: the backfill is
+    // what injects defaults into already-persisted legacy files (not
+    // mergeDisplayPrefs, which only sees live requests).
+    const NEW_FIELDS_LEGACY_DISPLAY_PREFS = {
+      tokenStatsBar: true,
+      contextUsageBar: true,
+      reasoning: false,
+      toolResults: true,
+      turnMetadata: true,
+      debugTools: false,
+      toolCalls: { read: true, bash: true, edit: true, agent: true, generic: true },
+      reasoningAutoCollapseMs: 30000,
+      keepReasoningOpenUntilTurnEnds: false,
+      toolGroupDefaultCollapsed: false,
+      changeSummaryTable: true,
+      reserveProcessLineAtIdle: false,
+      showOutOfCwdSessionDiffs: false,
+      notifyMinLevel: "all",
+    };
+
+    it("backfills a legacy displayPrefs file to customEntryFallback=true / reasoningInlineFlow=false (E4)", () => {
+      fs.writeFileSync(filePath, JSON.stringify({
+        displayPrefs: NEW_FIELDS_LEGACY_DISPLAY_PREFS,
+      }));
+      const store = createPreferencesStore(filePath);
+      const prefs = store.getDisplayPrefs();
+      expect(prefs?.customEntryFallback).toBe(true);
+      expect(prefs?.reasoningInlineFlow).toBe(false);
+      store.dispose();
+    });
+
+    it("setDisplayPrefs base/merged literals carry the new defaults (E4)", () => {
+      const store = createPreferencesStore(filePath);
+      const merged = store.setDisplayPrefs({ debugTools: true });
+      expect(merged.customEntryFallback).toBe(true);
+      expect(merged.reasoningInlineFlow).toBe(false);
+      // An unrelated PATCH must not reset a stored value of either field.
+      store.setDisplayPrefs({ reasoningInlineFlow: true, customEntryFallback: false });
+      const again = store.setDisplayPrefs({ debugTools: false });
+      expect(again.reasoningInlineFlow).toBe(true);
+      expect(again.customEntryFallback).toBe(false);
+      store.dispose();
+    });
   });
 
   describe("openspec update signatures", () => {

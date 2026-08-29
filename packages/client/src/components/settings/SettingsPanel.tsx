@@ -2315,6 +2315,14 @@ function DisplayPrefsSection() {
         onChange={(v) => patch({ notifyMinLevel: v as DisplayPrefs["notifyMinLevel"] })}
         hint={i18nT("settings.hint.notifyMinLevel", undefined, "Minimum level of extension notification shown in chat. Errors are never hidden, and questions that need an answer always appear.")}
       />
+      {/* Extension-row visibility pair, adjacent by contract (test-plan E10):
+          the fallback toggle sits DIRECTLY after the notifications select. */}
+      <ToggleField
+        label={t("settings.customEntryFallback", undefined, "Custom entries in chat")}
+        value={prefs.customEntryFallback}
+        onChange={(v) => patch({ customEntryFallback: v })}
+        hint={i18nT("settings.hint.customEntryFallback", undefined, "Show extension custom messages and entries as generic cards in the chat. Turn off to hide them (flow cards are always shown).")}
+      />
       <h3 className="text-xs font-semibold text-[var(--text-primary)] mt-3 mb-2">{t("settings.chatDisplayReasoning", undefined, "Reasoning")}</h3>
       <ToggleField label={t("settings.reasoningBlocks", undefined, "Reasoning blocks")} value={prefs.reasoning} onChange={(v) => patch({ reasoning: v })} hint={i18nT("settings.hint.reasoningBlocks", undefined, "Show the model's thinking. Off hides it entirely and disables the two settings below.")} />
       <GatedGroup>
@@ -2331,6 +2339,13 @@ function DisplayPrefsSection() {
           label={t("settings.keepReasoningOpenUntilTurnEnds", undefined, "Keep reasoning open until turn ends")}
           value={prefs.keepReasoningOpenUntilTurnEnds}
           onChange={(v) => patch({ keepReasoningOpenUntilTurnEnds: v })}
+          disabled={!prefs.reasoning}
+        />
+        <ToggleField
+          hint={i18nT("settings.hint.reasoningInlineFlow", undefined, "Let reasoning flow down the chat with no height cap instead of scrolling inside its own box. Changes height only — collapse behavior is unchanged.")}
+          label={t("settings.reasoningInlineFlow", undefined, "Inline reasoning flow")}
+          value={prefs.reasoningInlineFlow}
+          onChange={(v) => patch({ reasoningInlineFlow: v })}
           disabled={!prefs.reasoning}
         />
       </GatedGroup>
