@@ -59,6 +59,47 @@ export function computeSrcHash(pkgRoot) {
 /** The tsconfig extends chain (root first, then each resolved extends target).
  *  Only relative extends targets are followed — a package-spec extends target
  *  cannot resolve reliably without a module resolver and this package has none. */
+/** Strip JSONC comments (// and /* *) and trailing commas, STRING-AWARE:
+ *  a `//` or `,}` inside a string literal must survive. Single pass, no deps. */
+function stripJsonc(raw) {
+  let out = "";
+  let inString = false;
+  for (let i = 0; i < raw.length; i++) {
+    const c = raw[i];
+    if (inString) {
+      out += c;
+      if (c === "\\") {
+        out += raw[i + 1] ?? ""; // preserve escaped char verbatim
+        i++;
+      } else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') {
+      inString = true;
+      out += c;
+      continue;
+    }
+    if (c === "/" && raw[i + 1] === "/") {
+      while (i < raw.length && raw[i] !== "\n") i++; // skip to EOL (newline kept)
+      continue;
+    }
+    if (c === "/" && raw[i + 1] === "*") {
+      i += 2;
+      while (i < raw.length && !(raw[i] === "*" && raw[i + 1] === "/")) i++;
+      i++; // skip the closing "/" of "*/" (loop's i++ adds the rest)
+      continue;
+    }
+    if (c === ",") {
+      // trailing comma: drop when the next non-whitespace char closes a block
+      let j = i + 1;
+      while (j < raw.length && /\s/.test(raw[j])) j++;
+      if (raw[j] === "}" || raw[j] === "]") continue;
+    }
+    out += c;
+  }
+  return out;
+}
+
 export function tsconfigChain(pkgRoot) {
   const chain = [];
   let cur = join(pkgRoot, "tsconfig.json");
@@ -66,18 +107,9 @@ export function tsconfigChain(pkgRoot) {
   while (existsSync(cur) && !seen.has(cur)) {
     seen.add(cur);
     chain.push(cur);
-    let raw;
-    try {
-      raw = readFileSync(cur, "utf8");
-    } catch {
-      break;
-    }
     let m;
     try {
-      // Tolerant JSONC parse: comments AND trailing commas are legal in
-      // tsconfig files; a hard parse failure must not silently truncate the
-      // extends chain (a base-config change would then miss the hash).
-      m = JSON.parse(raw.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "").replace(/,([\s\n\r]*[}\]])/g, "$1"));
+      m = JSON.parse(stripJsonc(readFileSync(cur, "utf8")));
     } catch {
       break; // unparseable config: hash what exists, stop following
     }

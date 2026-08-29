@@ -70,4 +70,15 @@ describe("check-kb-dist-fresh (C1)", () => {
     expect(r.status).not.toBe(0);
     expect(r.stderr).toContain("rebuild and commit the fingerprint");
   });
+
+  it("dist tampered after the committed build → non-zero when dist exists (leg absent in CI)", () => {
+    const pkg = sandbox("stale-dist");
+    mkdirSync(join(pkg, "dist"), { recursive: true });
+    writeFileSync(join(pkg, "dist", "cli.js"), "console.log('ok');\n");
+    writeFp(pkg); // records distHash of the current dist
+    writeFileSync(join(pkg, "dist", "cli.js"), "console.log('tampered');\n");
+    const r = runCheck(pkg);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain("dist changed after the last build");
+  });
 });

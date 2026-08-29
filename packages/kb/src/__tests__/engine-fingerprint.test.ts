@@ -93,6 +93,7 @@ describe("engine fingerprint (E12 determinism + normalization)", () => {
       // compiler options shared by the workspace
       "strict": true, // trailing comma below is legal JSONC
       "target": "es2022",
+      "x-url": "http://example.com//not-a-comment",
     }
 `,
     );
