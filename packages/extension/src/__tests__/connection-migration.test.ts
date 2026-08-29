@@ -233,6 +233,25 @@ describe("ConnectionManager migration (fix-bridge-mdns-migration-hijack)", () =>
       cm.disconnect();
     });
 
+    it("redials a mid-backoff cold start at the adopted endpoint (round-2 review)", async () => {
+      const { cm } = makeManager();
+      cm.connect();
+      // The first dial FAILS — the manager is now mid-backoff: socket gone,
+      // reconnect timer armed, never opened (hasConnectedBefore false). A
+      // discovery proposal landing in this window must leave the manager
+      // dialling the ADOPTED endpoint, not timerless and stranded.
+      MockWebSocket.instances[0].simulateDialFailure();
+
+      const accepted = await cm.retargetTo(POISONED_CANDIDATE_URL, {
+        trigger: "mdns discovery",
+      });
+
+      expect(accepted).toBe(true);
+      const last = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      expect(last.url).toBe(POISONED_CANDIDATE_URL);
+      cm.disconnect();
+    });
+
     it("is a no-op for the current URL", async () => {
       const { cm, records } = makeManager();
       establishRegistered(cm);

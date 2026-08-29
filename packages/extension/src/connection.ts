@@ -671,13 +671,17 @@ export class ConnectionManager {
     }
     // A pending reconnect timer would race the fresh dial against the OLD
     // endpoint — cancel it and dial the adopted endpoint now. A manager that
-    // has connected before but fully dropped (dead incumbent mid-backoff)
-    // also redials; one that never connected does not self-start.
+    // is actively trying to stay connected — live socket, PENDING RECONNECT
+    // TIMER (cold-start first dial already failed into backoff), or a prior
+    // success — must dial the adopted endpoint; only a manager that was
+    // never asked to connect does not self-start. (Round-2 review: a timer
+    // cancelled without redialling stranded a mid-backoff cold start.)
+    const hadReconnectTimer = this.reconnectTimer !== null;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
-    if (hadSocket || this.hasConnectedBefore) this.createConnection();
+    if (hadSocket || hadReconnectTimer || this.hasConnectedBefore) this.createConnection();
   }
 
   private createConnection(): void {
