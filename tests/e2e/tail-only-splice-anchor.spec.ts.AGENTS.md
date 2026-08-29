@@ -1,0 +1,3 @@
+# tail-only-splice-anchor.spec.ts — index
+
+L3 gate for D7a (F9, F10, F18). Asserts the anchor BY THE ROW via `data-row-key` (survives a splice that shifts every `data-index`), not the geometric proxy `ΔscrollTop === ΔscrollHeight` — that proxy left ~3200px residual on a 34000px splice because `scrollHeight` also grows when BELOW-viewport rows remeasure, so it fails a correct impl and passes an over-correcting one. `head-tail` asserts the complement (`ΔscrollTop === 0`). Tolerance is a REQUIREMENT (estimated sizes + `overflowAnchor:none`). F18 surfaced a real defect: `selectionSpanRef` holds a row INDEX span that a splice invalidates. See change: add-tail-only-replay-window.

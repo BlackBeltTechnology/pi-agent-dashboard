@@ -13,23 +13,25 @@
   "type": "module",
   "license": "MIT",
   "bin": {
-    "kb": "./dist/cli.js"
+    "kb": "./bin/kb.mjs"
   },
   "exports": {
     ".": "./src/index.ts"
   },
   "engines": {
-    "node": ">=22.5.0"
+    "node": ">=22.13.0"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node bin/lib/engine-fingerprint.mjs --write .",
     "prepublishOnly": "npm run build",
     "verify": "NODE_OPTIONS=--experimental-sqlite tsx verify.ts",
     "test": "NODE_OPTIONS=--experimental-sqlite vitest run"
   },
   "files": [
+    "bin",
     "dist",
     "src",
+    "engine-fingerprint.json",
     "!**/AGENTS.md",
     "!**/*.AGENTS.md",
     "!src/__tests__"

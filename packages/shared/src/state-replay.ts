@@ -57,6 +57,8 @@ export function replayEntriesAsEvents(
     // Persisted flow-run event: { seq, eventType, data, flowRunId }. eventType
     // is already the dashboard protocol name — re-forward verbatim, no re-map.
     // Duck-typed: no import from pi-flows. Malformed records skipped.
+    // Checked BEFORE the generic custom-entry arm below — the generic fallback
+    // must never claim flow-event (design D3).
     if (entry.type === "custom" && entry.customType === "flow-event") {
       const rec = entry.data as { seq?: unknown; eventType?: unknown; data?: unknown } | undefined;
       if (rec && typeof rec.eventType === "string") {
@@ -68,6 +70,36 @@ export function replayEntriesAsEvents(
         });
       }
     }
+
+    // Custom MESSAGE entry (pi.sendMessage({customType, content, display}))
+    // — change: render-inline-reasoning-and-custom-entries. Synthesizes the
+    // same message_end the live path forwards, so the reducer's role=custom
+    // arm builds the identical row. EXACT `display === false` exclusion (D5):
+    // pi normalizes content but NOT display, so an untyped extension omitting
+    // the flag yields undefined — which RENDERS (absent flag = meant to be
+    // seen). Skipping on falsy would silently hide those. flow-event is
+    // excluded for parity with the entry arm (label-spoofing guard).
+    if (
+      entry.type === "custom_message" &&
+      entry.display !== false &&
+      entry.customType !== "flow-event"
+    ) {
+      messages.push(makeEvent(sessionId, "message_end", ts, {
+        message: {
+          role: "custom",
+          customType: entry.customType,
+          content: entry.content ?? [],
+          display: entry.display,
+          details: entry.details,
+        },
+        entryId: entry.id,
+      }));
+    }
+
+    // Generic custom ENTRY (pi.appendEntry) — same change. Synthesizes the
+    // `custom_entry` protocol event the bridge forwards live, so replay and
+    // live reduce into the same row shape. flow-event already took its
+    // seq-sorted path above and never reaches this arm.
 
     if (entry.type === "message" && entry.message) {
       const msg = entry.message;
@@ -157,6 +189,14 @@ export function replayEntriesAsEvents(
       messages.push(makeEvent(sessionId, "model_select", ts, {
         type: "model_select",
         model: { provider: entry.provider, id: entry.modelId },
+      }));
+    }
+
+    if (entry.type === "custom" && entry.customType !== "flow-event") {
+      messages.push(makeEvent(sessionId, "custom_entry", ts, {
+        customType: entry.customType,
+        data: entry.data,
+        entryId: entry.id,
       }));
     }
   }

@@ -185,6 +185,36 @@ describe("GET /api/kb/stats", () => {
     expect(res.json().staleCount).toBe(0);
     await app.close();
   });
+
+  it("reads the v2 sidecar ({version, files} with stat baselines) — drifted file still counts (add-kb-trust-verdicts-and-search-guard)", async () => {
+    const cwd = makeFolder();
+    writeFileSync(join(cwd, "src.ts"), "export const changed = 2;\n");
+    const staleDir = join(cwd, ".pi", "dashboard", "kb");
+    mkdirSync(staleDir, { recursive: true });
+    writeFileSync(
+      join(staleDir, "dox-staleness.json"),
+      JSON.stringify({ version: 2, files: { "src.ts": { sha256: "deadbeef-not-the-real-sha", size: 20, mtimeMs: 1000 } } }),
+    );
+    const { app } = buildApp([cwd]);
+    const res = await app.inject({ method: "GET", url: `/api/kb/stats?cwd=${encodeURIComponent(cwd)}` });
+    expect(res.json().staleCount).toBe(1); // a v2 sidecar must never silently read as zero drift
+    await app.close();
+  });
+
+  it("a future sidecar version reads as empty, not as false positives", async () => {
+    const cwd = makeFolder();
+    writeFileSync(join(cwd, "src.ts"), "export const x = 1;\n");
+    const staleDir = join(cwd, ".pi", "dashboard", "kb");
+    mkdirSync(staleDir, { recursive: true });
+    writeFileSync(
+      join(staleDir, "dox-staleness.json"),
+      JSON.stringify({ version: 3, files: { "src.ts": { sha256: "whatever", size: 1, mtimeMs: 2 } } }),
+    );
+    const { app } = buildApp([cwd]);
+    const res = await app.inject({ method: "GET", url: `/api/kb/stats?cwd=${encodeURIComponent(cwd)}` });
+    expect(res.json().staleCount).toBe(0);
+    await app.close();
+  });
 });
 
 describe("POST /api/kb/reindex", () => {

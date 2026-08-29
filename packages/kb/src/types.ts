@@ -35,6 +35,31 @@ export interface GraphEdge {
   weight?: number;
 }
 
+/** Trust label over a hit's DOX-row subject set (verdict.ts, arm A of
+ *  add-kb-trust-verdicts-and-search-guard). A trust LABEL, never a relevance
+ *  signal — verdicts SHALL NOT reorder results. */
+export type VerdictLabel = "FRESH" | "STALE" | "MOVED" | "GONE" | "UNVERIFIED";
+
+/** Per-label subject counts over the CHECKED set, plus the total number of
+ *  resolvable subjects the section documents — a capped check (SUBJECT_CAP 8)
+ *  is never indistinguishable from a full one. */
+export interface VerdictCounts {
+  fresh: number;
+  stale: number;
+  moved: number;
+  gone: number;
+  unverified: number;
+  checked: number;
+  total: number;
+}
+
+export interface HitVerdict {
+  label: VerdictLabel; // worst-of the checked subjects
+  counts: VerdictCounts;
+  /** Successor paths (cwd-relative) for MOVED subjects, when any. */
+  movedTo?: string[];
+}
+
 export interface KbHit {
   root: string;
   path: string;
@@ -48,6 +73,13 @@ export interface KbHit {
    *  dedup (design D1). 0 = this source matched exactly once. */
   suppressedSections?: number;
   parent?: { headingPath: string } | null; // small-to-big parent context (expand.parent); display-only, NOT a refetch key; non-recursive
+  /** Trust verdict over the hit's resolvable DOX-row subjects (verdict.ts).
+   *  null = the hit documents no resolvable subject; absent = enrichment
+   *  disabled. Label-only — ordering is byte-identical with it on or off. */
+  verdict?: HitVerdict | null;
+  /** Opt-in content-coverage score (0..1): share of query terms present in the
+   *  subject files. Default OFF (uncalibrated); separate from the verdict. */
+  coverage?: number;
 }
 
 /** A pluggable reranker: rescoring BM25 top-k. Default = none (no-op). */

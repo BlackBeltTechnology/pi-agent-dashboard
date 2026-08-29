@@ -80,10 +80,22 @@ describe("estimateVirtualRowSize (task 2.2)", () => {
       "turnSeparator",
       "rawEvent",
       "inlineTerminal",
+      "custom",
     ];
     for (const role of roles) {
       expect(estimateVirtualRowSize(msg({ id: role, role }))).toBeGreaterThan(0);
     }
+  });
+
+  it("gives the custom row an EXPLICIT base above the default arm, not the fallback (P2)", () => {
+    // The card's body region is height-capped (max-h-[240px]), so the text
+    // reserve is clamped to 240 — a 200-line JSON body must not over-estimate
+    // (first-paint drift; security-pass advisory #3).
+    const custom = msg({ id: "c1", role: "custom" });
+    expect(estimateVirtualRowSize(custom, 0)).toBe(160);
+    expect(estimateVirtualRowSize(custom, 0)).toBeGreaterThan(120);
+    // 200-line body (~16k chars): reserve clamps at 240 → 160 + 240 = 400.
+    expect(estimateVirtualRowSize(custom, 16_000)).toBe(160 + 240);
   });
 
   it("is monotonic in text length (larger payload -> larger estimate), up to the clamp", () => {

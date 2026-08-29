@@ -142,6 +142,7 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
           <Row label={i18nT("common.contextUsageBar", undefined, "Context usage bar")} value={prefs.contextUsageBar} marked={isOverridden("contextUsageBar")} onChange={(v) => patch({ contextUsageBar: v })} />
           <Row label={i18nT("session.reasoningBlocks", undefined, "Reasoning blocks")} value={prefs.reasoning} marked={isOverridden("reasoning")} onChange={(v) => patch({ reasoning: v })} />
           <Row label={i18nT("session.keepReasoningOpenUntilTurnEnds", undefined, "Keep reasoning open until turn ends")} value={prefs.keepReasoningOpenUntilTurnEnds} marked={isOverridden("keepReasoningOpenUntilTurnEnds")} onChange={(v) => patch({ keepReasoningOpenUntilTurnEnds: v })} />
+          <Row label={i18nT("settings.reasoningInlineFlow", undefined, "Inline reasoning flow")} value={prefs.reasoningInlineFlow} marked={isOverridden("reasoningInlineFlow")} onChange={(v) => patch({ reasoningInlineFlow: v })} />
           <Row label={i18nT("common.keepToolGroupsCollapsed", undefined, "Keep tool groups collapsed")} value={prefs.toolGroupDefaultCollapsed} marked={isOverridden("toolGroupDefaultCollapsed")} onChange={(v) => patch({ toolGroupDefaultCollapsed: v })} />
           <Row label={i18nT("common.toolResultBodies", undefined, "Tool result bodies")} value={prefs.toolResults} marked={isOverridden("toolResults")} onChange={(v) => patch({ toolResults: v })} />
           <Row label={i18nT("session.turnMetadata", undefined, "Turn metadata")} value={prefs.turnMetadata} marked={isOverridden("turnMetadata")} onChange={(v) => patch({ turnMetadata: v })} />
@@ -155,6 +156,10 @@ export function ChatViewMenu({ sessionId, send, currentOverride }: Props): React
             marked={isOverridden("notifyMinLevel")}
             onChange={(v) => patch({ notifyMinLevel: v })}
           />
+          {/* Extension-row visibility pair — same order as the settings page
+              (notifications, then custom entries). See change:
+              render-inline-reasoning-and-custom-entries. */}
+          <Row label={i18nT("settings.customEntryFallback", undefined, "Custom entries in chat")} value={prefs.customEntryFallback} marked={isOverridden("customEntryFallback")} onChange={(v) => patch({ customEntryFallback: v })} />
           <div className="my-2 border-t border-[var(--border-subtle)]" />
           <div className="text-[var(--text-tertiary)] mb-1">{i18nT("common.toolCalls", undefined, "Tool calls")}</div>
           <Row label={i18nT("common.read", undefined, "Read")} value={prefs.toolCalls.read} marked={isToolCallOverridden("read")} onChange={(v) => patch({ toolCalls: { read: v } })} />
