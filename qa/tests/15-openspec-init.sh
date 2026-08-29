@@ -44,9 +44,20 @@ export OPENSPEC_STUB_MARKER="$STUB_MARKER"
 # freshly-started server with an empty store has neither.
 PI_DIR="$HOME/.pi/dashboard"
 mkdir -p "$PI_DIR"
-cat > "$PI_DIR/preferences.json" << EOF
-{ "pinnedDirectories": ["$TARGET"] }
-EOF
+# MERGE into an existing preferences file — never truncate a user's store
+# (CodeRabbit round: `cat >` would clobber every other key).
+node -e '
+const fs = require("fs");
+const p = process.argv[1] + "/preferences.json";
+const target = process.argv[2];
+let d = {};
+try { d = JSON.parse(fs.readFileSync(p, "utf8")); } catch { /* fresh store */ }
+const pins = Array.isArray(d.pinnedDirectories) ? d.pinnedDirectories : [];
+if (!pins.includes(target)) pins.push(target);
+d.pinnedDirectories = pins;
+fs.writeFileSync(p, JSON.stringify(d, null, 2));
+console.log("seeded pin:", target);
+' "$PI_DIR" "$TARGET"
 
 PATH="$STUB_BIN:$PATH" pi-dashboard start &
 SERVER_PID=$!
