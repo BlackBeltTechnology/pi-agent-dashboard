@@ -401,6 +401,22 @@ describe("collapse-pairing-into-gateway — approval invariants + failure modes 
     expect(screen.queryByTestId("gateway-pair-copystring")).toBeNull();
   });
 
+  // X5 mirror (review nit): the block must CLEAR when a regenerate succeeds —
+  // setNoSecureRoad(false) at the top of load() is what makes the flag
+  // re-evaluated in BOTH directions, so pin the no-road → healthy transition.
+  it("X5-mirror first load no_reachable_endpoint then ok on regenerate: block clears, panel returns", async () => {
+    getPairPayload
+      .mockResolvedValueOnce({ ok: false, error: "no_reachable_endpoint" })
+      .mockResolvedValueOnce({ ok: true, payload: PAYLOAD });
+    render(<GatewayPairQR endpoints={MIXED_EPS} />);
+    await waitFor(() => expect(screen.getByTestId("gateway-pair-no-secure-road")).toBeDefined());
+    expect(screen.queryByTestId("gateway-pair-copystring")).toBeNull();
+
+    fireEvent.click(screen.getByTestId("gateway-pair-regenerate"));
+    await waitFor(() => expect(screen.getByTestId("gateway-pair-copystring")).toBeDefined());
+    expect(screen.queryByTestId("gateway-pair-no-secure-road")).toBeNull();
+  });
+
   // F1 — D7a selection coupling, pinned as deliberate: link selection swaps the
   // payload panel for the link note; TLS re-selection restores everything
   // without a reload.
