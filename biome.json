@@ -17,6 +17,7 @@
       "!**/*.css",
       "!**/__tests__/fixtures/**",
       "!**/*.production.min.js",
+      "!site/vendor/**",
       "!packages/pi-forms-bpmn/.pi/skills/**/assets/**"
     ]
   },
@@ -119,7 +120,8 @@
         ".pi/flows/**",
         "tests/e2e/**",
         "qa/scripts/**",
-        ".pi/skills/**/scripts/**"
+        ".pi/skills/**/scripts/**",
+        "site/design-scratch/**"
       ],
       "linter": {
         "rules": {

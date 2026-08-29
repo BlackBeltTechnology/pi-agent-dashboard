@@ -102,3 +102,33 @@ describe("KbHit.parent is non-recursive (E14)", () => {
     expect(_grandparent).toBeUndefined();
   });
 });
+
+describe("renderHits: trust verdict (add-kb-trust-verdicts-and-search-guard, task 3.3)", () => {
+  const V = {
+    label: "STALE" as const,
+    counts: { fresh: 3, stale: 2, moved: 0, gone: 1, unverified: 2, checked: 8, total: 9 },
+  };
+
+  it("renders the verdict inline in the tool (multiline/condensed) form with counts", () => {
+    const out = renderHits([hit({ verdict: V })], TOOL);
+    expect(out).toContain("STALE (8 of 9 subjects checked)");
+  });
+
+  it("renders the verdict inline in the CLI (single-line) form", () => {
+    const out = renderHits([hit({ verdict: V })], { leading: "score", parentGlyph: "[parent: ", multiline: false });
+    expect(out).toContain("STALE (8 of 9 subjects checked)");
+  });
+
+  it("a null verdict renders nothing — never a placeholder", () => {
+    for (const v of [null, undefined]) {
+      const out = renderHits([hit({ verdict: v })], TOOL);
+      expect(out).not.toContain("checked");
+      expect(out).not.toContain("UNVERIFIED");
+    }
+  });
+
+  it("singular total reads '1 subject checked'", () => {
+    const out = renderHits([hit({ verdict: { label: "GONE", counts: { ...V.counts, total: 1, checked: 1 } } })], TOOL);
+    expect(out).toContain("GONE (1 of 1 subject checked)");
+  });
+});

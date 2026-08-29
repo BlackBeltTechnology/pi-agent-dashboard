@@ -134,16 +134,19 @@ describe("X5 — root/workspace workflows install with pnpm", () => {
   });
 });
 
-// ── X6: deploy-site is dual-install — site/ stays npm, root uses pnpm ──────
+// ── X6: deploy-site — site/ is dependency-free, root stays pnpm ──────────
+// Updated for the static-site redesign (e305c361b): site/ became a
+// hand-written static page with NO dependencies — no npm ci, no
+// cache-dependency-path. The pnpm contract that matters is the ROOT install.
 describe("X6 — deploy-site.yml dual-install regression", () => {
   const y = readWf("deploy-site.yml");
-  it("site/ job keeps its own npm lockfile + npm ci (unmigrated)", () => {
-    expect(y).toContain("cache-dependency-path: site/package-lock.json");
-    expect(y, "site/ install must stay `npm ci`").toMatch(/\bnpm ci\b/);
-  });
   it("root shell install uses pnpm", () => {
     expect(y).toContain("pnpm/action-setup");
     expect(y).toMatch(/pnpm install --frozen-lockfile/);
+  });
+  it("site/ stays dependency-free — no npm ci sneaks back in", () => {
+    expect(y, "site/ has no dependencies; npm ci must not return as a step").not.toMatch(/run:\s*npm ci/);
+    expect(y, "no site lockfile cache path without a site lockfile").not.toContain("cache-dependency-path");
   });
 });
 
