@@ -628,8 +628,16 @@ export class ConnectionManager {
       return record(false, "refused: candidate health check did not return ok");
     }
 
-    // Localhost preference as an invariant on the connection (D3).
-    if (this.isLoopbackEndpoint(from) && !this.isLoopbackEndpoint(newUrl)) {
+    // Localhost preference as an invariant on the connection (D3) — keyed on
+    // the incumbent being ESTABLISHED *right now*. A loopback endpoint that
+    // has already dropped protects nothing: refusing a reachable remote
+    // candidate for a dead localhost incumbent would be the strand class
+    // this change exists to eliminate. (Round-1 review finding #1.)
+    if (
+      this.isConnected &&
+      this.isLoopbackEndpoint(from) &&
+      !this.isLoopbackEndpoint(newUrl)
+    ) {
       return record(
         false,
         "refused: localhost preference — a remote candidate must not displace the established loopback connection",
@@ -646,18 +654,30 @@ export class ConnectionManager {
    * reconnect loop; the fresh dial is made directly.
    */
   private adoptEndpoint(newUrl: string): void {
+    const hadSocket = this.ws !== null;
     this.url = newUrl;
     this.failedOpensSinceMigration = 0;
     this.backoff = 0;
-    if (this.ws) {
+    // Re-adoption clears the endpoint's own cooldown (round-1 review #4):
+    // a deliberate adopt is the opposite of the ping-pong the cooldown blocks.
+    this.cooldownUntil.delete(newUrl);
+    if (hadSocket) {
       this.intentionalClose = true;
       try {
         this.handleDisconnect();
       } finally {
         this.intentionalClose = false;
       }
-      this.createConnection();
     }
+    // A pending reconnect timer would race the fresh dial against the OLD
+    // endpoint — cancel it and dial the adopted endpoint now. A manager that
+    // has connected before but fully dropped (dead incumbent mid-backoff)
+    // also redials; one that never connected does not self-start.
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    if (hadSocket || this.hasConnectedBefore) this.createConnection();
   }
 
   private createConnection(): void {

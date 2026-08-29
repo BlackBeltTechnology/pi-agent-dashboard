@@ -19,6 +19,7 @@ describe("shouldAdvertise (bind-host gate)", () => {
     ["::1"],
     ["localhost"],
     ["LOCALHOST"],
+    ["dashboard.localhost"],
   ])("does not advertise when bound to loopback (%s)", (bindHost) => {
     expect(shouldAdvertise(bindHost).advertise).toBe(false);
   });

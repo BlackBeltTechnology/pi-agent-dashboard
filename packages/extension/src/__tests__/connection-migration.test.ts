@@ -171,6 +171,34 @@ describe("ConnectionManager migration (fix-bridge-mdns-migration-hijack)", () =>
       cm.disconnect();
     });
 
+    it("a DEAD loopback incumbent no longer blocks a reachable remote candidate (round-1 review #1)", async () => {
+      const { cm } = makeManager();
+      const incumbent = establishRegistered(cm);
+
+      // The localhost dashboard DIES. Preference protects an ESTABLISHED
+      // connection — a dead one protects nothing, and refusing a reachable
+      // remote candidate for it would strand the bridge forever.
+      incumbent.simulateClose();
+
+      const accepted = await cm.retargetTo(POISONED_CANDIDATE_URL, {
+        trigger: "mdns discovery",
+        verify: async () => true, // the remote candidate IS reachable
+      });
+
+      expect(accepted).toBe(true);
+      // The stale reconnect timer for the dead incumbent must not race the
+      // adoption: the next dial is the candidate, and nothing re-dials the
+      // dead loopback endpoint afterwards.
+      vi.advanceTimersByTime(60_000);
+      const last = MockWebSocket.instances[MockWebSocket.instances.length - 1];
+      expect(last.url).toBe(POISONED_CANDIDATE_URL);
+      const loopbackRedials = MockWebSocket.instances.filter(
+        (ws) => ws.url === "ws://localhost:9999" && ws !== incumbent,
+      );
+      expect(loopbackRedials).toHaveLength(0);
+      cm.disconnect();
+    });
+
     it("adopts a reachable localhost candidate over an established remote connection (legitimate migration)", async () => {
       const { cm } = makeManager({ url: "ws://192.168.1.10:9594" });
       cm.connect();

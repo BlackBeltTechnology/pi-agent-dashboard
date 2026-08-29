@@ -71,7 +71,12 @@ export interface AdvertiseVerdict {
  */
 export function shouldAdvertise(bindHost: string | undefined): AdvertiseVerdict {
   const h = (bindHost ?? "").trim().toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
-  if (h === "localhost" || h === "::1" || /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)) {
+  if (
+    h === "localhost" ||
+    h.endsWith(".localhost") ||
+    h === "::1" ||
+    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)
+  ) {
     return {
       advertise: false,
       reason: `server is bound only to loopback (${bindHost}) — not advertising an address it does not serve`,
