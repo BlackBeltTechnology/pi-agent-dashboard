@@ -68,18 +68,12 @@ layering observable, dispatcher scope). All Triples below are concrete; no
 | X2 | Failure-tolerant latch write | fault-injection (throw) | L1 | automated | `localStorage.setItem` throws | `sessionsCount` `0→1` | no throw; hook still reports `step3="done"` for the live count |
 | X3 | Failure-tolerant collapse write | fault-injection (quota) | L1 | automated | `localStorage.setItem` throws a quota error | user collapses the card | card collapses; no throw; preference absent on next mount so the breakpoint default applies |
 | X4 | Failure-tolerant collapse read | fault-injection (throw) | L1 | automated | `localStorage.getItem` throws | card mounted | breakpoint default applied; no throw |
-| X5 | Dispatcher — API-key save | fault-injection (negative) | L1 | automated | API-key `PUT` returns a non-2xx | save submitted | `provider-auth-event` is **not** dispatched |
 | X6 | Provider endpoint failure | fault-injection (abort) | L1 | automated | `/api/providers` rejects, `/api/provider-auth/status` returns one authenticated entry | hook evaluated | `step1="done"` — one endpoint failing does not hide the other's credentials |
 
 ### Integration — dispatcher
 
 | id | requirement | technique | level | disposition | input | trigger | expected observable |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------|
-| D1 | Dispatcher — API key | state-transition | L1 | automated | providers page mounted, API-key `PUT` mocked 200 | save submitted | exactly one `provider-auth-event` dispatched on `window` |
-| D2 | Dispatcher — OAuth | state-transition | L1 | automated | OAuth authorize flow mocked to success | flow completes | `provider-auth-event` dispatched |
-| D3 | Dispatcher — device flow | state-transition | L1 | automated | device-code flow mocked to success | flow completes | `provider-auth-event` dispatched |
-| D4 | Dispatcher — custom LLM provider save | state-transition | L1 | automated | custom-LLM-provider save mocked 200 | save submitted | `provider-auth-event` dispatched |
-| D5 | Dispatcher wiring end-to-end | state-convergence | L1 | automated | `useProvidersReady` mounted with a mocked pair of endpoints | `provider-auth-event` dispatched by a save path | both endpoints refetched; `ready` updates without a `focus` event |
 
 ### Regression
 
@@ -117,3 +111,14 @@ would violate the rendered-UI-vs-smoke boundary.
 - **Not built (deliberate):** a harness capable of staging ≥2 concurrent worktree
   inits, which is what a real E18 would need. M3 carries that check manually
   instead.
+
+---
+
+## Moved out of this change
+
+Scenarios **X5, D1, D2, D3, D4, D5** covered the `provider-auth-event` dispatcher.
+The dispatcher was split into its own change, `dispatch-provider-auth-event`,
+because it fixes a live bug in the shipped `LandingPage` independently of this
+work. Those rows now live in `openspec/changes/dispatch-provider-auth-event/test-plan.md`
+with their ids preserved. #X6 (endpoint-failure readiness) stays here — it is a
+`useOnboardingSteps` input test, not a dispatcher test.

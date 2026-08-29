@@ -202,26 +202,6 @@ The persistent onboarding card SHALL be anchored to the bottom-right of the view
 - **THEN** focus SHALL be able to move past the card to the rest of the page
 - **AND** the card SHALL expose an accessible name identifying it as onboarding
 
-### Requirement: Credential-save paths announce readiness changes
-Every client path that persists a provider credential SHALL dispatch the `provider-auth-event` custom event on `window` after the credential is successfully persisted. This covers at minimum the API-key `PUT`, OAuth completion, and device-flow completion in `ProviderAuthSection`, and the LLM-providers save.
-
-Without this dispatch the `useProvidersReady()` listener never fires while the user remains on the providers page, and any onboarding surface would display a stale unconfigured state after the user has just configured credentials.
-
-#### Scenario: API-key save dispatches the event
-- **GIVEN** the user enters a provider API key on the providers settings page
-- **WHEN** the save request succeeds
-- **THEN** the client SHALL dispatch `provider-auth-event` on `window`
-
-#### Scenario: OAuth completion dispatches the event
-- **GIVEN** the user completes an OAuth or device-code authentication flow
-- **WHEN** the flow reports success
-- **THEN** the client SHALL dispatch `provider-auth-event` on `window`
-
-#### Scenario: Failed save does not dispatch
-- **GIVEN** a credential save request fails
-- **WHEN** the failure is handled
-- **THEN** the client SHALL NOT dispatch `provider-auth-event`
-
 ### Requirement: Onboarding card clears the composer
 On routes that render a message composer, the persistent onboarding card SHALL be raised by a fixed offset so that it clears a single-line composer. The offset SHALL be driven by an explicit prop supplied at the mount site, derived from whether a session is selected. This offset SHALL apply to both the expanded card and the collapsed pill.
 
