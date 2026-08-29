@@ -92,4 +92,4 @@ directly. Extend that file; copy its `beforeEach` `matchMedia` stub.
   on the branch base, and on the merged tree (identical 5 register-timeout
   failures; environment-level, server/extension integration, untouched here).
   server-auto-start reds were full-suite load contention (22/22 in isolation).
-- [ ] 5.2 `openspec validate harden-multi-ask-panel --strict`.
+- [x] 5.2 `openspec validate harden-multi-ask-panel --strict`.
