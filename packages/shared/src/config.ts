@@ -671,10 +671,10 @@ export function resolveDashboardPorts(
   const usable = (v: string | undefined): number | null => {
     if (!v) return null;
     const n = Number(v);
-    return Number.isFinite(n) && n > 0 ? n : null;
+    return Number.isInteger(n) && n > 0 && n <= 65535 ? n : null;
   };
   const fromConfig = (v: number | undefined): number | null =>
-    typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null;
+    typeof v === "number" && Number.isInteger(v) && v > 0 && v <= 65535 ? v : null;
   const port = usable(env.PI_DASHBOARD_PORT) ?? usable(env.DASHBOARD_PORT)
     ?? fromConfig(fileConfig?.port) ?? DEFAULT_DASHBOARD_PORT;
   const piPort = usable(env.PI_DASHBOARD_PI_PORT) ?? usable(env.PI_GATEWAY_PORT)

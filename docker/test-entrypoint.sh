@@ -667,7 +667,9 @@ fi
 # competitor on :8000) is exercised by the specs; this smoke catches the
 # boot-time shapes.
 if [ "${PORT}" != "8000" ]; then
-  if curl --connect-timeout 1 --max-time 2 -fsS "http://localhost:8000/api/health" >/dev/null 2>&1; then
+  # No -f: ANY HTTP response (even 4xx/5xx) proves a listener; -f would read
+  # an erroring squatter as "port free".
+  if curl --connect-timeout 1 --max-time 2 -sS "http://localhost:8000/api/health" >/dev/null 2>&1; then
     smoke_fail "a second dashboard answers on default port 8000 (split-brain: auto-start launched a competitor)"
   fi
   echo "[test-entrypoint] single-dashboard invariant OK (nothing on :8000)"

@@ -16,7 +16,7 @@ without `ask_user`.
 
 | id | requirement | technique | level | disposition | input | trigger | expected observable |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------|
-| E1 | R1 | decision-table (behavioural) | L1 | automated | env `{DASHBOARD_PORT:18697, PI_DASHBOARD_PI_PORT:19697}`; `config.json` carrying neither `port` nor `piPort`; stub `isDashboardRunning(18697) → {running:true}` | `autoStartServer(config, deps)` runs | `launchServer` call count is 0; result carries `{port:18697, piPort:19697}` |
+| E1 | R1 | decision-table (behavioural) | L1 | automated | env `{DASHBOARD_PORT:18697, PI_DASHBOARD_PI_PORT:19697}`; `config.json` carrying neither `port` nor `piPort`; stub `isDashboardRunning(18697) → {running:true}` | `autoStartServer(config, deps)` runs with config PRE-RESOLVED at the bridge call site — the env→port mapping is proven by the `resolveDashboardPorts` units (#E2) and the wiring end-to-end by the harness (tasks 1.4/4.7) | `launchServer` call count is 0; result carries `{port:18697, piPort:19697}` |
 | E2 | R1 | decision-table | L1 | automated | resolver matrix: (a) no env + `config.json {port:8001}` → `8001`; (b) neither source → `8000/9999`; (c) env `""`/`"abc"`/`"0"`/`"-1"` ignored → config/defaults; (d) `PI_DASHBOARD_PORT=8001` + `DASHBOARD_PORT=8002` → `8001`; (e) `PI_DASHBOARD_PI_PORT=19698` + `PI_GATEWAY_PORT=19699` → `19698` | call the shared resolver per matrix cell | returned `{port, piPort}` equals the winning cell in every cell |
 
 ### Error-handling

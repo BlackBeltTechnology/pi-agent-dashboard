@@ -1017,6 +1017,8 @@ describe("resolveDashboardPorts", () => {
     ["non-numeric", "abc"],
     ["zero", "0"],
     ["negative", "-1"],
+    ["decimal", "1.5"],
+    ["out of TCP range", "70000"],
   ])("ignores %s env values instead of shadowing config", (_label, value) => {
     const r = resolveDashboardPorts(
       { PI_DASHBOARD_PORT: value, DASHBOARD_PORT: value, PI_DASHBOARD_PI_PORT: value, PI_GATEWAY_PORT: value },
@@ -1038,8 +1040,12 @@ describe("resolveDashboardPorts", () => {
     expect(r).toEqual({ port: 8002, piPort: 9102 });
   });
 
-  it("ignores unusable CONFIG values (0, negative) so they never shadow the defaults", () => {
+  it("ignores unusable CONFIG values (0, negative, out of range) so they never shadow the defaults", () => {
     expect(resolveDashboardPorts({}, { port: 0, piPort: -5 })).toEqual({
+      port: DEFAULT_DASHBOARD_PORT,
+      piPort: DEFAULT_GATEWAY_PORT,
+    });
+    expect(resolveDashboardPorts({}, { port: 70000 })).toEqual({
       port: DEFAULT_DASHBOARD_PORT,
       piPort: DEFAULT_GATEWAY_PORT,
     });

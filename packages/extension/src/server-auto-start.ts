@@ -168,7 +168,8 @@ export async function autoStartServer(
   // competitor for a pinned session — no liveness-driven relaunch (planned
   // restarts cover that path); the session keeps retrying its pin.
   // See change: fix-bridge-autostart-port-resolution (D3, D4).
-  const pin = process.env.PI_DASHBOARD_URL ?? process.env.PI_DASHBOARD_SOCKET;
+  // `||`, not `??`: an empty-string URL must not mask a valid socket pin.
+  const pin = process.env.PI_DASHBOARD_URL || process.env.PI_DASHBOARD_SOCKET;
   if (pin) {
     log(
       `skipped: session has a pinned dashboard endpoint (${pin}) which is not ` +
