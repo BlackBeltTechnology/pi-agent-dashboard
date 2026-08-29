@@ -56,6 +56,7 @@ import { CommandFeedbackCard } from "./CommandFeedbackCard.js";
 import { HistoryGapDivider } from "./HistoryGapDivider.js";
 import { MissingToolInlineError } from "./MissingToolInlineError.js";
 import { RawEventCard } from "./RawEventCard.js";
+import { CustomEntryCard } from "./CustomEntryCard.js";
 import { SkillInvocationCard } from "./SkillInvocationCard.js";
 import { ThinkingBlock } from "./ThinkingBlock.js";
 import { ToolBurstGroup } from "./ToolBurstGroup.js";
@@ -923,6 +924,11 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         }
         case "rawEvent":
           return showDebugTools;
+        case "custom":
+          // Render-time gate only (rawEvent precedent): rows stay in state, so
+          // toggling never replays anything. See change:
+          // render-inline-reasoning-and-custom-entries (D7).
+          return prefs.customEntryFallback;
         default:
           return true;
       }
@@ -1697,6 +1703,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
               autoCollapseMs={prefs.reasoningAutoCollapseMs}
               keepOpenUntilTurnEnds={prefs.keepReasoningOpenUntilTurnEnds}
               turnActive={state.status === "streaming"}
+              inlineFlow={prefs.reasoningInlineFlow}
             />
           );
         }
@@ -1835,6 +1842,21 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           );
         }
 
+        if (msg.role === "custom") {
+          // Mirrored gate (isRowVisible already filters; render branch keeps
+          // the branch safe if reached via another path). See change:
+          // render-inline-reasoning-and-custom-entries (D7).
+          if (!prefs.customEntryFallback) return null;
+          return (
+            <CustomEntryCard
+              key={msg.id}
+              customType={msg.customType ?? "custom"}
+              body={msg.content}
+              timestamp={msg.timestamp}
+            />
+          );
+        }
+
         if (msg.role === "rawEvent") {
           if (!showDebugTools) return null;
           return (
@@ -1878,6 +1900,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
             defaultExpanded
             startedAt={state.thinkingStartedAt}
             onUserCollapse={onCollapseStreamingThinking}
+            inlineFlow={prefs.reasoningInlineFlow}
           />
         </div>
       )}
