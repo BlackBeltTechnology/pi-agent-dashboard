@@ -49,6 +49,13 @@ export function buildOpenSpecConnectSnapshot(
         ? { ...cached, hasOpenspecDir: root }
         : cached;
       out.push({ type: "openspec_update", cwd, data });
+    } else if (cached?.readiness) {
+      // Finalized non-initialized payload from the readiness fold (ABSENT /
+      // BROKEN / OPTED_OUT / GLOBAL_OFF). Pass through VERBATIM — rebuilding a
+      // shape here would drop `readiness` and force the connecting browser
+      // into the legacy gate, losing the ABSENT Initialize offer on every
+      // reload. See change: add-openspec-init-affordances.
+      out.push({ type: "openspec_update", cwd, data: cached });
     } else if (hasDir(cwd)) {
       out.push({
         type: "openspec_update",

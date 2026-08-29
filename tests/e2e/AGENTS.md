@@ -73,6 +73,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `openspec-board-drop-contrast.spec.ts` | L3 spec (change: fix-openspec-board-drop-targeting). Marker + active-rail contrast on the LIVE drag… → see `openspec-board-drop-contrast.spec.ts.AGENTS.md` |
 | `openspec-board-drop-indicator.spec.ts` | L3 spec (change: fix-openspec-board-drop-targeting). Drag-time indication + cost:… → see `openspec-board-drop-indicator.spec.ts.AGENTS.md` |
 | `openspec-board-drop.spec.ts` | L3 spec (change: fix-openspec-board-drop-targeting). Drop resolution + commit:… → see `openspec-board-drop.spec.ts.AGENTS.md` |
+| `openspec-init-affordances-folder.spec.ts` | L3 FOLDER-SECTION slice of add-openspec-init-affordances (#F1–F3, F12–F17, X9): ABSENT offer + switch, height parity, init convergence, dismiss/re-enable, cli-failed, confirm dialogs, init-failure stderr. → see `openspec-init-affordances-folder.spec.ts.AGENTS.md` |
 | `openspec-locality-gate.spec.ts` | L3 spec (change: scope-openspec-auto-attach-to-session-cwd). → see `openspec-locality-gate.spec.ts.AGENTS.md` |
 | `optimistic-prompt.spec.ts` | Playwright E2E for optimistic-prompt-progress. Two faux round-trip tests. → see `optimistic-prompt.spec.ts.AGENTS.md` |
 | `out-of-cwd-session-diffs.spec.ts` | L3 spec (change: opt-in-out-of-cwd-session-diffs). Faux `tool-write-out-of-cwd` (writes… → see `out-of-cwd-session-diffs.spec.ts.AGENTS.md` |

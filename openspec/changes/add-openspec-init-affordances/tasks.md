@@ -86,9 +86,9 @@ Author each before its implementation section and verify it fails. Every row map
 
 ### 2h. L3 Playwright — see `tests/e2e/openspec-artifact-dialog.spec.ts` and `tests/e2e/folder-status-capsule.spec.ts`. Read the harness port from `.pi-test-harness.json` `dashboardPort`; never hardcode `:18000`
 
-- [ ] 2.48 folder readiness `ABSENT` + `offerInitialization:true` · render session list · one-line pill with Initialize + dismiss, no change count, no board link (test-plan #F1)
-- [ ] 2.49 same with `offerInitialization:false` · render · no OpenSpec section for that folder (test-plan #F2)
-- [ ] 2.50 folders in `ABSENT`/`BROKEN`/`STALE`/`READY` · render · computed height of each section equals the `READY` section's height (test-plan #F3)
+- [x] 2.48 folder readiness `ABSENT` + `offerInitialization:true` · render session list · one-line pill with Initialize + dismiss, no change count, no board link (test-plan #F1)
+- [x] 2.49 same with `offerInitialization:false` · render · no OpenSpec section for that folder (test-plan #F2)
+- [x] 2.50 folders in `ABSENT`/`BROKEN`/`STALE`/`READY` · render · computed height of each section equals the `READY` section's height (test-plan #F3)
 - [ ] 2.51 session whose cwd is `ABSENT` · render card · no element titled `OPENSPEC` (test-plan #F4)
 - [ ] 2.52 session whose cwd is `BROKEN` · render card · `OPENSPEC` panel present, no Explore/Propose/Attach/Archive controls in the DOM (test-plan #F5)
 - [ ] 2.53 disabled subcard · tab through the panel · exactly one focusable element (test-plan #F6)
@@ -97,13 +97,13 @@ Author each before its implementation section and verify it fails. Every row map
 - [ ] 2.56 cards in `BROKEN` / `STALE:missing-skills` / `STALE:profile-stale` · render · three distinct reason strings (test-plan #F9)
 - [ ] 2.57 disabled subcard with only reason + one control · render · `OPENSPEC` title still renders, empty-subcard rule does not fire (test-plan #F10)
 - [ ] 2.58 payload with no `readiness` field · render card · renders per the old `hasOpenspecDir || pending` gate, never disabled (test-plan #F11)
-- [ ] 2.59 folder in `ABSENT` · click Initialize, await broadcast · converges to `OpenSpec (N) →` and the session card OPENSPEC becomes live, with no intermediate disabled or `STALE` state (test-plan #F12)
-- [ ] 2.60 folder in `ABSENT` · click dismiss · section stops rendering, cwd persisted in `optOutDirectories` (test-plan #F13)
-- [ ] 2.61 opted-out folder · menu → Enable OpenSpec for this folder · section renders again (test-plan #F14)
-- [ ] 2.62 folder `BROKEN` reason `cli-failed` · render · no Repair/Initialize control, error text shown (test-plan #F15)
-- [ ] 2.63 folder `BROKEN` reason `missing-changes-dir` · click Repair, dismiss the confirm · no request sent (test-plan #F16)
-- [ ] 2.64 folder whose cwd already has `openspec/` · click Initialize · confirm naming the directory shown before any request (test-plan #F17)
-- [ ] 2.65 init fails · click Initialize · stderr surfaced, section stays `ABSENT` and does not show success (test-plan #X9)
+- [x] 2.59 folder in `ABSENT` · click Initialize, await broadcast · converges to `OpenSpec (N) →` and the session card OPENSPEC becomes live, with no intermediate disabled or `STALE` state (test-plan #F12)
+- [x] 2.60 folder in `ABSENT` · click dismiss · section stops rendering, cwd persisted in `optOutDirectories` (test-plan #F13)
+- [x] 2.61 opted-out folder · menu → Enable OpenSpec for this folder · section renders again (test-plan #F14)
+- [x] 2.62 folder `BROKEN` reason `cli-failed` · render · no Repair/Initialize control, error text shown (test-plan #F15)
+- [x] 2.63 folder `BROKEN` reason `missing-changes-dir` · click Repair, dismiss the confirm · no request sent (test-plan #F16)
+- [x] 2.64 folder whose cwd already has `openspec/` · click Initialize · confirm naming the directory shown before any request (test-plan #F17)
+- [x] 2.65 init fails · click Initialize · stderr surfaced, section stays `ABSENT` and does not show success (test-plan #X9)
 - [ ] 2.66 session list with 10 folders + 40 session cards · page load + 30s idle · `GET /api/openspec/update-status` request count from card rendering is 0 (test-plan #P3)
 
 ## 3. Server + shared
@@ -142,5 +142,5 @@ Author each before its implementation section and verify it fails. Every row map
 
 ## 6. Docs
 
-- [ ] 6.1 Delegate to `DocScribe` (caveman style): `docs/architecture.md` gains the readiness state table, the `optOutDirectories`/`offerInitialization` config reference, and the init endpoint contract; `docs/faq.md` gains "OpenSpec buttons do nothing" → the readiness states and their fixes.
-- [ ] 6.2 Apply the returned directory-`AGENTS.md` rows for every touched file.
+- [x] 6.1 Delegate to `DocScribe` (caveman style): `docs/architecture.md` gains the readiness state table, the `optOutDirectories`/`offerInitialization` config reference, and the init endpoint contract; `docs/faq.md` gains "OpenSpec buttons do nothing" → the readiness states and their fixes.
+- [x] 6.2 Apply the returned directory-`AGENTS.md` rows for every touched file.

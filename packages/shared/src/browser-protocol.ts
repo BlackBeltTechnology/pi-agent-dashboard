@@ -62,6 +62,18 @@ export interface ReachabilityUpdatedMessage {
 }
 
 /**
+ * Server → browser: a config section changed over PUT /api/config. Clients
+ * re-hydrate the affected settings without a reload (the OpenSpec fleet
+ * switches gate live folder-section rendering). NOT replayed on connect —
+ * connect-time state comes from the normal snapshot + /api/config fetch.
+ * See change: add-openspec-init-affordances.
+ */
+export interface ConfigUpdatedMessage {
+  type: "config_updated";
+  section: string;
+}
+
+/**
  * Browser → server: write the sparse per-session override.
  * `override: null` clears the field from `.meta.json`.
  */
@@ -1044,6 +1056,7 @@ export type ServerToBrowserMessage =
   | PluginEventBroadcast
   | DisplayPrefsUpdatedMessage
   | ReachabilityUpdatedMessage
+  | ConfigUpdatedMessage
   | QueueUpdateToBrowserMessage
   | PromptReceivedToBrowserMessage
   | CanvasIntentMessage

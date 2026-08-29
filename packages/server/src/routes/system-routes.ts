@@ -366,6 +366,10 @@ export function registerSystemRoutes(
       }
       if (partial.openspec !== undefined && directoryService) {
         directoryService.reconfigurePolling(reloaded.openspec);
+        // Live pages re-hydrate the fleet switches (offerInitialization /
+        // enabled) without a reload — the ABSENT offer gate reads them.
+        // See change: add-openspec-init-affordances.
+        browserGateway?.broadcastToAll({ type: "config_updated", section: "openspec" });
       }
       // Session-ordering gates take effect immediately (no restart) so the
       // Settings toggles apply to the next status transition.

@@ -931,6 +931,27 @@ export default function App() {
       .catch(() => {});
   }, []);
 
+  // Live re-hydration of the OpenSpec fleet switches: a PUT /api/config with
+  // an openspec section (settings toggle, opt-out add/remove) broadcasts
+  // `config_updated` — re-fetch so mounted folder sections re-gate without a
+  // reload. See change: add-openspec-init-affordances.
+  useEffect(() => {
+    if (!onMessage) return;
+    return onMessage((msg: any) => {
+      if (msg?.type !== "config_updated" || msg.section !== "openspec") return;
+      fetch(`${apiBase}/api/config`)
+        .then((r) => r.json())
+        .then((d) => {
+          const os = d?.data?.openspec;
+          if (d?.success && os && typeof os === "object") {
+            if (typeof os.offerInitialization === "boolean") setOpenspecOfferInitialization(os.offerInitialization);
+            if (typeof os.enabled === "boolean") setOpenspecEnabled(os.enabled);
+          }
+        })
+        .catch(() => {});
+    });
+  }, [onMessage, apiBase]);
+
   // Fetch global chat-display prefs once on mount, then run the legacy
   // `show-debug-tools` localStorage migration (idempotent). The reply may
   // carry `displayPrefs: undefined`, in which case the FirstLaunchDisplay
