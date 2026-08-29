@@ -274,6 +274,115 @@ function CopyString({ text }: { text: string }) {
 
 type State = "loading" | "ready" | "empty" | "error";
 
+/** Eyebrow line + advisory countdown tag (extracted to keep the host under the complexity cap). */
+function CountdownHeader({ pairingPayload, expired, secondsLeft }: { pairingPayload: PairingPayload | null; expired: boolean; secondsLeft: number }) {
+  const { t } = useI18n();
+  return (
+    <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
+      {t("gateway.pair.connectDevice", undefined, "Connect a device")}
+      {pairingPayload && (
+        <span className="ml-2 font-semibold normal-case text-[var(--amber,#d29922)]">
+          {expired
+            ? t("gateway.pair.codeExpired", undefined, "· code expired")
+            : t("gateway.pair.codeExpires", { seconds: secondsLeft }, `· code expires ${secondsLeft}s`)}
+        </span>
+      )}
+    </p>
+  );
+}
+
+/**
+ * The D3 "no secure road" block: outcome headline → why → ONE primary CTA →
+ * rule-separated escape hatch, with the dashed QR placeholder beside it
+ * (shape of success, NN/g empty states; WCAG 1.4.1 — never colour alone).
+ * Matches mockups/gateway-empty.html. Rendered ONLY on the `noSecureRoad`
+ * flag — the `no_reachable_endpoint` RESPONSE, never an endpoint count.
+ */
+function NoSecureRoadBlock({ onSetup }: { onSetup: () => void }) {
+  const { t } = useI18n();
+  return (
+    <div className="mb-3 mt-1 flex flex-wrap items-start gap-5" data-testid="gateway-pair-no-secure-road">
+      <div
+        role="img"
+        aria-label={t(
+          "gateway.pair.qrPlaceholderAria",
+          undefined,
+          "A pairing QR code will appear here once a secure endpoint exists",
+        )}
+        className="grid h-[132px] w-[132px] flex-none place-items-center rounded-md border-2 border-dashed border-[var(--border-strong)] text-[var(--text-tertiary)]"
+      >
+        <Icon path={mdiLockOutline} size={1.6} />
+      </div>
+      <div className="min-w-[260px] flex-1">
+        <h3 className="mb-1.5 text-[15px] font-semibold text-[var(--text-primary)]">
+          {t("gateway.pair.noSecureRoadTitle", undefined, "No secure road to pair over yet")}
+        </h3>
+        <p className="mb-3.5 max-w-[54ch] text-sm text-[var(--text-secondary)]">
+          {t(
+            "common.pairingNeedsSecureRoad",
+            undefined,
+            "Pairing a remote device needs a secure road (the Gateway or a publicly-trusted TLS URL). A browser on a plain-http LAN address cannot pair — the identity check requires a secure context.",
+          )}
+        </p>
+        <button
+          type="button"
+          data-testid="gateway-pair-no-secure-road-setup"
+          onClick={onSetup}
+          className="min-h-[44px] rounded bg-[var(--accent-solid)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
+        >
+          {t("tunnel.startATunnel", undefined, "Set up the Gateway")}
+        </button>
+        <p className="mt-3.5 max-w-[60ch] border-t border-[var(--border-subtle)] pt-3 text-xs text-[var(--text-secondary)]">
+          {t(
+            "common.localhostEscapeHatch",
+            undefined,
+            "On the same machine, http://localhost is already a secure context and can pair. This is not a remote/LAN path.",
+          )}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * Pairing context-panel details (D7): the fingerprint renders in FULL and
+ * selectable (the 12-char form stays only as the QR caption), and the
+ * advertised urls come from the PAYLOAD, not the endpoint-selection list — the
+ * payload is TLS-filtered server-side, so the two sets can differ.
+ */
+function PairingContextDetails({ payload }: { payload: PairingPayload }) {
+  const { t } = useI18n();
+  return (
+    <div className="mt-2 space-y-1.5 text-[10.5px] text-[var(--text-secondary)]">
+      <div>
+        {t("common.fingerprint", undefined, "Fingerprint")}{" "}
+        <code data-testid="gateway-pair-fingerprint" className="select-all break-all font-mono text-[var(--text-primary)]">
+          {payload.id}
+        </code>
+      </div>
+      <div data-testid="gateway-pair-urls">
+        <span className="font-semibold uppercase tracking-wide">
+          {t("gateway.pair.advertisedUrls", undefined, "Advertised URLs")}
+        </span>
+        <ul className="mt-0.5 space-y-0.5">
+          {payload.urls.map((u) => (
+            <li key={u} className="truncate font-mono">
+              {u}
+            </li>
+          ))}
+        </ul>
+      </div>
+      <p className="max-w-[70ch]">
+        {t(
+          "gateway.pair.pairingNote",
+          undefined,
+          "Only publicly-trusted TLS endpoints ride in the pairing QR (D14). Select a mesh/LAN row above for a direct link QR; the device must already be on that network.",
+        )}
+      </p>
+    </div>
+  );
+}
+
 export function GatewayPairQR(
   { endpoints: providedEps, onSetupRequested }: { endpoints?: TunnelEndpoint[]; onSetupRequested?: () => void } = {},
 ) {
@@ -376,16 +485,7 @@ export function GatewayPairQR(
 
   return (
     <div data-testid="gateway-pair-qr" ref={rootRef}>
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
-        {t("gateway.pair.connectDevice", undefined, "Connect a device")}
-        {pairingPayload && (
-          <span className="ml-2 font-semibold normal-case text-[var(--amber,#d29922)]">
-            {expired
-              ? t("gateway.pair.codeExpired", undefined, "· code expired")
-              : t("gateway.pair.codeExpires", { seconds: secondsLeft }, `· code expires ${secondsLeft}s`)}
-          </span>
-        )}
-      </p>
+      <CountdownHeader pairingPayload={pairingPayload} expired={expired} secondsLeft={secondsLeft} />
 
       {state === "loading" && (
         <p className="text-sm text-[var(--text-secondary)]" data-testid="gateway-pair-loading">
@@ -393,54 +493,7 @@ export function GatewayPairQR(
         </p>
       )}
 
-      {noSecureRoad && (
-        <div
-          className="mb-3 mt-1 flex flex-wrap items-start gap-5"
-          data-testid="gateway-pair-no-secure-road"
-        >
-          {/* Dashed placeholder — shows a QR appears here once a secure endpoint
-              exists (shape of success, NN/g empty states); state never rides on
-              colour alone (WCAG 1.4.1). See mockups/gateway-empty.html. */}
-          <div
-            role="img"
-            aria-label={t(
-              "gateway.pair.qrPlaceholderAria",
-              undefined,
-              "A pairing QR code will appear here once a secure endpoint exists",
-            )}
-            className="grid h-[132px] w-[132px] flex-none place-items-center rounded-md border-2 border-dashed border-[var(--border-strong,var(--border))] text-[var(--text-tertiary,#8b949e)]"
-          >
-            <Icon path={mdiLockOutline} size={1.6} />
-          </div>
-          <div className="min-w-[260px] flex-1">
-            <h3 className="mb-1.5 text-[15px] font-semibold text-[var(--text-primary)]">
-              {t("gateway.pair.noSecureRoadTitle", undefined, "No secure road to pair over yet")}
-            </h3>
-            <p className="mb-3.5 max-w-[54ch] text-sm text-[var(--text-secondary)]">
-              {t(
-                "common.pairingNeedsSecureRoad",
-                undefined,
-                "Pairing a remote device needs a secure road (the Gateway or a publicly-trusted TLS URL). A browser on a plain-http LAN address cannot pair — the identity check requires a secure context.",
-              )}
-            </p>
-            <button
-              type="button"
-              data-testid="gateway-pair-no-secure-road-setup"
-              onClick={handleSetupRequested}
-              className="min-h-[44px] rounded bg-[var(--accent-solid)] px-4 py-2 text-sm font-semibold text-white hover:opacity-90"
-            >
-              {t("tunnel.startATunnel", undefined, "Set up the Gateway")}
-            </button>
-            <p className="mt-3.5 max-w-[60ch] border-t border-[var(--border)] pt-3 text-xs text-[var(--text-secondary)]">
-              {t(
-                "common.localhostEscapeHatch",
-                undefined,
-                "On the same machine, http://localhost is already a secure context and can pair. This is not a remote/LAN path.",
-              )}
-            </p>
-          </div>
-        </div>
-      )}
+      {noSecureRoad && <NoSecureRoadBlock onSetup={handleSetupRequested} />}
       {state === "error" && (
         <p className="text-sm text-[var(--danger,#ef4444)]" data-testid="gateway-pair-error">
           {errorMsg}
@@ -470,43 +523,7 @@ export function GatewayPairQR(
           {pairingPayload ? (
             <>
               <CopyString text={copyStr} />
-
-              <div className="mt-2 space-y-1.5 text-[10.5px] text-[var(--text-secondary)]">
-                {/* Full fingerprint, selectable — an operator comparing it
-                    against a device showing the full id sees a match (D7).
-                    The 12-char form stays only as the QR caption above. */}
-                <div>
-                  {t("common.fingerprint", undefined, "Fingerprint")}{" "}
-                  <code
-                    data-testid="gateway-pair-fingerprint"
-                    className="select-all break-all font-mono text-[var(--text-primary)]"
-                  >
-                    {pairingPayload.id}
-                  </code>
-                </div>
-                {/* Advertised urls come from the PAYLOAD, not the endpoint list
-                    (D7) — the payload is TLS-filtered server-side, so the two
-                    sets can legitimately differ. */}
-                <div data-testid="gateway-pair-urls">
-                  <span className="font-semibold uppercase tracking-wide">
-                    {t("gateway.pair.advertisedUrls", undefined, "Advertised URLs")}
-                  </span>
-                  <ul className="mt-0.5 space-y-0.5">
-                    {pairingPayload.urls.map((u) => (
-                      <li key={u} className="truncate font-mono">
-                        {u}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-                <p className="max-w-[70ch]">
-                  {t(
-                    "gateway.pair.pairingNote",
-                    undefined,
-                    "Only publicly-trusted TLS endpoints ride in the pairing QR (D14). Select a mesh/LAN row above for a direct link QR; the device must already be on that network.",
-                  )}
-                </p>
-              </div>
+              <PairingContextDetails payload={pairingPayload} />
             </>
           ) : (
             <div className="mt-3" data-testid="gateway-link-note">
@@ -528,7 +545,7 @@ export function GatewayPairQR(
 
       {/* Available on ready AND empty — with the old empty paragraph retired,
           regenerate is the only recovery affordance left in a blank state. */}
-      {(state === "ready" || state === "empty") && (
+      {["ready", "empty"].includes(state) && (
         <button
           type="button"
           data-testid="gateway-pair-regenerate"
