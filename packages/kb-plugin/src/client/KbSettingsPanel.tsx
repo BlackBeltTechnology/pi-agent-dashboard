@@ -103,7 +103,7 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
   const { data, loading, error, saving, save } = useKbConfig(cwd);
   // `error` is already bound from useKbConfig above, so the stats poll-outage
   // channel binds as `statsError`. See change: fix-kb-settings-reindex-gate.
-  const { stats, refetch: refetchStats, reindex, pending, reindexError, error: statsError } = useKbStats(cwd);
+  const { stats, loading: statsLoading, refetch: refetchStats, reindex, pending, reindexError, error: statsError } = useKbStats(cwd);
   const [edit, setEdit] = useState<EditState | null>(null);
   const [newSource, setNewSource] = useState("");
   const [bootstrapErr, setBootstrapErr] = useState<string | null>(null);
@@ -122,7 +122,11 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
   // The reindex job walks cfg.resolvedSources loaded FROM DISK, so that is what
   // the gate reads — never the form's (possibly unsaved) source list, and not
   // the config origin. See change: fix-kb-settings-reindex-gate (design D1).
-  const busy = pending || stats?.indexing === true;
+  // `statsLoading` keeps the action disabled through the stats hand-offs (initial
+  // mount and the post-save refetch): an unobserved in-flight job must not
+  // invite a redundant POST (CodeRabbit, PR #568). The poll-outage settled
+  // state (statsLoading=false, stats=null) stays enabled — X4's settled observable.
+  const busy = pending || statsLoading || stats?.indexing === true;
   const canIndex = (data?.config.resolvedSources?.length ?? 0) > 0;
 
   if (loading && !edit) {

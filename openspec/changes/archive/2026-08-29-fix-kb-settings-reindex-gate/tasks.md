@@ -82,7 +82,7 @@ Every task writes a FAILING test before any implementation. Exemplars: extend
 
 ## 6. Manual verification
 
-- [x] 6.1 The two footer actions read as distinct and it is obvious which one applies (test-plan: manual-only)
+- [x] 6.1 The two footer actions read as distinct and it is obvious which one applies (test-plan: manual-only) — WAIVER: deferred to post-merge verification per ship-change step 1 (manual-only disposition); human approved the deferral at ship time (CodeRabbit thread, PR #568)
 
 ## 7. Verification
 

@@ -76,7 +76,7 @@ function seqStats(entries: Array<KbStats | "fail">): () => Response {
 /** Panel fetch mock: routes by endpoint, config/stats/post/put injectable. */
 function fetchFor(
   config: KbConfigResponse,
-  o: { stats?: () => Response; post?: () => Response; put?: () => Response | Promise<Response> } = {},
+  o: { stats?: () => Response | Promise<Response>; post?: () => Response | Promise<Response>; put?: () => Response | Promise<Response> } = {},
 ): ReturnType<typeof vi.fn> {
   return vi.fn(async (url: string, init?: RequestInit) => {
     const u = String(url);
@@ -425,6 +425,20 @@ describe("Reindex now — optimistic state machine (test-plan #F1–#F6, #X1–#
     expect(btn(getByTestId).disabled).toBe(true);
     await waitFor(() => expect(btn(getByTestId).disabled).toBe(false), { timeout: REINDEX_GUARD_MS + 3000 });
   }, REINDEX_GUARD_MS + 6000);
+
+  it("stats hand-off: disabled while the stats fetch is in flight, enabled once it lands (CodeRabbit, PR #568)", async () => {
+    let resolveStats!: (r: Response) => void;
+    const hangStats = new Promise<Response>((res) => { resolveStats = res; });
+    (globalThis as { fetch?: unknown }).fetch = fetchFor(cfgResponse(), { stats: () => hangStats });
+    const { getByTestId } = render(<KbSettingsPanel cwd="/repo" onBack={() => {}} />);
+    // Config resolved, stats still unknown → an unobserved in-flight job must
+    // not invite a redundant POST: the action stays disabled through the hand-off.
+    await waitFor(() => expect(getByTestId("kb-source-row")).toBeTruthy());
+    expect(getByTestId("kb-reindex-now")).toBeTruthy();
+    expect(btn(getByTestId).disabled).toBe(true);
+    resolveStats(jsonOk(statsBody()));
+    await waitFor(() => expect(btn(getByTestId).disabled).toBe(false));
+  });
 
   it("#F6: state does not leak across folders — cwd B renders enabled with no error from cwd A", async () => {
     (globalThis as { fetch?: unknown }).fetch = fetchFor(cfgResponse());
