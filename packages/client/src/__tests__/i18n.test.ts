@@ -1,3 +1,5 @@
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   LANGUAGE_OPTIONS,
@@ -78,5 +80,59 @@ describe("registerPluginCatalog", () => {
     // Missing catalog for a language degrades gracefully (no throw).
     expect(() => registerPluginCatalog("nocatalog", undefined)).not.toThrow();
     expect(t("plugin.testplugin.launch.title", undefined, "Launch")).toBe("Launch");
+  });
+});
+
+describe("collapse-pairing-into-gateway — i18n sweep (E11)", () => {
+  // Static catalogue assertions over the raw files: the sweep must KEEP the
+  // keys the surviving Gateway surface reused, RETIRE the PairingView-only
+  // empty-state key, and carry the new Security-link + no-secure-road strings
+  // in BOTH catalogues (no English-fallback-only keys).
+  // (import.meta.url is not file-scheme under this vitest setup — resolve the
+  // catalogues from the located package root instead.)
+  function findClientRoot(start: string): string {
+    const marker = join("src", "lib", "i18n", "i18n.tsx");
+    let dir = start;
+    for (let i = 0; i < 8; i++) {
+      if (existsSync(join(dir, marker))) return dir;
+      if (existsSync(join(dir, "packages", "client", marker))) return join(dir, "packages", "client");
+      const up = dirname(dir);
+      if (up === dir) break;
+      dir = up;
+    }
+    return start;
+  }
+  const root = findClientRoot(process.cwd());
+  const zh = readFileSync(join(root, "src/lib/i18n/i18n.tsx"), "utf8");
+  const hu = readFileSync(join(root, "src/lib/i18n/i18n-hu.ts"), "utf8");
+
+  it("kept keys survive in both catalogues", () => {
+    for (const key of [
+      "tunnel.startATunnel",
+      "common.localhostEscapeHatch",
+      "common.pairingNeedsSecureRoad",
+      "settings.pairDevice",
+    ]) {
+      expect(zh, `zh-CN: ${key}`).toContain(`"${key}":`);
+      expect(hu, `hu: ${key}`).toContain(`"${key}":`);
+    }
+  });
+
+  it("retired gateway.pair.empty is absent from both catalogues", () => {
+    expect(zh).not.toContain('"gateway.pair.empty":');
+    expect(hu).not.toContain('"gateway.pair.empty":');
+  });
+
+  it("new Security-link + no-secure-road keys are present in both catalogues", () => {
+    for (const key of [
+      "settings.pairDeviceBody",
+      "settings.pairDeviceLink",
+      "gateway.pair.noSecureRoadTitle",
+      "gateway.pair.advertisedUrls",
+      "gateway.pair.qrPlaceholderAria",
+    ]) {
+      expect(zh, `zh-CN: ${key}`).toContain(`"${key}":`);
+      expect(hu, `hu: ${key}`).toContain(`"${key}":`);
+    }
   });
 });

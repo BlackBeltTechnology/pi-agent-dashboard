@@ -20,8 +20,8 @@ import { useLocation, useRoute } from "wouter";
 import { useAsyncAction } from "../../hooks/useAsyncAction.js";
 import { useInstalledPackages } from "../../hooks/useInstalledPackages.js";
 import { usePackageOperations } from "../../hooks/usePackageOperations.js";
-import { usePiResources } from "../../hooks/usePiResources.js";
 import { usePiCompatibility } from "../../hooks/usePiCompatibility.js";
+import { usePiResources } from "../../hooks/usePiResources.js";
 import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
 import { getApiBase } from "../../lib/api/api-context.js";
@@ -47,15 +47,14 @@ import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.
 import { KnownServersSection } from "../connectivity/KnownServersSection.js";
 import { NetworkDiscoverySection } from "../connectivity/NetworkDiscoverySection.js";
 import { PairedDevicesSection } from "../connectivity/PairedDevicesSection.js";
-import { PairingView } from "../connectivity/PairingView.js";
 import { InstructionsPage } from "../DirectorySettings/InstructionsPage.js";
 import { GatewayPage } from "../Gateway/GatewayPage.js";
 import { OpenSpecProfileSection } from "../openspec/OpenSpecProfileSection.js";
+import { useOverlayDismissGuard } from "../overlay/overlay-dismiss-guard.js";
 import { PackageBrowser } from "../packages/PackageBrowser.js";
 import { PackageInstallConfirmDialog } from "../packages/PackageInstallConfirmDialog.js";
 import { PackageReadmeDialog } from "../packages/PackageReadmeDialog.js";
 import { PiVersionAdvisory } from "../packages/PiVersionAdvisory.js";
-import { PiRuntimeStatusRow } from "./PiRuntimeStatusRow.js";
 import { PluginsSection } from "../packages/PluginsSection.js";
 import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
@@ -68,12 +67,12 @@ import { ModelSelector } from "./ModelSelector.js";
 // Curated pi-install picker; sits directly above the raw Tools escape hatch.
 // See change: select-pi-runtime-install (design D12).
 import { PiRuntimeSection } from "./PiRuntimeSection.js";
+import { PiRuntimeStatusRow } from "./PiRuntimeStatusRow.js";
 import { PluginNotFoundNotice, PluginSettingsPage } from "./PluginSettingsPage.js";
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
 import { RetrySettingsSection } from "./RetrySettingsSection.js";
 import { ThinkingLevelSelector } from "./ThinkingLevelSelector.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
-import { useOverlayDismissGuard } from "../overlay/overlay-dismiss-guard.js";
 
 interface ProviderConfig {
   clientId: string;
@@ -1867,7 +1866,34 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   })}
                 />
                 <Section title={t("settings.pairDevice", undefined, "Pair a device")}>
-                  <PairingView />
+                  {/* A route, not a duplicate (D2): Security keeps the words an
+                      operator expects and one click to the act, which lives on
+                      the Gateway "Connect a device" surface. Body names the
+                      destination and what happens there (NN/g link writing);
+                      button mirrors the Gateway page's `Open Security →` shape.
+                      See mockups/security-pair.html variant A1. */}
+                  <p className="mb-3 max-w-[56ch] text-xs text-[var(--text-secondary)]">
+                    {t(
+                      "settings.pairDeviceBody",
+                      undefined,
+                      "Pairing happens on the Gateway page, where you pick which endpoint the device connects over, scan the QR, and approve it with the code shown on the device.",
+                    )}
+                  </p>
+                  <button
+                    type="button"
+                    data-testid="security-pair-link"
+                    className="rounded border border-[var(--border-secondary)] px-3 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]"
+                    onClick={() => {
+                      navigate("/settings/gateway");
+                      // The section renders after the route swap — scroll once
+                      // it exists, so the link LANDS + SCROLLS (test-plan F3).
+                      requestAnimationFrame(() => {
+                        document.getElementById("connect-a-device")?.scrollIntoView({ block: "start" });
+                      });
+                    }}
+                  >
+                    {t("settings.pairDeviceLink", undefined, "Open Gateway ▸ Connect a device →")}
+                  </button>
                 </Section>
                 <Section title={t("settings.pairedDevices", undefined, "Paired Devices")}>
                   <PairedDevicesSection />
