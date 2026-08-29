@@ -141,13 +141,14 @@ describe("X5 — root/workspace workflows install with pnpm", () => {
 // described the Astro site and is retired. Root shell stays pnpm.
 describe("X6 — deploy-site.yml install shape", () => {
   const y = readWf("deploy-site.yml");
+  // Positives AND negatives are asserted against comment-free content: a stale
+  // comment must never satisfy (or mask) a required workflow step.
   const code = y.split("\n").filter((l) => !l.trim().startsWith("#")).join("\n");
   it("root shell install uses pnpm", () => {
-    expect(y).toContain("pnpm/action-setup");
-    expect(y).toMatch(/pnpm install --frozen-lockfile/);
+    expect(code).toContain("pnpm/action-setup");
+    expect(code).toMatch(/pnpm install --frozen-lockfile/);
   });
   it("site/ job runs no npm install machinery (dependency-free static page)", () => {
-    expect(y).toMatch(/itself has NO dependencies/);
     expect(code, "no npm ci may return").not.toMatch(/\bnpm ci\b/);
     expect(code, "no site lockfile cache may return").not.toContain("cache-dependency-path");
   });

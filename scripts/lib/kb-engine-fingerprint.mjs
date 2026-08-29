@@ -5,6 +5,7 @@
 // CI freshness gate must share bytes, not reimplement them.
 export {
   FINGERPRINT_FILE,
+  FINGERPRINT_MALFORMED,
   computeDistHash,
   computeSrcHash,
   computeTsconfigHash,

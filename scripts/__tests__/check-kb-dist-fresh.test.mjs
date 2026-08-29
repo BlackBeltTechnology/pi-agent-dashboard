@@ -62,4 +62,12 @@ describe("check-kb-dist-fresh (C1)", () => {
     expect(r.status).not.toBe(0);
     expect(r.stderr).toContain("rebuild and commit the fingerprint");
   });
+
+  it("malformed fingerprint → non-zero (unparseable JSON fails closed, never passes)", () => {
+    const pkg = sandbox("bad-fp");
+    writeFileSync(join(pkg, "engine-fingerprint.json"), "{ not json");
+    const r = runCheck(pkg);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain("rebuild and commit the fingerprint");
+  });
 });

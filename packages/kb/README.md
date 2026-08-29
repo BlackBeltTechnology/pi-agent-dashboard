@@ -54,12 +54,15 @@ built by one shared `searchOptsFromConfig` helper.
 
 ## Engine freshness
 
-The `kb` bin runs `bin/kb.mjs`, a committed shim: it checks
-`engine-fingerprint.json` (committed by `npm run build`) against the working
-tree and rebuilds stale source automatically in a dev checkout — the bin and
-the extension always run the same engine. In an installed package a mismatch
-prints a loud warning; a missing `dist` hard-errors. CI enforces the same via
-`scripts/check-kb-dist-fresh.mjs`.
+The `kb` bin runs `bin/kb.mjs`, a committed shim. In a **development checkout**
+it checks `engine-fingerprint.json` (committed by `npm run build`) against the
+working tree and rebuilds stale source automatically, so the bin and the
+extension always run the same engine. In an **installed package** a fingerprint
+mismatch cannot self-heal: it is detected and printed as a loud warning while
+the shipped `dist` runs unchanged, a malformed fingerprint hard-errors, and a
+missing `dist` hard-errors. CI enforces commit discipline via
+`scripts/check-kb-dist-fresh.mjs`, so the engines can only diverge if someone
+edits `src` without rebuilding AND ignores CI.
 
 ## License
 

@@ -8,7 +8,7 @@
 import { join, resolve } from "node:path";
 import { dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { computeSrcHash, computeTsconfigHash, readCommittedFingerprint } from "./lib/kb-engine-fingerprint.mjs";
+import { FINGERPRINT_MALFORMED, computeSrcHash, computeTsconfigHash, readCommittedFingerprint } from "./lib/kb-engine-fingerprint.mjs";
 
 // --pkg <dir>: sandbox override for the fault-injection tests; defaults to the
 // repo's packages/kb.
@@ -20,8 +20,8 @@ const pkgRoot = pkgIdx >= 0 ? resolve(args[pkgIdx + 1]) : join(repoRoot, "packag
 const MANDATE = "the `kb` bin and the extension would run different engines — rebuild and commit the fingerprint";
 
 const fp = readCommittedFingerprint(pkgRoot);
-if (!fp) {
-  console.error(`[check-kb-dist-fresh] ${pkgRoot}: no committed engine-fingerprint.json — ${MANDATE}`);
+if (!fp || fp === FINGERPRINT_MALFORMED) {
+  console.error(`[check-kb-dist-fresh] ${pkgRoot}: ${fp ? "malformed" : "no committed"} engine-fingerprint.json — ${MANDATE}`);
   process.exit(1);
 }
 const srcHash = computeSrcHash(pkgRoot);

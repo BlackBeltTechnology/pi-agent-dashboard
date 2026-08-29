@@ -19,7 +19,7 @@ import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawnSync } from "node:child_process";
-import { computeDistHash, computeSrcHash, computeTsconfigHash, readCommittedFingerprint, writeFingerprint } from "./lib/engine-fingerprint.mjs";
+import { FINGERPRINT_MALFORMED, computeDistHash, computeSrcHash, computeTsconfigHash, readCommittedFingerprint, writeFingerprint } from "./lib/engine-fingerprint.mjs";
 
 const pkgRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const distCli = join(pkgRoot, "dist", "cli.js");
@@ -36,12 +36,15 @@ function findTsc() {
 
 function staleness() {
   const fp = readCommittedFingerprint(pkgRoot);
+  if (fp === FINGERPRINT_MALFORMED) return "engine-fingerprint.json is malformed";
   if (!fp) return "engine-fingerprint.json missing";
   if (computeSrcHash(pkgRoot) !== fp.srcHash) return "src changed since the last build";
   const tscHash = computeTsconfigHash(pkgRoot);
-  if (tscHash !== null && fp.tsconfigHash !== undefined && tscHash !== fp.tsconfigHash) return "tsconfig changed since the last build";
+  // An incomplete fingerprint is treated as mismatched, never as fresh: a
+  // record that omits tsconfigHash/distHash must not skip those comparisons.
+  if (tscHash !== null && (typeof fp.tsconfigHash !== "string" || tscHash !== fp.tsconfigHash)) return "tsconfig changed since the last build";
   const distHash = computeDistHash(pkgRoot);
-  if (distHash !== null && fp.distHash !== undefined && fp.distHash !== null && distHash !== fp.distHash) return "dist is not the committed emit";
+  if (distHash !== null && (typeof fp.distHash !== "string" || distHash !== fp.distHash)) return "dist is not the committed emit";
   return null;
 }
 
@@ -64,6 +67,12 @@ if (!stale && existsSync(distCli)) {
   }
   writeFingerprint(pkgRoot); // truthful: the tree WAS stale; self-heals on the next commit-with-build
   await import(pathToFileURL(distCli).href);
+} else if (stale === "engine-fingerprint.json is malformed") {
+  // Fail closed: a corrupt fingerprint is not evidence of freshness, and in an
+  // installed package it cannot self-heal. Repo convention — unparseable JSON
+  // fails closed, never warns-and-continues.
+  console.error(`[kb] ERROR: ${stale} — refusing to guess engine freshness. The kb bin and the extension would run different engines. Reinstall @blackbelt-technology/pi-dashboard-kb.`);
+  process.exit(1);
 } else if (existsSync(distCli)) {
   // Installed package: prepublishOnly built the tarball, so a mismatch means
   // post-install tampering — loud, not fatal; only fires on actual mismatch.

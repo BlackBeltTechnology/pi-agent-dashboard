@@ -301,9 +301,14 @@ async function runCmd(cmd: string, flags: Flags): Promise<void> {
       // Eval measures the TOOL path (spec R1): the extension's option set. Roots
       // enable repo-relative expect normalization + reachability (design D4).
       const roots = sources.map((s) => ({ id: s.id, relPrefix: relative(cfg.cwd, s.dir), dir: s.dir }));
+      // Same validation contract as `search`: reject garbage instead of
+      // passing an invalid limit to the backend or an unknown doc-type as an
+      // empty filter (CodeRabbit round, fix-kb-eval-measurement-integrity).
+      const limit = posInt(flags.limit, "--limit") ?? 10;
+      const docType = enumFlag(flags["doc-type"], ["doc", "agents", "source-md"], "--doc-type");
       const m = evaluate(store, golden, {
-        k: flags.limit ? Number(flags.limit) : 10,
-        docType: flags["doc-type"] as DocType | undefined,
+        k: limit,
+        docType: docType as DocType | undefined,
         verbose: !!flags.verbose,
         roots,
         ...searchOptsFromConfig(cfg, { sources, overrides: { expandGraph: false, rerank: false } }),

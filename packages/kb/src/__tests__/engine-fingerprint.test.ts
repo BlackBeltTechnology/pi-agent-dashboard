@@ -84,6 +84,31 @@ describe("engine fingerprint (E12 determinism + normalization)", () => {
     rmSync(join(pkg, "dist"), { recursive: true, force: true });
     expect(computeDistHash(pkg)).toBe(null);
   });
+
+  it("extends chain: a JSONC base (comments + trailing commas) is parsed, and mutating it changes tsconfigHash", () => {
+    const pkg = makePkg("e12d", { tsconfig: true });
+    writeFileSync(
+      join(pkg, "tsconfig.base.json"),
+      `{
+      // compiler options shared by the workspace
+      "strict": true, // trailing comma below is legal JSONC
+      "target": "es2022",
+    }
+`,
+    );
+    writeFileSync(join(pkg, "tsconfig.json"), JSON.stringify({ extends: "./tsconfig.base.json", compilerOptions: { outDir: "dist" } }));
+    const t0 = computeTsconfigHash(pkg);
+    expect(t0).not.toBe(null); // the chain must PARSE past comments + trailing comma
+    writeFileSync(
+      join(pkg, "tsconfig.base.json"),
+      `{
+      "strict": false,
+      "target": "es2022",
+    }
+`,
+    );
+    expect(computeTsconfigHash(pkg)).not.toBe(t0); // a base-config change must fork the hash
+  });
 });
 
 describe("bin shim branch table (E13)", () => {
@@ -145,5 +170,50 @@ describe("bin shim branch table (E13)", () => {
     // Fingerprint entirely missing + dist missing → same hard error.
     rmSync(join(pkg, "engine-fingerprint.json"), { force: true });
     expect(runBin(pkg).status).not.toBe(0);
+  });
+
+  it("(e) malformed fingerprint fails closed — installed hard-errors, dev rebuilds, never warn-and-run", () => {
+    // Installed: corrupt fingerprint must NOT degrade to the warn-and-run leg.
+    const pkg = makePkg("e13e");
+    writeFp(pkg);
+    writeFileSync(join(pkg, "engine-fingerprint.json"), "{ not json");
+    const r = runBin(pkg);
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain("malformed");
+    expect(r.stdout).not.toContain("DIST_STUB_OK");
+    // Dev: same corruption self-heals via the rebuild path (rewrites it).
+    const dev = makePkg("e13e-dev", { tsconfig: true });
+    const tscDir = join(dev, "node_modules", "typescript", "lib");
+    mkdirSync(tscDir, { recursive: true });
+    writeFileSync(join(tscDir, "tsc.js"), [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "const i = process.argv.indexOf('-p');",
+      "const pkg = path.dirname(process.argv[i + 1]);",
+      "fs.writeFileSync(path.join(pkg, 'dist', 'cli.js'), 'console.log(\"REBUILT_OK\");\\n');",
+    ].join("\n"));
+    writeFp(dev);
+    writeFileSync(join(dev, "engine-fingerprint.json"), "{ not json");
+    const rd = runBin(dev);
+    expect(rd.status).toBe(0);
+    expect(rd.stdout).toContain("REBUILT_OK");
+  });
+
+  it("(f) incomplete fingerprint (srcHash only) is treated as stale, never fresh", () => {
+    const pkg = makePkg("e13f", { tsconfig: true });
+    const tscDir = join(pkg, "node_modules", "typescript", "lib");
+    mkdirSync(tscDir, { recursive: true });
+    writeFileSync(join(tscDir, "tsc.js"), [
+      "const fs = require('node:fs');",
+      "const path = require('node:path');",
+      "const i = process.argv.indexOf('-p');",
+      "const pkg = path.dirname(process.argv[i + 1]);",
+      "fs.writeFileSync(path.join(pkg, 'dist', 'cli.js'), 'console.log(\"REBUILT_OK2\");\\n');",
+    ].join("\n"));
+    // A fingerprint carrying ONLY srcHash: tsconfigHash/distHash omitted.
+    writeFileSync(join(pkg, "engine-fingerprint.json"), JSON.stringify({ srcHash: computeSrcHash(pkg) }));
+    const r = runBin(pkg);
+    expect(r.status).toBe(0);
+    expect(r.stdout).toContain("REBUILT_OK2"); // rebuilt, not silently accepted
   });
 });

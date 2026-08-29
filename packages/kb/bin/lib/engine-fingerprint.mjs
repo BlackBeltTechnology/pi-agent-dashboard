@@ -74,7 +74,10 @@ export function tsconfigChain(pkgRoot) {
     }
     let m;
     try {
-      m = JSON.parse(raw.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, ""));
+      // Tolerant JSONC parse: comments AND trailing commas are legal in
+      // tsconfig files; a hard parse failure must not silently truncate the
+      // extends chain (a base-config change would then miss the hash).
+      m = JSON.parse(raw.replace(/\/\/[^\n]*/g, "").replace(/\/\*[\s\S]*?\*\//g, "").replace(/,([\s\n\r]*[}\]])/g, "$1"));
     } catch {
       break; // unparseable config: hash what exists, stop following
     }
@@ -110,13 +113,18 @@ export function fingerprintPackage(pkgRoot) {
 
 export const FINGERPRINT_FILE = "engine-fingerprint.json";
 
+/** Sentinel returned by readCommittedFingerprint when the file exists but is
+ *  not valid JSON — distinct from missing, so consumers can FAIL CLOSED
+ *  (unparseable JSON must never look like a clean fingerprint). */
+export const FINGERPRINT_MALFORMED = { malformed: true };
+
 export function readCommittedFingerprint(pkgRoot) {
   const p = join(pkgRoot, FINGERPRINT_FILE);
   if (!existsSync(p)) return null;
   try {
     return JSON.parse(readFileSync(p, "utf8"));
   } catch {
-    return null;
+    return FINGERPRINT_MALFORMED; // unparseable JSON fails closed, never null-as-missing
   }
 }
 
