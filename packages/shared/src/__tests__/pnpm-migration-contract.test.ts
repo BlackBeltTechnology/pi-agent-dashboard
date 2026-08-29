@@ -134,12 +134,21 @@ describe("X5 — root/workspace workflows install with pnpm", () => {
   });
 });
 
-// ── X6: deploy-site is dual-install — site/ stays npm, root uses pnpm ──────
-describe("X6 — deploy-site.yml dual-install regression", () => {
+// ── X6: deploy-site is single-install — the static landing page rides the ──
+// root pnpm workspace. The Astro-era dual install is GONE: c52745af0 replaced
+// the Astro site with the static landing page (no site/package-lock.json, no
+// `npm ci`). This row now pins the ABSENCE so the dual-install regression it
+// once guarded against cannot return silently. Comment lines are stripped
+// before the negative assertions — the workflow's prose mentions `npm ci`.
+describe("X6 — deploy-site.yml single-install regression", () => {
   const y = readWf("deploy-site.yml");
-  it("site/ job keeps its own npm lockfile + npm ci (unmigrated)", () => {
-    expect(y).toContain("cache-dependency-path: site/package-lock.json");
-    expect(y, "site/ install must stay `npm ci`").toMatch(/\bnpm ci\b/);
+  const code = y
+    .split("\n")
+    .filter((l) => !l.trim().startsWith("#"))
+    .join("\n");
+  it("site/ keeps no npm lockfile reference and no npm ci", () => {
+    expect(code).not.toContain("cache-dependency-path: site/package-lock.json");
+    expect(code, "site/ install must stay off `npm ci`").not.toMatch(/\bnpm ci\b/);
   });
   it("root shell install uses pnpm", () => {
     expect(y).toContain("pnpm/action-setup");

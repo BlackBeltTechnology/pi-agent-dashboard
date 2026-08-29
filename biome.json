@@ -119,7 +119,8 @@
         ".pi/flows/**",
         "tests/e2e/**",
         "qa/scripts/**",
-        ".pi/skills/**/scripts/**"
+        ".pi/skills/**/scripts/**",
+        "site/design-scratch/**"
       ],
       "linter": {
         "rules": {
