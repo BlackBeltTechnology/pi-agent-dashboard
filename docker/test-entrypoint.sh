@@ -607,19 +607,6 @@ node -e '
 ' "ws://localhost:${PORT}/ws" || smoke_fail "WebSocket connect to /ws failed"
 echo "[test-entrypoint] websocket OK"
 
-# Single-dashboard invariant (fix-bridge-autostart-port-resolution, test-plan
-# #X6): exactly ONE dashboard may answer inside the container. The harness
-# runs on ${PORT}; a second listener on the production default 8000 means a
-# session misresolved its auto-start ports and launched a competitor — the
-# original split-brain incident (two dashboards answering while server.pid
-# named the 8000 process).
-if [ "${PORT}" != "8000" ]; then
-  if curl --connect-timeout 1 --max-time 2 -fsS "http://localhost:8000/api/health" >/dev/null 2>&1; then
-    smoke_fail "a second dashboard answers on default port 8000 (split-brain: auto-start launched a competitor)"
-  fi
-  echo "[test-entrypoint] single-dashboard invariant OK (nothing on :8000)"
-fi
-
 echo "[test-entrypoint] SMOKE PASSED → dashboard ready on http://localhost:${PORT}"
 
 # --- 3b. Independent (NOT dashboard-spawned) pi session --------------------
@@ -668,6 +655,22 @@ if [ "${PI_E2E_INDEPENDENT_SESSION:-0}" = "1" ] && [ "${PI_E2E_SEED:-}" = "1" ];
   else
     echo "[test-entrypoint] WARN: independent-session cwd ${INDEPENDENT_CWD} missing; skipped"
   fi
+fi
+
+# Single-dashboard invariant (fix-bridge-autostart-port-resolution, test-plan
+# #X6) — deliberately run AFTER the boot-session step: autoStartServer fires
+# when a SESSION connects, never at daemon boot, so a pre-3b check would pass
+# tautologically. With PI_E2E_INDEPENDENT_SESSION=1 a session has connected
+# above and its bridge has run the full auto-start chain; without it this
+# still guards the daemon itself having come up on the production default
+# port. The original mid-run split-brain (a spec-spawned session launching a
+# competitor on :8000) is exercised by the specs; this smoke catches the
+# boot-time shapes.
+if [ "${PORT}" != "8000" ]; then
+  if curl --connect-timeout 1 --max-time 2 -fsS "http://localhost:8000/api/health" >/dev/null 2>&1; then
+    smoke_fail "a second dashboard answers on default port 8000 (split-brain: auto-start launched a competitor)"
+  fi
+  echo "[test-entrypoint] single-dashboard invariant OK (nothing on :8000)"
 fi
 
 # --- 4. Keep PID 1 alive for the daemon's lifetime -------------------------

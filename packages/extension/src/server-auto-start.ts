@@ -156,7 +156,10 @@ export async function autoStartServer(
     return { server: { host: "localhost", port: config.port, piPort: config.piPort } };
   }
 
-  if (!config.autoStart) return {};
+  if (!config.autoStart) {
+    log(`skipped: auto-start disabled — no launch (port ${config.port} gateway ${config.piPort})`);
+    return {};
+  }
 
   // Pinned endpoint (D3/D4): the server pins the sessions it spawns via
   // PI_DASHBOARD_URL / PI_DASHBOARD_SOCKET. Steps 1-2 above already ran, so

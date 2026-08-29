@@ -1037,4 +1037,11 @@ describe("resolveDashboardPorts", () => {
     const r = resolveDashboardPorts({ DASHBOARD_PORT: "8002", PI_GATEWAY_PORT: "9102" }, {});
     expect(r).toEqual({ port: 8002, piPort: 9102 });
   });
+
+  it("ignores unusable CONFIG values (0, negative) so they never shadow the defaults", () => {
+    expect(resolveDashboardPorts({}, { port: 0, piPort: -5 })).toEqual({
+      port: DEFAULT_DASHBOARD_PORT,
+      piPort: DEFAULT_GATEWAY_PORT,
+    });
+  });
 });
