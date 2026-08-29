@@ -27,7 +27,7 @@ export const statusColors = statusColorsExt;
 export const sourceBadgeColors = sourceBadgeColorsExt;
 
 import { SessionCardActionBarSlot, SessionCardBadgeSlot, SessionCardFlowsSlot, SessionCardMemorySlot, useHasWidgetBarPrompt, useSlotHasClaimsForSession, WorktreeCardSectionSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
-import type { CommandInfo, DashboardSession, GitStatus, ImageContent, OpenSpecChange, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { CommandInfo, DashboardSession, GitStatus, ImageContent, OpenSpecChange, OpenSpecData, OpenSpecGroup, OpenSpecReadiness, OpenSpecReadinessReason } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useDisplayPrefs } from "../../hooks/useDisplayPrefs.js";
 import { useFxVisibility } from "../../hooks/useFxVisibility.js";
 import type { InflightBashTool } from "../../hooks/useInflightBashTools.js";
@@ -454,6 +454,9 @@ export function SessionCard({
   openspecHasDir,
   openspecGroups,
   openspecAssignments,
+  openspecReadiness,
+  onSeekToFolderOpenSpec,
+  onOpenOpenSpecSettings,
   onSendPrompt,
   onAttachProposal,
   onDetachProposal,
@@ -519,6 +522,31 @@ export function SessionCard({
   openspecHasDir?: boolean;
   openspecGroups?: OpenSpecGroup[];
   openspecAssignments?: Record<string, string>;
+  /**
+   * Server-derived readiness for this cwd (see `OpenSpecReadiness`). When
+   * present it GOVERNS the OPENSPEC subcard: GLOBAL_OFF / OPTED_OUT / ABSENT
+   * hide it, BROKEN / STALE render the INERT disabled panel, PENDING / READY
+   * render the live controls. `undefined` (older server) degrades to the
+   * previous `hasDir || initialized || pending` gate and NEVER renders the
+   * disabled variant.
+   *
+   * See change: add-openspec-init-affordances (D6/D7).
+   */
+  openspecReadiness?: OpenSpecReadiness;
+  /**
+   * Remediation target for a disabled OPENSPEC subcard whose reason is fixed
+   * on the folder card (BROKEN · missing-changes-dir / cli-failed, STALE ·
+   * missing-skills): expand + scroll + focus the folder's OpenSpec section.
+   * Fulfilled by SessionList. Absent (standalone render) → no control.
+   * See change: add-openspec-init-affordances (D7 routing table).
+   */
+  onSeekToFolderOpenSpec?: (cwd: string) => void;
+  /**
+   * Remediation target for STALE · profile-stale: open Settings → the
+   * OpenSpec Workflow Profile page. Absent → no control.
+   * See change: add-openspec-init-affordances (D7 routing table).
+   */
+  onOpenOpenSpecSettings?: () => void;
   onSendPrompt?: (text: string, images?: ImageContent[]) => void;
   onAttachProposal?: (changeName: string) => void;
   onDetachProposal?: () => void;
@@ -1015,39 +1043,55 @@ export function SessionCard({
           which receives the FlowActivityBadgeClaim contribution from
           flows-plugin. See change: pluginize-flows-via-registry. */}
 
-      {/* OPENSPEC subcard
-          Hides when the cwd is not OpenSpec-applicable. Primary signal:
-          `openspecHasDir` (server-confirmed `<cwd>/openspec/` existence).
-          When the user disables OpenSpec globally, server broadcasts
-          `hasOpenspecDir: false` for every cwd — same gate, same outcome.
-          Legacy fallback (when `openspecHasDir` undefined): use the previous
-          `initialized || pending` heuristic so old clients/parents that
-          haven't migrated still see the subcard.
-          See change: auto-hide-empty-session-subcards. */}
-      {openspecChanges && onSendPrompt && onAttachProposal && onDetachProposal && (
-        openspecHasDir !== undefined
-          ? Boolean(openspecHasDir) || Boolean(openspecPending)
-          : openspecInitialized === undefined
-            ? true
-            : Boolean(openspecInitialized) || Boolean(openspecPending)
-      ) && (
-        <SessionSubcard title={i18nT("session.subcardOpenspec", undefined, "OPENSPEC")}>
-          <SessionOpenSpecActions
-            session={session}
-            changes={openspecChanges}
-            onAttach={onAttachProposal}
-            onDetach={onDetachProposal}
-            onReplaceProposal={onReplaceProposal}
-            onSendPrompt={onSendPrompt}
-            onReadArtifact={onReadArtifact}
-            onBulkArchive={onBulkArchive}
-            groups={openspecGroups}
-            assignments={openspecAssignments}
-            openspecConfig={openspecConfig}
-            /* See change: redesign-session-card-and-composer (config-driven-workflow). */
-          />
-        </SessionSubcard>
-      )}
+      {/* OPENSPEC subcard — visibility governed by the cwd's broadcast
+          readiness (see `OpenSpecReadiness`). GLOBAL_OFF / OPTED_OUT / ABSENT
+          hide it entirely (ABSENT: initialization is offered once on the
+          folder card, not repeated on every session in the directory — D6);
+          BROKEN / STALE render the INERT disabled panel (controls removed
+          from the DOM, one remediation control — D7); PENDING / READY render
+          the live controls. Legacy fallback (readiness absent, older server):
+          the previous `hasDir || initialized || pending` heuristic, NEVER a
+          disabled variant.
+          See change: add-openspec-init-affordances; auto-hide-empty-session-subcards. */}
+      {(() => {
+        if (!openspecChanges || !onSendPrompt || !onAttachProposal || !onDetachProposal) return null;
+        const readiness = openspecReadiness;
+        const disabled = readiness?.state === "BROKEN" || readiness?.state === "STALE";
+        const open = readiness
+          ? !disabled && readiness.state !== "GLOBAL_OFF" && readiness.state !== "OPTED_OUT" && readiness.state !== "ABSENT"
+          : openspecHasDir !== undefined
+            ? Boolean(openspecHasDir) || Boolean(openspecPending)
+            : openspecInitialized === undefined
+              ? true
+              : Boolean(openspecInitialized) || Boolean(openspecPending);
+        if (!open && !disabled) return null;
+        return (
+          <SessionSubcard title={i18nT("session.subcardOpenspec", undefined, "OPENSPEC")}>
+            {disabled && readiness ? (
+              <OpenSpecDisabledPanel
+                reason={readiness.reason ?? (readiness.state === "BROKEN" ? "cli-failed" : "missing-skills")}
+                onSeekToFolder={onSeekToFolderOpenSpec ? () => onSeekToFolderOpenSpec(session.cwd) : undefined}
+                onOpenSettings={onOpenOpenSpecSettings}
+              />
+            ) : (
+              <SessionOpenSpecActions
+                session={session}
+                changes={openspecChanges}
+                onAttach={onAttachProposal}
+                onDetach={onDetachProposal}
+                onReplaceProposal={onReplaceProposal}
+                onSendPrompt={onSendPrompt}
+                onReadArtifact={onReadArtifact}
+                onBulkArchive={onBulkArchive}
+                groups={openspecGroups}
+                assignments={openspecAssignments}
+                openspecConfig={openspecConfig}
+                /* See change: redesign-session-card-and-composer (config-driven-workflow). */
+              />
+            )}
+          </SessionSubcard>
+        );
+      })()}
 
       {/* WORKTREE folder-scoped sections (KB row) — only for worktree
           sessions, scoped to the worktree's OWN cwd. A worktree groups under
@@ -1302,6 +1346,70 @@ function MobileProcessSubcard({ activity, processes, onKill, onAbortTool, now, o
  * Strictly git-scoped: never considers plugin slot claims.
  * See change: redesign-session-card-and-composer (5.1).
  */
+/**
+ * Inert disabled variant of the OPENSPEC subcard (readiness BROKEN / STALE).
+ *
+ * The live subcard's action controls are REMOVED from the DOM — not dimmed —
+ * because a focusable button that silently does nothing fails identically to
+ * the state this change removes while looking deliberate (D7). In their place:
+ * a visible reason line (the accessible explanation, NOT a `title`) and
+ * EXACTLY ONE focusable control, routed to the surface that can remediate the
+ * specific reason:
+ *   - BROKEN (both reasons) + STALE · missing-skills → the folder card's
+ *     OpenSpec section (Repair / Update live there; the session card reports
+ *     and never acts);
+ *   - STALE · profile-stale → Settings → OpenSpec Workflow Profile.
+ * A control whose target is absent (standalone render without the callback)
+ * is not rendered at all — a dead control is the anti-pattern, not a fallback.
+ *
+ * Exempt from the subcard empty-content rule: an OPENSPEC panel containing
+ * only a reason line + one control is deliberate, not empty (session-card-
+ * subcards spec).
+ * See change: add-openspec-init-affordances (D7).
+ */
+function OpenSpecDisabledPanel({
+  reason,
+  onSeekToFolder,
+  onOpenSettings,
+}: {
+  reason: OpenSpecReadinessReason;
+  onSeekToFolder?: () => void;
+  onOpenSettings?: () => void;
+}) {
+  const reasonText =
+    reason === "missing-changes-dir"
+      ? i18nT("openspec.disabledReasonMissingChangesDir", undefined, "OpenSpec is not initialized properly in this directory")
+      : reason === "cli-failed"
+        ? i18nT("openspec.disabledReasonCliFailed", undefined, "The OpenSpec command failed in this directory")
+        : reason === "missing-skills"
+          ? i18nT("openspec.disabledReasonMissingSkills", undefined, "This project’s OpenSpec skills are missing")
+          : i18nT("openspec.disabledReasonProfileStale", undefined, "This project’s OpenSpec skills need an update");
+  const targetsSettings = reason === "profile-stale";
+  const control = targetsSettings ? onOpenSettings : onSeekToFolder;
+  return (
+    <div className="mt-1 space-y-1" data-testid="session-openspec-disabled">
+      <p data-testid="session-openspec-disabled-reason" className="text-[10px] leading-snug text-[var(--text-tertiary)]">
+        {reasonText}
+      </p>
+      {control && (
+        <button
+          type="button"
+          data-testid="session-openspec-remediate"
+          onClick={(e) => {
+            e.stopPropagation();
+            control();
+          }}
+          className="focus-ring rounded px-1.5 py-0.5 text-[10px] border border-[var(--border-secondary)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+        >
+          {targetsSettings
+            ? i18nT("openspec.remediateOpenSettings", undefined, "Open OpenSpec settings")
+            : i18nT("openspec.remediateGoToFolder", undefined, "Go to the folder’s OpenSpec section")}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function GitSubcard({ session, showGitInfo, allSessions, onShutdownSession }: { session: DashboardSession; showGitInfo: boolean; allSessions: DashboardSession[]; onShutdownSession: (sessionId: string) => void }) {
   // Worktree sessions need their own GitInfo line even in multi-session
   // groups (parent group header shows the main checkout's branch).

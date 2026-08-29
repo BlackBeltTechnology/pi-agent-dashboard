@@ -471,3 +471,43 @@ describe("sameReachability (broadcast gate)", () => {
     expect(sameReachability(base, { ...base, bindHostSource: "env" })).toBe(false);
   });
 });
+
+describe("writeConfigPartial — openspec readiness keys (add-openspec-init-affordances)", () => {
+  let testDir: string;
+  let configFile: string;
+  let origHome: string;
+
+  beforeEach(() => {
+    testDir = path.join(os.tmpdir(), `test-config-api-osx-${Date.now()}`);
+    fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
+    configFile = path.join(testDir, ".pi", "dashboard", "config.json");
+    origHome = process.env.HOME!;
+    process.env.HOME = testDir;
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true });
+  });
+
+  it("E23: a targeted optOutDirectories write preserves every other config key", () => {
+    fs.writeFileSync(configFile, JSON.stringify({
+      port: 8000,
+      autoShutdown: false,
+      openspec: { pollIntervalSeconds: 45, maxConcurrentSpawns: 4, changeDetection: "always" },
+    }));
+    const result = writeConfigPartial({ openspec: { optOutDirectories: ["/only/this"], offerInitialization: false } });
+    expect(result.success).toBe(true);
+    const cfg = loadConfig();
+    // Unrelated top-level keys preserved.
+    expect(cfg.port).toBe(8000);
+    expect(cfg.autoShutdown).toBe(false);
+    // Sibling openspec poll keys preserved (deep merge, not replace).
+    expect(cfg.openspec.pollIntervalSeconds).toBe(45);
+    expect(cfg.openspec.maxConcurrentSpawns).toBe(4);
+    expect(cfg.openspec.changeDetection).toBe("always");
+    // The written keys landed.
+    expect(cfg.openspec.optOutDirectories).toEqual(["/only/this"]);
+    expect(cfg.openspec.offerInitialization).toBe(false);
+  });
+});

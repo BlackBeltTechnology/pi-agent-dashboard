@@ -1041,6 +1041,32 @@ export function deriveChangeState(change: OpenSpecChange): ChangeState {
 }
 
 /** OpenSpec data for a session's project */
+/** Server-derived per-cwd OpenSpec readiness state. See change: add-openspec-init-affordances. */
+export type OpenSpecReadinessState =
+  | "GLOBAL_OFF"
+  | "OPTED_OUT"
+  | "PENDING"
+  | "ABSENT"
+  | "BROKEN"
+  | "STALE"
+  | "READY";
+
+/**
+ * Why a cwd is not READY. `missing-changes-dir` / `cli-failed` subdivide BROKEN
+ * (only the first is remediable by re-running init); `missing-skills` /
+ * `profile-stale` subdivide STALE (missing-skills wins when both hold).
+ */
+export type OpenSpecReadinessReason =
+  | "missing-changes-dir"
+  | "cli-failed"
+  | "missing-skills"
+  | "profile-stale";
+
+export interface OpenSpecReadiness {
+  state: OpenSpecReadinessState;
+  reason?: OpenSpecReadinessReason;
+}
+
 export interface OpenSpecData {
   /**
    * `openspec list` returned authoritative data for this cwd. Requires both
@@ -1078,6 +1104,25 @@ export interface OpenSpecData {
    * See change: auto-hide-empty-session-subcards.
    */
   hasOpenspecDir?: boolean;
+  /**
+   * Whether `<configRoot>/.pi/skills/openspec-explore/` exists — i.e. will
+   * `/skill:openspec-explore` resolve. Resolved at the cwd's config root
+   * (main checkout for a worktree) because `.pi/skills/openspec-*` is
+   * gitignored and never checks out into a worktree.
+   *
+   * Optional for backwards compatibility — absence means "unknown, infer
+   * nothing". See change: add-openspec-init-affordances.
+   */
+  hasOpenSpecSkills?: boolean;
+  /**
+   * Server-derived readiness fold (see `OpenSpecReadinessState` for the
+   * precedence). Clients render from it; they do not re-derive. Optional:
+   * absence (older server) degrades every client to its previous gate and
+   * SHALL NOT present a disabled or stale state.
+   *
+   * See change: add-openspec-init-affordances.
+   */
+  readiness?: OpenSpecReadiness;
 }
 
 /** OpenSpec workflow phase detected from tool calls */

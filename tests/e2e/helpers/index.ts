@@ -176,7 +176,13 @@ async function visible(loc: Locator): Promise<boolean> {
 export async function pinDirectory(page: Page, absPath: string): Promise<void> {
   const onboardingCta = byTestId(page, "onboardingStep2Cta");
   if (await visible(onboardingCta)) {
-    await onboardingCta.click();
+    // The onboarding→dashboard hydration flip can detach the CTA mid-click;
+    // bound the attempt and fall back to the dashboard-mode affordance.
+    await onboardingCta
+      .click({ timeout: 5_000 })
+      .catch(async () => {
+        await byTestId(page, "dashboardAddFolderBtn").first().click();
+      });
   } else {
     await byTestId(page, "dashboardAddFolderBtn").first().click();
   }

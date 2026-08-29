@@ -72,12 +72,23 @@ The server SHALL expose `POST /api/openspec/update` (localhost-only) that runs t
 
 ### Requirement: Report per-cwd update staleness
 
-The server SHALL expose `GET /api/openspec/update-status` that returns, for each known cwd, one of `up-to-date`, `needs-update`, or `unknown`.
+The server SHALL expose `GET /api/openspec/update-status` that returns, for each known cwd, one
+of `up-to-date`, `needs-update`, or `unknown`.
 
-- "Known cwds" SHALL be the union of active session cwds and pinned directories, **filtered to OpenSpec-initialized projects only** (a `<cwd>/openspec/` directory exists). Directories where `openspec init` has not run SHALL be excluded from both the status list and the update-all target set.
-- A cwd is `up-to-date` when its recorded workflow-set signature equals the current global config's workflow-set signature.
+- "Known cwds" SHALL be the union of active session cwds and pinned directories, **filtered to
+  OpenSpec-initialized projects only** (a `<cwd>/openspec/` directory exists). Directories where
+  `openspec init` has not run SHALL be excluded from both the status list and the update-all
+  target set.
 - A cwd is `needs-update` when a recorded signature exists but differs from the current one.
-- A cwd is `unknown` when no signature has been recorded (the dashboard has never run an update for it).
+- A cwd is `unknown` when no signature has been recorded.
+
+**`unknown` SHALL NOT be treated as a stale or degraded condition by any consumer.** It means
+never-measured, not out-of-date. Only `needs-update` indicates that a project lags the current
+global profile. In particular the readiness derivation (see `openspec-readiness`) SHALL NOT
+classify an `unknown` cwd as `STALE` on that basis.
+
+This filtered known-cwd set SHALL NOT be reused to validate initialization targets, because it
+excludes by construction every directory that has not yet been initialized.
 
 #### Scenario: Project matching current config is up-to-date
 
@@ -94,11 +105,17 @@ The server SHALL expose `GET /api/openspec/update-status` that returns, for each
 - **WHEN** the dashboard has no recorded signature for a cwd
 - **THEN** the status for that cwd is `unknown`
 
+#### Scenario: Unknown does not present as stale
+
+- **WHEN** a cwd's status is `unknown` and it is otherwise fully initialized with skills present
+- **THEN** its readiness state SHALL be `READY`
+- **AND** no surface SHALL present it as needing an update
+
 #### Scenario: Non-initialized directories are excluded
 
-- **WHEN** a known cwd has no `openspec/` directory (`openspec init` never ran)
-- **THEN** that cwd does not appear in the update-status list
-- **AND** `POST /api/openspec/update { all: true }` does not run `openspec update` there
+- **WHEN** a known directory contains no `<cwd>/openspec/`
+- **THEN** it SHALL NOT appear in the update-status list
+- **AND** it SHALL NOT be a target of update-all
 
 ### Requirement: Saving the profile does not mutate project repositories
 
@@ -193,4 +210,23 @@ The global OpenSpec config read (`GET /api/openspec/config` and its `configListO
 
 - **WHEN** `openspec config list --json` succeeds and returns `profile: "custom"` with exactly the expanded workflow set
 - **THEN** the read SHALL continue to surface the `expanded` alias to the Settings UI as before
+
+### Requirement: Successful initialization SHALL record the update signature
+
+The update signature is currently recorded only by the update route, so a project initialized
+by any other path reports `unknown` indefinitely.
+
+`POST /api/openspec/init` SHALL record the cwd's current global workflow-set signature on
+success, exactly as the update route does. It SHALL NOT record a signature when the CLI fails.
+
+#### Scenario: Init records a signature
+
+- **WHEN** `POST /api/openspec/init` succeeds for a cwd
+- **THEN** that cwd's recorded signature SHALL equal the current global signature
+- **AND** its update status SHALL be `up-to-date`
+
+#### Scenario: Failed init records nothing
+
+- **WHEN** `POST /api/openspec/init` fails for a cwd
+- **THEN** no signature SHALL be recorded for that cwd
 

@@ -74,6 +74,7 @@ import { createEventLoopSpikeMetrics } from "./metrics/eventloop-spike-metrics.j
 import { createHydrationMetrics } from "./metrics/hydration-metrics.js";
 import { createModelProxyAuthGate } from "./model-proxy/auth-gate.js";
 import { getModelRegistry, getStreamSimpleFn } from "./model-proxy/registry-singleton.js";
+import { currentGlobalWorkflowSignature } from "./openspec/global-signature.js";
 import { createOpenSpecGroupStore, joinGroupIdsToOpenSpecData } from "./openspec/openspec-group-store.js";
 import { PackageManagerWrapper } from "./package/package-manager-wrapper.js";
 import { type BrowserGateway, createBrowserGateway } from "./pairing/browser-gateway.js";
@@ -738,6 +739,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           return {};
         }
       },
+      // Current global workflow-set signature for the readiness fold —
+      // injected here (composition root) so profile staleness is computed
+      // once per poll tick, memoized, and never fabricated from a failed
+      // CLI read. Without this injection the STALE·profile-stale branch is
+      // dead code. See change: add-openspec-init-affordances.
+      currentGlobalSignature: currentGlobalWorkflowSignature,
       hydrationMetrics,
       // Per-turn self-record feed into the shared spike buffer + the per-turn
       // slow-tick alarm. See change: attribute-openspec-poll-eventloop-stalls.
