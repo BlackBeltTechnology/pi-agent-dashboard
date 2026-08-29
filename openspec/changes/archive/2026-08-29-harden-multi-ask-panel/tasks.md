@@ -43,7 +43,8 @@ directly. Extend that file; copy its `beforeEach` `matchMedia` stub.
 - [x] 2.5 Unregistered component type is not widget-bar (test-plan #E5). Input:
   pending `pu` with `_promptBusComponent = { type: "definitely-not-registered" }`
   and no `toolCallId` · Trigger: same call · Observable: `pu` IS returned —
-  unknown types fall back to `generic-dialog`/inline. Pins the documented
+  unknown types use the panel's `generic-dialog` renderer — still free-floating
+  (registry, not producer claim, decides). Pins the documented
   limitation that the registry, not the producer's claim, decides.
 - [x] 2.6 Tool-paired batch ask does not enter the stack (test-plan #E8). Input:
   pending `method:"batch"` ask `pb` whose row carries a `toolCallId`, plus
@@ -86,10 +87,12 @@ directly. Extend that file; copy its `beforeEach` `matchMedia` stub.
 ## 5. Validate
 
 - [x] 5.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` and grep the
-  summary; all green, with the new cases visibly executed.
-  Outcome: multi-ask-panel suite 16/16 green (E1–E8, F1–F4 executed). Suite-wide:
-  faux-session.integration red is PRE-EXISTING — verified red on origin/develop,
-  on the branch base, and on the merged tree (identical 5 register-timeout
-  failures; environment-level, server/extension integration, untouched here).
+  summary; the new cases visibly executed, no new failures attributable to the
+  change.
+  Outcome: multi-ask-panel suite 16/16 green (E1–E8, F1–F4 executed); the full
+  suite retained exactly the 5 documented pre-existing faux-session.integration
+  failures — verified red on origin/develop, on the branch base, and on the
+  merged tree (identical register-timeout failures; environment-level,
+  server/extension integration, untouched here).
   server-auto-start reds were full-suite load contention (22/22 in isolation).
 - [x] 5.2 `openspec validate harden-multi-ask-panel --strict`.
