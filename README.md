@@ -140,6 +140,8 @@ C++ build tools are typically **not** required — `node-pty` ships a Windows x6
 
 ### C — From source (contributors)
 
+Before your first change, read [CONTRIBUTING.md](CONTRIBUTING.md) — features and bugfixes go through a spec-first pipeline (explore → plan → build → ship), not a plain branch-and-PR flow.
+
 ```bash
 git clone https://github.com/BlackBeltTechnology/pi-agent-dashboard.git
 cd pi-agent-dashboard
