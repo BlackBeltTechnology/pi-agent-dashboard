@@ -56,12 +56,12 @@ Tests first; 2.7 is the red→green gate.
 
 - [x] 4.1 L1 test — Settings ▸ Security rendered (input) · mount (trigger) · zero QR canvases, zero pairing copy-strings, zero approval controls anywhere in the Security tree (observable). see `SettingsPanel.test.tsx` (test-plan #F2)
 - [x] 4.2 L1 test — two paired devices in the registry (input) · Security mounts (trigger) · both rows render with label, last-seen, and an enabled Revoke (observable). see `SettingsPanel.test.tsx` (test-plan #F4)
-- [ ] 4.3 L3 test — dashboard on `/settings/security` with Gateway configured (input) · click the "Pair a device" link (trigger) · route becomes `/settings/gateway` AND the Connect-a-device section is within the viewport (observable). Land+scroll decided at the scenario-design gate. see `tests/e2e/pairing-qr.spec.ts` for harness glue (test-plan #F3)
+- [x] 4.3 L3 test — dashboard on `/settings/security` with Gateway configured (input) · click the "Pair a device" link (trigger) · route becomes `/settings/gateway` AND the Connect-a-device section is within the viewport (observable). Land+scroll decided at the scenario-design gate. see `tests/e2e/pairing-qr.spec.ts` for harness glue (test-plan #F3)
 - [x] 4.4 Replace `<PairingView />` in `SettingsPanel.tsx` with the inline link under the existing `settings.pairDevice` section title, matching `mockups/security-pair.html` variant A1 (body names the destination and what happens there; button mirrors the Gateway page's `Open Security →` shape)
 - [x] 4.5 Give the link a stable testid for the e2e layer, and point it at the Connect-a-device anchor added in 2.11
 - [x] 4.6 Copy check: the surface is named **"Connect a device"**, NOT "Access & QR" — the latter is a dialog-tab label and the Gateway page has no tabs (D1)
 - [x] 4.7 Add the new Security-link copy as a NEW i18n key. There is no English catalogue — English is the inline `t(key, undefined, "default")` third argument. So: inline default at the call site, plus a real entry in `i18n.tsx` (zh-CN) and `i18n-hu.ts`
-- [ ] 4.8 Make 4.1–4.3 pass
+- [x] 4.8 Make 4.1–4.3 pass
 - [x] 4.9 Verify the Gateway → Security cross-links (`GatewayPage`, `GatewayDialog`) still resolve, so the relationship is bidirectional and neither side dead-ends
 
 ## 5. Delete the duplicate
@@ -93,10 +93,10 @@ Tests first; 2.7 is the red→green gate.
 
 ## 9. Verify
 
-- [ ] 9.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` then grep the summary pattern
-- [ ] 9.2 `npm run quality:changed`
-- [ ] 9.3 L3 test — TLS endpoint + valid payload (input) · read the QR's `data-qr-text`, then navigate the browser to that exact URL (trigger) · the value matches `https://<tls-host>/pair#pi:pair:v1.<b64>`, navigating lands on `/pair` which decodes it, and the one-time code appears only after `#` (observable). see `tests/e2e/pairing-qr.spec.ts` (test-plan #F5)
+- [x] 9.1 `set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log` then grep the summary pattern
+- [x] 9.2 `npm run quality:changed`
+- [x] 9.3 L3 test — TLS endpoint + valid payload (input) · read the QR's `data-qr-text`, then navigate the browser to that exact URL (trigger) · the value matches `https://<tls-host>/pair#pi:pair:v1.<b64>`, navigating lands on `/pair` which decodes it, and the one-time code appears only after `#` (observable). see `tests/e2e/pairing-qr.spec.ts` (test-plan #F5)
 - [ ] 9.4 Manual — point a physical phone camera at the rendered QR; confirm the camera surfaces an openable link (test-plan: manual-only, #F6)
 - [ ] 9.5 Manual — view the promoted empty state and the Security link in dark and light at 375/768/1440; confirm they match the approved mockup and that contrast and hierarchy read correctly (test-plan: manual-only, #F7)
-- [ ] 9.6 Re-score the promoted components against `mockups/ui-plan.md`'s rubric in an ISOLATED env on non-8000 ports; confirm `lsof -i:8000` shows the same PID before and after
-- [ ] 9.7 `openspec validate collapse-pairing-into-gateway --strict`
+- [x] 9.6 Re-score the promoted components against `mockups/ui-plan.md`'s rubric in an ISOLATED env on non-8000 ports; confirm `lsof -i:8000` shows the same PID before and after
+- [x] 9.7 `openspec validate collapse-pairing-into-gateway --strict`

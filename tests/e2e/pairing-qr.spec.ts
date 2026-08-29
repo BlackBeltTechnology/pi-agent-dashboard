@@ -16,6 +16,7 @@
  * the `request` fixture is the OPERATOR at the authenticated desktop (approve).
  */
 import { expect, test } from "./fixtures.js";
+import { gotoDashboard } from "./helpers/index.js";
 
 const BEARER_KEY = "pi-dashboard:device-bearer";
 
@@ -110,10 +111,12 @@ test.describe("pairing QR — /pair landing handshake", () => {
       );
 
       // The one-time code appears ONLY in the fragment: decode the payload the
-      // QR carries and check the pre-fragment URL never names it.
+      // QR carries and check the pre-fragment URL never names it. (The payload's
+      // `code` is a base64url token; the 8-DIGIT confirm code is derived from it
+      // on the landing.)
       const [beforeHash, fragment] = qrValue!.split("#");
       const payload = JSON.parse(Buffer.from(fragment.replace(/^pi:pair:v1\./, ""), "base64url").toString());
-      expect(payload.code).toMatch(/^\d{8}$/);
+      expect(payload.code).toMatch(/^[A-Za-z0-9_-]{10,}$/);
       expect(beforeHash).not.toContain(payload.code);
 
       // Navigating to the carried fragment lands on /pair, which decodes it —
