@@ -218,4 +218,44 @@ describe("GET /api/health — shape", () => {
     expect(body.launchSourceEffective).toBe("bridge");
     assertOwnershipShape(body);
   });
+
+  // surface-pi-runtime-on-general #E7 (design D2 gate): /api/health is
+  // unauthenticated (no preHandler — system-routes.ts), so its `piRuntime`
+  // shape must stay VERSIONS + DIVERGENCE ONLY. No filesystem path, no
+  // pinned/override indicator may ever be added — the General status row
+  // reads this shape. The whole key SET is pinned, not a subset: silent
+  // shrinkage would break the row's data source just as surely as growth
+  // would leak. NOTE: the set includes `installSetDiverged` +
+  // `installSetVersions` (select-pi-runtime-install D5) — they are versions
+  // and divergence data, exactly what the D2 comment permits; the task text's
+  // four-key transcription was incomplete. Any SEVENTH key — a path, a pinned
+  // flag, anything — fails this assertion.
+  it("piRuntime carries versions and divergence only — no path, no pinned indicator", async () => {
+    delete process.env.DASHBOARD_STARTER;
+    handle = await createTestServer();
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = await res.json() as Record<string, unknown>;
+    const rt = body.piRuntime as Record<string, unknown> | null | undefined;
+    // `piRuntime: null` is a legitimate state (discovery failure is
+    // deliberately indistinguishable from "nothing to report") — the shape
+    // guard is vacuous there and the client row renders nothing.
+    if (rt === undefined || rt === null) return;
+    expect(Object.keys(rt).sort()).toEqual([
+      "consumerDiverged",
+      "consumerMessage",
+      "installSetDiverged",
+      "installSetVersions",
+      "moduleVersion",
+      "spawnVersion",
+    ]);
+    // The version fields carry version strings or null — not resolved paths.
+    for (const k of ["spawnVersion", "moduleVersion"] as const) {
+      expect(rt[k] === null || typeof rt[k] === "string").toBe(true);
+    }
+    expect(Array.isArray(rt.installSetVersions)).toBe(true);
+    for (const k of ["consumerDiverged", "installSetDiverged"] as const) {
+      expect(typeof rt[k]).toBe("boolean");
+    }
+    expect(rt.consumerMessage === null || typeof rt.consumerMessage === "string").toBe(true);
+  });
 });

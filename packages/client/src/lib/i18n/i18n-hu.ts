@@ -18,6 +18,7 @@ export const huCatalog: Record<string, string> = {
   "chat.tool.elidedHint": "Ennek az eszköznek az eredménye a betöltött előzményeken kívül esik, ezért nem tölthető be.",
   "common.advanced": "Speciális",
   "piRuntime.title": "Pi futtatókörnyezet",
+  "piRuntime.changeRuntime": "Változtatás…",
   "piRuntime.loading": "Pi telepítések betöltése…",
   "piRuntime.loadFailed": "A pi telepítések nem tölthetők be.",
   "piRuntime.laneSpawn": "Munkamenetek indítása",
