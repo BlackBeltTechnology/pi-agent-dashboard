@@ -90,17 +90,24 @@ test.describe("pairing QR — /pair landing handshake", () => {
 
     // Seed a manual TLS endpoint (the `pairing.publicBaseUrls` affordance) so
     // the survivor selects a PAIRING endpoint and renders the deep-link QR.
-    // Restored at the end — the harness is shared across specs.
-    let prevUrls: string[] = [];
-    await page.evaluate(async () => {
+    // Restored at the end — the harness is shared across specs. `prevUrls` is
+    // captured by RETURNING it from the browser context (a Node-side assignment
+    // inside `page.evaluate` cannot cross the context boundary).
+    const prevUrls = (await page.evaluate(async () => {
       const cur = await (await fetch("/api/config")).json();
-      prevUrls = cur?.data?.pairing?.publicBaseUrls ?? [];
-      await fetch("/api/config", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ pairing: { publicBaseUrls: [...prevUrls, `https://localhost:${location.port}`] } }),
-      });
-    });
+      return (cur?.data?.pairing?.publicBaseUrls ?? []) as string[];
+    })) as string[];
+    await page.evaluate(
+      (urls) =>
+        fetch("/api/config", {
+          method: "PUT",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            pairing: { publicBaseUrls: [...urls, `https://localhost:${location.port}`] },
+          }),
+        }),
+      prevUrls,
+    );
 
     try {
       await page.goto("/settings/gateway");
