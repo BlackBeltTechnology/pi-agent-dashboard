@@ -352,6 +352,57 @@ describe("SettingsPanel", () => {
     });
   });
 
+  // F2 (collapse-pairing-into-gateway): Security offers a ROUTE, not a
+  // duplicate — zero pairing QRs, copy-strings or approval controls anywhere in
+  // the tree, and the link to the Gateway pairing surface is present.
+  it("Security renders no pairing QR, copy-string, or approval controls; link present", async () => {
+    global.fetch = mockFetchConfig();
+    setPath("/settings/security");
+
+    render(<SettingsPanel />);
+    await waitFor(() => screen.getByTestId("security-pair-link"));
+
+    expect(document.querySelectorAll("canvas").length).toBe(0);
+    expect(document.body.textContent).not.toContain("pi:pair:v1.");
+    expect(screen.queryByTestId("pairing-approve-btn")).toBeNull();
+    expect(screen.queryByTestId("gateway-pair-approve-btn")).toBeNull();
+  });
+
+  // F4 (collapse-pairing-into-gateway): paired-device management STAYS on
+  // Security — rows with label, last-seen, and an enabled Revoke control.
+  it("Security still lists paired devices with working Revoke controls", async () => {
+    global.fetch = vi.fn().mockImplementation((url: string, options?: any) => {
+      if (url === "/api/paired-devices") {
+        return Promise.resolve({
+          ok: true,
+          headers: { get: () => "application/json" },
+          json: () =>
+            Promise.resolve({
+              success: true,
+              data: [
+                { id: "d1", label: "iPhone", createdAt: "2026-01-01", lastSeen: "2026-08-19" },
+                { id: "d2", label: "MacBook", createdAt: "2026-02-01", lastSeen: null },
+              ],
+            }),
+        });
+      }
+      if (url === "/api/config" && !options?.method) {
+        return Promise.resolve({ ok: true, json: () => Promise.resolve({ success: true, data: mockConfig }) });
+      }
+      return Promise.resolve({ ok: false, json: () => Promise.resolve(null) });
+    });
+    setPath("/settings/security");
+
+    render(<SettingsPanel />);
+
+    await waitFor(() => screen.getByText("iPhone"));
+    expect(screen.getByText("MacBook")).toBeDefined();
+    const revokeButtons = screen.getAllByTitle("Revoke device");
+    expect(revokeButtons.length).toBe(2);
+    expect(screen.getAllByText(/last seen/i).length).toBe(2);
+    revokeButtons.forEach((b) => expect((b as HTMLButtonElement).disabled).toBe(false));
+  });
+
   it("shows restart-required message when port changes", async () => {
     global.fetch = vi.fn().mockImplementation((url: string, options?: any) => {
       if (url === "/api/config" && options?.method === "PUT") {

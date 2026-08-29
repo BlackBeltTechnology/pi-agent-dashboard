@@ -47,7 +47,6 @@ import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.
 import { KnownServersSection } from "../connectivity/KnownServersSection.js";
 import { NetworkDiscoverySection } from "../connectivity/NetworkDiscoverySection.js";
 import { PairedDevicesSection } from "../connectivity/PairedDevicesSection.js";
-import { PairingView } from "../connectivity/PairingView.js";
 import { InstructionsPage } from "../DirectorySettings/InstructionsPage.js";
 import { GatewayPage } from "../Gateway/GatewayPage.js";
 import { OpenSpecProfileSection } from "../openspec/OpenSpecProfileSection.js";
@@ -1867,7 +1866,34 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   })}
                 />
                 <Section title={t("settings.pairDevice", undefined, "Pair a device")}>
-                  <PairingView />
+                  {/* A route, not a duplicate (D2): Security keeps the words an
+                      operator expects and one click to the act, which lives on
+                      the Gateway "Connect a device" surface. Body names the
+                      destination and what happens there (NN/g link writing);
+                      button mirrors the Gateway page's `Open Security →` shape.
+                      See mockups/security-pair.html variant A1. */}
+                  <p className="mb-3 max-w-[56ch] text-xs text-[var(--text-secondary)]">
+                    {t(
+                      "settings.pairDeviceBody",
+                      undefined,
+                      "Pairing happens on the Gateway page, where you pick which endpoint the device connects over, scan the QR, and approve it with the code shown on the device.",
+                    )}
+                  </p>
+                  <button
+                    type="button"
+                    data-testid="security-pair-link"
+                    className="rounded border border-[var(--border)] px-3 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]"
+                    onClick={() => {
+                      navigate("/settings/gateway");
+                      // The section renders after the route swap — scroll once
+                      // it exists, so the link LANDS + SCROLLS (test-plan F3).
+                      requestAnimationFrame(() => {
+                        document.getElementById("connect-a-device")?.scrollIntoView({ block: "start" });
+                      });
+                    }}
+                  >
+                    {t("settings.pairDeviceLink", undefined, "Open Gateway ▸ Connect a device →")}
+                  </button>
                 </Section>
                 <Section title={t("settings.pairedDevices", undefined, "Paired Devices")}>
                   <PairedDevicesSection />

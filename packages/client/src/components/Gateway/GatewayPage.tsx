@@ -12,7 +12,7 @@
  */
 
 import type { TunnelMode } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { getConfig, putConfig } from "../../lib/gateway/gateway-api.js";
 import type { GatewayProviderId } from "../../lib/gateway/gateway-providers.js";
@@ -31,6 +31,17 @@ export function GatewayPage() {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const providerRef = useRef<HTMLDivElement>(null);
+
+  // D3a: the page host MUST pass a setup handler — the component's navigate()
+  // fallback is a no-op here, because this page IS /settings/gateway. Focus the
+  // provider section (the setup controls) instead of re-navigating.
+  const focusProviderSetup = useCallback(() => {
+    const el = providerRef.current;
+    if (!el) return;
+    el.scrollIntoView({ block: "start" });
+    el.focus({ preventScroll: true });
+  }, []);
 
   useEffect(() => {
     void getConfig()
@@ -70,19 +81,30 @@ export function GatewayPage() {
         </p>
       </div>
 
-      <GatewayProviderSection
-        provider={provider}
-        mode={mode}
-        onChange={({ provider: p, mode: m }) => {
-          setProvider(p);
-          setMode(m);
-          setDirty(true);
-        }}
-        disabled={saving}
-      />
+      <div
+        id="gateway-provider-section"
+        ref={providerRef}
+        tabIndex={-1}
+        className="outline-none"
+      >
+        <GatewayProviderSection
+          provider={provider}
+          mode={mode}
+          onChange={({ provider: p, mode: m }) => {
+            setProvider(p);
+            setMode(m);
+            setDirty(true);
+          }}
+          disabled={saving}
+        />
+      </div>
 
       <Divider />
-      <GatewayPairQR />
+      {/* The Connect-a-device anchor: the Security page's pairing link and the
+          no-secure-road fallback both scroll to this section (tasks 2.11/4.5). */}
+      <div id="connect-a-device">
+        <GatewayPairQR onSetupRequested={focusProviderSetup} />
+      </div>
 
       <Divider />
       <GatewayUrlManager />
