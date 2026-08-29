@@ -16,6 +16,24 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Fixed
 
+- **Corrupt `auth.json` no longer breaks the dashboard or loses credentials.**
+  An empty or truncated `~/.pi/agent/auth.json` (interrupted write, crashed pi)
+  used to make `GET /api/provider-auth/status` return
+  `500 {"message":"Unexpected end of JSON input"}` and white-screen the
+  Settings panel on `TypeError: t.filter is not a function` — the one surface
+  that could repair the file was the one that died. Now: reads never fail on
+  bad *content* — unparseable bytes are copy-quarantined (never renamed) to
+  `auth.json.corrupt-<timestamp>`, mode `0600`, never overwritten, and the
+  status endpoint answers `200` with every provider signed out. Writes refuse
+  to destroy bytes that were not first backed up. The Settings provider
+  section degrades to an inline error with a Retry on any failed/malformed
+  status, and the OAuth login poll tolerates transient failures (a mid-login
+  server restart no longer kills an in-flight login; three consecutive
+  failures end it with a message). The lock helper's placeholder create is now
+  mode `0600` instead of world-readable, and `DELETE /api/provider-auth/:provider`
+  reports refusals in the same `{ error }` shape as `PUT`. See change:
+  `fix-corrupt-auth-json-500`.
+
 ## [0.8.0] - 2026-08-26
 
 ### Added
