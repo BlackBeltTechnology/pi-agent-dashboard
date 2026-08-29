@@ -178,3 +178,93 @@ describe("loadConfig — openspec.enabled (auto-hide-empty-session-subcards)", (
     expect(second.openspec.pollIntervalSeconds).toBe(90);
   });
 });
+
+describe("loadConfig — openspec optOutDirectories + offerInitialization (add-openspec-init-affordances)", () => {
+  let testDir: string;
+  let configFile: string;
+  let origHome: string;
+
+  beforeEach(() => {
+    testDir = path.join(
+      os.tmpdir(),
+      `test-config-openspec-optout-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+    );
+    fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
+    configFile = path.join(testDir, ".pi", "dashboard", "config.json");
+    origHome = process.env.HOME!;
+    process.env.HOME = testDir;
+  });
+
+  afterEach(() => {
+    process.env.HOME = origHome;
+    if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true });
+  });
+
+  it("defaults: optOutDirectories [] and offerInitialization true when neither key present (E18)", () => {
+    fs.writeFileSync(
+      configFile,
+      JSON.stringify({ openspec: { pollIntervalSeconds: 60 } }),
+    );
+    const cfg = loadConfig();
+    expect(cfg.openspec.optOutDirectories).toEqual([]);
+    expect(cfg.openspec.offerInitialization).toBe(true);
+  });
+
+  it("normalizes `/project/foo/` to the same key as `/project/foo` (E17)", () => {
+    fs.writeFileSync(
+      configFile,
+      JSON.stringify({ openspec: { optOutDirectories: ["/project/foo/"] } }),
+    );
+    const cfg = loadConfig();
+    expect(cfg.openspec.optOutDirectories).toHaveLength(1);
+    // The stored entry must be the pathKey-normalized spelling of `/project/foo`
+    // so an evaluation against `/project/foo` (no trailing slash) matches.
+    const entry = cfg.openspec.optOutDirectories[0]!;
+    expect(entry.toLowerCase()).toBe("/project/foo".toLowerCase());
+    expect(entry.endsWith("/")).toBe(false);
+  });
+
+  it("dedupes path spellings that normalize to the same key", () => {
+    fs.writeFileSync(
+      configFile,
+      JSON.stringify({ openspec: { optOutDirectories: ["/project/foo/", "/project/foo"] } }),
+    );
+    const cfg = loadConfig();
+    expect(cfg.openspec.optOutDirectories).toHaveLength(1);
+  });
+
+  it("drops non-string entries and keeps offerInitialization default true on non-boolean", () => {
+    fs.writeFileSync(
+      configFile,
+      JSON.stringify({ openspec: { optOutDirectories: ["/a", 42, null, ""], offerInitialization: "yes" } }),
+    );
+    const cfg = loadConfig();
+    expect(cfg.openspec.optOutDirectories).toEqual(["/a"]);
+    expect(cfg.openspec.offerInitialization).toBe(true);
+  });
+
+  it("preserves unrelated config keys through parse + round-trip (E23, shared half)", () => {
+    fs.writeFileSync(
+      configFile,
+      JSON.stringify({
+        port: 8000,
+        openspec: { optOutDirectories: ["/only/this"], pollIntervalSeconds: 45 },
+      }),
+    );
+    const first = loadConfig();
+    expect(first.port).toBe(8000);
+    expect(first.openspec.pollIntervalSeconds).toBe(45);
+    fs.writeFileSync(configFile, JSON.stringify(first));
+    const second = loadConfig();
+    expect(second.openspec.optOutDirectories).toEqual(first.openspec.optOutDirectories);
+    expect(second.openspec.offerInitialization).toBe(true);
+  });
+
+  it("preserves explicit offerInitialization false", () => {
+    fs.writeFileSync(
+      configFile,
+      JSON.stringify({ openspec: { offerInitialization: false } }),
+    );
+    expect(loadConfig().openspec.offerInitialization).toBe(false);
+  });
+});

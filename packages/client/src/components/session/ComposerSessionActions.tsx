@@ -7,7 +7,7 @@ import {
   statusAriaLabel,
   statusPresentation,
 } from "@blackbelt-technology/pi-dashboard-client-utils/statusPresentation";
-import type { DashboardSession, ImageContent, OpenSpecArtifact, OpenSpecChange, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { DashboardSession, ImageContent, OpenSpecArtifact, OpenSpecChange, OpenSpecConfig, OpenSpecReadiness } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { ChangeState, DEFAULT_OPENSPEC_CONFIG, deriveChangeState } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
   mdiArchiveOutline,
@@ -49,6 +49,18 @@ interface Props {
   changes?: OpenSpecChange[];
   openspecHasDir?: boolean;
   openspecPending?: boolean;
+  /**
+   * Server-derived readiness for the composer session's cwd. When present it
+   * governs the inline group: only PENDING (placeholder state, current
+   * behaviour) and READY render it — BROKEN / STALE hide it because the
+   * buttons dispatch `/opsx:` skills that cannot resolve, and the composer has
+   * no reason-line slot for an inert variant; GLOBAL_OFF / OPTED_OUT / ABSENT
+   * hide it (initialization is offered on the folder card, not here).
+   * `undefined` (older server) degrades to the previous
+   * `hasDir !== false || pending` gate.
+   * See change: add-openspec-init-affordances (D6/D7).
+   */
+  openspecReadiness?: OpenSpecReadiness;
   onSendPrompt?: (text: string, images?: ImageContent[]) => void;
   onAttach?: (changeName: string) => void;
   onDetach?: () => void;
@@ -194,6 +206,7 @@ export function ComposerSessionActions({
   changes,
   openspecHasDir,
   openspecPending,
+  openspecReadiness,
   onSendPrompt,
   onReadArtifact,
   showGitInfo,
@@ -218,7 +231,11 @@ export function ComposerSessionActions({
   const streaming = session.status === "streaming";
   const isEnded = session.status === "ended";
 
-  const showOpenSpec = !isEnded && (openspecHasDir !== false || openspecPending === true);
+  const showOpenSpec =
+    !isEnded &&
+    (openspecReadiness
+      ? openspecReadiness.state === "READY" || openspecReadiness.state === "PENDING"
+      : openspecHasDir !== false || openspecPending === true);
   const showStatus = hasBadge;
   const showGit = (!!showGitInfo || !!session.gitWorktree) && !!session.gitWorktree;
 

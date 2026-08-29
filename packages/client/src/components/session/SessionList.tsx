@@ -3,7 +3,7 @@ import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { DndContext, type DragEndEvent, type DragOverEvent, type DragStartEvent, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { mdiArchiveOutline, mdiBroom, mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClose, mdiCog, mdiConsoleLine, mdiFileDocumentOutline, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiRefresh, mdiSortVariant, mdiSourceBranch, mdiTextBoxCheckOutline, mdiViewGridPlus } from "@mdi/js";
+import { mdiArchiveOutline, mdiBroom, mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClipboardCheckOutline, mdiClose, mdiCog, mdiConsoleLine, mdiFileDocumentOutline, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiRefresh, mdiSortVariant, mdiSourceBranch, mdiTextBoxCheckOutline, mdiViewGridPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
@@ -15,6 +15,7 @@ import type { WorktreeInitStatus } from "../../lib/git/git-api.js";
 import { t as i18nT, useI18n } from "../../lib/i18n/i18n.js";
 import { compatibleClosestCenter, resolveFolderMove, resolveWorkspaceFolderReorder, resolveWorkspaceReorder, SPRING_LOAD_DWELL_MS } from "../../lib/layout/sidebar-dnd.js";
 import { buildFolderHomeUrl } from "../../lib/nav/route-builders.js";
+import { removeOpenSpecOptOut } from "../../lib/openspec/openspec-config-api.js";
 // TerminalCard removed — terminals now in TerminalsView
 import {
   getCollapsedGroups,
@@ -109,6 +110,16 @@ interface Props {
   onSeekToCard?: (sessionId: string) => void;
   contextUsageMap?: Map<string, ContextUsageInfo>;
   openspecMap?: Map<string, OpenSpecData>;
+  /** Fleet-level ABSENT-offer switch from dashboard config
+   *  (`openspec.offerInitialization`, default `true`). Suppresses the folder
+   *  section's Initialize offer everywhere; BROKEN/STALE/READY keep rendering.
+   *  See change: add-openspec-init-affordances (D3). */
+  openspecOfferInitialization?: boolean;
+  /** `openspec.enabled` from dashboard config (default `true`). Gates the
+   *  folder menu's re-enable item — removing a per-directory opt-out cannot
+   *  make OpenSpec available when the feature is globally off.
+   *  See change: add-openspec-init-affordances (folder-actions-menu spec). */
+  openspecEnabled?: boolean;
   /**
    * Folder-HEAD branch map (`cwd → branch | null`), synced via `git_head_update`.
    * Outranks child-session branches in `GroupGitInfo`. See change:
@@ -287,7 +298,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, retryAttemptMap, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, openspecOfferInitialization, openspecEnabled, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, retryAttemptMap, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
   const { t } = useI18n();
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
@@ -963,6 +974,47 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
   // Cancel any pending frame/timer on unmount.
   useEffect(() => clearPendingReveal, [clearPendingReveal]);
 
+  // ── Seek to a folder's OpenSpec section ─────────────────────────────────
+  // Remediation target of a disabled OPENSPEC subcard (BROKEN / STALE ·
+  // missing-skills — D7 routing table): guarded-expand the folder (and its
+  // workspace ancestor, which may land asynchronously via the `workspaces`
+  // echo), then scroll the folder header into view and move focus to the
+  // OpenSpec section. Opens NO dialog — the session card reports readiness;
+  // the folder card acts (Repair / Update live there).
+  // See change: add-openspec-init-affordances (task 4.5).
+  const seekToFolderOpenSpec = useCallback(
+    (cwd: string) => {
+      const wsId = folderWorkspaceMap.get(cwd);
+      if (wsId) {
+        const ws = (workspaces ?? []).find((w) => w.id === wsId);
+        if (ws?.collapsed) onSetWorkspaceCollapsed?.(wsId, false);
+      }
+      if (collapsedGroups.has(cwd)) handleToggleCollapse(cwd);
+
+      // The section mounts only after the (possibly async) expand commits —
+      // retry briefly instead of a single frame that races the echo.
+      let attempts = 0;
+      const tryFocus = () => {
+        attempts += 1;
+        const el = listRef.current?.querySelector(
+          `[data-folder-openspec-section="${cssEscapeId(cwd)}"]`,
+        ) as HTMLElement | null;
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          el.focus({ preventScroll: true });
+          return;
+        }
+        if (attempts < 20) window.setTimeout(tryFocus, 100);
+      };
+      window.setTimeout(tryFocus, 0);
+    },
+    [folderWorkspaceMap, workspaces, onSetWorkspaceCollapsed, collapsedGroups, handleToggleCollapse],
+  );
+
+  // Settings → OpenSpec Workflow Profile is the remediation surface for
+  // STALE · profile-stale (D7): the profile + Update-all controls live there.
+  const openOpenSpecSettings = useCallback(() => navigate("/settings/openspec"), [navigate]);
+
   /**
    * folder-workspaces: same as renderGroup but with the "Add to workspace"
    * affordance switched on. Used for top-level groups only — workspace-tier
@@ -1157,6 +1209,29 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
         label: t("worktree.manageWorktrees", undefined, "Manage worktrees"),
         icon: mdiSourceBranch,
         onSelect: () => setManageWorktreesCwd(group.cwd),
+      });
+    }
+    // Re-enable an opted-out OpenSpec directory (readiness OPTED_OUT — i.e.
+    // cwd listed in openspec.optOutDirectories while the feature is on).
+    // Absent for a merely-ABSENT cwd (the folder section already offers
+    // Initialize — a second entry point for the same decision is redundant)
+    // and when OpenSpec is globally disabled (removing an opt-out cannot make
+    // the feature available there).
+    // See change: add-openspec-init-affordances (folder-actions-menu spec).
+    if (
+      openspecMap?.get(group.cwd)?.readiness?.state === "OPTED_OUT" &&
+      openspecEnabled !== false
+    ) {
+      items.push({
+        id: "openspec-reenable",
+        group: "directory",
+        label: t("openspec.folderMenuReenable", undefined, "Enable OpenSpec for this folder"),
+        icon: mdiClipboardCheckOutline,
+        onSelect: () => {
+          removeOpenSpecOptOut(group.cwd).catch((err) => {
+            showToast(String(err?.message ?? err), "error");
+          });
+        },
       });
     }
     // "Directory Settings" IS the Pi Resources entry point after the
@@ -1426,13 +1501,21 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               See change: redesign-directory-card. */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-2 gap-y-3 mt-3">
             <SidebarFolderSectionSlot folder={{ cwd: group.cwd }} />
-            {/* Render for both initialized (full section) and pending (spinner).
-                See change: fix-cold-boot-openspec-protocol. */}
-            {(openspecMap?.get(group.cwd)?.initialized || openspecMap?.get(group.cwd)?.pending) && (
+            {/* Readiness-gated (inside the section): READY pill, PENDING
+                spinner, ABSENT offer (+dismiss), BROKEN/STALE recovery pill;
+                nothing for GLOBAL_OFF / OPTED_OUT / legacy not-initialized.
+                Rendered whenever the server has broadcast data for the cwd —
+                including pinned directories with no sessions.
+                See change: add-openspec-init-affordances. */}
+            {openspecMap?.get(group.cwd) && (
               <FolderOpenSpecSection
                 data={openspecMap.get(group.cwd)!}
                 cwd={group.cwd}
                 onOpenBoard={onOpenBoard}
+                offerInitialization={openspecOfferInitialization}
+                onToast={(message, variant) =>
+                  showToast(message, variant === "error" ? "error" : "info")
+                }
               />
             )}
           </div>
@@ -1632,6 +1715,9 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                         openspecInitialized={openspecMap?.get(session.cwd)?.initialized}
                         openspecPending={openspecMap?.get(session.cwd)?.pending}
                         openspecHasDir={openspecMap?.get(session.cwd)?.hasOpenspecDir}
+                        openspecReadiness={openspecMap?.get(session.cwd)?.readiness}
+                        onSeekToFolderOpenSpec={seekToFolderOpenSpec}
+                        onOpenOpenSpecSettings={openOpenSpecSettings}
                         openspecGroups={openspecGroupsMap?.get(session.cwd)?.groups}
                         openspecAssignments={openspecGroupsMap?.get(session.cwd)?.assignments}
                         onSendPrompt={onSendPrompt ? (text, images) => onSendPrompt(session.id, text, images) : undefined}

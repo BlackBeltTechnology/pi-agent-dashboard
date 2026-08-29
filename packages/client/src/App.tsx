@@ -600,6 +600,13 @@ export default function App() {
   // mount. Defaults to true while loading. See change:
   // openspec-worktree-spawn-button.
   const [gitWorktreeEnabled, setGitWorktreeEnabled] = useState<boolean>(true);
+  // OpenSpec fleet switches from dashboard config, hydrated by the mount-time
+  // /api/config fetch below: `offerInitialization` suppresses the ABSENT
+  // folder-section offer fleet-wide (D3); `enabled` additionally gates the
+  // folder menu's re-enable item. Defaults match the server's
+  // (true / true). See change: add-openspec-init-affordances.
+  const [openspecOfferInitialization, setOpenspecOfferInitialization] = useState<boolean>(true);
+  const [openspecEnabled, setOpenspecEnabled] = useState<boolean>(true);
   const [discoveredServers, setDiscoveredServers] = useState<import("./components/connectivity/ServerSelector.js").DiscoveredServerInfo[]>([]);
   // Global chat-display preferences. `undefined` until the initial GET
   // /api/preferences/display response lands. When the server returns
@@ -911,6 +918,14 @@ export default function App() {
         // See change: fix-plugin-config-write-persistence.
         if (d.success && d.data?.plugins && typeof d.data.plugins === "object") {
           initPluginConfigs(d.data.plugins as Record<string, Record<string, unknown>>);
+        }
+        // Hydrate the OpenSpec fleet switches the readiness affordances read
+        // (folder-section offer suppression + menu re-enable gating).
+        // See change: add-openspec-init-affordances.
+        const os = d.data?.openspec;
+        if (d.success && os && typeof os === "object") {
+          if (typeof os.offerInitialization === "boolean") setOpenspecOfferInitialization(os.offerInitialization);
+          if (typeof os.enabled === "boolean") setOpenspecEnabled(os.enabled);
         }
       })
       .catch(() => {});
@@ -1549,6 +1564,8 @@ export default function App() {
       onSeekToCard={seekToCard}
       contextUsageMap={contextUsageMap}
       openspecMap={openspecMap}
+      openspecOfferInitialization={openspecOfferInitialization}
+      openspecEnabled={openspecEnabled}
       folderGitMap={folderGitMap}
       openspecGroupsMap={openspecGroupsMap}
       sessionOrderMap={sessionOrderMap}
@@ -1993,6 +2010,7 @@ export default function App() {
                 changes={selectedCwd ? openspecMap.get(selectedCwd)?.changes : undefined}
                 openspecHasDir={selectedCwd ? openspecMap.get(selectedCwd)?.hasOpenspecDir : undefined}
                 openspecPending={selectedCwd ? openspecMap.get(selectedCwd)?.pending : undefined}
+                openspecReadiness={selectedCwd ? openspecMap.get(selectedCwd)?.readiness : undefined}
                 onSendPrompt={(text, images) => wrappedHandleSend(text, images)}
                 onReadArtifact={selectedCwd ? (changeName, artifactId) => openArtifact(selectedCwd, changeName, artifactId) : undefined}
                 onBulkArchive={selectedCwd ? () => handleBulkArchive(selectedCwd) : undefined}

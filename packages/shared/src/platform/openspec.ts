@@ -18,6 +18,8 @@ import crypto from "node:crypto";
 const OPENSPEC_TIMEOUT = 10_000;
 /** `openspec update` regenerates project skill files; allow more headroom. */
 const OPENSPEC_UPDATE_TIMEOUT = 30_000;
+/** Init copies templates + writes skills; bounded per the init endpoint contract (60s). */
+const OPENSPEC_INIT_TIMEOUT = 60_000;
 
 interface WithCwd {
   cwd: string;
@@ -99,6 +101,34 @@ export const OPENSPEC_UPDATE: Recipe<WithCwd, string> = {
   timeout: OPENSPEC_UPDATE_TIMEOUT,
 };
 
+/**
+ * `openspec init <cwd> --tools pi --force` — the exact argv the init endpoint
+ * runs. Pinned against `@fission-ai/openspec@1.6.0`, which registers ONLY
+ * `--tools`, `--force`, `--profile` on `init`: `--no-animation` /
+ * `--no-copilot-cloud` do not exist and commander is strict. `--profile` is
+ * deliberately absent — the CLI validates it to `core|custom` only, while the
+ * dashboard's profile may be the alias `expanded`; the endpoint heals the
+ * global config instead and lets init read it. `--tools pi` is what writes
+ * `.pi/skills/openspec-*` + `.pi/prompts/opsx-*.md`; omitting it reproduces
+ * the dead-buttons defect. Argv is an array, never a shell string.
+ * See change: add-openspec-init-affordances.
+ */
+export const OPENSPEC_INIT: Recipe<WithCwd, string> = {
+  argv: (input) => ["openspec", "init", input.cwd, "--tools", "pi", "--force"],
+  parse: (out) => out,
+  timeout: OPENSPEC_INIT_TIMEOUT,
+};
+
+/**
+ * `openspec init --help` — support probe. The endpoint runs it once per
+ * process and refuses to spawn init when the resolved CLI does not register
+ * `--tools`. See change: add-openspec-init-affordances.
+ */
+export const OPENSPEC_INIT_HELP: Recipe<WithCwd, string> = {
+  argv: () => ["openspec", "init", "--help"],
+  parse: (out) => out,
+};
+
 export const OPENSPEC_RECIPES = {
   OPENSPEC_LIST,
   OPENSPEC_STATUS,
@@ -106,6 +136,8 @@ export const OPENSPEC_RECIPES = {
   OPENSPEC_CONFIG_LIST,
   OPENSPEC_CONFIG_PROFILE,
   OPENSPEC_UPDATE,
+  OPENSPEC_INIT,
+  OPENSPEC_INIT_HELP,
 } as const;
 
 // ── Public API ──────────────────────────────────────────────────────────────
@@ -149,6 +181,23 @@ export async function configListOrAsync(
   fallback: unknown | null = null,
 ): Promise<unknown | null> {
   return unwrap(await configListAsync(input), fallback);
+}
+
+/**
+ * Run `openspec init <cwd> --tools pi --force` (60s-bounded). Binary resolves
+ * through the tool-registry — never a bare `openspec` from PATH. See change:
+ * add-openspec-init-affordances.
+ */
+export function initAsync(input: WithCwd): Promise<Result<string>> {
+  return runAsync(OPENSPEC_INIT, input, { cwd: input.cwd });
+}
+
+/**
+ * Run `openspec init --help` — support probe for the init endpoint. The help
+ * output is cwd-independent; runs from the server cwd.
+ */
+export function initHelpAsync(): Promise<Result<string>> {
+  return runAsync(OPENSPEC_INIT_HELP, { cwd: process.cwd() }, {});
 }
 
 /** Run `openspec config profile <preset>`. Returns raw stdout on success. */

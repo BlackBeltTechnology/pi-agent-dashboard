@@ -1567,3 +1567,160 @@ describe("SessionCard — retry in the activity slot", () => {
     expect(label!.className).not.toContain("--status-working");
   });
 });
+
+describe("SessionCard — OPENSPEC subcard readiness (add-openspec-init-affordances)", () => {
+  const baseProps = {
+    ...defaultProps,
+    onSendPrompt: () => {},
+    onAttachProposal: () => {},
+    onDetachProposal: () => {},
+  };
+
+  it("ABSENT hides the OPENSPEC subcard entirely", () => {
+    render(
+      <SessionCard
+        session={makeSession()}
+        {...baseProps}
+        openspecChanges={[]}
+        openspecHasDir={false}
+        openspecInitialized={false}
+        openspecPending={false}
+        openspecReadiness={{ state: "ABSENT" }}
+      />,
+    );
+    expect(screen.queryByText("OPENSPEC")).toBeNull();
+  });
+
+  it("BROKEN renders a disabled panel: title OPENSPEC, no action controls in the DOM, exactly one focusable control", () => {
+    const { container } = render(
+      <SessionCard
+        session={makeSession()}
+        {...baseProps}
+        openspecChanges={[]}
+        openspecHasDir={true}
+        openspecInitialized={false}
+        openspecPending={false}
+        openspecReadiness={{ state: "BROKEN", reason: "missing-changes-dir" }}
+        onSeekToFolderOpenSpec={() => {}}
+      />,
+    );
+    // Title still renders (empty-subcard exemption).
+    expect(screen.getByText("OPENSPEC")).toBeTruthy();
+    // The live control set is REMOVED from the DOM, not dimmed.
+    expect(screen.queryByTestId("session-openspec-actions")).toBeNull();
+    expect(screen.queryByTestId("explore-btn")).toBeNull();
+    expect(screen.queryByTestId("propose-btn")).toBeNull();
+    expect(screen.queryByTestId("attach-combo")).toBeNull();
+    expect(screen.queryByTestId("archive-btn")).toBeNull();
+    // Exactly one focusable control inside the disabled panel.
+    const panel = screen.getByTestId("session-openspec-disabled");
+    const focusable = panel.querySelectorAll(
+      "button, a, [role='button'], input, select, textarea, [tabindex]:not([tabindex='-1'])",
+    );
+    expect(focusable.length).toBe(1);
+    void container;
+  });
+
+  it("BROKEN reason text differs from the STALE reason texts", () => {
+    const broken = render(
+      <SessionCard
+        session={makeSession()}
+        {...baseProps}
+        openspecChanges={[]}
+        openspecReadiness={{ state: "BROKEN", reason: "missing-changes-dir" }}
+        onSeekToFolderOpenSpec={() => {}}
+      />,
+    );
+    const brokenText = screen.getByTestId("session-openspec-disabled-reason").textContent;
+    broken.unmount();
+
+    render(
+      <SessionCard
+        session={makeSession()}
+        {...baseProps}
+        openspecChanges={[]}
+        openspecReadiness={{ state: "STALE", reason: "missing-skills" }}
+        onSeekToFolderOpenSpec={() => {}}
+      />,
+    );
+    const staleText = screen.getByTestId("session-openspec-disabled-reason").textContent;
+    expect(brokenText).not.toBe(staleText);
+  });
+
+  it("STALE·missing-skills reason text says the project's OpenSpec skills are missing", () => {
+    render(
+      <SessionCard
+        session={makeSession()}
+        {...baseProps}
+        openspecChanges={[]}
+        openspecReadiness={{ state: "STALE", reason: "missing-skills" }}
+        onSeekToFolderOpenSpec={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("session-openspec-disabled-reason").textContent).toContain("skills");
+  });
+
+  it("BROKEN routes its single control to the folder OpenSpec section, never to Settings", () => {
+    const onSeekToFolderOpenSpec = vi.fn();
+    const onOpenOpenSpecSettings = vi.fn();
+    render(
+      <SessionCard
+        session={makeSession()}
+        {...baseProps}
+        openspecChanges={[]}
+        openspecReadiness={{ state: "BROKEN", reason: "cli-failed" }}
+        onSeekToFolderOpenSpec={onSeekToFolderOpenSpec}
+        onOpenOpenSpecSettings={onOpenOpenSpecSettings}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("session-openspec-remediate"));
+    expect(onSeekToFolderOpenSpec).toHaveBeenCalledWith("/home/user/project");
+    expect(onOpenOpenSpecSettings).not.toHaveBeenCalled();
+  });
+
+  it("STALE·profile-stale routes its single control to Settings, never to the folder", () => {
+    const onSeekToFolderOpenSpec = vi.fn();
+    const onOpenOpenSpecSettings = vi.fn();
+    render(
+      <SessionCard
+        session={makeSession()}
+        {...baseProps}
+        openspecChanges={[]}
+        openspecReadiness={{ state: "STALE", reason: "profile-stale" }}
+        onSeekToFolderOpenSpec={onSeekToFolderOpenSpec}
+        onOpenOpenSpecSettings={onOpenOpenSpecSettings}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("session-openspec-remediate"));
+    expect(onOpenOpenSpecSettings).toHaveBeenCalledTimes(1);
+    expect(onSeekToFolderOpenSpec).not.toHaveBeenCalled();
+  });
+
+  it("legacy payload (readiness undefined) renders the live subcard exactly as before — never disabled", () => {
+    render(
+      <SessionCard
+        session={makeSession()}
+        {...baseProps}
+        openspecChanges={[]}
+        openspecHasDir={true}
+        openspecInitialized={false}
+        openspecPending={false}
+      />,
+    );
+    expect(screen.getByText("OPENSPEC")).toBeTruthy();
+    expect(screen.getByTestId("session-openspec-actions")).toBeTruthy();
+    expect(screen.queryByTestId("session-openspec-disabled")).toBeNull();
+  });
+
+  it("legacy payload with no signals preserves visibility (older parent default)", () => {
+    render(
+      <SessionCard
+        session={makeSession()}
+        {...baseProps}
+        openspecChanges={[]}
+      />,
+    );
+    expect(screen.getByTestId("session-openspec-actions")).toBeTruthy();
+    expect(screen.queryByTestId("session-openspec-disabled")).toBeNull();
+  });
+});

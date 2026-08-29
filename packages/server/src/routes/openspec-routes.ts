@@ -9,11 +9,14 @@ import {
   configListOrAsync,
   configProfile,
   EXPANDED_WORKFLOWS,
+  initAsync as openspecInitAsync,
+  initHelpAsync as openspecInitHelpAsync,
   openSpecConfigFilePath,
   update as openspecUpdate,
   workflowSetSignature,
   writeOpenSpecConfigFile,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/openspec.js";
+import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import type { ApiResponse, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import { type DirectoryService, hasOpenSpecRoot } from "../directory-service.js";
@@ -242,6 +245,132 @@ export function registerOpenSpecRoutes(
         }
       }
       return { success: true, data: { results } } satisfies ApiResponse;
+    },
+  );
+
+  // POST /api/openspec/init — run `openspec init <cwd> --tools pi --force`.
+  // See change: add-openspec-init-affordances.
+  //
+  // Validation uses the UN-filtered known-directory set: `knownCwds()` filters
+  // to hasOpenSpecRoot (initialized projects only) and so excludes exactly
+  // the directories init exists to target.
+  function knownInitTargets(): string[] {
+    const set = new Set<string>();
+    for (const s of sessionManager.listAll()) if (s.cwd) set.add(s.cwd);
+    for (const d of preferencesStore.getPinnedDirectories()) set.add(d);
+    return [...set].filter((cwd) => path.join(cwd, "openspec") !== GLOBAL_OPENSPEC_DIR);
+  }
+
+  // Process-lifetime cache of the `init --help` support probe (X6: two init
+  // requests probe once). Undefined until the first probe.
+  let initSupportProbe: Promise<boolean> | undefined;
+
+  // Per-cwd serialization (X4): while an invocation is in flight for a cwd,
+  // a second request is rejected 409 without spawning. The lock is released
+  // on every exit path, including the 60s timeout (X3).
+  const inFlightInits = new Set<string>();
+
+  fastify.post<{ Body: { cwd?: string; confirm?: boolean } }>(
+    "/api/openspec/init",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const cwd = request.body?.cwd;
+      if (!cwd) {
+        reply.code(400);
+        return { success: false, error: "cwd required" } satisfies ApiResponse;
+      }
+      if (!knownInitTargets().includes(cwd)) {
+        reply.code(400);
+        return { success: false, error: "cwd is not a known session or pinned directory" } satisfies ApiResponse;
+      }
+
+      // Overwrite confirmation: the presence of <cwd>/openspec/ is the
+      // deliberate, coarse trigger. The CLI's internal legacy-artifact
+      // detection is not reachable through public exports, and by the time
+      // the CLI runs, cleanup is already authorized by --tools alone.
+      const hasOpenspecRootAlready = await fs
+        .stat(path.join(cwd, "openspec"))
+        .then(() => true)
+        .catch(() => false);
+      if (hasOpenspecRootAlready && request.body?.confirm !== true) {
+        reply.code(400);
+        return {
+          success: false,
+          error: `refusing to overwrite existing OpenSpec files in ${cwd} without confirmation`,
+        } satisfies ApiResponse;
+      }
+
+      // CLI support probe: refuse BEFORE spawning a CLI whose init does not
+      // register --tools (commander is strict — the invocation would fail
+      // anyway, but the refusal can name the resolved binary).
+      initSupportProbe ??= openspecInitHelpAsync().then(
+        (r) => r.ok && r.value.includes("--tools"),
+        () => false,
+      );
+      if (!(await initSupportProbe)) {
+        const resolved = getDefaultRegistry().resolve("openspec");
+        reply.code(400);
+        return {
+          success: false,
+          error: `resolved OpenSpec CLI does not support non-interactive init (--tools): ${resolved.path ?? "unresolved"}`,
+        } satisfies ApiResponse;
+      }
+
+      if (inFlightInits.has(cwd)) {
+        reply.code(409);
+        return { success: false, error: "an init is already in flight for this directory" } satisfies ApiResponse;
+      }
+      inFlightInits.add(cwd);
+
+      try {
+        // Heal a stale literal "expanded" profile BEFORE the spawn — init
+        // reads the global config, and --profile cannot carry the alias
+        // (F3b). Mirrors /api/openspec/update. See change:
+        // fix-openspec-expanded-profile-update.
+        await healExpandedProfileConfig(cwd);
+
+        const res = await openspecInitAsync({ cwd });
+        if (!res.ok) {
+          const err = res.error;
+          const partialStderr = err.kind === "exit" || err.kind === "timeout"
+            ? [err.stderr, err.stdout].filter(Boolean).join("\n")
+            : err.kind === "spawn-failure"
+              ? err.message
+              : undefined;
+          const message = err.kind === "timeout"
+            ? `openspec init timed out after ${err.timeoutMs}ms and was killed`
+            : err.kind === "exit"
+              ? `openspec init exited with code ${err.code ?? "signal " + err.signal}`
+              : err.kind === "not-found"
+                ? "OpenSpec CLI could not be resolved"
+                : err.message;
+          reply.code(500);
+          return {
+            success: false,
+            error: message,
+            ...(partialStderr ? { stderr: partialStderr } : {}),
+          } satisfies ApiResponse & { stderr?: string };
+        }
+
+        // Record the post-init signature (mirrors update) so a freshly
+        // initialized project is `up-to-date`, not `unknown` forever. Then
+        // force a poll refresh so the new READY readiness broadcasts without
+        // waiting for the poll interval.
+        const sig = await currentGlobalSignature(cwd);
+        preferencesStore.setOpenSpecUpdateSignature(cwd, sig);
+        directoryService.invalidateOpenSpecSignatureCache();
+        try {
+          const data = await directoryService.refreshOpenSpec(cwd);
+          onOpenSpecChanged?.(cwd);
+          return { success: true, data: { cwd, stdout: res.value, readiness: data.readiness } } satisfies ApiResponse;
+        } catch {
+          // Refresh is best-effort; init itself succeeded.
+          onOpenSpecChanged?.(cwd);
+          return { success: true, data: { cwd, stdout: res.value } } satisfies ApiResponse;
+        }
+      } finally {
+        inFlightInits.delete(cwd);
+      }
     },
   );
 

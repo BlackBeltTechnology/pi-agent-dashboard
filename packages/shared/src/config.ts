@@ -6,6 +6,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { DEFAULT_MEMORY_LIMITS, type MemoryLimitsConfig, MIN_REPLAY_WINDOW, type ReplayWindowMode } from "./memory-limits.js";
+import { inferPlatform, pathKey } from "./session-group-path.js";
 import type { WindowsGitSourceSetting } from "./platform/select-git-source.js";
 import {
   providerSupportsMode,
@@ -132,6 +133,21 @@ export interface OpenSpecPollConfig {
    * offload-openspec-poll-to-worker.
    */
   useWorker: boolean;
+  /**
+   * Cwds for which OpenSpec is suppressed entirely — no polling, no
+   * affordance on any surface. Default `[]`. Entries are normalized with the
+   * same `pathKey` normalization pinned directories use, so `/a/b/` and
+   * `/a/b` collapse to one entry. See change: add-openspec-init-affordances.
+   */
+  optOutDirectories: string[];
+  /**
+   * Fleet-level escape for the ABSENT initialization offer. When `false`, a
+   * directory without OpenSpec renders no affordance anywhere while
+   * BROKEN/STALE/READY keep working. Distinct from `enabled`, which disables
+   * the feature outright. Default `true`. See change:
+   * add-openspec-init-affordances.
+   */
+  offerInitialization: boolean;
 }
 
 export const DEFAULT_OPENSPEC_POLL: OpenSpecPollConfig = {
@@ -144,6 +160,8 @@ export const DEFAULT_OPENSPEC_POLL: OpenSpecPollConfig = {
   changeDetection: "mtime",
   useWorker: true,
   jitterSeconds: 5,
+  optOutDirectories: [],
+  offerInitialization: true,
 };
 
 // ── Grammar / spell check ───────────────────────────────────────────
@@ -800,6 +818,14 @@ function parseOpenSpecPollConfig(raw: any): OpenSpecPollConfig {
     raw.changeDetection === "always" || raw.changeDetection === "mtime"
       ? raw.changeDetection
       : DEFAULT_OPENSPEC_POLL.changeDetection;
+  // Opt-out entries normalize through the same `pathKey` pinned directories
+  // use, so `/a/b/` and `/a/b` (and case-differing spellings on
+  // case-insensitive platforms) collapse to one entry. Non-string entries are
+  // dropped. See change: add-openspec-init-affordances.
+  const optOutRaw = Array.isArray(raw.optOutDirectories) ? raw.optOutDirectories : [];
+  const optOutStrings = optOutRaw.filter((p): p is string => typeof p === "string" && p.length > 0);
+  const optOutPlatform = inferPlatform(optOutStrings);
+  const optOutDirectories = [...new Set(optOutStrings.map((p) => pathKey(p, optOutPlatform)))];
   return {
     enabled:
       typeof raw.enabled === "boolean" ? raw.enabled : DEFAULT_OPENSPEC_POLL.enabled,
@@ -809,6 +835,11 @@ function parseOpenSpecPollConfig(raw: any): OpenSpecPollConfig {
     jitterSeconds: clampNumber(raw.jitterSeconds, DEFAULT_OPENSPEC_POLL.jitterSeconds, 0, 60),
     useWorker:
       typeof raw.useWorker === "boolean" ? raw.useWorker : DEFAULT_OPENSPEC_POLL.useWorker,
+    optOutDirectories,
+    offerInitialization:
+      typeof raw.offerInitialization === "boolean"
+        ? raw.offerInitialization
+        : DEFAULT_OPENSPEC_POLL.offerInitialization,
   };
 }
 
