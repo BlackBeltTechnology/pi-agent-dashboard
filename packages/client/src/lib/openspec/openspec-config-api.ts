@@ -109,12 +109,17 @@ export async function runOpenSpecUpdate(
 // ── add-openspec-init-affordances ───────────────────────────────────────
 
 /** Error from `POST /api/openspec/init`; `stderr` carries the CLI's output
- *  when the server returned it (D5 guard 1: the client surfaces it). */
+ *  when the server returned it (D5 guard 1: the client surfaces it).
+ *  `needsConfirmation` mirrors the server's machine-readable `code:
+ *  "confirm_required"` so the confirm→retry flow never couples to error-TEXT
+ *  (review round 1). */
 export class OpenSpecInitError extends Error {
   readonly stderr?: string;
-  constructor(message: string, stderr?: string) {
+  readonly needsConfirmation: boolean;
+  constructor(message: string, stderr?: string, needsConfirmation = false) {
     super(message);
     this.stderr = stderr;
+    this.needsConfirmation = needsConfirmation;
   }
 }
 
@@ -137,7 +142,11 @@ export async function runOpenSpecInit(cwd: string, confirm = false): Promise<Ope
   });
   const body = await res.json().catch(() => null);
   if (!res.ok || !body?.success) {
-    throw new OpenSpecInitError(body?.error ?? `HTTP ${res.status}`, body?.stderr);
+    throw new OpenSpecInitError(
+      body?.error ?? `HTTP ${res.status}`,
+      body?.stderr,
+      body?.code === "confirm_required",
+    );
   }
   return body.data as OpenSpecInitResult;
 }

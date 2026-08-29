@@ -386,6 +386,13 @@ export function runAsync<Input, Output>(
 
     const timer = setTimeout(() => {
       try { child.kill("SIGTERM"); } catch { /* ignore */ }
+      // SIGKILL escalation: a child that ignores SIGTERM would keep writing
+      // (e.g. into the repo mid-init) after the caller moved on. Fire-and-
+      // forget — the settle below is not delayed. See change:
+      // add-openspec-init-affordances (review round 1).
+      setTimeout(() => {
+        try { child.kill("SIGKILL"); } catch { /* already gone */ }
+      }, 3_000);
       // Partial stdout/stderr ride along so a killed long-running command can
       // still surface what it produced before the deadline (e.g. the init
       // endpoint's partial-stderr failure contract). See change:

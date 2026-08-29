@@ -231,6 +231,52 @@ describe("POST /api/openspec/init (add-openspec-init-affordances)", () => {
     expect(initAsyncMock).toHaveBeenCalledTimes(2);
   });
 
+  it("review round 1: legacy artifacts (marker-bearing AGENTS.md, no openspec/) refuse without confirm", async () => {
+    await fs.writeFile(
+      path.join(tmpDir, "AGENTS.md"),
+      "intro\n<!-- OPENSPEC:START -->\nold instructions\n<!-- OPENSPEC:END -->\n",
+    );
+    await setup({ sessionCwds: [tmpDir] });
+    const refused = await post({ cwd: tmpDir });
+    expect(refused.statusCode).toBe(400);
+    expect(JSON.parse(refused.payload).code).toBe("confirm_required");
+    expect(initAsyncMock).not.toHaveBeenCalled();
+
+    const confirmed = await post({ cwd: tmpDir, confirm: true });
+    expect(confirmed.statusCode).toBe(200);
+    expect(initAsyncMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("review round 1: legacy command dir (.claude/commands/openspec) refuses without confirm", async () => {
+    await fs.mkdir(path.join(tmpDir, ".claude", "commands", "openspec"), { recursive: true });
+    await setup({ sessionCwds: [tmpDir] });
+    const refused = await post({ cwd: tmpDir });
+    expect(refused.statusCode).toBe(400);
+    expect(initAsyncMock).not.toHaveBeenCalled();
+  });
+
+  it("review round 1: CLI-read failure at init time records NO fabricated signature", async () => {
+    // currentGlobalWorkflowSignature resolves undefined when the CLI read
+    // fails — the route must skip recording instead of fabricating the
+    // empty-set signature (which would present the fresh project as
+    // STALE · profile-stale on the next healthy tick).
+    configListOrAsyncMock.mockResolvedValue(null);
+    await setup({ sessionCwds: [tmpDir] });
+    const res = await post({ cwd: tmpDir });
+    expect(res.statusCode).toBe(200);
+    expect(deps.setOpenSpecUpdateSignature).not.toHaveBeenCalled();
+  });
+
+  it("review round 1: probe failure is NOT memoized — a later request re-probes", async () => {
+    initHelpMock.mockRejectedValueOnce(new Error("transient"));
+    await setup({ sessionCwds: [tmpDir] });
+    const first = await post({ cwd: tmpDir });
+    expect(first.statusCode).toBe(400); // refused this time
+    const second = await post({ cwd: tmpDir });
+    expect(second.statusCode).toBe(200); // re-probed, supported → proceeds
+    expect(initHelpMock).toHaveBeenCalledTimes(2);
+  });
+
   it("E27: successful init records the current signature and refreshes the poll", async () => {
     await setup({ sessionCwds: [tmpDir], recorded: undefined });
     const res = await post({ cwd: tmpDir });

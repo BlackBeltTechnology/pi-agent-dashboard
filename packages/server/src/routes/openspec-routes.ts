@@ -17,6 +17,7 @@ import {
   writeOpenSpecConfigFile,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/openspec.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { currentGlobalWorkflowSignature } from "../openspec/global-signature.js";
 import type { ApiResponse, OpenSpecConfig } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
 import { type DirectoryService, hasOpenSpecRoot } from "../directory-service.js";
@@ -262,8 +263,62 @@ export function registerOpenSpecRoutes(
   }
 
   // Process-lifetime cache of the `init --help` support probe (X6: two init
-  // requests probe once). Undefined until the first probe.
+  // requests probe once). Undefined until the first probe. Only SUCCESS is
+  // memoized — a transient probe failure must not brick init until restart
+  // (review round 1). See change: add-openspec-init-affordances.
   let initSupportProbe: Promise<boolean> | undefined;
+
+  // ── Legacy-artifact detection for the overwrite-confirm gate ──
+  // Coarse mirror of the pinned CLI's `legacy-cleanup.js`: `--tools` alone
+  // authorizes cleanup, and cleanup REMOVES marker blocks from root config
+  // files and DELETES legacy slash-command dirs/files without further
+  // prompting — so `<cwd>/openspec/` presence alone misses legacy projects
+  // (AGENTS.md markers + .claude/commands/openspec/, no openspec/ dir) that
+  // would be destructively edited on a plain Initialize. Markers + path list
+  // mirror @fission-ai/openspec@1.6.0 dist/core/legacy-cleanup.js; version
+  // drift degrades to fewer confirmations, never to a wrong refusal. See
+  // change: add-openspec-init-affordances (review round 1).
+  const LEGACY_CONFIG_FILES = [
+    "CLAUDE.md", "CLINE.md", "CODEBUDDY.md", "COSTRICT.md",
+    "QODER.md", "IFLOW.md", "AGENTS.md", "QWEN.md",
+  ];
+  const OPENSPEC_MARKER_START = "<!-- OPENSPEC:START -->";
+  const OPENSPEC_MARKER_END = "<!-- OPENSPEC:END -->";
+  const LEGACY_COMMAND_DIRS = [
+    ".claude/commands/openspec", ".codebuddy/commands/openspec",
+    ".qoder/commands/openspec", ".lingma/commands/openspec",
+    ".crush/commands/openspec", ".gemini/commands/openspec",
+    ".cospec/openspec/commands",
+  ];
+  const LEGACY_COMMAND_FILE_DIRS = [
+    ".cursor/commands", ".windsurf/workflows", ".kilocode/workflows",
+    ".kiro/prompts", ".github/prompts", ".amazonq/prompts",
+    ".clinerules/workflows", ".roo/commands", ".augment/commands",
+    ".factory/commands", ".continue/prompts", ".agent/workflows",
+    ".iflow/commands", ".qwen/commands", ".codex/prompts",
+  ];
+
+  async function hasLegacyOpenSpecArtifacts(cwd: string): Promise<boolean> {
+    for (const f of LEGACY_CONFIG_FILES) {
+      try {
+        const content = await fs.readFile(path.join(cwd, f), "utf-8");
+        if (content.includes(OPENSPEC_MARKER_START) && content.includes(OPENSPEC_MARKER_END)) return true;
+      } catch { /* absent */ }
+    }
+    for (const d of LEGACY_COMMAND_DIRS) {
+      try {
+        await fs.stat(path.join(cwd, d));
+        return true;
+      } catch { /* absent */ }
+    }
+    for (const dir of LEGACY_COMMAND_FILE_DIRS) {
+      try {
+        const entries = await fs.readdir(path.join(cwd, dir));
+        if (entries.some((e) => e.startsWith("openspec-") || e.startsWith("opsx-"))) return true;
+      } catch { /* absent */ }
+    }
+    return false;
+  }
 
   // Per-cwd serialization (X4): while an invocation is in flight for a cwd,
   // a second request is rejected 409 without spawning. The lock is released
@@ -284,28 +339,42 @@ export function registerOpenSpecRoutes(
         return { success: false, error: "cwd is not a known session or pinned directory" } satisfies ApiResponse;
       }
 
-      // Overwrite confirmation: the presence of <cwd>/openspec/ is the
-      // deliberate, coarse trigger. The CLI's internal legacy-artifact
-      // detection is not reachable through public exports, and by the time
-      // the CLI runs, cleanup is already authorized by --tools alone.
+      // Overwrite confirmation. Two coarse triggers, both deliberate:
+      //   1. <cwd>/openspec/ presence — the spec's minimum contract.
+      //   2. legacy OpenSpec artifacts (marker-bearing root config files,
+      //      legacy command dirs/files) — the CLI's cleanup removes these
+      //      without prompting once --tools is present (review round 1).
+      // The CLI's internal detection is not reachable through public exports;
+      // by the time the CLI runs, cleanup is already authorized.
       const hasOpenspecRootAlready = await fs
         .stat(path.join(cwd, "openspec"))
         .then(() => true)
         .catch(() => false);
-      if (hasOpenspecRootAlready && request.body?.confirm !== true) {
+      const legacyArtifacts = hasOpenspecRootAlready ? false : await hasLegacyOpenSpecArtifacts(cwd);
+      if ((hasOpenspecRootAlready || legacyArtifacts) && request.body?.confirm !== true) {
         reply.code(400);
         return {
           success: false,
           error: `refusing to overwrite existing OpenSpec files in ${cwd} without confirmation`,
-        } satisfies ApiResponse;
+          code: "confirm_required",
+        } satisfies ApiResponse & { code?: string };
       }
 
       // CLI support probe: refuse BEFORE spawning a CLI whose init does not
       // register --tools (commander is strict — the invocation would fail
       // anyway, but the refusal can name the resolved binary).
       initSupportProbe ??= openspecInitHelpAsync().then(
-        (r) => r.ok && r.value.includes("--tools"),
-        () => false,
+        (r) => {
+          if (r.ok) return r.value.includes("--tools");
+          // Failure is NOT memoized: a transient probe failure (CLI briefly
+          // unavailable) must not brick init until restart (review round 1).
+          initSupportProbe = undefined;
+          return false;
+        },
+        () => {
+          initSupportProbe = undefined;
+          return false;
+        },
       );
       if (!(await initSupportProbe)) {
         const resolved = getDefaultRegistry().resolve("openspec");
@@ -353,11 +422,17 @@ export function registerOpenSpecRoutes(
         }
 
         // Record the post-init signature (mirrors update) so a freshly
-        // initialized project is `up-to-date`, not `unknown` forever. Then
-        // force a poll refresh so the new READY readiness broadcasts without
-        // waiting for the poll interval.
-        const sig = await currentGlobalSignature(cwd);
-        preferencesStore.setOpenSpecUpdateSignature(cwd, sig);
+        // initialized project is `up-to-date`, not `unknown` forever. Uses the
+        // hardened shared provider: when the CLI read fails the signature is
+        // UNKNOWN and is deliberately NOT recorded — recording a fabricated
+        // empty-set signature would present the fresh project as
+        // `STALE · profile-stale` on the next healthy tick (review round 1).
+        // Then force a poll refresh so the new READY readiness broadcasts
+        // without waiting for the poll interval.
+        const sig = await currentGlobalWorkflowSignature(cwd);
+        if (sig !== undefined) {
+          preferencesStore.setOpenSpecUpdateSignature(cwd, sig);
+        }
         directoryService.invalidateOpenSpecSignatureCache();
         try {
           const data = await directoryService.refreshOpenSpec(cwd);

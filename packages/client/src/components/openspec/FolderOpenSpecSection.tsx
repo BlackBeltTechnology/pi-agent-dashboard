@@ -97,7 +97,7 @@ export function FolderOpenSpecSection({ data, cwd, onOpenBoard, offerInitializat
       // The server found legacy/existing openspec files and refused without
       // confirmation — only possible on the ABSENT fast path. Ask, then retry
       // with confirm:true (task 4.2 / D5 guard 3).
-      if (err instanceof OpenSpecInitError && err.message.includes("without confirmation")) {
+      if (err instanceof OpenSpecInitError && (err.needsConfirmation || err.message.includes("without confirmation"))) {
         setConfirmKind("init-over");
       } else {
         surfaceError(i18nT("openspec.initFailedToast", undefined, "OpenSpec init failed"), err);
