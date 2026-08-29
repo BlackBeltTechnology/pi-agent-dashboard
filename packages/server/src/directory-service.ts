@@ -322,10 +322,11 @@ export interface DirectoryServiceOptions {
    * The signature is machine-global — identical for every cwd — so the polling
    * service calls it at most once per poll generation and memoizes the
    * promise; the memo is dropped on `invalidateOpenSpecSignatureCache()`.
-   * A rejected provider NEVER marks a cwd STALE (failure → unknown → skip the
-   * signature-staleness check). See change: add-openspec-init-affordances.
+   * Resolving `undefined` (or rejecting) means unknown/failed this tick —
+   * a cwd is NEVER marked STALE on that basis. See change:
+   * add-openspec-init-affordances.
    */
-  currentGlobalSignature?: (cwd: string) => Promise<string>;
+  currentGlobalSignature?: (cwd: string) => Promise<string | undefined>;
 }
 
 export function createDirectoryService(

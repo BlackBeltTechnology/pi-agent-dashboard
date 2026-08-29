@@ -54,6 +54,7 @@ import { writeConfigPartial } from "./config-api.js";
 import { liveCorsAllowedOrigins, liveTrustedNetworks } from "./config-snapshot.js";
 // pending-load-manager removed — server loads sessions directly via DirectoryService
 import { createDirectoryService, type DirectoryService } from "./directory-service.js";
+import { currentGlobalWorkflowSignature } from "./openspec/global-signature.js";
 import { createEmbedLifecycleController } from "./embed-lifecycle/embed-lifecycle-controller.js";
 import { wireEvents } from "./event-wiring.js";
 import { createFileWatchManager } from "./file-watch-manager.js";
@@ -738,6 +739,12 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           return {};
         }
       },
+      // Current global workflow-set signature for the readiness fold —
+      // injected here (composition root) so profile staleness is computed
+      // once per poll tick, memoized, and never fabricated from a failed
+      // CLI read. Without this injection the STALE·profile-stale branch is
+      // dead code. See change: add-openspec-init-affordances.
+      currentGlobalSignature: currentGlobalWorkflowSignature,
       hydrationMetrics,
       // Per-turn self-record feed into the shared spike buffer + the per-turn
       // slow-tick alarm. See change: attribute-openspec-poll-eventloop-stalls.
