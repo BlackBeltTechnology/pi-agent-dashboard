@@ -465,8 +465,11 @@ export function doxLint(opts: DoxLintOptions): DoxLintResult {
         const kind = rp.endsWith("AGENTS.md") ? "broken-pointer" : "orphan";
         issues.push({ kind, agentsFile: afRel, path: rp, detail: `${kind}: ${rp} does not exist` });
         if (opts.fix && kind === "orphan") { fixed++; continue; } // prune orphan row
-      } else if (staleness[rel]?.sha256 && fileSha(abs) && staleness[rel]!.sha256 !== fileSha(abs)) {
-        issues.push({ kind: "stale", agentsFile: afRel, path: rp, detail: `tracked source-hash drifted` });
+      } else if (staleness[rel]?.sha256) {
+        const diskSha = fileSha(abs);
+        if (diskSha && staleness[rel]!.sha256 !== diskSha) {
+          issues.push({ kind: "stale", agentsFile: afRel, path: rp, detail: `tracked source-hash drifted` });
+        }
       }
       if (opts.fix) survivingRows.push(line);
     }

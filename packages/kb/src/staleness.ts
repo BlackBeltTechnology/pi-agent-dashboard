@@ -61,3 +61,16 @@ export function readStaleness(stalenessFile: string): Record<string, AckRecord> 
   }
   return out;
 }
+
+/** The sidecar's on-disk version, or null when absent/unversioned/unreadable.
+ *  Writers use this to fail closed: a sidecar from a NEWER version must never
+ *  be silently rewritten as v2 (that would delete its records). */
+export function stalenessVersionOnDisk(stalenessFile: string): number | null {
+  if (!existsSync(stalenessFile)) return null;
+  try {
+    const raw = JSON.parse(readFileSync(stalenessFile, "utf8")) as { version?: unknown };
+    return typeof raw?.version === "number" ? raw.version : null;
+  } catch {
+    return null;
+  }
+}

@@ -20,7 +20,7 @@ surfaces unobserved) or before M1/M2 pass. This file is the A/B treatment for
 | `cat`/`Read` a file to learn its purpose before editing | `kb agents <path>` — purpose + exports + `See change:` |
 | chase imports / callers across files | `rg "<symbol>"` — the Tier-1 graph is markdown-structure only and CANNOT resolve code refs |
 | read one doc section in full | `kb_get <path> <section>` |
-| a kb hit shows `STALE` / `GONE` / `MOVED` (trust verdict) | verify the row against source before acting — `FRESH` may be acted on without re-reading |
+| a kb hit shows `STALE` / `GONE` / `UNVERIFIED` (trust verdict) | verify the row against source before acting — `MOVED` verifies at its reported successor path; `FRESH` may be acted on without re-reading |
 | build / run / install / setup / release / "how do I X" | `grep -i <kw> docs/faq.md README.md docs/` — then quote |
 | derive a fact from a large file / big command output | `ctx_execute_file` / `ctx_execute` **when present** (context-mode is optional); else `Read` w/ `offset`+`limit`, or `rg`/`awk` via Bash |
 | kb call returned nothing relevant | `rg`/source read allowed — then add the missing directory-`AGENTS.md` row (Documentation Update Protocol) |

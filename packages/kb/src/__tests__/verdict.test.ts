@@ -347,6 +347,21 @@ describe("verdict: sidecar v2 (E12, task 2.7)", () => {
       rmSync(dir, { recursive: true, force: true });
     }
   });
+
+  it("ackTargets refuses to overwrite a NEWER sidecar version (no silent record loss)", () => {
+    const dir = mkdtempSync(join(tmpdir(), "verdict-v3-write-"));
+    try {
+      writeFileSync(join(dir, "a.ts"), "export const a = 1;\n");
+      const sf = join(dir, "dox-staleness.json");
+      writeFileSync(sf, JSON.stringify({ version: 3, files: { "old.ts": { sha256: "x", size: 1, mtimeMs: 2 } } }));
+      expect(() => ackTargets({ cwd: dir, targets: ["a.ts"], stalenessFile: sf })).toThrow(/version 3/);
+      // the v3 records are untouched on disk
+      expect(readStaleness(sf)).toEqual({}); // still unreadable, but...
+      expect(JSON.parse(readFileSync(sf, "utf8")).version).toBe(3); // ...not stomped
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("verdict: freshness caps (E10, task 2.8)", () => {

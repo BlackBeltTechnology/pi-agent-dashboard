@@ -105,7 +105,7 @@ The chain SHALL reset when the agent consults knowledge: a kb retrieval tool cal
 - **THEN** the chain counter SHALL continue accumulating
 
 ### Requirement: The nudge ladder escalates, and blocking is opt-in
-The guard SHALL escalate across repeat firings within a session: the first firing warns, the second escalates, and the third blocks a search tool call. Blocking SHALL be supported but SHALL NOT be the default mode; the default mode SHALL be advisory. An environment-variable override SHALL be able to select a weaker mode but SHALL NOT be able to enable blocking.
+The guard SHALL escalate across repeat firings within a session: the first firing warns, the second escalates, and the third blocks a search tool call — but only in `block` mode; `warn` mode escalates without ever blocking, and `off` remains inert. Blocking SHALL be supported but SHALL NOT be the default mode; the default mode SHALL be advisory. An environment-variable override SHALL be able to select a weaker mode but SHALL NOT be able to enable blocking.
 
 #### Scenario: Second firing escalates
 - **WHEN** the guard fires a second time in a session with no intervening knowledge access
@@ -187,6 +187,7 @@ The READ discipline table SHALL state what a returned trust verdict means for th
 
 #### Scenario: Stale and gone hits route to an action
 - **WHEN** an agent reads the READ discipline
-- **THEN** it states that a stale or gone verdict means the row must be verified against source before it is acted on
+- **THEN** it states that a stale, gone, or unverified verdict means the row must be verified against source before it is acted on
+- **AND** it states that a moved verdict must be verified at its reported successor path
 - **AND** it states that a fresh verdict may be acted on without re-reading the source
 

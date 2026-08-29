@@ -34,11 +34,13 @@ describe("guard: shipped default + mode reachability (E22/E23, task 4.1, D14)", 
     expect(resolveGuardMode(undefined, "junk")).toBe("warn");
   });
 
-  it("mode off is inert: nothing is counted, nothing fires", () => {
+  it("mode off is inert: nothing is counted, nothing fires, no suspension state", () => {
     const g = createGuard({ mode: "off" });
     expect(search(g, 9)).toHaveLength(0);
     expect(g.state().chain).toBe(0);
     expect(g.state().firings).toBe(0);
+    expect(g.suspend(5)).toBe(0); // off takes no pause state (CodeRabbit: keep off inert)
+    expect(g.state().suspended).toBe(0);
   });
 });
 

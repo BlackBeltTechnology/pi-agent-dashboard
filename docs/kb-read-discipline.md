@@ -16,13 +16,13 @@ CLI: opt-in `kb search --verdicts`. Tool: always on for agents hits.
 
 | Label | Meaning | Required agent action |
 |---|---|---|
-| `FRESH` | Exists. Content hash matches acknowledged hash. | Act without re-reading source. |
+| `FRESH` | Exists. Content hash matches acknowledged hash, OR acknowledged size+mtime stat baseline matches (content not re-read). | Act without re-reading source (stat-gated). |
 | `STALE` | Exists. Hash differs from acknowledged. | Verify row against source before acting. Repair: update row, then `kb dox triage --ack`. |
 | `MOVED` | File absent. Git rename found successor path. | Use reported `movedTo` path. |
 | `GONE` | Absent, no rename (non-git or undetectable degrades here). | Verify against source before acting. Prune or fix row. |
-| `UNVERIFIED` | Exists. No acknowledged hash yet. | Common at first deployment. Not an error. Not trust. Ramp out: edit the AGENTS.md row or run `kb dox triage --ack`. |
+| `UNVERIFIED` | Exists but unverifiable. No acknowledged hash, OR larger than 1 MiB (1048576 bytes), OR binary, OR unreadable. | Common at first deployment. Not an error. Not trust. Ramp out: edit the AGENTS.md row or run `kb dox triage --ack`. |
 
-Ack record (sidecar v2): `<cwd>/.pi/dashboard/kb/dox-staleness.json` = `{version: 2, files: {<relpath>: {sha256, size, mtimeMs}}}`. v1 (sha-only) reads fine. Matching stat baseline skips the read. Files >1048576 bytes or binary never hashed.
+Ack record (sidecar v2): `<cwd>/.pi/dashboard/kb/dox-staleness.json` = `{version: 2, files: {<relpath>: {sha256, size, mtimeMs}}}`. v1 (sha-only) reads fine. Matching stat baseline skips the read. Files >1048576 bytes, binary files, or unreadable files never hashed.
 
 ## Search guard (arm B)
 

@@ -9,7 +9,7 @@
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { type AckRecord, agentsChain, indexSource, loadConfig, parseRowPaths, type ResolvedConfig, readStaleness, SqliteFtsStore, STALENESS_VERSION } from "@blackbelt-technology/pi-dashboard-kb";
+import { type AckRecord, agentsChain, indexSource, loadConfig, parseRowPaths, type ResolvedConfig, readStaleness, stalenessVersionOnDisk, SqliteFtsStore, STALENESS_VERSION } from "@blackbelt-technology/pi-dashboard-kb";
 
 /** Resolve a DOX row path relative to its AGENTS.md dir, with a project-root
  *  fallback (a nested AGENTS.md may document a file living at the root).
@@ -51,9 +51,15 @@ function stalenessPath(cwd: string): string {
 function loadStaleness(cwd: string): Record<string, AckRecord> {
   return readStaleness(stalenessPath(cwd));
 }
-/** Acknowledgement writes v2: hash + stat baseline per documented file. */
+/** Acknowledgement writes v2: hash + stat baseline per documented file.
+ *  Fail-closed on a NEWER on-disk version — never stomp records we cannot read. */
 function saveStaleness(cwd: string, map: Record<string, AckRecord>): void {
   const p = stalenessPath(cwd);
+  const onDisk = stalenessVersionOnDisk(p);
+  if (onDisk != null && onDisk > STALENESS_VERSION) {
+    console.warn(`[kb] dox-staleness.json is version ${onDisk} (> supported ${STALENESS_VERSION}); skipping ack write`);
+    return;
+  }
   try {
     mkdirSync(dirname(p), { recursive: true });
     writeFileSync(p, `${JSON.stringify({ version: STALENESS_VERSION, files: map }, null, 2)}\n`);
@@ -73,10 +79,13 @@ export function acknowledgeRows(cwd: string, agentsFile: string): void {
   for (const rp of parseRowPaths(abs)) {
     // Rows are relative to their AGENTS.md dir; key staleness by cwd-relative path.
     const ap = resolveRowPath(dir, cwd, rp);
-    if (existsSync(ap)) {
-      const st = statSync(ap);
-      map[relative(cwd, ap)] = { sha256: fileSha(ap), size: st.size, mtimeMs: st.mtimeMs };
+    let st;
+    try {
+      st = statSync(ap); // may vanish between existsSync and here (TOCTOU) — skip the row, keep the rest of the ack
+    } catch {
+      continue;
     }
+    map[relative(cwd, ap)] = { sha256: fileSha(ap), size: st.size, mtimeMs: st.mtimeMs };
   }
   saveStaleness(cwd, map);
 }

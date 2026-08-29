@@ -36,5 +36,5 @@ export type { AgentsEntry, DoxInitPlan, DoxIssue, DoxLintResult } from "./dox.js
 export { enrichHits, HASH_CAP_BYTES, COVERAGE_CAP_BYTES, SUBJECT_CAP } from "./verdict.js";
 export type { EnrichCtx, VerdictFs } from "./verdict.js";
 export { ackTargets, applyDecisions, buildWorkItems, parseRows, replaceRowPurpose } from "./dox-triage.js";
-export { readStaleness, STALENESS_VERSION } from "./staleness.js";
+export { readStaleness, stalenessVersionOnDisk, STALENESS_VERSION } from "./staleness.js";
 export type { AckRecord, StalenessFile } from "./staleness.js";

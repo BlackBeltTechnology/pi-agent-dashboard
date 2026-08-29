@@ -140,6 +140,7 @@ export function createGuard(opts: { mode?: GuardMode } = {}): KbGuard {
       return ladder();
     },
     suspend(turns: number | string): number {
+      if (mode === "off") return 0; // inert mode takes no suspension state
       const n = typeof turns === "number" ? turns : Number(turns);
       if (!Number.isFinite(n) || n <= 0) return suspended; // junk / non-positive no-op
       suspended = Math.max(suspended, Math.min(PAUSE_MAX, Math.max(PAUSE_MIN, Math.trunc(n))));

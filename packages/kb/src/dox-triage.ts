@@ -16,7 +16,7 @@ import { execFileSync } from "node:child_process"; // ban:child_process-ok (kb p
 import { createHash } from "node:crypto";
 import { existsSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
-import { type AckRecord, type StalenessFile, STALENESS_VERSION, readStaleness } from "./staleness.js";
+import { type AckRecord, type StalenessFile, STALENESS_VERSION, readStaleness, stalenessVersionOnDisk } from "./staleness.js";
 import { type DoxIssue, resolveRowPath } from "./dox.js";
 
 export const ROW_RE = /^\|\s*`([^`]+)`\s*\|\s*(.*?)\s*\|\s*$/;
@@ -210,6 +210,12 @@ export function applyDecisions(opts: {
 /** Re-acknowledge rows: record each target's sha256 + stat baseline (v2). */
 export function ackTargets(opts: { cwd: string; targets: string[]; stalenessFile: string }): number {
   const { cwd, targets, stalenessFile } = opts;
+  // Fail closed: a sidecar from a NEWER version carries records this code
+  // cannot see — rewriting it as v2 would silently delete them.
+  const onDisk = stalenessVersionOnDisk(stalenessFile);
+  if (onDisk != null && onDisk > STALENESS_VERSION) {
+    throw new Error(`dox-staleness.json is version ${onDisk} (> supported ${STALENESS_VERSION}); refusing to overwrite — upgrade the kb package first`);
+  }
   const map = readStaleness(stalenessFile);
   let n = 0;
   for (const t of targets) {

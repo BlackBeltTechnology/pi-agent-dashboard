@@ -341,6 +341,7 @@ function enrichOne(
   fs: VerdictFs,
   acks: Record<string, AckRecord>,
   bodyCache: Map<string, string>,
+  getRenames: () => Map<string, string>,
 ): void {
   if (hit.docType !== "agents") {
     hit.verdict = null; // prose reports no verdict rather than a vacuous one
@@ -360,8 +361,8 @@ function enrichOne(
       stats.push("unreadable");
     }
   }
-  // ONE batched rename scan per enrichment, only when something is absent.
-  const renames = stats.some((s) => s === null) ? renameBatch(ctx.cwd, ctx.git) : new Map<string, string>();
+  // The page-level lazy rename batch: one subprocess per enrichment at most.
+  const renames = stats.some((s) => s === null) ? getRenames() : new Map<string, string>();
   hit.verdict = verdictForHit(checked, subjects.length, stats, renames, acks, fs);
   // Opt-in coverage (D5): own field, its own capped read, verdict untouched.
   if (ctx.coverage?.query) hit.coverage = coverageScore(checked, fs, ctx.coverage.query);
@@ -379,7 +380,11 @@ export async function enrichHits(hits: KbHit[], ctx: EnrichCtx): Promise<KbHit[]
   const pageBodyCache = new Map<string, string>(); // per-page disk-body memo
 
   // Pass 1 — resolve subjects + stat, per eligible hit.
-  for (const hit of hits) enrichOne(hit, ctx, fs, acks, pageBodyCache);
+  // ONE batched rename scan per ENRICHMENT (spec: per repository per
+  // enrichment, NOT per hit) — computed lazily on the first absence.
+  let renamesCache: Map<string, string> | null = null;
+  const getRenames = (): Map<string, string> => (renamesCache ??= renameBatch(ctx.cwd, ctx.git));
+  for (const hit of hits) enrichOne(hit, ctx, fs, acks, pageBodyCache, getRenames);
   return hits;
 }
 

@@ -15,7 +15,7 @@ PRESSURE (do-this-first framing — the guard delivers it at violation time).
 | Gate table, row: file purpose → `kb agents <path>` | **ROUTING** | which call |
 | Gate table, row: imports/callers → `rg` (graph cannot resolve code refs) | **ROUTING** | corpus/capability boundary |
 | Gate table, row: doc section → `kb_get <path> <section>` | **ROUTING** | which call |
-| Gate table, row: trust verdicts (`STALE`/`GONE`/`MOVED` → verify; `FRESH` → act) | **ROUTING** | what a label means for the next action (added by this change) |
+| Gate table, row: trust verdicts (`STALE`/`GONE`/`UNVERIFIED` → verify; `MOVED` → verify at successor path; `FRESH` → act) | **ROUTING** | what a label means for the next action (added by this change) |
 | Gate table, row: build/run/install → grep faq/README/docs | **ROUTING** | which corpus |
 | Gate table, row: derive from large output → ctx_execute/Read offset | **ROUTING** | which tool for which shape |
 | "kb_search indexes repo markdown … NOT tests/ qa/ scripts/ docker/. ctx_search/memory_search … different corpus" | **ROUTING** | corpus boundaries |
