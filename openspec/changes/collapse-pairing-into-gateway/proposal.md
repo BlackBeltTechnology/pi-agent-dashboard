@@ -35,8 +35,11 @@ and the server is the sole authority on validity.
 
 ```
 GatewayPairQR.tsx:217   disabled={approving || !confirmCode.trim()}             compliant
-PairingView.tsx:~275    disabled={approving || !confirmCode.trim() || expired}  violates
+PairingView.tsx:279     disabled={approving || !confirmCode.trim() || expired}  violates
 ```
+
+(`PairingView` repeats the same `|| expired` guard in its submit handler at
+line 118, so the violation is enforced twice; both die with the file.)
 
 So the Security surface hands the operator a QR their phone ignores, and then
 refuses the approval the server would still have accepted.
@@ -117,7 +120,10 @@ pairing change. Collapsing removes the defects by removing the duplicate.
   - `packages/client/src/components/connectivity/QrCodeDialog.tsx` (deleted)
   - `packages/client/src/components/__tests__/QrCodeDialog.test.tsx` (deleted)
   - `packages/client/src/components/settings/SettingsPanel.tsx` (link replaces `<PairingView />`)
-  - `packages/client/src/components/Gateway/GatewayPairQR.tsx` (empty state gains the action + localhost note)
+  - `packages/client/src/components/Gateway/GatewayPairQR.tsx` (gains the `noSecureRoad` flag + explain/action/localhost block (D3), the full fingerprint and payload-`urls[]` rendering (D7), and the optional `onSetupRequested` prop (D3a))
+  - `packages/client/src/components/Gateway/GatewayDialog.tsx` (passes `onSetupRequested={() => setTab("setup")}` — task 2.10)
+  - `packages/client/src/components/Gateway/GatewayPage.tsx` (passes a focus handler + gains the Connect-a-device anchor the Security link targets — tasks 2.11, 4.5)
+  - `tests/e2e/pairing-qr.spec.ts` (new L3 scenarios: Security-link land+scroll, deep-link navigation — tasks 4.3, 9.3)
   - i18n catalogues (`settings.pairDevice` remains; `PairingView`-only keys retire)
   - directory `AGENTS.md` rows for `connectivity/` and `Gateway/`
 - **No server change.** `GET /api/pair/payload` and `POST /api/pair/approve` are
