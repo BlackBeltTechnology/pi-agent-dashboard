@@ -114,6 +114,7 @@ export async function autoStartServer(
   deps: AutoStartDeps,
 ): Promise<AutoStartResult> {
   const noMdns = mdnsDisabled();
+  const log = deps.log ?? appendAutoStartLog;
 
   // 1. Try mDNS discovery (2s timeout) — skipped when mDNS is disabled.
   if (!noMdns) {
@@ -121,6 +122,23 @@ export async function autoStartServer(
       const servers = await deps.discoverDashboard(2000);
       const local = servers.find(s => s.isLocal);
       if (local) {
+        // A discovered dashboard on a DIFFERENT port than the resolved one
+        // means this session resolved stale/default ports while a real
+        // dashboard serves elsewhere. Attach to it (that is the server the
+        // session should use), but say so — loudly, on both channels.
+        // See change: fix-bridge-autostart-port-resolution (D6).
+        if (local.port !== config.port || local.piPort !== config.piPort) {
+          deps.notify(
+            `Discovered dashboard on port ${local.port} (gateway ${local.piPort}) ` +
+            `while auto-start resolved port ${config.port} (gateway ${config.piPort}) — ` +
+            `attaching to the discovered server, not launching`,
+            "warning",
+          );
+          log(
+            `discovered dashboard elsewhere: attaching to port ${local.port} ` +
+            `(gateway ${local.piPort}); resolved port ${config.port} silent — no launch`,
+          );
+        }
         return { server: { host: local.host, port: local.port, piPort: local.piPort } };
       }
       // Remote servers exist but no local — fall through to health check
@@ -132,13 +150,33 @@ export async function autoStartServer(
   // 2. Fallback: health check on configured port
   const status = await deps.isDashboardRunning(config.port);
   if (status.running) {
+    log(
+      `attached: dashboard already serving on port ${config.port} (gateway ${config.piPort}) — no launch`,
+    );
     return { server: { host: "localhost", port: config.port, piPort: config.piPort } };
   }
 
   if (!config.autoStart) return {};
 
+  // Pinned endpoint (D3/D4): the server pins the sessions it spawns via
+  // PI_DASHBOARD_URL / PI_DASHBOARD_SOCKET. Steps 1-2 above already ran, so
+  // an ALIVE parent was attached there; reaching this point means the pinned
+  // parent is NOT answering. Deliberate trade-off (D4): never spawn a
+  // competitor for a pinned session — no liveness-driven relaunch (planned
+  // restarts cover that path); the session keeps retrying its pin.
+  // See change: fix-bridge-autostart-port-resolution (D3, D4).
+  const pin = process.env.PI_DASHBOARD_URL ?? process.env.PI_DASHBOARD_SOCKET;
+  if (pin) {
+    log(
+      `skipped: session has a pinned dashboard endpoint (${pin}) which is not ` +
+      `answering — not launching on port ${config.port} (gateway ${config.piPort})`,
+    );
+    return {};
+  }
+
   if (status.portConflict) {
     deps.notify(`Port ${config.port} is occupied by another service`, "warning");
+    log(`skipped: port ${config.port} occupied by another service — no launch`);
     return {};
   }
 
@@ -150,7 +188,6 @@ export async function autoStartServer(
     return {};
   }
 
-  const log = deps.log ?? appendAutoStartLog;
   const cliPath = (deps.resolveCliPath ?? resolveServerCliPath)();
 
   // 3a. Worktree refusal (D3). Evaluated BEFORE lock acquisition (DR-10) and

@@ -388,4 +388,138 @@ describe("autoStartServer", () => {
       expect(onLaunchEnd).not.toHaveBeenCalled();
     });
   });
+
+  // fix-bridge-autostart-port-resolution — pinned-endpoint gate (design D3/D4)
+  // + loud, greppable non-launch paths (design D6). A session whose env pins
+  // its dashboard endpoint (the server injects PI_DASHBOARD_URL /
+  // PI_DASHBOARD_SOCKET; process-manager.ts) must never spawn a competing
+  // dashboard — and every skip must leave a durable appendAutoStartLog line.
+  describe("pinned-endpoint gate + loud skips (fix-bridge-autostart-port-resolution)", () => {
+    afterEach(() => {
+      delete process.env.PI_DASHBOARD_URL;
+      delete process.env.PI_DASHBOARD_SOCKET;
+    });
+
+    // test-plan #E1 (task 2.2). The env→port MAPPING is proven by the
+    // resolveDashboardPorts units (shared config.test.ts); the wiring that
+    // hands the resolved ports in is proven end-to-end by the harness
+    // (tasks 1.4 / 4.7). This unit pins the behavioural half: at the
+    // resolved ports, an answering dashboard attaches and launchServer is
+    // NEVER called.
+    it("attaches at the resolved non-default ports and NEVER launches (test-plan #E1)", async () => {
+      const deps = makeDeps({
+        isDashboardRunning: vi.fn().mockResolvedValue({ running: true }),
+      });
+
+      const result = await autoStartServer({ piPort: 19697, port: 18697, autoStart: true }, deps);
+
+      expect(deps.isDashboardRunning).toHaveBeenCalledWith(18697);
+      expect(deps.launchServer).not.toHaveBeenCalled();
+      expect(result.server).toEqual({ host: "localhost", port: 18697, piPort: 19697 });
+    });
+
+    // test-plan #X1 (task 2.3) — both decision-table cells.
+    it.each([
+      ["PI_DASHBOARD_URL", "ws://localhost:19697"],
+      ["PI_DASHBOARD_SOCKET", "/tmp/dashboard.sock"],
+    ])("a session pinned via %s skips the launch step while discovery/health still run (test-plan #X1)", async (varName, value) => {
+      process.env[varName] = value;
+      const deps = makeDeps({
+        discoverDashboard: vi.fn().mockResolvedValue([]),
+        isDashboardRunning: vi.fn().mockResolvedValue({ running: false }),
+      });
+
+      const result = await autoStartServer(baseConfig, deps);
+
+      expect(deps.discoverDashboard).toHaveBeenCalled();
+      expect(deps.isDashboardRunning).toHaveBeenCalled();
+      expect(deps.launchServer).not.toHaveBeenCalled();
+      expect(result.server).toBeUndefined();
+    });
+
+    // test-plan #X2 (task 2.6) — documented dead-parent trade-off (D4): the
+    // pinned parent is not answering, we still do NOT relaunch, and the
+    // durable log names the pinned endpoint.
+    it("pinned session with a dead parent: no launch + durable log naming the pinned endpoint (test-plan #X2)", async () => {
+      process.env.PI_DASHBOARD_URL = "ws://localhost:19697";
+      const log = vi.fn();
+      const deps = makeDeps({
+        isDashboardRunning: vi.fn().mockResolvedValue({ running: false }),
+        log,
+      });
+
+      const result = await autoStartServer(baseConfig, deps);
+
+      expect(deps.launchServer).not.toHaveBeenCalled();
+      expect(result.server).toBeUndefined();
+      expect(log).toHaveBeenCalledTimes(1);
+      const [line] = log.mock.calls[0] as [string];
+      expect(line).toMatch(/skip/i);
+      expect(line).toContain("ws://localhost:19697");
+      expect(line).toContain("8000");
+    });
+
+    // test-plan #X3 (task 2.7) — attach-without-launch becomes visible.
+    it("attaching via health check logs the port and that no launch happened (test-plan #X3)", async () => {
+      const log = vi.fn();
+      const deps = makeDeps({
+        isDashboardRunning: vi.fn().mockResolvedValue({ running: true }),
+        log,
+      });
+
+      const result = await autoStartServer(baseConfig, deps);
+
+      expect(result.server).toEqual({ host: "localhost", port: 8000, piPort: 9999 });
+      expect(deps.launchServer).not.toHaveBeenCalled();
+      const line = log.mock.calls.map(c => c[0] as string).join("\n");
+      expect(line).toMatch(/attach/i);
+      expect(line).toContain("8000");
+      expect(line).toMatch(/no launch/i);
+    });
+
+    // test-plan #X4 (task 2.8) — port conflict keeps its toast AND gains a
+    // durable log line.
+    it("port conflict emits the notify warning AND a durable log line naming the port (test-plan #X4)", async () => {
+      const log = vi.fn();
+      const deps = makeDeps({
+        isDashboardRunning: vi.fn().mockResolvedValue({ running: false, portConflict: true }),
+        log,
+      });
+
+      const result = await autoStartServer(baseConfig, deps);
+
+      expect(deps.notify).toHaveBeenCalledWith("Port 8000 is occupied by another service", "warning");
+      expect(deps.launchServer).not.toHaveBeenCalled();
+      const line = log.mock.calls.map(c => c[0] as string).join("\n");
+      expect(line).toMatch(/occupied/i);
+      expect(line).toContain("8000");
+      expect(result.server).toBeUndefined();
+    });
+
+    // test-plan #X5 (task 2.4) — discovery finds a dashboard elsewhere than
+    // the silent resolved port: warn naming BOTH ports, no launch.
+    it("warns naming both ports when discovery answers elsewhere than the silent resolved port (test-plan #X5)", async () => {
+      const log = vi.fn();
+      const elsewhere: DiscoveredServer = {
+        host: "localhost", port: 18697, piPort: 19697, isLocal: true, source: "mdns",
+      };
+      const deps = makeDeps({
+        discoverDashboard: vi.fn().mockResolvedValue([elsewhere]),
+        isDashboardRunning: vi.fn().mockResolvedValue({ running: false }),
+        log,
+      });
+
+      const result = await autoStartServer(baseConfig, deps);
+
+      expect(deps.launchServer).not.toHaveBeenCalled();
+      expect(result.server).toEqual({ host: "localhost", port: 18697, piPort: 19697 });
+      expect(deps.notify).toHaveBeenCalledTimes(1);
+      const [msg, level] = (deps.notify as any).mock.calls[0];
+      expect(msg).toContain("8000");
+      expect(msg).toContain("18697");
+      expect(level).toBe("warning");
+      const line = log.mock.calls.map(c => c[0] as string).join("\n");
+      expect(line).toContain("18697");
+    });
+  });
 });

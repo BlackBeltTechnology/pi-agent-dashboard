@@ -86,8 +86,8 @@ no-blank-gap/tail assertions. Read the derived harness port from
 `.pi-test-harness.json` — never hardcode `:18000`.
 
 - [x] 2.32 **New infra first**: add a 4-level notify faux scenario to `qa/fixtures/faux-scenarios.ts` calling `e2e_notify` once per level with distinguishable text, exporting per-level markers the way `NOTIFY_PROBE_MESSAGE` is exported. Model on the existing single-notify scenario `n`. Required by 2.33 (test-plan: New infra needed)
-- [ ] 2.33 Ladder end-to-end: a session emitting `info`/`success`/`warning`/`error` notifies through the real `ctx.ui.notify` path · View popover sets `notifyMinLevel="warnings"` · exactly the `warning` + `error` rows visible, `info`/`success` absent with no blank gap, transcript tail not clipped (test-plan #F15)
-- [ ] 2.34 Ask safety end-to-end: a session at `notifyMinLevel="errors"` · the session issues a genuine `ask_user` · the dialog renders in the browser, is answerable, and the card reads "Needs you" (test-plan #F16)
+- [x] 2.33 Ladder end-to-end: a session emitting `info`/`success`/`warning`/`error` notifies through the real `ctx.ui.notify` path · View popover sets `notifyMinLevel="warnings"` · exactly the `warning` + `error` rows visible, `info`/`success` absent with no blank gap, transcript tail not clipped (test-plan #F15) — EXECUTED green by fix-bridge-autostart-port-resolution task 4.4 (notify-min-level.spec.ts, 2026-08-29)
+- [x] 2.34 Ask safety end-to-end: a session at `notifyMinLevel="errors"` · the session issues a genuine `ask_user` · the dialog renders in the browser, is answerable, and the card reads "Needs you" (test-plan #F16) — EXECUTED green by fix-bridge-autostart-port-resolution task 4.4 (notify-min-level.spec.ts, 2026-08-29)
 
 ## 3. Shared — the type and the one predicate
 

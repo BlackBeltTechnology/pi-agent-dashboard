@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { type DashboardConfig, DEFAULT_MEMORY_LIMITS, ensureConfig, loadConfig, resolvePublicBaseUrls } from "../config.js";
+import { type DashboardConfig, DEFAULT_MEMORY_LIMITS, DEFAULT_DASHBOARD_PORT, DEFAULT_GATEWAY_PORT, ensureConfig, loadConfig, resolveDashboardPorts, resolvePublicBaseUrls } from "../config.js";
 
 describe("loadConfig", () => {
   let testDir: string;
@@ -985,5 +985,56 @@ describe("loadConfig memoryLimits.replayWindowMode", () => {
     expect(headTail).toBe(expected);
     expect(tailOnly).toBe(expected);
     expect(headTail).toBe(tailOnly);
+  });
+});
+
+// fix-bridge-autostart-port-resolution — shared env→config→default port
+// resolver (task 2.1, test-plan #E2). Pure function: env and parsed file
+// config are ARGUMENTS, never process.env reads (design D1). Parse rules
+// pinned to the pre-existing private resolver: Number(v) finite > 0,
+// first var of a role wins.
+describe("resolveDashboardPorts", () => {
+  it("env wins over config for both roles", () => {
+    const r = resolveDashboardPorts(
+      { PI_DASHBOARD_PORT: "18697", PI_DASHBOARD_PI_PORT: "19697" },
+      { port: 8001, piPort: 9101 },
+    );
+    expect(r).toEqual({ port: 18697, piPort: 19697 });
+  });
+
+  it("config wins over defaults when env absent", () => {
+    const r = resolveDashboardPorts({}, { port: 8001, piPort: 9101 });
+    expect(r).toEqual({ port: 8001, piPort: 9101 });
+  });
+
+  it("falls back to the shared defaults when neither source carries a port", () => {
+    const r = resolveDashboardPorts({}, {});
+    expect(r).toEqual({ port: DEFAULT_DASHBOARD_PORT, piPort: DEFAULT_GATEWAY_PORT });
+  });
+
+  it.each([
+    ["empty string", ""],
+    ["non-numeric", "abc"],
+    ["zero", "0"],
+    ["negative", "-1"],
+  ])("ignores %s env values instead of shadowing config", (_label, value) => {
+    const r = resolveDashboardPorts(
+      { PI_DASHBOARD_PORT: value, DASHBOARD_PORT: value, PI_DASHBOARD_PI_PORT: value, PI_GATEWAY_PORT: value },
+      { port: 8001, piPort: 9101 },
+    );
+    expect(r).toEqual({ port: 8001, piPort: 9101 });
+  });
+
+  it("first var of a role wins (PI_DASHBOARD_PORT over DASHBOARD_PORT, PI_DASHBOARD_PI_PORT over PI_GATEWAY_PORT)", () => {
+    const r = resolveDashboardPorts(
+      { PI_DASHBOARD_PORT: "8001", DASHBOARD_PORT: "8002", PI_DASHBOARD_PI_PORT: "9101", PI_GATEWAY_PORT: "9102" },
+      {},
+    );
+    expect(r).toEqual({ port: 8001, piPort: 9101 });
+  });
+
+  it("second var of a role is used when the first is absent", () => {
+    const r = resolveDashboardPorts({ DASHBOARD_PORT: "8002", PI_GATEWAY_PORT: "9102" }, {});
+    expect(r).toEqual({ port: 8002, piPort: 9102 });
   });
 });

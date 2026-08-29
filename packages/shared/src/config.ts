@@ -641,6 +641,47 @@ export const SERVER_STARTUP_DEADLINE_MS = SPAWN_READINESS_BUDGET_MS * 4;
 export const DEFAULT_DASHBOARD_PORT = 8000;
 export const DEFAULT_GATEWAY_PORT = 9999;
 
+/**
+ * Resolve the dashboard HTTP + gateway ports with the shared precedence:
+ * env → parsed config.json → the shared defaults above. HTTP role reads
+ * `PI_DASHBOARD_PORT` then `DASHBOARD_PORT`; gateway role reads
+ * `PI_DASHBOARD_PI_PORT` then `PI_GATEWAY_PORT` (the server CLI's env names,
+ * `cli.ts buildConfig`; `PI_GATEWAY_PORT` is the docker-compose spelling).
+ * Parse rules are pinned to the historic private resolver: `Number(v)`
+ * finite and > 0, first var of a role wins; an unusable value is ignored,
+ * never shadows a lower-precedence source.
+ *
+ * `env` and `fileConfig` are ARGUMENTS, not `process.env` reads, so the
+ * resolver stays pure and unit-testable without environment mutation.
+ * Deliberately NOT folded into `loadConfig()`: the server's `buildConfig`
+ * (`packages/server/src/cli.ts`) already applies its own flags > env > file
+ * chain for its bind, and double-applying would change server behaviour.
+ *
+ * The dashboard SERVER injects only `PI_DASHBOARD_URL` /
+ * `PI_DASHBOARD_SOCKET` / `PI_DASHBOARD_SPAWN_TOKEN` into the sessions it
+ * spawns (`spawn-process/process-manager.ts`); these PORT env vars reach
+ * sessions via their runtime environment (e.g. the docker harness compose
+ * env), not via the server.
+ * See change: fix-bridge-autostart-port-resolution (D1).
+ */
+export function resolveDashboardPorts(
+  env: Record<string, string | undefined>,
+  fileConfig?: { port?: number; piPort?: number },
+): { port: number; piPort: number } {
+  const usable = (v: string | undefined): number | null => {
+    if (!v) return null;
+    const n = Number(v);
+    return Number.isFinite(n) && n > 0 ? n : null;
+  };
+  const fromConfig = (v: number | undefined): number | null =>
+    typeof v === "number" && Number.isFinite(v) ? v : null;
+  const port = usable(env.PI_DASHBOARD_PORT) ?? usable(env.DASHBOARD_PORT)
+    ?? fromConfig(fileConfig?.port) ?? DEFAULT_DASHBOARD_PORT;
+  const piPort = usable(env.PI_DASHBOARD_PI_PORT) ?? usable(env.PI_GATEWAY_PORT)
+    ?? fromConfig(fileConfig?.piPort) ?? DEFAULT_GATEWAY_PORT;
+  return { port, piPort };
+}
+
 const DEFAULTS: DashboardConfig = {
   plugins: {},
   modelProxy: { ...DEFAULT_MODEL_PROXY },
