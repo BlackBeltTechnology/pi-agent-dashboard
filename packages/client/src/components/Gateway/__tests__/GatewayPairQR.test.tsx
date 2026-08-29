@@ -45,6 +45,15 @@ const LINK_EPS: TunnelEndpoint[] = [{ kind: "lan", url: "http://192.168.1.10:800
 /** Full-length fingerprint id (E8: the survivor must render it in full). */
 const ID_64 = "3a9f1e2d4c5b6a79887766554433221100ffeeddccbbaa9988776655443322111";
 
+/** Exact-code-equality row lookup — the selector row's <code> carries the
+ * full endpoint url, so equality replaces URL-substring matching
+ * (CodeQL js/incomplete-url-substring-sanitization). */
+function rowFor(url: string): HTMLElement {
+  const row = screen.getAllByRole("radio").find((r) => r.querySelector("code")?.textContent === url);
+  if (!row) throw new Error(`no selector row for ${url}`);
+  return row as HTMLElement;
+}
+
 function qrText(): string | null {
   return screen.getByTestId("gateway-qr-canvas").getAttribute("data-qr-text");
 }
@@ -68,10 +77,10 @@ describe("GatewayPairQR — single-QR network selector", () => {
     const rows = screen.getAllByRole("radio");
     expect(rows.length).toBe(MIXED_EPS.length);
     // pairing endpoint carries a "pairing" mode tag; link endpoints "link".
-    const pairingRow = rows.find((r) => r.textContent?.includes("cwanni9.zrok.io"));
+    const pairingRow = rowFor("https://cwanni9.zrok.io");
     expect(pairingRow?.textContent).toMatch(/pairing/i);
     expect(pairingRow?.textContent).toMatch(/public/i);
-    const lanRow = rows.find((r) => r.textContent?.includes("192.168.16.220"));
+    const lanRow = rowFor("http://192.168.16.220:8000");
     expect(lanRow?.textContent).toMatch(/link/i);
     expect(lanRow?.textContent).toMatch(/lan/i);
   });
@@ -105,7 +114,7 @@ describe("GatewayPairQR — single-QR network selector", () => {
     render(<GatewayPairQR endpoints={MIXED_EPS} />);
     await waitFor(() => expect(screen.getByTestId("gateway-pair-copystring")).toBeDefined());
 
-    const lanRow = screen.getAllByRole("radio").find((r) => r.textContent?.includes("192.168.16.220"));
+    const lanRow = rowFor("http://192.168.16.220:8000");
     fireEvent.click(lanRow!);
 
     await waitFor(() => expect(screen.queryByTestId("gateway-pair-copystring")).toBeNull());
@@ -124,10 +133,10 @@ describe("GatewayPairQR — single-QR network selector", () => {
     await waitFor(() => expect(screen.getByTestId("gateway-pair-copystring")).toBeDefined());
 
     const rows = () => screen.getAllByRole("radio");
-    fireEvent.click(rows().find((r) => r.textContent?.includes("192.168.16.220"))!);
+    fireEvent.click(rowFor("http://192.168.16.220:8000"));
     await waitFor(() => expect(screen.queryByTestId("gateway-pair-copystring")).toBeNull());
 
-    fireEvent.click(rows().find((r) => r.textContent?.includes("cwanni9.zrok.io"))!);
+    fireEvent.click(rowFor("https://cwanni9.zrok.io"));
     await waitFor(() => expect(screen.getByTestId("gateway-pair-copystring")).toBeDefined());
     expect(screen.getByTestId("gateway-pair-confirm-input")).toBeDefined();
     expect(screen.getByTestId("gateway-pair-approve-btn")).toBeDefined();
@@ -426,12 +435,12 @@ describe("collapse-pairing-into-gateway — approval invariants + failure modes 
     await waitFor(() => expect(screen.getByTestId("gateway-pair-copystring")).toBeDefined());
 
     const rows = () => screen.getAllByRole("radio");
-    fireEvent.click(rows().find((r) => r.textContent?.includes("192.168.16.220"))!);
+    fireEvent.click(rowFor("http://192.168.16.220:8000"));
     await waitFor(() => expect(screen.queryByTestId("gateway-pair-copystring")).toBeNull());
     expect(screen.getByTestId("gateway-link-note")).toBeDefined();
     expect(screen.queryByTestId("gateway-pair-fingerprint")).toBeNull();
 
-    fireEvent.click(rows().find((r) => r.textContent?.includes("cwanni9.zrok.io"))!);
+    fireEvent.click(rowFor("https://cwanni9.zrok.io"));
     await waitFor(() => expect(screen.getByTestId("gateway-pair-copystring")).toBeDefined());
     expect(screen.getByTestId("gateway-pair-fingerprint")).toBeDefined();
     expect(screen.getByTestId("gateway-pair-urls")).toBeDefined();
