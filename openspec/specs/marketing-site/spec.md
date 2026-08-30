@@ -329,14 +329,14 @@ surface in sync without manual editing.
   Installer .exe for Windows) and any additional assets tucked into a
   collapsible “Other downloads” accordion
 
-#### Scenario: Hero CTA reflects the current version
+#### Scenario: The dead release path is absent from the deploy workflow
 
 - **GIVEN** a successful build with a resolved release
 - **WHEN** the hero renders
 - **THEN** its primary CTA label is “Download <tag> →” and its href is
   the in-page anchor `#download`
 
-#### Scenario: Build survives API outage via committed cache
+#### Scenario: Site build does not fetch the GitHub API
 
 - **GIVEN** the GitHub API is unreachable (timeout, 403, or 5xx)
 - **WHEN** the site builds
@@ -344,7 +344,7 @@ surface in sync without manual editing.
   `site/src/data/latest-release.json` and the Download section still
   renders the last known release with no HTML difference to the visitor
 
-#### Scenario: Release publish updates the committed cache
+#### Scenario: Release publish updates the download block
 
 - **GIVEN** a maintainer publishes a new GitHub release
 - **WHEN** the `sync-release-version` workflow runs
@@ -353,7 +353,7 @@ surface in sync without manual editing.
   commits the file back to `main` with a message of the form
   `chore(site): sync latest-release.json to <tag>`
 
-#### Scenario: Release event rebuilds and redeploys the site
+#### Scenario: A release event cannot start the redeploy, so the pipeline dispatches it
 
 - **GIVEN** the deploy-site workflow
 - **WHEN** a GitHub release is published
@@ -365,7 +365,7 @@ surface in sync without manual editing.
 
 The repository SHALL deploy the marketing site to GitHub Pages using the modern `actions/deploy-pages` workflow, without using a `gh-pages` branch.
 
-#### Scenario: Deploy workflow triggers on site changes
+#### Scenario: Deploy workflow triggers on site or shell changes
 
 - **GIVEN** a commit to `main` that modifies any file under `site/**` or the deploy workflow itself
 - **WHEN** the workflow runs
@@ -377,7 +377,7 @@ The repository SHALL deploy the marketing site to GitHub Pages using the modern 
 - **WHEN** they trigger `workflow_dispatch` on the site-deploy workflow
 - **THEN** the workflow runs to completion and publishes the current `main` content
 
-#### Scenario: Custom-domain ready but not active
+#### Scenario: Custom domain is active
 
 - **GIVEN** the site at v1 is served from `username.github.io/pi-agent-dashboard`
 - **WHEN** a maintainer later acquires `pi-dashboard.dev`
@@ -387,13 +387,13 @@ The repository SHALL deploy the marketing site to GitHub Pages using the modern 
 
 The site SHALL ship minimal JavaScript and meet accessibility baselines.
 
-#### Scenario: JavaScript bundle budget
+#### Scenario: No bundle budget is asserted
 
 - **GIVEN** a successful site build
 - **WHEN** the total gzipped size of `site/dist/**/*.js` is measured
 - **THEN** it does not exceed 50 KB
 
-#### Scenario: Lighthouse mobile targets
+#### Scenario: Layout and anchor audit guards the rendered page
 
 - **GIVEN** a Lighthouse mobile audit of the deployed site
 - **WHEN** the audit completes

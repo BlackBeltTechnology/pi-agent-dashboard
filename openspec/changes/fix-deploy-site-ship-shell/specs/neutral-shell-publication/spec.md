@@ -38,18 +38,6 @@ The CORS behaviour itself is owned by the `server-cors` capability, requirement 
 - **WHEN** it issues a cross-origin request to a paired dashboard server
 - **THEN** the `Origin` header is exactly `https://pi-dashboard.dev`, which the server's built-in allowance matches without additional configuration
 
-### Requirement: Shell publication is excluded from the marketing site JS budget
-
-The shell's built output SHALL be excluded from the marketing site's gzipped JavaScript budget. The shell is copied into `site/dist/app/`, inside the tree the budget check walks, but it is a distinct artifact with a distinct audience and its own size profile.
-
-Measured 2026-08-13, the shell emits a single chunk of 67.77 KB gzipped, which alone exceeds the site's entire 50 KB budget. Without the exclusion, whether the build passes depends on whether the budget check happens to run before the copy step.
-
-#### Scenario: Shell size does not consume the site budget
-
-- **GIVEN** the shell is present at `site/dist/app/`
-- **WHEN** the JS bundle budget check runs
-- **THEN** the shell's bytes are not counted toward the 50 KB site budget
-
 ### Requirement: Shell relies on hash routing, not a server-side SPA fallback
 
 The shell SHALL route on the URL hash so that no deep link requires server-side rewriting. Its build emits `site/dist/app/404.html`, but that file is inert in this deployment: GitHub Pages serves the repository-root `404.html` for any unmatched path, and the marketing site supplies one.

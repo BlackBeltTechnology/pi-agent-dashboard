@@ -21,6 +21,30 @@ Structural constraints that shape every decision below:
 - `server-cors` already owns the requirement "Neutral shell origin trusted by default"
   (`https://pi-dashboard.dev` as a built-in allowed origin).
 
+## Re-scope 2026-08-31
+
+Commit `c52745af0` (2026-08-27) replaced the Astro site with a hand-written static page
+(`node site/build.mjs` copy + reference check, zero-dependency manifest, `site/src/`,
+`site/scripts/check-js-size.mjs`, and `site/package-lock.json` all deleted). Effect on the
+decisions below:
+
+- **D1 (budget-walk scope), D2 (new check script), D3 (npm sync semantics), D6 (lockfile
+  regen/float)** — void. Their common subject — `check-js-size.mjs`, the site lockfile, `npm ci`
+  in `site/` — no longer exists. The deploy workflow comment says it outright: *"no npm ci, no
+  astro build, no type check, no bundle budget (there is no bundle)"*. The protective intent
+  survives as a dependency-free pin (test-plan E15 + `pnpm-migration-contract.test.ts` X6, which
+  was already updated for the static page and pins that no `npm ci` returns to `deploy-site.yml`).
+- **D4, D5, D7, D8** — survive. D5's stale-comment target (`site/src/pages/404.astro`) is now the
+  static `site/404.html`; the behaviour it records is unchanged and live-verified (a stray `/app/`
+  path returns the marketing 404). D7's five corrections are re-derived against the current
+  workflow + static page. D8 is the live core of the change.
+- **D8 amendment:** the rewritten `sync-release-version.yml` (same `c52745af0` era) kept a
+  `release: [published, edited]` trigger — the exact dead-code pattern D8 diagnoses; its docstring
+  calls that trigger "the normal path". Per user decision 2026-08-31, removing it is a separate
+  change (task 5.4); this change's fix is confined to `deploy-site.yml` (delete the corpse) +
+  `publish.yml` (dispatch job). Note `publish.yml`'s dispatch path is unaffected by that leftover:
+  `workflow_dispatch` is present on `sync-release-version.yml` and always creates a run.
+
 ## Goals / Non-Goals
 
 **Goals:**
