@@ -93,8 +93,8 @@ function keeperLogPath(sessionsDir: string, sessionId: string): string {
 
 // ── Keeper-log maintenance (fix-runaway-keeper-log-growth) ───────────────
 
-/** One keeper log file as seen by `listKeeperLogs()`. */
-export interface KeeperLogFileStat {
+/** One keeper log file as seen by `listKeeperLogs()` (internal — the shared enumeration helper's row type). */
+interface KeeperLogFileStat {
   path: string;
   sessionId: string;
   size: number;
