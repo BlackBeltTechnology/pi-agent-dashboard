@@ -13,7 +13,7 @@
 import { spawnSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const meter = resolve(here, "../src/meter.ts");
@@ -36,9 +36,14 @@ const load = (f) => {
 };
 
 // Prefer the built output; fall back to source for tsx/pi-loaded contexts.
-const lib = await import("../dist/index.js").catch(async () => {
+// `dist/` is gitignored and only produced by `prepublishOnly`, so both specifiers
+// are computed at runtime — a literal "../dist/index.js" would read as a dangling
+// relative import to the publish-correctness checker, which packs an unbuilt tree.
+const distEntry = pathToFileURL(resolve(here, "../dist/index.js")).href;
+const srcEntry = pathToFileURL(resolve(here, "../src/index.ts")).href;
+const lib = await import(distEntry).catch(async () => {
   try {
-    return await import("../src/index.ts");
+    return await import(srcEntry);
   } catch {
     console.error("context-budget: no build found — run `npm run build --workspace=@blackbelt-technology/pi-dashboard-context-budget`");
     process.exit(1);
