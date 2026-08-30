@@ -53,7 +53,7 @@ function isPlainObject(v: unknown): v is Record<string, unknown> {
 }
 
 /** Default config path — `~/.pi/dashboard/config.json`. */
-export function defaultRuntimeConfigPath(): string {
+function defaultRuntimeConfigPath(): string {
   return path.join(getDashboardConfigDir(), "config.json");
 }
 
