@@ -17,6 +17,8 @@ import {
   openSync,
   readdirSync,
   readFileSync,
+  statSync,
+  truncateSync,
   unlinkSync,
 } from "node:fs";
 import net from "node:net";
@@ -34,6 +36,7 @@ import {
   killPidWithGroup,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 import { electronAsNodeRequired } from "@blackbelt-technology/pi-dashboard-shared/platform/runner.js";
+import { isUnsafeTestHomeScan as defaultIsUnsafeTestHomeScan } from "../auth/test-env-guard.js";
 
 // ── Path conventions ─────────────────────────────────────────────────────────
 
@@ -87,6 +90,60 @@ export function piPidPathFor(
 function keeperLogPath(sessionsDir: string, sessionId: string): string {
   return path.join(sessionsDir, `keeper-${sessionId}.log`);
 }
+
+// ── Keeper-log maintenance (fix-runaway-keeper-log-growth) ───────────────
+
+/** One keeper log file as seen by `listKeeperLogs()` (internal — the shared enumeration helper's row type). */
+interface KeeperLogFileStat {
+  path: string;
+  sessionId: string;
+  size: number;
+  mtimeMs: number;
+  /** `keeper-launch-*.log` bootstrap-stderr logs — counted separately, never swept. */
+  isLaunchLog: boolean;
+}
+
+export interface KeeperLogSweepResult {
+  scanned: number;
+  reclaimedFiles: number;
+  reclaimedBytes: number;
+  skippedLive: number;
+}
+
+export interface KeeperLogStats {
+  totalBytes: number;
+  fileCount: number;
+  largestBytes: number;
+  /** Owned by the sweep; a stats refresh never recomputes it (the bytes are no longer on disk). */
+  reclaimedBytes: number;
+  /** Keeper logs at/over 2× cap — the cross-process "rotation is not working here" signal (design D6). */
+  runawayFiles: number;
+  launchLogFiles: number;
+  launchLogBytes: number;
+}
+
+/**
+ * Explicitly-typed all-zero constant for the degraded case — the convention
+ * `EMPTY_TRIM_STATS` established for `/api/health`: `a ?? b` does NOT check
+ * `b` against `A`, so an inline literal could silently omit a field.
+ * See change: fix-runaway-keeper-log-growth (D6, task 4.2).
+ */
+export const EMPTY_KEEPER_LOG_STATS: KeeperLogStats = {
+  totalBytes: 0,
+  fileCount: 0,
+  largestBytes: 0,
+  reclaimedBytes: 0,
+  runawayFiles: 0,
+  launchLogFiles: 0,
+  launchLogBytes: 0,
+};
+
+/** Keeper-log cap default — mirrors `DEFAULT_KEEPER_LOG.maxBytes` in the shared config (the keeper-manager must not import config; design D7). */
+export const DEFAULT_KEEPER_LOG_MAX_BYTES = 134217728; // 128 MiB
+/** Sweep age gate default — mirrors the design's 5-minute politeness window. */
+export const DEFAULT_SWEEP_MIN_AGE_MS = 5 * 60_000;
+/** Stats cache TTL default — `/api/health` is polled unguarded; never scan per request. */
+export const DEFAULT_KEEPER_LOG_STATS_TTL_MS = 60_000;
 
 // ── Public types ─────────────────────────────────────────────────────────────
 
@@ -161,6 +218,21 @@ export interface KeeperManager {
    * on a hot path (the resume guard). See change: fix-recovery-exit-intent.
    */
   isKeeperAlive(sessionId: string): boolean;
+  /**
+   * Startup disk-hygiene sweep (fix-runaway-keeper-log-growth D5): truncate
+   * oversized, aged keeper logs of sessions with no live keeper process to
+   * ZERO bytes. NEVER unlinks — an unlinked-but-written inode is invisible
+   * to every size check and worse than the bug this change fixes. Also seeds
+   * the keeper-log stats snapshot (including `reclaimedBytes`) from its own
+   * result. Run once per server start, after `discoverExistingKeepers()`.
+   */
+  sweepKeeperLogs(): KeeperLogSweepResult;
+  /**
+   * Cached keeper-log stats for `/api/health` — refreshed lazily at most
+   * once per `statsTtlMs` (design D6: health must not amplify into a
+   * directory scan).
+   */
+  getKeeperLogStats(): KeeperLogStats;
   /** For tests / introspection. */
   readonly sessionsDir: string;
 }
@@ -192,6 +264,20 @@ export interface KeeperManagerOptions {
   spawnDetached?: (opts: SpawnDetachedOptions) => Promise<SpawnDetachedResult>;
   /** Test seam — override `net.createConnection`. */
   createConnection?: typeof net.createConnection;
+  /**
+   * Keeper-log rotation cap in bytes (sweep gate + `runawayFiles` threshold
+   * base). Default 128 MiB. The composition root passes
+   * `loadConfig().keeperLog.maxBytes` — deliberately NOT a `loadConfig`
+   * import: this module has no config dependency and that keeps its tests
+   * cheap (design D7, task 3.1).
+   */
+  maxBytes?: number;
+  /** Sweep age gate: only logs untouched this long are reclaimable. Default 5 min. */
+  sweepMinAgeMs?: number;
+  /** Stats cache TTL. Default 60 s. */
+  statsTtlMs?: number;
+  /** Test seam — override the unsafe-test-home guard that gates ALL directory scans. */
+  isUnsafeTestHomeScan?: () => boolean;
 }
 
 // ── Implementation ───────────────────────────────────────────────────────────
@@ -223,6 +309,13 @@ export function createKeeperManager(opts: KeeperManagerOptions = {}): KeeperMana
     });
   const spawnDetached = opts.spawnDetached ?? defaultSpawnDetached;
   const createConnection = opts.createConnection ?? net.createConnection;
+  // Keeper-log maintenance thresholds (design D7: read at server start from
+  // the injected options, not per call — a config change needs a restart to
+  // re-scope the sweep, which is the documented semantics).
+  const logMaxBytes = opts.maxBytes ?? DEFAULT_KEEPER_LOG_MAX_BYTES;
+  const sweepMinAgeMs = opts.sweepMinAgeMs ?? DEFAULT_SWEEP_MIN_AGE_MS;
+  const statsTtlMs = opts.statsTtlMs ?? DEFAULT_KEEPER_LOG_STATS_TTL_MS;
+  const isUnsafeScan = opts.isUnsafeTestHomeScan ?? defaultIsUnsafeTestHomeScan;
 
   // sessionId → keeperPid for fast killKeeper without rescanning the dir.
   // (Discovery rebuilds this from the filesystem on startup.)
@@ -461,6 +554,143 @@ export function createKeeperManager(opts: KeeperManagerOptions = {}): KeeperMana
     return keeperPid !== null && isProcessAlive(keeperPid) && isPiAlive(sessionId, keeperPid);
   }
 
+  // ── Keeper-log maintenance (fix-runaway-keeper-log-growth) ────────────
+
+  /**
+   * ONE enumeration of `keeper-*.log` files, shared by the sweep and the
+   * stats refresh so the measured set and the acted-on set cannot drift
+   * (design D6). One readdir, one stat per match. Match `keeper-<sid>.log`
+   * ONLY — a naive `^keeper-(.+)\.log$` reads `keeper-launch-<uuid>.log` as
+   * session `launch-<uuid>` (always "dead", and miscounted in stats).
+   * Gated by `isUnsafeTestHomeScan()`: an ungated scan of a developer's real
+   * sessions dir at boot is how a hygiene sweep becomes an incident.
+   */
+  function listKeeperLogs(): KeeperLogFileStat[] {
+    if (isUnsafeScan()) return [];
+    if (!existsSync(sessionsDir)) return [];
+    let names: string[];
+    try {
+      names = readdirSync(sessionsDir);
+    } catch {
+      return [];
+    }
+    const out: KeeperLogFileStat[] = [];
+    for (const name of names) {
+      if (!name.startsWith("keeper-") || !name.endsWith(".log")) continue;
+      const isLaunchLog = name.startsWith("keeper-launch-");
+      const sessionId = name.slice("keeper-".length, name.length - ".log".length);
+      let st;
+      try {
+        st = statSync(path.join(sessionsDir, name));
+      } catch {
+        continue; // raced away between readdir and stat — skip
+      }
+      out.push({
+        path: path.join(sessionsDir, name),
+        sessionId,
+        size: st.size,
+        mtimeMs: st.mtimeMs,
+        isLaunchLog,
+      });
+    }
+    return out;
+  }
+
+  let statsSnapshot: KeeperLogStats = { ...EMPTY_KEEPER_LOG_STATS };
+  let statsRefreshedAt = 0;
+
+  function refreshStatsNow(): void {
+    statsRefreshedAt = Date.now();
+    const files = listKeeperLogs();
+    const keeper = files.filter((f) => !f.isLaunchLog);
+    const launch = files.filter((f) => f.isLaunchLog);
+    statsSnapshot = {
+      totalBytes: keeper.reduce((acc, f) => acc + f.size, 0),
+      fileCount: keeper.length,
+      largestBytes: keeper.reduce((acc, f) => Math.max(acc, f.size), 0),
+      // reclaimedBytes is owned by the sweep (seeded by sweepKeeperLogs and
+      // preserved across refreshes): the reclaimed bytes are by definition no
+      // longer on disk, so recomputing them from a rescan would zero the one
+      // field that proves the sweep ran. See X11 / design D6.
+      reclaimedBytes: statsSnapshot.reclaimedBytes,
+      // 2× cap, not cap: a healthy log oscillates through
+      // [cap, cap + rate×interval] on every refill — a ≥cap counter would
+      // fire on perfectly-rotating keepers and ruin the one observable that
+      // exists to catch silent non-rotation. Heuristic, not proof (design D6).
+      runawayFiles: keeper.filter((f) => f.size >= 2 * logMaxBytes).length,
+      launchLogFiles: launch.length,
+      launchLogBytes: launch.reduce((acc, f) => acc + f.size, 0),
+    };
+  }
+
+  function sweepKeeperLogs(): KeeperLogSweepResult {
+    const result: KeeperLogSweepResult = {
+      scanned: 0,
+      reclaimedFiles: 0,
+      reclaimedBytes: 0,
+      skippedLive: 0,
+    };
+    for (const f of listKeeperLogs()) {
+      if (f.isLaunchLog) continue;
+      result.scanned += 1;
+      // Liveness gate — POLITENESS, not safety (design D5): every liveness
+      // predicate is defeatable here (discovery unlinks sidecars without
+      // verifying the kill; the pi child holds a dup'd fd and survives a
+      // SIGKILLed keeper). Truncation is what makes being wrong acceptable:
+      // no writer is ever detached, the inode stays visible. The gate still
+      // protects a live session's log from being blanked mid-debug.
+      // PID sidecar + isProcessAlive — deliberately NOT isKeeperAlive, which
+      // would also demand a live PI: a keeper whose pi just died is exactly
+      // the keeper whose oversized log we may still be debugging with.
+      // A MISSING sidecar maps to reclaimable-when-aged: discovery already
+      // unlinked the sidecars of confirmed-dead keepers, so the incident
+      // residue this sweep exists for has no sidecar — while a keeper still
+      // starting is protected by the age gate below (its sidecar write lands
+      // within milliseconds of log creation).
+      const keeperPid = readPidSidecar(pidPathFor(sessionsDir, f.sessionId, platform));
+      if (keeperPid !== null && isProcessAlive(keeperPid)) {
+        result.skippedLive += 1;
+        continue;
+      }
+      // Age gate: keeper shutdown writes final lines refreshing mtime, so a
+      // just-ended session survives one sweep cadence; a still-starting
+      // keeper (sidecar not yet written) is likewise protected here.
+      if (Date.now() - f.mtimeMs < sweepMinAgeMs) continue;
+      if (f.size < logMaxBytes) continue;
+      try {
+        // Truncate to zero, NEVER unlink (design D5): discovery unlinks
+        // sidecars unconditionally, so a wedged keeper can survive with every
+        // sidecar gone, and the pi child holds its own fd — an unlinked inode
+        // with a live writer keeps growing, invisible to readdir, stat, and
+        // every health stat. Zero-byte tombstones join the thousands of small
+        // files already in this directory.
+        truncateSync(f.path, 0);
+        result.reclaimedFiles += 1;
+        result.reclaimedBytes += f.size;
+      } catch {
+        // Per-file failure (EACCES, race) must not fail the sweep or the
+        // startup that hosts it (X8).
+      }
+    }
+    // Seed the stats snapshot from the sweep result so the first /api/health
+    // read already carries the reclaimed total (task 3.4).
+    refreshStatsNow();
+    statsSnapshot = { ...statsSnapshot, reclaimedBytes: result.reclaimedBytes };
+    return result;
+  }
+
+  function getKeeperLogStats(): KeeperLogStats {
+    if (Date.now() - statsRefreshedAt >= statsTtlMs) {
+      try {
+        refreshStatsNow();
+      } catch {
+        // A throwing refresh must never 500 the health hot path; serve the
+        // last snapshot (zeros on a fresh boot).
+      }
+    }
+    return statsSnapshot;
+  }
+
   return {
     spawnKeeperFor,
     writeRpc,
@@ -468,6 +698,8 @@ export function createKeeperManager(opts: KeeperManagerOptions = {}): KeeperMana
     killKeeper,
     discoverExistingKeepers,
     isKeeperAlive,
+    sweepKeeperLogs,
+    getKeeperLogStats,
     sessionsDir,
   };
 }

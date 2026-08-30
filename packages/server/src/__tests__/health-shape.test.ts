@@ -258,4 +258,30 @@ describe("GET /api/health — shape", () => {
     }
     expect(rt.consumerMessage === null || typeof rt.consumerMessage === "string").toBe(true);
   });
+
+  // Keeper-log disk posture (fix-runaway-keeper-log-growth, task 4.2):
+  // additive beside storeTrim; all seven fields numeric and explicitly typed.
+  // Fresh server → zeros; a fresh boot has reclaimed nothing and no keeper
+  // logs exist under the ephemeral test HOME.
+  it("gains the keeperLogs block additively (seven numeric fields, zeros on a fresh server)", async () => {
+    delete process.env.DASHBOARD_STARTER;
+    handle = await createTestServer();
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = (await res.json()) as Record<string, unknown>;
+    const keeperLogs = body.keeperLogs as Record<string, unknown>;
+    expect(keeperLogs).toBeDefined();
+    expect(Object.keys(keeperLogs).sort()).toEqual([
+      "fileCount",
+      "largestBytes",
+      "launchLogBytes",
+      "launchLogFiles",
+      "reclaimedBytes",
+      "runawayFiles",
+      "totalBytes",
+    ]);
+    for (const v of Object.values(keeperLogs)) expect(typeof v).toBe("number");
+    // Pre-existing fields unchanged (the additive half of the contract).
+    expect(typeof body.storeTrim).toBe("object");
+    expect(typeof body.pid).toBe("number");
+  });
 });

@@ -54,6 +54,16 @@ function makeFakeKeeperManager(): { km: KeeperManager; calls: SpawnCall[] } {
     killKeeper: () => true,
     discoverExistingKeepers: async () => [],
     isKeeperAlive: () => false,
+    sweepKeeperLogs: () => ({ scanned: 0, reclaimedFiles: 0, reclaimedBytes: 0, skippedLive: 0 }),
+    getKeeperLogStats: () => ({
+      totalBytes: 0,
+      fileCount: 0,
+      largestBytes: 0,
+      reclaimedBytes: 0,
+      runawayFiles: 0,
+      launchLogFiles: 0,
+      launchLogBytes: 0,
+    }),
   };
   return { km, calls };
 }

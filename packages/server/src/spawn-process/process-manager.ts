@@ -113,7 +113,16 @@ export function setKeeperManager(km: KeeperManager | null): void {
  * See change: add-rpc-stdin-dispatch-with-keeper-sidecar (Phase 6 + 8).
  */
 export function getKeeperManager(): KeeperManager {
-  if (!keeperManager) keeperManager = createKeeperManager();
+  if (!keeperManager) {
+    // Composition root (design D7): the sweep cap comes from the operator's
+    // config so the server-side sweep and the spawn-time keeper env share one
+    // source of truth. sweepMinAgeMs/statsTtlMs stay option-seamed defaults —
+    // they are not operator knobs. Deliberately NOT a loadConfig import inside
+    // keeper-manager.ts: that module has no config dependency and its tests
+    // stay cheap because of it.
+    const keeperLog = loadConfig().keeperLog;
+    keeperManager = createKeeperManager({ maxBytes: keeperLog.maxBytes });
+  }
   return keeperManager;
 }
 
@@ -680,9 +689,24 @@ async function spawnHeadlessViaKeeper(
   // config flag (default OFF). Read at spawn time so toggling takes effect on
   // the next spawn without a server restart. The keeper reads this env var to
   // pick its pi-child stdio sink. See change: add-keeper-output-capture-toggle.
-  if (loadConfig().keeperLog.capturePiOutput) {
+  const keeperLog = loadConfig().keeperLog;
+  if (keeperLog.capturePiOutput) {
     env = { ...env, PI_KEEPER_CAPTURE_PI_OUTPUT: "1" };
   }
+  // The keeper is CJS-pure and cannot import the shared config, so the cap and
+  // check interval ride the same env path as capturePiOutput. Read at spawn
+  // time (per D7: the keeper's cap is a spawn-time value; keepers started
+  // before a config change keep the old cap until their session ends). The
+  // keeper strips both vars from pi's env before spawning pi. Note: no
+  // "only when default" elision — an explicit value must survive even when it
+  // equals the default, so a changed default cannot silently fork behavior
+  // between keeper generations.
+  // See change: fix-runaway-keeper-log-growth (D7, task 1.3).
+  env = {
+    ...env,
+    PI_KEEPER_LOG_MAX_BYTES: String(keeperLog.maxBytes),
+    PI_KEEPER_LOG_CHECK_INTERVAL_MS: String(keeperLog.checkIntervalMs),
+  };
 
   // piArgs already includes `--mode rpc` plus any per-spawn flags from
   // `buildHeadlessArgs(options)` (e.g. `--session-file <path>` for resume,

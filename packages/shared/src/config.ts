@@ -196,10 +196,29 @@ export interface KeeperLogConfig {
    * See change: add-keeper-output-capture-toggle.
    */
   capturePiOutput: boolean;
+  /**
+   * Per-session keeper-log size cap in bytes. At/over the cap the keeper
+   * truncates its log IN PLACE (`ftruncate(fd, 0)`) — no rename, no retained
+   * generation. The bound is steady-state, not instantaneous: a burst writer
+   * overshoots by one `checkIntervalMs` of output before the next check fires.
+   * Plumbed to the CJS keeper as `PI_KEEPER_LOG_MAX_BYTES` (the keeper cannot
+   * import this module). See change: fix-runaway-keeper-log-growth (D2/D7).
+   */
+  maxBytes: number;
+  /**
+   * Keeper-log size-check cadence in milliseconds. Drives both triggers: the
+   * throttled check inside the keeper's `log()` and the keeper's unref'd
+   * interval timer (child-driven growth produces no `log()` calls). Plumbed
+   * to the keeper as `PI_KEEPER_LOG_CHECK_INTERVAL_MS`.
+   * See change: fix-runaway-keeper-log-growth (D3/D7).
+   */
+  checkIntervalMs: number;
 }
 
 export const DEFAULT_KEEPER_LOG: KeeperLogConfig = {
   capturePiOutput: false,
+  maxBytes: 134217728, // 128 MiB
+  checkIntervalMs: 5000,
 };
 
 // ── Embed session lifecycle ─────────────────────────────────────────
@@ -888,6 +907,22 @@ function parseOpenSpecPollConfig(raw: any): OpenSpecPollConfig {
   };
 }
 
+/**
+ * Absent / non-numeric / non-finite / non-integer / <= 0 → the DEFAULT. Unlike
+ * `parseMaxReplayEvents`, an explicit `0` is NOT preserved: a zero-byte
+ * rotation cap would truncate the keeper log on every check (and a zero check
+ * interval would spin), so both coerce to the default rather than disabling
+ * the bound. The cap is a safety bound, not a tuning knob — silently keeping
+ * the bound is the safe direction.
+ * See change: fix-runaway-keeper-log-growth (D7).
+ */
+function parseKeeperLogPositiveInt(raw: unknown, fallback: number): number {
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw <= 0) {
+    return fallback;
+  }
+  return raw;
+}
+
 function parseKeeperLogConfig(raw: any): KeeperLogConfig {
   if (!raw || typeof raw !== "object") return { ...DEFAULT_KEEPER_LOG };
   return {
@@ -895,6 +930,11 @@ function parseKeeperLogConfig(raw: any): KeeperLogConfig {
       typeof raw.capturePiOutput === "boolean"
         ? raw.capturePiOutput
         : DEFAULT_KEEPER_LOG.capturePiOutput,
+    maxBytes: parseKeeperLogPositiveInt(raw.maxBytes, DEFAULT_KEEPER_LOG.maxBytes),
+    checkIntervalMs: parseKeeperLogPositiveInt(
+      raw.checkIntervalMs,
+      DEFAULT_KEEPER_LOG.checkIntervalMs,
+    ),
   };
 }
 
