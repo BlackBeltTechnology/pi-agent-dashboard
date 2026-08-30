@@ -46,6 +46,7 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js";
 import {
   type ResolvedRuntime,
+  piEntryFromArgv,
   validateResolvedRuntime,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
 import { mintSpawnToken } from "../auth/spawn-token.js";
@@ -368,7 +369,11 @@ function prependResolvedBinDir(
 export function spawnRuntimeForSession(): ResolvedRuntime | null {
   const rt = currentSpawnRuntime();
   if (!rt) return null;
-  return validateResolvedRuntime(rt).ok ? rt : resolveLiveSpawnRuntime();
+  if (validateResolvedRuntime(rt).ok) return rt;
+  // Re-resolve with the gate floor of the pi copy THIS session will spawn
+  // (design D2) — the same entry resolvePiCommand is about to exec.
+  const piCmd = resolver.resolvePi();
+  return resolveLiveSpawnRuntime(piCmd ? { piEntry: piEntryFromArgv(piCmd) } : {});
 }
 
 /**

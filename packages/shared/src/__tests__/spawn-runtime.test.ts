@@ -15,10 +15,12 @@ import {
   buildPublishedRuntimeBlock,
   classifyNodeSource,
   defaultVersionProbe,
+  electronResourcesPath,
   ensureFreshRuntime,
   evaluateVersionGate,
   isShimShapedPath,
   parseEnginesFloor,
+  piEntryFromArgv,
   type ResolveSpawnRuntimeOpts,
   readPiEnginesFloor,
   readRuntimeOverride,
@@ -269,6 +271,73 @@ describe("whichViaLoginShell export", () => {
       if (prev === undefined) delete process.env.SHELL;
       else process.env.SHELL = prev;
     }
+  });
+});
+
+// ── Review round 1 regression: Electron identity across the process boundary ─
+
+describe("Electron server child (env markers) — review finding regressions", () => {
+  function restoreEnv(prev: { e?: string; r?: string }): void {
+    if (prev.e === undefined) delete process.env.PI_DASHBOARD_ELECTRON;
+    else process.env.PI_DASHBOARD_ELECTRON = prev.e;
+    if (prev.r === undefined) delete process.env.PI_DASHBOARD_RESOURCES_PATH;
+    else process.env.PI_DASHBOARD_RESOURCES_PATH = prev.r;
+  }
+
+  it("detectSpawnArm honours the launcher-stamped PI_DASHBOARD_ELECTRON marker", async () => {
+    const { detectSpawnArm } = await import("../platform/spawn-runtime.js");
+    const prev = { e: process.env.PI_DASHBOARD_ELECTRON, r: process.env.PI_DASHBOARD_RESOURCES_PATH };
+    process.env.PI_DASHBOARD_ELECTRON = "1";
+    process.env.PI_DASHBOARD_RESOURCES_PATH = path.join(tmp, "app", "resources");
+    try {
+      // In a plain node test process neither electron marker exists — only
+      // the launcher-stamped env makes this "electron".
+      expect(detectSpawnArm()).toBe("electron");
+    } finally {
+      restoreEnv(prev);
+    }
+  });
+
+  it("bundled rung is reachable on the Electron child and publishes path-free", async () => {
+    const { electronResourcesPath } = await import("../platform/spawn-runtime.js");
+    const resources = path.join(tmp, "app2", "resources");
+    const bundled = touch(path.join(resources, "node", "bin", "node"));
+    const prev = { e: process.env.PI_DASHBOARD_ELECTRON, r: process.env.PI_DASHBOARD_RESOURCES_PATH };
+    process.env.PI_DASHBOARD_ELECTRON = "1";
+    process.env.PI_DASHBOARD_RESOURCES_PATH = resources;
+    try {
+      expect(electronResourcesPath()).toBe(resources);
+      const rt = resolveSpawnRuntime(
+        makeOpts({
+          probe: { [bundled]: { version: "v24.15.0", abi: 137 } },
+          pathNode: null,
+          loginShellNode: null,
+          arm: "electron",
+          resourcesPath: resources,
+          exists: (p) => p === bundled || p === process.execPath,
+        }),
+      );
+      expect(rt.rung).toBe("bundled");
+      expect(rt.source).toBe("bundled-electron");
+      const block = buildPublishedRuntimeBlock(rt);
+      expect(JSON.stringify(block)).not.toContain(resources);
+      expect(block).toMatchObject({ source: "bundled-electron", abi: 137 });
+    } finally {
+      restoreEnv(prev);
+    }
+  });
+});
+
+describe("piEntryFromArgv (design D2 — floor of the spawned copy)", () => {
+  it("prefers the cli.js element of a node-wrapped argv", () => {
+    expect(piEntryFromArgv(["node.exe", "/app/pi/dist/cli.js"])).toBe("/app/pi/dist/cli.js");
+  });
+
+  it("falls back to the bin shim (realpath walk-up handles symlinks)", () => {
+    expect(piEntryFromArgv(["/home/u/.nvm/versions/node/v25/bin/pi"])).toBe(
+      "/home/u/.nvm/versions/node/v25/bin/pi",
+    );
+    expect(piEntryFromArgv([])).toBeNull();
   });
 });
 

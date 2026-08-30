@@ -107,7 +107,7 @@ export function classifyNodeSource(
   );
   if (managedRoot && isUnder(real, managedRoot)) return "managed";
 
-  const resources = opts.resourcesPath ?? (process as any).resourcesPath;
+  const resources = opts.resourcesPath ?? electronResourcesPath();
   if (resources) {
     const bundledRoot = realpathOrNull(path.join(resources, "node"));
     if (bundledRoot && isUnder(real, bundledRoot)) return "bundled-electron";
@@ -368,17 +368,43 @@ export interface ResolveSpawnRuntimeOpts {
 }
 
 /**
- * Coarse arm detection. `electron` = running inside Electron (GUI/service
- * launch); `docker` = linux container (`/.dockerenv`); everything else
- * (npm -g install, dev checkout) is `"npm"` — behaviorally identical for
- * the ladder (PATH first, `execPath` terminal rung).
+ * Coarse arm detection. `electron` = running inside Electron — either
+ * directly (main process: `process.versions.electron` /
+ * `process.resourcesPath` exist) or as the packaged server CHILD process,
+ * which runs under the bundled plain Node where neither marker exists; the
+ * launcher (`packages/electron/src/lib/launch-source.ts`) therefore stamps
+ * `PI_DASHBOARD_ELECTRON=1` + `PI_DASHBOARD_RESOURCES_PATH` into the child
+ * env and this detection honours them. Without the env marker the child
+ * would misdetect as `"npm"` — inverting the arm-dependent step-2 order
+ * (PATH-first instead of login-shell-first) and hiding the bundled rung.
+ * `docker` = linux container (`/.dockerenv`); everything else (npm -g
+ * install, dev checkout) is `"npm"` — behaviorally identical for the
+ * ladder (PATH first, `execPath` terminal rung).
  */
 export function detectSpawnArm(): SpawnArm {
-  if ((process.versions as any).electron || (process as any).resourcesPath) {
+  if (
+    (process.versions as any).electron ||
+    (process as any).resourcesPath ||
+    process.env.PI_DASHBOARD_ELECTRON === "1"
+  ) {
     return "electron";
   }
   if (process.platform !== "win32" && existsSync("/.dockerenv")) return "docker";
   return "npm";
+}
+
+/**
+ * The Electron resources dir as seen from THIS process: the real
+ * `process.resourcesPath` in the Electron main, the launcher-stamped
+ * `PI_DASHBOARD_RESOURCES_PATH` env in the packaged server child. Undefined
+ * when neither applies (never an Electron context). See detectSpawnArm —
+ * same process-boundary rationale. See change: unify-pi-runtime-identity
+ * (review round 1: electron-arm-identity-lost-at-process-boundary).
+ */
+export function electronResourcesPath(): string | undefined {
+  const stamped = process.env.PI_DASHBOARD_RESOURCES_PATH;
+  if (stamped) return stamped;
+  return (process as any).resourcesPath;
 }
 
 // ── Version-manager default probe (fs only, no shell) ───────────────────────
@@ -543,7 +569,7 @@ export function resolveSpawnRuntime(opts: ResolveSpawnRuntimeOpts = {}): Resolve
   const arm = opts.arm ?? detectSpawnArm();
   const homedir = opts.homedir ?? os.homedir();
   const managedDir = opts.managedDir ?? getManagedDir();
-  const resourcesPath = opts.resourcesPath ?? (process as any).resourcesPath;
+  const resourcesPath = opts.resourcesPath ?? electronResourcesPath();
   const exists = opts.exists ?? existsSync;
   const pathWhich = opts.pathWhich ?? ((name, env) => whichSync(name));
   const loginShellWhich = opts.loginShellWhich ?? whichViaLoginShell;
@@ -715,6 +741,24 @@ export function resolveSpawnRuntime(opts: ResolveSpawnRuntimeOpts = {}): Resolve
   );
 }
 
+// ── Pi entry derivation (design D2 — the gate reads THE spawned pi copy) ────
+
+/**
+ * Extract the pi entry (a `cli.js` path, or the resolved bin shim/symlink as
+ * a fallback) from the tool-registry-resolved pi argv. `readPiEnginesFloor`
+ * walks UP from this entry to the spawned pi copy's package.json, so the
+ * version gate enforces the floor of the copy that will actually run — not
+ * a constant that happens to coincide today. See change:
+ * unify-pi-runtime-identity (design D2; review round 1:
+ * pi-engines-floor-never-supplied).
+ */
+export function piEntryFromArgv(argv: readonly string[]): string | null {
+  for (const arg of argv) {
+    if (arg.endsWith("cli.js")) return arg;
+  }
+  return argv.length > 0 ? (argv[argv.length - 1] ?? null) : null;
+}
+
 // ── Spawn-time re-validation (design D7) ─────────────────────────────────────
 
 export interface RevalidateOpts {
@@ -822,7 +866,7 @@ export function buildPublishedRuntimeBlock(
   rt: ResolvedRuntime,
   opts: { resourcesPath?: string } = {},
 ): Record<string, unknown> {
-  const resourcesPath = opts.resourcesPath ?? (process as any).resourcesPath;
+  const resourcesPath = opts.resourcesPath ?? electronResourcesPath();
   const pathFree =
     rt.source === "bundled-electron" || isUnderResources(rt.nodeBinary, resourcesPath);
   // The two relocating-mount classes are marked ephemeral — derived from the

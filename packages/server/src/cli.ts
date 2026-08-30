@@ -61,6 +61,7 @@ import { parseDashboardStarter } from "@blackbelt-technology/pi-dashboard-shared
 import { discoverDashboard } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 import {
   type ResolvedRuntime,
+  piEntryFromArgv,
   resolveSpawnRuntime,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
 import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
@@ -311,7 +312,19 @@ async function runForeground(config: ServerConfig): Promise<void> {
   // resolution always runs live (spec: managed-node-runtime).
   // See change: unify-pi-runtime-identity (task 4.1, design D8).
   try {
-    const rt = resolveLiveSpawnRuntime();
+    // The gate reads the floor of THE pi copy that will spawn (design D2):
+    // derive its entry from the registry's own pi resolution.
+    let piEntry: string | null = null;
+    try {
+      const registry = getDefaultRegistry();
+      if (registry?.has("pi")) {
+        const exec = registry.resolveExecutor("pi");
+        if (exec.ok && exec.argv.length > 0) piEntry = piEntryFromArgv(exec.argv);
+      }
+    } catch {
+      /* registry not initialised — fallback floor (canonical constant) */
+    }
+    const rt = resolveLiveSpawnRuntime(piEntry ? { piEntry } : {});
     const { block } = publishResolvedRuntime(rt);
     console.log(
       `[runtime] spawn runtime published (source=${block.source}, abi=${block.abi}` +
