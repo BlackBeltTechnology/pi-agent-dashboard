@@ -45,6 +45,57 @@ if (mode === "hung") {
   return;
 }
 
+if (mode === "writer") {
+  // Continuous stdout writer for keeper-log rotation tests (E3/E4/E5/P1/P2):
+  // writes MOCK_PI_WRITE_CHUNK bytes to stdout every MOCK_PI_WRITE_TICK_MS
+  // until MOCK_PI_WRITE_TOTAL bytes have been written (0/absent = forever);
+  // once the total is reached, emits MOCK_PI_MARKER every 200 ms so a marker
+  // written just before a rotation cannot be the last one erased (E3).
+  // ALSO consumes stdin lines like normal mode, so P1 can assert RPC lines
+  // keep flowing to MOCK_PI_LOG while the child saturates the shared fd.
+  // CommonJS-pure.
+  const chunkSize = parseInt(process.env.MOCK_PI_WRITE_CHUNK || "4096", 10);
+  const tickMs = parseInt(process.env.MOCK_PI_WRITE_TICK_MS || "5", 10);
+  const total = parseInt(process.env.MOCK_PI_WRITE_TOTAL || "0", 10);
+  const marker = process.env.MOCK_PI_MARKER || "";
+  if (!logPath && !marker) {
+    process.stderr.write("[mock-pi] writer mode: MOCK_PI_LOG required for stdin lines\n");
+  }
+  const chunk = Buffer.alloc(chunkSize, 0x61); // 'a'
+  let written = 0;
+  let stdinBuf = ""; // own buffer — writer mode returns before normal mode's `let buf`
+  const writeTimer = setInterval(() => {
+    if (total > 0 && written >= total) return; // steady state: markers only
+    process.stdout.write(chunk);
+    written += chunkSize;
+  }, tickMs);
+  const markerTimer = setInterval(() => {
+    if (marker && (total === 0 || written >= total)) {
+      process.stdout.write(marker + "\n");
+    }
+  }, 200);
+  const finish = () => {
+    clearInterval(writeTimer);
+    clearInterval(markerTimer);
+    process.exit(0);
+  };
+  process.stdin.setEncoding("utf8");
+  process.stdin.on("data", (c) => {
+    stdinBuf += c;
+    let nl;
+    // eslint-disable-next-line no-cond-assign
+    while ((nl = stdinBuf.indexOf("\n")) !== -1) {
+      const line = stdinBuf.slice(0, nl);
+      stdinBuf = stdinBuf.slice(nl + 1);
+      if (logPath) fs.appendFileSync(logPath, line + "\n");
+    }
+  });
+  process.stdin.on("end", finish);
+  process.stdin.on("error", finish);
+  process.stdin.resume();
+  return;
+}
+
 if (!logPath) {
   process.stderr.write("[mock-pi] FATAL: MOCK_PI_LOG env var required\n");
   process.exit(2);

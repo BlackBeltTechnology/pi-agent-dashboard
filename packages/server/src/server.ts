@@ -151,7 +151,7 @@ import { sessionToMeta } from "./session/session-to-meta.js";
 import { CwdPolicyRegistry } from "./spawn-process/cwd-policy.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import { createIdleTimer } from "./spawn-process/idle-timer.js";
-import { setCwdPolicyRegistry, spawnPiSession } from "./spawn-process/process-manager.js";
+import { getKeeperManager, setCwdPolicyRegistry, spawnPiSession } from "./spawn-process/process-manager.js";
 import { removePid, writePid } from "./spawn-process/server-pid.js";
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
 import { createTerminalGateway, type TerminalGateway } from "./terminal/terminal-gateway.js";
@@ -1579,7 +1579,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       piGateway.sendToSession(id, { type: "stop_after_turn", sessionId: id }),
   });
 
-  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle });
+  registerSystemRoutes(fastify, { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version: pkgVersion, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, keeperLogStats: { get: () => getKeeperManager().getKeeperLogStats() } });
   // GET /api/doctor — see change: doctor-rich-output (task 4.2). Auth-gated identically to /api/config.
   registerDoctorRoutes(fastify);
   registerToolRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
@@ -2043,8 +2043,8 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // surviving keepers after a server restart. Same instance the spawn
       // path uses. See change: add-rpc-stdin-dispatch-with-keeper-sidecar.
       try {
-        const { getKeeperManager } = await import("./spawn-process/process-manager.js");
-        browserGateway.headlessPidRegistry.setKeeperWriter(getKeeperManager());
+        const { getKeeperManager: getKm } = await import("./spawn-process/process-manager.js");
+        browserGateway.headlessPidRegistry.setKeeperWriter(getKm());
         const keeperAliveIds = await browserGateway.headlessPidRegistry.cleanupKeeperOrphans();
         // Class 1 synchronous liveness gate: a candidate whose keeper+pi the
         // reclaim found alive was never lost — drop it before the offer is
@@ -2054,6 +2054,17 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
           if (liveRecoveryCandidates.has(id)) {
             retractRecoveryCandidate(id, "keeper-alive");
           }
+        }
+        // Startup keeper-log sweep (fix-runaway-keeper-log-growth D5): runs
+        // ONCE per server start, after discovery has classified live vs dead
+        // keepers, and seeds the stats snapshot /api/health serves. Truncates
+        // oversized aged dead-session logs; never unlinks.
+        const sweep = getKm().sweepKeeperLogs();
+        if (sweep.reclaimedFiles > 0) {
+          console.log(
+            `[dashboard] keeper-log sweep: reclaimed ${sweep.reclaimedFiles} file(s) / ${sweep.reclaimedBytes} bytes` +
+              ` (scanned ${sweep.scanned}, skipped live ${sweep.skippedLive})`,
+          );
         }
       } catch (err) {
         console.warn("[dashboard] keeper-manager wire-up failed (RPC dispatch disabled):", err);

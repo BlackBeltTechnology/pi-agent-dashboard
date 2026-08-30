@@ -13,7 +13,7 @@
  * Tasks covered: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7.
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync, unlinkSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync, unlinkSync, rmSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -622,3 +622,437 @@ async function findChildPids(parentPid: number): Promise<number[]> {
     ps.once("error", () => resolve([]));
   });
 }
+
+// ===========================================================================
+// Keeper-log rotation — bounded growth (fix-runaway-keeper-log-growth)
+// ===========================================================================
+//
+// Real-keeper rotation scenarios. The exact cap boundary, throttle counting
+// and fs-fault stubs live in keeper-log-rotation.test.ts (unit level, where
+// fs is injectable); these tests prove the CONTRACT end-to-end against a
+// spawned keeper: the shared fd survives rotation (inode + post-rotation
+// child bytes), no generation is retained, child-only growth rotates, the
+// RPC path never stalls, and the env plumbing resolves/strips the knobs.
+
+/** Distinctive seed byte for pre-grown logs (must differ from the writer's 'a'). */
+const SEED_CHAR = "B";
+/** Keeper's own lifecycle lines add a few hundred bytes to a seeded log. */
+const KEEPER_LINE_OVERHEAD_BYTES = 1200;
+
+function seedLog(home: string, sid: string, bytes: number): string {
+  mkdirSync(sessionsDirIn(home), { recursive: true });
+  const p = keeperLogIn(home, sid);
+  writeFileSync(p, SEED_CHAR.repeat(bytes));
+  return p;
+}
+
+function logSize(home: string, sid: string): number {
+  return statSync(keeperLogIn(home, sid)).size;
+}
+
+/** Wait until the keeper log stops growing for `stableMs`. Returns last size. */
+async function waitForStableSize(
+  home: string,
+  sid: string,
+  { stableMs = 800, timeoutMs = 15_000, sampleMs = 100 }: { stableMs?: number; timeoutMs?: number; sampleMs?: number } = {},
+): Promise<number> {
+  const start = Date.now();
+  let last = -1;
+  let lastChange = Date.now();
+  while (Date.now() - start < timeoutMs) {
+    const s = logSize(home, sid);
+    if (s !== last) {
+      last = s;
+      lastChange = Date.now();
+    } else if (Date.now() - lastChange >= stableMs) {
+      return s;
+    }
+    await new Promise((r) => setTimeout(r, sampleMs));
+  }
+  throw new Error(`waitForStableSize timed out after ${timeoutMs}ms`);
+}
+
+describe.skipIf(process.platform === "win32")("keeper-log rotation (real keeper)", () => {
+  it("E8: env fallback — unset/empty/non-numeric/zero all resolve to the 128 MiB default (logged at startup)", async () => {
+    for (const variant of [undefined, "", "abc", "0"]) {
+      const extraEnv: NodeJS.ProcessEnv =
+        variant === undefined ? {} : { PI_KEEPER_LOG_MAX_BYTES: variant };
+      const k = track(await spawnKeeper({ extraEnv }));
+      await readyKeeper(k);
+      const klog = readFileSync(keeperLogFor(k), "utf8");
+      expect(klog, `variant ${JSON.stringify(variant)}`).toContain(
+        "log rotation: maxBytes=134217728 checkIntervalMs=5000",
+      );
+      await killAndAwait(k);
+    }
+  }, 20_000);
+
+  it("E8b: a valid env value resolves as-is (no coercion)", async () => {
+    const k = track(
+      await spawnKeeper({ extraEnv: { PI_KEEPER_LOG_MAX_BYTES: "65536", PI_KEEPER_LOG_CHECK_INTERVAL_MS: "250" } }),
+    );
+    await readyKeeper(k);
+    const klog = readFileSync(keeperLogFor(k), "utf8");
+    expect(klog).toContain("log rotation: maxBytes=65536 checkIntervalMs=250");
+    await killAndAwait(k);
+  }, 10_000);
+
+  it("E9: keeper-internal log vars are stripped from pi's env", async () => {
+    const mockPiAbs = path.join(SHIM_DIR, "mock-pi.cjs");
+    const envLog = path.join("/tmp", `mock-pi-env-rot-${Date.now()}.log`);
+    const k = track(
+      await spawnKeeper({
+        noPathShim: true,
+        extraEnv: {
+          PI_KEEPER_PI_CMD: JSON.stringify([process.execPath, mockPiAbs]),
+          PI_KEEPER_LOG_MAX_BYTES: "65536",
+          PI_KEEPER_LOG_CHECK_INTERVAL_MS: "250",
+          PI_KEEPER_TEST_FAULTS: "ftruncate",
+          MOCK_PI_ENV_LOG: envLog,
+        },
+      }),
+    );
+    await readyKeeper(k);
+    await waitFor(() => existsSync(envLog));
+    const envDump = readFileSync(envLog, "utf8");
+    expect(envDump).not.toMatch(/^PI_KEEPER_LOG_MAX_BYTES=/m);
+    expect(envDump).not.toMatch(/^PI_KEEPER_LOG_CHECK_INTERVAL_MS=/m);
+    expect(envDump).not.toMatch(/^PI_KEEPER_TEST_FAULTS=/m);
+    try { unlinkSync(envLog); } catch { /* ignore */ }
+    await killAndAwait(k);
+  }, 10_000);
+
+  it("E1: below the cap no truncation fires (seed cap−1536 + keeper overhead stays under)", async () => {
+    const sessionId = makeSessionId();
+    const home = makeShortHome();
+    seedLog(home, sessionId, 65_536 - 1536); // 64 000 B; +~600 B keeper lines < 65 536
+    const k = track(await spawnKeeper({ sessionId, home, extraEnv: { PI_KEEPER_LOG_MAX_BYTES: "65536", PI_KEEPER_LOG_CHECK_INTERVAL_MS: "50" } }));
+    await readyKeeper(k);
+    // Several check intervals must elapse with the seed prefix intact.
+    await new Promise((r) => setTimeout(r, 400));
+    const content = readFileSync(keeperLogIn(home, sessionId), "utf8");
+    expect(content.startsWith(SEED_CHAR)).toBe(true); // nothing was truncated away
+    expect(content.length).toBeGreaterThan(64_000); // keeper lines were appended
+    await killAndAwait(k);
+  }, 10_000);
+
+  it("E2: at/over the cap the log is truncated in place (size drops below the cap)", async () => {
+    const sessionId = makeSessionId();
+    const home = makeShortHome();
+    seedLog(home, sessionId, 65_536); // exactly the cap; +keeper overhead crosses it
+    const k = track(await spawnKeeper({ sessionId, home, extraEnv: { PI_KEEPER_LOG_MAX_BYTES: "65536", PI_KEEPER_LOG_CHECK_INTERVAL_MS: "50" } }));
+    await readyKeeper(k);
+    await waitFor(() => logSize(home, sessionId) < 65_536, 3_000);
+    const content = readFileSync(keeperLogIn(home, sessionId), "utf8");
+    expect(content.includes(SEED_CHAR.repeat(1024))).toBe(false); // the pre-rotation window is gone
+    await killAndAwait(k);
+  }, 10_000);
+
+  it("E3: inode preserved across rotation and post-rotation child bytes land in the live file", async () => {
+    const sessionId = makeSessionId();
+    const home = makeShortHome();
+    const k = track(
+      await spawnKeeper({
+        sessionId,
+        home,
+        extraEnv: {
+          PI_KEEPER_CAPTURE_PI_OUTPUT: "1",
+          PI_KEEPER_LOG_MAX_BYTES: "65536",
+          PI_KEEPER_LOG_CHECK_INTERVAL_MS: "50",
+          MOCK_PI_MODE: "writer",
+          MOCK_PI_WRITE_CHUNK: "4096",
+          MOCK_PI_WRITE_TICK_MS: "2",
+          MOCK_PI_WRITE_TOTAL: "131072", // 2× cap → rotation is guaranteed
+          MOCK_PI_MARKER: "POST-ROT-1",
+        },
+      }),
+    );
+    await readyKeeper(k);
+    const logFile = keeperLogIn(home, sessionId);
+    await waitFor(() => existsSync(logFile));
+    const inoBefore = statSync(logFile).ino;
+    // Marker repeats every 200 ms, so one written just before a rotation
+    // cannot be the last one erased — "log contains POST-ROT-1" is stable.
+    await waitFor(() => {
+      if (!existsSync(logFile)) return false;
+      const st = statSync(logFile);
+      return st.size < 65_536 && readFileSync(logFile, "utf8").includes("POST-ROT-1");
+    }, 15_000);
+    const inoAfter = statSync(logFile).ino;
+    expect(inoAfter).toBe(inoBefore); // THE load-bearing assertion: no rename/reopen
+    await killAndAwait(k);
+  }, 25_000);
+
+  it("E4: no generation retained — repeated rotations leave no .log.N / dated siblings", async () => {
+    const sessionId = makeSessionId();
+    const home = makeShortHome();
+    const k = track(
+      await spawnKeeper({
+        sessionId,
+        home,
+        extraEnv: {
+          PI_KEEPER_CAPTURE_PI_OUTPUT: "1",
+          PI_KEEPER_LOG_MAX_BYTES: "16384",
+          PI_KEEPER_LOG_CHECK_INTERVAL_MS: "30",
+          MOCK_PI_MODE: "writer",
+          MOCK_PI_WRITE_CHUNK: "4096",
+          MOCK_PI_WRITE_TICK_MS: "2",
+          MOCK_PI_WRITE_TOTAL: "65536", // 4× cap → ≥3 rotations
+        },
+      }),
+    );
+    await readyKeeper(k);
+    await waitForStableSize(home, sessionId, { stableMs: 600, timeoutMs: 15_000 });
+    const siblings = readdirSync(sessionsDirIn(home)).filter((n) => n.startsWith(`keeper-${sessionId}.log`));
+    expect(siblings).toEqual([`keeper-${sessionId}.log`]); // exactly the live log, nothing else
+    await killAndAwait(k);
+  }, 25_000);
+
+  it("E5: child-only growth rotates via the interval timer with zero keeper lines after child bytes", async () => {
+    const sessionId = makeSessionId();
+    const home = makeShortHome();
+    const k = track(
+      await spawnKeeper({
+        sessionId,
+        home,
+        extraEnv: {
+          PI_KEEPER_CAPTURE_PI_OUTPUT: "1",
+          PI_KEEPER_LOG_MAX_BYTES: "65536",
+          PI_KEEPER_LOG_CHECK_INTERVAL_MS: "50",
+          MOCK_PI_MODE: "writer",
+          MOCK_PI_WRITE_CHUNK: "4096",
+          MOCK_PI_WRITE_TICK_MS: "10",
+          MOCK_PI_WRITE_TOTAL: "1048576", // 1 MiB of child bytes, no keeper activity
+        },
+      }),
+    );
+    await readyKeeper(k);
+    const size = await waitForStableSize(home, sessionId, { stableMs: 800, timeoutMs: 20_000 });
+    expect(size).toBeLessThan(2 * 65_536);
+    // The writer emits only 'a' bytes (no newlines). Any keeper-originated
+    // line after the child's first byte would introduce a timestamp bracket.
+    const content = readFileSync(keeperLogIn(home, sessionId), "utf8");
+    const firstChildByte = content.indexOf("a");
+    expect(firstChildByte).toBeGreaterThanOrEqual(0);
+    expect(content.slice(firstChildByte)).toMatch(/^a+$/); // pure child bytes, no keeper lines
+    await killAndAwait(k);
+  }, 30_000);
+
+  it("X1: ftruncate refused → path fallback truncates the same inode (keeper stays up)", async () => {
+    const sessionId = makeSessionId();
+    const home = makeShortHome();
+    seedLog(home, sessionId, 65_536 + 256);
+    const k = track(
+      await spawnKeeper({
+        sessionId,
+        home,
+        extraEnv: {
+          PI_KEEPER_TEST_FAULTS: "ftruncate", // fd truncate throws EPERM
+          PI_KEEPER_LOG_MAX_BYTES: "65536",
+          PI_KEEPER_LOG_CHECK_INTERVAL_MS: "50",
+        },
+      }),
+    );
+    await readyKeeper(k); // survived the crash window → alive
+    await waitFor(() => logSize(home, sessionId) < 65_536, 5_000); // path fallback did the rotation
+    expect(k.child.exitCode).toBeNull();
+    await killAndAwait(k);
+  }, 10_000);
+
+  it("X2: swapped path — the replacement file is NOT truncated (fallback refuses)", async () => {
+    const sessionId = makeSessionId();
+    const home = makeShortHome();
+    const k = track(
+      await spawnKeeper({
+        sessionId,
+        home,
+        extraEnv: {
+          PI_KEEPER_CAPTURE_PI_OUTPUT: "1",
+          PI_KEEPER_TEST_FAULTS: "ftruncate",
+          PI_KEEPER_LOG_MAX_BYTES: "65536",
+          PI_KEEPER_LOG_CHECK_INTERVAL_MS: "50",
+          MOCK_PI_MODE: "writer",
+          MOCK_PI_WRITE_CHUNK: "4096",
+          MOCK_PI_WRITE_TICK_MS: "2",
+          MOCK_PI_WRITE_TOTAL: "524288", // keeps the fd's inode over cap
+        },
+      }),
+    );
+    await readyKeeper(k); // seed under cap → no rotation fired before we swap
+    const logFile = keeperLogIn(home, sessionId);
+    // Replace the path with a DIFFERENT inode. The keeper's fd keeps pointing
+    // at the original (now progressively unnamed) inode, which stays over cap.
+    writeFileSync(logFile, "SWAPPED");
+    // 10+ check intervals must elapse without the replacement being touched.
+    for (let i = 0; i < 6; i++) {
+      await new Promise((r) => setTimeout(r, 120));
+      expect(readFileSync(logFile, "utf8")).toBe("SWAPPED");
+    }
+    expect(k.child.exitCode).toBeNull(); // refusal is a WARN, never a crash
+    // "Rotation recorded as failed" is asserted at unit level
+    // (keeper-log-rotation.test.ts X2) — the WARN here lands in the fd's
+    // orphaned inode, unreadable at the path.
+    await killAndAwait(k);
+  }, 15_000);
+
+  it("X3: both truncation paths fail — keeper stays alive, RPC keeps flowing, ≤1 attempt per interval", async () => {
+    const sessionId = makeSessionId();
+    const home = makeShortHome();
+    const t0 = Date.now(); // WARNs start as soon as the child crosses the cap — before readyKeeper returns
+    const k = track(
+      await spawnKeeper({
+        sessionId,
+        home,
+        extraEnv: {
+          PI_KEEPER_CAPTURE_PI_OUTPUT: "1",
+          PI_KEEPER_TEST_FAULTS: "ftruncate,truncate", // fd AND path truncation throw
+          PI_KEEPER_LOG_MAX_BYTES: "65536",
+          PI_KEEPER_LOG_CHECK_INTERVAL_MS: "60",
+          MOCK_PI_MODE: "writer",
+          MOCK_PI_WRITE_CHUNK: "4096",
+          MOCK_PI_WRITE_TICK_MS: "2",
+          MOCK_PI_WRITE_TOTAL: "262144",
+          // Completion signal: with both truncation paths failing, a WARN is
+          // appended every interval (the failure is loud by design), so the
+          // log NEVER stabilises — wait for the child's done-marker instead.
+          MOCK_PI_MARKER: "X3-DONE",
+        },
+      }),
+    );
+    await readyKeeper(k);
+    // RPC forwarding keeps working through ≥3 failed-rotation intervals.
+    for (let i = 0; i < 3; i++) {
+      await writeLineToKeeper(k, `{"type":"prompt","message":"x3-${i}","id":"${i}"}`);
+    }
+    await waitFor(() => readFileSync(keeperLogIn(home, sessionId), "utf8").includes("X3-DONE"), 15_000);
+    for (let i = 0; i < 3; i++) {
+      await waitFor(() => existsSync(k.mockPiLog) && readFileSync(k.mockPiLog, "utf8").includes(`x3-${i}`));
+    }
+    expect(k.child.exitCode).toBeNull(); // no shutdown despite every rotation failing
+    // At most one rotation attempt per elapsed interval window (throttle),
+    // each recorded as a WARN in the (intact, never-swapped) keeper log.
+    const warns = readFileSync(keeperLogIn(home, sessionId), "utf8").match(/rotation failed/g)?.length ?? 0;
+    const elapsedMs = Date.now() - t0;
+    expect(warns).toBeGreaterThan(0);
+    expect(warns).toBeLessThanOrEqual(Math.ceil(elapsedMs / 60) + 2);
+    const result = await killAndAwait(k, "SIGTERM");
+    expect(result.code).toBe(0); // not the uncaughtException → shutdown(1) path
+  }, 25_000);
+
+  it("X4: interval-path rotation failure does not end the session (pi child keeps running)", async () => {
+    const sessionId = makeSessionId();
+    const home = makeShortHome();
+    const k = track(
+      await spawnKeeper({
+        sessionId,
+        home,
+        extraEnv: {
+          PI_KEEPER_CAPTURE_PI_OUTPUT: "1",
+          PI_KEEPER_TEST_FAULTS: "ftruncate,truncate",
+          PI_KEEPER_LOG_MAX_BYTES: "65536",
+          PI_KEEPER_LOG_CHECK_INTERVAL_MS: "50",
+          MOCK_PI_MODE: "writer",
+          MOCK_PI_WRITE_CHUNK: "4096",
+          MOCK_PI_WRITE_TICK_MS: "2",
+          MOCK_PI_WRITE_TOTAL: "0", // writes forever until killed
+        },
+      }),
+    );
+    await readyKeeper(k);
+    // ≥5 failing rotation intervals must elapse with pi alive throughout.
+    await new Promise((r) => setTimeout(r, 400));
+    const mockPids = await findChildPids(k.child.pid!);
+    expect(mockPids.length).toBeGreaterThan(0);
+    expect(k.child.exitCode).toBeNull();
+    const result = await killAndAwait(k, "SIGTERM");
+    expect(result.code).toBe(0); // a logging concern never produced exit 1
+    try {
+      for (const pid of mockPids) { try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } }
+    } catch { /* ignore */ }
+  }, 15_000);
+
+  it("P1: rotation never stalls the RPC path — 200 writes land across ≥5 rotations, zero drops", async () => {
+    const sessionId = makeSessionId();
+    const home = makeShortHome();
+    const k = track(
+      await spawnKeeper({
+        sessionId,
+        home,
+        extraEnv: {
+          PI_KEEPER_CAPTURE_PI_OUTPUT: "1",
+          PI_KEEPER_LOG_MAX_BYTES: "65536",
+          PI_KEEPER_LOG_CHECK_INTERVAL_MS: "25",
+          MOCK_PI_MODE: "writer",
+          MOCK_PI_WRITE_CHUNK: "4096",
+          MOCK_PI_WRITE_TICK_MS: "2",
+          MOCK_PI_WRITE_TOTAL: "393216", // 6× cap → ≥5 rotations during the RPC burst
+        },
+      }),
+    );
+    await readyKeeper(k);
+    let maxLatencyMs = 0;
+    for (let i = 0; i < 200; i++) {
+      const t0 = Date.now();
+      await writeLineToKeeper(k, `{"type":"prompt","message":"p1-${i}","id":"${i}"}`);
+      maxLatencyMs = Math.max(maxLatencyMs, Date.now() - t0);
+    }
+    // Every writeRpc budget is 350 ms × 3 attempts; none may hit it.
+    expect(maxLatencyMs).toBeLessThan(1050);
+    await waitFor(() => {
+      if (!existsSync(k.mockPiLog)) return false;
+      const c = readFileSync(k.mockPiLog, "utf8");
+      return c.includes("p1-0") && c.includes("p1-199");
+    }, 15_000);
+    // Zero dropped lines: every forwarded line reached pi.
+    const forwarded = readFileSync(k.mockPiLog, "utf8").split("\n").filter((l) => l.includes("p1-")).length;
+    expect(forwarded).toBe(200);
+    const klog = readFileSync(keeperLogIn(home, sessionId), "utf8");
+    expect(klog).not.toContain("drop line");
+    await killAndAwait(k);
+  }, 30_000);
+
+  it("P2: bounded growth soak — ~10 MiB sustained capture never reaches 2× cap; inode constant", async () => {
+    const sessionId = makeSessionId();
+    const home = makeShortHome();
+    const k = track(
+      await spawnKeeper({
+        sessionId,
+        home,
+        extraEnv: {
+          PI_KEEPER_CAPTURE_PI_OUTPUT: "1",
+          PI_KEEPER_LOG_MAX_BYTES: "65536",
+          PI_KEEPER_LOG_CHECK_INTERVAL_MS: "50",
+          MOCK_PI_MODE: "writer",
+          MOCK_PI_WRITE_CHUNK: "4096",
+          MOCK_PI_WRITE_TICK_MS: "8", // ≈500 KB/s → ~20 s for 10 MiB (fast profile)
+          MOCK_PI_WRITE_TOTAL: "10485760",
+        },
+      }),
+    );
+    await readyKeeper(k);
+    const logFile = keeperLogIn(home, sessionId);
+    const inos = new Set<number>();
+    let maxObserved = 0;
+    const start = Date.now();
+    // Sample every 200 ms until the file has been stable for 1.5 s (child done).
+    let stableSince = Date.now();
+    let last = -1;
+    while (Date.now() - start < 40_000) {
+      if (existsSync(logFile)) {
+        const st = statSync(logFile);
+        inos.add(st.ino);
+        maxObserved = Math.max(maxObserved, st.size);
+        if (st.size !== last) {
+          last = st.size;
+          stableSince = Date.now();
+        } else if (Date.now() - stableSince >= 1500 && st.size > 0) {
+          break;
+        }
+      }
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    expect(maxObserved).toBeLessThan(2 * 65_536); // never observed at/over 2× cap
+    expect(inos.size).toBe(1); // inode constant throughout
+    await killAndAwait(k);
+  }, 50_000);
+});
