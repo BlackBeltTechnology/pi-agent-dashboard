@@ -90,7 +90,7 @@ const RULES = [
       "provision-openspec-cli-in-sessions task 1.4 — the bridge shim " +
       "(openspec-cli-shim.ts) require.resolves this dep, so it must travel with " +
       "the published extension into generic projects (no dashboard copy hoisted " +
-      "there). Floor tracks the single-source version 1.6.0.",
+      "there). Floor tracks the single-source version 1.11.0.",
     minVersion: "1.11.0",
   },
   {

@@ -21,8 +21,10 @@ generated, so a CLI upgrade SHALL be an explicit edit plus a skill regeneration.
 
 - **WHEN** `pnpm install` runs at the repo root with server and extension both
   declaring `1.11.0`
-- **THEN** `npm ls @fission-ai/openspec` SHALL show a single resolved `1.11.0`
-  installed copy (no duplicate trees)
+- **THEN** `pnpm why -r @fission-ai/openspec` SHALL show a single resolved
+  `1.11.0` copy owned by both workspaces (no duplicate trees). The check is
+  workspace-recursive on purpose: `npm ls` without `--workspaces` reads the root
+  project only, so it cannot see the server and extension importers at all.
 
 #### Scenario: A caret range is not an accepted declaration
 

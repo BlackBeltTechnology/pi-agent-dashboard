@@ -47,8 +47,8 @@ see [`docs/release-process.md`](docs/release-process.md).
   `openspec-poller-parity.test.ts`, which had been silently taking its
   CLI-absent skip branch under the test harness's ephemeral `HOME` instead of
   asserting anything; it now runs its CLI spawns through a bounded pool, so the
-  wall clock no longer scales with the size of the change backlog (85 changes:
-  59s sequential, against a 60s timeout — a cliff for any growing repo).
+  spawns are batched instead of fully sequential (85 changes: 59s sequential,
+  against a 60s timeout — a cliff for any growing repo).
 
 - **A failed or aborted compaction no longer wedges reloads.** `compacting` was
   latched by `session_before_compact` and only cleared by a SUCCESSFUL
