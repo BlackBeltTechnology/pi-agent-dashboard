@@ -33,39 +33,39 @@
 
 ## 3. Application points
 
-- [ ] 3.1 Replace `prependManagedNodeToPath` at the pi-session spawn path
+- [x] 3.1 Replace `prependManagedNodeToPath` at the pi-session spawn path
       (`packages/server/src/spawn-process/process-manager.ts:240`) with env construction from the
       resolved runtime (resolved bin dir first on `PATH`, no global `process.env` mutation),
       leaving `pi-core-updater`'s managed-tree prepend in place. Verify: unit tests for env
       construction; pi-core-updater tests unchanged.
-- [ ] 3.2 Point explicit node-binary argv spawns (Windows headless pairing) at the resolved
+- [x] 3.2 Point explicit node-binary argv spawns (Windows headless pairing) at the resolved
       binary. Verify: argv-assembly unit test receives the resolved path.
-- [ ] 3.3 Route dashboard-performed shared-tree mutations (recommended-extension installs, Part-2
+- [x] 3.3 Route dashboard-performed shared-tree mutations (recommended-extension installs, Part-2
       rebuilds) through the resolved family using per-member entries (`nodeEntry`/`npmEntry`,
       bundled npm via `bundled-node.ts`). Verify: unit tests assert the constructed install/rebuild
       command uses the resolved family's entries.
 
 ## 4. Publication
 
-- [ ] 4.1 Publish `runtime.resolved` on successful startup via atomic temp-write + rename that
+- [x] 4.1 Publish `runtime.resolved` on successful startup via atomic temp-write + rename that
       preserves unknown keys and round-trips `runtime.override` byte-identical; bundled runtime
       publishes path-free (`{source, abi, resolvedAt, ephemeral?}`) with `/tmp/.mount_*` and
       `/AppTranslocation/` marked ephemeral. Verify: unit tests for each publication shape and the
       override round-trip.
-- [ ] 4.2 Add the `pi-dashboard runtime` CLI print of the published block plus live resolution.
+- [x] 4.2 Add the `pi-dashboard runtime` CLI print of the published block plus live resolution.
       Verify: CLI test asserts output includes binary, version, ABI, and source.
 
 ## 5. ABI guard rail
 
-- [ ] 5.1 Implement `readNativeModuleAbi` two-tier: best-effort file inspection, authoritative
+- [x] 5.1 Implement `readNativeModuleAbi` two-tier: best-effort file inspection, authoritative
       out-of-process load probe (child `process.dlopen`, parse the `NODE_MODULE_VERSION X …
       requires Y` shape), plus the N-API classifier (symbol inspection, never distribution
       layout). Verify: unit tests with fake probe outputs; classifier test distinguishes a
       V8-bound prebuild layout from an N-API module.
-- [ ] 5.2 Implement the discovery walk + manifest: depth-capped walk finding nested `.node` files
+- [x] 5.2 Implement the discovery walk + manifest: depth-capped walk finding nested `.node` files
       (`build/Release/**`, `prebuilds/**`), entries carrying stat signature + `builtAbi`/N-API
       marker. Verify: unit test against a fixture tree with nested modules.
-- [ ] 5.3 Implement the pre-spawn manifest re-stat check with in-place-rebuild invalidation.
+- [x] 5.3 Implement the pre-spawn manifest re-stat check with in-place-rebuild invalidation.
       Verify: unit test rewrites a fixture `.node` (same tree shape) and observes re-evaluation.
 - [ ] 5.4 Add Doctor ABI-mismatch rows (module, built ABI, resolved runtime + ABI, scoped rebuild
       command), the offered reconciliation flow, and `runtime.autoRebuild` with
@@ -111,26 +111,26 @@
 - [x] 9.3 Author the ladder decision-table test — input: injected override/user/managed/arm states; trigger: resolveSpawnRuntime; observable: every completeness-matrix cell yields its specified runtime with recorded skip reasons (test-plan E3; see packages/shared/src/__tests__/binary-lookup.test.ts)
 - [x] 9.4 Author the arm-dependent step-2 order test — input: GUI arm with service-PATH node + login-shell nvm node, terminal arm with `nvm use` PATH node + profile default; trigger: step-2 evaluation; observable: GUI resolves login-shell hit, terminal resolves PATH hit, first-hit-only per source (test-plan E4; see packages/shared/src/__tests__/binary-lookup.test.ts)
 - [x] 9.5 Author the version-manager default probe test — input: no PATH/login-shell node, nvm alias/default present vs absent; trigger: step-2 fs probe; observable: default resolved with no shell invocation, no-alias falls through (test-plan E5; see packages/shared/src/__tests__/binary-lookup.test.ts)
-- [ ] 9.6 Author the publication-shapes test — input: resolved user/managed/bundled-stable/AppImage-mount/translocated runtimes with runtime.override + unknown keys in config; trigger: startup publication; observable: outside-bundle shapes carry binary+ABI+source, all bundled shapes path-free with resolvedAt and ephemeral flags on mounts, override + unknown keys byte-identical (test-plan E6; see packages/shared/src/__tests__/binary-lookup.test.ts for tmp-dir glue)
-- [ ] 9.7 Author the stale-block test — input: runtime.resolved naming a deleted binary; trigger: next server start; observable: fresh ladder result spawned and republished, stale path unused (test-plan E7; see packages/shared/src/__tests__/binary-lookup.test.ts)
+- [x] 9.6 Author the publication-shapes test — input: resolved user/managed/bundled-stable/AppImage-mount/translocated runtimes with runtime.override + unknown keys in config; trigger: startup publication; observable: outside-bundle shapes carry binary+ABI+source, all bundled shapes path-free with resolvedAt and ephemeral flags on mounts, override + unknown keys byte-identical (test-plan E6; see packages/shared/src/__tests__/binary-lookup.test.ts for tmp-dir glue)
+- [x] 9.7 Author the stale-block test — input: runtime.resolved naming a deleted binary; trigger: next server start; observable: fresh ladder result spawned and republished, stale path unused (test-plan E7; see packages/shared/src/__tests__/binary-lookup.test.ts)
 - [ ] 9.8 Author the legacy-dir orphan decision-table test — input: ~/.pi-dashboard fixtures all-absent/logs-only/wizard-only/node-only/node_modules-only/absent; trigger: Doctor + startup advisory; observable: only all-absent warns with delete suggestion + size detail, live combos name consumers with no delete suggestion, absent dir emits no row (test-plan E8; see packages/shared/src/__tests__/doctor-core-legacy-advisory.test.ts)
 - [ ] 9.9 Author the engines-message hint test — input: managed Node present vs absent; trigger: buildEnginesRangeMessage("v27.0.0"); observable: three hints when present, two hints and no `.pi-dashboard` substring when absent (test-plan E9; see packages/server/src/__tests__/node-guard.test.ts)
-- [ ] 9.10 Author the discovery-depth boundary test — input: fixture tree with .node files at depth 8 and 9; trigger: discovery walk; observable: depth-8 in manifest with builtAbi, depth-9 absent (test-plan E10; see packages/shared/src/__tests__/binary-lookup.test.ts for fixture-tree glue)
+- [x] 9.10 Author the discovery-depth boundary test — input: fixture tree with .node files at depth 8 and 9; trigger: discovery walk; observable: depth-8 in manifest with builtAbi, depth-9 absent (test-plan E10; see packages/shared/src/__tests__/binary-lookup.test.ts for fixture-tree glue)
 - [ ] 9.11 Author the N-API classification test — input: V8-bound module in prebuilds layout with mismatched ABI, plus an N-API module; trigger: scanner classification; observable: V8 module rows despite prebuild layout, N-API module skipped (test-plan E11; see packages/shared/src/__tests__/doctor-core.test.ts)
-- [ ] 9.12 Author the in-place-rebuild invalidation test — input: manifest-listed .node rewritten in place, tree shape unchanged; trigger: next pre-spawn check; observable: stat drift detected, module re-evaluated (test-plan E12; see packages/shared/src/__tests__/doctor-core.test.ts)
-- [ ] 9.13 Author the spawn-env application test — input: resolved user runtime with managed dir present, Windows argv assembly, bundled-family install command; trigger: env/argv/command construction; observable: resolved bin dir first with managed not ahead and process.env unmutated, updater keeps managed prepend, argv carries resolved node.exe, install uses per-member npmEntry (test-plan E13; see packages/shared/src/__tests__/binary-lookup-spawn-env.test.ts)
+- [x] 9.12 Author the in-place-rebuild invalidation test — input: manifest-listed .node rewritten in place, tree shape unchanged; trigger: next pre-spawn check; observable: stat drift detected, module re-evaluated (test-plan E12; see packages/shared/src/__tests__/doctor-core.test.ts)
+- [x] 9.13 Author the spawn-env application test — input: resolved user runtime with managed dir present, Windows argv assembly, bundled-family install command; trigger: env/argv/command construction; observable: resolved bin dir first with managed not ahead and process.env unmutated, updater keeps managed prepend, argv carries resolved node.exe, install uses per-member npmEntry (test-plan E13; see packages/shared/src/__tests__/binary-lookup-spawn-env.test.ts)
 - [x] 9.14 Author the identity re-validation test — input: retargeted nvm symlink and an unchanged volta/asdf shim path; trigger: pre-spawn re-validation; observable: symlink drift re-resolves, shim path probes per spawn despite identical stat (test-plan E14; see packages/shared/src/__tests__/binary-lookup.test.ts)
 - [ ] 9.15 Author the visibility-row content test — input: resolved runtime with divergent PATH install, override shadowing a selection, above-cap resolved major; trigger: Doctor report build; observable: runtime row with binary/version/ABI/source, divergence row with node -v remedy and override pointer, shadowed selection named, cap note informational (test-plan E15; see packages/shared/src/__tests__/doctor-core.test.ts)
-- [ ] 9.16 Author the pre-spawn stat-path latency test — workload: 100-entry manifest, 100 iterations; observable: p95 < 50ms (test-plan P1; see packages/shared/src/__tests__/doctor-core.test.ts for timing glue)
-- [ ] 9.17 Author the shim-probe latency test — workload: shim-shaped resolution forcing per-spawn probe, 20 iterations over a 100-entry manifest; observable: p95 < 250ms (test-plan P2; see packages/shared/src/__tests__/doctor-core.test.ts)
+- [x] 9.16 Author the pre-spawn stat-path latency test — workload: 100-entry manifest, 100 iterations; observable: p95 < 50ms (test-plan P1; see packages/shared/src/__tests__/doctor-core.test.ts for timing glue)
+- [x] 9.17 Author the shim-probe latency test — workload: shim-shaped resolution forcing per-spawn probe, 20 iterations over a 100-entry manifest; observable: p95 < 250ms (test-plan P2; see packages/shared/src/__tests__/doctor-core.test.ts)
 - [ ] 9.18 Author the Diagnostics visibility e2e spec — input: docker harness with its single in-image Node; trigger: open Settings → Diagnostics; observable: spawn-runtime row visible with version + source label and zero ABI-mismatch rows, port read from .pi-test-harness.json (test-plan F1; see tests/e2e/blackhole-settings.spec.ts)
 - [ ] 9.19 Author the detector fault-isolation test — fault: legacy-dir detector throws; trigger: Doctor run; observable: report produced, no Legacy install directory row (test-plan X1; see packages/shared/src/__tests__/doctor-fault-tolerance.test.ts)
 - [x] 9.20 Author the candidate-probe failure test — fault: probe exits non-zero / garbage output / timeout; trigger: step-2 evaluation; observable: candidate rejected with recorded reason, ladder continues without throw (test-plan X2; see packages/shared/src/__tests__/binary-lookup.test.ts)
-- [ ] 9.21 Author the Tier-B probe containment test — fault: probe child crashes on dlopen or emits the NODE_MODULE_VERSION mismatch message; trigger: scanner evaluation; observable: server unaffected, verdict from parseable message else unknown (test-plan X3; see packages/shared/src/__tests__/doctor-core.test.ts)
-- [ ] 9.22 Author the publication write-safety test — fault: config with unknown keys + override, leftover temp file from interrupted write; trigger: publication write; observable: atomic temp+rename, unknown keys and override intact, no truncated config (test-plan X4; see packages/shared/src/__tests__/binary-lookup.test.ts for tmp-dir glue)
-- [ ] 9.23 Author the vanished-runtime test — fault: resolved user Node directory deleted after startup; trigger: next pi-session spawn; observable: re-resolution lands per ladder with recorded reason, spawn succeeds (test-plan X5; see packages/shared/src/__tests__/binary-lookup.test.ts)
+- [x] 9.21 Author the Tier-B probe containment test — fault: probe child crashes on dlopen or emits the NODE_MODULE_VERSION mismatch message; trigger: scanner evaluation; observable: server unaffected, verdict from parseable message else unknown (test-plan X3; see packages/shared/src/__tests__/doctor-core.test.ts)
+- [x] 9.22 Author the publication write-safety test — fault: config with unknown keys + override, leftover temp file from interrupted write; trigger: publication write; observable: atomic temp+rename, unknown keys and override intact, no truncated config (test-plan X4; see packages/shared/src/__tests__/binary-lookup.test.ts for tmp-dir glue)
+- [x] 9.23 Author the vanished-runtime test — fault: resolved user Node directory deleted after startup; trigger: next pi-session spawn; observable: re-resolution lands per ladder with recorded reason, spawn succeeds (test-plan X5; see packages/shared/src/__tests__/binary-lookup.test.ts)
 - [ ] 9.24 Author the autoRebuild consent/abstention test — input: mismatch × autoRebuild off/on × divergence absent/present; trigger: reconciliation decision; observable: off offers only, on+clean rebuilds unattended and logs, on+divergence abstains and offers (test-plan X6; see packages/shared/src/__tests__/doctor-core.test.ts)
-- [ ] 9.25 Extend the qa server-start smoke with live publication assertions — input: freshly started server on a single-Node machine; trigger: read ~/.pi/dashboard/config.json and GET /api/doctor; observable: runtime.resolved present with source/ABI matching the running Node and zero ABI-mismatch rows (test-plan X7; extend qa/tests/02-server-start.sh)
+- [x] 9.25 Extend the qa server-start smoke with live publication assertions — input: freshly started server on a single-Node machine; trigger: read ~/.pi/dashboard/config.json and GET /api/doctor; observable: runtime.resolved present with source/ABI matching the running Node and zero ABI-mismatch rows (test-plan X7; extend qa/tests/02-server-start.sh)
 
 ## 10. Manual verification
 

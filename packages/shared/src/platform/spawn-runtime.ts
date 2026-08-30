@@ -47,13 +47,13 @@ import path from "node:path";
 import { getDashboardConfigDir } from "../dashboard-paths.js";
 import { getManagedDir } from "../managed-paths.js";
 import {
-  MIN_SUPPORTED_NODE,
   isAffectedNode,
   isAtOrAboveEnginesCap,
+  MIN_SUPPORTED_NODE,
   meetsFloor,
 } from "../node-version.js";
-import { spawnSync } from "./exec.js";
 import { MANAGED_PI_PACKAGES, whichSync, whichViaLoginShell } from "./binary-lookup.js";
+import { spawnSync } from "./exec.js";
 
 // ── Classification (design D4 — vendored from manage-node-runtime-updates) ──
 
@@ -488,16 +488,6 @@ interface Candidate {
   binary: string | null;
 }
 
-function firstExistingOf(
-  candidates: Candidate[],
-  exists: (p: string) => boolean,
-): Candidate | null {
-  for (const c of candidates) {
-    if (c.binary && exists(c.binary)) return c;
-  }
-  return null;
-}
-
 function identityOf(binary: string): RuntimeIdentity | null {
   try {
     const lst = lstatSync(binary);
@@ -853,4 +843,87 @@ export function buildPublishedRuntimeBlock(
     source: rt.source,
     resolvedAt: rt.resolvedAt,
   };
+}
+
+// ── Resolved family entries (design D3 per-member entry model) ──────────────
+
+/**
+ * Entry FILES of a resolved runtime's node/npm/npx family. A family member
+ * is an entry FILE, never a directory-sibling assumption (design D3): the
+ * bundled POSIX npm lives at `lib/node_modules/npm/bin/npm-cli.js`, not
+ * beside the node binary.
+ *
+ * See change: unify-pi-runtime-identity (spec managed-node-runtime,
+ * Requirement: Install/load coherence for the shared extension tree).
+ */
+export interface ResolvedFamilyEntries {
+  /** The resolved runtime's node binary (`rt.nodeBinary`). */
+  nodeEntry: string;
+  /**
+   * The npm CLI SCRIPT of the same runtime's family — an `npm-cli.js` when
+   * one of the standard layouts exists, else the bin-dir shim path. A
+   * non-`.js` entry is a shim: spawn it directly, not as `[node, shim]`.
+   */
+  npmEntry: string;
+  /** npx entry when the family ships one (the POSIX bundle ships no npx). */
+  npxEntry?: string;
+}
+
+/**
+ * Resolve the entry files of a runtime's node/npm/npx family, probing the
+ * layouts that occur in practice (each with `exists`, default
+ * `existsSync`) for the npm CLI script:
+ *
+ *   (a) `<nodeBinDir>/../lib/node_modules/npm/bin/npm-cli.js` — unix
+ *       upstream distro layout AND the POSIX bundle layout
+ *   (b) `<nodeBinDir>/node_modules/npm/bin/npm-cli.js` — Windows layout
+ *       (node.exe and npm's node_modules share the node dir)
+ *   (c) `<nodeBinDir>/npm-cli.js` — flat sibling layout
+ *   (d) fallback: the bin-dir shim path (`<nodeBinDir>/npm`, `npm.cmd` on
+ *       win32) — a spawn-direct shim, not a `[node, shim]` entry
+ *
+ * The same order covers a bundled-electron runtime: the POSIX bundle
+ * resolves via (a), the Windows bundle via (b). Note: the Electron-side
+ * authority for the bundled layout is `packages/electron/src/lib/
+ * bundled-node.ts` (shared cannot import it); this probe list mirrors its
+ * layouts.
+ *
+ * `npxEntry` mirrors the `npx-cli.js` probes and additionally accepts an
+ * existing bin-dir npx shim; it is left undefined when the family ships no
+ * npx (verified: the POSIX bundle ships none).
+ *
+ * See change: unify-pi-runtime-identity (design D3, task 3.3).
+ */
+export function resolvedFamilyEntries(
+  rt: ResolvedRuntime,
+  opts: { platform?: NodeJS.Platform; exists?: (p: string) => boolean } = {},
+): ResolvedFamilyEntries {
+  const exists = opts.exists ?? existsSync;
+  const platform = opts.platform ?? process.platform;
+  const binDir = rt.nodeBinDir;
+
+  const cliEntry = (script: string): string | null => {
+    const candidates = [
+      path.join(binDir, "..", "lib", "node_modules", "npm", "bin", script),
+      path.join(binDir, "node_modules", "npm", "bin", script),
+      path.join(binDir, script),
+    ];
+    for (const candidate of candidates) {
+      if (exists(candidate)) return candidate;
+    }
+    return null;
+  };
+
+  const npmCli = cliEntry("npm-cli.js");
+  const npxCli = cliEntry("npx-cli.js");
+  const shim = (name: string): string =>
+    path.join(binDir, platform === "win32" ? `${name}.cmd` : name);
+
+  const entries: ResolvedFamilyEntries = {
+    nodeEntry: rt.nodeBinary,
+    npmEntry: npmCli ?? shim("npm"),
+  };
+  if (npxCli) entries.npxEntry = npxCli;
+  else if (exists(shim("npx"))) entries.npxEntry = shim("npx");
+  return entries;
 }
