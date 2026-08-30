@@ -171,7 +171,7 @@ The client SHALL NOT issue a backfill request for a session until that session's
 
 The client SHALL stop issuing backfill requests for a session when a response returns no events or reports no remaining gap, regardless of the reason. In a window with a head segment the affordance SHALL be removed; in a head-free window it SHALL resolve to a terminal state rather than disappearing.
 
-#### Scenario: Empty response terminates the loop
+#### Scenario: Empty response with a remaining gap continues the walk
 
 - **WHEN** a backfill response returns an empty `events` array
 - **THEN** the client SHALL NOT immediately issue another request for the same range
@@ -252,14 +252,14 @@ The server SHALL snap a backfill slice's gap-facing edge inward to a message bou
 - **WHEN** a head-adjacent range is served
 - **THEN** its upper edge SHALL be the snapped edge
 
-#### Scenario: A span clamp preserves adjacency
+#### Scenario: A count clamp preserves adjacency
 
 - **WHEN** a requested range exceeds the maximum span and abuts the tail edge
 - **THEN** the served range SHALL still end at `tailMinSeq - 1`
 - **AND** the served range's lower bound SHALL be raised to satisfy the span limit
 - **AND** the tail edge SHALL be credited
 
-#### Scenario: A span clamp on a head-adjacent range preserves its adjacency
+#### Scenario: A count clamp on a head-adjacent range preserves its adjacency
 
 - **WHEN** a requested range exceeds the maximum span and abuts the head edge
 - **THEN** the served range SHALL still begin at `headMaxSeq + 1`
