@@ -532,7 +532,11 @@ describe("buildSessionDiff — binary / size / count safety", () => {
     expect(entry!.origin).toBe("tool");
     expect(entry!.gitDiff).toBeUndefined();
     // .png is binary by extension → no utf-8 read of the file.
-    const utf8Reads = vi.mocked(readFileSync).mock.calls.filter((c) => c[1] === "utf-8");
+    // The encoding argument is typed as `ReadFileSyncOptions` on the overload
+    // vitest picks, so compare through `unknown` rather than narrowing.
+    const utf8Reads = vi.mocked(readFileSync).mock.calls.filter(
+      (c) => (c[1] as unknown) === "utf-8",
+    );
     expect(utf8Reads).toHaveLength(0);
   });
 

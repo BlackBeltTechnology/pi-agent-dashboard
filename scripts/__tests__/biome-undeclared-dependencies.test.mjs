@@ -104,10 +104,16 @@ describe('the oracle actually runs the rule (X4)', () => {
 
   it('positive control: a genuinely undeclared import IS reported', () => {
     // The strongest anti-vacuity guard — prove the configured rule can still fail.
-    const probe = join(REPO_ROOT, 'packages', 'shared', 'src', '__oracle_probe__.ts');
+    // The probe lives in a PRIVATE workspace on purpose. `packages/shared` is
+    // published, so a probe there enters `npm pack`'s file set and the parallel
+    // publish-correctness budget test (dependency-declarations.test.mjs) fails
+    // with `undeclared-import ... definitely-not-a-real-package-xyz` whenever the
+    // two runs overlap. `packages/demo-plugin` is never packed and never checked,
+    // and the rule is equally on there, so the anti-vacuity proof is unchanged.
+    const probe = join(REPO_ROOT, 'packages', 'demo-plugin', 'src', '__oracle_probe__.ts');
     try {
       writeFileSync(probe, 'import "definitely-not-a-real-package-xyz";\nexport const a = 1;\n');
-      const found = lintDiagnostics(['lint', 'packages/shared/src/__oracle_probe__.ts']);
+      const found = lintDiagnostics(['lint', 'packages/demo-plugin/src/__oracle_probe__.ts']);
       expect(found.length).toBeGreaterThan(0);
       expect(found[0].message).toContain('definitely-not-a-real-package-xyz');
     } finally {
@@ -187,5 +193,5 @@ describe('specification matches configuration (E18)', () => {
 });
 
 afterEach(() => {
-  rmSync(join(REPO_ROOT, 'packages', 'shared', 'src', '__oracle_probe__.ts'), { force: true });
+  rmSync(join(REPO_ROOT, 'packages', 'demo-plugin', 'src', '__oracle_probe__.ts'), { force: true });
 });

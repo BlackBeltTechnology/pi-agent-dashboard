@@ -24,7 +24,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
  *
  * The suite runs in parallel and sibling tests write transient fixtures INTO
  * the source tree — `biome-undeclared-dependencies.test.mjs` drops
- * `packages/shared/src/__oracle_probe__.ts` for the duration of its run. A
+ * `packages/demo-plugin/src/__oracle_probe__.ts` for the duration of its run. A
  * repo-wide Biome invocation sees whatever happens to be on disk at that
  * instant, so the ledger must be judged against committed source, not the
  * working tree. Without this the assertion is a race, not a ledger check.

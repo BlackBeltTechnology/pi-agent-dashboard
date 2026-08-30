@@ -74,12 +74,63 @@ describe("extractSessionUpdates — compaction signal", () => {
     });
   });
 
+  // pi 0.84.3 added `session_compact_failed`. Without it a failed or aborted
+  // compaction leaves `compacting: true` forever, and the reload dispatcher
+  // refuses every subsequent reload for that session.
+  it("clears the flag on session_compact_failed (pi >= 0.84.3)", () => {
+    expect(
+      extractSessionUpdates(
+        makeEvent("session_compact_failed", { reason: "threshold", aborted: false }),
+      ),
+    ).toEqual({ compacting: false });
+  });
+
+  it("clears the flag on an ABORTED session_compact_failed too", () => {
+    expect(
+      extractSessionUpdates(makeEvent("session_compact_failed", { reason: "manual", aborted: true })),
+    ).toEqual({ compacting: false });
+  });
+
   it("does not disturb currentTool (no fold when hasPendingPrompt)", () => {
     // The `hasPendingPrompt` fold only rewrites an update that CLEARS
     // currentTool. A compaction update carries no currentTool at all, so it
     // must pass through untouched rather than inventing an "ask_user" tool.
     expect(extractSessionUpdates(makeEvent("session_before_compact"), true)).toEqual({
       compacting: true,
+    });
+  });
+});
+
+// ── Blocking extension UI prompts (pi >= 0.84.4) ──
+// `ui_prompt_start` / `ui_prompt_end` let a host tell "the agent is working"
+// apart from "pi is parked waiting on a ctx.ui prompt". The dashboard already
+// renders `currentTool: "ask_user"` as input-requested, so a blocking UI prompt
+// reuses that surface instead of leaving the last tool name on screen.
+describe("extractSessionUpdates — blocking UI prompts", () => {
+  it("marks the session input-requested on ui_prompt_start", () => {
+    expect(
+      extractSessionUpdates(makeEvent("ui_prompt_start", { reason: "ui_prompt", kind: "select" })),
+    ).toEqual({ currentTool: "ask_user" });
+  });
+
+  it("clears the marker on ui_prompt_end", () => {
+    expect(
+      extractSessionUpdates(makeEvent("ui_prompt_end", { reason: "ui_prompt", kind: "select" })),
+    ).toEqual({ currentTool: null });
+  });
+
+  it("leaves status alone — a UI prompt is not a run boundary", () => {
+    const start = extractSessionUpdates(makeEvent("ui_prompt_start", { kind: "confirm" }));
+    const end = extractSessionUpdates(makeEvent("ui_prompt_end", { kind: "confirm" }));
+    expect(start).not.toHaveProperty("status");
+    expect(end).not.toHaveProperty("status");
+  });
+
+  it("ui_prompt_end still folds to ask_user while a PromptBus prompt is unanswered", () => {
+    // The fold rewrites an update that CLEARS currentTool, so a ctx.ui prompt
+    // ending must not erase a still-pending `ask_user` tool prompt.
+    expect(extractSessionUpdates(makeEvent("ui_prompt_end", { kind: "input" }), true)).toEqual({
+      currentTool: "ask_user",
     });
   });
 });

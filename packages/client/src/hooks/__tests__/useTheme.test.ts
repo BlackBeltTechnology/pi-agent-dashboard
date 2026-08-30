@@ -1,9 +1,27 @@
-import { describe, it, expect, beforeEach, vi } from "vitest";
+import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
 import { renderHook, act } from "@testing-library/react";
 import { useTheme, STORAGE_KEY, THEME_NAME_KEY } from "../useTheme.js";
 
+// vitest runs the suite against ONE `--localstorage-file` shared by every
+// worker process, so this file's storage handling is visible to every other
+// client test file. `localStorage.clear()` would wipe a CONCURRENT suite's
+// keys (it flaked useFolderUrgencySort), and the `light` / `github` values the
+// cases below persist would decide the theme other suites resolve
+// (it flaked editor-pane/theme-follow). Touch only the two keys this file owns,
+// and hand them back clean.
+function dropOwnKeys() {
+  try {
+    localStorage.removeItem(STORAGE_KEY);
+    localStorage.removeItem(THEME_NAME_KEY);
+  } catch {
+    /* storage unavailable */
+  }
+}
+
+afterEach(dropOwnKeys);
+
 beforeEach(() => {
-  localStorage.clear();
+  dropOwnKeys();
   document.documentElement.removeAttribute("data-theme");
   // Clear any inline style properties
   for (const prop of [...document.documentElement.style]) {

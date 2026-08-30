@@ -11,7 +11,20 @@ import { render, cleanup, act } from "@testing-library/react";
 import { I18nProvider, useI18n, registerPluginCatalog } from "../lib/i18n/i18n.js";
 import { resolveServerMessage } from "../lib/api/server-error.js";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  // `setLanguage()` PERSISTS to localStorage, and vitest runs the whole suite
+  // against ONE `--localstorage-file` shared by every worker process. Left
+  // behind, `hu` / `zh-CN` becomes the detected language for every client test
+  // file scheduled after this one, and English copy assertions elsewhere
+  // (CwdGonePill, DiffViewer, PlaceholderSessionCard) fail by run order alone.
+  // Key literal mirrors `STORAGE_KEY` in lib/i18n/i18n.tsx (not exported).
+  try {
+    localStorage.removeItem("pi-dashboard-language");
+  } catch {
+    /* storage unavailable */
+  }
+});
 
 // Register a plugin catalog once (merged under plugin.demo.*).
 registerPluginCatalog("demo", {

@@ -12,9 +12,62 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ### Added
 
+- **A blocking `ctx.ui` prompt now shows as input-requested, not as busy work.**
+  The bridge forwards pi 0.84.4's `ui_prompt_start` / `ui_prompt_end`, and the
+  server maps them to `currentTool: "ask_user"` / `null` — which also raises the
+  unread stripe. `status` is untouched: a UI prompt is not a run boundary.
+
 ### Changed
 
+- **Dependency refresh.** `@biomejs/biome` 2.5.1 → 2.5.11, `@playwright/test`
+  1.61.1 → 1.62.1, `@fastify/compress` 8 → 9, `@fastify/static` 8 → 10
+  (`setHeaders` now receives a `FastifyReply`, so the no-cache header for
+  `.html` goes through `reply.header()`), `@testing-library/jest-dom` 6 → 7,
+  `@tanstack/react-virtual` 3.13 → 3.14, `@fission-ai/openspec` 1.6.0 → 1.11.0
+  (regenerated the vendored `.pi/skills/openspec-*`, now `generatedBy: 1.11.0`).
+  openspec is pinned EXACTLY (was `^1.6.0`) because CLI and generated skills
+  have to move together — a caret let a routine install drift the CLI out from
+  under them unreviewed.
+
+- **Pinned pi runtime moved to `@earendil-works/pi-coding-agent@0.84.4`.** All five
+  governed surfaces move together: the server dependency (`^0.84.4`),
+  `piCompatibility.recommended`, the `pnpm-workspace.yaml` single-copy override,
+  the Docker image pin, and `scripts/verify-release-deps.mjs`'s `minVersion`. The
+  broad-support floor (`piCompatibility.minimum`) stays at `0.78.0`. The only
+  upstream breaking change in the range (0.84.3 renamed the pi-ai-internal
+  `GoogleThinkingLevel` type) has no consumer in this repo.
+
 ### Fixed
+
+- **OpenSpec data no longer comes up empty on a fresh `HOME`.** `openspec`
+  prints a one-off telemetry notice ahead of its JSON on the first run under a
+  given `HOME`; the recipes' strict `JSON.parse(stdout)` threw on it and the
+  poller read the failure as "no changes" (new container, new user, CI). Parsing
+  now recovers from a leading preamble. This also un-hid
+  `openspec-poller-parity.test.ts`, which had been silently taking its
+  CLI-absent skip branch under the test harness's ephemeral `HOME` instead of
+  asserting anything; it now runs its CLI spawns through a bounded pool, so the
+  spawns are batched instead of fully sequential (85 changes: 59s sequential,
+  against a 60s timeout — a cliff for any growing repo).
+
+- **A failed or aborted compaction no longer wedges reloads.** `compacting` was
+  latched by `session_before_compact` and only cleared by a SUCCESSFUL
+  `session_compact`, so a failure left the session permanently
+  reload-refusing. pi 0.84.3's `session_compact_failed` now clears it.
+
+- **`npm test` starts again, and three suites stopped depending on run order.**
+  `packages/context-budget` declared no `maxWorkers`, which made vitest 4 refuse
+  to group the projects and abort the entire run before any test executed. On
+  top of that, the suite shares ONE `--localstorage-file` across worker
+  processes: `useTheme.test.ts` called `localStorage.clear()` (wiping
+  `useFolderUrgencySort`'s keys) and left `light` / `github` behind (deciding
+  `editor-pane/theme-follow`'s expected theme), while the i18n switch suite left
+  `hu` behind (turning English copy assertions in `CwdGonePill`, `DiffViewer`
+  and `PlaceholderSessionCard` red). Each suite now touches only its own keys
+  and hands them back clean.
+
+- **`context-budget` is registered with the release + dead-code gates.** It was
+  missing from `knip.json` and from `publish.yml`'s `PACKAGES` allowlist.
 
 - **Reindex is reachable again from the KB settings page.** The `→` pill's
   fallback path was a dead end: the footer only offered `Save + Reindex`, which

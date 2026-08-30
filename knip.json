@@ -153,6 +153,18 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
+    "packages/context-budget": {
+      "entry": [
+        "src/meter.ts",
+        "src/index.ts",
+        "bin/context-budget.mjs",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
     "packages/cost-estimator": {
       "entry": [
         "src/client/index.tsx",

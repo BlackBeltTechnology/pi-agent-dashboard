@@ -1603,7 +1603,7 @@ describe("collapse of superseded tool_execution_update events", () => {
     const events = store.getEvents("s", 1);
     const tail = events.find((e) => e.seq === tailSeq);
     expect(tail).toBeDefined();
-    expect((tail?.event.data as Record<string, unknown>).partialResult).toBe("rendered output");
+    expect((tail?.event.data as Record<string, unknown> | undefined)?.partialResult).toBe("rendered output");
   });
 
   it("X8: the collapse index does not grow unboundedly within ONE long-lived session", () => {
