@@ -16,28 +16,28 @@
 
 ## 1. Restore the release-triggered redeploy (design D8)
 
-- [ ] 1.1 Add a terminal job to `.github/workflows/publish.yml` gated on `needs: github-release` that dispatches `sync-release-version.yml --ref develop`, waits for that run to complete, then dispatches `deploy-site.yml --ref develop`
-- [ ] 1.2 Delete the `release:` trigger, the `redispatch-on-release` job, and the now-dead `if: github.event_name != 'release'` guards on the `build` and `deploy` jobs in `.github/workflows/deploy-site.yml`; keep `workflow_dispatch` and the `push` path filters
-- [ ] 1.3 Confirm the sequencing is real rather than assumed: the dispatch job bounds its run lookup to a timestamp taken before its own dispatch (never grabs a stale manual run), watches the sync run to completion, and only then dispatches the deploy — a back-to-back dispatch races, and the failure is silent because the page still renders (the drift only shows in the download block)
+- [x] 1.1 Add a terminal job to `.github/workflows/publish.yml` gated on `needs: github-release` that dispatches `sync-release-version.yml --ref develop`, waits for that run to complete, then dispatches `deploy-site.yml --ref develop`
+- [x] 1.2 Delete the `release:` trigger, the `redispatch-on-release` job, and the now-dead `if: github.event_name != 'release'` guards on the `build` and `deploy` jobs in `.github/workflows/deploy-site.yml`; keep `workflow_dispatch` and the `push` path filters
+- [x] 1.3 Confirm the sequencing is real rather than assumed: the dispatch job bounds its run lookup to a timestamp taken before its own dispatch (never grabs a stale manual run), watches the sync run to completion, and only then dispatches the deploy — a back-to-back dispatch races, and the failure is silent because the page still renders (the drift only shows in the download block)
 
 ## 2. Workflow contract assertions (all L1, packages/shared/src/__tests__/)
 
-- [ ] 2.1 E9 — deploy triggers on site and shell paths: `push.branches` is `[develop]`, never `main`; `paths` includes `site/**` and `packages/shell/**` and the workflow itself
-- [ ] 2.2 E10 — the dead release path is absent from `deploy-site.yml`: no `release:` trigger, no `redispatch-on-release` job, no `github.event_name != 'release'` guard
-- [ ] 2.3 E10a — `publish.yml` has a terminal job with `needs: github-release` invoking `gh workflow run` for both `sync-release-version.yml` and `deploy-site.yml`, each with `--ref develop`
-- [ ] 2.4 E10b — the dispatches are sequenced, not raced: the `deploy-site.yml` dispatch is preceded by a wait on the `sync-release-version` run it dispatched
-- [ ] 2.5 E11 — `sync-release-version.yml` pushes `HEAD:develop`, never `main`
-- [ ] 2.6 E12 — a step copies the shell build into `site/dist/app/` and precedes the Pages artifact upload
-- [ ] 2.7 E13 — `site/public/CNAME` contents are exactly `pi-dashboard.dev`
-- [ ] 2.8 E14 — `workflow_dispatch` remains available on `deploy-site.yml`
-- [ ] 2.9 E15 — `site/package.json` declares no `dependencies`/`devDependencies`/`optionalDependencies` (manifest side; the workflow side — no `npm ci` returns — is already pinned by `pnpm-migration-contract.test.ts` X6)
+- [x] 2.1 E9 — deploy triggers on site and shell paths: `push.branches` is `[develop]`, never `main`; `paths` includes `site/**` and `packages/shell/**` and the workflow itself
+- [x] 2.2 E10 — the dead release path is absent from `deploy-site.yml`: no `release:` trigger, no `redispatch-on-release` job, no `github.event_name != 'release'` guard
+- [x] 2.3 E10a — `publish.yml` has a terminal job with `needs: github-release` invoking `gh workflow run` for both `sync-release-version.yml` and `deploy-site.yml`, each with `--ref develop`
+- [x] 2.4 E10b — the dispatches are sequenced, not raced: the `deploy-site.yml` dispatch is preceded by a wait on the `sync-release-version` run it dispatched
+- [x] 2.5 E11 — `sync-release-version.yml` pushes `HEAD:develop`, never `main`
+- [x] 2.6 E12 — a step copies the shell build into `site/dist/app/` and precedes the Pages artifact upload
+- [x] 2.7 E13 — `site/public/CNAME` contents are exactly `pi-dashboard.dev`
+- [x] 2.8 E14 — `workflow_dispatch` remains available on `deploy-site.yml`
+- [x] 2.9 E15 — `site/package.json` declares no `dependencies`/`devDependencies`/`optionalDependencies` (manifest side; the workflow side — no `npm ci` returns — is already pinned by `pnpm-migration-contract.test.ts` X6)
 
 ## 3. Specs
 
-- [ ] 3.1 Land the `marketing-site` delta re-derived for the static page: download block is inline markup rewritten by `sync-release.mjs` (no build-time fetch, `check-release` non-blocking), five stale scenarios corrected, and the "Performance and accessibility budgets" requirement records the budget check's removal rather than asserting a 50 KB gate
-- [ ] 3.2 Land the `neutral-shell-publication` capability spec minus the JS-budget-exclusion requirement (its subject — the budget check — no longer exists)
-- [ ] 3.3 Land the `ci-cd-pipeline` delta as a dependency-free pin: site manifest stays zero-dep; deploy runs no site install; dependency reintroduction must bring an install strategy + drift guard in the same change
-- [ ] 3.4 Confirm no requirement duplicates `server-cors`'s ownership of the neutral-shell CORS origin (design D4)
+- [x] 3.1 Land the `marketing-site` delta re-derived for the static page: download block is inline markup rewritten by `sync-release.mjs` (no build-time fetch, `check-release` non-blocking), five stale scenarios corrected, and the "Performance and accessibility budgets" requirement records the budget check's removal rather than asserting a 50 KB gate
+- [x] 3.2 Land the `neutral-shell-publication` capability spec minus the JS-budget-exclusion requirement (its subject — the budget check — no longer exists)
+- [x] 3.3 Land the `ci-cd-pipeline` delta as a dependency-free pin: site manifest stays zero-dep; deploy runs no site install; dependency reintroduction must bring an install strategy + drift guard in the same change
+- [x] 3.4 Confirm no requirement duplicates `server-cors`'s ownership of the neutral-shell CORS origin (design D4)
 
 ## 4. Deploy and verify
 

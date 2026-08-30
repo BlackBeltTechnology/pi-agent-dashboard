@@ -7,7 +7,7 @@
 | Workflow | Trigger | Purpose | Mutates releases? |
 |---|---|---|---|
 | `ci.yml` | Push and pull request to `develop` | Node 22 lint, type checks, tests, and build | No |
-| `deploy-site.yml` | `site/**` push, release publication, manual | Build and deploy GitHub Pages | Site only |
+| `deploy-site.yml` | `site/**`/`packages/shell/**` push to develop, manual dispatch (release redeploy arrives via `publish.yml` `site-redeploy` dispatch — a `release:` trigger can never start a run) | Build and deploy GitHub Pages (site + shell at `/app/`) | Site only |
 | `ci-e2e-electron.yml` | Path-filtered pull request, manual | Native Electron Playwright checks on Linux and Windows | No |
 | `ci-electron.yml` | Manual | Build selected Electron installer matrix legs | No |
 | `ci-smoke.yml` | Manual | Run the standalone installation smoke matrix | No |

@@ -598,3 +598,84 @@ describe("publish.yml — release-gate contract (gate-publish-on-smoke-and-tests
     }
   });
 });
+
+// ── Site-redeploy dispatch contract (change: fix-deploy-site-ship-shell) ────
+// publish.yml creates the GitHub Release with the default Actions token, and
+// GitHub suppresses workflow runs from events raised by that token — so the
+// `release:` triggers on sync-release-version.yml / deploy-site.yml can NEVER
+// start a run (verified: never have in this repo). workflow_dispatch is the
+// documented exception that always creates a run, so the release path for the
+// site is a terminal `site-redeploy` job that dispatches both workflows on
+// develop. E10a pins the job shape; E10b pins the sequencing (the deploy must
+// observe the download-block commit, not race it). See design D8.
+describe("publish.yml — site-redeploy dispatch contract (fix-deploy-site-ship-shell)", () => {
+  const yaml = fs.readFileSync(WORKFLOW_PATH, "utf8");
+  const siteRedeployBlock = extractJobBlock(yaml, "site-redeploy");
+
+  it("E10a: terminal job `needs: github-release`", () => {
+    const needs = parseNeeds(siteRedeployBlock);
+    if (!needs.includes("github-release")) {
+      throw new Error(
+        "site-redeploy job MUST `needs: [github-release]` (got " +
+          JSON.stringify(needs) + ") — the site redeploy is the terminal stage " +
+          "of the release. See change: fix-deploy-site-ship-shell (E10a). " +
+          "Job block:\n" + siteRedeployBlock,
+      );
+    }
+  });
+
+  it("E10a: dispatches both sync-release-version.yml and deploy-site.yml with --ref develop", () => {
+    for (const wf of ["sync-release-version.yml", "deploy-site.yml"]) {
+      const callRe = new RegExp(
+        `gh workflow run ${wf.replace(/\\./g, "\\.")}[\\s\\S]*?--ref develop`,
+      );
+      if (!callRe.test(siteRedeployBlock)) {
+        throw new Error(
+          `site-redeploy job MUST dispatch ${wf} via \`gh workflow run\` with ` +
+            "`--ref develop` (workflow_dispatch always creates a run; the " +
+            "github-pages environment rejects a tag ref). " +
+            "See change: fix-deploy-site-ship-shell (E10a). Job block:\n" +
+            siteRedeployBlock,
+        );
+      }
+    }
+  });
+
+  it("E10b: the deploy-site dispatch is sequenced after a wait on the sync run", () => {
+    // A back-to-back dispatch lets deploy-site check out develop before the
+    // download-block commit lands; the page renders either way, so the race
+    // is invisible. The wait (`gh run watch ... --exit-status`) must sit
+    // BETWEEN the two dispatches.
+    const syncIdx = siteRedeployBlock.indexOf("gh workflow run sync-release-version.yml");
+    const waitIdx = siteRedeployBlock.indexOf("gh run watch");
+    const deployIdx = siteRedeployBlock.indexOf("gh workflow run deploy-site.yml");
+    if (syncIdx === -1 || waitIdx === -1 || deployIdx === -1) {
+      throw new Error(
+        "site-redeploy job must contain both dispatches and a `gh run watch` " +
+          "wait between them. See change: fix-deploy-site-ship-shell (E10b). " +
+          "Job block:\n" + siteRedeployBlock,
+      );
+    }
+    if (!(syncIdx < waitIdx && waitIdx < deployIdx)) {
+      throw new Error(
+        "site-redeploy dispatches are raced, not sequenced: expected " +
+          "dispatch sync → wait (gh run watch) → dispatch deploy-site. " +
+          "See change: fix-deploy-site-ship-shell (E10b). Job block:\n" +
+          siteRedeployBlock,
+      );
+    }
+  });
+
+  it("E10b: the wait is bound to the dispatch that created it (timestamp-bounded lookup)", () => {
+    // A bare `gh run list --limit 1` could grab a stale manual run and watch
+    // THAT while the real sync run races unchecked. The lookup must exclude
+    // runs created before the dispatch.
+    if (!siteRedeployBlock.includes("created_at")) {
+      throw new Error(
+        "site-redeploy's run lookup must be bounded to runs created after the " +
+          "dispatch (select(.created_at > <dispatch time>)), or it can watch a " +
+          "stale manual run. See change: fix-deploy-site-ship-shell (task 1.3).",
+      );
+    }
+  });
+});

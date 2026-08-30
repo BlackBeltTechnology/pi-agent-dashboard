@@ -669,3 +669,58 @@ jobs:
           # Actions stringifies job outputs. See change:
           # eliminate-bash-on-windows-runners (D6).
           prerelease: ${{ needs.resolve.outputs.is_prerelease == 'true' }}
+
+  # ── Site redeploy (dispatched — release events cannot start runs) ─────
+  # publish.yml creates the GitHub Release with the default Actions token,
+  # and GitHub suppresses workflow runs from events raised by that token, so
+  # `release: published` triggers on sync-release-version.yml /
+  # deploy-site.yml CANNOT start runs (verified: never have in this repo).
+  # workflow_dispatch is the documented exception that always creates a run.
+  # This terminal job is therefore the release path for the site: dispatch
+  # sync-release-version.yml (rewrites the download block on develop), WAIT
+  # for that run to complete, then dispatch deploy-site.yml. The wait is
+  # load-bearing: a back-to-back dispatch lets the deploy check out develop
+  # before the download-block commit lands, and the page renders either way,
+  # so the race is invisible. --ref develop is load-bearing too: the
+  # github-pages environment rejects deploys from a tag ref.
+  # See change: fix-deploy-site-ship-shell (design D8).
+  site-redeploy:
+    needs: [github-release]
+    if: ${{ !cancelled() && needs.github-release.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: write # required so this job can run `gh workflow run`
+    steps:
+      - name: Dispatch sync-release-version.yml on develop and wait for it
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          before=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          gh workflow run sync-release-version.yml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref develop
+          # The run registers asynchronously; bound the lookup to runs created
+          # AFTER our dispatch timestamp so we never watch a stale manual run.
+          run_id=""
+          for _ in $(seq 1 30); do
+            sleep 5
+            run_id=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/sync-release-version.yml/runs?event=workflow_dispatch&per_page=5" \
+              --jq "[.workflow_runs[] | select(.created_at > \"$before\")][0].id" 2>/dev/null || true)
+            [ -n "$run_id" ] && break
+          done
+          if [ -z "$run_id" ]; then
+            echo "::error::sync-release-version run did not register within 150s"
+            exit 1
+          fi
+          echo "Watching sync-release-version run $run_id"
+          gh run watch "$run_id" --repo "${GITHUB_REPOSITORY}" --exit-status --interval 15
+
+      - name: Dispatch deploy-site.yml on develop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run deploy-site.yml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref develop
