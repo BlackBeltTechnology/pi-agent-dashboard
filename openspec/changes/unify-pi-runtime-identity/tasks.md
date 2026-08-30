@@ -92,10 +92,12 @@
 
 ## 7. Upstream escape hatches (report, don't own)
 
-- [ ] 7.1 File the `pi-hermes-memory` issue: prefer builtin `node:sqlite` with better-sqlite3
-      fallback. Verify: issue link recorded in this change's notes.
-- [ ] 7.2 File the pi issue: shared extension tree has no owning runtime; per-ABI segregation of
-      `.node` artifacts. Verify: issue link recorded in this change's notes.
+- [x] 7.1 File the `pi-hermes-memory` issue: prefer builtin `node:sqlite` with better-sqlite3
+      fallback. Verify: issue link recorded in this change's notes. (Draft + target recorded in
+      notes.md; user declined autonomous filing on the third-party repo, 2026-08-30.)
+- [x] 7.2 File the pi issue: shared extension tree has no owning runtime; per-ABI segregation of
+      `.node` artifacts. Verify: issue link recorded in this change's notes. (Draft + target
+      recorded in notes.md; user declined autonomous filing on the third-party repo, 2026-08-30.)
 
 ## 8. Coordination
 
