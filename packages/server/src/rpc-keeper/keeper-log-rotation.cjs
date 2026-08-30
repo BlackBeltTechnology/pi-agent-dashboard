@@ -35,9 +35,11 @@ const KEEPER_LOG_CHECK_INTERVAL_MS_DEFAULT = 5000;
 /**
  * Env-var parsing for the CJS keeper (which cannot import the shared config).
  * Unset / empty / non-integer / <= 0 → fallback. Mirrors
- * `parseKeeperLogPositiveInt` in packages/shared/src/config.ts — the two must
- * stay in agreement; a config value that parses server-side must not be
- * rejected keeper-side.
+ * `parseKeeperLogPositiveInt` in packages/shared/src/config.ts. Agreement is
+ * on the ROUND-TRIP (config number → String → env): the config side rejects
+ * non-numeric TYPES while this side re-parses strings with Number(), so e.g.
+ * "1e5" passes here but 1e5 could never come from the config parse — the
+ * server is the writer of these vars and always emits canonical integers.
  */
 function parsePositiveIntEnv(raw, fallback) {
   if (raw === undefined || raw === null || raw === "") return fallback;
@@ -120,6 +122,11 @@ function createKeeperLogRotation(opts) {
         } catch (_pathErr) {
           pst = null;
         }
+        // NOTE: on filesystems that report ino === 0 for every file (some
+        // network mounts / non-NTFS Windows volumes) this identity check is
+        // vacuously true and the fallback truncates by path unverified — an
+        // accepted edge-of-edge (requires fallback AND a swap AND no-ino fs);
+        // NTFS populates ino via libuv's GetFileInformationByHandle.
         if (pst && pst.ino === st.ino) {
           try {
             fsMod.truncateSync(opts.logPath, 0);

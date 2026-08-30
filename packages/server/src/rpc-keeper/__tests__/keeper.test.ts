@@ -636,8 +636,6 @@ async function findChildPids(parentPid: number): Promise<number[]> {
 
 /** Distinctive seed byte for pre-grown logs (must differ from the writer's 'a'). */
 const SEED_CHAR = "B";
-/** Keeper's own lifecycle lines add a few hundred bytes to a seeded log. */
-const KEEPER_LINE_OVERHEAD_BYTES = 1200;
 
 function seedLog(home: string, sid: string, bytes: number): string {
   mkdirSync(sessionsDirIn(home), { recursive: true });

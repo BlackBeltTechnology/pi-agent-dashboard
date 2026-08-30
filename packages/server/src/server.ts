@@ -2045,8 +2045,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // surviving keepers after a server restart. Same instance the spawn
       // path uses. See change: add-rpc-stdin-dispatch-with-keeper-sidecar.
       try {
-        const { getKeeperManager: getKm } = await import("./spawn-process/process-manager.js");
-        browserGateway.headlessPidRegistry.setKeeperWriter(getKm());
+        browserGateway.headlessPidRegistry.setKeeperWriter(getKeeperManager());
         const keeperAliveIds = await browserGateway.headlessPidRegistry.cleanupKeeperOrphans();
         // Class 1 synchronous liveness gate: a candidate whose keeper+pi the
         // reclaim found alive was never lost — drop it before the offer is
@@ -2061,7 +2060,7 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
         // ONCE per server start, after discovery has classified live vs dead
         // keepers, and seeds the stats snapshot /api/health serves. Truncates
         // oversized aged dead-session logs; never unlinks.
-        const sweep = getKm().sweepKeeperLogs();
+        const sweep = getKeeperManager().sweepKeeperLogs();
         if (sweep.reclaimedFiles > 0) {
           console.log(
             `[dashboard] keeper-log sweep: reclaimed ${sweep.reclaimedFiles} file(s) / ${sweep.reclaimedBytes} bytes` +
