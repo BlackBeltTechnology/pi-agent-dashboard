@@ -143,6 +143,8 @@ The Packer macOS template uses `vmware-vmx` builder (starts from existing VM) ra
 
 8. **Electron real-launch smoke (Linux)** — `qa/tests/08-electron-real-launch.sh`. Launches AppImage under `xvfb-run --no-sandbox`. Asserts `/api/health` 200 within 90s, `starter==Electron`, `~/.pi/dashboard/server.log` non-empty, no `FATAL` substring in Electron parent stdout. Catches v0.4.6 regression class: jiti-FATAL on degraded managed dir + `spawnDetached` `stdio[1]='ignore'` producing 0-byte logs. Skips when AppImage artifact absent under `packages/electron/out/make/` (run `npm run make` to build). Requires `xvfb` on QA VM (provisioned via `qa/packer/scripts/provision-linux.sh`).
 
+9. **Keeper-log rotation (Windows only)** — `qa/tests/12-keeper-log-rotation.ps1` (change: `fix-runaway-keeper-log-growth`, test-plan #E16). Drives a real `keeper.cjs` with a 64 KiB cap and capture ON while a mock pi child floods the shared stdout fd. Asserts the Windows rotation contract (design D4): the log size drops below the cap (proves `ftruncateSync` works on the append handle, or that the path-truncate fallback carries every rotation), the file is not renamed/removed and no `.log.N` generation appears, the child still writes through the fd after rotation, and the keeper still forwards RPC lines over the named pipe. **VM cadence only — deliberately NOT wired into the `windows-latest` CI leg** (resolved clarification). Run via the Windows VM test pass; a FAIL here means rotation silently does not work on Windows and `runawayFiles` on `/api/health` is the runtime backstop.
+
 ## Directory Structure
 
 ```

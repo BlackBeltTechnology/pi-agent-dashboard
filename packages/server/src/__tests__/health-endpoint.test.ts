@@ -5,6 +5,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { createKeeperManager, EMPTY_KEEPER_LOG_STATS } from "../rpc-keeper/keeper-manager.js";
+import { setKeeperManager } from "../spawn-process/process-manager.js";
 import type { DashboardServer } from "../server.js";
 import { createTestServer, type TestServerHandle } from "../test-support/test-server.js";
 
@@ -125,3 +127,48 @@ describe("GET /api/health", () => {
 
 /** A trusted entry distinctive enough that finding it in a body is unambiguous. */
 const TOPOLOGY_SECRET = "192.168.177.0/24";
+
+// X10 (fix-runaway-keeper-log-growth, task 4.5): sessionsDir deleted before a
+// stats refresh → GET /api/health stays 200 and keeperLogs equals the typed
+// zero constant. The singleton KeeperManager is INJECTED with a tiny stats
+// TTL and an isolated sessions dir, so the server's route wiring (and only
+// the wiring) is exercised here; the stats math lives in
+// keeper-log-maintenance.test.ts.
+describe("GET /api/health — keeperLogs degraded case (X10)", () => {
+  afterEach(() => {
+    setKeeperManager(null);
+  });
+
+  it("deleted sessionsDir → 200 and keeperLogs equals EMPTY_KEEPER_LOG_STATS", async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "klog-x10-"));
+    const sessionsDir = path.join(tmp, "sessions");
+    fs.mkdirSync(sessionsDir, { recursive: true });
+    setKeeperManager(
+      createKeeperManager({
+        sessionsDir,
+        statsTtlMs: 30, // expired by the time the request fires
+      }),
+    );
+    try {
+      handle = await createTestServer();
+      server = handle.server;
+      expect(server).toBeDefined();
+
+      // Delete the dir AFTER boot (the startup sweep already ran once).
+      fs.rmSync(sessionsDir, { recursive: true, force: true });
+      await new Promise((r) => setTimeout(r, 60)); // TTL expires
+
+      const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+      expect(res.status).toBe(200);
+      const body = (await res.json()) as Record<string, unknown>;
+      expect(body.keeperLogs).toEqual(EMPTY_KEEPER_LOG_STATS);
+    } finally {
+      if (handle) {
+        await handle.stop().catch(() => undefined);
+        handle = undefined;
+        server = undefined;
+      }
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  }, 15_000);
+});
