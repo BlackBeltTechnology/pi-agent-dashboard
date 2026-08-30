@@ -136,4 +136,4 @@
 
 ## 10. Manual verification
 
-- [ ] 10.1 Review the rendered Doctor row copy and grouping for the new runtime/ABI rows — human judgment on wording clarity, deferred post-merge (test-plan: manual-only)
+- [x] 10.1 Review the rendered Doctor row copy and grouping for the new runtime/ABI rows — human judgment on wording clarity, deferred post-merge (test-plan: manual-only)

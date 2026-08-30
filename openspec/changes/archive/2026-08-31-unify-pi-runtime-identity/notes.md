@@ -1,5 +1,29 @@
 # Notes — unify-pi-runtime-identity
 
+## ship-it review checkpoint (step 4.5)
+
+- Reviewer: `@review` = `deepseek/deepseek-v4-pro:high` (isolated subagent, review-code rubric).
+- Round 1: 2× `issue(blocking)` — `electron-arm-identity-lost-at-process-boundary`
+  (detectSpawnArm keyed on markers absent in the packaged server child) and its consequence
+  `bundle-path-persisted-on-electron-arm`. Fixed in 52e6a2ae1: launcher stamps
+  `PI_DASHBOARD_ELECTRON=1` + `PI_DASHBOARD_RESOURCES_PATH` into the server child;
+  `detectSpawnArm()`/`electronResourcesPath()` honour them; regression tests added. Also fixed
+  (non-blocking but spec-central): `piEntry` wiring at cli.ts startup +
+  `spawnRuntimeForSession` (floor of THE spawned pi copy), and the committed machine-specific
+  `.pi/settings.json` path reverted.
+- Round 2 (cap): **zero blocking findings; all four round-1 items RESOLVED** — proceed.
+- Non-blocking findings recorded as follow-ups (NOT fixed post-cap, per the two-round hard cap):
+  1. `PI_DASHBOARD_ELECTRON`/`PI_DASHBOARD_RESOURCES_PATH` leak to grandchildren — a
+     bridge-relaunched server can misdetect `arm: "electron"` with a stale resources path;
+     ladder stays total, degradation is diagnostic/ordering only. Fix: strip both markers in
+     `process-manager.buildSpawnEnv` (and extension server-launcher).
+  2. `piEntryFromArgv` last-element fallback relies on the undocumented `[cmd, ...prefixArgs]`
+     invariant of `resolveExecutor` — add a doc note or a `-`-prefix guard.
+  3. Pre-spawn manifest drift check (`checkManifestDrift`) has no production caller yet; Doctor
+     rebuilds the manifest per run (D7's pre-spawn budget is not exercised in production).
+  4. e2e env-only integration assertion (resolveSpawnRuntime({}) with markers set) would pin the
+     full env wiring path.
+
 ## Part 4 — upstream escape hatches (tasks 7.1, 7.2)
 
 Status: **pending user filing** (2026-08-30 — user declined autonomous filing on
