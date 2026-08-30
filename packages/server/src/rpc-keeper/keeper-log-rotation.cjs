@@ -157,9 +157,15 @@ function createKeeperLogRotation(opts) {
   /** Start the unref'd interval timer (child-driven growth produces no log() calls). */
   function start() {
     if (timer) return;
+    // Node clamps setInterval delays >= 2^31 ms to 1 ms — a huge checkIntervalMs
+    // would spin a 1 ms tick forever (harmless no-ops through the throttle, but
+    // still a hot timer). Clamp the TIMER cadence only; the throttle still uses
+    // the true checkIntervalMs, so an over-large config behaves as "check only
+    // from log()" rather than as a busy loop.
+    const timerDelay = Math.min(checkIntervalMs, 2147483647);
     timer = setInterval(() => {
       rotateIfNeeded();
-    }, checkIntervalMs);
+    }, timerDelay);
     // unref: the timer must not keep the keeper alive past pi's exit.
     timer.unref();
     return timer;

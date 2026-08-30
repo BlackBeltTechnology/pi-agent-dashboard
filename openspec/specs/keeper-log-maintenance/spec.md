@@ -1,7 +1,11 @@
 # keeper-log-maintenance Specification
 
 ## Purpose
-TBD - created by archiving change fix-runaway-keeper-log-growth. Update Purpose after archive.
+Reclaim pre-existing oversized keeper logs and make keeper-log disk posture
+observable. One startup sweep truncates (never unlinks) oversized, aged logs of
+sessions with no live keeper process; `/api/health` reports cached size stats
+including a `runawayFiles` signal for keepers whose rotation is silently not
+working. See change: fix-runaway-keeper-log-growth.
 
 ## Requirements
 

@@ -1,4 +1,4 @@
-# Test: keeper-log rotation bound on Windows (change: fix-runaway-keeper-log-growth, test-plan #E16)
+﻿# Test: keeper-log rotation bound on Windows (change: fix-runaway-keeper-log-growth, test-plan #E16)
 #
 # Drives a REAL keeper.cjs (from the cloned repo) with a 64 KiB cap and
 # capture ON while a mock pi child floods the shared stdout fd. Asserts the
@@ -66,14 +66,17 @@ $env:MOCK_PI_SIDE_LOG = $sideLog
 
 $keeperProc = $null
 function Cleanup {
+    # Tree-kill the keeper: /T takes the mock pi child with it (a bare
+    # Stop-Process -Force skips the keeper's shutdown handler, which is the
+    # only thing that SIGKILLs pi).
     if ($keeperProc -and -not $keeperProc.HasExited) {
-        try { Stop-Process -Id $keeperProc.Id -Force -ErrorAction SilentlyContinue } catch {}
+        try { taskkill /PID $keeperProc.Id /T /F 2>$null | Out-Null } catch { Write-Verbose "taskkill failed: $_" }
     }
-    # Best-effort: the mock pi is a child node process; the keeper's shutdown
-    # SIGKILLs it, but this covers a crashed-keeper path.
+    # Fallback for a keeper that already exited: the mock pi's command line
+    # carries the unique work-dir marker, NOT the session id.
     Get-CimInstance Win32_Process -Filter "Name = 'node.exe'" -ErrorAction SilentlyContinue |
-        Where-Object { $_.CommandLine -like "*$sid*" } |
-        ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch {} }
+        Where-Object { $_.CommandLine -like "*$work*" } |
+        ForEach-Object { try { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue } catch { Write-Verbose "mock-pi stop failed: $_" } }
     Remove-Item Env:PI_KEEPER_LOG_MAX_BYTES -ErrorAction SilentlyContinue
     Remove-Item Env:PI_KEEPER_LOG_CHECK_INTERVAL_MS -ErrorAction SilentlyContinue
     Remove-Item Env:PI_KEEPER_CAPTURE_PI_OUTPUT -ErrorAction SilentlyContinue
@@ -128,12 +131,25 @@ try {
         Write-Host "FAIL: retained generations appeared: $($generations -join ', ')"
         exit 1
     }
-    Start-Sleep -Seconds 2
-    if ((Get-Item $logPath).Length -le $sizeAfter) {
-        Write-Host "FAIL: log did not regrow after rotation (child fd detached?)"
+    # Prove the child still writes through the shared fd by SAMPLING: the size
+    # must CHANGE across the window (it may have rotated again between any two
+    # samples, so a point-in-time comparison against $sizeAfter would flake).
+    # Every sample must also stay under 2x cap — the bound still holds.
+    $samples = @()
+    for ($i = 0; $i -lt 8; $i++) {
+        Start-Sleep -Milliseconds 300
+        $samples += (Get-Item $logPath).Length
+    }
+    $maxSample = ($samples | Measure-Object -Maximum).Maximum
+    if (($samples | Select-Object -Unique).Count -lt 2) {
+        Write-Host "FAIL: log size never changed after rotation (child fd detached?)"
         exit 1
     }
-    Write-Host "Live log regrowing after rotation (child still holds the fd)"
+    if ($maxSample -ge (2 * $CAP_BYTES)) {
+        Write-Host "FAIL: post-rotation log reached $maxSample bytes (>= 2x cap) - bound not holding"
+        exit 1
+    }
+    Write-Host "Live log flowing after rotation (samples: $($samples -join ','))"
 
     # 5. Keeper still forwards RPC: a line written to the named pipe must
     #    reach the mock pi's side log.

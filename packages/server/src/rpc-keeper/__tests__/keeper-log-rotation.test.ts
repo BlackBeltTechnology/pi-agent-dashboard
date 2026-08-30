@@ -253,6 +253,29 @@ describe("rotateIfNeeded — both truncation paths fail (X3, unit half)", () => 
   });
 });
 
+describe("start() — interval timer", () => {
+  it("a checkIntervalMs over 2^31 ms is clamped for the TIMER (no 1 ms busy tick from Node's delay clamp)", async () => {
+    // Node clamps setInterval delays >= 2^31 ms down to 1 ms. Without the
+    // clamp, start() with an absurd config would spin rotateIfNeeded every
+    // millisecond (visible here as fstat calls firing within 50 ms).
+    const stub = makeStubFs(65_536);
+    const { rotation } = makeRotation(stub, { checkIntervalMs: 2_147_483_648 });
+    rotation.start();
+    await new Promise((r) => setTimeout(r, 50));
+    rotation.stop();
+    expect(stub.state.fstatCalls).toBe(0); // clamped timer has not fired
+  });
+
+  it("start()/stop() are idempotent", () => {
+    const stub = makeStubFs(0);
+    const { rotation } = makeRotation(stub, { checkIntervalMs: 60_000 });
+    rotation.start();
+    rotation.start(); // second start is a no-op
+    expect(() => rotation.stop()).not.toThrow();
+    expect(() => rotation.stop()).not.toThrow(); // double stop is a no-op
+  });
+});
+
 describe("fstatSync (not statSync) is the size oracle", () => {
   it("the check reads the fd — a swapped path does not fool the size comparison", () => {
     // The over-cap file lives behind the FD (the original inode); the PATH

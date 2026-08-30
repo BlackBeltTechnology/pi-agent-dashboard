@@ -794,24 +794,25 @@ describe.skipIf(process.platform === "win32")("keeper-log rotation (real keeper)
           PI_KEEPER_LOG_CHECK_INTERVAL_MS: "30",
           MOCK_PI_MODE: "writer",
           MOCK_PI_WRITE_CHUNK: "4096",
-          MOCK_PI_WRITE_TICK_MS: "2",
-          MOCK_PI_WRITE_TOTAL: "65536", // 4× cap → ≥3 rotations
+          MOCK_PI_WRITE_TICK_MS: "10", // ~400 KB/s
+          MOCK_PI_WRITE_TOTAL: "0", // write until killed — a finite burst (65 KB ≈ 32 ms) can fall entirely between observation polls under load
         },
       }),
     );
     await readyKeeper(k);
-    // Same CI-load guard as E5: never let the stability window fire before
-    // the child has written anything (which would make the rotation count
-    // vacuously zero).
+    // Never observe before the child is flowing: 8 KB = 2 writer chunks
+    // (lifecycle lines never get there). Continuous writing keeps sizes ≥ 8 KB
+    // reachable on every poll — the ≥3-rotation driver is sustained overflow.
     await waitFor(() => {
       if (!existsSync(keeperLogIn(home, sessionId))) return false;
-      return readFileSync(keeperLogIn(home, sessionId), "utf8").includes("a");
-    }, 20_000);
-    await waitForStableSize(home, sessionId, { stableMs: 600, timeoutMs: 20_000 });
+      return statSync(keeperLogIn(home, sessionId)).size >= 8192;
+    }, 30_000);
+    // ~2.5 s at cap 16 KiB / ~400 KB/s ⇒ ~60 rotations while we watch.
+    await new Promise((r) => setTimeout(r, 2_500));
     const siblings = readdirSync(sessionsDirIn(home)).filter((n) => n.startsWith(`keeper-${sessionId}.log`));
     expect(siblings).toEqual([`keeper-${sessionId}.log`]); // exactly the live log, nothing else
     await killAndAwait(k);
-  }, 25_000);
+  }, 60_000);
 
   it("E5: child-only growth rotates via the interval timer with zero keeper lines after child bytes", async () => {
     const sessionId = makeSessionId();
@@ -834,11 +835,14 @@ describe.skipIf(process.platform === "win32")("keeper-log rotation (real keeper)
     await readyKeeper(k);
     // Under heavy CI load the mock-pi process can take >1 s to boot; the
     // stability window below would otherwise fire on a lifecycle-only log
-    // before the child wrote a single byte. Wait for child bytes FIRST.
+    // (~600 B) before the child wrote a single byte. Wait for CHILD DATA
+    // first: the log reaching 2 writer chunks proves chunks are flowing
+    // (keeper lifecycle lines never exceed ~1 KB). Size-based, because a
+    // boot marker would be truncated away by the first rotation.
     await waitFor(() => {
       if (!existsSync(keeperLogIn(home, sessionId))) return false;
-      return readFileSync(keeperLogIn(home, sessionId), "utf8").includes("a");
-    }, 20_000);
+      return statSync(keeperLogIn(home, sessionId)).size >= 8192;
+    }, 30_000);
     const size = await waitForStableSize(home, sessionId, { stableMs: 800, timeoutMs: 30_000 });
     expect(size).toBeLessThan(2 * 65_536);
     // The writer emits only 'a' bytes (no newlines). Any keeper-originated
@@ -848,7 +852,7 @@ describe.skipIf(process.platform === "win32")("keeper-log rotation (real keeper)
     expect(firstChildByte).toBeGreaterThanOrEqual(0);
     expect(content.slice(firstChildByte)).toMatch(/^a+$/); // pure child bytes, no keeper lines
     await killAndAwait(k);
-  }, 30_000);
+  }, 90_000);
 
   it("X1: ftruncate refused → path fallback truncates the same inode (keeper stays up)", async () => {
     const sessionId = makeSessionId();

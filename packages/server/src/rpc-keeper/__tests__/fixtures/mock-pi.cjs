@@ -64,6 +64,9 @@ if (mode === "writer") {
   const chunk = Buffer.alloc(chunkSize, 0x61); // 'a'
   let written = 0;
   let stdinBuf = ""; // own buffer — writer mode returns before normal mode's `let buf`
+  // Boot marker: lets tests distinguish "the writer child is emitting" from
+  // the keeper's own lifecycle lines (which contain no 'a' — deliberately).
+  process.stdout.write("MOCK_PI_WRITER_BOOT\n");
   const writeTimer = setInterval(() => {
     if (total > 0 && written >= total) return; // steady state: markers only
     process.stdout.write(chunk);
