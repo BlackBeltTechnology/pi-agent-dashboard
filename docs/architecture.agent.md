@@ -116,7 +116,8 @@ Server CLI + bridge read `~/.pi/dashboard/config.json` via `src/shared/config.ts
 - Cross-Platform Server Launch — `node --import <loader> <cli.ts>` from 4 call sites. `file://` URL wrapping.
   - stdout + stderr capture parity — both call sites capture both streams into log.
   - CJS preload for Fastify (nodejs/node#58515) — inject `--require preload-fastify.cjs` before `--import jiti`.
-  - Node-version preflight — `node-version-check.ts::isKnownBadNode(version)`. CLI warns, proceeds.
+  - Node-version preflight — `packages/shared/src/node-version.ts`. Floor 22.19; affected 22.0–22.18 + 24.1–24.2; cap <27. Startup guard `auth/node-guard.ts::assertNodeVersionSupported` refuses, exits(1).
+  - Spawn runtime resolution — `platform/spawn-runtime.ts::resolveSpawnRuntime`. 4-rung ladder (override → tool-overrides node → user Node → managed → bundled/execPath). Publishes `runtime.resolved` to `~/.pi/dashboard/config.json`. See change: unify-pi-runtime-identity.
   - AppImage CLI self-recursion guard — power-user launch prefers installed `pi-dashboard` on PATH; guards recursion.
 - Cross-OS Platform Primitives — `packages/shared/src/platform/` win32 branches. Optional `platform` param injection.
 - Windows runtime dependencies (git + bash) — Windows needs `git.exe` + POSIX shell. Installers embed dugite-native (git 2.53.0 + bash). `windowsGitSource` auto/host/bundled.

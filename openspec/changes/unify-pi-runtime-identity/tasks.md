@@ -84,7 +84,7 @@
 - [x] 6.3 Make `buildEnginesRangeMessage` include the managed-Node PATH hint only when
       `<managedDir>/node/` exists; update its test and the `no-managed-dir-reference` allowlist
       rationale. Verify: guard unit tests for both machine states.
-- [ ] 6.4 Docs drift pass (DocScribe for `docs/` prose): README.md:120,126 floor text,
+- [x] 6.4 Docs drift pass (DocScribe for `docs/` prose): README.md:120,126 floor text,
       `docs/architecture.md` retired range + stale `node-version-check.ts`/`isKnownBadNode`
       reference, `known-issues.md:26-29` pre-widening values, ownership split
       (`~/.pi/dashboard/` vs `~/.pi-dashboard/`). Verify: `kb dox lint` clean and greps for the
@@ -99,7 +99,7 @@
 
 ## 8. Coordination
 
-- [ ] 8.1 Confirm the `add-node-runtime-family-selection` coordination note still matches the
+- [x] 8.1 Confirm the `add-node-runtime-family-selection` coordination note still matches the
       landed ladder behaviour (selection = gated step-1 candidate; supersession contract), and
       update the archive-order note if that change has progressed. Verify: both proposals'
       coordination text agree.
@@ -123,7 +123,7 @@
 - [x] 9.15 Author the visibility-row content test — input: resolved runtime with divergent PATH install, override shadowing a selection, above-cap resolved major; trigger: Doctor report build; observable: runtime row with binary/version/ABI/source, divergence row with node -v remedy and override pointer, shadowed selection named, cap note informational (test-plan E15; see packages/shared/src/__tests__/doctor-core.test.ts)
 - [x] 9.16 Author the pre-spawn stat-path latency test — workload: 100-entry manifest, 100 iterations; observable: p95 < 50ms (test-plan P1; see packages/shared/src/__tests__/doctor-core.test.ts for timing glue)
 - [x] 9.17 Author the shim-probe latency test — workload: shim-shaped resolution forcing per-spawn probe, 20 iterations over a 100-entry manifest; observable: p95 < 250ms (test-plan P2; see packages/shared/src/__tests__/doctor-core.test.ts)
-- [ ] 9.18 Author the Diagnostics visibility e2e spec — input: docker harness with its single in-image Node; trigger: open Settings → Diagnostics; observable: spawn-runtime row visible with version + source label and zero ABI-mismatch rows, port read from .pi-test-harness.json (test-plan F1; see tests/e2e/blackhole-settings.spec.ts)
+- [x] 9.18 Author the Diagnostics visibility e2e spec — input: docker harness with its single in-image Node; trigger: open Settings → Diagnostics; observable: spawn-runtime row visible with version + source label and zero ABI-mismatch rows, port read from .pi-test-harness.json (test-plan F1; see tests/e2e/blackhole-settings.spec.ts)
 - [x] 9.19 Author the detector fault-isolation test — fault: legacy-dir detector throws; trigger: Doctor run; observable: report produced, no Legacy install directory row (test-plan X1; see packages/shared/src/__tests__/doctor-fault-tolerance.test.ts)
 - [x] 9.20 Author the candidate-probe failure test — fault: probe exits non-zero / garbage output / timeout; trigger: step-2 evaluation; observable: candidate rejected with recorded reason, ladder continues without throw (test-plan X2; see packages/shared/src/__tests__/binary-lookup.test.ts)
 - [x] 9.21 Author the Tier-B probe containment test — fault: probe child crashes on dlopen or emits the NODE_MODULE_VERSION mismatch message; trigger: scanner evaluation; observable: server unaffected, verdict from parseable message else unknown (test-plan X3; see packages/shared/src/__tests__/doctor-core.test.ts)

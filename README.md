@@ -117,13 +117,13 @@ Windows has a few extra one-time setup steps. Run the following in an **Administ
 # 1. Enable long paths (required — npm node_modules nesting exceeds 260 chars)
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f
 
-# 2. Install Node.js LTS 22 via winget (ships >= 22.18 so no node-guard refusal)
+# 2. Install Node.js LTS 22 via winget (ships >= 22.19 so no node-guard refusal)
 winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements
 
 # 3. CLOSE this PowerShell, open a NEW one as Administrator (PATH refresh)
 
 # 4. Verify
-node --version    # expect v22.18+ (any 22.x >= 22.18, NOT v22.0–v22.17)
+node --version    # expect v22.19+ (any 22.x >= 22.19, NOT v22.0–v22.18)
 npm --version     # expect 10.x
 
 # 5. Install
@@ -251,7 +251,7 @@ This keeps plugin-provided dynamic content, package names, model names, and comm
 |-------------|-----|---------|
 | **[pi](https://github.com/badlogic/pi-mono)** | The AI coding agent the dashboard monitors | `npm i -g @mariozechner/pi-coding-agent` |
 | **pi-mcp-adapter ≥ 2.20.0** | Lets local pi sessions call the dashboard's `POST /mcp` endpoint | `pi ext update pi-mcp-adapter` |
-| **Node.js ≥ 22.18.0** | Server runtime. Older 22.x / 24.x < 24.3.0 are affected by [nodejs/node#58515](https://github.com/nodejs/node/issues/58515) which crashes Fastify at startup. | [nodejs.org](https://nodejs.org/) |
+| **Node.js ≥ 22.19.0** | Server runtime. Node 22.0.0–22.18.x and 24.1.0–24.2.x refused (affected by [nodejs/node#58515](https://github.com/nodejs/node/issues/58515), crashes Fastify at startup). Cap < 27 for tested range. | [nodejs.org](https://nodejs.org/) |
 | **C++ build tools** | Required by `node-pty` native addon for the integrated terminal | Xcode CLI Tools (macOS) / `build-essential` (Linux) |
 
 Optional:
@@ -596,7 +596,7 @@ The log is append-mode with timestamped headers per start attempt, so previous c
 
 - **`ERR_UNSUPPORTED_ESM_URL_SCHEME` on Windows** — fully fixed in 0.4.0+. The 0.2.10 release wrapped the `--import` loader position as a `file://` URL, but the entry-script position stayed a raw Windows path — which crashed Node on non-`C:` drives (`A:\`, `B:\`, …) because the drive-letter heuristic has gaps there. 0.4.0 routes all four server-spawn call sites through a single `spawnNodeScript` / `toFileUrl` helper that wraps both positions unconditionally, and a repo-level lint test prevents regression. Upgrade the package.
 - **`Cannot find pi's TypeScript loader`** — pi is not installed globally. Run `npm install -g @mariozechner/pi-coding-agent`.
-- **Fastify crash at startup** — you're on Node 22.0.0–22.17.x or 24.1.0–24.2.x which are affected by [nodejs/node#58515](https://github.com/nodejs/node/issues/58515). Upgrade to 22.18+ or 24.3+.
+- **Fastify crash at startup** — you're on Node 22.0.0–22.18.x or 24.1.0–24.2.x which are affected by [nodejs/node#58515](https://github.com/nodejs/node/issues/58515). Upgrade to 22.19+ or 24.3+.
 
 ### Port already in use
 
