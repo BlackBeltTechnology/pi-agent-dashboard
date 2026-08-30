@@ -21,18 +21,18 @@ import type { ToolRegistry, Resolution } from "@blackbelt-technology/pi-dashboar
 import { collectFailures, checkPiPinCoherence } from "../../../../scripts/verify-release-deps.mjs";
 
 const REPO_ROOT = path.resolve(__dirname, "../../../..");
-const PINNED_PI = "0.84.1";
+const PINNED_PI = "0.84.4";
 
 /**
  * The governed pi pins must move together. Four surfaces, one version.
  * See change: update-pi-core-0-84-adopt-apis (test-plan #E1, #E3, #E4, #X13).
  */
-describe("pi pin block \u2014 0.84.1", () => {
+describe("pi pin block \u2014 0.84.4", () => {
   const serverPkg = JSON.parse(
     fs.readFileSync(path.join(REPO_ROOT, "packages/server/package.json"), "utf-8"),
   );
 
-  it("E1: piCompatibility declares recommended 0.84.1 over an unmoved 0.78.0 floor", () => {
+  it("E1: piCompatibility declares recommended 0.84.4 over an unmoved 0.78.0 floor", () => {
     expect(serverPkg.piCompatibility).toEqual({
       minimum: "0.78.0",
       recommended: PINNED_PI,
@@ -40,11 +40,11 @@ describe("pi pin block \u2014 0.84.1", () => {
     });
   });
 
-  it("E1: the server dependency is pinned to ^0.84.1", () => {
+  it("E1: the server dependency is pinned to ^0.84.4", () => {
     expect(serverPkg.dependencies["@earendil-works/pi-coding-agent"]).toBe(`^${PINNED_PI}`);
   });
 
-  it("E3: all four governed pin surfaces report 0.84.1 and the gate passes", () => {
+  it("E3: all four governed pin surfaces report 0.84.4 and the gate passes", () => {
     const dockerfile = fs.readFileSync(path.join(REPO_ROOT, "docker/Dockerfile"), "utf-8");
     const gateSource = fs.readFileSync(path.join(REPO_ROOT, "scripts/verify-release-deps.mjs"), "utf-8");
 

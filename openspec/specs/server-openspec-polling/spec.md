@@ -466,11 +466,46 @@ directory per tick (`openspec list`), independent of the number of changes.
 - **THEN** the server spawns `openspec status` per change as the authoritative
   source and the gate is bypassed
 
+### Requirement: CLI JSON parsing SHALL tolerate a non-JSON preamble
+
+The `openspec` recipes SHALL parse the JSON body of the CLI's stdout even when
+it is preceded by non-JSON output. The CLI prints a one-off telemetry notice
+ahead of its JSON on the first run under a given `HOME`, and a strict
+`JSON.parse(stdout)` throws on it; because a parse failure is indistinguishable
+from "no data" at the call site, the poller reported NO CHANGES on every fresh
+`HOME` (new container, new user, CI runner).
+
+Recovery SHALL be limited to a leading preamble: parsing SHALL retry from the
+first `[` or `{`. Output with no JSON opener, and output whose JSON body is
+followed by trailing junk, SHALL still yield `null` rather than a partial value.
+
+#### Scenario: First run under a fresh HOME still yields changes
+
+- **GIVEN** `openspec list --json` emits a telemetry notice line ahead of its JSON
+- **WHEN** the poller parses that stdout
+- **THEN** it SHALL return the parsed change list, not `null`
+- **AND** the dashboard SHALL NOT present the directory as having no changes
+
+#### Scenario: Genuinely unusable output is still rejected
+
+- **WHEN** stdout contains no JSON opener (an error line, or the notice alone)
+- **THEN** parsing SHALL yield `null`
+
 ### Requirement: Local derivation parity with CLI is guarded by test
 
 The derived per-artifact status SHALL match `openspec status --json` output
 artifact-for-artifact for a representative change set, enforced by an
 automated test that skips gracefully when the `openspec` CLI is unavailable.
+
+The graceful skip SHALL be reserved for a genuinely absent CLI. A parse failure
+SHALL NOT reach the skip branch: the skip is indistinguishable from a pass in the
+report, so a test that silently stops asserting is worse than one that fails.
+
+The test SHALL run its per-change CLI spawns through a BOUNDED CONCURRENCY POOL
+rather than sequentially, so its wall clock does not scale with the size of the
+change backlog. Sequential spawns cost ~0.7s each, which crosses a 60s timeout at
+~85 active changes — a cliff every repo reaches by accumulating changes, and one
+unrelated to the parity being verified.
 
 #### Scenario: Derived status equals CLI status
 
@@ -478,6 +513,13 @@ automated test that skips gracefully when the `openspec` CLI is unavailable.
 - **WHEN** the parity test derives status locally and via the CLI for each
   change
 - **THEN** the two artifact lists are equal per change
+
+#### Scenario: Backlog growth does not time the test out
+
+- **GIVEN** the repo has 85 or more active changes
+- **WHEN** the parity test runs under the harness's ephemeral `HOME`
+- **THEN** it SHALL complete well inside its timeout by pooling the spawns
+- **AND** it SHALL actually assert parity rather than take the CLI-absent skip
 
 ### Requirement: Poll path emits transitional pending before the slow CLI spawn
 

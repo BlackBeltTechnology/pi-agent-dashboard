@@ -31,14 +31,30 @@ interface WithCwd {
 // server-side call sites. See change: add-openspec-profile-settings.
 export { CORE_WORKFLOWS, EXPANDED_WORKFLOWS } from "../types.js";
 
-/** Parse JSON from stdout; returns null on parse failure. */
+/**
+ * Parse JSON from stdout; returns null on parse failure.
+ *
+ * Tolerates a non-JSON PREAMBLE. `openspec` prints a one-off telemetry notice
+ * on its first run under a given HOME, ahead of the JSON body — strict parsing
+ * turned that into "no changes", so a fresh HOME (new container, new user, CI)
+ * silently produced an empty OpenSpec panel on the first poll.
+ * See test: platform/__tests__/openspec-json-preamble.test.ts.
+ */
 function parseJsonOrNull(out: string): unknown | null {
   const trimmed = out.trim();
   if (!trimmed) return null;
   try {
     return JSON.parse(trimmed);
   } catch {
-    return null;
+    // Retry from the first JSON opener. Only a leading preamble is recovered;
+    // trailing junk still fails, and output with no opener stays null.
+    const start = trimmed.search(/[[{]/);
+    if (start <= 0) return null;
+    try {
+      return JSON.parse(trimmed.slice(start));
+    } catch {
+      return null;
+    }
   }
 }
 

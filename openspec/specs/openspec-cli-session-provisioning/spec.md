@@ -25,9 +25,9 @@ directory and prepending that directory to the session process's `PATH` so that
 
 - **WHEN** the shim's `openspec` is invoked
 - **THEN** it SHALL execute the `@fission-ai/openspec` resolved for the extension
-  at the single-source version (see `openspec-cli-version-single-source`; `1.6.0`),
+  at the single-source version (see `openspec-cli-version-single-source`; `1.11.0`),
   lockfile-resolved, requiring no network fetch and no `npx`-latest download
-- **AND** `openspec --version` SHALL report the single-source version (`1.6.0`)
+- **AND** `openspec --version` SHALL report the single-source version (`1.11.0`)
 
 ### Requirement: PATH prepend SHALL be idempotent and non-destructive
 

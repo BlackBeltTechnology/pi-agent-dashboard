@@ -1,7 +1,7 @@
 import { expect, test } from "./fixtures.js";
 
 /**
- * pi 0.84.1 runtime verification against the docker harness.
+ * pi 0.84.4 runtime verification against the docker harness.
  *
  * The design's standing risk is that a pi-ai symbol break hides behind mocked
  * unit tests: `provider-register.ts` can pass every L1 suite and still fail on
@@ -17,7 +17,7 @@ import { expect, test } from "./fixtures.js";
  * See change: update-pi-core-0-84-adopt-apis (test-plan #F1, #F4, #X12).
  */
 
-const PINNED_PI = "0.84.1";
+const PINNED_PI = "0.84.4";
 
 interface Health {
   piVersion?: string;
@@ -38,7 +38,7 @@ async function health(request: import("@playwright/test").APIRequestContext): Pr
   return (await res.json()) as Health;
 }
 
-test.describe("pi 0.84.1 runtime (L3)", () => {
+test.describe("pi 0.84.4 runtime (L3)", () => {
   // Guard the post-boot server-stabilization race: a session spawned while the
   // server is still settling never reaches a usable state, and the spec then
   // fails on a symptom far from the cause. Mirrors the sibling faux specs.
@@ -96,7 +96,7 @@ test.describe("pi 0.84.1 runtime (L3)", () => {
   });
 
   test("X12: the harness comes up on the moved Dockerfile pin", async ({ request }) => {
-    // The Dockerfile's global pi install moved to @0.84.1 in this change. If the
+    // The Dockerfile's global pi install moved to @0.84.4 in this change. If the
     // image still carried the old pin, the probed version would disagree.
     const body = await health(request);
     expect(body.compatibility?.current).toBe(PINNED_PI);
@@ -109,7 +109,7 @@ test.describe("pi 0.84.1 runtime (L3)", () => {
     request,
   }) => {
     // Regression guard for the bug this harness caught: several workspaces
-    // declare a broad `>=0.80.10` pi range while the server pins `^0.84.1`.
+    // declare a broad `>=0.80.10` pi range while the server pins `^0.84.4`.
     // Under `nodeLinker: hoisted` that resolved TWO copies, and the probe read
     // the HOISTED one -- so health advertised a pi the dashboard was not
     // running and raised a spurious upgrade hint.
@@ -117,7 +117,7 @@ test.describe("pi 0.84.1 runtime (L3)", () => {
     // SCOPE: this asserts probe/pin AGREEMENT, which is the user-visible
     // symptom. It does NOT prove the tree holds a single copy -- a
     // multi-copy tree still passes whenever the probe happens to select
-    // 0.84.1. The single-copy invariant itself is enforced upstream by the
+    // 0.84.4. The single-copy invariant itself is enforced upstream by the
     // `overrides` entry in `pnpm-workspace.yaml` (design D8).
     const compat = (await health(request)).compatibility;
     expect(compat?.current).toBe(PINNED_PI);

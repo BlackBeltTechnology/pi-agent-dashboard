@@ -345,6 +345,7 @@ jobs:
             "@blackbelt-technology/pi-dashboard-openspec-workflow"
             "@blackbelt-technology/pi-dashboard-cost-estimator"
             "@blackbelt-technology/pi-dashboard-forms-bpmn"
+            "@blackbelt-technology/pi-dashboard-context-budget"
             "@blackbelt-technology/pi-agent-dashboard"
           )
           VERSION="${{ needs.resolve.outputs.version }}"
