@@ -59,7 +59,7 @@
 
 - [x] 5.1 Test (L2): Windows truncation path — new `qa/tests/*.ps1`, see `qa/tests/02-server-start.ps1` for the script harness. Triple: Windows VM, keeper with cap 64 KiB, capture on, child writing · child drives the log past the cap · log size drops below the cap, file not renamed or removed, keeper alive and still forwarding RPC (test-plan #E16).
 - [x] 5.2 Register the new script in `qa/README.md`'s test list; do NOT wire it into the `windows-latest` CI leg (resolved clarification: VM cadence only).
-- [ ] 5.3 Run it on the Windows VM and record the outcome — this is the pass that decides whether `ftruncateSync` on an `O_APPEND` handle works there or the path fallback carries every rotation.
+- [ ] 5.3 (DEFERRED to Windows VM QA cadence by user decision at ship time 2026-11-19 — script written + registered per 5.1/5.2; run on the VM per qa/README.md item 9) Run it on the Windows VM and record the outcome — this is the pass that decides whether `ftruncateSync` on an `O_APPEND` handle works there or the path fallback carries every rotation.
 
 ## 6. Verification and docs
 
