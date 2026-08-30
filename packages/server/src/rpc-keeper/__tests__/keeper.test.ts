@@ -13,7 +13,7 @@
  * Tasks covered: 3.1, 3.2, 3.3, 3.4, 3.5, 3.6, 3.7.
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, statSync, writeFileSync, unlinkSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, renameSync, statSync, writeFileSync, unlinkSync, rmSync } from "node:fs";
 import net from "node:net";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -880,9 +880,14 @@ describe.skipIf(process.platform === "win32")("keeper-log rotation (real keeper)
     );
     await readyKeeper(k); // seed under cap → no rotation fired before we swap
     const logFile = keeperLogIn(home, sessionId);
-    // Replace the path with a DIFFERENT inode. The keeper's fd keeps pointing
-    // at the original (now progressively unnamed) inode, which stays over cap.
-    writeFileSync(logFile, "SWAPPED");
+    // Replace the path with a DIFFERENT inode: build the replacement
+    // elsewhere and RENAME it over the path. (writeFileSync directly onto
+    // logPath would open-and-truncate the keeper's ACTIVE inode in place —
+    // no swap at all — and the fallback would then be legitimately allowed
+    // to path-truncate it.)
+    const swapSrc = path.join(home, "swap-src.log");
+    writeFileSync(swapSrc, "SWAPPED");
+    renameSync(swapSrc, logFile);
     // 10+ check intervals must elapse without the replacement being touched.
     for (let i = 0; i < 6; i++) {
       await new Promise((r) => setTimeout(r, 120));
@@ -990,13 +995,30 @@ describe.skipIf(process.platform === "win32")("keeper-log rotation (real keeper)
       }),
     );
     await readyKeeper(k);
+    // Write with the SAME budget production writeRpc grants a line:
+    // WRITE_RPC_ATTEMPT_TIMEOUT_MS 350 × 3 attempts (keeper-manager.ts).
+    // A single connect refusal under suite load is a retry, not a stall.
+    const writeLineWithRpcBudget = async (line: string): Promise<void> => {
+      const t0 = Date.now();
+      let lastErr: unknown = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          await writeLineToKeeper(k, line);
+          maxLatencyMs = Math.max(maxLatencyMs, Date.now() - t0);
+          return;
+        } catch (e) {
+          lastErr = e;
+          if (Date.now() - t0 >= 1050) break;
+          await new Promise((r) => setTimeout(r, [50, 150][attempt] ?? 50));
+        }
+      }
+      throw lastErr;
+    };
     let maxLatencyMs = 0;
     for (let i = 0; i < 200; i++) {
-      const t0 = Date.now();
-      await writeLineToKeeper(k, `{"type":"prompt","message":"p1-${i}","id":"${i}"}`);
-      maxLatencyMs = Math.max(maxLatencyMs, Date.now() - t0);
+      await writeLineWithRpcBudget(`{"type":"prompt","message":"p1-${i}","id":"${i}"}`);
     }
-    // Every writeRpc budget is 350 ms × 3 attempts; none may hit it.
+    // No line's full budget (1050 ms) may be exceeded — rotation must never stall RPC.
     expect(maxLatencyMs).toBeLessThan(1050);
     await waitFor(() => {
       if (!existsSync(k.mockPiLog)) return false;
