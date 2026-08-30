@@ -39,7 +39,7 @@
   "dependencies": {
     "@blackbelt-technology/pi-dashboard-bus-client": "^0.8.0",
     "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
-    "@fission-ai/openspec": "^1.6.0",
+    "@fission-ai/openspec": "1.11.0",
     "minimatch": "^10.0.0",
     "ws": "^8.18.0"
   },

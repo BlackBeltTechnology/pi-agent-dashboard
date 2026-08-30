@@ -2391,7 +2391,7 @@ describe("command_feedback events", () => {
       ]);
       const toolMsg = state.messages.find((m) => m.toolCallId === "tc1");
       expect(toolMsg?.toolDetails).toBeDefined();
-      expect((toolMsg?.toolDetails as Record<string, unknown>).agentId).toBe("sub_abc");
+      expect((toolMsg?.toolDetails as Record<string, unknown> | undefined)?.agentId).toBe("sub_abc");
       expect(state.subagents.get("sub_abc")?.displayName).toBe("explorer");
     });
   });

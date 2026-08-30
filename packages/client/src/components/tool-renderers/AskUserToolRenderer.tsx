@@ -68,7 +68,7 @@ function batchAnswerNode(answer: unknown): React.ReactNode {
 
 function AskUserBatchRenderer({ args, result, toolDetails }: ToolRendererProps) {
   const title = (args?.title as string) ?? "Questions";
-  const questions = (Array.isArray(args?.questions) ? (args?.questions as BatchSubQuestion[]) : []).filter(Boolean);
+  const questions = (Array.isArray(args?.questions) ? (args.questions as BatchSubQuestion[]) : []).filter(Boolean);
   const results = Array.isArray(toolDetails?.results) ? (toolDetails!.results as unknown[]) : undefined;
   const cancelled = toolDetails?.cancelled === true || /cancelled batch/i.test(result ?? "");
 

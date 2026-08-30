@@ -59,10 +59,12 @@ const RULES = [
       "eliminate-electron-runtime-install task 1.1.a — pi lifted from " +
       "optional peer to regular dep so `npm install` resolves it for the " +
       "standalone + Electron arms. Floor tracks the deliberate pi bump to " +
-      "0.84.1 (0.84.0 null-bearing provider headers, ModelsRefreshOptions/Result, " +
-      "OAuth refresh abort signal, v4 lane-based session model; 0.84.1 adds no " +
-      "breaking change). See change: update-pi-core-0-84-adopt-apis.",
-    minVersion: "0.84.1",
+      "0.84.4 (0.84.0 null-bearing provider headers, ModelsRefreshOptions/Result, " +
+      "OAuth refresh abort signal, v4 lane-based session model; 0.84.1/0.84.2 add " +
+      "no breaking change; 0.84.3 renames the pi-ai-internal GoogleThinkingLevel " +
+      "type, which the dashboard does not consume; 0.84.4 adds ui_prompt_start/end " +
+      "events and RPC clear_queue). See change: update-pi-core-0-84-adopt-apis.",
+    minVersion: "0.84.4",
   },
   {
     pkgPath: "packages/server/package.json",
@@ -71,9 +73,14 @@ const RULES = [
     evidence:
       "provision-openspec-cli-in-sessions task 1.4 — floor raised 1.3.0 → 1.6.0 " +
       "to match the version that generated the openspec-* skills " +
-      "(generatedBy: 1.6.0). npm hoists the server + extension ^1.6.0 ranges to " +
-      "one installed copy the session shim resolves.",
-    minVersion: "1.6.0",
+      "(generatedBy: 1.6.0). npm hoists the server + extension ranges to one " +
+      "installed copy the session shim resolves. Pinned EXACT (not ^1.6.0): the " +
+      "vendored .pi/skills/openspec-* carry `generatedBy: 1.6.0`, so the CLI and " +
+      "the skills must move together — a caret let a routine install drift the " +
+      "CLI out from under them unreviewed. 1.11.0 itself is CLI-compatible with " +
+      "openspec-poller.ts (`status --change <name> --json` unchanged, artifact " +
+      "shape unchanged + additive isPlanningComplete).",
+    minVersion: "1.11.0",
   },
   {
     pkgPath: "packages/extension/package.json",
@@ -83,8 +90,8 @@ const RULES = [
       "provision-openspec-cli-in-sessions task 1.4 — the bridge shim " +
       "(openspec-cli-shim.ts) require.resolves this dep, so it must travel with " +
       "the published extension into generic projects (no dashboard copy hoisted " +
-      "there). Floor tracks the single-source version 1.6.0.",
-    minVersion: "1.6.0",
+      "there). Floor tracks the single-source version 1.11.0.",
+    minVersion: "1.11.0",
   },
   {
     pkgPath: "packages/server/package.json",

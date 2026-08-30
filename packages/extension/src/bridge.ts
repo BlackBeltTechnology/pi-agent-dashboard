@@ -2049,6 +2049,15 @@ function initBridge(pi: ExtensionAPI) {
     "session_before_compact",
     "session_before_tree",
     "session_tree",
+    // pi >= 0.84.3. Clears the server-side `compacting` latch on the failure
+    // path (see event-status-extraction.ts) — without it a failed or aborted
+    // compaction blocks every later reload of the session.
+    "session_compact_failed",
+    // pi >= 0.84.4. Brackets a BLOCKING `ctx.ui` prompt so the dashboard can
+    // tell "agent working" apart from "pi parked waiting on a user prompt".
+    // Subscribing below the floor is inert: older pi simply never emits them.
+    "ui_prompt_start",
+    "ui_prompt_end",
   ] as const;
   // Excluded from subscription (not forwarded):
   // - `context`: carries full message arrays (very large)

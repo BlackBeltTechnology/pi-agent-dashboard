@@ -1926,9 +1926,11 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // some HTTP/2 proxy chains (notably zrok free-tier) occasionally
       // stream-reset as ERR_ABORTED 500 in browsers.
       preCompressed: true,
-      setHeaders: (res, filePath) => {
+      // @fastify/static v10 hands `setHeaders` a FastifyReply (v8 passed the
+      // raw ServerResponse), so the header goes through `.header()`.
+      setHeaders: (reply, filePath) => {
         if (filePath.endsWith(".html")) {
-          res.setHeader("Cache-Control", "no-cache, no-store, must-revalidate");
+          reply.header("Cache-Control", "no-cache, no-store, must-revalidate");
         }
       },
     });

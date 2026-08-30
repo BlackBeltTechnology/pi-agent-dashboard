@@ -40,7 +40,7 @@ describe("minting a bridge ticket", () => {
     expect(result).toEqual({ ok: true, ticket: "tkt-1" });
     expect(captured.url).toBe("http://dash.example:8000/api/ws-ticket");
     // The DURABLE bearer authenticates the mint...
-    expect((captured.req?.headers as Record<string, string>).Authorization).toBe("Bearer dev-bearer");
+    expect((captured.req?.headers as Record<string, string> | undefined)?.Authorization).toBe("Bearer dev-bearer");
     // ...and the ticket is bound to the bridge scope, so it cannot be replayed
     // against /ws or the terminal route.
     expect(JSON.parse(String(captured.req?.body))).toEqual({ scope: "bridge" });

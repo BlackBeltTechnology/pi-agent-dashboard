@@ -29,7 +29,7 @@ describe("intent-types — wire format", () => {
     const roundTrip = JSON.parse(JSON.stringify(intent)) as IntentNode;
     expect(roundTrip).toEqual(intent);
     expect(roundTrip.primitive).toBe("ui:action-list");
-    expect((roundTrip.actions?.onClick as ActionDescriptor).pluginId).toBe("flows");
+    expect((roundTrip.actions?.onClick as ActionDescriptor | undefined)?.pluginId).toBe("flows");
   });
 
   it("nested IntentNode inside props survives round-trip", () => {

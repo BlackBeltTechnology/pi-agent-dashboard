@@ -129,6 +129,22 @@ so switching Node versions appeared not to work.
   resolution from execPath-anchored to override-anchored (miss → `where`). Intended,
   but currently undisclosed behaviour change — confirm it is wanted.
 
+## Coordination: `unify-pi-runtime-identity`
+
+The active change `unify-pi-runtime-identity` introduces a spawn-runtime resolution ladder for
+pi-session spawns that reads this change's selection as its gated step-1 candidate (one user
+intent, one precedence). Two contracts bind the pair:
+
+- **Supersession**: this proposal's "Spawned children inherit the selected installation" —
+  specifically its "no selection preserves current behaviour" scenario — describes the pre-ladder
+  default (unconditional `prependManagedNodeToPath`). The ladder replaces that default (user Node
+  → managed → own runtime). Whichever change archives **second** must carry a MODIFIED block
+  reconciling the spawned-children requirement so the unconditional managed prepend is not
+  silently re-introduced.
+- **Axis split**: the selection governs dashboard-tooling resolution directly; operations against
+  pi's shared extension tree (`~/.pi/agent/npm/node_modules`) follow the ladder result, which
+  honours the selection at step 1 when it passes the ladder's version gate.
+
 ## Discipline Skills
 
 - `doubt-driven-review` — this change introduces a new concept and a persisted

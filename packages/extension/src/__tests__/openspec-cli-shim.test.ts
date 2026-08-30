@@ -25,6 +25,25 @@ import { provisionOpenspecCli } from "../openspec-cli-shim.js";
 const POSIX = process.platform !== "win32";
 const tmpDirs: string[] = [];
 
+// The spec's single-source rule: the shim must resolve the INSTALLED openspec.
+// Reading the version off the resolved manifest keeps the assertion honest
+// across floor bumps instead of pinning a literal that goes stale on the next
+// `pnpm install`. See spec: openspec-cli-version-single-source.
+// (`@fission-ai/openspec` does not expose ./package.json through its exports
+// map, so walk up from the resolved bin the shim itself points at.)
+const INSTALLED_OPENSPEC_VERSION: string = (() => {
+  let dir = path.dirname(require.resolve("@fission-ai/openspec"));
+  for (let i = 0; i < 5; i++) {
+    const manifest = path.join(dir, "package.json");
+    if (fs.existsSync(manifest)) {
+      const pkg = JSON.parse(fs.readFileSync(manifest, "utf8"));
+      if (pkg.name === "@fission-ai/openspec") return pkg.version as string;
+    }
+    dir = path.dirname(dir);
+  }
+  throw new Error("could not resolve the installed @fission-ai/openspec version");
+})();
+
 function mkBase(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "opsx-shim-"));
   tmpDirs.push(dir);
@@ -55,7 +74,7 @@ describe("provisionOpenspecCli", () => {
       encoding: "utf8",
     });
     expect(out.status).toBe(0);
-    expect(out.stdout).toContain("1.6.0");
+    expect(out.stdout).toContain(INSTALLED_OPENSPEC_VERSION);
   });
 
   it("T-E2: re-provision (simulated /reload) does not duplicate the PATH entry", () => {
@@ -140,6 +159,6 @@ describe("provisionOpenspecCli", () => {
     // PATH has no `node`, so exit 0 proves the shim used process.execPath.
     const out = spawnSync("/bin/sh", ["-c", "openspec --version"], { env, encoding: "utf8" });
     expect(out.status).toBe(0);
-    expect(out.stdout).toContain("1.6.0");
+    expect(out.stdout).toContain(INSTALLED_OPENSPEC_VERSION);
   });
 });
