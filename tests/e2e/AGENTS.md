@@ -23,6 +23,7 @@ Files in this directory. One row per file. Non-source area (migrated from `docs/
 | `directory-home.spec.ts` | L3 for the `/folder/:encodedCwd` directory home page (change: add-directory-home-page). → see `directory-home.spec.ts.AGENTS.md` |
 | `editor-pane.spec.ts` | Playwright E2E for internal Monaco editor pane (change: add-internal-monaco-editor-pane). → see `editor-pane.spec.ts.AGENTS.md` |
 | `empty-model-selector.spec.ts` | L3 for `open-empty-model-selector`. Proves the harness-feasible slice: composer `model-selector-button` is… → see `empty-model-selector.spec.ts.AGENTS.md` |
+| `keeper-log-health.spec.ts` | L3 (test-plan #F1, #F2): `/api/health` carries `keeperLogs` (7 numeric fields); a sparse 2×-cap `keeper-<uuid>.log` seeded via `docker exec` surfaces as `runawayFiles ≥ 1` after the stats TTL (polls drive the lazy refresh). Cleans up its seeding. See change: fix-runaway-keeper-log-growth. |
 | `ended-session-endedat.spec.ts` | L3 for the evidence-based `endedAt` invariant (test-plan #F1, #F2); plants historical transcripts in the harness via `docker exec`. → see `ended-session-endedat.spec.ts.AGENTS.md` |
 | `enhance-tool-call-grouping.spec.ts` | Playwright spec for universal tool-call grouping (change: enhance-tool-call-grouping). 3 tests, faux model. → see `enhance-tool-call-grouping.spec.ts.AGENTS.md` |
 | `error-lifecycle.spec.ts` | Playwright spec. Single-card error-lifecycle surface end-to-end via faux model (no LLM). 4 tests. → see `error-lifecycle.spec.ts.AGENTS.md` |
