@@ -203,9 +203,9 @@ describe("attachment-resolver", () => {
 
     expect(emitted, "every pending block must receive a resolution").toHaveLength(2);
     const byId = new Map(emitted.map((e) => [(e.data as any).attachmentId, e]));
-    expect((byId.get("e".repeat(64))?.data as any).state).toBe("ready");
+    expect((byId.get("e".repeat(64))?.data as any)?.state).toBe("ready");
     expect(
-      (byId.get("f".repeat(64))?.data as any).state,
+      (byId.get("f".repeat(64))?.data as any)?.state,
       "an unanswered block must fail explicitly, never stay pending",
     ).toBe("failed");
   });

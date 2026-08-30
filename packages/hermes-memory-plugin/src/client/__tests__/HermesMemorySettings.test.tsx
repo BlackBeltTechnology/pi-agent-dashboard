@@ -68,7 +68,7 @@ describe("HermesMemorySettings", () => {
       expect(fetchMock.mock.calls.some((c) => (c[1] as RequestInit)?.method === "PUT")).toBe(true),
     );
     const putCall = fetchMock.mock.calls.find((c) => (c[1] as RequestInit)?.method === "PUT");
-    const sent = JSON.parse((putCall?.[1] as RequestInit).body as string);
+    const sent = JSON.parse((putCall![1] as RequestInit).body as string);
     expect(sent.nudgeInterval).toBe(20);
     // full resolved config: a non-edited defaulted field is also present
     expect(sent.memoryMode).toBe("policy-only");
