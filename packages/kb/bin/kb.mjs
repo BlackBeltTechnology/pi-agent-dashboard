@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { spawnSync } from "node:child_process";
 // Committed, NEVER-BUILT plain-JS bin shim (design D1,
 // change fix-kb-eval-measurement-integrity). The old bin pointed straight at
 // dist/cli.js — a tsc artifact that is gitignored and only rebuilt by hand, so
@@ -18,8 +19,7 @@
 import { existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import { spawnSync } from "node:child_process";
-import { FINGERPRINT_MALFORMED, computeDistHash, computeSrcHash, computeTsconfigHash, readCommittedFingerprint, writeFingerprint } from "./lib/engine-fingerprint.mjs";
+import { computeDistHash, computeSrcHash, computeTsconfigHash, FINGERPRINT_MALFORMED, readCommittedFingerprint, writeFingerprint } from "./lib/engine-fingerprint.mjs";
 
 const pkgRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const distCli = join(pkgRoot, "dist", "cli.js");

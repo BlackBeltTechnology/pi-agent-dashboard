@@ -252,18 +252,25 @@ async function runForeground(config: ServerConfig): Promise<void> {
   }
 
   // One-time advisory: legacy `~/.pi-dashboard/` directory left behind
-  // from pre-R3 versions. Nothing reads or writes it now — surface a
-  // single log line so the user knows it's safe to delete. Doctor UI
-  // shows the same advisory more visibly.
+  // from pre-R3 versions. The same orphan test as the Doctor row applies:
+  // "safe to delete" ONLY when genuinely orphaned (no managed runtime,
+  // wizard state, non-empty node_modules, or logs); live content is named
+  // and never suggested for deletion.
+  // See change: unify-pi-runtime-identity (task 6.2).
   try {
     const { detectLegacyManagedDir } = await import(
       "@blackbelt-technology/pi-dashboard-shared/legacy-managed-dir.js"
     );
     const legacy = detectLegacyManagedDir();
-    if (legacy.present) {
+    if (legacy.present && legacy.orphaned) {
       console.log(
         `[legacy] legacy install directory detected at ${legacy.path} ` +
-        `(${legacy.pkgCount} packages, ~${legacy.sizeMb} MB). No longer used — safe to delete.`,
+        `(~${legacy.sizeMb} MB). No longer used — safe to delete.`,
+      );
+    } else if (legacy.present) {
+      console.log(
+        `[legacy] legacy directory ${legacy.path} is still in use ` +
+        `(${legacy.consumers.join(", ")}) — not deleted.`,
       );
     }
   } catch {

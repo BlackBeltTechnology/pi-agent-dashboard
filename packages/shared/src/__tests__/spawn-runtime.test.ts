@@ -6,7 +6,7 @@
  * Exemplar: bundled-node-meets-pi-floor.test.ts (version-gate invariant
  * style), binary-lookup.test.ts (injectable-probe style).
  */
-import { mkdtempSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
@@ -19,13 +19,13 @@ import {
   evaluateVersionGate,
   isShimShapedPath,
   parseEnginesFloor,
+  type ResolveSpawnRuntimeOpts,
   readPiEnginesFloor,
   readRuntimeOverride,
   readToolOverrideNode,
   resolveSpawnRuntime,
-  validateResolvedRuntime,
-  type ResolveSpawnRuntimeOpts,
   type VersionProbeResult,
+  validateResolvedRuntime,
 } from "../platform/spawn-runtime.js";
 
 let tmp: string;

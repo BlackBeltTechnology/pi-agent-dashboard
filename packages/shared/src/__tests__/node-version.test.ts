@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
   isAffectedNode,
-  meetsFloor,
-  MIN_SUPPORTED_NODE,
   isOutOfEnginesRange,
   isUsableNodeVersion,
+  MIN_SUPPORTED_NODE,
+  meetsFloor,
 } from "../node-version.js";
 
 // Canonical accept-set (see change: unify-node-version-gate / design D2):
