@@ -800,7 +800,14 @@ describe.skipIf(process.platform === "win32")("keeper-log rotation (real keeper)
       }),
     );
     await readyKeeper(k);
-    await waitForStableSize(home, sessionId, { stableMs: 600, timeoutMs: 15_000 });
+    // Same CI-load guard as E5: never let the stability window fire before
+    // the child has written anything (which would make the rotation count
+    // vacuously zero).
+    await waitFor(() => {
+      if (!existsSync(keeperLogIn(home, sessionId))) return false;
+      return readFileSync(keeperLogIn(home, sessionId), "utf8").includes("a");
+    }, 20_000);
+    await waitForStableSize(home, sessionId, { stableMs: 600, timeoutMs: 20_000 });
     const siblings = readdirSync(sessionsDirIn(home)).filter((n) => n.startsWith(`keeper-${sessionId}.log`));
     expect(siblings).toEqual([`keeper-${sessionId}.log`]); // exactly the live log, nothing else
     await killAndAwait(k);
@@ -825,7 +832,14 @@ describe.skipIf(process.platform === "win32")("keeper-log rotation (real keeper)
       }),
     );
     await readyKeeper(k);
-    const size = await waitForStableSize(home, sessionId, { stableMs: 800, timeoutMs: 20_000 });
+    // Under heavy CI load the mock-pi process can take >1 s to boot; the
+    // stability window below would otherwise fire on a lifecycle-only log
+    // before the child wrote a single byte. Wait for child bytes FIRST.
+    await waitFor(() => {
+      if (!existsSync(keeperLogIn(home, sessionId))) return false;
+      return readFileSync(keeperLogIn(home, sessionId), "utf8").includes("a");
+    }, 20_000);
+    const size = await waitForStableSize(home, sessionId, { stableMs: 800, timeoutMs: 30_000 });
     expect(size).toBeLessThan(2 * 65_536);
     // The writer emits only 'a' bytes (no newlines). Any keeper-originated
     // line after the child's first byte would introduce a timestamp bracket.
