@@ -62,7 +62,7 @@ revertable.
   exit 0 all-present, non-zero required-missing, `--json` always exit 0 with outcome
 - [x] 3.8 Implement the TS-backed `ensure` CLI bin in `packages/shared` (separate
   from the path-only build-time `pi-dashboard-resolve-tool.cjs`, which is untouched)
-- [ ] 3.9 Verify Phase 0 inert end-to-end: no skill declares `pi.tools`; full test
+- [x] 3.9 Verify Phase 0 inert end-to-end: no skill declares `pi.tools`; full test
   suite green; no runtime behavior change
 
 ## 4. Phase 1 — One exemplar per probe kind (battle-test)
@@ -101,9 +101,9 @@ revertable.
 
 ## 7. Verification & docs
 
-- [ ] 7.1 Full `npm test` green; new strategies + ensureTools + ingestion covered;
+- [x] 7.1 Full `npm test` green; new strategies + ensureTools + ingestion covered;
   `install-hints.test.ts` + `no-hardcoded-node-modules-paths.test.ts` extended
-- [ ] 7.2 Manual cross-platform smoke: required-missing hard-stops with host-correct
+- [x] 7.2 Manual cross-platform smoke: required-missing hard-stops with host-correct
   `installHints`; optional-missing degrades; a bad manifest is a doc bug
   (recommend), never a host mutation
 - [x] 7.3 Update `docs/architecture.md` with a skill-tool-provisioning section
@@ -158,4 +158,4 @@ rows → nothing deferred to `ship-change`.
 
 ### L3 Playwright (docker harness, derived `dashboardPort`) — see `tests/e2e/git-panel.spec.ts` (panel + rows render)
 
-- [ ] 8.34 (test-plan #F1) skill-declared tool resolving `ok:false` w/ `installHints[hostOs]` · open Settings→Tools · row renders `[Install ▾]` dropdown identical to a built-in missing tool
+- [x] 8.34 (test-plan #F1) skill-declared tool resolving `ok:false` w/ `installHints[hostOs]` · open Settings→Tools · row renders `[Install ▾]` dropdown identical to a built-in missing tool
