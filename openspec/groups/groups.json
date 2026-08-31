@@ -176,16 +176,25 @@
     "add-openspec-init-affordances": "ui",
     "add-persistent-onboarding-card": "ui",
     "dispatch-provider-auth-event": "ui",
-    "fix-kb-settings-reindex-gate": "ui"
+    "fix-kb-settings-reindex-gate": "ui",
+    "add-node-runtime-family-selection": "ui",
+    "fix-node-family-resolution-gaps": "ui",
+    "fix-autostart-discovery-precedence": "ui",
+    "investigate-bridge-cwd-asymmetric-immunity": "ui",
+    "consolidate-retrieval-planes": "kowledge-base",
+    "add-prompt-snapshot-audit-trail": "next-phase",
+    "add-session-trajectory-view": "next-phase",
+    "unify-pi-runtime-identity": "ui",
+    "add-skill-tool-provisioning": "ui",
+    "fix-deploy-site-ship-shell": "ui",
+    "fix-runaway-keeper-log-growth": "ui",
+    "fix-history-backfill-holey-store": "ui"
   },
   "changeOrder": {
     "__ungrouped__": [
       "add-microservice-pattern-selection-skill",
       "add-session-step-table",
-      "add-skill-tool-provisioning",
       "add-voice-assistant-dashboard-plugin",
-      "fix-bridge-mdns-migration-hijack",
-      "fix-deploy-site-ship-shell",
       "implement-it",
       "make-test-suite-deterministic",
       "ab-test-rlm-delegation-claim",
@@ -196,15 +205,12 @@
       "verify-windows-credential-acls",
       "add-grammar-correction-eval",
       "fix-dox-lint-blind-rows",
-      "fix-grammar-settings-plugin-bundle",
       "fix-kb-search-lane-composition",
-      "fix-runaway-keeper-log-growth",
       "fix-schedule-timer-overflow",
-      "add-native-pi-tui-view",
-      "add-prompt-snapshot-audit-trail",
-      "add-session-trajectory-view"
+      "add-native-pi-tui-view"
     ],
     "kowledge-base": [
+      "consolidate-retrieval-planes",
       "add-lora-dataset-export-skill",
       "add-automatic-session-kb-index",
       "add-kb-code-symbol-index",
@@ -212,16 +218,21 @@
       "memory-retrieval-injection"
     ],
     "ui": [
-      "fix-kb-settings-reindex-gate",
-      "collapse-pairing-into-gateway",
-      "fix-bridge-autostart-port-resolution",
-      "harden-multi-ask-panel",
-      "fix-corrupt-auth-json-500",
-      "add-openspec-init-affordances",
+      "unify-pi-runtime-identity",
+      "add-skill-tool-provisioning",
+      "fix-deploy-site-ship-shell",
+      "investigate-bridge-cwd-asymmetric-immunity",
+      "fix-autostart-discovery-precedence",
       "add-persistent-onboarding-card",
-      "dispatch-provider-auth-event"
+      "dispatch-provider-auth-event",
+      "add-node-runtime-family-selection",
+      "fix-node-family-resolution-gaps",
+      "fix-runaway-keeper-log-growth",
+      "fix-history-backfill-holey-store"
     ],
     "next-phase": [
+      "add-session-trajectory-view",
+      "add-prompt-snapshot-audit-trail",
       "add-access-grant-dialog",
       "add-access-grants-and-review",
       "add-mid-turn-tool-oauth",
