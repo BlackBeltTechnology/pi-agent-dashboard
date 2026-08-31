@@ -84,24 +84,31 @@ describe("GET /api/tools", () => {
   });
 
   it("lists an ingested skill-manifest tool once pi.tools is ingested (6.1)", async () => {
-    const registry = buildRegistry();
-    const records = ingestSkillTools(registry, [
-      { id: "SONIOX_API_KEY", probe: "env" },
-      { id: "ffmpeg", probe: "resolve", optional: true },
-    ]);
-    expect(records).toHaveLength(2);
-    const app = buildServer(registry);
+    // Deterministic: the env probe reads the RUNNER env — pin it unset.
+    const saved = process.env.SONIOX_API_KEY;
+    delete process.env.SONIOX_API_KEY;
     try {
-      const res = await app.inject({ method: "GET", url: "/api/tools" });
-      expect(res.statusCode).toBe(200);
-      const tools = res.json().data.tools;
-      const soniox = tools.find((t: any) => t.name === "SONIOX_API_KEY");
-      expect(soniox, "ingested env probe surfaces as a registry row").toBeDefined();
-      expect(soniox.ok).toBe(false); // unset on the test host
-      // An ingested row flows through list() exactly like a built-in tool.
-      expect(tools.find((t: any) => t.name === "ffmpeg")).toBeDefined();
+      const registry = buildRegistry();
+      const records = ingestSkillTools(registry, [
+        { id: "SONIOX_API_KEY", probe: "env" },
+        { id: "ffmpeg", probe: "resolve", optional: true },
+      ]);
+      expect(records).toHaveLength(2);
+      const app = buildServer(registry);
+      try {
+        const res = await app.inject({ method: "GET", url: "/api/tools" });
+        expect(res.statusCode).toBe(200);
+        const tools = res.json().data.tools;
+        const soniox = tools.find((t: any) => t.name === "SONIOX_API_KEY");
+        expect(soniox, "ingested env probe surfaces as a registry row").toBeDefined();
+        expect(soniox.ok).toBe(false); // unset above
+        // An ingested row flows through list() exactly like a built-in tool.
+        expect(tools.find((t: any) => t.name === "ffmpeg")).toBeDefined();
+      } finally {
+        await app.close();
+      }
     } finally {
-      await app.close();
+      if (saved !== undefined) process.env.SONIOX_API_KEY = saved;
     }
   });
 });

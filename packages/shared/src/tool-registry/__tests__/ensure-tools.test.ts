@@ -118,6 +118,7 @@ function withHints(r: ToolRegistry): void {
 interface Ctx {
   r: ToolRegistry;
   execCalls: string[];
+  exec: (command: string) => { ok: boolean };
 }
 
 function setup(): Ctx {
@@ -133,7 +134,7 @@ function setup(): Ctx {
     if (command.includes("confirm-thing")) fakeEnv.set("CONFIRM_VAR", "1");
     return { ok: true };
   };
-  return { r, execCalls, exec } as Ctx & { exec: typeof exec };
+  return { r, execCalls, exec };
 }
 
 async function run(ctx: ReturnType<typeof setup>, tools: Array<{ id: string; optional?: boolean }>, opts: Record<string, unknown> = {}) {

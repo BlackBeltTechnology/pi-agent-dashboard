@@ -151,7 +151,7 @@ export function ingestSkillTools(
     records.push({
       id: entry.id,
       probe: entry.probe,
-      optional: entry.optional,
+      optional: entry.optional ?? false,
       synthesized,
     });
   }

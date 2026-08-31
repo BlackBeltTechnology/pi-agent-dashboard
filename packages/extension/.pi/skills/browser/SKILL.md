@@ -58,7 +58,7 @@ tool.
   > Then re-invoke the skill.
 
 - `chromium` missing → mention the registry's Install hint
-  (`npx playwright install chromium`) only when the chosen recipe needs a
+  (`npx playwright@1.62.1 install chromium`) only when the chosen recipe needs a
   CDP browser; the dropdown on the Settings → Tools row carries it.
 
 Do **not** attempt `npm install`, `pi install`, or any other install command

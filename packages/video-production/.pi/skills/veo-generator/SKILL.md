@@ -33,7 +33,10 @@ re-invents the prompt.
   Declared in `pi.tools` and resolved via the tool registry; absent →
   non-chain videos still generate.
 - An API key (see below). Get one at <https://aistudio.google.com/apikey>.
-  Declared as an `env` probe (`GEMINI_API_KEY`) in `pi.tools`.
+  Declared as an `env` probe (`GEMINI_API_KEY`) in `pi.tools`. The registry
+  recognizes `GEMINI_API_KEY` only — the CLI's `VEO_API_KEY` /
+  `GOOGLE_API_KEY` aliases still work at run time but are NOT tracked in
+  Settings → Tools.
 
 ## API key — per project or global
 

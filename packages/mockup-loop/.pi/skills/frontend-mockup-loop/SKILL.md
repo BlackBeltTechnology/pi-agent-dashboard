@@ -178,7 +178,7 @@ the change's notes.
 - `score_mockup{url, widths?, outDir?, system?}` — Playwright breakpoint screenshots +
   scoring rubric. Chromium is declared in this package's `pi.tools` (optional
   `pw-browser` probe); absent → install guidance via the registry's Install
-  dropdown or `pi-dashboard-ensure` (`npx playwright install chromium`).
+  dropdown or `pi-dashboard-ensure` (`npx playwright@1.62.1 install chromium`).
 - `init_ui_contract{path?, force?, system?, refresh?}` — scaffold the
   token-referencing contract. With `system`, write that preset's DTCG contract
   (offline snapshot; `refresh` re-fetches upstream first). No `system` →

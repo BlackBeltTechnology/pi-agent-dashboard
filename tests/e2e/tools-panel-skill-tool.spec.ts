@@ -6,11 +6,15 @@ import { gotoDashboard } from "./helpers/index.js";
 // the `[Install ▾]` dropdown listing the host-OS first-party commands.
 //
 // `imagemagick` is declared by the video-production packages' `pi.tools`
-// manifest (optional) and ingested into the registry at server startup
+// manifest and ingested into the registry at server startup
 // (ingestInstalledSkillTools) — by the time this spec runs it IS a
 // registry row. The harness container has no ImageMagick, so the row
 // resolves `ok:false` and carries per-OS installHints (apt/brew/winget
 // commands).
+//
+// Ingestion itself is pinned separately: `SONIOX_API_KEY` exists ONLY via
+// ingestion (synthesized env-probe def — it is in no built-in definition),
+// so its row's presence proves the manifest wiring ran.
 //
 // Note: ffmpeg (also skill-declared) resolves `ok:true` IN THE HARNESS
 // via the static-npm strategy — ffmpeg-static ships as the package's
@@ -29,11 +33,13 @@ test.describe("Settings → Tools: ingested skill tool", () => {
     await page.goto("/settings/developer");
     await expect(page.getByTestId("settings-nav-rail")).toBeVisible({ timeout: 20_000 });
 
-    // The ingested row exists — same surface a built-in tool uses.
-    const row = page.locator("#tool-row-imagemagick");
-    await expect(row).toBeVisible({ timeout: 30_000 });
+    // Ingestion proof: a tool that ONLY exists via the synthesized
+    // pi.tools def (never built-in) is present in the registry UI.
+    await expect(page.locator("#tool-row-SONIOX_API_KEY")).toBeVisible({ timeout: 30_000 });
 
     // The `[Install ▾]` affordance opens the first-party hint list.
+    const row = page.locator("#tool-row-imagemagick");
+    await expect(row).toBeVisible();
     const installButton = row.locator("[aria-expanded]").first();
     await expect(installButton).toBeVisible();
     await installButton.click();

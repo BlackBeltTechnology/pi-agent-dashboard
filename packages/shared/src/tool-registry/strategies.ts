@@ -266,7 +266,8 @@ function defaults(): Required<StrategyDeps> {
       if (probe.error) {
         // ENOENT → docker CLI not installed; any spawn failure → treat the
         // daemon as unavailable. NEVER assume docker is present.
-        return { ok: false, reason: `docker not available (${probe.error.code ?? probe.error.message})` };
+        const code = (probe.error as NodeJS.ErrnoException).code;
+        return { ok: false, reason: `docker not available (${code ?? probe.error.message})` };
       }
       if (probe.status !== 0) {
         return { ok: false, reason: `image ${ref} not found` };
@@ -628,16 +629,30 @@ function playwrightCacheDir(platform: NodeJS.Platform, homedir: string): string 
  * See change: add-skill-tool-provisioning (design D2).
  */
 export function pwBrowserProbeStrategy(browserName: string, deps?: StrategyDeps): Strategy {
-  const { readEnv, readDir, homedir } = d(deps);
+  const { readEnv, readDir, homedir, resolveModule } = d(deps);
   return {
     name: "pw-browser",
     run(ctx): StrategyResult {
       // Production registries construct without env.homedir — fall back to
       // the injected/live homedir so the DEFAULT cache dir is probed.
       const home = ctx.env?.homedir ?? homedir();
-      const base =
-        readEnv("PLAYWRIGHT_BROWSERS_PATH") ||
-        (home ? playwrightCacheDir(ctx.platform, home) : undefined);
+      let base: string | undefined;
+      const envPath = readEnv("PLAYWRIGHT_BROWSERS_PATH");
+      if (envPath && envPath !== "0") {
+        base = envPath;
+      } else {
+        if (envPath === "0") {
+          // Playwright sentinel "0": hermetic installs live under
+          // playwright-core/.local-browsers, not the user cache.
+          try {
+            const entry = resolveModule("playwright-core/package.json", import.meta.url);
+            if (entry) base = path.join(path.dirname(entry), ".local-browsers");
+          } catch {
+            // fall through to the default cache dir
+          }
+        }
+        base = base ?? (home ? playwrightCacheDir(ctx.platform, home) : undefined);
+      }
       if (!base) {
         return { ok: false, reason: `no browsers cache dir (set PLAYWRIGHT_BROWSERS_PATH)` };
       }

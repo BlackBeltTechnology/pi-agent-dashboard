@@ -21,11 +21,11 @@ import { execAsync } from "../platform/exec.js";
 import { ToolResolver } from "../platform/binary-lookup.js";
 import type { ToolRegistry } from "./registry.js";
 import { getDefaultRegistry } from "./index.js";
+import type { StrategyDeps } from "./strategies.js";
 import type {
   InstallHints,
   PlatformInstallHint,
   Resolution,
-  StrategyDeps,
 } from "./types.js";
 
 /** What the registry did (or would do) about a tool's absence. */
@@ -94,8 +94,15 @@ const defaultWhich = (() => {
 })();
 
 /** The hint for the host platform, if any. */
-function hostHint(hints: InstallHints | undefined, platform: NodeJS.Platform): PlatformInstallHint | undefined {
-  return hints?.[platform];
+function hostHint(
+  hints: InstallHints | undefined,
+  platform: NodeJS.Platform,
+): PlatformInstallHint | undefined {
+  if (hints === undefined) return undefined;
+  if (platform === "darwin" || platform === "win32" || platform === "linux") {
+    return hints[platform];
+  }
+  return undefined;
 }
 
 /**

@@ -973,8 +973,10 @@ export function registerDefaultTools(registry: ToolRegistry, deps?: StrategyDeps
     classify,
     installHints: INSTALL_HINTS.ffprobe,
   });
-  // imagemagick — the `convert` binary; no reliable static npm package,
-  // so override → where only. Optional consumers degrade gracefully.
+  // imagemagick — the `convert` binary on Unix; on win32 `convert.exe` is
+  // the NTFS converter in System32, so probe `magick` there instead. No
+  // reliable static npm package, so override → where only. Optional
+  // consumers degrade gracefully. (CodeRabbit round 1.)
   registry.register({
     name: "imagemagick",
     kind: "binary",
@@ -982,6 +984,12 @@ export function registerDefaultTools(registry: ToolRegistry, deps?: StrategyDeps
       overrideStrategy("imagemagick", deps),
       whereStrategy("convert", deps),
     ],
+    platformStrategies: {
+      win32: [
+        overrideStrategy("imagemagick", deps),
+        whereStrategy("magick", deps),
+      ],
+    },
     classify,
     installHints: INSTALL_HINTS.imagemagick,
   });

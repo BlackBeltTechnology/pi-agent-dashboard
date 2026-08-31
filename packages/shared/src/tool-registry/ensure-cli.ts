@@ -40,6 +40,9 @@ function parseArgs(argv: string[]): CliArgs {
   return args;
 }
 
+/** Set once --json is parsed — the catch handler honors the contract too. */
+let jsonMode = false;
+
 function loadPiTools(target: string): unknown {
   const file = path.extname(target) === ".json" ? target : path.join(target, "package.json");
   const pkg = JSON.parse(readFileSync(file, "utf8")) as { pi?: unknown };
@@ -78,6 +81,7 @@ function printHuman(report: EnsureReport): void {
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv.slice(2));
+  jsonMode = args.json;
   if (!args.target) {
     fail("usage: pi-dashboard-ensure [--install] [--json] <package.json | dir>", args.json);
   }
@@ -119,6 +123,11 @@ async function main(): Promise<void> {
 }
 
 main().catch((e: Error) => {
+  // --json ALWAYS exits 0, even on an unexpected rejection (CodeRabbit r1).
+  if (jsonMode) {
+    process.stdout.write(`${JSON.stringify({ ok: false, errors: [e.message] }, null, 2)}\n`);
+    process.exit(0);
+  }
   process.stderr.write(`${e.message}\n`);
   process.exit(1);
 });

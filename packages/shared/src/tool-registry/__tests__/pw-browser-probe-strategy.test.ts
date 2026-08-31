@@ -110,6 +110,25 @@ describe("pwBrowserProbeStrategy — absent", () => {
     expect(r.ok).toBe(false);
   });
 
+  it("PLAYWRIGHT_BROWSERS_PATH=0 probes the hermetic .local-browsers dir (CodeRabbit round 1)", () => {
+    const pkgEntry = "/app/node_modules/playwright-core/package.json";
+    const probed: string[] = [];
+    const strat = pwBrowserProbeStrategy("chromium", {
+      readEnv: (n) => (n === "PLAYWRIGHT_BROWSERS_PATH" ? "0" : undefined),
+      homedir: () => "/home/unused",
+      resolveModule: (id) => (id === "playwright-core/package.json" ? pkgEntry : null),
+      readDir: (p) => {
+        probed.push(p);
+        return p === "/app/node_modules/playwright-core/.local-browsers"
+          ? ["chromium-1148"]
+          : [];
+      },
+    });
+    const r = strat.run(ctx({ platform: "linux" }));
+    expect(r.ok).toBe(true);
+    expect(probed[0]).toBe("/app/node_modules/playwright-core/.local-browsers");
+  });
+
   it("strategy name is 'pw-browser'", () => {
     expect(pwBrowserProbeStrategy("chromium").name).toBe("pw-browser");
   });

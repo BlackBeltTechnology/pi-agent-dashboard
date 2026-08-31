@@ -148,4 +148,14 @@ describe("imagemagick — resolve-probe binary with host hints", () => {
     expect(magick?.installHints?.darwin?.commands?.brew).toBeTruthy();
     expect(magick?.installHints?.win32?.commands?.winget).toBeTruthy();
   });
+
+  it("win32 probes `magick`, never the System32 convert.exe (CodeRabbit round 1)", () => {
+    const deps: StrategyDeps = {
+      ...bareDeps(),
+      which: (n) => (n === "magick" ? "C:\\Program Files\\ImageMagick\\magick.exe" : null),
+    };
+    const res = freshRegistry(deps, "win32").resolve("imagemagick");
+    expect(res.ok).toBe(true);
+    expect(res.tried.map((t) => t.strategy)).toContain("where");
+  });
 });
