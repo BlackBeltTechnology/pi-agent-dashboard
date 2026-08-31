@@ -8,7 +8,7 @@ import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { autoStartLockPath } from "../autostart-lock.js";
-import { autoStartServer, type AutoStartDeps } from "../server-auto-start.js";
+import { autoStartServer, type AutoStartDeps, type DiscoveredServer } from "../server-auto-start.js";
 
 const WORKTREE_CLI = "/repo/.worktrees/os-x/packages/server/src/cli.ts";
 const HOST_CLI = "/opt/pi-dashboard/packages/server/src/cli.ts";
@@ -229,6 +229,65 @@ describe("single-flight lock", () => {
     const second = makeDeps();
     await autoStartServer(cfg, second);
     expect(second.launchServer).toHaveBeenCalledTimes(1);
+  });
+});
+
+// fix-autostart-discovery-precedence (D2, folded test-plan E4/E5): a
+// discovered candidate is admitted only after GET /api/health succeeds at
+// its advertised host+port; an unverifiable candidate never suppresses the
+// launch step, and its rejection is durably logged with endpoint + reason.
+describe("candidate health verification gates admission (test-plan E4/E5)", () => {
+  const scriptedProbe = (script: Record<string, { running: boolean }>) =>
+    vi.fn(async (port: number, host = "localhost") => script[`${host}:${port}`] ?? { running: false });
+
+  it("E4: an unhealthy candidate is rejected and launch proceeds (test-plan E4)", async () => {
+    delete process.env.PI_DASHBOARD_NO_MDNS; // discovery must run for this scenario
+    const candidate: DiscoveredServer = {
+      host: "localhost", port: 8588, piPort: 19697, isLocal: true, source: "mdns",
+    };
+    const log = vi.fn();
+    const deps = makeDeps({
+      discoverDashboard: vi.fn().mockResolvedValue([candidate]),
+      isDashboardRunning: scriptedProbe({
+        "localhost:8000": { running: false },
+        "localhost:8588": { running: false },
+      }),
+      log,
+    });
+
+    const result = await autoStartServer(cfg, deps);
+
+    expect(deps.launchServer).toHaveBeenCalledTimes(1);
+    expect(result.server).toEqual({ host: "localhost", port: 8000, piPort: 9999 });
+    const lines = log.mock.calls.map(c => c[0] as string).join("\n");
+    expect(lines).toMatch(/rejected/);
+    expect(lines).toContain("8588");
+  });
+
+  it("E5: a candidate whose health probe cannot answer is rejected and logged with the reason (test-plan E5)", async () => {
+    delete process.env.PI_DASHBOARD_NO_MDNS;
+    const candidate: DiscoveredServer = {
+      host: "slow.local", port: 8588, piPort: 19697, isLocal: true, source: "mdns",
+    };
+    const log = vi.fn();
+    const deps = makeDeps({
+      discoverDashboard: vi.fn().mockResolvedValue([candidate]),
+      isDashboardRunning: scriptedProbe({
+        "localhost:8000": { running: false },
+        // candidate probe never answers → the shared probe reports it silent
+        "slow.local:8588": { running: false },
+      }),
+      log,
+    });
+
+    const result = await autoStartServer(cfg, deps);
+
+    expect(deps.launchServer).toHaveBeenCalledTimes(1);
+    expect(result.server).toEqual({ host: "localhost", port: 8000, piPort: 9999 });
+    const lines = log.mock.calls.map(c => c[0] as string).join("\n");
+    expect(lines).toMatch(/rejected/);
+    expect(lines).toContain("slow.local:8588");
+    expect(lines).toMatch(/answer/); // the reason
   });
 });
 

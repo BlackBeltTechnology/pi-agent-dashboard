@@ -180,3 +180,33 @@ describe("/api/restart works without piGateway (no-op broadcast)", () => {
     expect(res.statusCode).toBe(200);
   });
 });
+
+// fix-autostart-discovery-precedence (D5, doubt-review fix): the ephemeral
+// bond (live only under the boot parent) cannot survive a restart — the
+// replacement's parent would be the detached spawnRestart orchestrator. The
+// route must refuse BEFORE recording the restart intent or announcing to
+// bridges; silently dropping the flag would leak the replacement.
+describe("POST /api/restart refuses on an ephemeral server", () => {
+  it("returns 409, records no intent, announces nothing, exits nothing", async () => {
+    const fastify = Fastify();
+    const fake = makeFakeGateway();
+    const exitSpy = vi.spyOn(process, "exit").mockImplementation(((_code?: string | number | null) => undefined as never) as (code?: string | number | null | undefined) => never);
+    registerSystemRoutes(fastify, {
+      ...makeNoopDeps(),
+      config: { port: 8000, piPort: 9999, dev: false, ephemeral: true } as never,
+      piGateway: fake.gateway,
+    });
+
+    try {
+      const res = await fastify.inject({ method: "POST", url: "/api/restart", payload: {} });
+      expect(res.statusCode).toBe(409);
+      expect(res.json().ok).toBe(false);
+      expect(res.json().error).toMatch(/ephemeral/i);
+      expect(fake.broadcasts).toHaveLength(0); // no server_restarting
+      expect(exitSpy).not.toHaveBeenCalled(); // refusal, not a deferred exit
+    } finally {
+      await fastify.close();
+      exitSpy.mockRestore();
+    }
+  });
+});

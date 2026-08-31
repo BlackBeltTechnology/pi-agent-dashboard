@@ -108,6 +108,13 @@ export function parseArgs(args: string[]): ParsedArgs {
       i++;
     } else if (arg === "--dev") {
       flags.dev = true;
+    } else if (arg === "--ephemeral") {
+      // Flag-only opt-in (fix-autostart-discovery-precedence, task 5.1): the
+      // server exits gracefully once its boot parent is proven absent. There
+      // is deliberately NO env var — an inherited PI_DASHBOARD_EPHEMERAL=1 in
+      // a shell would make a user's real standalone dashboard exit when that
+      // shell dies. See design D5 (F8).
+      flags.ephemeral = true;
     } else if (arg === "--no-tunnel") {
       flags.tunnel = false;
     }
@@ -171,6 +178,10 @@ export function buildConfig(flags: Partial<ServerConfig>): ServerConfig {
     // See change: warn-unreachable-trusted-networks.
     hostFlag: flags.host ?? null,
     dev: flags.dev ?? false,
+    // Ephemeral: FLAG ONLY (see parseArgs note) — never sourced from env or
+    // config file, never inferred from a temp HOME / loopback bind / port.
+    // See change: fix-autostart-discovery-precedence (D5, task 5.1).
+    ephemeral: flags.ephemeral === true,
     autoShutdown: fileConfig.autoShutdown,
     shutdownIdleSeconds: fileConfig.shutdownIdleSeconds,
     tunnel: flags.tunnel ?? fileConfig.tunnel.enabled,

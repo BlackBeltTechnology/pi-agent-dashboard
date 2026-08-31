@@ -95,6 +95,29 @@ export function isProcessAlive(pid: number, opts: { kill?: KillFn } = {}): boole
   }
 }
 
+/** Outcome of a signal-0 probe, distinguishing PROOF of absence from denial. */
+export type SignalZeroOutcome = "alive" | "esrch" | "other-errno";
+
+/**
+ * Errno-aware liveness probe for KILL DECISIONS. Unlike `isProcessAlive`
+ * (which catches any throw → "dead"), this distinguishes a signal-0 failure
+ * by errno: `"esrch"` is PROOF the process does not exist; `"other-errno"`
+ * — notably `EPERM` (process alive but owned by another user / hardened) —
+ * must read as ALIVE so a caller never terminates a live process on a
+ * permission denial. PID reuse on POSIX reads `"alive"` (safe direction:
+ * exit deferred, never false).
+ * See change: fix-autostart-discovery-precedence (D6).
+ */
+export function signalZero(pid: number, opts: { kill?: KillFn } = {}): SignalZeroOutcome {
+  const kill = opts.kill ?? defaultKill;
+  try {
+    kill(pid, 0);
+    return "alive";
+  } catch (err) {
+    return (err as NodeJS.ErrnoException)?.code === "ESRCH" ? "esrch" : "other-errno";
+  }
+}
+
 // ── Termination ──────────────────────────────────────────────────────────────
 
 export interface KillProcessResult {

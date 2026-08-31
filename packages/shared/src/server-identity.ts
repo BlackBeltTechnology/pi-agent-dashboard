@@ -37,11 +37,12 @@ export interface DashboardCheckOpts {
   timeoutMs?: number;
   /**
    * Number of additional attempts after the first. Default 0 (no retries).
-   * On `AbortError` (timeout) or 5xx the loop sleeps `retryDelayMs` and
-   * retries. `portConflict: true` (HTTP 200 with foreign JSON shape)
-   * short-circuits — that's a deterministic conflict, not a transient
-   * fault, and retrying would mask a real port collision.
-   * ECONNREFUSED is *not* retried (no process to talk to).
+   * The loop retries ONLY on `AbortError` (timeout) — a server may be
+   * mid-jiti-bootstrap. Anything definitive short-circuits after one
+   * attempt: `portConflict: true` (HTTP 200 with foreign JSON shape, which
+   * includes ALL non-ok statuses — a 5xx is never retried) and a real
+   * ECONNREFUSED refusal (internal flag; fix-autostart-discovery-precedence
+   * F7/D1).
    */
   retries?: number;
   /** Sleep between retries. Default 500 ms. */
@@ -57,6 +58,15 @@ export interface DashboardCheckOpts {
  * Check if a dashboard server is running on the given port by hitting GET /api/health.
  * Returns identity-verified status instead of just "port is open".
  */
+/**
+ * Internal probe result — `refused` drives the retry short-circuit (F7/D1:
+ * a refusal is definitive; retrying only delays a cold start) but is
+ * deliberately STRIPPED from the public return shape: `DashboardStatus` is
+ * a pinned contract consumed across packages (electron health-check), and
+ * no caller needs the flag — the observable is the retry count.
+ */
+type ProbeResult = DashboardStatus & { refused?: boolean };
+
 export async function isDashboardRunning(
   port: number,
   host: string = "localhost",
@@ -71,12 +81,16 @@ export async function isDashboardRunning(
   let lastResult: DashboardStatus = { running: false };
 
   for (let i = 0; i < attempts; i++) {
-    const result = await probeOnce(port, host, timeoutMs);
+    const result = await probeOnce(port, host, timeoutMs) as ProbeResult;
     // Success — return immediately.
     if (result.running) return result;
     // Deterministic conflict — short-circuit (retrying would mask it).
     if (result.portConflict) return result;
-    lastResult = result;
+    // Definitive refusal — short-circuit, STRIPPED of the internal flag.
+    if (result.refused) return { running: false };
+    // Reaching here: not running, not a conflict, not a refusal — so the
+    // only observable shape is the bare non-running result.
+    lastResult = { running: false };
     if (i < attempts - 1) await sleep(retryDelayMs);
   }
   return lastResult;
@@ -86,7 +100,7 @@ async function probeOnce(
   port: number,
   host: string,
   timeoutMs: number,
-): Promise<DashboardStatus> {
+): Promise<ProbeResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -114,7 +128,22 @@ async function probeOnce(
     if (err instanceof Error && err.name === "AbortError") {
       return { running: false };
     }
-    // Could be ECONNREFUSED or other network error
-    return { running: false };
+    // Node's fetch surfaces a refusal as TypeError with cause.code ===
+    // "ECONNREFUSED"; dual-stack (Happy Eyeballs) refusals surface as an
+    // AggregateError whose errors[] carry the per-address codes. A refusal
+    // is DEFINITIVE — flagged internally so the retry loop short-circuits
+    // (F7/D1); stripped from the public return (see ProbeResult).
+    return { running: false, refused: isRefusal(err) };
   }
+}
+
+function isRefusal(err: unknown): boolean {
+  const e = err as {
+    code?: string;
+    cause?: { code?: string; errors?: Array<{ code?: string }> };
+  };
+  if (e?.code === "ECONNREFUSED") return true;
+  if (e?.cause?.code === "ECONNREFUSED") return true;
+  return Array.isArray(e?.cause?.errors) &&
+    e.cause.errors.some((x) => x?.code === "ECONNREFUSED");
 }
