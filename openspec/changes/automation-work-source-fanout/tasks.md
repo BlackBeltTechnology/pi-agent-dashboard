@@ -52,7 +52,7 @@
 
 ### 4.2 L3 e2e (Playwright vs docker harness) — see tests/e2e/automation-fanout.spec.ts; read dashboardPort from .pi-test-harness.json
 
-- [ ] 4.2.1 end-to-end folder drain, no double-process — input: folder-backed source with 3 files, schedule.batch automation · trigger: one fire against the harness · observable: 3 child sessions each bound to a distinct file, folder drained, no file processed by two children. (test-plan #F3)
+- [x] 4.2.1 end-to-end folder drain, no double-process — input: folder-backed source with 3 files, schedule.batch automation · trigger: one fire against the harness · observable: 3 child sessions each bound to a distinct file, folder drained, no file processed by two children. (test-plan #F3)
 
 ## 5. Docs
 
