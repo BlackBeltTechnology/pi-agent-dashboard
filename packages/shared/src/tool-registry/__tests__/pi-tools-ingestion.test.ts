@@ -11,11 +11,18 @@
  * Folded scenarios: test-plan #E1–E6 (8.1–8.6), #E25 leg (8.25).
  */
 import { describe, it, expect } from "vitest";
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { ToolRegistry, registerDefaultTools } from "../index.js";
 import { OverridesStore } from "../overrides.js";
-import { parseSkillTools, ingestSkillTools } from "../pi-tools.js";
+import {
+  discoverSkillManifests,
+  ingestInstalledSkillTools,
+  ingestSkillTools,
+  parseSkillTools,
+  resolveInstallRoot,
+} from "../pi-tools.js";
 import type { StrategyDeps } from "../strategies.js";
 
 function bareDeps(): StrategyDeps {
@@ -201,5 +208,55 @@ describe("ingestSkillTools — unmanifested / idempotent", () => {
     const snapshot = JSON.stringify(r.list());
     ingestSkillTools(r, [...manifest]);
     expect(JSON.stringify(r.list())).toBe(snapshot);
+  });
+});
+
+describe("ingestInstalledSkillTools / discoverSkillManifests / resolveInstallRoot", () => {
+  it("ingests parsed manifests, skips invalid ones (best-effort)", () => {
+    const r = freshRegistry();
+    const records = ingestInstalledSkillTools(r, {
+      manifests: [
+        { pkgDir: "/x/video", pi: { tools: [{ id: "ffmpeg", probe: "resolve", optional: true }] } },
+        { pkgDir: "/x/bad", pi: { tools: [{ id: "x", provide: "rm -rf" }] } },
+      ],
+    });
+    expect(records).toHaveLength(1);
+    expect(r.has("ffmpeg")).toBe(true);
+    expect(r.has("x")).toBe(false);
+  });
+
+  it("discovers pi.tools under node_modules scope + packages, then ingests", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "pi-tools-discover-"));
+    const writePkg = (rel: string, pi: unknown) => {
+      const dir = path.join(root, rel);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "x", pi }));
+    };
+    writePkg("node_modules/@blackbelt-technology/alpha", { tools: [{ id: "A_KEY", probe: "env" }] });
+    writePkg("packages/beta", { tools: [{ id: "B_KEY", probe: "env" }] });
+    writePkg("node_modules/@blackbelt-technology/empty", { skills: ["."] });
+    const found = discoverSkillManifests(root);
+    expect(found.map((m) => path.relative(root, m.pkgDir)).sort()).toEqual([
+      path.join("node_modules", "@blackbelt-technology", "alpha"),
+      path.join("packages", "beta"),
+    ]);
+    const r = freshRegistry();
+    const records = ingestInstalledSkillTools(r, { root });
+    expect(r.has("A_KEY")).toBe(true);
+    expect(r.has("B_KEY")).toBe(true);
+    expect(records).toHaveLength(2);
+    fs.rmSync(root, { recursive: true, force: true });
+  });
+
+  it("resolveInstallRoot is layout-aware (monorepo vs npm i -g) — review round 2", () => {
+    // Monorepo / docker / Electron: <repo>/packages/server/src/cli.ts → <repo>.
+    expect(resolveInstallRoot("/repo/packages/server/src/cli.ts")).toBe("/repo");
+    // Standalone npm i -g: <prefix>/node_modules/@blackbelt-technology/
+    // pi-dashboard-server/src/cli.ts → <prefix>.
+    expect(
+      resolveInstallRoot(
+        "/usr/local/lib/node_modules/@blackbelt-technology/pi-dashboard-server/src/cli.ts",
+      ),
+    ).toBe("/usr/local/lib");
   });
 });

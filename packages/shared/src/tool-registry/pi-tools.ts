@@ -233,3 +233,26 @@ export function ingestInstalledSkillTools(
   }
   return records;
 }
+
+/**
+ * Install-tree root containing the scannable package manifests, derived
+ * from a file inside the server package. Layout-aware:
+ * - monorepo / docker / Electron: `<repo>/packages/server/src/cli.ts` →
+ *   `<repo>` (scans `<repo>/packages` + `<repo>/node_modules`);
+ * - standalone `npm i -g`: `<prefix>/node_modules/@blackbelt-technology/
+ *   pi-dashboard-server/src/cli.ts` → `<prefix>`.
+ *
+ * Exposed + unit-tested because the two layouts need different up-counts.
+ * See change: add-skill-tool-provisioning (review round 2).
+ */
+export function resolveInstallRoot(serverFilePath: string): string {
+  const pkgRoot = path.resolve(serverFilePath, "../..");
+  const parent = path.dirname(pkgRoot);
+  const grandparent = path.dirname(parent);
+  const inNpmInstall =
+    path.basename(parent) === "@blackbelt-technology" &&
+    path.basename(grandparent) === "node_modules";
+  // monorepo: <repo>/packages/server → <repo>; npm: …/@blackbelt-technology/
+  // <pkg> → <prefix> (pkg → scope → node_modules → prefix).
+  return inNpmInstall ? path.resolve(pkgRoot, "../../..") : path.resolve(pkgRoot, "../..");
+}

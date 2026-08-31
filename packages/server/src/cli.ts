@@ -65,7 +65,7 @@ import {
   resolveSpawnRuntime,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
 import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
-import { getDefaultRegistry, ingestInstalledSkillTools } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { getDefaultRegistry, ingestInstalledSkillTools, resolveInstallRoot } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import { assertNodeVersionSupported } from "./auth/node-guard.js";
 import { recordExitIntent } from "./persistence/boot-state.js";
 import { publishResolvedRuntime, readPublishedRuntimeBlock } from "./runtime-publication.js";
@@ -241,11 +241,11 @@ async function runForeground(config: ServerConfig): Promise<void> {
     // Ingest skill-package pi.tools manifests (installed tree + monorepo
     // dev) so skill tools surface through /api/tools + Settings → Tools.
     // Best-effort: an invalid manifest is skipped, never fatal. The scan
-    // root is the tree THIS server runs from — a dashboard launched from a
-    // user shell has an unrelated process.cwd().
-    // See change: add-skill-tool-provisioning (task 6.2).
+    // root is the tree THIS server runs from (layout-aware: monorepo vs
+    // npm i -g) — a dashboard launched from a user shell has an unrelated
+    // process.cwd(). See change: add-skill-tool-provisioning (task 6.2).
     ingestInstalledSkillTools(registry, {
-      root: path.resolve(fileURLToPath(import.meta.url), "../../../.."),
+      root: resolveInstallRoot(fileURLToPath(import.meta.url)),
     });
     const res = registry.resolve("pi");
     if (res.ok) {

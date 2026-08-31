@@ -12,7 +12,7 @@ export * from "./types.js";
 export { OverridesStore, defaultOverridesPath } from "./overrides.js";
 export { ToolRegistry } from "./registry.js";
 export { registerDefaultTools } from "./definitions.js";
-export { parseSkillTools, ingestSkillTools, discoverSkillManifests, ingestInstalledSkillTools } from "./pi-tools.js";
+export { parseSkillTools, ingestSkillTools, discoverSkillManifests, ingestInstalledSkillTools, resolveInstallRoot } from "./pi-tools.js";
 export type { DiscoveredSkillManifest, IngestionRecord, ParseSkillToolsResult } from "./pi-tools.js";
 export { ensureTools } from "./ensure.js";
 export type {
