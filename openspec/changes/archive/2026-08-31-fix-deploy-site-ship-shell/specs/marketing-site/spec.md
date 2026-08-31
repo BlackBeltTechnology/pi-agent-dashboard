@@ -4,43 +4,39 @@
 
 The site SHALL prominently surface the latest published GitHub release
 (version tag, publish date, per-platform downloads) and keep that
-surface in sync without manual editing.
+surface in sync without manual editing. The site is a hand-written
+static page: release data lives inline in `site/index.html` and the
+`sync-release` script rewrites it — there is no build-time fetch.
 
 #### Scenario: Download section renders per-platform cards
 
-- **GIVEN** a successful build with at least a cached release in
-  `site/src/data/latest-release.json`
-- **WHEN** the rendered page is inspected
+- **GIVEN** the current `site/index.html` with a synced download block
+- **WHEN** the page is inspected
 - **THEN** there is a `#download` section that shows the release tag,
   publish date, links to release notes and the releases index, and three
   platform cards (macOS / Linux / Windows), each with a primary download
   button sized by the classifier (DMG for macOS, AppImage for Linux,
-  Installer .exe for Windows) and any additional assets tucked into a
-  collapsible “Other downloads” accordion
+  Installer .exe for Windows) and additional assets matched by shape
+  (extension + arch suffix), never by a hardcoded filename
 
-#### Scenario: Hero CTA reflects the current version
-
-- **GIVEN** a successful build with a resolved release
-- **WHEN** the hero renders
-- **THEN** its primary CTA label is “Download <tag> →” and its href is
-  the in-page anchor `#download`
-
-#### Scenario: Build survives API outage via committed cache
-
-- **GIVEN** the GitHub API is unreachable (timeout, 403, or 5xx)
-- **WHEN** the site builds
-- **THEN** `github-release.ts` falls back to
-  `site/src/data/latest-release.json` and the Download section still
-  renders the last known release with no HTML difference to the visitor
-
-#### Scenario: Release publish updates the committed cache
+#### Scenario: Release publish updates the download block
 
 - **GIVEN** a maintainer publishes a new GitHub release
 - **WHEN** the release pipeline dispatches `sync-release-version` on `develop`
-- **THEN** it writes the latest release metadata to
-  `site/src/data/latest-release.json` and, if the content changed,
-  commits the file back to `develop` with a message of the form
-  `chore(site): sync latest-release.json to <tag>`
+- **THEN** `sync-release.mjs` rewrites the download block in
+  `site/index.html` from the GitHub API and, if the content changed,
+  commits it back to `develop` with a message of the form
+  `chore(site): sync download block to <tag>`
+
+#### Scenario: Site build does not fetch the GitHub API
+
+- **GIVEN** the static-page site build (`node site/build.mjs`)
+- **WHEN** it runs with the GitHub API unreachable
+- **THEN** the build succeeds unchanged — release data is inline markup,
+  not build-time output
+- **AND** the deploy workflow runs `npm run check-release` non-blocking,
+  so a page advertising a stale version is visible in the log without
+  blocking the deploy
 
 #### Scenario: A release event cannot start the redeploy, so the pipeline dispatches it
 
@@ -52,9 +48,8 @@ surface in sync without manual editing.
   via `workflow_dispatch` with `--ref develop`, because `workflow_dispatch` is an explicit exception
   that always creates a run even when triggered by the default token
 - **AND** the `deploy-site.yml` dispatch SHALL follow the `sync-release-version` run's completion, so
-  the build observes the committed cache rather than racing it
-- **AND** the dispatched run builds the site with fresh release data and publishes via
-  `actions/deploy-pages@v4`
+  the build observes the committed download block rather than racing it
+- **AND** the dispatched run builds the site and publishes via `actions/deploy-pages@v4`
 - **AND** `--ref develop` SHALL be preserved on both dispatches, because the `github-pages`
   environment rejects deploys from a tag ref
 
@@ -99,25 +94,23 @@ The repository SHALL deploy the marketing site to GitHub Pages using the modern 
 
 ### Requirement: Performance and accessibility budgets
 
-The site SHALL ship minimal JavaScript and meet accessibility baselines. The JavaScript budget covers the marketing site only; the neutral shell is a separately-budgeted artifact that happens to be published from the same directory tree.
+The site ships as hand-written HTML plus vendored, pre-minified JavaScript
+(`site/field.js`, `site/vendor/`); there is no bundler and no build-time
+bundle. The Astro-era 50 KB gzipped JavaScript budget and its
+`check-js-size.mjs` check were deleted with the framework. A JavaScript
+size gate SHALL NOT be reinstated without reintroducing a measurement
+mechanism in the same change — a budget with no checker is decoration.
 
-#### Scenario: JavaScript bundle budget
+#### Scenario: No bundle budget is asserted
 
-- **GIVEN** a successful site build
-- **WHEN** the total gzipped size of `site/dist/**/*.js` is measured, **excluding** everything under `site/dist/app/`
-- **THEN** it does not exceed 50 KB
+- **GIVEN** the static site has no bundler and no size-check script
+- **WHEN** the deploy workflow builds `site/dist/`
+- **THEN** no JavaScript-size gate runs, and no workflow step references a
+  bundle budget or `check-js-size`
 
-#### Scenario: Budget is independent of workflow step order
+#### Scenario: Layout and anchor audit guards the rendered page
 
-- **GIVEN** the shell has already been copied into `site/dist/app/`
-- **WHEN** the JS bundle budget check runs
-- **THEN** it SHALL report the same total as it would before the copy, so the check cannot be broken
-  by reordering the build steps
-- **AND** the exclusion assumes `site/dist/app/` holds only neutral-shell output; a future site page
-  published under `/app/` would escape the budget and SHALL require this scope to be revisited
-
-#### Scenario: Lighthouse mobile targets
-
-- **GIVEN** a Lighthouse mobile audit of the deployed site
-- **WHEN** the audit completes
-- **THEN** Performance, Accessibility, Best Practices, and SEO each score at least 95
+- **GIVEN** the audit driver (`npm run audit -w site`)
+- **WHEN** it sweeps the declared themes across the declared viewports
+- **THEN** it reports no document overflow and no dead in-page anchors,
+  and exits non-zero on a violation

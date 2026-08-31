@@ -52,6 +52,7 @@ import {
   readCurrentPiVersion,
   readPiCompatibility,
 } from "../pi/pi-version-skew.js";
+import { EMPTY_KEEPER_LOG_STATS, type KeeperLogStats } from "../rpc-keeper/keeper-manager.js";
 import type { ServerConfig } from "../server.js";
 import type { SessionManager } from "../session/memory-session-manager.js";
 import { spawnRestart } from "../spawn-process/restart-helper.js";
@@ -167,9 +168,14 @@ export function registerSystemRoutes(
     // (active/idle ephemeral counts, reaped-by-reason, capacity rejections,
     // acquire reuse hit/miss). See change: add-embed-session-lifecycle.
     embedLifecycle?: { snapshot: () => unknown };
+    // Keeper-log disk posture; `/api/health` reads the cached snapshot next
+    // to storeTrim. Failure-isolated at the call site like embedLifecycle —
+    // a throwing snapshot must never 500 the unguarded health hot path.
+    // See change: fix-runaway-keeper-log-growth (D6, task 4.2).
+    keeperLogStats?: { get: () => KeeperLogStats };
   },
 ) {
-  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle } = deps;
+  const { sessionManager, preferencesStore, metaPersistence, config, networkGuard, version, directoryService, piGateway, browserGateway, hydrationMetrics, readEventLoopDelay, eventLoopSpikes, eventStore, embedLifecycle, keeperLogStats } = deps;
 
   // Quiesce windows for the bridge `server_restarting` broadcast. See change
   // `fix-restart-bridge-auto-start-race`. Bridges that receive this message
@@ -921,6 +927,20 @@ export function registerSystemRoutes(
       // a newly-required field while still typechecking.
       // See change: collapse-superseded-tool-execution-updates (D9).
       storeTrim: eventStore?.getTrimStats?.() ?? EMPTY_TRIM_STATS,
+      // Keeper-log disk posture: total/fileCount/largest plus the sweep's
+      // reclaimedBytes and the runawayFiles non-rotation signal (2× cap —
+      // the keeper is a separate process and cannot report its own rotation
+      // failures). Typed-zero fallback for the degraded case, never an
+      // inline literal (the EMPTY_TRIM_STATS convention). Failure-isolated:
+      // a throwing stats provider must never 500 the unguarded hot path.
+      // See change: fix-runaway-keeper-log-growth (D6, task 4.2).
+      keeperLogs: (() => {
+        try {
+          return keeperLogStats?.get() ?? EMPTY_KEEPER_LOG_STATS;
+        } catch {
+          return EMPTY_KEEPER_LOG_STATS;
+        }
+      })(),
       // Embed-session-lifecycle diagnostics (active/idle ephemeral counts,
       // reaped-by-reason, capacity rejections, acquire reuse hit/miss). Failure-
       // isolated so a throwing snapshot can never 500 the health hot path.

@@ -33,7 +33,7 @@ import {
   createFsSpecsEvidenceProbe,
   type SpecsEvidenceProbe,
 } from "./openspec-specs-evidence.js";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import path from "node:path";
 
 const EMPTY_DATA: OpenSpecData = { initialized: false, changes: [] };
@@ -74,7 +74,10 @@ export function buildOpenSpecData(
     const statusResult = statusResults.get(c.name) ?? null;
     const artifacts: OpenSpecArtifact[] = (statusResult?.artifacts ?? []).map((a) => ({
       id: a.id,
-      status: (a.status === "done" ? "done" : a.status === "ready" ? "ready" : "blocked") as OpenSpecArtifact["status"],
+      // `skipped` passes through: a skip_specs change's specs artifact arrives
+      // as "skipped" from the raw CLI, and collapsing it to "blocked" broke
+      // poller/CLI parity. See change: dispatch-provider-auth-event.
+      status: (a.status === "done" ? "done" : a.status === "ready" ? "ready" : a.status === "skipped" ? "skipped" : "blocked") as OpenSpecArtifact["status"],
     }));
 
     // Design-artifact override: promote-only, design-only. See change:
@@ -137,6 +140,9 @@ export function buildOpenSpecData(
  *   - `proposal`: `done` iff `proposal.md` exists, else `ready`.
  *   - `design`:   `done` iff the design evidence probe (R1/R2/R3) fires, else `ready`.
  *   - `specs`:    `done` iff ≥1 `specs/**\/*.md` per the specs evidence probe, else `ready`.
+ *                 A change whose `.openspec.yaml` declares `skip_specs: true` reports
+ *                 `skipped` instead — a declaration of absence, not outstanding work
+ *                 (mirrors the raw CLI and satisfies isComplete).
  *   - `tasks`:    `done` iff `totalTasks > 0`. The CLI keys the `tasks`
  *                 artifact on whether tasks were authored, NOT on completion
  *                 (a 0/21 change still reports `tasks: done`). With no tasks
@@ -159,20 +165,38 @@ export function deriveArtifactStatus(
 ): { artifacts: Array<{ id: string; status: string }>; isComplete: boolean } {
   const proposalDone = existsSync(path.join(changeDir, "proposal.md"));
   const designDone = evaluateLocalDesignSatisfaction(changeDir, probes.design);
-  const specsDone = evaluateLocalSpecsSatisfaction(changeDir, probes.specs);
+  // A change whose .openspec.yaml declares `skip_specs: true` has NO specs
+  // artifact by declaration — the raw CLI emits it as `skipped` and it
+  // satisfies planning completeness without a specs dir. Keying on the specs
+  // evidence probe instead reported `ready` forever and broke poller/CLI
+  // parity. See change: dispatch-provider-auth-event.
+  const skipSpecs = isSkipSpecsChange(changeDir);
+  const specsDone = skipSpecs || evaluateLocalSpecsSatisfaction(changeDir, probes.specs);
   const tasksAuthored = (listEntry.totalTasks ?? 0) > 0;
 
   const artifacts = [
     { id: "proposal", status: proposalDone ? "done" : "ready" },
     { id: "design", status: designDone ? "done" : "ready" },
-    { id: "specs", status: specsDone ? "done" : "ready" },
+    { id: "specs", status: skipSpecs ? "skipped" : specsDone ? "done" : "ready" },
     {
       id: "tasks",
       status: tasksAuthored ? "done" : proposalDone && designDone && specsDone ? "ready" : "blocked",
     },
   ];
-  const isComplete = artifacts.every((a) => a.status === "done");
+  // `skipped` satisfies: it is a declaration of absence, not outstanding work
+  // (mirrors the CLI's isPlanningComplete).
+  const isComplete = artifacts.every((a) => a.status === "done" || a.status === "skipped");
   return { artifacts, isComplete };
+}
+
+/** True when the change's `.openspec.yaml` declares `skip_specs: true`. */
+function isSkipSpecsChange(changeDir: string): boolean {
+  try {
+    const raw = readFileSync(path.join(changeDir, ".openspec.yaml"), "utf8");
+    return /^skip_specs:\s*true\s*$/m.test(raw);
+  } catch {
+    return false; // no .openspec.yaml — not a skip_specs change
+  }
 }
 
 /**

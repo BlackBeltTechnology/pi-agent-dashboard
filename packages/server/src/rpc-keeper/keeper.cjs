@@ -22,6 +22,12 @@ const net = require("net");
 const os = require("os");
 const path = require("path");
 const { buildPiEnv } = require("./keeper-env.cjs");
+const {
+  createKeeperLogRotation,
+  parsePositiveIntEnv,
+  KEEPER_LOG_MAX_BYTES_DEFAULT,
+  KEEPER_LOG_CHECK_INTERVAL_MS_DEFAULT,
+} = require("./keeper-log-rotation.cjs");
 
 // ---------------------------------------------------------------------------
 // Args + paths
@@ -61,6 +67,45 @@ const piPidPath = isWindows
 
 const logPath = path.join(SESSIONS_DIR, `keeper-${sessionId}.log`);
 
+// ── Log-growth bounds (fix-runaway-keeper-log-growth) ─────────────────────
+// The keeper is CJS-pure and cannot import the shared config, so the cap and
+// check cadence arrive as env vars set by the dashboard at spawn time
+// (PI_KEEPER_LOG_MAX_BYTES / PI_KEEPER_LOG_CHECK_INTERVAL_MS, the
+// PI_KEEPER_CAPTURE_PI_OUTPUT precedent). Unset/invalid → the documented
+// defaults — a hand-run or legacy keeper still gets the bound.
+const LOG_MAX_BYTES = parsePositiveIntEnv(
+  process.env.PI_KEEPER_LOG_MAX_BYTES,
+  KEEPER_LOG_MAX_BYTES_DEFAULT,
+);
+const LOG_CHECK_INTERVAL_MS = parsePositiveIntEnv(
+  process.env.PI_KEEPER_LOG_CHECK_INTERVAL_MS,
+  KEEPER_LOG_CHECK_INTERVAL_MS_DEFAULT,
+);
+
+// TEST-ONLY fault injection for the rotation fallback paths — the spawned
+// keeper is a black box to vitest, so keeper.test.ts drives these via env.
+// Never set by the server; stripped from pi's env below like every other
+// keeper-internal var. Values: "ftruncate" (fd truncate throws EPERM →
+// exercises the path fallback), "truncate" (path truncate throws EACCES →
+// exercises the double-failure path).
+const TEST_FAULTS = String(process.env.PI_KEEPER_TEST_FAULTS ?? "")
+  .split(",")
+  .filter(Boolean);
+let rotationFs = fs;
+if (TEST_FAULTS.length > 0) {
+  rotationFs = Object.create(fs);
+  if (TEST_FAULTS.includes("ftruncate")) {
+    rotationFs.ftruncateSync = () => {
+      throw Object.assign(new Error("simulated EPERM (PI_KEEPER_TEST_FAULTS)"), { code: "EPERM" });
+    };
+  }
+  if (TEST_FAULTS.includes("truncate")) {
+    rotationFs.truncateSync = () => {
+      throw Object.assign(new Error("simulated EACCES (PI_KEEPER_TEST_FAULTS)"), { code: "EACCES" });
+    };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Logger
 // ---------------------------------------------------------------------------
@@ -73,13 +118,29 @@ try {
   process.exit(2);
 }
 
+// Rotation core, created after logFd exists (the throttled size check runs at
+// the top of every log() call, and its failure WARNs route through log()).
+// See keeper-log-rotation.cjs for the truncate-in-place contract.
+const logRotation = createKeeperLogRotation({
+  logFd,
+  logPath,
+  log: (line) => log(`[rotation] ${line}`),
+  maxBytes: LOG_MAX_BYTES,
+  checkIntervalMs: LOG_CHECK_INTERVAL_MS,
+  fs: rotationFs,
+});
+
 function log(line) {
+  if (logRotation) logRotation.rotateIfNeeded();
   try {
     fs.writeSync(logFd, `[${new Date().toISOString()}] ${line}\n`);
   } catch (_e) { /* swallow — log failure should not crash the keeper */ }
 }
 
 log(`keeper starting: sessionId=${sessionId} pid=${process.pid} sockPath=${sockPath}`);
+// Log the RESOLVED values (env unset/invalid → defaults) so an operator can
+// confirm the bound a given keeper actually carries. See task 1.5 / E8.
+log(`log rotation: maxBytes=${LOG_MAX_BYTES} checkIntervalMs=${LOG_CHECK_INTERVAL_MS}`);
 
 // ---------------------------------------------------------------------------
 // Shutdown coordination
@@ -305,6 +366,13 @@ function spawnPi() {
   // written either way. See change: add-keeper-output-capture-toggle.
   const capturePiOutput = process.env.PI_KEEPER_CAPTURE_PI_OUTPUT === "1";
   delete env.PI_KEEPER_CAPTURE_PI_OUTPUT;
+  // Keeper-internal tuning is not pi's business (and pi's env is observable
+  // downstream): strip the rotation knobs and the test-fault switch exactly
+  // like PI_KEEPER_CAPTURE_PI_OUTPUT above. See change:
+  // fix-runaway-keeper-log-growth (D7, tasks 1.5/1.7).
+  delete env.PI_KEEPER_LOG_MAX_BYTES;
+  delete env.PI_KEEPER_LOG_CHECK_INTERVAL_MS;
+  delete env.PI_KEEPER_TEST_FAULTS;
   const childStdio = capturePiOutput
     ? ["pipe", logFd, logFd]
     : ["pipe", "ignore", "ignore"];
@@ -367,6 +435,13 @@ async function main() {
     shutdown(2, "pid-sidecar-write");
     return;
   }
+
+  // 2b. Start the rotation timer. Necessary and non-redundant with the log()
+  // call site: with capture on, growth is entirely child-driven, so a keeper
+  // that logs nothing for an hour would otherwise never check. unref()'d —
+  // it must not keep the process alive past pi's exit. Its callback is fully
+  // guarded inside the rotation module (design D3).
+  logRotation.start();
 
   // 3. Spawn pi.
   piChild = spawnPi();

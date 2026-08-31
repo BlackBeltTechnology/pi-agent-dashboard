@@ -23,15 +23,17 @@ This catalogue is a **shortcut** to the canonical FAQ entries, not a replacement
 ### Symptom — Fastify crashes immediately on start
 
 **Cause:** Bad Node.js version. Specifically:
-- 22.0.0–22.17.x (crash per nodejs/node#58515)
+- 22.0.0–22.18.x (crash per nodejs/node#58515)
 - 24.1.0–24.2.x (same bug)
 
-**Fix:** Use Node.js ≥ 22.18.0 (or ≥ 24.3.0). Check:
+**Fix:** Use Node.js ≥ 22.19.0 (or ≥ 24.3.0). Check:
 ```bash
 node --version
 ```
 
-Repo-lint `node-version-check.ts` warns at startup if a known-bad version is detected.
+The startup guard (`packages/server/src/auth/node-guard.ts`, predicates from
+`packages/shared/src/node-version.ts` `isAffectedNode`) refuses known-bad
+versions at boot.
 
 ### Symptom — `EADDRINUSE` on start
 

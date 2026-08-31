@@ -26,6 +26,7 @@ import {
 } from "../../hooks/useAnthropicPeerProbe.js";
 import { useAsyncAction } from "../../hooks/useAsyncAction.js";
 import { usePackageOperations } from "../../hooks/usePackageOperations.js";
+import { PROVIDER_AUTH_EVENT } from "../../hooks/useProvidersReady.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { logRejection } from "../../lib/report-error.js";
@@ -126,10 +127,13 @@ export function ProviderAuthSection({ onCredentialsChanged }: {
     setLoading(false);
   }, []);
 
-  // Row-level credential change: refresh this section AND notify the owner.
-  // Deliberately NOT folded into `refresh`, which also runs on mount — a mount
-  // must not look like a credential write.
+  // Row-level credential change: dispatch the readiness hint, refresh this
+  // section AND notify the owner. Deliberately NOT folded into `refresh`,
+  // which also runs on mount — a mount must not look like a credential write.
+  // The event carries no payload: it is a hint to refetch, never a claim that
+  // the credential count changed. See change: dispatch-provider-auth-event.
   const handleChanged = useCallback(() => {
+    window.dispatchEvent(new CustomEvent(PROVIDER_AUTH_EVENT));
     void refresh().catch(logRejection("ProviderAuthSection.refresh"));
     onCredentialsChanged?.();
   }, [refresh, onCredentialsChanged]);

@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SettingsPanel } from "../SettingsPanel.js";
+import { PROVIDER_AUTH_EVENT, useProvidersReady } from "../../../hooks/useProvidersReady.js";
 
 // Persistence behaviour after the reorganisation: debugTools now commits
 // through the buffered display-prefs draft source instead of the deleted
@@ -245,5 +246,135 @@ describe("settings persistence after the reorganisation", () => {
     await waitFor(() => expect(prefsPatches()).toHaveLength(1));
     // The failed leg must leave the panel dirty rather than looking saved.
     expect(await waitFor(() => screen.getByTestId("settings-save-bar"))).toBeTruthy();
+  });
+});
+
+// ── dispatch-provider-auth-event ─────────────────────────────────────────────
+// The custom-LLM-provider `PUT /api/providers` has REPLACE semantics, so one
+// success-path dispatch (placed after the `data.success` guard) covers add,
+// edit and delete. test-plan #D4, #E3, #E4, #X2 of change
+// dispatch-provider-auth-event.
+
+function ReadyProbe() {
+  const state = useProvidersReady();
+  return <div data-testid="providers-ready">{JSON.stringify(state)}</div>;
+}
+
+interface ProviderCtl {
+  providers: Record<string, any>;
+  providersPut?: () => Promise<any>;
+}
+let pc: ProviderCtl;
+let providerCalls: Calls[];
+
+function stubProviderFetch() {
+  global.fetch = vi.fn(async (url: string, options?: any) => {
+    providerCalls.push({ url, method: options?.method, body: options?.body ? JSON.parse(options.body) : undefined });
+    if (url.includes("/api/provider-auth/handlers")) return { ok: true, json: async () => ({ ids: [] }) } as any;
+    if (url.includes("/api/provider-auth/status")) return { ok: true, json: async () => [] } as any;
+    if (url.includes("/api/models")) return { ok: true, json: async () => ({ status: "ok", models: [] }) } as any;
+    if (url === "/api/config" && !options?.method) return { ok: true, json: async () => ({ success: true, data: mockConfig }) } as any;
+    if (url === "/api/config" && options?.method === "PUT") return { ok: true, json: async () => ({ success: true }) } as any;
+    if (url.includes("/api/providers") && options?.method === "PUT") return pc.providersPut ? await pc.providersPut() : { ok: true, json: async () => ({ success: true }) } as any;
+    if (url.includes("/api/providers")) return { ok: true, json: async () => ({ success: true, providers: pc.providers, health: {} }) } as any;
+    if (url.includes("/api/preferences/display")) return { ok: true, json: async () => ({ success: true }) } as any;
+    return { ok: false, json: async () => null } as any;
+  }) as any;
+}
+
+function trackProviderEvents() {
+  const events: CustomEvent[] = [];
+  const onEvent = (e: Event) => events.push(e as CustomEvent);
+  window.addEventListener(PROVIDER_AUTH_EVENT, onEvent);
+  return { events, stop: () => window.removeEventListener(PROVIDER_AUTH_EVENT, onEvent) };
+}
+
+const providersPuts = () => providerCalls.filter((c) => c.url.includes("/api/providers") && c.method === "PUT");
+
+async function openPanelOnProviders(probe = false) {
+  render(probe ? <><SettingsPanel /><ReadyProbe /></> : <SettingsPanel />);
+  await waitFor(() => screen.getByText("Interface"));
+  gotoPage("Providers");
+}
+
+describe("settings panel — custom-provider writes dispatch provider-auth-event", () => {
+  beforeEach(() => {
+    pc = { providers: {} };
+    providerCalls = [];
+    window.history.replaceState({}, "", "/settings/general");
+  });
+
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+  });
+
+  it("D4 dispatches one event on a custom-provider save", async () => {
+    stubProviderFetch();
+    const { events, stop } = trackProviderEvents();
+    await openPanelOnProviders();
+
+    fireEvent.click(await screen.findByText("Add Provider"));
+    fireEvent.change(screen.getByPlaceholderText("Provider name"), { target: { value: "custom-llm" } });
+    fireEvent.change(screen.getByText("Base URL").closest("div")!.querySelector("input")!, { target: { value: "https://api.example.com/v1" } });
+    fireEvent.change(screen.getByPlaceholderText("sk-... or $ENV_VAR_NAME"), { target: { value: "sk-custom" } });
+    await waitFor(() => screen.getByTestId("settings-save-bar"));
+    fireEvent.click(screen.getByTestId("save-btn"));
+
+    await waitFor(() => expect(providersPuts()).toHaveLength(1));
+    expect(providersPuts()[0].body.providers["custom-llm"].apiKey).toBe("sk-custom");
+    await waitFor(() => expect(events).toHaveLength(1));
+    stop();
+  });
+
+  it("E3 dispatches when a custom provider is deleted via the replace PUT", async () => {
+    pc = { providers: { "custom-llm": { baseUrl: "https://api.example.com/v1", apiKey: "sk-real", api: "openai" } } };
+    stubProviderFetch();
+    const { events, stop } = trackProviderEvents();
+    await openPanelOnProviders();
+
+    fireEvent.click(await screen.findByText("Remove"));
+    await waitFor(() => screen.getByTestId("settings-save-bar"));
+    fireEvent.click(screen.getByTestId("save-btn"));
+
+    await waitFor(() => expect(events).toHaveLength(1));
+    expect(providersPuts()[0].body.providers).toEqual({});
+    stop();
+  });
+
+  it("E4 a base-URL-only edit of a sentinel-keyed provider still dispatches, readiness unchanged", async () => {
+    // "***" is the redaction sentinel — the key round-trips untouched, so the
+    // provider is keyed before AND after. Over-dispatch is legal (#E4).
+    pc = { providers: { "custom-llm": { baseUrl: "https://api.example.com/v1", apiKey: "***", api: "openai" } } };
+    stubProviderFetch();
+    const { events, stop } = trackProviderEvents();
+    await openPanelOnProviders(true);
+    const probe = () => JSON.parse(screen.getByTestId("providers-ready").textContent!);
+    await waitFor(() => expect(probe().ready).toBe(true));
+
+    fireEvent.change(screen.getByText("Base URL").closest("div")!.querySelector("input")!, { target: { value: "https://api2.example.com/v1" } });
+    await waitFor(() => screen.getByTestId("settings-save-bar"));
+    fireEvent.click(screen.getByTestId("save-btn"));
+
+    await waitFor(() => expect(events).toHaveLength(1));
+    await waitFor(() => expect(probe().loading).toBe(false));
+    expect(probe().ready).toBe(true);
+    stop();
+  });
+
+  it("X2 a body-level failure dispatches nothing", async () => {
+    pc = { providers: {}, providersPut: async () => ({ ok: true, json: async () => ({ success: false, error: "providers boom" }) }) };
+    stubProviderFetch();
+    const { events, stop } = trackProviderEvents();
+    await openPanelOnProviders();
+
+    fireEvent.click(await screen.findByText("Add Provider"));
+    fireEvent.change(screen.getByPlaceholderText("Provider name"), { target: { value: "custom-llm" } });
+    await waitFor(() => screen.getByTestId("settings-save-bar"));
+    fireEvent.click(screen.getByTestId("save-btn"));
+
+    await waitFor(() => expect(providersPuts()).toHaveLength(1));
+    expect(events).toHaveLength(0);
+    stop();
   });
 });

@@ -745,7 +745,13 @@ export interface RoleInfo {
 /** OpenSpec artifact status */
 export interface OpenSpecArtifact {
   id: string;
-  status: "done" | "ready" | "blocked";
+  /**
+   * `skipped`: the change's `.openspec.yaml` declares `skip_specs: true`, so
+   * the raw CLI emits the specs artifact as skipped and it satisfies planning
+   * completeness without a specs dir. See change: dispatch-provider-auth-event
+   * (develop-borne CI fix for poller/CLI parity).
+   */
+  status: "done" | "ready" | "blocked" | "skipped";
 }
 
 /** A single OpenSpec change */
