@@ -1,21 +1,22 @@
 # Design — fix-connection-inbound-drop-flake
 
-## D1 — Median-of-interleaved-rounds (chosen)
+## D1 — Median-of-interleaved-rounds with paired per-round ratios (chosen)
 
 Run K=7 rounds; each round measures one baseline flood and one with-report
-flood back-to-back. Collect the baseline samples and with-report samples into
-separate arrays; assert `median(withReports) < max(median(baseline)*1.1,
-median(baseline)+5)`.
+flood **back-to-back**. Assert `median(withReport_i / baseline_i) < 1.1`
+OR `median(withReports) − median(baselines) < 5` (absolute floor, same OR
+shape as the original `max` bound).
 
-Why medians: a scheduler preemption inserts a one-off spike into exactly one
-sample; the median of 7 is immune to up to 3 corrupted samples. Why
-interleaved: sequential A-then-B lets slow drift (JIT tier-up, GC heap growth,
-thermal throttle) systematically penalize B; alternating A/B/A/B distributes
-drift evenly across both series.
-
-Why K=7: 3 corruptable samples per series ≈ observed CI jitter rate; K=7 keeps
-the test under ~2 s (7 × 2 × ~20 ms + connect overhead ≈ 0.6 s measured, ×5
-safety) while dominating any plausible spike pattern.
+Why paired ratios: a sustained slow window (GC phase, runner throttle)
+inflates **both** samples of a back-to-back pair equally, so the per-round
+ratio cancels window-level load entirely — cross-series medians were tried
+first and still failed 1/3 under 64-spinner contention (a slow window shifts
+the with-report series as a whole) — paired ratios passed 5/5 under the
+identical load. Why K=7: the median tolerates up to 3 corrupted rounds,
+matched to the observed CI spike rate, while keeping the test under ~1 s.
+Why the absolute floor: preserves the original bound's protection at tiny
+baselines where ratios are noisy; it is an OR fallback, so a slow window
+cannot produce a false-green (it inflates the difference too).
 
 ## D2 — Keep the budget, not a wider one
 
