@@ -50,8 +50,8 @@ Harness exemplar for every task in this section: `packages/client/src/hooks/__te
 
 ## 5. Land
 
-- [ ] 5.1 Rebuild + restart per the `implement` skill — client change: `npm run build && curl -X POST http://localhost:8000/api/restart`
-- [ ] 5.2 Manual smoke (not a manifest row — an author sanity check): open Settings from the landing route on desktop, save a provider credential, dismiss the dialog; the onboarding checklist behind the overlay shows ① as done with no page reload and no window refocus
+- [x] 5.1 Rebuild + restart per the `implement` skill — client change: `npm run build && curl -X POST http://localhost:8000/api/restart`
+- [x] 5.2 Manual smoke (not a manifest row — an author sanity check): open Settings from the landing route on desktop, save a provider credential, dismiss the dialog; the onboarding checklist behind the overlay shows ① as done with no page reload and no window refocus
 - [x] 5.3 Update the directory `AGENTS.md` rows for `ProviderAuthSection.tsx`, `SettingsPanel.tsx`, and the `useProvidersReady.ts` row in `packages/client/src/hooks/AGENTS.md:43`, which currently documents a listener with no dispatcher
 - [ ] 5.4 Run the `review-code` discipline skill on the diff (named in `proposal.md` → Discipline Skills)
 - [ ] 5.5 Ship per the `ship-change` skill
