@@ -34,7 +34,7 @@
 import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import { readFileSync } from "node:fs";
 import { createRequire } from "node:module";
-import { isProcessAlive } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
+import { isProcessAlive, signalZero, type KillFn } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
 
 /** Parent PID captured once at boot. The process the server was spawned under. */
 export const bootParentPid: number = process.ppid;
@@ -79,20 +79,32 @@ if (process.platform === "win32") {
 }
 
 /**
- * Whether the recorded boot parent (`bootParentPid`) is still the same live
- * process it was at boot. Never throws; degrades to Tier 1 on any Tier-2
- * failure.
+ * Tier-2 verdict when the reuse-immune koffi handle is available (win32):
+ * `true` = the exact boot-parent process signalled (exited); `false` = still
+ * alive. `null` = tier unavailable (non-win32, load failure, denied handle) —
+ * callers must fall back to Tier 1.
  */
-export function computeBootParentAlive(): boolean {
+function tier2SignalledExit(): boolean | null {
   if (waitForSingleObject && bootParentHandle && !tier2Disabled) {
     try {
       // WAIT_OBJECT_0 means the process signalled (exited) → not alive.
-      return waitForSingleObject(bootParentHandle, 0) !== WAIT_OBJECT_0;
+      return waitForSingleObject(bootParentHandle, 0) === WAIT_OBJECT_0;
     } catch {
       tier2Disabled = true;
-      // fall through to Tier 1
     }
   }
+  return null;
+}
+
+/**
+ * Whether the recorded boot parent (`bootParentPid`) is still the same live
+ * process it was at boot. Never throws; degrades to Tier 1 on any Tier-2
+ * failure. DIAGNOSTIC — catches any throw, so it must NOT drive a kill
+ * decision (use `isBootParentProvablyDead` for that).
+ */
+export function computeBootParentAlive(): boolean {
+  const tier2 = tier2SignalledExit();
+  if (tier2 !== null) return !tier2;
   return isProcessAlive(bootParentPid);
 }
 
@@ -106,6 +118,39 @@ export function computeBootParentAlive(): boolean {
  */
 export function bootParentLivenessTier(): "tier1" | "tier2" {
   return waitForSingleObject && bootParentHandle && !tier2Disabled ? "tier2" : "tier1";
+}
+
+// ── Kill-decision liveness (D6) ──────────────────────────────────────────
+
+export interface ParentDeathProbes {
+  /**
+   * Tier-2 signalled-exit verdict; `null` = tier unavailable (fallback to
+   * Tier 1). Test seam — production uses the module's koffi handle.
+   */
+  tier2SignalledExit?: () => boolean | null;
+  /** Signal-0 probe fn. Wider `KillFn` so the shared `signalZero` accepts it. */
+  kill?: KillFn;
+}
+
+/**
+ * Kill-decision liveness for the boot parent — DISTINCT from the diagnostic
+ * `computeBootParentAlive`, which catches ANY throw and would read an `EPERM`
+ * (parent alive but owned by another user / hardened) as death.
+ *
+ * "Dead" requires PROOF of absence: the Windows Tier-2 signalled-exit
+ * (reuse-immune, AUTHORITATIVE over Tier-1 where it exists), or the Tier-1
+ * signal-0 probe failing with `ESRCH` (via the shared `signalZero` primitive
+ * in `platform/process.ts` — the only place allowed to touch the kill
+ * syscall). `EPERM` and any other errno read as ALIVE — the kill decision is
+ * alive-biased, so the server never exits while its parent lives. POSIX PID
+ * reuse reads alive → exit deferred (occasionally misses an exit; never a
+ * false one).
+ * See change: fix-autostart-discovery-precedence (D6, tasks 5.3/5.6).
+ */
+export function isBootParentProvablyDead(probes: ParentDeathProbes = {}): boolean {
+  const tier2 = probes.tier2SignalledExit ? probes.tier2SignalledExit() : tier2SignalledExit();
+  if (tier2 !== null) return tier2;
+  return signalZero(bootParentPid, { kill: probes.kill }) === "esrch";
 }
 
 // ── Live parent-PID reader (reparenting-aware) ───────────────────────────────

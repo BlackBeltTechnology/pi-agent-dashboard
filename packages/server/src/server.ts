@@ -90,6 +90,7 @@ import { createPendingPromptAcks } from "./pending/pending-prompt-acks.js";
 import { createPendingResumeIntentRegistry } from "./pending/pending-resume-intent-registry.js";
 import { createPendingWorktreeBaseRegistry } from "./pending/pending-worktree-base-registry.js";
 import { recordExitIntent, resolveExitIntent, stampBootStart } from "./persistence/boot-state.js";
+import type { ExitIntent } from "@blackbelt-technology/pi-dashboard-shared/boot-state.js";
 import { createMemoryEventStore, DEFAULT_MAX_EVENT_DATA_SIZE, type EventStore } from "./persistence/memory-event-store.js";
 import { createMetaPersistence, type MetaPersistence } from "./persistence/meta-persistence.js";
 import { needsMigration, runMigration } from "./persistence/migrate-persistence.js";
@@ -151,6 +152,8 @@ import { sessionToMeta } from "./session/session-to-meta.js";
 import { CwdPolicyRegistry } from "./spawn-process/cwd-policy.js";
 import { keeperOptsFromSpawnResult } from "./spawn-process/headless-pid-registry.js";
 import { createIdleTimer } from "./spawn-process/idle-timer.js";
+import { bootParentPid, isBootParentProvablyDead } from "./lifecycle/boot-parent-liveness.js";
+import { startEphemeralParentWatch } from "./lifecycle/ephemeral-parent-watch.js";
 import { getKeeperManager, setCwdPolicyRegistry, spawnPiSession } from "./spawn-process/process-manager.js";
 import { removePid, writePid } from "./spawn-process/server-pid.js";
 import { armSpawnWatchdog } from "./spawn-process/spawn-register-watchdog.js";
@@ -184,6 +187,16 @@ export interface ServerConfig {
   dev: boolean;
   autoShutdown: boolean;
   shutdownIdleSeconds: number;
+  /**
+   * Ephemeral mode — explicit `--ephemeral` opt-in ONLY (never an env var,
+   * never inferred from a temp HOME / loopback bind / port; D5, task 5.1).
+   * When on, the server exits through the graceful-stop path once its boot
+   * parent is PROVEN absent (ESRCH / Windows Tier-2; D6), so an isolated
+   * verification server reclaims its ports instead of leaking. Standalone
+   * and Electron-hosted servers are excluded by construction: nothing passes
+   * the flag for them. See change: fix-autostart-discovery-precedence (D5).
+   */
+  ephemeral?: boolean;
   tunnel: boolean;
   /** v2 reserved NAME sourced from `tunnel.zrok.reservedName`. */
   tunnelReservedName?: string;
@@ -253,7 +266,7 @@ export interface DashboardServer {
    * See change: fix-worktree-server-autostart-leak.
    */
   _startCore(): Promise<void>;
-  stop(): Promise<void>;
+  stop(opts?: { exitIntent?: ExitIntent }): Promise<void>;
   /**
    * Flush pending session-metadata + preference writes WITHOUT tearing the
    * server down. Used by the signal handler, where the process is about to
@@ -1188,6 +1201,20 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   // Active terminals keep the server alive even when no pi sessions are
   // attached. See change: fix-terminal-half-height-dual-mount.
   const idleTimer = createIdleTimer(config, piGateway, () => terminalManager.list().length > 0);
+
+  // Ephemeral boot-parent watch (D5). Created here so `stop()` can cancel it;
+  // armed with the rest of the timers at the end of startup. The watch is a
+  // no-op unless `--ephemeral` was passed (excluded by construction for
+  // standalone / Electron-hosted servers).
+  const ephemeralParentWatch = startEphemeralParentWatch({
+    // Doubt-review fix (D5): a degenerate bootParentPid (≤ 1 — orphaned at
+    // module load reparents to launchd/init) must not arm a kill decision
+    // against init. Signal-wise pid 1 reads EPERM (alive), so this is leak-
+    // direction hardening, made explicit rather than accidental.
+    isEphemeral: () => config.ephemeral === true && bootParentPid > 1,
+    isParentProvablyDead: () => isBootParentProvablyDead(),
+    onParentDead: () => server.stop({ exitIntent: "ephemeral" }),
+  });
 
   const fastify = Fastify({
     logger: false,
@@ -2694,6 +2721,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
 
       idleTimer.start();
+      // Arm the ephemeral boot-parent watch (D5) — a no-op unless --ephemeral
+      // was passed. Its interval IS the stated exit-latency bound.
+      ephemeralParentWatch.start();
       // Start the embed-lifecycle reaper sweep (dormant unless the feature is
       // enabled). See change: add-embed-session-lifecycle.
       embedLifecycle.start();
@@ -2798,7 +2828,10 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       }
     },
 
-    async stop() {
+    async stop(opts: { exitIntent?: ExitIntent } = {}) {
+      // A clean stop must also disarm the ephemeral watch so a
+      // create/stop cycle in one process leaves no ticking timer.
+      ephemeralParentWatch.stop();
       // Stop the event-loop-delay monitor so the libuv timer doesn't linger
       // after teardown. See change: instrument-session-hydration-timing.
       try { eventLoopDelayHistogram.disable(); } catch { /* ignore */ }
@@ -2819,15 +2852,19 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
       // SIGTERMs every dashboard-spawned pi: after this the sessions below are
       // GONE and can never reattach.
       browserGateway.shutdownHeadlessProcesses();
-      // Record `exitIntent:"idle"` instead of erasing the evidence. `stop()`
-      // reaches here from the idle timer — the server chose to stop, the user
-      // closed nothing — so the sessions it just killed stay recoverable. Clearing
-      // their `live` markers here (the old behaviour) is what destroyed the
-      // recovery signal for a reboot preceded by an idle auto-stop. Per-session
-      // user intent still lives in `closedReason:"manual"`; marker consumption
-      // on dismiss / retract / offer-broadcast is unchanged.
+      // Record `exitIntent` (default "idle") instead of erasing the evidence.
+      // `stop()` reaches here from the idle timer — the server chose to stop,
+      // the user closed nothing — so the sessions it just killed stay
+      // recoverable. Clearing their `live` markers here (the old behaviour) is
+      // what destroyed the recovery signal for a reboot preceded by an idle
+      // auto-stop. Per-session user intent still lives in
+      // `closedReason:"manual"`; marker consumption on dismiss / retract /
+      // offer-broadcast is unchanged.
       // See change: fix-recovery-exit-intent (D3).
-      recordExitIntent("idle");
+      // fix-autostart-discovery-precedence (D5, tasks 5.4–5.6): the ephemeral
+      // watch passes `exitIntent:"ephemeral"` so a parent-death exit is
+      // recorded as deliberate and suppresses crash recovery.
+      recordExitIntent(opts.exitIntent ?? "idle");
       metaPersistence.flushAll();
       metaPersistence.dispose();
       // Cancel the deferred boot reconcile + dispose supervisor (pending backoff

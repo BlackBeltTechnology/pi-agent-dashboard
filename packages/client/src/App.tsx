@@ -877,7 +877,10 @@ export default function App() {
     if (!sid) return;
     const gap = historyGaps.get(sid);
     // D11: the trigger stays disarmed until the initial replay has terminated.
-    if (!gap || !gap.armed || gap.pending || gap.unservable) return;
+    // A resolved gap (`twoSidedTerminus`) is also disarmed at resolution —
+    // belt-and-braces: the terminus renders no button, and the auto-load
+    // predicate is head-free-only, but the state must not offer a handle.
+    if (!gap || !gap.armed || gap.pending || gap.twoSidedTerminus) return;
     const { fromSeq, toSeq } = nextBackfillRange(gap);
     if (toSeq < fromSeq) return;
     setHistoryGaps((prev) => {

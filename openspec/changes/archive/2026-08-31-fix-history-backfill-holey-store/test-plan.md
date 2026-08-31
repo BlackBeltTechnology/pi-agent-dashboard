@@ -46,7 +46,7 @@ tailMinSeq=160334, gapCount=92` (92 events over ~102 000 seqs).
 | F4 | head-free empty above non-empty floor keeps affordance | state-transition | L1 | automated | `tail-only` gap, armed | `history_backfill_result` `events: [], remainingGapCount: 12` | `atFloor === false`; loading affordance retained; no terminus |
 | F5 | head-free floor terminus distinguishes start vs trimmed | state-transition | L1 | automated | `tail-only`, `remainingGapCount: 0`, with `oldestGapSeq > 1`; and with `oldestGapSeq === 1` | terminal `history_backfill_result` | first → `not-retained` terminus; second → `session-start` terminus |
 | F6 | terminus rendering (divider component) | render | L1 | automated | gap state `{exhausted, holey:true, windowShape:"head-tail"}`; and `{atFloor, windowShape:"tail-only", oldestGapSeq>1}` | render `HistoryGapDivider` | both render the `not-retained` `TerminusRow` (`data-testid=history-gap-not-retained`); no retry button; not error-styled |
-| G1 | end-to-end holey backfill (user-visible symptom) | state-convergence | L3 | automated | docker harness seeded with a holey session (head + trimmed middle + tail, gap ≫ cap in seqs, ≤ a few cap in events) | user clicks "Load earlier" | gap fills within a handful of clicks (not ~205); "These earlier messages are no longer available to load." never appears; a holey-exhausted gap shows the "no longer retained" terminus |
+| G1 | end-to-end holey backfill (user-visible symptom) | state-convergence | L3 | manual-only | docker harness seeded with a holey session (head + trimmed middle + tail, gap ≫ cap in seqs, ≤ a few cap in events) | user clicks "Load earlier" | gap fills within a handful of clicks (not ~205); "These earlier messages are no longer available to load." never appears; a holey-exhausted gap shows the "no longer retained" terminus |
 
 ### Error-handling
 
@@ -62,7 +62,7 @@ tailMinSeq=160334, gapCount=92` (92 events over ~102 000 seqs).
 - Requirements covered: 8/8 modified+added (plus 2 unchanged reqs guarded regression-style by X1/X2)
 - Scenarios by class: edge 12 · perf 1 · frontend 7 (incl. G1) · error 2
 - Scenarios by level: L1 21 · L2 0 · L3 1
-- Scenarios by disposition: automated 22 · manual-only 0
+- Scenarios by disposition: automated 21 · manual-only 1
 
 ## New infra needed
 
@@ -75,3 +75,11 @@ tailMinSeq=160334, gapCount=92` (92 events over ~102 000 seqs).
   by F1/F3/X1 at L1 — the fold step may drop G1 to manual-only rather than build
   the fixture. Flagged here so `plan-proposal` folds it as a decision, not a silent
   assumption.
+
+  **DECISION (apply, fix-history-backfill-holey-store 5.1): G1 dropped to manual-only.**
+  The seed would require driving a live session past `maxEventsPerSession` inside the
+  docker harness to force a retention middle-trim — disproportionately expensive against
+  the residual risk: the wire path G1 exercises is covered at L3 by the existing
+  contiguous-gap specs (F5 request shape, F6 drain-to-terminal), and holey selection +
+  holey termination are covered deterministically at L1 by E3, F1, F3 and X1. Manual
+  execution lands as task 5.3 (live reproduction on `01a052cb…`) after deploy.
