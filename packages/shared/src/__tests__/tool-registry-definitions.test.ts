@@ -22,6 +22,12 @@ function freshRegistry(opts: {
   overrides?: Record<string, string>;
   platform?: NodeJS.Platform;
   resourcesPath?: string;
+  /** Injected as env.homedir so managed-dir probes are deterministic. */
+  homedir?: string;
+  /** Executor-argv + peer-seam fallback anchor. */
+  execPath?: string;
+  /** Peer-resolution seam (design D1). */
+  resolvePeer?: (name: string, forTool: string) => string | null;
   /**
    * Test-isolated module resolver. Defaults to null-returning so the
    * production resolver (which walks the repo's real node_modules) does
