@@ -876,6 +876,12 @@ export function useMessageHandler(
             pending: false,
             failed: false,
             twoSidedTerminus: true,
+            // The walk is OVER — disarm, so no trigger (auto or manual) can
+            // ever issue a further request against a resolved gap. The
+            // head-free terminus is already fully guarded by `!t.atFloor` in
+            // `shouldAutoLoadHistory`; the two-sided analog is this disarm.
+            // See change: fix-history-backfill-holey-store (CodeRabbit round 1).
+            armed: false,
           });
           break;
         }

@@ -367,6 +367,10 @@ describe("history_backfill_result — loop termination (F2, F3, F9, X1)", () => 
     // A DEDICATED flag — `atFloor` is documented as the head-free floor bound
     // and must not be overloaded for a two-sided gap (D6).
     expect(gap.atFloor).toBe(false);
+    // The walk is OVER: the gap disarms, so neither the manual button (no
+    // longer rendered) nor any trigger path can issue a further request.
+    // See change: fix-history-backfill-holey-store (CodeRabbit round 1).
+    expect(gap.armed).toBe(false);
     expect(historyGapTerminus(gap)).toBe("not-retained");
     // The elision disclosure STAYS: removing the row would render head and
     // tail as if they were adjacent.
