@@ -97,7 +97,11 @@ export function startEphemeralParentWatch(deps: EphemeralParentWatchDeps): Ephem
             log("[ephemeral] still alive after graceful stop — exiting hard");
             (deps.hardExit ?? (() => process.exit(0)))();
           }, graceMs).unref?.();
-        })();
+        })().catch((err: unknown) => {
+          // Guarded discard (bare-void guard): a tick that throws outside the
+          // graceful path must surface, not vanish.
+          log(`[ephemeral] watch tick failed: ${err}`);
+        });
       }, intervalMs);
       // Never keep the process alive on our own account.
       timer.unref?.();
