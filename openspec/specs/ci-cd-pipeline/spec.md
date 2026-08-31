@@ -479,9 +479,10 @@ not the site. The Astro-era `site/package-lock.json` and its `npm ci`
 drift failure class were deleted with the framework.
 
 The site manifest SHALL declare no `dependencies`, `devDependencies`, or
-`optionalDependencies`. Reintroducing a site dependency SHALL land
-together with an install strategy for the deploy workflow and a
-lockfile-drift guard in the same change — never as a bare manifest edit.
+`optionalDependencies`. Reintroducing one is permitted only as a complete
+change: the dependency edit, an install strategy for the deploy workflow,
+and a lockfile-drift guard MUST land in the same change. A bare manifest
+edit that adds a dependency without that machinery is invalid.
 
 #### Scenario: Site manifest declares no dependencies
 

@@ -676,19 +676,24 @@ describe("publish.yml — site-redeploy dispatch contract (fix-deploy-site-ship-
     }
   });
 
-  it("E10b: the wait is bound to the dispatch that created it (timestamp-bounded lookup)", () => {
-    // A bare `gh run list --limit 1` could grab a stale manual run and watch
-    // THAT while the real sync run races unchecked. The lookup must capture a
-    // pre-dispatch timestamp AND compare run created_at against it — presence
-    // of either half alone does not pin the bound.
-    const hasCapture = /before=\$\(date -u/.test(siteRedeployBlock);
-    const hasCompare = /select\(\.created_at >/.test(siteRedeployBlock);
-    if (!hasCapture || !hasCompare) {
+  it("E10b: the wait is bound to the exact dispatched run via a correlation token", () => {
+    // Two failure classes a naive lookup suffers: (a) a concurrent manual
+    // dispatch gets selected and watched while THIS job's sync runs unwatched;
+    // (b) a second-granularity `created_at > before` compare misses the run
+    // that registered in the capture second, timing the job out. The binding
+    // must therefore be a unique per-run correlation token: passed as a
+    // workflow_dispatch input, embedded in the sync workflow's run-name, and
+    // matched in the lookup together with the develop head_branch.
+    const hasCorrelationInput = /-f\s+"correlation=\$\{?/.test(siteRedeployBlock);
+    const hasRunNameMatch = /display_title[^\n]*contains/.test(siteRedeployBlock);
+    const hasBranchFilter = /head_branch == \\"develop\\"/.test(siteRedeployBlock);
+    if (!hasCorrelationInput || !hasRunNameMatch || !hasBranchFilter) {
       throw new Error(
-        "site-redeploy's run lookup must capture `before=$(date -u …)` before " +
-          "the dispatch AND filter candidates with `select(.created_at > …)`, " +
-          "or it can watch a stale manual run. " +
-          "See change: fix-deploy-site-ship-shell (task 1.3).",
+        "site-redeploy's lookup must bind to the exact dispatched run: pass a " +
+          "unique correlation input (-f correlation=…), match it in the run " +
+          "name (.display_title | contains(…)), and filter .head_branch to " +
+          "develop. See change: fix-deploy-site-ship-shell (task 1.3; " +
+          "CodeRabbit round 1, publish.yml lookup binding).",
       );
     }
   });

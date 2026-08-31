@@ -697,20 +697,21 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          # Captured BEFORE the dispatch. The first poll runs >=5s later, so a
-          # run created in that window still satisfies created_at > before
-          # (both are second-resolution UTC ISO-8601, so string compare is safe).
-          before=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          # Unique correlation token: sync-release-version.yml embeds it in its
+          # run-name, so the lookup below can only match THIS job's dispatch —
+          # never a concurrent manual run, with no timestamp-granularity
+          # assumption (same-second registration would defeat a created_at
+          # compare).
+          correlation="site-redeploy-${{ github.run_id }}-${{ github.run_attempt }}"
           gh workflow run sync-release-version.yml \
             --repo "${GITHUB_REPOSITORY}" \
-            --ref develop
-          # The run registers asynchronously; bound the lookup to runs created
-          # AFTER our dispatch timestamp so we never watch a stale manual run.
+            --ref develop \
+            -f "correlation=${correlation}"
           run_id=""
           for _ in $(seq 1 30); do
             sleep 5
-            run_id=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/sync-release-version.yml/runs?event=workflow_dispatch&per_page=5" \
-              --jq "[.workflow_runs[] | select(.created_at > \"$before\")][0].id" 2>/dev/null || true)
+            run_id=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/sync-release-version.yml/runs?per_page=20" \
+              --jq "[.workflow_runs[] | select(.head_branch == \"develop\" and (.display_title | contains(\"${correlation}\")))][0].id" 2>/dev/null || true)
             [ -n "$run_id" ] && break
           done
           if [ -z "$run_id" ]; then

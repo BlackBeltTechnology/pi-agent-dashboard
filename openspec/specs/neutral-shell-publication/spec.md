@@ -1,7 +1,8 @@
 # neutral-shell-publication Specification
 
 ## Purpose
-TBD - created by archiving change fix-deploy-site-ship-shell. Update Purpose after archive.
+
+How the neutral shell ships as a static artifact at the `/app/` subpath of the marketing origin: subpath reachability, relative asset base, the origin-preserving property `server-cors` depends on, and the hash-routing contract that makes a server-side SPA fallback unnecessary.
 
 ## Requirements
 

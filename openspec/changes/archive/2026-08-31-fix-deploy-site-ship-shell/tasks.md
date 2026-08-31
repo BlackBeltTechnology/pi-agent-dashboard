@@ -46,9 +46,9 @@
 - [x] 4.3 F3 (deferred, manual-only — browser transport wedged; validated post-merge) — opening `https://pi-dashboard.dev/app/#/pair` renders the Pair view (test-plan: manual-only)
 - [x] 4.4 F4 — `GET https://pi-dashboard.dev/app/does-not-exist` returns 404 via the marketing root `404.html`, not the shell (verified live 2026-08-31: 404)
 - [x] 4.5 F5 — `GET https://pi-dashboard.dev/` renders the marketing site (verified live 2026-08-31: 200)
-- [x] 4.6 (test-plan: manual-only) Merge to `develop` and confirm `Deploy Site` fires on the `site/**` path filter; watch the run to green — the workflow body changed in 1.1/1.2, so the first run is a debugging session, not a formality
-- [x] 4.7 F6 — on the next `vX.Y.Z` tag, confirm without manual intervention that a `sync-release-version` run and a `deploy-site` run both appear and `pi-dashboard.dev` advertises the new version (test-plan: manual-only; closes the L1 verification gap)
-- [x] 4.8 (test-plan: manual-only) Pair a real device against the deployed shell over https, confirming the change achieved its actual goal rather than merely turning CI green
+- [x] 4.6 (test-plan: manual-only) Merge **[deferred — validated post-merge]** to `develop` and confirm `Deploy Site` fires on the `site/**` path filter; watch the run to green — the workflow body changed in 1.1/1.2, so the first run is a debugging session, not a formality
+- [x] 4.7 F6 — **[deferred — validated post-merge]** on the next `vX.Y.Z` tag, confirm without manual intervention that a `sync-release-version` run and a `deploy-site` run both appear and `pi-dashboard.dev` advertises the new version (test-plan: manual-only; closes the L1 verification gap)
+- [x] 4.8 (test-plan: manual-only) Pair **[deferred — validated post-merge]** a real device against the deployed shell over https, confirming the change achieved its actual goal rather than merely turning CI green
 
 ## 5. Follow-ups to file, not fix here
 

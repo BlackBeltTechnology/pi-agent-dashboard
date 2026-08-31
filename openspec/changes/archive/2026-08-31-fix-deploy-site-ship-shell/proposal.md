@@ -100,7 +100,7 @@ not exist yet. No shell UI behaviour changes.
 
 - `marketing-site`: the "GitHub Pages deployment via GitHub Actions" requirement gains the shell
   artifact composition; four scenarios are corrected against the current workflow; and the JS bundle
-  budget requirement is scoped to exclude the shell artifact.
+  budget requirement is scoped to exclude the shell artifact. (Re-scoped 2026-08-31: the budget check was deleted with the Astro site — the live requirement records its removal instead.)
 - `ci-cd-pipeline`: gains a requirement that the marketing site stays dependency-free —
   `site/package.json` declares no dependency maps and the deploy workflow runs no site install —
   so the Astro-era `npm ci`-vs-lockfile failure class cannot silently return. (Replaces the

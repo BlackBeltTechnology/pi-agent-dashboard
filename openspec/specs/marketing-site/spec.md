@@ -378,14 +378,14 @@ The repository SHALL deploy the marketing site to GitHub Pages using the modern 
 
 #### Scenario: Deploy workflow triggers on site or shell changes
 
-- **GIVEN** a commit to `develop` that modifies any file under `site/**`, under `packages/shell/**`, or the deploy workflow itself
+- **GIVEN** a commit to `develop` that modifies any file under `site/**` (excluding the `site/design-scratch/**` design-source sandbox, which is filtered out), under `packages/shell/**`, or the deploy workflow itself
 - **WHEN** the workflow runs
 - **THEN** it builds the site, uploads the output as a Pages artifact, and deploys it via `actions/deploy-pages`
 
 #### Scenario: Deploy workflow can be run manually
 
 - **GIVEN** a maintainer needs to redeploy without a source change
-- **WHEN** they trigger `workflow_dispatch` on the site-deploy workflow
+- **WHEN** they trigger `workflow_dispatch` on the site-deploy workflow against `develop`
 - **THEN** the workflow runs to completion and publishes the current `develop` content
 
 #### Scenario: Custom domain is active

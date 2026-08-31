@@ -35,7 +35,9 @@ flowchart LR
   nightly[nightly.yml] --> electron
   publish --> electron
   publish --> release[GitHub Release]
-  release --> sync[sync-release-version.yml]
+  release --> siteredeploy[publish.yml site-redeploy]
+  siteredeploy --> sync[sync-release-version.yml dispatch + wait]
+  siteredeploy --> deploydispatch[deploy-site.yml dispatch]
 ```
 
 ## Safety boundaries
