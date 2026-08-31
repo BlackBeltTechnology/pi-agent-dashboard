@@ -526,10 +526,17 @@ export function createEngine(deps: EngineDeps): Engine {
     if (ctx.finalized) return;
     if (ctx.sessionId || ctx.spawnToken) {
       if (deps.abortSpawnedRun) {
-        await deps.abortSpawnedRun({
-          ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
-          ...(ctx.spawnToken ? { spawnToken: ctx.spawnToken } : {}),
-        });
+        // Guard the await: a rejected abort MUST NOT skip finalization, or the
+        // child's lease would never be released. See change:
+        // automation-work-source-fanout.
+        try {
+          await deps.abortSpawnedRun({
+            ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+            ...(ctx.spawnToken ? { spawnToken: ctx.spawnToken } : {}),
+          });
+        } catch (e) {
+          warn(`[engine] abort failed for ${ctx.runId}: ${e instanceof Error ? e.message : String(e)}`);
+        }
       }
       finalizeChild(ctx, { status: "stopped", result: "_(stopped by user)_", error: "stopped by user" });
       return;
@@ -583,13 +590,15 @@ export function createEngine(deps: EngineDeps): Engine {
     /** Work-source extras: the lease this child holds + its idempotency key. */
     extra?: { lease?: { source: WorkSource; token: string }; idempotencyKey?: string },
   ): void {
+    let ctx: RunContext | undefined;
+    try {
     const childRec = storeStartChildRun(parent.scopeBase, parent.parentRunId, parent.name, {
       actionLabel,
     });
     const dispatch = buildRunDispatch(childAutomation, resolveRegistry(), fireCtx);
     const promptText = dispatch.kind === "prompt" ? dispatch.text : "";
 
-    const ctx: RunContext = {
+    ctx = {
       key: parent.key,
       runId: childRec.runId,
       parentRunId: parent.parentRunId,
@@ -612,7 +621,10 @@ export function createEngine(deps: EngineDeps): Engine {
       ...(resolved.error ? { modelError: resolved.error } : {}),
       delivered: false,
     };
-    enqueuePending(ctx);
+    // Non-optional alias so the async closures see a defined RunContext (the
+    // outer `ctx` is `| undefined` only for the synchronous-setup catch below).
+    const c: RunContext = ctx;
+    enqueuePending(c);
 
     void deps
       .spawnSession({
@@ -629,23 +641,23 @@ export function createEngine(deps: EngineDeps): Engine {
       })
       .then((res) => {
         if (!res.success) {
-          warn(`[engine] spawn failed for ${ctx.key}/${ctx.runId}: ${res.message ?? "unknown"}`);
-          finalizeChild(ctx, { status: "error", error: res.message ?? "spawn failed" });
+          warn(`[engine] spawn failed for ${c.key}/${c.runId}: ${res.message ?? "unknown"}`);
+          finalizeChild(c, { status: "error", error: res.message ?? "spawn failed" });
           return;
         }
         // Capture the process handle so Stop can kill the child even before its
         // session registers. See change: fix-automation-stop-zombie-runs.
-        if (res.spawnToken) ctx.spawnToken = res.spawnToken;
+        if (res.spawnToken) c.spawnToken = res.spawnToken;
         // Spawn-window guard (decision 7a): a stop landed before the token
         // arrived — abort now with the freshly returned token + finalize stopped.
-        if (ctx.stopRequested && !ctx.finalized) {
+        if (c.stopRequested && !c.finalized) {
           if (deps.abortSpawnedRun) {
             void deps.abortSpawnedRun({
-              ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+              ...(c.sessionId ? { sessionId: c.sessionId } : {}),
               ...(res.spawnToken ? { spawnToken: res.spawnToken } : {}),
             });
           }
-          finalizeChild(ctx, {
+          finalizeChild(c, {
             status: "stopped",
             result: "_(stopped by user)_",
             error: "stopped by user",
@@ -655,11 +667,32 @@ export function createEngine(deps: EngineDeps): Engine {
       .catch((e) => {
         // A rejected spawn promise MUST still finalize the child + decrement the
         // parent, else the fire never completes. See change: add-automation-plugin (CR).
-        warn(`[engine] spawn threw for ${ctx.key}/${ctx.runId}: ${e instanceof Error ? e.message : String(e)}`);
-        finalizeChild(ctx, { status: "error", error: e instanceof Error ? e.message : String(e) });
+        warn(`[engine] spawn threw for ${c.key}/${c.runId}: ${e instanceof Error ? e.message : String(e)}`);
+        finalizeChild(c, { status: "error", error: e instanceof Error ? e.message : String(e) });
       });
 
-    log(`[engine] started child run ${childRec.runId} (${ctx.key}) model=${resolved.model || "(default)"}`);
+    log(`[engine] started child run ${childRec.runId} (${c.key}) model=${resolved.model || "(default)"}`);
+    } catch (e) {
+      // Synchronous setup failure (child-record write, dispatch build) AFTER the
+      // item was leased. Release the lease + settle this child so the fire never
+      // strands a leased-but-unspawned item or a parent counter. See change:
+      // automation-work-source-fanout.
+      warn(`[engine] child setup failed for ${parent.key}: ${e instanceof Error ? e.message : String(e)}`);
+      if (ctx) {
+        finalizeChild(ctx, { status: "error", error: e instanceof Error ? e.message : String(e) });
+      } else {
+        if (extra?.lease) {
+          try {
+            extra.lease.source.nack(extra.lease.token);
+          } catch {
+            /* best-effort */
+          }
+        }
+        parent.remaining -= 1;
+        parent.statuses.push("error");
+        if (parent.remaining <= 0) finalizeParent(parent);
+      }
+    }
   }
 
   /**

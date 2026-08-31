@@ -90,7 +90,11 @@ function batchAutomation(
 function makeEngine(
   source: WorkSource,
   spawnCalls: Array<Record<string, unknown>>,
-  opts: { spawnOk?: boolean; resolveRegistry?: () => ActionRegistry } = {},
+  opts: {
+    spawnOk?: boolean;
+    resolveRegistry?: () => ActionRegistry;
+    abortSpawnedRun?: () => Promise<boolean>;
+  } = {},
 ) {
   const reg = new WorkSourceRegistry();
   reg.register("fake", source);
@@ -101,6 +105,7 @@ function makeEngine(
         ? { success: false, message: "spawn boom" }
         : { success: true, spawnToken: `tok-${spawnCalls.length}` };
     },
+    ...(opts.abortSpawnedRun ? { abortSpawnedRun: opts.abortSpawnedRun } : {}),
     listScopes: () => [{ base: repo, scope: "folder" }],
     workSources: reg,
     config: () => ({
@@ -252,6 +257,32 @@ describe("lease release on terminal status", () => {
     const engine = makeEngine(src, [], { spawnOk: false });
     engine.startRunFor(batchAutomation("w"));
     await flush();
+    expect(src.nacked).toEqual(["a"]);
+    expect(src.available).toContain("a");
+  });
+
+  it("releases the lease even when the stop abort rejects (finalize is guarded)", async () => {
+    const src = new FakeSource(["a"]);
+    const engine = makeEngine(src, [], {
+      abortSpawnedRun: async () => {
+        throw new Error("abort boom");
+      },
+    });
+    const { runId } = engine.startRunFor(batchAutomation("w"))!;
+    await flush();
+    engine.onSessionRegistered("s1", repo); // binds the child + its sessionId
+    await engine.stopRun(runId); // parent stop → stopChild → abort rejects (caught)
+    expect(src.nacked).toEqual(["a"]); // lease still released
+  });
+
+  it("releases the lease when child setup throws synchronously after leasing", () => {
+    const src = new FakeSource(["a"]);
+    const engine = makeEngine(src, [], {
+      resolveRegistry: () => {
+        throw new Error("registry boom"); // buildRunDispatch throws in spawnChild
+      },
+    });
+    engine.startRunFor(batchAutomation("w"));
     expect(src.nacked).toEqual(["a"]);
     expect(src.available).toContain("a");
   });

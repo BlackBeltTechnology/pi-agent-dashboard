@@ -150,6 +150,28 @@ describe("createFolderWorkSource", () => {
     expect(second.leaseToken).not.toBe(first.leaseToken);
   });
 
+  it("restart recovery: a NEW source instance reclaims items orphaned in inflight/", () => {
+    seed("a", "b");
+    const first = createFolderWorkSource({ dir });
+    first.next(2); // leases a,b into inflight/ (in-memory leases live on `first`)
+    expect(poolNames()).toEqual([]);
+    // Simulate a process restart: a fresh instance holds no in-memory leases.
+    // Its construction-time reclaim must return the orphaned inflight items.
+    const second = createFolderWorkSource({ dir });
+    const redelivered = second.next(2).map((h) => baseName(h.item)).sort();
+    expect(redelivered).toEqual(["a", "b"]);
+  });
+
+  it("nack does not destroy the item when its name already re-appeared in the pool", () => {
+    seed("a");
+    const src = createFolderWorkSource({ dir });
+    const h = src.next(1)[0]!;
+    // A fresh file with the SAME name arrives while a is in-flight.
+    fs.writeFileSync(path.join(dir, "a"), "fresh-a");
+    src.nack(h.leaseToken); // move-back would collide → must NOT delete either copy
+    expect(poolNames()).toContain("a"); // the item was not lost
+  });
+
   it("next on an empty/missing folder returns no handles", () => {
     const src = createFolderWorkSource({ dir: path.join(dir, "missing") });
     expect(src.next(4)).toEqual([]);

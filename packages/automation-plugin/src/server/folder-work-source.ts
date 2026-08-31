@@ -8,11 +8,18 @@
  * name, so a redelivery after expiry carries the same key.
  *
  * Lease lifecycle:
- *   - `next(n)` first reclaims expired leases (moves the file back to `dir` and
- *     forgets the token, so the original child's later ack/nack is a stale
- *     no-op), then leases up to `n` available files.
+ *   - `next(n)` first reclaims EXPIRED and ORPHANED leases (moves the file back
+ *     to `dir` and forgets the token, so the original child's later ack/nack is
+ *     a stale no-op), then leases up to `n` available files. Reclaim scans the
+ *     `inflight/` dir on disk, so a token left behind by a PRIOR process (the
+ *     in-memory lease map is empty after restart) is recovered too — a crash
+ *     never strands an item as permanently leased.
  *   - `ack(token)` deletes the in-flight file permanently (token current only).
  *   - `nack(token)` moves it back to `dir` (token current only).
+ *
+ * Return-to-pool never deletes a file it means to preserve: if the move back
+ * fails (e.g. a same-named item already re-appeared), the in-flight file is
+ * left in place for a later reclaim rather than discarded.
  *
  * The clock is injected (`now`) so tests can advance past the visibility
  * timeout deterministically.
@@ -62,36 +69,65 @@ export function createFolderWorkSource(opts: FolderWorkSourceOptions): WorkSourc
     fs.mkdirSync(inflightRoot, { recursive: true });
   }
 
-  function forget(lease: Lease): void {
+  /**
+   * Move every file inside a lease dir back to the available pool, then remove
+   * the dir if it emptied. A file whose name is already taken in the pool is
+   * LEFT in place (no data loss) for a later reclaim.
+   */
+  function moveLeaseDirBackToPool(leaseDir: string): void {
+    let files: string[];
     try {
-      fs.rmSync(path.dirname(lease.inflightPath), { recursive: true, force: true });
+      files = fs.readdirSync(leaseDir);
     } catch {
-      /* ignore */
+      return;
     }
-    leases.delete(lease.token);
+    for (const f of files) {
+      const dest = path.join(dir, f);
+      if (fs.existsSync(dest)) continue; // name re-appeared — leave for a later sweep
+      try {
+        fs.renameSync(path.join(leaseDir, f), dest);
+      } catch {
+        /* leave the file in place */
+      }
+    }
+    try {
+      if (fs.readdirSync(leaseDir).length === 0) fs.rmdirSync(leaseDir);
+    } catch {
+      /* ignore — non-empty (a preserved file) or already gone */
+    }
   }
 
-  function returnToPool(lease: Lease): void {
-    const dest = path.join(dir, lease.fileName);
-    try {
-      if (fs.existsSync(lease.inflightPath)) fs.renameSync(lease.inflightPath, dest);
-    } catch {
-      /* ignore */
-    }
-    forget(lease);
-  }
-
-  /** Reclaim expired leases before vending: item returns to the pool. */
-  function reclaimExpired(): void {
+  /**
+   * Reclaim EXPIRED (in-memory lease past its timeout) and ORPHANED (a token
+   * dir on disk with no live in-memory lease — e.g. left by a crashed prior
+   * process) leases, returning their items to the pool. Scans `inflight/` on
+   * disk so restart recovery needs no persisted lease state.
+   */
+  function reclaim(): void {
     const t = now();
-    for (const lease of [...leases.values()]) {
-      if (lease.expiresAt <= t) returnToPool(lease);
+    let tokens: string[];
+    try {
+      tokens = fs
+        .readdirSync(inflightRoot, { withFileTypes: true })
+        .filter((e) => e.isDirectory())
+        .map((e) => e.name);
+    } catch {
+      return;
+    }
+    for (const token of tokens) {
+      const lease = leases.get(token);
+      if (lease && lease.expiresAt > t) continue; // still a valid lease — keep held
+      moveLeaseDirBackToPool(path.join(inflightRoot, token));
+      leases.delete(token);
     }
   }
+
+  ensureDirs();
+  reclaim(); // recover any inflight items orphaned by a prior process
 
   function next(n: number): LeasedHandle<string>[] {
     ensureDirs();
-    reclaimExpired();
+    reclaim();
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(dir, { withFileTypes: true });
@@ -129,13 +165,19 @@ export function createFolderWorkSource(opts: FolderWorkSourceOptions): WorkSourc
   function ack(leaseToken: string): void {
     const lease = leases.get(leaseToken);
     if (!lease) return; // stale/expired → no-op
-    forget(lease); // deletes the in-flight file permanently
+    try {
+      fs.rmSync(path.join(inflightRoot, leaseToken), { recursive: true, force: true });
+    } catch {
+      /* ignore */
+    }
+    leases.delete(leaseToken); // deletes the in-flight file permanently
   }
 
   function nack(leaseToken: string): void {
     const lease = leases.get(leaseToken);
     if (!lease) return; // stale/expired → no-op
-    returnToPool(lease);
+    moveLeaseDirBackToPool(path.join(inflightRoot, leaseToken));
+    leases.delete(leaseToken);
   }
 
   return { next, ack, nack };
