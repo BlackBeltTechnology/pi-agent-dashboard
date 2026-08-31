@@ -605,11 +605,14 @@ test.describe("history gap — tail-anchored backfill in the browser", () => {
       await page.waitForTimeout(400);
     }
 
-    // Either the gap drained (divider gone) or the store could not serve the
-    // rest (tombstone). Both are terminal; a still-actionable divider is not.
+    // Either the gap drained (divider gone) or it resolved to the not-retained
+    // terminus. Both are terminal; a still-actionable divider is not.
+    // (The old `history-gap-unavailable` tombstone was retired by
+    // fix-history-backfill-holey-store — an exhausted gap now resolves to a
+    // classified terminus or removal, never a mid-walk dead end.)
     const drained = (await divider(page).count()) === 0;
-    const tombstoned = (await page.getByTestId("history-gap-unavailable").count()) > 0;
-    expect(drained || tombstoned, "the affordance reached a terminal state").toBe(true);
+    const terminus = (await page.getByTestId("history-gap-not-retained").count()) > 0;
+    expect(drained || terminus, "the affordance reached a terminal state").toBe(true);
     if (drained) expect(await page.getByTestId("history-gap-count").count()).toBe(0);
   });
 

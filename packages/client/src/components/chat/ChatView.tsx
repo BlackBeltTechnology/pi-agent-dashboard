@@ -591,7 +591,6 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       armed: gap.armed,
       pending: gap.pending,
       failed: gap.failed,
-      unservable: gap.unservable,
       atFloor: gap.atFloor,
     });
     if (fire) autoLoadEarlier();

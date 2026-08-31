@@ -61,11 +61,17 @@ export const HEAD_CAP = 200;
 export const SNAP_LOOKUP = 200;
 /**
  * Hard ceiling on the number of events one `history_backfill` may serve. The
- * span is attacker-controlled and is otherwise a request-amplification lever —
- * one small frame forcing an arbitrarily large serialize + send.
- * See change: lazy-load-session-history (D9).
+ * count is attacker-controlled and is otherwise a request-amplification lever
+ * — one small frame forcing an arbitrarily large serialize + send.
+ *
+ * It bounds EVENTS, never seq distance: the store may be holey (retention
+ * trims events while their seqs survive), so a fixed seq span can enclose
+ * arbitrarily few events and would cap how FAR a request reaches, not how
+ * MUCH it delivers. On a contiguous store the two coincide.
+ * See change: lazy-load-session-history (D9),
+ * fix-history-backfill-holey-store (D1).
  */
-export const BACKFILL_MAX_SPAN = 500;
+export const MAX_BACKFILL_EVENTS = 500;
 
 /**
  * Snap an inclusive LOWER cut forward to the next `message_start` / `turn_start`
@@ -551,28 +557,36 @@ export async function handleHistoryBackfill(
   let to = Math.min(requestedTo, gap.tailMinSeq - 1);
   if (to < from) return refuse("out_of_range");
   /**
-   * Request ORIENTATION, decided on the gap-clamped bounds and BEFORE the span
-   * clamp. It selects both the edge to snap and the bound the span clamp may
-   * move.
-   *
-   * The span clamp must move the NON-abutting bound. Lowering `to` on a
-   * tail-adjacent request would destroy the very adjacency the response is
-   * credited for: the server would credit nothing while the client still
-   * retreats its own `tailMinSeq`, the two views diverge, and the next derived
-   * range inverts into a permanent `out_of_range` loop.
-   * See change: fix-lazy-history-backfill-ux (D4, D4a).
+   * Request ORIENTATION, decided on the gap-clamped bounds and BEFORE the
+   * count-capped read. It selects both the edge to snap and WHICH read
+   * enforces the event cap: the tail-anchored path reads
+   * `getEventsEndingAt` (newest N), the head-anchored path takes the first N
+   * of the range read. The cap moves no bound on the wire — adjacency is
+   * decided by the requested bounds and preserved by the read's selection.
+   * See change: fix-lazy-history-backfill-ux (D4, D4a),
+   * fix-history-backfill-holey-store (D1, D3).
    */
   const tailAnchored = to === gap.tailMinSeq - 1;
-  // Clamp the SPAN last, so a clamp into the gap can never re-inflate it.
-  if (to - from + 1 > BACKFILL_MAX_SPAN) {
-    if (tailAnchored) from = to - BACKFILL_MAX_SPAN + 1;
-    else to = from + BACKFILL_MAX_SPAN - 1;
-  }
+  // No seq-span clamp: the cap is applied by the READ below as an event count
+  // (D1). A seq clamp on a holey store caps how far a request reaches while
+  // delivering almost nothing — the live bug.
 
   const generation = gap.generation;
   gap.inFlight = true;
   try {
-    const raw = eventStore.getEventsRange(sessionId, from, to);
+    /**
+     * The COUNT cap is enforced by the read, per orientation (D3). The
+     * tail-anchored path — the only one with a shipped caller — selects the
+     * highest-seq events in the clamped range via the count-bounded store
+     * read, so a sparse gap of ANY seq width is served whole and a dense one
+     * costs O(log n + cap), never a materialization of the whole gap.
+     * Head-anchored is legacy (no shipped client sends it): it reads the
+     * clamped range and takes the FIRST N, keeping its adjacency on the head
+     * edge.
+     */
+    const raw = tailAnchored
+      ? eventStore.getEventsEndingAt(sessionId, from, to, MAX_BACKFILL_EVENTS)
+      : eventStore.getEventsRange(sessionId, from, to).slice(0, MAX_BACKFILL_EVENTS);
     /**
      * Snap the slice's GAP-FACING edge — the lower edge for a tail-anchored
      * request, the upper edge for a head-anchored one. Orientation, not a
@@ -589,8 +603,24 @@ export async function handleHistoryBackfill(
      * See change: fix-lazy-history-backfill-ux (D4).
      */
     let slice = raw;
-    let servedFrom = from;
+    /**
+     * The served lower bound is the lowest SELECTED seq — the read's choice,
+     * never the requested `from`. Under a count read the selection starts
+     * ABOVE `from` whenever the range holds more than the cap, so crediting
+     * `from` would report a gap of zero having served only the newest N —
+     * silently dropping every older gap event. The snap may then raise it
+     * further; compaction may later empty the DELIVERY, but the credit is
+     * fixed here, BEFORE compaction, so an empty delivery still retreats the
+     * tail and the walk cannot livelock.
+     * See change: fix-history-backfill-holey-store (D3, D5).
+     */
+    let servedFrom = raw.length > 0 ? raw[0].seq : from;
     let servedTo = to;
+    if (!tailAnchored && slice.length > 0) {
+      // Head-anchored count cut: the truthful upper bound is the last selected
+      // seq, so crediting the head never advances it past unserved events.
+      servedTo = slice[slice.length - 1].seq;
+    }
     if (raw.length > 1) {
       if (tailAnchored) {
         const cut = snapLowerEdgeForward(raw, 0);

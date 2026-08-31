@@ -19,7 +19,7 @@ import { IDBFactory } from "fake-indexeddb";
 import { useRef, useState } from "react";
 import { describe, expect, it, vi } from "vitest";
 import { createInitialState, type SessionState } from "../../lib/chat/event-reducer.js";
-import { HISTORY_GAP_ROW_ID, type HistoryGapState, historyGapTerminus, nextBackfillRange, shouldAutoLoadHistory } from "../../lib/chat/history-gap.js";
+import { HISTORY_GAP_ROW_ID, type HistoryGapState, createHistoryGapState, historyGapTerminus, nextBackfillRange, shouldAutoLoadHistory } from "../../lib/chat/history-gap.js";
 import { createReplayCache } from "../../lib/replay/replay-cache.js";
 import { createReplayPersister } from "../../lib/replay/replay-persist.js";
 import { type MessageHandlerSetters, useMessageHandler } from "../useMessageHandler.js";
@@ -271,9 +271,11 @@ describe("history_backfill_result — the splice (F6, F8, D10)", () => {
 });
 
 describe("the splice revision drives the scroll anchor, not messages.length", () => {
+  // CONTIGUOUS: the announced gap held as many events as its seq span, so its
+  // exhaustion REMOVES the divider — making the final splice net-zero in rows.
   const primed = () => {
     const h = mount();
-    h.fire(windowMsg());
+    h.fire(windowMsg({ gapCount: 4779 }));
     h.fire(windowedReplay());
     return h;
   };
@@ -321,16 +323,22 @@ describe("the splice revision drives the scroll anchor, not messages.length", ()
   });
 });
 
-describe("history_backfill_result — loop termination (F9)", () => {
-  const primed = () => {
+describe("history_backfill_result — loop termination (F2, F3, F9, X1)", () => {
+  /**
+   * The DEFAULT window is HOLEY: gapCount 1200 < span 4779 — retention trimmed
+   * the middle, the live bug's shape. A contiguous variant (gapCount === span)
+   * is what the removal branch requires.
+   * See change: fix-history-backfill-holey-store (D6).
+   */
+  const primed = (contiguous = false) => {
     const h = mount();
-    h.fire(windowMsg());
+    h.fire(windowMsg(contiguous ? { gapCount: 4779 } : {}));
     h.fire(windowedReplay());
     return h;
   };
 
-  it("F9: a fully-filled gap removes the divider AND the gap state entirely", () => {
-    const h = primed();
+  it("F2/F9: a CONTIGUOUS exhausted gap removes the divider AND the gap state entirely", () => {
+    const h = primed(true);
     h.fire({
       type: "history_backfill_result",
       sessionId: SID,
@@ -343,21 +351,75 @@ describe("history_backfill_result — loop termination (F9)", () => {
     expect(h.get().gaps.get(SID)).toBeUndefined();
   });
 
-  it("a response with ZERO events over a trimmed hole marks the gap unservable, not failed", () => {
-    // The stop rule is keyed on the RESPONSE, not on arithmetic, so it
-    // terminates over a holey store without a distinct "hole" error code.
+  it("F3: a HOLEY exhausted gap resolves to the two-sided terminus — never removed, never atFloor", () => {
+    const h = primed();
+    h.fire({
+      type: "history_backfill_result",
+      sessionId: SID,
+      events: [{ seq: 4300, event: evt("message_start", "oldest loaded") }],
+      servedFrom: 4300,
+      servedTo: 4799,
+      remainingGapCount: 0,
+    } as ServerToBrowserMessage);
+    const gap = h.get().gaps.get(SID)!;
+    expect(gap).toBeDefined();
+    expect(gap.twoSidedTerminus).toBe(true);
+    // A DEDICATED flag — `atFloor` is documented as the head-free floor bound
+    // and must not be overloaded for a two-sided gap (D6).
+    expect(gap.atFloor).toBe(false);
+    expect(historyGapTerminus(gap)).toBe("not-retained");
+    // The elision disclosure STAYS: removing the row would render head and
+    // tail as if they were adjacent.
+    expect(gapIndex(h.get())).toBeGreaterThan(-1);
+  });
+
+  it("F1: an empty response with a remaining gap CONTINUES the walk (reported-bug guard)", () => {
+    // The live bug: `events: []` with remainingGapCount > 0 flipped the gap to
+    // a dead-end state — because exhaustion keyed on events.length.
+    // Termination keys on remainingGapCount ONLY: the affordance stays armed.
     const h = primed();
     h.fire({
       type: "history_backfill_result",
       sessionId: SID,
       events: [],
-      servedFrom: 21,
-      servedTo: 520,
-      remainingGapCount: 700,
+      servedFrom: 4300,
+      servedTo: 4799,
+      remainingGapCount: 80,
     } as ServerToBrowserMessage);
     const gap = h.get().gaps.get(SID)!;
-    expect(gap.unservable).toBe(true);
     expect(gap.failed).toBe(false);
+    expect(gap.pending).toBe(false);
+    expect(gap.atFloor).toBe(false);
+    expect(gap.twoSidedTerminus).toBe(false);
+    // Affordance retained: the divider is still in the transcript, and the
+    // tail still retreated so the next request covers a smaller range.
+    expect(gapIndex(h.get())).toBeGreaterThan(-1);
+    expect(gap.tailMinSeq).toBe(4300);
+    expect(gap.gapCount).toBe(80);
+  });
+
+  it("X1: a refusal is not exhaustion, even when the payload reports remainingGapCount 0", () => {
+    // Every refusal carries remainingGapCount: 0 — evaluating the exhaustion
+    // predicate before the error branch would remove the divider instead of
+    // showing the failed retry.
+    const h = primed();
+    h.fire({
+      type: "history_backfill_result",
+      sessionId: SID,
+      events: [],
+      servedFrom: 0,
+      servedTo: 0,
+      remainingGapCount: 0,
+      error: "stale_generation",
+    } as unknown as ServerToBrowserMessage);
+    const gap = h.get().gaps.get(SID)!;
+    expect(gap.failed).toBe(true);
+    expect(gap.pending).toBe(false);
+    expect(gap.twoSidedTerminus).toBe(false);
+    expect(gap.atFloor).toBe(false);
+    expect(gapIndex(h.get())).toBeGreaterThan(-1);
+    // The count is PRESERVED across a refusal — the gap did not shrink.
+    expect(gap.gapCount).toBe(1200);
   });
 
   it("every refusal code collapses to the SAME retryable failed state, never a code", () => {
@@ -434,6 +496,48 @@ describe("F11: a windowed replay is never written to the replay cache (D12)", ()
 });
 
 /**
+ * Holeyness is derived from the ANNOUNCED window — no extra request, no wire
+ * change. Computed once at announce time (before the walk mutates the
+ * bounds), scoped to two-sided windows: for a head-free window the formula
+ * would misread a trimmed BEGINNING as a trimmed middle, so it is forced
+ * false there.
+ * See change: fix-history-backfill-holey-store (D6, test-plan #E12).
+ */
+describe("holeyness from the announced window (E12)", () => {
+  it("E12: holey exactly when gapCount < tailMinSeq − headMaxSeq − 1", () => {
+    // The live bug's numbers: 92 events spread over ~102k seqs.
+    expect(
+      createHistoryGapState({ headMaxSeq: 58220, tailMinSeq: 160334, gapCount: 92, oldestGapSeq: 58224 }).holey,
+    ).toBe(true);
+    // Contiguous: as many events as the span.
+    expect(
+      createHistoryGapState({ headMaxSeq: 20, tailMinSeq: 4800, gapCount: 4779, oldestGapSeq: 21 }).holey,
+    ).toBe(false);
+  });
+
+  it("E12: forced false for a tail-only window, regardless of the numbers", () => {
+    // 4000 < 4500 — the formula would say true; the shape gate overrules it.
+    expect(
+      createHistoryGapState({
+        headMaxSeq: 0,
+        tailMinSeq: 4501,
+        gapCount: 4000,
+        oldestGapSeq: 1,
+        windowShape: "tail-only",
+      }).holey,
+    ).toBe(false);
+  });
+
+  it("E12: the derivation is pure — announce-time, no request", () => {
+    const h = mount();
+    h.fire(windowMsg());
+    const gap = h.get().gaps.get(SID)!;
+    expect(gap.holey).toBe(true);
+    expect(gap.twoSidedTerminus).toBe(false);
+  });
+});
+
+/**
  * Head-free gaps — the store FLOOR replaces the head edge as the walk's lower
  * bound, and exhaustion resolves to a TERMINUS instead of removing the row.
  *
@@ -452,7 +556,8 @@ describe("head-free window bounds the gap at the store floor (E12, E13, E14)", (
     oldestGapSeq: 3000,
     pending: false,
     failed: false,
-    unservable: false,
+    holey: false,
+    twoSidedTerminus: false,
     dividerPlaced: true,
     armed: true,
     atFloor: false,
@@ -461,27 +566,32 @@ describe("head-free window bounds the gap at the store floor (E12, E13, E14)", (
   });
 
   /**
-   * #E12 — successive ranges walk DOWN and stop exactly at `oldestGapSeq`.
-   * Never `2999`: a request entirely below the floor would spend a round trip
-   * to learn it is done, and its empty response would land on the
-   * `unservable` branch that mislabels "reached the floor" as "nothing
-   * servable".
+   * #E9/#E10 — D2: the client requests the FULL remaining range every step —
+   * `toSeq` at the tail edge, `fromSeq` at the floor. The server's event cap,
+   * not a client-side seq window, decides how much comes back, so the newest
+   * N events are selected from ANYWHERE in a sparse gap rather than only from
+   * the top 500 seqs (which frequently hold nothing on a holey store).
+   * See change: fix-history-backfill-holey-store (D2, test-plan #E9, #E10).
    */
-  it("E12: the walk floors at oldestGapSeq, never below it", () => {
-    let gap = headFree();
-    const seen: Array<{ fromSeq: number; toSeq: number }> = [];
-    for (let i = 0; i < 20; i++) {
-      const range = nextBackfillRange(gap);
-      seen.push(range);
-      if (range.fromSeq <= gap.oldestGapSeq) break;
-      gap = { ...gap, tailMinSeq: range.fromSeq };
-    }
-    // Monotonically descending, span-bounded, and never below the floor.
-    for (const r of seen) {
-      expect(r.fromSeq).toBeGreaterThanOrEqual(gap.oldestGapSeq);
-      expect(r.toSeq - r.fromSeq + 1).toBeLessThanOrEqual(500);
-    }
-    expect(seen[seen.length - 1].fromSeq).toBe(3000);
+  it("E9: requests the full remaining range, floored by window shape", () => {
+    // Two-sided: floor at the head edge.
+    expect(nextBackfillRange(headFree({ windowShape: "head-tail", headMaxSeq: 20, tailMinSeq: 4800, oldestGapSeq: 21 }))).toEqual({
+      fromSeq: 21,
+      toSeq: 4799,
+    });
+    // Head-free: floor at the announced store floor.
+    expect(nextBackfillRange(headFree())).toEqual({ fromSeq: 3000, toSeq: 4500 });
+  });
+
+  it("E10: after a response retreats the tail to S, the next request ends at S-1 with the floor unchanged", () => {
+    const gap = headFree();
+    const first = nextBackfillRange(gap);
+    expect(first).toEqual({ fromSeq: 3000, toSeq: 4500 });
+    // The response credited servedFrom 4200 → tailMinSeq retreats to 4200.
+    const retreated = { ...gap, tailMinSeq: 4200 };
+    const second = nextBackfillRange(retreated);
+    expect(second.toSeq).toBe(4199);
+    expect(second.fromSeq).toBe(3000);
   });
 
   // #E13 — floor of 1: the walk reaches the session's genuine beginning.
@@ -506,17 +616,23 @@ describe("head-free window bounds the gap at the store floor (E12, E13, E14)", (
     expect(historyGapTerminus(headFree({ oldestGapSeq: 3000, atFloor: true }))).toBe("not-retained");
     // Not at the floor yet → no terminus at all.
     expect(historyGapTerminus(headFree())).toBeNull();
-    // A two-sided gap never reaches a terminus; its divider is spliced out.
+    // A two-sided gap reaches a terminus ONLY through its own dedicated flag
+    // (the holey exhaust), never via `atFloor` — that flag belongs to the
+    // head-free floor. Contiguous two-sided removal carries no flag at all.
+    // See change: fix-history-backfill-holey-store (D6).
     expect(historyGapTerminus(headFree({ windowShape: "head-tail", atFloor: true }))).toBeNull();
+    expect(
+      historyGapTerminus(headFree({ windowShape: "head-tail", twoSidedTerminus: true })),
+    ).toBe("not-retained");
   });
 
   /**
    * #X5 — the holey store. Flooring makes "a legal but empty range" rare, not
    * impossible: the floor is the lowest seq HELD, but the range between can
-   * still be empty. That must resolve to the TERMINUS, not to `unservable` —
+   * still be empty. That must resolve to the TERMINUS, not to a dead end —
    * nothing failed and nothing is missing that the user could recover.
    */
-  it("X5: an empty final response over a head-free gap shows the terminus, not unservable", () => {
+  it("X5: an empty final response over a head-free gap shows the terminus, not a dead end", () => {
     const h = mount();
     h.fire(windowMsg({ headMaxSeq: 0, tailMinSeq: 4501, gapCount: 4500, oldestGapSeq: 3000, windowShape: "tail-only" }));
     h.fire({ type: "event_replay", sessionId: SID, events: [{ seq: 4501, event: evt("message_start", "tail") }], isLast: true } as ServerToBrowserMessage);
@@ -532,10 +648,56 @@ describe("head-free window bounds the gap at the store floor (E12, E13, E14)", (
     const gap = h.get().gaps.get(SID);
     expect(gap).toBeDefined();
     expect(gap!.atFloor).toBe(true);
-    expect(gap!.unservable).toBe(false);
     // The row STAYS: with no head above it, removing it would leave a
     // transcript that silently starts mid-conversation.
     expect(rowIds(h.get())).toContain(HISTORY_GAP_ROW_ID);
+  });
+
+  it("F4: an empty head-free response above a non-empty floor keeps the affordance", () => {
+    const h = mount();
+    h.fire(windowMsg({ headMaxSeq: 0, tailMinSeq: 4501, gapCount: 4500, oldestGapSeq: 3000, windowShape: "tail-only" }));
+    h.fire({ type: "event_replay", sessionId: SID, events: [{ seq: 4501, event: evt("message_start", "tail") }], isLast: true } as ServerToBrowserMessage);
+    h.fire({
+      type: "history_backfill_result",
+      sessionId: SID,
+      events: [],
+      servedFrom: 4000,
+      servedTo: 4500,
+      remainingGapCount: 12,
+    } as unknown as ServerToBrowserMessage);
+
+    const gap = h.get().gaps.get(SID)!;
+    // Sparse slice — NOT the floor. No terminus, no removal: the walk goes on.
+    expect(gap.atFloor).toBe(false);
+    expect(gap.twoSidedTerminus).toBe(false);
+    expect(historyGapTerminus(gap)).toBeNull();
+    expect(rowIds(h.get())).toContain(HISTORY_GAP_ROW_ID);
+  });
+
+  it("F5: an exhausted head-free gap resolves to the floor terminus, discriminating start vs trimmed", async () => {
+    const run = async (oldestGapSeq: number) => {
+      const h = mount();
+      h.fire(windowMsg({ headMaxSeq: 0, tailMinSeq: 4501, gapCount: 4500, oldestGapSeq, windowShape: "tail-only" }));
+      h.fire({ type: "event_replay", sessionId: SID, events: [{ seq: 4501, event: evt("message_start", "tail") }], isLast: true } as ServerToBrowserMessage);
+      h.fire({
+        type: "history_backfill_result",
+        sessionId: SID,
+        events: [],
+        servedFrom: 0,
+        servedTo: 0,
+        remainingGapCount: 0,
+      } as unknown as ServerToBrowserMessage);
+      return h.get().gaps.get(SID)!;
+    };
+
+    // A floor ABOVE 1: earlier events are not retained.
+    const trimmed = await run(3000);
+    expect(trimmed.atFloor).toBe(true);
+    expect(historyGapTerminus(trimmed)).toBe("not-retained");
+    // The genuine beginning: everything the store held is loaded.
+    const start = await run(1);
+    expect(start.atFloor).toBe(true);
+    expect(historyGapTerminus(start)).toBe("session-start");
   });
 
   /**
@@ -543,7 +705,7 @@ describe("head-free window bounds the gap at the store floor (E12, E13, E14)", (
    * away mid-flight). The splice is a no-op by construction; the bookkeeping
    * must not advance either, or gap state desyncs from `messages[]`.
    */
-  it("X6: a response with no divider row in the transcript advances nothing", () => {
+  it("X6 (test-plan X2): a response with no divider row in the transcript advances nothing", () => {
     const h = mount();
     h.fire(windowMsg({ headMaxSeq: 0, tailMinSeq: 4501, gapCount: 4500, oldestGapSeq: 1, windowShape: "tail-only" }));
     // Replay WITHOUT reaching tailMinSeq → the divider is never placed.
@@ -627,12 +789,12 @@ describe("X7: a refused request is terminal until the user retries", () => {
       expect(gap.failed).toBe(true);
       expect(gap.pending).toBe(false);
       /**
-       * A refusal is NOT a terminus and NOT unservable: nothing was learned
-       * about what the store holds, so the walk's bounds must be untouched and
-       * the user must still be offered a retry.
+       * A refusal is NOT a terminus: nothing was learned about what the store
+       * holds, so the walk's bounds must be untouched and the user must still
+       * be offered a retry.
        */
       expect(gap.atFloor).toBe(false);
-      expect(gap.unservable).toBe(false);
+      expect(gap.twoSidedTerminus).toBe(false);
       expect(gap.tailMinSeq).toBe(before.tailMinSeq);
       expect(gap.gapCount).toBe(before.gapCount);
     },
@@ -664,7 +826,6 @@ describe("X7: a refused request is terminal until the user retries", () => {
       armed: gap.armed,
       pending: gap.pending,
       failed: gap.failed,
-      unservable: gap.unservable,
       atFloor: gap.atFloor,
     };
     expect(shouldAutoLoadHistory(inputs)).toBe(false);

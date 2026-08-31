@@ -877,7 +877,7 @@ export default function App() {
     if (!sid) return;
     const gap = historyGaps.get(sid);
     // D11: the trigger stays disarmed until the initial replay has terminated.
-    if (!gap || !gap.armed || gap.pending || gap.unservable) return;
+    if (!gap || !gap.armed || gap.pending) return;
     const { fromSeq, toSeq } = nextBackfillRange(gap);
     if (toSeq < fromSeq) return;
     setHistoryGaps((prev) => {
