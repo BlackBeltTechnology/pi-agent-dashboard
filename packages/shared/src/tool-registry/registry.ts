@@ -69,6 +69,12 @@ const DEFAULT_CLASSIFY = (strategyName: string): Source => {
       return "npm-global";
     case "bundled-node":
       return "bundled";
+    case "static-npm":
+      return "static-npm";
+    case "env":
+    case "docker-image":
+    case "pw-browser":
+      return "probe";
     default:
       return "system";
   }
@@ -155,7 +161,7 @@ export class ToolRegistry {
     };
 
     const tried: TriedEntry[] = [];
-    let winner: { strategy: string; path: string } | null = null;
+    let winner: { strategy: string; path: string | null } | null = null;
 
     // Platform-specific strategy chain overrides the default when
     // present. Use case: tool resolution chain itself differs per OS
@@ -170,7 +176,8 @@ export class ToolRegistry {
         continue;
       }
       // Optional validation (existence check, "must end in dist/index.js", ...).
-      if (def.validate) {
+      // Null paths (non-path probe kinds) have nothing to validate.
+      if (def.validate && result.path !== null) {
         const v = def.validate(result.path);
         if (!v.ok) {
           tried.push({ strategy: strategy.name, result: `invalid: ${v.reason}` });
@@ -200,7 +207,6 @@ export class ToolRegistry {
           tried,
           resolvedAt: this.now(),
         };
-
     this.cache.set(name, resolution);
     return resolution;
   }

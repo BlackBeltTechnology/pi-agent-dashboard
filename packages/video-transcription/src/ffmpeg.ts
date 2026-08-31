@@ -5,6 +5,7 @@
 
 import * as fs from "node:fs";
 import { execFileAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 
 export interface ExtractAudioOptions {
   maxDurationSeconds?: number;
@@ -13,6 +14,24 @@ export interface ExtractAudioOptions {
 
 /** Injected in tests. Runs a binary and resolves stdout. */
 export type Runner = (file: string, args: string[]) => Promise<{ stdout: string; stderr: string }>;
+
+/**
+ * Resolves a tool name to a spawnable path via the shared ToolRegistry —
+ * so an ffmpeg delivered by `ffmpeg-static` (static-npm strategy) is
+ * usable, not just one on PATH. Null = absent. Injectable in tests.
+ *
+ * See change: add-skill-tool-provisioning (design D3, task 4.1).
+ */
+export type ToolPathResolver = (name: string) => string | null;
+
+const registryResolver: ToolPathResolver = (name) => {
+  try {
+    const r = getDefaultRegistry().resolve(name);
+    return r.ok && r.path ? r.path : null;
+  } catch {
+    return null; // UnknownToolError → absent
+  }
+};
 
 const defaultRunner: Runner = async (file, args) => {
   // Wrapped execFile applies windowsHide:true; coerce to string for the Runner
@@ -26,10 +45,15 @@ export function extractedAudioPath(mediaPath: string): string {
   return `${mediaPath.replace(/\.[^./\\]+$/, "")}.mp3`;
 }
 
-/** True when `ffmpeg` runs (`-version`). Used to gate video processing. */
-export async function isFfmpegAvailable(run: Runner = defaultRunner): Promise<boolean> {
+/** True when `ffmpeg` resolves and runs (`-version`). Gates video processing. */
+export async function isFfmpegAvailable(
+  run: Runner = defaultRunner,
+  resolve: ToolPathResolver = registryResolver,
+): Promise<boolean> {
+  const ffmpeg = resolve("ffmpeg");
+  if (!ffmpeg) return false;
   try {
-    await run("ffmpeg", ["-version"]);
+    await run(ffmpeg, ["-version"]);
     return true;
   } catch {
     return false;
@@ -44,7 +68,12 @@ export async function extractAudio(
   src: string,
   opts: ExtractAudioOptions = {},
   run: Runner = defaultRunner,
+  resolve: ToolPathResolver = registryResolver,
 ): Promise<string> {
+  const ffmpeg = resolve("ffmpeg");
+  if (!ffmpeg) {
+    throw new Error("FFmpeg extraction failed: ffmpeg not available (see registry installHints)");
+  }
   const output = opts.output ?? extractedAudioPath(src);
   const args = ["-i", src, "-vn", "-acodec", "libmp3lame", "-q:a", "2"];
   if (opts.maxDurationSeconds && opts.maxDurationSeconds > 0) {
@@ -53,7 +82,7 @@ export async function extractAudio(
   args.push("-y", output);
 
   try {
-    await run("ffmpeg", args);
+    await run(ffmpeg, args);
     return output;
   } catch (err) {
     try {
@@ -70,9 +99,12 @@ export async function extractAudio(
 export async function getDurationSeconds(
   mediaPath: string,
   run: Runner = defaultRunner,
+  resolve: ToolPathResolver = registryResolver,
 ): Promise<number> {
+  const ffprobe = resolve("ffprobe");
+  if (!ffprobe) return 0;
   try {
-    const { stdout } = await run("ffprobe", [
+    const { stdout } = await run(ffprobe, [
       "-v",
       "error",
       "-show_entries",
@@ -95,8 +127,13 @@ export async function extractChunk(
   lengthS: number,
   dest: string,
   run: Runner = defaultRunner,
+  resolve: ToolPathResolver = registryResolver,
 ): Promise<void> {
-  await run("ffmpeg", [
+  const ffmpeg = resolve("ffmpeg");
+  if (!ffmpeg) {
+    throw new Error("ffmpeg not available (see registry installHints)");
+  }
+  await run(ffmpeg, [
     "-y",
     "-ss",
     String(startS),
