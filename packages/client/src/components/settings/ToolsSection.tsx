@@ -7,7 +7,7 @@
  */
 
 import {mdiAlert, mdiBackspaceOutline,
-  mdiCheck, mdiChevronDown, mdiChevronRight,mdiClose, 
+  mdiCancel, mdiCheck, mdiChevronDown, mdiChevronRight,mdiClose, 
   mdiContentCopy, 
   mdiContentSaveEdit, mdiDownload, mdiOpenInNew,mdiRefresh, 
 } from "@mdi/js";
@@ -209,6 +209,30 @@ export function ToolsSection() {
 
 // ── Row ─────────────────────────────────────────────────────────────────────
 
+/**
+ * Extract the rejected-override detail from a resolution trail. When the
+ * override strategy recorded `invalid: path does not exist: <p>` the path
+ * itself is the detail; the registry's validate demotion records
+ * `invalid: <validator reason>` with no path guarantee, so the detail then
+ * degrades to the reason text (its `invalid:` category prefix stripped —
+ * the badge state already carries it). Null when no override entry was
+ * rejected. Tolerates a trail-less payload (older server / plugin row).
+ * See change: fix-node-family-resolution-gaps.
+ */
+const INVALID_PATH_PREFIX = "invalid: path does not exist: ";
+function rejectedOverrideDetail(
+  tried: ToolListEntry["tried"] | undefined,
+): string | null {
+  const rejected = (tried ?? []).find(
+    (x) => x.strategy === "override" && typeof x.result === "string" && x.result.startsWith("invalid:"),
+  );
+  if (!rejected || typeof rejected.result !== "string") return null;
+  const detail = rejected.result.startsWith(INVALID_PATH_PREFIX)
+    ? rejected.result.slice(INVALID_PATH_PREFIX.length)
+    : rejected.result.replace(/^invalid:\s*/, "");
+  return detail || rejected.result;
+}
+
 interface ToolRowProps {
   tool: ToolListEntry;
   hostOs: HostPlatform | null;
@@ -235,9 +259,9 @@ function ToolRow({ tool, hostOs, autoOpenInstall, onAutoOpenConsumed, busy, onRe
     }
   }, [autoOpenInstall, onAutoOpenConsumed]);
 
-  const invalidOverride = tool.tried.some(
-    (x) => x.strategy === "override" && typeof x.result === "string" && x.result.startsWith("invalid:"),
-  );
+  const tried = tool.tried ?? [];
+  const rejectedOverride = rejectedOverrideDetail(tried);
+  const invalidOverride = rejectedOverride !== null;
   const hasOverride = tool.source === "override" || invalidOverride;
 
   // Install hint for the HOST OS only (not the browser OS). Rendered only
@@ -256,7 +280,7 @@ function ToolRow({ tool, hostOs, autoOpenInstall, onAutoOpenConsumed, busy, onRe
         >
           <Icon path={expanded ? mdiChevronDown : mdiChevronRight} size={0.55} />
         </button>
-        <StatusBadge tool={tool} invalidOverride={invalidOverride} />
+        <StatusBadge tool={tool} rejectedOverride={rejectedOverride} />
         <span className="font-mono font-medium flex-shrink-0 w-32 truncate">{tool.name}</span>
         <SourceBadge source={tool.source} />
         <span className="font-mono text-[var(--text-secondary)] truncate flex-1" title={tool.path ?? "not found"}>
@@ -291,7 +315,7 @@ function ToolRow({ tool, hostOs, autoOpenInstall, onAutoOpenConsumed, busy, onRe
         <div className="pl-8 pr-2 pt-2 space-y-2">
           {/* Trail */}
           <div className="text-[11px] font-mono space-y-0.5">
-            {tool.tried.map((entry, i) => (
+            {tried.map((entry, i) => (
               <div key={i} className={entry.result === "ok" ? "text-green-500" : "text-[var(--text-secondary)]"}>
                 <span className="inline-block w-20">{entry.strategy}</span>
                 <span>{entry.result}</span>
@@ -454,8 +478,8 @@ export function sourceBadgeStyle(source: NonNullable<Resolution["source"]>): { c
   }
 }
 
-function StatusBadge({ tool, invalidOverride }: { tool: Resolution; invalidOverride: boolean }) {
-  if (tool.ok && invalidOverride) {
+function StatusBadge({ tool, rejectedOverride }: { tool: Resolution; rejectedOverride: string | null }) {
+  if (tool.ok && rejectedOverride !== null) {
     return (
       <span className="flex-shrink-0 text-amber-500" title={i18nT("common.overrideInvalidUsingFallback", undefined, "Override invalid; using fallback")}>
         <Icon path={mdiAlert} size={0.6} />
@@ -466,6 +490,21 @@ function StatusBadge({ tool, invalidOverride }: { tool: Resolution; invalidOverr
     return (
       <span className="flex-shrink-0 text-green-500" title={`Resolved via ${tool.source}`}>
         <Icon path={mdiCheck} size={0.6} />
+      </span>
+    );
+  }
+  // Rejected override on an UNRESOLVED row: a third state, distinct from
+  // both the plain not-found state and the fallback state above. The
+  // tooltip names the rejected path, degrading to the reason text when the
+  // rejection carried no extractable path — and never claims a fallback
+  // occurred, because none did. See change: fix-node-family-resolution-gaps.
+  if (rejectedOverride !== null) {
+    return (
+      <span
+        className="flex-shrink-0 text-orange-500"
+        title={i18nT("common.overrideRejectedDidNotResolve", { detail: rejectedOverride }, `Override rejected — tool did not resolve: ${rejectedOverride}`)}
+      >
+        <Icon path={mdiCancel} size={0.6} />
       </span>
     );
   }
