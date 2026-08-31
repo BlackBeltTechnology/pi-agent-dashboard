@@ -156,6 +156,7 @@ describe("imagemagick — resolve-probe binary with host hints", () => {
     };
     const res = freshRegistry(deps, "win32").resolve("imagemagick");
     expect(res.ok).toBe(true);
-    expect(res.tried.map((t) => t.strategy)).toContain("where");
+    expect(res.source).toBe("system");
+    expect(res.path).toBe("C:\\Program Files\\ImageMagick\\magick.exe");
   });
 });
