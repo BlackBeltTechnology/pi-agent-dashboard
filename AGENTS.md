@@ -19,7 +19,7 @@ Web dashboard to monitor + control pi agent sessions remotely. Three components:
 
 `kb_search` indexes repo markdown (`docs/ openspec/ packages/ .pi/`) — NOT `tests/ qa/ scripts/ docker/`. `ctx_search`/`memory_search` index session memory, NOT repo docs — different corpus.
 
-**Pick the lane — this is the single highest-yield kb habit.** Looking for a FILE or SYMBOL → pass `doc_type:"agents"` (measured P@1 0.041 → 0.227, MRR 0.198 → 0.345 on 97 real file-lookup queries; unfiltered, verbose `openspec/` spec prose takes rank-1 77% of the time and buries the per-file row at rank 5-10). Asking how something WORKS, or anything conceptual → leave `doc_type` unset; the `agents` filter measurably HURTS prose queries (P@1 0.150 → 0.067).
+**Pick the lane — this is the single highest-yield kb habit.** Looking for a FILE or SYMBOL → pass `doc_type:"agents"` (measured P@1 0.048 → 0.231, MRR 0.187 → 0.327 on the 104 mined file-lookup queries; unfiltered, verbose `openspec/` spec prose takes rank 1 and buries the per-file row at rank 5-10). Asking how something WORKS, or anything conceptual → leave `doc_type` unset; the `agents` filter measurably HURTS prose queries (P@1 0.151 → 0.068, R@10 0.575 → 0.205). Reproduce: `tsx packages/kb/eval/run-fixtures.ts`.
 
 **Per-file record = directory `AGENTS.md` tree.** Every file (incl. `docker/ scripts/ .pi/skills/ public/ qa/ tests/ .github/`) has a row in its directory's `AGENTS.md`. `docs/` topic docs + root config (`biome.json`, `playwright.config.ts`, `.pi-test-harness.json`) → `docs/AGENTS.md`. `kb agents <path>` returns the root→nearest chain; `kb_search --doc-type agents` ranks rows by symbol/topic. Tree files are tiny — no subagent needed. The `docs/file-index*.md` splits are RETIRED.
 
