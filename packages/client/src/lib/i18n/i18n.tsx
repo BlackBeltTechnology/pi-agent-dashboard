@@ -381,6 +381,7 @@ const zhCN: Record<string, string> = {
   "common.output": "输出：",
   "common.overrideInvalidUsingFallback": "覆盖项无效;使用回退方案",
   "common.overridePathDidnTValidateFell": "覆盖路径未通过验证 —— 已回退到下一个策略。",
+  "common.overrideRejectedDidNotResolve": "覆盖项被拒绝 —— 工具未能解析:{detail}",
   "common.overridesGlobal": "覆盖全局设置",
   "common.path": "路径",
   "common.piProject": "pi 项目",

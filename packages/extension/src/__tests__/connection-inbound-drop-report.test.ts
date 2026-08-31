@@ -246,11 +246,42 @@ describe("inbound drop reporting — hot-path overhead", () => {
     flood(2_000, () => undefined);
     flood(2_000, () => "S_self");
 
-    const baseline = flood(10_000, () => undefined);
-    const withReports = flood(10_000, () => "S_self");
+    // Median-of-interleaved-rounds with paired per-round ratios. A single
+    // sequential A/B pair is decided by whichever sample catches a scheduler
+    // preemption: CI runners failed this assertion 3/4 runs (PR #586) and on
+    // develop (run 33371420416) with the code content-invariant — the
+    // estimator, not the overhead, was the defect. Each round measures one
+    // baseline and one with-report flood back-to-back so both share the same
+    // load window; the median of the per-round ratios then cancels any
+    // window-level slowdown entirely (sustained throttling shifts baseline
+    // and with-report alike) and survives up to 3 corrupted rounds at K=7.
+    // See change: fix-connection-inbound-drop-flake.
+    const K = 7;
+    const baselines: number[] = [];
+    const withReports: number[] = [];
+    const ratios: number[] = [];
+    for (let round = 0; round < K; round++) {
+      const baseline = flood(10_000, () => undefined);
+      const withReport = flood(10_000, () => "S_self");
+      baselines.push(baseline);
+      withReports.push(withReport);
+      ratios.push(withReport / baseline);
+    }
+    const medianRatio = median(ratios);
+    const absoluteOverhead = median(withReports) - median(baselines);
 
     // The per-window bound caps reporting at 10 sends; the rest is one clock
-    // read and a counter bump.
-    expect(withReports).toBeLessThan(Math.max(baseline * 1.1, baseline + 5));
+    // read and a counter bump. Budget unchanged from the single-sample era:
+    // under 10 % relative overhead, or under +5 ms absolute (protects the
+    // assertion at tiny baselines where ratios are noisy).
+    const budgetOk = medianRatio < 1.1 || absoluteOverhead < 5;
+    expect(budgetOk, `medianRatio=${medianRatio.toFixed(3)} absoluteOverhead=${absoluteOverhead.toFixed(2)}ms`).toBe(true);
   });
 });
+
+/** Middle element of a sorted numeric copy — the robust central estimator. */
+function median(samples: number[]): number {
+  const sorted = [...samples].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[mid - 1]! + sorted[mid]!) / 2 : sorted[mid]!;
+}

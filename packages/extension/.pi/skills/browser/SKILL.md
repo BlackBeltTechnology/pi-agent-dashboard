@@ -31,22 +31,35 @@ Three recipes:
 
 ## Step 0a — Preflight: `agent-browser` CLI must be installed
 
-The skill does **not** bundle the CLI. Before doing anything else, verify it:
+The skill does **not** bundle the CLI. Verify it through the dashboard tool
+registry — recommend-only, nothing installs without an explicit `--install`:
 
 ```bash
-command -v agent-browser
+pi-dashboard-ensure <extension-package-root>/package.json
 ```
 
-If the command is **not** found, halt and tell the user:
+`<extension-package-root>` is the package that ships this skill — three levels
+above this SKILL.md's `.pi/skills/browser/` directory (in a global install:
+`$(npm root -g)/@blackbelt-technology/pi-dashboard/node_modules/@blackbelt-technology/pi-dashboard-extension`).
+The manifest (`pi.tools`) declares `agent-browser` (resolve) and `chromium`
+(pw-browser); the registry answers `present` / `recommended` / `blocked` per
+tool.
 
-> The `agent-browser` CLI is not installed. Install it as a pi extension so
-> the `browser` tool is registered in your pi session too:
->
-> ```
-> pi install npm:pi-agent-browser
-> ```
->
-> Then re-invoke the skill.
+- `agent-browser: present` → continue to Step 0b.
+- `agent-browser: recommended` or `blocked` → halt and tell the user:
+
+  > The `agent-browser` CLI is not installed. Install it as a pi extension so
+  > the `browser` tool is registered in your pi session too:
+  >
+  > ```
+  > pi install npm:pi-agent-browser
+  > ```
+  >
+  > Then re-invoke the skill.
+
+- `chromium` missing → mention the registry's Install hint
+  (`npx playwright@1.62.1 install chromium`) only when the chosen recipe needs a
+  CDP browser; the dropdown on the Settings → Tools row carries it.
 
 Do **not** attempt `npm install`, `pi install`, or any other install command
 on the user's behalf — they should make that choice explicitly.

@@ -1,0 +1,8 @@
+{
+  "name": "ensure-cli-fixture-confirm-required",
+  "pi": {
+    "tools": [
+      { "id": "chromium", "probe": "pw-browser" }
+    ]
+  }
+}

@@ -17,11 +17,15 @@ import {
   bareImportStrategy,
   bundledGitBashStrategy,
   bundledNodeStrategy,
+  dockerImageProbeStrategy,
+  envProbeStrategy,
   managedBinStrategy,
   managedModuleStrategy,
   managedRuntimeStrategy,
   npmGlobalStrategy,
   overrideStrategy,
+  pwBrowserProbeStrategy,
+  staticNpmStrategy,
   type StrategyDeps,
   whereStrategy,
 } from "./strategies.js";
@@ -37,6 +41,13 @@ function classify(strategyName: string): Source {
   if (strategyName === "bare-import") return "bare-import";
   if (strategyName === "bundled-node") return "bundled";
   if (strategyName === "bundled-git-bash") return "bundled";
+  // static-npm reads a binary path out of an npm package export (ffmpeg-static).
+  // See change: add-skill-tool-provisioning (design D3).
+  if (strategyName === "static-npm") return "static-npm";
+  // Non-path probe strategies. See change: add-skill-tool-provisioning (design D2).
+  if (strategyName === "env") return "probe";
+  if (strategyName === "docker-image") return "probe";
+  if (strategyName === "pw-browser") return "probe";
   // `where` and anything else — resolved via PATH — classifies as system.
   return "system";
 }
@@ -204,6 +215,111 @@ const INSTALL_HINTS: Record<string, InstallHints> = {
       url: "https://www.zerotier.com/download/",
     },
   },
+  // ── Media tools. See change: add-skill-tool-provisioning (design D3). ──
+  ffmpeg: {
+    docsAnchor: "install-ffmpeg",
+    darwin: {
+      commands: { brew: "brew install ffmpeg" },
+      url: "https://ffmpeg.org/download.html",
+    },
+    win32: {
+      commands: {
+        winget: "winget install --id Gyan.FFmpeg -e",
+        choco: "choco install ffmpeg",
+        scoop: "scoop install ffmpeg",
+      },
+      url: "https://ffmpeg.org/download.html",
+    },
+    linux: {
+      commands: { apt: "sudo apt install ffmpeg", dnf: "sudo dnf install ffmpeg" },
+      url: "https://ffmpeg.org/download.html",
+    },
+  },
+  ffprobe: {
+    docsAnchor: "install-ffprobe",
+    // ffprobe ships inside the ffmpeg package on every mainstream channel.
+    darwin: {
+      commands: { brew: "brew install ffmpeg" },
+      url: "https://ffmpeg.org/download.html",
+    },
+    win32: {
+      commands: {
+        winget: "winget install --id Gyan.FFmpeg -e",
+        choco: "choco install ffmpeg",
+        scoop: "scoop install ffmpeg",
+      },
+      url: "https://ffmpeg.org/download.html",
+    },
+    linux: {
+      commands: { apt: "sudo apt install ffmpeg", dnf: "sudo dnf install ffmpeg" },
+      url: "https://ffmpeg.org/download.html",
+    },
+  },
+  imagemagick: {
+    docsAnchor: "install-imagemagick",
+    darwin: {
+      commands: { brew: "brew install imagemagick" },
+      url: "https://imagemagick.org/script/download.php#macosx",
+    },
+    win32: {
+      commands: {
+        winget: "winget install --id ImageMagick.ImageMagick -e",
+        choco: "choco install imagemagick",
+        scoop: "scoop install imagemagick",
+      },
+      url: "https://imagemagick.org/script/download.php#windows",
+    },
+    linux: {
+      commands: {
+        apt: "sudo apt install imagemagick",
+        dnf: "sudo dnf install ImageMagick",
+      },
+      url: "https://imagemagick.org/script/download.php#unix",
+    },
+  },
+  chromium: {
+    docsAnchor: "install-chromium",
+    darwin: {
+      manual: "npx playwright install chromium",
+      requiresConfirm: true,
+    },
+    win32: {
+      manual: "npx playwright install chromium",
+      requiresConfirm: true,
+    },
+    linux: {
+      manual: "npx playwright install chromium",
+      requiresConfirm: true,
+    },
+  },
+  "agent-browser": {
+    darwin: {
+      manual: "pi install npm:pi-agent-browser",
+      url: "https://www.npmjs.com/package/pi-agent-browser",
+    },
+    win32: {
+      manual: "pi install npm:pi-agent-browser",
+      url: "https://www.npmjs.com/package/pi-agent-browser",
+    },
+    linux: {
+      manual: "pi install npm:pi-agent-browser",
+      url: "https://www.npmjs.com/package/pi-agent-browser",
+    },
+  },
+  "pi-doc-engine": {
+    darwin: {
+      manual: "npm run build:image",
+      requiresConfirm: true,
+    },
+    win32: {
+      manual: "npm run build:image",
+      requiresConfirm: true,
+    },
+    linux: {
+      manual: "npm run build:image",
+      requiresConfirm: true,
+    },
+  },
 };
 
 function binaryDef(binaryName: string, deps?: StrategyDeps): ToolDefinition {
@@ -246,15 +362,20 @@ function binaryDef(binaryName: string, deps?: StrategyDeps): ToolDefinition {
  * Definition for `npx` — registered as a binary, not an executor.
  *
  * Chain (per spec `tool-registry` requirement "npx strategy chain"):
- *   override → bundled-node → managed-bin → where
+ *   override → bundled-node → managed-runtime → managed-bin → where
  *
  * The bundled-node strategy hits the Electron-packaged npx at
  * `<resourcesPath>/node/bin/npx` (Unix) or `<resourcesPath>\node\npx.cmd`
- * (Windows). Managed-bin probes `~/.pi-dashboard/node_modules/.bin/npx`
+ * (Windows). managed-runtime probes the persistent install at
+ * `<managedDir>/node/bin/npx` (Unix) or `<managedDir>\node\npx.cmd`
+ * (Windows) so an installed managed Node runtime is visible to every
+ * member of the node/npm/npx family, not just two of them. Managed-bin
+ * probes `~/.pi-dashboard/node_modules/.bin/npx`
  * (a no-op post-`eliminate-electron-runtime-install` for clean Electron
  * installs, but kept for standalone-CLI callers that may have one).
  *
  * See change: fix-node-resolution-under-electron (task 3.3).
+ * See change: fix-node-family-resolution-gaps.
  *
  * Note: `register-bash-and-tool-install-help` deliberately does NOT attach
  * `installHints` to `npx` — npx ships with Node, so a user who needs it
@@ -264,6 +385,7 @@ function npxBinaryDef(deps?: StrategyDeps): ToolDefinition {
   const strategies: Strategy[] = [
     overrideStrategy("npx", deps),
     bundledNodeStrategy("npx", deps),
+    managedRuntimeStrategy("npx", deps),
     managedBinStrategy("npx", deps),
     whereStrategy("npx", deps),
   ];
@@ -824,6 +946,98 @@ export function registerDefaultTools(registry: ToolRegistry, deps?: StrategyDeps
       deps,
     ),
   );
+
+  // ── Media tools (skill-facing). Registered on EVERY platform — the
+  // strategies themselves are cross-platform. See change:
+  // add-skill-tool-provisioning (design D3).
+  //
+  // ffmpeg — `ffmpeg-static` does NOT put ffmpeg on PATH; it exports the
+  // binary path as its package export. Chain: override → static-npm
+  // (ffmpeg-static) → where (PATH). Registered so a skill's pi.tools
+  // entry references a real definition.
+  registry.register({
+    name: "ffmpeg",
+    kind: "binary",
+    strategies: [
+      overrideStrategy("ffmpeg", deps),
+      staticNpmStrategy("ffmpeg-static", deps),
+      whereStrategy("ffmpeg", deps),
+    ],
+    classify,
+    installHints: INSTALL_HINTS.ffmpeg,
+  });
+  // ffprobe — ffmpeg-static ships NO ffprobe; resolve independently via
+  // @ffprobe-installer/ffprobe (object export → .path).
+  registry.register({
+    name: "ffprobe",
+    kind: "binary",
+    strategies: [
+      overrideStrategy("ffprobe", deps),
+      staticNpmStrategy("@ffprobe-installer/ffprobe", deps),
+      whereStrategy("ffprobe", deps),
+    ],
+    classify,
+    installHints: INSTALL_HINTS.ffprobe,
+  });
+  // imagemagick — the `convert` binary on Unix; on win32 `convert.exe` is
+  // the NTFS converter in System32, so probe `magick` there instead. No
+  // reliable static npm package, so override → where only. Optional
+  // consumers degrade gracefully. (CodeRabbit round 1.)
+  registry.register({
+    name: "imagemagick",
+    kind: "binary",
+    strategies: [
+      overrideStrategy("imagemagick", deps),
+      whereStrategy("convert", deps),
+    ],
+    platformStrategies: {
+      win32: [
+        overrideStrategy("imagemagick", deps),
+        whereStrategy("magick", deps),
+      ],
+    },
+    classify,
+    installHints: INSTALL_HINTS.imagemagick,
+  });
+  // chromium — pw-browser probe over Playwright's browsers cache; the
+  // manual hint is a network+exec command (requiresConfirm).
+  registry.register({
+    name: "chromium",
+    kind: "probe",
+    strategies: [
+      overrideStrategy("chromium", deps),
+      pwBrowserProbeStrategy("chromium", deps),
+    ],
+    classify,
+    installHints: INSTALL_HINTS.chromium,
+  });
+  // agent-browser — the browser skill's CLI. Ships as a pi EXTENSION,
+  // not an npm bin, so the install hint names `pi install` (a choice the
+  // user makes explicitly; the registry stays recommend-only).
+  // See change: add-skill-tool-provisioning (task 4.2).
+  registry.register({
+    name: "agent-browser",
+    kind: "binary",
+    strategies: [
+      overrideStrategy("agent-browser", deps),
+      whereStrategy("agent-browser", deps),
+    ],
+    classify,
+    installHints: INSTALL_HINTS["agent-browser"],
+  });
+  // pi-doc-engine — document-converter's docker-quarantined engine. The
+  // build hint is a network+exec command → requiresConfirm.
+  // See change: add-skill-tool-provisioning (task 4.3).
+  registry.register({
+    name: "pi-doc-engine",
+    kind: "probe",
+    strategies: [
+      overrideStrategy("pi-doc-engine", deps),
+      dockerImageProbeStrategy("pi-doc-engine", deps),
+    ],
+    classify,
+    installHints: INSTALL_HINTS["pi-doc-engine"],
+  });
 }
 
 /** Handy re-exports for callers that want raw definitions for testing. */

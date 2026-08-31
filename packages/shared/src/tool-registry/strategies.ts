@@ -8,8 +8,10 @@
  *
  * See change: consolidate-tool-resolution (design §2).
  */
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import os from "node:os";
 import { createRequire } from "node:module";
+import { spawnSync } from "../platform/exec.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getManagedBin, getManagedDir } from "../managed-paths.js";
@@ -45,6 +47,28 @@ export interface StrategyDeps {
   resolveModule?(id: string, from: string): string | null;
   execPath?: string;
   realpath?(p: string): string;
+  /** Env-var reader for the `env` probe (injectable; default process.env). */
+  readEnv?(name: string): string | undefined;
+  /** Directory lister for the `pw-browser` probe (injectable for tests). */
+  readDir?(p: string): string[];
+  /**
+   * CJS require for the `static-npm` strategy — returns the package's
+   * export VALUE (a binary path string or `{ path }`), injectable so
+   * tests never touch the host node_modules. Throws on unresolvable ids.
+   */
+  requireModule?(id: string): unknown;
+  /**
+   * Image-availability probe for the `docker-image` strategy. Default
+   * shells `docker image inspect <ref>` via spawnSync; never assumes
+   * the daemon exists.
+   */
+  dockerImageInspect?(ref: string): { ok: true } | { ok: false; reason: string };
+  /**
+   * Home directory for the `pw-browser` default cache path. Default
+   * `os.homedir()`; ctx.env.homedir (when the registry provides one)
+   * takes precedence.
+   */
+  homedir?(): string;
 }
 
 /**
@@ -230,6 +254,26 @@ function defaults(): Required<StrategyDeps> {
     resolveModule: defaultResolveModule,
     execPath: process.execPath,
     realpath: realpathSync,
+    readEnv: (name) => process.env[name],
+    readDir: (p) => readdirSync(p),
+    requireModule: (id) => createRequire(import.meta.url)(id),
+    homedir: () => os.homedir(),
+    dockerImageInspect: (ref) => {
+      const probe = spawnSync("docker", ["image", "inspect", ref], {
+        encoding: "utf8",
+        timeout: 10_000,
+      });
+      if (probe.error) {
+        // ENOENT → docker CLI not installed; any spawn failure → treat the
+        // daemon as unavailable. NEVER assume docker is present.
+        const code = (probe.error as NodeJS.ErrnoException).code;
+        return { ok: false, reason: `docker not available (${code ?? probe.error.message})` };
+      }
+      if (probe.status !== 0) {
+        return { ok: false, reason: `image ${ref} not found` };
+      }
+      return { ok: true };
+    },
   };
 }
 
@@ -244,6 +288,11 @@ function d(deps?: StrategyDeps): Required<StrategyDeps> {
     resolveModule: deps.resolveModule ?? base.resolveModule,
     execPath: deps.execPath ?? base.execPath,
     realpath: deps.realpath ?? base.realpath,
+    readEnv: deps.readEnv ?? base.readEnv,
+    readDir: deps.readDir ?? base.readDir,
+    requireModule: deps.requireModule ?? base.requireModule,
+    dockerImageInspect: deps.dockerImageInspect ?? base.dockerImageInspect,
+    homedir: deps.homedir ?? base.homedir,
   };
 }
 
@@ -512,6 +561,166 @@ export function bareImportStrategy(
       const resolved = resolveModule(pkgName, anchor);
       if (!resolved) return { ok: false, reason: `cannot resolve ${pkgName} from ${anchor}` };
       return { ok: true, path: resolved };
+    },
+  };
+}
+
+// ── Probe strategies (see change: add-skill-tool-provisioning) ─────────────
+
+/**
+ * Credential-presence probe: is the env var SET? Boolean only — the value
+ * is never read into the result, so `Resolution` and every log line stay
+ * free of secrets. `path` is `null` when ok (non-path kind).
+ *
+ * See change: add-skill-tool-provisioning (design D2).
+ */
+export function envProbeStrategy(envVarName: string, deps?: StrategyDeps): Strategy {
+  const { readEnv } = d(deps);
+  return {
+    name: "env",
+    run(): StrategyResult {
+      const value = readEnv(envVarName);
+      if (value === undefined || value === "") {
+        return { ok: false, reason: `env ${envVarName} not set` };
+      }
+      return { ok: true, path: null };
+    },
+  };
+}
+
+/**
+ * Docker-image presence probe. Probes via the injectable
+ * `dockerImageInspect` (default: `docker image inspect`) and NEVER
+ * assumes the daemon exists — unavailability is just a failed attempt
+ * carrying its reason. `path` is the image ref (non-filesystem).
+ *
+ * See change: add-skill-tool-provisioning (design D2).
+ */
+export function dockerImageProbeStrategy(imageRef: string, deps?: StrategyDeps): Strategy {
+  const { dockerImageInspect } = d(deps);
+  return {
+    name: "docker-image",
+    run(): StrategyResult {
+      const probe = dockerImageInspect(imageRef);
+      if (!probe.ok) return { ok: false, reason: probe.reason };
+      return { ok: true, path: imageRef };
+    },
+  };
+}
+
+/** Per-OS default Playwright browsers cache dir under `homedir`. */
+function playwrightCacheDir(platform: NodeJS.Platform, homedir: string): string {
+  switch (platform) {
+    case "darwin":
+      return path.join(homedir, "Library", "Caches", "ms-playwright");
+    case "win32":
+      return path.join(homedir, "AppData", "Local", "ms-playwright");
+    default:
+      return path.join(homedir, ".cache", "ms-playwright");
+  }
+}
+
+/**
+ * Playwright-browser presence probe: reads the documented browsers cache
+ * (`PLAYWRIGHT_BROWSERS_PATH` or the per-OS default) and matches entries
+ * like `chromium-<rev>` / `chromium_headless_shell-<rev>`. `path` is the
+ * matched browser directory.
+ *
+ * See change: add-skill-tool-provisioning (design D2).
+ */
+export function pwBrowserProbeStrategy(browserName: string, deps?: StrategyDeps): Strategy {
+  const { readEnv, readDir, homedir, resolveModule } = d(deps);
+  return {
+    name: "pw-browser",
+    run(ctx): StrategyResult {
+      // Production registries construct without env.homedir — fall back to
+      // the injected/live homedir so the DEFAULT cache dir is probed.
+      const home = ctx.env?.homedir ?? homedir();
+      let base: string | undefined;
+      const envPath = readEnv("PLAYWRIGHT_BROWSERS_PATH");
+      if (envPath && envPath !== "0") {
+        base = envPath;
+      } else {
+        if (envPath === "0") {
+          // Playwright sentinel "0": hermetic installs live under
+          // playwright-core/.local-browsers, not the user cache.
+          try {
+            const entry = resolveModule("playwright-core/package.json", import.meta.url);
+            if (entry) base = path.join(path.dirname(entry), ".local-browsers");
+          } catch {
+            // fall through to the default cache dir
+          }
+        }
+        base = base ?? (home ? playwrightCacheDir(ctx.platform, home) : undefined);
+      }
+      if (!base) {
+        return { ok: false, reason: `no browsers cache dir (set PLAYWRIGHT_BROWSERS_PATH)` };
+      }
+      let entries: string[];
+      try {
+        entries = readDir(base);
+      } catch {
+        return { ok: false, reason: `browser ${browserName} not found (no cache dir ${base})` };
+      }
+      const match = entries.find(
+        (e) => e === browserName || e.startsWith(`${browserName}-`) || e.startsWith(`${browserName}_`),
+      );
+      if (!match) {
+        return { ok: false, reason: `browser ${browserName} not found in ${base}` };
+      }
+      return { ok: true, path: path.join(base, match) };
+    },
+  };
+}
+
+/**
+ * Binary path read out of an npm package's export. Media packages ship
+ * the binary LOCATION as their export: a bare string (`ffmpeg-static`)
+ * or `{ path }` (`@ffprobe-installer/ffprobe`). Distinct from
+ * `bare-import`, which returns the package dir / JS entry.
+ *
+ * See change: add-skill-tool-provisioning (design D3).
+ */
+export function staticNpmStrategy(pkgName: string, deps?: StrategyDeps): Strategy {
+  const { requireModule, exists } = d(deps);
+  return {
+    name: "static-npm",
+    run(): StrategyResult {
+      let exported: unknown;
+      try {
+        exported = requireModule(pkgName);
+      } catch (e) {
+        return { ok: false, reason: `cannot require ${pkgName}: ${(e as Error).message}` };
+      }
+      let binaryPath: string | null = null;
+      if (typeof exported === "string" && exported.length > 0) {
+        binaryPath = exported;
+      } else if (
+        exported &&
+        typeof exported === "object" &&
+        typeof (exported as { path?: unknown }).path === "string" &&
+        ((exported as { path: string }).path).length > 0
+      ) {
+        binaryPath = (exported as { path: string }).path;
+      } else if (
+        exported &&
+        typeof exported === "object" &&
+        typeof (exported as { default?: unknown }).default === "string" &&
+        ((exported as { default: string }).default).length > 0
+      ) {
+        binaryPath = (exported as { default: string }).default;
+      }
+      if (!binaryPath) {
+        return { ok: false, reason: `${pkgName} exports no binary path` };
+      }
+      // The EXPORT alone is not proof: e.g. ffmpeg-static's tarball ships
+      // no binary until its install script runs (gated by build policy).
+      // A dead export path must fall through to the next strategy (where),
+      // never shadow a working PATH binary with a nonexistent file.
+      if (!exists(binaryPath)) {
+        return { ok: false, reason: `${pkgName} exports ${binaryPath} which does not exist on disk` };
+      }
+      return { ok: true, path: binaryPath };
     },
   };
 }

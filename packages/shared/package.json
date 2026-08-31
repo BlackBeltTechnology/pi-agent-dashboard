@@ -4,6 +4,9 @@
   "description": "Shared types and utilities for pi-dashboard",
   "license": "MIT",
   "type": "module",
+  "bin": {
+    "pi-dashboard-ensure": "bin/pi-dashboard-ensure.mjs"
+  },
   "repository": {
     "type": "git",
     "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
@@ -20,6 +23,7 @@
   },
   "files": [
     "src/",
+    "bin/",
     "!**/AGENTS.md",
     "!**/*.AGENTS.md",
     "!**/__tests__",

@@ -10,7 +10,7 @@
  */
 
 /** What kind of artifact a tool definition resolves. */
-export type ToolKind = "binary" | "module" | "directory" | "executor";
+export type ToolKind = "binary" | "module" | "directory" | "executor" | "probe";
 
 /**
  * How a resolved path was obtained. Strategy name → source mapping is
@@ -22,11 +22,24 @@ export type Source =
   | "system"
   | "npm-global"
   | "bare-import"
-  | "bundled";
+  | "bundled"
+  /** Binary path read out of an npm package's export (e.g. ffmpeg-static). */
+  | "static-npm"
+  /** Non-path probe strategy (env / docker-image / pw-browser). */
+  | "probe";
 
-/** Result returned by a single strategy attempt. */
+/**
+ * Result returned by a single strategy attempt.
+ *
+ * `path` is nullable on success for non-path probe kinds: an `env` probe
+ * has no path at all, and a `docker-image` probe's "path" is the image
+ * ref. Path-kind strategies (binary/module/directory) always return an
+ * absolute path when ok.
+ *
+ * See change: add-skill-tool-provisioning (design D2, relaxed invariant).
+ */
 export type StrategyResult =
-  | { ok: true; path: string }
+  | { ok: true; path: string | null }
   | { ok: false; reason: string };
 
 /** One attempt recorded on a Resolution's `tried[]` list. */
@@ -43,7 +56,11 @@ export interface Resolution {
   name: string;
   /** True if any strategy produced a valid path. */
   ok: boolean;
-  /** Absolute path (binary / module entry / directory). Null on failure. */
+  /**
+   * Absolute path (binary / module entry / directory). Null on failure —
+   * or, for non-path probe kinds, when ok: `env` probes carry null;
+   * `docker-image` carries the image ref; `pw-browser` the browser dir.
+   */
   path: string | null;
   /** Source classification of the winning strategy. Null on failure. */
   source: Source | null;
@@ -146,7 +163,42 @@ export interface PlatformInstallHint {
   manual?: string;
   /** Canonical vendor download URL. */
   url?: string;
+  /**
+   * When true, an eligible auto-run of this hint requires per-invocation
+   * confirmation (network fetch / image build). Set on the FIRST-PARTY
+   * hint — the registry never regex-sniffs command strings.
+   *
+   * See change: add-skill-tool-provisioning (design D4).
+   */
+  requiresConfirm?: boolean;
 }
+
+/**
+ * One entry of a skill package's `pi.tools` manifest (an array under the
+ * `pi` key in the package's package.json, sibling to `pi.skills`).
+ *
+ * The manifest carries ONLY `{ id, probe, optional? }` — no shell strings,
+ * no recipes. Install recipes stay first-party in the registry's
+ * `installHints` for that id. `id` is a tool id (NOT an npm spec):
+ * `^[A-Za-z0-9_][A-Za-z0-9._-]*$` — uppercase + underscore permitted so an
+ * `env`-kind id IS the environment-variable name.
+ *
+ * See change: add-skill-tool-provisioning (design D1).
+ */
+export interface SkillToolManifestEntry {
+  /** Tool id — for probe:"env" this IS the environment-variable name. */
+  id: string;
+  /** How presence is determined. "resolve" (default) uses the path chain. */
+  probe: "resolve" | "env" | "docker-image" | "pw-browser";
+  /** Absence degrades instead of blocking when true. Default false. */
+  optional?: boolean;
+}
+
+/** Regex a manifest `id` must match (see {@link SkillToolManifestEntry}). */
+export const SKILL_TOOL_ID_PATTERN = /^[A-Za-z0-9_][A-Za-z0-9._-]*$/;
+
+/** The exact key set a manifest entry may carry — anything else rejects. */
+export const SKILL_TOOL_ENTRY_KEYS = ["id", "probe", "optional"] as const;
 
 /** Declarative tool registration. */
 export interface ToolDefinition {
