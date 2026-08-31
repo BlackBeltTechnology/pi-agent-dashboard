@@ -30,6 +30,15 @@ export interface RankingConfig {
    *  0 disables the quota. SWEPT over the bundled fixtures — see
    *  openspec/changes/fix-kb-search-retrieval-quality/measurements.md. */
   laneQuota: number;
+  /** Relative score margin that lets the reserved `agents` lane take result
+   *  slot 1, 0..1 (change fix-kb-search-lane-composition, design D2/D3).
+   *  `0` disables the rule and restores the pre-change interleaving exactly.
+   *  The running-share quota is structurally incapable of taking slot 1
+   *  (`(0+1)/(0+1) <= share` is false for every share < 1), so rank 1 needs
+   *  its own knob. Inert whenever there is no reserved lane: an explicit
+   *  `doc_type` or `laneQuota: 0` zeroes `laneShare` at the call site, so
+   *  `interleaveLanes` — and this rule inside it — is never reached. */
+  laneLeadMargin: number;
   /** IDF-weighted coverage rerank over the candidate pool (design D4).
    *  Implemented, DEFAULT OFF: on the bundled fixtures it costs markdown-intent
    *  R@10 0.620 → 0.472 to buy source-intent 0.423 → 0.462, a net regression. */
@@ -142,6 +151,9 @@ export const DEFAULTS: KbConfig = {
     // (R@10 0.630 vs 0.611 unquota'd) while source-intent rises 0.317 → 0.500.
     laneQuota: 0.5,
     coverageRerank: false,
+    // Chosen by measurement over both golden sets — see
+    // openspec/changes/fix-kb-search-lane-composition/measurements.md.
+    laneLeadMargin: 0,
   },
   expand: { parent: true, graph: false },
   rerank: { enabled: false, model: "ms-marco-MiniLM-L-6-v2", candidateK: 50 },
@@ -198,6 +210,8 @@ export function validateConfig(c: Partial<KbConfig>, origin = "config"): KbConfi
   if (gm !== undefined && !/^(off|warn|block)$/.test(gm)) throw err(`readDiscipline.guard.mode "${gm}" unknown (off | warn | block)`);
   const lq = merged.ranking.laneQuota;
   if (typeof lq !== "number" || !Number.isFinite(lq) || lq < 0 || lq > 1) throw err("ranking.laneQuota must be a number in [0,1]");
+  const llm = merged.ranking.laneLeadMargin;
+  if (typeof llm !== "number" || !Number.isFinite(llm) || llm < 0 || llm > 1) throw err("ranking.laneLeadMargin must be a number in [0,1]");
   const fm = merged.frontmatter;
   if (!fm || !Array.isArray(fm.searchableKeys) || fm.searchableKeys.some((k) => typeof k !== "string")) throw err("frontmatter.searchableKeys must be a string array");
   if (!Array.isArray(fm.facetKeys)) throw err("frontmatter.facetKeys must be an array");

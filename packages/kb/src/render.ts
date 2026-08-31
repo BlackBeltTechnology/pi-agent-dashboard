@@ -54,6 +54,11 @@ export function renderHits(hits: KbHit[], opts: RenderOpts): string {
       // Trust verdict: a LABEL, never a ranking signal. null renders nothing.
       const vt = verdictText(h.verdict);
       if (vt) marks.push(vt);
+      // Record-type mark (design D5, fix-kb-search-lane-composition): makes a
+      // wrong-lane page legible, so the `doc_type` fallback self-suggests.
+      // Topic prose (`doc`) is the unmarked majority — marking it would grow
+      // every page for no signal. This is the RECORD type, not the lane origin.
+      if (h.docType === "agents" || h.docType === "source-md") marks.push(`[${h.docType}]`);
       const dup = marks.join(" ");
       const snippet = h.snippet.replace(/\s+/g, " ").slice(0, SNIPPET_MAX);
       if (multiline) {

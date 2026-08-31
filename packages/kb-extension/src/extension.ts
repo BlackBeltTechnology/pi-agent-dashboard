@@ -75,7 +75,7 @@ export default function kbExtension(pi: ExtensionAPI): void {
       "Search the local markdown knowledge base (FTS5 + BM25) for ranked sections before answering from memory. " +
       "Default output is condensed text, one block per hit: `<rank>  <path>  ::  <leafHeading>`, an optional `(+N dup)` " +
       "duplicate-copy marker, an optional `(+N more sections)` marker counting further matching sections of that SAME file, " +
-      "an optional `⤷ <parentHeading>` continuation, an optional trust verdict `LABEL (n of m subjects checked)`, then a one-line snippet. " +
+      "an optional `⤷ <parentHeading>` continuation, an optional trust verdict `LABEL (n of m subjects checked)`, an optional record-type mark `[agents]` / `[source-md]` (topic prose is unmarked), then a one-line snippet. " +
       "FTS match markers `[ ]` in the snippet flag the terms that matched. `rank` is a 1-based ordinal over the returned hits " +
       "(not a global score). `limit` bounds DISTINCT SOURCES (files), not chunks — one entry per file, so a page of 10 names 10 different files. " +
       "Expand a file marked `(+N more sections)` with `kb_get(path)` / `kb_get(path, section)`. " +
@@ -86,11 +86,20 @@ export default function kbExtension(pi: ExtensionAPI): void {
     promptGuidelines: [
       "Call kb_search FIRST for any project-specific factual / 'where is X' / 'how does Y work' question — before ctx_search, memory_search, grep, or reading source.",
       "kb_search indexes repo markdown (docs/, openspec/, packages/, .pi/). ctx_search/memory_search index session memory, not docs — different corpus. Fall through to grep/source only when kb_search returns nothing relevant.",
+      "Pick the doc_type lane per query: looking for a FILE or a SYMBOL → pass doc_type:\"agents\" (the per-file record lane); asking how something WORKS, or anything conceptual → leave doc_type unset. The filter is measurably harmful on conceptual queries, so it is a lane choice, never a default.",
     ],
     parameters: Type.Object({
       query: Type.String({ description: "Keyword / identifier / error-string terms to search" }),
       limit: Type.Optional(Type.Number({ default: 10 })),
-      doc_type: Type.Optional(Type.Union([Type.Literal("doc"), Type.Literal("agents"), Type.Literal("source-md")])),
+      // Conditional, NOT a global win: the lane trade-off is measured in both
+      // directions, so the description must name both arms and recommend
+      // neither unconditionally. See change: fix-kb-search-lane-composition.
+      doc_type: Type.Optional(
+        Type.Union([Type.Literal("doc"), Type.Literal("agents"), Type.Literal("source-md")], {
+          description:
+            "Restrict results to one record lane. Looking for a FILE or a SYMBOL — 'where does X live', 'which file exports Y' — pass \"agents\" to search the terse per-file records directly. Asking how something WORKS, or any conceptual question, leave it unset: the filter measurably hurts those queries by hiding the prose that answers them. \"doc\" is topic/spec prose, \"source-md\" is markdown living beside source.",
+        }),
+      ),
       // Free string, NOT a strict Literal union: an unknown/malformed value must
       // fall back to condensed in-body, never hard-reject before execute() runs.
       format: Type.Optional(Type.String({ default: "condensed", description: "Output format: 'condensed' (default) or 'json' (compact, retains raw score)." })),

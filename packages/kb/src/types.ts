@@ -116,6 +116,12 @@ export interface SearchOpts {
   /** Share of the result page reserved for `doc_type='agents'` (0..1). 0 disables
    *  the lane quota. Ignored when the caller passes an explicit `docType`. */
   laneQuota?: number;
+  /** Relative score margin (0..1) letting the reserved `agents` lane take slot 1
+   *  when `r0 - m0 <= margin * |m0|` on raw BM25(+proximity) scores. `0` = off
+   *  and byte-identical to the pre-change interleave. Inert without a reserved
+   *  lane (explicit `docType`, or `laneQuota: 0`).
+   *  See change: fix-kb-search-lane-composition. */
+  laneLeadMargin?: number;
   /** IDF-weighted coverage rerank (design D4). Opt-IN: default OFF, because it
    *  measured a net regression on the bundled fixtures. Gates PRF expansion. */
   coverageRerank?: boolean;

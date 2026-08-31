@@ -375,8 +375,14 @@ export class SqliteFtsStore implements KbStore {
     // file with more matching sections than the shallow pool would under-report.
     const agentsRows = laneShare > 0 ? pass(match, "agents") : [];
 
+    // The lead rule (design D2) compares each lane's best RAW BM25(+proximity)
+    // score. Neither MMR nor `coverageRerank` mutates `score` — they only
+    // reorder — and the capture below is a MIN over the lane, so it is
+    // reorder-invariant by construction. Reading `hits[0].score` instead would
+    // NOT be: `coverageRerank` fully re-sorts, so its head is not the
+    // best-scoring candidate. The min is what makes the position moot.
     const bodies = new Map<string, string>();
-    const lane = (rows: any[]): KbHit[] => {
+    const lane = (rows: any[], captureRawBest?: (best: number) => void): KbHit[] => {
       let hits: KbHit[] = rows.map((r) => {
         bodies.set(r.chunkId, r.body);
         let score = r.score;
@@ -423,6 +429,8 @@ export class SqliteFtsStore implements KbStore {
         hits.sort((a, b) => a.score - b.score);
       }
 
+      if (captureRawBest && hits.length) captureRawBest(hits.reduce((b, h) => Math.min(b, h.score), Number.POSITIVE_INFINITY));
+
       // lexical MMR diversity (Tier A)
       const div = opts.diversity;
       if (div?.enabled) hits = mmr(hits, bodies, div.lambda, fetch);
@@ -430,10 +438,32 @@ export class SqliteFtsStore implements KbStore {
       return hits;
     };
 
-    const main = lane(mainRows);
+    // Lead-slot rule (change fix-kb-search-lane-composition, design D1/D2). The
+    // running-share quota cannot ever take slot 1 — `(0+1)/(0+1) <= share` is
+    // false for every share < 1 — so rank 1 gets its own knob. `0` = off.
+    const leadMargin = Math.min(1, Math.max(0, Number(opts.laneLeadMargin ?? 0) || 0));
+    let mainBest = Number.NaN;
+    let reservedBest = Number.NaN;
+    const main = lane(mainRows, (b) => { mainBest = b; });
     let hits: KbHit[];
     if (laneShare > 0 && agentsRows.length) {
-      hits = interleaveLanes(main, lane(agentsRows), laneShare, limit, wantSourceDedup);
+      const reserved = lane(agentsRows, (b) => { reservedBest = b; });
+      // Sign-safe relative margin: scores are negative and ascending-better, so
+      // a ratio test would invert across the sign boundary. At margin 1 this
+      // reduces to `r0 <= 0` — an unconditional lead, the documented degenerate
+      // endpoint.
+      // NOTE the decision/pick asymmetry under `coverageRerank` (default OFF):
+      // the decision reads the lane's raw BEST, while the pick is
+      // `reserved[0]` — the lane's own head, which a coverage re-sort may have
+      // moved off that best. Deliberate: the lane's internal ordering is the
+      // lane's business, and the rule only decides WHICH lane leads. Both
+      // knobs are opt-in, so the interaction is spot-checked (D6), not shipped.
+      const leadFirst =
+        leadMargin > 0 &&
+        Number.isFinite(mainBest) &&
+        Number.isFinite(reservedBest) &&
+        reservedBest - mainBest <= leadMargin * Math.abs(mainBest);
+      hits = interleaveLanes(main, reserved, laneShare, limit, wantSourceDedup, leadFirst);
     } else {
       hits = main.slice(0, limit);
     }
@@ -615,7 +645,7 @@ function hasStem(tokens: Set<string>, term: string): boolean {
 /** Interleave a reserved-share lane with the unrestricted lane (design D3).
  *  A source already emitted by either lane is never repeated, and a lane that
  *  runs dry yields its remaining slots to the other. */
-function interleaveLanes(main: KbHit[], reserved: KbHit[], share: number, limit: number, dedupSources: boolean): KbHit[] {
+function interleaveLanes(main: KbHit[], reserved: KbHit[], share: number, limit: number, dedupSources: boolean, leadFirst = false): KbHit[] {
   const out: KbHit[] = [];
   const seen = new Set<string>();
   let mi = 0;
@@ -635,8 +665,10 @@ function interleaveLanes(main: KbHit[], reserved: KbHit[], share: number, limit:
     const mHas = mi < main.length;
     const rHas = ri < reserved.length;
     if (!mHas && !rHas) break;
-    // Take from the reserved lane while it is under its share of the page so far.
-    const wantReserved = rHas && (!mHas || (taken + 1) / (out.length + 1) <= share);
+    // Slot 1 is decided by the lead rule; slots 2..N by the running share.
+    // The lead pick is an ordinary reserved take — it increments `taken` and
+    // populates `seen`, so slot 2 then reads `2/2 = 1 > share` and yields.
+    const wantReserved = rHas && (!mHas || (out.length === 0 && leadFirst) || (taken + 1) / (out.length + 1) <= share);
     const pick = wantReserved ? reserved[ri++] : main[mi++];
     if (wantReserved) taken++;
     if (dedupSources) seen.add(`${pick.root}\u001f${pick.path}`);

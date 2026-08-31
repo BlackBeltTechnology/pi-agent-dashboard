@@ -36,6 +36,32 @@ describe("renderHits", () => {
     expect(out).not.toContain("(+");
   });
 
+  // --- E12 (fix-kb-search-lane-composition, design D5): record-type marks.
+  // Marks the RECORD TYPE, not the lane origin — a main-lane and a reserved-lane
+  // `agents` hit render identically.
+  it.each(["agents", "source-md"] as const)("E12: a %s hit carries its record-type mark", (docType) => {
+    expect(renderHits([hit({ docType })], TOOL)).toContain(`[${docType}]`);
+  });
+
+  it("E12: a doc hit carries no record-type mark", () => {
+    const out = renderHits([hit({ docType: "doc" })], TOOL);
+    expect(out).not.toContain("[doc]");
+    expect(out).not.toContain("[agents]");
+    expect(out).not.toContain("[source-md]");
+  });
+
+  it("E12: the record-type mark composes with (+N dup) and (+N more sections)", () => {
+    const out = renderHits([hit({ docType: "agents", akaPaths: ["x"], suppressedSections: 3 })], TOOL);
+    expect(out).toContain("(+1 dup)");
+    expect(out).toContain("(+3 more sections)");
+    expect(out).toContain("[agents]");
+  });
+
+  it("E12: the record-type mark appears in the single-line CLI form too", () => {
+    const out = renderHits([hit({ docType: "agents" })], { leading: "score", parentGlyph: "[parent: ", multiline: false });
+    expect(out).toContain("[agents]");
+  });
+
   it("E7: parent continuation renders with the glyph", () => {
     const out = renderHits([hit({ parent: { headingPath: "P" } })], TOOL);
     expect(out).toContain("\u2937 P");
@@ -59,6 +85,8 @@ describe("renderHits", () => {
   // is now the leaf heading (design D5, a deliberate breaking render change).
   // See change: fix-kb-search-retrieval-quality.
   it("CLI form (leading:score, single-line) keeps the legacy field order with a leaf heading", () => {
+    // docType `doc` on purpose: the record-type mark (D5) is emitted only for
+    // non-doc hits, so this exact-string expectation stays the legacy shape.
     const h = hit({ headingPath: "A > B", akaPaths: ["x"], parent: { headingPath: "Parent H" } });
     const out = renderHits([h], { leading: "score", parentGlyph: "[parent: ", multiline: false });
     const expected = `${h.score.toFixed(2)}  ${h.path}  ::  B  (+${h.akaPaths!.length} dup)  [parent: ${h.parent!.headingPath}]\n      ${h.snippet.replace(/\s+/g, " ").slice(0, 160)}`;

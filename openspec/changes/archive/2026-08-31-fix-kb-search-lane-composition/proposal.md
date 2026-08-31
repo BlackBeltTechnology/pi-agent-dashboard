@@ -80,7 +80,11 @@ Explicitly **not** in scope: enabling `doxEnforcement`, any freshness gate, and 
 - `packages/kb-extension/src/extension.ts` (tool schema + guidelines),
   `packages/kb/src/sqlite-store.ts` (`interleaveLanes`), `packages/kb/src/config.ts` (gate),
   `packages/kb/src/types.ts` (`SearchOpts`), `packages/kb/src/render.ts` (record-type marks),
-  `packages/kb/src/cli.ts` (option threading), `packages/kb/eval/run-fixtures.ts` (sweep axis).
+  `packages/kb/src/search-opts.ts` (option threading — both the CLI and the tool already
+  route through this one helper, so neither call site needed editing),
+  `packages/kb/eval/run-fixtures.ts` (sweep axis + a `roots` fix: the harness was silently
+  dropping every path-bearing golden expect), `packages/kb/eval/sweep-rows.ts` (new;
+  paired-fixture row builder).
 - Root `AGENTS.md` already carries the measured `doc_type` rule and the retired
   `kb_neighbors` claim (commit `48d6b35a1`); revisit that wording if the default changes.
 - Risk: promoting the agents lane at rank 1 can regress markdown-intent. Both fixtures must

@@ -114,7 +114,7 @@ describe("searchOptsFromConfig (E2 decision table)", () => {
 });
 
 describe("searchOptsFromConfig (E3 structural key-coverage)", () => {
-  it("Object.keys(helper(cfg, src)) covers the canonical 12-key ranking list", () => {
+  it("Object.keys(helper(cfg, src)) covers the canonical 13-key ranking list", () => {
     const out = searchOptsFromConfig(cfg, { sources: SOURCES });
     const CANONICAL = [
       "fieldWeights",
@@ -122,6 +122,7 @@ describe("searchOptsFromConfig (E3 structural key-coverage)", () => {
       "diversity",
       "sourceDedup",
       "laneQuota",
+      "laneLeadMargin",
       "coverageRerank",
       "queryExpansion",
       "prf",

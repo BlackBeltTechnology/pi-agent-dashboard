@@ -38,6 +38,9 @@ export function searchOptsFromConfig(
     diversity: cfg.ranking.diversity,
     sourceDedup: o.sourceDedup ?? cfg.ranking.sourceDedup,
     laneQuota: o.laneQuota ?? cfg.ranking.laneQuota,
+    // Config-only: no CLI flag and no call-site override departs from it, so
+    // there is nothing to override. See change: fix-kb-search-lane-composition.
+    laneLeadMargin: cfg.ranking.laneLeadMargin,
     coverageRerank: o.coverageRerank ?? cfg.ranking.coverageRerank,
     queryExpansion: o.queryExpansion ?? cfg.queryExpansion.mode,
     prf: cfg.queryExpansion.prf,
