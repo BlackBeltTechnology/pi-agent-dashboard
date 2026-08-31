@@ -20,7 +20,7 @@
 import { execAsync } from "../platform/exec.js";
 import { ToolResolver } from "../platform/binary-lookup.js";
 import type { ToolRegistry } from "./registry.js";
-import { getDefaultRegistry } from "./index.js";
+import { getDefaultRegistry } from "./default-registry.js";
 import type { StrategyDeps } from "./strategies.js";
 import type {
   InstallHints,
@@ -113,6 +113,8 @@ export async function ensureTools(
   tools: readonly EnsureToolSpec[],
   opts: EnsureOptions = {},
 ): Promise<EnsureReport> {
+  // `default-registry.js` (not index.js): index re-exports this module,
+  // and Biome noImportCycles rejects the round trip even via import().
   const registry = opts.registry ?? getDefaultRegistry();
   const platform = opts.platform ?? registry.getPlatform();
   const which = opts.deps?.which ?? defaultWhich;
