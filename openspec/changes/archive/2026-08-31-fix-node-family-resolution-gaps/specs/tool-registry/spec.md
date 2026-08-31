@@ -1,5 +1,8 @@
 # tool-registry Specification
 
+Absorbed from `fix-node-family-resolution-gaps` (superseded by user decision —
+see this change's proposal, "Section-0 outcomes").
+
 ## MODIFIED Requirements
 
 ### Requirement: Registered tool set

@@ -68,6 +68,7 @@ import { ModelSelector } from "./ModelSelector.js";
 // Curated pi-install picker; sits directly above the raw Tools escape hatch.
 // See change: select-pi-runtime-install (design D12).
 import { PiRuntimeSection } from "./PiRuntimeSection.js";
+import { NodeRuntimeSection } from "./NodeRuntimeSection.js";
 import { PiRuntimeStatusRow } from "./PiRuntimeStatusRow.js";
 import { PluginNotFoundNotice, PluginSettingsPage } from "./PluginSettingsPage.js";
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
@@ -2086,6 +2087,10 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                 </Section>
                 <DiagnosticsSection />
                 <PiRuntimeSection />
+                {/* Node family picker — same pattern as the pi picker above:
+                    one curated selection surface per family. See change:
+                    add-node-runtime-family-selection. */}
+                <NodeRuntimeSection />
                 <ToolsSection />
                 <SpawnFailuresSection />
                 {/* See change: auto-canvas (task 5.2). */}

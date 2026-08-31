@@ -1078,3 +1078,53 @@ export interface SetPiRuntimeRequest {
   spawn?: string | null;
   module?: string | null;
 }
+
+// ── Node runtime family selection ─────────────────────────────────────────
+// See change: add-node-runtime-family-selection.
+
+/** One member of the node/npm/npx family in a coherence report. */
+export interface NodeMemberCoherence {
+  ok: boolean;
+  path: string | null;
+  candidateKey: string | null;
+  handSet: boolean;
+}
+
+/** Coherence half of the node-installs payload. */
+export interface NodeCoherence {
+  /** All RESOLVABLE members share one installation root. */
+  coherent: boolean;
+  members: Record<string, NodeMemberCoherence>;
+  /** Non-null when members resolve into >1 root; names each deviator + root. */
+  mismatch: { deviatingMembers: Array<{ member: string; root: string }> } | null;
+  /** Hand-set members pointing away from the family (pre-write report). */
+  handSetDeviations: Array<{ member: string; currentPath: string }>;
+  /** Migration-adopted candidate (display only — persists nothing). */
+  selectedCandidateKey: string | null;
+}
+
+export interface NodeInstallsResponse {
+  candidates: Array<{
+    key: string;
+    label: string;
+    root: string | null;
+    nodeEntry: string | null;
+    npmEntry: string | null;
+    npxEntry: string | null;
+    version: string | null;
+    /**
+     * Hand-set deviations THIS candidate's write would produce (server
+     * pre-computes planSelection per candidate) — the pre-write confirm
+     * report. See change: add-node-runtime-family-selection.
+     */
+    pendingHandSet: Array<{ member: string; currentPath: string }>;
+  }>;
+  coherence: NodeCoherence;
+}
+
+/** Select by candidate `root` (unique per installation). */
+export interface SelectNodeRuntimeRequest {
+  root: string;
+  /** Hand-set members the user chose to overwrite anyway. */
+  discardHandSet?: string[];
+}

@@ -1,5 +1,39 @@
 # Add Node runtime family selection
 
+## Section-0 outcomes (settled in the worktree implementation phase)
+
+Recorded per tasks 0.1–0.3; these decisions bind the build.
+
+- **0.1 — verdict: the family invariant IS load-bearing; PROCEED.** Adversarial
+  cross-model review (doubt-driven-review, `@propose-review-2`) returned 3
+  blockers / 8 concerns / 2 nits, all design-shaped, none attacking load-bearing-ness.
+  Findings 4 and 8 independently confirmed the concept is already partially embodied
+  in landed code (`spawn-runtime.ts` ladder rung-1 reads the selection candidate via
+  `readToolOverrideNode`; `resolvedFamilyEntries` exists), strengthening the case.
+  Adopted fixes: MODIFIED-block reconciliation of the spawned-children requirement
+  (post-ladder reality), hand-set-vs-clear precedence rule, one-directional root
+  mirror with additive version-manager roots, optional fs-only version, entry-probe
+  containment-by-construction, managed-tree-mutation carve-out, peer seam on
+  `StrategyDeps` bound at `registerDefaultTools`, re-entrancy guard kept as cheap
+  preventive insurance (accepted trade-off — no live cycle exists today), absorbed
+  i18n keys tasked.
+- **0.2 — version-manager scope: nvm + fnm + volta + asdf** (all four common
+  managers). User decision.
+- **0.3 — migration: adopt an existing coherent trio** (all three keys resolve
+  into one installation) as "selected" on first encounter; otherwise start unset.
+  User decision.
+- **Absorption — CONVERGED.** `fix-node-family-resolution-gaps` landed on
+  develop (2026-08-31, #587) while this change was in flight. The merge
+  reconciliation kept develop's landed implementations for the shared scope
+  (npx managed-runtime rung; rejected-override badge; i18n keys; its
+  `specs/tool-registry` delta — now carried by the landed archive) and this
+  change's UNIQUE parts (the peer seam for win32 npm anchoring, the
+  node-installs module, coherence, picker, route, child-PATH). The redundant
+  absorbed delta was dropped; no duplicate implementations remain.
+- **Win32 behaviour change confirmed wanted** (proposal open question 5): win32
+  `npm` follows `node`'s override post-fix; a `node` override at an installation
+  lacking `node_modules/npm` degrades to `where` (task 3b.8 documents it).
+
 ## Why
 
 `node`, `npm`, and `npx` are one artifact — a Node distribution ships all three in a

@@ -364,18 +364,17 @@ function binaryDef(binaryName: string, deps?: StrategyDeps): ToolDefinition {
  * Chain (per spec `tool-registry` requirement "npx strategy chain"):
  *   override → bundled-node → managed-runtime → managed-bin → where
  *
- * The bundled-node strategy hits the Electron-packaged npx at
- * `<resourcesPath>/node/bin/npx` (Unix) or `<resourcesPath>\node\npx.cmd`
- * (Windows). managed-runtime probes the persistent install at
- * `<managedDir>/node/bin/npx` (Unix) or `<managedDir>\node\npx.cmd`
- * (Windows) so an installed managed Node runtime is visible to every
- * member of the node/npm/npx family, not just two of them. Managed-bin
- * probes `~/.pi-dashboard/node_modules/.bin/npx`
- * (a no-op post-`eliminate-electron-runtime-install` for clean Electron
- * installs, but kept for standalone-CLI callers that may have one).
+ * The managed-RUNTIME strategy (`<managedDir>/node/bin/npx`) keeps npx
+ * aligned with its node/npm family: one Node distribution ships all
+ * three, so an installed managed runtime is visible to every member.
+ * Managed-bin (`~/.pi-dashboard/node_modules/.bin/npx`) runs AFTER it as
+ * the weaker sibling (a no-op post-`eliminate-electron-runtime-install`
+ * for clean Electron installs, but kept for standalone-CLI callers that
+ * may have one).
  *
- * See change: fix-node-resolution-under-electron (task 3.3).
- * See change: fix-node-family-resolution-gaps.
+ * See change: fix-node-resolution-under-electron (task 3.3);
+ * change: add-node-runtime-family-selection (section 3a, absorbed from
+ * fix-node-family-resolution-gaps).
  *
  * Note: `register-bash-and-tool-install-help` deliberately does NOT attach
  * `installHints` to `npx` — npx ships with Node, so a user who needs it
@@ -731,18 +730,28 @@ function npmExecutorDef(deps?: StrategyDeps): ToolDefinition {
 
   // Custom strategy: find npm-cli.js beside the resolved node.exe.
   // We can't pre-compute the node path at definition time (the registry
-  // isn't fully constructed yet), so the strategy resolves node
-  // lazily at run time via the global registry hook.
+  // isn't fully constructed yet), so the strategy resolves node at run
+  // time through the INJECTED peer seam (`deps.resolvePeer`, bound at the
+  // single production site `getDefaultRegistry` via `bindPeerResolution`)
+  // and falls back to the injectable `execPath` seam. It never reads
+  // `process.execPath` directly when deps are supplied, and its existence
+  // probe goes through `deps.exists`, not raw `existsSync`.
+  // The earlier "global registry hook" description was STALE: no such
+  // hook existed — the strategy read `process.execPath` directly, which
+  // paired one installation's node with another's npm. Fixed by
+  // change: add-node-runtime-family-selection (section 3b).
   const npmCliBesideNodeStrategy = {
     name: "managed", // classified as managed because it ships with node
     run(): { ok: true; path: string } | { ok: false; reason: string } {
-      // Find node.exe from process.execPath or environment.
-      const nodeExe = process.execPath;
-      if (!nodeExe) return { ok: false, reason: "process.execPath unset" };
+      const exists = deps?.exists ?? existsSync;
+      // Peer anchor first; the execPath seam is the fallback anchor.
+      const peer = deps?.resolvePeer?.("node", "npm") ?? null;
+      const nodeExe = peer ?? deps?.execPath ?? process.execPath;
+      if (!nodeExe) return { ok: false, reason: "no node anchor available" };
       const nodeDir = path.dirname(nodeExe);
       const candidate = path.join(nodeDir, npmRelativeToNode);
       try {
-        if (existsSync(candidate)) return { ok: true, path: candidate };
+        if (exists(candidate)) return { ok: true, path: candidate };
         return { ok: false, reason: `missing: ${candidate}` };
       } catch (err) {
         return { ok: false, reason: err instanceof Error ? err.message : String(err) };

@@ -23,4 +23,10 @@ export type {
   EnsureToolSpec,
 } from "./ensure.js";
 export * from "./strategies.js";
-export { getDefaultRegistry, peekGlobalRegistry, _resetDefaultRegistry } from "./default-registry.js";
+
+export { bindPeerResolution } from "./default-registry.js";
+export {
+  getDefaultRegistry,
+  peekGlobalRegistry,
+  _resetDefaultRegistry,
+} from "./default-registry.js";
