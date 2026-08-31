@@ -12,11 +12,8 @@
   `spawnRuntimeForSession` (floor of THE spawned pi copy), and the committed machine-specific
   `.pi/settings.json` path reverted.
 - Round 2 (cap): **zero blocking findings; all four round-1 items RESOLVED** — proceed.
-- Non-blocking findings recorded as follow-ups (NOT fixed post-cap, per the two-round hard cap):
-  1. `PI_DASHBOARD_ELECTRON`/`PI_DASHBOARD_RESOURCES_PATH` leak to grandchildren — a
-     bridge-relaunched server can misdetect `arm: "electron"` with a stale resources path;
-     ladder stays total, degradation is diagnostic/ordering only. Fix: strip both markers in
-     `process-manager.buildSpawnEnv` (and extension server-launcher).
+- Non-blocking findings recorded from the two-round local review:
+  1. ~~`PI_DASHBOARD_ELECTRON`/`PI_DASHBOARD_RESOURCES_PATH` leak to grandchildren~~ — **ADDRESSED post-review** (CodeRabbit independently flagged it; both markers now stripped in `process-manager.buildSpawnEnv` + `extension/server-launcher.buildSpawnEnv`, with a regression test).
   2. `piEntryFromArgv` last-element fallback relies on the undocumented `[cmd, ...prefixArgs]`
      invariant of `resolveExecutor` — add a doc note or a `-`-prefix guard.
   3. Pre-spawn manifest drift check (`checkManifestDrift`) has no production caller yet; Doctor

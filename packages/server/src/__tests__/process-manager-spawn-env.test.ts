@@ -122,6 +122,24 @@ describe("buildSpawnEnv with spawnRuntime (test-plan E13 env half, task 3.1)", (
 
     expect((env.PATH ?? "").split(path.delimiter)[0]).toBe(managedDir);
   });
+
+  it("launcher-stamped Electron markers do not leak to spawned children (CodeRabbit round 2)", () => {
+    const rt = fakeRuntimeAt(path.join(tmpHome, "user", "bin"));
+    const prevE = process.env.PI_DASHBOARD_ELECTRON;
+    const prevR = process.env.PI_DASHBOARD_RESOURCES_PATH;
+    process.env.PI_DASHBOARD_ELECTRON = "1";
+    process.env.PI_DASHBOARD_RESOURCES_PATH = "/stale/App.app/Contents/Resources";
+    try {
+      const env = buildSpawnEnv(process.env, { spawnRuntime: rt });
+      expect(env.PI_DASHBOARD_ELECTRON).toBeUndefined();
+      expect(env.PI_DASHBOARD_RESOURCES_PATH).toBeUndefined();
+    } finally {
+      if (prevE === undefined) delete process.env.PI_DASHBOARD_ELECTRON;
+      else process.env.PI_DASHBOARD_ELECTRON = prevE;
+      if (prevR === undefined) delete process.env.PI_DASHBOARD_RESOURCES_PATH;
+      else process.env.PI_DASHBOARD_RESOURCES_PATH = prevR;
+    }
+  });
 });
 
 describe("applySpawnRuntimeToPiArgv (test-plan E13 argv half, task 3.2)", () => {

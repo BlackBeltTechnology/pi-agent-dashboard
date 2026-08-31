@@ -270,6 +270,17 @@ export function buildSpawnEnv(
   const env = opts?.spawnRuntime
     ? prependResolvedBinDir(resolver.buildSpawnEnv(baseEnv), opts.spawnRuntime)
     : { ...prependManagedNodeToPath(resolver.buildSpawnEnv(baseEnv)) };
+  // The launcher-stamped Electron identity markers are PARENT-identity
+  // signals (this server was launched by the Electron app) — they must not
+  // leak to grandchildren: a pi session that outlives Electron and
+  // bridge-auto-starts a new server would otherwise inherit
+  // `PI_DASHBOARD_ELECTRON=1` + a stale `PI_DASHBOARD_RESOURCES_PATH` and
+  // misdetect its arm (login-shell-first ordering + stale bundle paths).
+  // Same class as the ELECTRON_RUN_AS_NODE strip in resolver.buildSpawnEnv.
+  // See change: unify-pi-runtime-identity (CodeRabbit review, round 2
+  // non-blocking finding — grandchild marker leak).
+  delete env.PI_DASHBOARD_ELECTRON;
+  delete env.PI_DASHBOARD_RESOURCES_PATH;
   // Re-add the Electron-as-node flag that `resolver.buildSpawnEnv` strips,
   // but ONLY when the argv[0] we are about to spawn is the Electron binary.
   // The argv-aware chokepoint that keeps this builder in agreement with
