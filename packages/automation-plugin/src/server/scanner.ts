@@ -25,6 +25,7 @@ export function scanScope(
   scope: AutomationScope,
   knownKinds: ReadonlySet<string>,
   knownActionIds: ReadonlySet<string> = new Set(),
+  knownSourceIds: ReadonlySet<string> = new Set(),
 ): DiscoveredAutomation[] {
   const root = automationRootFor(scopeBase);
   let entries: fs.Dirent[];
@@ -47,7 +48,7 @@ export function scanScope(
     } catch {
       continue; // no automation.yaml — skip silently
     }
-    const { config, error } = parseAutomationYaml(rawText, knownKinds, knownActionIds);
+    const { config, error } = parseAutomationYaml(rawText, knownKinds, knownActionIds, knownSourceIds);
     if (config) {
       out.push({ name: ent.name, scope, dir, config, valid: true });
     } else {
@@ -74,13 +75,14 @@ export function scanAutomations(
   opts: ScanOptions,
   knownKinds: ReadonlySet<string>,
   knownActionIds: ReadonlySet<string> = new Set(),
+  knownSourceIds: ReadonlySet<string> = new Set(),
 ): DiscoveredAutomation[] {
   const out: DiscoveredAutomation[] = [];
   if (opts.scanFolder !== false && opts.repoRoot) {
-    out.push(...scanScope(opts.repoRoot, "folder", knownKinds, knownActionIds));
+    out.push(...scanScope(opts.repoRoot, "folder", knownKinds, knownActionIds, knownSourceIds));
   }
   if (opts.scanGlobal !== false && opts.homeDir) {
-    out.push(...scanScope(opts.homeDir, "global", knownKinds, knownActionIds));
+    out.push(...scanScope(opts.homeDir, "global", knownKinds, knownActionIds, knownSourceIds));
   }
   return out;
 }

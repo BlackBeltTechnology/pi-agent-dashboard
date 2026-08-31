@@ -37,6 +37,7 @@ import {
   coreActionContributions,
 } from "./action-registry.js";
 import type { Engine } from "./engine.js";
+import { settingsDefaultBound } from "./resolve-children.js";
 import { mountAutomationRoutes, unknownActionKind } from "./routes.js";
 
 const PLUGIN_ID = "automation";
@@ -58,10 +59,18 @@ interface AutomationPluginConfig {
   maxRunAgeMs?: number;
   /**
    * Settings-default cap on concurrent child spawns per fire when an
-   * automation declares no `maxConcurrentSpawns`. Default 4.
-   * See change: add-automation-concurrent-spawn.
+   * automation declares no `maxConcurrentSpawns`. Precedence: this value →
+   * `PI_AUTOMATION_MAX_CONCURRENT_SPAWNS` env → hard default 4.
+   * See change: add-automation-concurrent-spawn, automation-work-source-fanout.
    */
   maxConcurrentSpawns?: number;
+  /**
+   * Folder-backed reference work-sources for `schedule.batch` fan-out, keyed
+   * by the `on.source` id an automation names. Each drains files under `dir`.
+   * Reference-only; production sources register through the same registry.
+   * See change: automation-work-source-fanout.
+   */
+  workSources?: Array<{ id: string; dir: string; visibilityTimeoutMs?: number }>;
 }
 
 /** Shared holder so the synchronously-mounted run route can reach the engine
@@ -187,8 +196,29 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
       scanFolder: cfg.scanFolderScope !== false,
       scanGlobal: cfg.scanGlobalScope !== false,
       maxRunAgeMs: cfg.maxRunAgeMs ?? 30 * 60 * 1000,
-      maxConcurrentSpawns: cfg.maxConcurrentSpawns ?? 4,
+      maxConcurrentSpawns: settingsDefaultBound(
+        cfg.maxConcurrentSpawns,
+        process.env.PI_AUTOMATION_MAX_CONCURRENT_SPAWNS,
+      ),
     };
+  }
+
+  // Build the stable work-source registry from plugin config (reference
+  // folder-backed sources). A source carries lease state, so it is created
+  // ONCE here and reused for the engine's life. See change:
+  // automation-work-source-fanout.
+  const { WorkSourceRegistry } = await import("./work-source-registry.js");
+  const { createFolderWorkSource } = await import("./folder-work-source.js");
+  const workSources = new WorkSourceRegistry();
+  for (const ws of ctx.getPluginConfig<AutomationPluginConfig>()?.workSources ?? []) {
+    if (!ws?.id || !ws?.dir) continue;
+    workSources.register(
+      ws.id,
+      createFolderWorkSource({
+        dir: ws.dir,
+        ...(typeof ws.visibilityTimeoutMs === "number" ? { visibilityTimeoutMs: ws.visibilityTimeoutMs } : {}),
+      }),
+    );
   }
 
   /** Distinct repo roots derived from known session cwds (per-folder scope). */
@@ -220,6 +250,7 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
     abortSpawnedRun: (args) => ctx.abortSpawnedRun(args),
     resolveRegistry: () => collectActionRegistry(ctx.consumeAll(ACTION_CONTRIBUTION_PREFIX), { warn: (m) => ctx.logger.warn(m) }),
     listScopes,
+    workSources,
     config: pluginConfig,
     homeDir,
     log: (m) => logger.info(m),
@@ -433,6 +464,7 @@ async function runNowViaEngine(
       : { repoRoot: base, scanFolder: true, scanGlobal: false },
     eng.registry.kinds(),
     eng.actionRegistry.ids(),
+    eng.workSources.ids(),
   ).find((a) => a.name === name && a.scope === scope && a.valid);
   if (!found) return { ok: false, error: `automation "${name}" not found or invalid in ${scope} scope` };
   const r = eng.startRunFor(found);

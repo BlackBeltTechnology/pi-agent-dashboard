@@ -54,6 +54,27 @@ export function effectiveBound(
 }
 
 /**
+ * Resolve the SETTINGS-default bound (the fallback `effectiveBound` uses when
+ * an automation declares no `maxConcurrentSpawns`). Precedence:
+ * dashboard config value → `PI_AUTOMATION_MAX_CONCURRENT_SPAWNS` env → hard
+ * default (4). A non-integer or `<1` value at either layer is ignored (falls
+ * through). Per-automation override still wins over this via `effectiveBound`.
+ */
+export function settingsDefaultBound(
+  configValue: number | undefined,
+  envValue: string | undefined,
+): number {
+  if (typeof configValue === "number" && Number.isInteger(configValue) && configValue >= 1) {
+    return configValue;
+  }
+  if (envValue !== undefined && envValue.trim().length > 0) {
+    const n = Number(envValue);
+    if (Number.isInteger(n) && n >= 1) return n;
+  }
+  return DEFAULT_MAX_CONCURRENT_SPAWNS;
+}
+
+/**
  * Expand `action:` | `actions:[]` × `count` into an ordered child list and
  * truncate at `bound`. Truncation keeps the FIRST children in resolution order
  * (action entries in declaration order, and within an entry by ascending
