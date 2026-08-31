@@ -76,6 +76,7 @@ node-only candidate); hand-set always wins.
 - **THEN** each written path SHALL be verified to be an existing file inside the selected installation root
 - **AND** a path failing that check SHALL be rejected without persisting any part of the selection
 - **AND** the written paths SHALL be the enumeration's own probed entry files, so containment holds by construction; validation exists to reject tampered or stale client-submitted paths, not legitimate distro layouts (the entry-probe patterns per root type are defined in `design.md`)
+- **AND** preserved hand-set members are an explicit exception: their overrides are kept, not written, and MAY point outside the selected root
 
 ### Requirement: Family incoherence is reported
 
