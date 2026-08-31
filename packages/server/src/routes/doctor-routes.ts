@@ -12,22 +12,27 @@
  * fallback `error` row rather than a 500 — the web client always has
  * something to render. See change: doctor-rich-output (tasks 4.1–4.5).
  */
-import type { FastifyInstance } from "fastify";
-import path from "node:path";
+
 import os from "node:os";
-import {
-  runSharedChecks,
-  stampSectionsAndSuggestions,
-  safeExec,
-  type DoctorCheck,
-  type DoctorReport,
-  type SharedChecksDeps,
-} from "@blackbelt-technology/pi-dashboard-shared/doctor-core.js";
-import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import path from "node:path";
 import {
   hasAnyProviderCredential,
   inspectedCredentialFiles,
 } from "@blackbelt-technology/pi-dashboard-shared/credential-detect.js";
+import {
+  type DoctorCheck,
+  type DoctorReport,
+  runSharedChecks,
+  type SharedChecksDeps,
+  safeExec,
+  stampSectionsAndSuggestions,
+} from "@blackbelt-technology/pi-dashboard-shared/doctor-core.js";
+import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { execFileAsync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { resolvedFamilyEntries } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
+import type { ResolvedRuntime } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
+import type { FastifyInstance } from "fastify";
+import { currentSpawnRuntime } from "../runtime-resolution.js";
 import { getTunnelWatchdogStatus } from "../tunnel/tunnel-watchdog.js";
 
 function getManagedDir(): string {
@@ -81,10 +86,56 @@ function isApiKeyConfigured(): boolean {
   return hasAnyProviderCredential();
 }
 
+/**
+ * Executor for the `runtime.autoRebuild` unattended reconciliation: runs
+ * `npm rebuild <module>` IN the shared extension tree using the resolved
+ * runtime's family entries (per-member entry model — the npm CLI script is
+ * exec'd via the family's own node when it is a .js entry, or directly when
+ * it is a shim). Flag-gated upstream: the executor only fires when the user
+ * set `runtime.autoRebuild: true` AND the consent decision is "rebuild".
+ * Bounded at 120s per module; outcome tails into doctor.log. See change:
+ * unify-pi-runtime-identity (spec scenario "autoRebuild authorizes
+ * unattended reconciliation").
+ */
+function makeRebuildExecutor(rt: ResolvedRuntime): NonNullable<SharedChecksDeps["rebuildExecutor"]> {
+  return async (moduleName, treeRoot) => {
+    const family = resolvedFamilyEntries(rt);
+    const npmIsJsEntry = /\.[cm]?js$/.test(family.npmEntry);
+    const argv = npmIsJsEntry
+      ? [family.nodeEntry, family.npmEntry, "rebuild", moduleName]
+      : [family.npmEntry, "rebuild", moduleName];
+    try {
+      await execFileAsync(argv[0], argv.slice(1), {
+        cwd: treeRoot,
+        timeout: 120_000,
+        windowsHide: true,
+      });
+      return { ok: true, detail: `npm rebuild ${moduleName} completed` };
+    } catch (err) {
+      const e = err as { message?: string; stdout?: string; stderr?: string; killed?: boolean };
+      const tail = [e.stdout, e.stderr]
+        .map((s) => (typeof s === "string" ? s.trim() : ""))
+        .filter(Boolean)
+        .join(" | ")
+        .slice(-400);
+      return {
+        ok: false,
+        detail: `${e.killed ? "timed out" : "failed"}: npm rebuild ${moduleName} — ${e.message ?? "unknown error"}${tail ? ` — ${tail}` : ""}`,
+      };
+    }
+  };
+}
+
 function buildDefaultDeps(): SharedChecksDeps {
+  const spawnRuntime = currentSpawnRuntime();
   return {
     managedDir: getManagedDir(),
     detectSystemNode,
+    // The boot-time ladder resolution feeds the spawn-runtime visibility
+    // row + ABI mismatch scan. Null before startup resolution ran → both
+    // rows are suppressed. See change: unify-pi-runtime-identity (task 5.4).
+    spawnRuntime,
+    ...(spawnRuntime ? { rebuildExecutor: makeRebuildExecutor(spawnRuntime) } : {}),
     detectPi: () => detectViaRegistry("pi"),
     detectOpenSpec: () => detectViaRegistry("openspec"),
     // CLI-on-PATH checks: deliberately use PATH-only lookup so the

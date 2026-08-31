@@ -20,7 +20,7 @@ function isPackaged(): boolean {
 }
 
 /** Get the resources path (works in both packaged and dev). */
-function getResourcesPath(): string {
+export function getResourcesPath(): string {
   // In packaged app: process.resourcesPath = <app>/Contents/Resources (macOS)
   if ((process as any).resourcesPath) {
     return (process as any).resourcesPath;
