@@ -5,11 +5,14 @@
  * overrides remain supported and a hand-set member is reported as a
  * deviation, never silently overwritten (design D6).
  *
- * Ownership rule: a resolved path belongs to the candidate whose root
+ * Ownership rule: a resolved path belongs to the candidate whose ROOT
  * contains it (containment, same predicate the selection validator
- * uses). A resolvable member owned by NO enumerated candidate is still
- * named — as an external root — because "the family is split" is
- * exactly what the UI must surface.
+ * uses) — per ROOT, not per key: two nvm versions share the key "nvm"
+ * but are different installations, so a member resolving into the other
+ * version's root still counts as a deviation (CodeRabbit round). A
+ * resolvable member owned by NO enumerated candidate is still named —
+ * as an external root — because "the family is split" is exactly what
+ * the UI must surface.
  *
  * See change: add-node-runtime-family-selection.
  */
@@ -42,8 +45,8 @@ export interface FamilyCoherenceReport {
 	handSetDeviations: HandSetDeviation[];
 	/**
 	 * Adopted "selected" candidate under the migration rule (design D5):
-	 * all resolvable members resolve into ONE enumerated candidate.
-	 * Display-only — adoption persists nothing.
+	 * coherent AND (node pinned OR all three members resolve into one
+	 * enumerated candidate). Display-only — adoption persists nothing.
 	 */
 	selectedCandidateKey: NodeCandidateKey | null;
 }
@@ -52,11 +55,9 @@ export interface FamilyCoherenceReport {
 function ownerKey(
 	resolvedPath: string,
 	candidates: NodeCandidate[],
-): NodeCandidateKey | null {
-	// A member entry lives INSIDE the candidate root for every root type
-	// (design D3) — direct containment.
+): NodeCandidate | null {
 	for (const c of candidates) {
-		if (c.root && isInsideRoot(resolvedPath, c.root)) return c.key;
+		if (c.root && isInsideRoot(resolvedPath, c.root)) return c;
 	}
 	return null;
 }
@@ -68,29 +69,30 @@ export function assessFamilyCoherence(
 	const overrides = registry.listOverrides();
 	const members = {} as Record<NodeFamilyMember, MemberCoherence>;
 	const handSetDeviations: HandSetDeviation[] = [];
+	// Root identity rides beside the key (same-key candidates differ by
+	// root); null when external/absent.
+	const ownerRoots = {} as Record<NodeFamilyMember, string | null>;
 
 	for (const member of NODE_FAMILY_MEMBERS) {
 		const resolution = registry.resolve(member);
 		const override = overrides[member];
 		const path = resolution.ok ? (resolution.path ?? null) : (override ?? null);
-		const candidateKey = path ? ownerKey(path, candidates) : null;
-		// Hand-set: an override exists and does not land on the family's
-		// dominant installation — decided after the dominant root is known
-		// (second pass below). Flag candidates here.
+		const owner = path ? ownerKey(path, candidates) : null;
 		members[member] = {
 			ok: resolution.ok,
 			path,
-			candidateKey,
+			candidateKey: owner?.key ?? null,
 			handSet: false,
 		};
+		ownerRoots[member] = owner?.root ?? null;
 	}
 
-	// Dominant root = the owner shared by the most resolvable, owned members.
-	const ownerCounts = new Map<string, number>(); // key: candidateKey ?? `ext:${path}`
+	// Dominant root = the ROOT shared by the most resolvable, owned members.
+	const ownerCounts = new Map<string, number>(); // key: root ?? `ext:${path}`
 	for (const member of NODE_FAMILY_MEMBERS) {
 		const m = members[member];
 		if (!m.path) continue;
-		const k = m.candidateKey ?? `ext:${m.path}`;
+		const k = ownerRoots[member] ?? `ext:${m.path}`;
 		ownerCounts.set(k, (ownerCounts.get(k) ?? 0) + 1);
 	}
 	let dominant: string | null = null;
@@ -106,15 +108,12 @@ export function assessFamilyCoherence(
 	for (const member of NODE_FAMILY_MEMBERS) {
 		const m = members[member];
 		if (!m.path) continue;
-		const k = m.candidateKey ?? `ext:${m.path}`;
+		const root = ownerRoots[member];
+		const k = root ?? `ext:${m.path}`;
 		if (k !== dominant) {
 			// Name the ROOT the deviator came from — the owning candidate's
 			// root when enumerable, the raw path when external.
-			const owningRoot =
-				m.candidateKey !== null
-					? (candidates.find((c) => c.key === m.candidateKey)?.root ?? m.path)
-					: m.path;
-			deviatingMembers.push({ member, root: owningRoot ?? m.path });
+			deviatingMembers.push({ member, root: root ?? m.path });
 			if (overrides[member]) {
 				m.handSet = true;
 				handSetDeviations.push({ member, currentPath: overrides[member] });
@@ -132,12 +131,16 @@ export function assessFamilyCoherence(
 	// (override set) or ALL three members resolve (a coherent TRIO). A
 	// partial family with no pin must NOT display as "selected"; an
 	// incoherent family never adopts. Persisted nowhere (D5 — display
-	// only).
+	// only). The dominant key here is a ROOT string; resolve it back to the
+	// candidate's key.
+	const dominantRoot = dominant !== null && !dominant.startsWith("ext:") ? dominant : null;
+	const dominantCandidate = dominantRoot
+		? candidates.find((c) => c.root === dominantRoot)
+		: undefined;
 	const nodePinned = Boolean(overrides.node);
 	const adoptedKey =
-		coherent && dominant !== null && !dominant.startsWith("ext:") &&
-		(nodePinned || resolvable.length === NODE_FAMILY_MEMBERS.length)
-			? (dominant as NodeCandidateKey)
+		coherent && dominantCandidate && (nodePinned || resolvable.length === NODE_FAMILY_MEMBERS.length)
+			? dominantCandidate.key
 			: null;
 
 	return {

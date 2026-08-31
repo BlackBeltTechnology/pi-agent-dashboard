@@ -65,10 +65,15 @@ export function prependSelectedNodeToPath(
 	}
 	const cloned: NodeJS.ProcessEnv = { ...baseEnv };
 	const currentPath = cloned.PATH ?? "";
-	// Same duplicate-prepend guard as the managed helper.
-	if (currentPath.split(path.delimiter).includes(selected)) return cloned;
-	cloned.PATH = currentPath
-		? `${selected}${path.delimiter}${currentPath}`
+	const entries = currentPath ? currentPath.split(path.delimiter) : [];
+	if (entries[0] === selected) return cloned;
+	// The selected bin dir must LEAD: an existing occurrence further down
+	// the list is removed and re-prepended, so a later /usr/bin entry cannot
+	// shadow it (CodeRabbit round — "move an existing selected directory to
+	// the PATH head").
+	const filtered = entries.filter((e) => e !== selected);
+	cloned.PATH = filtered.length
+		? `${selected}${path.delimiter}${filtered.join(path.delimiter)}`
 		: selected;
 	return cloned;
 }

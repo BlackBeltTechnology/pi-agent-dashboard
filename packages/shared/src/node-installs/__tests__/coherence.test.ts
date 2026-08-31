@@ -151,6 +151,29 @@ describe("detectSelectedCandidate (migration, design D5)", () => {
 		expect(detectSelectedCandidate(report)).toBe("managed");
 	});
 
+	it("CodeRabbit round: two same-manager versions are DIFFERENT roots — node on the other version is a deviation", () => {
+		// Ownership is per candidate ROOT: node resolving into nvm v20 while
+		// npm+npx sit on nvm v22 must be flagged, not collapsed by the
+		// shared "nvm" key.
+		const ROOT_V20 = "/home/u/.nvm/versions/node/v20.11.0";
+		const registry = freshRegistry({
+			overrides: {
+				node: `${ROOT_V20}/bin/node`,
+				npm: `${ROOT_A}/bin/npm`,
+				npx: `${ROOT_A}/bin/npx`,
+			},
+			exists: (p) => p.startsWith(ROOT_V20) || p.startsWith(ROOT_A),
+		});
+		const report = assessFamilyCoherence(registry, [
+			cand(ROOT_A, "nvm", {}),
+			cand(ROOT_V20, "nvm", {}),
+		]);
+		expect(report.coherent).toBe(false);
+		expect(report.mismatch?.deviatingMembers).toEqual([
+			{ member: "node", root: ROOT_V20 },
+		]);
+	});
+
 	it("a PARTIAL family (node-only, no overrides) starts unset — never false-'selected'", () => {
 		// Review round-2 concern: a node-only managed install must not show
 		// as selected (D5: adopt a coherent TRIO, or an explicit node pin).

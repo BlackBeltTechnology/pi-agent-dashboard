@@ -99,6 +99,21 @@ describe("prependSelectedNodeToPath", () => {
 		expect(selected.PATH).toBe(legacy.PATH);
 	});
 
+	it("CodeRabbit round: a selected dir already mid-PATH is MOVED to the head", () => {
+		const baseEnv = { PATH: `/usr/bin:${SELECTED_BIN}:/bin`, HOME: "/home/u" };
+		const env = prependSelectedNodeToPath(baseEnv, {
+			registry: fakeRegistry({
+				overrides: { node: `${SELECTED_BIN}/node` },
+				resolutions: { node: { ok: true, path: `${SELECTED_BIN}/node`, source: "override" } },
+			}),
+			managedPathsEnv: { homedir: "/home/u" },
+		});
+		const entries = (env.PATH ?? "").split(path.delimiter);
+		expect(entries[0]).toBe(SELECTED_BIN);
+		// The old mid-PATH occurrence is gone (moved, not duplicated).
+		expect(entries.filter((e) => e === SELECTED_BIN)).toHaveLength(1);
+	});
+
 	it("a selection whose bin dir is already at the head is not duplicated", () => {
 		const env = prependSelectedNodeToPath(
 			{ PATH: `${SELECTED_BIN}:/usr/bin`, HOME: "/home/u" },

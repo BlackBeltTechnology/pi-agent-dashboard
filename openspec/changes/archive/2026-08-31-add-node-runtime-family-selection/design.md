@@ -14,7 +14,7 @@ The peer resolver is an OPTIONAL member of `StrategyDeps` (`resolvePeer`), never
   `resolveModule`). A peer resolver is a dependency, not context.
 - Optional + undefined-safe: every existing construction site keeps compiling;
   tests inject fakes; production binds once (D2).
-- `npmCliBesideNodeStrategy` uses `deps.resolvePeer?.("node")` and falls back to
+- `npmCliBesideNodeStrategy` uses `deps.resolvePeer?.("node", "npm")` and falls back to
   `deps.execPath` — never a direct `process.execPath` read. Existence probes go
   through `deps.exists`.
 

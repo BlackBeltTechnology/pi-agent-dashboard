@@ -184,7 +184,7 @@ export function NodeRuntimeSection() {
 									)
 								}
 							/>
-							{i18nT("nodeRuntime.discardHandSet", undefined, "Discard hand-set override for {member}:")}{" "}
+							{i18nT("nodeRuntime.discardHandSet", { member: d.member }, "Discard hand-set override for {member}:")}{" "}
 							<span className="font-mono">{d.currentPath}</span>
 						</label>
 					))}
