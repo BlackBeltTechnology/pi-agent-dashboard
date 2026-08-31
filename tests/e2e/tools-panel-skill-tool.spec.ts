@@ -5,12 +5,17 @@ import { gotoDashboard } from "./helpers/index.js";
 // Settings → Tools IDENTICALLY to a built-in missing tool: the row shows
 // the `[Install ▾]` dropdown listing the host-OS first-party commands.
 //
-// `ffmpeg` is declared by the video-transcription + video-production
-// packages' `pi.tools` manifests and ingested into the registry at server
-// startup (ingestInstalledSkillTools) — by the time this spec runs it IS
-// a registry row. The harness container has no ffmpeg and no
-// ffmpeg-static, so the row resolves `ok:false` and carries per-OS
-// installHints (apt/brew/winget commands).
+// `imagemagick` is declared by the video-production packages' `pi.tools`
+// manifest (optional) and ingested into the registry at server startup
+// (ingestInstalledSkillTools) — by the time this spec runs it IS a
+// registry row. The harness container has no ImageMagick, so the row
+// resolves `ok:false` and carries per-OS installHints (apt/brew/winget
+// commands).
+//
+// Note: ffmpeg (also skill-declared) resolves `ok:true` IN THE HARNESS
+// via the static-npm strategy — ffmpeg-static ships as the package's
+// optionalDependency — which is why the missing-tool assertions pin
+// imagemagick, not ffmpeg.
 //
 // See change: add-skill-tool-provisioning (design D1/D5, task 6.2).
 
@@ -19,22 +24,21 @@ test.describe("Settings → Tools: ingested skill tool", () => {
     page,
   }) => {
     await gotoDashboard(page);
-    await page.goto("/settings");
+    // `/settings` bare does not match the `/settings/:page?` route — open
+    // the Developer page (hosts ToolsSection) and wait for the shell.
+    await page.goto("/settings/developer");
+    await expect(page.getByTestId("settings-nav-rail")).toBeVisible({ timeout: 20_000 });
 
     // The ingested row exists — same surface a built-in tool uses.
-    const row = page.locator("#tool-row-ffmpeg");
+    const row = page.locator("#tool-row-imagemagick");
     await expect(row).toBeVisible({ timeout: 30_000 });
 
-    // Missing status: the row renders a source/resolution state, not a
-    // happy-path check. Then the `[Install ▾]` affordance opens the hint.
+    // The `[Install ▾]` affordance opens the first-party hint list.
     const installButton = row.locator("[aria-expanded]").first();
     await expect(installButton).toBeVisible();
     await installButton.click();
 
     // The dropdown lists the FIRST-PARTY host-OS command (linux → apt).
-    // Matching loosely: the hint string starts with the package-manager
-    // command; asserting on "apt install ffmpeg" keeps the spec honest
-    // about which text a user would act on.
-    await expect(row.locator("text=apt install ffmpeg").first()).toBeVisible();
+    await expect(row.locator("text=apt install imagemagick").first()).toBeVisible();
   });
 });
