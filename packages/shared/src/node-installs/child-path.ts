@@ -25,7 +25,7 @@ import { prependManagedNodeToPath } from "../platform/managed-node-path.js";
 /** Minimal registry surface (structural — tests inject fakes). */
 interface RegistryLike {
 	listOverrides(): Readonly<Record<string, string>>;
-	resolve(name: string): { ok: boolean; path: string | null };
+	resolve(name: string): { ok: boolean; path: string | null; source?: string | null };
 }
 
 export interface ChildPathDeps {
@@ -43,7 +43,11 @@ export interface ChildPathDeps {
 function selectedBinDir(registry: RegistryLike): string | null {
 	if (!registry.listOverrides().node) return null;
 	const r = registry.resolve("node");
-	if (!r.ok || !r.path) return null;
+	// The selection must actually be HONOURED: a broken override falls
+	// through the chain to bundled/managed/where, and prepending THAT dir
+	// would silently repin children against the user's stale pin. Fall
+	// back to the legacy managed prepend instead (spec 4.2b).
+	if (!r.ok || !r.path || r.source !== "override") return null;
 	// dirname works for both layouts: `<root>/bin/node` → `<root>/bin`;
 	// `<root>\node.exe` → `<root>`.
 	return path.dirname(r.path);

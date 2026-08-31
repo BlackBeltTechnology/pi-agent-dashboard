@@ -19,12 +19,12 @@ const MANAGED_BIN = "/home/u/.pi-dashboard/node/bin";
 
 function fakeRegistry(opts: {
 	overrides?: Record<string, string>;
-	resolutions?: Record<string, { ok: boolean; path: string | null }>;
+	resolutions?: Record<string, { ok: boolean; path: string | null; source?: string | null }>;
 }) {
 	return {
 		listOverrides: () => opts.overrides ?? {},
 		resolve: (name: string) =>
-			opts.resolutions?.[name] ?? { ok: false, path: null },
+			opts.resolutions?.[name] ?? { ok: false, path: null, source: null },
 	};
 }
 
@@ -36,7 +36,7 @@ describe("prependSelectedNodeToPath", () => {
 				registry: fakeRegistry({
 					overrides: { node: `${SELECTED_BIN}/node` },
 					resolutions: {
-						node: { ok: true, path: `${SELECTED_BIN}/node` },
+						node: { ok: true, path: `${SELECTED_BIN}/node`, source: "override" },
 					},
 				}),
 				managedPathsEnv: { homedir: "/home/u" },
@@ -63,7 +63,7 @@ describe("prependSelectedNodeToPath", () => {
 		const selected = prependSelectedNodeToPath(baseEnv, {
 			registry: fakeRegistry({
 				overrides: { node: "/gone/bin/node" },
-				resolutions: { node: { ok: false, path: null } },
+				resolutions: { node: { ok: false, path: null, source: null } },
 			}),
 			managedPathsEnv: { homedir: "/home/u" },
 		});
@@ -76,11 +76,27 @@ describe("prependSelectedNodeToPath", () => {
 		prependSelectedNodeToPath(baseEnv, {
 			registry: fakeRegistry({
 				overrides: { node: `${SELECTED_BIN}/node` },
-				resolutions: { node: { ok: true, path: `${SELECTED_BIN}/node` } },
+				resolutions: { node: { ok: true, path: `${SELECTED_BIN}/node`, source: "override" } },
 			}),
 			managedPathsEnv: { homedir: "/home/u" },
 		});
 		expect(baseEnv).toEqual(snapshot);
+	});
+
+	it("4.2b' a FALLS-THROUGH selection (override rejected, chain resolved elsewhere) also falls back to legacy", () => {
+		// Review round-2 concern: a stale override + a where-hit must NOT be
+		// treated as the selection — the child would get /usr/bin, silently
+		// repinning against the user's pin. source !== "override" → legacy.
+		const baseEnv = { PATH: "/usr/bin:/bin", HOME: "/home/u" };
+		const legacy = prependManagedNodeToPath(baseEnv, { homedir: "/home/u" });
+		const selected = prependSelectedNodeToPath(baseEnv, {
+			registry: fakeRegistry({
+				overrides: { node: "/stale/bin/node" },
+				resolutions: { node: { ok: true, path: "/usr/bin/node", source: "system" } },
+			}),
+			managedPathsEnv: { homedir: "/home/u" },
+		});
+		expect(selected.PATH).toBe(legacy.PATH);
 	});
 
 	it("a selection whose bin dir is already at the head is not duplicated", () => {
@@ -89,7 +105,7 @@ describe("prependSelectedNodeToPath", () => {
 			{
 				registry: fakeRegistry({
 					overrides: { node: `${SELECTED_BIN}/node` },
-					resolutions: { node: { ok: true, path: `${SELECTED_BIN}/node` } },
+					resolutions: { node: { ok: true, path: `${SELECTED_BIN}/node`, source: "override" } },
 				}),
 				managedPathsEnv: { homedir: "/home/u" },
 			},

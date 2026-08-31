@@ -151,6 +151,32 @@ describe("detectSelectedCandidate (migration, design D5)", () => {
 		expect(detectSelectedCandidate(report)).toBe("managed");
 	});
 
+	it("a PARTIAL family (node-only, no overrides) starts unset — never false-'selected'", () => {
+		// Review round-2 concern: a node-only managed install must not show
+		// as selected (D5: adopt a coherent TRIO, or an explicit node pin).
+		const registry = freshRegistry({
+			overrides: {},
+			exists: (p) => p.startsWith("/home/u/.pi-dashboard/node/bin/node"),
+			homedir: "/home/u",
+		});
+		const report = assessFamilyCoherence(registry, [
+			cand("/home/u/.pi-dashboard/node", "managed", { npm: false, npx: false }),
+		]);
+		expect(report.coherent).toBe(true);
+		expect(detectSelectedCandidate(report)).toBeNull();
+	});
+
+	it("an explicit node pin selects its candidate even when other members are absent", () => {
+		const registry = freshRegistry({
+			overrides: { node: `${ROOT_A}/bin/node` },
+			exists: (p) => p.startsWith(ROOT_A),
+		});
+		const report = assessFamilyCoherence(registry, [
+			cand(ROOT_A, "nvm", { npm: false, npx: false }),
+		]);
+		expect(detectSelectedCandidate(report)).toBe("nvm");
+	});
+
 	it("an incoherent or absent family starts unset", () => {
 		const registry = freshRegistry({
 			overrides: {

@@ -15,6 +15,7 @@ import {
 	assessFamilyCoherence,
 	enumerateNodeCandidates,
 	applySelection,
+	planSelection,
 	type FamilyCoherenceReport,
 	type NodeCandidate,
 } from "@blackbelt-technology/pi-dashboard-shared/node-installs/index.js";
@@ -58,6 +59,7 @@ function buildNodeInstallsResponse(
 		managedDir: getManagedDir(),
 		platform: process.platform,
 	});
+	const overrides = registry.listOverrides();
 	const coherence: FamilyCoherenceReport = assessFamilyCoherence(
 		registry,
 		candidates,
@@ -71,6 +73,13 @@ function buildNodeInstallsResponse(
 			npmEntry: c.npmEntry,
 			npxEntry: c.npxEntry,
 			version: c.version,
+			// Pre-compute the TRUE pre-write deviations per candidate so the
+			// confirm dialog reports what THIS selection would do — not what
+			// the current state looks like (review round-2 concern 1).
+			pendingHandSet: planSelection({
+				candidate: c,
+				currentOverrides: overrides,
+			}).handSetDeviations,
 		})),
 		coherence: {
 			coherent: coherence.coherent,

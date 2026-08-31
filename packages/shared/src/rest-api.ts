@@ -1112,6 +1112,12 @@ export interface NodeInstallsResponse {
     npmEntry: string | null;
     npxEntry: string | null;
     version: string | null;
+    /**
+     * Hand-set deviations THIS candidate's write would produce (server
+     * pre-computes planSelection per candidate) — the pre-write confirm
+     * report. See change: add-node-runtime-family-selection.
+     */
+    pendingHandSet: Array<{ member: string; currentPath: string }>;
   }>;
   coherence: NodeCoherence;
 }

@@ -68,11 +68,10 @@ export function NodeRuntimeSection() {
 
 	const coherence = data?.coherence;
 	const pendingCandidate = data?.candidates.find((c) => c.root === pendingRoot);
-	// Hand-set members of the PENDING selection (pre-write report, D5):
-	// deviations known to the server that the user has not chosen to discard.
-	const pendingHandSet = (coherence?.handSetDeviations ?? []).filter((d) =>
-		pendingCandidate ? true : false,
-	);
+	// Pre-write report: the SERVER pre-computed this candidate's true plan
+	// (review round-2 concern 1 — the current coherence report's deviations
+	// describe the OLD selection, not the pending one).
+	const pendingHandSet = pendingCandidate?.pendingHandSet ?? [];
 
 	const apply = async () => {
 		if (!pendingRoot) return;
@@ -135,8 +134,12 @@ export function NodeRuntimeSection() {
 				{(data?.candidates ?? [])
 					.filter((c) => c.nodeEntry !== null)
 					.map((c) => {
-						const selected = coherence?.selectedCandidateKey === c.key
-							|| (coherence?.members.node?.path?.startsWith(c.root ?? "\u0000") ?? false);
+							// Authoritative ONLY: selectedCandidateKey already
+							// encodes the adoption rules (pinned or coherent trio;
+							// round-2 re-review: a containment fallback re-marked
+							// partial unpinned families "selected" that adoption
+							// deliberately leaves unset).
+							const selected = coherence?.selectedCandidateKey === c.key;
 						const isPending = pendingRoot === c.root;
 						return (
 							<div

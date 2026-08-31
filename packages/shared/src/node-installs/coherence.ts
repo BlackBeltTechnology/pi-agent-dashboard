@@ -127,10 +127,16 @@ export function assessFamilyCoherence(
 	const resolvable = NODE_FAMILY_MEMBERS.map((m) => members[m]).filter((m) => m.path);
 	const coherent = resolvable.length > 0 && deviatingMembers.length === 0;
 
-	// Migration adoption (design D5): every resolvable member lands in ONE
-	// enumerated candidate. Persisted nowhere (D5 — display only).
+	// Migration adoption (design D5): adopt the dominant candidate when the
+	// family is coherent AND either the user has explicitly pinned node
+	// (override set) or ALL three members resolve (a coherent TRIO). A
+	// partial family with no pin must NOT display as "selected"; an
+	// incoherent family never adopts. Persisted nowhere (D5 — display
+	// only).
+	const nodePinned = Boolean(overrides.node);
 	const adoptedKey =
-		coherent && dominant !== null && !dominant.startsWith("ext:")
+		coherent && dominant !== null && !dominant.startsWith("ext:") &&
+		(nodePinned || resolvable.length === NODE_FAMILY_MEMBERS.length)
 			? (dominant as NodeCandidateKey)
 			: null;
 
