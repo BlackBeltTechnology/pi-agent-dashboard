@@ -46,6 +46,7 @@ describe("isDashboardRunning", () => {
     globalThis.fetch = vi.fn().mockRejectedValue(new Error("ECONNREFUSED"));
 
     const result = await isDashboardRunning(8000);
+    // Public shape stays frozen — the internal refusal flag never leaks.
     expect(result).toEqual({ running: false });
   });
 
@@ -147,6 +148,28 @@ describe("isDashboardRunning retry semantics (cherry-pick 2)", () => {
     const result = await isDashboardRunning(8000, "localhost", { _sleep: sleep });
     expect(result).toEqual({ running: false });
     expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
+  // fix-autostart-discovery-precedence (F7/D1): a REAL Node fetch refusal is
+  // a TypeError with cause.code === "ECONNREFUSED" — definitive "nothing
+  // listens" — and must short-circuit the retry loop exactly like
+  // portConflict: the bootstrap-aware resolved-port gate must not pay retry
+  // delays on a cold start. Public shape stays frozen; the short-circuit is
+  // proven behaviorally (exactly one fetch, zero sleeps).
+  it("real-shape ECONNREFUSED (TypeError with cause.code) short-circuits retries", async () => {
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    const refused = Object.assign(new TypeError("fetch failed"), {
+      cause: Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:8000"), { code: "ECONNREFUSED" }),
+    });
+    globalThis.fetch = vi.fn().mockRejectedValue(refused);
+
+    const result = await isDashboardRunning(8000, "localhost", {
+      retries: 3,
+      _sleep: sleep,
+    });
+    expect(result).toEqual({ running: false });
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1); // no retries paid
     expect(sleep).not.toHaveBeenCalled();
   });
 

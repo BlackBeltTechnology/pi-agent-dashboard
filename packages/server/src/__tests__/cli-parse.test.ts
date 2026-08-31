@@ -70,6 +70,19 @@ describe("parseArgs", () => {
     expect(result.flags.tunnel).toBe(false);
   });
 
+  // fix-autostart-discovery-precedence (5.1, D5): ephemeral is a FLAG-only
+  // opt-in — no env var, no inference — so it parses like --dev.
+  it("parses --ephemeral flag", () => {
+    const result = parseArgs(["start", "--ephemeral"]);
+    expect(result.subcommand).toBe("start");
+    expect(result.flags.ephemeral).toBe(true);
+  });
+
+  it("defaults ephemeral to unset when the flag is absent", () => {
+    const result = parseArgs(["start"]);
+    expect(result.flags.ephemeral).toBeUndefined();
+  });
+
   it("ignores unknown args", () => {
     const result = parseArgs(["start", "--unknown", "value"]);
     expect(result.subcommand).toBe("start");

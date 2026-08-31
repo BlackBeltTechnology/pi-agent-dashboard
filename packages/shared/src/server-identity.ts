@@ -57,6 +57,15 @@ export interface DashboardCheckOpts {
  * Check if a dashboard server is running on the given port by hitting GET /api/health.
  * Returns identity-verified status instead of just "port is open".
  */
+/**
+ * Internal probe result — `refused` drives the retry short-circuit (F7/D1:
+ * a refusal is definitive; retrying only delays a cold start) but is
+ * deliberately STRIPPED from the public return shape: `DashboardStatus` is
+ * a pinned contract consumed across packages (electron health-check), and
+ * no caller needs the flag — the observable is the retry count.
+ */
+type ProbeResult = DashboardStatus & { refused?: boolean };
+
 export async function isDashboardRunning(
   port: number,
   host: string = "localhost",
@@ -71,12 +80,16 @@ export async function isDashboardRunning(
   let lastResult: DashboardStatus = { running: false };
 
   for (let i = 0; i < attempts; i++) {
-    const result = await probeOnce(port, host, timeoutMs);
+    const result = await probeOnce(port, host, timeoutMs) as ProbeResult;
     // Success — return immediately.
     if (result.running) return result;
     // Deterministic conflict — short-circuit (retrying would mask it).
     if (result.portConflict) return result;
-    lastResult = result;
+    // Definitive refusal — short-circuit, STRIPPED of the internal flag.
+    if (result.refused) return { running: false };
+    // Reaching here: not running, not a conflict, not a refusal — so the
+    // only observable shape is the bare non-running result.
+    lastResult = { running: false };
     if (i < attempts - 1) await sleep(retryDelayMs);
   }
   return lastResult;
@@ -86,7 +99,7 @@ async function probeOnce(
   port: number,
   host: string,
   timeoutMs: number,
-): Promise<DashboardStatus> {
+): Promise<ProbeResult> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -114,7 +127,13 @@ async function probeOnce(
     if (err instanceof Error && err.name === "AbortError") {
       return { running: false };
     }
-    // Could be ECONNREFUSED or other network error
-    return { running: false };
+    // Node's fetch surfaces a refusal as TypeError with cause.code ===
+    // "ECONNREFUSED"; older shapes carry .code directly. A refusal is
+    // DEFINITIVE — flagged internally so the retry loop short-circuits
+    // (F7/D1); stripped from the public return (see ProbeResult).
+    const errno =
+      (err as NodeJS.ErrnoException)?.code ??
+      (err as TypeError & { cause?: NodeJS.ErrnoException })?.cause?.code;
+    return { running: false, refused: errno === "ECONNREFUSED" };
   }
 }

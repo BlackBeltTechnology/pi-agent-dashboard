@@ -801,6 +801,11 @@ export function registerSystemRoutes(
       bootParentPid,
       ppid: readLivePpid(),
       bootParentAlive: computeBootParentAlive(),
+      // Ephemeral mode is opt-in via --ephemeral ONLY (D5); surfaced so the
+      // isolated-verification recipe can assert the server will self-exit
+      // when its boot parent dies. See change:
+      // fix-autostart-discovery-precedence (task 5.7).
+      ephemeral: config.ephemeral === true,
       // Count of pi WebSocket connections held by the pi-gateway. Feeds the
       // bridge-orphan promotion below and future Doctor advisories.
       activeBridgeCount: piGateway?.connectionCount() ?? 0,
@@ -1007,7 +1012,21 @@ export function registerSystemRoutes(
   fastify.post<{ Body: { dev?: boolean; requestId?: string } }>(
     "/api/restart",
     { preHandler: networkGuard },
-    async (request) => {
+    async (request, reply) => {
+      // Doubt-review fix (fix-autostart-discovery-precedence, D5): a restart
+      // replaces this process with a child of the detached spawnRestart
+      // orchestrator, so `bootParentPid` would no longer name the agent — the
+      // ephemeral bond ("live only under the boot parent") cannot survive a
+      // restart. Carrying `--ephemeral` would make the replacement self-exit
+      // the moment the orchestrator exits; silently dropping the flag would
+      // leak. Refuse explicitly instead — relaunch an ephemeral server.
+      // FIRST, before any intent record or bridge announcement.
+      if (config.ephemeral === true) {
+        return reply.code(409).send({
+          ok: false,
+          error: "An ephemeral server cannot restart (its boot-parent bond would be lost). Relaunch it instead.",
+        });
+      }
       // The false positive this change exists to kill: `/api/restart` exits via
       // `process.exit(0)` without clearing a single `live` marker, so every
       // surviving session looked crashed to the next boot. Record the intent
