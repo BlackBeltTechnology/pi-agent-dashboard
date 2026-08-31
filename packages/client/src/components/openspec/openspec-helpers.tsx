@@ -73,5 +73,7 @@ export function ArtifactLettersButton({
 }
 
 export function allArtifactsDone(artifacts: OpenSpecChange["artifacts"]): boolean {
-  return artifacts.length > 0 && artifacts.every((a) => a.status === "done");
+  // `skipped` (skip_specs change) satisfies — mirrors the CLI's isPlanningComplete.
+  // See change: dispatch-provider-auth-event.
+  return artifacts.length > 0 && artifacts.every((a) => a.status === "done" || a.status === "skipped");
 }
