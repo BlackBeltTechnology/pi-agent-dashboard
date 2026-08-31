@@ -9,6 +9,7 @@
  * See change: consolidate-tool-resolution (design §2).
  */
 import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import os from "node:os";
 import { createRequire } from "node:module";
 import { spawnSync } from "../platform/exec.js";
 import path from "node:path";
@@ -62,6 +63,12 @@ export interface StrategyDeps {
    * the daemon exists.
    */
   dockerImageInspect?(ref: string): { ok: true } | { ok: false; reason: string };
+  /**
+   * Home directory for the `pw-browser` default cache path. Default
+   * `os.homedir()`; ctx.env.homedir (when the registry provides one)
+   * takes precedence.
+   */
+  homedir?(): string;
 }
 
 /**
@@ -250,6 +257,7 @@ function defaults(): Required<StrategyDeps> {
     readEnv: (name) => process.env[name],
     readDir: (p) => readdirSync(p),
     requireModule: (id) => createRequire(import.meta.url)(id),
+    homedir: () => os.homedir(),
     dockerImageInspect: (ref) => {
       const probe = spawnSync("docker", ["image", "inspect", ref], {
         encoding: "utf8",
@@ -283,6 +291,7 @@ function d(deps?: StrategyDeps): Required<StrategyDeps> {
     readDir: deps.readDir ?? base.readDir,
     requireModule: deps.requireModule ?? base.requireModule,
     dockerImageInspect: deps.dockerImageInspect ?? base.dockerImageInspect,
+    homedir: deps.homedir ?? base.homedir,
   };
 }
 
@@ -619,15 +628,16 @@ function playwrightCacheDir(platform: NodeJS.Platform, homedir: string): string 
  * See change: add-skill-tool-provisioning (design D2).
  */
 export function pwBrowserProbeStrategy(browserName: string, deps?: StrategyDeps): Strategy {
-  const { readEnv, readDir } = d(deps);
+  const { readEnv, readDir, homedir } = d(deps);
   return {
     name: "pw-browser",
     run(ctx): StrategyResult {
+      // Production registries construct without env.homedir — fall back to
+      // the injected/live homedir so the DEFAULT cache dir is probed.
+      const home = ctx.env?.homedir ?? homedir();
       const base =
         readEnv("PLAYWRIGHT_BROWSERS_PATH") ||
-        (ctx.env?.homedir
-          ? playwrightCacheDir(ctx.platform, ctx.env.homedir)
-          : undefined);
+        (home ? playwrightCacheDir(ctx.platform, home) : undefined);
       if (!base) {
         return { ok: false, reason: `no browsers cache dir (set PLAYWRIGHT_BROWSERS_PATH)` };
       }
@@ -657,7 +667,7 @@ export function pwBrowserProbeStrategy(browserName: string, deps?: StrategyDeps)
  * See change: add-skill-tool-provisioning (design D3).
  */
 export function staticNpmStrategy(pkgName: string, deps?: StrategyDeps): Strategy {
-  const { requireModule } = d(deps);
+  const { requireModule, exists } = d(deps);
   return {
     name: "static-npm",
     run(): StrategyResult {
@@ -667,26 +677,35 @@ export function staticNpmStrategy(pkgName: string, deps?: StrategyDeps): Strateg
       } catch (e) {
         return { ok: false, reason: `cannot require ${pkgName}: ${(e as Error).message}` };
       }
+      let binaryPath: string | null = null;
       if (typeof exported === "string" && exported.length > 0) {
-        return { ok: true, path: exported };
-      }
-      if (
+        binaryPath = exported;
+      } else if (
         exported &&
         typeof exported === "object" &&
         typeof (exported as { path?: unknown }).path === "string" &&
         ((exported as { path: string }).path).length > 0
       ) {
-        return { ok: true, path: (exported as { path: string }).path };
-      }
-      if (
+        binaryPath = (exported as { path: string }).path;
+      } else if (
         exported &&
         typeof exported === "object" &&
         typeof (exported as { default?: unknown }).default === "string" &&
         ((exported as { default: string }).default).length > 0
       ) {
-        return { ok: true, path: (exported as { default: string }).default };
+        binaryPath = (exported as { default: string }).default;
       }
-      return { ok: false, reason: `${pkgName} exports no binary path` };
+      if (!binaryPath) {
+        return { ok: false, reason: `${pkgName} exports no binary path` };
+      }
+      // The EXPORT alone is not proof: e.g. ffmpeg-static's tarball ships
+      // no binary until its install script runs (gated by build policy).
+      // A dead export path must fall through to the next strategy (where),
+      // never shadow a working PATH binary with a nonexistent file.
+      if (!exists(binaryPath)) {
+        return { ok: false, reason: `${pkgName} exports ${binaryPath} which does not exist on disk` };
+      }
+      return { ok: true, path: binaryPath };
     },
   };
 }

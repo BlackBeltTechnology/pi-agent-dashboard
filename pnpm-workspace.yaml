@@ -74,7 +74,20 @@ ignoredBuiltDependencies:
   - sharp
 
 allowBuilds:
+  # ffmpeg-static downloads its binary via `install: node install.js`;
+  # @ffprobe-installer platform packages ship the binary 0644 and
+  # `postinstall: chmod u+x ffprobe`. Without these the static-npm
+  # strategy resolves a dead/never-downloaded path.
+  # See change: add-skill-tool-provisioning.
+  'ffmpeg-static': true
+  '@ffprobe-installer/darwin-arm64': true
   '@ffprobe-installer/darwin-x64': true
+  '@ffprobe-installer/linux-arm': true
+  '@ffprobe-installer/linux-arm64': true
+  '@ffprobe-installer/linux-ia32': true
+  '@ffprobe-installer/linux-x64': true
+  '@ffprobe-installer/win32-ia32': true
+  '@ffprobe-installer/win32-x64': true
   '@fission-ai/openspec': true
   '@google/genai': true
   electron: true

@@ -240,9 +240,13 @@ async function runForeground(config: ServerConfig): Promise<void> {
     const registry = getDefaultRegistry();
     // Ingest skill-package pi.tools manifests (installed tree + monorepo
     // dev) so skill tools surface through /api/tools + Settings → Tools.
-    // Best-effort: an invalid manifest is skipped, never fatal.
+    // Best-effort: an invalid manifest is skipped, never fatal. The scan
+    // root is the tree THIS server runs from — a dashboard launched from a
+    // user shell has an unrelated process.cwd().
     // See change: add-skill-tool-provisioning (task 6.2).
-    ingestInstalledSkillTools(registry);
+    ingestInstalledSkillTools(registry, {
+      root: path.resolve(fileURLToPath(import.meta.url), "../../../.."),
+    });
     const res = registry.resolve("pi");
     if (res.ok) {
       console.log(`[bootstrap] ready (pi resolved via ${res.source})`);

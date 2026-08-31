@@ -22,6 +22,7 @@ function ctx(): StrategyCtx {
 describe("staticNpmStrategy — export shapes (8.14)", () => {
   it("resolves a bare-string export to the binary path (ffmpeg-static shape, 8.11)", () => {
     const strat = staticNpmStrategy("ffmpeg-static", {
+      exists: (p) => p === "/node_modules/ffmpeg-static/ffmpeg",
       requireModule: (id) =>
         id === "ffmpeg-static" ? "/node_modules/ffmpeg-static/ffmpeg" : undefined,
     });
@@ -31,6 +32,7 @@ describe("staticNpmStrategy — export shapes (8.14)", () => {
 
   it("resolves an object export via .path (@ffprobe-installer shape, 8.13)", () => {
     const strat = staticNpmStrategy("@ffprobe-installer/ffprobe", {
+      exists: (p) => p === "/node_modules/@ffprobe-installer/ffprobe/bin/ffprobe",
       requireModule: () => ({ path: "/node_modules/@ffprobe-installer/ffprobe/bin/ffprobe" }),
     });
     const r = strat.run(ctx());
@@ -39,9 +41,24 @@ describe("staticNpmStrategy — export shapes (8.14)", () => {
 
   it("ignores a default-interop wrapper ({ default: string })", () => {
     const strat = staticNpmStrategy("some-pkg", {
+      exists: (p) => p === "/bin/thing",
       requireModule: () => ({ default: "/bin/thing" }),
     });
     expect(strat.run(ctx())).toEqual({ ok: true, path: "/bin/thing" });
+  });
+
+  it("fails when the exported path does NOT exist on disk — dead install-script download (review round 1)", () => {
+    // ffmpeg-static ships the export but no binary until its install script
+    // runs; the strategy must NOT shadow a PATH ffmpeg with a dead file.
+    const strat = staticNpmStrategy("ffmpeg-static", {
+      exists: () => false,
+      requireModule: () => "/node_modules/ffmpeg-static/ffmpeg",
+    });
+    const r = strat.run(ctx());
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.reason).toContain("does not exist");
+    }
   });
 });
 

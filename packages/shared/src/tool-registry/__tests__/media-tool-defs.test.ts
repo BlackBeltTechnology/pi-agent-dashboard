@@ -33,6 +33,7 @@ function bareDeps(): StrategyDeps {
       throw new Error("Cannot find module");
     },
     dockerImageInspect: () => ({ ok: false, reason: "docker not available" }),
+    homedir: () => "/nonexistent-pw-home",
   };
 }
 
@@ -50,12 +51,26 @@ describe("ffmpeg — static-npm chain", () => {
   it("resolves the ffmpeg-static export when installed (8.11)", () => {
     const deps: StrategyDeps = {
       ...bareDeps(),
+      exists: (p) => p === FFMPEG_STATIC_PATH,
       requireModule: (id) => (id === "ffmpeg-static" ? FFMPEG_STATIC_PATH : undefined),
     };
     const res = freshRegistry(deps).resolve("ffmpeg");
     expect(res.ok).toBe(true);
     expect(res.path).toBe(FFMPEG_STATIC_PATH);
     expect(res.source).toBe("static-npm");
+  });
+
+  it("a dead ffmpeg-static export (install script never ran) falls through to a PATH ffmpeg", () => {
+    const deps: StrategyDeps = {
+      ...bareDeps(),
+      exists: (p) => p === "/usr/local/bin/ffmpeg", // export path dead, PATH binary real
+      requireModule: (id) => (id === "ffmpeg-static" ? "/dead/export/ffmpeg" : undefined),
+      which: (n) => (n === "ffmpeg" ? "/usr/local/bin/ffmpeg" : null),
+    };
+    const res = freshRegistry(deps).resolve("ffmpeg");
+    expect(res.ok).toBe(true);
+    expect(res.path).toBe("/usr/local/bin/ffmpeg");
+    expect(res.source).toBe("system");
   });
 
   it("falls through to a PATH ffmpeg when ffmpeg-static is absent", () => {
@@ -84,6 +99,7 @@ describe("ffprobe — independent of ffmpeg-static (8.13)", () => {
   it("resolves via @ffprobe-installer/ffprobe .path even with NO ffmpeg-static", () => {
     const deps: StrategyDeps = {
       ...bareDeps(),
+      exists: (p) => p === FFPROBE_PATH,
       requireModule: (id) =>
         id === "@ffprobe-installer/ffprobe" ? { path: FFPROBE_PATH } : undefined,
     };

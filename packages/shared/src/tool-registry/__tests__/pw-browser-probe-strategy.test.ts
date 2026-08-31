@@ -81,9 +81,29 @@ describe("pwBrowserProbeStrategy — absent", () => {
     }
   });
 
-  it("fails cleanly when no cache dir can be determined (no env, no homedir)", () => {
+  it("falls back to the INJECTED homedir dep when ctx.env.homedir is unset (production registries)", () => {
+    // Production registries construct without env — the dep (os.homedir)
+    // is what makes the DEFAULT cache dir probeable.
+    const home = "/home/prod-user";
+    const expectedBase = path.join(home, ".cache", "ms-playwright");
+    const probed: string[] = [];
     const strat = pwBrowserProbeStrategy("chromium", {
       readEnv: () => undefined,
+      homedir: () => home,
+      readDir: (p) => {
+        probed.push(p);
+        return p === expectedBase ? ["chromium-1148"] : [];
+      },
+    });
+    const r = strat.run({ overrides: {}, platform: "linux", env: {} });
+    expect(r.ok).toBe(true);
+    expect(probed[0]).toBe(expectedBase);
+  });
+
+  it("fails cleanly when no cache dir can be determined (no env, unusable homedir)", () => {
+    const strat = pwBrowserProbeStrategy("chromium", {
+      readEnv: () => undefined,
+      homedir: () => "",
       readDir: () => [],
     });
     const r = strat.run(ctx({ platform: "linux" }));

@@ -27,6 +27,7 @@ function bareDeps(): StrategyDeps {
       throw new Error("Cannot find module");
     },
     dockerImageInspect: () => ({ ok: false, reason: "docker not available" }),
+    homedir: () => "/nonexistent-pw-home",
   };
 }
 
