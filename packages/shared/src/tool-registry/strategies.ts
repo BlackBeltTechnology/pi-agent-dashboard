@@ -9,8 +9,8 @@
  * See change: consolidate-tool-resolution (design §2).
  */
 import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
-import { spawnSync } from "node:child_process";
 import { createRequire } from "node:module";
+import { spawnSync } from "../platform/exec.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getManagedBin, getManagedDir } from "../managed-paths.js";

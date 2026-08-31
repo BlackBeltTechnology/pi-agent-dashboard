@@ -17,7 +17,7 @@
  *
  * See change: add-skill-tool-provisioning.
  */
-import { exec as cpExec } from "node:child_process";
+import { execAsync } from "../platform/exec.js";
 import { ToolResolver } from "../platform/binary-lookup.js";
 import type { ToolRegistry } from "./registry.js";
 import { getDefaultRegistry } from "./index.js";
@@ -80,9 +80,9 @@ function detectPkgMgr(commands: Record<string, string>, which: (n: string) => st
 }
 
 function defaultExec(command: string): Promise<{ ok: boolean }> {
-  return new Promise((resolve) => {
-    cpExec(command, { timeout: 10 * 60_000 }, (err) => resolve({ ok: !err }));
-  });
+  return execAsync(command, { timeout: 10 * 60_000 })
+    .then(() => ({ ok: true }))
+    .catch(() => ({ ok: false }));
 }
 
 const defaultWhich = (() => {
