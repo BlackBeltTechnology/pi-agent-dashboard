@@ -290,13 +290,20 @@ describe("registered tool set", () => {
     ]);
   });
 
-  it("npx chain: override → bundled-node → managed (bin) → where", () => {
+  // test-plan #E8 (fix-node-family-resolution-gaps): npx gains a
+  // managedRuntime step ahead of managedBin so an installed managed Node
+  // runtime is visible to the whole node/npm/npx family. managedRuntime and
+  // managedBin BOTH report trail name "managed", so this asserts ORDER +
+  // LENGTH only — the behavioural distinction is pinned by the resolved-path
+  // fixtures in "npx managed runtime chain" below (E1/E5).
+  it("npx chain: override → bundled-node → managed (runtime) → managed (bin) → where", () => {
     const r = freshRegistry({ exists: () => false, which: () => null });
     const trail = r.resolve("npx").tried.map((t) => t.strategy);
     expect(trail).toEqual([
       "override",
       "bundled-node",
-      "managed",
+      "managed", // managedRuntimeStrategy
+      "managed", // managedBinStrategy
       "where",
     ]);
   });
@@ -352,6 +359,109 @@ describe("registered tool set", () => {
   it("does NOT register pi-dashboard (it's the package this code is part of)", () => {
     const r = freshRegistry({});
     expect(r.has("pi-dashboard")).toBe(false);
+  });
+});
+
+// ── npx managed runtime chain ───────────────────────────────────────────────
+// test-plan #E1–#E7 (fix-node-family-resolution-gaps): the npx chain gains a
+// managedRuntime step between bundled-node and managedBin. Fixtures reuse the
+// `freshRegistry` harness above; managed paths mirror managedBin fixtures
+// (`<managedDir>` defaults to ~/.pi-dashboard).
+describe("npx managed runtime chain", () => {
+  const MANAGED_RUNTIME_NPX = path.join(os.homedir(), ".pi-dashboard", "node", "bin", "npx");
+  const MANAGED_BIN_NPX = path.join(os.homedir(), ".pi-dashboard", "node_modules", ".bin", "npx");
+
+  // #E1 — the managed runtime outranks the PATH hit.
+  it("resolves the managed runtime over a PATH hit", () => {
+    const r = freshRegistry({
+      exists: (p) => p === MANAGED_RUNTIME_NPX,
+      which: () => "/usr/bin/npx",
+    });
+    const res = r.resolve("npx");
+    expect(res.ok).toBe(true);
+    expect(res.path).toBe(MANAGED_RUNTIME_NPX);
+    expect(res.source).toBe("managed");
+  });
+
+  // #E2 — override still wins over the managed runtime.
+  it("override still outranks the managed runtime", () => {
+    const custom = "/opt/custom/npx";
+    const r = freshRegistry({
+      overrides: { npx: custom },
+      exists: (p) => p === custom || p === MANAGED_RUNTIME_NPX,
+      which: () => "/usr/bin/npx",
+    });
+    const res = r.resolve("npx");
+    expect(res.ok).toBe(true);
+    expect(res.path).toBe(custom);
+    expect(res.source).toBe("override");
+  });
+
+  // #E3 — bundled Electron runtime outranks the managed runtime.
+  it("bundled-node still outranks the managed runtime", () => {
+    const bundled = "/res/node/bin/npx";
+    const r = freshRegistry({
+      resourcesPath: "/res",
+      exists: (p) => p === bundled || p === MANAGED_RUNTIME_NPX,
+    });
+    const res = r.resolve("npx");
+    expect(res.ok).toBe(true);
+    expect(res.path).toBe(bundled);
+    expect(res.source).toBe("bundled");
+  });
+
+  // #E4 — partial managed family: runtime root without npx falls through to
+  // managedBin, and the failed probe is recorded on the trail. No strategy
+  // may return a path its own `exists` rejected.
+  it("a partial managed family falls through cleanly", () => {
+    const r = freshRegistry({
+      exists: (p) => p === MANAGED_BIN_NPX,
+      which: () => "/usr/bin/npx",
+    });
+    const res = r.resolve("npx");
+    expect(res.ok).toBe(true);
+    expect(res.path).toBe(MANAGED_BIN_NPX);
+    const managedEntries = res.tried.filter((t) => t.strategy === "managed");
+    expect(managedEntries.length).toBe(2);
+    expect(managedEntries[0].result).toBe(`missing: ${MANAGED_RUNTIME_NPX}`);
+    expect(managedEntries[1].result).toBe("ok");
+  });
+
+  // #E5 — runtime root outranks the legacy .bin shim when both exist.
+  it("managedRuntime outranks managedBin", () => {
+    const r = freshRegistry({
+      exists: (p) => p === MANAGED_RUNTIME_NPX || p === MANAGED_BIN_NPX,
+    });
+    const res = r.resolve("npx");
+    expect(res.ok).toBe(true);
+    expect(res.path).toBe(MANAGED_RUNTIME_NPX);
+    expect(res.source).toBe("managed");
+  });
+
+  // #E6 — regression guard: the PATH fallback is preserved.
+  it("PATH fallback is preserved", () => {
+    const r = freshRegistry({
+      exists: () => false,
+      which: () => "/usr/bin/npx",
+    });
+    const res = r.resolve("npx");
+    expect(res.ok).toBe(true);
+    expect(res.path).toBe("/usr/bin/npx");
+    expect(res.source).toBe("system");
+  });
+
+  // #E7 — family visibility: all three members resolve into the managed
+  // runtime when it provides them; none falls through to `where`/PATH.
+  it("managed runtime is visible to every family member", () => {
+    const managedRoot = path.join(os.homedir(), ".pi-dashboard", "node");
+    const members = ["node", "npm", "npx"].map((n) => path.join(managedRoot, "bin", n));
+    const r = freshRegistry({ exists: (p) => members.includes(p) });
+    for (const name of ["node", "npm", "npx"] as const) {
+      const res = r.resolve(name);
+      expect(res.ok).toBe(true);
+      expect(res.path !== null && res.path.startsWith(managedRoot)).toBe(true);
+      expect(res.source).toBe("managed");
+    }
   });
 });
 

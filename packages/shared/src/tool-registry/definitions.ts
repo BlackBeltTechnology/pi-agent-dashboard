@@ -246,15 +246,20 @@ function binaryDef(binaryName: string, deps?: StrategyDeps): ToolDefinition {
  * Definition for `npx` — registered as a binary, not an executor.
  *
  * Chain (per spec `tool-registry` requirement "npx strategy chain"):
- *   override → bundled-node → managed-bin → where
+ *   override → bundled-node → managed-runtime → managed-bin → where
  *
  * The bundled-node strategy hits the Electron-packaged npx at
  * `<resourcesPath>/node/bin/npx` (Unix) or `<resourcesPath>\node\npx.cmd`
- * (Windows). Managed-bin probes `~/.pi-dashboard/node_modules/.bin/npx`
+ * (Windows). managed-runtime probes the persistent install at
+ * `<managedDir>/node/bin/npx` (Unix) or `<managedDir>\node\npx.cmd`
+ * (Windows) so an installed managed Node runtime is visible to every
+ * member of the node/npm/npx family, not just two of them. Managed-bin
+ * probes `~/.pi-dashboard/node_modules/.bin/npx`
  * (a no-op post-`eliminate-electron-runtime-install` for clean Electron
  * installs, but kept for standalone-CLI callers that may have one).
  *
  * See change: fix-node-resolution-under-electron (task 3.3).
+ * See change: fix-node-family-resolution-gaps.
  *
  * Note: `register-bash-and-tool-install-help` deliberately does NOT attach
  * `installHints` to `npx` — npx ships with Node, so a user who needs it
@@ -264,6 +269,7 @@ function npxBinaryDef(deps?: StrategyDeps): ToolDefinition {
   const strategies: Strategy[] = [
     overrideStrategy("npx", deps),
     bundledNodeStrategy("npx", deps),
+    managedRuntimeStrategy("npx", deps),
     managedBinStrategy("npx", deps),
     whereStrategy("npx", deps),
   ];
