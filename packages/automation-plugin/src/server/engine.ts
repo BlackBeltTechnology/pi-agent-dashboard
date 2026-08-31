@@ -654,10 +654,19 @@ export function createEngine(deps: EngineDeps): Engine {
         // arrived — abort now with the freshly returned token + finalize stopped.
         if (c.stopRequested && !c.finalized) {
           if (deps.abortSpawnedRun) {
-            void deps.abortSpawnedRun({
-              ...(c.sessionId ? { sessionId: c.sessionId } : {}),
-              ...(res.spawnToken ? { spawnToken: res.spawnToken } : {}),
-            });
+            // Fire-and-forget, but a rejected abort MUST NOT surface as an
+            // unhandled rejection after the lease is released. See change:
+            // automation-work-source-fanout.
+            void deps
+              .abortSpawnedRun({
+                ...(c.sessionId ? { sessionId: c.sessionId } : {}),
+                ...(res.spawnToken ? { spawnToken: res.spawnToken } : {}),
+              })
+              .catch((e) =>
+                warn(
+                  `[engine] spawn-window abort failed for ${c.runId}: ${e instanceof Error ? e.message : String(e)}`,
+                ),
+              );
           }
           finalizeChild(c, {
             status: "stopped",

@@ -210,8 +210,21 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
   const { WorkSourceRegistry } = await import("./work-source-registry.js");
   const { createFolderWorkSource } = await import("./folder-work-source.js");
   const workSources = new WorkSourceRegistry();
-  for (const ws of ctx.getPluginConfig<AutomationPluginConfig>()?.workSources ?? []) {
-    if (!ws?.id || !ws?.dir) continue;
+  // Validate untrusted runtime config at the boundary: workSources must be an
+  // array; each entry needs a non-empty id + dir; a non-positive/non-finite
+  // visibility timeout would mint immediately-expired leases; a dir may back
+  // only ONE live source (leases are in-memory — see createFolderWorkSource).
+  const rawSources = ctx.getPluginConfig<AutomationPluginConfig>()?.workSources;
+  const seenDirs = new Set<string>();
+  for (const ws of Array.isArray(rawSources) ? rawSources : []) {
+    if (typeof ws?.id !== "string" || !ws.id.trim()) continue;
+    if (typeof ws?.dir !== "string" || !ws.dir.trim()) continue;
+    if (ws.visibilityTimeoutMs !== undefined && (!Number.isFinite(ws.visibilityTimeoutMs) || ws.visibilityTimeoutMs <= 0)) {
+      continue;
+    }
+    const resolvedDir = path.resolve(ws.dir);
+    if (seenDirs.has(resolvedDir)) continue; // one live source per dir
+    seenDirs.add(resolvedDir);
     workSources.register(
       ws.id,
       createFolderWorkSource({

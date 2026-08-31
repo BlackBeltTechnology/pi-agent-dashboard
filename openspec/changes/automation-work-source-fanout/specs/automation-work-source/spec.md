@@ -65,7 +65,7 @@ being re-vended AFTER its lease expires (the crash-recovery path); it forbids tw
 
 - **WHEN** two fires of the same automation overlap and would resolve the same available item
 - **THEN** the first fire's lease wins and the second fire does not resolve that item
-- **AND** the item is processed by exactly one child across both fires
+- **AND** no two children ever hold a valid lease for that item at once (an expired lease MAY be re-vended to a later child — at-least-once redelivery)
 
 #### Scenario: In-flight items are excluded from later resolution
 

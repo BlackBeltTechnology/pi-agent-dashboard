@@ -51,16 +51,40 @@ interface Lease {
 
 const DEFAULT_VISIBILITY_TIMEOUT_MS = 5 * 60 * 1000;
 
-/** 16-hex idempotency key stable across redeliveries of the same item id. */
-function keyForFile(fileName: string): string {
-  return crypto.createHash("sha256").update(fileName).digest("hex").slice(0, 16);
+/**
+ * 16-hex idempotency key that is STABLE across redeliveries of the SAME file
+ * yet DISTINCT for a different file that later reuses the same name. Derived
+ * from name + size + mtime: a rename (lease / return-to-pool) preserves size
+ * and mtime, so a redelivered item keeps its key, while a freshly-created file
+ * with a reused name gets a new mtime and therefore a new key — a downstream
+ * action that dedups on the key will not skip genuinely new work.
+ */
+function keyForFile(fileName: string, size: number, mtimeMs: number): string {
+  return crypto
+    .createHash("sha256")
+    .update(`${fileName}\u0000${size}\u0000${Math.trunc(mtimeMs)}`)
+    .digest("hex")
+    .slice(0, 16);
 }
 
+/**
+ * Exactly ONE live source instance may own a given `dir`: the lease map is
+ * in-memory, so a second concurrent instance on the same directory would treat
+ * the first's valid leases as orphans and steal them. The plugin enforces this
+ * by constructing one source per registry id (and rejecting duplicate dirs at
+ * the config boundary). See change: automation-work-source-fanout.
+ */
 export function createFolderWorkSource(opts: FolderWorkSourceOptions): WorkSource<string> {
   const dir = path.resolve(opts.dir);
   const inflightRoot = path.join(dir, "inflight");
   const now = opts.now ?? (() => Date.now());
-  const timeout = opts.visibilityTimeoutMs ?? DEFAULT_VISIBILITY_TIMEOUT_MS;
+  const rawTimeout = opts.visibilityTimeoutMs;
+  if (rawTimeout !== undefined && (!Number.isFinite(rawTimeout) || rawTimeout <= 0)) {
+    throw new Error(
+      `createFolderWorkSource: visibilityTimeoutMs must be a positive finite number, got ${rawTimeout}`,
+    );
+  }
+  const timeout = rawTimeout ?? DEFAULT_VISIBILITY_TIMEOUT_MS;
   const leases = new Map<string, Lease>();
   let counter = 0;
 
@@ -157,7 +181,22 @@ export function createFolderWorkSource(opts: FolderWorkSourceOptions): WorkSourc
       }
       const lease: Lease = { token, fileName, inflightPath, expiresAt: now() + timeout };
       leases.set(token, lease);
-      handles.push({ item: inflightPath, leaseToken: token, idempotencyKey: keyForFile(fileName) });
+      // Stat after the fence so size/mtime reflect the leased file (rename
+      // preserves both, keeping the key stable across redelivery).
+      let size = 0;
+      let mtimeMs = 0;
+      try {
+        const st = fs.statSync(inflightPath);
+        size = st.size;
+        mtimeMs = st.mtimeMs;
+      } catch {
+        /* fall back to name-only identity */
+      }
+      handles.push({
+        item: inflightPath,
+        leaseToken: token,
+        idempotencyKey: keyForFile(fileName, size, mtimeMs),
+      });
     }
     return handles;
   }

@@ -129,10 +129,14 @@ test.describe("automation fan-out (parent → children)", () => {
         data: { scope: "folder", cwd: FIXTURE_GIT, name: BATCH_NAME },
       });
       expect(run.ok(), `run failed: ${run.status()} ${await run.text()}`).toBe(true);
+      // Bind the assertion to THIS fire's parent run so a reused fixture or a
+      // historical e2e-batch run cannot satisfy it.
+      const { runId } = (await run.json()) as { runId: string };
+      expect(runId, "run response missing runId").toBeTruthy();
 
-      // FIRM — one parent occurrence discloses exactly 3 children (dynamic
-      // width = the 3 leased files). Single-flight leasing guarantees each
-      // child is bound to a distinct item (no file processed twice).
+      // FIRM — the parent run this test created discloses exactly 3 children
+      // (dynamic width = the 3 leased files). Single-flight leasing guarantees
+      // each child is bound to a distinct item (no file processed twice).
       await expect
         .poll(
           async () => {
@@ -141,9 +145,9 @@ test.describe("automation fan-out (parent → children)", () => {
             );
             if (!res.ok()) return -1;
             const { runs } = (await res.json()) as {
-              runs: Array<{ children?: string[]; childRuns?: unknown[] }>;
+              runs: Array<{ runId?: string; children?: string[]; childRuns?: unknown[] }>;
             };
-            const parent = runs.find((r) => Array.isArray(r.children));
+            const parent = runs.find((r) => r.runId === runId && Array.isArray(r.children));
             return parent?.childRuns?.length ?? 0;
           },
           { timeout: 60_000, intervals: [1000] },

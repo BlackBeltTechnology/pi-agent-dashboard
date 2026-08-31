@@ -275,6 +275,22 @@ describe("lease release on terminal status", () => {
     expect(src.nacked).toEqual(["a"]); // lease still released
   });
 
+  it("spawn-window: a stop during the spawn gap still releases the lease when abort rejects", async () => {
+    const src = new FakeSource(["a"]);
+    const engine = makeEngine(src, [], {
+      abortSpawnedRun: async () => {
+        throw new Error("abort boom");
+      },
+    });
+    const { runId } = engine.startRunFor(batchAutomation("w"))!;
+    // Stop BEFORE flushing: the spawn promise is still pending, so the child
+    // has no sessionId/spawnToken yet — stopChild takes the spawn-window path.
+    const stopP = engine.stopRun(runId);
+    await flush(); // spawn resolves → spawn-window guard aborts (rejects, caught)
+    await stopP;
+    expect(src.nacked).toEqual(["a"]); // lease still released
+  });
+
   it("releases the lease when child setup throws synchronously after leasing", async () => {
     const src = new FakeSource(["a"]);
     const engine = makeEngine(src, [], {

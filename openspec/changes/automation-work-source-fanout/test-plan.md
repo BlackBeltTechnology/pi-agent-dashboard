@@ -36,7 +36,7 @@ against the docker harness.
 
 | id | requirement | technique | level | disposition | input | trigger | expected observable (invariant) |
 |----|-------------|-----------|-------|-------------|-------|---------|---------------------------------|
-| F1 | single-flight — no two concurrently-valid leases | state-transition | L1 | automated | two overlapping fires, provider would resolve overlapping available set | both call `next` | first fire's lease wins; second excludes the leased item; item bound to exactly one child across both |
+| F1 | single-flight — no two concurrently-valid leases | state-transition | L1 | automated | two overlapping fires, provider would resolve overlapping available set | both call `next` | first fire's lease wins; second excludes the leased item; no two children hold a concurrently-valid lease for the item (expired lease may be re-vended) |
 | F2 | in-flight excluded; new arrival drained later | state-convergence | L1 | automated | items a,b leased+running; c arrives after | subsequent fire | current fire ignores c; a later fire (a,b no longer available) resolves c and processes it once |
 | F3 | end-to-end folder drain, no double-process | state-convergence | L3 | automated | folder-backed source with 3 files, `schedule.batch` automation | one fire against docker harness (`dashboardPort` from `.pi-test-harness.json`) | 3 child sessions each bound to a distinct file; folder drained; no file processed by two children |
 
