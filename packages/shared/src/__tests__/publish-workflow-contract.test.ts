@@ -678,13 +678,17 @@ describe("publish.yml — site-redeploy dispatch contract (fix-deploy-site-ship-
 
   it("E10b: the wait is bound to the dispatch that created it (timestamp-bounded lookup)", () => {
     // A bare `gh run list --limit 1` could grab a stale manual run and watch
-    // THAT while the real sync run races unchecked. The lookup must exclude
-    // runs created before the dispatch.
-    if (!siteRedeployBlock.includes("created_at")) {
+    // THAT while the real sync run races unchecked. The lookup must capture a
+    // pre-dispatch timestamp AND compare run created_at against it — presence
+    // of either half alone does not pin the bound.
+    const hasCapture = /before=\$\(date -u/.test(siteRedeployBlock);
+    const hasCompare = /select\(\.created_at >/.test(siteRedeployBlock);
+    if (!hasCapture || !hasCompare) {
       throw new Error(
-        "site-redeploy's run lookup must be bounded to runs created after the " +
-          "dispatch (select(.created_at > <dispatch time>)), or it can watch a " +
-          "stale manual run. See change: fix-deploy-site-ship-shell (task 1.3).",
+        "site-redeploy's run lookup must capture `before=$(date -u …)` before " +
+          "the dispatch AND filter candidates with `select(.created_at > …)`, " +
+          "or it can watch a stale manual run. " +
+          "See change: fix-deploy-site-ship-shell (task 1.3).",
       );
     }
   });
