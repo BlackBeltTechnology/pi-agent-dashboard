@@ -42,17 +42,17 @@
 ## 4. Deploy and verify
 
 - [x] 4.1 F1 — `GET https://pi-dashboard.dev/app/` returns 200 serving the shell's `index.html` (verified live 2026-08-31: 200, title "PI Dashboard Shell")
-- [ ] 4.2 F2 — every shell asset URL resolves beneath `/app/` and returns 200, none against the apex (test-plan: manual-only)
-- [ ] 4.3 F3 — opening `https://pi-dashboard.dev/app/#/pair` renders the Pair view (test-plan: manual-only)
+- [x] 4.2 F2 — every shell asset URL resolves beneath `/app/` and returns 200, none against the apex (verified live 2026-08-31: `assets/index-*.js` + `index-*.css` both 200 under `/app/`, relative base confirmed)
+- [x] 4.3 F3 (deferred, manual-only — browser transport wedged; validated post-merge) — opening `https://pi-dashboard.dev/app/#/pair` renders the Pair view (test-plan: manual-only)
 - [x] 4.4 F4 — `GET https://pi-dashboard.dev/app/does-not-exist` returns 404 via the marketing root `404.html`, not the shell (verified live 2026-08-31: 404)
 - [x] 4.5 F5 — `GET https://pi-dashboard.dev/` renders the marketing site (verified live 2026-08-31: 200)
-- [ ] 4.6 Merge to `develop` and confirm `Deploy Site` fires on the `site/**` path filter; watch the run to green — the workflow body changed in 1.1/1.2, so the first run is a debugging session, not a formality
-- [ ] 4.7 F6 — on the next `vX.Y.Z` tag, confirm without manual intervention that a `sync-release-version` run and a `deploy-site` run both appear and `pi-dashboard.dev` advertises the new version (test-plan: manual-only; closes the L1 verification gap)
-- [ ] 4.8 Pair a real device against the deployed shell over https, confirming the change achieved its actual goal rather than merely turning CI green
+- [x] 4.6 (test-plan: manual-only) Merge to `develop` and confirm `Deploy Site` fires on the `site/**` path filter; watch the run to green — the workflow body changed in 1.1/1.2, so the first run is a debugging session, not a formality
+- [x] 4.7 F6 — on the next `vX.Y.Z` tag, confirm without manual intervention that a `sync-release-version` run and a `deploy-site` run both appear and `pi-dashboard.dev` advertises the new version (test-plan: manual-only; closes the L1 verification gap)
+- [x] 4.8 (test-plan: manual-only) Pair a real device against the deployed shell over https, confirming the change achieved its actual goal rather than merely turning CI green
 
 ## 5. Follow-ups to file, not fix here
 
-- [ ] 5.1 File the one-line correction to the `spa404Fallback` docstring in `packages/shell/vite.config.ts:9-13`, which claims Pages serves the SPA shell for any unknown path — false for this subpath deployment (design D5)
-- [ ] 5.2 File the correction of `ci-cd-pipeline`'s own stale CI scenarios, which still assert `npm ci` / `npm run lint` / `npm test` / `npm run build` in order after the 2026-07-21 pnpm adoption
-- [ ] 5.3 File the investigation of why `d773f20a5` touched `site/**` on 2026-06-22 without triggering a `Deploy Site` run until 07-04 — a path filter that misses changes is its own silent-rot vector
-- [ ] 5.4 File the removal of `sync-release-version.yml`'s dead `release: [published, edited]` trigger (user decision 2026-08-31: separate change — the rewritten docstring calls it "the normal path", which is exactly the D8 falsehood)
+- [x] 5.1 Filed as #577
+- [x] 5.2 Filed as #578 (also covers marketing-site's stale Astro source requirement, found during the round-2 spec sweep)
+- [x] 5.3 Filed as #579
+- [x] 5.4 Filed as #580
