@@ -28,6 +28,7 @@ const row = (over: Partial<ToolListEntry> & { name: string }): ToolListEntry => 
 	path: null,
 	source: null,
 	tried: [],
+	resolvedAt: 0,
 	...over,
 });
 
