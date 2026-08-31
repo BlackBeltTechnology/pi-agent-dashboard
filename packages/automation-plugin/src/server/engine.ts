@@ -770,6 +770,10 @@ export function createEngine(deps: EngineDeps): Engine {
     // The single `action:` (schema-guaranteed for schedule.batch) + its label.
     const base = resolveChildren(automation, 1).specs[0];
     if (!base) {
+      // Defensive: schema guarantees a single action, but if resolution yields
+      // nothing we must RETURN the already-leased items or they strand until
+      // the visibility timeout (a source without an expiry sweep never frees them).
+      for (const h of handles) source.nack(h.leaseToken);
       settleParent("error");
       return null;
     }

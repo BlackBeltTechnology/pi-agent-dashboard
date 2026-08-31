@@ -154,9 +154,12 @@ test.describe("automation fan-out (parent → children)", () => {
         )
         .toBe(3);
     } finally {
-      await page.request.delete(
+      const del = await page.request.delete(
         `/api/plugins/automation?scope=folder&cwd=${encodeURIComponent(FIXTURE_GIT)}&name=${BATCH_NAME}`,
       );
+      const body = (await del.json().catch(() => ({}))) as { ok?: boolean };
+      // Soft so a cleanup miss is reported without masking a real body failure.
+      expect.soft(body.ok, `cleanup delete of ${BATCH_NAME} failed: HTTP ${del.status()}`).toBe(true);
     }
   });
 

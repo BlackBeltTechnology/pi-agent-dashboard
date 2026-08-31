@@ -217,21 +217,40 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
   const rawSources = ctx.getPluginConfig<AutomationPluginConfig>()?.workSources;
   const seenDirs = new Set<string>();
   for (const ws of Array.isArray(rawSources) ? rawSources : []) {
-    if (typeof ws?.id !== "string" || !ws.id.trim()) continue;
-    if (typeof ws?.dir !== "string" || !ws.dir.trim()) continue;
+    const label = typeof ws?.id === "string" && ws.id.trim() ? ws.id : "<unnamed>";
+    if (typeof ws?.id !== "string" || !ws.id.trim()) {
+      ctx.logger.warn(`automation work-source: entry ignored — missing/empty id`);
+      continue;
+    }
+    if (typeof ws?.dir !== "string" || !ws.dir.trim()) {
+      ctx.logger.warn(`automation work-source "${label}": ignored — missing/empty dir`);
+      continue;
+    }
     if (ws.visibilityTimeoutMs !== undefined && (!Number.isFinite(ws.visibilityTimeoutMs) || ws.visibilityTimeoutMs <= 0)) {
+      ctx.logger.warn(`automation work-source "${label}": ignored — visibilityTimeoutMs must be a positive finite number`);
       continue;
     }
     const resolvedDir = path.resolve(ws.dir);
-    if (seenDirs.has(resolvedDir)) continue; // one live source per dir
+    if (seenDirs.has(resolvedDir)) {
+      ctx.logger.warn(`automation work-source "${label}": ignored — duplicate dir "${resolvedDir}" (one live source per dir)`);
+      continue;
+    }
     seenDirs.add(resolvedDir);
-    workSources.register(
-      ws.id,
-      createFolderWorkSource({
-        dir: ws.dir,
-        ...(typeof ws.visibilityTimeoutMs === "number" ? { visibilityTimeoutMs: ws.visibilityTimeoutMs } : {}),
-      }),
-    );
+    // Construction touches the filesystem (ensureDirs/reclaim) — an unwritable
+    // dir must not abort engine init; isolate the failure to this one entry.
+    try {
+      workSources.register(
+        ws.id,
+        createFolderWorkSource({
+          dir: ws.dir,
+          ...(typeof ws.visibilityTimeoutMs === "number" ? { visibilityTimeoutMs: ws.visibilityTimeoutMs } : {}),
+        }),
+      );
+    } catch (e) {
+      ctx.logger.warn(
+        `automation work-source "${label}": failed to initialize dir "${resolvedDir}": ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
   }
 
   /** Distinct repo roots derived from known session cwds (per-folder scope). */
