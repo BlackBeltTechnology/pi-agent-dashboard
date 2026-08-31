@@ -598,3 +598,103 @@ describe("publish.yml — release-gate contract (gate-publish-on-smoke-and-tests
     }
   });
 });
+
+// ── Site-redeploy dispatch contract (change: fix-deploy-site-ship-shell) ────
+// publish.yml creates the GitHub Release with the default Actions token, and
+// GitHub suppresses workflow runs from events raised by that token — so the
+// `release:` triggers on sync-release-version.yml / deploy-site.yml can NEVER
+// start a run (verified: never have in this repo). workflow_dispatch is the
+// documented exception that always creates a run, so the release path for the
+// site is a terminal `site-redeploy` job that dispatches both workflows on
+// develop. E10a pins the job shape; E10b pins the sequencing (the deploy must
+// observe the download-block commit, not race it). See design D8.
+describe("publish.yml — site-redeploy dispatch contract (fix-deploy-site-ship-shell)", () => {
+  const yaml = fs.readFileSync(WORKFLOW_PATH, "utf8");
+  const siteRedeployBlock = extractJobBlock(yaml, "site-redeploy");
+
+  it("E10a: terminal job `needs: github-release`", () => {
+    const needs = parseNeeds(siteRedeployBlock);
+    if (!needs.includes("github-release")) {
+      throw new Error(
+        "site-redeploy job MUST `needs: [github-release]` (got " +
+          JSON.stringify(needs) + ") — the site redeploy is the terminal stage " +
+          "of the release. See change: fix-deploy-site-ship-shell (E10a). " +
+          "Job block:\n" + siteRedeployBlock,
+      );
+    }
+  });
+
+  it("E10a: dispatches both sync-release-version.yml and deploy-site.yml with --ref develop", () => {
+    const lines = siteRedeployBlock.split("\n");
+    for (const wf of ["sync-release-version.yml", "deploy-site.yml"]) {
+      // Each `gh workflow run <wf>` call must carry its OWN --ref develop
+      // within the same command (next few lines) — a non-greedy span across
+      // the whole block could borrow deploy's flag to satisfy a sync call
+      // that lost its own.
+      const callLine = lines.findIndex((l) => l.includes(`gh workflow run ${wf}`));
+      if (callLine === -1) {
+        throw new Error(
+          `site-redeploy job MUST dispatch ${wf} via \`gh workflow run\`. ` +
+            "See change: fix-deploy-site-ship-shell (E10a). Job block:\n" +
+            siteRedeployBlock,
+        );
+      }
+      const callWindow = lines.slice(callLine, callLine + 5).join("\n");
+      if (!callWindow.includes("--ref develop")) {
+        throw new Error(
+          `the ${wf} dispatch MUST carry \`--ref develop\` on its own command ` +
+            "(workflow_dispatch always creates a run; the github-pages " +
+            "environment rejects a tag ref). " +
+            "See change: fix-deploy-site-ship-shell (E10a). Command:\n" + callWindow,
+        );
+      }
+    }
+  });
+
+  it("E10b: the deploy-site dispatch is sequenced after a wait on the sync run", () => {
+    // A back-to-back dispatch lets deploy-site check out develop before the
+    // download-block commit lands; the page renders either way, so the race
+    // is invisible. The wait (`gh run watch ... --exit-status`) must sit
+    // BETWEEN the two dispatches.
+    const syncIdx = siteRedeployBlock.indexOf("gh workflow run sync-release-version.yml");
+    const waitIdx = siteRedeployBlock.indexOf("gh run watch");
+    const deployIdx = siteRedeployBlock.indexOf("gh workflow run deploy-site.yml");
+    if (syncIdx === -1 || waitIdx === -1 || deployIdx === -1) {
+      throw new Error(
+        "site-redeploy job must contain both dispatches and a `gh run watch` " +
+          "wait between them. See change: fix-deploy-site-ship-shell (E10b). " +
+          "Job block:\n" + siteRedeployBlock,
+      );
+    }
+    if (!(syncIdx < waitIdx && waitIdx < deployIdx)) {
+      throw new Error(
+        "site-redeploy dispatches are raced, not sequenced: expected " +
+          "dispatch sync → wait (gh run watch) → dispatch deploy-site. " +
+          "See change: fix-deploy-site-ship-shell (E10b). Job block:\n" +
+          siteRedeployBlock,
+      );
+    }
+  });
+
+  it("E10b: the wait is bound to the exact dispatched run via a correlation token", () => {
+    // Two failure classes a naive lookup suffers: (a) a concurrent manual
+    // dispatch gets selected and watched while THIS job's sync runs unwatched;
+    // (b) a second-granularity `created_at > before` compare misses the run
+    // that registered in the capture second, timing the job out. The binding
+    // must therefore be a unique per-run correlation token: passed as a
+    // workflow_dispatch input, embedded in the sync workflow's run-name, and
+    // matched in the lookup together with the develop head_branch.
+    const hasCorrelationInput = /-f\s+"correlation=\$\{?/.test(siteRedeployBlock);
+    const hasRunNameMatch = /display_title[^\n]*contains/.test(siteRedeployBlock);
+    const hasBranchFilter = /head_branch == \\"develop\\"/.test(siteRedeployBlock);
+    if (!hasCorrelationInput || !hasRunNameMatch || !hasBranchFilter) {
+      throw new Error(
+        "site-redeploy's lookup must bind to the exact dispatched run: pass a " +
+          "unique correlation input (-f correlation=…), match it in the run " +
+          "name (.display_title | contains(…)), and filter .head_branch to " +
+          "develop. See change: fix-deploy-site-ship-shell (task 1.3; " +
+          "CodeRabbit round 1, publish.yml lookup binding).",
+      );
+    }
+  });
+});

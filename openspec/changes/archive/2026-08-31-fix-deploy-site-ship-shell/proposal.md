@@ -6,6 +6,19 @@
 > is live. What remains live in this change is the **spec correction** work, plus one newly
 > discovered defect (see "Release-triggered redeploy is dead code", below) that the original
 > scenarios actively encode as working behaviour. The historical narrative is kept for provenance.
+>
+> **Re-scope (2026-08-31).** Commit `c52745af0` (2026-08-27) replaced the Astro site with a
+> hand-written static page and deleted the subjects of the lockfile and budget work: no
+> `site/package-lock.json`, no `site/scripts/check-js-size.mjs` ("no bundle budget (there is no
+> bundle)"), zero-dependency `site/package.json`, `npm run build` = `node build.mjs`. The lockfile
+> work was already done out-of-band (`1504b6d7f`); the budget-scope work is void (its subject is
+> gone). Re-derived and kept: the release-triggered-redeploy fix, the workflow contract pins, and
+> the spec corrections — now against the static page (inline download block rewritten by
+> `sync-release.mjs`, no build-time fetch). The `ci-cd-pipeline` delta is REPLACED with a
+> dependency-free pin (site manifest stays zero-dep; deploy runs no site install). Two explicit
+> decisions (2026-08-31): `sync-release-version.yml`'s own dead `release: [published, edited]`
+> trigger is deliberately left for a separate change; the `site/src/lib/github-release.ts`
+> docstring fix (task 1b.3) is retired — the file was deleted with `site/src/`.
 
 `https://pi-dashboard.dev/app/` returns 404 — the neutral shell, the intended public entry point for
 pairing a phone to a dashboard server, has never been live, and the marketing site has served a
@@ -21,28 +34,11 @@ pipeline, not the npm/Electron release pipeline.
 
 ## What Changes
 
-- Regenerate `site/package-lock.json` so `npm ci` resolves. This is not a surgical vitest fix: the
-  lock is ~4 months old, so regeneration floats **every** site dependency forward — `astro ^5.1.1`,
-  `@astrojs/*`, `tailwindcss ^3.4.17`, `motion ^11`, `playwright ^1.49.1` — inside the same deploy.
-  An Astro or Tailwind minor that breaks `astro build` is a live second-blocker candidate, and the
-  budget will be measured against newer dependency output. Pin deliberately if the float proves
-  hostile, rather than discovering it at deploy time.
-- Verify the workflow actually reaches green. The lockfile is the *first* blocker, not a proven sole
-  blocker: steps 5–12 have never run in their current form, so `pnpm install --frozen-lockfile` at
-  the repo root, the shell build, and the artifact copy are all unexercised. The 50 KB JS budget in
-  particular has not been measured against ~2.5 months of unshipped site changes.
-- Scope the JS bundle budget to the marketing site: `check-js-size.mjs` walks `site/dist`
-  recursively, and the shell is copied into `site/dist/app/`, so the shell's React bundle is only
-  outside the budget because `npm run size` happens to run before the copy. Exclude `dist/app/` from
-  the walk so the measurement is correct **regardless of step order**, rather than pinning the order
-  and leaving a reorder able to break the build. The exclusion assumes `dist/app/` holds only shell
-  output; the spec delta must state that assumption, since a future Astro page under `/app/` would
-  silently escape the budget.
-- Add a CI guard for `site/` lockfile drift. `site/` is not a pnpm workspace member and installs via
-  `npm ci` against its own lockfile, so neither `verify-lockfile-versions.mjs` (pnpm importers only,
-  and it runs in `publish.yml`/`_electron-build.yml`) nor any root pnpm check covers it. The guard
-  must match npm's own sync semantics — a name-presence check would miss range-only drift
-  (`^4.0.0` → `^4.1.0`) that `npm ci` still rejects.
+- *(Re-scoped away 2026-08-31.)* The original first four bullets — lockfile regen, first-green
+  verification, JS-budget scoping, and the `site/` lockfile drift guard — described the Astro site
+  and are retired: the regen landed out-of-band (`1504b6d7f`), and `c52745af0` deleted the
+  lockfile, the budget check, and every site dependency. In their place: pin the dependency-free
+  reality (site manifest stays zero-dep; deploy runs no site install — test-plan E15).
 - Correct five stale `marketing-site` scenarios: the deploy trigger branch and the manual-dispatch
   branch are `develop` (spec says `main`, twice); `sync-release-version` pushes to `develop` (spec
   says it commits back to `main`); the release-published path is rewritten per the defect below
@@ -88,9 +84,11 @@ not exist yet. No shell UI behaviour changes.
 
 - `neutral-shell-publication`: how the neutral shell ships as a static artifact at the
   `pi-dashboard.dev/app/` subpath — relative build base, artifact composition with the marketing
-  site, budget exclusion, and the origin property that `server-cors` depends on. Distinct from
+  site, and the origin property that `server-cors` depends on. Distinct from
   `neutral-shell-app`, which covers in-app routing behaviour, not publication. References
-  `server-cors` for the CORS requirement rather than duplicating it.
+  `server-cors` for the CORS requirement rather than duplicating it. (Re-scoped 2026-08-31: the
+  original budget-exclusion requirement is dropped — the budget check it excluded the shell from
+  no longer exists.)
 
   This spec MUST NOT claim an SPA 404 fallback at the subpath. `packages/shell/vite.config.ts` writes
   `site/dist/app/404.html`, but GitHub Pages serves the **root** `404.html` for any missing path and
@@ -102,10 +100,11 @@ not exist yet. No shell UI behaviour changes.
 
 - `marketing-site`: the "GitHub Pages deployment via GitHub Actions" requirement gains the shell
   artifact composition; four scenarios are corrected against the current workflow; and the JS bundle
-  budget requirement is scoped to exclude the shell artifact.
-- `ci-cd-pipeline`: gains a requirement that `site/package-lock.json` stays in sync with
-  `site/package.json`, enforced on push and PR, mirroring the existing "Release lockfile MUST mirror
-  workspace versions" requirement while covering the npm-installed `site/` tree that one does not.
+  budget requirement is scoped to exclude the shell artifact. (Re-scoped 2026-08-31: the budget check was deleted with the Astro site — the live requirement records its removal instead.)
+- `ci-cd-pipeline`: gains a requirement that the marketing site stays dependency-free —
+  `site/package.json` declares no dependency maps and the deploy workflow runs no site install —
+  so the Astro-era `npm ci`-vs-lockfile failure class cannot silently return. (Replaces the
+  original site-lockfile-sync requirement, whose subject `c52745af0` deleted.)
 
 `repo-convention-checks` is deliberately NOT modified: its spec requires `check-conventions.mjs` to
 cover "exactly four rules", the script itself declares "Four rules is the ceiling. Growth pressure
@@ -119,25 +118,20 @@ neighbours without inheriting or endorsing them; correcting them is its own chan
 
 ## Impact
 
-- `site/package-lock.json` — regenerated.
-- `site/scripts/check-js-size.mjs` — exclude `dist/app/` from the walk.
-- `scripts/check-site-lockfile.mjs` — **new** script, following the existing `scripts/*.mjs` pattern
-  (no new dependency).
-- `.github/workflows/ci.yml` — one step invoking it, alongside the existing
-  `verify-release-deps.mjs` / `check-skill-frontmatter.mjs` / `verify-published-imports.mjs` gates,
-  so drift fails on the PR rather than at deploy time.
 - `.github/workflows/publish.yml` — **new** terminal job (`needs: github-release`) dispatching
   `sync-release-version.yml` then `deploy-site.yml` on `develop`, sequenced so the site build sees
-  the committed cache.
-- `.github/workflows/deploy-site.yml` — remove the `release:` trigger and the `redispatch-on-release`
-  job; the `build` job's `if: github.event_name != 'release'` guard becomes dead and goes with them.
+  the committed download block.
+- `.github/workflows/deploy-site.yml` — remove the `release:` trigger, the `redispatch-on-release`
+  job, and both now-dead `if: github.event_name != 'release'` guards (`build` and `deploy`).
+- `packages/shared/src/__tests__/site-deploy-workflow-contract.test.ts` — **new** test file pinning
+  E9–E15 (deploy triggers, dead-path absence, sync target, artifact composition, CNAME, manual
+  dispatch, dependency-free manifest).
+- `packages/shared/src/__tests__/publish-workflow-contract.test.ts` — extended with E10a/E10b (the
+  publish.yml site-redeploy dispatch contract).
 - Verification limit worth stating plainly: every assertion here is an L1 workflow-file parse, which
   can prove the dead path is gone and the dispatch job exists, but **cannot** prove a release
   actually redeploys the site. Only the next real release closes that loop; a task covers it.
-- No application code: no server, client, extension, or shell source changes. If pinning the
-  workflow contract in a test proves necessary, the precedent is
-  `publish-workflow-contract.test.ts` — that would add a test file under `packages/shared/` and this
-  Impact list must be updated to say so.
+- No application code: no server, client, extension, or shell source changes.
 - First green run publishes ~2.5 months of accumulated marketing-site content as a side effect, plus
   the shell's first-ever appearance at `/app/`. That content passed normal PR review; what it has
   never had is production verification.
