@@ -43,6 +43,22 @@ describe("deriveChangeState", () => {
     ).toBe(ChangeState.PLANNING);
   });
 
+  it("treats skipped artifacts as done when deriving state", () => {
+    expect(
+      deriveChangeState(
+        makeChange({
+          status: "no-tasks",
+          artifacts: [
+            { id: "proposal", status: "done" },
+            { id: "specs", status: "skipped" },
+            { id: "design", status: "done" },
+            { id: "tasks", status: "done" },
+          ],
+        }),
+      ),
+    ).toBe(ChangeState.READY);
+  });
+
   it("returns READY when all artifacts done and status is no-tasks", () => {
     expect(
       deriveChangeState(

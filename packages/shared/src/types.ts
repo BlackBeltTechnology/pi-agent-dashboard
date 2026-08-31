@@ -1039,7 +1039,11 @@ export enum ChangeState {
 
 /** Derive the lifecycle state of an OpenSpec change from its data */
 export function deriveChangeState(change: OpenSpecChange): ChangeState {
-  const allDone = change.artifacts.length > 0 && change.artifacts.every((a) => a.status === "done");
+  // "skipped" counts as done (e.g. skip_specs changes): the CLI reports
+  // isPlanningComplete for them, and OpenSpecStepper already renders them as done.
+  const allDone =
+    change.artifacts.length > 0 &&
+    change.artifacts.every((a) => a.status === "done" || a.status === "skipped");
   if (!allDone) return ChangeState.PLANNING;
   if (change.status === "complete") return ChangeState.COMPLETE;
   if (change.status === "in-progress") return ChangeState.IMPLEMENTING;
