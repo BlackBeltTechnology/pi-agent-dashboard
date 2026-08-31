@@ -37,11 +37,12 @@ export interface DashboardCheckOpts {
   timeoutMs?: number;
   /**
    * Number of additional attempts after the first. Default 0 (no retries).
-   * On `AbortError` (timeout) or 5xx the loop sleeps `retryDelayMs` and
-   * retries. `portConflict: true` (HTTP 200 with foreign JSON shape)
-   * short-circuits — that's a deterministic conflict, not a transient
-   * fault, and retrying would mask a real port collision.
-   * ECONNREFUSED is *not* retried (no process to talk to).
+   * The loop retries ONLY on `AbortError` (timeout) — a server may be
+   * mid-jiti-bootstrap. Anything definitive short-circuits after one
+   * attempt: `portConflict: true` (HTTP 200 with foreign JSON shape, which
+   * includes ALL non-ok statuses — a 5xx is never retried) and a real
+   * ECONNREFUSED refusal (internal flag; fix-autostart-discovery-precedence
+   * F7/D1).
    */
   retries?: number;
   /** Sleep between retries. Default 500 ms. */
@@ -128,12 +129,21 @@ async function probeOnce(
       return { running: false };
     }
     // Node's fetch surfaces a refusal as TypeError with cause.code ===
-    // "ECONNREFUSED"; older shapes carry .code directly. A refusal is
-    // DEFINITIVE — flagged internally so the retry loop short-circuits
+    // "ECONNREFUSED"; dual-stack (Happy Eyeballs) refusals surface as an
+    // AggregateError whose errors[] carry the per-address codes. A refusal
+    // is DEFINITIVE — flagged internally so the retry loop short-circuits
     // (F7/D1); stripped from the public return (see ProbeResult).
-    const errno =
-      (err as NodeJS.ErrnoException)?.code ??
-      (err as TypeError & { cause?: NodeJS.ErrnoException })?.cause?.code;
-    return { running: false, refused: errno === "ECONNREFUSED" };
+    return { running: false, refused: isRefusal(err) };
   }
+}
+
+function isRefusal(err: unknown): boolean {
+  const e = err as {
+    code?: string;
+    cause?: { code?: string; errors?: Array<{ code?: string }> };
+  };
+  if (e?.code === "ECONNREFUSED") return true;
+  if (e?.cause?.code === "ECONNREFUSED") return true;
+  return Array.isArray(e?.cause?.errors) &&
+    e.cause.errors.some((x) => x?.code === "ECONNREFUSED");
 }

@@ -173,6 +173,27 @@ describe("isDashboardRunning retry semantics (cherry-pick 2)", () => {
     expect(sleep).not.toHaveBeenCalled();
   });
 
+  it("dual-stack AggregateError refusal (Happy Eyeballs) also short-circuits retries", async () => {
+    const sleep = vi.fn().mockResolvedValue(undefined);
+    // Node's autoSelectFamily surfaces multi-address refusals as an
+    // AggregateError nested in cause.errors[] (CodeRabbit round on #583).
+    const refused = Object.assign(new TypeError("fetch failed"), {
+      cause: Object.assign(new AggregateError([
+        Object.assign(new Error("connect ECONNREFUSED ::1:8000"), { code: "ECONNREFUSED" }),
+        Object.assign(new Error("connect ECONNREFUSED 127.0.0.1:8000"), { code: "ECONNREFUSED" }),
+      ], "fetch failed"), {}),
+    });
+    globalThis.fetch = vi.fn().mockRejectedValue(refused);
+
+    const result = await isDashboardRunning(8000, "localhost", {
+      retries: 3,
+      _sleep: sleep,
+    });
+    expect(result).toEqual({ running: false });
+    expect(globalThis.fetch).toHaveBeenCalledTimes(1);
+    expect(sleep).not.toHaveBeenCalled();
+  });
+
   it("exhausted retries return the last non-success result", async () => {
     const sleep = vi.fn().mockResolvedValue(undefined);
     globalThis.fetch = vi.fn().mockRejectedValue(

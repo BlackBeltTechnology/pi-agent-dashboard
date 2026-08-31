@@ -115,6 +115,12 @@ describe("ephemeral parent watch (D5)", () => {
       isParentProvablyDead: over.isParentProvablyDead ?? (() => true),
       onParentDead: over.onParentDead ?? (async () => {}),
       intervalMs: 5,
+      // CodeRabbit fix: a no-op default keeps non-fallback tests from
+      // scheduling the PRODUCTION process.exit(0) fallback (it fires 5s
+      // after a resolved graceful stop and is NOT cancelled by watch.stop()
+      // — a reused vitest worker would be terminated mid-run). The fallback
+      // test overrides this explicitly.
+      hardExit: vi.fn(),
       log: over.log ?? (() => {}),
       ...over,
     };
