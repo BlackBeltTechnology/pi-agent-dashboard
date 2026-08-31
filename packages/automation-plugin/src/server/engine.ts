@@ -592,11 +592,13 @@ export function createEngine(deps: EngineDeps): Engine {
   ): void {
     let ctx: RunContext | undefined;
     try {
+    // Build the dispatch BEFORE writing the child record so a dispatch/registry
+    // throw leaves no orphan `running` record behind (nothing to finalize).
+    const dispatch = buildRunDispatch(childAutomation, resolveRegistry(), fireCtx);
+    const promptText = dispatch.kind === "prompt" ? dispatch.text : "";
     const childRec = storeStartChildRun(parent.scopeBase, parent.parentRunId, parent.name, {
       actionLabel,
     });
-    const dispatch = buildRunDispatch(childAutomation, resolveRegistry(), fireCtx);
-    const promptText = dispatch.kind === "prompt" ? dispatch.text : "";
 
     ctx = {
       key: parent.key,
@@ -678,9 +680,18 @@ export function createEngine(deps: EngineDeps): Engine {
       // strands a leased-but-unspawned item or a parent counter. See change:
       // automation-work-source-fanout.
       warn(`[engine] child setup failed for ${parent.key}: ${e instanceof Error ? e.message : String(e)}`);
-      if (ctx) {
-        finalizeChild(ctx, { status: "error", error: e instanceof Error ? e.message : String(e) });
-      } else {
+      const failed = ctx;
+      const err = e instanceof Error ? e.message : String(e);
+      // Defer the settle to a microtask: startRunFor runs INSIDE runner.begin
+      // BEFORE it records the parent as active, so finalizing synchronously here
+      // would call runner.completeRun on a not-yet-active key (a no-op) and then
+      // begin would pin the finished parent as active forever. A microtask runs
+      // after begin's active.set. See change: automation-work-source-fanout.
+      queueMicrotask(() => {
+        if (failed) {
+          finalizeChild(failed, { status: "error", error: err });
+          return;
+        }
         if (extra?.lease) {
           try {
             extra.lease.source.nack(extra.lease.token);
@@ -691,7 +702,7 @@ export function createEngine(deps: EngineDeps): Engine {
         parent.remaining -= 1;
         parent.statuses.push("error");
         if (parent.remaining <= 0) finalizeParent(parent);
-      }
+      });
     }
   }
 

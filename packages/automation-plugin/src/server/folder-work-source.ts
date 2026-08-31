@@ -162,9 +162,26 @@ export function createFolderWorkSource(opts: FolderWorkSourceOptions): WorkSourc
     return handles;
   }
 
-  function ack(leaseToken: string): void {
+  /**
+   * True when the token is not the current lease OR has passed its visibility
+   * timeout. An expired token is fenced like a stale one: its item is returned
+   * to the pool (expiry returns the item independently of any ack/nack) and the
+   * requested action is a no-op, so a slow child can neither drop nor recall an
+   * item it no longer owns.
+   */
+  function fenceExpired(leaseToken: string): boolean {
     const lease = leases.get(leaseToken);
-    if (!lease) return; // stale/expired → no-op
+    if (!lease) return true; // unknown/already-reclaimed → no-op
+    if (lease.expiresAt <= now()) {
+      moveLeaseDirBackToPool(path.join(inflightRoot, leaseToken));
+      leases.delete(leaseToken);
+      return true; // expired → item returned, requested action no-op
+    }
+    return false;
+  }
+
+  function ack(leaseToken: string): void {
+    if (fenceExpired(leaseToken)) return; // stale/expired → no-op (never drops)
     try {
       fs.rmSync(path.join(inflightRoot, leaseToken), { recursive: true, force: true });
     } catch {
@@ -174,8 +191,7 @@ export function createFolderWorkSource(opts: FolderWorkSourceOptions): WorkSourc
   }
 
   function nack(leaseToken: string): void {
-    const lease = leases.get(leaseToken);
-    if (!lease) return; // stale/expired → no-op
+    if (fenceExpired(leaseToken)) return; // stale/expired → no-op (already returned)
     moveLeaseDirBackToPool(path.join(inflightRoot, leaseToken));
     leases.delete(leaseToken);
   }

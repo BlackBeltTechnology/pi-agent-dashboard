@@ -110,6 +110,16 @@ describe("createFolderWorkSource", () => {
     expect(redelivered.map((h) => baseName(h.item))).toEqual(["a"]);
   });
 
+  it("an ack on an EXPIRED-but-not-yet-reclaimed token is a no-op and returns the item", () => {
+    seed("a");
+    let clock = 1000;
+    const src = createFolderWorkSource({ dir, visibilityTimeoutMs: 100, now: () => clock });
+    const h = src.next(1)[0]!;
+    clock += 200; // lease expired, but no next()/reclaim has run yet
+    src.ack(h.leaseToken); // expired → must NOT delete; item returns to pool
+    expect(poolNames()).toEqual(["a"]);
+  });
+
   it("X1: a stale-token ack is a no-op and does not disturb the current lease", () => {
     seed("a");
     let clock = 1000;

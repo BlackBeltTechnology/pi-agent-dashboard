@@ -275,7 +275,7 @@ describe("lease release on terminal status", () => {
     expect(src.nacked).toEqual(["a"]); // lease still released
   });
 
-  it("releases the lease when child setup throws synchronously after leasing", () => {
+  it("releases the lease when child setup throws synchronously after leasing", async () => {
     const src = new FakeSource(["a"]);
     const engine = makeEngine(src, [], {
       resolveRegistry: () => {
@@ -283,8 +283,28 @@ describe("lease release on terminal status", () => {
       },
     });
     engine.startRunFor(batchAutomation("w"));
+    await flush(); // the settle is deferred to a microtask (runner-slot safety)
     expect(src.nacked).toEqual(["a"]);
     expect(src.available).toContain("a");
+  });
+
+  it("a synchronous single-child failure frees the runner slot (no permanent skip)", async () => {
+    const src = new FakeSource(["a", "b"]);
+    let boom = true;
+    const engine = makeEngine(src, [], {
+      resolveRegistry: () => {
+        if (boom) throw new Error("registry boom");
+        return new ActionRegistry();
+      },
+    });
+    const a = batchAutomation("w"); // concurrency: skip
+    engine.runner.fire(a); // first fire: child setup throws synchronously
+    await flush();
+    boom = false;
+    // The slot must be free — a second fire is NOT dropped by skip.
+    engine.runner.fire(a);
+    await flush();
+    expect(src.leases.size).toBeGreaterThan(0); // second fire actually leased+spawned
   });
 
   it("injects a stable idempotency key onto each child spawn stamp", () => {
