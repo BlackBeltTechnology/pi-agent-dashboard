@@ -21,7 +21,8 @@ const gap = (over: Partial<HistoryGapState> = {}): HistoryGapState => ({
   oldestGapSeq: 21,
   pending: false,
   failed: false,
-  unservable: false,
+  holey: false,
+  twoSidedTerminus: false,
   dividerPlaced: true,
   armed: true,
   // The default fixture stays a TWO-SIDED, mid-walk gap, so every scenario
@@ -97,26 +98,38 @@ describe("HistoryGapDivider — A4 refused", () => {
   });
 });
 
-describe("HistoryGapDivider — A5 unavailable", () => {
-  it("renders a NON-actionable tombstone: nothing failed, the events are gone", () => {
-    render(<HistoryGapDivider gap={gap({ unservable: true })} onLoadEarlier={vi.fn()} />);
-    // States the OUTCOME without attributing it to retention: an empty slice is
-    // equally producible by replay compaction dropping a superseded band, so
-    // "trimmed by retention" would sometimes be false.
-    // See change: fix-lazy-history-backfill-ux (D8).
-    const text = screen.getByTestId("history-gap-unavailable").textContent ?? "";
-    expect(text).toContain("no longer available to load");
-    expect(text.toLowerCase()).not.toContain("retention");
-    expect(text.toLowerCase()).not.toContain("trimmed");
-    // Deliberately NOT an error, and offers no retry — there is nothing to retry.
+/**
+ * F6 — the two terminus presentations. Both reuse the `not-retained`
+ * TerminusRow; neither is error-styled, and neither offers a retry.
+ * See change: fix-history-backfill-holey-store (D6, test-plan #F6).
+ */
+describe("HistoryGapDivider — terminus presentations (F6)", () => {
+  it("a holey exhausted TWO-SIDED gap renders the not-retained terminus", () => {
+    render(<HistoryGapDivider gap={gap({ holey: true, twoSidedTerminus: true })} onLoadEarlier={vi.fn()} />);
+    const terminus = screen.getByTestId("history-gap-not-retained");
+    expect(terminus.textContent).toContain("no longer retained");
+    // Disclosing an elision is NOT an error, and there is nothing to retry.
     expect(screen.queryByTestId("history-gap-retry")).toBeNull();
-    expect(screen.queryByTestId("history-gap-load")).toBeNull();
     expect(screen.queryByTestId("history-gap-error")).toBeNull();
+    expect(screen.queryByTestId("history-gap-load")).toBeNull();
+    expect(terminus.getAttribute("role")).toBe("status");
   });
 
-  it("unavailable outranks a prior failure, so a tombstone never shows a retry", () => {
-    render(<HistoryGapDivider gap={gap({ unservable: true, failed: true })} onLoadEarlier={vi.fn()} />);
+  it("an exhausted HEAD-FREE gap above seq 1 renders the same not-retained terminus", () => {
+    render(
+      <HistoryGapDivider
+        gap={gap({ windowShape: "tail-only", headMaxSeq: 0, atFloor: true, oldestGapSeq: 3000 })}
+        onLoadEarlier={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId("history-gap-not-retained")).toBeDefined();
     expect(screen.queryByTestId("history-gap-retry")).toBeNull();
+  });
+
+  it("a mid-walk two-sided holey gap shows the affordance, not the terminus", () => {
+    render(<HistoryGapDivider gap={gap({ holey: true })} onLoadEarlier={vi.fn()} />);
+    expect(screen.queryByTestId("history-gap-not-retained")).toBeNull();
+    expect(screen.getByTestId("history-gap-load")).toBeDefined();
   });
 });
 
@@ -128,12 +141,12 @@ describe("HistoryGapDivider — A5 unavailable", () => {
  * See change: fix-lazy-history-backfill-ux (D6).
  */
 
-describe("nextBackfillRange — requests the slice adjacent to the TAIL (E10–E12)", () => {
-  it("E10/E12: ends one below the tail and is bounded by the server's max span", () => {
-    expect(nextBackfillRange(gap())).toEqual({ fromSeq: 4300, toSeq: 4799 });
+describe("nextBackfillRange — requests the FULL remaining range (E9, D2)", () => {
+  it("E9: floored at the head edge and ending one below the tail — no seq window", () => {
+    expect(nextBackfillRange(gap())).toEqual({ fromSeq: 21, toSeq: 4799 });
   });
 
-  it("E11: never runs below the head's last seq", () => {
+  it("E9: the floor is the head edge, however far the tail has retreated", () => {
     expect(nextBackfillRange(gap({ headMaxSeq: 4700 }))).toEqual({ fromSeq: 4701, toSeq: 4799 });
   });
 });

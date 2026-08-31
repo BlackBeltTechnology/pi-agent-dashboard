@@ -830,16 +830,22 @@ export function useMessageHandler(
             return next;
           });
         }
-        // Stop offering the affordance when the response returns nothing or
-        // reports nothing left — keyed on the RESPONSE, not on arithmetic, so
-        // it terminates correctly over a holey store.
-        const exhausted = msg.events.length === 0 || msg.remainingGapCount === 0;
+        /**
+         * Termination keys on `remainingGapCount` ONLY. An empty slice with a
+         * positive count — a fully-superseded compaction result, or a sparse
+         * sub-range of a holey store — is NOT exhaustion: the tail still
+         * retreats, so the next request covers a strictly smaller range and
+         * the walk cannot livelock. `events.length === 0` as a second
+         * exhaustion trigger is the reported bug: on a holey store it ends
+         * the walk at the FIRST sparse step.
+         * See change: fix-history-backfill-holey-store (D4).
+         */
+        const exhausted = msg.remainingGapCount === 0;
         /**
          * A HEAD-FREE gap resolves to a TERMINUS rather than disappearing.
          * With no head above it, splicing the row out would leave a transcript
          * that silently starts mid-conversation — and an empty final response
-         * would be labelled `unservable` ("cannot be loaded") when what
-         * actually happened is that the walk REACHED THE FLOOR.
+         * must be read as "the walk REACHED THE FLOOR", never as a failure.
          * See change: add-tail-only-replay-window (D6).
          */
         if (exhausted && isHeadFree(gap)) {
@@ -850,14 +856,39 @@ export function useMessageHandler(
             pending: false,
             failed: false,
             atFloor: true,
-            // NOT unservable: nothing failed and nothing is recoverable-but-missing.
-            unservable: false,
           });
           break;
         }
-        if (exhausted && msg.remainingGapCount === 0 && msg.events.length > 0) {
-          // A6 — two-sided gap, fully filled: remove the divider entirely. The
-          // head above it already explains where the transcript begins.
+        if (exhausted && gap.holey) {
+          /**
+           * A HOLEY two-sided gap resolves to the not-retained terminus
+           * instead of being removed: the announced gap held fewer events
+           * than its seq span, so retention elided its MIDDLE — removing the
+           * row would render head and tail as if they were adjacent. A
+           * dedicated flag, never a reuse of `atFloor` (that is the head-free
+           * floor bound).
+           * See change: fix-history-backfill-holey-store (D6).
+           */
+          publishGap(msg.sessionId, {
+            ...gap,
+            tailMinSeq: msg.servedFrom > 0 ? msg.servedFrom : gap.tailMinSeq,
+            gapCount: msg.remainingGapCount,
+            pending: false,
+            failed: false,
+            twoSidedTerminus: true,
+            // The walk is OVER — disarm, so no trigger (auto or manual) can
+            // ever issue a further request against a resolved gap. The
+            // head-free terminus is already fully guarded by `!t.atFloor` in
+            // `shouldAutoLoadHistory`; the two-sided analog is this disarm.
+            // See change: fix-history-backfill-holey-store (CodeRabbit round 1).
+            armed: false,
+          });
+          break;
+        }
+        if (exhausted) {
+          // A6 — CONTIGUOUS two-sided gap, fully filled: remove the divider
+          // entirely. The head above it already explains where the transcript
+          // begins, and nothing was elided from the middle.
           setSessionStates((prev) => {
             const current = prev.get(msg.sessionId);
             if (!current) return prev;
@@ -871,6 +902,11 @@ export function useMessageHandler(
           publishGap(msg.sessionId, undefined);
           break;
         }
+        // Not exhausted: retreat the tail, keep the affordance armed and idle.
+        // Nothing sets a mid-walk dead end any more — the retired state's
+        // triggers are now either a continued walk (sparse slice) or a
+        // classified terminus above; server refusals use the separate `failed`
+        // state, handled FIRST.
         publishGap(msg.sessionId, {
           ...gap,
           /**
@@ -882,8 +918,6 @@ export function useMessageHandler(
           gapCount: msg.remainingGapCount,
           pending: false,
           failed: false,
-          // A5 — the gap existed but the store cannot serve it. Not an error.
-          unservable: exhausted,
         });
         break;
       }
@@ -992,8 +1026,10 @@ export function useMessageHandler(
         if (msg.isLast === true) {
           clearLoadingHistory(setReplayInFlight, replayInFlightTimersRef, msg.sessionId);
           // ARM backfill only now (D11). Before the terminal batch an evicted
-          // cold session's store is still empty, so a request would report the
-          // gap unservable and then hydration would make it servable again.
+          // cold session's store is still empty, so an early request would
+          // report the gap exhausted (remainingGapCount 0 against an empty
+          // store) and resolve it to a terminus — and then hydration would
+          // land and make the gap servable again.
           const armGap = historyGapsRef.current.get(msg.sessionId);
           if (armGap && !armGap.armed) publishGap(msg.sessionId, { ...armGap, armed: true });
         } else {
