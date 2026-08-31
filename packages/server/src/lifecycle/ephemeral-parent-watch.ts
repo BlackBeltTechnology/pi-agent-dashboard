@@ -67,39 +67,40 @@ export function startEphemeralParentWatch(deps: EphemeralParentWatchDeps): Ephem
       // Flag-only opt-in (task 5.1): never armed unless explicitly ephemeral,
       // so standalone / non-ephemeral servers are unaffected by construction.
       if (!deps.isEphemeral() || stopped || timer) return;
+      const tick = async (): Promise<void> => {
+        if (stopped || fired || timer === null) return;
+        if (!deps.isEphemeral() || !deps.isParentProvablyDead()) return;
+        fired = true;
+        const t = timer;
+        timer = null;
+        clearInterval(t);
+        log(
+          `[ephemeral] boot parent (pid ${bootParentPid}) is gone — ` +
+          `shutting down gracefully`,
+        );
+        try {
+          await deps.onParentDead();
+        } catch (err) {
+          log(`[ephemeral] graceful shutdown failed: ${err}`);
+        }
+        // Doubt-review fix (D5): a COMPLETED graceful stop does not
+        // guarantee process exit — any surviving ref'd handle (keeper
+        // child, node-pty, tunnel agent) would leave an invisible zombie
+        // with its ports closed, the exact leak D5 exists to kill. The
+        // idle-timer path answers the same risk with a raw `process.exit(0)`
+        // after `stopServer`. Mirror that bound: sessions are already
+        // drained and the exit intent recorded by `stop()`, so a hard exit
+        // here cannot lose state. unref'd → never fires in the good path.
+        const graceMs = deps.exitGraceMs ?? 5000;
+        setTimeout(() => {
+          log("[ephemeral] still alive after graceful stop — exiting hard");
+          (deps.hardExit ?? (() => process.exit(0)))();
+        }, graceMs).unref?.();
+      };
       timer = setInterval(() => {
-        void (async () => {
-          if (stopped || fired || timer === null) return;
-          if (!deps.isEphemeral() || !deps.isParentProvablyDead()) return;
-          fired = true;
-          const t = timer;
-          timer = null;
-          clearInterval(t);
-          log(
-            `[ephemeral] boot parent (pid ${bootParentPid}) is gone — ` +
-            `shutting down gracefully`,
-          );
-          try {
-            await deps.onParentDead();
-          } catch (err) {
-            log(`[ephemeral] graceful shutdown failed: ${err}`);
-          }
-          // Doubt-review fix (D5): a COMPLETED graceful stop does not
-          // guarantee process exit — any surviving ref'd handle (keeper
-          // child, node-pty, tunnel agent) would leave an invisible zombie
-          // with its ports closed, the exact leak D5 exists to kill. The
-          // idle-timer path answers the same risk with a raw `process.exit(0)`
-          // after `stopServer`. Mirror that bound: sessions are already
-          // drained and the exit intent recorded by `stop()`, so a hard exit
-          // here cannot lose state. unref'd → never fires in the good path.
-          const graceMs = deps.exitGraceMs ?? 5000;
-          setTimeout(() => {
-            log("[ephemeral] still alive after graceful stop — exiting hard");
-            (deps.hardExit ?? (() => process.exit(0)))();
-          }, graceMs).unref?.();
-        })().catch((err: unknown) => {
-          // Guarded discard (bare-void guard): a tick that throws outside the
-          // graceful path must surface, not vanish.
+        void tick().catch((err: unknown) => {
+          // Guarded discard (bare-void guard): a tick that throws outside
+          // the graceful path must surface, not vanish.
           log(`[ephemeral] watch tick failed: ${err}`);
         });
       }, intervalMs);
