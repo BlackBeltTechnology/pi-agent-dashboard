@@ -2,22 +2,27 @@
 
 ## Answer to the parent's Open Question (task 7.1), in one paragraph
 
-**Revised after the isolated replay (Part 2 below) — there is no cwd-dependent
-discovery decision.** The "repo arm that kept its bridge — twice, 2 h apart" was
-not a matrix arm but repo-cwd **control sessions** (23:33 + 01:52, 08-10/11), and
-their apparent immunity is fully explained by two ordinary effects: (1) the
-**boot-time mDNS retarget race** — `autoStartServer` resolves `find(s =>
-s.isLocal)` over same-host advertisers (1 live + 3 stale rogue dashboards that
-night), and whichever resolves with a `piPort ≠ config.piPort` triggers
-`connection.updateUrl()` → forced reconnect to an unreachable endpoint → the
-silent-death signature; (2) **survivorship bias** — sessions whose boot race
-resolved the live server lived long enough to be observed "keeping" their
-bridge, while quick probes that died still counted as "working" because their
-prompts were delivered before the bridge dropped. The flip replay demoted the
-last surviving cwd hypothesis (extension load-source vintage): under full
-parity both load sources die at equal rates (0.7.0-published 3/7 vs
-working-tree-pinned 4/7). The real, reproduced defect is the migration hijack
-itself — already fixed behaviourally by #569.
+**Revised after the isolated replay (Part 2 below): there is no cwd-dependent
+discovery decision.** The proposal's "repo arm kept its bridge — twice, 2 h
+apart" turns out to be a loose recollection — and not a matrix arm: server-side,
+the 23:33 repo control (`019fee05`) delivered its prompt and **then dropped its
+bridge like the arms**, and the genuinely durable repo-cwd sessions are
+**three** controls (`019fee07` 23:35, `019fee28` 00:10, `019fee5d` 01:08 —
+hours-long, re-registered through a server restart), with the "01:52"
+observation evidenced only by the parent transcript. The best-supported
+explanation — consistent with the replay's demotion of every cwd hypothesis,
+including extension load-source vintage (0.7.0-published 3/7 vs
+working-tree-pinned 4/7 died under full parity) — is the **boot-time mDNS
+retarget race** plus **survivorship bias**: which same-host advertiser
+`autoStartServer`'s `find(s => s.isLocal)` resolves first decides per boot
+whether the bridge `updateUrl()`s to an unreachable rogue endpoint (the
+silent-death signature) or keeps the live server; and only the sessions that
+won that race lived long enough to be observed "keeping" bridges, while quick
+probes that lost still scored "✅ works" because their prompts landed before
+the bridge dropped. Per D7/X5 the asymmetry itself is **not reproducible at
+fixed vintage** (the "immune" repo arm died at the same rate as the arms);
+what the investigation did reproduce is the death mechanism — the migration
+hijack the parent change already set out to kill.
 
 ---
 
@@ -29,7 +34,10 @@ change's deferred task-6.x re-run harness (leaked arms), not the source observat
 
 ### 08-10 seven-arm matrix + controls (rogue same-host dashboards era)
 
-Spawned by session `019feda3-8d51` (cwd main repo) via the dashboard API. Times are
+Spawned by session `019feda3-8d51` (cwd main repo) via the dashboard API. The table
+lists the **7 matrix arms** plus, for completeness, the parent's two later P2
+instrumentation probes (`019fee1b-c75d` "p2-fail", `019fee1c-c29b` "p2b"; spawned
+23:57/23:58 by the same session during its fix attempts) — 8 ARM rows total. Times are
 uuidv7-decoded spawn instants (first 12 hex chars); line numbers are global
 `server.log` lines. No `[bridge-transport]` lines exist for any of these sids — transport
 diagnostics landed 2026-08-24 (#534), so resolution-time evidence is absent for this matrix.
@@ -55,10 +63,12 @@ Notes:
 - Every death signature is `connection closed` while the pi process stayed alive, then
   heartbeat-grace expiry — the silent-migration signature; no `unregistered (explicit)`
   anywhere in the burst.
-- The proposal's "twice, 2 h apart" = controls 23:33 (08-10) + 01:52 (08-11), 2 h 19 min
-  apart. The 01:52 control sits beyond the extracted line range; it is evidenced by the
-  transcript table only, and is consistent with the three long-lived re-registering
-  sessions above.
+- The proposal's "twice, 2 h apart" does **not** map onto two kept-bridge rows: the 23:33
+  control (`019fee05-c61e`) delivered its prompt at 23:33:54 and **then dropped** (a
+  prompt-delivery survivor, not a bridge survivor), and the "01:52" observation is
+  transcript-evidenced only (beyond the extracted line range). The sessions that genuinely
+  kept their bridges are the **three** long-lived re-registering controls (`019fee07`
+  23:35, `019fee28` 00:10, `019fee5d` 01:08).
 - The mass re-registration cluster at lines 32478–32517 (many sids together) is a server
   restart recovery event; the three surviving controls re-register through it — they never
   left the live server.
@@ -70,7 +80,11 @@ Notes:
   register ✅ → mDNS discovery finds rogue → **bridge migrates** → `[gateway] connection
   closed` → rogue unreachable (binds 127.0.0.1) → 502 forever. P2 probes proved the
   extension never closed intentionally (`ConnectionManager.disconnect()` never called) and
-  the reconnect never happened.
+  the reconnect never happened. Vocabulary caution: the parent's "migrates" describes the
+  **boot-time** retarget (`autoStartServer` → `updateUrl`) — mid-session migration code
+  did not exist at this vintage (1.3). #569's guard addresses the later (#534+)
+  mid-session `decideRetarget` path; the boot path is neutralized for dashboard-spawned
+  sessions by the spawn pin, not by #569.
 
 ### 08-29 re-run waves (parent task-6.x harness; leaked arms — NOT the source matrix)
 
@@ -169,8 +183,8 @@ Dual-load disambiguation (raw line counts cannot decide it; this evidence can):
 | **H-config** — a third cwd-local config surface altering discovery | **FOLDS into H-resolution-path** | No third surface survives scrutiny: w-b had `openspec/` and migrated; pi-chainlint had `.pi/` **and** `openspec/` and migrated (08-10 matrix). Main repo `.pi/settings.json` declares no extension/discovery keys (only a skills path). The one repo-unique discovery-relevant surface is the `pi.extensions` load declaration — already the mechanism H-resolution-path owns (design D5 folds it). |
 | **H-timing** — spawn racing the stale advertisement | **DEAD** (for immunity) | The rogue dashboards advertised continuously for ~22–23 h (08-10 22:18), so every arm had the same exposure window; timing cannot produce **hours** of immunity incl. a server restart (controls 019fee07/28/5d re-registered and stayed reachable while arms spawned minutes earlier/later died in seconds). Residual timing nuance — quick repo controls also lost their bridges eventually (1.1) — is noted but does not discriminate. |
 
-Composite candidate: none beyond the surviving single factor set (load-source vintage);
-per D6 the composite would count as one candidate anyway.
+Composite candidate: none — the single candidate (load-source vintage) was itself
+demoted by the Part 2 flip replay; per D6 a composite would count as one candidate anyway.
 
 ## 2.2 Go/no-go on the isolated replay (groups 3–4)
 
@@ -269,8 +283,10 @@ loopback-only gateway → refused → silent death. Resolve s1 → ports match �
 
 ## Flips (tasks 4.1–4.3) — both demote the candidate
 
-- **Flip A (remove the candidate from the repo arm)**: nothing to remove — the repo arm
-  carries no protection and died 4/7 without any removal.
+- **Flip A (remove the candidate from the repo arm)**: not literally executed, and
+  legitimately so — the candidate-loaded repo arm had **already** died 4/7, so removing
+  the candidate could not produce "more migration"; the flip pair's discriminating power
+  was exhausted by the equal-rate observation.
 - **Flip B (add the candidate to a /tmp arm)**: the candidate (working-tree load source)
   added via cwd `/repo`; died 4/7 — identical to 0.7.0 arms.
 - **4.3 repeats**: 7 boots per arm type, no significant difference (3/7 vs 4/7). The
@@ -278,22 +294,45 @@ loopback-only gateway → refused → silent death. Resolve s1 → ports match �
 
 ## Revised conclusion
 
-The mechanism that killed the original arms is confirmed and reproduced: **boot-time
-mDNS retarget race** (identical logic in every load source). The original night's
-"cwd asymmetry" is fully explained without any cwd mechanism:
+Per D7/X5: **the death mechanism is reproduced; the cwd asymmetry is not reproducible
+at fixed vintage.** The replay killed arms and repo arm alike at equal rates (7/14
+overall; 3/7 vs 4/7 by load source), so no cwd- or load-source-correlated protection
+exists. What follows is the best-supported explanation **consistent with that
+demotion** — offered as explanation, not as a confirmed mechanism:
 
-1. **Majority outcome**: 3 rogue dashboards advertised vs 1 live server → per-boot death
-   probability ≈ 0.75 → 8/8 arms dying is unremarkable (p ≈ 0.1).
-2. **Prompt-delivery-before-death**: quick repo controls (23:33/23:52/23:57) also died
-   server-side but their prompts landed first — scored "✅ works" by the probe method.
-3. **Survivorship bias**: the only sessions observed keeping bridges for hours were the
-   ones whose boot race happened to resolve the live server; they then re-registered
-   through reconnects/restarts, compounding the impression of immunity.
+1. **Boot-time mDNS retarget race** (reproduced): whichever same-host advertiser wins
+   `find(s => s.isLocal)` decides the boot — resolve a rogue whose
+   `piPort ≠ config.piPort` and the bridge `updateUrl()`s to an unreachable endpoint
+   and silently dies. On 08-10 three stale rogues advertised against one live server;
+   **if** first-local resolution is roughly proportional to advertiser count, per-boot
+   death ≈ 3/4 → 8/8 arms dying has p ≈ 0.1. That proportionality is an inference, not
+   a measurement: the replay's instrumented 1:1 race observed poison-first 4/6 and an
+   overall death rate of 1/2 — at which rate 8/8 would be surprising (p ≈ 0.004).
+   Either reading explains the arms' fate without any cwd mechanism; the true
+   per-night rate is unrecoverable from the logs.
+2. **Prompt-delivery-before-death** (documented): quick repo controls
+   (23:33/23:52/23:57) also died server-side but their prompts landed first — scored
+   "✅ works" by the probe method.
+3. **Survivorship bias** (documented): the sessions observed keeping bridges for hours
+   are exactly the ones whose boot race resolved the live server; they re-registered
+   through reconnects/restarts, compounding the impression of immunity. With arms 8/8
+   dead, quick repo probes 3/3 dead, and 3 long-lived survivors, the sample is far too
+   small to claim a cwd effect — and the replay shows none exists.
 
-**No live defect beyond the already-fixed hijack**: #569's guard makes an unreachable
-candidate never adopted. Residual hardening candidate (not filed — behaviour is already
-correct post-fix): the boot-time `updateUrl` retarget is still the riskiest line in the
-bridge and could be dropped entirely once the spawn pin is trusted everywhere.
+**Residual risk — not filed as a defect** (task 5.2 justification): post-#569 every
+session that reaches `decideRetarget` refuses unreachable candidates (34 in-window
+`retarget_refused` rows, 1.1), and dashboard-spawned sessions boot pinned via the spawn
+pin, so no incorrect-adoption path remains in-contract. The boot-time `updateUrl`
+retarget only matters for un-pinned boots in a many-stale-dashboards environment — an
+operational hygiene concern (retire stale dashboards), not a code defect; dropping the
+boot retarget entirely remains a reasonable future hardening, tracked here rather than
+as a change because behaviour is already correct in-contract.
+
+## 5.3 — docs/AGENTS.md disposition
+
+None needed: no durable architecture fact surfaced beyond what the parent fix change's
+docs already carry (migration guard, spawn pin, stickiness). The investigation narrative
+is the deliverable and lives here in findings.md by design.
 
 ## Teardown (task 5.4)
 
