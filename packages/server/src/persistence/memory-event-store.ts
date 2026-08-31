@@ -38,6 +38,20 @@ export interface EventStore {
    * See change: add-tail-only-replay-window.
    */
   countEventsRange(sessionId: string, minSeq: number, maxSeq: number): number;
+  /**
+   * At most `limit` of the HIGHEST-seq stored events in `[minSeq, maxSeq]`,
+   * ascending — the newest end of the range without materializing the rest.
+   *
+   * Backfill's cap is an event COUNT, so the tail-anchored read must cost the
+   * cap, not the gap's seq distance: reusing
+   * `getEventsRange(...).slice(-limit)` would materialize the entire range
+   * only to discard all but the last N — thousands of events on a dense gap.
+   * Implementation mirrors `getEventsRange` — binary search `end` at
+   * `maxSeq + 1` and a floor at `minSeq`, then slice the last `limit` before
+   * `end` — O(log n + limit). Touches `buf.lastAccess` like every read.
+   * See change: fix-history-backfill-holey-store (D3).
+   */
+  getEventsEndingAt(sessionId: string, minSeq: number, maxSeq: number, limit: number): StoredEvent[];
   /** Get a single event by sessionId and seq */
   getEvent(sessionId: string, seq: number): DashboardEvent | undefined;
   /**
@@ -76,6 +90,13 @@ export interface EventStore {
    * See change: lazy-load-session-history (test-plan #E33).
    */
   getRangeProbe(): RangeProbe;
+  /**
+   * TEST-ONLY instrumentation for the `getEventsEndingAt` sub-linearity bound
+   * (D3) — the sibling of `getRangeProbe`, kept separate so the two read
+   * paths cannot clobber each other's probe.
+   * See change: fix-history-backfill-holey-store (test-plan #P1).
+   */
+  getEndingProbe(): RangeProbe;
 }
 
 interface RangeProbe {
@@ -1062,6 +1083,9 @@ export function createMemoryEventStore(
   let maxEntriesExamined = 0;
   // D8 sub-linearity probe. Reset per `getEventsRange` call.
   let lastRangeEntriesExamined = 0;
+  // Sibling probe for `getEventsEndingAt` (D3) — kept separate from the
+  // `getEventsRange` probe so the two read paths cannot clobber each other.
+  let lastEndingEntriesExamined = 0;
 
   function getOrCreate(sessionId: string): SessionBuffer {
     let buf = buffers.get(sessionId);
@@ -1322,6 +1346,30 @@ export function createMemoryEventStore(
       return end <= start ? 0 : end - start;
     },
 
+    getEventsEndingAt(sessionId: string, minSeq: number, maxSeq: number, limit: number): StoredEvent[] {
+      lastEndingEntriesExamined = 0;
+      const buf = buffers.get(sessionId);
+      if (!buf) return [];
+      buf.lastAccess = Date.now();
+      if (maxSeq < minSeq) return [];
+      const events = buf.events;
+      const lowerBound = (target: number): number => {
+        let lo = 0;
+        let hi = events.length;
+        while (lo < hi) {
+          const mid = (lo + hi) >>> 1;
+          lastEndingEntriesExamined++;
+          if (events[mid].seq < target) lo = mid + 1;
+          else hi = mid;
+        }
+        return lo;
+      };
+      const end = lowerBound(maxSeq + 1);
+      const startFloor = lowerBound(minSeq > 0 ? minSeq : 1);
+      if (end <= startFloor) return [];
+      return events.slice(Math.max(startFloor, end - limit), end);
+    },
+
     getEvent(sessionId: string, seq: number): DashboardEvent | undefined {
       const buf = buffers.get(sessionId);
       if (!buf) return undefined;
@@ -1389,6 +1437,10 @@ export function createMemoryEventStore(
 
     getRangeProbe(): RangeProbe {
       return { lastEntriesExamined: lastRangeEntriesExamined };
+    },
+
+    getEndingProbe(): RangeProbe {
+      return { lastEntriesExamined: lastEndingEntriesExamined };
     },
 
     getCollapseProbe(): CollapseProbe {

@@ -154,3 +154,11 @@ occurred naturally here and is reproducible in a test harness.
   health-checks before returning; the client's network-discovery scan is
   user-initiated display. The bridge's re-target site was the only place a
   discovered endpoint could displace a working one.
+  **Follow-up answer (fix-autostart-discovery-precedence, task 8.1):** the
+  audit missed `autoStartServer` — both its discovery branches (pre-launch
+  and post-launch `spawnAndAttach`) let a discovered candidate displace a
+  launch/attach decision. Addressed in that change: the resolved port's
+  status is established first (bootstrap-aware), candidates are
+  health-verified at their advertised host+port before admission, selection
+  is deterministic, and the post-launch branch never adopts an other-port
+  candidate.

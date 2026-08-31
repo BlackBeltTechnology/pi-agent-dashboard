@@ -48,7 +48,6 @@ const zhCN: Record<string, string> = {
   "chat.historyGap.sessionStart": "会话开头",
   "chat.historyGap.loading": "正在加载更早的消息…",
   "chat.historyGap.retry": "重试",
-  "chat.historyGap.unavailable": "这些更早的消息已无法加载。",
   "chat.tool.elided": "结果未加载",
   "chat.tool.elidedHint": "该工具的结果不在已加载的历史范围内，无法加载。",
   "common.advanced": "高级",

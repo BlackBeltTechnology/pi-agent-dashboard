@@ -7,8 +7,11 @@
  *    regions, mid-scroll. Click-to-load only: retrieving a specific earlier
  *    exchange is a FIND task, and NN/g's guidance is pagination-with-visible-
  *    position for find tasks, infinite scroll only for exploratory feeds. On
- *    exhaustion the row is spliced out — the head above already explains where
- *    the transcript begins.
+ *    exhaustion a CONTIGUOUS gap's row is spliced out — the head above already
+ *    explains where the transcript begins — while a HOLEY gap (retention
+ *    trimmed its middle) resolves to the not-retained terminus instead, so the
+ *    elision stays disclosed.
+ *    See change: fix-history-backfill-holey-store (D6).
  *
  *  - `tail-only` — a HEADER, and the Slack/WhatsApp "load older" pattern after
  *    all, because in this mode the missing region genuinely IS unbounded
@@ -63,16 +66,18 @@ const PILL =
   "focus-visible:outline-2 focus-visible:outline-[var(--focus-ring)] focus-visible:outline-offset-2";
 
 /**
- * The head-free walk reached the store floor. A SUCCESS state, not
- * `unservable`: nothing failed and nothing is recoverable-but-missing. It
- * REPLACES the divider's content rather than removing the row, because in a
- * head-free window nothing else tells the reader where the transcript begins.
+ * The terminus row. A SUCCESS state, not an error: nothing failed. It
+ * REPLACES the divider's content rather than removing the row — for a
+ * head-free window nothing else tells the reader where the transcript begins,
+ * and for a holey two-sided window the row IS the disclosure that the middle
+ * was elided (removing it would render head and tail as if adjacent).
  *
- * `oldestGapSeq === 1` is the session's genuine beginning. Above 1, earlier
- * events are simply not retained — and the wording names NEITHER retention
- * NOR compaction, because the floor answers "is anything below", never "why is
- * it gone".
- * See change: add-tail-only-replay-window (D6).
+ * `session-start` is the session's genuine beginning. `not-retained` covers
+ * both a head-free floor above seq 1 and a holey two-sided exhaust — and the
+ * wording names NEITHER retention NOR compaction, because the client cannot
+ * distinguish the causes.
+ * See change: add-tail-only-replay-window (D6),
+ * fix-history-backfill-holey-store (D6).
  */
 function TerminusRow({ terminus }: { terminus: "session-start" | "not-retained" }) {
   return (
@@ -107,30 +112,6 @@ export function HistoryGapDivider({ gap, onLoadEarlier }: Props) {
     <TerminusRow terminus={terminus} />
   ) : (
     (() => {
-    /**
-     * A5 — the gap exists but the store cannot serve it. Deliberately NOT an
-     * error: nothing failed. No retry is offered because there is nothing to
-     * retry.
-     *
-     * The wording must stay true for BOTH causes of an empty slice: retention
-     * having trimmed the events, and replay compaction having dropped a whole
-     * all-`message_update` band as superseded. The client cannot distinguish
-     * them, so it states the OUTCOME ("no longer available to load") and never
-     * attributes the loss to retention, which would sometimes be false.
-     * See change: fix-lazy-history-backfill-ux (D8).
-     */
-    if (gap.unservable) {
-      return (
-        <span role="status" className="inline-flex items-center gap-1.5 text-xs text-[var(--text-secondary)] whitespace-nowrap" data-testid="history-gap-unavailable">
-          <WarningIcon />
-          {t(
-            "chat.historyGap.unavailable",
-            undefined,
-            "These earlier messages are no longer available to load.",
-          )}
-        </span>
-      );
-    }
     // A4 — every protocol code collapses to ONE plain sentence plus a retry.
     // `in_flight` / `stale_generation` are transient races the user cannot act
     // on differently, so distinguishing them would add choice without agency.

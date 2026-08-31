@@ -42,6 +42,7 @@ import {
 // resolveOfflinePackages + installManagedNode imports removed under change:
 // eliminate-electron-runtime-install (no offline cache; bundle is immutable).
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
+import { resolveSpawnRuntime } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
 import { getBundledNodeDir, getBundledNodePath, getBundledNpmPath } from "./bundled-node.js";
 import { MANAGED_DIR } from "./managed-paths.js";
 import { pickNodeForServer } from "./pick-node.js";
@@ -258,6 +259,10 @@ async function runDoctorInner(): Promise<DoctorReport> {
   // ── Shared (portable) checks ─────────────────────────────────
   const shared = await runSharedChecks({
     managedDir: MANAGED_DIR,
+    // Live ladder resolution (Electron arm has no server-side holder).
+    // Feeds the spawn-runtime visibility row + ABI mismatch scan.
+    // See change: unify-pi-runtime-identity (tasks 5.4 / 6.1).
+    spawnRuntime: resolveSpawnRuntime(),
     detectSystemNode: () => {
       const r = detectSystemNode();
       return { found: r.found, path: r.path };

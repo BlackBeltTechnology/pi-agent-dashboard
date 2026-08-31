@@ -1774,3 +1774,64 @@ describe("countEventsRange — counting without materializing", () => {
     expect(examined).toBeLessThan(64);
   });
 });
+
+/**
+ * `getEventsEndingAt` — the COUNT-bounded read — test-plan E8, P1.
+ *
+ * Backfill's cap is an event COUNT, so the tail-anchored read must return the
+ * newest end of a range without materializing the rest: on a holey store a
+ * wide range can hold few events, and on a dense one it can hold thousands —
+ * either way one response serves at most N, and the read must cost
+ * O(log n + limit), never the gap's seq distance.
+ * See change: fix-history-backfill-holey-store (D3).
+ */
+describe("memory-event-store — getEventsEndingAt", () => {
+  const seeded = (n: number) => {
+    const store = createMemoryEventStore(() => false, 10, n);
+    for (let i = 0; i < n; i++) store.insertEvent("s1", makeEvent(`e${i}`));
+    return store;
+  };
+
+  it("E8: returns the highest 500 of 1000, ascending, starting at the 501st-highest", () => {
+    const store = seeded(1000);
+    const out = store.getEventsEndingAt("s1", 1, 1000, 500);
+    expect(out).toHaveLength(500);
+    expect(out[0].seq).toBe(501);
+    expect(out.at(-1)!.seq).toBe(1000);
+    expect(out.map((e) => e.seq)).toEqual([...out.map((e) => e.seq)].sort((a, b) => a - b));
+  });
+
+  it("E8: never returns a seq below the floor, even when the range holds fewer than limit", () => {
+    const store = seeded(1000);
+    const out = store.getEventsEndingAt("s1", 600, 1000, 500);
+    expect(out).toHaveLength(401);
+    expect(out[0].seq).toBe(600);
+  });
+
+  it("E8: a limit above the range's count serves the whole range", () => {
+    const store = seeded(1000);
+    const out = store.getEventsEndingAt("s1", 501, 600, 500);
+    expect(out).toHaveLength(100);
+    expect(out[0].seq).toBe(501);
+  });
+
+  it("E8: an empty or inverted range, or an unknown session, returns []", () => {
+    const store = seeded(100);
+    expect(store.getEventsEndingAt("s1", 50, 40, 10)).toEqual([]);
+    expect(store.getEventsEndingAt("s1", 200, 300, 10)).toEqual([]);
+    expect(store.getEventsEndingAt("nope", 1, 10, 10)).toEqual([]);
+  });
+
+  /**
+   * P1 — sub-linearity. A read over a 20 000-entry buffer must probe the
+   * binary searches (~2 × 15), not walk the buffer: on the live bug the gap
+   * spans ~102 000 seqs, and a linear read would re-scan it on every step.
+   */
+  it("P1: a limit-500 read over a 20000-entry buffer examines < 1000 entries", () => {
+    const store = seeded(20000);
+    store.getEventsEndingAt("s1", 1, 20000, 500);
+    const examined = store.getEndingProbe().lastEntriesExamined;
+    expect(examined).toBeGreaterThan(0);
+    expect(examined).toBeLessThan(1000);
+  });
+});

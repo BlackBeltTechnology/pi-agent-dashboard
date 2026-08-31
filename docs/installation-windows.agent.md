@@ -16,7 +16,7 @@ Two install paths: (1) Electron Setup.exe (per-user NSIS, bundled Node+npm, Star
 
 ## Path 2 — Tarball / npm install (advanced)
 For pre-release/headless/CI. Normal user → Path 1.
-- Prerequisites — Node ≥22.18.0 (refuses nodejs/node#58515 versions; avoid nvm-windows non-ASCII username), Git for Windows (Use Git from Command Prompt), long paths enabled (`LongPathsEnabled` reg + `git config core.longpaths true`, reboot), Windows Build Tools (only if native modules fail).
+- Prerequisites — Node ≥22.19.0 (refuses nodejs/node#58515 versions 22.0–22.18/24.1–24.2; avoid nvm-windows non-ASCII username), Git for Windows (Use Git from Command Prompt), long paths enabled (`LongPathsEnabled` reg + `git config core.longpaths true`, reboot), Windows Build Tools (only if native modules fail).
 - Install agent runtime — mkdir `.pi-dashboard`, write package.json manually (dot-dir breaks `npm init`), `npm install @earendil-works/pi-coding-agent tsx`.
 - Install pi-dashboard — Option A official npm; Option B local tarballs (npm pack shared/client/server/extension, copy 4 .tgz, install ALL 4 in one command — sibling `*` deps resolve only together).
 - Launch — `npx pi-dashboard start` or add `.bin` to PATH via setx. http://localhost:8000.

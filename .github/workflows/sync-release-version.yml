@@ -1,5 +1,10 @@
 name: Sync Release Version
 
+# run-name embeds the optional `correlation` dispatch input so publish.yml's
+# site-redeploy job can bind its wait to the exact run IT dispatched (never a
+# concurrent manual run). See change: fix-deploy-site-ship-shell.
+run-name: "sync-release-version ${{ inputs.correlation || 'manual' }}"
+
 # Rewrites the download block in `site/index.html` from the latest release and
 # commits it to develop.
 #
@@ -21,6 +26,11 @@ on:
   release:
     types: [published, edited]
   workflow_dispatch:
+    inputs:
+      correlation:
+        description: 'Unique token embedded in the run name; used by publish.yml site-redeploy to bind its wait to this exact run'
+        required: false
+        type: string
 
 permissions:
   contents: write

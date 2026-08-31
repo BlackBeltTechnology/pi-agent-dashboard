@@ -77,6 +77,83 @@ while [ $ELAPSED -lt $TIMEOUT ]; do
     fi
     echo "No blocking pi compatibility error"
 
+    # --- Resolved spawn-runtime publication (test-plan #X7) ---------------
+    # See change: unify-pi-runtime-identity (task 9.25).
+    #
+    # After a fresh start the server publishes the diagnostic
+    # `runtime.resolved` block into ~/.pi/dashboard/config.json. On this
+    # single-Node machine the resolved runtime IS the `node` on PATH (the
+    # same node running this check), so its abi must equal
+    # process.versions.modules and source must be a non-null classification.
+    # `runtime.override` is user-owned and never written by the dashboard;
+    # this script does not set one, so the key must be absent or an intact
+    # string (a pre-existing machine pin preserved by the write).
+    RUNTIME_VERDICT=$(node -e '
+      const fs = require("fs");
+      const file = process.env.HOME + "/.pi/dashboard/config.json";
+      let j;
+      try {
+        j = JSON.parse(fs.readFileSync(file, "utf8"));
+      } catch (e) {
+        console.log("FAIL: " + file + " is not parseable JSON — publication may have truncated it (" + e.message + ")");
+        process.exit(0);
+      }
+      const r = j.runtime && j.runtime.resolved;
+      if (!r || typeof r !== "object") {
+        console.log("FAIL: runtime.resolved missing from " + file + " after a successful start");
+        process.exit(0);
+      }
+      if (!r.source) {
+        console.log("FAIL: runtime.resolved.source is empty — expected a non-null classification");
+        process.exit(0);
+      }
+      const runningAbi = process.versions.modules;
+      if (String(r.abi) !== String(runningAbi)) {
+        console.log("FAIL: runtime.resolved.abi=" + r.abi + " does not match the running node ABI " + runningAbi);
+        process.exit(0);
+      }
+      const o = j.runtime.override;
+      if (o !== undefined && o !== null && typeof o !== "string") {
+        console.log("FAIL: runtime.override must be absent or a string; found " + typeof o);
+        process.exit(0);
+      }
+      console.log("OK: runtime.resolved published (source=" + r.source + ", abi=" + r.abi + ", " + (o === undefined || o === null ? "no override set" : "override preserved") + ")");
+    ')
+    case "$RUNTIME_VERDICT" in
+      OK*) echo "$RUNTIME_VERDICT" ;;
+      *) echo "$RUNTIME_VERDICT"; exit 1 ;;
+    esac
+
+    # GET /api/doctor must answer with a parseable report carrying zero
+    # ABI-mismatch rows. The dedicated runtime Doctor rows land with task
+    # 5.4 of unify-pi-runtime-identity; the scan below is forward-safe —
+    # it asserts on whatever rows exist the day it runs.
+    if ! DOCTOR_JSON=$(curl -fsS http://localhost:8000/api/doctor 2>/dev/null); then
+      echo "FAIL: GET /api/doctor did not return 2xx"
+      exit 1
+    fi
+    DOCTOR_VERDICT=$(printf '%s' "$DOCTOR_JSON" | node -e '
+      let s = "";
+      process.stdin.on("data", (d) => (s += d)).on("end", () => {
+        let j;
+        try { j = JSON.parse(s); } catch (e) { console.log("FAIL: /api/doctor body is not JSON"); return; }
+        const checks = Array.isArray(j.checks) ? j.checks : null;
+        if (!checks) { console.log("FAIL: /api/doctor report has no checks array"); return; }
+        const abiBad = checks.filter(
+          (c) => /abi/i.test((c.name || "") + " " + (c.code || "")) && c.status === "error",
+        );
+        if (abiBad.length > 0) {
+          console.log("FAIL: /api/doctor carries ABI-mismatch rows: " + abiBad.map((c) => c.name).join("; "));
+          return;
+        }
+        console.log("OK: /api/doctor parseable, " + checks.length + " checks, no ABI-mismatch rows");
+      });
+    ')
+    case "$DOCTOR_VERDICT" in
+      OK*) echo "$DOCTOR_VERDICT" ;;
+      *) echo "$DOCTOR_VERDICT"; exit 1 ;;
+    esac
+
     # --- MCP endpoint conformance, at process level -----------------------
     # See change: add-dashboard-mcp-server.
     #

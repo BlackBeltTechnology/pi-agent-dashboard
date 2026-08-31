@@ -26,7 +26,6 @@ const firing = (over: Partial<TriggerInputs> = {}): TriggerInputs => ({
   armed: true,
   pending: false,
   failed: false,
-  unservable: false,
   atFloor: false,
   ...over,
 });
@@ -92,7 +91,6 @@ describe("shouldAutoLoadHistory — the illegal transitions (F2, F2a, F2b, F3, F
   it.each([
     ["pending", { pending: true }],
     ["failed", { failed: true }],
-    ["unservable", { unservable: true }],
     ["atFloor", { atFloor: true }],
     ["not armed", { armed: false }],
     ["not nearTop", { nearTop: false }],

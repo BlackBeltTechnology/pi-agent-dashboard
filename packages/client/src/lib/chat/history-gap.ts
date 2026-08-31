@@ -51,11 +51,30 @@ export interface HistoryGapState {
    */
   failed: boolean;
   /**
-   * The gap exists but the store cannot serve any more of it (state A5). NOT
-   * an error: nothing failed, the events were trimmed. Rendering it as an
-   * error would misattribute a retention policy to a fault.
+   * Whether the ANNOUNCED gap was holey — it held fewer events than its seq
+   * span, so retention trimmed its MIDDLE. Computed once at announce time
+   * (`gapCount < tailMinSeq − headMaxSeq − 1`, from the `history_window` the
+   * client already receives — no wire change, no extra request) and scoped to
+   * two-sided windows: for a head-free window the formula would misread a
+   * trimmed BEGINNING as a trimmed middle, so it is forced false there.
+   *
+   * Consulted only on the two-sided exhaustion branch, where it decides
+   * between removing the divider (contiguous) and resolving to the
+   * not-retained terminus (holey).
+   * See change: fix-history-backfill-holey-store (D6).
    */
-  unservable: boolean;
+  holey: boolean;
+  /**
+   * The two-sided walk is over AND the gap was holey: the interstitial
+   * resolves to the not-retained terminus instead of being removed, because
+   * removing it would render head and tail as if they were adjacent.
+   *
+   * A DEDICATED flag, deliberately not a reuse of `atFloor`: `atFloor` is
+   * documented as the head-free store-floor bound, and overloading it would
+   * muddy that meaning.
+   * See change: fix-history-backfill-holey-store (D6).
+   */
+  twoSidedTerminus: boolean;
   /** True once the divider row has been placed in this replay's transcript. */
   dividerPlaced: boolean;
   /**
@@ -68,13 +87,10 @@ export interface HistoryGapState {
    */
   armed: boolean;
   /**
-   * The walk has reached `oldestGapSeq`: there is nothing further to request.
-   *
-   * Distinct from `unservable`. `unservable` is state A5 — the gap exists and
-   * the store cannot serve it. `atFloor` is a SUCCESSFUL end of the walk. In a
-   * head-free window the difference is the whole point: with no head above it,
-   * labelling "reached the floor" as "nothing servable" would tell the user
-   * their history is broken when it is merely finished.
+   * The head-free walk has reached `oldestGapSeq`: there is nothing further to
+   * request. A SUCCESSFUL end of the walk — in a head-free window, with no
+   * head above it, labelling "reached the floor" as "nothing servable" would
+   * tell the user their history is broken when it is merely finished.
    * See change: add-tail-only-replay-window (D6).
    */
   atFloor: boolean;
@@ -96,18 +112,26 @@ export function isHeadFree(gap: Pick<HistoryGapState, "windowShape">): boolean {
 }
 
 /**
- * Which terminal row a head-free gap has resolved to, or `null` when it has
- * not resolved to one.
+ * Which terminal row a gap has resolved to, or `null` when it has not
+ * resolved to one.
  *
- * A two-sided gap NEVER returns a terminus: the head above it explains where
- * the transcript begins, so its divider is spliced out on exhaustion. A
- * head-free gap has nothing to explain the beginning, so removing the row
- * would leave a transcript that silently starts mid-conversation.
- * See change: add-tail-only-replay-window (D6).
+ * A head-free gap resolves on `atFloor`: nothing above it explains where the
+ * transcript begins, so removing the row would leave one that silently starts
+ * mid-conversation. A two-sided gap resolves on `twoSidedTerminus` ONLY when
+ * it was holey — retention trimmed its middle, and removing the row would
+ * render head and tail as if they were adjacent; a CONTIGUOUS two-sided gap
+ * has its divider spliced out instead (the head explains the beginning, and
+ * nothing was elided from the middle). The two-sided terminus is always
+ * `not-retained`: `session-start` is meaningless with a head segment above.
+ * See change: add-tail-only-replay-window (D6),
+ * fix-history-backfill-holey-store (D6).
  */
 export function historyGapTerminus(gap: HistoryGapState): "session-start" | "not-retained" | null {
-  if (!isHeadFree(gap) || !gap.atFloor) return null;
-  return gap.oldestGapSeq <= 1 ? "session-start" : "not-retained";
+  if (isHeadFree(gap)) {
+    if (!gap.atFloor) return null;
+    return gap.oldestGapSeq <= 1 ? "session-start" : "not-retained";
+  }
+  return gap.twoSidedTerminus ? "not-retained" : null;
 }
 
 export function createHistoryGapState(
@@ -119,6 +143,9 @@ export function createHistoryGapState(
     windowShape?: "head-tail" | "tail-only";
   },
 ): HistoryGapState {
+  // Absent → `head-tail`: an older server never sets the field, and
+  // `head-tail` is the only shape it can produce.
+  const windowShape = window.windowShape ?? "head-tail";
   return {
     headMaxSeq: window.headMaxSeq,
     tailMinSeq: window.tailMinSeq,
@@ -126,13 +153,15 @@ export function createHistoryGapState(
     oldestGapSeq: window.oldestGapSeq,
     pending: false,
     failed: false,
-    unservable: false,
+    // Announce-time snapshot of whether the announced gap was holey — taken
+    // BEFORE the walk mutates the bounds, which is what makes the original
+    // span recoverable here and nowhere later.
+    holey: windowShape === "head-tail" && window.gapCount < window.tailMinSeq - window.headMaxSeq - 1,
+    twoSidedTerminus: false,
     dividerPlaced: false,
     armed: false,
     atFloor: false,
-    // Absent → `head-tail`: an older server never sets the field, and
-    // `head-tail` is the only shape it can produce.
-    windowShape: window.windowShape ?? "head-tail",
+    windowShape,
   };
 }
 
@@ -141,20 +170,23 @@ export function createHistoryGapRow(): ChatMessage {
   return { id: HISTORY_GAP_ROW_ID, role: "historyGap", content: "", timestamp: Date.now() };
 }
 
-/** Mirrors the server's own ceiling on one `history_backfill` response. */
-const BACKFILL_MAX_SPAN = 500;
-
 /**
- * The seq range to request next: the slice ADJACENT TO THE TAIL, bounded by the
- * server's own `BACKFILL_MAX_SPAN` and floored at the head edge.
+ * The seq range to request next: the FULL remaining gap — `toSeq` at the tail
+ * edge, `fromSeq` at the floor.
  *
  * Tail-anchored, because "Load earlier" must deliver the events IMMEDIATELY
- * PRECEDING what the user is reading — the chat-app behaviour. The previous
- * head-first direction existed only because `headMaxSeq` was the one mutable
- * edge; the gap is symmetric now, so the server retreats `tailMinSeq` on a
- * tail-adjacent range exactly as it advances `headMaxSeq` on a head-adjacent
- * one, and the loop still terminates on the store-read `remainingGapCount`.
+ * PRECEDING what the user is reading — the chat-app behaviour. The server
+ * retreats `tailMinSeq` on a tail-adjacent range exactly as it advances
+ * `headMaxSeq` on a head-adjacent one, and the loop terminates on the
+ * store-read `remainingGapCount`.
  * See change: fix-lazy-history-backfill-ux (D1, D2).
+ *
+ * No client-side seq window: the server's cap is an EVENT COUNT now, so the
+ * newest N events are selected from ANYWHERE in the requested range — capping
+ * the request's seq span instead would select only the top 500 seqs, which on
+ * a holey store frequently hold nothing. The count cap, not a seq window,
+ * decides how much comes back.
+ * See change: fix-history-backfill-holey-store (D2).
  *
  * In a HEAD-FREE window the lower bound is the store FLOOR (`oldestGapSeq`)
  * rather than the head edge, keyed on the ANNOUNCED `windowShape` and never on
@@ -167,7 +199,7 @@ const BACKFILL_MAX_SPAN = 500;
 export function nextBackfillRange(gap: HistoryGapState): { fromSeq: number; toSeq: number } {
   const toSeq = gap.tailMinSeq - 1;
   const floor = isHeadFree(gap) ? gap.oldestGapSeq : gap.headMaxSeq + 1;
-  return { fromSeq: Math.max(floor, toSeq - BACKFILL_MAX_SPAN + 1), toSeq };
+  return { fromSeq: floor, toSeq };
 }
 
 /**
@@ -202,7 +234,6 @@ export interface TriggerInputs {
   armed: boolean;
   pending: boolean;
   failed: boolean;
-  unservable: boolean;
   atFloor: boolean;
 }
 
@@ -236,7 +267,6 @@ export function shouldAutoLoadHistory(t: TriggerInputs): boolean {
     t.armed &&
     !t.pending &&
     !t.failed &&
-    !t.unservable &&
     !t.atFloor
   );
 }
