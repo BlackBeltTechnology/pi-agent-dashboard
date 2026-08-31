@@ -288,7 +288,8 @@ loopback-only gateway → refused → silent death. Resolve s1 → ports match �
   the candidate could not produce "more migration"; the flip pair's discriminating power
   was exhausted by the equal-rate observation.
 - **Flip B (add the candidate to a /tmp arm)**: the candidate (working-tree load source)
-  added via cwd `/repo`; died 4/7 — identical to 0.7.0 arms.
+  added via cwd `/repo`; died 4/7 — indistinguishable from 0.7.0 arms (3/7); no better,
+  no worse.
 - **4.3 repeats**: 7 boots per arm type, no significant difference (3/7 vs 4/7). The
   outcome is boot-race chance, not load source.
 
