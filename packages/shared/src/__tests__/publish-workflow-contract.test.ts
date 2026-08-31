@@ -625,17 +625,27 @@ describe("publish.yml — site-redeploy dispatch contract (fix-deploy-site-ship-
   });
 
   it("E10a: dispatches both sync-release-version.yml and deploy-site.yml with --ref develop", () => {
+    const lines = siteRedeployBlock.split("\n");
     for (const wf of ["sync-release-version.yml", "deploy-site.yml"]) {
-      const callRe = new RegExp(
-        `gh workflow run ${wf.replace(/\\./g, "\\.")}[\\s\\S]*?--ref develop`,
-      );
-      if (!callRe.test(siteRedeployBlock)) {
+      // Each `gh workflow run <wf>` call must carry its OWN --ref develop
+      // within the same command (next few lines) — a non-greedy span across
+      // the whole block could borrow deploy's flag to satisfy a sync call
+      // that lost its own.
+      const callLine = lines.findIndex((l) => l.includes(`gh workflow run ${wf}`));
+      if (callLine === -1) {
         throw new Error(
-          `site-redeploy job MUST dispatch ${wf} via \`gh workflow run\` with ` +
-            "`--ref develop` (workflow_dispatch always creates a run; the " +
-            "github-pages environment rejects a tag ref). " +
+          `site-redeploy job MUST dispatch ${wf} via \`gh workflow run\`. ` +
             "See change: fix-deploy-site-ship-shell (E10a). Job block:\n" +
             siteRedeployBlock,
+        );
+      }
+      const callWindow = lines.slice(callLine, callLine + 5).join("\n");
+      if (!callWindow.includes("--ref develop")) {
+        throw new Error(
+          `the ${wf} dispatch MUST carry \`--ref develop\` on its own command ` +
+            "(workflow_dispatch always creates a run; the github-pages " +
+            "environment rejects a tag ref). " +
+            "See change: fix-deploy-site-ship-shell (E10a). Command:\n" + callWindow,
         );
       }
     }

@@ -697,6 +697,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
+          # Captured BEFORE the dispatch. The first poll runs >=5s later, so a
+          # run created in that window still satisfies created_at > before
+          # (both are second-resolution UTC ISO-8601, so string compare is safe).
           before=$(date -u +%Y-%m-%dT%H:%M:%SZ)
           gh workflow run sync-release-version.yml \
             --repo "${GITHUB_REPOSITORY}" \
@@ -716,6 +719,14 @@ jobs:
           fi
           echo "Watching sync-release-version run $run_id"
           gh run watch "$run_id" --repo "${GITHUB_REPOSITORY}" --exit-status --interval 15
+          # Some gh versions exit 0 on a CANCELLED run; assert the conclusion
+          # explicitly so a cancelled sync can never release the deploy dispatch
+          # over a stale download block.
+          conclusion=$(gh run view "$run_id" --repo "${GITHUB_REPOSITORY}" --json conclusion --jq '.conclusion')
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::sync-release-version run concluded '${conclusion}' — not dispatching deploy-site"
+            exit 1
+          fi
 
       - name: Dispatch deploy-site.yml on develop
         env:
