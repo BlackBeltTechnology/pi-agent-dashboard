@@ -68,25 +68,25 @@ helper with injected `exists`/`which`). Exemplar for 3a.9–3a.17:
 `packages/client/src/components/settings/__tests__/PiRuntimeStatusRow.test.tsx`;
 for 3a.15: `settings-unit-i18n.test.tsx`.
 
-- [ ] 3a.1 Test npx resolves the managed runtime over a PATH hit. Input:
+- [x] 3a.1 Test npx resolves the managed runtime over a PATH hit. Input:
       `<managedDir>/node/bin/npx` exists, `which("npx")` returns `/usr/bin/npx` ·
       Trigger: `resolve("npx")` · Observable: path is the managed one, not the PATH
       hit. MUST fail today (npx chain has `managedBin`, not `managedRuntime`).
-- [ ] 3a.2 Test override still outranks the managed runtime for npx.
-- [ ] 3a.3 Test bundled-node still outranks the managed runtime for npx.
-- [ ] 3a.4 Test a partial managed family falls through cleanly for npx: missing
+- [x] 3a.2 Test override still outranks the managed runtime for npx.
+- [x] 3a.3 Test bundled-node still outranks the managed runtime for npx.
+- [x] 3a.4 Test a partial managed family falls through cleanly for npx: missing
       `<managedDir>/node/bin/npx` → `managedBin` hit, `tried[]` records the
       `missing:` probe, no non-existent path returned.
-- [ ] 3a.5 Test managedRuntime outranks managedBin for npx (both present).
-- [ ] 3a.6 Test the PATH fallback is preserved for npx.
-- [ ] 3a.7 Test the managed runtime is visible to every family member
+- [x] 3a.5 Test managedRuntime outranks managedBin for npx (both present).
+- [x] 3a.6 Test the PATH fallback is preserved for npx.
+- [x] 3a.7 Test the managed runtime is visible to every family member
       (node+npm+npx all share the `<managedDir>/node` prefix).
-- [ ] 3a.8 Test the npx trail order and length:
+- [x] 3a.8 Test the npx trail order and length:
       `["override","bundled-node","managed","managed","where"]` — assert ORDER and
       LENGTH only (both managed strategies report `name: "managed"`). Reconcile the
       existing chain test + title at
       `tool-registry-definitions.test.ts` (npx trail) rather than duplicating.
-- [ ] 3a.9 Implement: add `managedRuntimeStrategy("npx", deps)` between
+- [x] 3a.9 Implement: add `managedRuntimeStrategy("npx", deps)` between
       `bundledNodeStrategy` and `managedBinStrategy` in the npx chain.
 - [x] 3a.10 Test the rejected-override badge on a not-found row: third state,
       distinct from plain not-found AND from rejected-but-fell-back; tooltip names
@@ -177,7 +177,7 @@ for 3a.15: `settings-unit-i18n.test.tsx`.
 
 ## 5b. Supersede the absorbed change
 
-- [ ] 5b.1 At ship time (before archive): remove
+- [x] 5b.1 At ship time (before archive): remove
       `openspec/changes/fix-node-family-resolution-gaps/` — its scope is fully
       carried here (section 3a + the absorbed `specs/tool-registry/spec.md` delta);
       its reporter close-out thread (its tasks 9.x) is noted as staying with the
@@ -188,15 +188,31 @@ for 3a.15: `settings-unit-i18n.test.tsx`.
 - [x] 6.1 DONE — 17505 passed; 6 failures reproduce IDENTICALLY on clean develop
       (eval-guard, plugin-registry-populated, OpenSpecPreview, PluginStalenessBanner,
       overlay-claim ×2 — pre-existing, not this change's).
-- [ ] 6.2 Build + restart per the `implement` skill matrix (shared/server/client all
+- [x] 6.2 Build + restart per the `implement` skill matrix (shared/server/client all
       touched → `npm run build` then `POST /api/restart`).
-- [ ] 6.3 Manual: select a non-managed Node, confirm all three rows follow it and a
+- [x] 6.3 DEFERRED per manual-keyword defer (no test-plan.md → legacy rule): post-merge manual QA — select a non-managed Node, confirm all three rows follow it and a spawned session's `node --version` matches. Manual: select a non-managed Node, confirm all three rows follow it and a
       spawned session's `node --version` matches.
-- [ ] 6.4 `openspec validate add-node-runtime-family-selection --strict`.
+- [x] 6.4 `openspec validate add-node-runtime-family-selection --strict`.
 
 ## 7. Docs
 
 - [x] 7.1 DONE — docs/architecture.md `### Node runtime family selection` (Tool Resolution section); docs/AGENTS.md row updated. Delegate `docs/` prose to DocScribe (caveman style) — architecture entry
       for the selection flow.
-- [ ] 7.2 Add `packages/shared/src/node-installs/AGENTS.md` via `kb dox init`; update
+- [x] 7.2 Add `packages/shared/src/node-installs/AGENTS.md` via `kb dox init`; update
       the `platform/` and `tool-registry/` rows with `See change:` markers.
+
+## Post-review record
+
+- 4.5 review gate: round 1 (`@review` = deepseek-v4-pro) — SHIP, 0 blocking,
+  3 concerns + 2 nits. Round 2 fixes landed (honoured-override check in
+  child-path; trio/pin-gated adoption in coherence; server-computed
+  per-candidate pendingHandSet; containment fallback removed). Round-2
+  re-review confirmed the shared/server fixes correct; its 2 client-layer
+  blockers (stale pendingHandSet wiring + over-eager selected fallback)
+  were fixed and verified by tests + tsc. Two-round cap reached.
+- 6.1 full suite: 17505 passed; the 6 failures reproduce on clean develop.
+- E2E harness: 80/83; the 3 failures reproduce on a harness WITHOUT this
+  diff (pre-existing/environmental).
+- Enforcers: green except the knip exports ratchet (236>234) which also
+  fails on clean develop (stale baseline, not this change);
+  `--check-baseline-diff` passes (baseline not raised).
