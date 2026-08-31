@@ -2538,6 +2538,80 @@ curl -sSf https://get.openziti.io/install.bash | sudo bash -s zrok
 
 Vendor docs: https://docs.zrok.io/docs/guides/install/
 
+## Install ffmpeg
+
+Media skills (video-transcription, video-production) run ffmpeg for encode/decode. See change: add-skill-tool-provisioning.
+
+macOS:
+
+```bash
+brew install ffmpeg
+```
+
+Windows:
+
+```bash
+winget install --id Gyan.FFmpeg -e
+choco install ffmpeg
+scoop install ffmpeg
+```
+
+Linux:
+
+```bash
+sudo apt install ffmpeg
+sudo dnf install ffmpeg
+```
+
+No PATH entry needed — dashboard resolves ffmpeg via `ffmpeg-static` npm package too (optional dependency of video-transcription).
+
+Vendor docs: https://ffmpeg.org/download.html
+
+## Install ffprobe
+
+ffprobe ships inside the ffmpeg package on every channel — same install commands as ffmpeg.
+
+Standalone: `@ffprobe-installer/ffprobe` npm package resolves it.
+
+## Install ImageMagick
+
+macOS:
+
+```bash
+brew install imagemagick
+```
+
+Windows:
+
+```bash
+winget install --id ImageMagick.ImageMagick -e
+choco install imagemagick
+scoop install imagemagick
+```
+
+Linux:
+
+```bash
+sudo apt install imagemagick
+sudo dnf install ImageMagick
+```
+
+Binary name is `convert`.
+
+Windows: command is `magick`, not `convert`. `C:\Windows\System32\convert.exe` is the filesystem conversion tool.
+
+Vendor docs: https://imagemagick.org/script/download.php
+
+## Install chromium
+
+Playwright browsers cache. Dashboard probes `PLAYWRIGHT_BROWSERS_PATH` or per-OS cache dir.
+
+```bash
+npx playwright install chromium
+```
+
+Network + exec command — registry marks it `requiresConfirm`; dashboard asks before auto-running.
+
 ## Electron build shows "Bundled server already present" but my changes don't appear — what now?
 
 Old behavior. build-installer.sh now uses content-freshness gate (change: fix-stale-bundled-server-cache). Stale cache no longer skips rebundle.

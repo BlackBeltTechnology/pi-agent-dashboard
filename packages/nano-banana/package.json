@@ -24,6 +24,12 @@
   "pi": {
     "skills": [
       ".pi/skills/nano-banana-imagegen"
+    ],
+    "tools": [
+      {
+        "id": "GEMINI_API_KEY",
+        "probe": "env"
+      }
     ]
   },
   "exports": {

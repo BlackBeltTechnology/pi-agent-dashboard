@@ -68,6 +68,14 @@ interface PlatformInstallHint {
 }
 ```
 
+#### Scenario: bash registration ships install hints for every supported OS
+
+- **WHEN** the registry exposes the `bash` definition via `list()` or `/api/tools`
+- **THEN** the definition SHALL include `installHints` with non-empty entries for `darwin`, `win32`, AND `linux`
+- **AND** the bash `win32` entry SHALL list at least one of `winget`, `choco`, `scoop` in `commands`
+- **AND** the bash `darwin` entry MAY use `manual: "Pre-installed on macOS"` instead of `commands` (bash ships with macOS)
+- **AND** the bash `linux` entry MAY use `manual` similarly (bash ships with all mainstream distributions)
+
 #### Scenario: every user-installable binary tool ships install hints
 - **WHEN** the registry exposes its definitions
 - **THEN** the definitions for `bash`, `gh`, `zrok`, `git`, AND `node` SHALL each include `installHints` for `darwin`, `win32`, AND `linux`
@@ -77,6 +85,12 @@ interface PlatformInstallHint {
 - **WHEN** the registry exposes the `ffmpeg`, `ffprobe`, `imagemagick`, and `chromium` definitions
 - **THEN** each SHALL include `installHints` for the host OS
 - **AND** a hint that performs a network fetch or image build (e.g. `chromium`'s `npx playwright install chromium`) MAY set `requiresConfirm: true`
+
+#### Scenario: platform-utility tools do NOT ship install hints
+
+- **WHEN** the registry exposes its definitions
+- **THEN** the definitions for `wmic`, `powershell`, `tasklist`, `taskkill`, `ps`, `pgrep`, AND `wt` SHALL NOT include `installHints`
+- **AND** the absence of `installHints` SHALL NOT cause UI errors — consumers MUST treat the field as optional
 
 #### Scenario: installHints does not affect resolve()
 - **WHEN** `registry.resolve(name)` is called for any tool with `installHints` set
