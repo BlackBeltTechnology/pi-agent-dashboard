@@ -383,6 +383,7 @@ const zhCN: Record<string, string> = {
   "common.overrideRejectedNotFound": "覆盖项被拒绝 — 未使用路径:{path}",
   "common.overrideRejectedReason": "覆盖项被拒绝:{reason}",
   "common.overridePathDidnTValidateFell": "覆盖路径未通过验证 —— 已回退到下一个策略。",
+  "common.overrideRejectedDidNotResolve": "覆盖项被拒绝 —— 工具未能解析:{detail}",
   "common.overridesGlobal": "覆盖全局设置",
   "common.path": "路径",
   "common.piProject": "pi 项目",

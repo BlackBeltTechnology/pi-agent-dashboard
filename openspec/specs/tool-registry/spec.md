@@ -3,7 +3,9 @@
 ## Purpose
 
 Single-source resolver for every external binary, module, and directory the dashboard depends on. The registry replaces ad-hoc `which`/`require.resolve`/hardcoded-path lookups across the codebase with a unified `ToolRegistry` service that runs an ordered strategy chain per tool, caches the result, records a diagnostic trail of attempted strategies, and supports user-supplied per-tool path overrides.
+
 ## Requirements
+
 ### Requirement: Central tool registry service
 The dashboard SHALL expose a single `ToolRegistry` service in `@blackbelt-technology/pi-dashboard-shared/tool-registry` that resolves every external binary, module, and directory the dashboard depends on. The registry SHALL expose `resolve(name)`, `resolveModule(name)`, `rescan(name?)`, `list()`, `setOverride(name, path)`, and `clearOverride(name)` operations.
 
@@ -101,6 +103,12 @@ The registry SHALL read user-supplied per-tool path overrides from `~/.pi/dashbo
 
 The registry SHALL ship with definitions for at minimum: `pi` (binary), `pi-coding-agent` (module), `openspec` (binary), `npm` (binary), `npx` (binary), `node` (binary), `tsx` (binary), `git` (binary), `zrok` (binary), `gh` (binary), AND `bash` (binary). Each definition SHALL declare an ordered strategy chain and a `classify` function mapping resolved paths to `source` values.
 
+The `node`, `npm`, and `npx` tools are members of ONE Node distribution and SHALL each
+probe the managed Node runtime root, so an installed managed runtime is visible to
+every member of the family rather than to a subset of it. Their chains are NOT
+otherwise required to be identical — `npm` has no `managedBin` step, and `npm` on
+`win32` has an additional `npmCliBesideNode` step.
+
 #### Scenario: node strategy chain
 
 - **WHEN** `registry.resolve("node")` runs
@@ -109,12 +117,19 @@ The registry SHALL ship with definitions for at minimum: `pi` (binary), `pi-codi
 #### Scenario: npm strategy chain
 
 - **WHEN** `registry.resolveExecutor("npm")` runs
-- **THEN** strategies SHALL be tried in order: `override`, `bundled-node` (`<resourcesPath>/node/bin/npm` Unix / `\node\npm.cmd` Windows), `managedRuntime`, `managedBin`, `where`
+- **THEN** strategies SHALL be tried in order: `override`, `bundled-node` (`<resourcesPath>/node/bin/npm` Unix / `\node\npm.cmd` Windows), `managedRuntime` (`<managedDir>/node/bin/npm` Unix / `\node\npm.cmd` Windows), then on `win32` only `npmCliBesideNode`, then `where`
+- **AND** the chain SHALL NOT include a `managedBin` step, which is not implemented for `npm` on any platform
 
 #### Scenario: npx strategy chain
 
 - **WHEN** `registry.resolve("npx")` runs
-- **THEN** strategies SHALL be tried in order: `override`, `bundled-node` (`<resourcesPath>/node/bin/npx` Unix / `\node\npx.cmd` Windows), `managed` (`MANAGED_BIN/npx`), `where` (delegating to `ToolResolver.which("npx")`)
+- **THEN** strategies SHALL be tried in order: `override`, `bundled-node` (`<resourcesPath>/node/bin/npx` Unix / `\node\npx.cmd` Windows), `managedRuntime` (`<managedDir>/node/bin/npx` Unix / `\node\npx.cmd` Windows), `managedBin` (`MANAGED_BIN/npx`), `where` (delegating to `ToolResolver.which("npx")`)
+
+#### Scenario: an installed managed Node runtime is visible to every family member
+
+- **WHEN** a managed Node runtime is installed at `<managedDir>/node/` providing all three binaries, and no override or bundled runtime is present
+- **THEN** `resolve("node")`, `resolve("npm")`, and `resolve("npx")` SHALL each resolve into that managed runtime
+- **AND** no family member SHALL fall through to `where`/PATH while the managed runtime provides that member
 
 #### Scenario: pi strategy chain
 
@@ -346,8 +361,6 @@ A repo-level vitest test SHALL exist at `packages/shared/src/__tests__/no-hardco
 ### Requirement: `bash` is a registered binary tool
 
 The registry SHALL ship with a `bash` definition of `kind: "binary"`. The definition SHALL be registered on every platform (`darwin`, `linux`, `win32`). `bash` is a meaningful concept on all three even when the resolved path differs (`/bin/bash`, `/opt/homebrew/bin/bash`, `C:\Program Files\Git\bin\bash.exe`). The definition SHALL use the stock binary strategy chain: `override`, `managed` (`MANAGED_BIN/bash`), `where` (delegating to `ToolResolver.which("bash")`).
-
-**Already registered — not in this delta**: `npx` is already a registered binary tool (`npxBinaryDef`) with a bundled-Node-aware chain (`override → bundledNode → managedBin → where`), landed by the archived `fix-node-resolution-under-electron` change. This proposal does not modify the `npx` registration.
 
 #### Scenario: bash resolves via PATH on a system with Git-for-Windows
 
@@ -754,3 +767,45 @@ that an engines floor of `>=22.12` applies.
 - **WHEN** the direct call is rewritten as a cast-wrapped member access
 - **THEN** the `jiti-cjs-transpile-safety` gate SHALL fail naming this file
 
+### Requirement: A rejected override is indicated on unresolved rows
+
+The Settings → Tools status badge SHALL indicate a rejected override on rows where
+the tool did NOT resolve, not only on rows that resolved via a fallback strategy. A
+row whose override was rejected SHALL be visually distinguishable from a row that was
+never configured, without requiring the user to expand it.
+
+Existing surfaces are unchanged and SHALL NOT be re-implemented: the inline expanded
+warning, the full `tried[]` trail (which already carries the offending path), and the
+`ToolListEntry` / `/api/tools` payload. Fall-through behaviour is likewise unchanged
+(see "Invalid override falls through").
+
+#### Scenario: rejected override on a not-found row is distinguishable
+
+- **WHEN** a tool has an override that recorded `invalid: <reason>` AND no later strategy resolved the tool
+- **THEN** the collapsed row's status badge SHALL render a THIRD state, distinct from BOTH the ordinary not-found state AND the existing rejected-but-fell-back state
+- **AND** the indicator's tooltip SHALL name the rejected path
+- **AND** the three states SHALL be mutually distinguishable without expanding the row
+
+#### Scenario: indicator wording distinguishes fell-back from did-not-resolve
+
+- **WHEN** the rejected-override indicator is rendered on a row that did NOT resolve
+- **THEN** its tooltip SHALL NOT claim a fallback was used
+- **AND** a row that DID resolve via a later strategy SHALL retain its existing fallback wording
+
+#### Scenario: unparseable rejection reason still yields an indicator
+
+- **WHEN** the `invalid:` reason recorded for the override does not contain an extractable path (the registry's `validate` demotion path records `invalid: <validator reason>`, which carries no path guarantee, unlike `overrideStrategy`'s `invalid: path does not exist: <p>`)
+- **THEN** the badge SHALL still indicate a rejected override
+- **AND** the tooltip SHALL degrade to the reason text rather than rendering an empty or malformed path
+
+#### Scenario: rejected override on a resolved row keeps its existing indicator
+
+- **WHEN** a tool has a rejected override AND a later strategy resolved it
+- **THEN** the existing fallback indicator SHALL continue to be shown
+- **AND** its behaviour SHALL NOT change
+
+#### Scenario: not-found row without an override is unchanged
+
+- **WHEN** a tool fails to resolve and no override entry exists for it
+- **THEN** the badge SHALL render the ordinary not-found state
+- **AND** SHALL NOT suggest an override was involved

@@ -60,7 +60,7 @@ prepend.
       DONE — select.ts: planSelection (pure) + applySelection (validate-then-one-
       write); registry gained listOverrides() as the hand-set source of truth.
 
-## 3a. Absorbed: npx managedRuntime + rejected-override badge (from `fix-node-family-resolution-gaps`)
+## 3a. Absorbed: npx managedRuntime + rejected-override badge (CONVERGED — the hotfix landed on develop as #587 mid-flight; the merge kept develop's landed implementations and this change's unique parts; the duplicated absorbed delta was dropped)
 
 Harness exemplar for 3a.1–3a.8:
 `packages/shared/src/__tests__/tool-registry-definitions.test.ts` (`freshRegistry`

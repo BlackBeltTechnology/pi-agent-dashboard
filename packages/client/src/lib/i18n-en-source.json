@@ -461,6 +461,7 @@
   "common.output": "Output:",
   "common.overrideInvalidUsingFallback": "Override invalid; using fallback",
   "common.overridePathDidnTValidateFell": "Override path didn't validate — fell through to the next strategy.",
+  "common.overrideRejectedDidNotResolve": "Override rejected — tool did not resolve: {detail}",
   "common.overridesGlobal": "Overrides global",
   "common.overwriteAnyway": "Overwrite anyway",
   "packages.packages": "Packages",

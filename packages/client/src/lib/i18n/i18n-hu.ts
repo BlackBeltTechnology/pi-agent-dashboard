@@ -712,6 +712,7 @@ export const huCatalog: Record<string, string> = {
   "common.overrideRejectedNotFound": "Felülbírálás elutasítva — nem használt elérési út: {path}",
   "common.overrideRejectedReason": "Felülbírálás elutasítva: {reason}",
   "common.overridePathDidnTValidateFell": "A felülbírálási útvonal nem érvényesült — a következő stratégiára esett vissza.",
+  "common.overrideRejectedDidNotResolve": "A felülbírálás elutasítva — az eszköz nem oldódott fel: {detail}",
   "common.overridesGlobal": "Felülírja a globálisat",
   "common.overwriteAnyway": "Felülírás mindenképp",
   "common.pairingNeedsSecureRoad": "Egy távoli eszköz párosításához biztonságos útvonal kell (az átjáró vagy egy nyilvánosan megbízható TLS-URL). Sima http LAN-címen lévő böngésző nem tud párosítani — az azonosság-ellenőrzéshez biztonságos környezet szükséges.",

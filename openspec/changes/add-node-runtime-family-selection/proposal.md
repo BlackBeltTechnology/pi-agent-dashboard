@@ -22,11 +22,14 @@ Recorded per tasks 0.1–0.3; these decisions bind the build.
 - **0.3 — migration: adopt an existing coherent trio** (all three keys resolve
   into one installation) as "selected" on first encounter; otherwise start unset.
   User decision.
-- **Absorption — `fix-node-family-resolution-gaps` is absorbed into this change**
-  (user decision): its remaining scope (npx `managedRuntimeStrategy` chain
-  insertion + chain tests; rejected-override Tools badge + tests + i18n keys;
-  tool-registry spec alignment) is tasked here (section 3a). That change's
-  directory is superseded and is removed at ship time.
+- **Absorption — CONVERGED.** `fix-node-family-resolution-gaps` landed on
+  develop (2026-08-31, #587) while this change was in flight. The merge
+  reconciliation kept develop's landed implementations for the shared scope
+  (npx managed-runtime rung; rejected-override badge; i18n keys; its
+  `specs/tool-registry` delta — now carried by the landed archive) and this
+  change's UNIQUE parts (the peer seam for win32 npm anchoring, the
+  node-installs module, coherence, picker, route, child-PATH). The redundant
+  absorbed delta was dropped; no duplicate implementations remain.
 - **Win32 behaviour change confirmed wanted** (proposal open question 5): win32
   `npm` follows `node`'s override post-fix; a `node` override at an installation
   lacking `node_modules/npm` degrades to `where` (task 3b.8 documents it).
