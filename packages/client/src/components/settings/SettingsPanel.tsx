@@ -23,6 +23,7 @@ import { usePackageOperations } from "../../hooks/usePackageOperations.js";
 import { usePiCompatibility } from "../../hooks/usePiCompatibility.js";
 import { usePiResources } from "../../hooks/usePiResources.js";
 import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
+import { PROVIDER_AUTH_EVENT } from "../../hooks/useProvidersReady.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { listKnownServers } from "../../lib/api/known-servers-api.js";
@@ -826,6 +827,12 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
           });
           const data = await res.json();
           if (!data.success) throw new Error(data.error || "providers");
+          // Success branch only — a body-level failure must not dispatch. The
+          // PUT has replace semantics, so this one dispatch covers adding,
+          // editing, and deleting a custom provider. Over-dispatch (a save
+          // that changes no credential) is accepted. See change:
+          // dispatch-provider-auth-event.
+          window.dispatchEvent(new CustomEvent(PROVIDER_AUTH_EVENT));
           const saved = validProviders.map(({ isNew, ...rest }) => rest);
           setLlmProviders(saved);
           // A provider save/removal changes the catalogue; refetch off THIS

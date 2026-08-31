@@ -6,51 +6,32 @@ on:
     paths:
       - "site/**"
       # site/design-scratch/ is the design source the site is drawn FROM, not
-      # part of the built site (Astro only builds src/pages and publishes
-      # public/). Without this exclusion every mockup iteration would deploy
-      # production for no change in output.
+      # part of the built site. Without this exclusion every mockup iteration
+      # would deploy production for no change in output.
       - "!site/design-scratch/**"
       - "packages/shell/**"
       - ".github/workflows/deploy-site.yml"
-  # Rebuild and redeploy whenever a new release is published so the
-  # Download section surfaces the latest version automatically.
-  release:
-    types: [published]
   workflow_dispatch:
+
+# No `release:` trigger on purpose. publish.yml creates the GitHub Release
+# with the default Actions token, and GitHub suppresses workflow runs from
+# events raised by that token — a release event CANNOT start a run here (it
+# never has). The release path is a `site-redeploy` job in publish.yml that
+# DISPATCHES this workflow on develop via workflow_dispatch (the documented
+# exception that always creates a run). See change: fix-deploy-site-ship-shell
+# (design D8).
 
 permissions:
   contents: read
   pages: write
   id-token: write
-  actions: write # required so redispatch-on-release can run `gh workflow run`
 
 concurrency:
   group: pages-deploy
   cancel-in-progress: true
 
 jobs:
-  # When triggered by `release: published`, the workflow runs on the tag ref
-  # (e.g. v0.3.0). The `github-pages` environment's branch/tag protection
-  # rules reject deploys from non-default refs, so instead of trying to
-  # deploy inline we re-dispatch this same workflow on `develop` (the
-  # allowed ref) and let that run do the deploy. All other triggers
-  # (push to develop, workflow_dispatch) skip this job and proceed normally.
-  redispatch-on-release:
-    if: github.event_name == 'release'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Dispatch Deploy Site on develop
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh workflow run deploy-site.yml \
-            --repo "${GITHUB_REPOSITORY}" \
-            --ref develop
-
   build:
-    # Skip when this run was triggered by a release — redispatch-on-release
-    # will kick off a fresh run on develop that handles build + deploy.
-    if: github.event_name != 'release'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -112,7 +93,6 @@ jobs:
           path: site/dist
 
   deploy:
-    if: github.event_name != 'release'
     needs: build
     runs-on: ubuntu-latest
     environment:

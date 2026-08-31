@@ -47,7 +47,10 @@ export function deriveStepperState(input: DeriveStepperInput): StepperStateMap {
   function artifactState(id: NodeId): NodeState {
     const a = artifacts.find((x) => x.id === id);
     if (!a) return "todo";
-    if (a.status === "done") return "done";
+    // `skipped` (skip_specs change) is a satisfied declaration of absence, not
+    // outstanding work — render it like done. See change:
+    // dispatch-provider-auth-event.
+    if (a.status === "done" || a.status === "skipped") return "done";
     if (a.status === "ready") return "current";
     return "todo";
   }

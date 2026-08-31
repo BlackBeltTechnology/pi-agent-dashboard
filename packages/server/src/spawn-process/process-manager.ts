@@ -44,11 +44,20 @@ import {
   sessionFlagsToArgv,
   type UserSpawnStrategy,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js";
+import {
+  type ResolvedRuntime,
+  piEntryFromArgv,
+  validateResolvedRuntime,
+} from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
 import { mintSpawnToken } from "../auth/spawn-token.js";
 import {
   createKeeperManager,
   type KeeperManager,
 } from "../rpc-keeper/keeper-manager.js";
+import {
+  currentSpawnRuntime,
+  resolveLiveSpawnRuntime,
+} from "../runtime-resolution.js";
 import { type CwdPolicyRegistry, mergeCwdPolicy } from "./cwd-policy.js";
 
 // ── Resolver seam (injectable for tests) ────────────────────────────────────
@@ -211,10 +220,15 @@ export interface SpawnResult {
  * Build env for pi-session spawns.
  *
  * Order of PATH prepends (highest priority first):
- *   1. Managed Node runtime (`<managedDir>/node/{bin,}`) when installed.
+ *   1. With `opts.spawnRuntime` (pi-session spawns): the RESOLVED runtime's
+ *      bin dir (change unify-pi-runtime-identity, task 3.1) — the managed
+ *      prepend below is skipped.
+ *   2. Without it (legacy / managed-tree callers such as pi-core-updater):
+ *      the managed Node runtime (`<managedDir>/node/{bin,}`) when installed.
  *      See change: embed-managed-node-runtime.
- *   2. Managed bin (`<managedDir>/node_modules/.bin`).
- *   3. Current Node binary dir, extra bin dirs, common user bin dirs.
+ *   3. Managed bin (`<managedDir>/node_modules/.bin`), current Node binary
+ *      dir, extra bin dirs, common user bin dirs — from
+ *      `resolver.buildSpawnEnv`.
  *
  * The managed-Node prepend happens AFTER the resolver's prepends so it
  * lands at the very head of `PATH` — spawned children invoking plain
@@ -243,10 +257,39 @@ export function buildSpawnEnv(
      * change: add-plugin-spawn-scope.
      */
     extensionConfig?: Record<string, Record<string, string | string[]>>;
+    /**
+     * Ladder-resolved pi spawn runtime (change unify-pi-runtime-identity).
+     * When present, the child env derives from the RESOLVED runtime:
+     * `spawnRuntime.nodeBinDir` becomes the FIRST `PATH` entry and the
+     * managed Node directory is NOT prepended ahead of it (spec
+     * managed-node-runtime scenarios "Pi session inherits the resolved
+     * runtime" + "Process environment is not globally mutated"). Absent or
+     * null ⇒ legacy behavior byte-identical (unconditional managed prepend)
+     * for non-pi-session callers — the pi-core-updater managed-tree path
+     * (spec scenario "pi-core-updater inherits managed Node").
+     * See change: unify-pi-runtime-identity (task 3.1).
+     */
+    spawnRuntime?: ResolvedRuntime | null;
   },
 ): NodeJS.ProcessEnv {
   // Defensive copy: never mutate the caller's env (often `process.env`).
-  const env = { ...prependManagedNodeToPath(resolver.buildSpawnEnv(baseEnv)) };
+  // With a resolved spawn runtime the child PATH leads with the resolved
+  // bin dir (spec "Pi session inherits the resolved runtime"); without one
+  // the legacy unconditional managed prepend applies byte-identically.
+  const env = opts?.spawnRuntime
+    ? prependResolvedBinDir(resolver.buildSpawnEnv(baseEnv), opts.spawnRuntime)
+    : { ...prependManagedNodeToPath(resolver.buildSpawnEnv(baseEnv)) };
+  // The launcher-stamped Electron identity markers are PARENT-identity
+  // signals (this server was launched by the Electron app) — they must not
+  // leak to grandchildren: a pi session that outlives Electron and
+  // bridge-auto-starts a new server would otherwise inherit
+  // `PI_DASHBOARD_ELECTRON=1` + a stale `PI_DASHBOARD_RESOURCES_PATH` and
+  // misdetect its arm (login-shell-first ordering + stale bundle paths).
+  // Same class as the ELECTRON_RUN_AS_NODE strip in resolver.buildSpawnEnv.
+  // See change: unify-pi-runtime-identity (CodeRabbit review, round 2
+  // non-blocking finding — grandchild marker leak).
+  delete env.PI_DASHBOARD_ELECTRON;
+  delete env.PI_DASHBOARD_RESOURCES_PATH;
   // Re-add the Electron-as-node flag that `resolver.buildSpawnEnv` strips,
   // but ONLY when the argv[0] we are about to spawn is the Electron binary.
   // The argv-aware chokepoint that keeps this builder in agreement with
@@ -309,6 +352,71 @@ function normalizeEnvSegment(segment: string): string {
     .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
     .toUpperCase()
     .replace(/[^A-Z0-9_]/g, "_");
+}
+
+// ── Spawn-runtime application (change unify-pi-runtime-identity) ────────────
+
+/**
+ * Prepend a resolved runtime's bin dir as the FIRST `PATH` entry of a
+ * cloned child env, dropping exact duplicates from the tail. Pure: never
+ * mutates the input env or `process.env` (spec managed-node-runtime
+ * scenario "Process environment is not globally mutated").
+ * See change: unify-pi-runtime-identity (task 3.1).
+ */
+function prependResolvedBinDir(
+  env: NodeJS.ProcessEnv,
+  rt: ResolvedRuntime,
+): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = { ...env };
+  const currentPath = out.PATH ?? "";
+  const rest = currentPath
+    ? currentPath.split(path.delimiter).filter((p) => p !== rt.nodeBinDir)
+    : [];
+  out.PATH = [rt.nodeBinDir, ...rest].join(path.delimiter);
+  return out;
+}
+
+/**
+ * Fresh spawn runtime for a pi-session spawn: read the process-lifetime
+ * holder (`runtime-resolution.ts`), re-validate immediately (spec
+ * managed-node-runtime scenario "Spawn-time re-validation"), and re-resolve
+ * live through the ladder when the stored resolution went stale (e.g. the
+ * resolved user Node was deleted since startup — fault X5). Returns null
+ * when startup resolution has not run yet; callers then keep the legacy
+ * managed-prepend env.
+ * See change: unify-pi-runtime-identity (task 9.23 / test-plan X5).
+ */
+export function spawnRuntimeForSession(): ResolvedRuntime | null {
+  const rt = currentSpawnRuntime();
+  if (!rt) return null;
+  if (validateResolvedRuntime(rt).ok) return rt;
+  // Re-resolve with the gate floor of the pi copy THIS session will spawn
+  // (design D2) — the same entry resolvePiCommand is about to exec.
+  const piCmd = resolver.resolvePi();
+  return resolveLiveSpawnRuntime(piCmd ? { piEntry: piEntryFromArgv(piCmd) } : {});
+}
+
+/**
+ * Re-point an explicit `[<node>, <script>.js]` argv pair — the node-wrapped
+ * shape `makeNodeScriptToArgv` produces, e.g. the Windows headless
+ * `node.exe + cli.js` pairing — at the resolved spawn runtime's binary
+ * (spec managed-node-runtime scenario "Explicit-argv spawns use the
+ * resolved binary"). Non-pair argv (bare `pi`), a null runtime, or an
+ * argv that already leads with the resolved binary pass through
+ * unchanged. Pure and platform-neutral: the pair shape (`.js` second
+ * element) is itself the Windows mechanic — on non-Windows the pair only
+ * ever re-points when a ladder-resolved runtime differs, which is exactly
+ * the ABI-coherence the change establishes.
+ * See change: unify-pi-runtime-identity (task 3.2).
+ */
+export function applySpawnRuntimeToPiArgv(
+  piCmd: string[],
+  rt: ResolvedRuntime | null,
+): string[] {
+  if (!rt || piCmd.length < 2) return piCmd;
+  if (!/\.js$/i.test(piCmd[1])) return piCmd;
+  if (piCmd[0] === rt.nodeBinary) return piCmd;
+  return [rt.nodeBinary, ...piCmd.slice(1)];
 }
 
 /**
@@ -449,9 +557,15 @@ function dashboardSessionExists(): boolean {
   }
 }
 
-/** Resolve pi as argv. Prefers node.exe + cli.js on Windows (avoids .cmd). */
-function resolvePiCommand(): string[] | null {
-  return resolver.resolvePi();
+/**
+ * Resolve pi as argv. Prefers node.exe + cli.js on Windows (avoids .cmd).
+ * When a spawn runtime is passed, an explicit `[<node>, <script>.js]` argv
+ * pair is re-pointed at the resolved binary (task 3.2).
+ * See change: unify-pi-runtime-identity.
+ */
+function resolvePiCommand(rt?: ResolvedRuntime | null): string[] | null {
+  const piCmd = resolver.resolvePi();
+  return piCmd ? applySpawnRuntimeToPiArgv(piCmd, rt ?? null) : null;
 }
 
 // ── Mechanism dispatch ─────────────────────────────────────────────────────
@@ -559,7 +673,8 @@ export function spawnTmux(cwd: string, options?: SessionOptions): SpawnResult {
   // the picker's divergence banner and "new sessions use it immediately" would
   // describe a selection the default interactive path ignores.
   // See change: select-pi-runtime-install (design D9).
-  const piCmd = resolvePiCommand();
+  const rt = spawnRuntimeForSession();
+  const piCmd = resolvePiCommand(rt);
   if (!piCmd) {
     return { success: false, code: "PI_NOT_FOUND", message: `pi binary not found. Checked: ${MANAGED_BIN} and system PATH.` };
   }
@@ -568,7 +683,11 @@ export function spawnTmux(cwd: string, options?: SessionOptions): SpawnResult {
   // pi process (tmux inherits the caller's env into new windows/sessions).
   // argv0 re-adds the Electron-as-node flag when piCmd[0] is the Electron binary.
   // See change: spawn-correlation-token.
-  const env = buildSpawnEnv(process.env, { spawnToken: options?.spawnToken, argv0: piCmd[0] });
+  const env = buildSpawnEnv(process.env, {
+    spawnToken: options?.spawnToken,
+    argv0: piCmd[0],
+    spawnRuntime: rt,
+  });
   try {
     const { argv, spawnOptions } = buildSafeArgv(cmd[0], cmd.slice(1));
     execFileSync(argv[0], argv.slice(1), { stdio: "ignore", env, ...spawnOptions });
@@ -588,7 +707,10 @@ export function spawnWslTmux(cwd: string, options?: SessionOptions): SpawnResult
     // buildSafeArgv; `--exec` runs tmux directly instead of through WSL's
     // default shell. `pi` stays literal so it resolves inside the WSL namespace.
     const tmuxArgv = buildTmuxCommand(cwd, false, options, ["pi"]);
-    const env = buildSpawnEnv(process.env, { spawnToken: options?.spawnToken });
+    const env = buildSpawnEnv(process.env, {
+      spawnToken: options?.spawnToken,
+      spawnRuntime: spawnRuntimeForSession(),
+    });
     const { argv, spawnOptions } = buildSafeArgv("wsl.exe", ["--exec", ...tmuxArgv]);
     execFileSync(argv[0], argv.slice(1), { stdio: "ignore", env, ...spawnOptions });
     return { success: true, dashboardSpawned: true, message: "Pi session spawned via WSL tmux" };
@@ -602,7 +724,8 @@ async function spawnWt(cwd: string, options?: SessionOptions): Promise<SpawnResu
   if (!wt) {
     return { success: false, code: "WT_MISSING", message: "Windows Terminal (wt.exe) not found" };
   }
-  const piCmd = resolvePiCommand();
+  const rt = spawnRuntimeForSession();
+  const piCmd = resolvePiCommand(rt);
   if (!piCmd) {
     return { success: false, code: "PI_NOT_FOUND", message: `pi binary not found. Checked: ${MANAGED_BIN} and system PATH.` };
   }
@@ -616,7 +739,11 @@ async function spawnWt(cwd: string, options?: SessionOptions): Promise<SpawnResu
     cwd,
     // pass the node-wrapped pi argv[0] so the Electron-as-node flag is
     // re-added when it is the Electron binary (execpath-fallback topology).
-    env: buildSpawnEnv(process.env, { spawnToken: options?.spawnToken, argv0: piCmd[0] }),
+    env: buildSpawnEnv(process.env, {
+      spawnToken: options?.spawnToken,
+      argv0: piCmd[0],
+      spawnRuntime: rt,
+    }),
   });
 
   if (!r.ok) {
@@ -641,7 +768,8 @@ async function spawnHeadless(cwd: string, options?: SessionOptions): Promise<Spa
   // See change: add-rpc-stdin-dispatch-with-keeper-sidecar (introduced keeper),
   //             enable-rpc-keeper-by-default (made keeper the only path).
   const args = buildHeadlessArgs(options);
-  const piCmd = resolvePiCommand();
+  const rt = spawnRuntimeForSession();
+  const piCmd = resolvePiCommand(rt);
   if (!piCmd) {
     return { success: false, code: "PI_NOT_FOUND", message: `pi binary not found. Checked: ${MANAGED_BIN} and system PATH.` };
   }
@@ -652,6 +780,7 @@ async function spawnHeadless(cwd: string, options?: SessionOptions): Promise<Spa
     spawnToken: options?.spawnToken,
     argv0: piCmd[0],
     extensionConfig: options?.extensionConfig,
+    spawnRuntime: rt,
   });
   return spawnHeadlessViaKeeper(cwd, env, args, piCmd);
 }

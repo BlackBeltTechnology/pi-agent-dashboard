@@ -79,7 +79,7 @@ Cross-refs:
 Three install paths. Pick one.
 
 - **A — Electron desktop app**: pre-built installer from GitHub Releases. No prerequisites. Standalone mode bundles Node.js, auto-installs pi + dashboard + openspec into `~/.pi-dashboard/`.
-- **B — pi package**: `pi install npm:@blackbelt-technology/pi-agent-dashboard`. Bridge auto-starts server on first `pi` launch. Requires Node.js ≥ 22.18.0, pi, C++ build tools.
+- **B — pi package**: `pi install npm:@blackbelt-technology/pi-agent-dashboard`. Bridge auto-starts server on first `pi` launch. Requires Node.js ≥ 22.19.0, pi, C++ build tools.
 - **C — From source**: `git clone` + `npm install` + `pi install /path/to/pi-agent-dashboard`. Contributors.
 
 Cross-refs:
@@ -97,7 +97,7 @@ Command: `pi install npm:@blackbelt-technology/pi-agent-dashboard`.
 - Run `pi` afterward. Bridge auto-starts dashboard server on first launch.
 - First-launch banner: `🌐 Dashboard started at http://localhost:8000`.
 - Open `http://localhost:8000`. Active sessions appear automatically.
-- Prerequisites apply (Node.js ≥ 22.18.0, pi, C++ build tools for `node-pty`).
+- Prerequisites apply (Node.js ≥ 22.19.0, pi, C++ build tools for `node-pty`).
 
 Cross-refs:
 - README.md:54
@@ -117,7 +117,7 @@ pi-dashboard start
 - No first-run install delay. pi/openspec/tsx ship as regular deps of `@blackbelt-technology/pi-dashboard-server`; npm pulls them in at install time.
 - `cli.ts` logs `[bootstrap] ready (pi resolved via <source>)` on successful resolve.
 - Resolution failure throws hard with `corrupted node_modules` hint. Reinstall to recover.
-- Requires Node.js ≥ 22.18.0. `npm` on PATH.
+- Requires Node.js ≥ 22.19.0. `npm` on PATH.
 
 Cross-refs:
 - docs/service-bootstrap.md — "Standalone npm install"
@@ -151,7 +151,7 @@ Required for paths B + C only. Path A (Electron) bundles everything.
 | Requirement | Why |
 |---|---|
 | **pi** (`@earendil-works/pi-coding-agent`) | Agent monitored by dashboard |
-| **Node.js ≥ 22.18.0** | Server runtime. 22.0.0–22.17.x and 24.1.0–24.2.x crash Fastify per nodejs/node#58515 |
+| **Node.js ≥ 22.19.0** | Server runtime. 22.0.0–22.18.x and 24.1.0–24.2.x crash Fastify per nodejs/node#58515 |
 | **C++ build tools** | `node-pty` native addon for terminal. Xcode CLI (macOS) / `build-essential` (Linux) |
 
 Optional:
@@ -653,7 +653,7 @@ Remove with `pi remove /path/to/pi-agent-dashboard`. Or add path directly to `~/
 
 Prerequisites:
 - pi (`npm i -g @earendil-works/pi-coding-agent`)
-- Node.js ≥ 22.18.0 (older 22.x / 24.x < 24.3.0 hit nodejs/node#58515 Fastify crash)
+- Node.js ≥ 22.19.0 (22.0–22.18 / 24.1–24.2 hit nodejs/node#58515 Fastify crash)
 - C++ build tools for `node-pty` (Xcode CLI Tools / `build-essential`)
 
 Dev commands:
@@ -1217,7 +1217,7 @@ Only for Path 2 (tarball / npm). Path 1 (Electron Setup.exe) bundles everything.
 
 | Requirement | Why | Command |
 |---|---|---|
-| **Node.js ≥ 22.18.0** | Server runtime; 22.0.0–22.17.x and 24.1.0–24.2.x crash Fastify per nodejs/node#58515 | Install [MSI](https://nodejs.org/dist/v22.18.0/node-v22.18.0-x64.msi) or use [fnm](https://github.com/Schniz/fnm) |
+| **Node.js ≥ 22.19.0** | Server runtime; 22.0.0–22.18.x and 24.1.0–24.2.x crash Fastify per nodejs/node#58515 | Install [MSI](https://nodejs.org/dist/v22.19.0/node-v22.19.0-x64.msi) or use [fnm](https://github.com/Schniz/fnm) |
 | **Git for Windows** | Version control | [git-scm.com](https://git-scm.com/download/win); select "Use Git from Windows Command Prompt" |
 | **Long paths enabled** | Node's node_modules nesting exceeds Windows default 260-char limit | `reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f` then `git config --global core.longpaths true`; reboot |
 | **Windows Build Tools** (optional) | Only if native modules fail to compile (node-pty) | `npm install --global windows-build-tools` or install Visual Studio Build Tools with "Desktop development with C++" workload |
@@ -1367,7 +1367,7 @@ Cross-refs:
 
 Advanced path for developers validating pre-release builds or headless server-only installs without Electron.
 
-Prerequisites: Node.js ≥ 22.18.0, Git for Windows, long paths enabled, Windows Build Tools (optional).
+Prerequisites: Node.js ≥ 22.19.0, Git for Windows, long paths enabled, Windows Build Tools (optional).
 
 Steps:
 

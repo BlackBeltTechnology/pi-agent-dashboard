@@ -11,6 +11,14 @@ export interface ProvidersReadyState {
 }
 
 /**
+ * Window event dispatched on `window` after a successful credential write
+ * (API-key save/removal, OAuth sign-in/sign-out, device-code completion,
+ * custom-LLM-provider save). This hook refetches both readiness endpoints on
+ * it. Import this constant at every dispatch site — do not retype the string.
+ */
+export const PROVIDER_AUTH_EVENT = "provider-auth-event";
+
+/**
  * Observes `/api/providers` to determine whether at least one LLM provider has
  * a non-empty apiKey configured. Refetches on window focus and on the
  * `provider-auth-event` custom event (dispatched after OAuth / key entry).
@@ -63,10 +71,10 @@ export function useProvidersReady(): ProvidersReadyState {
     const onFocus = () => refetch();
     const onAuthEvent = () => refetch();
     window.addEventListener("focus", onFocus);
-    window.addEventListener("provider-auth-event", onAuthEvent as EventListener);
+    window.addEventListener(PROVIDER_AUTH_EVENT, onAuthEvent as EventListener);
     return () => {
       window.removeEventListener("focus", onFocus);
-      window.removeEventListener("provider-auth-event", onAuthEvent as EventListener);
+      window.removeEventListener(PROVIDER_AUTH_EVENT, onAuthEvent as EventListener);
     };
   }, [refetch]);
 
