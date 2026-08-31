@@ -74,6 +74,7 @@ ignoredBuiltDependencies:
   - sharp
 
 allowBuilds:
+  '@ffprobe-installer/darwin-x64': set this to true or false
   '@fission-ai/openspec': true
   '@google/genai': true
   electron: true

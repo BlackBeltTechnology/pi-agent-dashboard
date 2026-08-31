@@ -61,12 +61,15 @@ be small in size yet still exceed 5 h, so the guard probes duration via ffprobe.
 
 ## Prerequisites
 
-- **ffmpeg** (with **ffprobe**) on `PATH` — for audio extraction, duration
-  probing, and chunk splitting. When absent, video files are skipped with a
-  warning; audio-only files still process.
-- **`SONIOX_API_KEY`** — resolved from the environment first, then an optional
-  gitignored `.env` (current directory, then the skill dir). No secret ships in
-  the package; the bin fails fast with a clear message if the key is unresolved.
+- **ffmpeg** (with **ffprobe**) — declared in this package's `pi.tools`
+  manifest and resolved through the dashboard tool registry (PATH **or** the
+  `ffmpeg-static` npm package, which is an optional dependency here). When
+  absent, video files are skipped with a warning; audio-only files still
+  process. `pi-dashboard-ensure <package-root>/package.json` reports both.
+- **`SONIOX_API_KEY`** — declared as an `env` probe in `pi.tools`; resolved
+  from the environment first, then an optional gitignored `.env` (current
+  directory, then the skill dir). No secret ships in the package; the bin
+  fails fast with a clear message if the key is unresolved.
 
 ### Environment overrides
 

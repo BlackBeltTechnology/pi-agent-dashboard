@@ -3594,6 +3594,63 @@ Settings → General → **Tools** renders one row per registered tool: status b
 
 See change: `consolidate-tool-resolution`.
 
+## Skill tool provisioning
+
+Skill packages can declare the external tools they need through a `pi.tools` manifest in their package.json. The registry ingests these at server bootstrap, so a skill tool IS a registry tool — same `list()` / `/api/tools` / Settings → Tools surface, same override + diagnostic trail. Two faces: library `ensureTools` and CLI `pi-dashboard-ensure`. Distinct from the build-time `pi-dashboard-resolve-tool.cjs` wrapper (path-only, untouched).
+
+See change: `add-skill-tool-provisioning`.
+
+### `pi.tools` manifest
+
+- Array in the skill package's package.json under `pi`, sibling to `pi.skills`.
+- Entry = `{ id, probe, optional? }` only. No shell strings — install recipes stay first-party in the registry's `installHints` for that id.
+- Id charset `^[A-Za-z0-9_][A-Za-z0-9._-]*$` — the set of legal env-var names.
+- Parser `parseSkillTools` validates strictly (exact key set, charset, known probe kinds) and names every rejected entry.
+- Ingestor `ingestSkillTools` (both in `packages/shared/src/tool-registry/pi-tools.ts`) is idempotent: unknown id → synthesized probe-kind def; known id → referenced, never clobbered.
+- Default `probe` = `resolve`.
+
+### Probe kinds → strategies (`strategies.ts`)
+
+| probe | strategy | semantics |
+|---|---|---|
+| `env` | `envProbeStrategy` | boolean presence; value never read — logs stay free of secrets |
+| `docker-image` | `dockerImageProbeStrategy` | `docker image inspect`; never assumes docker exists |
+| `pw-browser` | `pwBrowserProbeStrategy` | `PLAYWRIGHT_BROWSERS_PATH` or per-OS cache dir under homedir |
+| `resolve` | `whereStrategy` | existing PATH chain |
+| `static-npm` (new) | `staticNpmStrategy` | binary path read from package export — bare string (`ffmpeg-static`) or `{ path }` (`@ffprobe-installer/ffprobe`) |
+
+New `Source` values: `static-npm`, `probe`. `Resolution.path` nullable when `ok` for non-path kinds (`env`).
+
+### Media tool definitions (`definitions.ts`)
+
+| Tool | Kind | Chain | Hint |
+|---|---|---|---|
+| `ffmpeg` | binary | override → static-npm(`ffmpeg-static`) → where | per-OS package manager |
+| `ffprobe` | binary | override → static-npm(`@ffprobe-installer/ffprobe`) → where | per-OS package manager |
+| `imagemagick` | binary | override → where (`convert`) | per-OS package manager |
+| `chromium` | probe | override → pw-browser | `npx playwright install chromium` (requiresConfirm) |
+| `agent-browser` | binary | override → where | `pi install npm:pi-agent-browser` |
+| `pi-doc-engine` | probe | override → docker-image | `npm run build:image` (requiresConfirm) |
+
+All registered on every platform — the strategies themselves are cross-platform.
+
+### Consent
+
+- Default stance: recommend-only. A missing tool never installs anything.
+- Opt-in auto-run — `ensureTools(..., { autoInstall: true })` or CLI `--install` — executes ONLY resolved first-party `installHints.commands[pkgmgr]` values. A skill manifest can never contribute an executable string.
+- `PlatformInstallHint.requiresConfirm` gates network+exec hints (playwright download, image build). Confirmation per invocation; no TTY → auto-deny.
+- Report matrix: `present` / `recommended` / `installed` / `degraded` / `blocked`. `ok: false` ⇔ a required tool not present/installed. Optional tools degrade, never block.
+
+### Two faces
+
+- Library: `ensureTools` (`ensure.ts`) — returns an `EnsureReport`; never throws for missing tools.
+- CLI: `pi-dashboard-ensure` (`packages/shared/bin/pi-dashboard-ensure.mjs` → `ensure-cli.ts`). Reads a package's `pi.tools`, ingests, ensures, prints the report. tsx launcher — the probe strategies are TypeScript registry code. Flags `--install`, `--json`; exit 0 when every required tool present/installed.
+- Distinct from build-time `pi-dashboard-resolve-tool.cjs` (path-only, no-transpiler, untouched).
+
+### Surfacing
+
+`ingestInstalledSkillTools` runs at server bootstrap (`packages/server/src/cli.ts`). Scans `<root>/node_modules/@blackbelt-technology/<pkg>/package.json` + `<root>/packages/<pkg>/package.json` manifests, ingests into the registry, surfaces through the existing `list()` / `GET /api/tools` / Settings → Tools rows. No new reporting path. Invalid manifests skipped — a doc bug never breaks startup.
+
 ## Path Handling (`platform/paths.ts`)
 
 Filesystem paths are OS-aware, and the dashboard touches them in three user-visible places: pin-directory storage (server), session-grouping (client), and the path picker UI (client). All three go through a single module — `packages/shared/src/platform/paths.ts` — rather than inventing their own logic.

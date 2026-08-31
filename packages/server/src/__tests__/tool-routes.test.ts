@@ -11,6 +11,7 @@ import path from "node:path";
 import {
   OverridesStore,
   registerDefaultTools,
+  ingestSkillTools,
   type Strategy,
   ToolRegistry,
 } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
@@ -80,6 +81,28 @@ describe("GET /api/tools", () => {
     expect(body.success).toBe(true);
     const names = body.data.tools.map((t: any) => t.name).sort();
     expect(names).toEqual(["ghost", "pi"]);
+  });
+
+  it("lists an ingested skill-manifest tool once pi.tools is ingested (6.1)", async () => {
+    const registry = buildRegistry();
+    const records = ingestSkillTools(registry, [
+      { id: "SONIOX_API_KEY", probe: "env" },
+      { id: "ffmpeg", probe: "resolve", optional: true },
+    ]);
+    expect(records).toHaveLength(2);
+    const app = buildServer(registry);
+    try {
+      const res = await app.inject({ method: "GET", url: "/api/tools" });
+      expect(res.statusCode).toBe(200);
+      const tools = res.json().data.tools;
+      const soniox = tools.find((t: any) => t.name === "SONIOX_API_KEY");
+      expect(soniox, "ingested env probe surfaces as a registry row").toBeDefined();
+      expect(soniox.ok).toBe(false); // unset on the test host
+      // An ingested row flows through list() exactly like a built-in tool.
+      expect(tools.find((t: any) => t.name === "ffmpeg")).toBeDefined();
+    } finally {
+      await app.close();
+    }
   });
 });
 

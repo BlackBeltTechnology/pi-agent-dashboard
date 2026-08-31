@@ -26,6 +26,22 @@
     "skills": [
       ".pi/skills/veo-showreel-production-kit",
       ".pi/skills/veo-generator"
+    ],
+    "tools": [
+      {
+        "id": "ffmpeg",
+        "probe": "resolve",
+        "optional": true
+      },
+      {
+        "id": "imagemagick",
+        "probe": "resolve",
+        "optional": true
+      },
+      {
+        "id": "GEMINI_API_KEY",
+        "probe": "env"
+      }
     ]
   },
   "exports": {

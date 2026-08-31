@@ -16,6 +16,12 @@
     "skills": [
       ".pi/skills/document-converter",
       ".pi/skills/doc-summarizer"
+    ],
+    "tools": [
+      {
+        "id": "pi-doc-engine",
+        "probe": "docker-image"
+      }
     ]
   },
   "exports": {

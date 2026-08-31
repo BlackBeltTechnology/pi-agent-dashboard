@@ -21,6 +21,16 @@
       ".pi/skills/browser",
       ".pi/skills/project-init",
       ".pi/skills/doctor"
+    ],
+    "tools": [
+      {
+        "id": "agent-browser",
+        "probe": "resolve"
+      },
+      {
+        "id": "chromium",
+        "probe": "pw-browser"
+      }
     ]
   },
   "files": [

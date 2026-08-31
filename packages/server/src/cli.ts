@@ -59,7 +59,7 @@ import {
 import { parseDashboardStarter } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
 import { discoverDashboard } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
-import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { getDefaultRegistry, ingestInstalledSkillTools } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import { assertNodeVersionSupported } from "./auth/node-guard.js";
 import { recordExitIntent } from "./persistence/boot-state.js";
 
@@ -230,6 +230,11 @@ async function runForeground(config: ServerConfig): Promise<void> {
   // at startup. A miss here means the install tree is corrupted.
   {
     const registry = getDefaultRegistry();
+    // Ingest skill-package pi.tools manifests (installed tree + monorepo
+    // dev) so skill tools surface through /api/tools + Settings → Tools.
+    // Best-effort: an invalid manifest is skipped, never fatal.
+    // See change: add-skill-tool-provisioning (task 6.2).
+    ingestInstalledSkillTools(registry);
     const res = registry.resolve("pi");
     if (res.ok) {
       console.log(`[bootstrap] ready (pi resolved via ${res.source})`);
