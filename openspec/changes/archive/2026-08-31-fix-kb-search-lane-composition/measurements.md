@@ -107,7 +107,8 @@ D6 explicitly warns that a margin tuned on ~100 mined queries overfits.
 What ships instead: the knob itself (opt-in via `ranking.laneLeadMargin`), the `doc_type`
 description + prompt guideline (D4), and the record-type marks (D5) — the discoverability
 half, which needs no ranking trade-off at all. The measured escape hatch
-(`doc_type: "agents"`, 5.5x P@1 on file-lookup queries) is now described in the schema, so
+(`doc_type: "agents"`, 4.8x P@1 on file-lookup queries — the reproduced figure from §5,
+not the proposal's 5.5x mining-time snapshot) is now described in the schema, so
 the agent can choose the lane per query instead of a global default choosing for it.
 
 Re-open the default when the markdown fixture is large enough for the −0.01 tolerance to
