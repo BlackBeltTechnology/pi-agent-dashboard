@@ -3637,6 +3637,42 @@ Settings → General → **Tools** renders one row per registered tool: status b
 
 See change: `consolidate-tool-resolution`.
 
+### Node runtime family selection
+
+`node`, `npm`, `npx` treated as ONE Node distribution — a single selected installation drives all three override keys. See change: `add-node-runtime-family-selection`.
+
+#### Enumeration
+
+`enumerateNodeCandidates()` in `packages/shared/src/node-installs/candidates.ts` lists every pickable installation. Roots mirror the strategy chains — bundled `<resourcesPath>/node`, managed `<managedDir>/node`, PATH — plus additive version-manager roots (nvm, fnm, volta, asdf) from `vm-roots.ts` (single root definition; consumers import-only, set cannot drift).
+
+Entries are per-member FILES: `nodeEntry` / `npmEntry` / `npxEntry`. Partial families legal (distro nodejs without npm) — absent entry, never fabricated path.
+
+Enumeration filesystem-only. Version from dir name (vm roots) or absent. Never spawns `node --version`.
+
+#### Selection
+
+`select.ts`: `planSelection` (pure) + `applySelection`. `applySelection` validates every entry (existing file inside the root), then ONE `registry.setOverrides()` write — all-or-nothing. Absent member key CLEARED unless hand-set. Hand-set member reported pre-write, preserved unless explicitly discarded.
+
+#### Coherence
+
+`coherence.ts` `assessFamilyCoherence` — ownership by containment. Mismatch names each deviating member + its root. Absent member alone ≠ mismatch.
+
+#### REST + UI
+
+`GET /api/node/installs` + `POST /api/node/installs/select` in `packages/server/src/routes/node-runtime-routes.ts`. UI: `packages/client/src/components/settings/NodeRuntimeSection.tsx` — Settings → Developer, next to the pi runtime picker.
+
+#### Child PATH
+
+`node-installs/child-path.ts` `prependSelectedNodeToPath` — dashboard-tooling spawns follow the selection. No selection → byte-identical legacy managed prepend. pi-session spawns governed by the spawn-runtime ladder (selection = gated step-1 candidate via `readToolOverrideNode`). Managed-tree mutations (pi-core-updater) keep managed-first.
+
+#### Win32 npm anchoring
+
+`npmCliBesideNodeStrategy` anchors on peer-resolved `node` via `StrategyDeps.resolvePeer` — bound at `getDefaultRegistry` via `bindPeerResolution`, in-flight re-entrancy guard at the binding; falls back to `deps.execPath`. Behaviour change: win32 npm now follows node's override.
+
+#### Cache
+
+`invalidateNodeCandidatesCache()` wired into `ToolRegistry.rescan()`.
+
 ## Path Handling (`platform/paths.ts`)
 
 Filesystem paths are OS-aware, and the dashboard touches them in three user-visible places: pin-directory storage (server), session-grouping (client), and the path picker UI (client). All three go through a single module — `packages/shared/src/platform/paths.ts` — rather than inventing their own logic.

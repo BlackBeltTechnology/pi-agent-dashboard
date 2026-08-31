@@ -35,7 +35,7 @@ import {
   execSync,
   spawnSync,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
-import { prependManagedNodeToPath } from "@blackbelt-technology/pi-dashboard-shared/platform/managed-node-path.js";
+import { prependSelectedNodeToPath } from "@blackbelt-technology/pi-dashboard-shared/node-installs/index.js";
 import { electronAsNodeRequired } from "@blackbelt-technology/pi-dashboard-shared/platform/runner.js";
 import {
   buildWtArgs,
@@ -275,10 +275,13 @@ export function buildSpawnEnv(
   // Defensive copy: never mutate the caller's env (often `process.env`).
   // With a resolved spawn runtime the child PATH leads with the resolved
   // bin dir (spec "Pi session inherits the resolved runtime"); without one
-  // the legacy unconditional managed prepend applies byte-identically.
+  // the child follows the family SELECTION directly, falling back to the
+  // legacy managed prepend when no selection exists — the unconditional
+  // managed prepend no longer remains on this path.
+  // See change: add-node-runtime-family-selection (section 4, design D7).
   const env = opts?.spawnRuntime
     ? prependResolvedBinDir(resolver.buildSpawnEnv(baseEnv), opts.spawnRuntime)
-    : { ...prependManagedNodeToPath(resolver.buildSpawnEnv(baseEnv)) };
+    : { ...prependSelectedNodeToPath(resolver.buildSpawnEnv(baseEnv)) };
   // The launcher-stamped Electron identity markers are PARENT-identity
   // signals (this server was launched by the Electron app) — they must not
   // leak to grandchildren: a pi session that outlives Electron and

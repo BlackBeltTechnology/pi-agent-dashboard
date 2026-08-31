@@ -11,6 +11,7 @@
  *     the loaded ES module alongside the Resolution.
  */
 import { pathToFileURL } from "node:url";
+import { invalidateNodeCandidatesCache } from "../node-installs/candidates.js";
 import { invalidatePiCandidatesCache } from "../pi-installs/candidates.js";
 import { OverridesStore } from "./overrides.js";
 import {
@@ -267,11 +268,13 @@ export class ToolRegistry {
 
   /** Drop cached Resolution(s). Next resolve() re-runs strategies. */
   rescan(name?: string): void {
-    // The pi enumeration cache holds per-LOCATION intermediates the registry
-    // cache does not (it holds one winning Resolution per tool), so it needs
-    // its own invalidation on the same signal.
-    // See change: select-pi-runtime-install (design D3).
+    // The pi + node enumeration caches hold per-LOCATION intermediates the
+    // registry cache does not (they hold one winning Resolution per tool),
+    // so they need their own invalidation on the same signal.
+    // See change: select-pi-runtime-install (design D3);
+    // change: add-node-runtime-family-selection.
     invalidatePiCandidatesCache();
+    invalidateNodeCandidatesCache();
     if (name === undefined) {
       this.cache.clear();
       this.moduleCache.clear();
@@ -280,6 +283,11 @@ export class ToolRegistry {
     }
     this.cache.delete(name);
     this.moduleCache.delete(name);
+  }
+
+  /** Snapshot of current overrides (read-through, lazy disk load). */
+  listOverrides(): Readonly<Record<string, string>> {
+    return this.overrides.list();
   }
 
   /** Set a path override. Invalidates the target's cache. */

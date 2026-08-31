@@ -37,6 +37,16 @@ import type { Strategy, StrategyCtx, StrategyResult } from "./types.js";
  *   `BUNDLED_*` path cannot dereference to a real on-disk script
  *   (`/Applications/PI-Dashboard.app/.../npm-cli.js`).
  *   See change: fix-node-electron-resolution-test-isolation.
+ * - `resolvePeer` — PEER-RESOLUTION SEAM (design D1): resolve a family
+ *   peer (e.g. `node` for `npm`) through the registry. Bound at ONE
+ *   production site (`getDefaultRegistry`, via `bindPeerResolution`, D2)
+ *   and injected in tests; undefined elsewhere, in which case callers
+ *   fall back to the `execPath` seam — never a direct `process.execPath`
+ *   read at the call site. The in-flight re-entrancy guard lives at the
+ *   binding (`bindPeerResolution`), not in either strategy — the
+ *   registry cache is written only AFTER the strategy loop, so a cache
+ *   check alone cannot stop recursion.
+ *   See change: add-node-runtime-family-selection (section 3b).
  */
 export interface StrategyDeps {
   exists?(p: string): boolean;
@@ -45,6 +55,12 @@ export interface StrategyDeps {
   resolveModule?(id: string, from: string): string | null;
   execPath?: string;
   realpath?(p: string): string;
+  /**
+   * Resolve a peer tool through the registry; null on refusal (re-entrancy
+   * guard) or miss. `forTool` names the resolving tool so the guard can
+   * refuse self-re-entry.
+   */
+  resolvePeer?(name: string, forTool: string): string | null;
 }
 
 /**
@@ -218,7 +234,7 @@ function pickConditional(node: unknown): string | null {
   return null;
 }
 
-function defaults(): Required<StrategyDeps> {
+function defaults(): Required<Omit<StrategyDeps, "resolvePeer">> & Pick<StrategyDeps, "resolvePeer"> {
   const resolver = new ToolResolver({
     processExecPath: process.execPath,
     useLoginShell: true,
@@ -230,11 +246,12 @@ function defaults(): Required<StrategyDeps> {
     resolveModule: defaultResolveModule,
     execPath: process.execPath,
     realpath: realpathSync,
+    resolvePeer: undefined,
   };
 }
 
 /** Merge caller-supplied deps over the live defaults. */
-function d(deps?: StrategyDeps): Required<StrategyDeps> {
+function d(deps?: StrategyDeps): Required<Omit<StrategyDeps, "resolvePeer">> & Pick<StrategyDeps, "resolvePeer"> {
   const base = defaults();
   if (!deps) return base;
   return {
@@ -244,6 +261,7 @@ function d(deps?: StrategyDeps): Required<StrategyDeps> {
     resolveModule: deps.resolveModule ?? base.resolveModule,
     execPath: deps.execPath ?? base.execPath,
     realpath: deps.realpath ?? base.realpath,
+    resolvePeer: deps.resolvePeer ?? base.resolvePeer,
   };
 }
 

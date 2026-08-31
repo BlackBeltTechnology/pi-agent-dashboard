@@ -14,8 +14,37 @@ export { ToolRegistry } from "./registry.js";
 export { registerDefaultTools } from "./definitions.js";
 export * from "./strategies.js";
 
+import type { Resolution } from "./types.js";
 import { ToolRegistry } from "./registry.js";
 import { registerDefaultTools } from "./definitions.js";
+import type { StrategyDeps } from "./strategies.js";
+
+/**
+ * Bind the peer-resolution seam to a registry's `resolve`, with the
+ * re-entrancy guard at the binding (design D2): a lookup that would
+ * re-enter a tool already in flight (or itself) is REFUSED (null) — the
+ * strategy then falls back to its `execPath` seam. The guard must live
+ * here, not in the registry: the cache is written only AFTER the
+ * strategy loop, so a cache check alone cannot stop recursion.
+ *
+ * See change: add-node-runtime-family-selection (section 3b).
+ */
+export function bindPeerResolution(
+  resolve: (name: string) => Resolution,
+): NonNullable<StrategyDeps["resolvePeer"]> {
+  const inFlight = new Set<string>();
+  return (name: string, forTool: string): string | null => {
+    if (name === forTool) return null;
+    if (inFlight.has(name)) return null;
+    inFlight.add(name);
+    try {
+      const r = resolve(name);
+      return r.ok && r.path ? r.path : null;
+    } finally {
+      inFlight.delete(name);
+    }
+  };
+}
 
 /**
  * Lazily-constructed process-wide registry. Most callers should use this
@@ -33,7 +62,16 @@ let defaultRegistry: ToolRegistry | null = null;
 export function getDefaultRegistry(): ToolRegistry {
   if (!defaultRegistry) {
     defaultRegistry = new ToolRegistry();
-    registerDefaultTools(defaultRegistry);
+    // THE production peer-seam binding (design D2): the only non-test
+    // construction in the repo binds resolvePeer to THIS registry, so
+    // npm's win32 anchoring follows the resolved node here — not just in
+    // tests. Self-review of the registry is impossible here because the
+    // seam is absent in any registry built without it (tests inject
+    // their own).
+    // See change: add-node-runtime-family-selection (section 3b).
+    registerDefaultTools(defaultRegistry, {
+      resolvePeer: bindPeerResolution(defaultRegistry.resolve.bind(defaultRegistry)),
+    });
     (globalThis as unknown as GlobalSlot)[GLOBAL_KEY] = defaultRegistry;
   }
   return defaultRegistry;

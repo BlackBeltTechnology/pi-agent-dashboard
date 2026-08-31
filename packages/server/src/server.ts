@@ -122,6 +122,7 @@ import { registerPiChangelogRoutes } from "./routes/pi-changelog-routes.js";
 import { registerPiCoreRoutes } from "./routes/pi-core-routes.js";
 import { registerPiRetryRoutes } from "./routes/pi-retry-routes.js";
 import { registerPiRuntimeRoutes } from "./routes/pi-runtime-routes.js";
+import { registerNodeRuntimeRoutes } from "./routes/node-runtime-routes.js";
 import { registerPluginActivationRoutes } from "./routes/plugin-activation-routes.js";
 import { registerPluginConfigRoutes } from "./routes/plugin-config-routes.js";
 import { registerPreferencesAutoNameRoutes } from "./routes/preferences-auto-name-routes.js";
@@ -1612,6 +1613,9 @@ export async function createServer(config: ServerConfig): Promise<DashboardServe
   registerToolRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
   // Pi runtime discovery + atomic dual selection. See change: select-pi-runtime-install.
   registerPiRuntimeRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
+  // Node family discovery + atomic triple selection (node+npm+npx).
+  // See change: add-node-runtime-family-selection.
+  registerNodeRuntimeRoutes(fastify, { registry: getDefaultRegistry(), networkGuard });
 
   // /api/bootstrap/* routes removed under change:
   // eliminate-electron-runtime-install (task 3.4). pi-core in-place

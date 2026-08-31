@@ -709,6 +709,8 @@ export const huCatalog: Record<string, string> = {
   "common.other": "Egyéb",
   "common.output": "Kimenet:",
   "common.overrideInvalidUsingFallback": "Felülbírálás érvénytelen; tartalék használata",
+  "common.overrideRejectedNotFound": "Felülbírálás elutasítva — nem használt elérési út: {path}",
+  "common.overrideRejectedReason": "Felülbírálás elutasítva: {reason}",
   "common.overridePathDidnTValidateFell": "A felülbírálási útvonal nem érvényesült — a következő stratégiára esett vissza.",
   "common.overridesGlobal": "Felülírja a globálisat",
   "common.overwriteAnyway": "Felülírás mindenképp",

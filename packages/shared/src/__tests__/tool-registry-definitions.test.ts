@@ -12,6 +12,7 @@ import {
   ToolRegistry,
   registerDefaultTools,
   OverridesStore,
+  bindPeerResolution,
 } from "../tool-registry/index.js";
 
 function freshRegistry(opts: {
@@ -21,6 +22,12 @@ function freshRegistry(opts: {
   overrides?: Record<string, string>;
   platform?: NodeJS.Platform;
   resourcesPath?: string;
+  /** Injected as env.homedir so managed-dir probes are deterministic. */
+  homedir?: string;
+  /** Executor-argv + peer-seam fallback anchor. */
+  execPath?: string;
+  /** Peer-resolution seam (design D1). */
+  resolvePeer?: (name: string, forTool: string) => string | null;
   /**
    * Test-isolated module resolver. Defaults to null-returning so the
    * production resolver (which walks the repo's real node_modules) does
@@ -38,12 +45,18 @@ function freshRegistry(opts: {
   const r = new ToolRegistry({
     overrides: store,
     platform: opts.platform ?? "linux",
-    env: opts.resourcesPath ? { resourcesPath: opts.resourcesPath } : undefined,
+    env: opts.homedir
+      ? { homedir: opts.homedir, ...(opts.resourcesPath ? { resourcesPath: opts.resourcesPath } : {}) }
+      : opts.resourcesPath
+        ? { resourcesPath: opts.resourcesPath }
+        : undefined,
   });
   registerDefaultTools(r, {
     exists: opts.exists ?? (() => false),
     which: opts.which ?? (() => null),
     npmRootGlobal: opts.npmRootGlobal ?? (() => ""),
+    execPath: opts.execPath,
+    resolvePeer: opts.resolvePeer,
     // Default-null so bare-import strategies fail in test mode unless
     // the test opts back in. Without this, the new dir-walk fallback in
     // `defaultResolveModule` finds packages on the host's real disk and
@@ -290,16 +303,11 @@ describe("registered tool set", () => {
     ]);
   });
 
-  it("npx chain: override → bundled-node → managed (bin) → where", () => {
-    const r = freshRegistry({ exists: () => false, which: () => null });
-    const trail = r.resolve("npx").tried.map((t) => t.strategy);
-    expect(trail).toEqual([
-      "override",
-      "bundled-node",
-      "managed",
-      "where",
-    ]);
-  });
+  // The old "npx chain: override → bundled-node → managed (bin) → where"
+  // test was RECONCILED into "3a.8" below (order+length assertion covering
+  // both managed rungs) rather than duplicated — the managedRuntime insertion
+  // deliberately changed this trail. See change:
+  // add-node-runtime-family-selection (section 3a).
 
   it("wt resolves via where when found", () => {
     const r = freshRegistry({
@@ -449,5 +457,258 @@ describe("installHints do not affect resolution (regression guard)", () => {
     expect(git.ok).toBe(true);
     expect(git.source).toBe("system");
     expect(git.tried.map((t) => t.strategy)).toEqual(["override", "managed", "where"]);
+  });
+});
+
+// ── Absorbed from fix-node-family-resolution-gaps: npx managedRuntime ──────
+// See change: add-node-runtime-family-selection (section 3a; the hotfix was
+// absorbed by user decision — proposal "Section-0 outcomes").
+describe("npx managedRuntime (absorbed)", () => {
+  const MANAGED_BIN = "/home/u/.pi-dashboard/node/bin";
+  const home = { homedir: "/home/u" };
+
+  it("3a.1 npx resolves the managed runtime over a PATH hit", () => {
+    const r = freshRegistry({
+      ...home,
+      exists: (p) => p === `${MANAGED_BIN}/npx`,
+      which: (n) => (n === "npx" ? "/usr/bin/npx" : null),
+    });
+    const res = r.resolve("npx");
+    expect(res.path).toBe(`${MANAGED_BIN}/npx`);
+    expect(res.source).toBe("managed");
+  });
+
+  it("3a.2 override still outranks the managed runtime", () => {
+    const r = freshRegistry({
+      ...home,
+      exists: () => true,
+      which: () => null,
+      overrides: { npx: "/opt/other/npx" },
+    });
+    const res = r.resolve("npx");
+    expect(res.path).toBe("/opt/other/npx");
+    expect(res.source).toBe("override");
+  });
+
+  it("3a.3 bundled-node still outranks the managed runtime", () => {
+    const r = freshRegistry({
+      ...home,
+      exists: () => true,
+      which: () => null,
+      resourcesPath: "/app/resources",
+    });
+    const res = r.resolve("npx");
+    expect(res.path).toBe("/app/resources/node/bin/npx");
+    expect(res.source).toBe("bundled");
+  });
+
+  it("3a.4 a partial managed family falls through cleanly to managedBin", () => {
+    const r = freshRegistry({
+      ...home,
+      // <managedDir>/node/bin/npx missing; MANAGED_BIN (.bin) npx exists.
+      exists: (p) => p === "/home/u/.pi-dashboard/node_modules/.bin/npx",
+      which: () => null,
+    });
+    const res = r.resolve("npx");
+    expect(res.path).toBe("/home/u/.pi-dashboard/node_modules/.bin/npx");
+    const managedRuntimeEntry = res.tried.find(
+      (t) => t.strategy === "managed" && t.result.startsWith("missing:"),
+    );
+    expect(managedRuntimeEntry?.result).toBe(
+      `missing: ${MANAGED_BIN}/npx`,
+    );
+    // No non-existent path is ever returned.
+    expect(res.ok).toBe(true);
+  });
+
+  it("3a.5 managedRuntime outranks managedBin (both present)", () => {
+    const r = freshRegistry({
+      ...home,
+      exists: (p) =>
+        p === `${MANAGED_BIN}/npx` ||
+        p === "/home/u/.pi-dashboard/node_modules/.bin/npx",
+      which: () => null,
+    });
+    const res = r.resolve("npx");
+    expect(res.path).toBe(`${MANAGED_BIN}/npx`);
+  });
+
+  it("3a.6 the PATH fallback is preserved", () => {
+    const r = freshRegistry({
+      ...home,
+      exists: () => false,
+      which: (n) => (n === "npx" ? "/usr/bin/npx" : null),
+    });
+    const res = r.resolve("npx");
+    expect(res.path).toBe("/usr/bin/npx");
+    expect(res.source).toBe("system");
+  });
+
+  it("3a.7 the managed runtime is visible to every family member", () => {
+    const r = freshRegistry({
+      ...home,
+      exists: (p) =>
+        p === `${MANAGED_BIN}/node` ||
+        p === `${MANAGED_BIN}/npm` ||
+        p === `${MANAGED_BIN}/npx`,
+      which: () => null,
+    });
+    for (const name of ["node", "npm", "npx"] as const) {
+      const res = r.resolve(name);
+      expect(res.ok).toBe(true);
+      expect(res.path?.startsWith("/home/u/.pi-dashboard/node/")).toBe(true);
+      expect(res.source).toBe("managed");
+    }
+  });
+
+  it("3a.8 npx trail: override → bundled-node → managed (runtime) → managed (bin) → where — ORDER and LENGTH only", () => {
+    const r = freshRegistry({ ...home, exists: () => false, which: () => null });
+    const trail = r.resolve("npx").tried.map((t) => t.strategy);
+    expect(trail).toEqual([
+      "override",
+      "bundled-node",
+      "managed",
+      "managed",
+      "where",
+    ]);
+  });
+});
+
+// ── Absorbed: Windows npm anchoring via the peer-resolution seam ───────────
+// See change: add-node-runtime-family-selection (section 3b; design D1/D2).
+describe("npmCliBesideNode peer seam (absorbed)", () => {
+  const PEER_NODE_DIR = "/peer/install";
+  const PEER_NPM_CLI = path.join(
+    PEER_NODE_DIR,
+    "node_modules",
+    "npm",
+    "bin",
+    "npm-cli.js",
+  );
+  const EXEC_SEED_DIR = "/injected/exec";
+  const EXEC_NODE = path.join(EXEC_SEED_DIR, "node.exe");
+
+  function win32Registry(opts: {
+    exists?: (p: string) => boolean;
+    execPath?: string;
+    resolvePeer?: (name: string, forTool: string) => string | null;
+  }) {
+    return freshRegistry({
+      platform: "win32",
+      exists: opts.exists ?? (() => false),
+      which: () => null,
+      execPath: opts.execPath,
+      resolvePeer: opts.resolvePeer,
+    });
+  }
+
+  it("3b.2 the production binding resolves npm's anchor through the peer, not execPath", () => {
+    // Registry built the way getDefaultRegistry builds it: deps whose
+    // resolvePeer is bound to the registry itself (bindPeerResolution).
+    // The peer registry resolves node via its OVERRIDE (chains cannot see
+    // arbitrary roots) at the peer install dir; the seam must carry that
+    // resolution into npm's beside-node probe.
+    const r = freshRegistry({
+      platform: "win32",
+      exists: (p) => p === PEER_NPM_CLI || p === path.join(PEER_NODE_DIR, "node.exe"),
+      which: () => null,
+      execPath: EXEC_NODE,
+      overrides: { node: path.join(PEER_NODE_DIR, "node.exe") },
+    });
+    // Rebind: build a second registry whose deps carry the bound peer seam.
+    const store = new OverridesStore({
+      filePath: path.join(os.tmpdir(), `peer-bind-${Math.random()}.json`),
+      warn: () => {},
+    });
+    const r2 = new ToolRegistry({
+      overrides: store,
+      platform: "win32",
+      env: undefined,
+    });
+    registerDefaultTools(r2, {
+      exists: (p) => p === PEER_NPM_CLI || p === path.join(PEER_NODE_DIR, "node.exe"),
+      which: () => null,
+      execPath: EXEC_NODE,
+      resolvePeer: bindPeerResolution((name) => r.resolve(name)),
+    });
+    const res = r2.resolve("npm");
+    expect(res.path).toBe(PEER_NPM_CLI);
+  });
+
+  it("3b.3 (win32) npmCliBesideNode returns npm-cli.js from the PEER node's installation, not the execPath seam's", () => {
+    const r = win32Registry({
+      exists: (p) => p === PEER_NPM_CLI || p === path.join(PEER_NODE_DIR, "node.exe"),
+      execPath: EXEC_NODE,
+      resolvePeer: (name, forTool) =>
+        name === "node" && forTool === "npm"
+          ? path.join(PEER_NODE_DIR, "node.exe")
+          : null,
+    });
+    const res = r.resolve("npm");
+    expect(res.path).toBe(PEER_NPM_CLI);
+  });
+
+  it("3b.4 (win32) with no resolvable peer, probes beside the INJECTED execPath seam and never process.execPath", () => {
+    // The only npm-cli.js on the fake fs sits beside the INJECTED execPath.
+    // If the strategy read process.execPath (the vitest binary), the probe
+    // would miss and resolution would fall through to where (null) — the
+    // assertion distinguishes the two anchors.
+    const besideInjected = path.join(
+      EXEC_SEED_DIR,
+      "node_modules",
+      "npm",
+      "bin",
+      "npm-cli.js",
+    );
+    const seen: string[] = [];
+    const r = win32Registry({
+      exists: (p) => {
+        seen.push(p);
+        return p === besideInjected || p === EXEC_NODE;
+      },
+      execPath: EXEC_NODE,
+      resolvePeer: () => null,
+    });
+    const res = r.resolve("npm");
+    expect(res.path).toBe(besideInjected);
+    // Existence went through deps.exists, not raw existsSync.
+    expect(seen).toContain(besideInjected);
+  });
+
+  it("3b.5 re-entrancy: a peer lookup that would re-enter the in-flight tool is refused, not looped", () => {
+    // Synthetic cycle: a's resolution consults b; b's consults a. Without
+    // the guard this recurses infinitely (the registry cache cannot help —
+    // it is written only AFTER the strategy loop). With it: a's re-entrant
+    // lookup from inside b is REFUSED (null), so each resolution runs once.
+    let peer: ((name: string, forTool: string) => string | null) | null = null;
+    const calls = { a: 0, b: 0 };
+    const fakeResolve = (name: string) => {
+      const resolution = (ok: boolean, p: string | null) => ({
+        name,
+        ok,
+        path: p,
+        source: ok ? ("override" as const) : null,
+        tried: [],
+        resolvedAt: 0,
+      });
+      if (name === "a") {
+        calls.a += 1;
+        const inner = peer?.("b", "a");
+        return resolution(true, inner ?? "/base/a");
+      }
+      if (name === "b") {
+        calls.b += 1;
+        const inner = peer?.("a", "b");
+        return resolution(true, inner ?? "/base/b");
+      }
+      return resolution(false, null);
+    };
+    peer = bindPeerResolution(fakeResolve);
+    // Refusal: a tool cannot resolve itself.
+    expect(peer("b", "b")).toBeNull();
+    // Loop bound: the a→b→a cycle terminates with each resolution run once.
+    const result = peer("a", "root");
+    expect(result).toBe("/base/b"); // b's fallback — its re-entrant a lookup was refused
+    expect(calls).toEqual({ a: 1, b: 1 });
   });
 });

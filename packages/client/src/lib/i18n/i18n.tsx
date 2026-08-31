@@ -380,6 +380,8 @@ const zhCN: Record<string, string> = {
   "common.other": "其他",
   "common.output": "输出：",
   "common.overrideInvalidUsingFallback": "覆盖项无效;使用回退方案",
+  "common.overrideRejectedNotFound": "覆盖项被拒绝 — 未使用路径:{path}",
+  "common.overrideRejectedReason": "覆盖项被拒绝:{reason}",
   "common.overridePathDidnTValidateFell": "覆盖路径未通过验证 —— 已回退到下一个策略。",
   "common.overridesGlobal": "覆盖全局设置",
   "common.path": "路径",
