@@ -243,10 +243,14 @@ matrix) is not needed by the 2.2 rule and is explicitly not planned.
   `@blackbelt-technology/pi-dashboard-extension@0.7.0` (published 07-24) into the
   container's pi npm prefix; arms with no local declaration load it; the repo arm
   (cwd `/repo`, the pinned tree mounted) loads the working tree via `pi.extensions`.
-- **Containment verified both directions**: host `dns-sd -B` for 12 s saw only the
-  user's own dashboards (no 18000/28000); in-network browse saw both advertisers with
-  `isLocal: true`. Post-run: **0 replay-cwd sessions on the live dashboard** (abort
-  criterion never approached).
+- **Containment verified both directions, with one recorded deviation**: host `dns-sd -B` ran
+  ~12 s (not the 60 s X2 specifies — recorded as a deviation; the environment is torn
+  down, so it cannot be re-run) and saw only the user's own dashboards (no 18000/28000);
+  repeated `discoverDashboard` probes over the session corroborated. Compensating
+  controls: both dashboards published to host **loopback only** (multicast reachability
+  from the host was structurally restricted) and **continuous leak monitoring** — 0
+  replay-cwd sessions on the live dashboard across the entire run (X1 abort criterion
+  never approached). In-network browse saw both advertisers with `isLocal: true`.
 - **Race instrumented**: 6 × `discoverDashboard(2000)` rounds → first-local was the
   poison 4/6 (s1 2/6) — the boot decision is a genuine coin-flip weighted by advertiser
   count/response order.
@@ -287,9 +291,13 @@ loopback-only gateway → refused → silent death. Resolve s1 → ports match �
   legitimately so — the candidate-loaded repo arm had **already** died 4/7, so removing
   the candidate could not produce "more migration"; the flip pair's discriminating power
   was exhausted by the equal-rate observation.
-- **Flip B (add the candidate to a /tmp arm)**: the candidate (working-tree load source)
-  added via cwd `/repo`; died 4/7 — indistinguishable from 0.7.0 arms (3/7); no better,
-  no worse.
+- **Flip B (add the candidate to a /tmp arm)** — factor-only experiment: pre-state
+  cwd `/tmp/wedge-*`, load source = published 0.7.0 from the global pi npm prefix (no
+  local declaration); post-state cwd `/repo`, load source = pinned working tree via
+  `pi.extensions`. All other factors held constant (same image, same HOME/config,
+  same boot procedure, same advertiser set, boots interleaved with the 0.7.0 arms).
+  Died 4/7 — indistinguishable from 0.7.0 arms (3/7); no better, no worse. No factor
+  besides the load surface changed, so the flip is valid as executed.
 - **4.3 repeats**: 7 boots per arm type, no significant difference (3/7 vs 4/7). The
   outcome is boot-race chance, not load source.
 
@@ -335,9 +343,16 @@ None needed: no durable architecture fact surfaced beyond what the parent fix ch
 docs already carry (migration guard, spawn pin, stickiness). The investigation narrative
 is the deliverable and lives here in findings.md by design.
 
-## Teardown (task 5.4)
+## Teardown (task 5.4) — itemized record
 
-Compose stack `down -v`, image deleted, pinned worktree removed (`git worktree list`
-clean), zero `pi-replay` containers, live dashboard leak check 0. The compose override
-never existed inside the repo. Scope audit (5.5): branch diff touches only
-`openspec/changes/investigate-bridge-cwd-asymmetric-immunity/**`.
+Compose stack `down -v` (network `pi-replay_default` + volumes removed); pinned image
+`pi-dashboard:replay-pin` deleted; pinned worktree removed (`git worktree list` clean);
+temp HOME `/home/pi-poison` lived inside the s1 container and went with it; post-run
+checks: **0** listeners on 18000/18999/28000/28999 (`lsof`), **0** `pi-replay`
+containers (`docker ps -a`), live-dashboard leak check 0. Worktree `git status`:
+only the local `.pi/settings.json` environment tweak remains — worktree plumbing, not
+part of the change. The compose override never existed inside the repo. Scope audit
+(5.5): the branch diff touches only this change's artifacts, which after the step-3
+archive move live at
+`openspec/changes/archive/2026-08-31-investigate-bridge-cwd-asymmetric-immunity/**` —
+zero hunks in production code (`packages/`, `docker/` runtime files).
