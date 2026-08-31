@@ -2,16 +2,29 @@
  * Doctor core — section assignment, suggestion taxonomy, and the
  * Decision-8 lint (every non-ok check has non-empty
  * message/detail/suggestion). See change: doctor-rich-output.
+ *
+ * Also hosts the spawn-runtime visibility rows (test-plan E15), the
+ * extension-tree ABI mismatch rows (E11), and the autoRebuild consent /
+ * abstention decision (X6). See change: unify-pi-runtime-identity.
  */
-import { describe, it, expect } from "vitest";
+
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  SECTION_OF,
-  SUGGESTIONS,
-  stampSectionsAndSuggestions,
   checkAttachedServerVersion,
   type DoctorCheck,
   type DoctorStatus,
+  decideAutoRebuild,
+  runSharedChecks,
+  SECTION_OF,
+  type SharedChecksDeps,
+  SUGGESTIONS,
+  stampSectionsAndSuggestions,
 } from "../doctor-core.js";
+import type { ProbeOutcome } from "../platform/native-module-abi.js";
+import type { ResolvedRuntime } from "../platform/spawn-runtime.js";
 
 const ALL_CHECK_NAMES = Object.keys(SECTION_OF);
 
@@ -230,5 +243,313 @@ describe("checkAttachedServerVersion", () => {
       healthFetcher: async () => { throw new Error("ECONNREFUSED"); },
     });
     expect(c.status).toBe("error");
+  });
+});
+
+// ── Spawn-runtime visibility + ABI mismatch rows (test-plan E11 / E15 / X6) ──
+// See change: unify-pi-runtime-identity (tasks 5.4 / 6.1 / 9.11 / 9.15 / 9.24).
+
+let tmp: string;
+
+beforeEach(() => {
+  tmp = fs.mkdtempSync(path.join(os.tmpdir(), "doctor-core-runtime-"));
+});
+
+afterEach(() => {
+  fs.rmSync(tmp, { recursive: true, force: true });
+});
+
+function baseDeps(overrides: Partial<SharedChecksDeps> = {}): SharedChecksDeps {
+  return {
+    managedDir: tmp,
+    detectSystemNode: () => ({ found: true, path: "/usr/bin/node" }),
+    detectPi: () => ({ found: true, path: "/usr/bin/pi", source: "system" }),
+    detectOpenSpec: () => ({ found: true, path: "/usr/bin/openspec", source: "system" }),
+    dnsLookup: async () => undefined,
+    ...overrides,
+  };
+}
+
+/** Minimal fake ResolvedRuntime — only the fields the Doctor rows read. */
+function fakeRuntime(over: Partial<ResolvedRuntime> = {}): ResolvedRuntime {
+  return {
+    nodeBinary: "/resolved/node",
+    nodeBinDir: "/resolved",
+    version: "v24.0.0",
+    abi: 137,
+    source: "system",
+    rung: "user",
+    via: "path",
+    arm: "npm",
+    piFloor: "22.19.0",
+    piFloorSource: "fallback",
+    identity: null,
+    trail: [],
+    resolvedAt: new Date().toISOString(),
+    ...over,
+  };
+}
+
+/** Bytes of a fake V8-bound binary: real symbols, NO N-API registration. */
+function v8Bytes(): Buffer {
+  return Buffer.from(
+    `...fake-object-header...${"__ZN2v88internal7Isolate8NewEPNS0_12Allocator_tE ".repeat(4)}...`,
+    "latin1",
+  );
+}
+
+/** Bytes of a fake N-API binary: exports the N-API registration symbol. */
+function napiBytes(): Buffer {
+  return Buffer.from(
+    `...fake-macho-header...__napi:${"napi_register_module_v1"}...__LINKEDIT...`,
+    "latin1",
+  );
+}
+
+function writeNodeFile(p: string, bytes: Buffer): string {
+  fs.mkdirSync(path.dirname(p), { recursive: true });
+  fs.writeFileSync(p, bytes);
+  return p;
+}
+
+/** A Tier-B probe outcome: module built for ABI 115, resolved needs 137. */
+const mismatchOutcome: ProbeOutcome = {
+  compatible: false,
+  builtAbi: 115,
+  requiredAbi: 137,
+  raw: "was compiled against a different Node.js version using NODE_MODULE_VERSION 115. This version of Node.js requires NODE_MODULE_VERSION 137.",
+};
+
+describe("extension-tree ABI mismatch rows (test-plan E11 / task 9.11)", () => {
+  it("V8-bound module in a prebuilds layout with mismatched ABI → named row; N-API module skipped", async () => {
+    const treeRoot = path.join(tmp, "ext", "node_modules");
+    // better-sqlite3 v13-style per-platform prebuilds layout — the layout
+    // does NOT exempt the module (distribution format ≠ ABI stability).
+    writeNodeFile(
+      path.join(treeRoot, "better-sqlite3", "prebuilds", "darwin-arm64", "better_sqlite3.node"),
+      v8Bytes(),
+    );
+    const probedPaths: string[] = [];
+    const checks = await runSharedChecks(
+      baseDeps({
+        spawnRuntime: fakeRuntime(),
+        extensionTreeRoot: treeRoot,
+        abiScan: {
+          probe: (dotNodePath) => {
+            probedPaths.push(dotNodePath);
+            return mismatchOutcome;
+          },
+        },
+      }),
+    );
+
+    const mismatchRows = checks.filter((c) => c.name.startsWith("ABI mismatch:"));
+    expect(mismatchRows.map((c) => c.name)).toEqual(["ABI mismatch: better-sqlite3"]);
+    const row = mismatchRows[0]!;
+    expect(row.section).toBe("pi-tooling");
+    expect(row.status).toBe("error");
+    expect(row.message).toContain("better-sqlite3");
+    expect(row.message).toContain("ABI 115");
+    expect(row.message).toContain("ABI 137");
+    expect(row.message).toContain("/resolved/node");
+    // Scoped rebuild command names the module and the resolved runtime.
+    expect(row.suggestion).toContain("rebuild better-sqlite3");
+    // The V8 module was probed under the RESOLVED runtime's binary.
+    expect(probedPaths).toHaveLength(1);
+    expect(probedPaths[0]).toContain("better_sqlite3.node");
+  });
+
+  it("N-API module → no row (never probed)", async () => {
+    const treeRoot = path.join(tmp, "ext", "node_modules");
+    writeNodeFile(
+      path.join(treeRoot, "napi-pkg", "build", "Release", "thing.node"),
+      napiBytes(),
+    );
+    const probedPaths: string[] = [];
+    const checks = await runSharedChecks(
+      baseDeps({
+        spawnRuntime: fakeRuntime(),
+        extensionTreeRoot: treeRoot,
+        abiScan: {
+          probe: (dotNodePath) => {
+            probedPaths.push(dotNodePath);
+            return mismatchOutcome;
+          },
+        },
+      }),
+    );
+    expect(checks.filter((c) => c.name.startsWith("ABI mismatch:"))).toHaveLength(0);
+    expect(probedPaths).toHaveLength(0);
+  });
+
+  it("absent extension tree → no rows", async () => {
+    const checks = await runSharedChecks(
+      baseDeps({
+        spawnRuntime: fakeRuntime(),
+        extensionTreeRoot: path.join(tmp, "no-such-tree"),
+      }),
+    );
+    expect(checks.filter((c) => c.name.startsWith("ABI mismatch:"))).toHaveLength(0);
+  });
+});
+
+describe("resolved spawn runtime visibility row (test-plan E15 / task 9.15)", () => {
+  it("resolved runtime + divergent PATH install → both shown, node -v remedy, override pointer", async () => {
+    const checks = await runSharedChecks(
+      baseDeps({
+        spawnRuntime: fakeRuntime(),
+        detectSystemNode: () => ({ found: true, path: "/usr/local/bin/node" }),
+      }),
+    );
+    const row = checks.find((c) => c.name === "Spawn runtime (resolved)");
+    expect(row).toBeDefined();
+    expect(row!.section).toBe("runtime");
+    expect(row!.status).toBe("warning");
+    // Both runtimes are named…
+    expect(row!.message).toContain("/resolved/node");
+    expect(row!.message).toContain("/usr/local/bin/node");
+    // …with the compare remedy and the deterministic escape hatch.
+    expect(row!.detail).toContain("node -v");
+    expect(row!.detail).toContain("runtime.override");
+    expect(row!.suggestion).toContain("node -v");
+  });
+
+  it("base row names binary, version, ABI, and ladder source", async () => {
+    const checks = await runSharedChecks(
+      baseDeps({
+        spawnRuntime: fakeRuntime({ rung: "override" }),
+        detectSystemNode: () => ({ found: true, path: "/resolved/node" }),
+      }),
+    );
+    const row = checks.find((c) => c.name === "Spawn runtime (resolved)");
+    expect(row!.status).toBe("ok");
+    expect(row!.message).toContain("/resolved/node");
+    expect(row!.message).toContain("v24.0.0");
+    expect(row!.message).toContain("ABI 137");
+    expect(row!.message).toContain("via override");
+    // No divergence → no override-pointer advice.
+    expect(row!.detail).not.toContain("Divergent probe");
+  });
+
+  it("override shadowing a selection → the shadowed selection is named in the detail", async () => {
+    const checks = await runSharedChecks(
+      baseDeps({
+        spawnRuntime: fakeRuntime({
+          rung: "override",
+          via: undefined,
+          trail: [
+            {
+              rung: "selection",
+              candidate: "/selected/by-family/node",
+              outcome: "skipped",
+              reason: "shadowed by runtime.override",
+            },
+          ],
+        }),
+        detectSystemNode: () => ({ found: true, path: "/resolved/node" }),
+      }),
+    );
+    const row = checks.find((c) => c.name === "Spawn runtime (resolved)")!;
+    expect(row.detail).toContain("Shadowed selection");
+    expect(row.detail).toContain("/selected/by-family/node");
+  });
+
+  it("resolved major at/above the engines cap → informational note, status NOT an error", async () => {
+    const checks = await runSharedChecks(
+      baseDeps({
+        spawnRuntime: fakeRuntime({ version: "v27.0.0" }),
+        detectSystemNode: () => ({ found: true, path: "/resolved/node" }),
+      }),
+    );
+    const row = checks.find((c) => c.name === "Spawn runtime (resolved)")!;
+    expect(row.status).toBe("ok");
+    expect(row.message).toContain("exceeds the dashboard-tested range");
+    expect(row.detail).toContain("informational, not a failure");
+  });
+
+  it("no spawnRuntime provided → row suppressed", async () => {
+    const checks = await runSharedChecks(baseDeps());
+    expect(checks.find((c) => c.name === "Spawn runtime (resolved)")).toBeUndefined();
+  });
+});
+
+describe("decideAutoRebuild consent + abstention (test-plan X6 / task 9.24)", () => {
+  const mismatches = [{ entry: { path: "/x/better-sqlite3/build/Release/x.node" }, builtAbi: 115 }];
+
+  it("autoRebuild off/absent → offer only (consent by default)", () => {
+    expect(decideAutoRebuild({ autoRebuild: undefined, mismatches, divergenceDetected: false })).toBe("offer");
+    expect(decideAutoRebuild({ autoRebuild: undefined, mismatches, divergenceDetected: true })).toBe("offer");
+    expect(decideAutoRebuild({ autoRebuild: false, mismatches, divergenceDetected: false })).toBe("offer");
+  });
+
+  it("autoRebuild on + no divergence → unattended rebuild", () => {
+    expect(decideAutoRebuild({ autoRebuild: true, mismatches, divergenceDetected: false })).toBe("rebuild");
+  });
+
+  it("autoRebuild on + divergence → abstain (offer interactively)", () => {
+    expect(decideAutoRebuild({ autoRebuild: true, mismatches, divergenceDetected: true })).toBe("abstain");
+  });
+
+  it("no mismatches → offer (nothing to reconcile)", () => {
+    expect(decideAutoRebuild({ autoRebuild: true, mismatches: [], divergenceDetected: false })).toBe("offer");
+  });
+});
+
+describe("autoRebuild unattended executor (task 5.4 / spec X6 run half)", () => {
+  it("executor fires per mismatched module when consent authorizes the rebuild", async () => {
+    const treeRoot = path.join(tmp, "ext", "node_modules");
+    writeNodeFile(
+      path.join(treeRoot, "better-sqlite3", "build", "Release", "better_sqlite3.node"),
+      v8Bytes(),
+    );
+    const executed: Array<{ module: string; treeRoot: string }> = [];
+    const checks = await runSharedChecks(
+      baseDeps({
+        spawnRuntime: fakeRuntime(),
+        // Same binary as the resolved runtime → no divergence → decision "rebuild".
+        detectSystemNode: () => ({ found: true, path: "/resolved/node" }),
+        extensionTreeRoot: treeRoot,
+        readAutoRebuild: () => true,
+        abiScan: { probe: () => mismatchOutcome },
+        rebuildExecutor: async (moduleName, root) => {
+          executed.push({ module: moduleName, treeRoot: root });
+          return { ok: true, detail: "rebuilt" };
+        },
+      }),
+    );
+    expect(executed).toEqual([{ module: "better-sqlite3", treeRoot }]);
+    const row = checks.find((c) => c.name.startsWith("ABI mismatch:"));
+    expect(row?.suggestion).toContain("autoRebuild authorized");
+  });
+
+  it("no executor wired → nothing executes (Electron arm records the decision only)", async () => {
+    const treeRoot = path.join(tmp, "ext2", "node_modules");
+    writeNodeFile(path.join(treeRoot, "pkg", "build", "Release", "a.node"), v8Bytes());
+    const checks = await runSharedChecks(
+      baseDeps({
+        spawnRuntime: fakeRuntime(),
+        extensionTreeRoot: treeRoot,
+        readAutoRebuild: () => true,
+        abiScan: { probe: () => mismatchOutcome },
+      }),
+    );
+    expect(checks.find((c) => c.name.startsWith("ABI mismatch:"))).toBeDefined();
+  });
+
+  it("throwing executor is contained: row survives, report survives", async () => {
+    const treeRoot = path.join(tmp, "ext3", "node_modules");
+    writeNodeFile(path.join(treeRoot, "pkg", "build", "Release", "a.node"), v8Bytes());
+    const checks = await runSharedChecks(
+      baseDeps({
+        spawnRuntime: fakeRuntime(),
+        extensionTreeRoot: treeRoot,
+        readAutoRebuild: () => true,
+        abiScan: { probe: () => mismatchOutcome },
+        rebuildExecutor: async () => {
+          throw new Error("npm blew up");
+        },
+      }),
+    );
+    expect(checks.find((c) => c.name.startsWith("ABI mismatch:"))).toBeDefined();
   });
 });

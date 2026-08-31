@@ -9,13 +9,14 @@
  *
  * See change: doctor-rich-output (tasks 4.4–4.5).
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import Fastify, { type FastifyInstance } from "fastify";
-import { registerDoctorRoutes } from "../routes/doctor-routes.js";
+
 import type {
   DoctorReport,
   SharedChecksDeps,
 } from "@blackbelt-technology/pi-dashboard-shared/doctor-core.js";
+import Fastify, { type FastifyInstance } from "fastify";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { registerDoctorRoutes } from "../routes/doctor-routes.js";
 
 const ELECTRON_ONLY_NAMES = new Set([
   "Electron",
@@ -297,13 +298,13 @@ describe("/api/doctor", () => {
     expect(stale).toBeUndefined();
   });
 
-  it("emits the legacy advisory row when the detector reports present", async () => {
+  it("emits the legacy advisory row when the detector reports an orphaned dir", async () => {
     app = await makeApp(() =>
       fakeDeps({
         detectLegacyManagedDir: () => ({
           present: true,
+          orphaned: true,
           path: "/fake/home/.pi-dashboard",
-          pkgCount: 3,
           sizeMb: 17,
         }),
       }),

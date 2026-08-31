@@ -1,5 +1,8 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import * as sharedNodeVersion from "@blackbelt-technology/pi-dashboard-shared/node-version.js";
-import { describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   buildEnginesRangeMessage,
   buildNodeUpgradeMessage,
@@ -171,8 +174,8 @@ describe("buildEnginesRangeMessage", () => {
 
   // Full remediation contract in one probe at the new refusal boundary.
   // See change: fix-pi-install-node26-and-omit-dev-build (test-plan #E4).
-  it("names the version, the new range, and every remediation route", () => {
-    const msg = buildEnginesRangeMessage("v27.0.0");
+  it("names the version, the new range, and every remediation route when a managed Node exists", () => {
+    const msg = buildEnginesRangeMessage("v27.0.0", { managedNodeExists: true });
     expect(msg).toContain("cannot start on Node v27.");
     expect(msg).toContain("Required: >=22.19.0 <27");
     expect(msg).toContain("nvm install");
@@ -180,8 +183,43 @@ describe("buildEnginesRangeMessage", () => {
     expect(msg).toContain("brew install node");
   });
 
-  it("suggests bundled-node escape hatch", () => {
-    const msg = buildEnginesRangeMessage("v27.0.0");
-    expect(msg).toMatch(/\.pi-dashboard\/node\/bin/);
+  // Managed PATH hint is emitted ONLY when `<managedDir>/node/` actually
+  // holds a managed runtime — without one the hint is dead advice.
+  // See change: unify-pi-runtime-identity (task 6.3 / test-plan E9).
+  describe("managed-Node hint existence probe (test-plan E9)", () => {
+    let managedDir: string;
+
+    beforeEach(() => {
+      managedDir = fs.mkdtempSync(path.join(os.tmpdir(), "node-guard-managed-"));
+    });
+
+    afterEach(() => {
+      fs.rmSync(managedDir, { recursive: true, force: true });
+    });
+
+    it("lists all three install paths when a managed Node runtime exists", () => {
+      const msg = buildEnginesRangeMessage("v27.0.0", { managedNodeExists: true });
+      expect(msg).toContain("nvm install");
+      expect(msg).toContain('PATH="$HOME/.pi-dashboard/node/bin');
+      expect(msg).toContain("brew install node");
+    });
+
+    it("omits the managed hint and the `.pi-dashboard` substring when absent", () => {
+      const msg = buildEnginesRangeMessage("v27.0.0", { managedNodeExists: false });
+      expect(msg).toContain("nvm install");
+      expect(msg).toContain("brew install node");
+      expect(msg).not.toContain(".pi-dashboard");
+    });
+
+    it("probes `<managedDir>/node/` on disk when not overridden", () => {
+      // No node/ under the tmp managedDir → machine without a managed
+      // runtime → hint absent.
+      expect(buildEnginesRangeMessage("v27.0.0", { managedDir })).not.toContain(".pi-dashboard");
+      // With node/ present → the managed PATH hint is emitted.
+      fs.mkdirSync(path.join(managedDir, "node"), { recursive: true });
+      expect(buildEnginesRangeMessage("v27.0.0", { managedDir })).toContain(
+        'PATH="$HOME/.pi-dashboard/node/bin',
+      );
+    });
   });
 });

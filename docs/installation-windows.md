@@ -101,7 +101,7 @@ For developers running pre-release builds from feature branch, headless server-o
 
 ### Prerequisites
 
-- **Node.js ≥ 22.18.0** — pi-dashboard refuses to start on versions affected by [nodejs/node#58515](https://github.com/nodejs/node/issues/58515). Install MSI from [nodejs.org](https://nodejs.org/dist/v22.18.0/node-v22.18.0-x64.msi), or use [fnm](https://github.com/Schniz/fnm). **Avoid nvm-windows** if username contains non-ASCII characters — misreads paths + fails activation.
+- **Node.js ≥ 22.19.0** — pi-dashboard refuses to start on versions affected by [nodejs/node#58515](https://github.com/nodejs/node/issues/58515) (22.0.0–22.18.x, 24.1.0–24.2.x). Install MSI from [nodejs.org](https://nodejs.org/dist/v22.19.0/node-v22.19.0-x64.msi), or use [fnm](https://github.com/Schniz/fnm). **Avoid nvm-windows** if username contains non-ASCII characters — misreads paths + fails activation.
 - **Git for Windows** — [git-scm.com](https://git-scm.com/download/win). During setup, select "Use Git from the Windows Command Prompt" so git on system PATH.
 - **Long paths enabled** — run as Administrator: `reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f` then `git config --global core.longpaths true`. Reboot. Node's `node_modules` nesting can exceed Windows' default 260-char limit.
 - **Windows Build Tools** (only if native modules fail to compile): `npm install --global windows-build-tools` or install **Visual Studio Build Tools** with "Desktop development with C++" workload.
