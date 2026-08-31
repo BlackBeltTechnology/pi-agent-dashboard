@@ -2598,6 +2598,8 @@ sudo dnf install ImageMagick
 
 Binary name is `convert`.
 
+Windows: command is `magick`, not `convert`. `C:\Windows\System32\convert.exe` is the filesystem conversion tool.
+
 Vendor docs: https://imagemagick.org/script/download.php
 
 ## Install chromium

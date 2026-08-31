@@ -229,4 +229,21 @@ describe("ensureTools — report matrix", () => {
     expect(report.ok).toBe(false);
     expect(report.tools.map((t) => t.action)).toEqual(["present", "blocked", "degraded"]);
   });
+
+  it("an unregistered id is REPORTED, never rejected (CodeRabbit full review)", async () => {
+    const ctx = setup();
+    const report = await run(ctx, [{ id: "no-such-tool-anywhere" }]);
+    expect(report.ok).toBe(false);
+    const entry = report.tools[0];
+    expect(entry.name).toBe("no-such-tool-anywhere");
+    expect(entry.ok).toBe(false);
+    expect(entry.action).toBe("blocked");
+  });
+
+  it("an unregistered OPTIONAL id degrades instead of rejecting", async () => {
+    const ctx = setup();
+    const report = await run(ctx, [{ id: "no-such-tool-anywhere", optional: true }]);
+    expect(report.ok).toBe(true);
+    expect(report.tools[0].action).toBe("degraded");
+  });
 });

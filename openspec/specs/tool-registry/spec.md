@@ -776,7 +776,10 @@ install recipes remain first-party `installHints` on the registry definition. Ea
 `id` SHALL be validated against `^[A-Za-z0-9_][A-Za-z0-9._-]*$` (uppercase +
 underscore permitted so an `env`-kind id is the environment-variable name). When
 `id` matches an existing `ToolDefinition` it is referenced; otherwise a definition
-is synthesized from the probe kind plus a catalog `installHints` lookup.
+is synthesized from the probe kind plus a catalog `installHints` lookup. A
+manifest entry whose `probe` differs from the referenced definition's kind SHALL
+be accepted as-is — the existing definition wins and the manifest probe is
+documentation, not a re-classification.
 
 #### Scenario: Skill tool referencing an existing definition
 
@@ -932,7 +935,10 @@ code-reviewed string from the registry definition. A skill manifest SHALL NEVER
 contribute the executed string. Hints that perform a network fetch or image build
 SHALL be marked `PlatformInstallHint.requiresConfirm: true` on the first-party
 definition (the registry SHALL NOT regex-sniff command strings) and SHALL require
-a per-invocation confirmation even under opt-in.
+a per-invocation confirmation even under opt-in. First-party definitions whose
+network+exec hints live in `manual` (e.g. `chromium`, `pi-doc-engine`) SHALL
+still set `requiresConfirm: true` so a future `commands` entry inherits the
+gate.
 
 #### Scenario: Default run never installs
 

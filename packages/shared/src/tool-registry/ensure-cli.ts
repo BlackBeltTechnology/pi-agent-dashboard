@@ -112,6 +112,11 @@ async function main(): Promise<void> {
     autoInstall: args.install,
     // stdin TTY → interactive confirm; headless → undefined = auto-deny.
     confirm: args.install && process.stdin.isTTY ? promptConfirm : undefined,
+    // First-party install hints like `npm run build:image` are relative to
+    // the manifest's package root, not wherever the CLI was invoked.
+    cwd: path.dirname(
+      path.extname(args.target) === ".json" ? args.target : path.join(args.target, "package.json"),
+    ),
   });
 
   if (args.json) {

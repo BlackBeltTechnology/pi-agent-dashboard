@@ -29,7 +29,8 @@
       },
       {
         "id": "chromium",
-        "probe": "pw-browser"
+        "probe": "pw-browser",
+        "optional": true
       }
     ]
   },

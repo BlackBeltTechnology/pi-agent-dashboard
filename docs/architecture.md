@@ -3607,7 +3607,7 @@ Guarded by the same network guard as `/api/config`.
 
 ### Settings UI
 
-Settings → General → **Tools** renders one row per registered tool: status badge, source, truncated path, expand-to-trail, override input, per-row rescan. The header has **Rescan all**, **Reset overrides**, **Export diagnostics**.
+Settings → Developer → **Tools** renders one row per registered tool: status badge, source, truncated path, expand-to-trail, override input, per-row rescan. The header has **Rescan all**, **Reset overrides**, **Export diagnostics**.
 
 ### Migration path
 
@@ -3617,7 +3617,7 @@ See change: `consolidate-tool-resolution`.
 
 ## Skill tool provisioning
 
-Skill packages can declare the external tools they need through a `pi.tools` manifest in their package.json. The registry ingests these at server bootstrap, so a skill tool IS a registry tool — same `list()` / `/api/tools` / Settings → Tools surface, same override + diagnostic trail. Two faces: library `ensureTools` and CLI `pi-dashboard-ensure`. Distinct from the build-time `pi-dashboard-resolve-tool.cjs` wrapper (path-only, untouched).
+Skill packages can declare the external tools they need through a `pi.tools` manifest in their package.json. The registry ingests these at server bootstrap, so a skill tool IS a registry tool — same `list()` / `/api/tools` / Settings → Developer → Tools surface, same override + diagnostic trail. Two faces: library `ensureTools` and CLI `pi-dashboard-ensure`. Distinct from the build-time `pi-dashboard-resolve-tool.cjs` wrapper (path-only, untouched).
 
 See change: `add-skill-tool-provisioning`.
 
@@ -3670,7 +3670,7 @@ All registered on every platform — the strategies themselves are cross-platfor
 
 ### Surfacing
 
-`ingestInstalledSkillTools` runs at server bootstrap (`packages/server/src/cli.ts`). Scans `<root>/node_modules/@blackbelt-technology/<pkg>/package.json` + `<root>/packages/<pkg>/package.json` manifests, ingests into the registry, surfaces through the existing `list()` / `GET /api/tools` / Settings → Tools rows. No new reporting path. Invalid manifests skipped — a doc bug never breaks startup.
+`ingestInstalledSkillTools` runs at server bootstrap (`packages/server/src/cli.ts`). Scans `<root>/node_modules/@blackbelt-technology/<pkg>/package.json` + `<root>/packages/<pkg>/package.json` manifests, ingests into the registry, surfaces through the existing `list()` / `GET /api/tools` / Settings → Developer → Tools rows. No new reporting path. Invalid manifests skipped — a doc bug never breaks startup.
 
 ## Path Handling (`platform/paths.ts`)
 

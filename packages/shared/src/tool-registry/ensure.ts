@@ -22,6 +22,7 @@ import { ToolResolver } from "../platform/binary-lookup.js";
 import type { ToolRegistry } from "./registry.js";
 import { getDefaultRegistry } from "./default-registry.js";
 import type { StrategyDeps } from "./strategies.js";
+import { UnknownToolError } from "./types.js";
 import type {
   InstallHints,
   PlatformInstallHint,
@@ -65,8 +66,10 @@ export interface EnsureOptions {
    * auto-deny. Return true to allow this invocation's install.
    */
   confirm?: (request: { tool: string; command: string }) => boolean | Promise<boolean>;
-  /** Command runner. Default: child_process.exec. Injectable for tests. */
-  exec?: (command: string) => { ok: boolean } | Promise<{ ok: boolean }> | void | Promise<void>;
+  /** Command runner. Default: child_process.exec (see {@link EnsureOptions.cwd}). Injectable for tests. */
+  exec?: (command: string, cwd?: string) => { ok: boolean } | Promise<{ ok: boolean }> | void | Promise<void>;
+  /** Working directory for the default exec runner (e.g. the manifest package root). */
+  cwd?: string;
   /** Platform for hint lookup. Default: the registry's platform. */
   platform?: NodeJS.Platform;
 }
@@ -79,8 +82,8 @@ function detectPkgMgr(commands: Record<string, string>, which: (n: string) => st
   return null;
 }
 
-function defaultExec(command: string): Promise<{ ok: boolean }> {
-  return execAsync(command, { timeout: 10 * 60_000 })
+function defaultExec(command: string, cwd?: string): Promise<{ ok: boolean }> {
+  return execAsync(command, { timeout: 10 * 60_000, cwd })
     .then(() => ({ ok: true }))
     .catch(() => ({ ok: false }));
 }
@@ -126,7 +129,22 @@ export async function ensureTools(
 
   for (const spec of tools) {
     const optional = spec.optional ?? false;
-    let resolution = registry.resolve(spec.id);
+    let resolution: Resolution;
+    try {
+      resolution = registry.resolve(spec.id);
+    } catch (e) {
+      if (!(e instanceof UnknownToolError)) throw e;
+      // Never reject for an unregistered id — report it as missing so the
+      // report IS the outcome (facades decide what "blocked" means).
+      resolution = {
+        name: spec.id,
+        ok: false,
+        path: null,
+        source: null,
+        tried: [],
+        resolvedAt: Date.now(),
+      };
+    }
     let action: EnsureAction;
 
     if (resolution.ok) {
@@ -150,7 +168,7 @@ export async function ensureTools(
           : true;
       }
       if (mayAutoRun && confirmed) {
-        const result = await runCommand(candidate!);
+        const result = await runCommand(candidate!, opts.cwd);
         const execOk = result === undefined || result.ok !== false;
         if (execOk) {
           registry.rescan(spec.id);
