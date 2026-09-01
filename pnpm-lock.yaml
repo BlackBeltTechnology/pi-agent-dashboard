@@ -803,11 +803,11 @@ importers:
   packages/invoicebot-plugin:
     dependencies:
       '@blackbelt-technology/dashboard-plugin-runtime':
-        specifier: ^0.7.0
-        version: 0.7.0(react@19.2.8)(wouter@3.10.0(react@19.2.8))
+        specifier: ^0.8.0
+        version: link:../dashboard-plugin-runtime
       '@blackbelt-technology/pi-dashboard-shared':
-        specifier: ^0.7.0
-        version: 0.7.0
+        specifier: ^0.8.0
+        version: link:../shared
       '@fastify/multipart':
         specifier: ^9.4.0
         version: 9.4.0
@@ -1505,19 +1505,10 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@blackbelt-technology/dashboard-plugin-runtime@0.7.0':
-    resolution: {integrity: sha512-hDLnVTPZj9sGawhXMe696VH3sFfFU+H1q7sJJrTX+K5dewBZlroRjayo++m1m2rg6o6bTgASGN1njs4U+cx4Ug==}
-    peerDependencies:
-      react: '>=18.0.0'
-      wouter: ^3.0.0
-
   '@blackbelt-technology/pi-anthropic-messages@0.3.4':
     resolution: {integrity: sha512-aqAGbHghmrDMM1AjQQ9e5446ETKTtgCFEAiDDLq75tLtiLD1XZfijhO0Fzu1vVNC9D1q1NbfNpowu9++/qA07A==}
     peerDependencies:
       '@earendil-works/pi-coding-agent': 0.84.4
-
-  '@blackbelt-technology/pi-dashboard-shared@0.7.0':
-    resolution: {integrity: sha512-fDu4Vu675ned6Vb8D2JxnwHKVzaA1dHsuiv8KBwX5Klp73Xsn3pE/5lCxZwstjRZ4McL1HRe6a4eEiu7lKlirQ==}
 
   '@borewit/text-codec@0.2.2':
     resolution: {integrity: sha512-DDaRehssg1aNrH4+2hnj1B7vnUGEjU6OIlyRdkMd0aUdIUvKXrJfXsy8LVtXAy7DRvYVluWbMspsRhz2lcW0mQ==}
@@ -10581,19 +10572,9 @@ snapshots:
   '@biomejs/cli-win32-x64@2.5.11':
     optional: true
 
-  '@blackbelt-technology/dashboard-plugin-runtime@0.7.0(react@19.2.8)(wouter@3.10.0(react@19.2.8))':
-    dependencies:
-      '@blackbelt-technology/pi-dashboard-shared': 0.7.0
-      react: 19.2.8
-      wouter: 3.10.0(react@19.2.8)
-
   '@blackbelt-technology/pi-anthropic-messages@0.3.4(@earendil-works/pi-coding-agent@0.84.4(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1))':
     dependencies:
       '@earendil-works/pi-coding-agent': 0.84.4(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1)
-
-  '@blackbelt-technology/pi-dashboard-shared@0.7.0':
-    dependencies:
-      bonjour-service: 1.4.2
 
   '@borewit/text-codec@0.2.2': {}
 
