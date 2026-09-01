@@ -1,6 +1,7 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-invoicebot-plugin",
   "version": "0.5.4",
+  "private": true,
   "description": "InvoiceBot REST plugin for pi-dashboard — exposes the four ib_* selectors over /api/plugins/invoicebot/*, keyed by cwd, behind an InvoiceEngine port.",
   "license": "MIT",
   "publishConfig": {

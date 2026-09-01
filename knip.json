@@ -345,6 +345,17 @@
         "src/**/*.{ts,tsx,mjs}"
       ]
     },
+    "packages/invoicebot-plugin": {
+      "entry": [
+        "src/server/index.ts",
+        "src/bridge/index.ts",
+        "**/vitest.config.ts",
+        "**/__tests__/**/*.test.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx,mjs}"
+      ]
+    },
     "packages/kb": {
       "entry": [
         "src/index.ts",
