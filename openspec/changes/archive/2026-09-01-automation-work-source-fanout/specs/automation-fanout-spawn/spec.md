@@ -22,7 +22,7 @@ The bound's over-limit behavior depends on the fan-out source:
   a subsequent fire processes them. Excess work SHALL NOT be discarded and SHALL
   NOT produce a truncation warning; it is deferred, not dropped.
 
-#### Scenario: Static resolved children exceed the bound
+#### Scenario: Resolved children exceed the bound
 
 - **WHEN** a static fan-out resolves 10 children and the effective bound is 4
 - **THEN** exactly 4 children SHALL be spawned
