@@ -10,6 +10,7 @@ describe("role-overlay", () => {
       "fast",
       "vision",
       "research",
+      "naming",
     ]);
   });
 
@@ -22,6 +23,7 @@ describe("role-overlay", () => {
       fast: "",
       vision: "",
       research: "",
+      naming: "",
     });
   });
 
