@@ -11,8 +11,9 @@ This change moves work selection into the trigger via a generic, ack-able
 **work-source** (the competing-consumers pattern): the trigger resolves and
 leases a **distinct** item per child before spawn and injects it through the
 **existing `${{trigger}}` templating seam**. No two children — of the same fire
-or of overlapping fires — ever receive the same item, and a crashed child's
-item is automatically reprocessed.
+or of overlapping fires — ever hold a **valid lease** for the same item at once;
+once a lease expires (e.g. a crashed child), the item is automatically re-leased
+and reprocessed (at-least-once delivery).
 
 ## What Changes
 
