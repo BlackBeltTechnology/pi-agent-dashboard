@@ -2,17 +2,18 @@
  * Fan-out over an ASYNCHRONOUS work source (`schedule.batch` + a source whose
  * `next` resolves a promise).
  *
- * Relocated from the retired `per-invoice-fanout` / `run-now-fanout` tests: the
- * same guarantees, restated against the shipped work-source seam instead of a
- * payload discriminator + an injected domain enumerator. Every guarantee those
- * files asserted has a home here:
- *   - one child per vended item, each child bound to a DISTINCT item          (was: one run per queued id)
- *   - the item resolves into the child's payload AND its action `env` map      (was: ${invoice_id} + IB_* env)
- *   - an EMPTY vend spawns NOTHING                                            (was: empty queue fires nothing)
- *   - a source that cannot be resolved spawns NOTHING                          (was: no enumerator wired → skip)
- *   - a manual run always yields a settling run id                             (was: run-now on an empty queue)
- *   - a plain (non-batch) automation fires exactly once, no env                (unchanged)
- *   - each child keeps the AUTOMATION's own run name                           (unchanged)
+ * Relocated from the retired payload-discriminator fan-out tests: the same
+ * guarantees, restated against the shipped work-source seam instead of a payload
+ * flag + an injected domain enumerator. Every guarantee those files asserted has
+ * a home here (the old->new map is recorded in the change, not in this file, so
+ * this package stays free of any domain's vocabulary):
+ *   - one child per vended item, each child bound to a DISTINCT item
+ *   - the item resolves into the child's payload AND its action `env` map
+ *   - an EMPTY vend spawns NOTHING
+ *   - a source that cannot be resolved spawns NOTHING
+ *   - a manual run always yields a settling run id
+ *   - a plain (non-batch) automation fires exactly once, no env
+ *   - each child keeps the AUTOMATION's own run name
  * Plus the three lease invariants the async path introduces: empty vend settles
  * `done` with zero children, a rejected vend errors with nothing leased, and a
  * failed spawn nacks its own handle.

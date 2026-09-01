@@ -1,9 +1,10 @@
 /**
  * `Engine.runWorkItem` — start EXACTLY ONE run for a single, named work item.
  *
- * Relocated from the retired `run-invoice` / `single-flight-per-invoice` tests.
- * Same guarantees, now enforced by the work-source LEASE instead of a bespoke
- * in-flight registry scan:
+ * Relocated from the retired start-one-record / single-flight tests. Same
+ * guarantees, now enforced by the work-source LEASE instead of a bespoke
+ * in-flight registry scan (the old→new map lives in the change, not here, so
+ * this package stays free of any domain's vocabulary):
  *   - one child bound to the requested item, its value in payload + env, NO fan-out
  *   - a second request while that item is leased is REFUSED (`in_flight`)
  *   - a different item is never blocked by another's lease
@@ -35,7 +36,7 @@ afterEach(() => {
 /**
  * A keyed async source: `take(key)` leases ONE named item, refusing when that
  * item already holds a live lease — the single-flight guard both entry points
- * share. Mirrors the queued-invoice source's semantics.
+ * share. Mirrors the semantics a real keyed source implements.
  */
 class KeyedSource {
   leases = new Map<string, string>(); // token → item
