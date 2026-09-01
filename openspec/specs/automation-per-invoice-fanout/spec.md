@@ -171,10 +171,32 @@ forwarding is therefore a required behaviour, not an optimization.
 
 ### Requirement: Queued-invoice work source
 
-The invoicebot plugin SHALL register a work source over the InvoiceEngine's
-queued-invoice list, through the generic registration seam, and SHALL own its
-instance. It vends invoice ids, so ONE leased handle is ONE invoice and therefore
-ONE spawned session is bound to exactly one invoice, ALWAYS.
+The invoicebot plugin SHALL register a work source for queued invoices, under
+EXACTLY the source id the invoice engine's emitted automation names in
+`on.source` (a mismatch isolates every fire as an unknown source instead of
+fanning out). It vends invoice ids, so ONE leased handle is ONE invoice and
+therefore ONE spawned session is bound to exactly one invoice, ALWAYS.
+
+The LEASES SHALL be owned by the INVOICE ENGINE, not by the host: the engine
+claims them in its own store under a write transaction with a uniqueness
+constraint on the invoice, so a claim is fenced ACROSS PROCESSES and survives a
+restart, and an expired claim is reclaimed by the engine. The host's registered
+source SHALL therefore hold NO lease state of its own — two lease authorities
+would race, and the failure mode is two children processing one invoice, the
+exact defect this capability exists to prevent. The host SHALL only route: it
+resolves the engine's workspace-bound source per firing workspace (from the
+per-vend workspace context) and routes a release back to the workspace that
+vended that lease token. Lease tokens SHALL be globally unique, since release
+routing depends on it; a collision SHALL be reported rather than silently
+released against the wrong workspace. Losing the routing state (a restart) SHALL
+NOT double-process anything — the engine's lease expiry reclaims the invoice, as
+it does for a run that died.
+
+A FIXTURE engine binding (used where the engine is unavailable — CI, a worktree,
+a release build) SHALL provide an equivalent in-process source with the same
+observable semantics, so fan-out is exercised rather than silently vending
+nothing; such leases are neither cross-process fenced nor restart-durable, and
+that difference SHALL be explicit.
 
 The source SHALL:
 
@@ -182,9 +204,15 @@ The source SHALL:
   one fire never race for the same record;
 - carry each invoice's OWN id as the `idempotencyKey` (never the lease token), so
   a redelivered invoice is recognisably the same work;
-- NEVER re-vend an invoice that holds a live lease, and refuse a targeted
-  `take` for it — the single-flight guarantee, shared by the scheduled drain and
-  a run-this-invoice-now request;
+- NEVER re-vend an invoice that holds a live lease, and refuse a targeted lease
+  for it — the single-flight guarantee, shared by the scheduled drain and a
+  run-this-invoice-now request;
+- report the targeted-lease path as UNAVAILABLE (distinctly from "already in
+  flight") when the engine binding cannot lease one named invoice, rather than
+  emulating it by leasing other invoices and releasing them — which would make a
+  single-flight guarantee depend on timing — and rather than reporting an
+  in-flight refusal, which would send an operator chasing a run that does not
+  exist;
 - vend ZERO handles when no invoice is queued (so no session is spawned at all)
   and when the engine supplies no workspace (rather than guessing one);
 - leave the excess unleased when more invoices are queued than the bound allows,
@@ -224,6 +252,24 @@ throw, never a spawn).
 - **WHEN** a leased invoice's run finalizes with any non-`done` status, or its lease expires without a terminal signal
 - **THEN** the invoice SHALL become dispatchable again
 
+#### Scenario: A release is routed to the workspace that vended it
+
+- **WHEN** two workspaces each hold a lease and one of them is released
+- **THEN** the release SHALL reach ONLY the engine source of the workspace that vended that lease token
+- **AND** an unknown or already-released token SHALL be a no-op, never a release against another workspace
+
+#### Scenario: The host never mints a lease the engine does not know
+
+- **WHEN** the engine binding exposes no queued-invoice source, or resolving it fails
+- **THEN** the vend SHALL be empty and no session SHALL be spawned
+- **AND** the host SHALL NOT create a lease of its own
+
+#### Scenario: Targeted lease unavailable is distinct from in-flight
+
+- **WHEN** a targeted run is requested but the engine binding cannot lease one named invoice
+- **THEN** the request SHALL report unavailable, distinctly from an in-flight refusal
+- **AND** no other invoice SHALL be leased in the attempt
+
 ### Requirement: Per-invoice run parallelism is a deployment setting
 
 The number of invoices processed concurrently per fire SHALL be the automation
@@ -242,16 +288,28 @@ SHALL NOT declare its own bound, so the deployment environment governs.
 
 A deployed intake `automation.yaml` is authored by the invoice engine and, once
 written, is never rewritten by it — so a deployed workspace would keep the
-retired fan-out shape and silently stop draining. The invoicebot plugin SHALL
-therefore migrate it IN PLACE, on the same first-touch path that ensures it
-exists, and SHALL be the party that does so (the automation plugin must not learn
-the retired invoice vocabulary).
+retired fan-out shape and silently stop draining.
+
+Ownership SPLITS: the ENGINE owns the rewrite, because it owns the emitted YAML
+shape and two migrators emitting different shapes would reintroduce the very
+drift this capability removes. The HOST owns WHEN the rewrite runs — migrate-on-
+read is implementable only host-side, because the engine emits automation YAML
+but never READS a deployed one at fire time, while the host's automation plugin
+does. The invoicebot plugin SHALL therefore invoke the engine's migration on the
+same first-touch path that ensures the automation exists, and the automation
+plugin SHALL NOT learn the retired invoice vocabulary. A fixture engine binding
+SHALL perform an equivalent rewrite targeting the SAME shape.
 
 The migration SHALL convert the trigger to `on: { kind: schedule.batch, cron, source }`
-naming the queued-invoice source, remove the retired payload discriminator, and
-rewrite the retired per-invoice token to `${{trigger}}` throughout the payload —
-including the `env` map, whose keys SHALL all survive because that map is
-authorization-bearing. The `cron` cadence, comments, and every unrelated field
+naming the queued-invoice source, remove the retired payload discriminator,
+rename the retired per-invoice flow input to the leased-work-item input the flow
+consumes, and rewrite the retired per-invoice token to `${{trigger}}` throughout
+the payload — including the `env` map, whose keys SHALL all survive because that
+map is authorization-bearing.
+
+An UN-migrated deployment SHALL keep working in the meantime (the flow accepts
+both the retired and the current input shapes), so migration is a deliberate
+upgrade rather than a flag day. The `cron` cadence, comments, and every unrelated field
 SHALL be preserved, the result SHALL be re-validated before replacing the file,
 and the write SHALL be atomic. The migration SHALL be IDEMPOTENT (an
 already-migrated file is left byte-identical), SHALL leave a file that is not the
@@ -262,7 +320,7 @@ absent or unparseable file.
 
 - **WHEN** a workspace is touched and its intake automation still declares the retired schedule + per-invoice payload shape
 - **THEN** its trigger SHALL become `schedule.batch` naming the queued-invoice source
-- **AND** the retired discriminator SHALL be gone, the retired token SHALL be replaced by `${{trigger}}`, and the cron, comments, env keys and all other fields SHALL be preserved
+- **AND** the retired discriminator SHALL be gone, the retired per-invoice input SHALL be renamed to the leased-work-item input, the retired token SHALL be replaced by `${{trigger}}`, and the cron, comments, env keys and all other fields SHALL be preserved
 
 #### Scenario: Migration is idempotent
 

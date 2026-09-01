@@ -15,7 +15,7 @@ import { homedir } from "node:os";
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { IB_DOMAIN_EVENT_MESSAGE } from "../shared/ib-events.js";
-import { migrateIntakeAutomation, QUEUED_INVOICE_SOURCE_ID } from "./automation-migrate.js";
+import { QUEUED_INVOICE_SOURCE_ID } from "./automation-migrate.js";
 import { createCanonicalSessionStore, defaultCanonicalStorePath } from "./canonical-session-store.js";
 import type { InvoiceEngine } from "./engine/port.js";
 import { createQueuedInvoiceWorkSource } from "./queued-invoice-work-source.js";
@@ -118,15 +118,21 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   ctx.provide("invoicebot:queuedInvoices", listQueued);
 
   // Register the queued-invoice WORK SOURCE through the automation plugin's
-  // generic cross-plugin seam. The instance is created ONCE here and owned here
-  // (it carries the lease state that makes "one distinct invoice per child" and
-  // "one run per invoice" true); the automation plugin collects the published
-  // descriptor lazily, so load order between the two plugins is irrelevant.
-  // An automation names this id in `on: { kind: schedule.batch, source }`.
+  // generic cross-plugin seam, under EXACTLY the id the engine's emitted
+  // automation names in `on.source` (a mismatch isolates every fire as "unknown
+  // work source" instead of fanning out). The automation plugin collects the
+  // published descriptor lazily, so load order between the two plugins is
+  // irrelevant.
+  //
+  // The LEASES live in the ENGINE (fenced in its SQLite store, cross-process
+  // safe, restart-durable). This wrapper deliberately holds none: two lease
+  // authorities would race, and the failure would be two children processing one
+  // invoice — the exact bug this change removes. It only routes per workspace.
   // See change: relocate-fanout-to-work-source.
   const queuedInvoiceSource = createQueuedInvoiceWorkSource({
-    listQueued,
+    sourceFor: (cwd) => engine.queuedWorkSource?.(cwd),
     log: (m) => ctx.logger.info(m),
+    warn: (m) => ctx.logger.warn(m),
   });
   ctx.provide("automation.worksource.invoicebot", {
     id: QUEUED_INVOICE_SOURCE_ID,
@@ -180,9 +186,12 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
 
   // Migrate a DEPLOYED intake automation onto the work-source contract on the
   // same first-touch choke point that ensures it exists (decision D-YAML).
-  // Wrapping here — rather than inside the routes — keeps the route layer
-  // unchanged while covering every workspace-touching endpoint, and also fixes
-  // YAML the engine writes fresh. Idempotent + non-fatal.
+  //
+  // The ENGINE owns the rewrite (it owns the emitted YAML shape); the HOST owns
+  // WHEN it runs, because the engine never reads a deployed automation at fire
+  // time — only the automation plugin does, so migrate-on-read is implementable
+  // only here. Wrapping the port — rather than editing the routes — covers every
+  // workspace-touching endpoint through one choke point. Idempotent + non-fatal.
   // See change: relocate-fanout-to-work-source.
   // Explicit per-method delegation (never a spread — the bindings are class
   // instances whose methods live on the prototype and would not be copied).
@@ -192,11 +201,17 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     setup: (cwd, args) => engine.setup(cwd, args),
     rules: (cwd, args) => engine.rules(cwd, args),
     ingest: (cwd, files) => engine.ingest(cwd, files),
+    ...(engine.queuedWorkSource ? { queuedWorkSource: (cwd: string) => engine.queuedWorkSource!(cwd) } : {}),
+    ...(engine.migrateIntakeAutomation
+      ? { migrateIntakeAutomation: (cwd: string) => engine.migrateIntakeAutomation!(cwd) }
+      : {}),
     ensureAutomation: async (cwd: string) => {
       const res = await engine.ensureAutomation(cwd);
       try {
-        const m = migrateIntakeAutomation(cwd);
-        if (m.migrated) ctx.logger.info(`invoicebot: migrated intake automation to schedule.batch (${m.path})`);
+        const m = (await engine.migrateIntakeAutomation?.(cwd)) ?? { migrated: [] };
+        for (const p of m.migrated) {
+          ctx.logger.info(`invoicebot: migrated intake automation to schedule.batch (${p})`);
+        }
       } catch (err) {
         ctx.logger.warn(
           `invoicebot intake automation migration failed: ${err instanceof Error ? err.message : String(err)}`,

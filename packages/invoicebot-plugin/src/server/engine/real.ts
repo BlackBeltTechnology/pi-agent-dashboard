@@ -12,7 +12,14 @@
  * (publish or vendor) — this adapter is unchanged by that swap.
  * See change: add-invoicebot-rest-plugin (Decision 0b).
  */
-import type { EngineResult, IngestFile, IngestResult, InvoiceEngine } from "./port.js";
+import type {
+  EngineLeasedHandle,
+  EngineResult,
+  EngineWorkSource,
+  IngestFile,
+  IngestResult,
+  InvoiceEngine,
+} from "./port.js";
 
 /** The supported facade surface (`@blackbelt-technology/invoicebot/engine`). */
 interface InvoiceFacade {
@@ -22,6 +29,16 @@ interface InvoiceFacade {
   rules(cwd: string, args: { action: string; [k: string]: unknown }): Promise<EngineResult>;
   ingest(cwd: string, files: IngestFile[]): Promise<IngestResult>;
   ensureIntakeAutomation(cwd: string): Promise<{ automation: string[] }>;
+  /** Present from the engine's work-source adoption onward. */
+  queuedWorkSource?(cwd: string): {
+    next(n: number): EngineLeasedHandle[];
+    ack(leaseToken: string): void;
+    nack(leaseToken: string): void;
+  };
+  /** Targeted lease of ONE queued invoice (fenced in the engine's store). */
+  takeQueued?(cwd: string, invoiceId: string): EngineLeasedHandle | null;
+  /** One-way, idempotent upgrade of a DEPLOYED intake automation. */
+  migrateIntakeAutomation?(cwd: string): Promise<{ migrated: string[]; skipped: string[] }>;
 }
 
 export class RealInvoiceEngine implements InvoiceEngine {
@@ -43,6 +60,39 @@ export class RealInvoiceEngine implements InvoiceEngine {
   }
   ensureAutomation(cwd: string): Promise<{ automation: string[] }> {
     return this.facade.ensureIntakeAutomation(cwd);
+  }
+
+  /**
+   * The engine's own fenced source, bound to `cwd`. `take` is exposed ONLY when
+   * the facade can lease one named invoice — a targeted run then reports
+   * `unsupported` rather than being emulated by leasing-and-releasing others,
+   * which would make a single-flight guarantee depend on timing.
+   *
+   * An OLDER engine checkout (no `queuedWorkSource`) yields a source that vends
+   * nothing: fan-out then spawns nothing, visibly and safely, instead of the
+   * host inventing leases the engine does not know about.
+   */
+  queuedWorkSource(cwd: string): EngineWorkSource {
+    const inner = this.facade.queuedWorkSource?.(cwd);
+    const takeQueued = this.facade.takeQueued;
+    if (!inner) {
+      return { next: () => [], ack: () => {}, nack: () => {} };
+    }
+    return {
+      next: (n) => inner.next(n),
+      ack: (t) => inner.ack(t),
+      nack: (t) => inner.nack(t),
+      ...(takeQueued
+        ? { take: (invoiceId: string) => takeQueued.call(this.facade, cwd, invoiceId) }
+        : {}),
+    };
+  }
+
+  migrateIntakeAutomation(cwd: string): Promise<{ migrated: string[]; skipped: string[] }> {
+    return (
+      this.facade.migrateIntakeAutomation?.(cwd) ??
+      Promise.resolve({ migrated: [], skipped: ["engine has no migrator"] })
+    );
   }
 }
 

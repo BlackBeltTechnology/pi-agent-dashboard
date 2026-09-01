@@ -6,6 +6,11 @@
  * a drift in what the engine writes shows up here as a failing migration rather
  * than as a silently un-drained workspace.
  *
+ * This is the FALLBACK rewrite (used when the engine binding cannot do it — the
+ * fixture binding in CI / a worktree). It must target the SAME shape the engine's
+ * own migrator emits, so the assertions below pin `inputs.work_item`, not a
+ * host-invented hybrid.
+ *
  * See change: relocate-fanout-to-work-source.
  */
 import fs from "node:fs";
@@ -68,7 +73,9 @@ describe("migrateIntakeAutomation", () => {
     expect(after.on.source).toBe(QUEUED_INVOICE_SOURCE_ID);
     expect(after.on.cron).toBe("*/2 * * * *"); // cadence preserved
     expect(after.action.payload.scope).toBeUndefined(); // discriminator retired
-    expect(after.action.payload.inputs.invoice_id).toBe("${{trigger}}");
+    // the leased-item key the flow now consumes (the engine's emitted shape)
+    expect(after.action.payload.inputs.work_item).toBe("${{trigger}}");
+    expect(after.action.payload.inputs.invoice_id).toBeUndefined();
     expect(after.action.payload.flow).toBe("invoicebot:process");
   });
 

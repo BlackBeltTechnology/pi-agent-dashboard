@@ -15,16 +15,26 @@
  * — the automation would parse as a plain schedule and fire ONE run carrying a
  * literal `${invoice_id}`.
  *
- * The route chosen (of migrate-on-read / one-shot migrator / dual-shape):
- * MIGRATE-ON-READ, HERE, in the invoice plugin. Rationale:
- *   - it is the only route that also fixes YAML the UNCHANGED engine writes
- *     fresh tomorrow, so no engine-repo change is needed and no version skew
- *     between the two repos can leave a workspace un-drained;
- *   - a migrator inside the automation plugin would put the words
- *     "per-invoice"/"invoice_id" back into a generic, domain-free package —
- *     exactly the separation this relocation exists to establish;
- *   - dual-shape support would keep the retired discriminator alive in the
- *     generic schema forever.
+ * WHO CALLS WHOM. The engine owns the emitted YAML shape and ships its OWN
+ * one-way migrator (`engine.migrateIntakeAutomation(cwd)`), which the host
+ * PREFERS — see `index.ts`. But the engine emits automation YAML and never READS
+ * a deployed one at fire time (the host's automation plugin does), so
+ * migrate-on-READ is only implementable here. The host therefore owns WHEN the
+ * migration runs; the engine owns the rewrite.
+ *
+ * This implementation is the FALLBACK for that rewrite, used when the engine
+ * binding cannot do it (the fixture binding, i.e. CI / a worktree / release-cut,
+ * where the `file:` sibling is absent). It targets the EXACT shape the engine
+ * emits — `inputs.work_item: "${{trigger}}"`, `on.source: invoicebot-queued`, no
+ * `payload.scope` — because two migrators emitting different shapes is precisely
+ * the drift this relocation exists to end.
+ *
+ * Why not the other D-YAML routes: a migrator inside the automation plugin would
+ * put the words "per-invoice"/"invoice_id" back into a generic, domain-free
+ * package, and dual-shape support in the generic schema would keep the retired
+ * discriminator alive forever. (The FLOW does keep dual-shape support for its own
+ * inputs, so an un-migrated deployment keeps working meanwhile — nothing breaks
+ * while a workspace waits for its first touch.)
  *
  * The rewrite is in-place via the `yaml` Document API (comments and every other
  * field survive), atomic (tmp + rename), re-validated before the write, and
@@ -50,6 +60,10 @@ const LEGACY_TOKEN_RE = /\$\{invoice_id\}/g;
 const HAS_LEGACY_TOKEN = /\$\{invoice_id\}/;
 /** The only substitution token the automation plugin resolves. */
 const TRIGGER_TOKEN = "${{trigger}}";
+/** Retired per-invoice flow input key. */
+const LEGACY_INPUT_KEY = "invoice_id";
+/** The leased-item input key the flow consumes (engine's emitted shape). */
+const WORK_ITEM_KEY = "work_item";
 
 export interface MigrateResult {
   /** True when this call rewrote the file. */
@@ -111,11 +125,23 @@ export function migrateIntakeAutomation(
   doc.setIn(["on", "kind"], "schedule.batch");
   doc.setIn(["on", "source"], sourceId);
   doc.deleteIn(["action", "payload", "scope"]);
-  // Re-token every string under the payload (flow `inputs` AND the `env` block —
-  // the env map is authorization-bearing, so its values must resolve too).
-  for (const key of ["inputs", "env"]) {
-    const sub = payload?.[key];
-    if (sub && typeof sub === "object") doc.setIn(["action", "payload", key], retokenize(sub));
+  // Re-token the authorization-bearing `env` block in place (keys unchanged).
+  const legacyEnv = payload?.env;
+  if (legacyEnv && typeof legacyEnv === "object") {
+    doc.setIn(["action", "payload", "env"], retokenize(legacyEnv));
+  }
+  // Flow `inputs`: re-token AND rename the retired per-invoice key to the
+  // leased-item key the flow now consumes, matching the engine's own migrator.
+  // Built as one object and set once — a `setIn` of a plain object replaces the
+  // YAML node, so a later `deleteIn` into it would have nothing to navigate.
+  const legacyInputs = payload?.inputs as Record<string, unknown> | undefined;
+  if (legacyInputs && typeof legacyInputs === "object") {
+    const nextInputs: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(legacyInputs)) {
+      const key = k === LEGACY_INPUT_KEY ? WORK_ITEM_KEY : k;
+      nextInputs[key] = retokenize(v);
+    }
+    doc.setIn(["action", "payload", "inputs"], nextInputs);
   }
 
   const out = String(doc);
@@ -130,11 +156,15 @@ export function migrateIntakeAutomation(
     | undefined;
   const envBefore = Object.keys((payload?.env as Record<string, unknown> | undefined) ?? {});
   const envAfter = Object.keys((afterPayload?.env as Record<string, unknown> | undefined) ?? {});
+  const afterInputs = afterPayload?.inputs as Record<string, unknown> | undefined;
   const valid =
     afterOn?.kind === "schedule.batch" &&
     afterOn?.source === sourceId &&
     afterOn?.cron === on?.cron &&
     afterPayload?.scope === undefined &&
+    (legacyInputs === undefined ||
+      !Object.hasOwn(legacyInputs, LEGACY_INPUT_KEY) ||
+      afterInputs?.[WORK_ITEM_KEY] === TRIGGER_TOKEN) &&
     !HAS_LEGACY_TOKEN.test(out) &&
     envBefore.length === envAfter.length &&
     envBefore.every((k) => envAfter.includes(k));
