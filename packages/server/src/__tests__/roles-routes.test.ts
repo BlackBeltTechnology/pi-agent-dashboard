@@ -60,7 +60,7 @@ describe("GET /api/roles", () => {
     expect(data.rolePresets).toEqual([{ name: "default", roles: { fast: "anthropic/opus" } }]);
     expect(data.activePreset).toBe("default");
     // builtinRoleNames = canonical defaults
-    expect(data.builtinRoleNames).toEqual(["planning", "coding", "compact", "fast", "vision", "research"]);
+    expect(data.builtinRoleNames).toEqual(["planning", "coding", "compact", "fast", "vision", "research", "naming"]);
     await app.close();
   });
 
@@ -72,7 +72,7 @@ describe("GET /api/roles", () => {
     expect(res.statusCode).toBe(200);
     const data = JSON.parse(res.payload);
     // defaults overlaid, everything else empty
-    expect(data.roles).toEqual({ planning: "", coding: "", compact: "", fast: "", vision: "", research: "" });
+    expect(data.roles).toEqual({ planning: "", coding: "", compact: "", fast: "", vision: "", research: "", naming: "" });
     expect(data.rolePresets).toEqual([]);
     expect(data.activePreset).toBeNull();
     // the read never created the file

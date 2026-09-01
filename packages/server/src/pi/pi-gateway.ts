@@ -123,8 +123,15 @@ export interface PiGateway {
    * cwd. Wired by the dashboard server to consume any pending
    * spawn-with-attach intent. See change:
    * add-folder-task-checker-and-spawn-attach.
+   *
+   * `spawnToken` is the correlation token the bridge echoed back in
+   * `session_register` (absent for a session the dashboard did not spawn).
+   * Handlers that consume a cwd-keyed pending intent need it to pick the
+   * RIGHT pending entry when several spawns share one cwd — without it, two
+   * concurrent spawns in the same directory can swap stamps.
+   * See change: spawn-correlation-token.
    */
-  onSessionRegistered?: (sessionId: string, cwd: string) => void;
+  onSessionRegistered?: (sessionId: string, cwd: string, spawnToken?: string) => void;
 }
 
 export function createPiGateway(
@@ -169,7 +176,7 @@ export function createPiGateway(
   let onConnection: (() => void) | undefined;
   let onDisconnect: ((sessionId: string) => void) | undefined;
   let onSessionCreated: ((sessionId: string) => void) | undefined;
-  let onSessionRegistered: ((sessionId: string, cwd: string) => void) | undefined;
+  let onSessionRegistered: ((sessionId: string, cwd: string, spawnToken?: string) => void) | undefined;
 
   function checkEmpty() {
     if (connections.size === 0) {
@@ -806,7 +813,7 @@ export function createPiGateway(
 
               resetHeartbeat(msg.sessionId);
               onConnection?.();
-              onSessionRegistered?.(msg.sessionId, msg.cwd);
+              onSessionRegistered?.(msg.sessionId, msg.cwd, msg.spawnToken);
               onEvent?.(msg.sessionId, msg);
           } catch {
             // Ignore malformed messages
@@ -942,7 +949,7 @@ export function createPiGateway(
       onSessionCreated = handler;
     },
 
-    set onSessionRegistered(handler: ((sessionId: string, cwd: string) => void) | undefined) {
+    set onSessionRegistered(handler: ((sessionId: string, cwd: string, spawnToken?: string) => void) | undefined) {
       onSessionRegistered = handler;
     },
 

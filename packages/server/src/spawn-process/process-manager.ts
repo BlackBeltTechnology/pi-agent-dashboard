@@ -59,6 +59,7 @@ import {
   resolveLiveSpawnRuntime,
 } from "../runtime-resolution.js";
 import { type CwdPolicyRegistry, mergeCwdPolicy } from "./cwd-policy.js";
+import { GUARD_EXTENSION_CONFIG_NAME, GUARD_EXTENSION_PATH } from "../session-guard-extension.js";
 
 // ── Resolver seam (injectable for tests) ────────────────────────────────────
 
@@ -182,6 +183,36 @@ export interface SessionOptions {
    * add-plugin-spawn-scope.
    */
   extensionConfig?: Record<string, Record<string, string | string[]>>;
+  /**
+   * Arbitrary, NON-namespaced environment map forwarded verbatim into the
+   * spawned process env. Distinct from `extensionConfig` (which projects into
+   * the namespaced `PI_EXT_<NAME>_<KEY>` channel): a consumer inside the
+   * session reads these keys LITERALLY (e.g. `IB_TOOLSET`, `IB_INVOICE_ID`,
+   * `IB_ALLOWED_TOOLS`), so the channel cannot be replaced by the namespaced
+   * projection without changing the reader.
+   *
+   * This map is AUTHORIZATION-BEARING: it is how a caller narrows the spawned
+   * session's tool surface. It is folded in BEFORE every host-managed key, so
+   * a caller can never overwrite a host key (`PI_DASHBOARD_*`, `PI_EXT_*`) —
+   * i.e. it can only carry keys the host does not own. Absent ⇒ env
+   * byte-identical to a bare spawn.
+   *
+   * Dropping or renaming this channel fails OPEN silently (the consumer falls
+   * back to its unnarrowed default with no crash), which is why
+   * `spawn-env-authorization-channel.test.ts` locks it.
+   * See change: scope-session-toolset-by-profile.
+   */
+  env?: Record<string, string>;
+  /**
+   * Mark this spawn as GUARDED: built-in tools removed and the host-shipped
+   * tool-call containment guard loaded, contained to `cwd`. Expanded at the
+   * spawn funnel (the only layer that knows both the spawn cwd and the
+   * host-shipped extension path) into the same `scope` fields a caller could
+   * pass explicitly — `noBuiltinTools` + `extensions` + `extensionConfig.guard`
+   * — so the guard is ordinary capability scope, not a parallel mechanism.
+   * Absent ⇒ argv/env byte-identical. See change: constrain-agent-tool-surface.
+   */
+  guard?: boolean;
 }
 
 export interface SpawnResult {
@@ -270,6 +301,14 @@ export function buildSpawnEnv(
      * See change: unify-pi-runtime-identity (task 3.1).
      */
     spawnRuntime?: ResolvedRuntime | null;
+    /**
+     * Caller-supplied, non-namespaced env forwarded verbatim. Applied BEFORE
+     * every host-managed injection (`PI_DASHBOARD_URL`,
+     * `PI_DASHBOARD_SPAWN_TOKEN`, `PI_EXT_*`) so a host key always wins a
+     * collision and a caller can never weaken it. Absent ⇒ no-op.
+     * See change: scope-session-toolset-by-profile.
+     */
+    extraEnv?: Record<string, string>;
   },
 ): NodeJS.ProcessEnv {
   // Defensive copy: never mutate the caller's env (often `process.env`).
@@ -299,6 +338,13 @@ export function buildSpawnEnv(
   // `runner.buildSpawnEnvForArgv`. No argv0 ⇒ no-op (byte-identical).
   if (opts?.argv0 && electronAsNodeRequired(opts.argv0, opts.electronDeps)) {
     env.ELECTRON_RUN_AS_NODE = "1";
+  }
+  // Caller-supplied env, folded in BEFORE the host-managed keys below so the
+  // host always wins a collision (a caller-forged `PI_DASHBOARD_SPAWN_TOKEN` or
+  // `PI_EXT_*` value is overwritten, never honored). Distinct caller keys
+  // survive. See change: scope-session-toolset-by-profile.
+  if (opts?.extraEnv) {
+    for (const [k, v] of Object.entries(opts.extraEnv)) env[k] = v;
   }
   // Point spawned bridges at THIS server's gateway so they register with the
   // server that spawned them, not the config-default piPort. Overrides any
@@ -650,8 +696,13 @@ export async function spawnPiSession(
   // Resolve + merge the cwd capability floor BEFORE argv/env are built, for
   // EVERY spawn regardless of origin (design B1). No matching policy ⇒
   // `mergeCwdPolicy` returns `baseOpts` unchanged ⇒ byte-identical argv/env.
+  // Expand the guard marker into scope fields FIRST, so the cwd floor below can
+  // only tighten it further (it never widens). See applyGuardScope.
+  const guardedOpts: SessionOptions & { electronMode?: boolean } = baseOpts.guard
+    ? { ...applyGuardScope(cwd, baseOpts), electronMode: baseOpts.electronMode }
+    : baseOpts;
   const policy = cwdPolicyRegistry?.resolve(cwd);
-  const opts = policy ? mergeCwdPolicy(policy, baseOpts) : baseOpts;
+  const opts = policy ? mergeCwdPolicy(policy, guardedOpts) : guardedOpts;
 
   const mechanism = chooseMechanism(opts, opts?.electronMode ?? false);
 
@@ -665,6 +716,42 @@ export async function spawnPiSession(
   // Surface the token on every result (success or failure) so callers
   // can clean up registries deterministically.
   return { ...result, spawnToken };
+}
+
+/**
+ * Expand `guard: true` into explicit capability scope, contained to the spawn
+ * `cwd`:
+ *  - `noBuiltinTools` — remove pi's general tool surface (the STRONGER of the
+ *    two boundaries: a removed tool cannot be vetoed wrongly);
+ *  - `extensions += <host-shipped guard extension>` — the `tool_call`
+ *    interceptor that vetoes a path argument escaping `cwd` (defence in depth
+ *    for the extension/custom tools that remain);
+ *  - `extensionConfig.guard.allowedRoots = [cwd, ...caller-supplied roots]` —
+ *    its config, delivered on develop's namespaced `PI_EXT_GUARD_ALLOWED_ROOTS`
+ *    channel.
+ *
+ * The cwd is ALWAYS a root; caller-supplied roots are ADDED to it, never
+ * replace it. A caller legitimately needs a folder outside the session cwd
+ * (a drop/intake directory), and containing hard to `[cwd]` alone would break
+ * that silently. The host stays domain-free: it accepts roots, it does not
+ * interpret them. Additive elsewhere too — a caller's own `extensions` and
+ * other `extensionConfig` entries survive untouched.
+ */
+function applyGuardScope(cwd: string, options: SessionOptions): SessionOptions {
+  const existingGuardConfig = options.extensionConfig?.[GUARD_EXTENSION_CONFIG_NAME] ?? {};
+  const supplied = existingGuardConfig.allowedRoots;
+  const extraRoots = (Array.isArray(supplied) ? supplied : supplied ? [supplied] : []).map((r) => path.resolve(r));
+  const roots = [path.resolve(cwd), ...extraRoots.filter((r) => r !== path.resolve(cwd))];
+  const extensions = options.extensions ?? [];
+  return {
+    ...options,
+    noBuiltinTools: true,
+    extensions: extensions.includes(GUARD_EXTENSION_PATH) ? extensions : [...extensions, GUARD_EXTENSION_PATH],
+    extensionConfig: {
+      ...(options.extensionConfig ?? {}),
+      [GUARD_EXTENSION_CONFIG_NAME]: { ...existingGuardConfig, allowedRoots: roots },
+    },
+  };
 }
 
 // ── Per-mechanism spawn ────────────────────────────────────────────────────
@@ -690,6 +777,7 @@ export function spawnTmux(cwd: string, options?: SessionOptions): SpawnResult {
     spawnToken: options?.spawnToken,
     argv0: piCmd[0],
     spawnRuntime: rt,
+    extraEnv: options?.env,
   });
   try {
     const { argv, spawnOptions } = buildSafeArgv(cmd[0], cmd.slice(1));
@@ -713,6 +801,7 @@ export function spawnWslTmux(cwd: string, options?: SessionOptions): SpawnResult
     const env = buildSpawnEnv(process.env, {
       spawnToken: options?.spawnToken,
       spawnRuntime: spawnRuntimeForSession(),
+      extraEnv: options?.env,
     });
     const { argv, spawnOptions } = buildSafeArgv("wsl.exe", ["--exec", ...tmuxArgv]);
     execFileSync(argv[0], argv.slice(1), { stdio: "ignore", env, ...spawnOptions });
@@ -746,6 +835,7 @@ async function spawnWt(cwd: string, options?: SessionOptions): Promise<SpawnResu
       spawnToken: options?.spawnToken,
       argv0: piCmd[0],
       spawnRuntime: rt,
+      extraEnv: options?.env,
     }),
   });
 
@@ -784,6 +874,7 @@ async function spawnHeadless(cwd: string, options?: SessionOptions): Promise<Spa
     argv0: piCmd[0],
     extensionConfig: options?.extensionConfig,
     spawnRuntime: rt,
+    extraEnv: options?.env,
   });
   return spawnHeadlessViaKeeper(cwd, env, args, piCmd);
 }

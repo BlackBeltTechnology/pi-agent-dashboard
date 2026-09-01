@@ -381,10 +381,19 @@ export async function handleSendPrompt(
     sessionManager.update(msg.sessionId, { resuming: true });
     broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: { resuming: true } });
     const autoResumeConfig = loadConfig();
+    // Re-apply the session's bound spawn env on resume. The original spawn's
+    // env is what NARROWS the session's tool surface, and a continue-spawn
+    // reproduces none of it — so without this fold a resumed scoped session
+    // silently comes back on the FULL surface (a fail-open with no error and
+    // no failing test). Absent resolver / non-scoped session ⇒ no `env` key,
+    // byte-identical to a bare resume. See change:
+    // make-invoice-session-canonical (§5.4), scope-session-toolset-by-profile.
+    const resumeEnv = ctx.resumeSpawnEnv?.(msg.sessionId);
     const spawnResult = await spawnPiSession(promptSession.cwd, {
       sessionFile: promptSession.sessionFile,
       mode: "continue",
       strategy: autoResumeConfig.spawnStrategy,
+      ...(resumeEnv ? { env: resumeEnv } : {}),
     });
     // No browser socket on this path — the reclaim runs regardless.
     armSpawnWatchdog(promptSession.cwd, autoResumeConfig.spawnStrategy as any, spawnResult);
@@ -406,6 +415,17 @@ export async function handleSendPrompt(
         keeperOptsFromSpawnResult(spawnResult),
       );
     }
+  } else if (cannotResumeDashboardPhantom(promptSession, msg.sessionId, (id) => piGateway.isSessionConnected(id))) {
+    // A dashboard-spawned phantom with NO transcript to continue from: the
+    // reopen arm above cannot fire (nothing to `--continue`), and falling
+    // through to the live-send below would hand the prompt to a bridge that is
+    // gone — `sendToSession` returns false and the prompt is dropped with only
+    // a "no bridge connection" line that reads like a transport hiccup. Report
+    // the real reason instead of pretending we tried to deliver.
+    // See change: make-invoice-session-canonical (§5).
+    console.error(
+      `[dashboard] send_prompt failed: session ${msg.sessionId} has no live bridge and no session file to resume from`,
+    );
   } else {
     const sent = piGateway.sendToSession(msg.sessionId, {
       type: "send_prompt",
@@ -418,6 +438,28 @@ export async function handleSendPrompt(
       console.error(`[dashboard] send_prompt failed: no bridge connection for session ${msg.sessionId}`);
     }
   }
+}
+
+/**
+ * A dashboard-spawned session whose process is gone and that has NO
+ * `sessionFile` — i.e. `shouldReopenDashboardZombie` declined ONLY for the
+ * missing transcript. Such a send can neither resume nor be delivered live, so
+ * the caller reports it instead of attempting a doomed live-send.
+ * Deliberately scoped exactly like the reopen predicate (dashboard-spawned
+ * only): a TUI session owns its own lifecycle and keeps today's behaviour.
+ */
+function cannotResumeDashboardPhantom(
+  session: { status: string; source: string; sessionFile?: string | null } | undefined,
+  sessionId: string,
+  isBridgeConnected: (id: string) => boolean,
+): boolean {
+  if (!session) return false;
+  return (
+    session.status !== "ended" &&
+    session.source === "dashboard" &&
+    !session.sessionFile &&
+    isSessionProcessGone(sessionId, isBridgeConnected)
+  );
 }
 
 /**

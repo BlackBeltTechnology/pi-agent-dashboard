@@ -129,6 +129,37 @@ export interface PluginSpawnOptions {
    */
   automationRun?: { name: string; runId: string; visibility?: "hidden" | "shown" };
   /**
+   * Request a cwd-contained spawn: pi's built-in tools removed plus the
+   * host-shipped tool-call containment guard, whose allowed roots default to
+   * the spawn `cwd` (extra roots ride on
+   * `scope.extensionConfig.guard.allowedRoots` and are ADDED to it).
+   *
+   * @deprecated Pass `scope` directly — this flag is only a shorthand the host
+   * expands into that same containment scope block.
+   */
+  guard?: boolean;
+  /**
+   * Arbitrary, NON-namespaced environment map forwarded verbatim into the
+   * spawned process env. Complementary to `scope.extensionConfig` — that
+   * projects into the namespaced `PI_EXT_<NAME>_<KEY>` channel, while these
+   * keys arrive LITERALLY, which is what a consumer reading a fixed key name
+   * requires.
+   *
+   * AUTHORIZATION-BEARING: a plugin uses it to NARROW a spawned session's tool
+   * surface, so a dropped or renamed key fails OPEN (the consumer silently
+   * keeps its wider default). The host folds it in beneath every host-managed
+   * key, so it can never overwrite `PI_DASHBOARD_*` / `PI_EXT_*`.
+   * Absent ⇒ env unchanged. See change: scope-session-toolset-by-profile.
+   */
+  env?: Record<string, string>;
+  /**
+   * When set, RESUME the given session file's transcript (`--continue`)
+   * instead of spawning a fresh session, so re-running in a stopped session
+   * keeps its history. Absent ⇒ a fresh spawn.
+   * See change: make-invoice-session-canonical (§6).
+   */
+  resumeSessionFile?: string;
+  /**
    * Optional capability-scope block constraining the spawned session's
    * tool / skill / extension surface, mapped 1:1 to pi CLI flags by
    * `pluginSpawnToSessionOptions`. Every field is optional; when the block
@@ -179,6 +210,20 @@ export interface PluginSpawnOptions {
 export interface MappedSpawnOptions extends SessionFlags {
   strategy?: SpawnStrategy;
   extensionConfig?: Record<string, Record<string, string | string[]>>;
+  /**
+   * Arbitrary, non-namespaced spawn env (see {@link PluginSpawnOptions.env}).
+   * Forwarded verbatim; the host folds it in beneath every host-managed key.
+   */
+  env?: Record<string, string>;
+  /**
+   * Deprecated containment shorthand (see {@link PluginSpawnOptions.guard}).
+   * Forwarded as a marker; the spawn funnel expands it into
+   * `noBuiltinTools` + `extensions` + `extensionConfig.guard.allowedRoots`,
+   * because only the funnel knows both the spawn cwd and the host-shipped
+   * extension's absolute path (this package must not depend on the server
+   * package).
+   */
+  guard?: boolean;
 }
 
 function isRecord(v: unknown): v is Record<string, unknown> {
@@ -286,7 +331,48 @@ export function pluginSpawnToSessionOptions(opts: PluginSpawnOptions): MappedSpa
     const extensionConfig = sanitizeExtensionConfig(scope.extensionConfig);
     if (extensionConfig) result.extensionConfig = extensionConfig;
   }
+
+  // Arbitrary non-namespaced env. Kept SEPARATE from `scope.extensionConfig`:
+  // its keys reach the child LITERALLY, which is what a consumer reading a
+  // fixed key name (an authorization-narrowing key among them) requires. Same
+  // untrusted-input discipline as the rest of the mapper: non-record ⇒ absent,
+  // non-string/NUL-bearing keys or values dropped, never throws. An
+  // all-invalid map yields NO `env` property so an absent/garbage input stays
+  // byte-identical to today. See change: scope-session-toolset-by-profile.
+  const env = sanitizeSpawnEnv(input.env);
+  if (env) result.env = env;
+
+  // Deprecated containment shorthand → forwarded as a marker for the spawn
+  // funnel to expand (see MappedSpawnOptions.guard). Only `true` counts, so a
+  // stray truthy value from untrusted plugin input cannot request containment
+  // it did not spell out. See change: constrain-agent-tool-surface.
+  if (input.guard === true) result.guard = true;
+
+  // §6 re-run: resume the given transcript with `--continue` instead of
+  // spawning a fresh session. See change: make-invoice-session-canonical.
+  if (isSafeArgvString(input.resumeSessionFile)) {
+    result.sessionFile = input.resumeSessionFile;
+    result.mode = "continue";
+  }
   return result;
+}
+
+/**
+ * Sanitize the arbitrary spawn `env` map. Non-record ⇒ `undefined`. A key must
+ * be a non-empty NUL-free string; a value must be a NUL-free string (empty
+ * allowed — an empty env value is legitimate). Returns `undefined` when
+ * nothing valid remains, so an absent or fully-invalid map leaves the spawn
+ * env byte-identical. Never throws (design D7).
+ */
+function sanitizeSpawnEnv(v: unknown): Record<string, string> | undefined {
+  if (!isRecord(v)) return undefined;
+  const out: Record<string, string> = {};
+  for (const [key, value] of Object.entries(v)) {
+    if (!isSafeArgvString(key)) continue;
+    if (!isSafeEnvString(value)) continue;
+    out[key] = value;
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 /**
