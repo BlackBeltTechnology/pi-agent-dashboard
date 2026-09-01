@@ -147,4 +147,4 @@ a clean-enough git tree (or the discipline to stage explicitly).
 
 ---
 
-_Generated from session `019de14b-4726-771c-b30d-3437b2ac0444` · `pi-agent-dashboard` · 2026-05-01. Source extract: `/tmp/session_facts.95880.1784851508.md`._
+_Generated from session `019de14b-4726-771c-b30d-3437b2ac0444` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-01. Source extract: `/tmp/session_facts.95880.1784851508.md`._

@@ -170,4 +170,4 @@ separately, commit each class as a focused commit — invoked whenever someone s
 
 ---
 
-_Generated from session `019de7a9` · `pi-agent-dashboard` · 2026-05-02. Source extract: facts sheet (mktemp)._
+_Generated from session `019de7a9` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-02. Source extract: facts sheet (mktemp)._

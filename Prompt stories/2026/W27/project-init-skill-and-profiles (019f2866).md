@@ -186,4 +186,4 @@ repeatable enough to deserve its own project skill.
 
 ---
 
-_Generated from session `019f2866-0c2f-781f-b20e-ee895045b6a0` · `pi-agent-dashboard` · 2026-07-03. Source extract: `/tmp/facts-1784849185N.md`._
+_Generated from session `019f2866-0c2f-781f-b20e-ee895045b6a0` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-03. Source extract: `/tmp/facts-1784849185N.md`._

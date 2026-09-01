@@ -149,4 +149,4 @@ Two reusable lessons worth persisting as memory if not already captured:
 
 ---
 
-_Generated from session `019f627b-8283-7567-8f8e-aeec59c71a78` · `pi-agent-dashboard` · 2026-07-15. Source extract: `/tmp/facts-49522-1784849170.md`._
+_Generated from session `019f627b-8283-7567-8f8e-aeec59c71a78` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-15. Source extract: `/tmp/facts-49522-1784849170.md`._

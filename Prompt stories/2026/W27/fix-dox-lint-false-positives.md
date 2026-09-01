@@ -174,4 +174,4 @@ regression tests in both packages, updated `AGENTS.md` rows, archived change
 
 ---
 
-_Generated from session `019f294e-be87-7ab6-b5fb-2e713cd6a199` · `pi-agent-dashboard` · 2026-07-03. Source extract: session facts sheet (deterministic extract)._
+_Generated from session `019f294e-be87-7ab6-b5fb-2e713cd6a199` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-03. Source extract: session facts sheet (deterministic extract)._

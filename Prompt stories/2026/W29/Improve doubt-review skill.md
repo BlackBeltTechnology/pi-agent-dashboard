@@ -107,4 +107,4 @@ No new skills or memories were created in this session, but the session **refine
 
 ---
 
-_Generated from session `019f6d18-eb29-75bc-b47c-93a072929e8f` · `pi-agent-dashboard` · 2026-07-17. Source extract: `/tmp/facts_019f6d18.md`._
+_Generated from session `019f6d18-eb29-75bc-b47c-93a072929e8f` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-17. Source extract: `/tmp/facts_019f6d18.md`._

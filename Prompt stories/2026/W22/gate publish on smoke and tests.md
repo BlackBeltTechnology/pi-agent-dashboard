@@ -145,4 +145,4 @@ to invoke:** any PR that comes back with a CodeRabbit review needing verified fi
 
 ---
 
-_Generated from session `019e7ada-11b8-73c9-8c7b-43b6bf037637` · `pi-agent-dashboard/.worktrees/gate-publish-on-smoke-and-tests` · 2026-05-31. Source extract: session facts sheet._
+_Generated from session `019e7ada-11b8-73c9-8c7b-43b6bf037637` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/gate-publish-on-smoke-and-tests` · 2026-05-31. Source extract: session facts sheet._

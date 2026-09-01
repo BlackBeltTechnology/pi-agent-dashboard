@@ -172,4 +172,4 @@ No skill or memory was saved this session — but two reusable assets came out o
 
 ---
 
-_Generated from session `da7d08cf` · `pi-agent-dashboard` · 2026-04-04. Source extract: deterministic facts sheet._
+_Generated from session `da7d08cf` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-04. Source extract: deterministic facts sheet._

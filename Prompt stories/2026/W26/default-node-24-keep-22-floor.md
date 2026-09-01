@@ -179,4 +179,4 @@ merged as PR #182 (`348ff2c`).
 
 ---
 
-_Generated from session `019f0b2b-90f7-72ab-9797-4b80a22453bf` · `pi-agent-dashboard` · 2026-06-28. Source extract: `/tmp/facts-50244-1784849009.md`._
+_Generated from session `019f0b2b-90f7-72ab-9797-4b80a22453bf` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-28. Source extract: `/tmp/facts-50244-1784849009.md`._

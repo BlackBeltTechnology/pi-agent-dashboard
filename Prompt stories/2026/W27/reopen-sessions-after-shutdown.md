@@ -210,4 +210,4 @@ active change dir and the bundled `register-plugin-automation-events` commit rem
 
 ---
 
-_Generated from session `019f2eab` · `pi-agent-dashboard` · 2026-07-06. Source extract: `/tmp/session_facts_96450_10272.md`._
+_Generated from session `019f2eab` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-06. Source extract: `/tmp/session_facts_96450_10272.md`._

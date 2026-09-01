@@ -160,4 +160,4 @@ as the coherence gate.
 
 ---
 
-_Generated from session `019f5950` · `pi-agent-dashboard` · 2026-07-13. Source extract: `/tmp/facts-A3myLY`._
+_Generated from session `019f5950` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-13. Source extract: `/tmp/facts-A3myLY`._

@@ -175,4 +175,4 @@ system Chrome (for `PW_CHANNEL=chrome`), `jq`, and push/PR credentials.
 
 ---
 
-_Generated from session `019f6d11` · `pi-agent-dashboard` · 2026-07-17. Source extract: session facts sheet._
+_Generated from session `019f6d11` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-17. Source extract: session facts sheet._

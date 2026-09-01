@@ -171,4 +171,4 @@ worktree. **Artifacts produced:** `FrontmatterProperties.tsx` + tests, updated
 
 ---
 
-_Generated from session `019f0659` · `pi-agent-dashboard` · 2026-06-27. Source extract: session-to-guideline facts sheet._
+_Generated from session `019f0659` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-27. Source extract: session-to-guideline facts sheet._

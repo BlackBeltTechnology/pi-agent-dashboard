@@ -185,4 +185,4 @@ entirely.
 
 ---
 
-_Generated from session `019da8c3-50f9-7596-8e75-81e1a874eed6` · `pi-agent-dashboard` · 2026-04-20. Source extract: `/tmp/facts-1784850653N.md`._
+_Generated from session `019da8c3-50f9-7596-8e75-81e1a874eed6` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-20. Source extract: `/tmp/facts-1784850653N.md`._

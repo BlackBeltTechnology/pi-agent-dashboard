@@ -170,4 +170,4 @@ CodeRabbit enabled on the repo, the `ship-it` skill available.
 
 ---
 
-_Generated from session `019f8769-569f-7fcf-b39c-ade0af8b2ede` · `pi-agent-dashboard` · 2026-07-22. Source extract: session facts sheet._
+_Generated from session `019f8769-569f-7fcf-b39c-ade0af8b2ede` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-22. Source extract: session facts sheet._

@@ -94,4 +94,4 @@ The first prompt was a single skill invocation: `/skill:openspec-apply-change ad
 
 ---
 
-_Generated from session `019f5be8-cd55-76b1-97a0-ac24dfde18b5` · `pi-agent-dashboard` · 2026-07-13. Source extract: `/tmp/facts-1784847438-67857.md`._
+_Generated from session `019f5be8-cd55-76b1-97a0-ac24dfde18b5` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-13. Source extract: `/tmp/facts-1784847438-67857.md`._

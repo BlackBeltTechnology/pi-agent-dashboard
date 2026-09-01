@@ -183,4 +183,4 @@ archived change it follows, `gh` auth, and a reachable dashboard endpoint (for w
 
 ---
 
-_Generated from session `019f5860-a1de-7bd4-b824-29c3987aa665` · `pi-agent-dashboard/.worktrees/os-preserve-streaming-tail-selection` · 2026-07-13. Source extract: deterministic facts sheet via `extract_session.ts`._
+_Generated from session `019f5860-a1de-7bd4-b824-29c3987aa665` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-preserve-streaming-tail-selection` · 2026-07-13. Source extract: deterministic facts sheet via `extract_session.ts`._

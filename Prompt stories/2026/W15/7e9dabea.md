@@ -89,4 +89,4 @@ No skills or memories were persisted this session. Three `Explore` subagents wer
 
 ---
 
-_Generated from session `7e9dabea-3324-4728-8b1f-741cf28b8e68` · `pi-agent-dashboard` · 2026-04-07. Source extract: mktemp facts sheet._
+_Generated from session `7e9dabea-3324-4728-8b1f-741cf28b8e68` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-07. Source extract: mktemp facts sheet._

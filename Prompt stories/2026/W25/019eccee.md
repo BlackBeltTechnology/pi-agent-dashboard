@@ -168,4 +168,4 @@ a 4.6 GB telegraf leak.
 
 ---
 
-_Generated from session `019eccee-d665-74b6-9cd7-226d6d2bb2b4` · `pi-agent-dashboard` · 2026-06-15. Source extract: deterministic facts sheet._
+_Generated from session `019eccee-d665-74b6-9cd7-226d6d2bb2b4` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-15. Source extract: deterministic facts sheet._

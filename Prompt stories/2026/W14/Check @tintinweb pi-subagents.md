@@ -209,4 +209,4 @@ and a skill **should** exist:
 
 ---
 
-_Generated from session `a35f2696-8ea8-4989-a0b4-560db2febd85` · `pi-agent-dashboard` · 2026-04-05. Source extract: `facts.rrghAmhkJx.md`._
+_Generated from session `a35f2696-8ea8-4989-a0b4-560db2febd85` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-05. Source extract: `facts.rrghAmhkJx.md`._

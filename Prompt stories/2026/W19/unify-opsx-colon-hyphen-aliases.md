@@ -148,4 +148,4 @@ at `openspec/changes/archive/2026-05-09-unify-opsx-colon-hyphen-aliases/`, synce
 
 ---
 
-_Generated from session `019e0d26` · `pi-agent-dashboard` · 2026-05-09. Source extract: session-to-guideline facts sheet._
+_Generated from session `019e0d26` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-09. Source extract: session-to-guideline facts sheet._

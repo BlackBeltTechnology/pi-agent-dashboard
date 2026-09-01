@@ -162,4 +162,4 @@ merged PR #111; torn-down worktree + branches.
 
 ---
 
-_Generated from session `019ec38d-d099-7da8-bf9e-5b479fc035be` · `pi-agent-dashboard` · 2026-06-14. Source extract: deterministic facts sheet._
+_Generated from session `019ec38d-d099-7da8-bf9e-5b479fc035be` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-14. Source extract: deterministic facts sheet._

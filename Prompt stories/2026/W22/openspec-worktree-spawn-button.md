@@ -191,4 +191,4 @@ authenticated, the worktree checked out on the PR branch.
 
 ---
 
-_Generated from session `019e78d2-316c-7f46-9e78-b8a1c85b426e` · `pi-agent-dashboard` · 2026-05-30. Source extract: session facts for openspec-worktree-spawn-button._
+_Generated from session `019e78d2-316c-7f46-9e78-b8a1c85b426e` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-30. Source extract: session facts for openspec-worktree-spawn-button._

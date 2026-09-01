@@ -177,4 +177,4 @@ channel across `packages/{shared,server,dashboard-plugin-runtime,client}`; `enqu
 
 ---
 
-_Generated from session `019ebdbc-0e2b-7d0c-abba-abddd15cdfc3` · `pi-agent-dashboard` · 2026-06-13. Source extract: deterministic facts sheet._
+_Generated from session `019ebdbc-0e2b-7d0c-abba-abddd15cdfc3` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-13. Source extract: deterministic facts sheet._

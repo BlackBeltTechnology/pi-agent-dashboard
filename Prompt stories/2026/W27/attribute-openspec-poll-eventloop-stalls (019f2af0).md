@@ -95,4 +95,4 @@ No new skills or memories were created this session — the workflow rode existi
 
 ---
 
-_Generated from session `019f2af0-7821-74cb-9b95-daef2f33ac77` · `pi-agent-dashboard` · 2026-07-04. Source extract: `/tmp/facts-session.md`._
+_Generated from session `019f2af0-7821-74cb-9b95-daef2f33ac77` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-04. Source extract: `/tmp/facts-session.md`._

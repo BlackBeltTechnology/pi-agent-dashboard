@@ -176,4 +176,4 @@ PR #282 squash-merged to `develop` as `93c9e8e9`.
 
 ---
 
-_Generated from session `019f5467` · `pi-agent-dashboard` · 2026-07-12. Source extract: deterministic facts sheet._
+_Generated from session `019f5467` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-12. Source extract: deterministic facts sheet._

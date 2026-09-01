@@ -99,4 +99,4 @@ The implicit quality bars the human imposed: **byte-identical relocation** (no d
 
 ---
 
-_Generated from session `019f2751-0cdd-7765-9b7f-a94957c48329` · `pi-agent-dashboard` · 2026-07-03. Source extract: `/tmp/facts-1784846534N.md`._
+_Generated from session `019f2751-0cdd-7765-9b7f-a94957c48329` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-03. Source extract: `/tmp/facts-1784846534N.md`._

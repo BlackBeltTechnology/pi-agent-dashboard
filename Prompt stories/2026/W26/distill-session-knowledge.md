@@ -181,4 +181,4 @@ candidate — it cost ~4 debugging turns here and will recur on every worktree s
 
 ---
 
-_Generated from session `019ef695` · `pi-agent-dashboard` · 2026-06-24. Source extract: facts sheet (session-to-guideline extract)._
+_Generated from session `019ef695` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-24. Source extract: facts sheet (session-to-guideline extract)._

@@ -152,4 +152,4 @@ insight that *should* be captured:
 
 ---
 
-_Generated from session `0c6afe5e-2bcf-42e3-9981-42c00d7a749e` · `pi-agent-dashboard` · 2026-04-07. Source extract: `/tmp/facts-58854-31146.md`._
+_Generated from session `0c6afe5e-2bcf-42e3-9981-42c00d7a749e` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-07. Source extract: `/tmp/facts-58854-31146.md`._

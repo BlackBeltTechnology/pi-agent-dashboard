@@ -200,6 +200,7 @@ without this feature.
 
 - **WHEN** a headless spawn is requested without a caller-supplied env
 - **THEN** the spawned process environment SHALL be unchanged from prior behavior
+
 ### Requirement: Headless spawn sets session name at creation via --name
 
 `sessionFlagsToArgv(flags)` — defined in `packages/shared/src/platform/spawn-mechanism.ts` — SHALL accept an optional `name` field on `SessionFlags` and SHALL emit `["--name", flags.name]` when it is a non-empty string (pi 0.78.0+, verified present in the pinned pi CLI). The `--name` argv SHALL compose with the existing `--session` / `--fork` / `--model` flags. When `flags.name` is absent the argv SHALL be unchanged and post-hoc auto-naming SHALL still apply.

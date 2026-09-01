@@ -200,4 +200,4 @@ as squash `48e10a1d9`, PR [#317](https://github.com/BlackBeltTechnology/pi-agent
 
 ---
 
-_Generated from session `019f5e36-41c6-7321-b75c-70875b44727f` · `pi-agent-dashboard` · 2026-07-14. Source extract: deterministic facts sheet._
+_Generated from session `019f5e36-41c6-7321-b75c-70875b44727f` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-14. Source extract: deterministic facts sheet._

@@ -166,4 +166,4 @@ fix); branch `feat/image-fit-recommended-extension`; PR #102 → `develop`.
 
 ---
 
-_Generated from session `019ebda1-f7c1-7e9a-82ad-e6dcf572c729` · `pi-agent-dashboard` · 2026-06-12. Source extract: deterministic facts sheet._
+_Generated from session `019ebda1-f7c1-7e9a-82ad-e6dcf572c729` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-12. Source extract: deterministic facts sheet._

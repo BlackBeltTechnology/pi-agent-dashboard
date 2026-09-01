@@ -135,4 +135,4 @@ archived change `2026-06-14-surface-input-streaming-behavior`, CHANGELOG entry, 
 
 ---
 
-_Generated from session `019ec6c6` · `pi-agent-dashboard` · 2026-06-14. Source extract: `/tmp/facts-GlVxrF.md`._
+_Generated from session `019ec6c6` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-14. Source extract: `/tmp/facts-GlVxrF.md`._

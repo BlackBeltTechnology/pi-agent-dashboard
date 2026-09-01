@@ -158,4 +158,4 @@ session-card-subcards), commit `ee23af04` on `develop`.
 
 ---
 
-_Generated from session `019e75c3` · `pi-agent-dashboard` · 2026-05-30. Source extract: session-to-guideline facts sheet._
+_Generated from session `019e75c3` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-30. Source extract: session-to-guideline facts sheet._

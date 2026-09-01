@@ -189,4 +189,4 @@ extension/client, pure `applyPromptReceived` reducer, restyled ChatView optimist
 
 ---
 
-_Generated from session `019f1611` · `pi-agent-dashboard` · 2026-06-30. Source extract: `/tmp/facts_opt_68172.md`._
+_Generated from session `019f1611` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-30. Source extract: `/tmp/facts_opt_68172.md`._

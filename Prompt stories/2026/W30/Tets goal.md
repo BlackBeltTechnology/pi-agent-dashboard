@@ -99,4 +99,4 @@ No skills were created, but **4 memories** were saved — the reusable assets of
 
 ---
 
-_Generated from session `019f868e-12de-7977-aacc-49a9c12def45` · `pi-agent-dashboard` · 2026-07-24. Source extract: `/tmp/session_facts_uFkgcl.md`._
+_Generated from session `019f868e-12de-7977-aacc-49a9c12def45` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-24. Source extract: `/tmp/session_facts_uFkgcl.md`._

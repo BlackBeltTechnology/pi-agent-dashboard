@@ -162,4 +162,4 @@ exact fragment wording, caching verdict, repo-lint task 4.6).
 
 ---
 
-_Generated from session `019df059` · `pi-agent-dashboard` · 2026-05-04. Source extract: session facts sheet (mktemp)._
+_Generated from session `019df059` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-04. Source extract: session facts sheet (mktemp)._

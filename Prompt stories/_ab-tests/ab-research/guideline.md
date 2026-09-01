@@ -147,4 +147,4 @@ handler), and `kb` for the index-capability check.
 ---
 
 _Generated from session `019f8680-2eea-7d6c-8f06-c9d2982bba17` ·
-`pi-agent-dashboard` · 2026-07-23._
+`/Users/robson/Project/pi-agent-dashboard` · 2026-07-23._

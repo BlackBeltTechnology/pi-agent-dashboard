@@ -161,4 +161,4 @@ gateway with a scenario matrix, assert determinism 3×. This session is the temp
 
 ---
 
-_Generated from session `019ed29b-dd71-77dd-a87b-fa731421c5ff` · `pi-agent-dashboard` · 2026-06-20. Source extract: session facts sheet._
+_Generated from session `019ed29b-dd71-77dd-a87b-fa731421c5ff` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-20. Source extract: session facts sheet._

@@ -101,4 +101,4 @@ Other traps: `docker system prune` of the build cache mid-debug caused cold `npm
 
 ---
 
-_Generated from session `019f53ab-a920-7029-b126-66fb90ac6ab4` · `pi-agent-dashboard` · 2026-07-12. Source extract: session facts sheet._
+_Generated from session `019f53ab-a920-7029-b126-66fb90ac6ab4` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-12. Source extract: session facts sheet._

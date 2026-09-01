@@ -146,4 +146,4 @@ change's draft date (from `git log` or the proposal header).
 
 ---
 
-_Generated from session `019e9eca-50a8-7d91-aee7-853bb13e1fce` · `pi-agent-dashboard` · 2026-06-06. Source extract: session-to-guideline facts sheet._
+_Generated from session `019e9eca-50a8-7d91-aee7-853bb13e1fce` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-06. Source extract: session-to-guideline facts sheet._

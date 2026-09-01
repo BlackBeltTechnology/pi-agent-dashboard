@@ -170,4 +170,4 @@ change under `openspec/changes/archive/2026-06-14-emit-openspec-pending-from-pol
 
 ---
 
-_Generated from session `019ec574` · `pi-agent-dashboard` · 2026-06-14. Source extract: session facts sheet (deterministic extract)._
+_Generated from session `019ec574` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-14. Source extract: session facts sheet (deterministic extract)._

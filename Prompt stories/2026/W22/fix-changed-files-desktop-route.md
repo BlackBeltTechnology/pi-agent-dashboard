@@ -176,4 +176,4 @@ repeatable and a skill **should** exist:
 
 ---
 
-_Generated from session `019e7a39-3d4f-7a72-a682-3f014121264b` · `pi-agent-dashboard` · 2026-05-30. Source extract: session-to-guideline facts sheet._
+_Generated from session `019e7a39-3d4f-7a72-a682-3f014121264b` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-30. Source extract: session-to-guideline facts sheet._

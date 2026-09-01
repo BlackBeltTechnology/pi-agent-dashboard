@@ -155,4 +155,4 @@ awareness of any machine-local uncommitted files. **Final artifacts:** merged de
 
 ---
 
-_Generated from session `019e9988` · `pi-agent-dashboard` · 2026-06-05. Source extract: `/tmp/facts_79311_1784864056.md`._
+_Generated from session `019e9988` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-05. Source extract: `/tmp/facts_79311_1784864056.md`._

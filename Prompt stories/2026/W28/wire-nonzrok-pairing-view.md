@@ -187,4 +187,4 @@ synced `qr-device-pairing` spec (4→6 requirements). Merged as PR #254 / `c79d3
 
 ---
 
-_Generated from session `019f3b33` · `pi-agent-dashboard` · 2026-07-07. Source extract: facts sheet from `extract_session.ts`._
+_Generated from session `019f3b33` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-07. Source extract: facts sheet from `extract_session.ts`._

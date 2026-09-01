@@ -102,4 +102,4 @@ No new skills or memories were persisted this session, but the workflow leaned o
 
 ---
 
-_Generated from session `019e99d3-a049-758b-869b-b341308cce85` · `pi-agent-dashboard` · 2026-06-06. Source extract: `facts.XXXXXX.md.LMH5yPPEcp`._
+_Generated from session `019e99d3-a049-758b-869b-b341308cce85` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-06. Source extract: `facts.XXXXXX.md.LMH5yPPEcp`._

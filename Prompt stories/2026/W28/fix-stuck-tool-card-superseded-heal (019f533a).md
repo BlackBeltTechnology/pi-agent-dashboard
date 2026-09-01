@@ -149,4 +149,4 @@ synced with `+ Stale running-tool reconcile`, `+ Drop-site delivery instrumentat
 
 ---
 
-_Generated from session `019f533a` · `pi-agent-dashboard` · 2026-07-12. Source extract: `/tmp/facts_9619_1784863459.md`._
+_Generated from session `019f533a` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-12. Source extract: `/tmp/facts_9619_1784863459.md`._

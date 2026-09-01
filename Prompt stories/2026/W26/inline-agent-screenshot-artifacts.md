@@ -205,4 +205,4 @@ self-heal guard). This session paid the full discovery cost once; a skill would 
 
 ---
 
-_Generated from session `019f09aa-b46b-7c95-8f6b-54c12049972f` · `pi-agent-dashboard` · 2026-06-27. Source extract: `/tmp/facts-39195-25078.md`._
+_Generated from session `019f09aa-b46b-7c95-8f6b-54c12049972f` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-27. Source extract: `/tmp/facts-39195-25078.md`._

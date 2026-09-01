@@ -94,4 +94,4 @@ Recommendation: no skill needs creating; the effective pattern here is *chaining
 
 ---
 
-_Generated from session `019f0a57-5222-7c1c-8066-8be32aef8a16` · `pi-agent-dashboard` · 2026-06-27. Source extract: `/tmp/facts-1784849409N.md`._
+_Generated from session `019f0a57-5222-7c1c-8066-8be32aef8a16` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-27. Source extract: `/tmp/facts-1784849409N.md`._

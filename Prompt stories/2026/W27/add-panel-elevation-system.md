@@ -190,4 +190,4 @@ PR #231 (squash `886386ef`) → `develop`.
 
 ---
 
-_Generated from session `019f2ca7-2eef-7f40-87bf-60858c4accf4` · `pi-agent-dashboard` · 2026-07-04. Source extract: deterministic facts sheet._
+_Generated from session `019f2ca7-2eef-7f40-87bf-60858c4accf4` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-04. Source extract: deterministic facts sheet._

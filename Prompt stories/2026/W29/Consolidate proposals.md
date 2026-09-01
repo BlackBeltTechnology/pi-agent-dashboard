@@ -148,4 +148,4 @@ Subagents used (13 total, all `@fast`):
 
 ---
 
-_Generated from session `019f5920` · `pi-agent-dashboard` · 2026-07-13. Source extract: `/var/folders/qb/m1_q3v6d5bnfzbpmc0dkkqx40000gn/T/facts.JByfMNjG5e.md`._
+_Generated from session `019f5920` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-13. Source extract: `/var/folders/qb/m1_q3v6d5bnfzbpmc0dkkqx40000gn/T/facts.JByfMNjG5e.md`._

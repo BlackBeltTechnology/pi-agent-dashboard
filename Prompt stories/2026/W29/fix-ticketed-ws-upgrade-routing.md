@@ -170,4 +170,4 @@ worktree rebased on `origin/develop`, `gh` authenticated.
 
 ---
 
-_Generated from session `019f5a9b-b3aa-7175-b800-73c5cb939fab` · `pi-agent-dashboard/.worktrees/os-fix-ticketed-ws-upgrade-routing` · 2026-07-13. Source extract: deterministic session facts sheet._
+_Generated from session `019f5a9b-b3aa-7175-b800-73c5cb939fab` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-fix-ticketed-ws-upgrade-routing` · 2026-07-13. Source extract: deterministic session facts sheet._

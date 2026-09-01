@@ -166,4 +166,4 @@ proposal Impact sections, commit `46a4aa7`.
 
 ---
 
-_Generated from session `24c6d9f7-995d-4460-a923-2761f6a89189` · `pi-agent-dashboard` · 2026-04-15. Source extract: session facts sheet (Consolidate specs)._
+_Generated from session `24c6d9f7-995d-4460-a923-2761f6a89189` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-15. Source extract: session facts sheet (Consolidate specs)._

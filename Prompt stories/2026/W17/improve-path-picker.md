@@ -152,4 +152,4 @@ specs/openspec-attach-combo/spec.md, tasks.md).
 
 ---
 
-_Generated from session `019da84d` · `pi-agent-dashboard` · 2026-04-20. Source extract: deterministic facts sheet._
+_Generated from session `019da84d` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-20. Source extract: deterministic facts sheet._

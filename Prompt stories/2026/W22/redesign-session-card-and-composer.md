@@ -102,4 +102,4 @@ Tools that carried the session: the **`browser`** skill (self-driving to snapsho
 
 ---
 
-_Generated from session `019e706d` · `pi-agent-dashboard/.worktrees/redesign-session-card-and-composer` · 2026-05-28. Source extract: session facts sheet._
+_Generated from session `019e706d` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/redesign-session-card-and-composer` · 2026-05-28. Source extract: session facts sheet._

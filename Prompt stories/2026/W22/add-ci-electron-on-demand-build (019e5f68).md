@@ -174,4 +174,4 @@ branch's own feature work, out of scope.
 
 ---
 
-_Generated from session `019e5f68-85d4-7bf4-be85-ffc884e2dbaa` · `pi-agent-dashboard` · 2026-05-25. Source extract: `/tmp/facts-G38pqi.md`._
+_Generated from session `019e5f68-85d4-7bf4-be85-ffc884e2dbaa` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-25. Source extract: `/tmp/facts-G38pqi.md`._

@@ -142,4 +142,4 @@ repeatable and would benefit from one:
 
 ---
 
-_Generated from session `019f152d` · `pi-agent-dashboard` · 2026-06-29. Source extract: facts sheet (mktemp)._
+_Generated from session `019f152d` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-29. Source extract: facts sheet (mktemp)._

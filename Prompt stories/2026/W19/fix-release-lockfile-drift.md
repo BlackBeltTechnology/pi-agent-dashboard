@@ -155,4 +155,4 @@ access to `.github/workflows/publish.yml`, a clean tree (or willingness to stash
 
 ---
 
-_Generated from session `019e0d84-6fee-76d2-ae87-9a37df62e866` · `pi-agent-dashboard` · 2026-05-09. Source extract: session facts sheet._
+_Generated from session `019e0d84-6fee-76d2-ae87-9a37df62e866` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-09. Source extract: session facts sheet._

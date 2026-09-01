@@ -164,4 +164,4 @@ target package (`packages/mockup-loop/`); `gh` authenticated; the `develop` base
 
 ---
 
-_Generated from session `019ef6d6` · `pi-agent-dashboard` · 2026-06-24. Source extract: deterministic facts sheet (session-to-guideline)._
+_Generated from session `019ef6d6` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-24. Source extract: deterministic facts sheet (session-to-guideline)._

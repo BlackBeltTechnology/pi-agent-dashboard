@@ -177,4 +177,4 @@ existing ones*:
 
 ---
 
-_Generated from session `019e6c85` · `pi-agent-dashboard` · 2026-05-28. Source extract: session facts sheet (mktemp)._
+_Generated from session `019e6c85` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-28. Source extract: session facts sheet (mktemp)._

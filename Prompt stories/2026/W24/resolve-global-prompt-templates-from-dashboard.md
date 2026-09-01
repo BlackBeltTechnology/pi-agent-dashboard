@@ -108,4 +108,4 @@ No skills were created, but **4 durable memories** were saved — each removes a
 
 ---
 
-_Generated from session `019ebd96-d41f-7ba6-a6ae-296e962c5457` · `pi-agent-dashboard` · 2026-06-13. Source extract: `/tmp/facts-resolve-global.md`._
+_Generated from session `019ebd96-d41f-7ba6-a6ae-296e962c5457` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-13. Source extract: `/tmp/facts-resolve-global.md`._

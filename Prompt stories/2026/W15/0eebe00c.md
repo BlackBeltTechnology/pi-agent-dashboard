@@ -104,4 +104,4 @@ No new skills or memories were created this session. The workflow leaned entirel
 
 ---
 
-_Generated from session `0eebe00c-857b-4fb7-a13b-b5f9e867a729` · `pi-agent-dashboard` · 2026-04-10. Source extract: session facts sheet (deterministic extract)._
+_Generated from session `0eebe00c-857b-4fb7-a13b-b5f9e867a729` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-10. Source extract: session facts sheet (deterministic extract)._

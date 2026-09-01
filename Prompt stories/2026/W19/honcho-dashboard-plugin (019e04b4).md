@@ -166,4 +166,4 @@ the core fix in `packages/server/src/server.ts` (loader before listen). Commits
 
 ---
 
-_Generated from session `019e04b4-9a96-707f-b7f0-11c3e7979146` · `pi-agent-dashboard` · 2026-05-09. Source extract: `/tmp/facts-honcho-16634.md`._
+_Generated from session `019e04b4-9a96-707f-b7f0-11c3e7979146` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-09. Source extract: `/tmp/facts-honcho-16634.md`._

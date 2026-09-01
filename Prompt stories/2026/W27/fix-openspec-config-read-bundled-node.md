@@ -148,7 +148,7 @@ two candidate procedural skills would pay off:
 - **Deleting the worktree you're standing in.** `gh pr merge --delete-branch`'s local
   post-merge checkout fails when `develop` is held by the main worktree, and later `git
   worktree` commands error because the session cwd was the removed worktree. Do the cleanup
-  from `pi-agent-dashboard`, then start a fresh shell.
+  from `/Users/robson/Project/pi-agent-dashboard`, then start a fresh shell.
 - **Don't write filler tests to close boxes.** Some unchecked tasks are one-time physical
   observations (which branch fires on real hardware) that no unit test can substitute — say so
   with evidence instead.
@@ -179,4 +179,4 @@ PR #243 into `develop`.
 
 ---
 
-_Generated from session `019f32ee` · `pi-agent-dashboard` · 2026-07-05. Source extract: `session_facts.XXXXXX.6ri1bDVqKM.md`._
+_Generated from session `019f32ee` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-05. Source extract: `session_facts.XXXXXX.6ri1bDVqKM.md`._

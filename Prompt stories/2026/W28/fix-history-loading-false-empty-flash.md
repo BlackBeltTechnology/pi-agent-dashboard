@@ -108,4 +108,4 @@ No new skills or memories were created this session — the work was *driven by*
 
 ---
 
-_Generated from session `019f34c3-f544-7f47-acaa-a27e7bb586f6` · `pi-agent-dashboard` · 2026-07-06. Source extract: `/tmp/facts-68332-9923.md`._
+_Generated from session `019f34c3-f544-7f47-acaa-a27e7bb586f6` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-06. Source extract: `/tmp/facts-68332-9923.md`._

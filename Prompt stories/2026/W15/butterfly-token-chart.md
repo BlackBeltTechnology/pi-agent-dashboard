@@ -168,4 +168,4 @@ and the archived change `openspec/changes/archive/2026-04-08-image-lightbox/`.
 
 ---
 
-_Generated from session `92f216a8` · `pi-agent-dashboard` · 2026-04-08. Source extract: session facts (image-lightbox)._
+_Generated from session `92f216a8` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-08. Source extract: session facts (image-lightbox)._

@@ -143,4 +143,4 @@ Recommended skill to create: a **`faux-session-test`** project skill that scaffo
 
 ---
 
-_Generated from session `019ec80d-acca-7905-a005-7a947ed3f8a6` · `pi-agent-dashboard` · 2026-06-15. Source extract: session facts sheet (add-faux-model-integration-tests)._
+_Generated from session `019ec80d-acca-7905-a005-7a947ed3f8a6` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-15. Source extract: session facts sheet (add-faux-model-integration-tests)._

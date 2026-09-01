@@ -197,4 +197,4 @@ spec, archived, then a surgical commit staging *only* the six files of this chan
 
 ---
 
-_Generated from session `019f85db-24fd-72e6-9b5a-f93afa54d0ed` · `pi-agent-dashboard` · 2026-07-21. Source extract: `/var/folders/qb/m1_q3v6d5bnfzbpmc0dkkqx40000gn/T/facts.q82sfZfrJm.md`._
+_Generated from session `019f85db-24fd-72e6-9b5a-f93afa54d0ed` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-21. Source extract: `/var/folders/qb/m1_q3v6d5bnfzbpmc0dkkqx40000gn/T/facts.q82sfZfrJm.md`._

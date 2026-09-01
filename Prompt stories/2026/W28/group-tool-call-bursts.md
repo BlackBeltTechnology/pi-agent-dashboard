@@ -159,4 +159,4 @@ Merged as PR #249 (`c56a4b3`); specs archived to
 
 ---
 
-_Generated from session `019f34c7-343e-7390-b70e-4a9c019aacad` · `pi-agent-dashboard/.worktrees/os-group-tool-call-bursts` · 2026-07-06. Source extract: deterministic facts sheet._
+_Generated from session `019f34c7-343e-7390-b70e-4a9c019aacad` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-group-tool-call-bursts` · 2026-07-06. Source extract: deterministic facts sheet._

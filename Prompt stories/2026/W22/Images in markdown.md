@@ -174,4 +174,4 @@ separately on `wip/image-fit-extension-impl`.
 
 ---
 
-_Generated from session `019e7b11` · `pi-agent-dashboard` · 2026-05-31. Source extract: deterministic facts sheet._
+_Generated from session `019e7b11` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-31. Source extract: deterministic facts sheet._

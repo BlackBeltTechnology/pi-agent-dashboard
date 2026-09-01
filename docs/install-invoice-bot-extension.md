@@ -1,10 +1,6 @@
 # Install invoice-bot as global pi extension
 
-Installs `@blackbelt-technology/invoicebot` as a global pi extension from a local
-checkout of the `pi-invoice-bot` repository.
-
-> Paths below are written as `<invoicebot-checkout>` — substitute the directory where
-> you cloned the repository. Nothing here assumes a particular layout or user account.
+Installs `@blackbelt-technology/invoicebot` as global pi extension. Local package `../pi-invoice-bot`, sibling of pi-agent-dashboard.
 
 ## What it contributes
 
@@ -25,28 +21,22 @@ Manifest `pi` key loads two extension entries:
 1. Install bundled deps.
 
 ```bash
-cd <invoicebot-checkout> && npm install
+cd ../pi-invoice-bot && npm install
 ```
 
-Local-path pi installs skip `npm install`. Needs its bundled `pi-flows` dependency +
-`typebox`. Skip → `node_modules/@blackbelt-technology/pi-flows` missing → extension
-load fails.
+Local-path pi installs skip `npm install`. Needs bundled dep `file:../pi-flows` + `typebox`. Skip → `node_modules/@blackbelt-technology/pi-flows` missing → extension load fails.
 
-2. Install the extension.
+2. Install extension via absolute path.
 
 ```bash
-pi install <invoicebot-checkout>
+pi install /Users/robson/Project/pi-invoice-bot
 ```
 
-Writes `~/.pi/agent/settings.json` (global). `-l` flag → project `.pi/settings.json`
-instead. **Pass an absolute path**: a relative path resolves against the settings-file
-directory, not your shell's working directory.
+Writes `~/.pi/agent/settings.json` (global). `-l` flag → project `.pi/settings.json` instead. Use absolute path. Relative path resolves against settings-file dir.
 
 ## Conflict — bundled pi-flows collides with global pi-flows
 
-invoicebot re-loads bundled pi-flows extensions. Global
-`@blackbelt-technology/pi-flows` already installed → tool names collide: `ask_user`,
-`skill_read`, `flow_agents`, `flow_write`, `flow_results`.
+invoicebot re-loads bundled pi-flows extensions. Global `@blackbelt-technology/pi-flows` already installed → tool names collide: `ask_user`, `skill_read`, `flow_agents`, `flow_write`, `flow_results`.
 
 Symptom:
 
@@ -58,22 +48,19 @@ Extension load aborts.
 
 ## Fix — filter bundled node_modules extensions
 
-Convert the settings.json package entry to object form. Filter out bundled
-node_modules extensions. Only `./extensions/invoicebot` loads. Reuses the
-already-installed global pi-flows engine.
+Convert settings.json package entry to object form. Filter out bundled node_modules extensions. Only `./extensions/invoicebot` loads. Reuses already-installed global pi-flows engine.
 
 ```json
 {
-  "source": "<invoicebot-checkout>",
+  "source": "../../Project/pi-invoice-bot",
   "extensions": ["!node_modules/**"]
 }
 ```
 
-`!pattern` excludes. Filters layer on the manifest, narrow only. Skills still load
-(`skills` key untouched).
+`!pattern` excludes. Filters layer on manifest, narrow only. Skills still load (`skills` key untouched).
 
 ## Verify
 
 - New pi session registers `ib_*` tools.
-- `pi list` shows the checkout you installed.
+- `pi list` shows `../../Project/pi-invoice-bot`.
 - Loads per-session at session start. Existing sessions need `/reload`.

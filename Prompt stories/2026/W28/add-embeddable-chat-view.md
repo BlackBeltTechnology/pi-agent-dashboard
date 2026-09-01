@@ -177,4 +177,4 @@ gh auth, and the worktree checkout.
 
 ---
 
-_Generated from session `019f4456` · `pi-agent-dashboard` · 2026-07-09. Source extract: `/tmp/session_facts.chatembed.md`._
+_Generated from session `019f4456` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-09. Source extract: `/tmp/session_facts.chatembed.md`._

@@ -176,4 +176,4 @@ cross-model doubt-review); `agent-browser` available as a Playwright-scorer fall
 
 ---
 
-_Generated from session `019f86ab-f072-7e1b-926a-b0e8f3ad18db` · `pi-agent-dashboard` · 2026-07-22. Source extract: deterministic facts sheet (session-to-guideline)._
+_Generated from session `019f86ab-f072-7e1b-926a-b0e8f3ad18db` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-22. Source extract: deterministic facts sheet (session-to-guideline)._

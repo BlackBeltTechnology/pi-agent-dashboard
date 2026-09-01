@@ -178,4 +178,4 @@ its test suite; `openspec/specs/internal-monaco-editor-pane/spec.md` (synced);
 
 ---
 
-_Generated from session `019f58c8-1ec8-75b8-b45b-5cccc755d312` · `pi-agent-dashboard` · 2026-07-13. Source extract: `/tmp/facts-1784846985N.md`._
+_Generated from session `019f58c8-1ec8-75b8-b45b-5cccc755d312` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-13. Source extract: `/tmp/facts-1784846985N.md`._

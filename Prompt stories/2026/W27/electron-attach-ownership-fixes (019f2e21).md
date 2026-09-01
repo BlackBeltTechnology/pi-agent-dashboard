@@ -242,4 +242,4 @@ Three `general-purpose` subagents were used to write `docs/` prose in caveman st
 
 ---
 
-_Generated from session `019f2e21-ddb6-7749-8117-2a888e98a80d` · `pi-agent-dashboard` · 2026-07-05. Source extract: `/tmp/facts-sheet.md`._
+_Generated from session `019f2e21-ddb6-7749-8117-2a888e98a80d` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-05. Source extract: `/tmp/facts-sheet.md`._

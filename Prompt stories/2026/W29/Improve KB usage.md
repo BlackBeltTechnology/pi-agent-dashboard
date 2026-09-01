@@ -184,4 +184,4 @@ awareness of any *other* in-flight OpenSpec changes (for the coherence check).
 
 ---
 
-_Generated from session `019f683c-e5ec-7225-be86-d85dd2d36f00` · `pi-agent-dashboard` · 2026-07-17. Source extract: `/tmp/session_facts.md`._
+_Generated from session `019f683c-e5ec-7225-be86-d85dd2d36f00` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-17. Source extract: `/tmp/session_facts.md`._
