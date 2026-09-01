@@ -164,4 +164,4 @@ PR #113 (ultimately superseded by the landed board redesign).
 
 ---
 
-_Generated from session `019ec53d` · `pi-agent-dashboard/.worktrees/os-fix-openspec-worktree-cwd-keying` · 2026-06-14. Source extract: deterministic facts sheet._
+_Generated from session `019ec53d` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-fix-openspec-worktree-cwd-keying` · 2026-06-14. Source extract: deterministic facts sheet._

@@ -182,4 +182,4 @@ files; `fix-slot-fallback-masks-content` change (behavior + lint regression test
 
 ---
 
-_Generated from session `019dc8e5-8087-709e-b92f-e7a5cfac69e1` · `pi-agent-dashboard` · 2026-04-26. Source extract: `/tmp/facts-q2Yiig`._
+_Generated from session `019dc8e5-8087-709e-b92f-e7a5cfac69e1` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-26. Source extract: `/tmp/facts-q2Yiig`._

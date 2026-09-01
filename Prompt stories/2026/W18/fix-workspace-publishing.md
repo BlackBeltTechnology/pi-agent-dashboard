@@ -164,4 +164,4 @@ working tree.
 
 ---
 
-_Generated from session `019de80b` · `pi-agent-dashboard` · 2026-05-02. Source extract: session facts sheet (mktemp)._
+_Generated from session `019de80b` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-02. Source extract: session facts sheet (mktemp)._

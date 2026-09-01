@@ -193,4 +193,4 @@ synced into `openspec/specs/worktree-init-hook/spec.md`.
 
 ---
 
-_Generated from session `019f5484` · `pi-agent-dashboard/.worktrees/os-support-non-git-init-hook` · 2026-07-12. Source extract: `/tmp/facts-t92cG3.md`._
+_Generated from session `019f5484` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-support-non-git-init-hook` · 2026-07-12. Source extract: `/tmp/facts-t92cG3.md`._

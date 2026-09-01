@@ -225,4 +225,4 @@ the design.md that names the X4 gate and the npm survivors.
 
 ---
 
-_Generated from session `019f819e-494a-7e92-b839-398b82d463d8` · `pi-agent-dashboard` · 2026-07-24. Source extract: `/tmp/facts-adopt-pnpm-mine.md`._
+_Generated from session `019f819e-494a-7e92-b839-398b82d463d8` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-24. Source extract: `/tmp/facts-adopt-pnpm-mine.md`._

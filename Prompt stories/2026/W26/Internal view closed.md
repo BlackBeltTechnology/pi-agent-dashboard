@@ -163,4 +163,4 @@ and the existing specs to anchor the delta.
 
 ---
 
-_Generated from session `019f097a` · `pi-agent-dashboard` · 2026-06-27. Source extract: deterministic facts sheet (session-to-guideline)._
+_Generated from session `019f097a` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-27. Source extract: deterministic facts sheet (session-to-guideline)._

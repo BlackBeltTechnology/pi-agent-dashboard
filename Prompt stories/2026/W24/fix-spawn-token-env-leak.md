@@ -102,4 +102,4 @@ The genuinely reusable artifact is a **code pattern worth remembering**: extract
 
 ---
 
-_Generated from session `019ec401-9e2e-77c5-9106-326c4752620d` · `pi-agent-dashboard` · 2026-06-14. Source extract: `/tmp/facts-1784847167N.md`._
+_Generated from session `019ec401-9e2e-77c5-9106-326c4752620d` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-14. Source extract: `/tmp/facts-1784847167N.md`._

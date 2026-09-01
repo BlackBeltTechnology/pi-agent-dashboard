@@ -97,4 +97,4 @@ Two subagents *were* used well: a `general-purpose` agent for the caveman-style 
 
 ---
 
-_Generated from session `019f1064-3773-79e2-ab35-775e0055db67` · `pi-agent-dashboard` · 2026-07-24. Source extract: `/tmp/facts-1784864109N.md`._
+_Generated from session `019f1064-3773-79e2-ab35-775e0055db67` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-24. Source extract: `/tmp/facts-1784864109N.md`._

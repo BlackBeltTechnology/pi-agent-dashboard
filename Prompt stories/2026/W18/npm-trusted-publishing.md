@@ -143,4 +143,4 @@ a deliberate checkpoint instead of an afterthought.
 
 ---
 
-_Generated from session `019de830-dc1e-70be-8251-98e8d5ba647b` · `pi-agent-dashboard` · 2026-05-02. Source extract: `/tmp/session_facts_12041.md`._
+_Generated from session `019de830-dc1e-70be-8251-98e8d5ba647b` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-02. Source extract: `/tmp/session_facts_12041.md`._

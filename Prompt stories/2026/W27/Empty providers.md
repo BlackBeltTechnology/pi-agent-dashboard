@@ -180,4 +180,4 @@ and (if probing `/v1/models`) the ability to mint/revoke a proxy key. Final arti
 
 ---
 
-_Generated from session `019f3494` · `pi-agent-dashboard` · 2026-07-06. Source extract: session facts sheet (Empty providers)._
+_Generated from session `019f3494` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-06. Source extract: session facts sheet (Empty providers)._

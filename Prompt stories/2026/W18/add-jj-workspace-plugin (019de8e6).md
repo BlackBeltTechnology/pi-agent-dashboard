@@ -105,4 +105,4 @@ No new skills or memories were created this session — it was a straight applic
 
 ---
 
-_Generated from session `019de8e6-0071-72a4-8cd0-2b37e3eed01a` · `pi-agent-dashboard` · 2026-05-02. Source extract: session facts sheet (deterministic extract)._
+_Generated from session `019de8e6-0071-72a4-8cd0-2b37e3eed01a` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-02. Source extract: session facts sheet (deterministic extract)._

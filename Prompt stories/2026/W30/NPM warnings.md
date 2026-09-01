@@ -179,4 +179,4 @@ specs/client-build-config, tasks, test-plan) — both valid+complete, committed
 
 ---
 
-_Generated from session `019f80fe-caec-7348-a7d8-5b33387f01bc` · `pi-agent-dashboard` · 2026-07-24. Source extract: `/tmp/facts.session-019f80fe.md`._
+_Generated from session `019f80fe-caec-7348-a7d8-5b33387f01bc` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-24. Source extract: `/tmp/facts.session-019f80fe.md`._

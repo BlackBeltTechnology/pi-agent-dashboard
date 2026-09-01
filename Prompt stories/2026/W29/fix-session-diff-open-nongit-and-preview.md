@@ -102,4 +102,4 @@ Two `general-purpose` subagents were spawned to write `docs/architecture.md` pro
 
 ---
 
-_Generated from session `019f6190-c2a1-787f-bebf-672adef77736` · `pi-agent-dashboard` · 2026-07-15. Source extract: deterministic session facts sheet._
+_Generated from session `019f6190-c2a1-787f-bebf-672adef77736` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-15. Source extract: deterministic session facts sheet._

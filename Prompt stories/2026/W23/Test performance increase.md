@@ -156,4 +156,4 @@ and the temptation to trust the blunt worker cap over per-file reality.
 
 ---
 
-_Generated from session `019e9e7c-e6bf-79b4-8695-e571c811096b` · `pi-agent-dashboard` · 2026-06-06. Source extract: deterministic facts sheet (session-to-guideline)._
+_Generated from session `019e9e7c-e6bf-79b4-8695-e571c811096b` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-06. Source extract: deterministic facts sheet (session-to-guideline)._

@@ -144,4 +144,4 @@ committed as `7d2329ab docs(openspec): add async-action-feedback proposal`.
 
 ---
 
-_Generated from session `019e9ea0` · `pi-agent-dashboard` · 2026-06-06. Source extract: session facts sheet._
+_Generated from session `019e9ea0` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-06. Source extract: session facts sheet._

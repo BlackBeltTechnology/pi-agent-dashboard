@@ -134,6 +134,7 @@ const BUNDLED_PLUGINS = [
   "apple-tools",
   "cost-estimator",
   "quota-plugin",
+  "invoicebot-plugin",
 ];
 const BUNDLED_PLUGINS_DIR = path.join(SERVER_BUNDLE, "resources", "plugins");
 mkdirSync(BUNDLED_PLUGINS_DIR, { recursive: true });

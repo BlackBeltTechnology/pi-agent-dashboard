@@ -188,4 +188,4 @@ future session skip re-verifying F2 from scratch.
 
 ---
 
-_Generated from session `019ea150` · `pi-agent-dashboard/.worktrees/os-elevate-dashboard-add-buttons` · 2026-06-07. Source extract: deterministic facts sheet (stdout)._
+_Generated from session `019ea150` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-elevate-dashboard-add-buttons` · 2026-06-07. Source extract: deterministic facts sheet (stdout)._

@@ -165,4 +165,4 @@ and a decision on the manual-QA deferral.
 
 ---
 
-_Generated from session `019f34c9` · `pi-agent-dashboard` · 2026-07-06. Source extract: deterministic facts sheet (mktemp)._
+_Generated from session `019f34c9` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-06. Source extract: deterministic facts sheet (mktemp)._

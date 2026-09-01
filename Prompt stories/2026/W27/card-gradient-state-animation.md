@@ -161,4 +161,4 @@ resolution and post-merge cleanup.
 
 ---
 
-_Generated from session `019f1615-5d7a-7847-b688-fc2eec0d0267` · `pi-agent-dashboard` · 2026-06-30. Source extract: session facts sheet (card-gradient-state-animation)._
+_Generated from session `019f1615-5d7a-7847-b688-fc2eec0d0267` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-30. Source extract: session facts sheet (card-gradient-state-animation)._

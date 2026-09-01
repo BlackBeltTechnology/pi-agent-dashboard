@@ -165,4 +165,4 @@ branch `develop`. **Artifacts produced:** edits to `packages/client/src/componen
 
 ---
 
-_Generated from session `019ec6b3-e576-7c9e-a6c1-4f4c5bc2c11c` · `pi-agent-dashboard/.worktrees/os-add-board-drag-visual-feedback` · 2026-06-14. Source extract: deterministic facts sheet._
+_Generated from session `019ec6b3-e576-7c9e-a6c1-4f4c5bc2c11c` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-add-board-drag-visual-feedback` · 2026-06-14. Source extract: deterministic facts sheet._

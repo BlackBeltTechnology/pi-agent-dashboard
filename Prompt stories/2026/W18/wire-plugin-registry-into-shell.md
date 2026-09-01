@@ -166,4 +166,4 @@ Final artifacts: `packages/client/vite.config.ts`, `packages/client/src/App.tsx`
 
 ---
 
-_Generated from session `019df046-d42e-77e6-92b6-71c9fcaac580` · `pi-agent-dashboard` · 2026-05-10. Source extract: session facts sheet (mktemp)._
+_Generated from session `019df046-d42e-77e6-92b6-71c9fcaac580` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-10. Source extract: session facts sheet (mktemp)._

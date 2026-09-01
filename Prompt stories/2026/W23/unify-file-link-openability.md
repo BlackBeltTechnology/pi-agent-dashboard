@@ -182,4 +182,4 @@ squash-merged as `298c0605`, deleted remote+local branch and removed the worktre
 
 ---
 
-_Generated from session `019e9e95-3a23-7734-a61e-8d0c72407d8b` · `pi-agent-dashboard/.worktrees/os-unify-file-link-openability` · 2026-06-06. Source extract: `/tmp/facts-yzlrNA.md`._
+_Generated from session `019e9e95-3a23-7734-a61e-8d0c72407d8b` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-unify-file-link-openability` · 2026-06-06. Source extract: `/tmp/facts-yzlrNA.md`._

@@ -101,4 +101,4 @@ Also worth internalizing: the AI's own good instincts — **refusing to restart 
 
 ---
 
-_Generated from session `019ef222-b58d-7032-a249-98d95ca80688` · `pi-agent-dashboard` · 2026-06-23. Source extract: `session_facts` sheet._
+_Generated from session `019ef222-b58d-7032-a249-98d95ca80688` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-23. Source extract: `session_facts` sheet._

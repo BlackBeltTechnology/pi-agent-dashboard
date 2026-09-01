@@ -156,4 +156,4 @@ PR #86 closed as redundant.
 
 ---
 
-_Generated from session `019e9f1f-10a6-77a7-802e-72e7935b2d17` · `pi-agent-dashboard` · 2026-06-07. Source extract: deterministic facts sheet._
+_Generated from session `019e9f1f-10a6-77a7-802e-72e7935b2d17` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-07. Source extract: deterministic facts sheet._

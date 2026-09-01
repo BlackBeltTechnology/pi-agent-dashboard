@@ -140,4 +140,4 @@ Save this session as a comprehensive research doc to docs/research
 
 ---
 
-_Generated from session `019f8680-2eea-7d6c-8f06-c9d2982bba17` · `pi-agent-dashboard` · 2026-07-23. Source extract: `/tmp/session_facts_XXXXXX.md`._
+_Generated from session `019f8680-2eea-7d6c-8f06-c9d2982bba17` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-23. Source extract: `/tmp/session_facts_XXXXXX.md`._

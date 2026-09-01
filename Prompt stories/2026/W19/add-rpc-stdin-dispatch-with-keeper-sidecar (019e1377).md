@@ -168,4 +168,4 @@ change archived to `openspec/changes/archive/2026-05-11-add-rpc-stdin-dispatch-w
 
 ---
 
-_Generated from session `019e1377-1453-72d1-b31e-9391ea8ad41c` · `pi-agent-dashboard` · 2026-05-11. Source extract: deterministic facts sheet._
+_Generated from session `019e1377-1453-72d1-b31e-9391ea8ad41c` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-11. Source extract: deterministic facts sheet._

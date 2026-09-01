@@ -189,4 +189,4 @@ familiarity with the ordering files (`packages/server/src/session-order-manager.
 
 ---
 
-_Generated from session `019ebd8e-c565-7da6-824a-18f3e3728f6c` · `pi-agent-dashboard` · 2026-06-14. Source extract: `/tmp/facts-1784853689N.md`._
+_Generated from session `019ebd8e-c565-7da6-824a-18f3e3728f6c` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-14. Source extract: `/tmp/facts-1784853689N.md`._

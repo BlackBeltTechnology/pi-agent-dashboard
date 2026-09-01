@@ -169,4 +169,4 @@ bridge/browser to verify persist→restart→restore without touching live bridg
 
 ---
 
-_Generated from session `019f5480` · `pi-agent-dashboard` · 2026-07-12. Source extract: session facts sheet (extract_session.ts)._
+_Generated from session `019f5480` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-12. Source extract: session facts sheet (extract_session.ts)._

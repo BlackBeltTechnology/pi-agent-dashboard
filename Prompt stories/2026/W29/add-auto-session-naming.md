@@ -165,4 +165,4 @@ CI access. **Final artifacts:** PR #323 (merged, squash `820a7584` on `develop`)
 
 ---
 
-_Generated from session `019f6259` · `pi-agent-dashboard/.worktrees/os-add-auto-session-naming` · 2026-07-14. Source extract: deterministic facts sheet._
+_Generated from session `019f6259` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-add-auto-session-naming` · 2026-07-14. Source extract: deterministic facts sheet._

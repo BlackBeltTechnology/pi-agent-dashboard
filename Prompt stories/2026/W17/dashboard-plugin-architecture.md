@@ -183,4 +183,4 @@ design-only; access to the source components the design claims to cover.
 
 ---
 
-_Generated from session `019dc646-0e3f-72ca-baec-e1754c9fa0db` · `pi-agent-dashboard` · 2026-04-25. Source extract: facts sheet._
+_Generated from session `019dc646-0e3f-72ca-baec-e1754c9fa0db` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-25. Source extract: facts sheet._

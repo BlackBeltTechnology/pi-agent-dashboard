@@ -163,4 +163,4 @@ existing `/opsx:*` (OpenSpec) skills. What *should* be captured is the recurring
 
 ---
 
-_Generated from session `019de0a2-fbfa-7389-9fbb-cbd5683e29ca` · `pi-agent-dashboard` · 2026-05-02. Source extract: deterministic facts sheet._
+_Generated from session `019de0a2-fbfa-7389-9fbb-cbd5683e29ca` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-02. Source extract: deterministic facts sheet._

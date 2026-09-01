@@ -154,4 +154,4 @@ repo-local vitest module path. **Artifacts produced:** edited
 
 ---
 
-_Generated from session `019f0a47-46c9-78a8-9158-4b7cb130bb31` · `pi-agent-dashboard` · 2026-06-27. Source extract: deterministic facts sheet._
+_Generated from session `019f0a47-46c9-78a8-9158-4b7cb130bb31` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-27. Source extract: deterministic facts sheet._

@@ -190,4 +190,4 @@ the workflow is clearly repeatable and *should* be captured:
 
 ---
 
-_Generated from session `019de0d6-bffd-7139-94b3-844eef88380e` · `pi-agent-dashboard` · 2026-05-01. Source extract: facts sheet from `extract_session.ts`._
+_Generated from session `019de0d6-bffd-7139-94b3-844eef88380e` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-01. Source extract: facts sheet from `extract_session.ts`._

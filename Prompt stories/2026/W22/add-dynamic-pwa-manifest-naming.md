@@ -201,4 +201,4 @@ edits to `packages/shared/src/config.ts`, `packages/server/src/server.ts`,
 
 ---
 
-_Generated from session `019e6023-3ea4-73c9-a076-eb3be67bbb76` · `pi-agent-dashboard` · 2026-05-25. Source extract: `/tmp/facts-1784851145N.md`._
+_Generated from session `019e6023-3ea4-73c9-a076-eb3be67bbb76` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-25. Source extract: `/tmp/facts-1784851145N.md`._

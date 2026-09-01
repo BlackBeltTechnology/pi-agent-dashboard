@@ -168,4 +168,4 @@ three server call sites delegating to it; 8 unit + 2 integration tests.
 
 ---
 
-_Generated from session `019f144d-6328-7328-8b17-c5fb619dcfc0` · `pi-agent-dashboard` · 2026-06-29. Source extract: session facts sheet (mktemp)._
+_Generated from session `019f144d-6328-7328-8b17-c5fb619dcfc0` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-29. Source extract: session facts sheet (mktemp)._

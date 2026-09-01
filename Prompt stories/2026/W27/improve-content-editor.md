@@ -88,4 +88,4 @@ The session opened against an already-drafted OpenSpec change, `improve-content-
 
 ---
 
-_Generated from session `019f29b8-086d-75df-88a9-bdad4804b3aa` · `pi-agent-dashboard` · 2026-07-03. Source extract: `/tmp/facts-editor.md`._
+_Generated from session `019f29b8-086d-75df-88a9-bdad4804b3aa` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-03. Source extract: `/tmp/facts-editor.md`._

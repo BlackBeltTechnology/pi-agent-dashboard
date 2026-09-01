@@ -160,4 +160,4 @@ Compact but sufficient. The AI immediately opened the spec to answer. **Why effe
 
 ---
 
-_Generated from session `019f5caf` · `pi-agent-dashboard` · 2026-07-13. Source extract: `/tmp/session_facts.XXXXXX.md`._
+_Generated from session `019f5caf` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-13. Source extract: `/tmp/session_facts.XXXXXX.md`._

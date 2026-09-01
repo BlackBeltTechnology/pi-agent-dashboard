@@ -187,4 +187,4 @@ recurring cross-package trap worth a project memory.
 
 ---
 
-_Generated from session `019ef265` · `pi-agent-dashboard` · 2026-06-23. Source extract: deterministic facts sheet (mktemp)._
+_Generated from session `019ef265` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-23. Source extract: deterministic facts sheet (mktemp)._

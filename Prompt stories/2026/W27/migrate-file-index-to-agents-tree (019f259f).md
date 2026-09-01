@@ -95,4 +95,4 @@ The user attached the OpenSpec change `migrate-file-index-to-agents-tree` and op
 
 ---
 
-_Generated from session `019f25a2` · `pi-agent-dashboard` · 2026-07-03. Source extract: deterministic facts sheet._
+_Generated from session `019f25a2` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-03. Source extract: deterministic facts sheet._

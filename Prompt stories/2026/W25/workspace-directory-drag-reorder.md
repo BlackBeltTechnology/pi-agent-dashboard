@@ -112,7 +112,7 @@ this session essentially hand-ran it via the second prompt.
 
 - **Worktree cwd deleted out from under Bash.** After `git worktree remove`, the Bash tool's
   persistent cwd pointed at a now-deleted directory and every subsequent command failed.
-  *If you hit X:* run the teardown from the **main repo root** (`cd pi-agent-dashboard`)
+  *If you hit X:* run the teardown from the **main repo root** (`cd /Users/robson/Project/pi-agent-dashboard`)
   or the sandbox shell, and do worktree removal **last**. The Bash tool can't re-anchor a deleted cwd.
 - **First `gh pr create` failed** (base/head resolution) before succeeding — determine the
   default branch (`gh repo view --json defaultBranchRef`) and pass `--base develop` explicitly.
@@ -151,4 +151,4 @@ the worktree checked out, `gh` auth, CodeRabbit configured on the repo.
 
 ---
 
-_Generated from session `019ee680-e1b6-7b3f-8c35-f4205e6daa96` · `pi-agent-dashboard/.worktrees/os-workspace-directory-drag-reorder` · 2026-06-20. Source extract: deterministic facts sheet._
+_Generated from session `019ee680-e1b6-7b3f-8c35-f4205e6daa96` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-workspace-directory-drag-reorder` · 2026-06-20. Source extract: deterministic facts sheet._

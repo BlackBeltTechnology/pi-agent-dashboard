@@ -199,4 +199,4 @@ Settings editors; synced `openspec/specs/model-proxy/spec.md`; **merged PR #285*
 
 ---
 
-_Generated from session `019f5492-fef2-7376-946d-0bb04ad0d55d` · `pi-agent-dashboard` · 2026-07-12. Source extract: deterministic facts sheet (stdout)._
+_Generated from session `019f5492-fef2-7376-946d-0bb04ad0d55d` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-12. Source extract: deterministic facts sheet (stdout)._

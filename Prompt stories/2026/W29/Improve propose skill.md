@@ -268,4 +268,4 @@ No command failures or dead ends in this session. The flow was linear:
 
 ---
 
-_Generated from session `019f6cd3-2f07-7ab8-b62e-439ac6986b92` · `pi-agent-dashboard` · 2026-07-16 23:27:50 → 2026-07-17 01:47:40 (2h 19m, 6 user prompts, 23 assistant messages). Source extract: `/tmp/facts_019f6cd3.md`._
+_Generated from session `019f6cd3-2f07-7ab8-b62e-439ac6986b92` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-16 23:27:50 → 2026-07-17 01:47:40 (2h 19m, 6 user prompts, 23 assistant messages). Source extract: `/tmp/facts_019f6cd3.md`._

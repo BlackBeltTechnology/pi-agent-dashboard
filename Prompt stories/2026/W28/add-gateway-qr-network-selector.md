@@ -210,4 +210,4 @@ strong skill candidates worth capturing:
 
 ---
 
-_Generated from session `019f5856-38d7-7b86-8a88-0efb90ab662a` · `pi-agent-dashboard` · 2026-07-13. Source extract: facts sheet (session-to-guideline extract)._
+_Generated from session `019f5856-38d7-7b86-8a88-0efb90ab662a` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-13. Source extract: facts sheet (session-to-guideline extract)._

@@ -168,4 +168,4 @@ new `SessionHeader.resume.test.tsx`, `AGENTS.md`, `CHANGELOG.md`, synced
 
 ---
 
-_Generated from session `019de0f5` · `pi-agent-dashboard` · 2026-05-01. Source extract: `/tmp/facts-1784863610N.md`._
+_Generated from session `019de0f5` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-01. Source extract: `/tmp/facts-1784863610N.md`._

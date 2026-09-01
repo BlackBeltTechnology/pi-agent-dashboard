@@ -184,4 +184,4 @@ Commits: `b54415e2` (buildVersion), `ee224f1e` (appVersion win32), `d6e9738c` (a
 
 ---
 
-_Generated from session `019e5fb9-54dd-7a28-a8fd-7079e0c2e13c` · `pi-agent-dashboard` · 2026-07-24. Source extract: `/var/folders/qb/m1_q3v6d5bnfzbpmc0dkkqx40000gn/T/facts.XXXXXX.HsqwFKOGHP.md`._
+_Generated from session `019e5fb9-54dd-7a28-a8fd-7079e0c2e13c` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-24. Source extract: `/var/folders/qb/m1_q3v6d5bnfzbpmc0dkkqx40000gn/T/facts.XXXXXX.HsqwFKOGHP.md`._

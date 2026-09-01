@@ -97,4 +97,4 @@ No new skills were authored, but the session was a heavy *consumer* of existing 
 
 ---
 
-_Generated from session `019f0b0c-c6d6-7962-ac9c-cdedfdd8902f` · `pi-agent-dashboard` · 2026-06-28. Source extract: `/tmp/facts-slash.md`._
+_Generated from session `019f0b0c-c6d6-7962-ac9c-cdedfdd8902f` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-28. Source extract: `/tmp/facts-slash.md`._

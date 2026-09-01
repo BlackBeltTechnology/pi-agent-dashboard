@@ -150,4 +150,4 @@ edited `openspec/specs/pinned-directories-ui/spec.md` + `.../tasks.md`, archived
 
 ---
 
-_Generated from session `019f154b-2acb-7eb7-9f61-bac163b33b34` · `pi-agent-dashboard` · 2026-06-29. Source extract: session-to-guideline facts sheet._
+_Generated from session `019f154b-2acb-7eb7-9f61-bac163b33b34` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-29. Source extract: session-to-guideline facts sheet._

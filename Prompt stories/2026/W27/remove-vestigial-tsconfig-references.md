@@ -187,4 +187,4 @@ retry; poll short."* This friction cost ~2 hours of wall-clock this session.
 
 ---
 
-_Generated from session `019f2ca9-8482-7856-b6d1-1eb6d91891f1` · `pi-agent-dashboard` · 2026-07-04. Source extract: session facts sheet._
+_Generated from session `019f2ca9-8482-7856-b6d1-1eb6d91891f1` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-04. Source extract: session facts sheet._

@@ -163,4 +163,4 @@ touching artifacts. This session performed that dance manually and it was the hi
 
 ---
 
-_Generated from session `019ec733-1460-7e89-9db1-566c8c85ac81` · `pi-agent-dashboard` · 2026-06-14. Source extract: `/tmp/facts-session-guideline-41442.md`._
+_Generated from session `019ec733-1460-7e89-9db1-566c8c85ac81` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-14. Source extract: `/tmp/facts-session-guideline-41442.md`._

@@ -198,4 +198,4 @@ and link tests), the synced `settings-panel` main spec, the archived change at
 
 ---
 
-_Generated from session `019ec80b` · `pi-agent-dashboard` · 2026-06-15. Source extract: deterministic facts sheet._
+_Generated from session `019ec80b` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-15. Source extract: deterministic facts sheet._

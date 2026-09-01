@@ -203,4 +203,4 @@ editor-pane.spec.ts`; `mockups/editor-pane/index.html` → **merged PR #202** (s
 
 ---
 
-_Generated from session `019f1593` · `pi-agent-dashboard` · 2026-07-24. Source extract: `/tmp/facts-1784847526N.md`._
+_Generated from session `019f1593` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-24. Source extract: `/tmp/facts-1784847526N.md`._

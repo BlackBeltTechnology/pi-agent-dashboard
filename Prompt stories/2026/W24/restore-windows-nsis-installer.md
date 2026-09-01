@@ -168,4 +168,4 @@ classifier Vitest test, and the issue #136 Node-version fix. PR **#126** on bran
 
 ---
 
-_Generated from session `019ec79c-b4b4-7980-ab0d-179b0f819e5e` · `pi-agent-dashboard` · 2026-06-22. Source extract: `/tmp/facts-12545.md`._
+_Generated from session `019ec79c-b4b4-7980-ab0d-179b0f819e5e` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-22. Source extract: `/tmp/facts-12545.md`._

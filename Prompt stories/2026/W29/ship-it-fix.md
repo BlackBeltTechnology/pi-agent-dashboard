@@ -133,4 +133,4 @@ reported workflow gap against the actual skill text before designing a fix.
 
 ---
 
-_Generated from session `019f627c` · `pi-agent-dashboard` · 2026-07-14. Source extract: session facts sheet._
+_Generated from session `019f627c` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-14. Source extract: session facts sheet._

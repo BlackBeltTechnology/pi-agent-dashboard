@@ -184,4 +184,4 @@ specs `placeholder-spawn-card` + `worktree-spawn-dialog`.
 
 ---
 
-_Generated from session `019ea14f-b9b5-7d47-b888-12b72edf5dee` · `pi-agent-dashboard` · 2026-06-07. Source extract: `/tmp/facts-64609-25191.md`._
+_Generated from session `019ea14f-b9b5-7d47-b888-12b72edf5dee` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-07. Source extract: `/tmp/facts-64609-25191.md`._

@@ -190,4 +190,4 @@ merged PR **#143** on `develop` (squash `d3ac3f04`).
 
 ---
 
-_Generated from session `019ee68d` · `pi-agent-dashboard` · 2026-06-21. Source extract: deterministic facts sheet (docker-packaging)._
+_Generated from session `019ee68d` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-21. Source extract: deterministic facts sheet (docker-packaging)._

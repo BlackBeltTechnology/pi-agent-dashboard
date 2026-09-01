@@ -93,4 +93,4 @@ No new skills or memories were created this session — the value came from *com
 
 ---
 
-_Generated from session `019f635a-bece-7bbd-9f77-f34c213b9736` · `pi-agent-dashboard` · 2026-07-15. Source extract: session facts sheet for `add-seek-to-session-card`._
+_Generated from session `019f635a-bece-7bbd-9f77-f34c213b9736` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-15. Source extract: session facts sheet for `add-seek-to-session-card`._

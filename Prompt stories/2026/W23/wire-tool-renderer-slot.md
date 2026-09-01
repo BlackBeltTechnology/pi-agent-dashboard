@@ -200,4 +200,4 @@ they couldn't run until the role handler existed, which is itself the lesson.
 
 ---
 
-_Generated from session `019e94f5-a349-70ff-9392-ae79a00eb0e5` · `pi-agent-dashboard` · 2026-06-05. Source extract: `/tmp/session_facts_17445_1784848141.md`._
+_Generated from session `019e94f5-a349-70ff-9392-ae79a00eb0e5` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-05. Source extract: `/tmp/session_facts_17445_1784848141.md`._

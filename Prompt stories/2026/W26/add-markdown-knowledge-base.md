@@ -191,4 +191,4 @@ minimal change."* This exact dance recurred three times in one session.
 
 ---
 
-_Generated from session `019ef4df` · `pi-agent-dashboard` · 2026-06-23. Source extract: `/tmp/session_facts.72a6ZH.md`._
+_Generated from session `019ef4df` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-23. Source extract: `/tmp/session_facts.72a6ZH.md`._

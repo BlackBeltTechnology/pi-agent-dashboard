@@ -152,4 +152,4 @@ and `specs/spawn-correlation/spec.md` (1 MODIFIED + 2 ADDED requirements); commi
 
 ---
 
-_Generated from session `019ec388-a111-7390-b1f9-220d4f3b005e` · `pi-agent-dashboard` · 2026-06-14. Source extract: deterministic facts sheet._
+_Generated from session `019ec388-a111-7390-b1f9-220d4f3b005e` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-14. Source extract: deterministic facts sheet._

@@ -171,4 +171,4 @@ spec `openspec/specs/scenario-design-discipline/spec.md`, archived change, merge
 
 ---
 
-_Generated from session `019f5ccb` · `pi-agent-dashboard` · 2026-07-13. Source extract: `/tmp/facts-1784849621N.md`._
+_Generated from session `019f5ccb` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-13. Source extract: `/tmp/facts-1784849621N.md`._

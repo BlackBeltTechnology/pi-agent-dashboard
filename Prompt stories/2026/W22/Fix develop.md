@@ -182,4 +182,4 @@ a clean local clone.
 
 ---
 
-_Generated from session `019e5fca` · `pi-agent-dashboard` · 2026-05-25. Source extract: session facts sheet (Fix develop)._
+_Generated from session `019e5fca` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-25. Source extract: session facts sheet (Fix develop)._

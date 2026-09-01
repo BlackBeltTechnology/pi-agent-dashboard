@@ -103,4 +103,4 @@ No new skill or memory was created this session — the work *consumed* existing
 
 ---
 
-_Generated from session `019f2596-5b1b-7c47-b938-888e71db6d5a` · `pi-agent-dashboard` · 2026-07-03. Source extract: `/tmp/session-facts-XXXXXX.md`._
+_Generated from session `019f2596-5b1b-7c47-b938-888e71db6d5a` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-03. Source extract: `/tmp/session-facts-XXXXXX.md`._

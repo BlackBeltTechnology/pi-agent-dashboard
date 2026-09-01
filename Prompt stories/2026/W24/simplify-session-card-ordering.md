@@ -191,4 +191,4 @@ tests.
 
 ---
 
-_Generated from session `019ebdee-f133-77c4-9712-2d77a05f85a6` · `pi-agent-dashboard` · 2026-06-14. Source extract: session facts sheet._
+_Generated from session `019ebdee-f133-77c4-9712-2d77a05f85a6` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-14. Source extract: session facts sheet._

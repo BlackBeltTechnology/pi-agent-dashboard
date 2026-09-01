@@ -181,4 +181,4 @@ change at `openspec/changes/archive/2026-04-26-add-dashboard-shell-slots-runtime
 
 ---
 
-_Generated from session `019dc690` · `pi-agent-dashboard` · 2026-07-24._
+_Generated from session `019dc690` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-24._

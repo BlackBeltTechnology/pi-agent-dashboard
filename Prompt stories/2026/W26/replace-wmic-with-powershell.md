@@ -103,4 +103,4 @@ No new pi skill or memory was persisted this session, but the workflow leaned on
 
 ---
 
-_Generated from session `019f103f-4aa1-7848-add3-27857d4739df` · `pi-agent-dashboard` · 2026-06-29. Source extract: `/tmp/facts-48017-29.md`._
+_Generated from session `019f103f-4aa1-7848-add3-27857d4739df` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-29. Source extract: `/tmp/facts-48017-29.md`._

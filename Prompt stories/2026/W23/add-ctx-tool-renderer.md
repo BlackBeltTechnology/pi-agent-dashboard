@@ -174,4 +174,4 @@ disturb.
 
 ---
 
-_Generated from session `019e8a4e` · `pi-agent-dashboard` · 2026-06-02. Source extract: `/tmp/session_facts_UqElSA.md`._
+_Generated from session `019e8a4e` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-02. Source extract: `/tmp/session_facts_UqElSA.md`._

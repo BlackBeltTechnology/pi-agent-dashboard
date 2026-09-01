@@ -191,4 +191,4 @@ in-tree code patterns worth repeating:
 
 ---
 
-_Generated from session `019f144e-612e-763b-9f8a-129b7fc411e3` · `pi-agent-dashboard/.worktrees/os-unify-error-retry-lifecycle` · 2026-06-29. Source extract: `/tmp/facts_unify_97981.md`._
+_Generated from session `019f144e-612e-763b-9f8a-129b7fc411e3` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-unify-error-retry-lifecycle` · 2026-06-29. Source extract: `/tmp/facts_unify_97981.md`._

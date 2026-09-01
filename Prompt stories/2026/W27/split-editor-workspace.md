@@ -112,4 +112,4 @@ Two **project tool-quirk memories** were saved (no skills):
 
 ---
 
-_Generated from session `019f24a4-4d13-76f4-9e96-49e1c6fd1b39` · `pi-agent-dashboard` · 2026-07-03. Source extract: `/tmp/facts-1784846309N.md`._
+_Generated from session `019f24a4-4d13-76f4-9e96-49e1c6fd1b39` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-03. Source extract: `/tmp/facts-1784846309N.md`._
