@@ -129,16 +129,6 @@ export interface ChatMessage {
    * See change: reasoning-auto-collapse-timer.
    */
   streamedLive?: boolean;
-  /**
-   * Structured greeting state carried onto a folded greeting chat row (the exact
-   * eligible state string, e.g. `"exported"`, or `"ask"` scope). Set ONLY by the
-   * `ib_greeting` fold from the domain event's structured `state` field — never
-   * scraped from `content`. Its PRESENCE also marks the row as a greeting row, so
-   * the chat view can wrap it with `data-greeting-marker="<state>"` without
-   * touching the shared MessageBubble. Absent on every non-greeting row.
-   * See change: restore-assistant-greeting-stream.
-   */
-  state?: string;
 }
 
 export interface ToolCallState {
@@ -1383,62 +1373,6 @@ export function reduceEvent(
   const data = event.data;
 
   switch (event.eventType) {
-    // Fold a greeting domain-event frame (live or replayed) into ONE
-    // assistant-side chat row, positioned chronologically by its ordering key
-    // (epoch-ms) and idempotent by the greeting's stable id. The structured
-    // `state` travels onto the row as a field (never scraped from content). A
-    // greeting with no stable id is skipped (cannot dedupe safely). The client
-    // has no other ib_domain_event handling; only greetings render as chat rows.
-    // See change: restore-assistant-greeting-stream.
-    case "ib_greeting": {
-      const d = (data ?? {}) as { id?: unknown; state?: unknown; content?: unknown };
-      const id = typeof d.id === "string" && d.id.length > 0 ? d.id : null;
-      if (!id) break;
-      const content = Array.isArray(d.content)
-        ? d.content
-            .filter((c: any) => c?.type === "text")
-            .map((c: any) => c.text)
-            .join("")
-        : String(d.content ?? "");
-      const state = typeof d.state === "string" ? d.state : undefined;
-      const rowId = `greeting-${id}`;
-      const order = event.timestamp;
-      const existingIdx = next.messages.findIndex((m) => m.id === rowId);
-      if (existingIdx !== -1) {
-        // Idempotent re-fold (replay then live, or replayed twice): update the
-        // content/state in place, preserving the row's original position + ts.
-        const arr = [...next.messages];
-        arr[existingIdx] = {
-          ...arr[existingIdx],
-          content,
-          ...(state !== undefined ? { state } : {}),
-        };
-        next.messages = arr;
-      } else {
-        const row: ChatMessage = {
-          id: rowId,
-          role: "assistant",
-          content,
-          timestamp: order,
-          ...(state !== undefined ? { state } : {}),
-        };
-        // Position chronologically: before the first row whose timestamp is
-        // strictly later than this greeting; else append. Live greetings (order
-        // = arrival ts) append at the tail; replayed greetings (order = original
-        // emission ts) interleave with replayed assistant/user rows by ts.
-        let insertAt = next.messages.length;
-        for (let i = 0; i < next.messages.length; i++) {
-          if (next.messages[i].timestamp > order) { insertAt = i; break; }
-        }
-        next.messages = [
-          ...next.messages.slice(0, insertAt),
-          row,
-          ...next.messages.slice(insertAt),
-        ];
-      }
-      break;
-    }
-
     case "agent_start":
       next.isStreaming = true;
       next.status = "streaming";
@@ -2023,45 +1957,6 @@ export function reduceEvent(
         // otherwise silently no-op the flush. See change:
         // fix-streaming-text-vs-interactive-ui-order.
         next.streamingTextFlushed = false;
-      } else if (msg?.role === "custom" && msg?.display) {
-        // Display-flagged custom session message (CustomMessage). Build ONE
-        // assistant-side row so it renders through the existing MessageBubble.
-        // Handled in its own branch — it never advances assistantInferenceSeq,
-        // touches streamingTextFlushed, or runs the streaming flush (those are
-        // exclusive to real assistant inferences). Built at message_end only;
-        // the matching message_start is a no-op. Idempotent across re-replay via
-        // its per-entry id. See change: greet-as-assistant-message.
-        const content = Array.isArray(msg.content)
-          ? msg.content
-              .filter((c: any) => c?.type === "text")
-              .map((c: any) => c.text)
-              .join("")
-          : String(msg.content ?? "");
-        const entryId = data.entryId as string | undefined;
-        // Keep the greeting discriminator explicit, but give every greeting
-        // its own per-entry row. See change: restore-greeting-chat-continuity.
-        const isGreeting = msg.customType === "ib-greeting";
-        const customId = isGreeting ? `custom-${entryId ?? next.messages.length}` : `custom-${entryId ?? next.messages.length}`;
-        const existingIdx = next.messages.findLastIndex((m) => m.id === customId);
-        if (existingIdx !== -1) {
-          next.messages = [...next.messages];
-          next.messages[existingIdx] = {
-            ...next.messages[existingIdx],
-            content,
-            ...(entryId ? { entryId } : {}),
-          };
-        } else {
-          next.messages = [
-            ...next.messages,
-            {
-              id: customId,
-              role: "assistant",
-              content,
-              timestamp: event.timestamp,
-              ...(entryId ? { entryId } : {}),
-            },
-          ];
-        }
       }
       break;
     }
