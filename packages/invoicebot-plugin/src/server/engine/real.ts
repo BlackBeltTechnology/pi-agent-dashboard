@@ -42,6 +42,9 @@ interface InvoiceFacade {
 }
 
 export class RealInvoiceEngine implements InvoiceEngine {
+  /** One-shot guard so the stale-engine warning is loud but not per-request. */
+  private static warnedNoWorkSource = false;
+
   constructor(private readonly facade: InvoiceFacade) {}
   query(cwd: string, args: { view: string; [k: string]: unknown }): Promise<EngineResult> {
     return this.facade.query(cwd, args);
@@ -76,6 +79,17 @@ export class RealInvoiceEngine implements InvoiceEngine {
     const inner = this.facade.queuedWorkSource?.(cwd);
     const takeQueued = this.facade.takeQueued;
     if (!inner) {
+      // A RESOLVED-BUT-STALE engine lands here: `loadRealEngine` only requires
+      // `query`, so an old snapshot binds Real and then vends nothing. Silent
+      // degradation is the worst outcome (a drain that processes zero invoices
+      // looks exactly like an empty queue), so say it once, loudly.
+      if (!RealInvoiceEngine.warnedNoWorkSource) {
+        RealInvoiceEngine.warnedNoWorkSource = true;
+        console.warn(
+          "[invoicebot] resolved engine exposes no queuedWorkSource — automation fan-out will vend NOTHING. " +
+            "The `file:` engine link is stale; reinstall it so the work-source surface is present.",
+        );
+      }
       return { next: () => [], ack: () => {}, nack: () => {} };
     }
     return {
