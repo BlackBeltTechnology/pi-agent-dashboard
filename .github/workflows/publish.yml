@@ -87,7 +87,14 @@ jobs:
   ci-checks:
     needs: [resolve]
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # Budget must cover install + lint + the FULL suite + build. `ci.yml` runs
+    # the same work with no timeout at all (GitHub default 360) and takes ~27
+    # minutes at 16.7k tests. This job was capped at 15, so once the suite grew
+    # past that the release gate could not pass: v0.8.0 was killed mid-`pnpm
+    # test` at 15m15s and reported as `cancelled` (GitHub marks a timed-out job
+    # cancelled, not failed — it does NOT look like a test failure). Keep this
+    # comfortably above ci.yml's real duration; it still bounds a genuine hang.
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
         with:
@@ -313,7 +320,8 @@ jobs:
             "@blackbelt-technology/pi-dashboard-subagents-plugin"
             "@blackbelt-technology/pi-dashboard-goal-plugin"
             "@blackbelt-technology/pi-dashboard-automation-plugin"
-            "@blackbelt-technology/pi-dashboard-invoicebot-plugin"
+            "@blackbelt-technology/pi-dashboard-quota-plugin"
+            "@blackbelt-technology/pi-dashboard-grammar-plugin"
             "@blackbelt-technology/pi-image-fit-extension"
             "@blackbelt-technology/pi-dashboard-nano-banana"
             "@blackbelt-technology/pi-dashboard-video-production"
@@ -323,6 +331,7 @@ jobs:
             "@blackbelt-technology/pi-dashboard-kb-plugin"
             "@blackbelt-technology/pi-dashboard-hermes-memory-plugin"
             "@blackbelt-technology/pi-dashboard-blackhole-plugin"
+            "@blackbelt-technology/pi-dashboard-mcp-server-plugin"
             "@blackbelt-technology/pi-dashboard-document-converter"
             "@blackbelt-technology/anti-slop-frontend"
             "@blackbelt-technology/pi-dashboard-eng-disciplines"
@@ -334,6 +343,9 @@ jobs:
             "@blackbelt-technology/pi-dashboard-code-review-toolkit"
             "@blackbelt-technology/pi-dashboard-frontend-patterns"
             "@blackbelt-technology/pi-dashboard-openspec-workflow"
+            "@blackbelt-technology/pi-dashboard-cost-estimator"
+            "@blackbelt-technology/pi-dashboard-forms-bpmn"
+            "@blackbelt-technology/pi-dashboard-context-budget"
             "@blackbelt-technology/pi-agent-dashboard"
           )
           VERSION="${{ needs.resolve.outputs.version }}"
@@ -440,7 +452,21 @@ jobs:
           echo "Asserting ${#names[@]} package(s) resolve at ${VERSION}"
           missing=()
           for name in "${names[@]}"; do
-            actual=$(npm view "${name}@${VERSION}" version 2>/dev/null || true)
+            # The registry is eventually consistent, and `npm view` will serve a
+            # CACHED packument that predates a version published seconds ago.
+            # v0.8.0's first run failed here naming a package that was in fact
+            # published — the raw registry API showed the version while `npm
+            # view` still 404'd. A single unretried lookup therefore turns a
+            # healthy release into a red gate and skips electron + the GitHub
+            # Release. Revalidate with --prefer-online and back off before
+            # declaring anything missing. Costs nothing when the version is
+            # already visible: the loop breaks on the first attempt.
+            actual=""
+            for attempt in 1 2 3 4 5; do
+              actual=$(npm view --prefer-online "${name}@${VERSION}" version 2>/dev/null || true)
+              [ "$actual" = "$VERSION" ] && break
+              [ "$attempt" -lt 5 ] && sleep $((attempt * 15))
+            done
             if [ "$actual" != "$VERSION" ]; then
               echo "::error::${name} does not resolve at ${VERSION} on the registry (npm view returned '${actual:-<nothing>}')"
               missing+=("$name")
@@ -571,28 +597,35 @@ jobs:
             echo "${#MAC_YML[@]} latest-mac.yml found — no merge needed"; exit 0
           fi
           python3 -m pip install --quiet pyyaml
-          python3 - "${MAC_YML[@]}" <<'PY'
-          import sys, os, yaml
-          paths = sys.argv[1:]
-          merged, seen, files = None, set(), []
-          for p in paths:
-              with open(p) as fh:
-                  d = yaml.safe_load(fh)
-              if merged is None:
-                  merged = dict(d)
-              for fe in d.get("files", []):
-                  if fe["url"] not in seen:
-                      seen.add(fe["url"]); files.append(fe)
-          merged["files"] = files
-          # path/sha512 mirror the first file for single-file legacy readers.
-          merged["path"] = files[0]["url"]
-          merged["sha512"] = files[0]["sha512"]
-          with open(paths[0], "w") as fh:
-              yaml.safe_dump(merged, fh, sort_keys=False)
-          for extra in paths[1:]:
-              os.remove(extra)
-          print(f"Merged {len(files)} macOS file(s) into {paths[0]}")
-          PY
+          # The merge lives in scripts/merge-latest-mac.py (not an inline
+          # heredoc) so its semantics — notably the minimumSystemVersion
+          # agreement check that keeps the update gate independent of glob
+          # order — are covered by a test. See change: upgrade-electron-runtime.
+          python3 scripts/merge-latest-mac.py "${MAC_YML[@]}"
+
+      # The merged file is what electron-updater actually reads, so assert the
+      # OS gate survived the merge here rather than trusting the per-leg
+      # intermediate. test-plan U6. See change: upgrade-electron-runtime.
+      - name: Assert the macOS update gate survived the merge
+        shell: bash
+        run: |
+          set -euo pipefail
+          # `|| true`: with no electron-darwin-* dir the glob stays literal and
+          # find exits 1, which pipefail propagates through `head` — killing the
+          # step under `set -e` BEFORE the guard below can skip cleanly. Same
+          # guard the merge step above already uses.
+          MERGED=$(find electron-darwin-* -name 'latest-mac.yml' 2>/dev/null | head -1 || true)
+          if [ -z "$MERGED" ]; then
+            echo "No latest-mac.yml present (no darwin artifacts) — nothing to assert"; exit 0
+          fi
+          EXPECTED=$(node -e "import('./packages/electron/scripts/macos-floor.mjs').then(m=>console.log(m.UPDATE_MINIMUM_SYSTEM_VERSION))")
+          VALUE=$(sed -n 's/^minimumSystemVersion:[[:space:]]*//p' "$MERGED" | head -1)
+          if [ "$VALUE" != "$EXPECTED" ]; then
+            echo "::error::$MERGED has minimumSystemVersion='$VALUE', expected '$EXPECTED'. Below-floor macOS clients would be offered an artifact their OS refuses to launch."
+            cat "$MERGED"
+            exit 1
+          fi
+          echo "OK merged latest-mac.yml carries minimumSystemVersion: $VALUE"
 
       # Fail the release if any platform produced an installer but no matching
       # update-metadata file — a partial upload would brick that platform's
@@ -636,3 +669,70 @@ jobs:
           # Actions stringifies job outputs. See change:
           # eliminate-bash-on-windows-runners (D6).
           prerelease: ${{ needs.resolve.outputs.is_prerelease == 'true' }}
+
+  # ── Site redeploy (dispatched — release events cannot start runs) ─────
+  # publish.yml creates the GitHub Release with the default Actions token,
+  # and GitHub suppresses workflow runs from events raised by that token, so
+  # `release: published` triggers on sync-release-version.yml /
+  # deploy-site.yml CANNOT start runs (verified: never have in this repo).
+  # workflow_dispatch is the documented exception that always creates a run.
+  # This terminal job is therefore the release path for the site: dispatch
+  # sync-release-version.yml (rewrites the download block on develop), WAIT
+  # for that run to complete, then dispatch deploy-site.yml. The wait is
+  # load-bearing: a back-to-back dispatch lets the deploy check out develop
+  # before the download-block commit lands, and the page renders either way,
+  # so the race is invisible. --ref develop is load-bearing too: the
+  # github-pages environment rejects deploys from a tag ref.
+  # See change: fix-deploy-site-ship-shell (design D8).
+  site-redeploy:
+    needs: [github-release]
+    if: ${{ !cancelled() && needs.github-release.result == 'success' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      actions: write # required so this job can run `gh workflow run`
+    steps:
+      - name: Dispatch sync-release-version.yml on develop and wait for it
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          # Unique correlation token: sync-release-version.yml embeds it in its
+          # run-name, so the lookup below can only match THIS job's dispatch —
+          # never a concurrent manual run, with no timestamp-granularity
+          # assumption (same-second registration would defeat a created_at
+          # compare).
+          correlation="site-redeploy-${{ github.run_id }}-${{ github.run_attempt }}"
+          gh workflow run sync-release-version.yml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref develop \
+            -f "correlation=${correlation}"
+          run_id=""
+          for _ in $(seq 1 30); do
+            sleep 5
+            run_id=$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/sync-release-version.yml/runs?per_page=20" \
+              --jq "[.workflow_runs[] | select(.head_branch == \"develop\" and (.display_title | contains(\"${correlation}\")))][0].id" 2>/dev/null || true)
+            [ -n "$run_id" ] && break
+          done
+          if [ -z "$run_id" ]; then
+            echo "::error::sync-release-version run did not register within 150s"
+            exit 1
+          fi
+          echo "Watching sync-release-version run $run_id"
+          gh run watch "$run_id" --repo "${GITHUB_REPOSITORY}" --exit-status --interval 15
+          # Some gh versions exit 0 on a CANCELLED run; assert the conclusion
+          # explicitly so a cancelled sync can never release the deploy dispatch
+          # over a stale download block.
+          conclusion=$(gh run view "$run_id" --repo "${GITHUB_REPOSITORY}" --json conclusion --jq '.conclusion')
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::sync-release-version run concluded '${conclusion}' — not dispatching deploy-site"
+            exit 1
+          fi
+
+      - name: Dispatch deploy-site.yml on develop
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh workflow run deploy-site.yml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref develop

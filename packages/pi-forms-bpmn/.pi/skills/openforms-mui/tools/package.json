@@ -1,0 +1,61 @@
+{
+  "name": "openforms-mui",
+  "version": "0.1.0",
+  "description": "Runtime interpreter rendering an OpenForms FormSchemaJSON as idiomatic, themed, accessible MUI.",
+  "type": "module",
+  "license": "MIT",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./theme": "./src/theme/from-tokens.ts",
+    "./i18n": "./src/i18n/index.ts"
+  },
+  "bin": {
+    "openforms": "./preview/cli.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "diagnose": "tsx preview/cli.ts diagnose",
+    "preview": "tsx preview/cli.ts preview",
+    "assert:no-plain-react-deps": "node ./scripts/assert-peer-deps.mjs"
+  },
+  "dependencies": {
+    "@fontsource/roboto": "^5.3.0",
+    "@hookform/resolvers": "5.7.1",
+    "dayjs": "^1.11.13",
+    "react-hook-form": "7.85.0",
+    "zod": "4.4.3"
+  },
+  "peerDependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.0",
+    "@mui/material": "9.3.1",
+    "@mui/x-date-pickers": "9.11.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@emotion/react": "^11.14.0",
+    "@emotion/styled": "^11.14.0",
+    "@mui/material": "9.3.1",
+    "@mui/x-date-pickers": "9.11.0",
+    "@testing-library/jest-dom": "^6.6.0",
+    "@testing-library/react": "^16.1.0",
+    "@testing-library/user-event": "^14.5.0",
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@vitejs/plugin-react": "^4.3.0",
+    "axe-core": "^4.10.0",
+    "jsdom": "^25.0.0",
+    "react": "19.2.8",
+    "react-dom": "19.2.8",
+    "tsx": "^4.23.12",
+    "typescript": "^5.7.0",
+    "vite": "^6.0.0",
+    "vitest": "^2.1.0"
+  }
+}

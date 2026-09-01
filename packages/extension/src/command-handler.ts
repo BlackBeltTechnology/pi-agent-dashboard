@@ -4,20 +4,23 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, relative } from "node:path";
+import { resolveDashboardPorts } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { imageBlockData, imageBlockMime } from "@blackbelt-technology/pi-dashboard-shared/image-block.js";
 import { diffOr } from "@blackbelt-technology/pi-dashboard-shared/platform/git.js";
 import type {
   ExtensionToServerMessage,
+  InboundDropClass,
   ServerToExtensionMessage,
 } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
-import type { FileEntry, MissingToolError, PiSessionInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import type { FileEntry, ImageContent, MissingToolError, PiSessionInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { filterHiddenCommands } from "./bridge-context.js";
 import { draftCommitMessage } from "./commit-draft.js";
+import { errText, reportRefresh } from "./model-refresh.js";
 import { killProcessByPgid } from "./process-scanner.js";
 import { expandPromptTemplateFromDisk, loadPromptTemplate } from "./prompt-expander.js";
 import { buildProviderCatalogue, toModelInfo } from "./provider-register.js";
-import { errText, reportRefresh } from "./model-refresh.js";
 import { filterByEnabledModels } from "./session-sync.js";
 import { tryDispatchExtensionCommand } from "./slash-dispatch.js";
 
@@ -195,6 +198,19 @@ export function searchFiles(cwd: string, query: string, opts?: { regex?: boolean
   return candidates.slice(0, MAX_RESULTS).map((c) => ({ path: c.path, isDirectory: c.isDirectory }));
 }
 
+/**
+ * Outcome of a bridge-side `/reload` attempt.
+ *
+ * `ok: false` carries the operator-facing reason so the terminal
+ * `command_feedback` says WHY nothing reloaded instead of claiming success.
+ * See change: fix-out-of-band-reload.
+ */
+export type ReloadOutcome = { ok: true } | { ok: false; reason: string };
+
+/** Reason emitted when the bridge has no reload path at all. */
+export const NO_RELOAD_PATH_REASON =
+  "No reload path for this session — a terminal-hosted pi session must run /__dashboard_reload once in its TUI to enable dashboard reloads.";
+
 /** Parsed result from parseSendPrompt */
 export type ParsedPrompt =
   | { type: "bash"; command: string; excludeFromContext: boolean }
@@ -203,6 +219,7 @@ export type ParsedPrompt =
   | { type: "shutdown" }
   | { type: "reload" }
   | { type: "new" }
+  | { type: "retry" }
   | { type: "mgmt"; event: string; data: Record<string, unknown> }
   | { type: "slash"; text: string }
   | { type: "passthrough"; text: string };
@@ -254,7 +271,13 @@ export function parseSendPrompt(text: string): ParsedPrompt {
     return { type: "new" };
   }
 
-  // 4d. Check /model <provider/id>
+  // 4d. Dashboard-internal settled-error retry. Hidden from command lists;
+  // triggers a non-user custom turn through pi.sendMessage.
+  if (text === "/__dashboard_retry") {
+    return { type: "retry" };
+  }
+
+  // 4e. Check /model <provider/id>
   if (text.startsWith("/model ")) {
     const modelStr = text.slice(7).trim();
     const slashIdx = modelStr.indexOf("/");
@@ -333,10 +356,36 @@ export function createCommandHandler(
     getCwd?: () => string;
     /** Callback to send events (e.g., bash_output, command_feedback) back to server */
     eventSink?: (msg: ExtensionToServerMessage) => void;
+    /**
+     * Report an inbound message this handler threw away. The mismatch guard
+     * lives inside `handle()`, which holds no connection reference, so the
+     * channel is injected. See change: fix-spawn-correlation-ttl-coupling (D6).
+     */
+    reportInboundDrop?: (drop: {
+      dropClass: InboundDropClass;
+      messageType?: string;
+      droppedSessionId?: string;
+    }) => void;
     /** Trigger context compaction */
     compact?: (options: { customInstructions?: string }) => void;
-    /** Trigger session reload (extensions, settings, skills, etc.) */
-    reload?: () => void;
+    /**
+     * Trigger session reload (extensions, settings, skills, etc.).
+     *
+     * Returns whether a reload ACTUALLY ran. The bridge only has a reload
+     * function when a human once typed `/__dashboard_reload` in pi's TUI
+     * (`ExtensionContext` has no `reload`; only `ExtensionCommandContext`
+     * does), and even a captured one is single-use per process — its runner
+     * is invalidated by the first reload, so a second call throws
+     * *synchronously*. "Present" therefore does not imply "usable", which is
+     * why this reports an outcome instead of returning void and letting the
+     * caller emit an unconditional `completed`.
+     *
+     * ASYNC by contract: `ctx.reload()` returns a promise, and a rejection
+     * that lands after we have already emitted `completed` is the same false
+     * success this change exists to remove. The handler awaits it.
+     * See change: fix-out-of-band-reload (design.md D5).
+     */
+    reload?: () => Promise<ReloadOutcome>;
     /** Spawn a new session in the same cwd */
     spawnNew?: () => void;
     /** Switch model via pi.setModel() */
@@ -348,7 +397,11 @@ export function createCommandHandler(
      * events emitted by the dispatch path arrive before this turn returns.
      * See change: fix-extension-slash-commands-in-dashboard.
      */
-    sessionPrompt?: (text: string, delivery?: "steer" | "followUp") => void | Promise<void>;
+    sessionPrompt?: (
+      text: string,
+      delivery?: "steer" | "followUp",
+      promptId?: string,
+    ) => void | Promise<void>;
     /**
      * Bridge-shadow-queue hooks: called AFTER pi accepts the user message,
      * gated by `isStreaming()` captured BEFORE the send. The capture order
@@ -359,7 +412,13 @@ export function createCommandHandler(
      * source of truth. See change: add-followup-edit-and-steer-cancel.
      */
     onSteerSent?: (text: string) => void;
-    onFollowupSent?: (text: string) => void;
+    /**
+     * `images` carries the attachments sent with a buffered follow-up. Passing
+     * them is what makes the bridge buffer able to deliver them on drain;
+     * dropping them here was the original bug.
+     * See change: fix-bridge-followup-image-drop.
+     */
+    onFollowupSent?: (text: string, images?: unknown) => void;
     /**
      * Returns true iff the agent was streaming at the moment of the call.
      * Used to capture pre-send streaming state before `pi.sendUserMessage`
@@ -382,6 +441,14 @@ export function createCommandHandler(
      * unify-error-retry-lifecycle.
      */
     noteUserPrompt?: () => void;
+    /**
+     * Disarm a still-armed provider-retry chain before a manual retry re-drive
+     * (bridge wires this to `retryTracker.noteExplicitRun`). Without it the
+     * manual turn's native `agent_start` is converted into a synthetic
+     * `auto_retry_start`, rendering pi's attempt counter for a user-initiated
+     * retry. See change: replace-dashboard-retry-command-with-protocol-message.
+     */
+    disarmRetryChain?: () => void;
   },
 ): CommandHandler {
   const getSessionId = typeof sessionIdOrGetter === "function" ? sessionIdOrGetter : () => sessionIdOrGetter;
@@ -437,6 +504,16 @@ export function createCommandHandler(
       // Ignore messages for other sessions (skip session-less messages like heartbeat_ack)
       if ((msg as any).sessionId !== undefined && (msg as any).sessionId !== sessionId) {
         console.error(`[dashboard] Ignoring message type=${msg.type} for session ${(msg as any).sessionId}, current session is ${sessionId}`);
+        // This `console.error` is written to /dev/null whenever
+        // `keeperLog.capturePiOutput` is false (the default), so the drop is
+        // ALSO reported over the socket. The guard cannot tell "never mine"
+        // from "was mine, since replaced" — one reportable class.
+        // See change: fix-spawn-correlation-ttl-coupling (D6).
+        options?.reportInboundDrop?.({
+          dropClass: "session_mismatch",
+          messageType: msg.type,
+          droppedSessionId: (msg as any).sessionId,
+        });
         return undefined;
       }
 
@@ -450,6 +527,13 @@ export function createCommandHandler(
           // safety timeout. Settle it immediately (fresh:false → drop). The
           // passthrough + slash paths emit their own `prompt_received` with the
           // real streaming verdict. See change: optimistic-prompt-progress.
+          // The `promptId` echo means ONE narrow thing — the owning bridge
+          // handed this prompt to pi — so it rides only the ack emitted AFTER
+          // an actual `pi.sendUserMessage`. The acks below are UI-state signals
+          // for non-turn commands and for the buffered follow-up path (pi never
+          // sees those), and attaching the handle to them would report a
+          // delivery that did not happen.
+          // See change: fix-spawn-correlation-ttl-coupling (D7).
           if (parsed.type !== "passthrough" && parsed.type !== "slash") {
             options?.eventSink?.({ type: "prompt_received", sessionId, fresh: false });
           }
@@ -473,8 +557,23 @@ export function createCommandHandler(
           }
 
           if (parsed.type === "reload") {
+            // Emit the REAL outcome. The previous unconditional `completed`
+            // reported success for every reload that silently no-op'd on a
+            // session with no captured reload function — which is every
+            // dashboard-spawned session that was never touched in a TUI.
+            // See change: fix-out-of-band-reload.
+            let outcome: ReloadOutcome = { ok: false, reason: NO_RELOAD_PATH_REASON };
             if (options?.reload) {
-              options.reload();
+              // Defence in depth: the bridge already converts a throw into an
+              // outcome, but a stale captured `ctx.reload` throws
+              // SYNCHRONOUSLY out of `assertActive()`, and any caller wiring a
+              // different `reload` must not be able to take the turn down.
+              try {
+                outcome = await options.reload();
+              } catch (err: any) {
+                const reason = err instanceof Error ? err.message : String(err);
+                outcome = { ok: false, reason: `Reload failed: ${reason}` };
+              }
             }
             options?.eventSink?.({
               type: "event_forward",
@@ -482,7 +581,9 @@ export function createCommandHandler(
               event: {
                 eventType: "command_feedback",
                 timestamp: Date.now(),
-                data: { command: "/reload", status: "completed" },
+                data: outcome.ok
+                  ? { command: "/reload", status: "completed" }
+                  : { command: "/reload", status: "error", message: outcome.reason },
               },
             });
             return undefined;
@@ -501,6 +602,17 @@ export function createCommandHandler(
                 data: { command: "/new", status: "completed" },
               },
             });
+            return undefined;
+          }
+
+          if (parsed.type === "retry") {
+            // Deprecated `/__dashboard_retry` sentinel alias: an un-upgraded
+            // client still smuggles retry through send_prompt. Route it to the
+            // SAME dispatch as the typed retry_session, never replaying the
+            // sentinel as a user message. Remove one release after clients are
+            // known upgraded. See change:
+            // replace-dashboard-retry-command-with-protocol-message.
+            dispatchDashboardRetry(pi, sessionId, options);
             return undefined;
           }
 
@@ -544,7 +656,12 @@ export function createCommandHandler(
               // extension-command dispatch. Do NOT emit completed here — would
               // duplicate the dispatch path's terminal event.
               // See change: fix-extension-slash-commands-in-dashboard.
-              await options.sessionPrompt(parsed.text, msg.delivery);
+              // The handle rides along so the branch that actually reaches
+              // `pi.sendUserMessage` can acknowledge it; the non-turn slash
+              // routes (flow, extension dispatch, exec template) settle without
+              // one, because pi never receives those as a prompt.
+              // See change: fix-spawn-correlation-ttl-coupling (D7).
+              await options.sessionPrompt(parsed.text, msg.delivery, msg.promptId);
             } else {
               // Test / non-bridge callers: apply the extension-command dispatch
               // branch inline before falling through to sendUserMessage. Keeps
@@ -571,7 +688,22 @@ export function createCommandHandler(
                 // Forward delivery so steering on slash fallback honors the
                 // dashboard's keyboard contract. See change: add-steering-message.
                 const deliverAs = msg.delivery ?? ("followUp" as const);
+                // Capture the streaming verdict BEFORE the pi call: an idle
+                // send synchronously fires `agent_start`, so reading it
+                // afterwards reports `fresh:false` for every fresh turn — the
+                // same trap the passthrough path documents.
+                const wasStreamingBeforeSend = options?.isStreaming?.() ?? false;
                 (pi.sendUserMessage as any)(parsed.text, { deliverAs });
+                // This slash DID reach pi as a user prompt, so it is delivered.
+                // See change: fix-spawn-correlation-ttl-coupling (D7).
+                if (msg.promptId) {
+                  options?.eventSink?.({
+                    type: "prompt_received",
+                    sessionId,
+                    fresh: !wasStreamingBeforeSend,
+                    promptId: msg.promptId,
+                  });
+                }
               }
             }
             return undefined;
@@ -612,21 +744,34 @@ export function createCommandHandler(
           // idle→streaming synchronously on the first user message, so
           // checking after sendUserMessage gives false positives.
           //
-          // Image attachments are NOT carried in the bridge buffer in v1
-          // (text-only). Image-bearing follow-ups buffered during streaming
-          // will lose their images on drain (Known Limitation).
-          //
-          // See change: rework-mid-turn-prompt-queue (design.md D1).
+          // Image attachments RIDE the bridge buffer and are delivered on
+          // drain. See change: rework-mid-turn-prompt-queue (design.md D1),
+          //                   fix-bridge-followup-image-drop.
           const wasStreaming = options?.isStreaming?.() ?? false;
           // Per-send ack carrying the capture-before-send streaming verdict.
           // Drives the optimistic `pendingPrompt` bubble: fresh:true → "sent",
           // fresh:false → drop (raced mid-turn). Emitted BEFORE any pi call so
           // the snapshot is authoritative. See change: optimistic-prompt-progress.
-          options?.eventSink?.({ type: "prompt_received", sessionId, fresh: !wasStreaming });
           const da = msg.delivery ?? "followUp";
-          if (wasStreaming && da === "followUp") {
-            // Bridge-owned buffer path — do NOT call pi.sendUserMessage.
-            options?.onFollowupSent?.(outgoing);
+          const buffered = wasStreaming && da === "followUp";
+          // The streaming-verdict ack is unchanged and still emitted BEFORE any
+          // pi call, so the snapshot stays authoritative. It carries the
+          // `promptId` ONLY on the branch that actually hands the prompt to pi;
+          // a buffered follow-up stays `transmitted` until (and unless) the
+          // drain ships it, which is the same honest degradation an older
+          // bridge gets. See change: optimistic-prompt-progress,
+          //                 fix-spawn-correlation-ttl-coupling (D7).
+          options?.eventSink?.({
+            type: "prompt_received",
+            sessionId,
+            fresh: !wasStreaming,
+            ...(msg.promptId && !buffered ? { promptId: msg.promptId } : {}),
+          });
+          if (buffered) {
+            // Bridge-owned buffer path — do NOT call pi.sendUserMessage. The
+            // images ride into the buffer so the drain can deliver them.
+            // See change: fix-bridge-followup-image-drop.
+            options?.onFollowupSent?.(outgoing, msg.images);
           } else {
             // Idle or steer — forward to pi directly.
             sendUserMessageWithImages(pi, outgoing, msg.images, msg.delivery);
@@ -634,6 +779,13 @@ export function createCommandHandler(
           }
           return undefined;
         }
+
+        case "retry_session":
+          // First-class settled-error retry. Same dispatch as the deprecated
+          // /__dashboard_retry sentinel, minus the send_prompt channel abuse.
+          // See change: replace-dashboard-retry-command-with-protocol-message.
+          dispatchDashboardRetry(pi, sessionId, options);
+          return undefined;
 
         case "abort":
           // Pi owns both queues now. abort() asks pi to halt the current turn;
@@ -773,9 +925,26 @@ export function createCommandHandler(
               // discarding it: a partly-failed refresh still yields a usable
               // (stale) catalogue, so we log and continue rather than throw.
               // See change: update-pi-core-0-84-adopt-apis.
-              await reportRefresh(registry.refresh({}));
+              const refreshResult = await reportRefresh(registry.refresh({}));
               const models = filterByEnabledModels(registry.getAvailable().map(toModelInfo));
-              return { type: "models_list", sessionId, models };
+              // Per-provider failures travel to the browser so the dropdown can
+              // say WHY a model is missing. Omitted (never `[]`) on success so
+              // the happy-path message is byte-identical to before.
+              //
+              // An ABORTED refresh never populates the field, even when it also
+              // carries provider errors: the spec makes abort a log-level concern
+              // only, and an abort means a newer refresh superseded this one — so
+              // its partial errors describe a run whose result is already stale.
+              // See change: upgrade-model-selector-primitives (design D5).
+              const refreshErrors = refreshResult?.aborted
+                ? []
+                : [...(refreshResult?.errors ?? [])].map(([provider, err]) => ({
+                    provider,
+                    message: errText(err),
+                  }));
+              return refreshErrors.length > 0
+                ? { type: "models_list", sessionId, models, refreshErrors }
+                : { type: "models_list", sessionId, models };
             } catch (err) {
               console.warn("[dashboard] request_models failed:", errText(err));
             }
@@ -859,6 +1028,82 @@ export function createCommandHandler(
   };
 }
 
+/** The image MIME types pi accepts inline. NEVER widened by this codebase. */
+const VALID_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
+
+/** Outcome of the image allow-list filter: what survives, and what did not. */
+export interface ImageValidation {
+  valid: ImageContent[];
+  /** One human-readable reason per DROPPED image, for `command_feedback`. */
+  dropped: string[];
+}
+
+/**
+ * Filter an image array down to the blocks pi will accept.
+ *
+ * Mime and bytes are read through the canonical accessors (design D3c), never
+ * through a direct `.mimeType` / `.data` property read: the direct read is
+ * correct only for the flat pi shape and silently destroys a valid nested
+ * Anthropic block (`{type:"image", source:{media_type, data}}`) as "invalid
+ * mimeType". Survivors are normalised to the flat shape pi consumes.
+ *
+ * Dropped images are RETURNED rather than only logged — a bare `console.error`
+ * is invisible to a dashboard user, which is the same defect class as the image
+ * drop this change fixes (design D7).
+ *
+ * See change: fix-bridge-followup-image-drop (design D6, D7, D3c).
+ */
+export function validateImages(images?: unknown): ImageValidation {
+  const valid: ImageContent[] = [];
+  const dropped: string[] = [];
+  if (images === undefined || images === null) return { valid, dropped };
+  // A non-array container would throw on `for...of`, failing the whole prompt
+  // instead of reporting an unusable attachment. The wire is untrusted.
+  if (!Array.isArray(images)) {
+    dropped.push("attachments were not a list");
+    return { valid, dropped };
+  }
+  for (const img of images) {
+    if (!img || typeof img !== "object") {
+      dropped.push("attachment was not an image block");
+      continue;
+    }
+    const mimeType = imageBlockMime(img);
+    if (!mimeType || !VALID_IMAGE_MIME_TYPES.has(mimeType)) {
+      dropped.push(`unsupported image type "${mimeType ?? "unknown"}"`);
+      continue;
+    }
+    const data = imageBlockData(img);
+    if (!data) {
+      dropped.push("attachment carried no image data");
+      continue;
+    }
+    valid.push({ type: "image", data, mimeType });
+  }
+  return { valid, dropped };
+}
+
+/**
+ * Assemble the pi message content for `text` + `images`: a bare string when
+ * there is no surviving attachment, otherwise a `[{text}, {image}…]` content
+ * array — the shape pi already accepts on the idle and steer paths.
+ *
+ * Deliberately carries NO send options. `sendUserMessageWithImages` used to
+ * fuse validation, assembly and `deliverAs`; the bridge drain must reuse the
+ * first two while passing NO options, because `{deliverAs:"followUp"}` is a
+ * known-broken path there (pi has already exited `getFollowUpMessages()`, so
+ * the entry never drains). Splitting the concerns makes that confusion
+ * structurally impossible (design D6).
+ */
+export function buildUserMessageContent(
+  text: string,
+  images?: unknown,
+): string | Array<{ type: "text"; text: string } | ImageContent> {
+  const { valid } = validateImages(images);
+  if (valid.length === 0) return text;
+  return [{ type: "text" as const, text }, ...valid];
+}
+
 /** Send a user message with optional image validation.
  * Uses deliverAs: "followUp" by default so messages queue properly when the agent is streaming.
  * Pass deliverAs: "steer" for steering messages (delivered after current turn).
@@ -866,74 +1111,45 @@ export function createCommandHandler(
 function sendUserMessageWithImages(
   pi: ExtensionAPI,
   text: string,
-  images?: Array<{ type: string; data: string; mimeType: string }>,
+  images?: unknown,
   delivery?: "steer" | "followUp",
 ): void {
   const deliverAs = delivery ?? ("followUp" as const);
-  const sendOptions = { deliverAs };
   // POST-rework-mid-turn-prompt-queue: this helper is called for STEER and
   // for IDLE sends only — followUp-while-streaming is intercepted upstream
   // (bridge buffer path; never calls this helper). The deliverAs parameter
   // is preserved for steer routing.
   // See change: rework-mid-turn-prompt-queue (design.md D1).
-  if (images && images.length > 0) {
-    const validMimeTypes = new Set(["image/jpeg", "image/png", "image/gif", "image/webp"]);
-    const validImages = images.filter((img) => {
-      if (!img || typeof img !== "object") {
-        console.error("[dashboard] Dropping non-object image entry");
-        return false;
-      }
-      if (!img.mimeType || typeof img.mimeType !== "string" || !validMimeTypes.has(img.mimeType)) {
-        console.error(`[dashboard] Dropping image with invalid mimeType: "${img.mimeType}" (type: ${typeof img.mimeType})`);
-        return false;
-      }
-      if (!img.data || typeof img.data !== "string") {
-        console.error(`[dashboard] Dropping image with invalid data (type: ${typeof img.data}, length: ${img.data?.length ?? 0})`);
-        return false;
-      }
-      return true;
-    });
-    if (validImages.length > 0) {
-      const content = [
-        { type: "text" as const, text },
-        ...validImages.map((img) => ({
-          type: "image" as const,
-          data: img.data,
-          mimeType: img.mimeType,
-        })),
-      ];
-      console.error(`[dashboard] Sending message with ${validImages.length} image(s), mimeTypes: ${validImages.map(i => i.mimeType).join(", ")}`);
-      (pi.sendUserMessage as any)(content, sendOptions);
-    } else {
-      (pi.sendUserMessage as any)(text, sendOptions);
-    }
-  } else {
-    (pi.sendUserMessage as any)(text, sendOptions);
-  }
+  //
+  // Drops are logged here rather than surfaced: this path has no event sink.
+  // The buffer path emits `command_feedback` instead (design D7).
+  const { dropped } = validateImages(images);
+  for (const reason of dropped) console.error(`[dashboard] Dropping image — ${reason}`);
+  (pi.sendUserMessage as any)(buildUserMessageContent(text, images), { deliverAs });
 }
 
 /**
  * Resolve the dashboard HTTP port, in precedence order:
- *   1. `PI_DASHBOARD_PORT` / `DASHBOARD_PORT` env — set by the dashboard server
- *      and inherited by spawned sessions (the only reliable source when the
- *      server runs on a non-default port, e.g. the Docker test harness, whose
- *      `config.json` carries no `port` field).
+ *   1. `PI_DASHBOARD_PORT` / `DASHBOARD_PORT` env — set by the session's
+ *      RUNTIME environment (e.g. the docker harness compose env). The
+ *      dashboard server does NOT inject these into spawned sessions; it
+ *      pins them via `PI_DASHBOARD_URL` / `PI_DASHBOARD_SOCKET` instead.
  *   2. `~/.pi/dashboard/config.json` `port` — normal local installs write it.
- *   3. 8000 (default).
- * Note: `PI_DASHBOARD_URL` is the gateway (ws) port, NOT the HTTP port, so it is
- * deliberately not consulted here. See change: add-dashboard-slash-commands.
+ *   3. The shared default.
+ * Delegates to the shared `resolveDashboardPorts` so this path and the
+ * bridge's auto-start port resolution cannot drift.
+ * Note: `PI_DASHBOARD_URL` is the gateway (ws) endpoint, NOT the HTTP port,
+ * so it is deliberately not consulted here.
+ * See change: add-dashboard-slash-commands, fix-bridge-autostart-port-resolution.
  */
 function resolveDashboardPort(): number {
-  for (const v of [process.env.PI_DASHBOARD_PORT, process.env.DASHBOARD_PORT]) {
-    const n = Number(v);
-    if (v && Number.isFinite(n) && n > 0) return n;
-  }
+  let fileConfig: { port?: number } = {};
   try {
     const raw = readFileSync(join(homedir(), ".pi", "dashboard", "config.json"), "utf-8");
     const parsed = JSON.parse(raw);
-    if (typeof parsed?.port === "number" && Number.isFinite(parsed.port)) return parsed.port;
+    if (typeof parsed?.port === "number") fileConfig = { port: parsed.port };
   } catch { /* missing / unparseable config */ }
-  return 8000;
+  return resolveDashboardPorts(process.env, fileConfig).port;
 }
 
 /**
@@ -988,6 +1204,57 @@ interface BashExecOptions {
   env?: Record<string, string>;
   /** Marks the emitted bash_output event so the client renders the footer. */
   source?: "slash-exec";
+}
+
+/**
+ * Re-drive a settled-error turn via the pi custom-message primitive. Shared by
+ * the typed `retry_session` message and the deprecated `/__dashboard_retry`
+ * sentinel alias, so both converge on ONE dispatch. See change:
+ * replace-dashboard-retry-command-with-protocol-message.
+ */
+function dispatchDashboardRetry(
+  pi: ExtensionAPI,
+  sessionId: string,
+  options?: {
+    eventSink?: (msg: ExtensionToServerMessage) => void;
+    /** Disarm a still-armed RetryTracker chain (bridge → retryTracker.noteExplicitRun). */
+    disarmRetryChain?: () => void;
+  },
+): void {
+  // Disarm any still-armed provider-retry chain BEFORE the re-drive. Otherwise
+  // the manual turn's native agent_start is converted into a synthetic
+  // auto_retry_start, rendering pi's attempt counter for a user-initiated retry.
+  options?.disarmRetryChain?.();
+  const emitFailure = (error: unknown) => {
+    const finalError = errText(error);
+    console.error("[dashboard] Internal Retry dispatch failed:", finalError);
+    options?.eventSink?.({
+      type: "event_forward",
+      sessionId,
+      event: {
+        eventType: "auto_retry_end",
+        timestamp: Date.now(),
+        data: { success: false, attempt: 0, finalError },
+      },
+    });
+  };
+  try {
+    // sendMessage is async at runtime (the .d.ts types it void). A SYNC throw is
+    // trapped here; an ASYNC rejection by the .catch() below. Both surface as a
+    // single auto_retry_end{success:false} so a failed dispatch never strands
+    // the retry surface. See change (spike caveat 1).
+    const result = pi.sendMessage(
+      {
+        customType: "pi-dashboard:retry",
+        content: "Continue the interrupted response without repeating the user's request.",
+        display: false,
+      },
+      { triggerTurn: true },
+    ) as unknown as Promise<void> | void;
+    void Promise.resolve(result).catch(emitFailure);
+  } catch (error) {
+    emitFailure(error);
+  }
 }
 
 /** Execute a bash command and forward results */

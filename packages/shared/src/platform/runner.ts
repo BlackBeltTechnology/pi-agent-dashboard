@@ -55,7 +55,7 @@ export interface RunCtx {
 /** Discriminated error type surfaced by `run()`. */
 export type ExecError =
   | { kind: "not-found"; binary: string }
-  | { kind: "timeout"; timeoutMs: number; binary: string }
+  | { kind: "timeout"; timeoutMs: number; binary: string; stdout?: string; stderr?: string }
   | { kind: "exit"; code: number | null; signal: NodeJS.Signals | null; stdout: string; stderr: string }
   | { kind: "spawn-failure"; message: string };
 
@@ -386,7 +386,22 @@ export function runAsync<Input, Output>(
 
     const timer = setTimeout(() => {
       try { child.kill("SIGTERM"); } catch { /* ignore */ }
-      settle({ ok: false, error: { kind: "timeout", timeoutMs: timeout, binary: rawCmd } });
+      // SIGKILL escalation: a child that ignores SIGTERM would keep writing
+      // (e.g. into the repo mid-init) after the caller moved on. The timer is
+      // captured so a clean exit between SIGTERM and escalation cancels it —
+      // killing an exited-and-recycled pid would signal an unrelated process.
+      // The settle below is not delayed. See change:
+      // add-openspec-init-affordances (review round 2).
+      const sigkillTimer = setTimeout(() => {
+        if (child.exitCode !== null || child.signalCode !== null) return;
+        try { child.kill("SIGKILL"); } catch { /* already gone */ }
+      }, 3_000);
+      child.once("close", () => clearTimeout(sigkillTimer));
+      // Partial stdout/stderr ride along so a killed long-running command can
+      // still surface what it produced before the deadline (e.g. the init
+      // endpoint's partial-stderr failure contract). See change:
+      // add-openspec-init-affordances.
+      settle({ ok: false, error: { kind: "timeout", timeoutMs: timeout, binary: rawCmd, stdout, stderr } });
     }, timeout);
 
     child.stdout?.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf-8"); });
@@ -395,7 +410,7 @@ export function runAsync<Input, Output>(
     child.on("error", (err: NodeJS.ErrnoException) => {
       clearTimeout(timer);
       if (err.code === "ETIMEDOUT" || err.message?.includes("ETIMEDOUT")) {
-        settle({ ok: false, error: { kind: "timeout", timeoutMs: timeout, binary: rawCmd } });
+        settle({ ok: false, error: { kind: "timeout", timeoutMs: timeout, binary: rawCmd, stdout, stderr } });
         return;
       }
       settle({ ok: false, error: { kind: "spawn-failure", message: err.message } });

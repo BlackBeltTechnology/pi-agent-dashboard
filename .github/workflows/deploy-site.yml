@@ -5,47 +5,33 @@ on:
     branches: [develop]
     paths:
       - "site/**"
+      # site/design-scratch/ is the design source the site is drawn FROM, not
+      # part of the built site. Without this exclusion every mockup iteration
+      # would deploy production for no change in output.
+      - "!site/design-scratch/**"
       - "packages/shell/**"
       - ".github/workflows/deploy-site.yml"
-  # Rebuild and redeploy whenever a new release is published so the
-  # Download section surfaces the latest version automatically.
-  release:
-    types: [published]
   workflow_dispatch:
+
+# No `release:` trigger on purpose. publish.yml creates the GitHub Release
+# with the default Actions token, and GitHub suppresses workflow runs from
+# events raised by that token — a release event CANNOT start a run here (it
+# never has). The release path is a `site-redeploy` job in publish.yml that
+# DISPATCHES this workflow on develop via workflow_dispatch (the documented
+# exception that always creates a run). See change: fix-deploy-site-ship-shell
+# (design D8).
 
 permissions:
   contents: read
   pages: write
   id-token: write
-  actions: write # required so redispatch-on-release can run `gh workflow run`
 
 concurrency:
   group: pages-deploy
   cancel-in-progress: true
 
 jobs:
-  # When triggered by `release: published`, the workflow runs on the tag ref
-  # (e.g. v0.3.0). The `github-pages` environment's branch/tag protection
-  # rules reject deploys from non-default refs, so instead of trying to
-  # deploy inline we re-dispatch this same workflow on `develop` (the
-  # allowed ref) and let that run do the deploy. All other triggers
-  # (push to develop, workflow_dispatch) skip this job and proceed normally.
-  redispatch-on-release:
-    if: github.event_name == 'release'
-    runs-on: ubuntu-latest
-    steps:
-      - name: Dispatch Deploy Site on develop
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          gh workflow run deploy-site.yml \
-            --repo "${GITHUB_REPOSITORY}" \
-            --ref develop
-
   build:
-    # Skip when this run was triggered by a release — redispatch-on-release
-    # will kick off a fresh run on develop that handles build + deploy.
-    if: github.event_name != 'release'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -56,30 +42,23 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-          cache: npm
-          cache-dependency-path: site/package-lock.json
 
-      # pnpm for the ROOT workspace install below (the neutral shell). The
-      # site/ install stays npm against its own site/package-lock.json
-      # (site is NOT a pnpm workspace member). See change: adopt-pnpm-for-dev-ci (X6).
+      # pnpm for the ROOT workspace install below (the neutral shell). site/
+      # itself has NO dependencies since it became a hand-written static page:
+      # no npm ci, no astro build, no type check, no bundle budget (there is
+      # no bundle). `npm run build` is a copy + reference check.
       - uses: pnpm/action-setup@v4
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Type check
-        run: npm run check
-        continue-on-error: true # don't block deploy on type-only issues
 
       - name: Build
         run: npm run build
-        env:
-          # Higher rate limit when fetching the latest release at build
-          # time from src/lib/github-release.ts.
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Enforce JS bundle budget
-        run: npm run size
+      # The page carries release data inline, so a stale page is a page with
+      # dead download links. This does not block the deploy -- publishing the
+      # previous version's links still beats publishing nothing -- but it puts
+      # the drift in the log where the release job can be chased.
+      - name: Check release data is current
+        run: npm run check-release
+        continue-on-error: true
 
       # Neutral device-pairing shell (packages/shell). GitHub Pages allows one
       # site per repo and `site/` owns the pi-dashboard.dev apex, so the shell
@@ -114,7 +93,6 @@ jobs:
           path: site/dist
 
   deploy:
-    if: github.event_name != 'release'
     needs: build
     runs-on: ubuntu-latest
     environment:

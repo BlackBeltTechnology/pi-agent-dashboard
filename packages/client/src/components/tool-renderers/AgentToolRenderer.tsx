@@ -23,12 +23,18 @@ import { SubagentDetailView } from "@blackbelt-technology/pi-dashboard-subagents
 import { mdiChevronDown, mdiChevronUp, mdiOpenInNew } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { useSubagentResyncCadence } from "../../hooks/useSubagentResyncCadence.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import {
+  noteSubagentRunning,
+  noteSubagentTerminal,
+  trackInspectorMounted,
+} from "../../lib/state/subagent-inspector-telemetry.js";
+import { MarkdownContent } from "../preview/MarkdownContent.js";
 import { AgentCardShell } from "../session/AgentCardShell.js";
 import { formatDuration } from "../session/agent-card-utils.js";
 import { ElapsedBadge } from "../session/ElapsedBadge.js";
-import { MarkdownContent } from "../preview/MarkdownContent.js";
 import type { ToolRendererProps } from "./types.js";
 
 /** Shape of AgentDetails sent by pi-dashboard-subagents via partialResult.details */
@@ -55,9 +61,32 @@ interface AgentDetails {
   error?: string;
 }
 
-/** Map AgentDetails status to AgentCardShell status key */
+/**
+ * Map AgentDetails status to AgentCardShell status key.
+ *
+ * The no-details fall-through maps ANY unrecognised row status to `running`, so
+ * `elided` must be handled explicitly or a windowed subagent row spins forever
+ * — and subagent rows are the likeliest to be windowed.
+ * See change: fix-lazy-history-backfill-ux (D5).
+ */
 function mapStatus(details: AgentDetails | undefined, toolStatus: string): string {
-  if (!details?.status) return toolStatus === "error" ? "error" : toolStatus === "complete" ? "complete" : "running";
+  /**
+   * `elided` outranks `details.status`, and must be checked BEFORE it.
+   *
+   * `toolDetails` survives on a spliced row, so a backfilled subagent whose end
+   * never arrived still carries `details.status: "running"` (or a stale
+   * `"completed"`) from the last frame the window delivered. Reading that first
+   * renders a spinner — or worse, a completed card — for a result that is not
+   * loaded. The row-level stamp is the authority on loadability; `details` only
+   * describes what the subagent was doing when the stream was cut.
+   * See change: fix-lazy-history-backfill-ux (D5).
+   */
+  if (toolStatus === "elided") return "elided";
+  if (!details?.status) {
+    if (toolStatus === "error") return "error";
+    if (toolStatus === "complete") return "complete";
+    return "running";
+  }
   switch (details.status) {
     case "running":
     case "queued":
@@ -176,6 +205,11 @@ function CardControls({
   );
 }
 
+/** Correlation token so a resync reply comes back to THIS browser only (C5). */
+function newResyncRequestId(): string {
+  return globalThis.crypto?.randomUUID?.() ?? `rs-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export function AgentToolRenderer({ args, status, result, toolDetails, context }: ToolRendererProps) {
   const details = toolDetails as AgentDetails | undefined;
   const [expanded, setExpanded] = useState(false);
@@ -201,6 +235,10 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
 
   const detailDialog = agentId && session ? (
     <Dialog open={detailOpen} onClose={() => setDetailOpen(false)} size="lg" flush>
+      {/* STAYS after the flush panel became a flex column: a DEFINITE height,
+          not a duplicated flex context. The popout must keep a stable height as
+          transcript entries stream in; shrink-to-fit would make the dialog jump.
+          See change: fix-flush-dialog-scroll-and-close-collision. */}
       <div className="h-[70vh] overflow-hidden flex flex-col">
         <SubagentDetailView
           session={session}
@@ -228,7 +266,7 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
     // no entry yet (sub === undefined) — that is exactly the not-found case.
     const running = details?.status === "running" || details?.status === "queued" || sub?.status === "running";
     if (running && emptyTimeline) {
-      context.send({ type: "subagent_resync_request", sessionId, agentId });
+      context.send({ type: "subagent_resync_request", sessionId, agentId, requestId: newResyncRequestId(), reason: "open" });
     }
   };
 
@@ -237,6 +275,43 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
     setDetailOpen(true);
     requestResyncIfStale();
   };
+
+  // P5 kill-switch signal (D1): record how much of this subagent's runtime has
+  // a detail view mounted. Nothing else in the client knows a view is mounted,
+  // and that share bounds the achievable win of stripping.
+  // See change: reduce-subagent-details-payload (task 1.5).
+  const inspectorOpen = expanded || detailOpen;
+  const liveStatus = details?.status;
+  useEffect(() => {
+    if (!agentId) return;
+    if (liveStatus === "running" || liveStatus === "queued") noteSubagentRunning(agentId);
+    else if (liveStatus) noteSubagentTerminal(agentId);
+  }, [agentId, liveStatus]);
+  useEffect(() => {
+    if (!agentId || !inspectorOpen) return;
+    const release = trackInspectorMounted(agentId);
+    return () => release();
+  }, [agentId, inspectorOpen]);
+
+  // Open-inspector liveness (D4 v1). Intermediate frames no longer carry the
+  // timeline, so a MOUNTED view pulls it on a backoff cadence. Deliberately
+  // WITHOUT the `emptyTimeline` precondition above — that precondition is why a
+  // view watching a growing timeline never re-fires today. One timer per
+  // subagent, so inline + popout mounted together do not double-fire.
+  // See change: reduce-subagent-details-payload (F1, F3, F4).
+  const sub = agentId ? session?.subagents.get(agentId) : undefined;
+  useSubagentResyncCadence({
+    key: agentId && sessionId && (expanded || detailOpen) ? `${sessionId}:${agentId}` : undefined,
+    running: details?.status === "running" || details?.status === "queued" || sub?.status === "running",
+    entryCount: sub?.entries?.length ?? 0,
+    onResync: () => {
+      if (agentId && sessionId && context?.send) {
+        // The token makes the reply requester-scoped instead of fanned out to
+        // every viewer of this session (C5).
+        context.send({ type: "subagent_resync_request", sessionId, agentId, requestId: newResyncRequestId(), reason: "cadence" });
+      }
+    },
+  });
 
   // Toggle the inline expanded body; when expanding, resync if stale so the
   // inline timeline hydrates the same way the popout does (previously the
@@ -268,12 +343,34 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
     ? <div className="mt-2"><SubagentDetailView session={session} agentId={agentId} mode="inline" sessionId={context.sessionId} /></div>
     : null;
 
-  // --- Fallback: no toolDetails (replayed/older sessions) ---
-  if (!details) {
+  /**
+   * ELIDED short-circuits the details-driven branches below, and must come
+   * BEFORE them.
+   *
+   * `mapStatus` alone is not enough: the `details.status` branches further down
+   * hardcode their own shell status (`status="running"` for running/queued,
+   * the completed styling for completed/steered) and never consult
+   * `cardStatus`. `toolDetails` SURVIVES on a spliced row, so a backfilled
+   * subagent still carries whatever `details.status` the last delivered frame
+   * set — which rendered a spinner, or a completed card, for a result that is
+   * not loadable. The row-level stamp is the authority on loadability;
+   * `details` only describes what the subagent was doing when the stream was
+   * cut. See change: fix-lazy-history-backfill-ux (D5).
+   */
+  // --- Fallback: no toolDetails (replayed/older sessions), or an elided row ---
+  if (!details || cardStatus === "elided") {
     return (
       <AgentCardShell name={displayName} status={cardStatus} headerRight={controls}>
         {description && (
           <div className="text-[11px] text-[var(--text-secondary)] mt-1 truncate">"{description}"</div>
+        )}
+        {cardStatus === "elided" && (
+          <div
+            data-testid="agent-elided-note"
+            className="text-[11px] text-[var(--text-muted)] mt-1"
+          >
+            {i18nT("chat.tool.elided", undefined, "result not loaded")}
+          </div>
         )}
         {!expanded && promptText && <PromptBlock text={promptText} />}
         {!expanded && result && <ResultBlock text={result} />}
@@ -343,7 +440,10 @@ export function AgentToolRenderer({ args, status, result, toolDetails, context }
         <div className="text-[11px] text-[var(--text-secondary)] mt-1 truncate">"{description}"</div>
       )}
       {details.status === "error" && details.error && (
-        <div className="text-[11px] text-red-400 mt-1">{i18nT("common.error", undefined, "Error:")} {details.error}</div>
+        <div className="text-[11px] text-[var(--text-secondary)] mt-1">
+          <span className="text-[var(--severity-error-fg)]">{i18nT("common.error", undefined, "Error:")}</span>{" "}
+          {details.error}
+        </div>
       )}
       {details.status === "aborted" && (
         <div className="text-[11px] text-orange-400 mt-1">{i18nT("session.abortedMaxTurnsExceeded", undefined, "Aborted (max turns exceeded)")}</div>

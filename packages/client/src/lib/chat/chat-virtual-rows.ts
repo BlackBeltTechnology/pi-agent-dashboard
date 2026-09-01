@@ -92,6 +92,11 @@ function baseRowSize(role: ChatMessage["role"]): number {
       return 120;
     case "rawEvent":
       return 120;
+    case "custom":
+      // Bounded generic custom-entry card: chrome + a visible (240px-capped)
+      // body region — the 120 default arm is badly wrong for a 200-line JSON
+      // body. See change: render-inline-reasoning-and-custom-entries (P2).
+      return 160;
     case "assistant":
       return 140;
     case "bashOutput":
@@ -111,10 +116,16 @@ export function estimateVirtualRowSize(item: BurstItem, textChars = 0): number {
   if (isBurst(item)) return 220;
   if (isGroup(item)) return 64;
   const msg = item as ChatMessage;
-  const textReserve = Math.min(Math.ceil(textChars / CHARS_PER_LINE) * LINE_PX, TEXT_RESERVE_CLAMP);
-  let size = baseRowSize(msg.role) + textReserve;
+  let textReserve = Math.min(Math.ceil(textChars / CHARS_PER_LINE) * LINE_PX, TEXT_RESERVE_CLAMP);
+  // The custom card's body region is height-CAPPED (max-h-[240px] in
+  // CustomEntryCard), so a large text reserve would over-estimate by ~14× on a
+  // 200-line JSON body and reintroduce first-paint scroll drift. Clamp the
+  // reserve to the body cap. See change:
+  // render-inline-reasoning-and-custom-entries (security pass, advisory #3).
+  if (msg.role === "custom") textReserve = Math.min(textReserve, 240);
+  const size = baseRowSize(msg.role) + textReserve;
   if (msg.images && msg.images.length > 0) {
-    size += msg.role === "toolResult" ? IMAGE_RESERVE_TOOL_RESULT : IMAGE_RESERVE_USER;
+    return size + (msg.role === "toolResult" ? IMAGE_RESERVE_TOOL_RESULT : IMAGE_RESERVE_USER);
   }
   return size;
 }

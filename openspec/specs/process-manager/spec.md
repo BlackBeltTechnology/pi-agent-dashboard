@@ -1,4 +1,10 @@
-## MODIFIED Requirements
+# process-manager Specification
+
+## Purpose
+
+Owns spawning and tracking pi session processes on the server. Defines the headless spawn strategy and its `SpawnResult` — keeper and pi PIDs, the pid for headless, a failure classification code, and a stderr tail on Windows headless crash — plus keeper crash detection, forced headless spawn in Electron mode, and PATH augmentation for a managed install.
+
+## Requirements
 
 ### Requirement: Spawn pi session supports headless strategy
 The `spawnPiSession` function SHALL accept an optional `strategy` parameter (`"tmux" | "headless" | "wt" | "wsl-tmux"`). When `"headless"`, `spawnPiSession` SHALL spawn the keeper sidecar (see `rpc-keeper-sidecar` capability) instead of spawning pi directly. The keeper SHALL spawn pi as its own child. The keeper path is unconditional — there is no flag to opt out.

@@ -1,0 +1,33 @@
+flowchart TD
+  PR["PR: os/&lt;c&gt; → develop"]
+
+  subgraph BLOCKING["blocking on every PR → develop"]
+    direction TB
+    A["<b>ci.yml</b> · job 'ci' · ubuntu-latest<br/>pnpm install --frozen-lockfile<br/>verify-release-deps.mjs — openspec floor drift<br/>npm run spec:validate — main-spec integrity<br/>check-skill-frontmatter.mjs<br/>check-pi-settings-paths.mjs — no machine paths<br/>verify-published-imports.mjs — npm pack derived<br/>check-kb-dist-fresh.mjs — engine fingerprint<br/>test:ci-scenarios — publish dry-run set<br/>pnpm lint · lint:e2e — typecheck tests/e2e<br/>biome lint Tier A gate, B/C annotate<br/>pnpm test<br/>build + fail on regressed warnings"]
+    B["<b>ci-e2e-electron.yml</b><br/>electron-e2e matrix<br/>+ job-object-windows"]
+    C["<b>ci-gateway-platform.yml</b><br/>posix: no bridge TCP port<br/>windows: loopback fallback + credential ACLs"]
+  end
+
+  subgraph ONDEMAND["workflow_dispatch only"]
+    D["ci-electron.yml — on-demand build"]
+    E["ci-smoke.yml — standalone install smoke"]
+  end
+
+  subgraph AFTER["after merge / scheduled"]
+    F["push develop → ci.yml re-runs<br/>+ <b>deploy-site.yml</b> build → deploy pages"]
+    G["<b>nightly.yml</b><br/>verdaccio verify-publish<br/>knip dead-code — REPORTING half<br/>electron · report"]
+    H["release-cut skill → tag v&lt;x&gt;<br/>→ <b>publish.yml</b><br/>resolve · ci-checks · smoke · tag-and-push<br/>publish · electron · github-release<br/>→ sync-release-version.yml"]
+  end
+
+  PR --> A & B & C
+  A --> MERGE(["squash-merge into develop"])
+  B --> MERGE
+  C --> MERGE
+  MERGE --> F --> G --> H
+
+  NOTE["asymmetry: the STRONG gate — the docker e2e harness — runs LOCALLY in ship-it, not in CI.<br/>knip is inverted: preventive ratchet local at 4.4, reporting-only nightly."]
+
+  classDef block fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px
+  classDef note fill:#fffde7,stroke:#f9a825,stroke-width:1px
+  class A,B,C block
+  class NOTE note

@@ -42,7 +42,9 @@ describe("applySessionMessage (pure reducer)", () => {
     const dirty: SessionState = {
       ...createInitialState(),
       isStreaming: true,
-      pendingPrompt: { text: "hi", status: "sending" },
+      // Settled bubbles carry; a `sending` one must not (see #F4 below).
+      // See change: fix-optimistic-prompt-stuck-sending.
+      pendingPrompt: { text: "hi", status: "sent" as const },
     };
     const acc = { state: dirty, maxSeq: 9 };
     const out = applySessionMessage(
@@ -52,8 +54,20 @@ describe("applySessionMessage (pure reducer)", () => {
     // Reset happened: prior isStreaming:true was cleared by createInitialState().
     expect(out.state.isStreaming).toBe(false);
     // The carried pendingPrompt survives a non-clearing replay event.
-    expect(out.state.pendingPrompt).toEqual({ text: "hi", status: "sending" });
+    expect(out.state.pendingPrompt).toEqual({ text: "hi", status: "sent" });
     expect(out.maxSeq).toBe(1);
+  });
+
+  it("#F4 event_replay reset does NOT resurrect a sending pendingPrompt", () => {
+    const acc = {
+      state: { ...createInitialState(), pendingPrompt: { text: "hi", status: "sending" as const } },
+      maxSeq: 9,
+    };
+    const out = applySessionMessage(
+      acc,
+      replayMsg([{ seq: 1, event: ev("__noop_test_event__") }]),
+    );
+    expect(out.state.pendingPrompt).toBeUndefined();
   });
 
   it("event_replay whose firstSeq <= maxSeq resets (re-replay reconciliation, Doubt B2)", () => {
@@ -126,12 +140,12 @@ describe("applySessionMessage (pure reducer)", () => {
     expect(out.state.pendingPrompt).toBeUndefined();
   });
 
-  it("session_state_reset clears state but carries pendingPrompt and zeroes maxSeq", () => {
+  it("#F5 session_state_reset clears state but carries a SETTLED pendingPrompt and zeroes maxSeq", () => {
     const acc = {
       state: {
         ...createInitialState(),
         isStreaming: true,
-        pendingPrompt: { text: "carry", status: "sending" as const },
+        pendingPrompt: { text: "carry", status: "sent" as const },
       },
       maxSeq: 7,
     };
@@ -140,8 +154,20 @@ describe("applySessionMessage (pure reducer)", () => {
       sessionId: SID,
     } as ServerToBrowserMessage);
     expect(out.state.isStreaming).toBe(false);
-    expect(out.state.pendingPrompt).toEqual({ text: "carry", status: "sending" });
+    expect(out.state.pendingPrompt).toEqual({ text: "carry", status: "sent" });
     expect(out.maxSeq).toBe(0);
+  });
+
+  it("#F4 session_state_reset does NOT resurrect a sending pendingPrompt", () => {
+    const acc = {
+      state: { ...createInitialState(), pendingPrompt: { text: "carry", status: "sending" as const } },
+      maxSeq: 7,
+    };
+    const out = applySessionMessage(acc, {
+      type: "session_state_reset",
+      sessionId: SID,
+    } as ServerToBrowserMessage);
+    expect(out.state.pendingPrompt).toBeUndefined();
   });
 
   it("asset_register is a no-op for SessionState (returns same accumulator)", () => {

@@ -43,6 +43,14 @@ interface Props {
    * See change: reasoning-auto-collapse-timer.
    */
   onUserCollapse?: () => void;
+  /**
+   * When true, the body renders with NO vertical height cap and NO inner
+   * vertical scrollbar, flowing down the transcript (keeps `overflow-x-auto`
+   * for long lines). When false/absent, today's capped body. HEIGHT ONLY —
+   * open/closed state stays owned by the collapse machinery above.
+   * See change: render-inline-reasoning-and-custom-entries (D6).
+   */
+  inlineFlow?: boolean;
 }
 
 export function ThinkingBlock({
@@ -56,6 +64,7 @@ export function ThinkingBlock({
   keepOpenUntilTurnEnds,
   turnActive,
   onUserCollapse,
+  inlineFlow,
 }: Props) {
   // Live blocks mount expanded (0 disables the TIMER, not the open state);
   // replayed blocks mount collapsed. The streaming block uses defaultExpanded.
@@ -162,7 +171,17 @@ export function ThinkingBlock({
         </span>
       </button>
       {expanded && (
-        <div data-testid="reasoning-body" className="mt-1 ml-4 p-2 bg-purple-500/5 rounded-xl shadow-md border border-purple-500/10 text-xs text-[var(--text-secondary)] overflow-x-auto max-h-[400px] overflow-y-auto">
+        <div
+          data-testid="reasoning-body"
+          className={
+            // inlineFlow swaps the HEIGHT cap for an uncapped block; every
+            // other class is shared so the two modes differ by height only
+            // (D6). overflow-x-auto is kept in BOTH modes for long lines.
+            inlineFlow
+              ? "mt-1 ml-4 p-2 bg-purple-500/5 rounded-xl shadow-md border border-purple-500/10 text-xs text-[var(--text-secondary)] overflow-x-auto"
+              : "mt-1 ml-4 p-2 bg-purple-500/5 rounded-xl shadow-md border border-purple-500/10 text-xs text-[var(--text-secondary)] overflow-x-auto max-h-[400px] overflow-y-auto"
+          }
+        >
           <MarkdownContent content={content} />
           {isStreaming && (
             <span className="inline-block w-1.5 h-3 bg-purple-400/50 animate-pulse ml-0.5" />

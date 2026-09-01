@@ -2,7 +2,9 @@
 
 ## Purpose
 Per-session RPC keeper sidecar process that owns pi's stdin pipe and outlives dashboard server restarts. The keeper sits between the dashboard server and a headless RPC pi child: it spawns pi, holds the stdin pipe, listens on a deterministic per-session UDS (Unix) or named pipe (Windows), forwards JSON-line writes verbatim to pi's stdin, and persists across dashboard server restarts so pi survives without losing its stdin. The dashboard server reconnects to existing keepers on startup via a socket-scan.
+
 ## Requirements
+
 ### Requirement: RPC keeper sidecar process per headless session
 For every headless pi session spawned via `spawnPiSession({strategy: "headless"})`, the dashboard server SHALL spawn a per-session keeper process (`packages/server/src/rpc-keeper/keeper.cjs`) BEFORE spawning pi. The keeper SHALL spawn pi as its own child process, owning pi's stdin pipe. The keeper SHALL select pi's stdout/stderr sink based on the `PI_KEEPER_CAPTURE_PI_OUTPUT` env var (set by `KeeperManager` from `config.keeperLog.capturePiOutput`): when capture is enabled, the keeper SHALL use `stdio: ["pipe", logFd, logFd]` so pi's stdout/stderr are appended to `keeper-<sessionId>.log`; when capture is disabled (the default), the keeper SHALL use `stdio: ["pipe", "ignore", "ignore"]` so pi's stdout/stderr are discarded. Regardless of the flag, the keeper SHALL write its own lifecycle log lines (`keeper starting`, `spawning pi`, `pi exited code=…`, errors) to `keeper-<sessionId>.log` via its internal `log()` writer. The keeper SHALL outlive dashboard server restarts: when the dashboard server exits, the keeper SHALL continue running and pi SHALL continue running. The keeper SHALL exit with code 0 when its child pi exits.
 
@@ -88,31 +90,92 @@ Pi's RPC events flow back to the dashboard via the bridge extension's WebSocket 
 - **AND** the keeper SHALL NOT forward pi's stdout to any UDS / named-pipe client
 
 ### Requirement: Server reconnect to existing keepers on startup
-On dashboard server startup, the server SHALL scan `~/.pi/dashboard/sessions/*.rpc.sock` (Unix) or the equivalent named-pipe directory (Windows) for existing keepers. For each socket / pipe found:
+
+On dashboard server startup, the server SHALL scan `~/.pi/dashboard/sessions/*.rpc.sock`
+(Unix) or the equivalent named-pipe directory (Windows) for existing keepers. For each
+socket / pipe found:
 
 1. Read the keeper PID from the corresponding `.pid` sidecar.
 2. Verify the keeper PID is alive (`isProcessAlive`).
-3. Verify the pi PID (looked up via `headlessPidRegistry`) is alive.
-4. If both alive: register the session as RPC-dispatch-ready. The server SHALL connect to the socket lazily on first `dispatch_extension_command` for that session.
-5. If keeper alive but pi dead: kill the keeper and unlink the socket + PID file.
-6. If keeper dead but pi alive: kill pi, unlink files (this state is unreachable in normal operation but defensive).
+3. Verify the pi PID (read from the keeper's pi-PID sidecar) is alive.
+4. If both alive: register the session as RPC-dispatch-ready. The server SHALL connect to
+   the socket lazily on first `dispatch_extension_command` for that session.
+5. If keeper alive but pi dead: kill the keeper and unlink the socket + PID files.
+6. If keeper dead but pi alive: kill pi, unlink files (this state is unreachable in normal
+   operation but defensive).
 7. If both dead: unlink files.
 
+Step 3 SHALL be a real liveness check. It is currently inert because the keeper manager is
+constructed without an `isPiAliveForSession` probe, so the default `() => true` is used. The
+probe SHALL read the pi-PID sidecar from the sessions directory and test that PID for liveness,
+and SHALL be the keeper manager's default rather than an injected dependency, because it must
+answer for discovered keepers that have **no** reclaimed registry entry, which the registry cannot
+speak for.
+
+The probe SHALL return "alive" when the sidecar is absent or unparseable, and "dead" only for a
+present, parseable PID that is not live. Step 3 gates a destructive branch (kill the keeper,
+unlink its files); a keeper whose sidecar write failed, or which predates this change, is healthy
+and SHALL NOT be terminated on the basis of a missing file.
+
+During the scan the server SHALL populate the registry entry's `piPid` from the pi-PID sidecar
+when the entry has none, SHALL leave an existing `piPid` untouched, and SHALL leave the entry
+unchanged when the sidecar is absent or unparseable. The server SHALL NOT derive pi's PID from a
+process-tree enumeration, a cwd, or a process name.
+
+To make that possible, the discovery result for each keeper SHALL carry the pi PID read from the
+sidecar alongside the existing session id, keeper PID, and socket path. The existing consumer
+SHALL be restructured so this value is applied to entries that already carry a keeper PID:
+today it acts only on entries whose keeper PID is unset, which excludes every reclaimed entry —
+the primary population — and would otherwise leave this requirement inert.
+
+The session id carried by a discovery result is the keeper's **transport** id, not pi's session
+UUID. Consumers SHALL associate a result with a registry entry via the keeper PID, and SHALL NOT
+assume the two id spaces are interchangeable.
+
+#### Scenario: Missing sidecar does not terminate a healthy keeper
+
+- **GIVEN** a live keeper with a live pi and no pi-PID sidecar
+- **WHEN** the startup scan evaluates step 3 for that session
+- **THEN** the scan SHALL treat pi as alive
+- **AND** the keeper SHALL NOT be sent SIGTERM
+- **AND** the socket and PID sidecar SHALL NOT be unlinked
+
+#### Scenario: Discovery fills piPid on a reclaimed entry
+
+- **GIVEN** a reclaimed registry entry that already carries a keeper PID and has no `piPid`
+- **AND** a readable pi-PID sidecar naming a live PID for that keeper
+- **WHEN** the startup scan runs
+- **THEN** the server SHALL record that PID on the entry
+
+The server SHALL emit a diagnostic per discovered keeper recording whether the pi PID was
+recorded, left unchanged, or unavailable.
+
 #### Scenario: Both keeper and pi alive across server restart
-- **WHEN** the dashboard server starts and finds `<sid>.rpc.sock` with PID `K` (alive) and a corresponding pi PID `P` (alive in `headlessPidRegistry`)
+
+- **WHEN** the dashboard server starts and finds `<sid>.rpc.sock` with PID `K` (alive) and a pi-PID sidecar naming a live PID `P`
 - **THEN** the server SHALL register session `<sid>` as RPC-dispatch-ready
 - **AND** the server SHALL NOT spawn a new keeper for this session
 
 #### Scenario: Keeper alive but pi dead (orphan keeper)
-- **WHEN** the dashboard server finds `<sid>.rpc.sock` with PID `K` (alive) but the corresponding pi PID `P` is dead
+
+- **WHEN** the dashboard server finds `<sid>.rpc.sock` with PID `K` (alive) but the pi PID for that session is dead
 - **THEN** the server SHALL send SIGTERM to `K`
-- **AND** the server SHALL unlink the socket file and `.pid` sidecar
+- **AND** the server SHALL unlink the socket file and both PID sidecars
 - **AND** the server SHALL NOT register session `<sid>` for RPC dispatch
 
 #### Scenario: Both keeper and pi dead (stale socket)
-- **WHEN** the dashboard server finds `<sid>.rpc.sock` with `.pid` sidecar containing PID `K` that is no longer alive
-- **THEN** the server SHALL unlink the socket file and `.pid` sidecar
+
+- **WHEN** the dashboard server finds `<sid>.rpc.sock` with a `.pid` sidecar containing PID `K` that is no longer alive
+- **THEN** the server SHALL unlink the socket file and both PID sidecars
 - **AND** the server SHALL NOT register session `<sid>`
+
+#### Scenario: Missing pi-PID sidecar degrades to today's behaviour
+
+- **GIVEN** a live keeper spawned before this change, with no pi-PID sidecar
+- **WHEN** discovery runs
+- **THEN** the server SHALL leave the entry's `piPid` unchanged
+- **AND** the diagnostic SHALL record the pi PID as unavailable
+- **AND** the session SHALL otherwise be handled exactly as before this change
 
 ### Requirement: Keeper failure modes
 The keeper SHALL handle these failure modes:
@@ -214,3 +277,146 @@ The keeper SHALL NOT delay its own exit waiting for pi to die. The `piChild.kill
 - **THEN** the same `piChild.kill("SIGKILL")` guarded call SHALL execute before `process.exit`
 - **AND** the keeper SHALL NOT leave pi orphaned regardless of which trigger entered `shutdown()`
 
+### Requirement: Keeper SHALL record pi's PID in a sidecar after spawning pi
+
+The keeper writes its own PID sidecar before spawning pi, so pi's PID cannot be present in that
+file. The keeper SHALL therefore write pi's PID to a **separate** sidecar — `<sockPath>.pi-pid`
+on Unix, and `pi-rpc-<sessionId>.pi-pid` in the sessions directory on Windows — immediately after
+`spawnPi()` returns a live child and before logging `keeper ready`.
+
+The filename SHALL NOT end in `.pid`. The existing Windows keeper-sidecar scan matches
+`^pi-rpc-(.+)\.pid$` with a greedy group, so a name such as `pi-rpc-<sessionId>.pi.pid` would be
+matched by it and misread as a keeper sidecar — producing a phantom session whose id is
+`<sessionId>.pi` and whose keeper PID is actually pi's PID.
+
+The file SHALL contain pi's PID as a bare decimal integer, matching the existing sidecar's
+format. The keeper's own PID sidecar SHALL be left byte-identical to its current form, so every
+existing reader — including the server's startup orphan-cleanup — is unaffected.
+
+Presence of the file is itself the signal: absent means pi's PID is unknown; present means it was
+written after a successful spawn.
+
+If the write fails, the keeper SHALL log the failure and continue running. Pi is alive at that
+point and SHALL NOT be torn down because a diagnostic file could not be written.
+
+The keeper SHALL unlink the pi-PID sidecar in the same `shutdown()` path that unlinks its socket
+and its own PID sidecar, so a terminated keeper never leaves a file naming a process it no longer
+owns.
+
+This requirement adds only `fs` writes and unlinks to `keeper.cjs`; it introduces no module
+import, so the keeper remains a CommonJS file depending solely on Node built-ins.
+
+#### Scenario: Pi PID sidecar written after a successful spawn
+
+- **WHEN** the keeper spawns pi successfully
+- **THEN** the keeper SHALL write pi's PID as a decimal integer to the pi-PID sidecar
+- **AND** the keeper SHALL do so before logging `keeper ready`
+- **AND** the keeper's own PID sidecar SHALL be unchanged in content and format
+
+#### Scenario: Failed sidecar write does not kill a live pi
+
+- **GIVEN** pi has spawned successfully
+- **WHEN** writing the pi-PID sidecar throws
+- **THEN** the keeper SHALL log the error
+- **AND** the keeper SHALL continue running with pi alive
+
+#### Scenario: Pi PID sidecar removed on keeper shutdown
+
+- **WHEN** the keeper's `shutdown()` runs for any reason
+- **THEN** the keeper SHALL unlink the pi-PID sidecar alongside the socket and its own PID sidecar
+
+#### Scenario: No pi-PID sidecar is written when the spawn fails
+
+- **WHEN** the keeper's pi spawn fails
+- **THEN** the keeper SHALL NOT create a pi-PID sidecar
+
+#### Scenario: Pi-PID sidecar is never mistaken for a keeper sidecar
+
+- **GIVEN** a sessions directory containing both a keeper PID sidecar and a pi-PID sidecar for the same session
+- **WHEN** the startup keeper scan enumerates that directory on either platform
+- **THEN** the scan SHALL treat only the keeper PID sidecar as a keeper record
+- **AND** the scan SHALL NOT emit a discovered keeper whose session id is derived from a pi-PID sidecar filename
+
+### Requirement: Keeper log SHALL be size-bounded by in-place truncation
+
+The keeper SHALL bound the growth of `keeper-<sessionId>.log`. When the log reaches `keeperLog.maxBytes` (default 128 MiB), the keeper SHALL truncate it in place to zero length and SHALL retain no rotated generation.
+
+Truncation SHALL be attempted on the descriptor first (`fs.ftruncateSync(logFd, 0)`) and, if that throws, by path (`fs.truncateSync(logPath, 0)`) as a fallback. The descriptor is opened `O_APPEND` and Windows may refuse a descriptor truncation on such a handle; the fallback opens its own handle against the same inode. Before falling back, the keeper SHALL confirm that `logPath` still resolves to the same inode as `logFd`, so a swapped or replaced path cannot be truncated in place of the file actually being measured.
+
+Rotation SHALL NOT rename, unlink, reopen, or copy the live log while the keeper is running. The descriptor `logFd` is handed to the pi child as `stdio: ["pipe", logFd, logFd]` when `PI_KEEPER_CAPTURE_PI_OUTPUT` is `"1"`; renaming or reopening leaves the child writing into the detached inode, so growth would continue invisibly. Copying the file before truncation is likewise excluded: it blocks the keeper's event loop for hundreds of milliseconds against a 350 ms RPC attempt timeout, and it fails permanently on a full disk. Truncating in place preserves the inode and the shared `O_APPEND` open file description, so both the keeper and the pi child continue writing into the bounded file.
+
+The bound is **steady-state, not instantaneous**: size is sampled on a cadence, so a burst writer MAY exceed the cap by up to one check interval of output before the next check truncates. Per-session steady-state disk usage SHALL be one cap, not a multiple.
+
+The keeper SHALL check the log size on two triggers, because either writer alone can drive growth:
+1. from its own `log()` writer, throttled to at most one size check per `keeperLog.checkIntervalMs` (default 5 s) so the hot path stays cheap; and
+2. from a periodic timer on the same interval, `unref()`'d so it never keeps the keeper alive — required because with capture enabled the growth comes from the pi child, which the keeper's own writer never observes.
+
+The size check SHALL use `fs.fstatSync(logFd)`, not a path stat, so it observes the object the writes go to even if the path is unlinked or replaced underneath.
+
+Truncation SHALL NOT reset any writer's file offset, and correctness after truncation therefore depends on every writer holding `O_APPEND`. The keeper SHALL keep opening the log with mode `"a"` and SHALL NOT perform positioned writes to it; a positioned write after a truncation would recreate a sparse multi-gigabyte file.
+
+Rotation SHALL be best-effort and SHALL NOT alter keeper lifecycle. Both trigger call sites SHALL contain their own `try/catch`: the keeper installs an `uncaughtException` handler that shuts the session down, so an unguarded throw from the timer callback would end the session over a logging concern. Any failure SHALL degrade to a single diagnostic line and a skipped rotation, and SHALL NOT crash the keeper, abort pi, or block the RPC forward path.
+
+#### Scenario: Log truncates when it exceeds the cap
+- **WHEN** `keeper-<sessionId>.log` reaches or exceeds `keeperLog.maxBytes` and a size check fires
+- **THEN** the keeper SHALL truncate `keeper-<sessionId>.log` to zero length
+- **AND** subsequent keeper log lines SHALL appear in the truncated file
+
+#### Scenario: Inode is preserved so the pi child keeps writing into the bounded file
+- **WHEN** rotation occurs while the pi child holds the log descriptor as its stdout/stderr
+- **THEN** the inode of `keeper-<sessionId>.log` SHALL be unchanged across the rotation
+- **AND** output written by the pi child after rotation SHALL appear in `keeper-<sessionId>.log`
+- **AND** the size of `keeper-<sessionId>.log` after rotation SHALL be less than `keeperLog.maxBytes`
+
+#### Scenario: No rotated generation is produced
+- **WHEN** the log rotates any number of times
+- **THEN** no `keeper-<sessionId>.log.1` or other generation file SHALL exist
+- **AND** no copy of the log SHALL be made at rotation time
+
+#### Scenario: Growth driven only by the pi child still triggers rotation
+- **WHEN** `PI_KEEPER_CAPTURE_PI_OUTPUT` is `"1"` and the pi child writes past the cap while the keeper itself emits no log lines
+- **THEN** the periodic size check SHALL detect the excess
+- **AND** the log SHALL be truncated without any keeper-originated write
+
+#### Scenario: Descriptor truncation refused falls back to path truncation
+- **WHEN** `fs.ftruncateSync(logFd, 0)` throws (e.g. a Win32 `O_APPEND` handle without `FILE_WRITE_DATA`)
+- **THEN** the keeper SHALL attempt `fs.truncateSync(logPath, 0)`
+- **AND** the log SHALL end up below the cap when the fallback succeeds
+
+#### Scenario: Fallback refuses a path that no longer names the measured file
+- **WHEN** descriptor truncation throws and `logPath` resolves to a different inode than `logFd`
+- **THEN** the keeper SHALL NOT truncate that path
+- **AND** the rotation SHALL be skipped as a failure
+
+#### Scenario: Rotation failure never crashes the keeper or ends the session
+- **WHEN** both truncation attempts throw, on either trigger path including the interval timer
+- **THEN** the keeper SHALL continue running and SHALL keep forwarding RPC lines to pi
+- **AND** the keeper SHALL NOT invoke its shutdown path
+- **AND** the keeper SHALL NOT retry more often than the normal check interval
+
+### Requirement: Keeper log bounds SHALL be configured, not hardcoded twice
+
+`config.keeperLog` SHALL carry `maxBytes` (default `134217728`) and `checkIntervalMs` (default `5000`). `parseKeeperLogConfig` SHALL parse and validate both keys — it currently returns only `capturePiOutput` and drops unknown keys, which would silently discard an operator's setting while `config.json` still displays it.
+
+The server SHALL pass them to the keeper at spawn time as the env vars `PI_KEEPER_LOG_MAX_BYTES` and `PI_KEEPER_LOG_CHECK_INTERVAL_MS`, following the existing `PI_KEEPER_CAPTURE_PI_OUTPUT` plumbing, and SHALL use the same config values for the sweep and stats thresholds. `keeper.cjs` SHALL read them from the environment and fall back to the same defaults when unset or unparseable, and SHALL remain CJS-pure — no import of the shared config.
+
+The keeper SHALL delete both variables from the environment it passes to the pi child, as it already does for `PI_KEEPER_CAPTURE_PI_OUTPUT` and as `keeper-env.cjs` does for `PI_KEEPER_PI_ARGS` / `PI_KEEPER_PI_CMD`. Keeper-internal tuning SHALL NOT leak into pi's observable environment.
+
+#### Scenario: Config drives the keeper's cap
+- **WHEN** `config.keeperLog.maxBytes` is set and a keeper is spawned
+- **THEN** the keeper process env SHALL carry `PI_KEEPER_LOG_MAX_BYTES` with that value
+- **AND** the keeper SHALL rotate at that threshold rather than the default
+
+#### Scenario: Config values survive parsing
+- **WHEN** `config.json` sets `keeperLog.maxBytes` and `keeperLog.checkIntervalMs` to valid positive numbers
+- **THEN** `loadConfig().keeperLog` SHALL report those values, not the defaults
+- **AND** an absent, non-numeric, or non-positive value SHALL fall back to the default for that key
+
+#### Scenario: Absent or invalid env falls back to the defaults
+- **WHEN** `PI_KEEPER_LOG_MAX_BYTES` or `PI_KEEPER_LOG_CHECK_INTERVAL_MS` is unset, empty, non-numeric, or non-positive
+- **THEN** the keeper SHALL use 128 MiB / 5000 ms respectively
+- **AND** the keeper SHALL start normally
+
+#### Scenario: Keeper-internal log vars do not reach pi
+- **WHEN** the keeper spawns its pi child with either log env var set in its own environment
+- **THEN** the child environment SHALL NOT contain `PI_KEEPER_LOG_MAX_BYTES` or `PI_KEEPER_LOG_CHECK_INTERVAL_MS`

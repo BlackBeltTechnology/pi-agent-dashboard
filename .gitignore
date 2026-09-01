@@ -5,6 +5,8 @@ dist/
 *.db-journal
 .env
 .DS_Store
+# macOS AppleDouble sidecars — `.DS_Store` alone does not match `._.DS_Store`.
+._*
 .pi/proposal-queue.json
 .pi/flows/agents/
 .pi/flows/results/
@@ -18,6 +20,8 @@ packages/*/src/**/*.js.map
 packages/*/src/**/*.d.ts
 # Hand-authored Vite ambient types (?worker / ?url) — not a build artifact.
 !packages/client/src/vite-env.d.ts
+# Hand-authored ambient module decl for the deep raw-TS import of @latentminds/pi-quotas — not a build artifact.
+!packages/quota-plugin/src/pi-quotas.d.ts
 packages/electron/resources/server
 packages/electron/resources/node
 packages/electron/resources/git
@@ -42,6 +46,15 @@ doc-example/
 # kb knowledge base index
 /.pi/dashboard/kb/index.db
 .reverse-spec-scratch/
+# site/design-scratch/ is TRACKED: the mockup, its generator scripts and the
+# screenshot playbook are the source the marketing site is designed from.
+# Only the heavy machine-produced output is ignored -- renders and encoded
+# video are reproducible from the scripts next to them, and one hero render
+# alone is 121 MB.
+site/design-scratch/**/out/
+site/design-scratch/**/renders/
+site/design-scratch/shots/out/
+site/design-scratch/**/node_modules/
 /package-lock.json
 
 # ship-it escape-hatch handoff note — local working state, never a deliverable
@@ -50,3 +63,8 @@ SHIP_IT_BLOCKED.md
 # mutation-harness crash-safety journal — transient per-worktree recovery state.
 # A committed journal would itself be residue.
 .mutation-journal/
+
+# pytest cache (document-converter python work). Self-ignores via a nested
+# .pytest_cache/.gitignore, which `kb dox lint` does not honour — so it showed
+# up as a missing-row finding. Ignore it from the root instead.
+.pytest_cache/

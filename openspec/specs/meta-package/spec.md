@@ -1,4 +1,10 @@
-## ADDED Requirements
+# meta-package Specification
+
+## Purpose
+
+Defines the published package layout: a meta-package that depends on every sub-package and exposes the CLI binary plus the pi extension and skills, and an extension package that remains independently installable and declares its own pi fields.
+
+## Requirements
 
 ### Requirement: Meta-package depends on all sub-packages
 The root package `@blackbelt-technology/pi-dashboard` SHALL declare dependencies on server, extension, and client packages.

@@ -24,7 +24,7 @@ import os from "node:os";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import { launchDashboardServer } from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
 import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
-import { getBundledNodeDir } from "./bundled-node.js";
+import { getBundledNodeDir, getResourcesPath } from "./bundled-node.js";
 import { pickNodeForServer } from "./pick-node.js";
 import type { LaunchSource, SourceKind } from "@blackbelt-technology/pi-dashboard-shared/launch-source-types.js";
 import type { DashboardStarter } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
@@ -332,6 +332,16 @@ export async function spawnFromSource(
     if (typeof v === "string") env[k] = v;
   }
   env["DASHBOARD_STARTER"] = "Electron";
+  // Stamp the Electron identity onto the server CHILD: it runs under the
+  // bundled plain Node, where `process.versions.electron` and
+  // `process.resourcesPath` do not exist, so the spawn-runtime ladder would
+  // misdetect the arm as "npm" (inverting step-2 order to PATH-first) and
+  // lose the bundled rung entirely (persisting bundle paths on miss).
+  // detectSpawnArm()/electronResourcesPath() read these. See change:
+  // unify-pi-runtime-identity (review round 1:
+  // electron-arm-identity-lost-at-process-boundary).
+  env["PI_DASHBOARD_ELECTRON"] = "1";
+  env["PI_DASHBOARD_RESOURCES_PATH"] = getResourcesPath();
 
   if (pick.kind === "execpath-fallback") {
     env["ELECTRON_RUN_AS_NODE"] = "1";

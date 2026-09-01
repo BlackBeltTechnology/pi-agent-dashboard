@@ -515,10 +515,14 @@ describe("GroupGitInfo", () => {
     globalThis.fetch = origFetch;
   });
 
+  // `cwd` matches `makeSession`'s default cwd so the child is ELIGIBLE for the
+  // fallback. See change: fix-folder-header-worktree-branch-leak.
+  const OWN_CWD = "/home/user/project";
+
   it("renders branch icon as clickable button", () => {
     const onClick = vi.fn();
     const sessions = [makeSession({ gitBranch: "main" })];
-    render(<GroupGitInfo sessions={sessions} cwd="/test" onBranchClick={onClick} />);
+    render(<GroupGitInfo sessions={sessions} cwd={OWN_CWD} onBranchClick={onClick} />);
     const btn = screen.getByTestId("git-branch-btn");
     fireEvent.click(btn);
     expect(onClick).toHaveBeenCalled();
@@ -526,13 +530,13 @@ describe("GroupGitInfo", () => {
 
   it("renders branch name for normal branch", () => {
     const sessions = [makeSession({ gitBranch: "feature/new" })];
-    render(<GroupGitInfo sessions={sessions} cwd="/test" />);
+    render(<GroupGitInfo sessions={sessions} cwd={OWN_CWD} />);
     expect(screen.getByText("feature/new")).toBeTruthy();
   });
 
   it("renders detached HEAD (short SHA)", () => {
     const sessions = [makeSession({ gitBranch: "abc1234" })];
-    render(<GroupGitInfo sessions={sessions} cwd="/test" />);
+    render(<GroupGitInfo sessions={sessions} cwd={OWN_CWD} />);
     expect(screen.getByText("abc1234")).toBeTruthy();
   });
 
@@ -568,10 +572,117 @@ describe("GroupGitInfo", () => {
     expect(screen.queryByText("os/foo")).toBeNull();
   });
 
-  it("with no folderBranch entry, falls back to session.gitBranch", () => {
-    const sessions = [makeSession({ gitBranch: "os/foo" })];
+  it("with no folderBranch entry, falls back to a child rooted AT the folder", () => {
+    // Eligibility is cwd identity: this child's own cwd IS the folder cwd.
+    // See change: fix-folder-header-worktree-branch-leak.
+    const sessions = [makeSession({ cwd: "/repo", gitBranch: "os/foo" })];
     render(<GroupGitInfo sessions={sessions} cwd="/repo" />);
     expect(screen.getByText("os/foo")).toBeTruthy();
+  });
+
+  // ── eligible-child fallback (fix-folder-header-worktree-branch-leak) ─────
+  //
+  // Only a session ROOTED AT the folder can report the folder's HEAD. A
+  // worktree child folded in via `gitWorktree.mainPath` is deterministically
+  // ordered FIRST by `maybeRekeyOrder`'s `toFront`, so a positional `find`
+  // leaked its branch into the parent folder header.
+
+  /** Stub `GET /api/git/branches` so the REST seed is deterministic. */
+  function seedBranches(current: string | null): void {
+    globalThis.fetch = vi.fn().mockResolvedValue({
+      json: async () => (current === null
+        ? { success: false }
+        : { success: true, data: { current } }),
+    }) as unknown as typeof fetch;
+  }
+
+  it("eligible child wins over a front-ordered worktree child (#E1)", () => {
+    const sessions = [
+      makeSession({ id: "wt", cwd: "/repo/.worktrees/os-foo", gitBranch: "os/foo" }),
+      makeSession({ id: "main", cwd: "/repo", gitBranch: "develop" }),
+    ];
+    render(<GroupGitInfo sessions={sessions} cwd="/repo" />);
+    expect(screen.getByText("develop")).toBeTruthy();
+    expect(screen.queryByText("os/foo")).toBeNull();
+  });
+
+  it("no eligible child falls through to the REST seed (#E2)", async () => {
+    branchCache.delete("/repo-e2");
+    seedBranches("develop");
+    const sessions = [
+      makeSession({ id: "wt1", cwd: "/repo-e2/.worktrees/os-foo", gitBranch: "os/foo" }),
+      makeSession({ id: "wt2", cwd: "/repo-e2/.worktrees/os-bar", gitBranch: "os/bar" }),
+    ];
+    render(<GroupGitInfo sessions={sessions} cwd="/repo-e2" />);
+    expect(screen.queryByText("os/foo")).toBeNull();
+    expect(screen.queryByText("os/bar")).toBeNull();
+    expect(await screen.findByText("develop")).toBeTruthy();
+    branchCache.delete("/repo-e2");
+  });
+
+  it("pinned worktree folder renders its own session's branch (#E3)", () => {
+    // Pin wins in `resolveSessionGroupPath`, so the group cwd IS the worktree
+    // path — cwd identity holds and the session stays eligible.
+    const sessions = [makeSession({ cwd: "/repo/.worktrees/os-foo", gitBranch: "os/foo" })];
+    render(<GroupGitInfo sessions={sessions} cwd="/repo/.worktrees/os-foo" />);
+    expect(screen.getByText("os/foo")).toBeTruthy();
+  });
+
+  it("git-identity tuple never mixes sessions (#E4)", () => {
+    const sessions = [
+      makeSession({
+        id: "wt",
+        cwd: "/repo/.worktrees/os-foo",
+        gitBranch: "os/foo",
+        gitBranchUrl: "https://example.test/tree/os-foo",
+        gitPrNumber: 42,
+        gitPrUrl: "https://example.test/pull/42",
+      }),
+      makeSession({ id: "main", cwd: "/repo", gitBranch: "develop" }),
+    ];
+    const { container } = render(<GroupGitInfo sessions={sessions} cwd="/repo" />);
+    expect(screen.getByText("develop")).toBeTruthy();
+    expect(screen.queryByText("#42")).toBeNull();
+    expect(container.querySelector('a[href="https://example.test/pull/42"]')).toBeNull();
+    expect(container.querySelector('a[href="https://example.test/tree/os-foo"]')).toBeNull();
+  });
+
+  it("folder-HEAD entry still outranks a front-ordered worktree child (#E5)", () => {
+    const sessions = [
+      makeSession({ id: "wt", cwd: "/repo/.worktrees/os-foo", gitBranch: "os/foo" }),
+    ];
+    render(<GroupGitInfo sessions={sessions} cwd="/repo" folderBranch="develop" />);
+    expect(screen.getByText("develop")).toBeTruthy();
+    expect(screen.queryByText("os/foo")).toBeNull();
+  });
+
+  it("null folder-HEAD entry still renders the non-git state (#E6)", () => {
+    const sessions = [
+      makeSession({ id: "wt", cwd: "/repo/.worktrees/os-foo", gitBranch: "os/foo" }),
+    ];
+    render(<GroupGitInfo sessions={sessions} cwd="/repo" folderBranch={null} />);
+    expect(screen.getByTestId("git-init-btn")).toBeTruthy();
+    expect(screen.getByText("Init git")).toBeTruthy();
+    expect(screen.queryByText("os/foo")).toBeNull();
+  });
+
+  it("eligibility uses pathKey, not raw string equality (#E7)", () => {
+    // Trailing separator is cosmetic drift `pathKey` collapses.
+    const sessions = [makeSession({ cwd: "/repo/", gitBranch: "develop" })];
+    render(<GroupGitInfo sessions={sessions} cwd="/repo" />);
+    expect(screen.getByText("develop")).toBeTruthy();
+  });
+
+  it("REST-seed failure must not resurrect an ineligible branch (#X1)", async () => {
+    branchCache.delete("/repo-x1");
+    globalThis.fetch = vi.fn().mockRejectedValue(new Error("boom")) as unknown as typeof fetch;
+    const sessions = [
+      makeSession({ id: "wt", cwd: "/repo-x1/.worktrees/os-foo", gitBranch: "os/foo" }),
+    ];
+    render(<GroupGitInfo sessions={sessions} cwd="/repo-x1" />);
+    expect(await screen.findByTestId("git-init-btn")).toBeTruthy();
+    expect(screen.queryByText("os/foo")).toBeNull();
+    branchCache.delete("/repo-x1");
   });
 
   it("folderBranch null renders the Init git non-git state", () => {
@@ -1403,5 +1514,213 @@ describe("SessionCard — widget-bar-placed prompt (test-plan #F7)", () => {
     render(<SessionCard session={session} {...defaultProps} />);
     expect(screen.getByText("Needs you")).toBeTruthy();
     expect(screen.queryByText("Idle")).toBeNull();
+  });
+});
+
+/**
+ * Defect 4 — the card could not express a retry at all. The retry branch is one
+ * additional case in the existing `ActivityIndicator` precedence chain; the
+ * dot / shape / rail / capsule channels are deliberately untouched.
+ * See change: unify-retry-visibility (design D3/D4).
+ */
+describe("SessionCard — retry in the activity slot", () => {
+  it("renders '↻ Retry N' when retryAttempt is set", () => {
+    render(<SessionCard session={makeSession({ status: "idle" })} {...defaultProps} retryAttempt={2} />);
+    expect(screen.getAllByText(/Retry 2/).length).toBeGreaterThan(0);
+    expect(screen.queryByText("Idle")).toBeNull();
+  });
+
+  it("renders NO retry label when retryAttempt is absent", () => {
+    render(<SessionCard session={makeSession({ status: "idle" })} {...defaultProps} />);
+    expect(screen.queryByText(/Retry \d/)).toBeNull();
+    expect(screen.getAllByText("Idle").length).toBeGreaterThan(0);
+  });
+
+  it("retry BEATS currentTool and streaming (no 'Thinking…' during a backoff)", () => {
+    const { unmount } = render(
+      <SessionCard session={makeSession({ status: "streaming", currentTool: "bash" })} {...defaultProps} retryAttempt={3} />,
+    );
+    expect(screen.getAllByText(/Retry 3/).length).toBeGreaterThan(0);
+    expect(screen.queryByText("bash")).toBeNull();
+    expect(screen.queryByText("Thinking…")).toBeNull();
+    unmount();
+  });
+
+  it("ask_user BEATS retry — blocked-on-you stays the most urgent signal", () => {
+    render(<SessionCard session={makeSession({ status: "idle", currentTool: "ask_user" })} {...defaultProps} retryAttempt={4} />);
+    expect(screen.getAllByText("Needs you").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/Retry 4/)).toBeNull();
+  });
+
+  it("an ENDED session still renders no activity label, retry or not", () => {
+    render(<SessionCard session={makeSession({ status: "ended" })} {...defaultProps} retryAttempt={2} />);
+    expect(screen.queryByText(/Retry 2/)).toBeNull();
+  });
+
+  it("the retry label uses --severity-warning-fg, never raw --status-working", () => {
+    const { container } = render(
+      <SessionCard session={makeSession({ status: "idle" })} {...defaultProps} retryAttempt={2} />,
+    );
+    const label = [...container.querySelectorAll("span")].find((s) => /Retry 2/.test(s.textContent ?? ""));
+    expect(label).toBeTruthy();
+    expect(label!.className).toContain("text-[var(--severity-warning-fg)]");
+    expect(label!.className).not.toContain("--status-working");
+  });
+});
+
+describe("SessionCard — OPENSPEC subcard readiness (add-openspec-init-affordances)", () => {
+  const baseProps = {
+    ...defaultProps,
+    onSendPrompt: () => {},
+    onAttachProposal: () => {},
+    onDetachProposal: () => {},
+  };
+
+  it("ABSENT hides the OPENSPEC subcard entirely", () => {
+    render(
+      <SessionCard
+        session={makeSession()}
+        {...baseProps}
+        openspecChanges={[]}
+        openspecHasDir={false}
+        openspecInitialized={false}
+        openspecPending={false}
+        openspecReadiness={{ state: "ABSENT" }}
+      />,
+    );
+    expect(screen.queryByText("OPENSPEC")).toBeNull();
+  });
+
+  it("BROKEN renders a disabled panel: title OPENSPEC, no action controls in the DOM, exactly one focusable control", () => {
+    const { container } = render(
+      <SessionCard
+        session={makeSession()}
+        {...baseProps}
+        openspecChanges={[]}
+        openspecHasDir={true}
+        openspecInitialized={false}
+        openspecPending={false}
+        openspecReadiness={{ state: "BROKEN", reason: "missing-changes-dir" }}
+        onSeekToFolderOpenSpec={() => {}}
+      />,
+    );
+    // Title still renders (empty-subcard exemption).
+    expect(screen.getByText("OPENSPEC")).toBeTruthy();
+    // The live control set is REMOVED from the DOM, not dimmed.
+    expect(screen.queryByTestId("session-openspec-actions")).toBeNull();
+    expect(screen.queryByTestId("explore-btn")).toBeNull();
+    expect(screen.queryByTestId("propose-btn")).toBeNull();
+    expect(screen.queryByTestId("attach-combo")).toBeNull();
+    expect(screen.queryByTestId("archive-btn")).toBeNull();
+    // Exactly one focusable control inside the disabled panel.
+    const panel = screen.getByTestId("session-openspec-disabled");
+    const focusable = panel.querySelectorAll(
+      "button, a, [role='button'], input, select, textarea, [tabindex]:not([tabindex='-1'])",
+    );
+    expect(focusable.length).toBe(1);
+    void container;
+  });
+
+  it("BROKEN reason text differs from the STALE reason texts", () => {
+    const broken = render(
+      <SessionCard
+        session={makeSession()}
+        {...baseProps}
+        openspecChanges={[]}
+        openspecReadiness={{ state: "BROKEN", reason: "missing-changes-dir" }}
+        onSeekToFolderOpenSpec={() => {}}
+      />,
+    );
+    const brokenText = screen.getByTestId("session-openspec-disabled-reason").textContent;
+    broken.unmount();
+
+    render(
+      <SessionCard
+        session={makeSession()}
+        {...baseProps}
+        openspecChanges={[]}
+        openspecReadiness={{ state: "STALE", reason: "missing-skills" }}
+        onSeekToFolderOpenSpec={() => {}}
+      />,
+    );
+    const staleText = screen.getByTestId("session-openspec-disabled-reason").textContent;
+    expect(brokenText).not.toBe(staleText);
+  });
+
+  it("STALE·missing-skills reason text says the project's OpenSpec skills are missing", () => {
+    render(
+      <SessionCard
+        session={makeSession()}
+        {...baseProps}
+        openspecChanges={[]}
+        openspecReadiness={{ state: "STALE", reason: "missing-skills" }}
+        onSeekToFolderOpenSpec={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("session-openspec-disabled-reason").textContent).toContain("skills");
+  });
+
+  it("BROKEN routes its single control to the folder OpenSpec section, never to Settings", () => {
+    const onSeekToFolderOpenSpec = vi.fn();
+    const onOpenOpenSpecSettings = vi.fn();
+    render(
+      <SessionCard
+        session={makeSession()}
+        {...baseProps}
+        openspecChanges={[]}
+        openspecReadiness={{ state: "BROKEN", reason: "cli-failed" }}
+        onSeekToFolderOpenSpec={onSeekToFolderOpenSpec}
+        onOpenOpenSpecSettings={onOpenOpenSpecSettings}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("session-openspec-remediate"));
+    expect(onSeekToFolderOpenSpec).toHaveBeenCalledWith("/home/user/project");
+    expect(onOpenOpenSpecSettings).not.toHaveBeenCalled();
+  });
+
+  it("STALE·profile-stale routes its single control to Settings, never to the folder", () => {
+    const onSeekToFolderOpenSpec = vi.fn();
+    const onOpenOpenSpecSettings = vi.fn();
+    render(
+      <SessionCard
+        session={makeSession()}
+        {...baseProps}
+        openspecChanges={[]}
+        openspecReadiness={{ state: "STALE", reason: "profile-stale" }}
+        onSeekToFolderOpenSpec={onSeekToFolderOpenSpec}
+        onOpenOpenSpecSettings={onOpenOpenSpecSettings}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("session-openspec-remediate"));
+    expect(onOpenOpenSpecSettings).toHaveBeenCalledTimes(1);
+    expect(onSeekToFolderOpenSpec).not.toHaveBeenCalled();
+  });
+
+  it("legacy payload (readiness undefined) renders the live subcard exactly as before — never disabled", () => {
+    render(
+      <SessionCard
+        session={makeSession()}
+        {...baseProps}
+        openspecChanges={[]}
+        openspecHasDir={true}
+        openspecInitialized={false}
+        openspecPending={false}
+      />,
+    );
+    expect(screen.getByText("OPENSPEC")).toBeTruthy();
+    expect(screen.getByTestId("session-openspec-actions")).toBeTruthy();
+    expect(screen.queryByTestId("session-openspec-disabled")).toBeNull();
+  });
+
+  it("legacy payload with no signals preserves visibility (older parent default)", () => {
+    render(
+      <SessionCard
+        session={makeSession()}
+        {...baseProps}
+        openspecChanges={[]}
+      />,
+    );
+    expect(screen.getByTestId("session-openspec-actions")).toBeTruthy();
+    expect(screen.queryByTestId("session-openspec-disabled")).toBeNull();
   });
 });

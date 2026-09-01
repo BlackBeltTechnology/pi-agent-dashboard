@@ -120,6 +120,181 @@ describe("parseCtxResult — error classification", () => {
     expect(r).toMatchObject({ kind: "error", variant: "runtime" });
     if (r.kind === "error") expect(r.message).toContain("Exit code: 1");
   });
+
+  // ── repair-tool-error-surfaces: the runtime error's execution shape ──────────
+  it("runtime error with the execution shape is structured into fields", () => {
+    const r = parseCtxResult("ctx_execute", fx.err_runtime_fenced, true);
+    expect(r).toMatchObject({ kind: "error", variant: "runtime" });
+    if (r.kind !== "error") return;
+    expect(r.language).toBe("shell");
+    expect(r.command).toContain("npm run test:e2e");
+    expect(r.command).not.toContain("```");
+    expect(r.command).not.toContain("Exit code");
+    expect(r.exitCode).toBe(1);
+    expect(r.stdout).toBe("");
+    expect(r.stderr).toBe("");
+  });
+
+  it("runtime error captures streams even without a fenced command", () => {
+    const r = parseCtxResult("ctx_execute", fx.err_runtime, true);
+    if (r.kind !== "error") throw new Error("expected error kind");
+    expect(r.command).toBeUndefined();
+    expect(r.exitCode).toBe(1);
+    expect(r.stderr).toContain("TypeError: 'NoneType' object is not subscriptable");
+  });
+
+  it("plain-sentence runtime error leaves the fields undefined and keeps message", () => {
+    const r = parseCtxResult("ctx_execute", fx.err_runtime_plain, true);
+    expect(r).toMatchObject({ kind: "error", variant: "runtime" });
+    if (r.kind !== "error") return;
+    expect(r.command).toBeUndefined();
+    expect(r.language).toBeUndefined();
+    expect(r.exitCode).toBeUndefined();
+    expect(r.stdout).toBeUndefined();
+    expect(r.stderr).toBeUndefined();
+    expect(r.message).toBe(fx.err_runtime_plain);
+  });
+
+  it("prose above the dump is kept as a preamble, never dropped", () => {
+    const r = parseCtxResult("ctx_execute", `Runtime error: sandbox refused.\n\n${fx.err_runtime}`, true);
+    if (r.kind !== "error") throw new Error("expected error kind");
+    expect(r.preamble).toBe("Runtime error: sandbox refused.");
+    expect(r.exitCode).toBe(1);
+  });
+
+  it("never throws on partial or malformed execution shapes", () => {
+    const bodies = [
+      "```shell\nunterminated fence",
+      "Exit code: not-a-number",
+      "stdout:",
+      "stderr:\n\n\nstdout:\nout",
+      "```\n\n```\nExit code: -1",
+    ];
+    for (const body of bodies) {
+      const r = parseCtxResult("ctx_execute", body, true);
+      expect(r.kind).toBe("error");
+    }
+  });
+
+  // ── repair-tool-error-surfaces: folded scenario manifest (test-plan.md) ──────
+
+  it("#E2 streams absent → command + exitCode set, streams undefined (not empty string)", () => {
+    const r = parseCtxResult("ctx_execute", "```shell\nls /nope\n```\n\nExit code: 2", true);
+    if (r.kind !== "error") throw new Error("expected error kind");
+    expect(r.command).toBe("ls /nope");
+    expect(r.exitCode).toBe(2);
+    // `undefined` (section absent) must stay distinguishable from `""`
+    // (section present but empty) — the renderer omits one and labels the other.
+    expect(r.stdout).toBeUndefined();
+    expect(r.stderr).toBeUndefined();
+  });
+
+  it("#E3 exit code 0 survives the falsy boundary", () => {
+    const r = parseCtxResult("ctx_execute", "```shell\ntrue\n```\n\nExit code: 0", true);
+    if (r.kind !== "error") throw new Error("expected error kind");
+    expect(r.exitCode).toBe(0);
+    expect(r.exitCode).not.toBeUndefined();
+  });
+
+  it("#E4 non-numeric exit code leaves the field undefined and keeps the text", () => {
+    for (const body of ["```sh\nx\n```\n\nExit code: null", "```sh\nx\n```\n\nExit code:"]) {
+      const r = parseCtxResult("ctx_execute", body, true);
+      if (r.kind !== "error") throw new Error("expected error kind");
+      expect(r.exitCode).toBeUndefined();
+      expect(r.message).toContain("Exit code:");
+    }
+  });
+
+  it("#E6 truncated body loses no text across command + streams + message", () => {
+    const body = "```shell\ngrep foo\n\nExit code: 1\n\nstdout:\nhalf a li";
+    const r = parseCtxResult("ctx_execute", body, true);
+    if (r.kind !== "error") throw new Error("expected error kind");
+    // The fence never closes, so nothing is structured out of it — but the
+    // whole body must still be reachable verbatim through `message`.
+    expect(r.message).toBe(body.trim());
+  });
+
+  it("#E7 the upgrade banner is stripped BEFORE shape detection", () => {
+    const banner = "⚠️ context-mode v1.0.161 outdated → v1.0.162 available. Upgrade: npm run build\n\n";
+    const r = parseCtxResult("ctx_execute", banner + fx.err_runtime_fenced, true);
+    if (r.kind !== "error") throw new Error("expected error kind");
+    expect(r.message).not.toContain("context-mode v");
+    // …and every field still lands exactly as in the banner-free #E1 case.
+    expect(r.language).toBe("shell");
+    expect(r.command).toContain("npm run test:e2e");
+    expect(r.exitCode).toBe(1);
+    expect(r.stdout).toBe("");
+    expect(r.stderr).toBe("");
+    expect(r.preamble).toBeUndefined();
+  });
+
+  it("#E8 a fence with no language sets command and leaves language undefined", () => {
+    const r = parseCtxResult("ctx_execute", "```\nmake build\n```\n\nExit code: 1", true);
+    if (r.kind !== "error") throw new Error("expected error kind");
+    expect(r.command).toBe("make build");
+    expect(r.language).toBeUndefined();
+  });
+
+  it("#E9 delimiter injection inside stdout does not open a section or hijack the exit code", () => {
+    const body = [
+      "```shell",
+      "cat log",
+      "```",
+      "",
+      "Exit code: 1",
+      "",
+      "stdout:",
+      "line one",
+      "stderr:",
+      "Exit code: 7",
+      "line four",
+      "",
+      "stderr:",
+      "the real stderr",
+    ].join("\n");
+    const r = parseCtxResult("ctx_execute", body, true);
+    if (r.kind !== "error") throw new Error("expected error kind");
+    expect(r.exitCode).toBe(1);
+    // The injected lines are mid-stream (no blank line above), so they stay
+    // inside stdout instead of splitting it.
+    expect(r.stdout).toContain("stderr:");
+    expect(r.stdout).toContain("Exit code: 7");
+    expect(r.stdout).toContain("line four");
+    expect(r.stderr).toBe("the real stderr");
+  });
+
+  it("#E10 with two fences the FIRST becomes command and the second survives verbatim", () => {
+    const body = "```shell\nfirst cmd\n```\n\nsecond block:\n\n```js\nconst x = 1;\n```\n\nExit code: 3";
+    const r = parseCtxResult("ctx_execute", body, true);
+    if (r.kind !== "error") throw new Error("expected error kind");
+    expect(r.command).toBe("first cmd");
+    expect(r.language).toBe("shell");
+    expect(r.exitCode).toBe(3);
+    // No byte dropped: the second fence, markers included, stays in `message`.
+    expect(r.message).toContain("```js");
+    expect(r.message).toContain("const x = 1;");
+  });
+
+  it("#X1 fuzz table — no malformed body throws, and each keeps its text in message", () => {
+    const bodies = [
+      "",
+      "```",
+      "Exit code:",
+      "```shell\r\nls\r\n```\r\n\r\nExit code: 1\r\n",
+      "\u0000\u0007 control chars \u001b[31mred\u001b[0m",
+      "stdout:\n\nstderr:\n",
+      "Exit code: 1\n\nstdout:",
+    ];
+    for (const body of bodies) {
+      const r = parseCtxResult("ctx_execute", body, true);
+      expect(r.kind).toBe("error");
+      if (r.kind !== "error") continue;
+      const reachable = [r.preamble, r.command, r.stdout, r.stderr, r.message].filter(Boolean).join("\n");
+      for (const token of body.split("\n").map((l) => l.trim()).filter(Boolean)) {
+        expect(reachable).toContain(token);
+      }
+    }
+  });
 });
 
 describe("parseCtxResult — raw fallback never throws", () => {

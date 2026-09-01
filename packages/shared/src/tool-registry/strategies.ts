@@ -8,13 +8,15 @@
  *
  * See change: consolidate-tool-resolution (design §2).
  */
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs";
+import os from "node:os";
 import { createRequire } from "node:module";
+import { spawnSync } from "../platform/exec.js";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { ToolResolver, isAppImageSelfHit } from "../platform/binary-lookup.js";
-import { resolveBundledGitDir } from "../platform/ensure-bundled-git.js";
 import { getManagedBin, getManagedDir } from "../managed-paths.js";
+import { isAppImageSelfHit, ToolResolver } from "../platform/binary-lookup.js";
+import { resolveBundledGitDir } from "../platform/ensure-bundled-git.js";
 import { getManagedNodeBinDir } from "../platform/managed-node-path.js";
 import * as npm from "../platform/npm.js";
 import type { Strategy, StrategyCtx, StrategyResult } from "./types.js";
@@ -37,6 +39,16 @@ import type { Strategy, StrategyCtx, StrategyResult } from "./types.js";
  *   `BUNDLED_*` path cannot dereference to a real on-disk script
  *   (`/Applications/PI-Dashboard.app/.../npm-cli.js`).
  *   See change: fix-node-electron-resolution-test-isolation.
+ * - `resolvePeer` — PEER-RESOLUTION SEAM (design D1): resolve a family
+ *   peer (e.g. `node` for `npm`) through the registry. Bound at ONE
+ *   production site (`getDefaultRegistry`, via `bindPeerResolution`, D2)
+ *   and injected in tests; undefined elsewhere, in which case callers
+ *   fall back to the `execPath` seam — never a direct `process.execPath`
+ *   read at the call site. The in-flight re-entrancy guard lives at the
+ *   binding (`bindPeerResolution`), not in either strategy — the
+ *   registry cache is written only AFTER the strategy loop, so a cache
+ *   check alone cannot stop recursion.
+ *   See change: add-node-runtime-family-selection (section 3b).
  */
 export interface StrategyDeps {
   exists?(p: string): boolean;
@@ -45,6 +57,34 @@ export interface StrategyDeps {
   resolveModule?(id: string, from: string): string | null;
   execPath?: string;
   realpath?(p: string): string;
+  /**
+   * Resolve a peer tool through the registry; null on refusal (re-entrancy
+   * guard) or miss. `forTool` names the resolving tool so the guard can
+   * refuse self-re-entry.
+   */
+  resolvePeer?(name: string, forTool: string): string | null;
+  /** Env-var reader for the `env` probe (injectable; default process.env). */
+  readEnv?(name: string): string | undefined;
+  /** Directory lister for the `pw-browser` probe (injectable for tests). */
+  readDir?(p: string): string[];
+  /**
+   * CJS require for the `static-npm` strategy — returns the package's
+   * export VALUE (a binary path string or `{ path }`), injectable so
+   * tests never touch the host node_modules. Throws on unresolvable ids.
+   */
+  requireModule?(id: string): unknown;
+  /**
+   * Image-availability probe for the `docker-image` strategy. Default
+   * shells `docker image inspect <ref>` via spawnSync; never assumes
+   * the daemon exists.
+   */
+  dockerImageInspect?(ref: string): { ok: true } | { ok: false; reason: string };
+  /**
+   * Home directory for the `pw-browser` default cache path. Default
+   * `os.homedir()`; ctx.env.homedir (when the registry provides one)
+   * takes precedence.
+   */
+  homedir?(): string;
 }
 
 /**
@@ -54,26 +94,58 @@ export interface StrategyDeps {
  *   1. `createRequire(from).resolve(id)` — fast CJS resolver; succeeds
  *      for packages that ship either a `"require"` exports condition
  *      or no exports map at all.
- *   2. ESM-aware fallback: `import.meta.resolve(id)` honours the
- *      `"import"` condition. Available synchronously and stably on
- *      every supported Node version (engines: >=22.12).
- *      Anchored at this module's URL; the `from` argument is ignored
- *      in this branch because the synchronous `import.meta.resolve`
- *      signature does not take a parent specifier. In practice every
- *      production caller uses the default anchor (this file), so this
- *      is a no-op.
- *   3. Filesystem dir-walk: locate `node_modules/<id>/package.json`
+ *   2. Filesystem dir-walk: locate `node_modules/<id>/package.json`
  *      starting at `from`, read the manifest, and compute the entry
  *      path from `exports["."]` (`"import"` / `"default"` conditions)
- *      or `"main"`. Required when the package ships only an `"import"`
- *      condition AND the host Node refuses `import.meta.resolve` for
- *      some other reason (e.g. exports map present but with no `"."`
- *      key). Mirrors the same dir-walk-around-exports-map pattern
+ *      or `"main"`. Mirrors the dir-walk-around-exports-map pattern
  *      already used by `findPackageJsonByDirWalk` in `definitions.ts`.
+ *   3. `import.meta.resolve(id)` — an **INERT GUARD**, not an expected
+ *      code path. Retained for shape-correctness and defence in depth.
+ *
+ * ── Why the ESM step is LAST, and why the obvious order is dangerous ──
+ *
+ * The obvious order puts the ESM resolver at step 2. Do NOT "restore"
+ * it. This module is itself loaded through jiti, whose native-ESM
+ * fallback evaluates it from a `data:` URL, where
+ * `import.meta.resolve(<bare id>)` throws
+ * `ERR_UNSUPPORTED_RESOLVE_REQUEST`. **The ESM step has therefore never
+ * produced a value in production**, and the dir-walk has silently
+ * carried every step-1 miss since both landed together in `43a730368`.
+ * Behaviour preservation holds *because step 2 was already dead* — not
+ * because the dir-walk is authoritative. Promoting the (now repaired)
+ * ESM step ahead of the dir-walk would hand every lookup to a resolver
+ * that has never run, and the two demonstrably disagree on package
+ * shape: no `exports` but a `module` field → `main` under ESM vs
+ * `module` under the dir-walk; `exports["."]` nesting `node`/`default`
+ * → the `node` entry vs the `default` entry; `exports` with subpaths
+ * but no `"."` → throws under ESM vs resolves via `main` here.
+ *
+ * In last position the guard is not merely safe, it is **unreachable**
+ * for the ids this registry actually uses: `bareImportStrategy` anchors
+ * both steps at the same URL (its `anchor` defaults to this module's),
+ * and `readEntryFromPackageJson` returns a string for every manifest it
+ * can parse, so the dir-walk answers whenever the package is present.
+ * Unreachability is CONTINGENT, not structural — it holds only for bare
+ * (not subpath) specifiers, with the default `anchor`, a `file:` anchor,
+ * and a package that ships a `package.json`. Registering a subpath id or
+ * passing a non-default anchor makes the guard live; re-evaluate this
+ * comment and the capability spec before doing either.
+ *
+ * A pre-existing defect this change does NOT fix: the entry falls back
+ * to `"index.js"` with no existence check, so the dir-walk can return a
+ * path that is not on disk. The inert guard is not its mitigation.
+ *
+ * Two claims previously asserted here were false and are corrected: the
+ * synchronous `import.meta.resolve` **does** accept a parent specifier
+ * (Node 20.6+), so declining to pass `from` is a deliberate choice and
+ * not an API limit; and there is no `>=22.12` engines floor (the repo
+ * root declares `>=22.19.0 <27`; `packages/shared` and
+ * `packages/extension` declare none).
  *
  * See change: fix-node-resolution-under-electron (follow-up: live
  * `/api/packages/installed` failure on `@earendil-works/pi-coding-agent`
  * exports-map regression).
+ * See change: fix-jiti-cjs-transpile-safety.
  */
 function defaultResolveModule(id: string, from: string): string | null {
   // 1. CJS createRequire.
@@ -82,21 +154,26 @@ function defaultResolveModule(id: string, from: string): string | null {
   } catch {
     // Fall through.
   }
-  // 2. ESM import.meta.resolve. Synchronous since Node 20.6 GA; on
-  // the dashboard's engines floor (>=22.12) it's always available.
-  const metaResolve = (import.meta as unknown as { resolve?: (s: string) => string }).resolve;
-  if (typeof metaResolve === "function") {
-    try {
-      const url = metaResolve(id);
-      if (typeof url === "string" && url.startsWith("file:")) {
-        return fileURLToPath(url);
-      }
-    } catch {
-      // Fall through.
+  // 2. Filesystem dir-walk for exports-map-incomplete packages. This is the
+  // step that answers in production today; keeping it here preserves behaviour.
+  const byDirWalk = resolvePackageEntryByDirWalk(id, from);
+  if (byDirWalk !== null) return byDirWalk;
+  // 3. Inert ESM guard. The call MUST stay a direct `import.meta.resolve(id)`:
+  // jiti erases `import.meta` only when the member expression's `object.type`
+  // is `MetaProperty`, and a TypeScript cast makes it `TSAsExpression`, which
+  // defeats the erasure and forces jiti's `data:`-URL ESM fallback — fatal on
+  // hosts whose resolver rejects `data:` specifiers (issue #408). No `typeof`
+  // probe either: the `catch` below already routes a missing or throwing
+  // resolver to the same `null`.
+  try {
+    const url = import.meta.resolve(id);
+    if (typeof url === "string" && url.startsWith("file:")) {
+      return fileURLToPath(url);
     }
+  } catch {
+    // Fall through.
   }
-  // 3. Filesystem dir-walk for exports-map-incomplete packages.
-  return resolvePackageEntryByDirWalk(id, from);
+  return null;
 }
 
 /**
@@ -181,7 +258,7 @@ function pickConditional(node: unknown): string | null {
   return null;
 }
 
-function defaults(): Required<StrategyDeps> {
+function defaults(): Required<Omit<StrategyDeps, "resolvePeer">> & Pick<StrategyDeps, "resolvePeer"> {
   const resolver = new ToolResolver({
     processExecPath: process.execPath,
     useLoginShell: true,
@@ -193,11 +270,32 @@ function defaults(): Required<StrategyDeps> {
     resolveModule: defaultResolveModule,
     execPath: process.execPath,
     realpath: realpathSync,
+    resolvePeer: undefined,
+    readEnv: (name) => process.env[name],
+    readDir: (p) => readdirSync(p),
+    requireModule: (id) => createRequire(import.meta.url)(id),
+    homedir: () => os.homedir(),
+    dockerImageInspect: (ref) => {
+      const probe = spawnSync("docker", ["image", "inspect", ref], {
+        encoding: "utf8",
+        timeout: 10_000,
+      });
+      if (probe.error) {
+        // ENOENT → docker CLI not installed; any spawn failure → treat the
+        // daemon as unavailable. NEVER assume docker is present.
+        const code = (probe.error as NodeJS.ErrnoException).code;
+        return { ok: false, reason: `docker not available (${code ?? probe.error.message})` };
+      }
+      if (probe.status !== 0) {
+        return { ok: false, reason: `image ${ref} not found` };
+      }
+      return { ok: true };
+    },
   };
 }
 
 /** Merge caller-supplied deps over the live defaults. */
-function d(deps?: StrategyDeps): Required<StrategyDeps> {
+function d(deps?: StrategyDeps): Required<Omit<StrategyDeps, "resolvePeer">> & Pick<StrategyDeps, "resolvePeer"> {
   const base = defaults();
   if (!deps) return base;
   return {
@@ -207,6 +305,12 @@ function d(deps?: StrategyDeps): Required<StrategyDeps> {
     resolveModule: deps.resolveModule ?? base.resolveModule,
     execPath: deps.execPath ?? base.execPath,
     realpath: deps.realpath ?? base.realpath,
+    resolvePeer: deps.resolvePeer ?? base.resolvePeer,
+    readEnv: deps.readEnv ?? base.readEnv,
+    readDir: deps.readDir ?? base.readDir,
+    requireModule: deps.requireModule ?? base.requireModule,
+    dockerImageInspect: deps.dockerImageInspect ?? base.dockerImageInspect,
+    homedir: deps.homedir ?? base.homedir,
   };
 }
 
@@ -475,6 +579,166 @@ export function bareImportStrategy(
       const resolved = resolveModule(pkgName, anchor);
       if (!resolved) return { ok: false, reason: `cannot resolve ${pkgName} from ${anchor}` };
       return { ok: true, path: resolved };
+    },
+  };
+}
+
+// ── Probe strategies (see change: add-skill-tool-provisioning) ─────────────
+
+/**
+ * Credential-presence probe: is the env var SET? Boolean only — the value
+ * is never read into the result, so `Resolution` and every log line stay
+ * free of secrets. `path` is `null` when ok (non-path kind).
+ *
+ * See change: add-skill-tool-provisioning (design D2).
+ */
+export function envProbeStrategy(envVarName: string, deps?: StrategyDeps): Strategy {
+  const { readEnv } = d(deps);
+  return {
+    name: "env",
+    run(): StrategyResult {
+      const value = readEnv(envVarName);
+      if (value === undefined || value === "") {
+        return { ok: false, reason: `env ${envVarName} not set` };
+      }
+      return { ok: true, path: null };
+    },
+  };
+}
+
+/**
+ * Docker-image presence probe. Probes via the injectable
+ * `dockerImageInspect` (default: `docker image inspect`) and NEVER
+ * assumes the daemon exists — unavailability is just a failed attempt
+ * carrying its reason. `path` is the image ref (non-filesystem).
+ *
+ * See change: add-skill-tool-provisioning (design D2).
+ */
+export function dockerImageProbeStrategy(imageRef: string, deps?: StrategyDeps): Strategy {
+  const { dockerImageInspect } = d(deps);
+  return {
+    name: "docker-image",
+    run(): StrategyResult {
+      const probe = dockerImageInspect(imageRef);
+      if (!probe.ok) return { ok: false, reason: probe.reason };
+      return { ok: true, path: imageRef };
+    },
+  };
+}
+
+/** Per-OS default Playwright browsers cache dir under `homedir`. */
+function playwrightCacheDir(platform: NodeJS.Platform, homedir: string): string {
+  switch (platform) {
+    case "darwin":
+      return path.join(homedir, "Library", "Caches", "ms-playwright");
+    case "win32":
+      return path.join(homedir, "AppData", "Local", "ms-playwright");
+    default:
+      return path.join(homedir, ".cache", "ms-playwright");
+  }
+}
+
+/**
+ * Playwright-browser presence probe: reads the documented browsers cache
+ * (`PLAYWRIGHT_BROWSERS_PATH` or the per-OS default) and matches entries
+ * like `chromium-<rev>` / `chromium_headless_shell-<rev>`. `path` is the
+ * matched browser directory.
+ *
+ * See change: add-skill-tool-provisioning (design D2).
+ */
+export function pwBrowserProbeStrategy(browserName: string, deps?: StrategyDeps): Strategy {
+  const { readEnv, readDir, homedir, resolveModule } = d(deps);
+  return {
+    name: "pw-browser",
+    run(ctx): StrategyResult {
+      // Production registries construct without env.homedir — fall back to
+      // the injected/live homedir so the DEFAULT cache dir is probed.
+      const home = ctx.env?.homedir ?? homedir();
+      let base: string | undefined;
+      const envPath = readEnv("PLAYWRIGHT_BROWSERS_PATH");
+      if (envPath && envPath !== "0") {
+        base = envPath;
+      } else {
+        if (envPath === "0") {
+          // Playwright sentinel "0": hermetic installs live under
+          // playwright-core/.local-browsers, not the user cache.
+          try {
+            const entry = resolveModule("playwright-core/package.json", import.meta.url);
+            if (entry) base = path.join(path.dirname(entry), ".local-browsers");
+          } catch {
+            // fall through to the default cache dir
+          }
+        }
+        base = base ?? (home ? playwrightCacheDir(ctx.platform, home) : undefined);
+      }
+      if (!base) {
+        return { ok: false, reason: `no browsers cache dir (set PLAYWRIGHT_BROWSERS_PATH)` };
+      }
+      let entries: string[];
+      try {
+        entries = readDir(base);
+      } catch {
+        return { ok: false, reason: `browser ${browserName} not found (no cache dir ${base})` };
+      }
+      const match = entries.find(
+        (e) => e === browserName || e.startsWith(`${browserName}-`) || e.startsWith(`${browserName}_`),
+      );
+      if (!match) {
+        return { ok: false, reason: `browser ${browserName} not found in ${base}` };
+      }
+      return { ok: true, path: path.join(base, match) };
+    },
+  };
+}
+
+/**
+ * Binary path read out of an npm package's export. Media packages ship
+ * the binary LOCATION as their export: a bare string (`ffmpeg-static`)
+ * or `{ path }` (`@ffprobe-installer/ffprobe`). Distinct from
+ * `bare-import`, which returns the package dir / JS entry.
+ *
+ * See change: add-skill-tool-provisioning (design D3).
+ */
+export function staticNpmStrategy(pkgName: string, deps?: StrategyDeps): Strategy {
+  const { requireModule, exists } = d(deps);
+  return {
+    name: "static-npm",
+    run(): StrategyResult {
+      let exported: unknown;
+      try {
+        exported = requireModule(pkgName);
+      } catch (e) {
+        return { ok: false, reason: `cannot require ${pkgName}: ${(e as Error).message}` };
+      }
+      let binaryPath: string | null = null;
+      if (typeof exported === "string" && exported.length > 0) {
+        binaryPath = exported;
+      } else if (
+        exported &&
+        typeof exported === "object" &&
+        typeof (exported as { path?: unknown }).path === "string" &&
+        ((exported as { path: string }).path).length > 0
+      ) {
+        binaryPath = (exported as { path: string }).path;
+      } else if (
+        exported &&
+        typeof exported === "object" &&
+        typeof (exported as { default?: unknown }).default === "string" &&
+        ((exported as { default: string }).default).length > 0
+      ) {
+        binaryPath = (exported as { default: string }).default;
+      }
+      if (!binaryPath) {
+        return { ok: false, reason: `${pkgName} exports no binary path` };
+      }
+      // The EXPORT alone is not proof: e.g. ffmpeg-static's tarball ships
+      // no binary until its install script runs (gated by build policy).
+      // A dead export path must fall through to the next strategy (where),
+      // never shadow a working PATH binary with a nonexistent file.
+      if (!exists(binaryPath)) {
+        return { ok: false, reason: `${pkgName} exports ${binaryPath} which does not exist on disk` };
+      }
+      return { ok: true, path: binaryPath };
     },
   };
 }

@@ -7,6 +7,25 @@
 // See change: fix-plugin-and-scoped-back-navigation.
 export { claimsToRouteDescriptors } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/route-descriptor.js";
 export * from "./dependency-graph.js";
+export type {
+  FolderMenuContribution,
+  FolderMenuGroup,
+  FolderMenuStore,
+  RegisteredFolderMenuItem,
+} from "./folder-menu-contributions.js";
+export {
+  createFolderMenuStore,
+  FOLDER_MENU_GROUPS,
+  FolderMenuProvider,
+  isFolderMenuGroup,
+  isValidFolderMenuContribution,
+  selectFolderMenuItems,
+  useFolderMenuItem,
+  useFolderMenuItems,
+  useFolderMenuRefresher,
+  useFolderMenuRefreshRunner,
+  useFolderMenuStore,
+} from "./folder-menu-contributions.js";
 export type { IntentActionSender, IntentRendererProps } from "./intent-renderer.js";
 export { IntentRenderer, isIntentNode, UnknownPrimitive } from "./intent-renderer.js";
 export type { IntentKey, IntentStoreEntry } from "./intent-store.js";
@@ -17,6 +36,7 @@ export {
   CurrentPluginLayer,
   PluginContextProvider,
   useAllSessions,
+  useCurrentPluginId,
   useLanguage,
   usePluginConfig,
   usePluginLogger,

@@ -24,6 +24,13 @@ import type { InstallHints, ToolListEntry } from "../types.js";
 const USER_INSTALLABLE = ["bash", "gh", "zrok", "git", "node"] as const;
 const OSES = ["darwin", "win32", "linux"] as const satisfies readonly (keyof InstallHints)[];
 
+/**
+ * Media/skill-facing tools. Each ships per-OS hints; the ones users must
+ * install by hand also carry a docsAnchor.
+ * See change: add-skill-tool-provisioning (task 2.7).
+ */
+const MEDIA_TOOLS = ["ffmpeg", "ffprobe", "imagemagick", "chromium"] as const;
+
 /** Platform-utility binaries that ship with the OS — must NOT carry hints. */
 const PLATFORM_UTILITIES = ["powershell", "tasklist", "taskkill", "ps", "pgrep", "wt"];
 
@@ -122,5 +129,33 @@ describe("install hints metadata", () => {
         `docsAnchor "${docsAnchor}" (tool ${name}) missing from docs/faq.md headings`,
       ).toBe(true);
     }
+  });
+
+  it("media tools ship per-OS hints and matching faq anchors (task 2.7)", () => {
+    const anchors = headingAnchors(readFaq());
+    for (const name of MEDIA_TOOLS) {
+      const entry = byName.get(name);
+      expect(entry, `${name} should be registered`).toBeDefined();
+      expect(entry!.installHints, `${name} should declare installHints`).toBeDefined();
+      for (const o of OSES) {
+        const hint = entry!.installHints![o];
+        expect(hint, `${name}.installHints.${o} should be present`).toBeDefined();
+        const actionable =
+          (hint!.commands && Object.keys(hint!.commands).length > 0) ||
+          !!hint!.manual ||
+          !!hint!.url;
+        expect(actionable, `${name}.installHints.${o} needs commands|manual|url`).toBe(true);
+      }
+      const docsAnchor = entry!.installHints?.docsAnchor;
+      if (docsAnchor) {
+        expect(anchors.has(docsAnchor), `docsAnchor "${docsAnchor}" (${name}) missing from docs/faq.md`).toBe(true);
+      }
+    }
+  });
+
+  it("chromium's network+exec hint is confirm-gated", () => {
+    const chromium = byName.get("chromium");
+    expect(chromium?.installHints?.linux?.manual).toBe("npx playwright install chromium");
+    expect(chromium?.installHints?.linux?.requiresConfirm).toBe(true);
   });
 });

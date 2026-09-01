@@ -235,6 +235,49 @@ The config SHALL support a `keeperLog` object with a boolean `capturePiOutput` f
 - **WHEN** a client PUTs `{ "keeperLog": { "capturePiOutput": true } }` to `/api/config`
 - **THEN** the value SHALL be persisted and returned on the next config read
 
+### Requirement: Optional grammar config block
+
+`DashboardConfig` SHALL support an optional `grammar` block, parsed by
+`parseGrammarConfig(raw)` and wired into `loadConfig()`. A config file that omits `grammar`
+SHALL parse successfully and yield the disabled default. `parseGrammarConfig` SHALL coerce
+and clamp values and ignore unknown fields, mirroring the existing `parseOpenSpecPollConfig`
+pattern.
+
+The block shape SHALL be:
+
+```ts
+grammar?: {
+  enabled: boolean;                 // default false
+  backend: "llm" | "languagetool";  // default "languagetool"
+  autoCheck: boolean;               // default true
+  debounceMs: number;               // default 1200, clamp 300–10000
+  minChars: number;                 // default 12, clamp 1–500
+  maxChars: number;                 // default 4000, clamp 100–20000
+  language: string;                 // default "auto"
+  languagetool?: { url: string };   // default "http://localhost:8081"
+  llm?: { provider: string; model: string };
+}
+```
+
+#### Scenario: Config without grammar block
+- **WHEN** `~/.pi/dashboard/config.json` has no `grammar` key
+- **THEN** `loadConfig()` SHALL succeed
+- **AND** the resolved `grammar` SHALL be the disabled default (`enabled: false`,
+  `backend: "languagetool"`, `autoCheck: true`, `debounceMs: 1200`, `minChars: 12`,
+  `maxChars: 4000`, `language: "auto"`)
+
+#### Scenario: Out-of-range numerics are clamped
+- **WHEN** the config sets `grammar.debounceMs: 50`, `grammar.maxChars: 999999`
+- **THEN** `parseGrammarConfig` SHALL clamp them to `300` and `20000` respectively
+
+#### Scenario: Unknown fields ignored
+- **WHEN** the config includes an unrecognised `grammar.foo` field
+- **THEN** it SHALL be ignored and the remaining valid fields SHALL parse normally
+
+#### Scenario: Invalid backend falls back to default
+- **WHEN** `grammar.backend` is not `"llm"` or `"languagetool"`
+- **THEN** `parseGrammarConfig` SHALL default it to `"languagetool"`
+
 ### Requirement: `auth.redirectBaseUrl` config field
 The config loader SHALL support an optional `auth.redirectBaseUrl` string field that supplies the base URL for OAuth redirect URIs. The field SHALL be trimmed on read; a blank-after-trim value, a non-string value, or an absent key SHALL all result in `redirectBaseUrl` being `undefined` on the returned `AuthConfig`. The field SHALL NOT be seeded with a default by `ensureConfig()`.
 
@@ -347,4 +390,222 @@ The runtime auth reload SHALL merge the top-level `trustedNetworks` exactly as b
 #### Scenario: Auth reload preserves top-level trusted networks
 - **WHEN** the server booted with a top-level `trustedNetworks` entry and any auth reload runs
 - **THEN** an address in that range SHALL still bypass the auth gate
+
+### Requirement: A live tunnel URL may be offered for gateway registration, never added silently
+When a provider is `connected` and its live URL is absent from the `gateways` records, the
+Gateway surface SHALL offer an action to register that URL as a gateway record. When the URL
+is already present, the row SHALL indicate that instead of offering the action again.
+
+Registration SHALL NOT happen automatically on connect. A gateway record carries `authModes`,
+and a record with none is rejected outright — *"a gateway with none is either unreachable or
+unprotected"*. The auth mode cannot be inferred from the tunnel: defaulting to
+`trusted-network` would publish an address protected by a CIDR the operator never chose,
+while `pairing` and `oauth` are illegal on a non-TLS URL. The offer is automatic; the
+decision is the operator's.
+
+The action SHALL state that registering publishes an address the dashboard answers on and
+that becomes a CORS-allowed origin.
+
+**Selecting `oauth` moves the sign-in origin and SHALL be gated accordingly.**
+`buildGatewayAddPatch` writes `auth.redirectBaseUrl = <url>` whenever `oauth` is among the
+selected modes. That is the single value `resolveRedirectBase()` returns, from which both
+the minted redirect URI and the session-cookie `Secure` flag derive. Registering a
+**non-primary** tunnel URL with `oauth` would therefore re-point the sign-in origin away
+from the primary — the same consequence that designating a new primary carries, and which
+is confirm-gated there. Offering it unguarded here would route around that gate.
+
+Therefore: when the URL being registered is not the primary provider's URL, `oauth` SHALL
+be presented as unavailable with that reason. Registering the **primary's** URL with
+`oauth` SHALL carry the same confirmation as designating a primary, naming the redirect-URI
+consequence.
+
+#### Scenario: Offered when a connected URL is unregistered
+- **WHEN** a provider is `connected` and its URL matches no entry in `gateways`
+- **THEN** the row SHALL offer to register that URL
+
+#### Scenario: Not offered when already registered
+- **WHEN** the live URL already matches a `gateways` entry
+- **THEN** the row SHALL indicate it is registered
+- **AND** SHALL NOT offer to add it again
+
+#### Scenario: Not offered for a provider that is not connected
+- **WHEN** a provider is `not-installed`, `not-set` or `disconnected`
+- **THEN** no registration action SHALL be offered, because there is no live URL to register
+
+#### Scenario: Registration requires an auth mode
+- **WHEN** the user attempts to register with no auth mode selected
+- **THEN** the registration SHALL be refused with the existing `no-auth-mode` reason
+
+#### Scenario: Connecting never writes a gateway record by itself
+- **WHEN** a tunnel connects and its URL is unregistered
+- **THEN** `gateways` SHALL be unchanged until the operator completes the action
+
+#### Scenario: oauth is unavailable when registering a non-primary URL
+- **GIVEN** zrok is the primary and tailscale is also connected
+- **WHEN** the operator registers the tailscale URL
+- **THEN** `oauth` SHALL be unavailable, citing that it would move the sign-in origin off the primary
+- **AND** `auth.redirectBaseUrl` SHALL NOT be written
+
+#### Scenario: oauth on the primary URL is confirmed, not silent
+- **GIVEN** the URL being registered is the primary provider's URL
+- **WHEN** the operator selects `oauth`
+- **THEN** the action SHALL require the same confirmation as designating a primary
+- **AND** SHALL name that the redirect URI is re-minted and previously-registered URIs will be rejected until re-registered
+
+#### Scenario: Registering without oauth never touches the auth origin
+- **WHEN** a URL is registered with only `trusted-network` and/or `pairing`
+- **THEN** `auth.redirectBaseUrl` SHALL be unchanged
+
+### Requirement: Offered auth modes are gated by the URL's scheme
+The registration action SHALL present every auth mode, marking those the URL cannot legally
+carry as unavailable together with the reason, rather than hiding them. Hiding a mode leaves
+the operator unable to tell an unavailable option from a forgotten one.
+
+For a non-TLS (`http:`) URL, `pairing` and `oauth` SHALL be unavailable and `trusted-network`
+SHALL be required, along with at least one address or CIDR.
+
+#### Scenario: TLS URL offers all three modes
+- **WHEN** the live URL is `https:` with publicly-trusted TLS
+- **THEN** `trusted-network`, `pairing` and `oauth` SHALL all be selectable
+
+#### Scenario: http mesh URL restricts to trusted-network
+- **WHEN** the live URL is `http:` (for example a raw mesh IP)
+- **THEN** `pairing` SHALL be unavailable citing the TLS requirement
+- **AND** `oauth` SHALL be unavailable citing provider refusal of a non-TLS redirect URI
+- **AND** `trusted-network` SHALL be required with a non-empty CIDR
+
+#### Scenario: Unavailable modes are shown, not hidden
+- **WHEN** a mode is unavailable for the URL
+- **THEN** it SHALL still be rendered, marked unavailable, with its reason
+
+#### Scenario: Registering without oauth does not change the sign-in origin
+- **WHEN** a gateway URL is registered with only `trusted-network` and/or `pairing`
+- **THEN** the OAuth redirect base SHALL be unaffected, because `publicBaseUrls` is never an OAuth redirect source
+- **AND** this SHALL NOT be read as a guarantee for the `oauth` path, which writes `auth.redirectBaseUrl` and is governed by the primary-only + confirmation rules above
+
+### Requirement: Default thinking level config field
+
+The config schema SHALL include a `defaultThinkingLevel` field of type string with
+a default of `""` (empty string). A non-empty value SHALL be one of pi's canonical
+thinking levels: `"off"`, `"minimal"`, `"low"`, `"medium"`, `"high"`, `"xhigh"`,
+`"max"`. An empty string SHALL mean **"do not override"** — consumers SHALL leave
+pi's own thinking-level resolution intact, mirroring the existing `defaultModel: ""`
+"do not override" semantics.
+
+Values that are not a string SHALL fall back to the default `""`. The loader SHALL
+NOT reject an unrecognized non-empty string at config-load time; validation against
+a specific model's capabilities happens where the level is applied (the bridge
+clamps via pi) and where it is edited (the Settings control filters).
+
+#### Scenario: Config with defaultThinkingLevel set
+
+- **WHEN** `~/.pi/dashboard/config.json` contains `{ "defaultThinkingLevel": "high" }`
+- **THEN** `loadConfig()` SHALL return `defaultThinkingLevel: "high"` with defaults for all other fields
+
+#### Scenario: Config without defaultThinkingLevel
+
+- **WHEN** `~/.pi/dashboard/config.json` does not include `defaultThinkingLevel`
+- **THEN** `loadConfig()` SHALL return `defaultThinkingLevel: ""`
+
+#### Scenario: Non-string defaultThinkingLevel falls back to default
+
+- **WHEN** `~/.pi/dashboard/config.json` contains `{ "defaultThinkingLevel": 3 }`
+- **THEN** `loadConfig()` SHALL return `defaultThinkingLevel: ""`
+
+#### Scenario: Partial update preserves other fields
+
+- **WHEN** `PUT /api/config` sends a partial `{ "defaultThinkingLevel": "low" }`
+- **THEN** the persisted config SHALL set `defaultThinkingLevel: "low"` and leave all other fields unchanged
+
+### Requirement: `memoryLimits.maxReplayEvents` config field
+
+The config schema SHALL include `memoryLimits.maxReplayEvents`, a number bounding how many events a full-stream session replay delivers to a browser. `0` SHALL mean unlimited. The default SHALL be a positive window rather than unlimited, so a long session opens bounded without configuration. Every layer that supplies a fallback for this field SHALL supply the same default.
+
+#### Scenario: Absent field defaults to the bounded window
+
+- **WHEN** a config file contains a `memoryLimits` object without `maxReplayEvents`
+- **THEN** the parsed config SHALL report the positive default window
+- **AND** every other `memoryLimits` value SHALL be unchanged
+
+#### Scenario: Explicit zero still means unlimited
+
+- **WHEN** a config file sets `maxReplayEvents` to `0`
+- **THEN** the parsed config SHALL report `0`
+- **AND** session replay SHALL be unbounded
+
+#### Scenario: A session smaller than the default is unaffected
+
+- **WHEN** a session's compacted replay contains fewer events than the default window
+- **THEN** replay SHALL deliver the same events it delivered before the default changed
+- **AND** no `history_window` SHALL be announced
+
+#### Scenario: Configured value is threaded to the server
+
+- **WHEN** `maxReplayEvents` is set to a positive number in the config file
+- **THEN** the running server SHALL apply that value when windowing a full-stream replay
+
+#### Scenario: A server given no explicit value uses the default
+
+- **WHEN** a server is constructed without an explicit `maxReplayEvents` in its handler context
+- **THEN** it SHALL apply the positive default window rather than unlimited
+
+### Requirement: `maxReplayEvents` is validated to a minimum viable window
+
+A positive `maxReplayEvents` below the minimum viable window SHALL be clamped up to that minimum, so a configured window can never be small enough to make a transcript degenerate. The clamp SHALL apply in every `replayWindowMode`, including modes with no head segment, so the effective window a user configures does not change when the mode changes. A negative value SHALL be treated as unset and SHALL parse to `0`.
+
+#### Scenario: Below-minimum positive value is clamped
+
+- **WHEN** `maxReplayEvents` is set to `5`
+- **THEN** the parsed config SHALL report the minimum viable window rather than `5`
+
+#### Scenario: The clamp is independent of the window mode
+
+- **WHEN** `maxReplayEvents` is set to `5` and `replayWindowMode` is `tail-only`
+- **THEN** the parsed config SHALL report the same minimum viable window it reports in `head-tail`
+
+#### Scenario: Zero is preserved rather than clamped
+
+- **WHEN** `maxReplayEvents` is set to `0`
+- **THEN** the parsed config SHALL report `0`
+
+#### Scenario: Non-numeric value falls back to the default
+
+- **WHEN** `maxReplayEvents` is present but not a number
+- **THEN** the parsed config SHALL report `0`
+
+#### Scenario: Negative value falls back to the default
+
+- **WHEN** `maxReplayEvents` is set to `-1`
+- **THEN** the parsed config SHALL report the default window
+
+### Requirement: `memoryLimits.replayWindowMode` selects the replay window shape
+
+The config SHALL expose `memoryLimits.replayWindowMode` with the values `head-tail` and `tail-only`. It SHALL default to `head-tail`, so a config that does not set it produces exactly the behavior that shipped before the field existed. An absent, non-string, or unrecognized value SHALL fall back to the default rather than raising. The field SHALL have no effect when `maxReplayEvents` is `0`.
+
+#### Scenario: Absent field preserves prior behavior
+
+- **WHEN** a config omits `replayWindowMode`
+- **THEN** the parsed config SHALL report `head-tail`
+- **AND** session replay SHALL deliver the same shape it delivered before the field existed
+
+#### Scenario: Unrecognized value falls back to the default
+
+- **WHEN** `replayWindowMode` is set to `tail`, to a number, or to `null`
+- **THEN** the parsed config SHALL report `head-tail`
+- **AND** parsing SHALL NOT raise
+
+#### Scenario: Configured value is threaded to the server
+
+- **WHEN** `replayWindowMode` is set to `tail-only` in the config file
+- **THEN** the running server SHALL apply that shape when windowing a full-stream replay
+
+### Requirement: The replay window mode is server-scoped
+
+`memoryLimits.replayWindowMode` SHALL apply to every client of the server that reads it, exactly as `maxReplayEvents` does. It SHALL NOT be represented as a per-browser, per-device, or per-user preference.
+
+#### Scenario: One setting, every client
+
+- **WHEN** `replayWindowMode` is changed and the server is restarted
+- **THEN** every subsequently subscribing client SHALL receive the new window shape
+- **AND** no client SHALL be able to select a different shape for itself
 

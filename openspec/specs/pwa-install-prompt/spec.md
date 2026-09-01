@@ -1,3 +1,9 @@
+# pwa-install-prompt Specification
+
+## Purpose
+
+Lets the dashboard offer itself for installation as a PWA. Defines the `useInstallPrompt` hook — capturing the browser install event, detecting standalone mode, detecting iOS where no event exists — and the two surfaces it drives: a sidebar install button and a mobile install banner.
+
 ## Requirements
 
 ### Requirement: useInstallPrompt hook captures browser install event

@@ -1,4 +1,10 @@
-## ADDED Requirements
+# sleek-card-design Specification
+
+## Purpose
+
+Visual contract for the session card: an action row separated by a divider, an accent for the selected card, a source badge in the action row, and a full-card background pulse while the session is working.
+
+## Requirements
 
 ### Requirement: Session card action row with divider
 Each desktop session card SHALL display a thin horizontal divider (`border-t border-gray-700/30`) below the **subcard stack** (OPENSPEC / WORKSPACE / PROCESS / MEMORY / FLOWS, see `session-card-subcards`). Below the divider, an action row SHALL contain: editor buttons (if available), source badge, and hide/unhide button.

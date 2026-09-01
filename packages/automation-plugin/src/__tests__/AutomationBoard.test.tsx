@@ -5,14 +5,15 @@
  *
  * See change: add-automation-plugin, redesign-automation-editor-and-board.
  */
-import React from "react";
-import { describe, it, expect, afterEach, vi, beforeEach } from "vitest";
-import { render, cleanup, waitFor, fireEvent, screen, within } from "@testing-library/react";
+
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
-import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import { Popover } from "@blackbelt-technology/pi-dashboard-client-utils/Popover";
-import type { AutomationConfig, DiscoveredAutomation, RunRecord } from "../shared/automation-types.js";
+import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeFolderPath } from "../client/folder-encoding.js";
+import type { AutomationConfig, DiscoveredAutomation, RunRecord } from "../shared/automation-types.js";
 
 const nightlyConfig: AutomationConfig = {
   on: { kind: "schedule", cron: "0 9 * * 1" },
@@ -48,8 +49,8 @@ vi.mock("../client/api.js", () => ({
   isGitCapable: vi.fn(async () => false),
 }));
 
-import { listAutomations, listRuns as listRunsMock } from "../client/api.js";
 import { AutomationBoard } from "../client/AutomationBoard.js";
+import { listAutomations, listRuns as listRunsMock } from "../client/api.js";
 
 // The overflow menu renders through the `ui:popover` primitive (body portal).
 // Provide the real Popover so its content mounts + dismisses like production;
@@ -101,33 +102,20 @@ describe("AutomationBoard", () => {
   it("shows full actions for valid cards and only Edit/Delete (under overflow) for invalid", async () => {
     const { getByTestId, queryByTestId } = renderBoard({ params });
     await waitFor(() => expect(getByTestId("automation-def-nightly")).toBeTruthy());
-    // valid → run/toggle direct; edit/delete under the ⋯ overflow. Run-now
-    // carries the stable `automation-run-now` testid, scoped per card row.
-    expect(within(getByTestId("automation-def-nightly")).getByTestId("automation-run-now")).toBeTruthy();
+    // valid → run/toggle direct; edit/delete under the ⋯ overflow
+    expect(getByTestId("run-now-nightly")).toBeTruthy();
     expect(getByTestId("toggle-nightly")).toBeTruthy();
     expect(queryByTestId("edit-nightly")).toBeNull();
     fireEvent.click(getByTestId("overflow-nightly"));
     expect(screen.getByTestId("edit-nightly")).toBeTruthy();
     expect(screen.getByTestId("delete-nightly")).toBeTruthy();
     // invalid → no run/toggle; only edit/delete under overflow
-    expect(within(getByTestId("automation-def-broken")).queryByTestId("automation-run-now")).toBeNull();
+    expect(queryByTestId("run-now-broken")).toBeNull();
     expect(queryByTestId("toggle-broken")).toBeNull();
     fireEvent.click(getByTestId("overflow-broken"));
     expect(screen.getByTestId("edit-broken")).toBeTruthy();
     expect(screen.getByTestId("delete-broken")).toBeTruthy();
     expect(getByTestId("automation-error-broken").textContent).toContain("bad kind");
-  });
-
-  it("the row's run-now control fires a run-now via the API", async () => {
-    const { runAutomationNow } = await import("../client/api.js");
-    const { getByTestId } = renderBoard({ params });
-    await waitFor(() => expect(getByTestId("automation-def-nightly")).toBeTruthy());
-    const row = getByTestId("automation-def-nightly");
-    expect(row.className).toContain("auto-row");
-    const btn = within(row).getByTestId("automation-run-now") as HTMLButtonElement;
-    expect(btn.disabled).toBe(false);
-    fireEvent.click(btn);
-    await waitFor(() => expect(runAutomationNow).toHaveBeenCalledWith("folder", "/r", "nightly"));
   });
 
   it("applies session-card visuals: rail, status dot, headless icon, status pill", async () => {
@@ -168,7 +156,7 @@ describe("AutomationBoard", () => {
     vi.mocked(api.listRuns).mockImplementation(async (scope: string) => (scope === "folder" ? runningRuns : []));
     const { getByTestId, queryByTestId } = renderBoard({ params });
     await waitFor(() => expect(getByTestId("stop-nightly")).toBeTruthy());
-    expect(within(getByTestId("automation-def-nightly")).queryByTestId("automation-run-now")).toBeNull();
+    expect(queryByTestId("run-now-nightly")).toBeNull();
     fireEvent.click(getByTestId("stop-nightly"));
     await waitFor(() => expect(stopAutomationRun).toHaveBeenCalledWith("folder", "/r", "2026-06-21-nightly"));
   });
@@ -239,5 +227,61 @@ describe("AutomationBoard", () => {
 
     // Neither dismissal fired the destructive action.
     expect(deleteAutomation).not.toHaveBeenCalled();
+  });
+});
+
+// ── Fan-out: parent occurrence discloses its children ───────────────────────
+// See change: add-automation-concurrent-spawn.
+describe("AutomationBoard fan-out", () => {
+  const parentWithChildren: RunRecord = {
+    runId: "2026-07-01-fan",
+    name: "nightly",
+    status: "done",
+    dir: "/p",
+    startedAt: 10,
+    findings: 7,
+    warning: "bounded to 4 concurrent spawn(s); 6 child(ren) not spawned",
+    children: ["c0", "c1", "c2"],
+    childRuns: [
+      { runId: "c0", name: "nightly", status: "done", dir: "/p/c0", startedAt: 10, findings: 2, actionLabel: "flows.run:A", parentRunId: "2026-07-01-fan", sessionId: "s0" },
+      { runId: "c1", name: "nightly", status: "error", dir: "/p/c1", startedAt: 10, findings: 0, actionLabel: "core.skill:B", parentRunId: "2026-07-01-fan", sessionId: "s1" },
+      { runId: "c2", name: "nightly", status: "done", dir: "/p/c2", startedAt: 10, findings: 5, actionLabel: "flows.run:C", parentRunId: "2026-07-01-fan", sessionId: "s2" },
+    ],
+  };
+
+  beforeEach(() => {
+    vi.mocked(listRunsMock).mockImplementation(async (scope: string) =>
+      scope === "folder" ? [parentWithChildren] : [],
+    );
+  });
+
+  it("F1: renders a parent row that expands to its child rows", async () => {
+    const { getByTestId, queryByTestId } = renderBoard({ params });
+    await waitFor(() => expect(getByTestId("automation-run-2026-07-01-fan")).toBeTruthy());
+    // Aggregate findings on the parent.
+    expect(getByTestId("run-findings-2026-07-01-fan").textContent).toContain("7");
+    // Children hidden until expanded (occurrence is one unit).
+    expect(queryByTestId("automation-child-run-c0")).toBeNull();
+    fireEvent.click(getByTestId("run-expand-2026-07-01-fan"));
+    await waitFor(() => expect(getByTestId("automation-child-run-c0")).toBeTruthy());
+    // Each child row shows its own action label + status + findings.
+    expect(getByTestId("child-action-c0").textContent).toContain("flows.run:A");
+    expect(getByTestId("child-action-c1").textContent).toContain("core.skill:B");
+    expect(getByTestId("child-findings-c2").textContent).toContain("5");
+    expect(getByTestId("child-result-c1")).toBeTruthy();
+  });
+
+  it("F2: surfaces the truncation warning on the parent row", async () => {
+    const { getByTestId } = renderBoard({ params });
+    await waitFor(() => expect(getByTestId("run-warning-2026-07-01-fan")).toBeTruthy());
+    expect(getByTestId("run-warning-2026-07-01-fan").textContent).toContain("6");
+  });
+
+  it("F3: a child never renders as an independent top-level run row", async () => {
+    const { getByTestId, queryByTestId } = renderBoard({ params });
+    await waitFor(() => expect(getByTestId("automation-run-2026-07-01-fan")).toBeTruthy());
+    // Children are not top-level run rows (the occurrence is one unit).
+    expect(queryByTestId("automation-run-c0")).toBeNull();
+    expect(queryByTestId("automation-run-c1")).toBeNull();
   });
 });

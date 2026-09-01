@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-agent-dashboard",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Web dashboard for monitoring and interacting with pi agent sessions",
   "repository": {
     "type": "git",
@@ -28,7 +28,8 @@
     ],
     "skills": [
       "packages/extension/.pi/skills/pi-dashboard"
-    ]
+    ],
+    "image": "https://raw.githubusercontent.com/BlackBeltTechnology/pi-agent-dashboard/develop/docs/cover.png?v=0.7.0"
   },
   "files": [
     "scripts/maybe-patch-package.cjs",
@@ -56,6 +57,7 @@
     "test": "HOME=$(mktemp -d -t pi-test-XXXXXX) NODE_OPTIONS=\"--localstorage-file=$(mktemp -t pi-test-ls-XXXXXX)\" vitest run",
     "test:watch": "HOME=$(mktemp -d -t pi-test-XXXXXX) NODE_OPTIONS=\"--localstorage-file=$(mktemp -t pi-test-ls-XXXXXX)\" vitest",
     "test:ci-scenarios": "RUN_CI_SCENARIOS=1 HOME=$(mktemp -d -t pi-test-XXXXXX) NODE_OPTIONS=\"--localstorage-file=$(mktemp -t pi-test-ls-XXXXXX)\" vitest run --project scripts",
+    "spec:validate": "openspec validate --specs --no-interactive",
     "generate:plugin-registry": "node scripts/generate-plugin-registry.mjs",
     "i18n:parity": "node scripts/i18n-parity.mjs",
     "i18n:lint": "node scripts/i18n-lint.mjs",
@@ -63,7 +65,7 @@
     "lint:e2e": "tsc -p tests/tsconfig.json --noEmit && node scripts/check-e2e-fixture-import.mjs",
     "lint:biome": "biome lint .",
     "fix:changed": "biome check --changed --write",
-    "quality:changed": "biome check --changed --error-on-warnings --write && tsc --noEmit && npm run lint:e2e && npm test",
+    "quality:changed": "biome check --changed --error-on-warnings --write && tsc --noEmit && npm run lint:e2e && node scripts/z-layer-lint.mjs && npm test",
     "quality:report": "biome lint . --reporter=github",
     "reload": "./scripts/reload-all.sh",
     "reload:check": "./scripts/reload-all.sh --check",
@@ -89,28 +91,34 @@
     "test:e2e:reconnect": "PI_E2E_INDEPENDENT_SESSION=1 playwright test faux-ask",
     "test:e2e:perf": "PW_PERF=1 PW_CHANNEL=chrome playwright test chat-render-perf",
     "pretest:e2e:electron": "node -e \"const fs=require('fs');if(process.env.PW_ELECTRON_BINARY||fs.existsSync('packages/electron/out')){process.exit(0)}require('child_process').execSync('npm run -w packages/electron package',{stdio:'inherit'})\"",
-    "test:e2e:electron": "playwright test --config playwright.electron.config.ts"
+    "test:e2e:electron": "playwright test --config playwright.electron.config.ts",
+    "knip": "knip --no-progress",
+    "knip:ratchet": "node scripts/knip-ratchet.mjs",
+    "z-layer:lint": "node scripts/z-layer-lint.mjs",
+    "knip:config": "node scripts/knip-config.mjs"
   },
   "engines": {
     "node": ">=22.19.0 <27"
   },
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-extension": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-server": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-web": "^0.7.0"
+    "@blackbelt-technology/pi-dashboard-extension": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-server": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-web": "^0.8.0"
   },
   "optionalDependencies": {
     "appdmg": "^0.6.6"
   },
   "devDependencies": {
-    "@biomejs/biome": "2.5.1",
-    "@blackbelt-technology/pi-dashboard-bus-client": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
+    "@biomejs/biome": "2.5.11",
+    "@blackbelt-technology/pi-dashboard-bus-client": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
     "@earendil-works/pi-ai": "^0.75.5",
-    "@playwright/test": "1.61.1",
+    "@playwright/test": "1.62.1",
+    "acorn": "^8.17.0",
     "jiti": "^2.7.0",
     "jsdom": "^29.0.2",
     "jsqr": "^1.4.0",
+    "knip": "^6.32.2",
     "patch-package": "^8.0.1",
     "semver": "^7.7.1",
     "tsx": "^4.21.0",

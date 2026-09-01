@@ -35,6 +35,14 @@ export interface WorktreeEntry {
   detached: boolean;
   /** True for exactly one entry — the main worktree (first record). */
   isMain: boolean;
+  /**
+   * Whether the registered directory still exists on disk. Populated by
+   * `listWorktrees`, absent from the pure porcelain parser (which never
+   * touches the filesystem). Consumers MUST treat `undefined` as present.
+   *
+   * See change: manage-worktrees-filter-cleanup.
+   */
+  exists?: boolean;
 }
 
 /**

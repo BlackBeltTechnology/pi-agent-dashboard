@@ -36,6 +36,32 @@ describe("renderHits", () => {
     expect(out).not.toContain("(+");
   });
 
+  // --- E12 (fix-kb-search-lane-composition, design D5): record-type marks.
+  // Marks the RECORD TYPE, not the lane origin — a main-lane and a reserved-lane
+  // `agents` hit render identically.
+  it.each(["agents", "source-md"] as const)("E12: a %s hit carries its record-type mark", (docType) => {
+    expect(renderHits([hit({ docType })], TOOL)).toContain(`[${docType}]`);
+  });
+
+  it("E12: a doc hit carries no record-type mark", () => {
+    const out = renderHits([hit({ docType: "doc" })], TOOL);
+    expect(out).not.toContain("[doc]");
+    expect(out).not.toContain("[agents]");
+    expect(out).not.toContain("[source-md]");
+  });
+
+  it("E12: the record-type mark composes with (+N dup) and (+N more sections)", () => {
+    const out = renderHits([hit({ docType: "agents", akaPaths: ["x"], suppressedSections: 3 })], TOOL);
+    expect(out).toContain("(+1 dup)");
+    expect(out).toContain("(+3 more sections)");
+    expect(out).toContain("[agents]");
+  });
+
+  it("E12: the record-type mark appears in the single-line CLI form too", () => {
+    const out = renderHits([hit({ docType: "agents" })], { leading: "score", parentGlyph: "[parent: ", multiline: false });
+    expect(out).toContain("[agents]");
+  });
+
   it("E7: parent continuation renders with the glyph", () => {
     const out = renderHits([hit({ parent: { headingPath: "P" } })], TOOL);
     expect(out).toContain("\u2937 P");
@@ -55,11 +81,16 @@ describe("renderHits", () => {
     expect(leads).toEqual(["1", "2", "3"]);
   });
 
-  it("CLI form (leading:score, single-line) stays byte-identical to the legacy render", () => {
-    const h = hit({ akaPaths: ["x"], parent: { headingPath: "Parent H" } });
+  // The CLI shape is field-for-field the legacy one EXCEPT the breadcrumb, which
+  // is now the leaf heading (design D5, a deliberate breaking render change).
+  // See change: fix-kb-search-retrieval-quality.
+  it("CLI form (leading:score, single-line) keeps the legacy field order with a leaf heading", () => {
+    // docType `doc` on purpose: the record-type mark (D5) is emitted only for
+    // non-doc hits, so this exact-string expectation stays the legacy shape.
+    const h = hit({ headingPath: "A > B", akaPaths: ["x"], parent: { headingPath: "Parent H" } });
     const out = renderHits([h], { leading: "score", parentGlyph: "[parent: ", multiline: false });
-    const legacy = `${h.score.toFixed(2)}  ${h.path}  ::  ${h.headingPath}  (+${h.akaPaths!.length} dup)  [parent: ${h.parent!.headingPath}]\n      ${h.snippet.replace(/\s+/g, " ").slice(0, 160)}`;
-    expect(out).toBe(legacy);
+    const expected = `${h.score.toFixed(2)}  ${h.path}  ::  B  (+${h.akaPaths!.length} dup)  [parent: ${h.parent!.headingPath}]\n      ${h.snippet.replace(/\s+/g, " ").slice(0, 160)}`;
+    expect(out).toBe(expected);
   });
 });
 
@@ -97,5 +128,35 @@ describe("KbHit.parent is non-recursive (E14)", () => {
     // @ts-expect-error parent is { headingPath } only — non-recursive by design.
     const _grandparent = h.parent?.parent;
     expect(_grandparent).toBeUndefined();
+  });
+});
+
+describe("renderHits: trust verdict (add-kb-trust-verdicts-and-search-guard, task 3.3)", () => {
+  const V = {
+    label: "STALE" as const,
+    counts: { fresh: 3, stale: 2, moved: 0, gone: 1, unverified: 2, checked: 8, total: 9 },
+  };
+
+  it("renders the verdict inline in the tool (multiline/condensed) form with counts", () => {
+    const out = renderHits([hit({ verdict: V })], TOOL);
+    expect(out).toContain("STALE (8 of 9 subjects checked)");
+  });
+
+  it("renders the verdict inline in the CLI (single-line) form", () => {
+    const out = renderHits([hit({ verdict: V })], { leading: "score", parentGlyph: "[parent: ", multiline: false });
+    expect(out).toContain("STALE (8 of 9 subjects checked)");
+  });
+
+  it("a null verdict renders nothing — never a placeholder", () => {
+    for (const v of [null, undefined]) {
+      const out = renderHits([hit({ verdict: v })], TOOL);
+      expect(out).not.toContain("checked");
+      expect(out).not.toContain("UNVERIFIED");
+    }
+  });
+
+  it("singular total reads '1 subject checked'", () => {
+    const out = renderHits([hit({ verdict: { label: "GONE", counts: { ...V.counts, total: 1, checked: 1 } } })], TOOL);
+    expect(out).toContain("GONE (1 of 1 subject checked)");
   });
 });

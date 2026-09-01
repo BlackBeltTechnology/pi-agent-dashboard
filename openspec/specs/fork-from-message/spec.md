@@ -1,4 +1,10 @@
-## ADDED Requirements
+# fork-from-message Specification
+
+## Purpose
+
+Lets the user branch a session from any specific message instead of only from its tip. Requires events to carry entry IDs end to end — through the protocol, the stored message, and the resume path — so the server can create a session branched at that entry, with clean OpenSpec state, the correct parent as fork donor, and the new session surfaced at the top of the list.
+
+## Requirements
 
 ### Requirement: Events carry entry IDs
 

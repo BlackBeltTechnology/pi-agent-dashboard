@@ -16,6 +16,7 @@ import {
   mdiArrowLeft,
   mdiArrowUp,
   mdiClose,
+  mdiDatabaseRefreshOutline,
   mdiPlus,
   mdiRefresh,
 } from "@mdi/js";
@@ -96,10 +97,13 @@ function ChipList({
   );
 }
 
+// biome-ignore lint/complexity/noExcessiveCognitiveComplexity: the branches mirror the spec'd state partition (footer actions per origin, notice variants keyed on canIndex, four-channel error precedence) — extracting them would scatter that mapping. See change: fix-kb-settings-reindex-gate.
 export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => void }): React.ReactElement {
   const t = useT();
   const { data, loading, error, saving, save } = useKbConfig(cwd);
-  const { stats, refetch: refetchStats } = useKbStats(cwd);
+  // `error` is already bound from useKbConfig above, so the stats poll-outage
+  // channel binds as `statsError`. See change: fix-kb-settings-reindex-gate.
+  const { stats, loading: statsLoading, refetch: refetchStats, reindex, pending, reindexError, error: statsError } = useKbStats(cwd);
   const [edit, setEdit] = useState<EditState | null>(null);
   const [newSource, setNewSource] = useState("");
   const [bootstrapErr, setBootstrapErr] = useState<string | null>(null);
@@ -115,6 +119,15 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
     () => (edit && baseline ? JSON.stringify(edit) !== JSON.stringify(baseline) : false),
     [edit, baseline],
   );
+  // The reindex job walks cfg.resolvedSources loaded FROM DISK, so that is what
+  // the gate reads — never the form's (possibly unsaved) source list, and not
+  // the config origin. See change: fix-kb-settings-reindex-gate (design D1).
+  // `statsLoading` keeps the action disabled through the stats hand-offs (initial
+  // mount and the post-save refetch): an unobserved in-flight job must not
+  // invite a redundant POST (CodeRabbit, PR #568). The poll-outage settled
+  // state (statsLoading=false, stats=null) stays enabled — X4's settled observable.
+  const busy = pending || statsLoading || stats?.indexing === true;
+  const canIndex = (data?.config.resolvedSources?.length ?? 0) > 0;
 
   if (loading && !edit) {
     return <Shell cwd={cwd} onBack={onBack}><div className="p-4 text-xs text-[var(--text-muted)]">{t("loadingConfig", undefined, "Loading KB config…")}</div></Shell>;
@@ -207,7 +220,7 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
         {isProject && <code className="ml-auto text-[10px] text-[var(--text-muted)] truncate">{data?.projectPath}</code>}
       </div>
 
-      {!isProject && (
+      {!isProject && !canIndex && (
         <div className="px-4 py-2 text-[12px] text-teal-400 border-b border-[var(--border-subtle)]" data-testid="kb-bootstrap-note">
           {t("bootstrapNote", undefined, "No project config — this folder indexes nothing until you define sources.")}
         </div>
@@ -217,8 +230,11 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
       <div className="px-4 py-3 border-b border-[var(--border-subtle)]">
         <div className="text-[10px] uppercase tracking-wide text-[var(--text-tertiary)] font-bold mb-2">{t("sourcesHeading", undefined, "Sources")}</div>
         <div data-testid="kb-sources">
-          {edit.sources.length === 0 && (
-            <div className="text-[11px] italic text-[var(--text-muted)] mb-2">{t("noSources", undefined, "(no sources — nothing will be indexed)")}</div>
+          {edit.sources.length === 0 && !canIndex && (
+            <div className="text-[11px] italic text-[var(--text-muted)] mb-2">{t("noSourcesNothingIndexed", undefined, "(no sources — nothing will be indexed)")}</div>
+          )}
+          {edit.sources.length === 0 && canIndex && (
+            <div className="text-[11px] italic text-[var(--text-muted)] mb-2">{t("noSourcesDefined", undefined, "(no sources defined)")}</div>
           )}
           {edit.sources.map((s, i) => (
             <div key={`${s.ref}-${i}`} className="flex items-center gap-2 px-2 py-1.5 mb-1.5 rounded border border-[var(--border-subtle)] bg-[var(--bg-secondary)]" data-testid="kb-source-row">
@@ -319,13 +335,32 @@ export function KbSettingsPanel({ cwd, onBack }: { cwd: string; onBack: () => vo
             </button>
           </>
         )}
+        {/* Standalone rebuild from the SAVED config — outside the isProject
+            ternary so both footer branches carry it. Not gated on `dirty`: its
+            contract is "rebuild what is on disk" (design D2). Same glyph as the
+            folder menu item for the same verb (design D5). */}
+        <button
+          onClick={() => reindex()}
+          disabled={saving || busy || !canIndex}
+          data-testid="kb-reindex-now"
+          className="text-[12px] px-3 py-1.5 rounded border text-indigo-300 border-indigo-500/40 bg-indigo-500/5 hover:border-indigo-400 disabled:opacity-40 flex items-center gap-1"
+        >
+          <Icon path={mdiDatabaseRefreshOutline} size={0.5} />{t("reindexNow", undefined, "Reindex now")}
+        </button>
+        {!canIndex && (
+          <span className="text-[11px] text-[var(--text-muted)]" data-testid="kb-reindex-unavailable">
+            {t("reindexNeedsSource", undefined, "Define at least one source to enable a rebuild.")}
+          </span>
+        )}
         <span className="ml-auto text-[11px] text-[var(--text-muted)]" data-testid="kb-dirty">
           {saving ? t("saving", undefined, "saving…") : dirty ? t("unsavedChanges", undefined, "unsaved changes") : t("noChanges", undefined, "no changes")}
         </span>
       </div>
 
-      {(error || bootstrapErr) && (
-        <div className="px-4 py-2 text-[11px] text-red-400" data-testid="kb-settings-error">{bootstrapErr ?? error}</div>
+      {(bootstrapErr || reindexError || error || statsError) && (
+        <div className="px-4 py-2 text-[11px] text-red-400" data-testid="kb-settings-error">
+          {bootstrapErr ?? reindexError ?? error ?? statsError}
+        </div>
       )}
     </Shell>
   );

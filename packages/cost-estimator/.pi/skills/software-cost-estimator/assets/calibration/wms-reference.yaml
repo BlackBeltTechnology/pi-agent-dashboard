@@ -1,0 +1,217 @@
+# CALIBRATION CASE — a completed warehouse-management project, used as a
+# reference class. Actual base effort was 479 MD (= 3,832 h at 8 h/MD) before a
+# 15% contingency, covering all roles including QA (15.2%), PM (10%) and
+# deployment/training (11.9%).
+#
+# Only the BUILD modules appear as use cases. Testing, project management and
+# deployment are NOT use cases here — the role-ratio model distributes them out
+# of the total, so listing them would double count.
+#
+# Run: node scripts/calibrate.ts assets/calibration/wms-reference.yaml --actual-days 479 --exclude-contingency
+
+project:
+  name: WMS reference class
+  currency: EUR
+  phase: requirements-complete
+
+context:
+  codebase: greenfield
+  domain: warehouse management / robotics
+  compliance: []
+
+stack:
+  backend: java-judo
+  frontend: react-typescript
+  mobile: flutter
+  data: postgres
+  integrations: [RCS-2000, Microsoft Dynamics 365]
+
+actors:
+  - name: PDA operator
+    type: human
+  - name: Warehouse admin
+    type: human
+  - name: RCS-2000 robot control system
+    type: api
+  - name: Microsoft Dynamics 365
+    type: api
+  - name: Zebra barcode scanner
+    type: protocol
+  - name: Message queue
+    type: protocol
+
+use_cases:
+  # --- Module 1: core backend (70 MD actual) ---
+  - id: UC-01
+    name: Domain model, schema and migrations
+    transactions: 6
+    ai_class: boilerplate
+    risk: low
+  - id: UC-02
+    name: Inventory management (cart tracking, position management)
+    transactions: 8
+    ai_class: crud
+    risk: medium
+  - id: UC-03
+    name: Order management and allocation logic
+    transactions: 7
+    ai_class: crud
+    risk: medium
+  - id: UC-04
+    name: Task orchestration with priority queue
+    transactions: 9
+    ai_class: algorithmic
+    risk: medium
+  - id: UC-05
+    name: Graph-based storage manager and accessibility algorithm
+    transactions: 12
+    ai_class: algorithmic
+    risk: high
+  - id: UC-06
+    name: Shuffle cost algorithm and buffer allocation
+    transactions: 9
+    ai_class: algorithmic
+    risk: high
+  - id: UC-07
+    name: Authentication, RBAC and API gateway
+    transactions: 5
+    ai_class: boilerplate
+    risk: low
+
+  # --- Module 2: robot control integration (39 MD actual) ---
+  - id: UC-08
+    name: Robot task scheduling API client
+    transactions: 7
+    ai_class: integration
+    risk: medium
+  - id: UC-09
+    name: Robot event callback endpoint and event processing
+    transactions: 6
+    ai_class: integration
+    risk: medium
+  - id: UC-10
+    name: Task control, status polling and retry/backoff
+    transactions: 8
+    ai_class: integration
+    risk: medium
+
+  # --- Module 3: ERP integration (55 MD actual) ---
+  - id: UC-11
+    name: ERP inbound and production order sync
+    transactions: 9
+    ai_class: integration
+    risk: high
+  - id: UC-12
+    name: ERP outbound order sync and shipment confirmation
+    transactions: 8
+    ai_class: integration
+    risk: medium
+  - id: UC-13
+    name: Inventory snapshot and product master-data sync
+    transactions: 7
+    ai_class: integration
+    risk: medium
+  - id: UC-14
+    name: Message queue, data mapping and conflict resolution
+    transactions: 8
+    ai_class: integration
+    risk: high
+
+  # --- Module 4: PDA mobile app (68 MD actual) ---
+  - id: UC-15
+    name: Mobile shell, login and barcode scanner integration
+    transactions: 6
+    ai_class: ux-heavy
+    risk: low
+  - id: UC-16
+    name: Cart scan flow and work instructions screen
+    transactions: 9
+    ai_class: ux-heavy
+    risk: medium
+  - id: UC-17
+    name: Product scan validation and work order completion
+    transactions: 8
+    ai_class: crud
+    risk: medium
+  - id: UC-18
+    name: Offline mode with local cache and sync queue
+    transactions: 9
+    ai_class: algorithmic
+    risk: high
+  - id: UC-19
+    name: Real-time notifications and multilingual UI
+    transactions: 7
+    ai_class: integration
+    risk: medium
+
+  # --- Module 5: web admin portal (69 MD actual) ---
+  - id: UC-20
+    name: Admin shell, authentication and dashboard KPIs
+    transactions: 6
+    ai_class: crud
+    risk: low
+  - id: UC-21
+    name: Warehouse configuration with graph visualisation
+    transactions: 9
+    ai_class: ux-heavy
+    risk: high
+  - id: UC-22
+    name: Cart, order and task monitoring screens
+    transactions: 9
+    ai_class: crud
+    risk: low
+  - id: UC-23
+    name: Robot fleet management and user administration
+    transactions: 7
+    ai_class: crud
+    risk: low
+  - id: UC-24
+    name: Reports, analytics and system configuration
+    transactions: 9
+    ai_class: crud
+    risk: medium
+
+factors:
+  technical:
+    T1: 5   # distributed: robots, ERP, PDA, server
+    T2: 4   # real-time response objectives
+    T3: 4   # end-user efficiency on the shop floor
+    T4: 5   # complex internal processing (graph, shuffle)
+    T5: 3
+    T6: 3
+    T7: 3
+    T8: 2
+    T9: 3
+    T10: 4  # concurrent
+    T11: 3
+    T12: 4  # direct third-party access (RCS, D365)
+    T13: 3
+  environmental:
+    E1: 4
+    E2: 3
+    E3: 4
+    E4: 4
+    E5: 4
+    E6: 3
+    E7: 1
+    E8: 1
+  cocomo_scale:
+    PREC: low        # novel robotics domain
+    FLEX: nominal
+    RESL: nominal
+    TEAM: high
+    PMAT: nominal
+
+team:
+  hours_per_day: 8
+  fte: 3.5
+  seniority_mix:
+    senior: 0.3
+    mid: 0.4
+    junior: 0.3
+
+calibration:
+  hours_per_ucp: 20    # starting assumption; calibrate.ts solves for the true value
+  reference_ucp: 100
+  contingency: 0.15
+  seed: 20260101

@@ -50,7 +50,20 @@ export function splitEndpoints(endpoints: TunnelEndpoint[]): {
  * otherwise. Defence-in-depth on top of the server-side read-time gate.
  */
 export function guardPairingUrls(urls: string[]): string[] {
-  const bad = urls.filter((u) => !TLS_SCHEME.test(u.trim()));
+  // Loopback http mirrors the server's own test-only exception
+  // (`isTestLoopbackOrigin`, server pairing.ts): a browser grants http://localhost
+  // a genuine secure context, so crypto.subtle — the payload signature check —
+  // still works on the device. NOTE: unlike the server gate this exemption is
+  // NOT env-gated — the client cannot see PI_E2E_SEED — but it is safe
+  // unconditionally: the server is the authority on payload urls[], prod never
+  // emits loopback http, and localhost resolves only to the operator's own
+  // machine. Every OTHER non-TLS entry stays fail-closed (spec:
+  // qr-device-pairing → "TLS re-guard before encoding is fail-closed").
+  const LOOPBACK_HTTP = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i;
+  const bad = urls.filter((u) => {
+    const trimmed = u.trim();
+    return !TLS_SCHEME.test(trimmed) && !LOOPBACK_HTTP.test(trimmed);
+  });
   if (bad.length > 0) {
     throw new Error(`refusing non-TLS url(s) in pairing payload: ${bad.join(", ")}`);
   }

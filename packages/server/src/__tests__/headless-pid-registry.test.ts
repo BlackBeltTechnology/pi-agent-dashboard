@@ -559,3 +559,207 @@ describe("HeadlessPidRegistry: keeper mode", () => {
     expect(writer.writeRpcToSockPath).toHaveBeenCalledWith("/tmp/transport-1.sock", "line");
   });
 });
+
+// See change: fix-keeper-session-identity-and-reattach.
+// piPid capture is identity-bearing-tier-only; cwd-FIFO never captures.
+// Positional cwd-FIFO resolution of a keeper entry is reported.
+describe("HeadlessPidRegistry: piPid capture gate + positional reporting", () => {
+  function readEntries(pidFile: string): any[] {
+    return JSON.parse(readFileSync(pidFile, "utf-8")).entries;
+  }
+
+  it("E1: token tier captures piPid and persists it", () => {
+    const pidFile = join(makeTempDir(), "pids.json");
+    const registry = createHeadlessPidRegistry({ pidFilePath: pidFile });
+    registry.register(7777, "/proj", mockProcess(), "T", {
+      keeperPid: 7777,
+      keeperSockPath: "/tmp/s.sock",
+    });
+    expect(registry.linkByToken("T", "S1", 5050)).toBe(true);
+    expect(registry.getPid("S1")).toBe(5050);
+    // Persisted pid file carries piPid.
+    expect(readEntries(pidFile)[0].piPid).toBe(5050);
+  });
+
+  it("E2: pid tier (Tier 2b) matches on piPid; no new capture, no write", async () => {
+    const pidFile = join(makeTempDir(), "pids.json");
+    // Reclaimed keeper entry: piPid already P, sessionId dropped.
+    writeFileSync(pidFile, JSON.stringify({
+      entries: [{
+        pid: process.pid, cwd: "/proj", spawnedAt: new Date().toISOString(),
+        spawnToken: "T", piPid: 5050, keeperPid: process.pid, keeperSockPath: "/tmp/s.sock",
+      }],
+    }));
+    const registry = createHeadlessPidRegistry({ pidFilePath: pidFile });
+    await registry.cleanupOrphans();
+    const before = readFileSync(pidFile, "utf-8");
+    // Re-register via pid tier (no token).
+    expect(registry.linkByPid("S_new", 5050)).toBe(true);
+    expect(registry.getPid("S_new")).toBe(5050);
+    // No write occurred on the pid tier — file byte-identical.
+    expect(readFileSync(pidFile, "utf-8")).toBe(before);
+  });
+
+  it("E3: single cwd-FIFO candidate — keeper entry links, piPid stays undefined", () => {
+    const pidFile = join(makeTempDir(), "pids.json");
+    const registry = createHeadlessPidRegistry({ pidFilePath: pidFile });
+    registry.register(7777, "/proj", mockProcess(), "T", {
+      keeperPid: 7777, keeperSockPath: "/tmp/s.sock",
+    });
+    expect(registry.linkSession("S1", "/proj")).toBe(true);
+    // getPid falls back to keeper pid (piPid undefined).
+    expect(registry.getPid("S1")).toBe(7777);
+    expect(readEntries(pidFile)[0].piPid).toBeUndefined();
+  });
+
+  it("E4: two cwd-FIFO candidates — selected keeper entry keeps piPid undefined", () => {
+    const pidFile = join(makeTempDir(), "pids.json");
+    const registry = createHeadlessPidRegistry({ pidFilePath: pidFile });
+    registry.register(1000, "/proj", mockProcess(), "A", { keeperPid: 1000, keeperSockPath: "/tmp/a.sock" });
+    registry.register(1001, "/proj", mockProcess(), "B", { keeperPid: 1001, keeperSockPath: "/tmp/b.sock" });
+    expect(registry.linkSession("S1", "/proj")).toBe(true);
+    expect(registry.getPid("S1")).toBe(1000); // FIFO first
+    for (const e of readEntries(pidFile)) expect(e.piPid).toBeUndefined();
+  });
+
+  it("E5: register with no pid — keeper entry links, piPid stays undefined", () => {
+    const pidFile = join(makeTempDir(), "pids.json");
+    const registry = createHeadlessPidRegistry({ pidFilePath: pidFile });
+    registry.register(7777, "/proj", mockProcess(), "T", { keeperPid: 7777, keeperSockPath: "/tmp/s.sock" });
+    // linkByToken with no pid arg.
+    expect(registry.linkByToken("T", "S1")).toBe(true);
+    expect(registry.getPid("S1")).toBe(7777);
+    expect(readEntries(pidFile)[0].piPid).toBeUndefined();
+  });
+
+  it("E6: non-keeper entry never gets piPid; getPid returns entry.pid", () => {
+    const pidFile = join(makeTempDir(), "pids.json");
+    const registry = createHeadlessPidRegistry({ pidFilePath: pidFile });
+    registry.register(4242, "/proj", mockProcess(), "T"); // no keeperOpts
+    expect(registry.linkByToken("T", "S1", 9999)).toBe(true);
+    expect(registry.getPid("S1")).toBe(4242);
+    expect(readEntries(pidFile)[0].piPid).toBeUndefined();
+  });
+
+  it("E15: cwd-FIFO resolving a keeper entry emits exactly one [keeper-identity] positional line", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const registry = createHeadlessPidRegistry({ pidFilePath: join(makeTempDir(), "pids.json") });
+      registry.register(1000, "/proj", mockProcess(), "A", { keeperPid: 1000, keeperSockPath: "/tmp/a.sock" });
+      registry.register(1001, "/proj", mockProcess(), "B", { keeperPid: 1001, keeperSockPath: "/tmp/b.sock" });
+      registry.linkSession("S1", "/proj");
+      const lines = spy.mock.calls.map((c) => String(c[0])).filter((l) => l.includes("[keeper-identity] positional"));
+      expect(lines).toHaveLength(1);
+      expect(lines[0]).toContain("cwd=/proj");
+      expect(lines[0]).toContain("entryPid=1000");
+      expect(lines[0]).toContain("session=S1");
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("E16: cwd with no keeper-mode match emits no [keeper-identity] line", () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const registry = createHeadlessPidRegistry({ pidFilePath: join(makeTempDir(), "pids.json") });
+      // Non-keeper entry for a different cwd; the register matches nothing here.
+      registry.register(4242, "/other", mockProcess());
+      expect(registry.linkSession("S1", "/empty-cwd")).toBe(false);
+      const lines = spy.mock.calls.map((c) => String(c[0])).filter((l) => l.includes("[keeper-identity]"));
+      expect(lines).toHaveLength(0);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("E19: cwd-FIFO link target is unchanged (regression guard)", () => {
+    const registry = createHeadlessPidRegistry({ pidFilePath: join(makeTempDir(), "pids.json") });
+    registry.register(1000, "/proj", mockProcess(), "A", { keeperPid: 1000, keeperSockPath: "/tmp/a.sock" });
+    registry.register(1001, "/proj", mockProcess(), "B", { keeperPid: 1001, keeperSockPath: "/tmp/b.sock" });
+    registry.linkSession("S_first", "/proj");
+    registry.linkSession("S_second", "/proj");
+    expect(registry.getPid("S_first")).toBe(1000);
+    expect(registry.getPid("S_second")).toBe(1001);
+  });
+});
+
+// See change: fix-keeper-session-identity-and-reattach.
+// Discovery reconciliation fills an absent piPid from the sidecar (never
+// arbitrates) and emits one [keeper-identity] line per keeper.
+describe("HeadlessPidRegistry: discovery reconciliation", () => {
+  function reclaimedRegistry(persisted: any): { registry: ReturnType<typeof createHeadlessPidRegistry>; pidFile: string } {
+    const pidFile = join(makeTempDir(), "pids.json");
+    writeFileSync(pidFile, JSON.stringify({ entries: [persisted] }));
+    const registry = createHeadlessPidRegistry({ pidFilePath: pidFile });
+    return { registry, pidFile };
+  }
+
+  it("E7 / E11: reclaimed keeper entry with piPid unset is filled from the sidecar", async () => {
+    const { registry, pidFile } = reclaimedRegistry({
+      pid: process.pid, cwd: "/proj", spawnedAt: new Date().toISOString(),
+      keeperPid: process.pid, keeperSockPath: "/tmp/s.sock",
+    });
+    await registry.cleanupOrphans(); // reclaim (restores keeperPid → old guard would skip)
+    registry.setKeeperWriter({
+      writeRpcToSockPath: vi.fn(async () => true),
+      discoverExistingKeepers: vi.fn(async () => [
+        { sessionId: "transport-1", keeperPid: process.pid, sockPath: "/tmp/s.sock", piPid: 5050 },
+      ]),
+    });
+    await registry.cleanupKeeperOrphans();
+    expect(JSON.parse(readFileSync(pidFile, "utf-8")).entries[0].piPid).toBe(5050);
+  });
+
+  it("E8: sidecar does not override an already-set piPid", async () => {
+    const { registry, pidFile } = reclaimedRegistry({
+      pid: process.pid, cwd: "/proj", spawnedAt: new Date().toISOString(),
+      piPid: 4040, keeperPid: process.pid, keeperSockPath: "/tmp/s.sock",
+    });
+    await registry.cleanupOrphans();
+    registry.setKeeperWriter({
+      writeRpcToSockPath: vi.fn(async () => true),
+      discoverExistingKeepers: vi.fn(async () => [
+        { sessionId: "transport-1", keeperPid: process.pid, sockPath: "/tmp/s.sock", piPid: 5050 },
+      ]),
+    });
+    await registry.cleanupKeeperOrphans();
+    expect(JSON.parse(readFileSync(pidFile, "utf-8")).entries[0].piPid).toBe(4040);
+  });
+
+  it("E10: piPid round-trips through reclaim", async () => {
+    const { registry } = reclaimedRegistry({
+      pid: process.pid, cwd: "/proj", spawnedAt: new Date().toISOString(),
+      spawnToken: "T", piPid: 5050, keeperPid: process.pid, keeperSockPath: "/tmp/s.sock",
+    });
+    await registry.cleanupOrphans();
+    // Reattach via piPid (Tier 2b) proves it survived reclaim.
+    expect(registry.linkByPid("S_new", 5050)).toBe(true);
+    expect(registry.getPid("S_new")).toBe(5050);
+  });
+
+  it("E20: one [keeper-identity] line per keeper — recorded / unchanged / unavailable", async () => {
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const registry = createHeadlessPidRegistry({ pidFilePath: join(makeTempDir(), "pids.json") });
+      registry.register(1001, "/a", mockProcess(), "A", { keeperPid: 1001, keeperSockPath: "/tmp/a.sock" }); // fillable
+      registry.register(1002, "/b", mockProcess(), "B", { keeperPid: 1002, keeperSockPath: "/tmp/b.sock" }); // already set
+      registry.linkByToken("B", "S_B", 6002); // sets piPid=6002
+      registry.register(1003, "/c", mockProcess(), "C", { keeperPid: 1003, keeperSockPath: "/tmp/c.sock" }); // no sidecar
+      registry.setKeeperWriter({
+        writeRpcToSockPath: vi.fn(async () => true),
+        discoverExistingKeepers: vi.fn(async () => [
+          { sessionId: "t1", keeperPid: 1001, sockPath: "/tmp/a.sock", piPid: 5001 },
+          { sessionId: "t2", keeperPid: 1002, sockPath: "/tmp/b.sock", piPid: 6002 },
+          { sessionId: "t3", keeperPid: 1003, sockPath: "/tmp/c.sock" },
+        ]),
+      });
+      await registry.cleanupKeeperOrphans();
+      const lines = spy.mock.calls.map((c) => String(c[0])).filter((l) => l.includes("[keeper-identity]"));
+      expect(lines.filter((l) => l.includes("recorded") && l.includes("piPid=5001"))).toHaveLength(1);
+      expect(lines.filter((l) => l.includes("unchanged") && l.includes("piPid=6002"))).toHaveLength(1);
+      expect(lines.filter((l) => l.includes("unavailable") && l.includes("keeperPid=1003"))).toHaveLength(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});

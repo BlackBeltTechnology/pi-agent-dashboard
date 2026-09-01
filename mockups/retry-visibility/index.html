@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en" data-theme="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Retry visibility — mocked against the SHIPPED dashboard CSS</title>
+
+<!--
+  FIDELITY CONTRACT
+  =================
+  This file loads the RUNNING dashboard's own compiled stylesheet. Nothing here
+  re-declares a token, a radius, a shadow or a spacing value. Every class string
+  below was copied VERBATIM out of the live DOM at http://localhost:8000
+  (`document.querySelector('[data-session-id]').outerHTML`) or out of
+  primitives/InlineMessage.tsx. If the shipped card changes, this mock changes
+  with it — it cannot drift.
+
+  Requires the dashboard to be up on :8000. If the bundle hash rotates, refresh
+  it with:
+    agent-browser eval '[...document.querySelectorAll("link[rel=stylesheet]")].map(l=>l.href)'
+-->
+<link rel="stylesheet" href="http://localhost:8000/assets/index-DzXLxU36.css">
+
+<style>
+  /* Mock-chrome ONLY — never touches the cloned components. */
+  body{background:var(--bg-primary);color:var(--text-secondary);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    margin:0;padding:24px 16px 80px}
+  .page{max-width:860px;margin:0 auto}
+  h1{color:var(--text-primary);font-size:17px;margin:0 0 4px}
+  .lead{color:var(--text-tertiary);font-size:12.5px;margin:0 0 6px;line-height:1.55}
+  .cap{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;
+    color:var(--text-muted);font-weight:600;margin:30px 0 8px}
+  .desc{font-size:11.5px;color:var(--text-tertiary);margin:8px 0 0;line-height:1.6}
+  .desc b{color:var(--text-secondary);font-weight:600}
+  .kbd{font-family:'SF Mono',Menlo,Monaco,monospace;font-size:11px;
+    background:var(--bg-code);padding:1px 4px;border-radius:3px;color:var(--text-secondary)}
+  hr{border:0;border-top:1px solid var(--border-primary);margin:34px 0 0}
+  ul.sessions{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+  .themebar{position:fixed;top:12px;right:14px;display:flex;gap:6px;z-index:20}
+  .themebar button{font:inherit;font-size:11px;padding:5px 11px;border-radius:7px;cursor:pointer;
+    background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border-secondary)}
+  .themebar button[aria-pressed=true]{background:var(--accent-blue);border-color:var(--accent-blue);color:#fff}
+  .demo{border:1px dashed var(--border-secondary);border-radius:12px;padding:14px 16px;margin-top:10px}
+  .demo .row{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}
+  .demo button{font:inherit;font-size:11.5px;padding:6px 11px;border-radius:7px;cursor:pointer;
+    background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border-secondary)}
+  .demo button:hover{background:var(--bg-hover);color:var(--text-primary)}
+  .log{font-family:'SF Mono',Menlo,monospace;font-size:10.5px;color:var(--text-muted);
+    margin-top:11px;white-space:pre-wrap;line-height:1.6}
+  table{border-collapse:collapse;width:100%;font-size:11.5px;margin-top:8px}
+  th,td{border:1px solid var(--border-primary);padding:6px 9px;text-align:left;vertical-align:top}
+  th{color:var(--text-tertiary);font-weight:600;background:var(--bg-secondary)}
+  .no{color:var(--status-error)} .yes{color:var(--status-idle)}
+</style>
+</head>
+<body>
+<div class="themebar">
+  <button id="tL" aria-pressed="true">light</button>
+  <button id="tD" aria-pressed="false">dark</button>
+</div>
+
+<div class="page">
+<h1>Retry visibility — mocked against the shipped dashboard CSS</h1>
+<p class="lead">
+  Loads <span class="kbd">localhost:8000/assets/index-*.css</span>. Card markup copied verbatim
+  from the live DOM; banner markup from <span class="kbd">InlineMessage.tsx</span>. The retry
+  indicator is rendered through the card's <b>existing</b>
+  <span class="kbd">ActivityIndicator</span> slot — the same slot that today prints
+  “Thinking…”, “Needs you”, a tool name, or “Idle”.
+</p>
+
+<!-- ══════════ 1 · REAL CARD, REAL SLOT ══════════ -->
+<div class="cap">1 · The shipped card — every ActivityIndicator state</div>
+<p class="desc">
+  These four are what ships today, reproduced from the live DOM. Note the precedence chain in
+  <span class="kbd">SessionCard.tsx:61</span>:
+  <span class="kbd">resuming → ended → ask_user → currentTool → streaming → idle</span>.
+</p>
+
+<ul class="sessions" id="shipped"></ul>
+
+<div class="cap">2 · The gap</div>
+<p class="desc">
+  When pi is retrying after an error, the chain falls through to
+  <span class="kbd">streaming</span> or <span class="kbd">idle</span>. The card prints
+  “Thinking…” or “Idle” — <span class="no">the retry is invisible</span>. The status dot goes red
+  (error outranks retry in <span class="kbd">deriveDotColorWithFlags</span>), so a session that is
+  actively recovering looks identical to one that died.
+</p>
+<ul class="sessions" id="gap"></ul>
+
+<div class="cap">3 · Proposed — one new branch in the existing chain</div>
+<p class="desc">
+  A retry branch inserted after <span class="kbd">ask_user</span> — blocked-on-you keeps
+  priority — and before <span class="kbd">currentTool</span>, using the <b>same</b>
+  icon+label shape as the <span class="kbd">currentTool</span> branch
+  (<span class="kbd">mdiFlash</span> → <span class="kbd">mdiRefresh</span>). No new component, no
+  new layout, no floating badge — one more case in a switch that already exists.
+</p>
+<ul class="sessions" id="proposed"></ul>
+<p class="desc">
+  Colour is <span class="kbd">--severity-warning-fg</span>, not raw
+  <span class="kbd">--status-working</span>: <span class="kbd">--accent-yellow</span> measures
+  <b>1.68:1</b> on the light card surface and is illegible. The derived token measures
+  <b>6.13:1 light / 7.75:1 dark</b> and is already gated by
+  <span class="kbd">tests/e2e/severity-contrast.spec.ts</span>. Toggle the theme and check.
+</p>
+
+<hr>
+
+<!-- ══════════ 4 · BANNER ══════════ -->
+<div class="cap">4 · The chat banner — InlineMessage, severity="error", animate</div>
+<p class="desc">
+  Verbatim from <span class="kbd">InlineMessage.tsx</span>: accent bar
+  <span class="kbd">w-[3px]</span>, sweep <span class="kbd">h-0.5 … animate-pulse</span>, icon
+  <span class="kbd">size={0.7}</span>, dismiss <span class="kbd">size={0.6}</span>.
+</p>
+<div id="banners" style="display:flex;flex-direction:column;gap:14px"></div>
+<p class="desc">
+  The ✕ is present in <b>both</b> states — the <span class="kbd">unify-retry-visibility</span>
+  fix. Clear-only: it never aborts. pi keeps retrying and the next attempt re-opens the surface.
+</p>
+
+<div class="cap">5 · Live lifecycle</div>
+<div class="demo">
+  <div id="stage" style="display:flex;flex-direction:column;gap:10px;min-height:70px"></div>
+  <div class="row">
+    <button id="bFail">error → attempt 2</button>
+    <button id="bWait">waiting + countdown</button>
+    <button id="bDismiss">press ✕</button>
+    <button id="bNext">next attempt (re-opens)</button>
+    <button id="bOk">successful turn</button>
+    <button id="bReset">reset</button>
+  </div>
+  <div class="log" id="log"></div>
+</div>
+<p class="desc">
+  “successful turn” is the <span class="kbd">unify-retry-visibility</span> fix: today a turn
+  ending with a trailing <span class="kbd">toolResult</span> makes
+  <span class="kbd">isCleanAgentEnd</span> read the wrong array element,
+  <span class="kbd">lastError</span> never clears, and the banner
+  <span class="no">stays up forever</span>.
+</p>
+
+<hr>
+<div class="cap">6 · Symptom → cause → surface</div>
+<table>
+  <tr><th>You reported</th><th>Root cause</th><th>Spec surface</th></tr>
+  <tr><td><b>“IT DOES NOT SHOW THE RETRY COUNTING and retries does not trigger”</b></td>
+      <td><span class="kbd">retry-tracker.ts</span> read <span class="kbd">messages[len-1]</span>
+          instead of the last <b>assistant</b> message; an error turn ending in a
+          <span class="kbd">toolResult</span> never armed the chain</td>
+      <td><span class="kbd">bridge-retry-observability</span></td></tr>
+  <tr><td><b>“did not disappear on success!”</b></td>
+      <td>same bug class in <span class="kbd">isCleanAgentEnd</span> /
+          <span class="kbd">extractAgentEndError</span></td>
+      <td><span class="kbd">provider-retry-state</span></td></tr>
+  <tr><td><b>“Where is the x? when did i say to remove the x?”</b></td>
+      <td>stale <span class="kbd">retrying ? undefined : onDismiss</span> gate left behind when the
+          collapse pill was removed</td>
+      <td><span class="kbd">session-status-banner</span></td></tr>
+  <tr><td><b>“the session card does not show the retries”</b></td>
+      <td><span class="kbd">!lastError</span> gate drops the common case; card prop is a lossy
+          boolean; <span class="kbd">ActivityIndicator</span> has no retry branch</td>
+      <td><span class="kbd">session-card-status</span></td></tr>
+</table>
+</div>
+
+<script>
+(function(){
+var d=document;
+// ── mdi paths, read from node_modules/@mdi/js ──────────────────────────
+var P={
+  robot:"M17.5 15.5C17.5 16.61 16.61 17.5 15.5 17.5S13.5 16.61 13.5 15.5 14.4 13.5 15.5 13.5 17.5 14.4 17.5 15.5M8.5 13.5C7.4 13.5 6.5 14.4 6.5 15.5S7.4 17.5 8.5 17.5 10.5 16.61 10.5 15.5 9.61 13.5 8.5 13.5M23 15V18C23 18.55 22.55 19 22 19H21V20C21 21.11 20.11 22 19 22H5C3.9 22 3 21.11 3 20V19H2C1.45 19 1 18.55 1 18V15C1 14.45 1.45 14 2 14H3C3 10.13 6.13 7 10 7H11V5.73C10.4 5.39 10 4.74 10 4C10 2.9 10.9 2 12 2S14 2.9 14 4C14 4.74 13.6 5.39 13 5.73V7H14C17.87 7 21 10.13 21 14H22C22.55 14 23 14.45 23 15M21 16H19V14C19 11.24 16.76 9 14 9H10C7.24 9 5 11.24 5 14V16H3V17H5V20H19V17H21V16Z",
+  console:"M13,19V16H21V19H13M8.5,13L2.47,7H6.71L11.67,11.95C12.25,12.54 12.25,13.5 11.67,14.07L6.74,19H2.5L8.5,13Z",
+  flash:"M7,2V13H10V22L17,10H13L17,2H7Z",
+  refresh:"M17.65,6.35C16.2,4.9 14.21,4 12,4A8,8 0 0,0 4,12A8,8 0 0,0 12,20C15.73,20 18.84,17.45 19.73,14H17.65C16.83,16.33 14.61,18 12,18A6,6 0 0,1 6,12A6,6 0 0,1 12,6C13.66,6 15.14,6.69 16.22,7.78L13,11H20V4L17.65,6.35Z",
+  alert:"M13 14H11V9H13M13 18H11V16H13M1 21H23L12 2L1 21Z",
+  close:"M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z",
+  circle:"M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z",
+  circleOutline:"M12,20A8,8 0 0,1 4,12A8,8 0 0,1 12,4A8,8 0 0,1 20,12A8,8 0 0,1 12,20M12,2A10,10 0 0,0 2,12A10,10 0 0,0 12,22A10,10 0 0,0 22,12A10,10 0 0,0 12,2Z",
+  half:"M12 2A10 10 0 0 0 2 12A10 10 0 0 0 12 22A10 10 0 0 0 22 12A10 10 0 0 0 12 2M12 4A8 8 0 0 1 20 12A8 8 0 0 1 12 20V4Z"
+};
+function svg(path, rem){ return '<svg viewBox="0 0 24 24" role="presentation" style="width:'+rem+'rem;height:'+rem+'rem"><path d="'+path+'" style="fill:currentcolor"></path></svg>'; }
+
+// Shape marker — verbatim classes from the live DOM.
+function shapeBadge(shape, colorClass, pulse){
+  var p = shape==="error"?P.close : shape==="working"?P.half : shape==="needs-you"?P.circle : P.circleOutline;
+  if(shape==="ended") return "";
+  return '<span data-status-shape="'+shape+'" aria-hidden="true" class="absolute -bottom-1 -right-1 inline-flex rounded-full bg-[var(--bg-tertiary)] leading-none '+colorClass+(pulse?' animate-pulse':'')+'">'+svg(p,0.51)+'</span>';
+}
+
+/* Card markup: copied verbatim from
+   document.querySelector('[data-session-id]').outerHTML on :8000 */
+function card(o){
+  var dotClass = o.shape==="error" ? "text-[var(--status-error)]"
+               : o.shape==="working" ? "text-[var(--status-working)]"
+               : o.shape==="needs-you" ? "text-[var(--status-needs-you)]"
+               : "text-[var(--status-idle)]";
+  var pulse = o.shape==="working";
+  return ''
+  + '<li data-session-id="mock" class="relative isolate px-4 py-3 cursor-pointer rounded-xl'
+  + ' shadow-[inset_0_1px_0_var(--elevation-rim),0_4px_8px_var(--shadow-card)] border'
+  + ' hover:shadow-[inset_0_1px_0_var(--elevation-rim),0_6px_12px_var(--shadow-card)]'
+  + ' transition-all duration-200 border-[var(--border-subtle)] bg-[var(--bg-tertiary)]'
+  + (o.fx?' '+o.fx:'') + '">'
+  +   (o.fx?'<div class="card-stripes-fx card-stripes-running" aria-hidden="true"></div>':'')
+  +   '<div class="flex items-center gap-2">'
+  +     '<span class="relative flex-shrink-0 '+dotClass+(pulse?' animate-pulse':'')+'" data-testid="session-status-icon" data-status-shape="'+o.shape+'">'
+  +       svg(o.icon==='console'?P.console:P.robot, 0.75)
+  +       shapeBadge(o.shape, dotClass, pulse)
+  +     '</span>'
+  +     '<span class="text-sm font-semibold truncate flex-1">'+o.name+'</span>'
+  +     '<span class="text-[11px] text-[var(--text-muted)] flex-shrink-0">'+o.age+'</span>'
+  +   '</div>'
+  +   '<div class="flex items-center mt-1 gap-2 text-[12px]">'
+  +     '<span class="text-[var(--text-tertiary)] truncate">'+o.model+'</span>'
+  +     o.activity
+  +     '<span class="flex-1"></span>'
+  +     '<div class="flex items-center w-16" data-testid="context-usage-bar">'
+  +       '<div class="h-1.5 flex-1 rounded-full bg-gray-300 dark:bg-gray-600 overflow-hidden">'
+  +         '<div class="h-full rounded-full bg-green-500" style="width:'+o.ctx+'%"></div>'
+  +       '</div></div>'
+  +     '<span class="text-[var(--text-tertiary)] flex-shrink-0">'+o.cost+'</span>'
+  +   '</div>'
+  + '</li>';
+}
+
+/* ActivityIndicator variants — classes verbatim from SessionCard.tsx:61-95 */
+var ACT = {
+  resuming : '<span class="text-yellow-400">Resuming…</span>',
+  needsYou : '<span class="text-[var(--status-needs-you)] truncate inline-flex items-center gap-0.5">'+svg(P.circle,0.5)+' Needs you</span>',
+  tool     : function(n){ return '<span class="text-[var(--status-working)] truncate inline-flex items-center gap-0.5">'+svg(P.flash,0.5)+' '+n+'</span>'; },
+  thinking : '<span class="text-[var(--status-working)]">Thinking…</span>',
+  idle     : '<span class="text-[var(--text-tertiary)]">Idle</span>',
+  // ★ SHIPPED — same shape as `tool`, severity-warning colour, mdiRefresh.
+  retry    : function(n){ return '<span class="text-[var(--severity-warning-fg)] truncate inline-flex items-center gap-0.5" title="pi is retrying — attempt '+n+'">'+svg(P.refresh,0.5)+' Retry '+n+'</span>'; }
+};
+
+d.getElementById('shipped').innerHTML =
+    card({name:"liveness",  model:"anthropic/claude-opus-5", age:"12s", shape:"working", activity:ACT.thinking,        ctx:41, cost:"$107.81", fx:"card-working-pulse"})
+  + card({name:"apply-change", model:"anthropic/claude-sonnet-4-6", age:"3m", shape:"working", activity:ACT.tool("Bash"), ctx:64, cost:"$12.40", fx:"card-working-pulse"})
+  + card({name:"scenario-design", model:"openai/gpt-5.2", age:"1m", shape:"needs-you", activity:ACT.needsYou, ctx:22, cost:"$3.10", fx:""})
+  + card({name:"docs-sweep", model:"anthropic/claude-sonnet-4-6", age:"14m", shape:"idle", activity:ACT.idle, ctx:18, cost:"$0.94", fx:""});
+
+d.getElementById('gap').innerHTML =
+    card({name:"rate-limited session", model:"anthropic/claude-opus-5", age:"2m", shape:"error", activity:ACT.thinking, ctx:41, cost:"$107.81", fx:""})
+  + card({name:"errored, gave up",      model:"anthropic/claude-opus-5", age:"6m", shape:"error", activity:ACT.idle,     ctx:41, cost:"$107.81", fx:""});
+
+d.getElementById('proposed').innerHTML =
+    card({name:"rate-limited session", model:"anthropic/claude-opus-5", age:"2m", shape:"error", activity:ACT.retry(3), ctx:41, cost:"$107.81", fx:""})
+  + card({name:"errored, gave up",      model:"anthropic/claude-opus-5", age:"6m", shape:"error", activity:ACT.idle,     ctx:41, cost:"$107.81", fx:""});
+
+/* Banner: verbatim from InlineMessage.tsx */
+function banner(body, animate, dismiss){
+  return '<div data-testid="inline-message" class="relative overflow-hidden rounded-xl border pl-3.5 pr-3 py-2 flex gap-2.5 items-start bg-[var(--severity-error-bg)] border-[var(--severity-error-border)] text-[var(--severity-error-fg)]">'
+   + '<span data-testid="inline-message-accent" class="absolute inset-y-0 left-0 w-[3px] bg-[var(--severity-error-fg)]" aria-hidden="true"></span>'
+   + (animate?'<span data-testid="inline-message-sweep" class="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-transparent via-[var(--severity-warning-fg)] to-transparent animate-pulse" aria-hidden="true"></span>':'')
+   + '<span class="shrink-0 mt-0.5">'+svg(P.alert,0.7)+'</span>'
+   + '<div class="flex-1 min-w-0">'
+   +   '<div class="text-[12.5px] font-bold break-words">overloaded_error</div>'
+   +   '<div data-testid="inline-message-body" class="mt-0.5 text-[11.5px] break-words">'+body+'</div>'
+   + '</div>'
+   + (dismiss?'<button type="button" data-testid="inline-message-dismiss" class="shrink-0 opacity-70 hover:opacity-100" title="Dismiss" aria-label="Dismiss">'+svg(P.close,0.6)+'</button>':'')
+   + '</div>';
+}
+d.getElementById('banners').innerHTML =
+    banner('attempt 3 · retrying now…', true, true)
+  + banner('attempt 3 · next attempt in 12s', false, true);
+
+/* ── live lifecycle ── */
+var stage=d.getElementById('stage'), logEl=d.getElementById('log');
+var attempt=1, timer=null, lines=[];
+function log(s){ lines.push(s); if(lines.length>7) lines.shift(); logEl.textContent=lines.join('\n'); }
+function show(html){ if(timer){clearInterval(timer);timer=null;} stage.innerHTML=html; }
+function withCard(bannerHtml, activity){
+  return card({name:"rate-limited session",model:"anthropic/claude-opus-5",age:"2m",
+    shape: activity===ACT.idle?"error":"error", activity:activity, ctx:41, cost:"$107.81", fx:""})
+    + (bannerHtml||'');
+}
+function render(body,sweep){
+  show('<ul class="sessions">'+withCard(banner(body,sweep,true), ACT.retry(attempt))+'</ul>');
+  var b=stage.querySelector('[data-testid=inline-message-dismiss]');
+  if(b) b.onclick=dismiss;
+}
+function dismiss(){
+  // Shipped behaviour: App.tsx's onDismiss clears BOTH lastError AND retryState,
+  // and card membership keys on retryState (retry-projection.ts), so the card's
+  // `Retry N` label clears WITH the banner. pi keeps retrying underneath; the
+  // next attempt's signal restores both surfaces together.
+  show('<ul class="sessions">'+withCard('', ACT.idle)+'</ul>');
+  log('✕ pressed → banner AND card label cleared (both key off retryState). pi is STILL retrying — the next attempt re-opens both.');
+}
+d.getElementById('bFail').onclick=function(){ attempt++; render('attempt '+attempt+' · retrying now…',true);
+  log('agent_end stopReason=error → auto_retry_start attempt='+attempt); };
+d.getElementById('bWait').onclick=function(){ var s=12; render('attempt '+attempt+' · next attempt in '+s+'s',false);
+  timer=setInterval(function(){ s--; var el=stage.querySelector('[data-testid=inline-message-body]');
+    if(!el||s<0){clearInterval(timer);timer=null;return;} el.textContent='attempt '+attempt+' · next attempt in '+s+'s'; },1000);
+  log('waiting signal → nextAttemptAt set, countdown live'); };
+d.getElementById('bDismiss').onclick=dismiss;
+d.getElementById('bNext').onclick=function(){ attempt++; render('attempt '+attempt+' · retrying now…',true);
+  log('next attempt → banner RE-OPENS, card badge follows to '+attempt); };
+d.getElementById('bOk').onclick=function(){
+  show('<ul class="sessions">'+card({name:"rate-limited session",model:"anthropic/claude-opus-5",age:"2m",
+    shape:"working",activity:ACT.thinking,ctx:41,cost:"$108.02",fx:"card-working-pulse"})+'</ul>');
+  log('last ASSISTANT message stopReason≠error → lastError cleared; banner gone, dot back to working ✓'); };
+d.getElementById('bReset').onclick=function(){ attempt=1; lines=[]; logEl.textContent='';
+  render('attempt 1 · retrying now…',true); log('reset'); };
+
+var tD=d.getElementById('tD'), tL=d.getElementById('tL');
+function theme(t){ d.documentElement.setAttribute('data-theme',t);
+  tD.setAttribute('aria-pressed',t==='dark'); tL.setAttribute('aria-pressed',t==='light'); }
+tD.onclick=function(){theme('dark')}; tL.onclick=function(){theme('light')};
+
+render('attempt 1 · retrying now…',true);
+log('initial: attempt 1 in flight');
+})();
+</script>
+</body>
+</html>

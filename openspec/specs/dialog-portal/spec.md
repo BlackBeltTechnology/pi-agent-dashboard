@@ -1,3 +1,11 @@
+# dialog-portal Specification
+
+## Purpose
+
+Renders dialogs at `document.body` through a portal so they escape ancestor stacking and overflow contexts, and locks background scroll while a dialog is open.
+
+## Requirements
+
 ### Requirement: DialogPortal renders children at document.body
 The DialogPortal component SHALL render its children via `ReactDOM.createPortal` to `document.body`, escaping all ancestor stacking contexts.
 

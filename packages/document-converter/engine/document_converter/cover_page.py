@@ -357,6 +357,83 @@ def add_cover_page(
     doc.save(docx_path)
 
 
+R_NS = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+W_NS = 'http://schemas.openxmlformats.org/wordprocessingml/2006/main'
+_SECTION_REF_TAGS = (f'{{{W_NS}}}headerReference', f'{{{W_NS}}}footerReference')
+
+
+def _rel_targets(doc) -> dict:
+    """`{rId: target_ref}` for a document's own relationship part."""
+    return {rid: rel.target_ref for rid, rel in doc.part.rels.items()}
+
+
+def remap_relationship_ids(elements: list, template_doc, output_doc) -> list:
+    """Rewrite template-local `r:id`s on copied elements to the OUTPUT's ids.
+
+    Elements copied out of a template carry that template's relationship ids.
+    The output package was produced independently (pandoc `--reference-doc`)
+    and numbered its own rels, so those ids are at best a different part and at
+    worst absent entirely — the dangling `rId15` that makes Word and
+    LibreOffice reject the file with no useful diagnostic (issue #506).
+
+    Ids are matched by TARGET, never by number: matching by number is what
+    silently repoints `headerReference type="first"` at *footer3*.
+
+    A header/footer reference the output package cannot satisfy is DROPPED — a
+    missing header renders fine, a dangling id does not. Any other unresolvable
+    reference is returned to the caller to fail on.
+
+    Returns the list of unresolvable non-section ids (empty when all resolved).
+    """
+
+    template_targets = _rel_targets(template_doc)
+    output_ids_by_target = {}
+    for rid, target in _rel_targets(output_doc).items():
+        output_ids_by_target.setdefault(target, rid)
+
+    unresolvable = []
+
+    for root in elements:
+        for el in list(root.iter()):
+            for key, old_id in list(el.attrib.items()):
+                if not key.startswith(f'{{{R_NS}}}'):
+                    continue
+
+                target = template_targets.get(old_id)
+                new_id = output_ids_by_target.get(target) if target else None
+
+                if new_id is not None:
+                    el.set(key, new_id)
+                    continue
+
+                if el.tag in _SECTION_REF_TAGS:
+                    parent = el.getparent()
+                    if parent is not None:
+                        parent.remove(el)
+                    break  # element is gone; stop reading its attributes
+
+                unresolvable.append(old_id)
+
+    return unresolvable
+
+
+def find_dangling_relationship_ids(doc) -> list:
+    """Every `r:*` id in the body that no relationship backs.
+
+    A dangling id costs nothing at write time and everything at read time: the
+    package unzips, every part is well-formed, and Word/LibreOffice still
+    refuse it. Checking here turns silent corruption into a diagnosable error
+    (issue #506).
+    """
+    known = set(_rel_targets(doc))
+    dangling = []
+    for el in doc.element.body.iter():
+        for key, value in el.attrib.items():
+            if key.startswith(f'{{{R_NS}}}') and value not in known:
+                dangling.append(value)
+    return dangling
+
+
 def copy_template_cover_page(
     output_path: Path,
     template_path: Path
@@ -405,6 +482,18 @@ def copy_template_cover_page(
     if not cover_elements:
         return False
 
+    # The copied XML still speaks the TEMPLATE's relationship ids. Translate
+    # them before they reach the output package, and refuse to write a package
+    # whose references cannot be satisfied rather than emitting a file Word
+    # rejects as "source file could not be loaded". See issue #506.
+    unresolvable = remap_relationship_ids(cover_elements, template_doc, output_doc)
+    if unresolvable:
+        raise RuntimeError(
+            "Cover page references relationships absent from the output package: "
+            f"{', '.join(sorted(set(unresolvable)))}. "
+            f"Template: {template_path}"
+        )
+
     # Get the first element in output to insert before
     first_output = output_body[0] if len(output_body) > 0 else None
 
@@ -443,6 +532,14 @@ def copy_template_cover_page(
             content_start.addprevious(page_break_para)
         else:
             output_body.append(page_break_para)
+
+    dangling = find_dangling_relationship_ids(output_doc)
+    if dangling:
+        raise RuntimeError(
+            "Refusing to write a DOCX with unresolvable relationship ids: "
+            f"{', '.join(sorted(set(dangling)))}. "
+            f"Output: {output_path}"
+        )
 
     output_doc.save(output_path)
     return True  # Always return True if we copied something

@@ -130,6 +130,7 @@ describe("DirectoryService — openspec.enabled gate", () => {
       pending: false,
       changes: [],
       hasOpenspecDir: false,
+      readiness: { state: "GLOBAL_OFF" },
     });
     expect(pollOpenSpecAsync).not.toHaveBeenCalled();
     expect(runOpenSpecList).not.toHaveBeenCalled();
@@ -151,6 +152,7 @@ describe("DirectoryService — openspec.enabled gate", () => {
       pending: false,
       changes: [],
       hasOpenspecDir: false,
+      readiness: { state: "GLOBAL_OFF" },
     });
     expect(runOpenSpecList).not.toHaveBeenCalled();
   });
@@ -181,7 +183,15 @@ describe("DirectoryService — openspec.enabled gate", () => {
 
     service.reconfigurePolling({ ...DEFAULT_OPENSPEC_POLL, enabled: false });
 
-    const cleared = { initialized: false, pending: false, changes: [], hasOpenspecDir: false };
+    const cleared = {
+      initialized: false,
+      pending: false,
+      changes: [],
+      hasOpenspecDir: false,
+      // E26: the cleared payload carries GLOBAL_OFF explicitly. See change:
+      // add-openspec-init-affordances.
+      readiness: { state: "GLOBAL_OFF" },
+    };
     const cwds = new Set(broadcasts.map(b => b.cwd));
     expect(cwds.has("/a")).toBe(true);
     expect(cwds.has("/b")).toBe(true);

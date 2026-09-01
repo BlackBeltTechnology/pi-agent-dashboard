@@ -1,7 +1,7 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-electron",
   "productName": "pi-dashboard",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "private": true,
   "description": "Electron desktop app for pi-dashboard",
   "author": "BlackBelt Technology <oss@blackbelt.hu>",
@@ -21,7 +21,7 @@
     "test": "HOME=$(mktemp -d -t pi-elec-test-XXXXXX) vitest run"
   },
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
     "electron-updater": "^6.3.0"
   },
   "devDependencies": {
@@ -29,9 +29,11 @@
     "@electron-forge/maker-deb": "^7.6.0",
     "@electron-forge/plugin-vite": "^7.6.0",
     "@pengx17/electron-forge-maker-appimage": "^1.2.1",
-    "electron": "32.3.3",
+    "@types/semver": "^7.7.0",
+    "electron": "43.4.1",
     "electron-builder": "^26.8.1",
     "png-to-ico": "^2.1.8",
+    "semver": "^7.7.1",
     "sharp": "^0.33.5",
     "vite": "^6.0.0"
   },

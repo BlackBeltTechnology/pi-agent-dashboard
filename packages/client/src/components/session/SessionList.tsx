@@ -1,17 +1,21 @@
-import { SidebarFolderSectionSlot } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { SidebarFolderSectionSlot, useFolderMenuRefreshRunner } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { Confirm } from "@blackbelt-technology/pi-dashboard-client-utils/Confirm";
 import type { CommandInfo, DashboardSession, ImageContent, OpenSpecData, OpenSpecGroup } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { DndContext, type DragEndEvent, type DragOverEvent, type DragStartEvent, MeasuringStrategy, PointerSensor, TouchSensor, useSensor, useSensors } from "@dnd-kit/core";
 import { arrayMove, SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClose, mdiCog, mdiConsoleLine, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiSortVariant, mdiViewGridPlus } from "@mdi/js";
+import { mdiArchiveOutline, mdiBroom, mdiChevronDown, mdiChevronRight, mdiChevronUp, mdiClipboardCheckOutline, mdiClose, mdiCog, mdiConsoleLine, mdiFileDocumentOutline, mdiFolder, mdiFolderOpen, mdiPin, mdiPlus, mdiPuzzleOutline, mdiRefresh, mdiSortVariant, mdiSourceBranch, mdiTextBoxCheckOutline, mdiViewGridPlus } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { useFolderUrgencySort } from "../../hooks/useFolderUrgencySort.js";
+import { useInitStatus } from "../../hooks/useInitStatus.js";
 import { useInstallPrompt } from "../../hooks/useInstallPrompt.js";
 import { maybeAutoInitWorktreeOnSpawn } from "../../lib/git/auto-init-worktree.js";
+import type { WorktreeInitStatus } from "../../lib/git/git-api.js";
 import { t as i18nT, useI18n } from "../../lib/i18n/i18n.js";
 import { compatibleClosestCenter, resolveFolderMove, resolveWorkspaceFolderReorder, resolveWorkspaceReorder, SPRING_LOAD_DWELL_MS } from "../../lib/layout/sidebar-dnd.js";
 import { buildFolderHomeUrl } from "../../lib/nav/route-builders.js";
+import { removeOpenSpecOptOut } from "../../lib/openspec/openspec-config-api.js";
 // TerminalCard removed — terminals now in TerminalsView
 import {
   getCollapsedGroups,
@@ -34,10 +38,11 @@ import { floatAskUserFirst } from "../../lib/session/session-status-visuals.js";
 import { encodeFolderPath } from "../../lib/util/folder-encoding.js";
 import { truncatePathMiddle } from "../../lib/util/truncate-path.js";
 import { TunnelButton } from "../connectivity/TunnelButton.js";
-import { FolderActionBar } from "../folder/FolderActionBar.js";
+import { FolderActionBanner } from "../folder/FolderActionBanner.js";
 import { FolderActionsMenu, type FolderMenuItem } from "../folder/FolderActionsMenu.js";
 import { FolderSpawnButtons } from "../folder/FolderSpawnButtons.js";
 import { FolderStatusCapsule } from "../folder/FolderStatusCapsule.js";
+import { projectSetupLabel } from "../folder/folder-menu-labels.js";
 import { FolderOpenSpecSection } from "../openspec/FolderOpenSpecSection.js";
 import { InstallButton } from "../packages/InstallButton.js";
 import { PiLogo } from "../primitives/PiLogo.js";
@@ -55,6 +60,7 @@ import { SortableWorkspace } from "../workspace/SortableWorkspace.js";
 import { SortableWorkspaceFolder } from "../workspace/SortableWorkspaceFolder.js";
 import { WorkspaceHeader } from "../workspace/WorkspaceHeader.js";
 import { BranchSwitchDialog } from "../worktree/BranchSwitchDialog.js";
+import { ManageWorktreesDialog } from "../worktree/ManageWorktreesDialog.js";
 import { WorktreeSpawnDialog } from "../worktree/WorktreeSpawnDialog.js";
 import { DashboardSpawnButtons } from "./DashboardSpawnButtons.js";
 import { PlaceholderSessionCard } from "./PlaceholderSessionCard.js";
@@ -62,6 +68,12 @@ import { branchCache, GroupGitInfo, SessionCard } from "./SessionCard.js";
 import { SortablePinnedGroup, useFolderDragHandle } from "./SortablePinnedGroup.js";
 import { SortableSessionCard } from "./SortableSessionCard.js";
 import { SpawnErrorBanner } from "./SpawnErrorBanner.js";
+
+/** Community invite surfaced in the app header. */
+const DISCORD_INVITE_URL = "https://discord.gg/DrNebZ3pF5";
+/** Discord brand glyph — @mdi/js 7.x ships no brand icons, so the path is inlined. */
+const mdiDiscordPath =
+  "M20.317 4.369A19.79 19.79 0 0 0 15.446 3c-.21.375-.455.88-.624 1.28a18.27 18.27 0 0 0-5.644 0A12.6 12.6 0 0 0 8.548 3a19.74 19.74 0 0 0-4.874 1.372C.605 8.98-.232 13.475.186 17.905a19.9 19.9 0 0 0 6.026 3.05c.485-.66.917-1.362 1.29-2.1a12.9 12.9 0 0 1-2.03-.978c.17-.125.337-.256.498-.39a14.2 14.2 0 0 0 12.06 0c.163.135.33.266.5.39-.647.383-1.33.71-2.033.98a15.8 15.8 0 0 0 1.29 2.099 19.86 19.86 0 0 0 6.03-3.05c.49-5.138-.838-9.593-3.5-13.537ZM8.02 15.21c-1.182 0-2.152-1.086-2.152-2.42 0-1.332.95-2.42 2.152-2.42 1.21 0 2.18 1.096 2.16 2.42 0 1.334-.95 2.42-2.16 2.42Zm7.96 0c-1.183 0-2.152-1.086-2.152-2.42 0-1.332.95-2.42 2.152-2.42 1.21 0 2.18 1.096 2.16 2.42 0 1.334-.95 2.42-2.16 2.42Z";
 
 
 export interface ContextUsageInfo {
@@ -98,6 +110,16 @@ interface Props {
   onSeekToCard?: (sessionId: string) => void;
   contextUsageMap?: Map<string, ContextUsageInfo>;
   openspecMap?: Map<string, OpenSpecData>;
+  /** Fleet-level ABSENT-offer switch from dashboard config
+   *  (`openspec.offerInitialization`, default `true`). Suppresses the folder
+   *  section's Initialize offer everywhere; BROKEN/STALE/READY keep rendering.
+   *  See change: add-openspec-init-affordances (D3). */
+  openspecOfferInitialization?: boolean;
+  /** `openspec.enabled` from dashboard config (default `true`). Gates the
+   *  folder menu's re-enable item — removing a per-directory opt-out cannot
+   *  make OpenSpec available when the feature is globally off.
+   *  See change: add-openspec-init-affordances (folder-actions-menu spec). */
+  openspecEnabled?: boolean;
   /**
    * Folder-HEAD branch map (`cwd → branch | null`), synced via `git_head_update`.
    * Outranks child-session branches in `GroupGitInfo`. See change:
@@ -204,8 +226,12 @@ interface Props {
   headerExtra?: React.ReactNode;
   /** Set of session IDs that have an active error */
   errorSessionIds?: Set<string>;
-  /** Set of session IDs currently in a synthesized provider-retry phase (no terminal error). */
+  /** Set of session IDs currently in a synthesized provider-retry phase. */
   retrySessionIds?: Set<string>;
+  /** Per-session retry attempt number, for the card's activity label. Parallel to
+   *  `retrySessionIds` so the membership question stays a plain Set.
+   *  See change: unify-retry-visibility. */
+  retryAttemptMap?: Map<string, number>;
   /** Set of session IDs whose last turn was only reasoning (non-error notice).
    *  See change: fix-gemini-subagent-silent-tool-schema-failure. */
   noticeSessionIds?: Set<string>;
@@ -228,6 +254,26 @@ interface Props {
 
 // Re-export for backwards compatibility
 export { type DirectoryGroup, filterSessions, groupSessionsByDirectory } from "../../lib/session/session-grouping.js";
+
+/**
+ * Whether a folder group should be treated as a git repository for menu
+ * gating. Session-INDEPENDENT by construction: a folder with zero sessions
+ * has no negative evidence, so it stays eligible. Only a positive
+ * `isGitRepo === false` excludes it — the same rule the worktree spawn button
+ * already uses.
+ *
+ * See change: manage-worktrees-filter-cleanup.
+ */
+/**
+ * Initial prompt that spawns the interactive project-init scaffolder. Single
+ * source for the two call sites (tier-0 banner action + `Project setup…` menu
+ * item) so they cannot drift. See change: add-folder-action-banner.
+ */
+const PROJECT_INIT_PROMPT = "/skill:project-init";
+
+export function folderIsGitRepo(group: { sessions: Array<{ isGitRepo?: boolean }> }): boolean {
+  return !group.sessions.some((s) => s.isGitRepo === false);
+}
 
 function ToggleButton({
   active,
@@ -252,7 +298,7 @@ function ToggleButton({
   );
 }
 
-export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
+export function SessionList({ sessions, selectedId, onSelect, revealRequest, onSeekToCard, contextUsageMap, openspecMap, openspecOfferInitialization, openspecEnabled, folderGitMap, openspecGroupsMap, sessionOrderMap, onReorderSessions, onSendPrompt, onOpenSpecRefresh, onAttachProposal, onDetachProposal, onReplaceProposal, onBulkArchive, onReadArtifact, onOpenDirectorySettings, onRename, onShutdown, onResume, onResumeKeepPosition, onHideSession, onUnhideSession, onSpawnSession, spawningCwds, addSpawningCwd, clearSpawningCwd, spawnResult, onSpawnResultSeen, pinnedDirectories, onPinDirectory, onOpenPinDialog, onUnpinDirectory, onReorderPinnedDirs, onReorderWorkspaces, onReorderWorkspaceFolders, onMoveFolderToWorkspace, workspaces, onCreateWorkspace, onRenameWorkspace, onDeleteWorkspace, onSetWorkspaceCollapsed, onAddFolderToWorkspace, onRemoveFolderFromWorkspace, onKillTerminal, onRenameTerminal, onCollapseSidebar, commandsMap, onKillProcess, onSetProcessDrawer, onRemoveTagGlobally, inflightBashMap, onAbortTool, onOpenSpecs, onOpenArchive, onOpenBoard, headerExtra, errorSessionIds, retrySessionIds, retryAttemptMap, noticeSessionIds, spawnErrors, onDismissSpawnError, resumeErrors, onDismissResumeError, gitWorktreeEnabled: gitWorktreeEnabledProp }: Props) {
   const { t } = useI18n();
   // UI preference flag, default-on. Gates folder `+Worktree` and per-change
   // `⥂2+` buttons. See change: openspec-worktree-spawn-button.
@@ -326,6 +372,8 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
   // Worktree spawn dialog: when set, render the modal scoped to this cwd.
   // See change: add-worktree-spawn-dialog.
   const [worktreeDialogCwd, setWorktreeDialogCwd] = useState<string | null>(null);
+  // Manage-worktrees surface (change: manage-worktrees-filter-cleanup).
+  const [manageWorktreesCwd, setManageWorktreesCwd] = useState<string | null>(null);
   // Per-change worktree spawn state. When set, render the dialog prefilled
   // with `os/<changeName>` + `attachProposal=<changeName>`. Reuses the
   // existing `WorktreeSpawnDialog` component to avoid duplicate state.
@@ -363,6 +411,9 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
   // Per-folder opt-in urgency sort (default off). See change:
   // improve-dashboard-attention-routing.
   const urgencySort = useFolderUrgencySort();
+  // Fan-out over the refreshers each folder's slot sections registered; the
+  // single MAINTENANCE refresh item calls it. See change: move-slot-actions-to-menu.
+  const runFolderRefreshers = useFolderMenuRefreshRunner();
   const toggleEndedExpanded = useCallback((cwd: string) => {
     setEndedExpanded((prev) => {
       const next = new Set(prev);
@@ -467,6 +518,9 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
   // same way `addToWsMenuFor` is — a cwd key would co-open a folder row and a
   // same-cwd card. See change: add-folder-actions-menu.
   const [folderMenuFor, setFolderMenuFor] = React.useState<string | null>(null);
+  // Broken-session cleanup confirm (moved off the deleted FolderActionBar into
+  // the folder actions menu). See change: add-folder-action-banner.
+  const [cleanupCwd, setCleanupCwd] = React.useState<string | null>(null);
   const [newWsOpen, setNewWsOpen] = React.useState<{ pendingFolder: string | null } | null>(null);
   // Workspace id awaiting a path-picker selection. When set, a
   // PinDirectoryDialog is open; on confirm the picked folder is added to
@@ -920,6 +974,47 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
   // Cancel any pending frame/timer on unmount.
   useEffect(() => clearPendingReveal, [clearPendingReveal]);
 
+  // ── Seek to a folder's OpenSpec section ─────────────────────────────────
+  // Remediation target of a disabled OPENSPEC subcard (BROKEN / STALE ·
+  // missing-skills — D7 routing table): guarded-expand the folder (and its
+  // workspace ancestor, which may land asynchronously via the `workspaces`
+  // echo), then scroll the folder header into view and move focus to the
+  // OpenSpec section. Opens NO dialog — the session card reports readiness;
+  // the folder card acts (Repair / Update live there).
+  // See change: add-openspec-init-affordances (task 4.5).
+  const seekToFolderOpenSpec = useCallback(
+    (cwd: string) => {
+      const wsId = folderWorkspaceMap.get(cwd);
+      if (wsId) {
+        const ws = (workspaces ?? []).find((w) => w.id === wsId);
+        if (ws?.collapsed) onSetWorkspaceCollapsed?.(wsId, false);
+      }
+      if (collapsedGroups.has(cwd)) handleToggleCollapse(cwd);
+
+      // The section mounts only after the (possibly async) expand commits —
+      // retry briefly instead of a single frame that races the echo.
+      let attempts = 0;
+      const tryFocus = () => {
+        attempts += 1;
+        const el = listRef.current?.querySelector(
+          `[data-folder-openspec-section="${cssEscapeId(cwd)}"]`,
+        ) as HTMLElement | null;
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+          el.focus({ preventScroll: true });
+          return;
+        }
+        if (attempts < 20) window.setTimeout(tryFocus, 100);
+      };
+      window.setTimeout(tryFocus, 0);
+    },
+    [folderWorkspaceMap, workspaces, onSetWorkspaceCollapsed, collapsedGroups, handleToggleCollapse],
+  );
+
+  // Settings → OpenSpec Workflow Profile is the remediation surface for
+  // STALE · profile-stale (D7): the profile + Update-all controls live there.
+  const openOpenSpecSettings = useCallback(() => navigate("/settings/openspec"), [navigate]);
+
   /**
    * folder-workspaces: same as renderGroup but with the "Add to workspace"
    * affordance switched on. Used for top-level groups only — workspace-tier
@@ -1019,12 +1114,45 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
    * Directory-group order is pin · urgency sort · directory settings.
    * See change: add-folder-actions-menu.
    */
-  function folderMenuItems({ group, isPinned, inWorkspace, workspaceId, headerAction }: {
+  /**
+   * OpenSpec's `OPEN`-group items. Contributed HOST-side rather than through the
+   * plugin contribution registry because `onOpenArchive` / `onOpenSpecs` are
+   * already props on this component — routing them through a registry would be
+   * indirection for symmetry's sake. Labels are slot-qualified because a verb
+   * group no longer says which slot an item came from.
+   * See change: move-slot-actions-to-menu.
+   */
+  function openspecMenuItems(cwd: string): FolderMenuItem[] {
+    if (!openspecMap?.get(cwd)?.initialized) return [];
+    const items: FolderMenuItem[] = [];
+    if (onOpenArchive) {
+      items.push({
+        id: "openspec-archive",
+        group: "open",
+        label: t("openspec.folderMenuArchive", undefined, "OpenSpec archive"),
+        icon: mdiArchiveOutline,
+        onSelect: () => onOpenArchive(cwd),
+      });
+    }
+    if (onOpenSpecs) {
+      items.push({
+        id: "openspec-specs",
+        group: "open",
+        label: t("openspec.folderMenuSpecs", undefined, "OpenSpec specs"),
+        icon: mdiFileDocumentOutline,
+        onSelect: () => onOpenSpecs(cwd),
+      });
+    }
+    return items;
+  }
+
+  function folderMenuItems({ group, isPinned, inWorkspace, workspaceId, headerAction, initStatus }: {
     group: DirectoryGroup;
     isPinned: boolean;
     inWorkspace: boolean;
     workspaceId?: string;
     headerAction?: React.ReactNode;
+    initStatus: WorktreeInitStatus | null;
   }): FolderMenuItem[] {
     const items: FolderMenuItem[] = [];
 
@@ -1069,12 +1197,94 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
       pressed: urgencySort.isOn(group.cwd),
       onSelect: () => urgencySort.toggle(group.cwd),
     });
+    // Manage worktrees: gated on the folder being a git repository, and
+    // deliberately INDEPENDENT of live sessions — the surface exists to clean
+    // up worktrees that have none. Absent only on positive evidence that the
+    // folder is not a repo; unknown keeps the item (same rule as the worktree
+    // spawn button). See change: manage-worktrees-filter-cleanup.
+    if (gitWorktreeEnabled && folderIsGitRepo(group)) {
+      items.push({
+        id: "manage-worktrees",
+        group: "directory",
+        label: t("worktree.manageWorktrees", undefined, "Manage worktrees"),
+        icon: mdiSourceBranch,
+        onSelect: () => setManageWorktreesCwd(group.cwd),
+      });
+    }
+    // Re-enable an opted-out OpenSpec directory (readiness OPTED_OUT — i.e.
+    // cwd listed in openspec.optOutDirectories while the feature is on).
+    // Absent for a merely-ABSENT cwd (the folder section already offers
+    // Initialize — a second entry point for the same decision is redundant)
+    // and when OpenSpec is globally disabled (removing an opt-out cannot make
+    // the feature available there).
+    // See change: add-openspec-init-affordances (folder-actions-menu spec).
+    if (
+      openspecMap?.get(group.cwd)?.readiness?.state === "OPTED_OUT" &&
+      openspecEnabled !== false
+    ) {
+      items.push({
+        id: "openspec-reenable",
+        group: "directory",
+        label: t("openspec.folderMenuReenable", undefined, "Enable OpenSpec for this folder"),
+        icon: mdiClipboardCheckOutline,
+        onSelect: () => {
+          removeOpenSpecOptOut(group.cwd).catch((err) => {
+            showToast(String(err?.message ?? err), "error");
+          });
+        },
+      });
+    }
+    // "Directory Settings" IS the Pi Resources entry point after the
+    // `directory-settings-page` re-label. It stays the folder's ONLY route to
+    // that surface — no `OPEN` duplicate, which would mandate one destination
+    // from two groups. See change: move-slot-actions-to-menu.
     items.push({
       id: "directory-settings",
       group: "directory",
       label: t("folders.directorySettings", undefined, "Directory Settings"),
       icon: mdiCog,
       onSelect: () => onOpenDirectorySettings?.(group.cwd),
+    });
+    // Permanent Project setup item: the banner carries urgency, the menu carries
+    // availability. Tally `n/N` from the checklist (5 artifacts); `● update`
+    // badge when the payload reports template drift. Absent checklist (fail-open)
+    // shows the bare label. Deliberately in the DIRECTORY group, not the newer
+    // MAINTENANCE group. See change: add-folder-action-banner.
+    items.push({
+      id: "project-setup",
+      group: "directory",
+      label: projectSetupLabel(initStatus, t("folders.projectSetup", undefined, "Project setup…"), `● ${t("common.update", undefined, "update")}`),
+      icon: mdiTextBoxCheckOutline,
+      onSelect: () => onSpawnSession?.(group.cwd, undefined, { initialPrompt: PROJECT_INIT_PROMPT }),
+    });
+    // Broken-session cleanup — housekeeping, NOT a tier-0 banner. Hidden at zero.
+    // In the DIRECTORY group by spec (does not depend on the MAINTENANCE group).
+    const brokenCount = group.sessions.filter((s) => s.cwdMissing === true && s.status === "ended" && !s.hidden).length;
+    if (brokenCount > 0 && onHideSession) {
+      items.push({
+        id: "cleanup-broken",
+        group: "directory",
+        label: `${t("common.cleanUpBroken", undefined, "Clean up broken (")}${brokenCount})`,
+        icon: mdiBroom,
+        onSelect: () => setCleanupCwd(group.cwd),
+      });
+    }
+
+    items.push(...openspecMenuItems(group.cwd));
+
+    // The ONE plain refresh: three per-slot refresh buttons collapsed into a
+    // fan-out over every refresher the folder's sections registered, PLUS the
+    // host-owned OpenSpec refresher. Defining it as "registered refreshers"
+    // alone would silently drop OpenSpec from the item that replaced its button.
+    items.push({
+      id: "refresh-folder",
+      group: "maintenance",
+      label: t("folders.refreshFolder", undefined, "Refresh folder"),
+      icon: mdiRefresh,
+      onSelect: () => {
+        runFolderRefreshers(group.cwd);
+        onOpenSpecRefresh?.(group.cwd);
+      },
     });
     return items;
   }
@@ -1125,6 +1335,11 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             onToggle={() => handleToggleCollapse(group.cwd)}
           />
           <div className="flex-1 min-w-0">
+          {/* One shared init-status probe per row feeds BOTH the tier-0 banner
+              (below the git row) and the folder actions menu's Project setup
+              tally. A component owner keeps the hook out of this map callback.
+              See change: add-folder-action-banner. */}
+          <FolderInitScope cwd={group.cwd}>{({ status: initStatus, refetch: refetchInit }) => (<>
           {/* Whole header row is clickable to open the directory home page —
               same affordance as clicking a session card selects its session.
               Collapse/expand lives solely on the chevron in the drag gutter
@@ -1233,7 +1448,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                 cwd={group.cwd}
                 open={folderMenuFor === `folder:${group.cwd}`}
                 onOpenChange={(next) => setFolderMenuFor(next ? `folder:${group.cwd}` : null)}
-                items={folderMenuItems({ group, isPinned, inWorkspace, workspaceId, headerAction })}
+                items={folderMenuItems({ group, isPinned, inWorkspace, workspaceId, headerAction, initStatus })}
               />
             </span>
           </div>
@@ -1253,26 +1468,32 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               running / failed `WorktreeInitChip`, min-w ~240px) wraps to its own
               line instead of overflowing and overlapping the git row.
               See change: compact-folder-header-actions. */}
-          <div className="mt-1 flex flex-wrap items-center justify-between gap-x-2 gap-y-1">
-            <div className="min-w-0">
-              <GroupGitInfo
-                sessions={group.sessions}
-                cwd={group.cwd}
-                folderBranch={folderGitMap?.has(group.cwd) ? folderGitMap.get(group.cwd) : undefined}
-                onBranchClick={() => setBranchDialogCwd(group.cwd)}
-              />
-            </div>
-            <FolderActionBar
+          {/* Git row — tier 2, FACTS ONLY (branch/dirty). Its former call-to-
+              action controls moved to the tier-0 banner below and the folder
+              actions menu. See change: add-folder-action-banner. */}
+          <div className="mt-1 min-w-0">
+            <GroupGitInfo
+              sessions={group.sessions}
               cwd={group.cwd}
-              onInitializeProject={onSpawnSession ? (cwd) => onSpawnSession(cwd, undefined, { initialPrompt: "/skill:project-init" }) : undefined}
-              brokenSessionCount={group.sessions.filter((s) => s.cwdMissing === true && s.status === "ended" && !s.hidden).length}
-              onCleanUpBroken={onHideSession ? () => {
-                for (const s of group.sessions) {
-                  if (s.cwdMissing === true && s.status === "ended" && !s.hidden) onHideSession(s.id);
-                }
-              } : undefined}
+              folderBranch={folderGitMap?.has(group.cwd) ? folderGitMap.get(group.cwd) : undefined}
+              onBranchClick={() => setBranchDialogCwd(group.cwd)}
             />
           </div>
+          {/* Tier-0 call-to-action banner — renders only when the folder cannot
+              proceed (setup / init needed / re-trust / running / failure). */}
+          <FolderActionBanner
+            cwd={group.cwd}
+            status={initStatus}
+            // Project-root gate for the "not a pi project" banner: pinned,
+            // workspace-added, or POSITIVE git-root evidence. `folderIsGitRepo`
+            // is optimistic (unknown → true), so it is NOT sufficient on its
+            // own — an unpinned dir with an unknown git probe must not reach
+            // tier 0. See change: add-folder-action-banner (D-D2).
+            isProjectRoot={isPinned || inWorkspace || group.sessions.some((s) => s.isGitRepo === true) || !!folderGitMap?.get(group.cwd)}
+            onInitializeProject={onSpawnSession ? (c) => onSpawnSession(c, undefined, { initialPrompt: PROJECT_INIT_PROMPT }) : undefined}
+            onStatusChange={refetchInit}
+            sessions={group.sessions}
+          />
           {/* Slot-pill grid: the plugin slot sections (Automations / Goals /
               KB) + OpenSpec render as single-concern pills in a 2-col grid that
               collapses to 1-col at mobile width. A section that renders null
@@ -1280,21 +1501,27 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
               See change: redesign-directory-card. */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-2 gap-y-3 mt-3">
             <SidebarFolderSectionSlot folder={{ cwd: group.cwd }} />
-            {/* Render for both initialized (full section) and pending (spinner).
-                See change: fix-cold-boot-openspec-protocol. */}
-            {(openspecMap?.get(group.cwd)?.initialized || openspecMap?.get(group.cwd)?.pending) && (
+            {/* Readiness-gated (inside the section): READY pill, PENDING
+                spinner, ABSENT offer (+dismiss), BROKEN/STALE recovery pill;
+                nothing for GLOBAL_OFF / OPTED_OUT / legacy not-initialized.
+                Rendered whenever the server has broadcast data for the cwd —
+                including pinned directories with no sessions.
+                See change: add-openspec-init-affordances. */}
+            {openspecMap?.get(group.cwd) && (
               <FolderOpenSpecSection
                 data={openspecMap.get(group.cwd)!}
                 cwd={group.cwd}
-                onRefresh={() => onOpenSpecRefresh?.(group.cwd)}
                 onOpenBoard={onOpenBoard}
-                onOpenSpecs={onOpenSpecs ? () => onOpenSpecs(group.cwd) : undefined}
-                onOpenArchive={onOpenArchive ? () => onOpenArchive(group.cwd) : undefined}
+                offerInitialization={openspecOfferInitialization}
+                onToast={(message, variant) =>
+                  showToast(message, variant === "error" ? "error" : "info")
+                }
               />
             )}
           </div>
           </>)}
-
+          </>)}{/* end FolderInitScope render-prop */}
+          </FolderInitScope>
           </div>{/* end content column */}
         </div>
         </div>{/* end content layer (relative z-1) */}
@@ -1488,6 +1715,9 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                         openspecInitialized={openspecMap?.get(session.cwd)?.initialized}
                         openspecPending={openspecMap?.get(session.cwd)?.pending}
                         openspecHasDir={openspecMap?.get(session.cwd)?.hasOpenspecDir}
+                        openspecReadiness={openspecMap?.get(session.cwd)?.readiness}
+                        onSeekToFolderOpenSpec={seekToFolderOpenSpec}
+                        onOpenOpenSpecSettings={openOpenSpecSettings}
                         openspecGroups={openspecGroupsMap?.get(session.cwd)?.groups}
                         openspecAssignments={openspecGroupsMap?.get(session.cwd)?.assignments}
                         onSendPrompt={onSendPrompt ? (text, images) => onSendPrompt(session.id, text, images) : undefined}
@@ -1514,6 +1744,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
                         onAbortTool={onAbortTool ? (toolCallId) => onAbortTool(session.id, toolCallId) : undefined}
                         hasError={errorSessionIds?.has(session.id)}
                         isRetrying={retrySessionIds?.has(session.id)}
+                        retryAttempt={retryAttemptMap?.get(session.id)}
                         hasNotice={noticeSessionIds?.has(session.id)}
                       />
                       {resumeErrors?.get(session.id) && (
@@ -1591,6 +1822,19 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
             <InstallButton canInstall={installPrompt.canInstall} isInstalled={installPrompt.isInstalled} prompt={installPrompt.prompt} />
             <TunnelButton showToast={showToast} />
             {headerExtra}
+            {/* Community entry point. MDI 7 dropped brand icons, so the Discord
+                glyph is an inline path constant. See change: add-discord-link. */}
+            <a
+              href={DISCORD_INVITE_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
+              title={t("sessionList.discord", undefined, "Join our Discord")}
+              aria-label={t("sessionList.discord", undefined, "Join our Discord")}
+              data-testid="discord-btn"
+            >
+              <Icon path={mdiDiscordPath} size={0.6} />
+            </a>
             <button
               onClick={() => navigate("/settings")}
               className="text-[var(--text-tertiary)] hover:text-[var(--text-secondary)]"
@@ -1730,7 +1974,7 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
           </div>
         )}
       </div>
-      <div ref={listRef} className="flex-1 overflow-y-auto">
+      <div ref={listRef} data-testid="session-list-scroll" className="flex-1 overflow-y-auto">
       {filteredSessions.length === 0 && pinnedGroups.length === 0 && (workspaces?.length ?? 0) === 0 ? (
         <div className="p-4 text-sm text-[var(--text-tertiary)]">{t("sessionList.noActiveSessions", undefined, "No active sessions")}</div>
       ) : (
@@ -1885,6 +2129,28 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
           {t("sessionList.hiddenCount", { count: hiddenCount }, `${hiddenCount} hidden`)}
         </div>
       )}
+      {manageWorktreesCwd && (
+        <ManageWorktreesDialog
+          cwd={manageWorktreesCwd}
+          allSessions={sessions}
+          onShutdownSession={(id) => onShutdown?.(id)}
+          onClose={() => setManageWorktreesCwd(null)}
+        />
+      )}
+      {cleanupCwd && (() => {
+        const broken = sessions.filter((s) => s.cwd === cleanupCwd && s.cwdMissing === true && s.status === "ended" && !s.hidden);
+        return (
+          <Confirm
+            open
+            testId="cleanup-broken-confirm"
+            title={t("session.hideBrokenSessions", undefined, "Hide broken sessions?")}
+            message={`Hide ${broken.length} session${broken.length === 1 ? "" : "s"} whose cwd no longer exists?`}
+            confirmLabel={t("common.hide", undefined, "Hide")}
+            onConfirm={() => { for (const s of broken) onHideSession?.(s.id); setCleanupCwd(null); }}
+            onClose={() => setCleanupCwd(null)}
+          />
+        );
+      })()}
       {worktreeDialogCwd && (
         <WorktreeSpawnDialog
           cwd={worktreeDialogCwd}
@@ -1945,6 +2211,23 @@ export function SessionList({ sessions, selectedId, onSelect, revealRequest, onS
  * folders stay reorderable via their always-visible chevron. Mirrors the
  * SessionCard gutter pattern.
  */
+/**
+ * Per-row owner of the shared `GET /init-status` probe. A component (not a call
+ * inside `renderGroup`'s `.map`) so the hook obeys the rules of hooks, exposing
+ * `{ status, refetch }` to both the tier-0 banner and the menu's setup tally.
+ * See change: add-folder-action-banner.
+ */
+function FolderInitScope({
+  cwd,
+  children,
+}: {
+  cwd: string;
+  children: (s: { status: WorktreeInitStatus | null; refetch: () => void }) => React.ReactNode;
+}) {
+  const { status, refetch } = useInitStatus(cwd);
+  return <>{children({ status, refetch })}</>;
+}
+
 function FolderDragGutter({
   isCollapsed,
   onToggle,

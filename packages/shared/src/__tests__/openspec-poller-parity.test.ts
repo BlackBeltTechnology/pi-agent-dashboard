@@ -48,7 +48,15 @@ describe("deriveArtifactStatus parity with CLI pipeline", () => {
       const specsFactory = createFsSpecsProbeFactory(REPO_ROOT);
       const changesRoot = path.join(REPO_ROOT, "openspec", "changes");
 
-      for (const entry of changes) {
+      // One CLI spawn per change, run through a bounded pool. Sequentially
+      // this is ~0.7s x N, which crossed the 60s timeout the moment the repo
+      // passed ~85 active changes — a cliff that grows with the backlog and has
+      // nothing to do with the parity being checked. The pool keeps the wall
+      // clock flat; the spawn itself is what costs, not CPU.
+      const CONCURRENCY = 8;
+      const queue = [...changes];
+
+      async function checkOne(entry: (typeof queue)[number]) {
         const changeDir = path.join(changesRoot, entry.name);
 
         const derived = deriveArtifactStatus(changeDir, entry, {
@@ -71,6 +79,12 @@ describe("deriveArtifactStatus parity with CLI pipeline", () => {
           cliFinal.isComplete ?? false,
         );
       }
+
+      await Promise.all(
+        Array.from({ length: Math.min(CONCURRENCY, queue.length) }, async () => {
+          for (let entry = queue.pop(); entry; entry = queue.pop()) await checkOne(entry);
+        }),
+      );
     },
     60_000,
   );

@@ -54,6 +54,9 @@ export const UI_PRIMITIVE_KEYS = {
   statusPill: "ui:status-pill",
   /** Model picker with provider filter, typeahead, keyboard navigation, pending-state. */
   modelSelector: "ui:model-selector",
+  /** Thinking-level picker with the shell's per-model level filtering.
+   *  See change: upgrade-model-selector-primitives. */
+  thinkingLevelSelector: "ui:thinking-level-selector",
   /** Floating panel anchored to a DOM element; dismisses on outside-click/Esc. */
   popover: "ui:popover",
   /** Rich tool-call card matching the main chat view (per-tool renderers,
@@ -122,8 +125,29 @@ export interface UiDialogProps {
   icon?: string;
   /** `full` = near-fullscreen wide stage (max-w-[95vw]/max-h-[92vh]). See change: improve-flow-graph-dialog-and-card-interaction. */
   size?: "sm" | "md" | "lg" | "full";
-  /** Edge-to-edge body (no padding, clipped overflow) for self-framed children. See change: improve-flow-graph-dialog-and-card-interaction. */
+  /**
+   * Edge-to-edge body for a self-framed child: no padding, clipped overflow,
+   * and a flex COLUMN context. The panel carries only a `max-h` cap and no
+   * definite height, so a flush child MUST size itself `flex-1 min-h-0` — an
+   * `h-full` child resolves against an indefinite parent, grows to its content,
+   * and its own `overflow-y-auto` never becomes a scroller while the panel
+   * clips the surplus away unreachably.
+   *
+   * The built-in ✕ is NOT rendered in this mode: a self-framed child owns its
+   * header and its own dismissal affordance, and the panel reserves no corner
+   * for the control. Use `showClose` if your child renders no header.
+   * See change: improve-flow-graph-dialog-and-card-interaction,
+   * fix-flush-dialog-scroll-and-close-collision.
+   */
   flush?: boolean;
+  /**
+   * Restore the built-in ✕ under `flush`. A flush child that renders NO
+   * focusable element of its own MUST set this: without it the focus trap
+   * falls back to the dialog container, leaving keyboard users no target and
+   * no visible way out. Ignored when `flush` is false (the ✕ always renders).
+   * See change: fix-flush-dialog-scroll-and-close-collision.
+   */
+  showClose?: boolean;
   testId?: string;
   /** aria-label fallback when no `title` is supplied. */
   ariaLabel?: string;
@@ -253,6 +277,27 @@ export interface UiModelSelectorProps {
   models?: ModelInfo[];
   /** Invoked with the full `"<provider>/<id>"` string of the chosen model. */
   onSelect: (modelLabel: string) => void;
+  /** Trigger text when `current` is absent; the primitive's default is used when omitted. */
+  placeholder?: string;
+}
+
+/**
+ * Public prop signature for the thinking-level-selector primitive.
+ *
+ * Backed by the shell's own `ThinkingLevelSelector`, so the per-model level
+ * filtering (the opt-in top level, the fallback set) is shared by construction
+ * rather than copied. `supportedLevels` is caller-supplied: only the caller
+ * knows which model the row it is editing refers to.
+ *
+ * See change: upgrade-model-selector-primitives (design D3).
+ */
+export interface UiThinkingLevelSelectorProps {
+  /** Currently-selected level, or undefined (rendered as the off/default level). */
+  current?: string;
+  /** Invoked with the chosen level string. */
+  onSelect: (level: string) => void;
+  /** Levels the target model supports. Absent/empty → the shell's fallback set. */
+  supportedLevels?: string[];
 }
 
 /**
@@ -318,6 +363,7 @@ export interface UiPrimitiveMap {
   "ui:action-list": ComponentType<UiActionListProps>;
   "ui:status-pill": ComponentType<UiStatusPillProps>;
   "ui:model-selector": ComponentType<UiModelSelectorProps>;
+  "ui:thinking-level-selector": ComponentType<UiThinkingLevelSelectorProps>;
   "ui:popover": ComponentType<UiPopoverProps>;
   "ui:tool-call-step": ComponentType<UiToolCallStepProps>;
   "ui:thinking-block": ComponentType<UiThinkingBlockProps>;

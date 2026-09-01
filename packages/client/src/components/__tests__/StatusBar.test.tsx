@@ -3,8 +3,8 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ModelSelector } from "../settings/ModelSelector.js";
-import { StatusBar } from "../shell/StatusBar.js";
 import { ThinkingLevelSelector } from "../settings/ThinkingLevelSelector.js";
+import { StatusBar } from "../shell/StatusBar.js";
 
 afterEach(() => cleanup());
 
@@ -80,19 +80,20 @@ describe("ModelSelector", () => {
     expect(onSelect).toHaveBeenCalledWith("openai/gpt-4.1");
   });
 
-  it("is disabled when no models available", () => {
+  it("stays openable when no models available (open-empty-model-selector)", () => {
     render(<ModelSelector current="anthropic/claude-4" onSelect={() => {}} />);
-    expect(screen.getByTestId("model-selector-button").hasAttribute("disabled")).toBe(true);
+    expect(screen.getByTestId("model-selector-button").hasAttribute("disabled")).toBe(false);
   });
 
-  it("forwards the footer refresh to onRefresh (refresh-model-selector-models)", () => {
+  it("requests a refresh on the open transition (upgrade-model-selector-primitives)", () => {
     const send = vi.fn();
     const selectedId = "s1";
     const onRefresh = () => selectedId && send({ type: "request_models", sessionId: selectedId });
     render(<ModelSelector current="anthropic/claude-4" models={models} onSelect={() => {}} onRefresh={onRefresh} />);
     fireEvent.click(screen.getByTestId("model-selector-button"));
-    fireEvent.click(screen.getByTestId("model-refresh"));
     expect(send).toHaveBeenCalledWith({ type: "request_models", sessionId: selectedId });
+    // The manual footer control is gone — opening is the sole trigger.
+    expect(screen.queryByTestId("model-refresh")).toBeNull();
   });
 });
 

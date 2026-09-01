@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>G · Backfill</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="app.css">
+<script src="nav.js"></script>
+</head>
+<body>
+<div class="shell">
+  <div data-chrome data-title="Backfill scope" data-sub="Publish existing history · F10"></div>
+  <div class="stack-loose">
+    <div>
+      <h3 class="h-sec">Choosing scope — estimate over the limit</h3>
+      <div class="card card-pad" style="max-width:560px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:2px">How much history should we publish?</div>
+        <div class="muted" style="font-size:11px;margin-bottom:14px">Only this project. Sessions are scrubbed, scanned, and encrypted before upload.</div>
+
+        <div class="opt" data-selected="true" role="button" tabindex="0">
+          <span style="margin-top:2px" aria-hidden="true">◉</span>
+          <div style="flex:1">
+            <div class="t">Recent history</div>
+            <div class="d">Sessions from the last 90 days · <b>412 sessions</b> · about <b>1.4 GB</b></div>
+          </div>
+        </div>
+
+        <div class="opt" role="button" tabindex="0">
+          <span style="margin-top:2px" aria-hidden="true">○</span>
+          <div style="flex:1">
+            <div class="t">Everything</div>
+            <div class="d">All <b>4 224 sessions</b> · about <b>8.1 GB</b></div>
+          </div>
+        </div>
+
+        <div class="callout callout-warning" style="margin-top:12px">
+          <span class="glyph" aria-hidden="true">◆</span>
+          <div style="flex:1">
+            <strong>8.1 GB is over your 5 GB warning limit</strong>
+            <span class="body">You can continue, but check the bucket’s quota and costs first. You can also raise the limit in configuration.</span>
+            <label class="row" style="margin-top:10px;font-size:12px;cursor:pointer">
+              <input type="checkbox" style="min-width:16px;min-height:16px">
+              <span>Publish 8.1 GB anyway</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="row" style="margin-top:14px">
+          <button class="btn btn-primary" type="button" disabled>Publish everything</button>
+          <button class="btn btn-quiet" type="button">Cancel</button>
+        </div>
+      </div>
+      <div class="note">
+        Exactly two scopes, not a date matrix (<b>Hick’s Law</b>). The estimate is shown
+        <i>before</i> upload and exceeding the limit needs explicit consent (<b>H5, error prevention</b>).
+      </div>
+    </div>
+
+    <div>
+      <h3 class="h-sec">Running</h3>
+      <div class="card card-pad" style="max-width:560px">
+        <div class="row"><div style="flex:1;font-size:13px;font-weight:600">Publishing history</div><span class="muted" style="font-size:11px">1 318 of 4 224</span></div>
+        <div class="bar" style="margin-top:10px"><span style="width:31%"></span></div>
+        <div class="row" style="margin-top:10px">
+          <span class="muted" style="font-size:11px">2.5 GB uploaded · about 24 minutes left</span>
+          <div class="spacer"></div>
+          <button class="btn btn-sm btn-quiet" type="button">Cancel</button>
+        </div>
+        <div class="wrap" style="margin-top:12px">
+          <span class="chip chip-success"><span class="glyph" aria-hidden="true">✓</span> 1 314 published</span>
+          <span class="chip chip-warning"><span class="glyph" aria-hidden="true">◆</span> 4 held for review</span>
+        </div>
+      </div>
+      <div class="note">
+        A multi-minute job needs a <b>determinate</b> indicator plus cancel (<b>NN/g response-times &gt; 10 s</b>),
+        with counts front-loaded (<b>goal-gradient</b>).
+      </div>
+    </div>
+
+    <div>
+      <h3 class="h-sec">Complete</h3>
+      <div class="card card-pad" style="max-width:560px">
+        <div class="callout callout-success">
+          <span class="glyph" aria-hidden="true">✓</span>
+          <div style="flex:1">
+            <strong>4 217 sessions published</strong>
+            <span class="body">7 segments are held for review. They aren’t failures: each matched a credential pattern and needs a decision.</span>
+            <div class="row" style="margin-top:10px"><a class="btn btn-sm" href="a-quarantine.html">Review 7 findings</a></div>
+          </div>
+        </div>
+      </div>
+      <div class="note">Held ≠ failed. Conflating them would make a working safety feature read as an error (<b>H1</b>).</div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

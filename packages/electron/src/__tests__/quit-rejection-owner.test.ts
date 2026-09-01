@@ -97,7 +97,7 @@ describe("E5: a rejecting quit() reaches the requestQuit owner (logged + app.qui
     expect(quitItem?.click).toBeTypeOf("function");
 
     const unhandled = await withUnhandledCapture(() => {
-      (quitItem?.click as () => void)();
+      (quitItem!.click as () => void)();
     });
 
     // quit() was invoked, its rejection was observed by the wrapper...
@@ -128,7 +128,7 @@ describe("E5: a rejecting quit() reaches the requestQuit owner (logged + app.qui
 
     let floated: unknown;
     // Wrap the click so the floating rejection is captured here, not by Node.
-    const p = (quitItem?.click as () => Promise<void>)();
+    const p = (quitItem!.click as () => Promise<void>)();
     await (p as Promise<void>).catch((e) => {
       floated = e;
     });

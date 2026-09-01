@@ -4,22 +4,51 @@
  * orchestrator) installed pi/openspec/tsx at runtime into a user-writable
  * directory.
  *
- * Under the immutable-bundle architecture (change:
- * eliminate-electron-runtime-install) nothing reads from or writes to
- * this directory on the Electron arm. This module exists solely so the
- * Doctor UI can surface an advisory row, and the server CLI can log a
- * one-time hint, telling the user the directory is safe to delete.
+ * The directory is legacy ONLY when it is genuinely ORPHANED: no `node/`
+ * managed runtime, no Electron wizard state files, no non-empty
+ * `node_modules/`, and no `doctor.log`/`server.log` (logs are live content —
+ * the Doctor itself appends and tails them). When live consumers still own
+ * content under it, the detector reports WHICH consumers so the Doctor row
+ * and the server startup advisory can name them without ever suggesting
+ * deletion.
  *
  * NEVER move runtime install logic back into this directory. If you find
  * yourself reaching for `~/.pi-dashboard/`, you are working against R3.
+ *
+ * See change: unify-pi-runtime-identity (tasks 6.2, 9.8).
  */
 import fs from "node:fs";
-import path from "node:path";
 import os from "node:os";
+import path from "node:path";
+
+/**
+ * Directory is present and genuinely orphaned — nothing still owns content
+ * under it. `sizeMb` is the recursive byte sum (capped at 500 MB).
+ */
+export interface LegacyManagedDirOrphan {
+  present: true;
+  orphaned: true;
+  path: string;
+  sizeMb: number;
+}
+
+/**
+ * Directory is present but live consumers still own content under it.
+ * `consumers` are human-readable labels naming each owner (managed runtime /
+ * wizard state / node_modules / logs). NEVER suggest deleting these.
+ */
+export interface LegacyManagedDirLive {
+  present: true;
+  orphaned: false;
+  path: string;
+  consumers: string[];
+  sizeMb: number;
+}
 
 export type LegacyManagedDir =
   | { present: false }
-  | { present: true; path: string; pkgCount: number; sizeMb: number };
+  | LegacyManagedDirOrphan
+  | LegacyManagedDirLive;
 
 export interface DetectDeps {
   /** Override HOME for tests. */
@@ -27,6 +56,12 @@ export interface DetectDeps {
 }
 
 const LEGACY_DIRNAME = ".pi-" + "dashboard"; // split literal so the no-managed-dir lint stays clean
+
+/** Wizard state files written by `packages/electron/src/lib/wizard-state.ts`. */
+const WIZARD_STATE_FILES = ["dashboard-settings.json", "recommended.json"] as const;
+
+/** Log files that count as live content — the Doctor appends and tails them. */
+const LOG_FILES = ["doctor.log", "server.log"] as const;
 
 function getLegacyDirPath(env?: DetectDeps): string {
   return path.join(env?.homedir ?? os.homedir(), LEGACY_DIRNAME);
@@ -71,11 +106,59 @@ function countDirectChildren(dir: string): number {
   }
 }
 
+function isDirectory(p: string): boolean {
+  try {
+    return fs.statSync(p).isDirectory();
+  } catch {
+    return false;
+  }
+}
+
+function fileExists(p: string): boolean {
+  try {
+    return fs.statSync(p).isFile();
+  } catch {
+    return false;
+  }
+}
+
 /**
- * Detect whether the legacy `~/.pi-dashboard/` directory is present.
- * Returns `{ present: false }` when missing. When present, returns a
- * `pkgCount` (entries directly under `node_modules/`, 0 if missing) and
- * `sizeMb` (recursive byte sum, capped at 500 MB).
+ * Name every live consumer that still owns content under the legacy
+ * directory. Order is stable: managed runtime, wizard state, node_modules,
+ * then logs — mirroring the spec's enumeration.
+ */
+function detectConsumers(dir: string): string[] {
+  const consumers: string[] = [];
+  if (isDirectory(path.join(dir, "node"))) {
+    consumers.push("managed Node runtime (node/)");
+  }
+  const wizardFiles = WIZARD_STATE_FILES.filter((f) => fileExists(path.join(dir, f)));
+  if (wizardFiles.length > 0) {
+    consumers.push(`Electron wizard state (${wizardFiles.join(", ")})`);
+  }
+  const nmCount = countDirectChildren(path.join(dir, "node_modules"));
+  if (nmCount > 0) {
+    consumers.push(`managed node_modules (${nmCount} entries)`);
+  }
+  const logFiles = LOG_FILES.filter((f) => fileExists(path.join(dir, f)));
+  if (logFiles.length > 0) {
+    consumers.push(`logs (${logFiles.join(", ")})`);
+  }
+  return consumers;
+}
+
+/**
+ * Detect whether the legacy `~/.pi-dashboard/` directory is present, and if
+ * so whether it is genuinely orphaned or still owned by live consumers.
+ *
+ * - absent (or not a directory) → `{ present: false }`
+ * - present, no live consumers → `{ present: true, orphaned: true, path,
+ *   sizeMb }` — safe to delete manually
+ * - present, live consumers → `{ present: true, orphaned: false, path,
+ *   consumers, sizeMb }` — the caller MUST NOT suggest deletion
+ *
+ * Any internal failure collapses to `{ present: false }` (advisory absent
+ * rather than report-blocking). See change: unify-pi-runtime-identity.
  */
 export function detectLegacyManagedDir(deps: DetectDeps = {}): LegacyManagedDir {
   const dir = getLegacyDirPath(deps);
@@ -85,10 +168,12 @@ export function detectLegacyManagedDir(deps: DetectDeps = {}): LegacyManagedDir 
   } catch {
     return { present: false };
   }
-  const nodeModules = path.join(dir, "node_modules");
-  const pkgCount = countDirectChildren(nodeModules);
   const sizeMb = Math.round(dirSizeBytes(dir) / (1024 * 1024));
-  return { present: true, path: dir, pkgCount, sizeMb };
+  const consumers = detectConsumers(dir);
+  if (consumers.length === 0) {
+    return { present: true, orphaned: true, path: dir, sizeMb };
+  }
+  return { present: true, orphaned: false, path: dir, consumers, sizeMb };
 }
 
 /** Path-only accessor for callers that want to display the path without scanning. */

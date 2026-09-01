@@ -1,99 +1,96 @@
 ## Context
 
-HyperFrames (heygen-com/hyperframes, Apache-2.0) ships a 15-skill bundle in standard `SKILL.md` format — the same format pi already loads via `docs/skills.md`. Each skill is a directory under upstream `skills/` containing `SKILL.md` plus optional `scripts/`, `references/`, `templates/`, and `assets/`. Total payload is 2.5 MB across 172 files; 1.3 MB is the SFX library under `skills/website-to-hyperframes/assets/sfx/` (19 MP3s, Pixabay-licensed for redistribution + commercial use, no attribution required).
+HyperFrames (heygen-com/hyperframes, Apache-2.0) turns HTML/CSS/media plus seekable animations into deterministic MP4. It ships 20 skills in standard `SKILL.md` format: a router (`/hyperframes`), ten creation workflows (`/pr-to-video`, `/product-launch-video`, `/motion-graphics`, `/music-to-video`, …), and domain skills loaded on demand.
 
-The repo's `.pi/skills/` already holds ~23 curated project skills (release-cut, debug-dashboard, openspec-*). Pi's skill loader supports a `skills[]` array in `.pi/settings.json` that accepts directory paths — vendored skills can therefore live anywhere on disk and be referenced by configuration rather than copied into `.pi/skills/`.
+Two facts, verified against tag `v0.8.15` and the published `hyperframes@0.8.15` package, drive every decision below.
 
-Upstream's latest tag at time of writing is `0.6.48` (matches `.claude-plugin/plugin.json` version).
+**pi is a first-class install target.** The CLI's generated agent-directory table contains:
+
+```js
+{ agent: "pi", base: "home", sub: ".pi/agent/skills" }
+UNIVERSAL_STORE_READERS = new Set(["pi"])
+```
+
+pi is in `UNIVERSAL_STORE_READERS`, so the installer leaves it to read the universal store `~/.agents/skills` directly rather than mirroring into a pi-specific directory. That store is already live in this environment — this repo's sessions load `find-skills` from `~/.agents/skills/find-skills/SKILL.md` today. No repo configuration is needed for discovery.
+
+**The router lazily installs workflows at author time.** `skills/hyperframes/SKILL.md` runs `npx hyperframes skills update <workflow-name>` before entering any workflow, and its `references/skill-lifecycle.md` states: *"If the command fails, surface the error; do not reconstruct the workflow from memory."* The lazy install is a hard gate on the router path, not optional decoration.
 
 ## Goals / Non-Goals
 
 **Goals:**
-- Pi sessions opened against this repo discover all 15 HyperFrames SKILL.md trees via the standard pi skill loader, with zero per-machine setup.
-- Vendored content carries enough metadata (license, source URL, pinned version) that any contributor can identify provenance from the tree alone.
-- Upgrade procedure is a single re-runnable script — no manual file shuffling, no settings churn between versions.
-- The project's curated skill namespace (`.pi/skills/`) stays visually distinct from third-party content.
-- Documentation pointer lives where contributors look (`docs/hyperframes.md` + AGENTS.md one-liner), following this repo's Documentation Update Protocol.
+- A contributor can go from a clean machine to an authoring-capable pi session by following one documented page.
+- The prerequisites that are *not* satisfied by this repo today (FFmpeg) are stated up front rather than discovered at render time.
+- The version-reproducibility limitation is recorded as an inherited problem for `add-release-video-pipeline`, not silently assumed away.
 
 **Non-Goals:**
-- No CI render step. No template compositions. No committed video assets. (Deferred to `add-release-video-pipeline`.)
-- No root `package.json` change. HyperFrames is invoked ad-hoc via `npx` from composition directories, not added as a project dep.
-- No upstream fork. We vendor at a tag, never patch in place. Local edits to `vendor/hyperframes/` are forbidden (enforced by README convention; any patches need a separate `vendor/hyperframes/patches/` directory we deliberately leave undefined for now).
-- No automatic upgrade. Bumps are intentional human acts.
+- No vendored copy, no update script, no `.pi/settings.json` entry.
+- No CI render step, no committed video assets, no template compositions. (Deferred to `add-release-video-pipeline`.)
+- No root `package.json` dependency — `npx hyperframes` is invoked ad-hoc from a composition directory.
+- No attempt to pin the skill bundle. Upstream provides no supported mechanism (see D3).
 
 ## Decisions
 
-### D1. Vendor under `vendor/hyperframes/`, not `.pi/skills/`
+### D1. Use the upstream installer; do not vendor
 
-**Choice**: Place the upstream `skills/` tree at `vendor/hyperframes/skills/` and wire pi via `.pi/settings.json#skills[]`.
+**Choice**: Document `npx hyperframes skills update`. Ship no copy of upstream in this repo.
 
-**Rationale**: `.pi/skills/` is the curated project namespace — 23 skills authored *for* pi-agent-dashboard. Adding 15 third-party skills inline pollutes greps ("which of these is ours?"), confuses contributors, and tangles upgrade ergonomics (re-copying into `.pi/skills/` risks clobbering or merge conflicts on the curated skills).
+**Rationale**: An earlier revision of this change proposed vendoring the whole `skills/` tree at `vendor/hyperframes/` and wiring `.pi/settings.json#skills[]`. Investigation killed it:
+
+- **The pin would not hold.** The router's lazy `skills update` writes to `~/.agents/skills` regardless of what is vendored. Any workflow the router touches would then exist twice — pinned in-repo and freshly downloaded globally — at different versions, both visible to the session, with pi's precedence between them unverified.
+- **The vendored copy is invisible to the CLI.** `skills check` computes `missing`/`outdated`/`current` against the agent skill directories only. It would report every vendored workflow as `missing` and re-download it on every routing decision, forever.
+- **There is no supported opt-out.** `HYPERFRAMES_SKIP_SKILLS=1` is read in exactly one place — the `init` command. It does not suppress the router's `skills update`.
+- **The cost was real.** 18 MB and 904 files at `v0.8.15`, plus a bespoke update script to maintain, in exchange for a guarantee that does not hold.
 
 **Alternatives considered:**
-- `.pi/skills/hyperframes-*/` inline — rejected: namespace pollution, copy-on-upgrade risk.
-- `.pi/vendor/` — rejected: `.pi/` is pi-runtime-owned by convention; mixing vendored content in there is a category error.
-- Submodule at `vendor/hyperframes/` — rejected: forces every contributor through submodule init, breaks shallow clones, adds friction for a 2.5 MB payload.
-- Git subtree — viable but adds history weight; rejected for v1 in favor of a plain `rsync`-style copy via the update script. Subtree can be retrofitted later if upstream diffs become valuable.
+- *Vendor all 20 skills* — rejected above.
+- *Vendor the core set only (9 skills)* — smaller, but still split-brain the moment the router installs a workflow, and still requires the script. Rejected: same defect, less payload.
+- *Git submodule / subtree* — moot once vendoring is rejected.
 
-### D2. Settings pointer, not file copy into `.pi/skills/`
+### D2. No `.pi/settings.json` change
 
-**Choice**: `.pi/settings.json` gains `{ "skills": ["./vendor/hyperframes/skills"] }`.
+**Choice**: Leave `.pi/settings.json` untouched.
 
-**Rationale**: Pi documents `skills[]` accepting directories that get recursively scanned for `SKILL.md`. One line wires all 15 trees. Upgrade = re-run the script; settings never changes.
+**Rationale**: pi already reads `~/.agents/skills`, which is where the installer puts the bundle for pi. Adding a `skills[]` entry would point at a directory this change never creates. The repo's existing `skills[]` array (currently one negation entry) is left exactly as-is.
 
-**Alternative rejected**: symlinks under `.pi/skills/` pointing at `vendor/hyperframes/skills/*` — works on Unix, breaks on Windows clones without `core.symlinks=true`, complicates `git status`.
+### D3. Accept version drift; do not invent a pin
 
-### D3. Pin via `VERSION` file, not git tag inside vendor tree
+**Choice**: Document that `skills update` tracks upstream `main` and that renders are not reproducible across time.
 
-**Choice**: Plain-text `vendor/hyperframes/VERSION` containing the pinned tag (e.g. `0.6.48`). The update script reads it, the README quotes it, future CI lints can grep it.
+**Rationale**: Upstream ships no pinning mechanism for the skill bundle. `npx skills add heygen-com/hyperframes` resolves a registry blob that lags `main` by hours; `npx hyperframes skills update` installs from current `main`. Neither takes a version. Inventing a pin means reintroducing the vendoring rejected in D1.
 
-**Rationale**: Single source of truth. Avoids burying the pin in the script. Avoids re-encoding the tag in multiple docs.
+**Consequence**: this is a genuine limitation for a CI render step, where a bundle change could alter output between two runs of the same CHANGELOG entry. It is recorded as an inherited problem for `add-release-video-pipeline` rather than papered over here. Author-time use is unaffected in practice.
 
-### D4. Pinned-tag fetch, not pinned-commit
+### D4. State the FFmpeg gap rather than close it
 
-**Choice**: `scripts/update-hyperframes.sh` clones `--depth 1 --branch <tag>` and rsyncs `skills/` + `LICENSE` into `vendor/hyperframes/`.
+**Choice**: Document Node 22+ and FFmpeg as prerequisites; do not add FFmpeg to any setup path.
 
-**Rationale**: Tags match upstream release artifacts and what users see in `.claude-plugin/plugin.json`. Commits move; tags don't (for proper releases). Shallow clone keeps the script fast and disk-light. Rsync (not `cp -r`) makes the script idempotent — re-runs are no-ops, partial updates self-heal.
+**Rationale**: Node is already satisfied (`engines.node` is `>=22.19.0 <27`). FFmpeg is a system binary the repo neither requires nor installs, and it is absent from the `docker/` image. Provisioning it belongs with the change that actually needs an unattended render — `add-release-video-pipeline`. Closing it here would be speculative work for a consumer that does not exist yet.
 
-**Risk**: tag could be force-moved upstream. Mitigation: the script could optionally record commit hash too. Defer to a later iteration; not worth the complexity now.
+### D5. Docs land per the Documentation Update Protocol
 
-### D5. Idempotent script, not Makefile target or npm script
-
-**Choice**: Plain bash `scripts/update-hyperframes.sh`, invoked as `./scripts/update-hyperframes.sh [tag]` (default: read from `VERSION`).
-
-**Rationale**: This repo already has `scripts/*.sh` (per the existing layout); no Makefile to wire into. Adding an npm script in root `package.json` would imply runtime/dev relationship that doesn't exist. The script is self-contained, easily auditable, and CI-friendly.
-
-### D6. AGENTS.md gets one pointer row, not inline content
-
-**Per the project's Documentation Update Protocol**:
-- Per-file detail goes in the matching `docs/file-index-<area>.md` split. New rows for `vendor/hyperframes/*` and `scripts/update-hyperframes.sh` land there.
-- AGENTS.md gets one ≤200-char pointer to `docs/hyperframes.md`. No inline file enumeration.
-- The `docs/hyperframes.md` write is delegated to a subagent with the caveman-style rule passed verbatim in the prompt.
+- `docs/hyperframes.md` is written by a DocScribe subagent with the caveman-style rule passed verbatim.
+- `docs/AGENTS.md` gains one row for it, also delegated.
+- Root `AGENTS.md` gets nothing — the protocol's default is that an update does not belong there, and this is not a rule every agent needs every turn.
 
 ## Risks / Trade-offs
 
-- **Context cost**: 15 skill descriptions always-on in every pi session opened in this repo (~3–5 KB). → Acceptable; the SFX library and authoring skills are the flagship use case for `add-release-video-pipeline`. Mitigated by pi's progressive disclosure (bodies load on demand).
-- **Repo size grows by 2.5 MB**: 1.3 MB of that is MP3 SFX. → Pixabay license allows redistribution; SFX are valuable for release videos. Repo total impact <1% of current size; clones stay fast.
-- **Upstream upgrade drift**: a new HyperFrames release could change skill names or break references. → The pinned `VERSION` file prevents accidental drift; bumps are intentional. Local renders against vendored skills are deterministic for the pinned tag.
-- **License compliance**: Apache-2.0 requires preserving the LICENSE and any NOTICE on redistribution. → Upstream has no NOTICE file; we preserve LICENSE verbatim and add `vendor/hyperframes/README.md` summarizing provenance (covers §4(c) "attribution notices" requirement transparently even though strictly optional).
-- **Pixabay SFX provenance**: Pixabay's terms permit redistribution within derivative works (rendered videos) but do not explicitly cover "redistribution of the raw asset library in a public repo." → Upstream already redistributes these MP3s in a public Apache-2.0 repo with CREDITS.md in place; we inherit that posture verbatim. If Pixabay tightens terms, the mitigation is to drop the SFX subdir in a follow-up (script flag `--no-sfx`); skill set stays functional, palette gets sourced per-render. **Not implementing the flag in v1** — keep it simple, revisit if/when needed.
-- **Two readers of the version pin**: README quotes `0.6.48` and `VERSION` contains `0.6.48`. They can drift. → Convention: the README's version mention is informational; `VERSION` is canonical. The update script overwrites both atomically. Document this in `vendor/hyperframes/README.md`.
+- **Network dependency at author time.** The router cannot enter a workflow without a successful `skills update`. Offline authoring of an uninstalled workflow is impossible. → Accepted; the core set persists once installed, so only first use of a given workflow needs the network.
+- **Unpinned third-party code with write access to the global skill store.** `npx hyperframes` executes code fetched at run time and installs skills into `~/.agents/skills`, affecting every project on the machine, not just this repo. → The doc must state this plainly (see the `security-hardening` note in the proposal). Not mitigated technically — mitigating it means vendoring, which D1 rejected.
+- **Global install, not per-repo.** A contributor who follows the doc changes their machine, not their checkout. Two contributors can be on different bundle versions with no signal in `git status`. → Inherent to D1; the doc names it.
+- **Cold-cache weight.** `hyperframes@0.8.15` is ~32 MB unpacked, fetched by `npx` on first render. → One-time per machine, cached thereafter; nothing enters the repo.
+- **This change is now documentation-only.** Its entire deliverable is one doc page. → That is the honest size of the problem once vendoring is rejected; the value is the recorded prerequisites and caveats that `add-release-video-pipeline` depends on.
 
 ## Migration Plan
 
 **Forward:**
-1. Run `scripts/update-hyperframes.sh 0.6.48` (creates `vendor/hyperframes/`).
-2. Edit `.pi/settings.json` to add `"./vendor/hyperframes/skills"` to `skills[]`.
-3. Write `docs/hyperframes.md` (delegated subagent, caveman style).
-4. Add AGENTS.md pointer line.
-5. Add `docs/file-index-<area>.md` rows (delegated subagent, caveman style).
-6. Commit; open PR.
+1. Delegate `docs/hyperframes.md` to DocScribe (caveman style).
+2. Delegate the `docs/AGENTS.md` row.
+3. Verify the documented install command end-to-end on a clean machine (or a container) — install, discover in a pi session, render one throwaway composition.
+4. Commit; open PR.
 
-**Rollback:**
-- `git rm -r vendor/hyperframes/ scripts/update-hyperframes.sh docs/hyperframes.md`
-- Revert `.pi/settings.json` and AGENTS.md edits.
-- No runtime state to migrate, no DB, no cache. Removal is purely textual.
+**Rollback:** `git rm docs/hyperframes.md` and revert the `docs/AGENTS.md` row. Nothing else in the repo changed. Skills already installed into `~/.agents/skills` are unaffected and can be removed by the contributor at will.
 
 ## Open Questions
 
-(none at design stage — the proposal already deferred no questions to design. Implementation will surface concrete naming/path choices already resolved above.)
+- **Should FFmpeg be added to the `docker/` image?** Deferred to `add-release-video-pipeline` per D4, but if release video work starts in the harness rather than on a laptop, that change lands first.
+- **Is version drift tolerable for a CI render?** Unresolved by design; `add-release-video-pipeline` must answer it before any automated render output is trusted.

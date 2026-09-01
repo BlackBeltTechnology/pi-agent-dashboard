@@ -15,7 +15,7 @@
  */
 
 /** What ended a server boot. `null` = nothing recorded it, i.e. a crash. */
-export type ExitIntent = "restart" | "shutdown" | "user-quit" | "idle" | "signal";
+export type ExitIntent = "restart" | "shutdown" | "user-quit" | "idle" | "signal" | "ephemeral";
 
 /** One boot's outcome, as retained in the record's ring. */
 export interface BootRecord {
@@ -51,8 +51,17 @@ export const BOOT_RING_SIZE = 8;
  * and retract whatever proves alive inside the grace window. That is the
  * "only offer sessions that can never reattach" rule, decided by evidence
  * instead of by guessing at the user's intent.
+ *
+ * `ephemeral` (fix-autostart-discovery-precedence, task 5.5) joins the
+ * suppressing set: an ephemeral server exiting after its boot parent died is
+ * a DELIBERATE graceful exit (spawned pi drained via `server.stop`), not a
+ * crash to recover from.
  */
-const RECOVERY_SUPPRESSING: ReadonlySet<ExitIntent> = new Set<ExitIntent>(["restart", "shutdown"]);
+const RECOVERY_SUPPRESSING: ReadonlySet<ExitIntent> = new Set<ExitIntent>([
+  "restart",
+  "shutdown",
+  "ephemeral",
+]);
 
 /**
  * May a boot that ended with `intent` have its sessions offered for recovery?

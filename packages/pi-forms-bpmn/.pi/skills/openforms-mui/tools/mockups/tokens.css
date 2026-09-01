@@ -1,0 +1,27 @@
+/*
+ * Approved token layer for openforms-mui.
+ *
+ * This is the reviewed design source. `src/theme/from-tokens.ts` ports these
+ * values 1:1 into its default theme (task 10.0), and `mockups/ui-contract.tokens.json`
+ * expresses the same values in DTCG form for the token bridge. Keep the three in
+ * sync — tests/theme.test.ts asserts the port has not drifted.
+ */
+:root {
+  /* palette */
+  --ofm-color-primary: #1565c0;
+  --ofm-color-secondary: #6a1b9a;
+  --ofm-color-error: #c62828;
+  --ofm-color-warning: #ed6c02;
+  --ofm-color-success: #2e7d32;
+  --ofm-color-background-default: #ffffff;
+  --ofm-color-background-paper: #ffffff;
+
+  /* shape */
+  --ofm-radius-base: 8px;
+
+  /* typography */
+  --ofm-font-family-base: Roboto, "Helvetica Neue", Arial, sans-serif;
+
+  /* spacing */
+  --ofm-spacing-unit: 8px;
+}

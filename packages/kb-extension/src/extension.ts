@@ -17,14 +17,14 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 /** Minimal structural shape of the extension context we use (cwd). */
 type Ctx = { cwd?: string };
-import { Type } from "typebox";
-import { loadConfig } from "@blackbelt-technology/pi-dashboard-kb";
-import { agentsChain } from "@blackbelt-technology/pi-dashboard-kb";
-import { renderHits } from "@blackbelt-technology/pi-dashboard-kb";
+
 import { readFileSync } from "node:fs";
-import {
-  createReindexState, getKb, scheduleReindex, acknowledgeRows,
-  decideNudge, nudgeText, closeKb, reindexNow, ensurePopulated, type ReindexState,
+import { agentsChain, enrichHits, loadConfig, renderHits, searchOptsFromConfig } from "@blackbelt-technology/pi-dashboard-kb";
+import { Type } from "typebox";
+import { createGuard, type GuardInput, guardNoteSafe, type KbGuard, resolveGuardMode } from "./guard.js";
+import {acknowledgeRows,closeKb, 
+  createReindexState, 
+  decideNudge, ensurePopulated, getKb, nudgeText, type ReindexState,reindexNow, scheduleReindex, 
 } from "./reindex.js";
 
 const WRITE_TOOLS = new Set(["write", "edit", "bash"]);
@@ -41,12 +41,30 @@ export default function kbExtension(pi: ExtensionAPI): void {
   const state: ReindexState = createReindexState();
   let doxEnforcement = false;
   let dirAgentsPush = false;
+  let guard: KbGuard | null = null;
   try {
     const cfg = loadConfig(process.cwd());
     doxEnforcement = cfg.doxEnforcement;
     dirAgentsPush = cfg.directoryLevelAgents.enabled && cfg.directoryLevelAgents.mode === "push";
-  } catch { /* no config → both off */ }
+    // Search guard (arm B): shipped default warn (resolved at planning); config
+    // selects off|warn|block, KB_GUARD_MODE may weaken to off|warn only (D14).
+    guard = createGuard({ mode: resolveGuardMode(cfg.readDiscipline?.guard?.mode, process.env.KB_GUARD_MODE) });
+  } catch { /* no config → guard still gets its validated default */ }
+  guard ??= createGuard({ mode: resolveGuardMode(undefined, process.env.KB_GUARD_MODE) });
   if (process.env.KB_DOX_ENFORCEMENT === "1") doxEnforcement = true;
+  // Warnings from tool_call ride to tool_result keyed by call id (5.3):
+  // tool_call can only block, so advisory firings are stashed and prepended to
+  // the result the agent actually sees.
+  const pendingGuardWarnings = new Map<string, string>();
+  // Bound the map: an aborted warned call never sees its tool_result, so its
+  // entry would otherwise live forever. Evict oldest beyond the cap.
+  const rememberGuardWarning = (id: string, text: string) => {
+    if (pendingGuardWarnings.size >= 32) {
+      const oldest = pendingGuardWarnings.keys().next().value;
+      if (oldest !== undefined) pendingGuardWarnings.delete(oldest);
+    }
+    pendingGuardWarnings.set(id, text);
+  };
 
   // --- native tools (pull retrieval) ---
 
@@ -55,19 +73,33 @@ export default function kbExtension(pi: ExtensionAPI): void {
     label: "KB Search",
     description:
       "Search the local markdown knowledge base (FTS5 + BM25) for ranked sections before answering from memory. " +
-      "Default output is condensed text, one block per hit: `<rank>  <path>  ::  <headingPath>`, an optional `(+N dup)` " +
-      "duplicate-copy marker, an optional `⤷ <parentHeading>` continuation, then a one-line snippet. FTS match markers `[ ]` " +
-      "in the snippet flag the terms that matched. `rank` is a 1-based ordinal over the returned hits (not a global score). " +
-      "Pass `format:\"json\"` for compact machine-readable JSON that also retains the raw BM25 `score`. Prefer 2\u20135 keyword / identifier terms.",
+      "Default output is condensed text, one block per hit: `<rank>  <path>  ::  <leafHeading>`, an optional `(+N dup)` " +
+      "duplicate-copy marker, an optional `(+N more sections)` marker counting further matching sections of that SAME file, " +
+      "an optional `⤷ <parentHeading>` continuation, an optional trust verdict `LABEL (n of m subjects checked)`, an optional record-type mark `[agents]` / `[source-md]` (topic prose is unmarked), then a one-line snippet. " +
+      "FTS match markers `[ ]` in the snippet flag the terms that matched. `rank` is a 1-based ordinal over the returned hits " +
+      "(not a global score). `limit` bounds DISTINCT SOURCES (files), not chunks — one entry per file, so a page of 10 names 10 different files. " +
+      "Expand a file marked `(+N more sections)` with `kb_get(path)` / `kb_get(path, section)`. " +
+      "The verdict (FRESH/STALE/MOVED/GONE/UNVERIFIED) says whether the source files a DOX row documents are still accurate on disk. " +
+      "It is a TRUST label only — it never affects ranking; act on STALE/GONE hits only after verifying against source. " +
+      "Pass `format:\"json\"` for compact machine-readable JSON that also retains the raw BM25 `score` and the full `headingPath`.",
     promptSnippet: "Search the local markdown KB for ranked sections",
     promptGuidelines: [
       "Call kb_search FIRST for any project-specific factual / 'where is X' / 'how does Y work' question — before ctx_search, memory_search, grep, or reading source.",
       "kb_search indexes repo markdown (docs/, openspec/, packages/, .pi/). ctx_search/memory_search index session memory, not docs — different corpus. Fall through to grep/source only when kb_search returns nothing relevant.",
+      "Pick the doc_type lane per query: looking for a FILE or a SYMBOL → pass doc_type:\"agents\" (the per-file record lane); asking how something WORKS, or anything conceptual → leave doc_type unset. The filter is measurably harmful on conceptual queries, so it is a lane choice, never a default.",
     ],
     parameters: Type.Object({
-      query: Type.String({ description: "2\u20135 keyword / identifier / error-string terms to search" }),
+      query: Type.String({ description: "Keyword / identifier / error-string terms to search" }),
       limit: Type.Optional(Type.Number({ default: 10 })),
-      doc_type: Type.Optional(Type.Union([Type.Literal("doc"), Type.Literal("agents"), Type.Literal("source-md")])),
+      // Conditional, NOT a global win: the lane trade-off is measured in both
+      // directions, so the description must name both arms and recommend
+      // neither unconditionally. See change: fix-kb-search-lane-composition.
+      doc_type: Type.Optional(
+        Type.Union([Type.Literal("doc"), Type.Literal("agents"), Type.Literal("source-md")], {
+          description:
+            "Restrict results to one record lane. Looking for a FILE or a SYMBOL — 'where does X live', 'which file exports Y' — pass \"agents\" to search the terse per-file records directly. Asking how something WORKS, or any conceptual question, leave it unset: the filter measurably hurts those queries by hiding the prose that answers them. \"doc\" is topic/spec prose, \"source-md\" is markdown living beside source.",
+        }),
+      ),
       // Free string, NOT a strict Literal union: an unknown/malformed value must
       // fall back to condensed in-body, never hard-reject before execute() runs.
       format: Type.Optional(Type.String({ default: "condensed", description: "Output format: 'condensed' (default) or 'json' (compact, retains raw score)." })),
@@ -90,15 +122,26 @@ export default function kbExtension(pi: ExtensionAPI): void {
         console.warn(`[kb] freshness reindex failed, searching existing index: ${(e as Error).message}`);
       }
       const { store, cfg } = getKb(state, cwd);
-      const hits = store.search(query, {
-        limit,
-        docType: docType as any,
-        fieldWeights: cfg.ranking.fieldWeights,
-        proximityBoost: cfg.ranking.proximityBoost,
-        diversity: cfg.ranking.diversity,
-        expandParent: cfg.expand.parent,
-        rootPriority: Object.fromEntries(cfg.resolvedSources.map((s: { id: string; priority: number }) => [s.id, s.priority])),
-      });
+      // One shared mapping (design D2, fix-kb-eval-measurement-integrity).
+      // expandGraph:false + rerank:false are this tool's long-standing behaviour
+      // (never expand/rerank), now written down as explicit overrides instead of
+      // a silent omission.
+      const hits = store.search(
+        query,
+        { limit, docType: docType as any, ...searchOptsFromConfig(cfg, { overrides: { expandGraph: false, rerank: false } }) },
+      );
+      // Post-search trust-verdict enrichment (arm A) — async stage OUTSIDE the
+      // store (design D10); store.search() stays sync. Labels only: ordering is
+      // byte-identical with enrichment on or off (D1). Default ON for `agents`
+      // hits; prose hits report a null verdict, never a vacuous label. Bodies
+      // come from DISK (verdict.ts bodyOf default): the store's chunks table is
+      // FTS5 — every chunk fetch is a scan, and disk is what the row says now.
+      // Guarded: a verdict failure must never break the search itself.
+      try {
+        await enrichHits(hits, { cwd });
+      } catch (e) {
+        console.warn(`[kb] verdict enrichment failed: ${(e as Error).message}`);
+      }
       const text = fmt === "json"
         ? JSON.stringify(hits.map((h, i) => ({ ...h, rank: i + 1 })))
         : renderHits(hits, { leading: "rank", parentGlyph: "\u2937 ", multiline: true });
@@ -133,7 +176,10 @@ export default function kbExtension(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "kb_get",
     label: "KB Get",
-    description: "Fetch the full body of a markdown section by path (and optional heading_path).",
+    description:
+      "Fetch the full body of a markdown section by path (and optional heading_path). " +
+      "A path-only fetch of a multi-section file returns the first section AND reports how many further sections exist — " +
+      "it never silently hands back one arbitrary slice. Pass `section` (the full `headingPath` from `kb_search` JSON output) to address one.",
     parameters: Type.Object({
       path: Type.String(),
       section: Type.Optional(Type.String({ description: "heading_path breadcrumb" })),
@@ -149,7 +195,15 @@ export default function kbExtension(pi: ExtensionAPI): void {
       const { store, cfg } = getKb(state, cwd);
       const root = cfg.resolvedSources[0]?.id ?? "";
       const chunk = store.getChunk(root, params.path as string, params.section as string | undefined);
-      return { content: [{ type: "text", text: chunk?.body ?? `(not found: ${params.path})` }], details: { found: !!chunk } };
+      // Non-silent truncation (design D7): 53 of 636 indexed AGENTS files have
+      // >1 chunk, so a bare first-chunk body used to lie about being the file.
+      const more = chunk?.suppressedSections ?? 0;
+      const text = chunk
+        ? more > 0
+          ? `${chunk.body}\n\n(+${more} more section${more === 1 ? "" : "s"} in this file — pass \`section\` to fetch one)`
+          : chunk.body
+        : `(not found: ${params.path})`;
+      return { content: [{ type: "text", text }], details: { found: !!chunk, suppressedSections: more } };
     },
   });
 
@@ -175,13 +229,65 @@ export default function kbExtension(pi: ExtensionAPI): void {
     });
   }
 
+  // --- search guard (arm B): OWN tool_call hook — the push-mode hook above is
+  // gated inside dirAgentsPush and is deliberately NOT reused (task 5.2). Fed
+  // exactly once per invocation, HERE; tool_result never double-counts.
+
+  pi.on("tool_call", async (event) => {
+    const v = guardNoteSafe(guard, (event as { toolName?: string }).toolName ?? "", (event as { input?: GuardInput }).input);
+    if (!v) return;
+    if (typeof v === "string") {
+      const id = (event as { toolCallId?: string }).toolCallId;
+      if (id) rememberGuardWarning(id, v); // advisory: prepend to the result
+      return;
+    }
+    return v; // { block: true, reason } — tool_call is the only hook that blocks
+  });
+
+  pi.on("tool_result", async (event) => {
+    try {
+      const id = (event as { toolCallId?: string }).toolCallId;
+      const warn = id ? pendingGuardWarnings.get(id) : undefined;
+      if (id) pendingGuardWarnings.delete(id);
+      if (!warn) return;
+      const content = (event as { content?: Array<{ type: string; text?: string }> }).content;
+      const base = Array.isArray(content) ? content : [];
+      return { content: [{ type: "text", text: warn }, ...base] }; // prepend (5.3)
+    } catch {
+      return undefined; // degrade silently (X1): result untouched
+    }
+  });
+
+  pi.on("turn_start", async () => {
+    guard?.tickTurn(); // D9: the pause clock ticks once per model turn
+  });
+
+  // --- kb_guard_pause: agent self-service suspension (D9, task 5.4) ---
+
+  pi.registerTool({
+    name: "kb_guard_pause",
+    label: "KB Guard Pause",
+    description:
+      "Suspend the kb read-discipline guard for 1–20 model turns (agent self-service — no human approval). " +
+      "Intended for legitimate bulk exploration the guard would mis-fire on: deep refactors, log triage, bulk renames. " +
+      "The pause ticks down once per model turn; expiry restores a clean slate. Re-suspending never shortens an active pause.",
+    parameters: Type.Object({
+      turns: Type.Number({ description: "Model turns to suspend the guard (1–20; clamped)" }),
+    }),
+    async execute(_id: string, params: { turns: number }) {
+      const n = guard?.suspend(params.turns) ?? 0;
+      const text = n > 0 ? `kb guard suspended for ${n} turn${n === 1 ? "" : "s"}.` : "kb guard is not active or the request was invalid — no change.";
+      return { content: [{ type: "text", text }], details: { suspended: n } };
+    },
+  });
+
   // --- tool_result hook: Job 1 (reindex) + Job 2 (DOX nudge) ---
 
   pi.on("tool_result", async (event, ctx) => {
     const toolName = (event as { toolName?: string }).toolName;
     if (!WRITE_TOOLS.has(toolName ?? "")) return;
     const input = (event as { input?: { path?: string; command?: string } }).input;
-    let p = input?.path;
+    const p = input?.path;
     if (!p && toolName === "bash" && input?.command) {
       // best-effort: don't parse bash for edits; only handle write/edit paths
       return;
@@ -217,4 +323,4 @@ export default function kbExtension(pi: ExtensionAPI): void {
   });
 }
 
-export { createReindexState, getKb, scheduleReindex, acknowledgeRows, decideNudge, nudgeText, closeKb, closeKbForCwd, reindexNow, ensurePopulated } from "./reindex.js";
+export { acknowledgeRows, closeKb, closeKbForCwd, createReindexState, decideNudge, ensurePopulated, getKb, nudgeText, reindexNow, scheduleReindex } from "./reindex.js";

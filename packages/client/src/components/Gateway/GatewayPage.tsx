@@ -12,7 +12,7 @@
  */
 
 import type { TunnelMode } from "@blackbelt-technology/pi-dashboard-shared/tunnel-provider.js";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation } from "wouter";
 import { getConfig, putConfig } from "../../lib/gateway/gateway-api.js";
 import type { GatewayProviderId } from "../../lib/gateway/gateway-providers.js";
@@ -31,6 +31,17 @@ export function GatewayPage() {
   const [dirty, setDirty] = useState(false);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const providerRef = useRef<HTMLDivElement>(null);
+
+  // D3a: the page host MUST pass a setup handler — the component's navigate()
+  // fallback is a no-op here, because this page IS /settings/gateway. Focus the
+  // provider section (the setup controls) instead of re-navigating.
+  const focusProviderSetup = useCallback(() => {
+    const el = providerRef.current;
+    if (!el) return;
+    el.scrollIntoView({ block: "start" });
+    el.focus({ preventScroll: true });
+  }, []);
 
   useEffect(() => {
     void getConfig()
@@ -65,24 +76,35 @@ export function GatewayPage() {
     <div className="mx-auto max-w-3xl" data-testid="gateway-page">
       <div className="mb-4">
         <h2 className="text-lg font-semibold text-[var(--text-primary)]">{t("gateway.title", undefined, "Gateway")}</h2>
-        <p className="text-sm text-[var(--text-muted)]">
+        <p className="text-sm text-[var(--text-secondary)]">
           {t("gateway.page.subtitle", undefined, "Expose this dashboard beyond localhost — public proxy or private mesh.")}
         </p>
       </div>
 
-      <GatewayProviderSection
-        provider={provider}
-        mode={mode}
-        onChange={({ provider: p, mode: m }) => {
-          setProvider(p);
-          setMode(m);
-          setDirty(true);
-        }}
-        disabled={saving}
-      />
+      <div
+        id="gateway-provider-section"
+        ref={providerRef}
+        tabIndex={-1}
+        className="outline-none"
+      >
+        <GatewayProviderSection
+          provider={provider}
+          mode={mode}
+          onChange={({ provider: p, mode: m }) => {
+            setProvider(p);
+            setMode(m);
+            setDirty(true);
+          }}
+          disabled={saving}
+        />
+      </div>
 
       <Divider />
-      <GatewayPairQR />
+      {/* The Connect-a-device anchor: the Security page's pairing link and the
+          no-secure-road fallback both scroll to this section (tasks 2.11/4.5). */}
+      <div id="connect-a-device">
+        <GatewayPairQR onSetupRequested={focusProviderSetup} />
+      </div>
 
       <Divider />
       <GatewayUrlManager />
@@ -97,7 +119,7 @@ export function GatewayPage() {
 
       <Divider />
       <div>
-        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+        <p className="mb-1.5 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
           {t("gateway.trustedNetworksTitle", undefined, "Trusted networks")}
         </p>
         <p className="text-sm text-[var(--text-secondary)]">
@@ -137,7 +159,7 @@ export function GatewayPage() {
             data-testid="gateway-page-save"
             disabled={saving}
             onClick={() => void save()}
-            className="rounded bg-[var(--accent,#3b82f6)] px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
+            className="rounded bg-[var(--accent-solid)] px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
           >
             {saving ? t("gateway.saving", undefined, "Saving…") : t("gateway.save", undefined, "Save")}
           </button>

@@ -8,7 +8,7 @@ Surface per-session pending-prompt state typed while the agent is mid-turn. User
 
 When the bridge receives a `send_prompt` message AND `getBridgeState().isAgentStreaming === true` for the target session AND the prompt is not a slash, bash, compact, reload, new, model, or mgmt command, the bridge SHALL route based on `msg.delivery` — follow-up goes to the bridge-owned buffer, steer goes to pi's queue:
 
-- If `delivery === "followUp"` (or absent — backward-compat default), the bridge SHALL push the text into its in-memory `bridgeFollowUp: string[]` buffer AND emit `queue_update { sessionId, steering, followUp: [...bridgeFollowUp] }`. The bridge SHALL NOT call `pi.sendUserMessage(text, { deliverAs: "followUp" })`. Pi does not receive the message until the drain loop ships it later (see "Bridge follow-up drain loop runs on agent_end").
+- If `delivery === "followUp"` (or absent — backward-compat default), the bridge SHALL push a `{ text, images? }` entry into its in-memory `bridgeFollowUp` buffer AND emit `queue_update { sessionId, steering, followUp }` carrying the entry VIEWS (`{ text, imageCount }`), never image bytes. The bridge SHALL NOT call `pi.sendUserMessage(text, { deliverAs: "followUp" })`. Pi does not receive the message until the drain loop ships it later (see "Bridge follow-up drain loop runs on agent_end").
 
 - If `delivery === "steer"`, the bridge SHALL call `pi.sendUserMessage(text, { deliverAs: "steer" })` directly. Steer remains pi-owned; the bridge tracks shadow steering via `recordSteerSent` + drain-by-`message_start`-matcher (unchanged from prior architecture).
 
@@ -20,8 +20,8 @@ When `getBridgeState().isAgentStreaming === false` (idle session), the bridge SH
 - **WHEN** the agent is streaming
 - **AND** `bridgeFollowUp` is `["original"]`
 - **AND** the bridge receives `send_prompt { text: "second", delivery: "followUp" }`
-- **THEN** the bridge SHALL push to `bridgeFollowUp`, making it `["original", "second"]`
-- **AND** the bridge SHALL emit `queue_update { followUp: ["original", "second"] }`
+- **THEN** the bridge SHALL push to `bridgeFollowUp`, making it `[{text:"original"}, {text:"second"}]`
+- **AND** the bridge SHALL emit `queue_update { followUp: [{text:"original", imageCount:0}, {text:"second", imageCount:0}] }`
 - **AND** the bridge SHALL NOT call `pi.sendUserMessage` at all for this message
 
 #### Scenario: Steer send during streaming routes to pi directly
@@ -52,14 +52,22 @@ When `getBridgeState().isAgentStreaming === false` (idle session), the bridge SH
 
 ### Requirement: Server caches per-session queue state from `queue_update` events
 
-The server SHALL maintain a per-session `pendingQueues: { steering: string[]; followUp: string[] }` field inside `SessionUiState`. The field SHALL be updated whenever a `queue_update` ExtensionToServerMessage arrives from a bridge for that session. The server SHALL include `pendingQueues` in every `session_updated` broadcast and in the initial-state replay sent on browser subscribe.
+The server SHALL maintain a per-session `pendingQueues: { steering: string[]; followUp: FollowUpEntryView[] }` field inside `SessionUiState`, where `FollowUpEntryView = { text: string; imageCount: number }`. The field SHALL be updated whenever a `queue_update` ExtensionToServerMessage arrives from a bridge for that session. The server SHALL include `pendingQueues` in every `session_updated` broadcast and in the initial-state replay sent on browser subscribe.
+
+The server SHALL forward `followUp` entries verbatim and SHALL NOT inspect, rewrite, or validate their fields. `steering` remains `string[]` (pi-owned, display-only, never image-bearing).
 
 This replaces the prior `queue.pending: PendingPrompt[]` cache, which was sourced from the deleted `queue_state` event.
 
 #### Scenario: queue_update populates the cache
-- **WHEN** a bridge sends `queue_update { sessionId: "S", steering: ["a", "b"], followUp: ["c"] }`
-- **THEN** the server SHALL set `SessionUiState[S].pendingQueues = { steering: ["a", "b"], followUp: ["c"] }`
+- **WHEN** a bridge sends `queue_update { sessionId: "S", steering: ["a", "b"], followUp: [{ text: "c", imageCount: 0 }] }`
+- **THEN** the server SHALL set `SessionUiState[S].pendingQueues = { steering: ["a", "b"], followUp: [{ text: "c", imageCount: 0 }] }`
 - **AND** the server SHALL broadcast `session_updated` with the new value to subscribers
+
+#### Scenario: Image-bearing entry round-trips its count
+- **WHEN** a bridge sends `queue_update { sessionId: "S", steering: [], followUp: [{ text: "describe", imageCount: 2 }] }`
+- **THEN** the server SHALL set `pendingQueues.followUp` to `[{ text: "describe", imageCount: 2 }]`
+- **AND** the broadcast SHALL carry `imageCount: 2` unmodified
+- **AND** no image `data` field SHALL be present anywhere in the broadcast payload
 
 #### Scenario: Empty arrays clear the cache slot
 - **WHEN** a bridge sends `queue_update { sessionId: "S", steering: [], followUp: [] }`
@@ -136,21 +144,6 @@ The `CommandInput` component SHALL listen for `AltGraph + Enter` AND `Alt + Ente
 - **THEN** a newline character SHALL be inserted and the cursor SHALL advance to the next line
 - **AND** no send action SHALL fire
 
-### Requirement: Image attachments are not displayed on chips in v1
-
-Pi 0.74 receives image-bearing prompts via `pi.sendUserMessage(content, ...)` where `content` is an array of `TextContent | ImageContent`. The bridge holds the original `images` array on the `PendingPrompt`, but in v1 the queue chips SHALL render text only and SHALL NOT display image previews. When the user sends an image-bearing prompt that enters the bridge queue, the optimistic-prompt card SHALL still render with image thumbnails (per the existing `optimistic-prompt` capability) until that prompt is observed in the queue, at which point the card SHALL be replaced by a text-only chip and the image previews SHALL no longer be visible.
-
-#### Scenario: Image-bearing send shows optimistic card with images, then text-only chip
-- **WHEN** the user sends `{ text: "describe", images: [PNG] }` while the agent is streaming
-- **THEN** initially an optimistic card SHALL render with the text and the PNG thumbnail
-- **WHEN** the next `queue_state` event reports `pending: [{id:..., text:"describe", images:[PNG]}]`
-- **THEN** the optimistic card SHALL be replaced by a text-only chip displaying "describe" with no image thumbnail
-
-#### Scenario: Drain preserves image attachments
-- **WHEN** the bridge drains a `PendingPrompt` that carries `images`
-- **THEN** the bridge SHALL call `pi.sendUserMessage` with the content array including the original images
-- **AND** the resulting agent turn SHALL receive the images via pi's standard image handling
-
 ### Requirement: Session card shows a count-only queue indicator
 
 When a session's `queue.pending.length > 0`, the session card in the session list SHALL display a small queue indicator showing the total count. The indicator SHALL NOT show queue contents — it is an at-a-glance signal only. When the count is zero, no indicator SHALL be rendered.
@@ -197,13 +190,15 @@ The client SHALL NOT maintain an optimistic `pendingPrompt` slot when sending a 
 Pi's ExtensionAPI does not forward `queue_update` events to extensions (verified through pi 0.76.0). The bridge SHALL maintain two distinct per-session in-memory structures with different ownership semantics:
 
 - **`bridgeSteering: string[]` (pi-OWNED + SHADOW)** — mirrors pi's `Agent.steeringQueue`. Mutated only by `recordSteerSent` (on bridge-originated steer sends) + drain-by-`message_start`-matcher (when pi delivers a queued steer entry, the matching text is spliced).
-- **`bridgeFollowUp: string[]` (BRIDGE-OWNED BUFFER)** — authoritative store for dashboard-originated follow-up entries while the agent is streaming. Pi never sees these entries until the drain loop ships them on `agent_end`. Mutated by `bufferFollowupSend` (on push) + `drainFollowupQueue` (on pop) + mutation handlers (`edit_followup_entry`, `remove_followup_entry`, `promote_followup_entry`, `clear_followup_entries`, `pull_followup_to_editor`).
+- **`bridgeFollowUp: FollowUpEntry[]` (BRIDGE-OWNED BUFFER)** — authoritative store for dashboard-originated follow-up entries while the agent is streaming, where `FollowUpEntry = { text: string; images?: ImageContent[] }`. Pi never sees these entries until the drain loop ships them on `agent_end`. Mutated by `bufferFollowupSend` (on push), `enqueueSystemFollowup` (on system push), `drainFollowupQueue` (on pop), and the four mutation handlers (`edit_followup_entry`, `remove_followup_entry`, `promote_followup_entry`, `clear_followup_entries`).
 
-Both structures feed the same `queue_update { sessionId, steering: [...], followUp: [...] }` ExtensionToServerMessage. The server caches the snapshot and broadcasts to subscribed browsers.
+An entry's images SHALL be stored on the entry itself, never in a parallel index-keyed structure, so that every splice/unshift/shift preserves the text↔images association structurally.
 
-**Session-change reset:** session-change events (new / fork / resume) SHALL reset both arrays to `[]` and emit `queue_update` once. Different session — old state is meaningless.
+Both structures feed the same `queue_update { sessionId, steering: [...], followUp: [...] }` ExtensionToServerMessage, where each `followUp` element is projected to `{ text, imageCount }`. Image bytes SHALL NOT be included in `queue_update`. The server caches the snapshot and broadcasts to subscribed browsers.
 
-**Bridge restart:** both structures are in-memory only; bridge process restart (`/reload`, dashboard restart, pi crash) loses them. Symmetric with pi's own queue behavior.
+**Session-change reset:** session-change events (new / fork / resume) SHALL reset both arrays to `[]` and emit `queue_update` once. Different session — old state is meaningless. Buffered image bytes are released with the entries.
+
+**Bridge restart:** both structures are in-memory only; bridge process restart (`/reload`, dashboard restart, pi crash) loses them, including any buffered image bytes. Symmetric with pi's own queue behavior.
 
 #### Scenario: Bridge records a steer mid-stream
 - **WHEN** the agent is streaming
@@ -218,16 +213,16 @@ Both structures feed the same `queue_update { sessionId, steering: [...], follow
 - **AND** the bridge SHALL emit `queue_update`
 
 #### Scenario: Steering matcher checked before follow-up matcher
-- **WHEN** `bridgeSteering` is `["hello"]` and `bridgeFollowUp` is `["hello"]`
+- **WHEN** `bridgeSteering` is `["hello"]` and `bridgeFollowUp` is `[{ text: "hello" }]`
 - **AND** pi delivers user `message_start` with content `"hello"`
 - **THEN** the bridge SHALL remove the steering entry first (matches pi's emit order)
-- **AND** `bridgeSteering` SHALL become `[]` while `bridgeFollowUp` SHALL still contain `["hello"]`
+- **AND** `bridgeSteering` SHALL become `[]` while `bridgeFollowUp` SHALL still contain `[{ text: "hello" }]`
 
 #### Scenario: Follow-up matcher is a no-op for buffered entries
-- **WHEN** `bridgeFollowUp` is `["queued by dashboard"]` (buffered, not yet drained)
-- **AND** the agent finishes its turn and the drain loop pops `"queued by dashboard"` and sends it via `pi.sendUserMessage` with no `deliverAs`
+- **WHEN** `bridgeFollowUp` is `[{ text: "queued by dashboard" }]` (buffered, not yet drained)
+- **AND** the agent finishes its turn and the drain loop pops that entry and sends it via `pi.sendUserMessage` with no `deliverAs`
 - **AND** pi emits user `message_start` with content `"queued by dashboard"` for the fresh turn
-- **THEN** the matcher SHALL look up `"queued by dashboard"` in `bridgeFollowUp` and find `-1` (already popped by the drain loop)
+- **THEN** the matcher SHALL look up `"queued by dashboard"` among `bridgeFollowUp` entry texts and find `-1` (already popped by the drain loop)
 - **AND** the splice SHALL be a no-op; no `queue_update` emitted from the matcher path
 
 #### Scenario: Session-change resets both structures
@@ -235,6 +230,12 @@ Both structures feed the same `queue_update { sessionId, steering: [...], follow
 - **AND** either `bridgeSteering` or `bridgeFollowUp` is non-empty
 - **THEN** the bridge SHALL set both to `[]`
 - **AND** the bridge SHALL emit `queue_update { steering: [], followUp: [] }` once
+
+#### Scenario: Session-change releases buffered image bytes
+- **WHEN** `bridgeFollowUp` holds an entry carrying images
+- **AND** the bridge handles `session_start` with `reason: "resume"`
+- **THEN** `bridgeFollowUp` SHALL become `[]`
+- **AND** the buffer's accounted byte total SHALL return to zero
 
 ### Requirement: Capture-before-send streaming gate prevents idle-message false-chip
 
@@ -296,192 +297,78 @@ The `QueuePanel.SteerSection` component SHALL be removed.
 - **AND** the bridge SHALL NOT log a warning about the missing pi method (silent no-op)
 - **AND** pi's internal `_steeringMessages` queue SHALL still deliver at the next drain (known limitation — see upstream pi feature request)
 
-### Requirement: Follow-up queue surface is display-only with cycling navigation
+### Requirement: User abort preserves shadow queues and never clears pi's native queues
 
-The client `QueuePanel` component SHALL render the follow-up queue as a display-only surface. One entry visible at a time, navigable with two controls only:
+When the bridge's `abort` extension command is invoked (via a browser `abort { sessionId }` message routed through the server to pi), the bridge SHALL:
 
-- **↑ Previous (`queue-followup-prev`)** — navigate to previous entry in `pendingQueues.followUp[]`. Disabled when `currentIndex === 0`. Hidden when queue has ≤1 entry.
-- **↓ Next (`queue-followup-next`)** — navigate to next entry. Disabled when at last entry. Hidden when queue has ≤1 entry.
-- Position indicator (`queue-followup-position`) shows `“<idx+1> of <total>”` when queue has ≥2 entries.
+1. Latch the abort (`abortLatch.request(sessionId)`) BEFORE invoking `cachedCtx.abort()`, so a long provider backoff that outlives the 2 s persistent-abort scheduler still stops pi when it wakes to retry.
+2. Invoke `cachedCtx.abort()`.
+3. Call `retryTracker.noteAbort(sessionId)` (clears the in-flight attempt counter). The bridge SHALL NOT call `usageLimitOrderer.noteRetryEnd(sessionId)`; the orderer's `pending` flag MUST survive user-initiated abort so that pi's eventual terminal `agent_end` can still surface the real provider `errorMessage` via the orderer's `maybeSynthesize` path.
 
-The visible entry SHALL be rendered as plain text inside `data-testid="queue-chip-followup"`. **NO mutation controls SHALL be present**: no ✕ cancel-all, no ✕ per-entry remove, no edit (click-to-edit), no ⇧ promote, no editor textarea. The following `data-testid` values SHALL NEVER be in the DOM:
+The bridge SHALL NOT reset `bridgeSteering` or `bridgeFollowUp` on abort, and SHALL NOT emit a `queue_update` from the abort path. Pi's ExtensionAPI exposes no queue-clear primitive, so the shadows continue to mirror pi's actual retained queues; emptying them would make the dashboard claim a state pi is not in.
 
-- `queue-followup-promote`
-- `queue-followup-remove`
-- `queue-followup-edit`
-- `queue-followup-editor`
+Because the follow-up buffer survives abort, its retained bytes also survive. The aggregate byte ceiling is unaffected: the accounted total is derived from the live entries at each check, so a surviving buffer simply continues to be accounted.
 
-Navigation between entries is purely client-side state (no network round-trip, no bridge messages, no pi mutation). The currentIndex SHALL clamp to `length - 1` when the queue shrinks and SHALL jump to `length - 1` when the queue grows (append-friendly UX so the user sees what they just queued).
+The wrapper-abort SHALL run exactly ONCE on the initial `abort` command. Subsequent persistent-abort scheduler ticks (see `provider-retry-state` "Bridge persistent-abort scheduler closes retry race") SHALL invoke `cachedCtx.abort()` directly (raw), NOT the wrapper.
 
-Rationale: pi's ExtensionAPI (verified through pi 0.75.5) exposes no queue mutation methods. The bridge's previous `(pi as any).clearFollowUpQueue?.()` was a silent no-op; per-entry edit/promote/remove all routed through `rewriteFollowupQueue` which appended duplicates instead of replacing. The honest interim UX matches pi-TUI's own model: `app.message.dequeue` (`alt+up`) yanks ALL queued text into the editor; per-entry editing doesn't exist there either. The dashboard's Stop button (`wrappedHandleAbort`) already implements the yank-into-draft side of that flow.
-
-Upstream pi feature request: expose `ctx.clearQueue()` on `ExtensionContext` (one-liner over `AgentSession.clearQueue()`); once available, restore the mutation surface honestly.
-
-#### Scenario: empty queue renders nothing
-- **WHEN** `pendingQueues.followUp` is `[]`
-- **THEN** the `QueuePanel` SHALL render nothing in the DOM
-
-#### Scenario: single entry renders text + no controls
-- **WHEN** `pendingQueues.followUp` is `["only one"]`
-- **THEN** `queue-chip-followup` SHALL contain `"only one"`
-- **AND** no `queue-followup-prev`, `queue-followup-next`, `queue-followup-promote`, `queue-followup-remove`, `queue-followup-edit`, `queue-followup-editor`, OR `queue-followup-position` element SHALL be present
-
-#### Scenario: multi-entry renders cycling controls + position indicator
-- **WHEN** `pendingQueues.followUp` is `["alpha", "beta", "gamma"]`
-- **THEN** `queue-chip-followup` SHALL initially render `"gamma"` (the last entry)
-- **AND** `queue-followup-position` SHALL render `"3 of 3"`
-- **AND** `queue-followup-prev` and `queue-followup-next` SHALL be present
-- **AND** `queue-followup-promote`, `queue-followup-remove`, `queue-followup-edit`, `queue-followup-editor` SHALL NOT be present
-
-#### Scenario: ↑ navigates without mutating the queue
-- **GIVEN** `pendingQueues.followUp` is `["alpha", "beta", "gamma"]` (currentIndex = 2)
-- **WHEN** the user clicks `queue-followup-prev`
-- **THEN** `queue-chip-followup` SHALL render `"beta"`
-- **AND** NO browser-to-server message SHALL be dispatched (no `clear_followup_slot`, no `edit_followup_entry`, no `remove_followup_entry`, no `promote_followup_entry`)
-- **AND** `pendingQueues.followUp` SHALL remain `["alpha", "beta", "gamma"]`
-
-#### Scenario: navigation buttons disable at boundaries
-- **WHEN** `pendingQueues.followUp` is `["a", "b"]` and currentIndex is at the last entry
-- **THEN** `queue-followup-next` SHALL be disabled (`disabled` attribute)
-- **WHEN** the user clicks `queue-followup-prev` to navigate to currentIndex 0
-- **THEN** `queue-followup-prev` SHALL be disabled
-
-#### Scenario: currentIndex clamps when the queue shrinks
-- **GIVEN** `pendingQueues.followUp` was `["a", "b", "c"]` (currentIndex = 2)
-- **WHEN** a `queue_update` arrives with `followUp: ["a", "b"]` (length decreased)
-- **THEN** `queue-chip-followup` SHALL render `"b"` (clamped to last valid index)
-
-#### Scenario: currentIndex jumps to last on grow (append-friendly)
-- **GIVEN** `pendingQueues.followUp` was `["a"]`
-- **WHEN** a `queue_update` arrives with `followUp: ["a", "b"]` (length increased)
-- **THEN** `queue-chip-followup` SHALL render `"b"` (the newly-appended entry)
-
-### Requirement: User abort resets shadow queues and clears pi's native queues
-
-When the bridge's `abort` extension command is invoked (via a browser `abort { sessionId }` message routed through the server to pi), the bridge SHALL — before invoking `cachedCtx.abort()` — perform the same shadow-queue reset used by the shutdown command:
-
-1. The bridge SHALL call `pi.clearSteeringQueue()` and `pi.clearFollowUpQueue()` defensively (guarded by `typeof === "function"` and wrapped in `try/catch`). Both run unconditionally.
-2. If either `bridgeSteering` or `bridgeFollowUp` is non-empty, the bridge SHALL reset both to `[]` AND emit one final `queue_update { sessionId, steering: [], followUp: [] }`. Empty shadows SHALL NOT emit `queue_update`.
-3. The bridge SHALL THEN invoke the existing `cachedCtx.abort()` call.
-4. After `cachedCtx.abort()`, the bridge SHALL call `retryTracker.noteAbort(sessionId)` (clears the in-flight attempt counter). The bridge SHALL NOT call `usageLimitOrderer.noteRetryEnd(sessionId)`; the orderer's `pending` flag MUST survive user-initiated abort so that pi's eventual terminal `agent_end` can still surface the real provider `errorMessage` via the orderer's `maybeSynthesize` path.
-
-The wrapper-abort SHALL run exactly ONCE on the initial `abort` command. Subsequent persistent-abort scheduler ticks (see `provider-retry-state` "Bridge persistent-abort scheduler closes retry race") SHALL invoke `cachedCtx.abort()` directly (raw), NOT the wrapper — preventing recurring queue clears that would clobber user prompts sent within the 2 s persistent-abort window.
-
-Rationale: user clicked Stop. Mental model is "stop everything currently queued" — queued messages must not be delivered after the abort settles. Matches pi-TUI's `restoreQueuedMessagesToEditor({abort: true})` behavior. The orderer's pending flag is intentionally NOT cleared here so that the real provider error survives the user-initiated abort path.
-
-#### Scenario: Abort with non-empty steering resets, emits, then calls cachedCtx.abort
-- **WHEN** `bridgeSteering` is `["focus on X"]` and `bridgeFollowUp` is `[]`
+#### Scenario: Abort does not clear the follow-up buffer
+- **WHEN** `bridgeFollowUp` holds two entries, one carrying images
 - **AND** the bridge's `abort` extension command is invoked
-- **THEN** the bridge SHALL call `pi.clearSteeringQueue()` and `pi.clearFollowUpQueue()` defensively
-- **AND** the bridge SHALL set `bridgeSteering` to `[]`
-- **AND** the bridge SHALL emit `queue_update { sessionId, steering: [], followUp: [] }` exactly once
-- **AND** the bridge SHALL THEN invoke `cachedCtx.abort()`
-- **AND** the bridge SHALL call `retryTracker.noteAbort(sessionId)`
+- **THEN** the bridge SHALL invoke `cachedCtx.abort()`
+- **AND** `bridgeFollowUp` SHALL still hold both entries with their images
+- **AND** the bridge SHALL NOT emit `queue_update` from the abort path
+
+#### Scenario: Abort latches before invoking abort
+- **WHEN** the user dispatches `abort`
+- **THEN** `abortLatch.request(sessionId)` SHALL be called BEFORE `cachedCtx.abort()`
+- **AND** `retryTracker.noteAbort(sessionId)` SHALL be called after
 - **AND** the bridge SHALL NOT call `usageLimitOrderer.noteRetryEnd(sessionId)`
-
-#### Scenario: Abort with both queues empty does NOT emit queue_update
-- **WHEN** `bridgeSteering` is `[]` and `bridgeFollowUp` is `[]`
-- **AND** the bridge's `abort` extension command is invoked
-- **THEN** the bridge SHALL still call `pi.clearSteeringQueue()` and `pi.clearFollowUpQueue()` defensively
-- **AND** the bridge SHALL NOT emit `queue_update`
-- **AND** the bridge SHALL invoke `cachedCtx.abort()` as before
-- **AND** `usageLimitOrderer.hasPending(sessionId)` SHALL be unchanged by the abort
-
-#### Scenario: Pi missing clear-queue functions — abort still proceeds without throw
-- **WHEN** the running pi version does not expose `pi.clearSteeringQueue` as a function
-- **AND** the bridge's `abort` extension command is invoked with non-empty shadows
-- **THEN** the bridge SHALL skip the missing call (guarded by `typeof === "function"`)
-- **AND** the bridge SHALL still reset the shadow arrays and emit the final `queue_update`
-- **AND** the bridge SHALL still invoke `cachedCtx.abort()`
-
-#### Scenario: Wrapper-abort runs once, persistent ticks run raw
-- **WHEN** the user dispatches `abort` for a session with `bridgeSteering: ["a"]`
-- **THEN** the wrapper-abort body (clear queues, reset shadows, emit queue_update, cachedCtx.abort, noteAbort) SHALL execute exactly once
-- **AND** subsequent persistent-abort scheduler ticks within the 2 s window SHALL each invoke `cachedCtx.abort()` directly
-- **AND** the persistent ticks SHALL NOT additionally call `pi.clearSteeringQueue`, `pi.clearFollowUpQueue`, reset bridge shadows, or emit `queue_update`
 
 #### Scenario: Orderer pending survives user abort during retry
 - **GIVEN** the orderer's `pending` flag is `true` for the session (retry chain in flight)
 - **WHEN** the user dispatches `abort`
-- **THEN** the wrapper-abort SHALL run as described above
-- **AND** `usageLimitOrderer.hasPending(sessionId)` SHALL remain `true` after the wrapper completes
+- **THEN** `usageLimitOrderer.hasPending(sessionId)` SHALL remain `true` after the wrapper completes
 - **AND** when pi subsequently emits `agent_end` with `errorMessage` matching `USAGE_LIMIT_PATTERN`, the orderer's `maybeSynthesize` SHALL fire and forward the synthesized terminal `auto_retry_end{finalError}` carrying the real provider message
 
-### Requirement: rewriteFollowupQueue requires active streaming
-
-The bridge's `rewriteFollowupQueue(newEntries)` helper — used by `edit_followup_slot`, `edit_followup_entry`, `promote_followup_entry`, and `remove_followup_entry` message handlers — SHALL early-return when `getBridgeState().isAgentStreaming === false`. The helper SHALL emit a `command_feedback` event with `status: "error"` and a human-readable message (e.g. `"Follow-up queue edit ignored: session is idle"`) so the client can surface a transient toast and clear the affected chip from the visible queue.
-
-Rationale: pi's `pi.sendUserMessage(text, {deliverAs:"followUp"})` is idle-aware — when there is no streaming agent, pi treats the call as a fresh user send and synchronously fires `agent_start`, starting a NEW turn for the first replayed entry. Without this guard, an edit/promote/remove against an idle session would refire the agent for the first replayed entry while the bridge's shadow simultaneously claims the entries are queued — a desync that surfaces as "the agent started running my queued message instead of waiting".
-
-The guard SHALL apply equally to all four entry points (`edit_followup_slot`, `edit_followup_entry`, `promote_followup_entry`, `remove_followup_entry`). Each handler SHALL check `isAgentStreaming` BEFORE calling `rewriteFollowupQueue` (or inside, identically — implementation choice as long as the no-op behavior is observable from outside).
-
-When the guard fires, the bridge's shadow queue (`bridgeFollowUp`) SHALL remain unchanged AND no `queue_update` SHALL be emitted. The user-visible queue stays at whatever state it was before the user clicked the control. The `command_feedback` is the only outgoing event.
-
-#### Scenario: edit_followup_entry on idle session emits command_feedback and does not refire
-- **GIVEN** `isAgentStreaming === false` (no active agent)
-- **AND** `bridgeFollowUp` is `["a", "b"]`
-- **WHEN** the bridge receives `edit_followup_entry { sessionId, index: 1, text: "b-edited" }`
-- **THEN** `pi.sendUserMessage` SHALL NOT be invoked
-- **AND** `pi.clearFollowUpQueue` SHALL NOT be invoked
-- **AND** `bridgeFollowUp` SHALL remain `["a", "b"]`
-- **AND** the bridge SHALL forward a `command_feedback { status: "error", message: <user-facing string> }` event
-- **AND** no `queue_update` SHALL be emitted
-
-#### Scenario: promote_followup_entry on idle session is a no-op with feedback
-- **GIVEN** `isAgentStreaming === false`
-- **AND** `bridgeFollowUp` is `["a", "b", "c"]`
-- **WHEN** the bridge receives `promote_followup_entry { sessionId, index: 2 }`
-- **THEN** `pi.sendUserMessage` SHALL NOT be invoked
-- **AND** `bridgeFollowUp` SHALL remain `["a", "b", "c"]`
-- **AND** the bridge SHALL forward `command_feedback { status: "error", … }`
-
-#### Scenario: remove_followup_entry on idle session is a no-op with feedback
-- **GIVEN** `isAgentStreaming === false`
-- **AND** `bridgeFollowUp` is `["a", "b"]`
-- **WHEN** the bridge receives `remove_followup_entry { sessionId, index: 0 }`
-- **THEN** `bridgeFollowUp` SHALL remain `["a", "b"]`
-- **AND** the bridge SHALL forward `command_feedback { status: "error", … }`
-
-#### Scenario: edit_followup_entry while streaming behaves as today
-- **GIVEN** `isAgentStreaming === true`
-- **AND** `bridgeFollowUp` is `["a", "b"]`
-- **WHEN** the bridge receives `edit_followup_entry { sessionId, index: 1, text: "b-edited" }`
-- **THEN** the bridge SHALL invoke `pi.clearFollowUpQueue()`
-- **AND** the bridge SHALL invoke `pi.sendUserMessage("a", { deliverAs: "followUp" })`
-- **AND** the bridge SHALL invoke `pi.sendUserMessage("b-edited", { deliverAs: "followUp" })`
-- **AND** `bridgeFollowUp` SHALL be `["a", "b-edited"]`
-- **AND** a `queue_update` SHALL be emitted
-
-#### Scenario: rewriteFollowupQueue is no-op when post-abort idle
-- **GIVEN** the user dispatched `abort` (wrapper-abort ran, `bridgeFollowUp` is `[]`, `isAgentStreaming` is `false` after agent_end settled)
-- **WHEN** any of the four follow-up-mutation messages arrives at the bridge (e.g. due to a race between the abort and the user clicking ✕ on a chip still visible in the client)
-- **THEN** the bridge SHALL early-return per `isAgentStreaming === false`
-- **AND** no `pi.sendUserMessage` SHALL fire (no agent refire)
-- **AND** the bounds check on `bridgeFollowUp` length would also have caught this (length 0), but the streaming-guard is sufficient on its own
+#### Scenario: Wrapper-abort runs once, persistent ticks run raw
+- **WHEN** the user dispatches `abort` for a session with a non-empty buffer
+- **THEN** the wrapper-abort body SHALL execute exactly once
+- **AND** subsequent persistent-abort scheduler ticks within the 2 s window SHALL each invoke `cachedCtx.abort()` directly
+- **AND** the persistent ticks SHALL NOT reset bridge shadows or emit `queue_update`
 
 ### Requirement: Follow-up send appends to the queue (v2 replace of v1 send-while-occupied semantics)
 
-When the user presses Alt+Enter (or equivalent send-with-followup gesture), the client SHALL dispatch `send_prompt { delivery: "followUp", text }`. The bridge SHALL append the new entry to `bridgeFollowUp[]` (never replace existing entries). The client SHALL update `currentIndex` to point at the newly-appended entry.
+When the user presses Alt+Enter (or equivalent send-with-followup gesture), the client SHALL dispatch `send_prompt { delivery: "followUp", text, images? }`. The bridge SHALL append the new entry to `bridgeFollowUp[]` (never replace existing entries), carrying any `images` from the `send_prompt` message onto the entry. The client SHALL update `currentIndex` to point at the newly-appended entry ONLY once the append is observed in `pendingQueues.followUp` (a refused send appends nothing, so there is no entry at the new index).
+
+A send is admitted only when it passes BOTH the entry-count cap and the aggregate byte ceiling. A refused send SHALL NOT be partially admitted: the bridge SHALL NOT strip images from an entry to make it fit.
 
 #### Scenario: Send while buffer non-empty appends
-- **WHEN** `pendingQueues.followUp` is `["a", "b"]`
+- **WHEN** `pendingQueues.followUp` is `[{ text: "a", imageCount: 0 }, { text: "b", imageCount: 0 }]`
 - **AND** the user types "c" + Alt+Enter
-- **THEN** the bridge SHALL append "c" to `bridgeFollowUp`
-- **AND** the next `queue_update` SHALL show `followUp: ["a", "b", "c"]`
+- **THEN** the bridge SHALL append `{ text: "c" }` to `bridgeFollowUp`
+- **AND** the next `queue_update` SHALL show `followUp` texts `["a", "b", "c"]`
 - **AND** the client SHALL set `currentIndex` to 2
 
 #### Scenario: Send while buffer empty initializes
 - **WHEN** `pendingQueues.followUp` is `[]`
 - **AND** the user types "first" + Alt+Enter
-- **THEN** the bridge SHALL set `bridgeFollowUp` to `["first"]`
-- **AND** the next `queue_update` SHALL show `followUp: ["first"]`
+- **THEN** the bridge SHALL set `bridgeFollowUp` to `[{ text: "first" }]`
+- **AND** the next `queue_update` SHALL show `followUp` texts `["first"]`
 - **AND** `currentIndex` SHALL be 0
 
-#### Scenario: Soft cap on buffer depth
-- **WHEN** `pendingQueues.followUp.length === 20` (soft cap)
+#### Scenario: Image-bearing send carries its images onto the entry
+- **WHEN** the agent is streaming
+- **AND** the client dispatches `send_prompt { delivery: "followUp", text: "describe", images: [PNG, JPEG] }`
+- **THEN** the bridge SHALL append `{ text: "describe", images: [PNG, JPEG] }` to `bridgeFollowUp`
+- **AND** the next `queue_update` SHALL show that entry with `imageCount: 2`
+
+#### Scenario: Soft cap on buffer depth refuses with visible feedback
+- **WHEN** `bridgeFollowUp.length === 20` (soft cap)
 - **AND** the user attempts to send another follow-up
-- **THEN** the bridge SHALL reject the new entry (drop with warn log, or emit `command_feedback { status: "error" }` — implementation choice)
+- **THEN** the bridge SHALL reject the new entry
 - **AND** `bridgeFollowUp` SHALL remain at length 20
+- **AND** the bridge SHALL emit `command_feedback { command: "send_prompt", status: "error" }` naming the queue-depth limit
+- **AND** the refusal SHALL NOT be silent (a bare log is insufficient)
 
 ### Requirement: Drained queued user message renders AFTER the preceding assistant message in chat
 
@@ -550,54 +437,75 @@ The drain function SHALL enforce the following invariants in order:
 2. **Empty-buffer gate**: if `bridgeFollowUp.length === 0`, drain bails immediately. No-op.
 3. **TUI-coexistence gate**: if `ctx.hasPendingMessages()` returns true (pi's own queue still has TUI-sent items), drain bails. The method lives on `ctx` (verified at pi 0.76.0 `extensions/types.d.ts:227`) and SHALL be guarded by `typeof === "function"` for older pi.
 4. **Idle retry gate**: if `ctx.isIdle()` returns false (pi still in transition window post-agent_end), drain SHALL re-schedule itself via `setTimeout(..., 100)` with a bounded retry counter (max ~20 retries / 2s). After the cap, drain logs a warning and gives up. NOTE: an earlier design draft (D2 v1) gated on `isIdle()` and bailed immediately on false; smoke testing showed this blocks drain entirely because pi's `finishRun()` hasn't flipped state yet at scheduling time.
-5. **Pop FIRST**: `bridgeFollowUp.shift()` captures the front entry BEFORE any pi call. The entry exists only on the call stack from this point.
+5. **Pop FIRST**: `bridgeFollowUp.shift()` captures the front entry BEFORE any pi call. The entry — text AND images — exists only on the call stack from this point.
 6. **Emit BEFORE send**: `emitQueueUpdate()` SHALL fire reflecting the popped state BEFORE calling pi. Wire-state matches buffer-state at all observable moments.
-7. **Fresh-turn send, NO deliverAs**: `pi.sendUserMessage(entry)` is called with NO options. Pi is now idle (passed the gate), so pi starts a new run via `Agent.prompt()`. NOTE: an earlier draft (D2 v2) tried `{ deliverAs: "followUp" }` to handle the transition window; smoke testing showed pi accepts the message into `Agent.followUpQueue` but its `getFollowUpMessages()` callback (called only inside `runAgentLoop`) has already exited — the queued entry never drains. Hence the strict requirement: wait for true idle, then fresh-turn send.
+7. **Fresh-turn send, NO deliverAs**: the drain SHALL call `pi.sendUserMessage(content)` with NO options, where `content` is the entry's text alone when it carries no images, or a content array `[{type:"text"}, {type:"image"}...]` assembled from the entry's text and images when it does. Pi is now idle (passed the gate), so pi starts a new run via `Agent.prompt()`. NOTE: an earlier draft (D2 v2) tried `{ deliverAs: "followUp" }` to handle the transition window; smoke testing showed pi accepts the message into `Agent.followUpQueue` but its `getFollowUpMessages()` callback (called only inside `runAgentLoop`) has already exited — the queued entry never drains. Hence the strict requirement: wait for true idle, then fresh-turn send. The shared content-assembly helper SHALL NOT carry send options into this call site.
 8. **Catch + drop on pi error**: any synchronous exception from `pi.sendUserMessage` SHALL be caught, logged as `console.warn`, and the entry SHALL be considered lost. The bridge SHALL NOT re-push.
 
 The drain SHALL handle at most one entry per `agent_end`. Multiple queued entries drain across multiple agent turns in FIFO order (each turn fires its own `agent_end` which re-invokes the drain for the next entry).
 
+Draining an entry SHALL release its accounted bytes from the buffer's byte total.
+
 #### Scenario: agent_end drains one entry, leaves the rest
-- **WHEN** `bridgeFollowUp` is `["a", "b", "c"]`
+- **WHEN** `bridgeFollowUp` is `[{ text: "a" }, { text: "b" }, { text: "c" }]`
 - **AND** `ctx.isIdle()` returns true AND `ctx.hasPendingMessages()` returns false
 - **AND** `agent_end` event fires
-- **THEN** the bridge SHALL `shift` "a" from `bridgeFollowUp`, leaving `["b", "c"]`
-- **AND** the bridge SHALL emit `queue_update { followUp: ["b", "c"] }`
+- **THEN** the bridge SHALL `shift` the "a" entry from `bridgeFollowUp`, leaving the "b" and "c" entries
+- **AND** the bridge SHALL emit `queue_update` whose `followUp` texts are `["b", "c"]`
 - **AND** the bridge SHALL call `pi.sendUserMessage("a")` with NO deliverAs option
 - **AND** the bridge SHALL return without touching "b" or "c"
+
+#### Scenario: Drain preserves image attachments
+- **WHEN** `bridgeFollowUp` is `[{ text: "describe", images: [PNG] }]`
+- **AND** the drain gates pass and `agent_end` fires
+- **THEN** the bridge SHALL call `pi.sendUserMessage` with a content array containing `{ type: "text", text: "describe" }` and `{ type: "image", data: <PNG data>, mimeType: "image/png" }`
+- **AND** the call SHALL pass NO send options
+- **AND** the resulting agent turn SHALL receive the image via pi's standard image handling
+
+#### Scenario: Text-only entry sends a bare string, not a one-element content array
+- **WHEN** `bridgeFollowUp` is `[{ text: "plain" }]`
+- **AND** the drain gates pass
+- **THEN** the bridge SHALL call `pi.sendUserMessage("plain")` with a string argument
+- **AND** the call SHALL pass NO send options
 
 #### Scenario: Pop is observable BEFORE the pi.sendUserMessage call
 - **WHEN** Vitest spies record the order of `bridgeFollowUp.shift` and `pi.sendUserMessage` calls
 - **THEN** the `shift` call SHALL appear in the call log BEFORE the `sendUserMessage` call
 
 #### Scenario: pi.sendUserMessage throws — entry is lost, not re-queued
-- **WHEN** `bridgeFollowUp` is `["a"]`
+- **WHEN** `bridgeFollowUp` is `[{ text: "a" }]`
 - **AND** `pi.sendUserMessage` throws synchronously
 - **AND** `agent_end` fires triggering drain
 - **THEN** the bridge SHALL log a warning containing "drainFollowupQueue" and "entry lost"
 - **AND** `bridgeFollowUp` SHALL remain `[]` (the entry is NOT re-pushed)
 - **AND** the next `agent_end` SHALL find an empty buffer and no-op
 
+#### Scenario: Draining an image-bearing entry releases its bytes
+- **WHEN** `bridgeFollowUp` holds one entry carrying 5 MiB of image data
+- **AND** the drain ships that entry
+- **THEN** the buffer's accounted byte total SHALL drop by that entry's size
+- **AND** a subsequent send of comparable size SHALL be admitted
+
 #### Scenario: Idle retry succeeds within bounded window
-- **WHEN** `bridgeFollowUp` is `["a"]`
+- **WHEN** `bridgeFollowUp` is `[{ text: "a" }]`
 - **AND** `agent_end` fires while `ctx.isIdle()` still returns false (transition window)
 - **THEN** the drain SHALL schedule itself via `setTimeout(_, 100)` and retry
-- **AND** the buffer SHALL remain `["a"]` during the retry window
+- **AND** the buffer SHALL remain unchanged during the retry window
 - **AND** within ~2s (20 retries), `ctx.isIdle()` SHALL return true and the drain SHALL proceed
 
 #### Scenario: Idle retry exhausts bounded window
-- **WHEN** `bridgeFollowUp` is `["a"]`
+- **WHEN** `bridgeFollowUp` is `[{ text: "a" }]`
 - **AND** `ctx.isIdle()` continues to return false for >2s after `agent_end`
 - **THEN** the drain SHALL log `"drainFollowupQueue: pi never idled after 2s; giving up"`
 - **AND** the entry SHALL remain in `bridgeFollowUp` (visible to user; next agent_end will retry)
 
 #### Scenario: TUI coexistence — bridge waits for pi to drain its own queue first
-- **WHEN** `bridgeFollowUp` is `["dashboard-msg"]`
+- **WHEN** `bridgeFollowUp` is `[{ text: "dashboard-msg" }]`
 - **AND** `pi.hasPendingMessages()` returns true (TUI-queued follow-up still pending in pi)
 - **AND** `agent_end` fires
 - **THEN** the bridge SHALL NOT drain its own buffer
-- **AND** `bridgeFollowUp` SHALL remain `["dashboard-msg"]`
-- **AND** on a subsequent `agent_end` after pi has drained, `hasPendingMessages()` returns false and the bridge drains "dashboard-msg"
+- **AND** `bridgeFollowUp` SHALL remain unchanged
+- **AND** on a subsequent `agent_end` after pi has drained, `hasPendingMessages()` returns false and the bridge drains the entry
 
 #### Scenario: Re-entrancy lock prevents double-drain
 - **WHEN** the drain function is mid-execution for entry "a"
@@ -610,56 +518,80 @@ The drain SHALL handle at most one entry per `agent_end`. Multiple queued entrie
 
 The bridge SHALL accept the following browser-to-server messages and mutate `bridgeFollowUp` locally + emit `queue_update`. The bridge SHALL NOT call `pi.sendUserMessage`, `pi.clear*Queue`, or any other pi method as part of handling these messages:
 
-- `edit_followup_entry { sessionId, index, text, images? }` — replaces `bridgeFollowUp[index]`.
-- `remove_followup_entry { sessionId, index }` — splices `bridgeFollowUp[index]`.
-- `promote_followup_entry { sessionId, index }` — moves `bridgeFollowUp[index]` to position 0 via splice + unshift. Silent no-op when `index <= 0`.
-- `clear_followup_entries { sessionId, indices }` — splices selected entries (when `indices: number[]`, sorted descending to avoid index drift) OR empties the buffer (when `indices: "all"`).
+- `edit_followup_entry { sessionId, index, text }` — replaces the TEXT of `bridgeFollowUp[index]` and SHALL preserve that entry's existing `images` unchanged. The message SHALL NOT carry an `images` field: under the count-only wire projection the client never holds the image bytes, so no producer could populate it.
+- `remove_followup_entry { sessionId, index }` — splices `bridgeFollowUp[index]`, discarding its images.
+- `promote_followup_entry { sessionId, index }` — moves `bridgeFollowUp[index]` to position 0 via splice + unshift, carrying its images with it. Silent no-op when `index <= 0`.
+- `clear_followup_entries { sessionId, indices }` — splices selected entries (when `indices: number[]`, sorted descending to avoid index drift) OR empties the buffer (when `indices: "all"`), discarding their images.
+
+There are exactly FOUR such handlers.
+
+An `edit_followup_entry` whose replacement text would push the buffer past the aggregate byte ceiling SHALL be refused: the entry SHALL be left unchanged and the bridge SHALL emit `command_feedback { command: "edit_followup_entry", status: "error" }` naming the byte ceiling. Growth through the inline editor is an admission path like any other.
 
 Out-of-range indices SHALL cause the handler to emit `command_feedback { command: <type>, status: "error", message: "Index out of range" }`. No partial mutation occurs.
 
 #### Scenario: Edit mutates buffer only, never touches pi
-- **WHEN** `bridgeFollowUp` is `["alpha", "beta", "gamma"]`
+- **WHEN** `bridgeFollowUp` is `[{ text: "alpha" }, { text: "beta" }, { text: "gamma" }]`
 - **AND** the bridge receives `edit_followup_entry { index: 1, text: "BETA" }`
-- **THEN** `bridgeFollowUp` SHALL become `["alpha", "BETA", "gamma"]`
-- **AND** the bridge SHALL emit `queue_update { followUp: ["alpha", "BETA", "gamma"] }`
+- **THEN** `bridgeFollowUp` texts SHALL become `["alpha", "BETA", "gamma"]`
+- **AND** the bridge SHALL emit `queue_update` reflecting those texts
 - **AND** the bridge SHALL NOT call `pi.sendUserMessage`, `pi.clearSteeringQueue`, `pi.clearFollowUpQueue`, or any other pi method
 
+#### Scenario: Edit preserves the entry's images
+- **WHEN** `bridgeFollowUp` is `[{ text: "describe", images: [PNG] }]`
+- **AND** the bridge receives `edit_followup_entry { index: 0, text: "describe in detail" }`
+- **THEN** `bridgeFollowUp[0]` SHALL be `{ text: "describe in detail", images: [PNG] }`
+- **AND** the emitted `queue_update` SHALL still report `imageCount: 1` for that entry
+- **AND** a subsequent drain SHALL deliver the PNG
+
 #### Scenario: Remove splices a single entry
-- **WHEN** `bridgeFollowUp` is `["alpha", "beta", "gamma"]`
+- **WHEN** `bridgeFollowUp` is `[{ text: "alpha" }, { text: "beta" }, { text: "gamma" }]`
 - **AND** the bridge receives `remove_followup_entry { index: 0 }`
-- **THEN** `bridgeFollowUp` SHALL become `["beta", "gamma"]`
+- **THEN** `bridgeFollowUp` texts SHALL become `["beta", "gamma"]`
 - **AND** the bridge SHALL emit `queue_update`
 
 #### Scenario: Promote moves entry to head
-- **WHEN** `bridgeFollowUp` is `["alpha", "beta", "gamma"]`
+- **WHEN** `bridgeFollowUp` is `[{ text: "alpha" }, { text: "beta" }, { text: "gamma" }]`
 - **AND** the bridge receives `promote_followup_entry { index: 2 }`
-- **THEN** `bridgeFollowUp` SHALL become `["gamma", "alpha", "beta"]`
+- **THEN** `bridgeFollowUp` texts SHALL become `["gamma", "alpha", "beta"]`
 - **AND** the bridge SHALL emit `queue_update`
 
+#### Scenario: Promote carries images with the moved entry
+- **WHEN** `bridgeFollowUp` is `[{ text: "a" }, { text: "b", images: [PNG] }]`
+- **AND** the bridge receives `promote_followup_entry { index: 1 }`
+- **THEN** `bridgeFollowUp[0]` SHALL be `{ text: "b", images: [PNG] }`
+- **AND** the emitted `queue_update` SHALL report `imageCount: 1` at position 0 and `0` at position 1
+
 #### Scenario: Promote on index 0 is a silent no-op
-- **WHEN** `bridgeFollowUp` is `["alpha", "beta"]`
+- **WHEN** `bridgeFollowUp` is `[{ text: "alpha" }, { text: "beta" }]`
 - **AND** the bridge receives `promote_followup_entry { index: 0 }`
-- **THEN** `bridgeFollowUp` SHALL remain `["alpha", "beta"]`
+- **THEN** `bridgeFollowUp` SHALL remain unchanged
 - **AND** the bridge SHALL NOT emit `queue_update`
 
 #### Scenario: Clear all empties the buffer
-- **WHEN** `bridgeFollowUp` is `["a", "b", "c"]`
+- **WHEN** `bridgeFollowUp` is `[{ text: "a" }, { text: "b" }, { text: "c" }]`
 - **AND** the bridge receives `clear_followup_entries { indices: "all" }`
 - **THEN** `bridgeFollowUp` SHALL become `[]`
 - **AND** the bridge SHALL emit `queue_update { followUp: [] }`
 
 #### Scenario: Clear specific indices splices selected entries
-- **WHEN** `bridgeFollowUp` is `["a", "b", "c", "d"]`
+- **WHEN** `bridgeFollowUp` is `[{ text: "a" }, { text: "b" }, { text: "c" }, { text: "d" }]`
 - **AND** the bridge receives `clear_followup_entries { indices: [0, 2] }`
 - **THEN** the bridge SHALL splice in descending order (2 first, then 0) to avoid index drift
-- **AND** `bridgeFollowUp` SHALL become `["b", "d"]`
+- **AND** `bridgeFollowUp` texts SHALL become `["b", "d"]`
 - **AND** the bridge SHALL emit `queue_update` exactly once
 
 #### Scenario: Out-of-range index produces command_feedback error
-- **WHEN** `bridgeFollowUp` is `["a"]`
+- **WHEN** `bridgeFollowUp` is `[{ text: "a" }]`
 - **AND** the bridge receives `edit_followup_entry { index: 5, text: "x" }`
 - **THEN** the bridge SHALL NOT mutate `bridgeFollowUp`
 - **AND** the bridge SHALL emit `command_feedback { command: "edit_followup_entry", status: "error", message: "Index out of range" }`
+- **AND** the bridge SHALL NOT emit `queue_update`
+
+#### Scenario: Edit that would breach the byte ceiling is refused
+- **WHEN** the buffer holds entries totalling 31 MiB, one of which has the text "short"
+- **AND** the bridge receives an `edit_followup_entry` replacing "short" with text large enough to push the total past 32 MiB
+- **THEN** the entry SHALL remain unchanged
+- **AND** the bridge SHALL emit `command_feedback { command: "edit_followup_entry", status: "error" }` naming the byte ceiling
 - **AND** the bridge SHALL NOT emit `queue_update`
 
 ### Requirement: TUI compatibility — dashboard-buffered follow-up is invisible to TUI; symmetric
@@ -764,4 +696,153 @@ The `queue-chip-followup` display element in `QueuePanel` SHALL cap its rendered
 - **WHEN** the user opens the inline editor (`queue-followup-editor`)
 - **THEN** the editor SHALL remain gated by its existing `rows` limit
 - **AND** the display chip's `max-h-80 overflow-auto` cap SHALL NOT alter editor behavior
+
+### Requirement: Follow-up buffer enforces an aggregate byte ceiling
+
+The bridge SHALL bound `bridgeFollowUp` by total retained bytes in addition to the existing entry-count cap. The ceiling SHALL default to `FOLLOWUP_BUFFER_MAX_BYTES = 32 * 1024 * 1024` (32 MiB) per session.
+
+The ceiling SHALL be readable from an injected value rather than compared against a hardcoded literal at the admission site, so that boundary behaviour can be exercised with a small ceiling without allocating megabyte payloads. Overriding the ceiling SHALL change only the threshold — never the admission, refusal, or feedback logic.
+
+An entry's size SHALL be computed as `Buffer.byteLength(text)` plus the length of each image's inline base64 bytes. Image `data` is base64, so its string length is exactly its byte count; `text` is measured with `byteLength` because `String.length` counts UTF-16 code units and under-counts non-Latin-1 text. The implementation SHALL NOT use `JSON.stringify` to measure.
+
+The inline bytes SHALL be read through the canonical accessor `imageBlockData` (`packages/shared/src/image-block.ts`), so that an image block in EITHER accepted shape — flat pi `{ type, data, mimeType }` or nested Anthropic `{ type, source: { media_type, data } }` — is sized by its real bytes. A direct `.data` property read sizes a nested-shape block at zero and admits an unbounded hold past the ceiling.
+
+#### Scenario: A nested-shape image is sized by its real bytes
+- **WHEN** the buffer is empty and its ceiling is 1 KiB
+- **AND** a follow-up send carries one image in the nested shape `{ type: "image", source: { type: "base64", media_type: "image/png", data: <4 KiB of base64> } }`
+- **THEN** the entry SHALL be sized at its real byte count, not zero
+- **AND** the send SHALL be refused by the byte ceiling
+
+The total SHALL be **recomputed from the live entries at each admission check**, NOT maintained as a running counter. The buffer is mutated from many sites (push, system push, drain, edit, remove, promote, clear, matcher splice, session reset, and any future site); a counter that misses one decrement mis-enforces the ceiling permanently and silently. Recomputation over at most 20 entries makes drift structurally impossible and means every present and future removal path releases bytes without knowing the budget exists.
+
+A push SHALL be admitted only when the resulting total would not exceed the ceiling. On refusal the bridge SHALL:
+
+- NOT append the entry, in whole or in part,
+- NOT strip images from the entry to make it fit,
+- emit `command_feedback { command: "send_prompt", status: "error" }` identifying the byte ceiling as the cause.
+
+The bridge SHALL NOT evict previously accepted entries to admit a new one. A prompt the user has already seen queued SHALL NOT disappear without their action.
+
+Removing, clearing, or draining entries SHALL release their bytes, allowing subsequent sends.
+
+#### Scenario: Overriding the ceiling changes only the threshold
+- **WHEN** the buffer is constructed with a ceiling of 1 KiB
+- **AND** a send whose entry size exceeds 1 KiB is attempted
+- **THEN** the send SHALL be refused exactly as it would be at the 32 MiB default
+- **AND** the refusal SHALL emit the same `command_feedback { status: "error" }` shape
+
+#### Scenario: Send within the ceiling is admitted
+- **WHEN** the buffer holds 4 MiB of entries
+- **AND** the user sends a follow-up carrying 2 MiB of images
+- **THEN** the entry SHALL be appended
+- **AND** the accounted total SHALL become approximately 6 MiB
+
+#### Scenario: Send that would exceed the ceiling is refused with feedback
+- **WHEN** the buffer holds 30 MiB of entries
+- **AND** the user sends a follow-up carrying 4 MiB of images
+- **THEN** the bridge SHALL NOT append the entry
+- **AND** the accounted total SHALL remain approximately 30 MiB
+- **AND** the bridge SHALL emit `command_feedback { command: "send_prompt", status: "error" }` naming the byte ceiling
+
+#### Scenario: An entry larger than the whole ceiling is refused, not truncated
+- **WHEN** the buffer is empty
+- **AND** the user sends a follow-up whose images total 40 MiB
+- **THEN** the bridge SHALL refuse the entry entirely
+- **AND** the bridge SHALL NOT append a text-only or image-stripped version of it
+- **AND** the bridge SHALL emit `command_feedback { command: "send_prompt", status: "error" }`
+
+#### Scenario: Ceiling is enforced independently of the entry-count cap
+- **WHEN** the buffer holds 3 entries totalling 31 MiB
+- **AND** the user sends a follow-up carrying 2 MiB of images
+- **THEN** the send SHALL be refused on the byte ceiling despite the count being far below 20
+
+#### Scenario: Removing an entry releases its bytes
+- **WHEN** the buffer holds 31 MiB and a further send has just been refused
+- **AND** the user removes an entry accounting for 10 MiB
+- **AND** the user retries the refused send
+- **THEN** the retried send SHALL be admitted
+
+#### Scenario: The accounted total is derived, not accumulated
+- **WHEN** entries are added and removed through any combination of push, drain, remove, promote, clear, and session reset
+- **THEN** the admission check SHALL reflect the sum over the entries actually present at that moment
+- **AND** no mutation path SHALL be able to leave the accounting inconsistent with the buffer contents
+
+### Requirement: A refused system follow-up reports under its own command name
+
+`enqueueSystemFollowup` (the plugin-originated path) SHALL enforce the same entry-count cap and byte ceiling as a user send. On refusal it SHALL emit `command_feedback { command: "enqueue_followup", status: "error" }` rather than borrowing `send_prompt`, so a programmatic refusal is not misattributed to a user action. A refused system nudge SHALL NOT be silently dropped.
+
+#### Scenario: System follow-up refused at the entry cap
+- **WHEN** `bridgeFollowUp` holds 20 entries
+- **AND** a plugin enqueues a system follow-up via `dashboard:enqueue-followup`
+- **THEN** the entry SHALL NOT be appended
+- **AND** the bridge SHALL emit `command_feedback { command: "enqueue_followup", status: "error" }`
+
+#### Scenario: System follow-up refused at the byte ceiling
+- **WHEN** the buffer is within a few bytes of the 32 MiB ceiling
+- **AND** a plugin enqueues a system follow-up large enough to breach it
+- **THEN** the entry SHALL NOT be appended
+- **AND** the bridge SHALL emit `command_feedback { command: "enqueue_followup", status: "error" }`
+
+### Requirement: A dropped image is reported, never silently omitted
+
+When image validation rejects an attachment (unsupported `mimeType`, missing or non-string `data`, or a non-object entry), the bridge SHALL emit `command_feedback { status: "error" }` identifying how many attachments were dropped and why. A validation drop SHALL NOT be reported only to the process log.
+
+This applies wherever validation runs — the idle/steer send path and the follow-up buffer path share one validation implementation.
+
+Validation SHALL read an image's mime through the canonical accessor `imageBlockMime` (`packages/shared/src/image-block.ts`), so that a block in either accepted shape is judged against the allow-list on its real mime. A block whose mime is carried nested (`source.media_type`) SHALL NOT be rejected as untyped. The allow-list itself (`image/jpeg`, `image/png`, `image/gif`, `image/webp`) is unchanged and SHALL NOT be widened by this change.
+
+#### Scenario: A nested-shape image is not dropped as invalid
+- **WHEN** the user sends a follow-up while streaming with one image whose mime is carried as `source.media_type: "image/png"`
+- **THEN** the buffered entry SHALL carry that image
+- **AND** the emitted `queue_update` SHALL report `imageCount: 1`
+- **AND** the bridge SHALL NOT emit any validation `command_feedback`
+
+#### Scenario: One bad attachment among several is reported
+- **WHEN** the user sends a follow-up while streaming with three images, one of which has `mimeType: "image/svg+xml"`
+- **THEN** the buffered entry SHALL carry the two valid images
+- **AND** the emitted `queue_update` SHALL report `imageCount: 2` for that entry
+- **AND** the bridge SHALL emit `command_feedback { status: "error" }` stating that one attachment was dropped as an unsupported type
+
+#### Scenario: All attachments valid produces no feedback
+- **WHEN** the user sends a follow-up with two images of supported types
+- **THEN** the entry SHALL carry both images
+- **AND** the bridge SHALL NOT emit any validation `command_feedback`
+
+### Requirement: Queued follow-up chip indicates attached images
+
+`QueuePanel` SHALL render an attachment indicator, carrying `data-testid="queue-followup-attachments"`, on a follow-up chip whose entry reports `imageCount > 0`, showing the count. The chip SHALL NOT render image thumbnails or previews — the bytes are not available to the client by design.
+
+A chip whose entry reports `imageCount: 0` SHALL render exactly as before, with no indicator.
+
+#### Scenario: Chip shows an indicator for an image-bearing entry
+- **WHEN** `pendingQueues.followUp` is `[{ text: "describe", imageCount: 2 }]`
+- **THEN** the chip SHALL display the text "describe"
+- **AND** `queue-followup-attachments` SHALL be present and show the count 2
+- **AND** the chip SHALL NOT render any image thumbnail
+
+#### Scenario: Text-only chip is unchanged
+- **WHEN** `pendingQueues.followUp` is `[{ text: "plain", imageCount: 0 }]`
+- **THEN** the chip SHALL display the text "plain"
+- **AND** `queue-followup-attachments` SHALL NOT be present in the DOM
+
+#### Scenario: Indicator survives an edit
+- **WHEN** a chip displays an attachment indicator for an image-bearing entry
+- **AND** the user edits that entry's text and submits
+- **THEN** the updated chip SHALL still present `queue-followup-attachments` with the same count
+
+### Requirement: Client tolerates legacy string follow-up entries
+
+The client SHALL normalise each `pendingQueues.followUp` element on read, accepting either the current `{ text, imageCount }` object or a bare `string` (treated as `{ text: <value>, imageCount: 0 }`).
+
+This guards the window in which an already-loaded browser tab running pre-change client code receives a post-change payload, or the reverse. Without it a stale tab renders `[object Object]` in the chip.
+
+#### Scenario: Object entry renders normally
+- **WHEN** the client receives `pendingQueues.followUp = [{ text: "hello", imageCount: 1 }]`
+- **THEN** the chip SHALL render "hello" with `queue-followup-attachments` showing 1
+
+#### Scenario: Legacy string entry renders without an indicator
+- **WHEN** the client receives `pendingQueues.followUp = ["hello"]`
+- **THEN** the chip SHALL render "hello"
+- **AND** `queue-followup-attachments` SHALL NOT be present
+- **AND** no `[object Object]` text SHALL appear
 

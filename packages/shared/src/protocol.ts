@@ -1,7 +1,7 @@
 /**
  * Extension ↔ Server WebSocket protocol messages.
  */
-import type { CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionSource, TurnUsage } from "./types.js";
+import type { AutoNamerPersistedState, CommandInfo, ContextUsage, DashboardEvent, DecoratorDescriptor, ExtensionUiModule, FileEntry, FlowInfo, FollowUpEntryView, ImageContent, ModelInfo, NotifyLevel, OpenSpecPhase, PiSessionInfo, ProviderInfo, RoleInfo, SessionSource, TurnUsage } from "./types.js";
 
 // Notify level lives in types.ts (the session record retains a notify log);
 // re-exported here so protocol consumers import it from one place.
@@ -18,7 +18,8 @@ export interface QueueUpdateToServerMessage {
   type: "queue_update";
   sessionId: string;
   steering: string[];
-  followUp: string[];
+  /** Entry views: text + image COUNT. Image bytes never cross the wire (design D2). */
+  followUp: FollowUpEntryView[];
 }
 
 /**
@@ -33,12 +34,82 @@ export interface PromptReceivedToServerMessage {
   type: "prompt_received";
   sessionId: string;
   fresh: boolean;
+  /**
+   * Echo of `SendPromptToExtensionMessage.promptId` when the prompt came from
+   * the server. This is the acknowledgement half of the transmitted-vs-delivered
+   * split: `POST /api/session/:id/prompt` returning `success` proves only that a
+   * byte left the server, while this echo proves the OWNING bridge handed the
+   * prompt to pi. Optional — an older bridge never echoes and the prompt stays
+   * `transmitted`. See change: fix-spawn-correlation-ttl-coupling (D7).
+   */
+  promptId?: string;
+}
+
+/** What a bridge can tell us about a message it threw away. */
+export type InboundDropClass = "session_mismatch" | "queue_overflow";
+
+/**
+ * Bridge -> server: an inbound message the bridge DISCARDED.
+ *
+ * The drop site's only record used to be a `console.error`, which lands in
+ * `/dev/null` whenever `keeperLog.capturePiOutput` is false (the default).
+ *
+ * `sessionId` is the REPORTING bridge's own session — the routing field. The id
+ * the dropped message named travels as `droppedSessionId` payload, because the
+ * gateway drops any inbound frame whose routing id maps to another connection,
+ * which is exactly the shape of a mismatch report.
+ *
+ * Best-effort by contract: reports share the outbound ring that can itself
+ * overflow, and are bounded per session per window.
+ * See change: fix-spawn-correlation-ttl-coupling (D6).
+ */
+export interface InboundDropReportMessage {
+  type: "inbound_drop_report";
+  sessionId: string;
+  dropClass: InboundDropClass;
+  /** Message type that was dropped, when known. */
+  messageType?: string;
+  /** The session id the dropped message named — payload, never routing. */
+  droppedSessionId?: string;
+  /** Reports elided by the per-window bound since the last delivered report. */
+  suppressed?: number;
+}
+
+/** Which transport fact a bridge is reporting. */
+export type BridgeDiagnosticEvent = "endpoint_resolved" | "retarget_refused" | "retarget_accepted";
+
+/**
+ * Bridge -> server: how this bridge chose its endpoint, and every refusal to
+ * move off it.
+ *
+ * Same motivation as `inbound_drop_report`: the bridge-side `console.log` lands
+ * in /dev/null under the default `keeperLog.capturePiOutput:false`, so the
+ * only durable record is the one the server writes.
+ *
+ * `detail` is a preformatted human string, not structured fields — these are
+ * read by a person diagnosing "why that dashboard", never matched on.
+ * See change: add-pi-gateway-transport-identity (tasks 10.1, 10.2, 10.5).
+ */
+export interface BridgeDiagnosticMessage {
+  type: "bridge_diagnostic";
+  sessionId: string;
+  event: BridgeDiagnosticEvent;
+  detail: string;
 }
 
 // ── Extension → Server ──────────────────────────────────────────────
 
 export interface SessionRegisterMessage {
   type: "session_register";
+  /**
+   * Announce intent to serve this session WITHOUT claiming it (D11, task
+   * 9.3a). The gateway takes no routing entry and no contention slot, creates
+   * no placeholder session, and replies `provisional_accepted` (carrying its
+   * instance id + a commit token) or `provisional_rejected`. Routing transfers
+   * only on an explicit commit.
+   * See change: add-pi-gateway-transport-identity.
+   */
+  provisional?: boolean;
   sessionId: string;
   cwd: string;
   name?: string;
@@ -158,6 +229,19 @@ export interface ProcessMetrics {
    * alone can hide a burst. See change: serialize-bridge-message-pump.
    */
   refusedInboundFrames?: number;
+  /**
+   * Subagent-tick throttle counters (change: reduce-bridge-tick-bandwidth, D6).
+   * Cumulative for the bridge's lifetime. `tickForwarded`/`tickCoalesced`
+   * describe the throttle's visible work; `tickDiscardedAtTerminal` and
+   * `tickDroppedNotReady` are its ONLY two information-loss modes and are
+   * otherwise entirely invisible in production. Ride the existing heartbeat
+   * metrics transport rather than a new one, and land on `/api/health` both
+   * per-session (via `agents[]`) and summed.
+   */
+  tickForwarded?: number;
+  tickCoalesced?: number;
+  tickDiscardedAtTerminal?: number;
+  tickDroppedNotReady?: number;
 }
 
 export interface SessionHeartbeatMessage {
@@ -257,10 +341,25 @@ export interface GitInfoUpdateMessage {
 
 // OpenSpecUpdateMessage removed — server polls directly via DirectoryService
 
+/**
+ * One provider that failed to refresh its catalogue. Degraded, not fatal:
+ * the last-known catalogue is still served alongside it.
+ * See change: upgrade-model-selector-primitives.
+ */
+export interface ProviderRefreshError {
+  provider: string;
+  message: string;
+}
+
 export interface ModelsListMessage {
   type: "models_list";
   sessionId: string;
   models: ModelInfo[];
+  /**
+   * Present only when at least one provider failed to refresh — omitted (never
+   * `[]`) on a clean refresh, and never populated by a bare abort.
+   */
+  refreshErrors?: ProviderRefreshError[];
 }
 
 /**
@@ -299,6 +398,56 @@ export interface AutoNameErrorMessage {
   sessionId: string;
   reason: string;
 }
+
+/**
+ * The outcome of ONE auto-naming attempt. `starved` means the model could not
+ * emit a title under the output cap (truncated stream) — distinct from
+ * `waiting`, where a well-behaved model reported no nameable topic yet, and
+ * from `retrying`, a transient failure. Conflating them destroys the
+ * diagnostic value of all three. See change: fix-auto-naming-reasoning-model.
+ */
+export type AutoNameOutcome =
+  | "applied"
+  | "waiting"
+  | "starved"
+  | "skipped-prefilter"
+  | "locked-out"
+  | "disabled"
+  | "already-named"
+  | "not-ready"
+  | "retrying"
+  | "stopped";
+
+/**
+ * Bridge → server: the outcome of one auto-naming attempt. DEDUPLICATED by the
+ * bridge — sent only when the outcome or its reason differs from the last one
+ * sent for that session, because terminal states (`already-named`,
+ * `locked-out`, `disabled`) otherwise recur on every terminal turn forever.
+ * The server retains the last one per session for the diagnostics surface.
+ * See change: fix-auto-naming-reasoning-model (design D9).
+ */
+export interface AutoNameOutcomeMessage {
+  type: "auto_name_outcome";
+  sessionId: string;
+  outcome: AutoNameOutcome;
+  reason: string;
+  modelRef?: string;
+  at: number;
+}
+
+/**
+ * Bridge → server: the auto-namer's durable state set, persisted into the
+ * session's `.meta.json` so a permanent stop survives a PROCESS restart, not
+ * only an extension reload. Without it a cold start re-spends a full attempt
+ * budget and re-emits the error, so "permanent" would not be permanent.
+ * See change: fix-auto-naming-reasoning-model (design D7).
+ */
+export interface AutoNameStateMessage {
+  type: "auto_name_state";
+  sessionId: string;
+  state: AutoNamerPersistedState;
+}
+
 
 /**
  * Bridge -> server: the pi-coding-agent version of the process this bridge
@@ -600,6 +749,8 @@ export interface PluginPiMessage {
 }
 
 export type ExtensionToServerMessage =
+  | SessionMovedMessage
+  | SessionMoveCommitMessage
   | SessionRegisterMessage
   | SessionUnregisterMessage
   | SessionHeartbeatMessage
@@ -635,7 +786,116 @@ export type ExtensionToServerMessage =
   | QueueUpdateToServerMessage
   | GitCommitDraftResultMessage
   | AutoNameErrorMessage
-  | PromptReceivedToServerMessage;
+  | AutoNameOutcomeMessage
+  | AutoNameStateMessage
+  | PromptReceivedToServerMessage
+  | InboundDropReportMessage
+  | BridgeDiagnosticMessage
+  | TranscriptChunkMessage;
+
+
+/**
+ * Server -> bridge: send the next slice of this session's transcript.
+ *
+ * Addressing is by session id ONLY — there is deliberately no path field, and
+ * the bridge refuses any request that carries one (`transcript-request-guard`).
+ * `cursor` is opaque to the server: it is minted by the bridge, echoed back
+ * unchanged, and carries a witness so a rewritten or truncated origin file
+ * restarts the read instead of resuming into misaligned bytes.
+ * See change: add-pi-gateway-transport-identity (D12, task 11.6).
+ */
+export interface TranscriptRequestMessage {
+  type: "transcript_request";
+  sessionId: string;
+  cursor?: unknown;
+  /** Read budget for this slice; the bridge may overshoot to finish a line. */
+  maxBytes?: number;
+}
+
+/**
+ * Bridge -> server: one bounded slice of the transcript.
+ *
+ * `restarted` means the bridge could not trust its cursor and re-read from the
+ * beginning — the server MUST replace what it retained rather than append, or
+ * the retained copy silently doubles. `complete` means a clean end of file was
+ * reached; until then the retained transcript is explicitly partial (#X18).
+ */
+export interface TranscriptChunkMessage {
+  type: "transcript_chunk";
+  sessionId: string;
+  /** Whole `.jsonl` lines, verbatim. Never a partial line. */
+  entries: string[];
+  cursor?: unknown;
+  complete: boolean;
+  restarted: boolean;
+  /** Set instead of `entries` when the bridge refused the request. */
+  refused?: { cause: string; reason: string };
+}
+
+
+/**
+ * Bridge -> server: this session has moved to another instance (D11, task 9.3).
+ *
+ * Sent to the ORIGIN in the window between a successful commit and releasing
+ * the origin connection — the only moment both facts are known and the origin
+ * can still be told. Without it the origin sees an abrupt disconnect and
+ * renders a crash.
+ */
+export interface SessionMovedMessage {
+  type: "session_moved";
+  sessionId: string;
+  /** Identity of the instance now serving it; an address would not survive a move. */
+  instanceId: string;
+  endpoint?: string;
+}
+
+/**
+ * Bridge -> server: commit a provisional, transferring routing to this socket
+ * (D11, task 9.3b). Single-use and TTL-bounded; the token is the only proof,
+ * so a commit cannot be replayed after the origin has been released.
+ */
+export interface SessionMoveCommitMessage {
+  type: "session_move_commit";
+  sessionId: string;
+  token: string;
+}
+
+/** Server -> bridge: the provisional was opened. Carries no routing claim. */
+export interface ProvisionalAcceptedMessage {
+  type: "provisional_accepted";
+  sessionId: string;
+  /** The TARGET's instance id, so the origin can verify identity (task 9.7). */
+  instanceId: string;
+  /** Single-use, TTL-bounded (30s) token that commits the move. */
+  token: string;
+}
+
+/**
+ * Server -> bridge: the provisional was refused.
+ *
+ * Deliberately detail-free: a cause would let a caller difference two refusals
+ * into "does this session exist here" (task 9.3a-iv). The true cause is logged
+ * server-side. Distinct from `register_rejected`, which the bridge treats as
+ * TERMINAL for the session — a refused move must not kill the session it was
+ * trying to preserve (task 9.3a-i).
+ */
+/**
+ * Positive acknowledgement that routing has ACTUALLY transferred.
+ *
+ * Without it the mover could only observe that its commit was *sent*, so a
+ * commit the gateway rejected (expired or replayed token, a mismatched
+ * sessionId, a live incumbent) still looked like success — the origin was
+ * released and the target owned nothing, losing the session outright. This
+ * is what makes "a failed move is a no-op" true rather than aspirational.
+ */
+export interface SessionMoveCommittedMessage {
+  type: "session_move_committed";
+  sessionId: string;
+}
+
+export interface ProvisionalRejectedMessage {
+  type: "provisional_rejected";
+}
 
 // ── Server → Extension ──────────────────────────────────────────────
 
@@ -644,12 +904,31 @@ export interface SendPromptToExtensionMessage {
   sessionId: string;
   text: string;
   images?: ImageContent[];
+  /**
+   * Per-prompt handle minted by the server, echoed back on `prompt_received`.
+   * Absent for prompts the server did not mint a handle for.
+   * See change: fix-spawn-correlation-ttl-coupling (D7).
+   */
+  promptId?: string;
   /** Delivery mode: "steer" (after current turn) or "followUp" (after agent finishes). Defaults to "followUp" when absent. See change: add-steering-message. */
   delivery?: "steer" | "followUp";
 }
 
 export interface AbortToExtensionMessage {
   type: "abort";
+  sessionId: string;
+}
+
+/**
+ * Server → extension: re-drive a settled-error turn. Forwarded by the server
+ * gateway from a browser `retry_session`. The bridge re-drives the turn via
+ * `pi.sendMessage({ customType: "pi-dashboard:retry", display: false },
+ * { triggerTurn: true })` — the same pi call the legacy `/__dashboard_retry`
+ * sentinel made. See change:
+ * replace-dashboard-retry-command-with-protocol-message.
+ */
+export interface RetrySessionExtensionMessage {
+  type: "retry_session";
   sessionId: string;
 }
 
@@ -739,6 +1018,22 @@ export interface FlowControlExtensionMessage {
 
 export interface HeartbeatAckMessage {
   type: "heartbeat_ack";
+}
+
+/**
+ * Sent by the gateway to a bridge whose `session_register` lost a contention
+ * for an already-served session id, immediately BEFORE the socket is closed.
+ *
+ * The refusal is terminal: the bridge SHALL stop retrying for `sessionId`
+ * rather than treating the close as a transient disconnect, and SHALL surface
+ * `reason` instead of failing silently.
+ *
+ * See change: fix-duplicate-bridge-registration (D2).
+ */
+export interface RegisterRejectedExtensionMessage {
+  type: "register_rejected";
+  sessionId: string;
+  reason: string;
 }
 
 export interface RequestFlowsRefreshMessage {
@@ -884,12 +1179,17 @@ export interface ClearFollowupEntriesToExtensionMessage {
   indices: number[] | "all";
 }
 
+/**
+ * Replaces the entry's TEXT only; its buffered images are preserved by the
+ * bridge. An `images` field was retired in `fix-bridge-followup-image-drop`
+ * (design D5): under the count-only wire the browser never holds the bytes
+ * after the initial `send_prompt`, so no producer could populate it.
+ */
 export interface EditFollowupEntryToExtensionMessage {
   type: "edit_followup_entry";
   sessionId: string;
   index: number;
   text: string;
-  images?: ImageContent[];
 }
 
 export interface RemoveFollowupEntryToExtensionMessage {
@@ -944,8 +1244,41 @@ export interface PreferencesUpdateExtensionMessage {
   autoNameSessions: boolean;
 }
 
+/**
+ * Server → bridge: the auto-namer stop state persisted in the session's
+ * `.meta.json`, pushed on register so a permanent stop survives a PROCESS
+ * restart and not merely an extension reload.
+ *
+ * Carries the STOP state only — never `nameSource` / `hasAutoName`. Restoring
+ * provenance would also change the behaviour of the separate auto→`user`
+ * relabel bug, which has a different root cause and is tracked on its own.
+ * See change: fix-auto-naming-reasoning-model (design D7, D8b).
+ */
+export interface AutoNameStateRestoreMessage {
+  type: "auto_name_state_restore";
+  /**
+   * STOP fields only. Typed as the projection rather than the full state so
+   * the wire contract matches the documented one: a type-only `Omit` on the
+   * sender would still ship whatever extra properties the object carries.
+   */
+  state: AutoNamerStopState;
+}
+
+/** The restore-only projection: everything describing the STOP, no provenance. */
+export type AutoNamerStopState = Pick<
+  AutoNamerPersistedState,
+  "hardStopped" | "errorEmitted" | "attemptsUsed" | "starvedCount" | "waitingCount"
+  | "sawStarved" | "stoppedModelRef" | "stopCause" | "stoppedReason"
+>;
+
 export type ServerToExtensionMessage =
+  | ProvisionalAcceptedMessage
+  | SessionMoveCommittedMessage
+  | ProvisionalRejectedMessage
+  | TranscriptRequestMessage
+  | AutoNameStateRestoreMessage
   | SendPromptToExtensionMessage
+  | RetrySessionExtensionMessage
   | AbortToExtensionMessage
   | ExtensionUiResponseMessage
   | RequestCommandsMessage
@@ -961,6 +1294,7 @@ export type ServerToExtensionMessage =
   | StopAfterTurnExtensionMessage
   | FlowControlExtensionMessage
   | HeartbeatAckMessage
+  | RegisterRejectedExtensionMessage
   | RequestFlowsRefreshMessage
   | CredentialsUpdatedMessage
   | FlowManagementExtensionMessage
@@ -1023,6 +1357,18 @@ export interface SubagentResyncRequestExtensionMessage {
   type: "subagent_resync_request";
   sessionId: string;
   agentId: string;
+  /**
+   * Correlation token from the requesting browser, echoed by the bridge onto
+   * the reply frame (`__resyncRequestId`) so the server can route the reply to
+   * that one connection. See change: reduce-subagent-details-payload (C5).
+   */
+  requestId?: string;
+  /**
+   * Why this resync fired — `"open"` (user opened the inspector) or
+   * `"cadence"` (the D4 v1 pull loop). Counted separately by the bridge.
+   * See change: reduce-subagent-details-payload (D6, task 9.4).
+   */
+  reason?: "open" | "cadence";
 }
 
 

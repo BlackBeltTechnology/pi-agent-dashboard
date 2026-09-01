@@ -53,6 +53,24 @@ test.describe("support-zrok-v2 tunnel UI", () => {
   // F3 — the "Forget reserved URL" control fires disconnect {forget:true}.
   test("F3: Forget reserved URL fires POST /api/tunnel-disconnect {forget:true}", async ({ page }) => {
     await stubTunnelStatus(page, { status: "active", url: V2_URL, serverOs: "linux" });
+    // `Release reserved URL` is now rendered ONLY when a reserved name is
+    // actually stored — a release button with nothing to release was the
+    // mirror image of the missing Remember button. So the config must carry
+    // one for this scenario. See change: add-zrok-custom-reserved-name (4.4).
+    await page.route("**/api/config", (route) =>
+      route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          success: true,
+          data: { tunnel: { provider: "zrok", mode: "public", zrok: { reservedName: "pi-dash-abcd1234" } } },
+        }),
+      }),
+    );
+    // The action destroys a URL the operator may have shared, so it is
+    // confirm-gated; auto-accept so the test exercises the request, not the
+    // dialog.
+    page.on("dialog", (d) => void d.accept());
     let forgetBody: any = null;
     await page.route("**/api/tunnel-disconnect", async (route) => {
       forgetBody = route.request().postDataJSON();

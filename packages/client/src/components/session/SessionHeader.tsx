@@ -6,6 +6,7 @@ import { useMobile } from "../../hooks/useMobile.js";
 import type { SessionState } from "../../lib/chat/event-reducer.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { getSessionDisplayName } from "../../lib/session/session-display-name.js";
+import { isRemoteOrigin } from "../../lib/session/session-origin-view.js";
 import { CountBadges } from "./CountBadges.js";
 import { FooterSegmentSlot } from "../extension-ui/FooterSegmentSlot.js";
 import { InlineRenameInput } from "../primitives/InlineRenameInput.js";
@@ -367,7 +368,10 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
   // Resume / Fork affordance gate: only render when the session is dead-but-resumable
   // AND a parent callback was supplied. The render gate replaces the dimmed elapsed-
   // duration span (a tombstone is meaningless) — see change: resume-button-in-session-header.
-  const isEnded = session.status === "ended" && Boolean(session.sessionFile) && Boolean(onResume);
+  // Remote-origin sessions have their files on ANOTHER host — the server
+  // refuses resume/fork with HTTP 409, so the affordance is not offered.
+  // See change: add-pi-gateway-transport-identity.
+  const isEnded = session.status === "ended" && Boolean(session.sessionFile) && Boolean(onResume) && !isRemoteOrigin(session);
 
   // Desktop: full header
   return (
@@ -526,6 +530,7 @@ export function SessionHeader({ session, state, onRename, showBack, onBack, mobi
       )}
       {onRefresh && (
         <button
+          data-testid="refresh-chat"
           onClick={() => { onRefresh(); setRefreshing(true); setTimeout(() => setRefreshing(false), 500); }}
           className="text-[var(--text-muted)] hover:text-[var(--text-secondary)] p-0.5"
           title={i18nT("session.refreshChat", undefined, "Refresh chat")}

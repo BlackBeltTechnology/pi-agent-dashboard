@@ -1,0 +1,3 @@
+# __tests__/knip-config.test.mjs — index
+
+Entry-point rooting for the dead-code oracle (test-plan #G1, #G2, #G4, #D1, #P2). Set-based over every workspace manifest, so a plugin added tomorrow is covered with no edit here. Asserts `deriveEntries` reads `pi-dashboard-plugin.{client,server,bridge}` + `pi.extensions` and deliberately IGNORES `bin`/`main`/`exports` (Knip reads those natively; demanding them reports gaps that are not gaps), `owningWorkspace` attributes a root-declared path to the workspace that roots it, the committed `knip.json` leaves no manifest entry unrooted, a removed plugin bridge entry FAILS (#G4 negative control), every dependency class is `off`, and no `quality:changed` path reaches Knip. See change: add-knip-dead-code-oracle.

@@ -1,52 +1,24 @@
 ---
 name: ci-troubleshoot
-description: 'Diagnose failed GitHub Actions runs for pi-agent-dashboard: the 6-workflow taxonomy, the release pipeline, known failure modes, and how to read `gh run` logs and retrigger jobs. Use when a CI run is red, a release is stuck, a workflow won''t dispatch, or you need to know which workflow does what. See `release-cut` to trigger a release, `release-revoke` to revoke one.'
+description: 'Diagnose failed GitHub Actions runs for pi-agent-dashboard: the 10-file workflow taxonomy, the release pipeline, known failure modes, and how to read `gh run` logs and retrigger jobs. Use when a CI run is red, a release is stuck, a workflow won''t dispatch, or you need to know which workflow does what. See `release-cut` to trigger a release, `release-revoke` to revoke one.'
 ---
 
 # CI Troubleshoot
 
-Diagnose CI failures for pi-agent-dashboard. The repo has 6 workflows arranged in two flows:
+Diagnose CI failures for pi-agent-dashboard. The repo has 10 workflow files: 8 entry workflows and 2 reusable workflows.
 
-```
-   ┌─ FLOW 1: every push ───────────────────────────────┐
-   │                                                    │
-   │   ci.yml                                           │
-   │   ├─ ci (tests + lint + type-check)                │
-   │   ├─ standalone-install-smoke-linux (matrix)       │
-   │   └─ standalone-install-smoke-windows (matrix)     │
-   │                                                    │
-   │   deploy-site.yml  (on push if site/** changed)    │
-   │                                                    │
-   └────────────────────────────────────────────────────┘
-
-   ┌─ FLOW 2: release ──────────────────────────────────┐
-   │                                                    │
-   │   publish.yml  (push tag v* OR workflow_dispatch)  │
-   │   ├─ prepare      (bump, lockfile, CHANGELOG,      │
-   │   │                commit, tag, push)              │
-   │   ├─ publish      (npm publish OIDC, ordered)      │
-   │   ├─ electron     (calls _electron-build.yml)      │
-   │   │   needs: [prepare, publish]  ← CRITICAL        │
-   │   └─ github-release (creates Release, drops logs)  │
-   │       needs: [prepare, publish, electron]          │
-   │                                                    │
-   │   sync-release-version.yml  (on release published) │
-   │   └─ writes site/src/data/latest-release.json      │
-   │                                                    │
-   └────────────────────────────────────────────────────┘
-
-   ┌─ MANUAL: smoke a feature branch's installer matrix ┐
-   │                                                    │
-   │   ci-electron.yml  (workflow_dispatch only)        │
-   │   └─ calls _electron-build.yml with                │
-   │       source_only_bundle=true                      │
-   │                                                    │
-   │   Safety invariants (locked by repo-lint):         │
-   │   - no npm publish, no GitHub Release, no tag push │
-   │   - version slug is a SemVer prerelease ranked     │
-   │     BELOW base stable (electron-updater safe)      │
-   │                                                    │
-   └────────────────────────────────────────────────────┘
+```mermaid
+flowchart LR
+  ci[ci.yml] --> checks[tests + lint + build]
+  deploy[deploy-site.yml] --> pages[GitHub Pages]
+  native[ci-e2e-electron.yml] --> nativeTests[native Electron E2E]
+  ciSmoke[ci-smoke.yml] --> smoke[_smoke.yml]
+  publish[publish.yml] --> smoke
+  ciElectron[ci-electron.yml] --> electron[_electron-build.yml]
+  nightly[nightly.yml] --> electron
+  publish --> electron
+  publish --> release[GitHub Release]
+  release --> sync[sync-release-version.yml]
 ```
 
 Full per-workflow detail: [`references/workflow-taxonomy.md`](references/workflow-taxonomy.md).
@@ -54,50 +26,51 @@ Full per-workflow detail: [`references/workflow-taxonomy.md`](references/workflo
 ## First moves — always run these
 
 ```bash
-npx tsx ./scripts/list-recent-runs.ts                  # last 10 runs across all workflows
-npx tsx ./scripts/list-recent-runs.ts --failed         # only failed
-npx tsx ./scripts/show-failed-run.ts <run-id>          # failed steps + log tails
-npx tsx ./scripts/show-failed-run.ts                   # most recent failed run
+pnpm exec tsx .pi/skills/ci-troubleshoot/scripts/list-recent-runs.ts                  # last 10 runs across all workflows
+pnpm exec tsx .pi/skills/ci-troubleshoot/scripts/list-recent-runs.ts --failed         # only failed
+pnpm exec tsx .pi/skills/ci-troubleshoot/scripts/show-failed-run.ts <run-id>          # failed steps + log tails
+pnpm exec tsx .pi/skills/ci-troubleshoot/scripts/show-failed-run.ts                   # most recent failed run
 ```
 
 These wrap `gh run list`, `gh run view --log-failed`, and similar. You need `gh auth status` to be authenticated.
 
-> Scripts are TypeScript (cross-platform). All invocations use `npx tsx` so they work on Linux, macOS, and Windows. `tsx` is already a project dep; `gh` CLI is cross-platform.
+> Scripts are TypeScript and cross-platform. All invocations use `pnpm exec tsx`, which resolves the declared local dependency and fails if dependencies are absent. `gh` CLI is cross-platform.
 
 ## Triage decision tree
 
-```
-   Is the run red?
-        │
-        ▼
-   Which workflow?
-        │
-   ┌────┼────────────────────────┬───────────────────┐
-   │    │                        │                   │
-   ▼    ▼                        ▼                   ▼
-  ci.yml                  publish.yml          ci-electron.yml
-   │                              │                   │
-   ▼                              ▼                   ▼
-  Tests, lint, smoke    Release flow — which job?   On-demand Electron
-   │                              │                  smoke (not publish)
-   ▼                              │
-  references/                     ├─ prepare      → see below
-  common-failures.md              ├─ publish      → npm ordering
-                                  ├─ electron     → matrix leg
-                                  └─ github-release → asset collision
+```mermaid
+flowchart TD
+  red{Run is red?} --> workflow{Which workflow?}
+  workflow --> ci[ci.yml]
+  workflow --> publish[publish.yml]
+  workflow --> electron[ci-electron.yml]
+  workflow --> other[Other workflow]
+  ci --> common[Tests, lint, build<br/>references/common-failures.md]
+  other --> taxonomy[references/workflow-taxonomy.md]
+  publish --> releaseJob{Which release job?}
+  releaseJob --> tag[tag-and-push]
+  releaseJob --> npmOrder[publish: npm ordering]
+  releaseJob --> matrix[electron: matrix leg]
+  releaseJob --> assets[github-release: asset collision]
+  electron --> smoke[On-demand Electron smoke<br/>never publish]
 ```
 
 ## Release pipeline — `publish.yml`
 
-The release flow runs 4 jobs strictly in this order:
+The release flow uses a gated 7-job graph:
 
-```
-   prepare ──▶ publish ──▶ electron ──▶ github-release
-   (deps     (npm OIDC,    (matrix     (creates
-    + tag)    ordered)      6 legs)     Release)
+```mermaid
+flowchart LR
+  resolve[resolve] --> checks[ci-checks]
+  resolve --> smoke[smoke via _smoke.yml]
+  checks --> tag[tag-and-push]
+  smoke --> tag
+  tag --> publish[publish packages]
+  publish --> electron[electron via _electron-build.yml]
+  electron --> release[github-release]
 ```
 
-`needs:` chains lock this order. **Do not remove `needs: [prepare, publish]` from `electron`** — the electron build's bundled server runs `npm install` for `@blackbelt-technology/*`, which must already exist on npm. Locked by `packages/shared/src/__tests__/publish-workflow-contract.test.ts`.
+Tag-push runs skip `tag-and-push`; `publish.if` accepts that skip while still requiring checks and smoke. **Do not remove `needs: [resolve, publish]` from `electron`**. The bundled server installs the just-published packages. Locked by `packages/shared/src/__tests__/publish-workflow-contract.test.ts`.
 
 Full walkthrough with per-job failure modes: [`references/release-pipeline.md`](references/release-pipeline.md).
 
@@ -107,12 +80,12 @@ Maintained in [`references/common-failures.md`](references/common-failures.md). 
 
 | Failure | Where | Diagnosis | Fix |
 |---------|-------|-----------|-----|
-| `verify-lockfile-versions.mjs` fails | `prepare` | Cross-ref specifier in lockfile doesn't match bumped version | Regenerate lockfile + commit; or fix `scripts/sync-versions.js` |
-| CHANGELOG already has `## [X.Y.Z]` | `prepare` | You're re-dispatching with a version that was already promoted | Bump to a new version, or revert the CHANGELOG section |
+| `verify-lockfile-versions.mjs` fails | `tag-and-push` | Cross-ref specifier in lockfile doesn't match bumped version | Regenerate lockfile + commit; or fix `scripts/sync-versions.js` |
+| CHANGELOG already has `## [X.Y.Z]` | `tag-and-push` | You're re-dispatching with a version that was already promoted | Bump to a new version, or revert the CHANGELOG section |
 | `npm publish` 403 | `publish` | OIDC trusted publisher not configured for that package | Configure in npm web UI; or temporarily use NPM_TOKEN |
 | Electron matrix leg fails | `electron` | Missing prebuild for node-pty/better-sqlite3 on that OS/arch | Check `bundle-server.mjs` GO/NO-GO guard; rebuild prebuilds |
 | `shell: bash` on Windows runner | any | Lint test `no-bash-on-windows.test.ts` flags it | Remove `shell: bash` or guard with `if: runner.os != 'Windows'` |
-| Electron job missing `needs:` | repo-lint | `publish-workflow-contract.test.ts` failed | Restore `needs: [prepare, publish]` |
+| Electron job missing `needs:` | repo-lint | `publish-workflow-contract.test.ts` failed | Restore `needs: [resolve, publish]` |
 | `Cannot find module @blackbelt-technology/...` in electron | `electron` | `publish` job didn't run or failed; bundled server can't resolve from npm | Check `publish` job — re-run only if it failed; never bypass |
 | Fastify crashes in bundled server smoke | any using node | Bad Node version pinned in workflow | Bump `node-version:` to ≥ 22.18.0 |
 | Loud-but-harmless `EADDRINUSE` in smoke | smoke job | Concurrent server spawns | Usually self-recovering; check next log lines |
@@ -127,7 +100,7 @@ Maintained in [`references/common-failures.md`](references/common-failures.md). 
 gh run list -L 10
 
 # Last 5 failed runs across all workflows
-gh run list -L 50 | grep -E 'failure|cancelled' | head -5
+gh run list -L 50 | grep -E 'failure|cancelled' | awk 'NR <= 5'
 
 # Get a specific run, only the failed steps
 gh run view <run-id> --log-failed
@@ -140,9 +113,14 @@ gh run rerun <run-id> --failed
 
 # Re-run from scratch (rare; usually for flakes)
 gh run rerun <run-id>
+
+# Cancel a stuck run
+gh run cancel <run-id>
 ```
 
 `gh run view --log-failed` is the highest-leverage one — it pulls only failed-step output, which is what you want 95% of the time.
+
+**Never bypass the release pipeline with a manual `npm publish`.** That loses OIDC trusted publishing, lockfile synchronization, changelog promotion, smoke gates, and Electron dependency ordering.
 
 **Rerun gotcha (tag-push releases):** `gh run rerun <id> --failed` does NOT re-dispatch skipped downstream reusable-workflow jobs (e.g. `electron`) even after `publish` flips green — they stay `skipped`. After a smoke-**gate** flake on a tag-push release, re-push the tag for a clean single-pass run instead: `git push --delete origin vX.Y.Z && git push origin vX.Y.Z`. `publish` is idempotent (skips already-published packages), so re-pushing the tag is safe.
 

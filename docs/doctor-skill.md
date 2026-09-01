@@ -126,4 +126,4 @@ Narrates + derives. May call those surfaces.
 
 ## Origin
 
-Productizes prototype `FLOWS_HANDOFF_CHECKLIST.md`. See change: add-modular-doctor-skill.
+Productizes earlier prototype handoff checklist. See change: add-modular-doctor-skill.

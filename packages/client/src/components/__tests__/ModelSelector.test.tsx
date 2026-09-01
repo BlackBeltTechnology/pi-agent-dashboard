@@ -3,10 +3,11 @@
  * group + filter, persistent provider filter.
  * See change: enrich-model-selector-capabilities-favorites.
  */
-import { describe, it, expect, beforeEach, vi, afterEach } from "vitest";
-import { render, screen, fireEvent, cleanup, within, act } from "@testing-library/react";
-import { ModelSelector } from "../settings/ModelSelector.js";
+
 import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { ModelSelector } from "../settings/ModelSelector.js";
 
 const models: ModelInfo[] = [
   { provider: "anthropic", id: "claude-opus-4-7", name: "Claude Opus 4.7", reasoning: true, vision: true, contextWindow: 1_000_000, metadataSource: "catalog" },
@@ -80,49 +81,182 @@ describe("ModelSelector favorites", () => {
   });
 });
 
-describe("ModelSelector refresh control (refresh-model-selector-models)", () => {
-  it("calls onRefresh and enters busy (disabled) state on activation", () => {
-    const onRefresh = vi.fn();
-    render(<ModelSelector models={models} onSelect={() => {}} onRefresh={onRefresh} favorites={[]} />);
-    open();
-    const btn = screen.getByTestId("model-refresh");
-    expect(btn.hasAttribute("disabled")).toBe(false);
-    fireEvent.click(btn);
-    expect(onRefresh).toHaveBeenCalledTimes(1);
-    // Busy: control disabled while awaiting a new models list.
-    expect(screen.getByTestId("model-refresh").hasAttribute("disabled")).toBe(true);
-  });
-
-  it("does not render the refresh control when onRefresh is undefined", () => {
-    render(<ModelSelector models={models} onSelect={() => {}} favorites={[]} />);
+describe("ModelSelector refresh on open (upgrade-model-selector-primitives)", () => {
+  it("renders no manual refresh button and no busy indicator", () => {
+    render(<ModelSelector models={models} onSelect={() => {}} onRefresh={vi.fn()} favorites={[]} />);
     open();
     expect(screen.queryByTestId("model-refresh")).toBeNull();
   });
 
-  it("clears busy state when the models prop identity changes", () => {
+  it("fires onRefresh exactly once on the open transition", () => {
     const onRefresh = vi.fn();
-    const { rerender } = render(<ModelSelector models={models} onSelect={() => {}} onRefresh={onRefresh} favorites={[]} />);
+    render(<ModelSelector models={models} onSelect={() => {}} onRefresh={onRefresh} favorites={[]} />);
     open();
-    fireEvent.click(screen.getByTestId("model-refresh"));
-    expect(screen.getByTestId("model-refresh").hasAttribute("disabled")).toBe(true);
-    // A fresh models_list arrives => new array identity.
-    rerender(<ModelSelector models={[...models]} onSelect={() => {}} onRefresh={onRefresh} favorites={[]} />);
-    expect(screen.getByTestId("model-refresh").hasAttribute("disabled")).toBe(false);
+    expect(onRefresh).toHaveBeenCalledTimes(1);
   });
 
-  it("clears busy state on the safety timeout when no new list arrives", () => {
+  it("sends nothing when no refresh handler is wired, and still renders the list", () => {
+    render(<ModelSelector models={models} onSelect={() => {}} favorites={[]} />);
+    open();
+    expect(screen.getAllByTestId("model-row").length).toBeGreaterThan(0);
+  });
+});
+
+describe("ModelSelector partial-failure footer (thin count, D1-B)", () => {
+  it("shows a count + Providers link, not provider names, and keeps models selectable", () => {
+    const onSelect = vi.fn();
+    render(
+      <ModelSelector
+        models={models}
+        onSelect={onSelect}
+        favorites={[]}
+        refreshErrors={[{ provider: "openai", message: "catalog 503" }]}
+        onOpenProviderSettings={() => {}}
+      />,
+    );
+    open();
+    const notice = screen.getByTestId("model-refresh-errors");
+    expect(notice.textContent).toMatch(/1 provider unavailable/i);
+    // Provider name and per-message text are NOT shown in the footer anymore.
+    expect(notice.textContent).not.toContain("openai");
+    expect(notice.textContent).not.toMatch(/last known/i);
+    expect(within(notice).getByTestId("model-provider-settings-link")).toBeTruthy();
+    fireEvent.click(screen.getAllByTestId("model-row")[0]);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the total count for several failures without naming any provider", () => {
+    render(
+      <ModelSelector
+        models={models}
+        onSelect={() => {}}
+        favorites={[]}
+        refreshErrors={[
+          { provider: "openai", message: "catalog 503" },
+          { provider: "anthropic", message: "bad key" },
+        ]}
+        onOpenProviderSettings={() => {}}
+      />,
+    );
+    open();
+    const notice = screen.getByTestId("model-refresh-errors");
+    expect(notice.textContent).toMatch(/2 providers unavailable/i);
+    expect(notice.textContent).not.toContain("openai");
+    expect(notice.textContent).not.toContain("anthropic");
+  });
+
+  it("renders no footer on a clean refresh", () => {
+    render(<ModelSelector models={models} onSelect={() => {}} favorites={[]} />);
+    open();
+    expect(screen.queryByTestId("model-refresh-errors")).toBeNull();
+  });
+
+  it("renders no footer for an empty error list", () => {
+    render(<ModelSelector models={models} onSelect={() => {}} favorites={[]} refreshErrors={[]} />);
+    open();
+    expect(screen.queryByTestId("model-refresh-errors")).toBeNull();
+  });
+});
+
+describe("ModelSelector openable empty catalogue", () => {
+  it("1.1 trigger is not disabled, opens with models:[], and shows the chevron", () => {
+    render(<ModelSelector models={[]} onSelect={() => {}} favorites={[]} />);
+    const trigger = screen.getByTestId("model-selector-button") as HTMLButtonElement;
+    expect(trigger.disabled).toBe(false);
+    // Chevron affordance present in the empty state (control reads interactive).
+    expect(trigger.querySelector("svg")).toBeTruthy();
+    open();
+    expect(screen.getByTestId("model-dropdown")).toBeTruthy();
+  });
+
+  it("1.2 fires exactly one request_models on open with models:[] + onRefresh", () => {
+    const onRefresh = vi.fn();
+    render(<ModelSelector models={[]} onSelect={() => {}} onRefresh={onRefresh} favorites={[]} />);
+    open();
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("1.2 opens without throwing and sends nothing when no onRefresh is wired", () => {
+    render(<ModelSelector models={[]} onSelect={() => {}} favorites={[]} />);
+    expect(() => open()).not.toThrow();
+    expect(screen.getByTestId("model-dropdown")).toBeTruthy();
+  });
+
+  it("1.3 while awaiting refresh shows the refreshing body and no recovery link", () => {
+    render(<ModelSelector models={[]} onSelect={() => {}} onRefresh={vi.fn()} favorites={[]} />);
+    open();
+    expect(screen.getByTestId("model-empty-refreshing")).toBeTruthy();
+    expect(screen.queryByTestId("model-provider-settings-link")).toBeNull();
+  });
+
+  it("1.3 after a post-open empty models_list shows the Open provider settings link", () => {
+    const { rerender } = render(
+      <ModelSelector models={[]} onSelect={() => {}} onRefresh={vi.fn()} favorites={[]} onOpenProviderSettings={() => {}} />,
+    );
+    open();
+    // Simulate the post-open `models_list` arriving empty (fresh array identity).
+    rerender(
+      <ModelSelector models={[]} onSelect={() => {}} onRefresh={vi.fn()} favorites={[]} onOpenProviderSettings={() => {}} />,
+    );
+    expect(screen.queryByTestId("model-empty-refreshing")).toBeNull();
+    expect(screen.getByTestId("model-provider-settings-link")).toBeTruthy();
+  });
+
+  it("1.4 empty + refreshErrors shows the Providers link, no inline Retry; reopen re-fires refresh", () => {
+    const onRefresh = vi.fn();
+    const { rerender } = render(
+      <ModelSelector models={[]} onSelect={() => {}} onRefresh={onRefresh} favorites={[]} onOpenProviderSettings={() => {}} />,
+    );
+    open();
+    rerender(
+      <ModelSelector
+        models={[]}
+        onSelect={() => {}}
+        onRefresh={onRefresh}
+        favorites={[]}
+        refreshErrors={[{ provider: "openai", message: "catalog 503" }]}
+        onOpenProviderSettings={() => {}}
+      />,
+    );
+    expect(screen.getByTestId("model-provider-settings-link")).toBeTruthy();
+    expect(screen.queryByTestId("model-empty-retry")).toBeNull();
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    // close + reopen → a fresh open-triggered refresh.
+    fireEvent.click(screen.getByTestId("model-selector-button"));
+    open();
+    expect(onRefresh).toHaveBeenCalledTimes(2);
+  });
+
+  it("1.3b safety timeout with no models_list reveals the recovery link", () => {
     vi.useFakeTimers();
     try {
-      const onRefresh = vi.fn();
-      render(<ModelSelector models={models} onSelect={() => {}} onRefresh={onRefresh} favorites={[]} />);
+      render(
+        <ModelSelector models={[]} onSelect={() => {}} onRefresh={vi.fn()} favorites={[]} onOpenProviderSettings={() => {}} />,
+      );
       open();
-      fireEvent.click(screen.getByTestId("model-refresh"));
-      expect(screen.getByTestId("model-refresh").hasAttribute("disabled")).toBe(true);
+      // Still awaiting: refreshing body, no link.
+      expect(screen.getByTestId("model-empty-refreshing")).toBeTruthy();
+      expect(screen.queryByTestId("model-provider-settings-link")).toBeNull();
+      // No models_list ever arrives; the safety timeout elapses.
       act(() => { vi.advanceTimersByTime(10_000); });
-      expect(screen.getByTestId("model-refresh").hasAttribute("disabled")).toBe(false);
+      expect(screen.queryByTestId("model-empty-refreshing")).toBeNull();
+      expect(screen.getByTestId("model-provider-settings-link")).toBeTruthy();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("1.6 activating the recovery link calls the settings-open callback", () => {
+    const onOpen = vi.fn();
+    const { rerender } = render(
+      <ModelSelector models={[]} onSelect={() => {}} onRefresh={vi.fn()} favorites={[]} onOpenProviderSettings={onOpen} />,
+    );
+    open();
+    rerender(
+      <ModelSelector models={[]} onSelect={() => {}} onRefresh={vi.fn()} favorites={[]} onOpenProviderSettings={onOpen} />,
+    );
+    fireEvent.click(screen.getByTestId("model-provider-settings-link"));
+    expect(onOpen).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -152,5 +286,67 @@ describe("ModelSelector provider filter persistence", () => {
     open();
     expect((screen.getByTestId("model-filter") as HTMLInputElement).value).toBe("");
     expect((screen.getByTestId("provider-filter") as HTMLSelectElement).value).toBe("anthropic");
+  });
+});
+
+// ── metadataSource union widening ("endpoint") ────────────────────────────
+//
+// The union gained a third member; `"endpoint"` is CONFIRMED capability (the
+// provider advertised every field itself), and only `"fallback"` keeps the
+// uncertain treatment. Pre-existing branches must be untouched.
+// See change: fix-custom-provider-model-metadata (test-plan F3).
+
+describe("ModelSelector — metadataSource 'endpoint' provenance (F3)", () => {
+  const titles = (row: HTMLElement) =>
+    Array.from(row.querySelectorAll("[title]")).map((e) => e.getAttribute("title") ?? "");
+
+  it("renders endpoint provenance as confirmed, not uncertain", () => {
+    const endpointModels: ModelInfo[] = [
+      {
+        provider: "proxy",
+        id: "cc/claude-opus-5",
+        reasoning: true,
+        vision: true,
+        contextWindow: 1_000_000,
+        metadataSource: "endpoint",
+      },
+    ];
+    render(<ModelSelector models={endpointModels} onSelect={() => {}} favorites={[]} />);
+    open();
+    const row = screen.getByTestId("model-row");
+    expect(titles(row).some((t) => t.includes("Reasoning (confirmed)"))).toBe(true);
+    expect(titles(row).some((t) => t.includes("Vision-capable (confirmed)"))).toBe(true);
+    expect(titles(row).some((t) => t.includes("assumed"))).toBe(false);
+    expect(row.textContent).not.toContain("?");
+  });
+
+  it.each([
+    ["catalog", "catalog" as const],
+    ["endpoint", "endpoint" as const],
+    ["fallback", "fallback" as const],
+    ["undefined", undefined],
+  ])("renders without crashing for metadataSource %s", (_label, source) => {
+    const one: ModelInfo[] = [
+      { provider: "p", id: "m", reasoning: true, vision: true, metadataSource: source },
+    ];
+    expect(() =>
+      render(<ModelSelector models={one} onSelect={() => {}} favorites={[]} />),
+    ).not.toThrow();
+    open();
+    expect(screen.getByTestId("model-row")).toBeTruthy();
+  });
+
+  it("keeps the uncertain treatment exclusive to fallback (non-regression)", () => {
+    const mixed: ModelInfo[] = [
+      { provider: "p", id: "endpoint-model", reasoning: true, vision: true, metadataSource: "endpoint" },
+      { provider: "p", id: "fallback-model", reasoning: false, vision: true, metadataSource: "fallback" },
+    ];
+    render(<ModelSelector models={mixed} onSelect={() => {}} favorites={[]} />);
+    open();
+    const rows = screen.getAllByTestId("model-row");
+    const endpointRow = rows.find((r) => r.textContent?.includes("endpoint-model"))!;
+    const fallbackRow = rows.find((r) => r.textContent?.includes("fallback-model"))!;
+    expect(endpointRow.textContent).not.toContain("?");
+    expect(fallbackRow.textContent).toContain("?");
   });
 });

@@ -69,6 +69,24 @@ export class EarlyExitError extends Error {
   }
 }
 
+/**
+ * Exit code the recovery server uses for its own `EADDRINUSE`
+ * (`recovery-server.ts`). The parent treats it as "port taken" rather than as
+ * a generic early exit.
+ *
+ * Clarification C2: there is deliberately NO second, normal-path conflict exit
+ * code. The normal path already surfaces a conflict through the probe-based
+ * `PortConflictError` below, and adding a second mechanism would shadow it
+ * with undefined precedence. This code is the recovery path's only.
+ * See change: fix-worktree-server-autostart-leak.
+ */
+export const RECOVERY_PORT_CONFLICT_EXIT_CODE = 2;
+
+/** True when a child exit code means "the port was taken", not "it crashed". */
+export function isPortConflictExitCode(code: number | null): boolean {
+  return code === RECOVERY_PORT_CONFLICT_EXIT_CODE;
+}
+
 // ── Options + result ────────────────────────────────────────────────────────
 
 export interface LaunchOpts {
@@ -163,6 +181,20 @@ export interface LaunchResult {
 // ── Implementation ──────────────────────────────────────────────────────────
 
 const DEFAULT_POLL_MS = 300;
+
+/**
+ * Classify a child that exited before reaching health. The recovery path's
+ * `EADDRINUSE` exit is a port conflict; every other early exit stays generic
+ * (E11 / E12). See change: fix-worktree-server-autostart-leak.
+ */
+function classifyChildExit(
+  code: number | null,
+  signal: NodeJS.Signals | null,
+  port: number,
+): Error {
+  if (isPortConflictExitCode(code)) return new PortConflictError(port);
+  return new EarlyExitError(code, signal);
+}
 
 function defaultSleep(ms: number): Promise<void> {
   return new Promise((r) => setTimeout(r, ms));
@@ -263,7 +295,7 @@ export async function launchDashboardServer(opts: LaunchOpts): Promise<LaunchRes
   }
 
   if (!child.pid) {
-    throw new EarlyExitError(child.exitCode ?? null, child.signalCode ?? null);
+    throw classifyChildExit(child.exitCode ?? null, child.signalCode ?? null, opts.port);
   }
 
   // 5. Readiness loop.
@@ -271,7 +303,7 @@ export async function launchDashboardServer(opts: LaunchOpts): Promise<LaunchRes
   while (true) {
     // Early-exit detection (beats timeout per spec).
     if (child.exitCode !== null) {
-      throw new EarlyExitError(child.exitCode, child.signalCode ?? null);
+      throw classifyChildExit(child.exitCode, child.signalCode ?? null, opts.port);
     }
     let status;
     try {

@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getApiBase } from "../../lib/api/api-context.js";
 import type { DoctorCheck, DoctorReport } from "../../lib/api/doctor-api.js";
 import { DoctorFetchError, fetchDoctorReport } from "../../lib/api/doctor-api.js";
+import { type AutoNameOutcomeRow, fetchAutoNameOutcomes } from "../../lib/api/auto-name-outcomes-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { resolveServerMessage } from "../../lib/api/server-error.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
@@ -112,10 +113,50 @@ function formatMarkdown(report: DoctorReport): string {
 interface Props {
   /** Test-only override for `fetchDoctorReport`. */
   fetcher?: () => Promise<DoctorReport>;
+  /** Test-only override for `fetchAutoNameOutcomes`. */
+  autoNameFetcher?: () => Promise<AutoNameOutcomeRow[]>;
 }
 
-export function DiagnosticsSection({ fetcher }: Props = {}) {
+/**
+ * Auto-naming outcomes, retained per session by the server.
+ *
+ * `starved` is presented distinctly from `waiting`: the first means the model
+ * could not emit a title under the output cap (a MODEL problem, remedied by
+ * assigning a different `@naming` model), the second means a well-behaved
+ * model reported no nameable topic. Conflating them is the original bug this
+ * readout exists to make visible.
+ * See change: fix-auto-naming-reasoning-model (design D9).
+ */
+function AutoNamingDiagnostics({ rows }: { rows: AutoNameOutcomeRow[] }) {
+  if (rows.length === 0) return null;
+  const label: Partial<Record<string, string>> = {
+    starved: i18nT("doctor.autoNameStarved", undefined, "starved \u2014 the model hit the output cap before emitting a title (truncated)"),
+    waiting: i18nT("doctor.autoNameWaiting", undefined, "waiting \u2014 no nameable topic yet"),
+    stopped: i18nT("doctor.autoNameStopped", undefined, "stopped \u2014 naming gave up for this session"),
+  };
+  return (
+    <div className="mb-4" data-testid="auto-naming-diagnostics">
+      <h3 className="text-sm font-semibold text-slate-300 mb-1">
+        {i18nT("doctor.autoNaming", undefined, "Automatic session naming")}
+      </h3>
+      <ul className="text-xs text-slate-400 space-y-1">
+        {rows.map((r) => (
+          <li key={r.sessionId} data-testid={`auto-name-outcome-${r.sessionId}`} data-outcome={r.outcome}>
+            <code className="text-slate-300">{r.sessionId.slice(0, 8)}</code>{" "}
+            <span data-testid={`auto-name-outcome-label-${r.sessionId}`}>{label[r.outcome] ?? r.outcome}</span>
+            {" \u2014 "}{r.reason}
+            {r.modelRef ? <span className="text-slate-500"> ({r.modelRef})</span> : null}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+export function DiagnosticsSection({ fetcher, autoNameFetcher }: Props = {}) {
   const fetch = fetcher ?? fetchDoctorReport;
+  const fetchOutcomes = autoNameFetcher ?? fetchAutoNameOutcomes;
+  const [autoNameRows, setAutoNameRows] = useState<AutoNameOutcomeRow[]>([]);
   const [report, setReport] = useState<DoctorReport | null>(null);
   const [error, setError] = useState<{ status: number | null; excerpt: string; message: string } | null>(null);
   const [running, setRunning] = useState(false);
@@ -175,6 +216,16 @@ export function DiagnosticsSection({ fetcher }: Props = {}) {
     }
     await run();
   }, [run]);
+
+  // Fetched on mount, NOT accumulated from the live broadcast: an outcome
+  // reported before this surface existed must still be visible (test-plan #F8).
+  useEffect(() => {
+    let alive = true;
+    void fetchOutcomes()
+      .then((rows) => { if (alive) setAutoNameRows(rows); })
+      .catch(() => { /* diagnostics are best-effort; the doctor report still renders */ });
+    return () => { alive = false; };
+  }, [fetchOutcomes]);
 
   // Initial load
   useEffect(() => {
@@ -257,6 +308,8 @@ export function DiagnosticsSection({ fetcher }: Props = {}) {
       {toast ? (
         <div className="mb-3 text-xs text-slate-300 bg-slate-800/60 px-3 py-1.5 rounded">{toast}</div>
       ) : null}
+
+      <AutoNamingDiagnostics rows={autoNameRows} />
 
       {error ? (
         <div
@@ -364,7 +417,7 @@ function CopyFallbackModal({ text, onClose }: { text: string; onClose: () => voi
   return (
     <DialogPortal>
       <div
-        className="fixed inset-0 bg-black/60 flex items-center justify-center z-[80]"
+        className="fixed inset-0 bg-black/60 flex items-center justify-center z-dialog"
         onClick={onClose}
         data-testid="diagnostics-copy-modal"
       >

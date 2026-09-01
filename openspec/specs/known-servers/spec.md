@@ -1,3 +1,11 @@
+# known-servers Specification
+
+## Purpose
+
+Lets a browser reach dashboard servers other than the one it was loaded from. Persists a list of known servers in config, exposes REST endpoints to list, add, and remove them plus an on-demand mDNS scan, and defines the Settings surfaces for both the known-server list and network discovery — including free-form host input parsing and surfacing scan errors rather than failing silently.
+
+## Requirements
+
 ### Requirement: Known servers persisted in config
 The system SHALL persist a list of known remote servers in the `knownServers` array in `config.json`. Each entry SHALL have `host` (string), `port` (number), `label` (optional string), and `addedAt` (ISO timestamp). Localhost SHALL always be implicitly available and not stored in the list.
 

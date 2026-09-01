@@ -3,13 +3,13 @@
  * Extracted from App.tsx — maps each message type to the correct state setter.
  */
 
-import {
-  isIbGreetingEventType,
-  type PreflightReason,
-  type ServerToBrowserMessage,
-  type SpawnFailureCode,
+import type {
+  PreflightReason,
+  ServerToBrowserMessage,
+  SpawnFailureCode,
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { DisplayPrefs } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+import type { ProviderRefreshError } from "@blackbelt-technology/pi-dashboard-shared/protocol.js";
 import type { TerminalSession } from "@blackbelt-technology/pi-dashboard-shared/terminal-types.js";
 import type { CommandInfo, DashboardSession, FileEntry, ModelInfo, OpenSpecData, OpenSpecGroup, RoleInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useCallback, useEffect, useRef } from "react";
@@ -17,7 +17,14 @@ import type { DiscoveredServerInfo } from "../components/connectivity/ServerSele
 import type { ToastVariant } from "../components/primitives/Toast.js";
 import { EMPTY_CANVAS_STATE, reduceCanvasChip, reduceCanvasIntent } from "../lib/canvas/canvas-gate.js";
 import { foldLiveEvents, type QueuedLiveEvent } from "../lib/chat/coalesce-live-events.js";
-import { addInteractiveRequest, addNotify, applyPromptReceived, createInitialState, dismissInteractiveRequest, reduceEvent, type SessionState } from "../lib/chat/event-reducer.js";
+import { addInteractiveRequest, addNotify, applyPromptReceived, carryPendingPrompt, createInitialState, dismissInteractiveRequest, finalizeBackfillSegment, reduceEvent, type SessionState } from "../lib/chat/event-reducer.js";
+import {
+  createHistoryGapRow,
+  createHistoryGapState,
+  HISTORY_GAP_ROW_ID,
+  isHeadFree,
+  type HistoryGapState,
+} from "../lib/chat/history-gap.js";
 import { dispatchInitEvent } from "../lib/git/worktree-init-bus.js";
 import { t } from "../lib/i18n/i18n.js";
 import { clearLoadingHistory, HYDRATE_CEILING_MS, rearmLoadingHistory } from "../lib/replay/loading-history.js";
@@ -73,6 +80,12 @@ export interface MessageHandlerSetters {
   setFolderGitMap: React.Dispatch<React.SetStateAction<Map<string, string | null>>>;
   setOpenspecGroupsMap: React.Dispatch<React.SetStateAction<Map<string, { groups: OpenSpecGroup[]; assignments: Record<string, string>; changeOrder?: Record<string, string[]> }>>>;
   setModelsMap: React.Dispatch<React.SetStateAction<Map<string, ModelInfo[]>>>;
+  /**
+   * Per-session provider refresh failures from the latest `models_list`.
+   * A later clean push clears the session's entry.
+   * See change: upgrade-model-selector-primitives.
+   */
+  setModelRefreshErrorsMap: React.Dispatch<React.SetStateAction<Map<string, ProviderRefreshError[]>>>;
   setRolesMap: React.Dispatch<React.SetStateAction<Map<string, RoleInfo>>>;
   setSpawnResult: React.Dispatch<React.SetStateAction<{ success: boolean; message: string } | null>>;
   setSessionOrderMap: React.Dispatch<React.SetStateAction<Map<string, string[]>>>;
@@ -112,6 +125,23 @@ export interface MessageHandlerSetters {
    * routes. See change: auto-canvas (Section 6).
    */
   setCanvasMap: React.Dispatch<React.SetStateAction<Map<string, import("../lib/canvas/canvas-gate.js").CanvasState>>>;
+  /**
+   * Per-session windowed-replay gap state, folded from `history_window` /
+   * `history_backfill_result`. Drives the interstitial gap divider.
+   * Optional for back-compat / lean test contexts.
+   * See change: lazy-load-session-history.
+   */
+  setHistoryGaps?: React.Dispatch<React.SetStateAction<Map<string, HistoryGapState>>>;
+  /**
+   * Monotonic counter bumped once per SUCCESSFUL backfill splice. The chat view
+   * keys its scroll-anchor restore on this rather than on `messages.length`:
+   * a live event also changes the length (and would consume the anchor for an
+   * unrelated row), and the FINAL splice inserts rows while removing the
+   * divider, so the net length can be unchanged and the restore would never
+   * run at all. A revision fires exactly once per splice, in both cases.
+   * See change: lazy-load-session-history (task 7.3).
+   */
+  setHistorySpliceRev?: React.Dispatch<React.SetStateAction<number>>;
 }
 
 export interface MessageHandlerDeps {
@@ -170,15 +200,33 @@ export function useMessageHandler(
 ): (msg: ServerToBrowserMessage) => void {
   const {
     setSessions, setSessionStates, setSessionCommands,
-    setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setRolesMap, setSpawnResult,
+    setFileResults, setChangedOnDisk, setOpenspecMap, setFolderGitMap, setOpenspecGroupsMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult,
     setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals,
     setDiscoveredServers, setSpawnErrors, setResumeErrors,
-    setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap,
+    setDisplayPrefs, setLoadingHistory, setReplayInFlight, setCanvasMap, setHistoryGaps, setHistorySpliceRev,
   } = setters;
   const { send, navigate, clearSpawningCwd, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, lastCreatedTerminalIdRef, maxSeqMapRef, selectedSessionIdRef, pendingSpawnsRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, showToast } = deps;
   // One-shot per session: suppress a repeat auto-name toast for the same
   // session id. See change: add-auto-session-naming.
   const autoNameToastedRef = useRef<Set<string>>(new Set());
+  /**
+   * Authoritative gap bookkeeping, read SYNCHRONOUSLY inside the `event_replay`
+   * reduce loop to decide where the divider row lands. The React state mirror
+   * (`setHistoryGaps`) is for rendering only — it lags by a commit, which is
+   * one commit too many for a placement decision.
+   * See change: lazy-load-session-history.
+   */
+  const historyGapsRef = useRef<Map<string, HistoryGapState>>(new Map());
+  const publishGap = useCallback((sessionId: string, gap: HistoryGapState | undefined) => {
+    if (gap) historyGapsRef.current.set(sessionId, gap);
+    else historyGapsRef.current.delete(sessionId);
+    setHistoryGaps?.((prev) => {
+      const next = new Map(prev);
+      if (gap) next.set(sessionId, { ...gap });
+      else next.delete(sessionId);
+      return next;
+    });
+  }, [setHistoryGaps]);
 
   // Phase 3 (change: reduce-chat-render-cpu-umbrella): live `event` bursts
   // arrive one-per-WS-frame in separate macrotasks, so React 18 automatic
@@ -384,6 +432,24 @@ export function useMessageHandler(
           }
           return next;
         });
+        // `session_removed` is the confirmed clean-shutdown / force-kill
+        // boundary. Preserve transcript/statistics, but no retry or provider
+        // error can remain actionable after the process is gone.
+        setSessionStates((prev) => {
+          const existing = prev.get(msg.sessionId);
+          if (!existing) return prev;
+          const next = new Map(prev);
+          next.set(msg.sessionId, {
+            ...existing,
+            status: "ended",
+            isStreaming: false,
+            currentTool: undefined,
+            retryState: undefined,
+            lastError: undefined,
+            retryCancelled: undefined,
+          });
+          return next;
+        });
         break;
 
       case "session_state_reset":
@@ -396,13 +462,20 @@ export function useMessageHandler(
           // bridge re-register triggers this reset, and dropping the bubble
           // makes the user feel their message vanished.
           // See change: preserve-pending-prompt-across-replay.
-          const carry = next.get(msg.sessionId)?.pendingPrompt;
+          // …but a `sending` bubble is NOT carried: nothing in the rebuilt
+          // state can settle it. See change: fix-optimistic-prompt-stuck-sending.
+          const carry = carryPendingPrompt(next.get(msg.sessionId)?.pendingPrompt);
           const fresh = createInitialState();
           if (carry) fresh.pendingPrompt = carry;
           next.set(msg.sessionId, fresh);
           return next;
         });
         maxSeqMapRef.current.set(msg.sessionId, 0);
+        // Drop gap bookkeeping and any pending backfill: the transcript this
+        // gap described no longer exists. The server's own generation counter
+        // is the other half of this — belt and braces, not co-dependent.
+        // See change: lazy-load-session-history (D9, 6.5).
+        publishGap(msg.sessionId, undefined);
         // Strategy A invalidation: purge the durable cache so stale history is
         // never stitched onto reset sequence numbers; full replay rebuilds it.
         // See change: reduce-session-replay-traffic.
@@ -492,47 +565,6 @@ export function useMessageHandler(
         publishSessionEvent(msg.sessionId, msg.event);
         break;
 
-      // App-level InvoiceBot domain event (global broadcast, no per-session
-      // subscribe). Only GREETING frames concern the shell chat: fold each into
-      // the originating session's chat rows (live and replayed). Every other
-      // ib_domain_event kind (card state, cost, connectors) is consumed by the
-      // invoicebot UI plugin, not here — ignored. The synthetic `ib_greeting`
-      // reducer event carries the resolved stable id (replay `greetingId` →
-      // live `data.id`/`identity`) and ordering key (replay `greetingOrder` →
-      // live arrival ts). See change: restore-assistant-greeting-stream.
-      case "ib_domain_event": {
-        if (!isIbGreetingEventType(msg.event?.eventType)) break;
-        const gd = (msg.event.data ?? {}) as { id?: unknown; identity?: unknown; state?: unknown; content?: unknown };
-        // Prefer the server-assigned stable id (attached on BOTH live + replay).
-        // Defensively fall back to the producer-carried `state` (design D3: the
-        // per-session greeting identity), then legacy id/identity. The producer
-        // payload carries no id, so `state` is the real keying field.
-        const id =
-          typeof msg.greetingId === "string" && msg.greetingId.length > 0
-            ? msg.greetingId
-            : typeof gd.state === "string" && gd.state.length > 0
-              ? gd.state
-              : typeof gd.id === "string" && gd.id.length > 0
-                ? gd.id
-                : typeof gd.identity === "string" && gd.identity.length > 0
-                  ? gd.identity
-                  : null;
-        if (!id) break;
-        const order = typeof msg.greetingOrder === "number" ? msg.greetingOrder : Date.now();
-        const synthetic = {
-          eventType: "ib_greeting",
-          timestamp: order,
-          data: { id, state: gd.state, content: gd.content },
-        };
-        setSessionStates((prev) => {
-          const next = new Map(prev);
-          const current = next.get(msg.sessionId) ?? createInitialState();
-          next.set(msg.sessionId, reduceEvent(current, synthetic));
-          return next;
-        });
-        break;
-      }
-
       case "commands_list":
         setSessionCommands((prev) => {
           const next = new Map(prev);
@@ -610,6 +642,29 @@ export function useMessageHandler(
         setModelsMap((prev) => {
           const next = new Map(prev);
           next.set(msg.sessionId, msg.models);
+          return next;
+        });
+        // Refresh failures are per-message, not sticky: a later clean push for
+        // the same session clears the footer notice.
+        // See change: upgrade-model-selector-primitives.
+        setModelRefreshErrorsMap((prev) => {
+          // Trust boundary: `msg` is bridge-supplied runtime data. Keep only
+          // well-formed entries so a malformed payload cannot reach the footer
+          // (React throws when handed an object as a text child).
+          const errs = Array.isArray(msg.refreshErrors)
+            ? msg.refreshErrors.filter(
+                (e): e is ProviderRefreshError =>
+                  !!e && typeof e.provider === "string" && typeof e.message === "string",
+              )
+            : undefined;
+          if (!errs || errs.length === 0) {
+            if (!prev.has(msg.sessionId)) return prev;
+            const next = new Map(prev);
+            next.delete(msg.sessionId);
+            return next;
+          }
+          const next = new Map(prev);
+          next.set(msg.sessionId, errs);
           return next;
         });
         const prevCfg = getPluginConfig("roles") as Record<string, unknown>;
@@ -694,6 +749,179 @@ export function useMessageHandler(
         });
         break;
 
+      /**
+       * A windowed replay is about to arrive. Emitted on full-stream paths
+       * ONLY, so a delta reconnect can never reset an in-progress exploration.
+       * See change: lazy-load-session-history (D5).
+       */
+      case "history_window": {
+        if (msg.gapCount > 0) publishGap(msg.sessionId, createHistoryGapState(msg));
+        else publishGap(msg.sessionId, undefined);
+        break;
+      }
+
+      /**
+       * Splice a backfilled segment into the gap. Touches `messages[]` and
+       * NOTHING ELSE (D10): it does not move `maxSeqMapRef` (backfilled seqs
+       * are below the live high-water mark by construction), does not
+       * `publishSessionEvents` (a live-event fan-out — replaying history into
+       * it would double-count plugin state), and does not write to
+       * `replayPersister` (which would cache a sparse array as contiguous).
+       */
+      case "history_backfill_result": {
+        const gap = historyGapsRef.current.get(msg.sessionId);
+        if (!gap) break;
+        if (msg.error) {
+          publishGap(msg.sessionId, { ...gap, pending: false, failed: true });
+          break;
+        }
+        /**
+         * A divider-less splice is a silent no-op that would still advance the
+         * bookkeeping below, desyncing gap state from `messages[]`. Under
+         * click-to-load the divider necessarily existed before the button
+         * could be pressed; an AUTOMATIC trigger firing around a session switch
+         * can reach this. Detect it once, here, and skip the whole response.
+         * See change: add-tail-only-replay-window (D7, test-plan X6).
+         */
+        if (!gap.dividerPlaced) {
+          /**
+           * Clear `pending` on the way out. Dropping the response with a bare
+           * `break` strands `pending: true` forever — nothing else clears it —
+           * which both vetoes the trigger permanently and leaves the divider
+           * rendering its spinner (state A2) for the rest of the session.
+           *
+           * Reachable only via the AUTOMATIC trigger firing around a session
+           * switch: under click-to-load the divider necessarily existed before
+           * the button could be pressed. So this change made a previously
+           * unreachable state reachable.
+           * See change: add-tail-only-replay-window (D7).
+           */
+          publishGap(msg.sessionId, { ...gap, pending: false });
+          break;
+        }
+        if (msg.events.length > 0) {
+          setHistorySpliceRev?.((n) => n + 1);
+          setSessionStates((prev) => {
+            const current = prev.get(msg.sessionId);
+            if (!current) return prev;
+            const at = current.messages.findIndex((m) => m.id === HISTORY_GAP_ROW_ID);
+            if (at < 0) return prev;
+            // Reduce the segment from a FRESH state. It begins mid-conversation,
+            // so an orphan `message_end` / `tool_execution_end` at its leading
+            // edge is expected — the reducer tolerating that is the correctness
+            // guarantee behind the server's best-effort edge snapping (D4).
+            let seg = createInitialState();
+            for (const { event } of msg.events) seg = reduceEvent(seg, event);
+            /**
+             * Tail-anchored events are the NEWEST remaining gap events, so they
+             * belong immediately ABOVE the tail — i.e. after the divider, not
+             * before it. `at + 1`, not `at`.
+             * See change: fix-lazy-history-backfill-ux (D3).
+             */
+            const messages = [
+              ...current.messages.slice(0, at + 1),
+              // Correctness floor before merge: no orphaned spinner, no
+              // permanently-streaming bubble (D5).
+              ...finalizeBackfillSegment(seg.messages),
+              ...current.messages.slice(at + 1),
+            ];
+            const next = new Map(prev);
+            next.set(msg.sessionId, { ...current, messages });
+            return next;
+          });
+        }
+        /**
+         * Termination keys on `remainingGapCount` ONLY. An empty slice with a
+         * positive count — a fully-superseded compaction result, or a sparse
+         * sub-range of a holey store — is NOT exhaustion: the tail still
+         * retreats, so the next request covers a strictly smaller range and
+         * the walk cannot livelock. `events.length === 0` as a second
+         * exhaustion trigger is the reported bug: on a holey store it ends
+         * the walk at the FIRST sparse step.
+         * See change: fix-history-backfill-holey-store (D4).
+         */
+        const exhausted = msg.remainingGapCount === 0;
+        /**
+         * A HEAD-FREE gap resolves to a TERMINUS rather than disappearing.
+         * With no head above it, splicing the row out would leave a transcript
+         * that silently starts mid-conversation — and an empty final response
+         * must be read as "the walk REACHED THE FLOOR", never as a failure.
+         * See change: add-tail-only-replay-window (D6).
+         */
+        if (exhausted && isHeadFree(gap)) {
+          publishGap(msg.sessionId, {
+            ...gap,
+            tailMinSeq: msg.servedFrom > 0 ? msg.servedFrom : gap.tailMinSeq,
+            gapCount: msg.remainingGapCount,
+            pending: false,
+            failed: false,
+            atFloor: true,
+          });
+          break;
+        }
+        if (exhausted && gap.holey) {
+          /**
+           * A HOLEY two-sided gap resolves to the not-retained terminus
+           * instead of being removed: the announced gap held fewer events
+           * than its seq span, so retention elided its MIDDLE — removing the
+           * row would render head and tail as if they were adjacent. A
+           * dedicated flag, never a reuse of `atFloor` (that is the head-free
+           * floor bound).
+           * See change: fix-history-backfill-holey-store (D6).
+           */
+          publishGap(msg.sessionId, {
+            ...gap,
+            tailMinSeq: msg.servedFrom > 0 ? msg.servedFrom : gap.tailMinSeq,
+            gapCount: msg.remainingGapCount,
+            pending: false,
+            failed: false,
+            twoSidedTerminus: true,
+            // The walk is OVER — disarm, so no trigger (auto or manual) can
+            // ever issue a further request against a resolved gap. The
+            // head-free terminus is already fully guarded by `!t.atFloor` in
+            // `shouldAutoLoadHistory`; the two-sided analog is this disarm.
+            // See change: fix-history-backfill-holey-store (CodeRabbit round 1).
+            armed: false,
+          });
+          break;
+        }
+        if (exhausted) {
+          // A6 — CONTIGUOUS two-sided gap, fully filled: remove the divider
+          // entirely. The head above it already explains where the transcript
+          // begins, and nothing was elided from the middle.
+          setSessionStates((prev) => {
+            const current = prev.get(msg.sessionId);
+            if (!current) return prev;
+            const next = new Map(prev);
+            next.set(msg.sessionId, {
+              ...current,
+              messages: current.messages.filter((m) => m.id !== HISTORY_GAP_ROW_ID),
+            });
+            return next;
+          });
+          publishGap(msg.sessionId, undefined);
+          break;
+        }
+        // Not exhausted: retreat the tail, keep the affordance armed and idle.
+        // Nothing sets a mid-walk dead end any more — the retired state's
+        // triggers are now either a continued walk (sparse slice) or a
+        // classified terminus above; server refusals use the separate `failed`
+        // state, handled FIRST.
+        publishGap(msg.sessionId, {
+          ...gap,
+          /**
+           * Retreat the TAIL edge only. Moving both edges from one response
+           * would double-shrink a gap the server credited exactly once.
+           * See change: fix-lazy-history-backfill-ux (D2).
+           */
+          tailMinSeq: msg.servedFrom > 0 ? msg.servedFrom : gap.tailMinSeq,
+          gapCount: msg.remainingGapCount,
+          pending: false,
+          failed: false,
+        });
+        break;
+      }
+
       case "event_replay": {
         const firstSeq = msg.events.length > 0 ? msg.events[0].seq : null;
         // Reset on every full replay sweep: firstSeq===1 (cold start) OR
@@ -708,26 +936,20 @@ export function useMessageHandler(
           // Same rationale as session_state_reset: preserve optimistic
           // pendingPrompt across the full-replay reset branch.
           // See change: preserve-pending-prompt-across-replay.
-          const carry = shouldReset ? next.get(msg.sessionId)?.pendingPrompt : undefined;
-          // Greeting rows are folded from the app-level ib_domain_event replay
-          // that lands on WS connect — BEFORE this per-session event_replay. A
-          // full-sweep reset (createInitialState) would drop them, so snapshot
-          // and re-fold them after the chat events so they survive and reposition
-          // chronologically. See change: restore-assistant-greeting-stream.
-          const carryGreetings = shouldReset
-            ? (next.get(msg.sessionId)?.messages ?? []).filter((m) => m.id.startsWith("greeting-"))
-            : [];
+          const carry = shouldReset ? carryPendingPrompt(next.get(msg.sessionId)?.pendingPrompt) : undefined;
           let current = shouldReset ? createInitialState() : (next.get(msg.sessionId) ?? createInitialState());
           if (carry) current.pendingPrompt = carry;
-          for (const { event } of msg.events) {
+          // Place the gap divider at the head→tail boundary: immediately before
+          // the first event whose seq belongs to the tail segment. Placement
+          // must happen DURING the fold — after it, the rows carry no seq and
+          // the boundary is unrecoverable.
+          const gap = historyGapsRef.current.get(msg.sessionId);
+          for (const { seq, event } of msg.events) {
+            if (gap && !gap.dividerPlaced && gap.gapCount > 0 && seq >= gap.tailMinSeq) {
+              current = { ...current, messages: [...current.messages, createHistoryGapRow()] };
+              gap.dividerPlaced = true;
+            }
             current = reduceEvent(current, event);
-          }
-          for (const g of carryGreetings) {
-            current = reduceEvent(current, {
-              eventType: "ib_greeting",
-              timestamp: g.timestamp,
-              data: { id: g.id.slice("greeting-".length), state: g.state, content: g.content },
-            });
           }
           next.set(msg.sessionId, current);
           return next;
@@ -758,7 +980,18 @@ export function useMessageHandler(
         // This is also the reconciliation path: an offline-drift replay whose
         // firstSeq <= maxSeq resets and rebuilds the persisted tail too.
         // See change: reduce-session-replay-traffic.
-        if (msg.events.length > 0) {
+        //
+        // EXCEPT when this replay is windowed. Windowed events arrive over the
+        // ordinary `event_replay` stream, which would otherwise cache a SPARSE
+        // array as if it were contiguous. The next reload would then HIT the
+        // cache, re-reduce head+tail as silently adjacent, and delta-subscribe
+        // — and a delta never emits `history_window`, so the gap would become
+        // permanently invisible and unrecoverable. Skipping the write makes the
+        // next reload a MISS → full stream → windowed again → affordance
+        // restored. Self-healing.
+        // See change: lazy-load-session-history (D12).
+        const windowed = (historyGapsRef.current.get(msg.sessionId)?.gapCount ?? 0) > 0;
+        if (msg.events.length > 0 && !windowed) {
           if (shouldReset) replayPersister?.seed(msg.sessionId, msg.events);
           // Origin `replay`: this envelope answers THIS tab's subscribe, so it
           // establishes provenance even when a compacted/capped cold replay
@@ -792,6 +1025,13 @@ export function useMessageHandler(
         // See change: show-replay-in-flight-indicator.
         if (msg.isLast === true) {
           clearLoadingHistory(setReplayInFlight, replayInFlightTimersRef, msg.sessionId);
+          // ARM backfill only now (D11). Before the terminal batch an evicted
+          // cold session's store is still empty, so an early request would
+          // report the gap exhausted (remainingGapCount 0 against an empty
+          // store) and resolve it to a terminus — and then hydration would
+          // land and make the gap servable again.
+          const armGap = historyGapsRef.current.get(msg.sessionId);
+          if (armGap && !armGap.armed) publishGap(msg.sessionId, { ...armGap, armed: true });
         } else {
           rearmLoadingHistory(setReplayInFlight, replayInFlightTimersRef, msg.sessionId, HYDRATE_CEILING_MS);
         }
@@ -893,6 +1133,33 @@ export function useMessageHandler(
           });
         }
         break;
+
+      case "retry_session_error": {
+        // Delivery failed (unknown/disconnected session, or a bridge lacking
+        // the handler). The retry never reached a bridge, so no agent_start /
+        // lastError change will self-heal the disabled one-shot Retry. Re-stamp
+        // lastError.timestamp to bump `retryRevision`, which resets the banner's
+        // one-shot guard and re-enables the button. Same re-enable mechanism as
+        // the auto_retry_end reducer path. See change:
+        // replace-dashboard-retry-command-with-protocol-message.
+        setSessionStates((prev) => {
+          const current = prev.get(msg.sessionId);
+          if (!current?.lastError) return prev;
+          const previousRevision = current.lastError.timestamp;
+          const nextRevision =
+            typeof previousRevision === "number" && Number.isFinite(previousRevision)
+              ? Math.max(Date.now(), previousRevision + 1)
+              : Date.now();
+          const next = new Map(prev);
+          next.set(msg.sessionId, {
+            ...current,
+            lastError: { ...current.lastError, timestamp: nextRevision },
+          });
+          return next;
+        });
+        showToast?.(msg.error, "error");
+        break;
+      }
 
       case "spawn_error": {
         // Enriches the spawn_result error with strategy + optional stderr tail.
@@ -1233,5 +1500,5 @@ export function useMessageHandler(
         break;
       }
     }
-  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setLoadingHistory, setReplayInFlight, setCanvasMap, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush]);
+  }, [send, clearSpawningCwd, navigate, setSessions, setSessionStates, setSessionCommands, setFileResults, setChangedOnDisk, setOpenspecMap, setModelsMap, setModelRefreshErrorsMap, setRolesMap, setSpawnResult, setSessionOrderMap, setPinnedDirectories, setFavoriteModels, setWorkspaces, setTerminals, setDiscoveredServers, setLoadingHistory, setReplayInFlight, setCanvasMap, spawningCwdsRef, subscribedRef, pendingTerminalCwdRef, maxSeqMapRef, selectedSessionIdRef, loadingHistoryTimersRef, replayInFlightTimersRef, replayPersister, flushLiveEvents, scheduleLiveFlush, publishGap, setHistorySpliceRev]);
 }

@@ -268,9 +268,7 @@ exactly as before.
 
 A `running` automation run whose age exceeds a configurable maximum SHALL be
 reaped: transitioned to a terminal `error` status and its concurrency slot freed
-via `completeRun`. Reaping a run that is still tracked live SHALL also terminate
-its spawned session, so a reaped `--mode rpc` run session cannot outlive its run.
-The reaper SHALL run independently of any forwarded event or
+via `completeRun`. The reaper SHALL run independently of any forwarded event or
 session signal, guaranteeing that a lost terminal event can never wedge an
 automation's schedule permanently. Reaping SHALL be idempotent with every other
 finalize path: a run already finalized SHALL NOT be reaped, and a terminal signal
@@ -282,8 +280,7 @@ arriving after a reap SHALL be a no-op.
 - **WHEN** the reaper sweep evaluates it
 - **THEN** the run SHALL transition to `error`
 - **AND** the automation's concurrency slot SHALL be freed so subsequent fires
-  are no longer dropped
-- **AND** the run's spawned session SHALL be terminated.
+  are no longer dropped.
 
 #### Scenario: Reaper does not touch a healthy in-progress run
 
@@ -325,65 +322,136 @@ Observability: the finalize path taken SHALL be distinguishable after the fact, 
 - **THEN** the reaper SHALL still finalize the run `error` and free the concurrency slot
 - **AND** a run whose session DIES without a terminal event SHALL be finalized immediately by the session-death seam (see "Headless automation runs finalize on session death"), NOT left for the reaper.
 
-### Requirement: An undelivered run is reaped on a short bound
+### Requirement: A fire produces a parent run with child runs
 
-A `running` run whose action was never delivered to a session SHALL be reaped on
-a bound far shorter than the max-age backstop. The bound SHALL be configurable
-(`undeliveredRunTimeoutMs`, default 60 s; `<= 0` disables) and SHALL apply only
-to runs that never reached delivery — a delivered run still executing its work
-SHALL remain governed by the max-age backstop alone.
+A trigger fire SHALL create one parent run record for the occurrence and one child run record per resolved child. Each child SHALL carry its own status, spawned session id, timestamps, and the action specification it was dispatched with. The parent SHALL reference its children.
 
-Reaping an undelivered run SHALL finalize it `error`, free its concurrency slot,
-and terminate its spawned session, so an automation whose fire lost its
-correlation can never starve the next scheduled tick for longer than the bound.
+#### Scenario: Parent and children recorded
 
-#### Scenario: A run that never received its action is reaped within the bound
+- **WHEN** a fire resolves 3 children
+- **THEN** one parent run record SHALL exist referencing 3 child records
+- **AND** each child record SHALL carry its own `status`, `sessionId`, and action label
 
-- **GIVEN** a `running` run whose session never registered with its stamp, so the
-  action was never delivered
-- **WHEN** the undelivered bound elapses and the sweep evaluates it
-- **THEN** the run SHALL transition to `error`
-- **AND** its concurrency slot SHALL be freed
-- **AND** the next fire of that automation SHALL start a new run.
+#### Scenario: Single-action fire still yields one child
 
-#### Scenario: A delivered long-running run is not reaped early
+- **WHEN** a legacy single-`action:` automation without `count` fires
+- **THEN** the parent run SHALL reference exactly one child
 
-- **GIVEN** a `running` run whose action WAS delivered and whose work is still in
-  progress past the undelivered bound but within the max age
-- **WHEN** the sweep evaluates it
-- **THEN** the run SHALL be left untouched.
+### Requirement: Each child dispatches, captures, and finalizes independently
 
-#### Scenario: Two consecutive runs both settle
+Dispatch (prompt seed or configured event), result capture, session-death finalization, and stale reaping SHALL apply per child, keyed by that child's own run id and session. A child failing to spawn, erroring, or dying SHALL NOT change the status of any sibling.
 
-- **GIVEN** an automation with `concurrency: skip` whose first run is delivered
-  and finalizes on its completion signal
-- **WHEN** the automation fires again
-- **THEN** the second run SHALL start, be delivered, and finalize on its own
-  completion signal
-- **AND** neither run SHALL be finalized by a max-age or undelivered reap.
+#### Scenario: One child errors, siblings continue
 
-### Requirement: Automation row exposes a run-now control
+- **WHEN** child 2 of 3 fails to spawn
+- **THEN** child 2 SHALL be finalized `error` with the spawn failure reason
+- **AND** children 1 and 3 SHALL continue running and finalize on their own signals
 
-The automation row SHALL, for a valid automation that is not currently running,
-expose a visible, enabled run-now control addressable by the stable test id
-`automation-run-now` that triggers a manual run-now for that automation, in
-addition to the existing enable/disable control. A running automation SHALL show
-a Stop control in its place (no run-now), and an invalid automation SHALL offer
-no run-now control. The row SHALL be selectable by the stable `auto-row` class.
+#### Scenario: Per-child result file
 
-#### Scenario: Valid idle row offers run-now
+- **WHEN** a child completes and produced assistant output
+- **THEN** its output SHALL be captured to that child's own `result.md` under the parent run directory
+- **AND** no child's output SHALL overwrite another's
 
-- **WHEN** the row for a valid, non-running automation renders
-- **THEN** it SHALL expose an enabled `automation-run-now` control that fires a run-now for that automation
-- **AND** the enable/disable control SHALL remain present
+#### Scenario: A child record is addressable by its own run id
 
-#### Scenario: Running row shows Stop, not run-now
+- **WHEN** a child's run record or result is requested by that child's run id
+- **THEN** it SHALL be resolved and returned, without the caller supplying the parent run id
 
-- **WHEN** the row for an automation with an active run renders
-- **THEN** it SHALL show a Stop control and SHALL NOT expose the run-now control
+#### Scenario: Child session dies before a terminal event
 
-#### Scenario: Invalid row offers no run-now
+- **WHEN** a child's session ends without a terminal event
+- **THEN** only that child SHALL be finalized (buffered output → `done`, otherwise `error`)
 
-- **WHEN** the row for an invalid automation renders
-- **THEN** it SHALL NOT expose the run-now control
+### Requirement: A parent run finalizes when all its children are terminal
+
+A parent run SHALL remain `running` while any child is `running`. When every child reaches a terminal state, the parent SHALL finalize exactly once, aggregating child outcomes: `error` when any child errored; otherwise `stopped` when every child was stopped; otherwise `done`. The parent SHALL carry a total findings count summed across children. Parent finalization SHALL be idempotent.
+
+#### Scenario: All children succeed
+
+- **WHEN** all 3 children finalize `done` with findings 2, 0, and 5
+- **THEN** the parent SHALL finalize `done` with a total findings count of 7
+
+#### Scenario: One child errors
+
+- **WHEN** children finalize `done`, `error`, `done`
+- **THEN** the parent SHALL finalize `error`
+
+#### Scenario: Every child stopped
+
+- **WHEN** every child of a fire is stopped by the user and none errored
+- **THEN** the parent SHALL finalize `stopped`
+
+#### Scenario: Some stopped, some done
+
+- **WHEN** children finalize `stopped`, `done` and none errored
+- **THEN** the parent SHALL finalize `done`
+
+#### Scenario: Parent stays running until the last child
+
+- **WHEN** 2 of 3 children have finalized
+- **THEN** the parent SHALL still report `running`
+
+#### Scenario: Parent finalization is idempotent
+
+- **WHEN** a further child termination signal arrives after the parent finalized
+- **THEN** the parent record SHALL be unchanged and no duplicate finalization SHALL occur
+
+#### Scenario: The fire slot is released only when the parent finalizes
+
+- **WHEN** an automation with `concurrency: queue` has a fire whose first child finalizes while siblings are still running
+- **THEN** the queued next fire SHALL NOT start
+- **AND** it SHALL start only after every child of the current occurrence is terminal
+
+### Requirement: A live occurrence SHALL survive retention and stale reaping
+
+Retention pruning SHALL NOT delete an occurrence that is still running. Stale-run reaping SHALL apply to child records and SHALL NOT force-finalize a parent that still has running children.
+
+#### Scenario: Retention does not prune a running occurrence
+
+- **WHEN** retention pruning runs while an occurrence is still `running`
+- **THEN** that occurrence and its child records SHALL be retained
+
+#### Scenario: A stale child is reaped without finalizing live siblings
+
+- **WHEN** one child exceeds the stale-run age while a sibling is still running
+- **THEN** only the stale child SHALL be finalized
+- **AND** the parent SHALL remain `running` until the sibling terminates
+
+### Requirement: Stopping a parent run stops every live child
+
+A user stop targeting a parent run SHALL terminate every child session that is still live — including children spawned but not yet bound to a session id — then finalize each stopped child and the parent once. A stop targeting a single child SHALL terminate only that child.
+
+#### Scenario: Stop cascades to all children
+
+- **WHEN** the user stops a parent run with 3 running children
+- **THEN** all 3 child sessions SHALL be terminated
+- **AND** each child SHALL be finalized as stopped
+- **AND** the parent SHALL finalize once
+
+#### Scenario: Stopping one child leaves siblings running
+
+- **WHEN** the user stops child 2 only
+- **THEN** child 2 SHALL be terminated and finalized
+- **AND** children 1 and 3 SHALL keep running
+- **AND** the parent SHALL remain `running`
+
+#### Scenario: Stop is idempotent against concurrent termination
+
+- **WHEN** a stop races a child's own session-end
+- **THEN** each child SHALL be finalized exactly once and the parent exactly once
+
+### Requirement: Parent and child runs are visible in the UI
+
+The Automation view SHALL render a parent run as one entry that discloses its children, showing per child the action label, status, findings count, and a link to monitor that child's session. Board visibility SHALL be decided once per occurrence and applied to every child of that fire.
+
+#### Scenario: Children listed under the parent
+
+- **WHEN** a parent run with 3 children is viewed
+- **THEN** the parent entry SHALL show aggregate status and be expandable to 3 child rows, each with its own action label, status, and session link
+
+#### Scenario: Visibility applies to the whole occurrence
+
+- **WHEN** the effective visibility for a fire is `hidden`
+- **THEN** neither the parent nor any child SHALL appear on the board
 

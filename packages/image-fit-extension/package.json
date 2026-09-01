@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-image-fit-extension",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Pi extension that resizes oversize images at Read-time so they fit model byte and pixel ceilings.",
   "type": "module",
   "repository": {
@@ -26,7 +26,9 @@
   "files": [
     "src/",
     "!src/__tests__",
-    "README.md"
+    "README.md",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md"
   ],
   "dependencies": {
     "jimp": "^1.6.1"

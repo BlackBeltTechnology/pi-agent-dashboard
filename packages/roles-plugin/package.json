@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-roles-plugin",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Bundled built-in plugin — ships first-party dashboard contributions (e.g. roles settings UI) so they're replaceable/augmentable by third-party plugins via the same slot system.",
   "license": "MIT",
   "publishConfig": {
@@ -24,6 +24,8 @@
   },
   "files": [
     "src/",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md",
     "!**/__tests__",
     "!**/*.test.ts",
     "!**/*.test.tsx"
@@ -32,8 +34,8 @@
     "react": ">=18.0.0"
   },
   "dependencies": {
-    "@blackbelt-technology/dashboard-plugin-runtime": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0"
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

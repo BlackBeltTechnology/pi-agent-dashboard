@@ -4,6 +4,8 @@
  * Creates a ServerPluginContext scoped to a specific plugin id,
  * with a namespaced logger and typed config accessors.
  */
+import type { SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import type { SessionFlags } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js";
 import type { FastifyInstance } from "fastify";
 import type { PluginLogger } from "../plugin-context.js";
 
@@ -36,8 +38,21 @@ export interface PluginEventStore {
 /** Minimal broadcast function exposed to plugins. */
 export type BroadcastFn = (msg: unknown) => void;
 
-/** Register a handler for an extension WebSocket message type. */
-export type RegisterPiHandlerFn = (type: string, handler: (msg: unknown) => void) => void;
+/**
+ * Register a handler for an extension WebSocket message type.
+ *
+ * The handler receives `(msg, sessionId)`. `sessionId` is supplied by the pi
+ * gateway from the key the sending socket is stored under — it is NOT read out
+ * of `msg`, so it cannot be spoofed by a bridge. That distinction is what lets
+ * a plugin attribute a message to a session as a trust decision rather than as
+ * a hint. See change: add-dashboard-mcp-server.
+ *
+ * The parameter is additive: handlers declared as `(msg) => …` remain valid.
+ */
+export type RegisterPiHandlerFn = (
+  type: string,
+  handler: (msg: unknown, sessionId: string) => void,
+) => void;
 
 /**
  * Subscribe to every forwarded pi event for any session. The handler
@@ -107,14 +122,6 @@ export interface PluginSpawnOptions {
    */
   sandbox?: "read-only" | "workspace-write" | "full-access";
   /**
-   * Mark this spawn as guarded (built-in tools disabled + tool-call cwd guard).
-   * The host also registers the spawn's `cwd` as guarded, so subsequent
-   * client-spawned sessions in the same workspace (e.g. the "Ask"/Kérdezz
-   * session on the generic spawn path) are guarded too. Opt-in per plugin.
-   * See change: constrain-agent-tool-surface.
-   */
-  guard?: boolean;
-  /**
    * When set, the spawned session is stamped `kind="automation"` +
    * `automationRun` once it registers (the server queues the stamp keyed
    * by cwd and applies it on `session_register`). `visibility` carries the
@@ -122,20 +129,200 @@ export interface PluginSpawnOptions {
    */
   automationRun?: { name: string; runId: string; visibility?: "hidden" | "shown" };
   /**
-   * Optional caller-supplied environment map forwarded into the spawned
-   * process env (folded beneath the guard env by the host). A plugin uses it
-   * to scope a per-invoice session's tool surface. Absent ⇒ unchanged. See
-   * change: scope-session-toolset-by-profile.
+   * Optional capability-scope block constraining the spawned session's
+   * tool / skill / extension surface, mapped 1:1 to pi CLI flags by
+   * `pluginSpawnToSessionOptions`. Every field is optional; when the block
+   * is absent the produced argv + env are byte-identical to today.
+   *
+   * There is deliberately NO `noExtensions` toggle: disabling extension
+   * discovery would stop the dashboard bridge from loading and make the
+   * spawned session uncontrollable (design D2/D6). The `extensions`
+   * allowlist is additive — discovery still runs, so the bridge still loads.
+   *
+   * `extensionConfig[name][key]` is projected to namespaced env
+   * (`PI_EXT_<NAME>_<KEY>`) rather than argv. See change:
+   * add-plugin-spawn-scope.
    */
-  env?: Record<string, string>;
-  /**
-   * When set, RESUME the given session file's transcript (`--continue`) instead
-   * of spawning a fresh session. Used to re-run a flow in a stopped canonical
-   * session without discarding its history. See change:
-   * make-invoice-session-canonical (§6).
-   */
-  resumeSessionFile?: string;
+  scope?: {
+    /** Allowlist → `--tools a,b,c` (comma-joined single arg). */
+    tools?: string[];
+    /** Denylist → `--exclude-tools a,b,c` (comma-joined single arg). */
+    excludeTools?: string[];
+    /** `--no-builtin-tools` (bare toggle). */
+    noBuiltinTools?: boolean;
+    /** `--no-tools` (bare toggle). */
+    noTools?: boolean;
+    /** Repeatable → `--skill <path>` per entry. */
+    skills?: string[];
+    /** `--no-skills` (bare toggle). */
+    noSkills?: boolean;
+    /** Additive allowlist → repeatable `-e <path>` per entry. */
+    extensions?: string[];
+    /**
+     * Per-extension config → namespaced env `PI_EXT_<NAME>_<KEY>`. A scalar
+     * `string` value projects verbatim; a `string[]` value projects as
+     * `JSON.stringify(value)` (the consuming extension `JSON.parse`s array
+     * keys). JSON — not a delimiter-join — because values are frequently
+     * filesystem paths, for which every delimiter is unsafe (design D8).
+     */
+    extensionConfig?: Record<string, Record<string, string | string[]>>;
+  };
 }
+
+/**
+ * Result of mapping a {@link PluginSpawnOptions} to the spawn chain's session
+ * options. Structurally a superset of {@link SessionFlags} (the argv builder
+ * layer) plus the headless-only `strategy` and `extensionConfig` (env). Kept
+ * package-local so plugin authors can unit-test the mapper without depending
+ * on the server package. See change: add-plugin-spawn-scope.
+ */
+export interface MappedSpawnOptions extends SessionFlags {
+  strategy?: SpawnStrategy;
+  extensionConfig?: Record<string, Record<string, string | string[]>>;
+}
+
+function isRecord(v: unknown): v is Record<string, unknown> {
+  return typeof v === "object" && v !== null && !Array.isArray(v);
+}
+
+/**
+ * A non-empty string with no NUL byte. A NUL in any argv element crashes
+ * `spawn`, so such strings are dropped rather than forwarded.
+ */
+function isSafeArgvString(v: unknown): v is string {
+  return typeof v === "string" && v.length > 0 && !v.includes("\0");
+}
+
+/**
+ * Sanitize an allowlist/denylist container. Non-arrays are treated as absent
+ * (returns `undefined`); invalid entries (non-string, empty, NUL-bearing) are
+ * dropped. An empty-but-present array returns `[]` — the argv builder emits
+ * nothing for it, matching the "empty array emits no flag" contract.
+ */
+function sanitizeArgvList(v: unknown): string[] | undefined {
+  if (!Array.isArray(v)) return undefined;
+  return v.filter(isSafeArgvString);
+}
+
+/** A NUL-free string (empty allowed — env values may legitimately be empty). */
+function isSafeEnvString(v: unknown): v is string {
+  return typeof v === "string" && !v.includes("\0");
+}
+
+/**
+ * Keep a single `extensionConfig` value: a NUL-free string (verbatim) OR an
+ * array of such strings (invalid elements dropped; the whole entry dropped
+ * when nothing valid remains). Anything else ⇒ `undefined` (dropped).
+ */
+function sanitizeConfigValue(value: unknown): string | string[] | undefined {
+  if (isSafeEnvString(value)) return value;
+  if (Array.isArray(value)) {
+    const cleaned = value.filter(isSafeEnvString);
+    if (cleaned.length > 0) return cleaned;
+  }
+  return undefined;
+}
+
+/**
+ * Sanitize `extensionConfig`. Non-record containers (at any level) are treated
+ * as absent; values are kept per {@link sanitizeConfigValue}. Never throws
+ * (design D7/D8).
+ */
+function sanitizeExtensionConfig(
+  v: unknown,
+): Record<string, Record<string, string | string[]>> | undefined {
+  if (!isRecord(v)) return undefined;
+  const out: Record<string, Record<string, string | string[]>> = {};
+  for (const [name, config] of Object.entries(v)) {
+    if (!isRecord(config)) continue;
+    const inner: Record<string, string | string[]> = {};
+    for (const [key, value] of Object.entries(config)) {
+      const clean = sanitizeConfigValue(value);
+      if (clean !== undefined) inner[key] = clean;
+    }
+    out[name] = inner;
+  }
+  return out;
+}
+
+/**
+ * Total, pure mapper: {@link PluginSpawnOptions} → {@link MappedSpawnOptions}.
+ *
+ * Reproduces the inline `spawnSession`-hook literal (headless strategy, the
+ * `--model` from `opts.model`, the `--name` from `opts.automationRun?.name`)
+ * and additionally flattens the nested `scope` block into flat argv fields
+ * plus `extensionConfig` (env).
+ *
+ * NEVER throws — plugin code is JavaScript, so runtime input is not
+ * type-constrained. Malformed containers (`scope`/list/record fields supplied
+ * as `null`, an array, or a primitive) are treated as absent, not iterated.
+ * Strings bound for argv or env are dropped when not a non-empty, NUL-free
+ * string. Conflicting fields (`noTools` + `tools`) are BOTH forwarded; pi
+ * arbitrates precedence (design D3). See change: add-plugin-spawn-scope.
+ */
+export function pluginSpawnToSessionOptions(opts: PluginSpawnOptions): MappedSpawnOptions {
+  const result: MappedSpawnOptions = { strategy: "headless" };
+  // Plugin input is untrusted JS: a non-record top-level value (null/undefined/
+  // primitive) must NOT throw — normalize to an empty record and return the
+  // default headless result (design D7: total, pure mapper).
+  const input: Record<string, unknown> = isRecord(opts) ? opts : {};
+  if (isSafeArgvString(input.model)) result.model = input.model;
+  const name = isRecord(input.automationRun) ? input.automationRun.name : undefined;
+  if (isSafeArgvString(name)) result.name = name;
+
+  const scope: unknown = input.scope;
+  if (isRecord(scope)) {
+    const tools = sanitizeArgvList(scope.tools);
+    if (tools) result.tools = tools;
+    const excludeTools = sanitizeArgvList(scope.excludeTools);
+    if (excludeTools) result.excludeTools = excludeTools;
+    if (scope.noBuiltinTools === true) result.noBuiltinTools = true;
+    if (scope.noTools === true) result.noTools = true;
+    const skills = sanitizeArgvList(scope.skills);
+    if (skills) result.skills = skills;
+    if (scope.noSkills === true) result.noSkills = true;
+    const extensions = sanitizeArgvList(scope.extensions);
+    if (extensions) result.extensions = extensions;
+    const extensionConfig = sanitizeExtensionConfig(scope.extensionConfig);
+    if (extensionConfig) result.extensionConfig = extensionConfig;
+  }
+  return result;
+}
+
+/**
+ * A tightening-only capability policy a plugin may pin to a cwd subtree via
+ * {@link ServerPluginContext.registerCwdPolicy}. Structural mirror of the
+ * server's `CwdPolicy` so the runtime package needs no dependency on the
+ * server package. `extensions`/`extensionConfig` are DELIBERATELY absent: the
+ * host REJECTS a registration carrying them (extension injection is not a
+ * plugin-authorizable widening — design B3). See change: add-plugin-spawn-scope.
+ */
+export interface PluginCwdPolicy {
+  tools?: string[];
+  excludeTools?: string[];
+  noBuiltinTools?: boolean;
+  noTools?: boolean;
+  skills?: string[];
+  noSkills?: boolean;
+}
+
+/**
+ * Pin a tightening capability floor to a cwd subtree. Any pi session spawned
+ * with a cwd inside `cwd` (plugin-originated OR generic) has the policy merged
+ * non-weakeningly into its argv. Gated to first-party / trusted plugins (same
+ * gate as `spawnSession`); an untrusted plugin gets a no-op. THROWS when the
+ * policy carries `extensions`/`extensionConfig` or the target is overly broad
+ * (filesystem root, home, or outside a recognized workspace root).
+ * See change: add-plugin-spawn-scope (Part B).
+ */
+export type RegisterCwdPolicyFn = (cwd: string, policy: PluginCwdPolicy) => void;
+
+/**
+ * Remove the calling plugin's cwd policy for `cwd`. Owner-scoped (never touches
+ * another plugin's entry) and idempotent (no throw when nothing is registered).
+ * No-op for untrusted plugins. See change: add-plugin-spawn-scope (Part B).
+ */
+export type UnregisterCwdPolicyFn = (cwd: string) => void;
 
 /** Result of a plugin session-spawn request. */
 export interface PluginSpawnResult {
@@ -209,6 +396,65 @@ export type ConsumeFn = <T = unknown>(name: string) => T | undefined;
  */
 export type ConsumeAllFn = <T = unknown>(prefix: string) => Array<{ key: string; value: T }>;
 
+/**
+ * OAuth/api_key-aware model resolver a plugin server entry can use through
+ * {@link PluginModelRuntime}. Structural mirror of the server's model-proxy
+ * registry so the runtime package needs no dependency on the server package.
+ */
+export interface PluginModelRegistry {
+  find(provider: string, modelId: string): Promise<unknown | null>;
+  getApiKeyAndHeaders(model: unknown): Promise<{ apiKey: string; headers: Record<string, string> }>;
+}
+
+/**
+ * A stored provider credential as the host holds it (api_key or OAuth).
+ * Structural mirror of the server's `AuthCredential` so the runtime package
+ * needs no dependency on the server package — same rationale as
+ * {@link PluginModelRegistry}. See change: publish-quota-plugin.
+ */
+export type PluginAuthCredential = { type: string; [k: string]: unknown };
+
+/**
+ * Read-only access to the host's stored provider credentials — the seam that
+ * replaces deep-importing `pi-dashboard-server/src/auth/provider-auth-storage`.
+ *
+ * SECURITY: `getCredential` returns the RAW record, including OAuth `refresh`
+ * and `access` tokens. Gated by the host to first-party plugins (package name
+ * scoped `@blackbelt-technology/`); untrusted plugins receive a hook that
+ * always returns `undefined`. Note this gate is scope-based, NOT the
+ * `priority <= 100` gate used by `spawnSession`/`abortSession` — `priority`
+ * doubles as slot render-order, so it cannot express identity.
+ * See change: publish-quota-plugin.
+ */
+export interface PluginProviderAuth {
+  getCredential(provider: string): PluginAuthCredential | undefined;
+}
+
+/** Subset of pi-ai's streamSimple (as adapted by the server) a plugin consumes. */
+export type PluginStreamSimpleFn = (opts: {
+  model: unknown;
+  messages: unknown[];
+  system?: string;
+  maxTokens?: number;
+  temperature?: number;
+  apiKey?: string;
+  headers?: Record<string, string>;
+  signal?: AbortSignal;
+}) => AsyncIterable<{ type?: string; message?: unknown; error?: { errorMessage?: string } }>;
+
+/**
+ * In-process model runtime seam. Lets a plugin `server` entry run completions
+ * through the dashboard's own registry + streamSimple (credentials resolved
+ * server-side via auth.json + providers.json) WITHOUT a loopback HTTP hop to
+ * the model proxy — the same seam `server.ts` hands core routes. Absent when
+ * the model proxy/registry is unavailable (plugin should degrade gracefully).
+ * See change: make-grammar-fully-plugin-contained.
+ */
+export interface PluginModelRuntime {
+  getModelRegistry(): Promise<PluginModelRegistry | null>;
+  streamSimple: PluginStreamSimpleFn;
+}
+
 /** Full ServerPluginContext API exposed to plugin server entries. */
 export interface ServerPluginContext {
   fastify: FastifyInstance;
@@ -250,6 +496,16 @@ export interface ServerPluginContext {
    */
   abortSpawnedRun: AbortSpawnedRunFn;
   /**
+   * Pin a tightening cwd capability floor. Gated to first-party/trusted
+   * plugins; untrusted plugins get a no-op. See change: add-plugin-spawn-scope.
+   */
+  registerCwdPolicy: RegisterCwdPolicyFn;
+  /**
+   * Remove the caller's cwd policy for a dir (owner-scoped, idempotent).
+   * See change: add-plugin-spawn-scope.
+   */
+  unregisterCwdPolicy: UnregisterCwdPolicyFn;
+  /**
    * Publish a value other plugins can consume. See change:
    * register-plugin-automation-events.
    */
@@ -266,6 +522,16 @@ export interface ServerPluginContext {
   consumeAll: ConsumeAllFn;
   getPluginConfig<T = Record<string, unknown>>(): T;
   updatePluginConfig<T = Record<string, unknown>>(partial: Partial<T>): Promise<void>;
+  /**
+   * In-process model runtime (registry + streamSimple). Optional — absent when
+   * the model proxy is unavailable. See change: make-grammar-fully-plugin-contained.
+   */
+  modelRuntime?: PluginModelRuntime;
+  /**
+   * Stored provider credentials. Optional — absent for untrusted plugins.
+   * See change: publish-quota-plugin.
+   */
+  providerAuth?: PluginProviderAuth;
   logger: PluginLogger;
 }
 
@@ -284,11 +550,17 @@ export interface ServerContextDeps {
   spawnSession: SpawnSessionFn;
   abortSession: AbortSessionFn;
   abortSpawnedRun: AbortSpawnedRunFn;
+  registerCwdPolicy: RegisterCwdPolicyFn;
+  unregisterCwdPolicy: UnregisterCwdPolicyFn;
   provide: ProvideFn;
   consume: ConsumeFn;
   consumeAll: ConsumeAllFn;
   getPluginConfig: (pluginId: string) => Record<string, unknown>;
   updatePluginConfig: (pluginId: string, partial: Record<string, unknown>) => Promise<void>;
+  /** In-process model runtime seam (optional). See change: make-grammar-fully-plugin-contained. */
+  modelRuntime?: PluginModelRuntime;
+  /** Provider-credential seam (optional, host-gated). See change: publish-quota-plugin. */
+  providerAuth?: PluginProviderAuth;
 }
 
 /**
@@ -314,6 +586,8 @@ export function createServerPluginContext(
     spawnSession: deps.spawnSession,
     abortSession: deps.abortSession,
     abortSpawnedRun: deps.abortSpawnedRun,
+    registerCwdPolicy: deps.registerCwdPolicy,
+    unregisterCwdPolicy: deps.unregisterCwdPolicy,
     provide: deps.provide,
     consume: deps.consume,
     consumeAll: deps.consumeAll,
@@ -326,6 +600,8 @@ export function createServerPluginContext(
       await deps.updatePluginConfig(pluginId, partial as Record<string, unknown>);
     },
 
+    modelRuntime: deps.modelRuntime,
+    providerAuth: deps.providerAuth,
     logger,
   };
 }

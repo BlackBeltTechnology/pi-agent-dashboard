@@ -1,4 +1,10 @@
-## ADDED Requirements
+# flow-list-protocol Specification
+
+## Purpose
+
+Defines how the set of available flows travels from a pi session to the browser: the `FlowInfo` shape, the extension-to-server and server-to-browser `flows_list` messages, and the bridge-side query that produces the list.
+
+## Requirements
 
 ### Requirement: FlowInfo type definition
 A shared `FlowInfo` type SHALL be defined in `src/shared/types.ts` with properties: `name: string`, `description: string`, `taskRequired: boolean`.

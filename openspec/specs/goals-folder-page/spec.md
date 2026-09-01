@@ -18,20 +18,22 @@ The system SHALL persist goals as cwd-keyed `GoalRecord` entries durable across 
 
 ### Requirement: Goals folder nav slot
 
-A folder nav slot SHALL show `Goals (N) →` (opens the goals board) plus a `+ Goal`
-affordance. Activating `+ Goal` SHALL open the shared goal create dialog (see *Goal create
-presented as a modal dialog*); the objective + acceptance criteria + judge/budget captured
-there SHALL create a `GoalRecord` for the folder.
+A folder nav slot SHALL show `Goals (N) →` (opens the goals board). It SHALL render no
+`+ Goal` affordance of its own: goal creation is an item in the folder actions menu's
+`CREATE` group. Activating that item SHALL open the shared goal create dialog (see *Goal
+create presented as a modal dialog*); the objective + acceptance criteria + judge/budget
+captured there SHALL create a `GoalRecord` for the folder.
 
 #### Scenario: Nav slot shows count and opens board
 
 - **WHEN** the slot renders for folder cwd `C` with `N` goals
 - **THEN** it SHALL show `Goals (N)`
 - **AND** `→` SHALL navigate to the goals board for `C`
+- **AND** the slot SHALL render no create affordance
 
-#### Scenario: Create affordance
+#### Scenario: Create affordance lives in the menu
 
-- **WHEN** the user activates `+ Goal`
+- **WHEN** the user activates the goal-create item in the folder actions menu for folder `C`
 - **THEN** the shared goal create dialog SHALL open
 - **AND** submitting it SHALL create a `GoalRecord` for `C`
 
@@ -103,8 +105,9 @@ With goal creation/management at the folder level, the session-card goal surface
 
 The goal create affordance SHALL open a single shared modal dialog containing the
 `GoalForm`, rather than rendering the form inline. The dialog SHALL be opened from both
-the folder nav `+ Goal` affordance (`FolderGoalsSection`) and the board `+ New Goal`
-affordance (`GoalsBoardClaim`) — one shared component. The dialog overlay SHALL mirror the
+the folder actions menu's `CREATE`-group goal-create item (registered by
+`FolderGoalsSection`) and the board `+ New Goal` affordance (`GoalsBoardClaim`) — one
+shared component. The dialog overlay SHALL mirror the
 plugin create-dialog pattern (`fixed inset-0 z-50 … bg-black/40`, centered `max-w-lg`
 card) established by the automation plugin's `CreateAutomationDialog`. The `GoalForm`
 fields and the `createGoal` payload SHALL be unchanged from
@@ -112,7 +115,7 @@ fields and the `createGoal` payload SHALL be unchanged from
 
 #### Scenario: + Goal opens the dialog
 
-- **WHEN** the user activates `+ Goal` in the folder nav slot
+- **WHEN** the user activates the goal-create item in the folder actions menu
 - **THEN** a modal `CreateGoalDialog` SHALL open centered over the dashboard
 - **AND** the sidebar SHALL NOT displace its contents to make room for the form
 

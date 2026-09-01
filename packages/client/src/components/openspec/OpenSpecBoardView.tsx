@@ -1243,7 +1243,7 @@ function BoardSessionRow({
 // ── Modal shell + forms ───────────────────────────────────────────
 function ModalShell({ title, children, onClose }: { title: string; children: React.ReactNode; onClose: () => void }) {
   return (
-    <div className="fixed inset-0 bg-black/55 flex items-center justify-center z-[60]" onClick={onClose}>
+    <div className="fixed inset-0 bg-black/55 flex items-center justify-center z-dialog" onClick={onClose}>
       <div className="bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-xl p-4 w-80 max-h-[70vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3">{title}</h3>
         {children}
@@ -1285,7 +1285,7 @@ function NewProposalDialog({ groups, defaultGroupId, gitWorktreeEnabled, onCance
   const [worktree, setWorktree] = useState(false);
   const submit = () => { const n = name.trim(); if (n) onCreate(n, groupId, worktree); };
   return (
-    <div className="fixed inset-0 bg-black/55 flex items-center justify-center z-[60]" onClick={onCancel}>
+    <div className="fixed inset-0 bg-black/55 flex items-center justify-center z-dialog" onClick={onCancel}>
       <div className="bg-[var(--bg-primary)] border border-[var(--border-primary)] rounded-xl p-4 w-[330px]" onClick={(e) => e.stopPropagation()} data-testid="new-proposal-dialog">
         <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-1">{i18nT("openspec.newProposal", undefined, "New proposal")}</h3>
         <p className="text-[10px] text-[var(--text-muted)] mb-3">{i18nT("session.spawnsASessionRunningTheNew", undefined, "Spawns a session running the new-change flow. The created change lands in the chosen group.")}</p>

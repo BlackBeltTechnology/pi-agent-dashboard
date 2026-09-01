@@ -133,7 +133,7 @@ function ProcessRow({
         <button
           type="button"
           onClick={(e) => { e.stopPropagation(); onNavigateToSession!(p.sessionRef!); }}
-          className="text-[var(--accent,#3b82f6)] hover:underline truncate flex-1 text-left"
+          className="text-[var(--accent-text)] hover:underline truncate flex-1 text-left"
           title={p.command}
         >
           {text}

@@ -2,7 +2,7 @@
  * Print the current dashboard server mode ("dev" or "production"),
  * or "not-running" if the server isn't reachable.
  *
- * Invoke:  npx tsx ./scripts/check-mode.ts
+ * Invoke:  npx tsx .pi/skills/implement/scripts/check-mode.ts
  *
  * Cross-platform — Node built-ins only.
  */

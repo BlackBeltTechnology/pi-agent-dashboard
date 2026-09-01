@@ -83,6 +83,19 @@ describe("replayEntriesAsEvents — persisted flow events", () => {
     expect(flows.map((e) => e.event.eventType)).toEqual(["flow_complete"]);
   });
 
+  it("leaves message replay unaffected when interleaved with generic custom entries (no double-render)", () => {
+    const entries = [
+      { type: "message", id: "u1", timestamp: "2026-04-27T07:26:25.000Z", message: { role: "user", content: [{ type: "text", text: "go" }] } },
+      { type: "custom", customType: "my-ext:note", id: "c1", parentId: "u1", timestamp: "2026-04-27T07:26:26.000Z", data: { state: "half" } },
+      { type: "message", id: "a1", parentId: "c1", timestamp: "2026-04-27T07:26:30.000Z", message: { role: "assistant", content: [{ type: "text", text: "hi" }] } },
+    ];
+
+    const events = replayEntriesAsEvents("sess-1", entries);
+    expect(events.find((e) => e.event.eventType === "message_start")).toBeDefined();
+    expect(events.find((e) => e.event.eventType === "message_end")).toBeDefined();
+    expect(events.find((e) => e.event.eventType === "custom_entry")).toBeDefined();
+  });
+
   it("leaves message and model_change replay unaffected when interleaved with flow events", () => {
     const entries = [
       { type: "message", id: "u1", timestamp: "2026-04-27T07:26:25.000Z", message: { role: "user", content: [{ type: "text", text: "go" }] } },
@@ -96,5 +109,59 @@ describe("replayEntriesAsEvents — persisted flow events", () => {
     expect(events.find((e) => e.event.eventType === "message_end")).toBeDefined();
     expect(events.find((e) => e.event.eventType === "model_select")).toBeDefined();
     expect(events.find((e) => e.event.eventType === "flow_started")).toBeDefined();
+  });
+});
+
+// ── custom entries + custom messages (render-inline-reasoning-and-custom-entries, E6) ──
+describe("replayEntriesAsEvents — custom entries + custom messages (E6)", () => {
+  const BASE = { id: "c1", parentId: "root", timestamp: "2026-04-27T07:26:25.000Z" };
+
+  it("synthesizes message_end role=custom for a display:true custom_message entry", () => {
+    const events = replayEntriesAsEvents("sess-1", [
+      { ...BASE, type: "custom_message", customType: "my-ext:note", content: "hello", display: true },
+    ]);
+    const ends = events.filter((e) => e.event.eventType === "message_end");
+    expect(ends).toHaveLength(1);
+    const msg = (ends[0].event.data as any).message;
+    expect(msg.role).toBe("custom");
+    expect(msg.customType).toBe("my-ext:note");
+    expect(msg.content).toBe("hello");
+    expect((ends[0].event.data as any).entryId).toBe("c1");
+  });
+
+  it("emits NO event for a display:false custom_message (exact === false check)", () => {
+    const events = replayEntriesAsEvents("sess-1", [
+      { ...BASE, type: "custom_message", customType: "my-ext:note", content: "llm-only", display: false },
+    ]);
+    expect(events).toHaveLength(0);
+  });
+
+  it("synthesizes the event when display is ABSENT (absent flag is not false)", () => {
+    const events = replayEntriesAsEvents("sess-1", [
+      { ...BASE, type: "custom_message", customType: "my-ext:note", content: "untyped" },
+    ]);
+    expect(events.filter((e) => e.event.eventType === "message_end")).toHaveLength(1);
+  });
+
+  it("synthesizes custom_entry {customType, data, entryId} for a generic type:custom entry", () => {
+    const events = replayEntriesAsEvents("sess-1", [
+      { ...BASE, type: "custom", customType: "my-ext:state", data: { branch: "main" } },
+    ]);
+    const entries = events.filter((e) => e.event.eventType === "custom_entry");
+    expect(entries).toHaveLength(1);
+    expect(entries[0].event.data).toEqual({
+      type: "custom_entry",
+      customType: "my-ext:state",
+      data: { branch: "main" },
+      entryId: "c1",
+    });
+  });
+
+  it("keeps flow-event on its seq-sorted path and emits NO custom_entry for it", () => {
+    const events = replayEntriesAsEvents("sess-1", [
+      flowEventEntry("f0", 0, "flow_started", { flowName: "demo" }),
+    ]);
+    expect(events.filter((e) => e.event.eventType === "custom_entry")).toHaveLength(0);
+    expect(events.filter((e) => e.event.eventType === "flow_started")).toHaveLength(1);
   });
 });

@@ -1,4 +1,10 @@
-## ADDED Requirements
+# browser-gateway-decomposition Specification
+
+## Purpose
+
+Splits the server's browser-facing WebSocket gateway into per-concern handlers (subscription, session actions, session meta, terminal, directory) with defined boundaries. Also carries the gateway's efficiency and safety contracts: lazy per-session subscription, a single on-connect snapshot instead of a per-session loop, one payload serialization per broadcast fan-out, and handler exceptions logged rather than silently swallowed.
+
+## Requirements
 
 ### Requirement: Subscription handler extraction
 browser-gateway.ts SHALL delegate `subscribe` and `unsubscribe` message handling (including event replay and lazy session loading) to a subscription handler module.
@@ -98,8 +104,6 @@ The catch-all around the message-type `switch` that previously absorbed all exce
 - **AND** `terminalManager.spawn` throws (e.g. `posix_spawnp failed.`)
 - **THEN** the dispatcher SHALL log an error containing `[browser-gw] handler error`, `type=create_terminal`, and the underlying error text
 - **AND** the WebSocket connection SHALL remain open
-
-## ADDED Requirements
 
 ### Requirement: On-connect snapshot replaces per-session loop
 

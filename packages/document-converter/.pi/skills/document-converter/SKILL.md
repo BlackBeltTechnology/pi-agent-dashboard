@@ -17,6 +17,10 @@ Do NOT read the vendored Python under `engine/document_converter/`.
 ## Prerequisites
 
 - Docker available; image built: `cd packages/document-converter && npm run build:image`.
+  The `pi.tools` manifest (package root) declares `pi-doc-engine` as a
+  `docker-image` probe — `pi-dashboard-ensure <package-root>/package.json`
+  reports image presence and the first-party build hint (confirm-gated) via
+  the registry's Settings → Tools row.
 - Styled diagrams (nano-banana) need `GEMINI_API_KEY` at run time; absent or on
   failure, rendering falls back to mmdc (never hard-fails).
 

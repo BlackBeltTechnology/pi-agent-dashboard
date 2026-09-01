@@ -72,8 +72,6 @@ The MultiselectRenderer SHALL display `params.message` as a markdown body below 
 - **THEN** the card SHALL show a count summary (e.g. `2 of 3`)
 - **THEN** the card SHALL NOT collapse to show only the selected values
 
-## ADDED Requirements
-
 ### Requirement: ConfirmRenderer uses Yes/No labels
 The ConfirmRenderer SHALL label its affirmative and negative actions `Yes` and `No` (not `Allow` and `Deny`). The affirmative action SHALL retain green styling and the negative action SHALL retain red styling. The ConfirmRenderer SHALL display `params.message` as a markdown body below the title in both the pending and resolved states, so the description remains visible after the user answers. When resolved, the card SHALL show both `Yes` and `No` with the chosen option highlighted.
 

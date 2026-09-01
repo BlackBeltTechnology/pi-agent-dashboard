@@ -620,7 +620,7 @@ export function whichSync(cmd: string): string | null {
  *
  * See change: document-login-shell-non-interactive-fix.
  */
-function whichViaLoginShell(cmd: string): string | null {
+export function whichViaLoginShell(cmd: string): string | null {
   const shell = process.env.SHELL || "/bin/zsh";
   try {
     const raw = execSync(`${shell} -lc "which ${cmd}"`, {

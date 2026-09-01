@@ -1,4 +1,10 @@
-## ADDED Requirements
+# sleek-chat-design Specification
+
+## Purpose
+
+Visual contract for the chat view: message bubble borders, a divider before the copy button in messages, and an accent on tool call steps.
+
+## Requirements
 
 ### Requirement: Message bubble borders
 User message bubbles SHALL have `border border-blue-500/20` in addition to their background. Assistant message bubbles SHALL have `border border-gray-700/40` in addition to their background.

@@ -15,7 +15,10 @@
       "!**/plugin-registry.generated.*",
       "!openspec/changes/archive/**",
       "!**/*.css",
-      "!**/__tests__/fixtures/**"
+      "!**/__tests__/fixtures/**",
+      "!**/*.production.min.js",
+      "!packages/pi-forms-bpmn/.pi/skills/**/assets/**",
+      "!site/vendor/**"
     ]
   },
   "formatter": {
@@ -66,7 +69,9 @@
   },
   "overrides": [
     {
-      "includes": ["packages/client/**"],
+      "includes": [
+        "packages/client/**"
+      ],
       "linter": {
         "rules": {
           "a11y": {
@@ -81,7 +86,11 @@
       }
     },
     {
-      "includes": ["**/__tests__/**", "**/*.test.ts", "**/*.test.tsx"],
+      "includes": [
+        "**/__tests__/**",
+        "**/*.test.ts",
+        "**/*.test.tsx"
+      ],
       "linter": {
         "rules": {
           "suspicious": {
@@ -96,6 +105,7 @@
     {
       "includes": [
         "**/vitest.config.ts",
+        "**/vitest.*.config.ts",
         "**/vite.config.ts",
         "**/vite.*.config.ts",
         "**/forge.config.ts",
@@ -116,7 +126,8 @@
         ".pi/flows/**",
         "tests/e2e/**",
         "qa/scripts/**",
-        ".pi/skills/**/scripts/**"
+        ".pi/skills/**/scripts/**",
+        "site/design-scratch/**"
       ],
       "linter": {
         "rules": {

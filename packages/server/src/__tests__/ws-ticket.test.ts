@@ -1,5 +1,11 @@
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { beforeEach, describe, expect, it } from "vitest";
+import { decideBridgeTicketMint } from "../auth/bridge-ticket-eligibility.js";
 import { extractTicket, routeScopeForUrl, WsTicketStore } from "../auth/ws-ticket.js";
+import { PairedDeviceRegistry } from "../pairing/paired-devices.js";
+import { decideBridgeUpgrade } from "../pi/bridge-upgrade-auth.js";
 
 describe("routeScopeForUrl", () => {
   it("maps WS routes to scopes and rejects unknowns", () => {
@@ -54,5 +60,64 @@ describe("WsTicketStore", () => {
     const store = new WsTicketStore();
     expect(store.consume(null, "browser")).toBe(false);
     expect(store.consume("never-minted", "browser")).toBe(false);
+  });
+});
+
+/**
+ * #X11 (task 12.30) — revocation actually locks a device out.
+ *
+ * Two doors must both close: minting a `bridge` ticket (the durable bearer is
+ * the only thing a REMOTE bridge has), and the upgrade itself. A revoked
+ * device that could still mint would keep full bridge access for as long as it
+ * kept minting.
+ */
+describe("revoked paired device (#X11)", () => {
+  let registryFile: string;
+  let registry: PairedDeviceRegistry;
+
+  beforeEach(() => {
+    registryFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "paired-")), "devices.json");
+    registry = new PairedDeviceRegistry(registryFile);
+  });
+
+  const mintVerdict = (token: string) =>
+    decideBridgeTicketMint({
+      authorization: `Bearer ${token}`,
+      // A REMOTE bridge — the genuinely-local branch must not rescue it.
+      ip: "203.0.113.7",
+      headers: {},
+      verifyDeviceBearer: (t) => registry.verify(t),
+    });
+
+  it("mints for a paired device and refuses once revoked, with a named reason", () => {
+    const { device, token } = registry.add("remote-laptop");
+    expect(mintVerdict(token)).toMatchObject({ allow: true });
+
+    expect(registry.revoke(device.id)).toBe(true);
+    const after = mintVerdict(token);
+    expect(after.allow).toBe(false);
+    expect(after.reason).toMatch(/paired-device bearer/);
+  });
+
+  it("refuses the upgrade too — a revoked device cannot register", () => {
+    const { device, token } = registry.add("remote-laptop");
+    registry.revoke(device.id);
+    expect(mintVerdict(token).allow).toBe(false);
+    // With no mintable ticket, the upgrade gate sees a remote peer with no
+    // credential at all.
+    const verdict = decideBridgeUpgrade({
+      transport: "tcp",
+      remoteAddress: "203.0.113.7",
+      headers: {},
+      consumeTicket: () => ({ ok: false as const, reason: "missing" as const }),
+    });
+    expect(verdict).toMatchObject({ allow: false, cause: "no-ticket" });
+  });
+
+  it("survives a reload from disk — revocation is persisted, not in-memory only", () => {
+    const { device, token } = registry.add("remote-laptop");
+    registry.revoke(device.id);
+    const reloaded = new PairedDeviceRegistry(registryFile);
+    expect(reloaded.verify(token)).toBeNull();
   });
 });

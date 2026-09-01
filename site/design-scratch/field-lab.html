@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>PI Dashboard — 3D background lab (session fleet)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* Tokens copied from design-scratch/mockup/index.html (themselves lifted from
+   packages/client/src/index.css) so the lab and the landing page composite
+   against the SAME surface colours. The 3D is graded to these, not to a
+   generic studio grey. */
+:root{
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e;
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080;
+  --accent:#3b82f6; --accent-solid:#2563eb; --accent-text:#60a5fa;
+  --label:var(--text-tertiary);
+  --border:#2a2a2a; --elevation-rim:rgba(255,255,255,.10);
+  --sans:'Instrument Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --mono:'JetBrains Mono','SF Mono',Menlo,Monaco,monospace;
+  --gut:clamp(20px,5vw,72px); --maxw:1280px;
+}
+[data-theme="light"]{
+  --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0;
+  --text-primary:#1a1a1a; --text-secondary:#444444; --text-tertiary:#777777;
+  --label:var(--text-secondary);
+  --accent:#2563eb; --accent-solid:#2563eb; --accent-text:#1d4ed8;
+  --border:#e0e0e0; --elevation-rim:rgba(255,255,255,.9);
+}
+html{color-scheme:dark} html[data-theme="light"]{color-scheme:light}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg-primary);color:var(--text-primary);
+  font-family:var(--sans);font-size:16px;line-height:1.55;-webkit-font-smoothing:antialiased;
+  min-height:100vh}
+
+/* The field is a PAGE background, not a hero ornament: fixed, full-viewport,
+   z-index below everything, and never interactive. Content sits on top with no
+   plate behind it — legibility comes from the field's own composition (the
+   slabs are kept out of the centre column by the layout params below), not
+   from a scrim, which would flatten the whole effect. */
+#field{position:fixed;inset:0;z-index:0;display:block;width:100%;height:100%;
+  pointer-events:none}
+.page{position:relative;z-index:1}
+.wrap{max-width:var(--maxw);margin-inline:auto;padding-inline:var(--gut)}
+
+.mono,.btn,.eyebrow,.stat-k{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+.eyebrow{color:var(--accent-text);display:flex;align-items:center;gap:8px;margin:0 0 18px}
+.eyebrow::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--accent-text)}
+.hero{padding:clamp(84px,16vh,180px) 0 clamp(60px,12vh,140px);max-width:62ch}
+h1{font-size:clamp(38px,5.6vw,74px);font-weight:400;line-height:1.03;letter-spacing:-.03em;margin:0 0 26px}
+h1 em{font-style:normal;color:var(--accent-text)}
+.lede{color:var(--text-secondary);font-size:clamp(16px,1.3vw,18px);max-width:46ch;margin:0 0 32px}
+.cta{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.btn{display:inline-flex;align-items:center;gap:8px;padding:11px 18px;border-radius:6px;
+  text-decoration:none;border:1px solid transparent;cursor:pointer}
+.btn-primary{background:var(--accent-solid);color:#fff}
+.btn-ghost{border-color:var(--border);color:var(--text-primary);background:transparent}
+.filler{padding-block:clamp(60px,10vh,120px);max-width:60ch;color:var(--text-secondary)}
+.filler h2{color:var(--text-primary);font-size:clamp(26px,3.2vw,40px);font-weight:400;letter-spacing:-.025em;margin:0 0 16px}
+
+/* --- lab panel: NOT part of the design, only the harness for judging it ---- */
+.lab{position:fixed;right:14px;bottom:14px;z-index:5;background:color-mix(in srgb,var(--bg-secondary) 88%,transparent);
+  backdrop-filter:blur(10px);border:1px solid var(--border);border-radius:9px;padding:12px 13px;
+  display:grid;gap:9px;min-width:210px;box-shadow:0 14px 34px rgba(0,0,0,.35)}
+.lab h4{margin:0 0 2px;font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--label);font-weight:400}
+.lab label{display:grid;grid-template-columns:64px 1fr 34px;gap:8px;align-items:center;
+  font-family:var(--mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;color:var(--label)}
+.lab input[type=range]{width:100%;accent-color:var(--accent)}
+.lab .row{display:flex;gap:7px}
+.lab button{flex:1;font-family:var(--mono);font-size:10px;letter-spacing:.08em;text-transform:uppercase;
+  background:transparent;border:1px solid var(--border);color:var(--text-secondary);border-radius:5px;padding:7px 8px;cursor:pointer}
+.lab button:hover{border-color:var(--accent);color:var(--text-primary)}
+.lab .fps{font-family:var(--mono);font-size:10px;color:var(--label);letter-spacing:.06em}
+@media(max-width:720px){.lab{display:none}}
+</style>
+</head>
+<body>
+
+<canvas id="field" aria-hidden="true"></canvas>
+
+<div class="page">
+  <div class="wrap hero" data-field="hero">
+    <p class="eyebrow">Open source · self hosted</p>
+    <h1>Your coding agents, <em>visible</em> from anywhere.</h1>
+    <p class="lede">Every pi session mirrored to the browser as it runs. Read the transcript,
+      answer the prompt, kill the runaway, resume it from your phone.</p>
+    <div class="cta">
+      <a class="btn btn-primary" href="#">Get started</a>
+      <a class="btn btn-ghost" href="#">See it live</a>
+    </div>
+  </div>
+  <div class="wrap filler" data-field="control">
+    <h2>Scroll — the physics changes with the block.</h2>
+    <p>The wheel pushes the fleet directly: near slabs travel further than far ones, and a flick
+      injects energy that decays. This is a reading block, so the fleet calms right down and sinks
+      back — slow drift, almost no twirl, more depth haze.</p>
+  </div>
+  <div class="wrap filler" data-field="features">
+    <h2>A dense block lets the field churn.</h2>
+    <p>Where content is opaque and only the margins show, the twirl opens up: every slab rides its
+      own small helix and tumbles on all three axes, so cards flash their edges at the key light
+      instead of gliding like sprites.</p>
+  </div>
+  <div class="wrap filler" data-field="close" style="padding-bottom:22vh">
+    <h2>The closing block lifts.</h2>
+    <p>Drift accelerates upward and the camera pushes in, so the page ends on a rise rather than on
+      the same idle it opened with. No purple volumetrics, no gradient mesh, no texture maps —
+      every bit of richness comes from light, shadow and edge geometry.</p>
+  </div>
+</div>
+
+<div class="lab">
+  <h4>Field lab</h4>
+  <label>Count <input id="c-count" type="range" min="14" max="80" step="1" value="38"><span id="v-count">38</span></label>
+  <label>Speed <input id="c-speed" type="range" min="0" max="300" step="1" value="200"><span id="v-speed">2.0</span></label>
+  <label>Twirl <input id="c-twirl" type="range" min="0" max="300" step="1" value="100"><span id="v-twirl">1.0</span></label>
+  <label>Spread <input id="c-spread" type="range" min="60" max="200" step="1" value="80"><span id="v-spread">0.8</span></label>
+  <label>Blur <input id="c-fog" type="range" min="0" max="200" step="1" value="20"><span id="v-fog">0.2</span></label>
+  <div class="row">
+    <button id="b-theme" type="button">Light</button>
+    <button id="b-pause" type="button">Pause</button>
+  </div>
+  <div class="fps" id="fps">—</div>
+</div>
+
+<script type="module">
+/* Lab harness only. The field itself lives in ./field.js and is the SAME module
+   the landing page loads — a lab that runs a copy of the code proves nothing
+   about the page. Everything below is instrumentation: sliders, a theme flip,
+   a pause and an fps readout. */
+import { initField } from '../field.js';
+
+const root  = document.documentElement;
+let saved = null; try { saved = localStorage.getItem('mockup-theme'); } catch (e) {}
+if (saved === 'light') root.setAttribute('data-theme', 'light');
+
+const field = initField(document.getElementById('field'));
+const themeBtn = document.getElementById('b-theme');
+
+function labelTheme(){ themeBtn.textContent = root.getAttribute('data-theme') === 'light' ? 'Dark' : 'Light'; }
+labelTheme();
+themeBtn.addEventListener('click', () => {
+  const next = root.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+  if (next === 'light') root.setAttribute('data-theme', 'light'); else root.removeAttribute('data-theme');
+  try { localStorage.setItem('mockup-theme', next); } catch (e) {}
+  labelTheme();
+});
+
+if (field) {
+  const bind = (id, vid, fmt, key, scale) => {
+    const el = document.getElementById(id), out = document.getElementById(vid);
+    const push = () => { out.textContent = fmt(+el.value); field.set(key, +el.value * scale); };
+    el.addEventListener('input', push); push();
+  };
+  bind('c-count', 'v-count',  v => v,                  'count',  1);
+  bind('c-speed', 'v-speed',  v => (v/100).toFixed(1), 'speed',  0.01);
+  bind('c-twirl', 'v-twirl',  v => (v/100).toFixed(1), 'twirl',  0.01);
+  bind('c-spread','v-spread', v => (v/100).toFixed(1), 'spread', 0.01);
+  bind('c-fog',   'v-fog',    v => (v/100).toFixed(1), 'fog',    0.01);
+
+  let paused = false;
+  document.getElementById('b-pause').addEventListener('click', e => {
+    paused = !paused; field.set('paused', paused);
+    e.target.textContent = paused ? 'Run' : 'Pause';
+  });
+
+  const fpsEl = document.getElementById('fps');
+  /* Mood is in the readout because the whole point of the per-block physics is
+     that it is invisible when it works — you need a label to confirm the block
+     handoff actually fired rather than eyeballing a speed change. */
+  setInterval(() => { const s = field.stats(); fpsEl.textContent = `${s.fps} fps · ${s.slabs} slabs · ${s.mood} · spin ${s.spin}`; }, 500);
+} else {
+  document.getElementById('fps').textContent = 'no webgl';
+}
+</script>
+</body>
+</html>

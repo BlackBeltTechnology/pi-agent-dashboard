@@ -35,6 +35,10 @@ export const TESTIDS = {
   folderSpawnSessionBtn: "folder-spawn-session-btn", // sidebar "New Session"
   // Composer send button (faux round-trip specs drive a prompt through it).
   sendButton: "send-button",
+  // Session-header "Refresh Chat" control (SessionHeader.tsx). Drives the
+  // durable replay-cache purge the reset-path specs assert against.
+  // See change: purge-replay-cache-on-reset-paths.
+  refreshChat: "refresh-chat",
   // Flow launch dialog submit (flow-roundtrip L3 spec drives a real pi-flows
   // run through it). Existing app testid on FlowLaunchDialog's Run button — no
   // new app testid added. See change: add-flow-plugin-e2e-tests.
@@ -58,13 +62,20 @@ export const TESTIDS = {
   // See change: optimistic-prompt-progress.
   pendingPromptCard: "pending-prompt-card",
   queueChipFollowup: "queue-chip-followup",
+  // Follow-up chip surface: the panel, the per-entry attachment-count
+  // indicator, and the inline editor controls. The indicator renders only when
+  // the entry carries images; bytes never cross the wire, so it is a COUNT and
+  // never a thumbnail. See change: fix-bridge-followup-image-drop.
+  queuePanel: "queue-panel",
+  queueFollowupAttachments: "queue-followup-attachments",
+  queueFollowupEdit: "queue-followup-edit",
+  queueFollowupEditor: "queue-followup-editor",
+  queueFollowupEditorSubmit: "queue-followup-editor-submit",
+  queueFollowupPosition: "queue-followup-position",
   // VCS panels (scenario backlog).
   composerGitGroup: "composer-git-group",
   composerStatusGroup: "composer-status-group",
   gitInitBtn: "git-init-btn",
-  // Polymorphic Initialize on a no-hook folder row → spawns the interactive
-  // project-init scaffolder. See change: project-init-skill-and-profiles.
-  projectInitBtn: "project-init-btn",
   // Worktree-init hook feedback surfaces (folder row). See change:
   // friendlier-worktree-init.
   worktreeInitBtn: "worktree-init-btn",
@@ -165,7 +176,13 @@ async function visible(loc: Locator): Promise<boolean> {
 export async function pinDirectory(page: Page, absPath: string): Promise<void> {
   const onboardingCta = byTestId(page, "onboardingStep2Cta");
   if (await visible(onboardingCta)) {
-    await onboardingCta.click();
+    // The onboarding→dashboard hydration flip can detach the CTA mid-click;
+    // bound the attempt and fall back to the dashboard-mode affordance.
+    await onboardingCta
+      .click({ timeout: 5_000 })
+      .catch(async () => {
+        await byTestId(page, "dashboardAddFolderBtn").first().click();
+      });
   } else {
     await byTestId(page, "dashboardAddFolderBtn").first().click();
   }
@@ -296,6 +313,298 @@ export async function spawnFreshGitSession(page: Page): Promise<Locator> {
   return card;
 }
 
+/** One observed `tool_execution_update` frame on the browser `/ws` socket. */
+export interface TickSample {
+  /** Receive time (ms, monotonic-ish wall clock) — the rate measurement's x-axis. */
+  at: number;
+  /**
+   * The event's OWN timestamp, stamped by the bridge when it forwarded the
+   * frame. This is the x-axis for stored-tick staleness (P3): receive time on a
+   * replay frame measures the replay, not the gap the throttle introduced.
+   */
+  ts: number;
+  toolName: string;
+  toolCallId: string;
+  /** Owning session id, so a measurement can isolate its OWN run's frames when
+   * a previous session's producer is still streaming. */
+  sessionId: string;
+  /** Payload size in bytes, for the bytes/s half of the D1 baseline. */
+  bytes: number;
+}
+
+export interface TickCollector {
+  /** Every `tool_execution_update` frame, in receive order. */
+  all: TickSample[];
+  /** Only Agent ticks — the carrier this change throttles. */
+  agent: () => TickSample[];
+  /** Mean Agent-tick frames/s over the WHOLE window, not per 1 s bucket. */
+  agentRate: (windowMs: number) => number;
+}
+
+/**
+ * Collect `tool_execution_update` frames off the browser's `/ws` socket,
+ * broken down by `toolName`.
+ *
+ * The breakdown is load-bearing, not decoration: the parent change's F4 matcher
+ * counts EVERY `tool_execution_update`, so an unfiltered count can be carried
+ * entirely by unrelated tools and would pass at any throttle window. Only
+ * frames whose `toolName` is `Agent` belong to the throttled carrier.
+ *
+ * Attach BEFORE the run starts — `page.on("websocket")` only sees sockets
+ * opened after it is registered.
+ *
+ * See change: reduce-bridge-tick-bandwidth (D1, D6).
+ */
+export function collectAgentTicks(page: Page): TickCollector {
+  const all: TickSample[] = [];
+  page.on("websocket", (ws) => {
+    ws.on("framereceived", (frame) => {
+      const payload = typeof frame.payload === "string" ? frame.payload : "";
+      if (!payload.includes("tool_execution_update")) return;
+      let parsed: any;
+      try {
+        parsed = JSON.parse(payload);
+      } catch {
+        return; // non-JSON frame: not ours
+      }
+      // Both the live `event` message and a replayed batch carry the same
+      // DashboardEvent shape; count each contained event once.
+      const events: any[] = parsed?.event
+        ? [parsed.event]
+        : Array.isArray(parsed?.events)
+          ? parsed.events.map((e: any) => e?.event).filter(Boolean)
+          : [];
+      const frameSessionId = String(parsed?.sessionId ?? "");
+      for (const ev of events) {
+        if (ev?.eventType !== "tool_execution_update") continue;
+        all.push({
+          at: Date.now(),
+          ts: typeof ev?.timestamp === "number" ? ev.timestamp : 0,
+          toolName: String(ev?.data?.toolName ?? ""),
+          toolCallId: String(ev?.data?.toolCallId ?? ""),
+          sessionId: frameSessionId,
+          bytes: payload.length,
+        });
+      }
+    });
+  });
+  const agent = () => all.filter((s) => s.toolName === "Agent");
+  return {
+    all,
+    agent,
+    // Mean over the WHOLE window. A per-1 s-bucket assertion would be wrong:
+    // the leading + trailing edges of adjacent windows can legitimately put 3
+    // frames in one bucket at a 500 ms window.
+    agentRate: (windowMs: number) => (agent().length / windowMs) * 1000,
+  };
+}
+
+/** One observed subagent-carrying frame, on either carrier. */
+export interface SubagentFrameSample {
+  at: number;
+  /** Owning session id — the shared harness runs one container, so a previous
+   *  spec's producer can still be streaming into this window. */
+  sessionId: string;
+  /** `tool_execution_update` | `subagent_created` | `subagent_started` | … */
+  eventType: string;
+  /** The watched agent, read from whichever slot the carrier uses. */
+  agentId: string;
+  status: string;
+  /** Timeline length carried by THIS frame (0 when stripped). */
+  entryCount: number;
+  /**
+   * Set ONLY on a resync REPLY (`subagent-forward-sites.ts` echoes the
+   * requester's token). This is the ONLY way to tell a reply from a pushed
+   * `subagent_started` — they share an eventType, so eventType cannot classify
+   * them. See change: verify-subagent-pull-under-load (V2).
+   */
+  resyncRequestId?: string;
+  /**
+   * Bytes attributed to THIS frame. A batched replay message carries many
+   * events; `collectAgentTicks` charges each of them the WHOLE payload length
+   * (an N× over-count). Here each event is charged its own serialized size.
+   */
+  bytes: number;
+}
+
+/**
+ * One `subagent_resync_request` the CLIENT sent (outgoing direction).
+ * Not exported: reached only through `SubagentWireCollector`, so exporting it
+ * would be a dead export (knip `types` class).
+ */
+interface ResyncRequestSample {
+  at: number;
+  agentId: string;
+  requestId: string;
+  /** `"open"` (expand / popout / subscribe) or `"cadence"` (the D4 v1 timer). */
+  reason: string;
+}
+
+export interface SubagentWireCollector {
+  /** Inbound subagent-carrying frames, in receive order. */
+  frames: SubagentFrameSample[];
+  /** Outbound resync requests, in send order. */
+  requests: ResyncRequestSample[];
+  /** Inbound frames for one agent. */
+  forAgent: (agentId: string) => SubagentFrameSample[];
+  /** Resync REPLIES for one agent (frames bearing a requester token). */
+  repliesFor: (agentId: string) => SubagentFrameSample[];
+  /** PUSHED frames for one agent (everything without a requester token). */
+  pushesFor: (agentId: string) => SubagentFrameSample[];
+  /** Outbound requests for one agent, optionally filtered by reason. */
+  requestsFor: (agentId: string, reason?: string) => ResyncRequestSample[];
+}
+
+const SUBAGENT_STATUS_OF = (ev: any): string =>
+  String(
+    ev?.data?.details?.status ??
+      ev?.data?.partialResult?.details?.status ??
+      // `tool_execution_end` carries the terminal snapshot under `result`, the
+      // same slot ENTRY_COUNT_OF reads. Omitting it made every status filter
+      // silently miss the terminal carrier.
+      ev?.data?.result?.details?.status ??
+      "",
+  );
+
+const AGENT_ID_OF = (ev: any): string =>
+  String(
+    ev?.data?.id ??
+      ev?.data?.details?.agentId ??
+      ev?.data?.partialResult?.details?.agentId ??
+      "",
+  );
+
+const ENTRY_COUNT_OF = (ev: any): number => {
+  const e =
+    ev?.data?.details?.entries ??
+    ev?.data?.partialResult?.details?.entries ??
+    // `tool_execution_end` carries the final snapshot under `result`.
+    ev?.data?.result?.details?.entries;
+  return Array.isArray(e) ? e.length : 0;
+};
+
+/**
+ * Collect BOTH subagent carriers off the browser `/ws` socket, in both
+ * directions.
+ *
+ * Why this exists next to `collectAgentTicks` rather than replacing it: the
+ * throttle rows measure `tool_execution_update` FRAME RATE filtered by
+ * `toolName`, while the pull-path rows measure BYTES per carrier and need the
+ * `__resyncRequestId` discriminator plus the outgoing requests. Same socket,
+ * different questions.
+ *
+ * Attach BEFORE the run starts — `page.on("websocket")` only sees sockets opened
+ * after it is registered.
+ *
+ * See change: verify-subagent-pull-under-load (V2/V5).
+ */
+export function collectSubagentWire(page: Page): SubagentWireCollector {
+  const frames: SubagentFrameSample[] = [];
+  const requests: ResyncRequestSample[] = [];
+
+  const ingest = (payload: string): void => {
+    if (
+      !payload.includes("subagent") &&
+      !payload.includes("tool_execution_update") &&
+      !payload.includes("tool_execution_end")
+    ) {
+      return;
+    }
+    let parsed: any;
+    try {
+      parsed = JSON.parse(payload);
+    } catch {
+      return;
+    }
+    const events: any[] = parsed?.event
+      ? [parsed.event]
+      : Array.isArray(parsed?.events)
+        ? parsed.events.map((e: any) => e?.event).filter(Boolean)
+        : [];
+    for (const ev of events) {
+      const eventType = String(ev?.eventType ?? "");
+      // `tool_execution_end` is admitted deliberately: it is a TERMINAL carrier
+      // for an Agent run, and a caller asking "did any terminal frame arrive for
+      // this agent?" would otherwise get a vacuous `false` because the event
+      // never entered the collector at all.
+      const isToolCarrier =
+        (eventType === "tool_execution_update" || eventType === "tool_execution_end") &&
+        String(ev?.data?.toolName ?? "") === "Agent";
+      if (!eventType.startsWith("subagent_") && !isToolCarrier) continue;
+      const token = ev?.data?.__resyncRequestId;
+      frames.push({
+        at: Date.now(),
+        sessionId: String(parsed?.sessionId ?? ""),
+        eventType,
+        agentId: AGENT_ID_OF(ev),
+        status: SUBAGENT_STATUS_OF(ev),
+        entryCount: ENTRY_COUNT_OF(ev),
+        resyncRequestId: typeof token === "string" && token ? token : undefined,
+        // Per-frame attribution: charge this event its OWN serialized size, so a
+        // batched replay message is not counted once per contained event.
+        bytes: JSON.stringify(ev).length,
+      });
+    }
+  };
+
+  page.on("websocket", (ws) => {
+    ws.on("framereceived", (frame) => {
+      ingest(typeof frame.payload === "string" ? frame.payload : "");
+    });
+    ws.on("framesent", (frame) => {
+      const payload = typeof frame.payload === "string" ? frame.payload : "";
+      if (!payload.includes("subagent_resync_request")) return;
+      try {
+        const msg = JSON.parse(payload);
+        if (msg?.type !== "subagent_resync_request") return;
+        requests.push({
+          at: Date.now(),
+          agentId: String(msg.agentId ?? ""),
+          requestId: String(msg.requestId ?? ""),
+          reason: String(msg.reason ?? ""),
+        });
+      } catch {
+        /* non-JSON frame: not ours */
+      }
+    });
+  });
+
+  const forAgent = (agentId: string) => frames.filter((f) => f.agentId === agentId);
+  return {
+    frames,
+    requests,
+    forAgent,
+    repliesFor: (agentId) => forAgent(agentId).filter((f) => f.resyncRequestId !== undefined),
+    pushesFor: (agentId) => forAgent(agentId).filter((f) => f.resyncRequestId === undefined),
+    requestsFor: (agentId, reason) =>
+      requests.filter((r) => r.agentId === agentId && (reason === undefined || r.reason === reason)),
+  };
+}
+
+/**
+ * Write `subagentTickThrottleMs` into the CONTAINER's dashboard config file.
+ *
+ * The bridge reads `~/.pi/dashboard/config.json` once per bridge init, and no
+ * env override exists for it (deliberate — the config surface stays single-
+ * sourced). `PUT /api/config` is a shallow partial merge onto that same file,
+ * so this is literally "the harness writes the dashboard config file into the
+ * container". Call it BEFORE `spawnFreshGitSession()`: only a session spawned
+ * after the write picks the value up; an already-running bridge keeps the old
+ * one.
+ *
+ * See change: reduce-bridge-tick-bandwidth (task 1.3, D4).
+ */
+export async function setSubagentTickThrottle(page: Page, ms: number): Promise<void> {
+  const res = await page.request.put("/api/config", { data: { subagentTickThrottleMs: ms } });
+  expect(res.ok(), `PUT /api/config subagentTickThrottleMs=${ms} failed: ${res.status()}`).toBe(true);
+  // Read back through the same surface the bridge reads, so a silently-dropped
+  // unknown key fails the setup rather than the (then-vacuous) measurement.
+  const readBack = await page.request.get("/api/config");
+  const body = (await readBack.json()) as { data?: Record<string, unknown> };
+  const cfg = (body.data ?? {}) as Record<string, unknown>;
+  expect(cfg.subagentTickThrottleMs, "config did not retain subagentTickThrottleMs").toBe(ms);
+}
+
 /**
  * Type a prompt into the selected session's composer and submit it.
  *
@@ -391,4 +700,57 @@ export async function cleanupCommit(page: Page, cwd: string): Promise<void> {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ cwd, message: "test cleanup", files: files.map((f) => f.path) }),
   });
+}
+
+// ── folder-header git identity (fix-folder-header-worktree-branch-leak) ─────
+//
+// `GroupGitInfo` renders in the folder card's expanded BODY, a sibling of the
+// `folder-home-row-<cwd>` name row — so it must be scoped to the CARD, and the
+// folder must be expanded first or the whole subtree is simply absent.
+
+/** The folder card owning `cwd` (scopes the non-cwd-keyed collapse chevron). */
+export function folderCard(page: Page, cwd: string): Locator {
+  return page
+    .locator('[data-testid="sortable-workspace-folder"], [data-testid="sortable-pinned-group"]')
+    .filter({ has: page.getByTestId(`folder-home-row-${cwd}`) })
+    .first();
+}
+
+/**
+ * Expand `cwd`'s folder card. Idempotent, and safe against hydration: an
+ * un-hydrated sidebar has no `folder-body-<cwd>` either, so a bare
+ * "absent ⇒ collapsed ⇒ click" would COLLAPSE an already-expanded folder and
+ * then wait forever. Retries instead of trusting one reading.
+ */
+export async function expandFolder(page: Page, cwd: string): Promise<void> {
+  const card = folderCard(page, cwd);
+  await card.waitFor({ state: "visible", timeout: 30_000 });
+  const expanded = async () => (await page.getByTestId(`folder-body-${cwd}`).count()) > 0;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    if (await expanded()) return;
+    await card.getByTestId("folder-toggle-btn").first().click();
+    const ok = await expect
+      .poll(expanded, { timeout: 5_000 })
+      .toBe(true)
+      .then(() => true)
+      .catch(() => false);
+    if (ok) return;
+  }
+  throw new Error(`folder ${cwd} never expanded`);
+}
+
+/**
+ * Branch text as the user reads it in `cwd`'s folder header, or `""` when the
+ * header renders no branch at all (dimmed icon / not yet resolved).
+ */
+export async function folderHeaderBranch(page: Page, cwd: string): Promise<string> {
+  const btn = folderCard(page, cwd).getByTestId("git-branch-btn");
+  if ((await btn.count()) === 0) return "";
+  // The branch label is the button's IMMEDIATE sibling (`<span>` plain, or an
+  // `<a>` when a branch URL is present). Reading the whole container instead
+  // would fold in the dirty pill and the Commit action.
+  return btn
+    .first()
+    .evaluate((el) => (el.nextElementSibling?.textContent ?? "").trim())
+    .catch(() => "");
 }

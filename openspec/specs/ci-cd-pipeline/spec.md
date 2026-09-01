@@ -3,7 +3,9 @@
 ## Purpose
 
 GitHub Actions CI/CD: lint+test+build on push/PR, version-tag publish (npm + Electron artifacts + GitHub Release), reusable build/smoke workflows, and the release-gate + prerelease + signing contracts.
+
 ## Requirements
+
 ### Requirement: CI workflow on push and PR
 The project SHALL have a GitHub Actions workflow (`.github/workflows/ci.yml`) that runs on every push to `develop` and on every pull request targeting `develop`. The workflow SHALL execute lint, test, and build steps in sequence on Node.js 22. The workflow SHALL NOT include the standalone-install-smoke matrix; that matrix is hosted in the reusable `_smoke.yml` and consumed by `ci-smoke.yml` (manual dispatch) and `publish.yml` (release gate) only.
 
@@ -371,3 +373,129 @@ The publish workflow SHALL fail fast on any production tag if any of the macOS s
 - **THEN** the workflow SHALL emit a warning and SHALL produce an unsigned DMG
 - **AND** the resulting draft release SHALL clearly mark the macOS DMG as not-update-eligible
 
+### Requirement: Nightly Knip pass reports, it does not gate
+
+The whole-graph Knip scan SHALL run in the nightly workflow rather than the
+per-PR `ci.yml`, so its runtime never sits on the PR path. Nightly runs after
+merge and therefore SHALL be described as detection, not prevention; the
+preventive gate lives in the `ship-it` enforcer step under `code-quality-loop`.
+
+#### Scenario: Nightly runs Knip
+
+- **WHEN** the nightly workflow executes
+- **THEN** a Knip job runs the whole-graph scan
+- **AND** its per-class counts are recorded in the job output
+
+#### Scenario: PR CI does not run Knip
+
+- **WHEN** `ci.yml` executes for a pull request
+- **THEN** no Knip job runs
+
+#### Scenario: Nightly regression is visible
+
+- **WHEN** the nightly Knip job finds a class above its baseline
+- **THEN** the job fails so the regression is visible in the nightly report
+- **AND** the failure names the class and the delta
+
+### Requirement: The Docker harness analyses the same tree
+
+The Docker harness SHALL run the Knip pass over the same module graph the host
+analyses. The image is otherwise a runtime-only subset, and a scan over a subset
+silently reports fewer findings — measured, the unmodified image reported 13
+unused files and 233 unused exports against the host's 10 and 227.
+
+#### Scenario: The image carries every analysed tree
+
+- **WHEN** the harness image is built
+- **THEN** it contains `knip.json`, `knip-baseline.json`, `playwright.config.ts`,
+  `.github/workflows`, `tests/`, `qa/`, `public/`, and `.pi/skills`
+- **AND** it does NOT contain `.pi/settings.json`, which pins a host absolute
+  path for its extension packages
+
+#### Scenario: Harness and host agree on unused files
+
+- **WHEN** the Knip pass is invoked inside the Docker harness
+- **THEN** the set of unused files it reports equals the host's set exactly
+- **AND** the ratchet passes inside the container
+
+#### Scenario: Cross-environment scalar equality is not required
+
+- **WHEN** comparing per-class counts between host and container
+- **THEN** the `types` class MAY differ by a small margin attributable to the
+  environment rather than the tree (measured: exactly one, with identical file
+  hashes, identical TypeScript and `@types/react`, and each environment
+  internally deterministic)
+- **AND** the gate SHALL NOT assert exact scalar equality across environments,
+  because that is not a property Knip has
+
+### Requirement: CI gates OpenSpec main-spec integrity
+
+The `ci` job in `.github/workflows/ci.yml` SHALL run
+`openspec validate --specs --no-interactive` and SHALL fail the workflow when any
+main spec under `openspec/specs/**` is invalid.
+
+The repo already gates the openspec **version** (`scripts/verify-release-deps.mjs`)
+but has never gated spec **content**. In that blind spot 80 of 546 main specs
+drifted into unparseable states, hiding 384 requirement blocks. This gate closes
+the loop: a change that archives into a corrupt main spec fails on `develop`
+instead of accumulating undetected.
+
+The gate SHALL be reproducible locally via an `npm run spec:validate` script
+invoking the same command, so a contributor can reproduce a CI failure without
+reading the workflow.
+
+#### Scenario: Corrupt main spec fails CI
+
+- **WHEN** a push or pull request targeting `develop` contains a main spec with a
+  delta header, a missing `## Purpose`, or a missing `## Requirements`
+- **THEN** the `ci` job SHALL fail
+- **AND** the failure SHALL name the offending capability
+
+#### Scenario: Clean spec tree passes
+
+- **WHEN** every spec under `openspec/specs/**` satisfies the structural contract
+- **THEN** the spec-integrity step SHALL exit zero and SHALL NOT block the PR
+
+#### Scenario: Gate is reproducible locally
+
+- **WHEN** a contributor runs `npm run spec:validate`
+- **THEN** it SHALL invoke `openspec validate --specs --no-interactive`
+- **AND** SHALL produce the same pass/fail verdict as CI
+
+#### Scenario: Gate runs on the existing ci job
+
+- **WHEN** `ci.yml` is inspected
+- **THEN** the spec-integrity step SHALL live in the existing `ci` job rather
+  than a new job, reusing its checkout and `pnpm install --frozen-lockfile`
+- **AND** SHALL NOT add a separate required status check
+
+### Requirement: The marketing site stays dependency-free
+
+`site/` is a hand-written static page with a zero-dependency manifest: its
+build (`node site/build.mjs`) is a copy + reference check, and the deploy
+workflow runs no install step for the site itself — the root
+`pnpm install --frozen-lockfile` in the deploy serves the neutral shell,
+not the site. The Astro-era `site/package-lock.json` and its `npm ci`
+drift failure class were deleted with the framework.
+
+The site manifest SHALL declare no `dependencies`, `devDependencies`, or
+`optionalDependencies`. Reintroducing one is permitted only as a complete
+change: the dependency edit, an install strategy for the deploy workflow,
+and a lockfile-drift guard MUST land in the same change. A bare manifest
+edit that adds a dependency without that machinery is invalid.
+
+#### Scenario: Site manifest declares no dependencies
+
+- **GIVEN** `site/package.json`
+- **WHEN** its dependency maps are inspected
+- **THEN** `dependencies`, `devDependencies`, and `optionalDependencies`
+  are all absent or empty
+
+#### Scenario: Deploy workflow runs no site install
+
+- **GIVEN** `.github/workflows/deploy-site.yml`
+- **WHEN** its steps are inspected
+- **THEN** no step runs an install scoped to the site (`npm ci`,
+  `npm install`) and no step references a site lockfile
+- **AND** the root `pnpm install --frozen-lockfile` remains, serving the
+  neutral shell (already pinned by `pnpm-migration-contract.test.ts` X6)

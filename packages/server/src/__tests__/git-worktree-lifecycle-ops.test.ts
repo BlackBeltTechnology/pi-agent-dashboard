@@ -9,14 +9,17 @@
  *
  * See change: add-worktree-lifecycle-actions.
  */
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
 import { execSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { join } from "node:path";
+import * as platformExec from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   addWorktree,
   mergeWorktree,
+  pruneWorktrees,
   pushBranch,
   removeWorktree,
   resolveDefaultBase,
@@ -359,5 +362,259 @@ describe("pushBranch", () => {
     git(`remote add origin ${bareRemote}`, repo);
     const result = pushBranch({ cwd: repo });
     expect(result.ok).toBe(true);
+  });
+});
+
+// ── deleteBranch + prune (change: manage-worktrees-filter-cleanup) ──
+
+describe("removeWorktree({ deleteBranch: true })", () => {
+  let repo: string;
+  beforeEach(() => { repo = makeRepo(); });
+  afterEach(() => rmSync(repo, { recursive: true, force: true }));
+
+  function branchExists(name: string): boolean {
+    try {
+      git(`rev-parse --verify refs/heads/${name}`, repo);
+      return true;
+    } catch { return false; }
+  }
+
+  // test-plan #E16
+  it("deletes a merged branch, refuses an unmerged one — removal succeeds either way", () => {
+    const merged = addWorktree({ cwd: repo, base: "main", newBranch: "feat/merged" });
+    expect(merged.ok).toBe(true);
+    if (!merged.ok) return;
+    expect(branchExists("feat/merged")).toBe(true);
+
+    const mergedResult = removeWorktree({ cwd: merged.path, deleteBranch: true });
+    expect(mergedResult.ok).toBe(true);
+    if (!mergedResult.ok) return;
+    // `data` is optional on LifecycleSuccess — assert it is present rather
+    // than optional-chaining, which would pass on a missing payload.
+    expect(mergedResult.data).toBeDefined();
+    if (!mergedResult.data) return;
+    expect(mergedResult.data.branchDeleted).toBe(true);
+    expect(mergedResult.data.branchDeleteCode).toBe("deleted");
+    expect(branchExists("feat/merged")).toBe(false);
+
+    const unmerged = addWorktree({ cwd: repo, base: "main", newBranch: "feat/unmerged" });
+    if (!unmerged.ok) return;
+    writeFileSync(join(unmerged.path, "extra.txt"), "work\n");
+    git("add .", unmerged.path);
+    git("commit -m work", unmerged.path);
+
+    const unmergedResult = removeWorktree({ cwd: unmerged.path, deleteBranch: true });
+    // Removal still succeeds — only the branch delete is refused.
+    expect(unmergedResult.ok).toBe(true);
+    if (!unmergedResult.ok) return;
+    expect(unmergedResult.data).toBeDefined();
+    if (!unmergedResult.data) return;
+    expect(existsSync(unmerged.path)).toBe(false);
+    expect(unmergedResult.data.branchDeleted).toBe(false);
+    expect(unmergedResult.data.branchDeleteCode).toBe("unmerged");
+    expect(branchExists("feat/unmerged")).toBe(true);
+  });
+
+  // test-plan #X6 — C2: no compensation. The branch delete happens regardless
+  // of whether the caller is still around to read the response.
+  it("completes the branch delete even when the caller abandons the request", async () => {
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown) => unhandled.push(reason);
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const add = addWorktree({ cwd: repo, base: "main", newBranch: "feat/abandoned" });
+      if (!add.ok) return;
+      // The op is synchronous: an abandoned caller cannot interrupt it, so the
+      // delete is observably complete with no rollback.
+      const result = removeWorktree({ cwd: add.path, deleteBranch: true });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.data).toBeDefined();
+      if (!result.data) return;
+      expect(result.data.branchDeleted).toBe(true);
+      expect(branchExists("feat/abandoned")).toBe(false);
+      await new Promise((r) => setTimeout(r, 10));
+      expect(unhandled).toEqual([]);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+  });
+
+  // test-plan #E8 — assert on the command spy, not the outcome.
+  it("never invokes `git branch` when the entry has no branch", () => {
+    const detached = addWorktree({ cwd: repo, base: "main", newBranch: "feat/det" });
+    if (!detached.ok) return;
+    // Detach HEAD inside the worktree → porcelain reports `detached`, branch null.
+    git("checkout --detach", detached.path);
+
+    // Spy BOTH exec surfaces: the branch delete runs through `execFileSync`
+    // (argv form), so watching only `execSync` would make this assertion
+    // vacuous — it could never observe a `git branch` call in the first place.
+    const calls: string[] = [];
+    const realExec = platformExec.execSync;
+    const realExecFile = platformExec.execFileSync;
+    const spy = vi.spyOn(platformExec, "execSync").mockImplementation(((cmd: any, opts: any) => {
+      calls.push(String(cmd));
+      return realExec(cmd, opts);
+    }) as any);
+    const fileSpy = vi.spyOn(platformExec, "execFileSync").mockImplementation(((
+      file: any,
+      args: any,
+      opts: any,
+    ) => {
+      calls.push(`${String(file)} ${(args ?? []).join(" ")}`);
+      return realExecFile(file, args, opts);
+    }) as any);
+    try {
+      const result = removeWorktree({ cwd: detached.path, deleteBranch: true });
+      expect(result.ok).toBe(true);
+      if (!result.ok) return;
+      expect(result.data).toBeDefined();
+      if (!result.data) return;
+      expect(result.data.branchDeleted).toBe(false);
+      expect(result.data.branchDeleteCode).toBe("no_branch");
+    } finally {
+      spy.mockRestore();
+      fileSpy.mockRestore();
+    }
+    // Guard against the spy itself going blind: it must have observed SOMETHING.
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.some((c) => /\bgit branch\b/.test(c))).toBe(false);
+  });
+
+  // Security: `shellEscape` is POSIX single-quoting, which cmd.exe treats as
+  // literal characters — a branch name containing `&` would become a command
+  // separator if this were built as a shell string.
+  it("passes the branch name as an argv element, never through a shell", () => {
+    const nasty = "feat/x&echo_pwned";
+    const add = addWorktree({ cwd: repo, base: "main", newBranch: nasty });
+    console.log("DEBUG add:", JSON.stringify(add));
+    expect(add.ok).toBe(true);
+    if (!add.ok) return;
+
+    // Record BOTH surfaces so the assertion is falsifiable either way.
+    const shellCalls: string[] = [];
+    const argvCalls: Array<[string, string[]]> = [];
+    const realExec = platformExec.execSync;
+    const realExecFile = platformExec.execFileSync;
+    const spy = vi.spyOn(platformExec, "execSync").mockImplementation(((cmd: any, opts: any) => {
+      shellCalls.push(String(cmd));
+      return realExec(cmd, opts);
+    }) as any);
+    const fileSpy = vi.spyOn(platformExec, "execFileSync").mockImplementation(((
+      file: any,
+      args: any,
+      opts: any,
+    ) => {
+      argvCalls.push([String(file), (args ?? []) as string[]]);
+      return realExecFile(file, args, opts);
+    }) as any);
+    try {
+      const result = removeWorktree({ cwd: add.path, deleteBranch: true });
+      expect(result.ok).toBe(true);
+      expect(result.ok && result.data?.branchDeleted).toBe(true);
+    } finally {
+      spy.mockRestore();
+      fileSpy.mockRestore();
+    }
+
+    // The delete ran in ARGV form, with the branch as its own element — so no
+    // shell ever parsed the `&`.
+    const branchDelete = argvCalls.find(([f, a]) => f === "git" && a[0] === "branch");
+    expect(branchDelete, `argv calls: ${JSON.stringify(argvCalls)}`).toBeDefined();
+    expect(branchDelete?.[1]).toEqual(["branch", "-d", nasty]);
+    // ...and it was NOT built as a shell string.
+    expect(shellCalls.filter((c) => /git branch/.test(c))).toEqual([]);
+    // The injected fragment never executed as a command.
+    expect(branchExists(nasty)).toBe(false);
+    expect(existsSync(join(repo, "echo_pwned"))).toBe(false);
+  });
+});
+
+describe("removeWorktree shell safety", () => {
+  let repo: string;
+  beforeEach(() => { repo = makeRepo(); });
+  afterEach(() => rmSync(repo, { recursive: true, force: true }));
+
+  // The batch endpoint accepts up to 50 caller-supplied paths per request, so
+  // the removal path must never build a shell string out of one.
+  it("passes the worktree path as an argv element, never through a shell", () => {
+    const dir = join(repo, "wt&pwned");
+    git(`worktree add ${JSON.stringify(dir)} -b feat/amp`, repo);
+    expect(existsSync(dir)).toBe(true);
+
+    const shellCalls: string[] = [];
+    const argvCalls: Array<[string, string[]]> = [];
+    const realExec = platformExec.execSync;
+    const realExecFile = platformExec.execFileSync;
+    const spy = vi.spyOn(platformExec, "execSync").mockImplementation(((cmd: any, opts: any) => {
+      shellCalls.push(String(cmd));
+      return realExec(cmd, opts);
+    }) as any);
+    const fileSpy = vi.spyOn(platformExec, "execFileSync").mockImplementation(((
+      f: any, a: any, o: any,
+    ) => {
+      argvCalls.push([String(f), (a ?? []) as string[]]);
+      return realExecFile(f, a, o);
+    }) as any);
+    try {
+      const result = removeWorktree({ cwd: dir });
+      expect(result.ok).toBe(true);
+    } finally {
+      spy.mockRestore();
+      fileSpy.mockRestore();
+    }
+
+    const removeCall = argvCalls.find(([f, a]) => f === "git" && a[0] === "worktree" && a[1] === "remove");
+    expect(removeCall, `argv calls: ${JSON.stringify(argvCalls)}`).toBeDefined();
+    // The path is its own argv element — no shell ever parsed the `&`.
+    expect(removeCall?.[1].at(-1)).toBe(dir);
+    expect(shellCalls.filter((c) => /worktree remove/.test(c))).toEqual([]);
+    expect(existsSync(dir)).toBe(false);
+    expect(existsSync(join(repo, "pwned"))).toBe(false);
+  });
+});
+
+describe("pruneWorktrees", () => {
+  let repo: string;
+  beforeEach(() => { repo = makeRepo(); });
+  afterEach(() => rmSync(repo, { recursive: true, force: true }));
+
+  function registrationPaths(): string[] {
+    return git("worktree list --porcelain", repo)
+      .split(/\r?\n/)
+      .filter((l) => l.startsWith("worktree "))
+      .map((l) => l.slice("worktree ".length));
+  }
+
+  // test-plan #X8
+  it("clears a registration whose directory was deleted outside git", () => {
+    const add = addWorktree({ cwd: repo, base: "main", newBranch: "feat/stale" });
+    if (!add.ok) return;
+    rmSync(add.path, { recursive: true, force: true });
+    expect(registrationPaths()).toContain(add.path);
+
+    const result = pruneWorktrees(repo);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data).toBeDefined();
+    if (!result.data) return;
+    expect(result.data.pruned).toBeGreaterThan(0);
+    expect(registrationPaths()).not.toContain(add.path);
+  });
+
+  // test-plan #X7
+  it("is a no-op when every registration's directory exists", () => {
+    const add = addWorktree({ cwd: repo, base: "main", newBranch: "feat/live" });
+    if (!add.ok) return;
+    const before = registrationPaths();
+
+    const result = pruneWorktrees(repo);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    expect(result.data).toBeDefined();
+    if (!result.data) return;
+    expect(result.data.pruned).toBe(0);
+    expect(registrationPaths()).toEqual(before);
   });
 });

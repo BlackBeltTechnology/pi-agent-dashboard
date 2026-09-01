@@ -1,0 +1,12 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "noEmit": true,
+    // `jsx` is required only because dashboard-plugin-runtime's server entry
+    // transitively reaches plugin-context.tsx for its PluginLogger type.
+    "jsx": "react-jsx",
+    "lib": ["ES2023"]
+  },
+  "include": ["src"]
+}

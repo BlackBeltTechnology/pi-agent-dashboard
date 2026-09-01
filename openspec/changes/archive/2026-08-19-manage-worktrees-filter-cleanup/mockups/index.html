@@ -1,0 +1,621 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Worktree list — filter + cleanup</title>
+<style>
+/* ── tokens: verbatim from packages/client/src/index.css ───────────── */
+:root{
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e;
+  --bg-surface:#2a2a2a; --bg-hover:rgba(255,255,255,.06); --bg-selected:#1e1e1e;
+  --bg-overlay:rgba(0,0,0,.6);
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080;
+  --text-muted:#585858; --text-faint:#3a3a3a;
+  --border-primary:#252525; --border-secondary:#333; --border-subtle:rgba(255,255,255,.06);
+  --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-yellow:#eab308;
+  --accent-red:#ef4444; --accent-orange:#f97316; --accent-primary:#3b82f6;
+  --link:#60a5fa; --link-hover:#93bbfd;
+  --focus-ring:var(--accent-primary);
+  --severity-error-bg:color-mix(in srgb,var(--accent-red) 10%,var(--bg-tertiary));
+  --severity-error-fg:color-mix(in srgb,var(--accent-red) 46%,var(--text-primary));
+  --severity-error-border:color-mix(in srgb,var(--accent-red) 40%,transparent);
+  --severity-neutral-bg:var(--bg-tertiary);
+  --severity-neutral-fg:var(--text-secondary);
+  --severity-neutral-border:var(--border-primary);
+  --shadow-card:rgba(0,0,0,.4);
+}
+[data-theme="light"]{
+  --bg-primary:#fff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0;
+  --bg-surface:#e0e0e0; --bg-hover:rgba(0,0,0,.04); --bg-selected:#e8e8e8;
+  --bg-overlay:rgba(0,0,0,.3);
+  --text-primary:#1a1a1a; --text-secondary:#444; --text-tertiary:#777;
+  --text-muted:#aaa; --text-faint:#d0d0d0;
+  --border-primary:#e0e0e0; --border-secondary:#ccc; --border-subtle:rgba(0,0,0,.06);
+  --accent-primary:#2563eb; --link:#2563eb; --link-hover:#1d4ed8;
+  --focus-ring:var(--accent-primary);
+  --shadow-card:rgba(0,0,0,.08);
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--bg-primary); color:var(--text-primary);
+  font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  font-size:14px; line-height:1.5;
+}
+code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.wrap{max-width:900px;margin:0 auto;padding:24px 16px 96px}
+.pagehead{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;margin-bottom:8px}
+h1{font-size:18px;margin:0;font-weight:600}
+.sub{color:var(--text-secondary);font-size:12px}
+.themebtn{
+  position:fixed;top:12px;right:12px;z-index:50;min-height:44px;min-width:44px;
+  padding:0 14px;border-radius:8px;cursor:pointer;
+  background:var(--bg-tertiary);color:var(--text-secondary);
+  border:1px solid var(--border-secondary);font-size:12px;
+}
+.themebtn:hover{color:var(--text-primary)}
+
+/* ── dialog chrome (mirrors client-utils Dialog) ───────────────────── */
+.dialog{
+  background:var(--bg-secondary);border:1px solid var(--border-primary);
+  border-radius:8px;box-shadow:0 8px 32px var(--shadow-card);
+  margin:28px 0;overflow:hidden;
+}
+.dialog-title{
+  padding:14px 16px;border-bottom:1px solid var(--border-primary);
+  font-size:14px;font-weight:600;display:flex;justify-content:space-between;align-items:center;
+}
+.dialog-title .tag{
+  font-size:10px;text-transform:uppercase;letter-spacing:.08em;
+  color:var(--text-muted);border:1px solid var(--border-subtle);
+  border-radius:999px;padding:2px 8px;font-weight:400;
+}
+.dialog-body{padding:16px}
+h4.sec{
+  font-size:11px;text-transform:uppercase;letter-spacing:.1em;
+  color:var(--text-muted);margin:0 0 8px;font-weight:500;
+}
+
+/* ── filter bar ────────────────────────────────────────────────────── */
+.filterbar{display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap;align-items:center}
+.filterinput{
+  flex:0 1 260px;min-width:180px;background:var(--bg-tertiary);border-radius:4px;
+  padding:6px 10px;font-size:12px;color:var(--text-primary);
+  border:1px solid var(--border-secondary);font-family:ui-monospace,monospace;
+  min-height:32px;
+}
+.filterinput:focus{outline:none;border-color:var(--accent-blue)}
+.filterinput::placeholder{color:var(--text-secondary)}
+.chips{display:flex;gap:8px;flex-wrap:wrap;align-items:center;flex:1 1 auto}
+.chip{
+  display:inline-flex;align-items:center;gap:6px;
+  min-height:32px;padding:2px 10px;border-radius:4px;cursor:pointer;
+  font-size:11px;background:transparent;
+  border:1px solid var(--border-subtle);color:var(--text-secondary);
+}
+.chip:hover{color:var(--text-primary);border-color:var(--border-secondary)}
+.chip:focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px}
+.chip[aria-pressed="true"]{
+  border-color:var(--accent-blue);color:var(--accent-blue);
+  background:color-mix(in srgb,var(--accent-blue) 10%,transparent);
+}
+.chip .n{
+  font-variant-numeric:tabular-nums;font-family:ui-monospace,monospace;
+  font-weight:600;
+}
+.chip .op{width:11px;text-align:center;opacity:.75;font-family:ui-monospace,monospace}
+.countline{
+  font-size:11px;color:var(--text-secondary);font-variant-numeric:tabular-nums;
+  margin-left:auto;white-space:nowrap;
+}
+.countline b{color:var(--text-secondary);font-weight:600}
+
+/* ── list ──────────────────────────────────────────────────────────── */
+.list{border:1px solid var(--border-subtle);border-radius:4px;overflow:hidden}
+.row{
+  display:flex;align-items:center;gap:8px;
+  padding:0 10px;min-height:48px;
+  border-bottom:1px solid var(--border-subtle);
+  background:transparent;width:100%;text-align:left;
+}
+.row:last-child{border-bottom:none}
+.row:hover{background:var(--bg-hover)}
+.row.is-selected{background:var(--bg-selected)}
+.row.is-busy{opacity:.55}
+.row .grow{flex:1;min-width:0;display:flex;flex-direction:column;gap:1px;
+  background:none;border:0;color:inherit;font:inherit;padding:7px 0;cursor:pointer;text-align:left}
+.row .grow:focus-visible{outline:2px solid var(--focus-ring);outline-offset:-2px;border-radius:3px}
+.l1{display:flex;align-items:center;gap:8px;min-width:0}
+.branch{
+  font-size:12px;color:var(--text-primary);font-family:ui-monospace,monospace;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;
+}
+.branch.detached{color:var(--text-secondary);font-style:italic}
+.path{
+  font-size:11px;color:var(--text-secondary);font-family:ui-monospace,monospace;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;
+}
+.badge{
+  font-size:9px;text-transform:uppercase;letter-spacing:.08em;
+  border:1px solid var(--border-subtle);border-radius:999px;
+  padding:1px 7px;color:var(--text-secondary);white-space:nowrap;flex:none;
+}
+.badge.neutral{
+  background:var(--severity-neutral-bg);border-color:var(--severity-neutral-border);
+  color:var(--severity-neutral-fg);
+}
+.spawnhint{font-size:11px;color:var(--accent-blue);white-space:nowrap;flex:none;
+  width:88px;text-align:right}
+.cb{width:16px;height:16px;flex:none;accent-color:var(--accent-blue);cursor:pointer}
+.cbwrap{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:32px;height:44px;flex:none;cursor:pointer;
+}
+.cbwrap.disabled{cursor:default;opacity:.3}
+.rm{
+  display:inline-flex;align-items:center;justify-content:center;
+  width:32px;height:32px;flex:none;border-radius:4px;cursor:pointer;
+  background:transparent;border:1px solid transparent;color:var(--text-muted);
+  font-size:15px;line-height:1;
+}
+.rm:hover{color:var(--accent-red);border-color:var(--severity-error-border);
+  background:var(--severity-error-bg)}
+.rm:focus-visible{outline:2px solid var(--focus-ring);outline-offset:1px}
+.rm-spacer{width:32px;flex:none}
+
+.rowerr{
+  display:flex;align-items:flex-start;gap:8px;
+  padding:8px 10px 10px 52px;font-size:11px;
+  background:var(--severity-error-bg);color:var(--severity-error-fg);
+  border-bottom:1px solid var(--border-subtle);
+  border-left:3px solid var(--accent-red);
+}
+.rowerr .ico{font-weight:700;flex:none}
+.rowerr b{font-weight:600}
+.rowerr button{
+  background:transparent;border:1px solid var(--severity-error-border);
+  color:inherit;border-radius:4px;padding:3px 8px;font-size:11px;cursor:pointer;
+  min-height:24px;margin-left:auto;flex:none;
+}
+
+.summary{
+  display:flex;gap:8px;align-items:flex-start;margin-bottom:10px;padding:10px 12px;
+  border-radius:4px;font-size:12px;
+  background:var(--severity-error-bg);color:var(--severity-error-fg);
+  border:1px solid var(--severity-error-border);border-left-width:3px;
+}
+.summary a{color:inherit;text-decoration:underline;cursor:pointer}
+
+.empty{padding:24px 16px;text-align:center;color:var(--text-secondary);font-size:12px}
+.empty .ghost{
+  height:1px;background:var(--border-subtle);margin:14px auto;max-width:220px;
+}
+.empty button{
+  background:transparent;border:1px solid var(--border-secondary);color:var(--text-secondary);
+  border-radius:4px;padding:6px 12px;font-size:12px;cursor:pointer;min-height:32px;margin-top:6px;
+}
+.empty button:hover{color:var(--text-primary)}
+
+/* ── bulk bar ──────────────────────────────────────────────────────── */
+.bulkbar{
+  display:flex;align-items:center;gap:10px;flex-wrap:wrap;
+  margin-top:10px;padding:10px 12px;border-radius:6px;
+  background:var(--bg-secondary);border:1px solid var(--border-primary);
+}
+.bulkbar .count{font-size:12px;color:var(--text-secondary);font-variant-numeric:tabular-nums}
+.bulkbar .spacer{flex:1}
+.linkbtn{
+  background:none;border:0;color:var(--link);font-size:11px;cursor:pointer;
+  padding:0 4px;min-height:32px;text-decoration:underline;
+}
+.linkbtn:hover{color:var(--link-hover)}
+.linkbtn:focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px}
+.btn{
+  border-radius:4px;padding:0 14px;min-height:32px;font-size:12px;cursor:pointer;
+  border:1px solid var(--border-secondary);background:transparent;color:var(--text-secondary);
+}
+.btn:hover{color:var(--text-primary)}
+.btn:focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px}
+.btn-danger{
+  border-color:var(--severity-error-border);color:var(--accent-red);
+  background:var(--severity-error-bg);font-weight:500;
+}
+.btn-danger:hover{background:color-mix(in srgb,var(--accent-red) 18%,var(--bg-tertiary))}
+.opt{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--text-secondary);
+  min-height:32px;cursor:pointer}
+.opt .dim{color:var(--text-secondary)}
+.footrow{
+  display:flex;align-items:center;gap:10px;margin-top:14px;
+  padding-top:12px;border-top:1px solid var(--border-subtle);flex-wrap:wrap;
+}
+.footrow .spacer{flex:1}
+.hint{font-size:11px;color:var(--text-secondary)}
+
+/* ── confirm overlay ───────────────────────────────────────────────── */
+.overlay{
+  position:fixed;inset:0;background:var(--bg-overlay);z-index:60;
+  display:none;align-items:center;justify-content:center;padding:16px;
+}
+.overlay.open{display:flex}
+.confirm{
+  background:var(--bg-secondary);border:1px solid var(--border-primary);
+  border-radius:8px;max-width:520px;width:100%;box-shadow:0 8px 32px var(--shadow-card);
+}
+.confirm .b{padding:16px;display:flex;flex-direction:column;gap:12px}
+.confirm p{margin:0;font-size:12px;color:var(--text-secondary)}
+.confirm code{font-size:11px;color:var(--text-secondary);word-break:break-all}
+
+@media (max-width:640px){
+  .row{min-height:56px}
+  .rm{width:44px;height:44px}
+  .rm-spacer{width:44px}
+  .cbwrap{width:44px;height:56px}
+  .btn,.themebtn{min-height:44px}
+  .filterinput{flex:1 1 100%}
+  .countline{margin-left:0}
+  .spawnhint{width:auto}
+  /* The recovery button must not squeeze the diagnosis into a 6-word column.
+     NN/g error-message-guidelines: state cause AND fix, legibly. */
+  .rowerr{flex-wrap:wrap;padding-left:54px;padding-right:12px}
+  .rowerr button{margin-left:0;width:100%;min-height:44px;margin-top:4px}
+  /* No hover on touch, so truncate-with-tooltip has no tooltip. The branch is
+     the row's identity — wrap it rather than hide it. */
+  .branch{white-space:normal;overflow-wrap:anywhere}
+  .l1{flex-wrap:wrap;gap:4px 8px}
+}
+</style>
+</head>
+<body>
+<button class="themebtn" id="themebtn" type="button">☀ Light</button>
+
+<div class="wrap">
+  <div class="pagehead">
+    <h1>Worktree list — filter + cleanup</h1>
+    <span class="sub">change: manage-worktrees-filter-cleanup · fixture = this machine's real <code>git worktree list</code> (8 entries)</span>
+  </div>
+
+  <!-- ══ SURFACE 1 — spawn mode ══════════════════════════════════════ -->
+  <section class="dialog">
+    <div class="dialog-title">
+      +Worktree Session
+      <span class="tag">mode = spawn</span>
+    </div>
+    <div class="dialog-body">
+      <h4 class="sec">Existing worktrees of this repo</h4>
+      <div class="filterbar">
+        <input class="filterinput" id="q-spawn" type="text" placeholder="Filter by branch or path…" aria-label="Filter worktrees by branch or path">
+        <div class="chips" id="chips-spawn"></div>
+      </div>
+      <div class="list" id="list-spawn"></div>
+      <div class="footrow">
+        <span class="hint">Row click spawns a session in that worktree. Paths are relative to <code>.worktrees/</code>.</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ SURFACE 2 — manage mode ═════════════════════════════════════ -->
+  <section class="dialog">
+    <div class="dialog-title">
+      Manage worktrees
+      <span class="tag">mode = manage</span>
+    </div>
+    <div class="dialog-body">
+      <div id="summary-slot"></div>
+      <div class="filterbar">
+        <input class="filterinput" id="q-manage" type="text" placeholder="Filter by branch or path…" aria-label="Filter worktrees by branch or path">
+        <div class="chips" id="chips-manage"></div>
+      </div>
+      <div class="list" id="list-manage"></div>
+      <div class="bulkbar">
+        <span class="count" id="bulkcount">No worktrees selected</span>
+        <button class="linkbtn" type="button" id="selectall">Select all shown</button>
+        <span class="spacer"></span>
+        <label class="opt"><input type="checkbox" id="optdel" class="cb"> Delete branch too <span class="dim">(<code>-d</code>)</span></label>
+        <button class="btn btn-danger" type="button" id="btnbulk" disabled>Remove worktrees</button>
+      </div>
+      <div class="footrow">
+        <span class="hint">Paths are relative to <code>.worktrees/</code>. The main worktree offers no remove control — <code>git worktree remove</code> rejects it.</span>
+        <span class="spacer"></span>
+        <button class="linkbtn" type="button" id="btnprune">Prune stale registrations</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="overlay" id="overlay">
+  <div class="confirm" role="dialog" aria-modal="true" aria-labelledby="cfT">
+    <div class="dialog-title" id="cfT">Close worktree</div>
+    <div class="b">
+      <p id="cfBody"></p>
+      <code id="cfPath"></code>
+      <label class="opt"><input type="checkbox" class="cb"> <span><code>--force</code> (discard uncommitted / unmerged changes)</span></label>
+      <div style="display:flex;gap:8px;justify-content:flex-end;margin-top:4px">
+        <button class="btn" type="button" id="cfCancel">Cancel</button>
+        <button class="btn btn-danger" type="button" id="cfGo">Remove worktree</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const MAIN = "/Users/robson/Project/pi-agent-dashboard";
+const DATA = [
+  {path:MAIN, branch:"develop", detached:false, isMain:true},
+  {path:MAIN+"/.worktrees/os-reduce-bridge-tick-bandwidth", branch:"os/reduce-bridge-tick-bandwidth", detached:false, isMain:false},
+  {path:MAIN+"/.worktrees/private-invoicebot-plugin", branch:"private/invoicebot-plugin", detached:false, isMain:false},
+  {path:MAIN+"/.worktrees/ab-impl/auth-redirect-gaps", branch:null, detached:true, isMain:false},
+  {path:MAIN+"/.worktrees/ab-impl/ctrl-recommended", branch:null, detached:true, isMain:false},
+  {path:MAIN+"/.worktrees/ab-impl/kb-broken-ref", branch:null, detached:true, isMain:false},
+  {path:MAIN+"/.worktrees/ab-impl/zombie-reopen", branch:null, detached:true, isMain:false},
+  {path:"/private/var/folders/qb/m1_q3v6d5bnfzbpmc0dkkqx40000gn/T/tmp.AH18lnlujb", branch:null, detached:true, isMain:false},
+];
+const inTree = e => e.isMain || e.path.startsWith(MAIN + "/.worktrees/");
+// Mirrors shared/src/git-worktree-helpers.ts slugifyBranch()
+const slugify = b => b.replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "");
+// Path display: relative to the main worktree when inside it, else middle-elided
+// keeping the LAST 2 segments (the distinguishing part). Done in JS, never via
+// `direction:rtl` — that bidi trick relocates leading punctuation (".worktrees"
+// rendered as "worktrees.") and silently corrupts the identifier.
+function rel(p){
+  if(p === MAIN) return "repo root";
+  // `.worktrees/` prefixes EVERY in-tree row — constant across the list, so it
+  // carries no information per row while consuming the width that actually
+  // distinguishes the ab-impl/* siblings. Stated once in the section hint
+  // instead. Nielsen #8 (cut what does not serve the goal).
+  if(p.startsWith(MAIN+"/.worktrees/")) return p.slice(MAIN.length+12);
+  if(p.startsWith(MAIN+"/")) return p.slice(MAIN.length+1);
+  const seg = p.split("/").filter(Boolean);
+  return seg.length > 2 ? "…/" + seg.slice(-2).join("/") : p;
+}
+
+const state = {
+  spawn:{q:"", detached:false, outside:false},
+  manage:{q:"", detached:false, outside:false, sel:new Set(), errors:{}, busy:new Set()},
+};
+
+function visible(m){
+  const s = state[m];
+  return DATA.filter(e=>{
+    if(!e.isMain){
+      if(e.detached && !s.detached) return false;
+      if(!inTree(e) && !s.outside) return false;
+    }
+    if(s.q){
+      const hay = (e.path+" "+(e.branch||"")).toLowerCase();
+      if(!hay.includes(s.q.toLowerCase())) return false;
+    }
+    return true;
+  });
+}
+function hiddenCounts(m){
+  const s = state[m];
+  return {
+    detached: DATA.filter(e=>!e.isMain && e.detached).length,
+    outside:  DATA.filter(e=>!e.isMain && !inTree(e)).length,
+  };
+}
+
+function renderChips(m){
+  const c = hiddenCounts(m), s = state[m], el = document.getElementById("chips-"+m);
+  el.innerHTML = "";
+  const mk = (key,label,n)=>{
+    if(n === 0) return;
+    const on = s[key];
+    const b=document.createElement("button");
+    b.type="button"; b.className="chip"; b.setAttribute("aria-pressed", String(on));
+    // `+` / `−` states the ACTION, so the number can never be misread as
+    // "5 currently shown". Nielsen #1 (visibility of system status).
+    b.innerHTML = `<span class="op" aria-hidden="true">${on?"−":"+"}</span>${label} <span class="n">${n}</span>`;
+    b.title = on ? `Hide the ${n} ${label.toLowerCase()} worktrees` : `Show ${n} hidden ${label.toLowerCase()} worktrees`;
+    b.setAttribute("aria-label", b.title);
+    b.onclick=()=>{ s[key]=!s[key]; render(m); };
+    el.appendChild(b);
+  };
+  mk("detached","detached", c.detached);
+  mk("outside","outside .worktrees", c.outside);
+  const shown = visible(m).length, tot = DATA.length;
+  const line = document.createElement("span");
+  line.className="countline";
+  line.setAttribute("role","status");
+  line.innerHTML = shown === tot
+    ? `<b>${tot}</b> worktrees`
+    : `<b>${shown}</b> of ${tot} shown`;
+  el.appendChild(line);
+}
+
+function renderList(m){
+  const el = document.getElementById("list-"+m);
+  const rows = visible(m);
+  el.innerHTML = "";
+  if(rows.length===0){
+    const s=state[m];
+    const d=document.createElement("div"); d.className="empty";
+    if(s.q){
+      d.innerHTML = `No worktree matches <code>${s.q}</code>.<div class="ghost"></div>`;
+      const b=document.createElement("button"); b.type="button"; b.textContent="Clear filter";
+      b.onclick=()=>{ s.q=""; document.getElementById("q-"+m).value=""; render(m); };
+      d.appendChild(b);
+    } else {
+      d.innerHTML = `Only the main worktree exists.<div class="ghost"></div>Create one below to work on a branch in isolation.`;
+    }
+    el.appendChild(d); return;
+  }
+  for(const e of rows){
+    const s = state[m];
+    const row = document.createElement("div");
+    row.className = "row" + (s.sel && s.sel.has(e.path) ? " is-selected":"") + (s.busy && s.busy.has(e.path) ? " is-busy":"");
+
+    if(m==="manage"){
+      const w=document.createElement("label"); w.className="cbwrap"+(e.isMain?" disabled":"");
+      if(!e.isMain){
+        const cb=document.createElement("input"); cb.type="checkbox"; cb.className="cb";
+        cb.checked = s.sel.has(e.path);
+        cb.setAttribute("aria-label","Select "+rel(e.path));
+        cb.onchange=()=>{ cb.checked?s.sel.add(e.path):s.sel.delete(e.path); render(m); };
+        w.appendChild(cb);
+      }
+      row.appendChild(w);
+    }
+
+    // Two lines: identity (branch + badges) over path. The path is the ONLY
+    // unique key in manage mode, so it must never be the element that gets
+    // truncated away — NN/g data-tables: design around the task.
+    const grow=document.createElement(m==="spawn"?"button":"div");
+    grow.className="grow"; if(m==="spawn") grow.type="button";
+    const l1=document.createElement("span"); l1.className="l1";
+    const br=document.createElement("span");
+    br.className="branch"+(e.detached?" detached":"");
+    br.textContent = e.detached ? "detached HEAD" : (e.branch || "(no branch)");
+    l1.appendChild(br);
+    if(e.isMain){ const b=document.createElement("span"); b.className="badge"; b.textContent="main"; l1.appendChild(b); }
+    if(!inTree(e)){ const b=document.createElement("span"); b.className="badge neutral"; b.textContent="outside repo"; l1.appendChild(b); }
+    grow.appendChild(l1);
+    // Suppress the path line when it is fully derivable from the branch —
+    // `slugifyBranch("os/reduce-bridge-tick-bandwidth")` IS the directory name,
+    // so printing both says the same thing twice (Nielsen #8). Detached rows
+    // always keep it: the path is their only identity.
+    const shown = rel(e.path);
+    if(!(e.branch && shown === slugify(e.branch))){
+      const pa=document.createElement("span");
+      pa.className="path"; pa.textContent = shown; pa.title = e.path;
+      grow.appendChild(pa);
+    } else {
+      grow.title = e.path;
+    }
+    row.appendChild(grow);
+    if(m==="spawn"){ const h=document.createElement("span"); h.className="spawnhint"; h.textContent="+Session →"; row.appendChild(h); }
+
+    if(m==="manage"){
+      if(e.isMain){ const sp=document.createElement("span"); sp.className="rm-spacer"; row.appendChild(sp); }
+      else{
+        const rm=document.createElement("button"); rm.type="button"; rm.className="rm";
+        rm.innerHTML="✕"; rm.title="Remove "+rel(e.path);
+        rm.setAttribute("aria-label","Remove worktree "+rel(e.path));
+        rm.onclick=()=>openConfirm(e); row.appendChild(rm);
+      }
+    }
+    el.appendChild(row);
+
+    if(m==="manage" && state.manage.errors[e.path]){
+      const er=document.createElement("div"); er.className="rowerr"; er.id="err-"+btoa(e.path).replace(/=/g,"");
+      const msg = state.manage.errors[e.path];
+      er.innerHTML = `<span class="ico" aria-hidden="true">⚠</span><span><b>${msg.title}</b> — ${msg.body}</span>`;
+      const b=document.createElement("button"); b.type="button"; b.textContent=msg.action;
+      b.onclick=()=>{ delete state.manage.errors[e.path]; render("manage"); };
+      er.appendChild(b); el.appendChild(er);
+    }
+  }
+}
+
+function renderSummary(){
+  const slot=document.getElementById("summary-slot");
+  const keys=Object.keys(state.manage.errors);
+  slot.innerHTML="";
+  if(!keys.length) return;
+  const d=document.createElement("div"); d.className="summary";
+  d.innerHTML=`<span aria-hidden="true">⚠</span><span><b>${keys.length} of ${keys.length+1} worktrees could not be removed.</b> `+
+    keys.map(k=>`<a href="#err-${btoa(k).replace(/=/g,"")}">${rel(k)}</a>`).join(", ")+
+    ` — the rest were removed.</span>`;
+  slot.appendChild(d);
+}
+
+function renderBulk(){
+  const s=state.manage, n=s.sel.size;
+  const selectable = visible("manage").filter(e=>!e.isMain);
+  const allSel = selectable.length>0 && selectable.every(e=>s.sel.has(e.path));
+  const slot=document.getElementById("bulkcount");
+  slot.innerHTML = n===0 ? "No worktrees selected" : `<b>${n}</b> worktree${n===1?"":"s"} selected`;
+  const sa=document.getElementById("selectall");
+  sa.textContent = allSel ? "Clear selection" : `Select all ${selectable.length} shown`;
+  sa.style.display = selectable.length ? "" : "none";
+  sa.onclick=()=>{
+    if(allSel) s.sel.clear();
+    else selectable.forEach(e=>s.sel.add(e.path));
+    render("manage");
+  };
+  const b=document.getElementById("btnbulk");
+  b.disabled = n===0;
+  b.textContent = n===0 ? "Remove worktrees" : `Remove ${n} worktree${n===1?"":"s"}`;
+  b.style.opacity = n===0 ? .45 : 1;
+}
+
+function render(m){
+  if(m){ renderChips(m); renderList(m); }
+  else { ["spawn","manage"].forEach(x=>{renderChips(x);renderList(x);}); }
+  renderSummary(); renderBulk();
+}
+
+document.getElementById("q-spawn").oninput = ev=>{ state.spawn.q=ev.target.value; render("spawn"); };
+document.getElementById("q-manage").oninput = ev=>{ state.manage.q=ev.target.value; render("manage"); };
+
+// confirm overlay
+let pending=null;
+function openConfirm(e){
+  pending=e;
+  document.getElementById("cfBody").textContent =
+    `Remove this worktree? The directory is deleted from disk. ${e.detached?"It is detached — no branch is affected.":"Its branch “"+e.branch+"” is kept unless you opt in below."}`;
+  document.getElementById("cfPath").textContent = e.path;
+  document.getElementById("overlay").classList.add("open");
+  document.getElementById("cfCancel").focus();
+}
+document.getElementById("cfCancel").onclick=()=>{document.getElementById("overlay").classList.remove("open")};
+document.getElementById("overlay").onclick=ev=>{if(ev.target.id==="overlay")ev.currentTarget.classList.remove("open")};
+document.addEventListener("keydown",ev=>{if(ev.key==="Escape")document.getElementById("overlay").classList.remove("open")});
+document.getElementById("cfGo").onclick=()=>{
+  document.getElementById("overlay").classList.remove("open");
+  if(!pending) return;
+  state.manage.errors[pending.path]={
+    title:"Uncommitted changes", action:"Retry with --force",
+    body:"This worktree has modified or untracked files. Nothing was removed.",
+  };
+  state.manage.sel.delete(pending.path);
+  render("manage");
+};
+
+document.getElementById("btnbulk").onclick=()=>{
+  const sel=[...state.manage.sel];
+  state.manage.errors={};
+  if(sel[0]) state.manage.errors[sel[0]]={
+    title:"Active session", action:"End session and remove",
+    body:"1 pi session is still running in this worktree.",
+  };
+  render("manage");
+};
+document.getElementById("btnprune").onclick=()=>{
+  const b=document.getElementById("btnprune");
+  b.textContent="Nothing to prune — all 8 directories exist";
+  setTimeout(()=>{b.textContent="Prune stale registrations";},2600);
+};
+
+// Deep-linkable demo states so the FIX loop can screenshot states that are
+// otherwise only reachable by interaction. ?demo=all,err
+const demo=(new URLSearchParams(location.search).get("demo")||"").split(",");
+if(demo.includes("all")){
+  for(const m of ["spawn","manage"]){ state[m].detached=true; state[m].outside=true; }
+}
+if(demo.includes("err")){
+  state.manage.detached=true;
+  state.manage.sel.add(MAIN+"/.worktrees/ab-impl/kb-broken-ref");
+  state.manage.errors[MAIN+"/.worktrees/ab-impl/auth-redirect-gaps"]={
+    title:"Active session", action:"End session and remove",
+    body:"1 pi session is still running here. Nothing was removed.",
+  };
+  state.manage.errors[MAIN+"/.worktrees/ab-impl/ctrl-recommended"]={
+    title:"Uncommitted changes", action:"Retry with --force",
+    body:"Modified or untracked files present. Nothing was removed.",
+  };
+}
+if(demo.includes("light")) document.documentElement.setAttribute("data-theme","light");
+
+const tb=document.getElementById("themebtn");
+tb.onclick=()=>{
+  const dark=document.documentElement.getAttribute("data-theme")!=="light";
+  document.documentElement.setAttribute("data-theme",dark?"light":"dark");
+  tb.textContent=dark?"☾ Dark":"☀ Light";
+};
+
+render();
+</script>
+</body>
+</html>

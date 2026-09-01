@@ -1,0 +1,3 @@
+# migration/slot-pill-actions-to-folder-menu.md — index
+
+Plugin-author migration guide. `SlotPill.actions?: ReactNode` removed. Compile-time break; no runtime shim. Replace with `useFolderMenuItem` + `useFolderMenuRefresher` from `@blackbelt-technology/dashboard-plugin-runtime`. Contribution shape `{ id, group, label, icon, onSelect, badge?, disabled? }`; five required fields. Group taxonomy `workspace|directory|create|open|maintenance`; unknown group dropped. `scope` = folder cwd; `null` for `placement === "card"`. `pluginId` stamped from plugin context. Ordering: host-first, then `pluginId`, then `id`. Latest registration wins; unmount deregisters. See change: move-slot-actions-to-menu.

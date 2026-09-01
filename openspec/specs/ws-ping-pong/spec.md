@@ -1,4 +1,10 @@
-## ADDED Requirements
+# ws-ping-pong Specification
+
+## Purpose
+
+Keeps WebSocket connections honest: a server-side ping interval, dead-connection detection via pong timeout, and interval cleanup when the server stops so a stopped server leaves no timer running.
+
+## Requirements
 
 ### Requirement: Server-side WebSocket ping interval
 The pi-gateway SHALL send a WebSocket-level ping frame to each connected bridge client every 30 seconds.

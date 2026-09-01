@@ -1,4 +1,10 @@
-## ADDED Requirements
+# session-reload-on-package-change Specification
+
+## Purpose
+
+Reloads all connected sessions after a package install, update, or removal, so no session keeps running against code that is no longer on disk.
+
+## Requirements
 
 ### Requirement: Auto-reload all sessions after package operations
 After any successful package install, remove, or update operation, the server SHALL send `/reload` to all connected active pi sessions via the existing `send_prompt` mechanism. This ensures sessions pick up the new/removed extensions, skills, and prompts.

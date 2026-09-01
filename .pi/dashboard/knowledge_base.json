@@ -24,7 +24,8 @@
   "exclude": [
     "**/node_modules/**",
     "**/.worktrees/**",
-    "**/archive/**"
+    "**/archive/**",
+    "**/archived-proposal-smoke-inventory.md"
   ],
   "extensions": [
     ".md"

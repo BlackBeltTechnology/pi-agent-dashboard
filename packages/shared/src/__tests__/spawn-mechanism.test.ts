@@ -129,3 +129,14 @@ describe("sessionFlagsToArgv", () => {
     expect(sessionFlagsToArgv({ sessionFile: "/s/x.jsonl" })).toEqual([]);
   });
 });
+
+describe("sessionFlagsToArgv — model ref passthrough", () => {
+  // Fails-on-revert guard for design D8: the thinking suffix must reach pi's
+  // `--model` untouched. See change: add-default-thinking-level.
+  it("emits a thinking-suffixed model ref verbatim", () => {
+    const argv = sessionFlagsToArgv({ model: "anthropic/claude-sonnet-4-5:high" });
+    const i = argv.indexOf("--model");
+    expect(i).toBeGreaterThanOrEqual(0);
+    expect(argv[i + 1]).toBe("anthropic/claude-sonnet-4-5:high");
+  });
+});

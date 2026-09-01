@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mockups · share-session-archives</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="app.css">
+<script src="nav.js"></script>
+</head>
+<body>
+<div class="shell">
+  <div data-chrome data-title="share-session-archives" data-sub="Seven surfaces · dark + light · grounded in ui-contract.md"></div>
+  <div class="card card-pad stack">
+    <div>
+      <div style="font-size:13px;font-weight:600">The governing asymmetry</div>
+      <p style="font-size:12px;color:var(--text-secondary);margin:6px 0 0;max-width:620px">
+        In a normal confirm dialog the risky act is <i>delete</i>, so delete gets the friction.
+        In the quarantine queue the risky act is <b>approve</b> — it publishes a credential to a shared
+        store, and the corrective control (delete + rotate) is expensive and incomplete. So the usual
+        instinct is inverted: the visually-primary action is the <b>safe</b> one, and approve carries
+        friction proportional to its blast radius.
+      </p>
+    </div>
+    <div class="divider"></div>
+    <div class="wrap">
+      <a class="btn btn-sm" href="a-quarantine.html">A · Quarantine review</a>
+      <a class="btn btn-sm" href="b-session-card.html">B · Session card</a>
+      <a class="btn btn-sm" href="c-config.html">C · Configuration</a>
+      <a class="btn btn-sm" href="d-remote-list.html">D · Remote list</a>
+      <a class="btn btn-sm" href="e-preflight.html">E · Preflight</a>
+      <a class="btn btn-sm" href="f-claim.html">F · Claim</a>
+      <a class="btn btn-sm" href="g-backfill.html">G · Backfill</a>
+    </div>
+    <div class="note">
+      Tokens are mirrored verbatim from <code style="font-family:var(--mono)">packages/client/src/index.css</code>
+      into <code style="font-family:var(--mono)">tokens.css</code>, so promotion to React is a 1:1 map.
+      Toggle dark/light with the button top-right. Rationale per surface lives in
+      <code style="font-family:var(--mono)">ui-plan.md</code>.
+    </div>
+  </div>
+</div>
+</body>
+</html>

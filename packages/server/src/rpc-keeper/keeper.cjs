@@ -22,6 +22,12 @@ const net = require("net");
 const os = require("os");
 const path = require("path");
 const { buildPiEnv } = require("./keeper-env.cjs");
+const {
+  createKeeperLogRotation,
+  parsePositiveIntEnv,
+  KEEPER_LOG_MAX_BYTES_DEFAULT,
+  KEEPER_LOG_CHECK_INTERVAL_MS_DEFAULT,
+} = require("./keeper-log-rotation.cjs");
 
 // ---------------------------------------------------------------------------
 // Args + paths
@@ -59,7 +65,54 @@ const pidPath = isWindows
   ? path.join(SESSIONS_DIR, `pi-rpc-${sessionId}.pid`)
   : `${sockPath}.pid`;
 
+// Pi-PID sidecar: written AFTER pi is spawned (pidPath is written before pi
+// exists). Suffix ends in `-pid`, NOT `.pid`, so the keeper-sidecar discovery
+// scans (`^(.+)\.rpc\.sock\.pid$` / `^pi-rpc-(.+)\.pid$`) cannot match it and
+// invent a phantom keeper. See change: fix-keeper-session-identity-and-reattach.
+const piPidPath = isWindows
+  ? path.join(SESSIONS_DIR, `pi-rpc-${sessionId}.pi-pid`)
+  : `${sockPath}.pi-pid`;
+
 const logPath = path.join(SESSIONS_DIR, `keeper-${sessionId}.log`);
+
+// ── Log-growth bounds (fix-runaway-keeper-log-growth) ─────────────────────
+// The keeper is CJS-pure and cannot import the shared config, so the cap and
+// check cadence arrive as env vars set by the dashboard at spawn time
+// (PI_KEEPER_LOG_MAX_BYTES / PI_KEEPER_LOG_CHECK_INTERVAL_MS, the
+// PI_KEEPER_CAPTURE_PI_OUTPUT precedent). Unset/invalid → the documented
+// defaults — a hand-run or legacy keeper still gets the bound.
+const LOG_MAX_BYTES = parsePositiveIntEnv(
+  process.env.PI_KEEPER_LOG_MAX_BYTES,
+  KEEPER_LOG_MAX_BYTES_DEFAULT,
+);
+const LOG_CHECK_INTERVAL_MS = parsePositiveIntEnv(
+  process.env.PI_KEEPER_LOG_CHECK_INTERVAL_MS,
+  KEEPER_LOG_CHECK_INTERVAL_MS_DEFAULT,
+);
+
+// TEST-ONLY fault injection for the rotation fallback paths — the spawned
+// keeper is a black box to vitest, so keeper.test.ts drives these via env.
+// Never set by the server; stripped from pi's env below like every other
+// keeper-internal var. Values: "ftruncate" (fd truncate throws EPERM →
+// exercises the path fallback), "truncate" (path truncate throws EACCES →
+// exercises the double-failure path).
+const TEST_FAULTS = String(process.env.PI_KEEPER_TEST_FAULTS ?? "")
+  .split(",")
+  .filter(Boolean);
+let rotationFs = fs;
+if (TEST_FAULTS.length > 0) {
+  rotationFs = Object.create(fs);
+  if (TEST_FAULTS.includes("ftruncate")) {
+    rotationFs.ftruncateSync = () => {
+      throw Object.assign(new Error("simulated EPERM (PI_KEEPER_TEST_FAULTS)"), { code: "EPERM" });
+    };
+  }
+  if (TEST_FAULTS.includes("truncate")) {
+    rotationFs.truncateSync = () => {
+      throw Object.assign(new Error("simulated EACCES (PI_KEEPER_TEST_FAULTS)"), { code: "EACCES" });
+    };
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Logger
@@ -73,13 +126,29 @@ try {
   process.exit(2);
 }
 
+// Rotation core, created after logFd exists (the throttled size check runs at
+// the top of every log() call, and its failure WARNs route through log()).
+// See keeper-log-rotation.cjs for the truncate-in-place contract.
+const logRotation = createKeeperLogRotation({
+  logFd,
+  logPath,
+  log: (line) => log(`[rotation] ${line}`),
+  maxBytes: LOG_MAX_BYTES,
+  checkIntervalMs: LOG_CHECK_INTERVAL_MS,
+  fs: rotationFs,
+});
+
 function log(line) {
+  if (logRotation) logRotation.rotateIfNeeded();
   try {
     fs.writeSync(logFd, `[${new Date().toISOString()}] ${line}\n`);
   } catch (_e) { /* swallow — log failure should not crash the keeper */ }
 }
 
 log(`keeper starting: sessionId=${sessionId} pid=${process.pid} sockPath=${sockPath}`);
+// Log the RESOLVED values (env unset/invalid → defaults) so an operator can
+// confirm the bound a given keeper actually carries. See task 1.5 / E8.
+log(`log rotation: maxBytes=${LOG_MAX_BYTES} checkIntervalMs=${LOG_CHECK_INTERVAL_MS}`);
 
 // ---------------------------------------------------------------------------
 // Shutdown coordination
@@ -105,6 +174,10 @@ function shutdown(exitCode, reason) {
   // virtual and need not be unlinked; on Unix we unlink the socket file.
   if (!isWindows) unlinkQuiet(sockPath);
   unlinkQuiet(pidPath);
+  // Unlink pi-PID sidecar in the same path that unlinks the socket + own
+  // .pid so a dead keeper never leaves a file that outlives the process it
+  // names. See change: fix-keeper-session-identity-and-reattach.
+  unlinkQuiet(piPidPath);
 
   // Defence in depth: SIGKILL piChild before exiting. The implicit contract
   // "pi reads stdin EOF on keeper exit and shuts down voluntarily" only
@@ -301,6 +374,13 @@ function spawnPi() {
   // written either way. See change: add-keeper-output-capture-toggle.
   const capturePiOutput = process.env.PI_KEEPER_CAPTURE_PI_OUTPUT === "1";
   delete env.PI_KEEPER_CAPTURE_PI_OUTPUT;
+  // Keeper-internal tuning is not pi's business (and pi's env is observable
+  // downstream): strip the rotation knobs and the test-fault switch exactly
+  // like PI_KEEPER_CAPTURE_PI_OUTPUT above. See change:
+  // fix-runaway-keeper-log-growth (D7, tasks 1.5/1.7).
+  delete env.PI_KEEPER_LOG_MAX_BYTES;
+  delete env.PI_KEEPER_LOG_CHECK_INTERVAL_MS;
+  delete env.PI_KEEPER_TEST_FAULTS;
   const childStdio = capturePiOutput
     ? ["pipe", logFd, logFd]
     : ["pipe", "ignore", "ignore"];
@@ -364,8 +444,31 @@ async function main() {
     return;
   }
 
+  // 2b. Start the rotation timer. Necessary and non-redundant with the log()
+  // call site: with capture on, growth is entirely child-driven, so a keeper
+  // that logs nothing for an hour would otherwise never check. unref()'d —
+  // it must not keep the process alive past pi's exit. Its callback is fully
+  // guarded inside the rotation module (design D3).
+  logRotation.start();
+
   // 3. Spawn pi.
   piChild = spawnPi();
+
+  // 3b. Record pi's PID in a post-spawn sidecar so server-side discovery can
+  // fill an absent piPid for reclaimed / cwd-FIFO-linked registry entries.
+  // Written only after a successful spawn (pi's PID is unknowable at the
+  // pidPath write above). Failure is non-fatal: pi is running and must not
+  // be torn down over a diagnostic file — a missing sidecar degrades repair
+  // to a no-op, which is today's behaviour. On a spawn failure piChild.pid
+  // is undefined and no sidecar is written.
+  // See change: fix-keeper-session-identity-and-reattach.
+  if (piChild && typeof piChild.pid === "number") {
+    try {
+      fs.writeFileSync(piPidPath, String(piChild.pid), "utf8");
+    } catch (e) {
+      log(`WARN: cannot write pi-PID sidecar ${piPidPath}: ${e && e.message}`);
+    }
+  }
 
   // 4. Crash-detection window: emit the "keeper ready" marker once pi has
   // survived the crash window. The crash-on-early-exit decision itself is

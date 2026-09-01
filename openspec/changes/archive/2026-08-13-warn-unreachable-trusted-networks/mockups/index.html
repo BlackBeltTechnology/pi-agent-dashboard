@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bind reachability advisory — mockup</title>
+<style>
+:root{
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080;
+  --border-primary:#252525; --border-secondary:#333333;
+  --accent-primary:#2563eb; --link:#60a5fa; --focus-ring:#60a5fa;
+  /* NEW — proposed warn ramp. Dark values == today's hardcoded fallbacks. */
+  --warn-bg:#3a2e10; --warn-border:#4a3c14; --warn-fg:#e2b24a; --warn-body:#ddd0ae;
+}
+[data-theme="light"]{
+  --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+  --text-primary:#1a1a1a; --text-secondary:#444444; --text-tertiary:#777777;
+  --border-primary:#e0e0e0; --border-secondary:#cccccc;
+  --accent-primary:#2563eb; --link:#1d4ed8; --focus-ring:#2563eb;
+  --warn-bg:#fdf3e3; --warn-border:#a9741f; --warn-fg:#92400e; --warn-body:#5c3a0a;
+}
+*{box-sizing:border-box}
+/* Class-level `display` beats the UA [hidden] rule — without this the mutually
+   exclusive banners both render. Severity-4 defect found in score pass 1. */
+[hidden]{display:none !important}
+body{margin:0;background:var(--bg-primary);color:var(--text-primary);
+  font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+:focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px;border-radius:4px}
+
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 14px;
+  background:var(--bg-secondary);border-bottom:1px solid var(--border-secondary);
+  position:sticky;top:0;z-index:20}
+.bar h1{font-size:13px;margin:0 12px 0 0;font-weight:600}
+.bar button{min-height:28px;padding:5px 10px;font-size:12px;border-radius:6px;cursor:pointer;
+  background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border-secondary)}
+.bar button[aria-pressed="true"]{background:var(--accent-primary);color:#fff;border-color:var(--accent-primary)}
+
+.wrap{max-width:1180px;margin:0 auto;padding:20px 14px 80px}
+.panel{display:grid;grid-template-columns:190px 1fr;gap:18px;
+  background:var(--bg-secondary);border:1px solid var(--border-secondary);border-radius:10px;overflow:hidden}
+@media (max-width:767px){.panel{grid-template-columns:1fr}}
+.rail{background:var(--bg-primary);border-right:1px solid var(--border-secondary);padding:12px 8px}
+@media (max-width:767px){.rail{display:flex;gap:6px;overflow-x:auto;border-right:0;
+  border-bottom:1px solid var(--border-secondary);white-space:nowrap}}
+.rail .grp{font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--text-tertiary);
+  padding:8px 8px 4px}
+@media (max-width:767px){.rail .grp{display:none}}
+.rail a{display:flex;align-items:center;justify-content:space-between;gap:6px;
+  min-height:30px;padding:6px 9px;border-radius:6px;font-size:13px;color:var(--text-secondary);
+  text-decoration:none}
+.rail a[aria-current="page"]{background:var(--bg-tertiary);color:var(--text-primary);font-weight:600}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--warn-fg);flex:none}
+
+.content{padding:16px 18px}
+h2.sec{font-size:13px;font-weight:600;margin:0 0 12px;padding-bottom:6px;
+  border-bottom:1px solid var(--border-secondary)}
+.desc{font-size:12px;color:var(--text-tertiary);margin:0 0 10px}
+
+/* ── advisory ─────────────────────────────────────────── */
+.advisory{display:flex;gap:9px;align-items:flex-start;
+  background:var(--warn-bg);border:1px solid var(--warn-border);
+  border-radius:6px;padding:10px 11px;margin-bottom:10px}
+.advisory svg{flex:none;margin-top:1px;color:var(--warn-fg)}
+.advisory .txt{flex:1;min-width:0;font-size:12.5px;color:var(--warn-body)}
+.advisory .txt b{color:var(--warn-fg);font-weight:600}
+.advisory .acts{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:9px}
+.btn-primary{min-height:28px;padding:5px 11px;border-radius:6px;font-size:12px;font-weight:600;
+  cursor:pointer;background:var(--warn-fg);color:var(--warn-bg);border:1px solid var(--warn-fg)}
+.btn-primary:hover{filter:brightness(1.08)}
+.link{min-height:28px;display:inline-flex;align-items:center;padding:5px 4px;font-size:12px;
+  color:var(--warn-body);text-decoration:underline;text-underline-offset:2px;
+  background:none;border:0;cursor:pointer}
+.meta{margin-top:7px;font-size:11.5px;color:var(--warn-body);opacity:.85}
+
+/* block-event banner, restyled onto the same ramp */
+.blockev{display:flex;flex-wrap:wrap;gap:8px;align-items:center;
+  background:var(--warn-bg);border:1px solid var(--warn-border);
+  border-radius:6px;padding:9px 11px;margin-bottom:10px}
+.blockev .txt{flex:1;min-width:180px;font-size:12.5px;color:var(--warn-body)}
+.blockev .txt b{color:var(--warn-fg)}
+.chip{min-height:26px;padding:4px 9px;border-radius:6px;font-size:11.5px;font-weight:600;cursor:pointer}
+.chip.narrow{background:#132d1c;color:#5dd67f;border:1px solid #23502f}
+[data-theme="light"] .chip.narrow{background:#e6f6ea;color:#14532d;border-color:#2f7d4a}
+.chip.wide{background:transparent;color:var(--warn-fg);border:1px solid var(--warn-border)}
+[data-theme="light"] .chip.wide{border-color:var(--warn-border)}
+
+.rows{display:flex;flex-direction:column;gap:5px;margin-bottom:10px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:8px;
+  background:var(--bg-tertiary);border-radius:6px;padding:6px 9px}
+.row .mono{font-size:13px}
+.row .rm{min-width:28px;min-height:28px;border:0;background:none;cursor:pointer;
+  color:#f87171;font-size:13px;border-radius:6px}
+[data-theme="light"] .row .rm{color:#b91c1c}
+.tools{display:flex;flex-wrap:wrap;gap:8px}
+.tools button,.tools input{min-height:30px;font-size:12px;border-radius:6px;
+  border:1px solid var(--border-secondary);background:var(--bg-tertiary);color:var(--text-secondary);
+  padding:6px 10px}
+.tools input{flex:1;min-width:160px}
+.hint{margin-top:10px;font-size:11.5px;color:var(--text-tertiary)}
+
+/* dropdown — risk-tiered offers */
+.dd{margin-top:6px;border:1px solid var(--border-secondary);border-radius:8px;
+  background:var(--bg-primary);overflow:hidden}
+.dd .it{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between;
+  padding:9px 11px;border-bottom:1px solid var(--border-secondary);min-height:44px}
+.dd .it:last-child{border-bottom:0}
+.dd .who{display:flex;flex-direction:column;gap:1px;min-width:0}
+.dd .who .nm{font-size:12.5px;color:var(--text-primary)}
+.dd .who .sub{font-size:11px;color:var(--text-tertiary)}
+.dd .off{min-height:28px;padding:5px 10px;border-radius:6px;font-size:11.5px;font-weight:600;cursor:pointer}
+.dd .off.narrow{background:#132d1c;color:#5dd67f;border:1px solid #23502f}
+[data-theme="light"] .dd .off.narrow{background:#e6f6ea;color:#14532d;border-color:#2f7d4a}
+.dd .off.wide{background:transparent;color:var(--warn-fg);border:1px solid var(--warn-border)}
+.dd .it.dead{background:var(--bg-tertiary)}
+.dd .it.dead .none{font-size:11px;color:var(--text-tertiary);font-style:italic}
+.strike{text-decoration:line-through;opacity:.55}
+.before{margin:14px 0 0;padding:10px 12px;border-radius:8px;background:var(--bg-tertiary);
+  border:1px dashed var(--border-secondary);font-size:11.5px;color:var(--text-tertiary)}
+.before b{color:var(--text-secondary)}
+
+.savebar{position:fixed;left:0;right:0;bottom:0;display:flex;flex-wrap:wrap;gap:10px;align-items:center;
+  padding:10px 16px;background:var(--bg-secondary);border-top:1px solid var(--border-secondary);z-index:15}
+.savebar .lbl{font-size:12px;color:var(--text-tertiary)}
+.pchip{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;font-size:11.5px;
+  background:var(--warn-bg);color:var(--warn-fg);border:1px solid var(--warn-border)}
+.savebar .save{margin-left:auto;min-height:32px;padding:6px 16px;border-radius:6px;font-size:12.5px;
+  font-weight:600;background:var(--accent-primary);color:#fff;border:0;cursor:pointer}
+.state-note{margin:0 0 14px;font-size:12px;color:var(--text-tertiary)}
+.state-note code{background:var(--bg-tertiary);padding:1px 5px;border-radius:4px}
+
+/* WCAG 2.2 SC 2.5.8 is 24px; touch guidance (Fitts) wants 44px on coarse
+   pointers. Desktop keeps the dashboard's compact density. */
+@media (max-width:767px){
+  .btn-primary,.link,.chip,.tools button,.tools input,.row .rm,.bar button,.savebar .save{
+    min-height:44px}
+  .row .rm{min-width:44px}
+  .advisory .acts{gap:10px}
+  .advisory .acts .btn-primary,.advisory .acts .link{width:100%;justify-content:center;text-align:center}
+  /* Single-column at mobile width — NN/g web-form-design. Stops the manual
+     entry field truncating its own format hint. */
+  .tools{flex-direction:column}
+  .tools button,.tools input{width:100%}
+}
+</style>
+</head>
+<body>
+
+<div class="bar">
+  <h1>Bind reachability advisory</h1>
+  <button id="theme" aria-pressed="false">◐ Light</button>
+  <span style="width:10px"></span>
+  <button data-s="B" aria-pressed="true">B · loopback + LAN</button>
+  <button data-s="C" aria-pressed="false">C · specific NIC</button>
+  <button data-s="A" aria-pressed="false">A · reachable</button>
+  <button data-s="D" aria-pressed="false">D · loopback-only trust</button>
+  <button data-s="E" aria-pressed="false">E · after fix</button>
+  <button data-s="F" aria-pressed="false">F · block event</button>
+  <button data-s="G" aria-pressed="false">G · Add Local Network</button>
+</div>
+
+<div class="wrap">
+  <p class="state-note" id="note"></p>
+
+  <div class="panel">
+    <nav class="rail" aria-label="Settings pages">
+      <div class="grp">Dashboard</div>
+      <a href="#">General</a>
+      <a href="#" id="navserver">Server <span class="dot" id="serverdot" hidden></span></a>
+      <a href="#">Sessions</a>
+      <div class="grp">Network</div>
+      <a href="#">Remote Servers</a>
+      <a href="#">Gateway</a>
+      <a href="#" aria-current="page">Security</a>
+    </nav>
+
+    <div class="content">
+      <h2 class="sec">Trusted Networks</h2>
+      <p class="desc">Devices matching these networks or hosts can access the dashboard without
+        authentication. Accepts exact IP, wildcard, or CIDR.</p>
+
+      <!-- ADVISORY -->
+      <div class="advisory" id="adv" role="status" data-testid="bind-reachability-advisory">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+          <path d="M12 2 1 21h22L12 2zm1 14h-2v2h2v-2zm0-7h-2v5h2V9z"/></svg>
+        <div class="txt">
+          <span id="advmsg"></span>
+          <div class="acts">
+            <button class="btn-primary" id="fixbtn">Listen on all interfaces</button>
+            <button class="link" id="advlink">Change listen interface on Server →</button>
+          </div>
+          <div class="meta">Sets <code class="mono">bindHost</code> to
+            <code class="mono">0.0.0.0</code> on the <b>Server</b> page. Takes effect after a restart.</div>
+        </div>
+      </div>
+
+      <!-- BLOCK EVENT (state F) -->
+      <div class="blockev" id="blk" hidden data-testid="block-event-banner">
+        <div class="txt"><b class="mono">192.168.1.57</b> refused — not trusted (3×).</div>
+        <button class="chip narrow">+ Trust host</button>
+        <button class="chip wide">+ Trust 192.168.1.0/24</button>
+      </div>
+
+      <div class="rows" id="rows"></div>
+
+      <!-- DROPDOWN (state G) -->
+      <div id="ddwrap" hidden>
+        <div class="dd" data-testid="add-local-network-dropdown">
+          <div class="it">
+            <span class="who"><span class="nm">Wi-Fi</span>
+              <span class="sub mono">en0 · 192.168.10.123</span></span>
+            <button class="off narrow">+ 192.168.10.0/24</button></div>
+          <div class="it">
+            <span class="who"><span class="nm">Tailscale</span>
+              <span class="sub mono">utun4 · 100.97.246.31 · point-to-point /32</span></span>
+            <button class="off wide" title="Grants unauthenticated access to the whole 100.64.0.0/10 range">+ 100.64.0.0/10</button></div>
+          <div class="it">
+            <span class="who"><span class="nm">VM bridge</span>
+              <span class="sub mono">bridge100 · 192.168.64.1</span></span>
+            <button class="off narrow">+ 192.168.64.0/24</button></div>
+          <div class="it dead">
+            <span class="who"><span class="nm">VPN</span>
+              <span class="sub mono">utun6 · 10.200.0.4 · point-to-point /32</span></span>
+            <span class="none">no trustable range — add a peer range manually</span></div>
+        </div>
+        <p class="before"><b>Today this dropdown offers:</b>
+          <span class="mono">192.168.10.0/24</span> ·
+          <span class="mono strike">192.168.10.0/24</span> (duplicate en7) ·
+          <span class="mono strike">100.97.246.31/32</span> (this host only) ·
+          <span class="mono">192.168.64.0/24</span> — raw device names, no risk tiering.</p>
+      </div>
+
+      <div class="tools">
+        <button id="addlocal">+ Add Local Network</button>
+        <input placeholder="10.0.0.5, 10.0.0.*, or 192.168.1.0/24" aria-label="Add trusted network manually">
+        <button>Add</button>
+      </div>
+      <p class="hint">⚠ Anyone on a trusted network has full access to the dashboard without
+        authentication. Only use on private networks you control.</p>
+    </div>
+  </div>
+</div>
+
+<div class="savebar" id="savebar" hidden>
+  <span class="lbl">Unsaved changes on</span>
+  <span class="pchip" id="pchip">● Server</span>
+  <button class="save">Save</button>
+</div>
+
+<script>
+const S = {
+  A:{bind:"0.0.0.0",   nets:["192.168.1.0/24"], adv:false, blk:false, dirty:false,
+     note:"State A — bind <code>0.0.0.0</code>, trusted <code>192.168.1.0/24</code>. Reachable, so no advisory."},
+  B:{bind:"127.0.0.1", nets:["192.168.1.0/24"], adv:true,  blk:false, dirty:false,
+     note:"State B — the reported case. bind <code>127.0.0.1</code> cannot serve <code>192.168.1.0/24</code>."},
+  C:{bind:"10.0.0.5",  nets:["192.168.1.0/24","10.0.0.*"], adv:true, blk:false, dirty:false,
+     note:"State C — specific-NIC bind <code>10.0.0.5</code>. Serves <code>10.0.0.*</code>, not <code>192.168.1.0/24</code>. The narrow predicate would have missed this."},
+  D:{bind:"127.0.0.1", nets:["127.0.0.1"], adv:false, blk:false, dirty:false,
+     note:"State D — loopback bind, loopback-only trust. Coherent, must NOT warn."},
+  E:{bind:"0.0.0.0",   nets:["192.168.1.0/24"], adv:false, blk:false, dirty:true,
+     note:"State E — after the inline fix. Advisory gone; the dirty chip names <b>Server</b>, the page owning <code>bindHost</code>."},
+  F:{bind:"0.0.0.0",   nets:["10.0.0.0/8"], adv:false, blk:true, dirty:false,
+     note:"State F — non-loopback bind, a real denial arrived. Block-event banner, restyled onto the same warn ramp. Mutually exclusive with the advisory."},
+  G:{bind:"0.0.0.0",   nets:[], adv:false, blk:false, dirty:false, dd:true,
+     note:"State G — + Add Local Network, risk-tiered. Tailscale offers the tailnet range (amber/wide), never <self>/32. Duplicate subnets collapsed, device names labelled, an underivable /32 shown unofferable rather than dropped."}
+};
+let cur="B";
+const $=id=>document.getElementById(id);
+
+function unreachable(bind,nets){
+  if(bind==="0.0.0.0") return [];
+  return nets.filter(n=>{
+    if(n.startsWith("127.")) return false;
+    if(n.includes("/")){const p=n.split("/")[0].split(".").slice(0,+n.split("/")[1]/8);
+      return !bind.startsWith(p.join(".")+".") && bind!==n.split("/")[0];}
+    if(n.includes("*")){return !bind.startsWith(n.slice(0,n.indexOf("*")));}
+    return bind!==n;
+  });
+}
+function render(){
+  const s=S[cur];
+  $("note").innerHTML=s.note;
+  $("rows").innerHTML=s.nets.map(n=>
+    `<div class="row"><span class="mono">${n}</span>
+     <button class="rm" aria-label="Remove ${n}">✕</button></div>`).join("");
+  const bad=unreachable(s.bind,s.nets);
+  const showAdv=s.adv&&bad.length>0;
+  $("adv").hidden=!showAdv;
+  $("blk").hidden=!s.blk;
+  if(showAdv){
+    $("advmsg").innerHTML=`The dashboard is listening on <b class="mono">${s.bind}</b>, which
+      cannot serve ${bad.length>1?"these trusted entries":"the trusted entry"}
+      ${bad.map(b=>`<b class="mono">${b}</b>`).join(" and ")}. Devices on
+      ${bad.length>1?"those networks":"that network"} still cannot reach it.`;
+  }
+  $("ddwrap").hidden=!s.dd;
+  $("savebar").hidden=!s.dirty;
+  $("serverdot").hidden=!s.dirty;
+  document.querySelectorAll("[data-s]").forEach(b=>b.setAttribute("aria-pressed",b.dataset.s===cur));
+}
+document.querySelectorAll("[data-s]").forEach(b=>b.onclick=()=>{cur=b.dataset.s;render();});
+// Mobile rail is a horizontal scroll strip — keep the current page visible
+// (H1 visibility of system status / recognition over recall).
+document.querySelector('.rail a[aria-current="page"]')
+  ?.scrollIntoView({inline:"nearest",block:"nearest"});
+$("addlocal").onclick=()=>{cur="G";render();};
+$("fixbtn").onclick=()=>{cur="E";render();$("savebar").scrollIntoView({block:"nearest"});};
+$("advlink").onclick=()=>{alert("→ navigates to /settings/server, focusing the Listen Interface picker.\\nUnsaved Security edits are preserved.");};
+$("theme").onclick=()=>{const l=document.documentElement.dataset.theme==="light";
+  document.documentElement.dataset.theme=l?"dark":"light";
+  $("theme").textContent=l?"◐ Light":"◑ Dark";$("theme").setAttribute("aria-pressed",!l);};
+// ?theme=light&s=F renders a given theme+state directly, so the scorer can
+// capture any of the six states without clicking.
+const qs=new URLSearchParams(location.search);
+if(qs.get("s") && S[qs.get("s")]) cur=qs.get("s");
+if(qs.get("theme")==="light"){
+  document.documentElement.dataset.theme="light";
+  $("theme").textContent="◑ Dark";$("theme").setAttribute("aria-pressed","true");
+}
+render();
+</script>
+</body>
+</html>

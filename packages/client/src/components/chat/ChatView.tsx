@@ -5,7 +5,7 @@ import {
   isNotifyRowVisible,
   toolCallPrefKey,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
-import { mdiCheck, mdiChevronDown, mdiChevronUp, mdiClose, mdiContentCopy, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
+import { mdiAlertCircleOutline, mdiCheck, mdiChevronDown, mdiChevronUp, mdiClose, mdiContentCopy, mdiLoading, mdiSourceFork, mdiTextBox } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import { defaultRangeExtractor, useVirtualizer } from "@tanstack/react-virtual";
 import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -24,6 +24,13 @@ import { findActiveInteractiveToolResultIds, findRetriedErrorIds, findSurfaceSup
 import type { ChatImage, InteractiveUiRequest, SessionState } from "../../lib/chat/event-reducer.js";
 import { type BurstItem, groupToolBursts, type ToolBurstGroup as ToolBurstGroupData } from "../../lib/chat/group-tool-bursts.js";
 import type { ToolCallGroup } from "../../lib/chat/group-tool-calls.js";
+import {
+  type HistoryGapState,
+  HISTORY_GAP_ROW_ID,
+  isHeadFree,
+  SETTLE_MS,
+  shouldAutoLoadHistory,
+} from "../../lib/chat/history-gap.js";
 import { computeAnchorCorrection } from "../../lib/chat/selection-anchor.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { REPLAY_PILL_DELAY_MS } from "../../lib/replay/loading-history.js";
@@ -32,6 +39,8 @@ import { buildTurnSummaries, type TurnSummary } from "../../lib/util/lineDelta.j
 import { isOutOfCwd, normalizeUnderCwd } from "../../lib/util/normalize-path.js";
 import { ChangeSummaryBlock } from "../diff/ChangeSummaryBlock.js";
 import { getInteractiveRenderer } from "../interactive-renderers/registry.js";
+import { derivePendingFreeFloating } from "../../lib/chat/pending-free-floating.js";
+import { MultiAskPanel } from "./MultiAskPanel.js";
 import { FilePreviewHost, FilePreviewProvider } from "../preview/FilePreviewContext.js";
 import { ImageLightbox } from "../preview/ImageLightbox.js";
 import { MarkdownContent } from "../preview/MarkdownContent.js";
@@ -44,8 +53,10 @@ import { withDefaultFileLink } from "../tool-renderers/make-tool-context.js";
 import { BashOutputCard } from "./BashOutputCard.js";
 import { CollapsedToolGroup } from "./CollapsedToolGroup.js";
 import { CommandFeedbackCard } from "./CommandFeedbackCard.js";
+import { HistoryGapDivider } from "./HistoryGapDivider.js";
 import { MissingToolInlineError } from "./MissingToolInlineError.js";
 import { RawEventCard } from "./RawEventCard.js";
+import { CustomEntryCard } from "./CustomEntryCard.js";
 import { SkillInvocationCard } from "./SkillInvocationCard.js";
 import { ThinkingBlock } from "./ThinkingBlock.js";
 import { ToolBurstGroup } from "./ToolBurstGroup.js";
@@ -92,6 +103,21 @@ interface Props {
    * See change: show-replay-in-flight-indicator.
    */
   replayInFlight?: boolean;
+  /**
+   * Selected session's windowed-replay gap, when its replay was bounded by
+   * `maxReplayEvents`. Drives the interstitial gap divider.
+   * See change: lazy-load-session-history.
+   */
+  historyGap?: HistoryGapState;
+  /** Request the gap slice adjacent to the TAIL. See change: fix-lazy-history-backfill-ux (D2). */
+  onLoadEarlier?: () => void;
+  /**
+   * Bumped once per successful backfill splice. Keys the splice-commit
+   * suppression latch — deliberately not `messages.length`, which a live event
+   * also changes and which the final splice can leave unchanged.
+   * See change: fix-lazy-history-backfill-ux (D6).
+   */
+  historySpliceRev?: number;
   /**
    * Client-only signal: the user manually collapsed the LIVE streaming
    * reasoning block. Sets `streamingThinkingCollapsed` on the session state so
@@ -322,7 +348,7 @@ export interface ChatViewHandle {
   scrollToTurn: (turnIndex: number) => void;
 }
 
-const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, replayInFlight, onCollapseStreamingThinking }, ref) {
+const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sessionId, state, toolContext: suppliedToolContext, onRespondToUi, onAbort, onForceKill, onForkFromMessage, onCloseInlineTerminal, pendingSteering, loadingHistory, replayInFlight, historyGap, onLoadEarlier, historySpliceRev, onCollapseStreamingThinking }, ref) {
   // `ToolContext` is a published surface (re-exported from `chat-embed`), so an
   // external embedder builds one by hand and would carry no `fileLink` —
   // silently losing file-mention linkification with no type error. Merge a
@@ -372,6 +398,322 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
   }, [replayInFlight, sessionId]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  /**
+   * ONE suppression window shared by EVERY programmatic `scrollTop` /
+   * `scrollToIndex` writer in this file, rather than a list of per-writer refs.
+   *
+   * Enumerating the writers is how the previous revision failed: the list grows
+   * and each omission is a silent auto-fetch. A writer stamps this immediately
+   * before it writes, and the trigger ignores any edge inside the window — one
+   * mechanism, closed to future writers by convention.
+   * See change: add-tail-only-replay-window (D7).
+   */
+  const programmaticScrollUntilRef = useRef(0);
+  /**
+   * Suppress the scroll events a programmatic write is about to emit.
+   *
+   * `invalidateIntent` splits two genuinely different kinds of write, and the
+   * distinction is load-bearing in both directions:
+   *
+   *  - A JUMP RELOCATES the user (`scrollToBottom`, `scrollToTurn`, restore,
+   *    the bottom-pin). Any intent recorded before it is now about a position
+   *    the user is no longer at, so it must be dropped. Without that,
+   *    `scrollToBottom`'s `behavior: "smooth"` emits scroll events for
+   *    300-500ms against a 120ms stamp, so a DOWNWARD scroll latches "asked to
+   *    go up" and the next jump that lands `nearTop` fetches unbidden.
+   *
+   *  - A CORRECTION PRESERVES the user's position (the D7a splice anchor). It
+   *    must still suppress its own events, but wiping intent here would eat a
+   *    gesture the user really did make: the anchor runs ~20 frames after every
+   *    splice, so an invalidating correction silently discards any scroll
+   *    started during that window and the walk stalls until they scroll again.
+   *
+   * Callers that ARE intent (`scrollToTop`) must stamp FIRST, then set the flag.
+   * See change: add-tail-only-replay-window (D7).
+   */
+  const stampProgrammaticScroll = useCallback((invalidateIntent = true) => {
+    programmaticScrollUntilRef.current = Date.now() + SETTLE_MS;
+    if (invalidateIntent) pendingUserIntentRef.current = false;
+  }, []);
+  /**
+   * The user has asked to go UP since the last request. Tracks INTENT, not
+   * position: `scrollTop` clamps at 0, so a user parked on the loading head
+   * produces no further upward delta, and a splice smaller than the proximity
+   * band produces no new rising edge either. Cleared on issue, at mount, and on
+   * session change. See change: add-tail-only-replay-window (D7).
+   */
+  const pendingUserIntentRef = useRef(false);
+  const settleTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const historyGapRef = useRef(historyGap);
+  historyGapRef.current = historyGap;
+
+  /**
+   * The D7a anchor's target: the first previously-loaded row, plus the viewport
+   * `top` it held when the backfill was REQUESTED.
+   *
+   * Captured at request time because a layout effect cannot supply it — layout
+   * effects run after the DOM mutation, so by then the spliced rows are already
+   * in place and the row has already moved. `null` when no request is in
+   * flight, which is also what makes the anchor fire ONLY for a splice this
+   * component asked for.
+   *
+   * An ELEMENT, deliberately, not a `scrollHeight` delta. A height-delta anchor
+   * absorbs ALL growth, including rows below the viewport remeasuring away from
+   * their estimates — growth that does not move the reading position and must
+   * not be corrected for. Measured directly against the harness: it
+   * over-corrected by ~2300px on a 33000px splice. Anchoring on the row states
+   * the invariant D7a actually makes ("the first previously-loaded row holds its
+   * viewport position") instead of a proxy for it.
+   *
+   * Element identity is SOUND here because `getItemKey` returns the row's
+   * message id, so a row keeps its DOM node across a splice that changes its
+   * index. A detached anchor (unmounted by virtualization) stops the correction
+   * rather than correcting against a stale rect.
+   * See change: add-tail-only-replay-window (D7a).
+   */
+  const anchorKeyRef = useRef<string | null>(null);
+  const anchorTopRef = useRef<number | null>(null);
+
+  /**
+   * The first previously-loaded row: the mounted virtual row with the smallest
+   * `data-index` STRICTLY BELOW the gap divider's own row. Returns `null` when
+   * the divider is not mounted, which is the case where there is nothing to
+   * anchor anyway.
+   */
+  const captureSpliceAnchor = useCallback((): void => {
+    const el = scrollRef.current;
+    anchorKeyRef.current = null;
+    anchorTopRef.current = null;
+    if (!el) return;
+    const containerTop = el.getBoundingClientRect().top;
+    const dividerRow = el
+      .querySelector('[data-testid="history-gap-divider"]')
+      ?.closest<HTMLElement>("[data-index]");
+    if (!dividerRow) return;
+    const dividerIndex = Number(dividerRow.dataset.index);
+    if (!Number.isFinite(dividerIndex)) return;
+    let best: HTMLElement | null = null;
+    let bestIndex = Number.POSITIVE_INFINITY;
+    for (const node of el.querySelectorAll<HTMLElement>("[data-index]")) {
+      const i = Number(node.dataset.index);
+      if (Number.isFinite(i) && i > dividerIndex && i < bestIndex) {
+        best = node;
+        bestIndex = i;
+      }
+    }
+    if (!best?.dataset.rowKey) return;
+    anchorKeyRef.current = best.dataset.rowKey;
+    // CONTAINER-relative, not viewport-relative: the correction below computes
+    // a target `scrollTop` from the row's offset in SCROLL space, and mixing in
+    // the container's own viewport position would bake in an unrelated offset.
+    anchorTopRef.current = best.getBoundingClientRect().top - containerTop;
+  }, []);
+
+  /**
+   * Whether the load in flight came from the TRIGGER rather than from the user
+   * pressing the affordance.
+   *
+   * The announcement is scoped to AUTOMATIC loads in a head-free window
+   * (F16/F21): a user who pressed "Load earlier" already knows what they asked
+   * for, so announcing it is redundant chatter, and a `head-tail` user who
+   * never opted into this change must observe nothing new.
+   * See change: add-tail-only-replay-window (D6).
+   */
+  const lastLoadWasAutoRef = useRef(false);
+  /** Rows added by the most recent AUTOMATIC splice. `null` announces nothing. */
+  const [autoLoadedCount, setAutoLoadedCount] = useState<number | null>(null);
+  const messagesLenRef = useRef(state.messages.length);
+
+  const handleLoadEarlier = useCallback(() => {
+    // Clearing on ISSUE is what bounds this to one request per expression of
+    // intent, for the button and the trigger alike.
+    pendingUserIntentRef.current = false;
+    lastLoadWasAutoRef.current = false;
+    captureSpliceAnchor();
+    onLoadEarlier?.();
+  }, [onLoadEarlier, captureSpliceAnchor]);
+
+  /** The trigger's issue path: identical, but marks the load automatic. */
+  const autoLoadEarlier = useCallback(() => {
+    pendingUserIntentRef.current = false;
+    lastLoadWasAutoRef.current = true;
+    captureSpliceAnchor();
+    onLoadEarlier?.();
+  }, [onLoadEarlier, captureSpliceAnchor]);
+
+  /**
+   * Produce the announcement from the SPLICE, not from the response.
+   *
+   * The row count is what the user is told about, and it is not the response's
+   * event count: a backfilled segment reduces to fewer rows than it carries
+   * events (a `message_start`/`update`/`end` trio is one row). Measuring the
+   * rendered delta keeps the announced number equal to what actually appeared.
+   */
+  useEffect(() => {
+    const prev = messagesLenRef.current;
+    const now = state.messages.length;
+    messagesLenRef.current = now;
+    const added = now - prev;
+    if (added > 0 && lastLoadWasAutoRef.current) {
+      lastLoadWasAutoRef.current = false;
+      setAutoLoadedCount(added);
+    }
+  }, [state.messages.length]);
+
+  /**
+   * Evaluate the auto-load trigger. Called at the SETTLE timer's expiry and at
+   * the suppression window's expiry — never per scroll event: momentum is a
+   * stream of scroll events, each restarting the timer, so evaluating at expiry
+   * runs this exactly once when inertia stops.
+   *
+   * A SUPPRESSED evaluation changes NO state — it is deferred, not consumed —
+   * and re-schedules itself for when the stamp lapses. That is what makes the
+   * scroll-to-top landing deterministic regardless of how many frames the
+   * ascent took. See change: add-tail-only-replay-window (D7).
+   */
+  const evaluateAutoLoad = useCallback(() => {
+    const el = scrollRef.current;
+    const gap = historyGapRef.current;
+    if (!el || !gap) return;
+    const now = Date.now();
+    const suppressedUntil = programmaticScrollUntilRef.current;
+    if (now < suppressedUntil) {
+      // Defer: re-evaluate when the stamp lapses, consuming nothing.
+      if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = setTimeout(evaluateAutoLoad, suppressedUntil - now + 1);
+      return;
+    }
+    const fire = shouldAutoLoadHistory({
+      headFree: isHeadFree(gap),
+      nearTop: el.scrollTop <= SCROLL_THRESHOLD,
+      pendingUserIntent: pendingUserIntentRef.current,
+      suppressed: false,
+      armed: gap.armed,
+      pending: gap.pending,
+      failed: gap.failed,
+      atFloor: gap.atFloor,
+    });
+    if (fire) autoLoadEarlier();
+  }, [autoLoadEarlier]);
+
+  // Intent never survives a mount or a session switch: a restored transcript
+  // can land at `scrollTop === 0` with no intent ever recorded, and `nearTop`
+  // alone must never fire. See change: add-tail-only-replay-window (D7).
+  useEffect(() => {
+    pendingUserIntentRef.current = false;
+    return () => {
+      if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+      settleTimerRef.current = null;
+    };
+  }, []);
+  useEffect(() => {
+    pendingUserIntentRef.current = false;
+  }, [sessionId]);
+  /**
+   * Backfill splice scroll ownership (D6): the correct invariant is ABSOLUTE
+   * `scrollTop`, and it needs no correction at all.
+   *
+   * Events now splice BELOW the divider, and the divider is by definition in
+   * the viewport (the user just clicked it), so nothing above the reading
+   * position moves. The old distance-to-bottom anchor is not merely
+   * unnecessary here, it is WRONG-SIGNED: it would add the full inserted
+   * height to `scrollTop` and scroll the divider out of view on every splice.
+   * It is deleted rather than made more elaborate.
+   *
+   * "Leave `scrollTop` alone" is NOT "nothing writes `scrollTop`". Deleting the
+   * layout effect removed the only splice-time hook, so the two remaining
+   * writers — the virtualizer grow-pin and the selection-anchor compensator —
+   * need an explicit owner instead of inheriting the commit by accident. This
+   * latch is that owner. It is armed on the splice revision (bumped exactly
+   * once per successful splice, and the only signal that survives BOTH a live
+   * event arriving mid-flight and the final splice whose net row count is
+   * unchanged) and released one frame later, after the virtualizer has
+   * measured the spliced rows. Disarming at click would be insufficient:
+   * `handleScroll` can re-arm stick-to-bottom mid-flight.
+   * See change: fix-lazy-history-backfill-ux (D6).
+   */
+  const spliceSuppressRef = useRef(false);
+  /**
+   * D7a — in `tail-only` the reasoning above INVERTS, and the two modes must
+   * not share this branch.
+   *
+   * D6's premise is that events splice BELOW the divider, so nothing above the
+   * reading position moves. That holds while the divider is mid-transcript. In
+   * `tail-only` the divider is the FIRST row: the spliced rows land between the
+   * loading head and everything else, so leaving `scrollTop` alone pins the
+   * user to the head while the content they asked for accumulates below — and,
+   * because the trigger is rising-edge, proximity never lapses and the walk
+   * STALLS.
+   *
+   * So in this mode the splice preserves the viewport position of the first
+   * previously-loaded row: `scrollTop` absorbs the inserted height, the older
+   * messages occupy the space above it, and the loading head scrolls out of
+   * proximity — which re-arms the rising edge for free, because scrolling up
+   * again is what asks for more.
+   *
+   * APPROXIMATELY, not exactly. With `overflowAnchor: "none"` and a virtualizer
+   * whose spliced rows carry ESTIMATED sizes until measured, the height at
+   * commit is an estimate. The anchor therefore keeps correcting across
+   * subsequent commits until measurement settles, rather than being consumed by
+   * one layout pass — the same failure `fix-lazy-history-backfill-ux`
+   * diagnosed in the head-first splice. `anchorBaselineRef` holds the
+   * `scrollHeight` the last correction was computed against, so each pass
+   * corrects only the NEW growth and the corrections telescope instead of
+   * compounding.
+   *
+   * The selection-anchor compensator is deliberately NOT suppressed here: in
+   * this mode the rows land ABOVE a held selection and genuinely displace it,
+   * which is precisely the case the compensator exists for. Suppressing it (as
+   * `head-tail` must) would let the selection slide by the full spliced height.
+   * See change: add-tail-only-replay-window (D7a).
+   */
+  const headFreeGap = !!historyGap && isHeadFree(historyGap);
+  const headFreeGapRef = useRef(headFreeGap);
+  headFreeGapRef.current = headFreeGap;
+  useLayoutEffect(() => {
+    if (!historySpliceRev) return;
+    const el = scrollRef.current;
+    // `head-tail` keeps D6's behaviour verbatim: suppress the other writers for
+    // one frame and correct nothing.
+    if (!headFreeGapRef.current || !el) {
+      spliceSuppressRef.current = true;
+      const id = requestAnimationFrame(() => {
+        spliceSuppressRef.current = false;
+      });
+      return () => {
+        cancelAnimationFrame(id);
+        spliceSuppressRef.current = false;
+      };
+    }
+
+    /**
+     * `tail-only`: hold the captured row at the viewport `top` it had when the
+     * slice was requested, and KEEP holding it as the spliced rows remeasure
+     * away from their estimates.
+     *
+     * The grow-pin is suppressed for the first frame (a splice IS content
+     * growth, and the pin would otherwise yank to the bottom); the selection
+     * compensator is released as soon as this effect's own write has landed,
+     * per the docblock above.
+     *
+     * Correcting on the ROW's rect rather than on `scrollHeight` is what makes
+     * this ignore remeasurement BELOW the reading position, which does not move
+     * the row and must not be absorbed.
+     */
+    // `tail-only`: the grow-pin still has to be suppressed for the first frame
+    // (a splice IS content growth, and the pin would yank to the bottom), but
+    // the CORRECTION itself is owned by `useTailOnlySpliceAnchor` below — it
+    // needs the virtualizer, which is not in scope this early in the component.
+    // The selection compensator is released immediately, per the docblock.
+    spliceSuppressRef.current = true;
+    const id = requestAnimationFrame(() => {
+      spliceSuppressRef.current = false;
+    });
+    return () => {
+      cancelAnimationFrame(id);
+      spliceSuppressRef.current = false;
+    };
+  }, [historySpliceRev]);
   // True when the user wants the chat to chase new content. Flips to false on
   // any real scroll-up gesture, on explicit navigation (scrollToTurn), and on
   // session restore when the saved position was away from the bottom. Re-arms
@@ -497,6 +839,20 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     }
     return ids;
   }, [filteredMessages]);
+  // Concurrently-pending free-floating asks (no `toolCallId`, not widget-bar)
+  // are pulled out of the inline stream and grouped into one MultiAskPanel
+  // below. Tool-paired asks keep their inline placement; notifies never enter
+  // `interactiveRequests` so they are excluded here by construction.
+  // `toolCallId` lives on the pushed `interactiveUi` row, so map requestId →
+  // toolCallId off `state.messages`. See change: surface-concurrent-ask-user-prompts.
+  const pendingFreeFloating = useMemo(
+    () => derivePendingFreeFloating(state.messages, state.interactiveRequests),
+    [state.messages, state.interactiveRequests],
+  );
+  const panelRequestIds = useMemo(
+    () => new Set(pendingFreeFloating.map((r) => r.requestId)),
+    [pendingFreeFloating],
+  );
   // Drop the redundant `ask_user` tool card BEFORE tool-burst grouping (every
   // toolResult is wrapped in a burst — threshold 1 — so post-group row filtering
   // never reaches it). The interactive card is the single render while its
@@ -529,6 +885,10 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       switch (msg.role) {
         case "turnSeparator":
           return prefs.turnMetadata;
+        // The gap disclosure is never prefs-gated: hiding it would make a
+        // windowed replay indistinguishable from data loss.
+        case "historyGap":
+          return true;
         case "thinking":
           return prefs.reasoning;
         case "toolResult": {
@@ -540,6 +900,10 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         }
         case "interactiveUi": {
           const args = msg.args as Record<string, unknown> | undefined;
+          // Pending free-floating asks render in the grouped MultiAskPanel, not
+          // inline. See change: surface-concurrent-ask-user-prompts.
+          const rid = args?.requestId as string | undefined;
+          if (rid && panelRequestIds.has(rid)) return false;
           const cmp = (args?.params as Record<string, unknown> | undefined)?._promptBusComponent as
             | { type?: string }
             | undefined;
@@ -559,11 +923,16 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         }
         case "rawEvent":
           return showDebugTools;
+        case "custom":
+          // Render-time gate only (rawEvent precedent): rows stay in state, so
+          // toggling never replays anything. See change:
+          // render-inline-reasoning-and-custom-entries (D7).
+          return prefs.customEntryFallback;
         default:
           return true;
       }
     },
-    [prefs, showDebugTools, hiddenToolResultIds],
+    [prefs, showDebugTools, hiddenToolResultIds, panelRequestIds],
   );
   const displayRows = useMemo(() => {
     const rows = groupedMessages.filter(isRowVisible);
@@ -617,6 +986,55 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     scrollRef,
     mapChatRange,
   );
+
+  /**
+   * Remap the retained-selection span across a backfill splice.
+   *
+   * `selectionSpanRef` holds a row INDEX span, and `rangeExtractor` unions it
+   * into the mounted range so the selected rows are never unmounted. A splice
+   * inserts rows BELOW the divider, which shifts the index of every row after
+   * it — so the stored span silently comes to designate DIFFERENT rows. The
+   * selected row then falls outside the retained union, the virtualizer
+   * unmounts it, and the Range collapses: the selection is destroyed outright,
+   * not merely displaced.
+   *
+   * Measured in a real browser against `tail-only`, where a ~500-row splice
+   * lands above the reading position: a triple-click selection came back as the
+   * empty string. It is a PRE-EXISTING defect that `tail-only` exposes rather
+   * than causes — `head-tail` shifts indices too, just by less, and its own
+   * gate missed it by installing a programmatic `Range` (which never populates
+   * this span) over a splice that does not move `scrollTop`.
+   *
+   * DURING RENDER, deliberately, not in a layout effect: `rangeExtractor` is
+   * consulted while the virtualizer computes its range, so by the time any
+   * effect could run the rows are already gone and the selection with them.
+   * Render-time ref writes are an established pattern in this component
+   * (`rowCountRef`, `headFreeGapRef`).
+   *
+   * Only spans strictly BELOW the gap row shift. A `head-tail` selection ABOVE
+   * the divider keeps its indices, and shifting it would corrupt a span that
+   * was correct.
+   * See change: add-tail-only-replay-window (D7a, test-plan F18).
+   */
+  const prevSpliceRevRef = useRef(historySpliceRev);
+  const prevRowCountRef = useRef(displayRows.length);
+  if (historySpliceRev !== prevSpliceRevRef.current) {
+    const delta = displayRows.length - prevRowCountRef.current;
+    const span = selectionSpanRef.current;
+    if (delta > 0 && span) {
+      const gapIndex = displayRows.findIndex(
+        (row) => (row as { id?: string }).id === HISTORY_GAP_ROW_ID,
+      );
+      // `gapIndex < 0` means the divider was spliced out entirely by this same
+      // update (the two-sided exhaustion path). Everything that was below it
+      // still shifted, so the span still needs the correction.
+      if (gapIndex < 0 || span.min > gapIndex) {
+        selectionSpanRef.current = { min: span.min + delta, max: span.max + delta };
+      }
+    }
+    prevSpliceRevRef.current = historySpliceRev;
+  }
+  prevRowCountRef.current = displayRows.length;
   // Freeze/flush the streaming tail around an anchored selection (change:
   // preserve-streaming-tail-selection). On the isSelecting false→true edge, if
   // the selection sits inside the live tail, snapshot streamingText so the tail
@@ -716,19 +1134,105 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       // Suspend the bottom-pin while a transcript selection is held (D2) so the
       // selected row is not scrolled out of its overscan band. stickToBottomRef
       // is NOT cleared — follow resumes on collapse.
-      if (grew && stickToBottomRef.current && !isSelectingRef.current) el.scrollTop = el.scrollHeight;
+      // A backfill splice grows the content from ABOVE the reading position, so
+      // any user inside the near-bottom band would be yanked to the bottom (D6).
+      if (grew && stickToBottomRef.current && !isSelectingRef.current && !spliceSuppressRef.current) {
+        stampProgrammaticScroll();
+        el.scrollTop = el.scrollHeight;
+      }
       // Ascending: re-target index 0 whenever a measurement grows the total
       // size (an above-viewport row mounting/measuring, INCLUDING the async
       // image-load remeasure). scrollToIndex is bounded to maxAttempts frames,
       // so without this a late remeasure would leave the view off index 0.
       if (ascendingRef.current) {
         if (el.scrollTop <= 0) ascendingRef.current = false;
-        else if (grew) virtualizer.scrollToIndex(0, { align: "start" });
+        else if (grew) {
+          stampProgrammaticScroll();
+          virtualizer.scrollToIndex(0, { align: "start" });
+        }
       }
     },
   });
   const virtualItems = virtualizer.getVirtualItems();
   const totalSize = virtualizer.getTotalSize();
+
+  /**
+   * D7a — the `tail-only` splice anchor's CORRECTION half.
+   *
+   * Lives here, after the virtualizer, because it corrects in SCROLL SPACE
+   * rather than against a DOM rect, and that is not an optimisation — it is the
+   * only formulation that works. Two DOM-based attempts were measured against
+   * the harness and both failed for the same structural reason:
+   *
+   *   1. `Δ scrollHeight` — absorbs growth from rows BELOW the viewport
+   *      remeasuring away from their estimates, which moves nothing the user is
+   *      looking at. Over-corrected by ~3200px on a 34000px splice.
+   *   2. anchor row's `getBoundingClientRect()` — the row is displaced by the
+   *      full spliced height BEFORE any correction runs, so the virtualizer has
+   *      already UNMOUNTED it and there is no rect to read. Corrected 0px.
+   *
+   * The virtualizer's measurement cache has neither problem: a row's `start`
+   * offset is defined whether or not it is mounted, and it moves only when rows
+   * ABOVE it change size. Holding `scrollTop` at `start - anchorTop` therefore
+   * states D7a's invariant directly — the first previously-loaded row keeps the
+   * viewport position it had when the slice was requested.
+   *
+   * Re-run across ~20 frames because the spliced rows carry ESTIMATED sizes
+   * until measured, so `start` keeps moving; D7a requires the anchor to keep
+   * correcting until measurement settles rather than being consumed by one
+   * layout pass. Bounded, so it cannot become a second permanent scroll owner.
+   * See change: add-tail-only-replay-window (D7a).
+   */
+  useLayoutEffect(() => {
+    if (!historySpliceRev || !headFreeGapRef.current) return;
+    const key = anchorKeyRef.current;
+    const anchorTop = anchorTopRef.current;
+    if (key === null || anchorTop === null) return;
+
+    let frames = 0;
+    let raf = 0;
+    /**
+     * Resolved ONCE, not per frame. `displayRows` is deliberately captured for
+     * the whole correction window, so the index cannot change across it; on a
+     * post-splice transcript of ~10k rows, re-scanning on each of 20 frames
+     * costs ~200k comparisons on exactly the frame budget this is protecting.
+     */
+    const idx = displayRows.findIndex((row, i) => virtualRowKey(row, i) === key);
+    // The anchor row left the transcript entirely (event trim, session switch).
+    // Stop rather than correct against a row that is not there.
+    if (idx < 0) return;
+    const correct = (): void => {
+      const node = scrollRef.current;
+      if (!node) return;
+      const start = virtualizer.measurementsCache[idx]?.start;
+      if (typeof start === "number") {
+        const target = start - anchorTop;
+        // Sub-pixel drift is measurement noise, not displacement; writing for
+        // it would fight the virtualizer every frame for no visible benefit.
+        if (Math.abs(node.scrollTop - target) > 0.5) {
+          // PRESERVES position — suppress our own events, keep the user's intent.
+          stampProgrammaticScroll(false);
+          node.scrollTop = target;
+        }
+      }
+      if (++frames < 20) raf = requestAnimationFrame(correct);
+    };
+    raf = requestAnimationFrame(correct);
+    return () => {
+      cancelAnimationFrame(raf);
+    };
+    // `displayRows` and `virtualizer` are deliberately NOT dependencies: this
+    // effect must run once per SPLICE, and `displayRows` changes identity on
+    // every render (including the ones this effect's own scroll writes
+    // provoke), which would restart the correction window indefinitely.
+    //
+    // Staleness is not a hazard here. The effect runs AFTER the splice commit,
+    // so the captured `displayRows` already contains the spliced rows and the
+    // anchor's index in it is the post-splice one. `virtualizer` is a stable
+    // mutable instance, so `measurementsCache` is read LIVE on every frame —
+    // which is what lets the loop track measurement convergence.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the splice revision by design
+  }, [historySpliceRev]);
 
   // Streaming-tail content: the frozen snapshot while a tail selection is held
   // (buffers chunks; survives the message_end unmount), else the live text.
@@ -809,7 +1313,19 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         nearBottom,
       });
     }
-  }, [sessionId, virtualizer]);
+    /**
+     * Trigger bookkeeping ONLY — this never evaluates the predicate. An edge
+     * inside the suppression window is a programmatic scroll and records no
+     * intent; anything else is the user asking to move. The settle timer is
+     * restarted on every event, so the evaluation happens once, when motion
+     * stops. See change: add-tail-only-replay-window (D7).
+     */
+    if (Date.now() >= programmaticScrollUntilRef.current) {
+      pendingUserIntentRef.current = true;
+    }
+    if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+    settleTimerRef.current = setTimeout(evaluateAutoLoad, SETTLE_MS);
+  }, [sessionId, virtualizer, evaluateAutoLoad]);
 
   const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
@@ -818,6 +1334,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     // animation cannot race with incoming chunks and re-introduce jumps.
     const isStreaming = Boolean(state.streamingText || state.streamingThinking || pendingSteering?.length);
     descendingRef.current = true;
+    stampProgrammaticScroll();
     el.scrollTo({ top: el.scrollHeight, behavior: isStreaming ? "instant" : "smooth" });
     stickToBottomRef.current = true;
     setShowScrollButton(false);
@@ -838,8 +1355,20 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     ascendingRef.current = true;
     stickToBottomRef.current = false;
     setShowScrollButton(true);
+    /**
+     * ACTIVATION is intent, even though the motion it causes is programmatic:
+     * the user asked to go to the top, and the loading head is what they land
+     * on. The stamp suppresses the ascent's own scroll events; the intent flag
+     * set here is what the post-ascent evaluation reads.
+     * See change: add-tail-only-replay-window (D7).
+     */
+    // Stamp FIRST: the stamp clears intent, and this activation IS intent.
+    stampProgrammaticScroll();
+    pendingUserIntentRef.current = true;
     virtualizer.scrollToIndex(0, { align: "start" });
-  }, [virtualizer]);
+    if (settleTimerRef.current) clearTimeout(settleTimerRef.current);
+    settleTimerRef.current = setTimeout(evaluateAutoLoad, SETTLE_MS);
+  }, [virtualizer, stampProgrammaticScroll, evaluateAutoLoad]);
 
   // Save scroll state when leaving, restore when arriving. Layout effect keeps
   // the restored position synchronized with the first paint so there is no flash.
@@ -865,19 +1394,26 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         const anchorId = saved.anchorRowId;
         const idx = displayRows.findIndex((r, i) => virtualRowKey(r, i) === anchorId);
         if (idx >= 0) {
+          // A session restored to the TOP drives `scrollTop → 0` on first
+          // paint. Unstamped, that is an unlatched ascent and a silent
+          // auto-fetch. See change: add-tail-only-replay-window (D7).
+          stampProgrammaticScroll();
           virtualizer.scrollToIndex(idx, { align: "start" });
           const off = saved.offset;
           requestAnimationFrame(() => {
             const el = scrollRef.current;
+            stampProgrammaticScroll();
             if (el) el.scrollTop += off;
           });
         } else {
+          stampProgrammaticScroll();
           scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight);
         }
       } else {
         // Near bottom or first visit: scroll to end and follow new content.
         stickToBottomRef.current = true;
         setShowScrollButton(false);
+        stampProgrammaticScroll();
         scrollRef.current?.scrollTo(0, scrollRef.current!.scrollHeight);
       }
     }
@@ -915,6 +1451,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     wasSelectingRef.current = false;
     if (resumedFromSelection && el) lastScrollHeightRef.current = el.scrollHeight;
     if (stickToBottomRef.current && el) {
+      stampProgrammaticScroll();
       el.scrollTop = el.scrollHeight;
       lastScrollHeightRef.current = el.scrollHeight;
     }
@@ -954,6 +1491,25 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
     const prevTop = anchorPrevTopRef.current;
     const prevScrollTop = anchorPrevScrollTopRef.current;
 
+    /**
+     * A backfill splice above a held selection displaces the anchor row, which
+     * this compensator would read as drift and "correct" — writing scrollTop on
+     * the one commit that must not move. Re-baseline instead of correcting.
+     *
+     * `head-tail` ONLY (D7a). In `tail-only` the spliced rows land ABOVE the
+     * selection and genuinely displace it, which is exactly the displacement
+     * this compensator exists to cancel; suppressing it there would let the
+     * selected content slide by the full spliced height. The gate is on the
+     * ANNOUNCED window shape, never on a sentinel, so the two modes cannot
+     * collapse into one branch.
+     * See change: fix-lazy-history-backfill-ux (D6), add-tail-only-replay-window (D7a).
+     */
+    if (spliceSuppressRef.current && !headFreeGapRef.current) {
+      anchorPrevTopRef.current = nextTop;
+      anchorPrevScrollTopRef.current = nextScrollTop;
+      return;
+    }
+
     // First commit of this drag: establish the baseline, correct nothing.
     if (prevTop === null) {
       anchorPrevTopRef.current = nextTop;
@@ -968,6 +1524,9 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       return;
     }
 
+    // The selection-anchor compensator writes `scrollTop`, so it stamps like
+    // every other writer. See change: add-tail-only-replay-window (D7).
+    stampProgrammaticScroll();
     el.scrollTop = nextScrollTop + correction;
     // Re-baseline immediately after the write, inside the same effect, so the
     // next commit does not observe our own correction as new drift (the feedback
@@ -994,9 +1553,13 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       descendingRef.current = false;
       stickToBottomRef.current = false;
       setShowScrollButton(true);
+      // `scrollToTurn` to an early turn drives the view near the top with no
+      // ascent latch of its own — the design's named unlatched ascent source.
+      // See change: add-tail-only-replay-window (D7, test-plan F19).
+      stampProgrammaticScroll();
       virtualizer.scrollToIndex(rowIndex, { align: "start" });
     },
-  }), [turnToFirstRowIndex, virtualizer]);
+  }), [turnToFirstRowIndex, virtualizer, stampProgrammaticScroll]);
 
   return (
     // Key by sessionId so switching sessions (ChatView is reused, not remounted)
@@ -1023,6 +1586,13 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
             <div
               key={vi.key}
               data-index={vi.index}
+              /* Stable per-ROW handle: `getItemKey` returns the row's message
+                 id, so this survives a splice that shifts every `data-index`.
+                 The D7a anchor re-locates its row through this after the
+                 coarse correction remounts it — `data-index` cannot serve,
+                 because the same index denotes a DIFFERENT row post-splice.
+                 See change: add-tail-only-replay-window (D7a). */
+              data-row-key={vi.key}
               ref={virtualizer.measureElement}
               style={{ position: "absolute", top: 0, left: 0, width: "100%", transform: `translateY(${vi.start}px)` }}
             >
@@ -1048,6 +1618,17 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         if (msg.role === "turnSeparator") {
           if (!prefs.turnMetadata) return null;
           return <div key={msg.id} className="mx-4 my-2 border-t border-[var(--border-subtle)]" />;
+        }
+
+        if (msg.role === "historyGap") {
+          if (!historyGap) return null;
+          return (
+            <HistoryGapDivider
+              key={msg.id}
+              gap={historyGap}
+              onLoadEarlier={handleLoadEarlier}
+            />
+          );
         }
 
         if (msg.role === "user") {
@@ -1121,6 +1702,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
               autoCollapseMs={prefs.reasoningAutoCollapseMs}
               keepOpenUntilTurnEnds={prefs.keepReasoningOpenUntilTurnEnds}
               turnActive={state.status === "streaming"}
+              inlineFlow={prefs.reasoningInlineFlow}
             />
           );
         }
@@ -1259,6 +1841,21 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
           );
         }
 
+        if (msg.role === "custom") {
+          // Mirrored gate (isRowVisible already filters; render branch keeps
+          // the branch safe if reached via another path). See change:
+          // render-inline-reasoning-and-custom-entries (D7).
+          if (!prefs.customEntryFallback) return null;
+          return (
+            <CustomEntryCard
+              key={msg.id}
+              customType={msg.customType ?? "custom"}
+              body={msg.content}
+              timestamp={msg.timestamp}
+            />
+          );
+        }
+
         if (msg.role === "rawEvent") {
           if (!showDebugTools) return null;
           return (
@@ -1322,6 +1919,7 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
             defaultExpanded
             startedAt={state.thinkingStartedAt}
             onUserCollapse={onCollapseStreamingThinking}
+            inlineFlow={prefs.reasoningInlineFlow}
           />
         </div>
       )}
@@ -1377,6 +1975,13 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
         </div>
       ))}
 
+      {/* Grouped multi-ask panel: concurrently-pending free-floating asks
+          render here as one cohesive stack, each answering its own requestId.
+          Hidden inline (isRowVisible) while pending; reappears inline as an
+          answered/history card once resolved. See change:
+          surface-concurrent-ask-user-prompts. */}
+      <MultiAskPanel requests={pendingFreeFloating} onRespondToUi={onRespondToUi} />
+
       {/* Optimistic pending-prompt card (idle-scoped). Re-wired write site in
           useSessionActions.handleSend / handleSendPromptToSession. Two progress
           states keyed off `pendingPrompt.status`, sharing identical bubble
@@ -1400,10 +2005,18 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
                     <Icon path={mdiLoading} size={0.7} className="animate-spin text-blue-400" />
                     <span className="text-[10px] text-blue-400/70 font-medium">sending</span>
                   </>
+                ) : state.pendingPrompt.status === "failed" ? (
+                  /* Failed arm: the prompt text is preserved so the user can
+                     retry; never the emerald success tick.
+                     See change: fix-optimistic-prompt-stuck-sending. */
+                  <>
+                    <Icon path={mdiAlertCircleOutline} size={0.7} className="text-red-400" />
+                    <span className="text-[10px] text-red-400/80 font-medium" data-testid="pending-prompt-failed">not sent</span>
+                  </>
                 ) : (
                   <>
                     <Icon path={mdiCheck} size={0.7} className="text-emerald-400 prompt-tick-in" />
-                    <span className="text-[10px] text-emerald-400/80 font-medium">sent</span>
+                    <span className="text-[10px] text-emerald-400/80 font-medium" data-testid="pending-prompt-sent">sent</span>
                   </>
                 )}
               </div>
@@ -1443,25 +2056,63 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
       )}
     </div>
     {/*
-      Replay-in-flight pill. OVERLAYS the list (absolutely positioned sibling,
-      like the scroll buttons) rather than inserting a row, so it cannot perturb
-      scroll anchoring. Indeterminate by design — no count, total, or percentage.
-      Mutually exclusive with the loading skeleton, which only renders while the
-      message list is empty. See change: show-replay-in-flight-indicator.
+      Auto-load announcement. Lives HERE, outside the virtualized list, because
+      a live region only announces if it is in the DOM when its text changes —
+      and the gap divider is a virtualized row that the virtualizer unmounts
+      once a splice pushes it out of the overscan band.
+
+      POLITE, never assertive: content inserted above the reading position is
+      not urgent and must not interrupt reading. The splice never moves focus.
+      Scoped to AUTOMATIC loads (see `autoLoadedCount`), so a user who pressed
+      the affordance, or any head-tail user, observes nothing new.
+      See change: add-tail-only-replay-window (test-plan F16, F21).
+    */}
+    <div aria-live="polite" className="sr-only" data-testid="history-gap-live-region">
+      {autoLoadedCount != null && autoLoadedCount > 0
+        ? i18nT(
+            "chat.historyGap.announced",
+            { count: autoLoadedCount.toLocaleString() },
+            `${autoLoadedCount.toLocaleString()} earlier messages loaded`,
+          )
+        : ""}
+    </div>
+    {/*
+      Replay-in-flight indicator: a decorative tail scrim + a centred label.
+      Both OVERLAY the list (absolutely positioned siblings, like the scroll
+      buttons) rather than inserting a row or trailing padding, so they cannot
+      perturb scroll anchoring. Indeterminate by design — no count, total, or
+      percentage. Mutually exclusive with the loading skeleton, which only
+      renders while the message list is empty.
+
+      Both are rendered under the SAME condition so a scrim can never be left
+      dimming the transcript after its label has gone. The label sits at 64px
+      (`bottom-16`); the scroll-to-bottom button is `bottom-4` + `p-2` around a
+      0.8 icon, so it spans roughly 16..51px — ~13px of clearance, separated by
+      LAYOUT, not paint order. Both are centred (`left-1/2 -translate-x-1/2`),
+      so the clearance is purely vertical and therefore identical at every
+      viewport width rather than lucky at one. Do NOT reposition the
+      scroll controls below: their resting position must not depend on replay
+      state. See change: fix-replay-pill-a11y-and-collision.
     */}
     {showReplayPill && state.messages.length > 0 && (
-      <div
-        data-testid="replay-in-flight-pill"
-        role="status"
-        aria-busy="true"
-        aria-label={i18nT("status.loadingHistoryInFlight", undefined, "Loading earlier messages…")}
-        className="absolute bottom-4 right-4 z-10 flex items-center gap-1.5 rounded-full bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] px-3 py-1 shadow-lg"
-      >
-        <Icon path={mdiLoading} size={0.6} className="animate-spin text-[var(--text-secondary)]" />
-        <span className="text-[11px] text-[var(--text-secondary)]">
-          {i18nT("status.loadingHistoryInFlight", undefined, "Loading earlier messages…")}
-        </span>
-      </div>
+      <>
+        <div
+          data-testid="replay-in-flight-scrim"
+          aria-hidden="true"
+          className="pointer-events-none absolute inset-x-0 bottom-0 z-0 h-28 bg-gradient-to-t from-[var(--bg-primary)] to-transparent"
+        />
+        <div
+          data-testid="replay-in-flight-pill"
+          role="status"
+          aria-busy="true"
+          className="absolute bottom-16 left-1/2 -translate-x-1/2 z-20 flex items-center gap-1.5 rounded-full bg-[var(--bg-surface)] border border-[var(--border-strong)] px-3 py-1 shadow-lg"
+        >
+          <Icon path={mdiLoading} size={0.6} className="animate-spin text-[var(--text-primary)]" />
+          <span className="text-[11px] text-[var(--text-primary)]">
+            {i18nT("status.loadingHistoryInFlight", undefined, "Loading earlier messages…")}
+          </span>
+        </div>
+      </>
     )}
     {showScrollTopButton && (
       <button

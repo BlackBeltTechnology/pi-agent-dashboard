@@ -1,0 +1,198 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>anthropic-peer-hint — mockup</title>
+<style>
+/* Tokens copied verbatim from packages/client/src/index.css (:root + [data-theme="light"]).
+   No raw hex is introduced by this mockup beyond that copy. */
+:root{
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+  --border-primary:#252525; --border-secondary:#333333;
+  --accent-blue:#3b82f6; --accent-orange:#f97316; --accent-green:#22c55e; --accent-red:#ef4444;
+  --accent-primary:#3b82f6; --focus-ring:var(--accent-primary);
+  --severity-warning-bg:color-mix(in srgb, var(--accent-orange) 10%, var(--bg-tertiary));
+  --severity-warning-fg:color-mix(in srgb, var(--accent-orange) 46%, var(--text-primary));
+  --severity-warning-border:color-mix(in srgb, var(--accent-orange) 40%, transparent);
+  --severity-success-bg:color-mix(in srgb, var(--accent-green) 10%, var(--bg-tertiary));
+  --severity-success-fg:color-mix(in srgb, var(--accent-green) 46%, var(--text-primary));
+  --severity-success-border:color-mix(in srgb, var(--accent-green) 40%, transparent);
+}
+[data-theme="light"]{
+  --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+  --text-primary:#1a1a1a; --text-secondary:#444444; --text-tertiary:#777777; --text-muted:#aaaaaa;
+  --border-primary:#e0e0e0; --border-secondary:#cccccc;
+  --accent-primary:#2563eb; --focus-ring:var(--accent-primary);
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg-primary);color:var(--text-primary);
+  font:14px/1.45 ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;padding:24px}
+.wrap{max-width:760px;margin:0 auto}
+h1{font-size:15px;font-weight:600;margin:0 0 4px}
+h2{font-size:12px;font-weight:600;color:var(--text-tertiary);text-transform:uppercase;
+  letter-spacing:.06em;margin:26px 0 8px}
+.lede{font-size:12px;color:var(--text-tertiary);margin:0 0 8px}
+.toolbar{display:flex;gap:8px;margin:12px 0 4px}
+.toolbar button{font-size:12px;padding:4px 10px;border-radius:4px;background:var(--bg-surface);
+  color:var(--text-secondary);border:1px solid var(--border-secondary)}
+button{cursor:pointer}
+/* ── provider card (mirrors LlmProviderCard) ─────────────────── */
+.card{border:1px solid var(--border-secondary);border-radius:4px;padding:12px;margin-bottom:8px;
+  background:var(--bg-secondary)}
+.card-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px}
+.pname{font-size:14px;font-weight:500}
+.head-actions{display:flex;align-items:center;gap:8px}
+.btn-test{font-size:12px;padding:2px 8px;border-radius:4px;background:rgb(37 99 235 / .2);
+  color:#93bbfd;border:0;display:inline-flex;gap:4px;align-items:center}
+.btn-rm{font-size:12px;padding:2px 8px;border-radius:4px;background:rgb(220 38 38 / .2);
+  color:#f87171;border:0}
+.fields{display:flex;flex-direction:column;gap:8px}
+label{display:block;font-size:12px;color:var(--text-tertiary);margin-bottom:2px}
+input,select{width:100%;background:var(--bg-tertiary);border:1px solid var(--border-secondary);
+  border-radius:4px;padding:4px 8px;font-size:14px;color:var(--text-primary)}
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11px;padding:2px 8px;
+  border-radius:999px;border:1px solid var(--border-secondary);color:var(--text-tertiary)}
+/* ── InlineMessage primitive (compact + default), token-sourced ─ */
+.im{position:relative;overflow:hidden;border-radius:12px;border:1px solid;
+  padding:8px 12px 8px 14px;display:flex;gap:10px;align-items:flex-start;
+  background:var(--severity-warning-bg);border-color:var(--severity-warning-border);
+  color:var(--severity-warning-fg)}
+.im.success{background:var(--severity-success-bg);border-color:var(--severity-success-border);
+  color:var(--severity-success-fg)}
+.im .accent{position:absolute;inset-block:0;left:0;width:3px;background:currentColor}
+.im .ico{flex:none;width:17px;height:17px;margin-top:1px;fill:currentColor}
+.im .title{font-size:12.5px;font-weight:700}
+.im .body{margin-top:2px;font-size:11.5px}
+.im code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11px}
+.im .actions{margin-top:8px;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+/* min-height 32px + 8px action-row margin keeps the ≥44px tap slice on mobile
+   without inflating the pill visually. */
+.act{font-size:11px;font-weight:600;padding:0 12px;min-height:32px;border-radius:999px;
+  border:1px solid currentColor;background:transparent;color:inherit;
+  display:inline-flex;align-items:center}
+.act[disabled]{opacity:.55;cursor:default}
+.spin{display:inline-block;width:11px;height:11px;border:2px solid currentColor;
+  border-right-color:transparent;border-radius:50%;vertical-align:-1px;margin-right:5px;
+  animation:sp .8s linear infinite}
+@keyframes sp{to{transform:rotate(360deg)}}
+.note{font-size:11px;color:var(--text-muted);margin:6px 0 0}
+
+/* row + section chrome (mirrors ProviderAuthSection / OAuthProviderRow) */
+.card{border:0;padding:0;margin-bottom:8px;background:transparent}
+.grp{font-size:11px;font-weight:600;color:var(--text-muted);text-transform:uppercase;
+  letter-spacing:.08em;margin:0 0 8px}
+.row{display:flex;flex-direction:column;gap:4px;padding:12px;border-radius:4px;
+  background:var(--bg-tertiary);border:1px solid var(--border-primary);margin-bottom:8px}
+.row-head{display:flex;align-items:center;gap:12px}
+.who{flex:1;min-width:0}
+.meta{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-muted)}
+.ok{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--accent-green)}
+.btn-out{font-size:12px;padding:4px 8px;border-radius:4px;background:var(--bg-secondary);
+  color:var(--text-muted);border:1px solid var(--border-secondary)}
+.btn-in{font-size:12px;font-weight:500;padding:6px 12px;border-radius:4px;
+  background:var(--accent-primary);color:#fff;border:0}
+.im{margin-top:8px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Settings &rarr; Providers &rarr; Provider Authentication</h1>
+  <p class="lede">Mockup: <code>anthropic-peer-hint</code> on the OAuth row &mdash; states A&ndash;E, dark + light.</p>
+  <div class="toolbar">
+    <button onclick="document.documentElement.dataset.theme=
+      document.documentElement.dataset.theme==='light'?'dark':'light'">Toggle theme</button>
+  </div>
+
+  <h2>A &middot; Connected, peer missing (primary state)</h2>
+  <div class="card">
+    <h3 class="grp">Subscriptions (OAuth)</h3>
+    <div class="row">
+      <div class="row-head">
+        <div class="who"><div class="pname">Anthropic</div>
+          <div class="meta">&#128337; expires in 27d</div></div>
+        <div class="head-actions">
+          <span class="ok">&#10003; Connected</span>
+          <button class="btn-out">Sign Out</button>
+        </div>
+      </div>
+      <div class="im">
+        <span class="accent"></span>
+        <svg class="ico" viewBox="0 0 24 24"><path d="M12 2 2 7v10l10 5 10-5V7L12 2m0 2.2 7.5 3.7v.1L12 11.7 4.5 8v-.1L12 4.2M4 9.9l7 3.5v6.2l-7-3.5V9.9m9 9.7v-6.2l7-3.5v6.2l-7 3.5Z"/></svg>
+        <div style="flex:1;min-width:0">
+          <div class="title">One more step: install the Anthropic peer package</div>
+          <div class="body">Sessions and flows on this subscription stay in
+            <code>waiting_peers</code> until
+            <code>@blackbelt-technology/pi-anthropic-messages</code> is installed.</div>
+          <div class="actions"><button class="act">Install peer</button></div>
+        </div>
+      </div>
+    </div>
+    <div class="row">
+      <div class="row-head">
+        <div class="who"><div class="pname">OpenAI Codex</div></div>
+        <div class="head-actions"><button class="btn-in">Sign In</button></div>
+      </div>
+    </div>
+  </div>
+
+  <h2>B &middot; Install in flight</h2>
+  <div class="card">
+    <div class="row">
+      <div class="row-head">
+        <div class="who"><div class="pname">Anthropic</div>
+          <div class="meta">&#128337; expires in 27d</div></div>
+        <div class="head-actions"><span class="ok">&#10003; Connected</span>
+          <button class="btn-out">Sign Out</button></div>
+      </div>
+      <div class="im">
+        <span class="accent"></span>
+        <svg class="ico" viewBox="0 0 24 24"><path d="M12 2 2 7v10l10 5 10-5V7L12 2m0 2.2 7.5 3.7v.1L12 11.7 4.5 8v-.1L12 4.2M4 9.9l7 3.5v6.2l-7-3.5V9.9m9 9.7v-6.2l7-3.5v6.2l-7 3.5Z"/></svg>
+        <div style="flex:1;min-width:0">
+          <div class="title">One more step: install the Anthropic peer package</div>
+          <div class="body">Installing <code>@blackbelt-technology/pi-anthropic-messages</code>&hellip;</div>
+          <div class="actions"><button class="act" disabled><span class="spin"></span>Installing&hellip;</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <h2>C &middot; Peer installed &rarr; hint gone (no residue)</h2>
+  <div class="card">
+    <div class="row">
+      <div class="row-head">
+        <div class="who"><div class="pname">Anthropic</div>
+          <div class="meta">&#128337; expires in 27d</div></div>
+        <div class="head-actions"><span class="ok">&#10003; Connected</span>
+          <button class="btn-out">Sign Out</button></div>
+      </div>
+    </div>
+  </div>
+  <p class="note">Nothing renders. Self-clears on <code>package_operation_complete</code>; no success banner (the package queue&rsquo;s own toast already confirms the install).</p>
+
+  <h2>D &middot; Signed out (never hints)</h2>
+  <div class="card">
+    <div class="row">
+      <div class="row-head">
+        <div class="who"><div class="pname">Anthropic</div></div>
+        <div class="head-actions"><button class="btn-in">Sign In</button></div>
+      </div>
+    </div>
+  </div>
+  <p class="note">Peer still missing, but the operator has not connected a subscription &mdash; nothing to warn about yet.</p>
+
+  <h2>E &middot; API Keys section (never hints)</h2>
+  <div class="card">
+    <h3 class="grp">API Keys</h3>
+    <div class="row">
+      <div class="row-head">
+        <div class="who"><div class="pname">Anthropic (API key)</div></div>
+        <div class="head-actions"><span class="ok">&#10003; Set</span>
+          <button class="btn-out">Remove</button></div>
+      </div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

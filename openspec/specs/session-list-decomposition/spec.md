@@ -1,4 +1,10 @@
-## ADDED Requirements
+# session-list-decomposition Specification
+
+## Purpose
+
+Extracts the session list's directory group header, toolbar, and grouping utility into separate units, so list rendering and grouping logic can be changed and tested independently.
+
+## Requirements
 
 ### Requirement: Directory group header extraction
 SessionList.tsx SHALL delegate directory group header rendering (collapse toggle, directory name, pin/unpin, git info, editor buttons, spawn/terminal buttons, pi resources button, OpenSpec section) to a `DirectoryGroupHeader` component.

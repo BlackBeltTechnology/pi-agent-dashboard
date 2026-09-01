@@ -18,16 +18,36 @@
  */
 import crypto from "node:crypto";
 
-/** WS route scopes a ticket may be bound to. */
-export type WsRouteScope = "browser" | "terminal" | "live";
+/**
+ * WS route scopes a ticket may be bound to.
+ *
+ * `bridge` is the pi-gateway upgrade path. It exists so a REMOTE bridge over
+ * TCP authenticates the same way every other remote client does — a paired
+ * device mints a scope-bound ticket with its durable bearer and presents only
+ * the ticket — and so a bridge ticket can never be replayed against the
+ * more-privileged `terminal` or `browser` routes (D7, D10b, task 6.1).
+ */
+export type WsRouteScope = "browser" | "terminal" | "live" | "bridge";
 
 const TICKET_TTL_MS = 15_000; // seconds-scale; client mints one per connect.
 const TICKET_BYTES = 32;
 
 interface TicketEntry {
   scope: WsRouteScope;
+  /**
+   * Paired-device id of the caller that minted this ticket, for `bridge`
+   * scope. Carried so a session registered over a remote bridge can be
+   * ATTRIBUTED to a device — origin is derived from the credential, never
+   * from anything the bridge says about itself.
+   */
+  deviceId?: string;
   expiresAt: number;
 }
+
+/** Outcome of a single-use consumption attempt, with the cause named. */
+export type TicketConsumption =
+  | { ok: true; deviceId?: string }
+  | { ok: false; reason: "missing" | "unknown" | "expired" | "wrong-scope" };
 
 /** Map a WebSocket upgrade URL to its route scope, or null if not a WS route. */
 export function routeScopeForUrl(url: string | undefined): WsRouteScope | null {
@@ -36,6 +56,7 @@ export function routeScopeForUrl(url: string | undefined): WsRouteScope | null {
   if (pathOnly === "/ws") return "browser";
   if (pathOnly.startsWith("/ws/terminal/")) return "terminal";
   if (pathOnly.startsWith("/live/")) return "live";
+  if (pathOnly === "/ws/bridge") return "bridge";
   return null;
 }
 
@@ -77,12 +98,12 @@ export class WsTicketStore {
   }
 
   /** Mint a single-use ticket bound to a route scope (authenticated caller). */
-  mint(scope: WsRouteScope): string {
+  mint(scope: WsRouteScope, deviceId?: string): string {
     // Lazy sweep on each mint clears abandoned (minted-but-unconsumed) tickets
     // so the map can't grow unbounded without a background timer.
     this.sweep();
     const ticket = crypto.randomBytes(TICKET_BYTES).toString("base64url");
-    this.tickets.set(ticket, { scope, expiresAt: this.now() + TICKET_TTL_MS });
+    this.tickets.set(ticket, { scope, deviceId, expiresAt: this.now() + TICKET_TTL_MS });
     return ticket;
   }
 
@@ -92,13 +113,27 @@ export class WsTicketStore {
    * when the ticket exists, is unexpired, and matches the requested scope.
    */
   consume(ticket: string | null | undefined, scope: WsRouteScope): boolean {
-    if (!ticket) return false;
+    return this.consumeDetailed(ticket, scope).ok;
+  }
+
+  /**
+   * As {@link consume}, but NAMING the refusal cause.
+   *
+   * The bridge upgrade path has to distinguish "presented nothing" from
+   * "replayed a used ticket" from "wrong scope" — an operator debugging a
+   * bridge that will not connect cannot act on a single boolean (task 6.3).
+   * The causes are reported only in server-side logs, never to the client,
+   * so this does not hand an attacker an oracle.
+   */
+  consumeDetailed(ticket: string | null | undefined, scope: WsRouteScope): TicketConsumption {
+    if (!ticket) return { ok: false, reason: "missing" };
     const entry = this.tickets.get(ticket);
     // Delete synchronously on first attempt — no reuse.
     this.tickets.delete(ticket);
-    if (!entry) return false;
-    if (entry.expiresAt < this.now()) return false;
-    return entry.scope === scope;
+    if (!entry) return { ok: false, reason: "unknown" };
+    if (entry.expiresAt < this.now()) return { ok: false, reason: "expired" };
+    if (entry.scope !== scope) return { ok: false, reason: "wrong-scope" };
+    return { ok: true, deviceId: entry.deviceId };
   }
 
   /** Drop expired tickets (memory hygiene). */

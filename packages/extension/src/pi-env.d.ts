@@ -17,6 +17,10 @@ declare module "@earendil-works/pi-coding-agent" {
   export interface ExtensionAPI {
     on(event: string, handler: (...args: any[]) => any): void;
     getCommands(): any[];
+    sendMessage<T = unknown>(
+      message: { customType: string; content: string; display: boolean; details?: T },
+      options?: { triggerTurn?: boolean; deliverAs?: "steer" | "followUp" | "nextTurn" },
+    ): void;
     sendUserMessage(message: string | any[]): void;
     setSessionName(name: string): void;
     getSessionName(): string | undefined;

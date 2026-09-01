@@ -1,4 +1,10 @@
-## ADDED Requirements
+# auth-bypass-url-list Specification
+
+## Purpose
+
+Defines which requests may skip dashboard authentication: a configurable list of bypass URLs and a configurable set of trusted hosts that bypass by source IP. Exists so local and automated callers can reach specific endpoints without a token, while keeping the bypass surface explicit and reviewable rather than implicit in route code.
+
+## Requirements
 
 ### Requirement: Configurable auth bypass URL list
 The dashboard SHALL support a `bypassUrls` field inside `auth` config containing an array of URL path prefixes that skip OAuth authentication for HTTP requests. When a request URL starts with any entry in the list, the `onRequest` hook SHALL allow the request through without requiring a valid session cookie. The field SHALL be optional; when absent or empty, behaviour SHALL be identical to the current implementation.

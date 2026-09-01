@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>keysync — provider accounts</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="tokens.css" />
+<script src="theme-init.js"></script>
+<style>
+  .panel { background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 0.75rem; }
+  .row { background: var(--bg-tertiary); border: 1px solid var(--border-subtle); border-radius: 0.5rem; }
+  .row-active { border-color: color-mix(in srgb, var(--accent-green) 40%, transparent); }
+  .pill { border-radius: 999px; font-size: 0.6875rem; padding: 0.125rem 0.5rem; font-weight: 600; white-space: nowrap; }
+  .rail { width: 3px; border-radius: 999px; flex: 0 0 3px; }
+  /* Account identity must never clip — it is the one thing the row is about. */
+  .acct { font-size: 0.875rem; font-weight: 500; word-break: break-word; }
+  /* >=44px touch target on mobile without changing desktop density. */
+  .ctl { display: flex; align-items: center; gap: 0.375rem; font-size: 0.75rem; cursor: pointer; min-height: 44px; }
+  @media (min-width: 640px) { .ctl { min-height: 0; } }
+  .ctls { border-top: 1px solid var(--border-subtle); padding-top: 0.25rem; }
+  @media (min-width: 640px) { .ctls { border-top: 0; padding-top: 0.125rem; } }
+</style>
+</head>
+<body class="min-h-screen" style="background:var(--bg-primary)">
+<div class="max-w-4xl mx-auto p-4 sm:p-8">
+
+  <header class="flex items-start justify-between mb-6 gap-3 flex-wrap">
+    <div>
+      <h1 class="text-lg font-semibold" style="color:var(--text-primary)">Provider accounts</h1>
+      <p class="text-sm mt-1" style="color:var(--text-tertiary)">Sign-ins live on the keysync server, never on this machine.</p>
+    </div>
+    <div class="flex items-center gap-2">
+      <a href="index.html" class="px-3 py-1.5 rounded border text-sm" style="border-color:var(--border-primary); color:var(--text-secondary)">← All mockups</a>
+      <button onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'" class="px-3 py-1.5 rounded border text-sm" style="border-color:var(--border-primary); color:var(--text-secondary)">Theme</button>
+    </div>
+  </header>
+
+  <!-- Legend: the three orthogonal concepts, stated once, up front -->
+  <div class="panel p-3 mb-6 flex flex-col sm:flex-row sm:flex-wrap gap-x-6 gap-y-1.5 text-xs" style="color:var(--text-tertiary)">
+    <span class="font-semibold" style="color:var(--text-secondary)">Reading this page:</span>
+    <span class="flex items-center gap-2"><span class="rail h-4" style="background:var(--accent-green)"></span> <b style="color:var(--text-secondary)">Serving now</b> — what your sessions are running on</span>
+    <span class="flex items-center gap-2"><span style="color:var(--accent-blue)">◉</span> <b style="color:var(--text-secondary)">Primary</b> — preferred while healthy</span>
+    <span class="flex items-center gap-2"><span style="color:var(--text-tertiary)">◧</span> <b style="color:var(--text-secondary)">Shared</b> — lent to the team</span>
+  </div>
+
+  <!-- MEMBER ROTATION SWITCH — normal state, on -->
+  <div class="panel p-3 mb-6 flex items-start gap-3">
+    <input type="checkbox" id="rot" checked class="mt-0.5" />
+    <label for="rot" class="cursor-pointer flex-1 min-w-0">
+      <div class="text-sm" style="color:var(--text-primary)">Switch accounts automatically when one runs out</div>
+      <div class="text-xs mt-0.5" style="color:var(--text-tertiary)">
+        Off means only <b>robson@semmi.se</b> is used, and your session stops when it runs out.
+        Team accounts are never used.
+      </div>
+    </label>
+  </div>
+
+  <!-- ─────────── ANTHROPIC ─────────── -->
+  <section class="panel p-4 mb-5">
+    <div class="flex items-center justify-between mb-1 gap-2 flex-wrap">
+      <div class="flex items-center gap-2">
+        <h2 class="text-sm font-semibold" style="color:var(--text-primary)">anthropic</h2>
+        <span class="pill" style="background:var(--severity-neutral-bg); color:var(--severity-neutral-fg)">4 accounts</span>
+      </div>
+      <button class="text-xs px-2.5 py-1.5 rounded border" style="border-color:var(--border-secondary); color:var(--text-secondary)">+ Add account</button>
+    </div>
+    <p class="text-xs mb-4" style="color:var(--text-muted)">Your own and team accounts are treated the same when switching.</p>
+
+    <!-- SERVING + PRIMARY, own, shared -->
+    <div class="row row-active p-3 mb-2 flex gap-3">
+      <span class="rail self-stretch" style="background:var(--accent-green)"></span>
+      <div class="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-start gap-2 sm:gap-4">
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="acct" style="color:var(--text-primary)">robson@semmi.se</span>
+            <span class="pill" style="background:var(--severity-success-bg); color:var(--severity-success-fg); border:1px solid var(--severity-success-border)">Serving now</span>
+            <span class="pill" style="background:var(--severity-info-bg); color:var(--severity-info-fg)">Yours</span>
+          </div>
+          <div class="text-xs mt-1" style="color:var(--text-tertiary)">Max plan · kept signed in by the server · 2 teammates can use it</div>
+        </div>
+        <div class="ctls flex items-center gap-5 shrink-0">
+          <label class="ctl" style="color:var(--accent-blue)"><input type="radio" name="anthropic-primary" checked /> Primary</label>
+          <label class="ctl" style="color:var(--text-secondary)"><input type="checkbox" checked /> Shared</label>
+        </div>
+      </div>
+    </div>
+
+    <!-- OWN, PRIVATE, healthy -->
+    <div class="row p-3 mb-2 flex gap-3">
+      <span class="rail self-stretch" style="background:transparent"></span>
+      <div class="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-start gap-2 sm:gap-4">
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="acct" style="color:var(--text-primary)">robson.alt@gmail.com</span>
+            <span class="pill" style="background:var(--severity-success-bg); color:var(--severity-success-fg)">Ready</span>
+            <span class="pill" style="background:var(--severity-info-bg); color:var(--severity-info-fg)">Yours</span>
+          </div>
+          <div class="text-xs mt-1" style="color:var(--text-tertiary)">Pro plan · not shared — only your sessions can use it</div>
+        </div>
+        <div class="ctls flex items-center gap-5 shrink-0">
+          <label class="ctl" style="color:var(--text-tertiary)"><input type="radio" name="anthropic-primary" /> Primary</label>
+          <label class="ctl" style="color:var(--text-secondary)"><input type="checkbox" /> Shared</label>
+        </div>
+      </div>
+    </div>
+
+    <!-- COOLING: rate-limited upstream, shared by a teammate -->
+    <div class="row p-3 mb-2 flex gap-3">
+      <span class="rail self-stretch" style="background:transparent"></span>
+      <div class="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-start gap-2 sm:gap-4">
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="acct" style="color:var(--text-primary)">kata@semmi.se</span>
+            <span class="pill" style="background:var(--severity-warning-bg); color:var(--severity-warning-fg); border:1px solid var(--severity-warning-border)">Ran out · 38 min left</span>
+            <span class="pill" style="background:var(--severity-neutral-bg); color:var(--severity-neutral-fg)">Shared by Kata</span>
+          </div>
+          <div class="text-xs mt-1" style="color:var(--text-tertiary)">Rejoins on its own — nothing to do</div>
+        </div>
+        <div class="ctls flex items-center gap-5 shrink-0">
+          <label class="ctl cursor-not-allowed" style="color:var(--text-muted)"><input type="radio" name="anthropic-primary" disabled /> Primary</label>
+          <span class="ctl" style="color:var(--text-muted)" title="Only the owner can stop sharing">Kata's</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- DEAD -->
+    <div class="row p-3 flex gap-3" style="opacity:.8">
+      <span class="rail self-stretch" style="background:transparent"></span>
+      <div class="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-start gap-2 sm:gap-4">
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="acct" style="color:var(--text-primary)">old-team@semmi.se</span>
+            <span class="pill" style="background:var(--severity-error-bg); color:var(--severity-error-fg); border:1px solid var(--severity-error-border)">Sign-in expired</span>
+            <span class="pill" style="background:var(--severity-info-bg); color:var(--severity-info-fg)">Yours</span>
+          </div>
+          <div class="text-xs mt-1" style="color:var(--text-tertiary)">Refresh failed 2 days ago — never selected until you sign in again</div>
+        </div>
+        <div class="ctls flex items-center gap-2 shrink-0">
+          <button class="text-xs px-2.5 py-2 rounded border" style="border-color:var(--border-secondary); color:var(--text-secondary)">Sign in again</button>
+          <button class="text-xs px-2 py-2 rounded" style="color:var(--accent-red)">Remove</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─────────── OPENAI-CODEX ─────────── -->
+  <section class="panel p-4 mb-5">
+    <div class="flex items-center justify-between mb-1 gap-2 flex-wrap">
+      <div class="flex items-center gap-2">
+        <h2 class="text-sm font-semibold" style="color:var(--text-primary)">openai-codex</h2>
+        <span class="pill" style="background:var(--severity-neutral-bg); color:var(--severity-neutral-fg)">1 account</span>
+      </div>
+      <button class="text-xs px-2.5 py-1.5 rounded border" style="border-color:var(--border-secondary); color:var(--text-secondary)">+ Add account</button>
+    </div>
+    <p class="text-xs mb-4" style="color:var(--text-muted)">Only one account — nothing to fail over to.</p>
+
+    <div class="row row-active p-3 flex gap-3">
+      <span class="rail self-stretch" style="background:var(--accent-green)"></span>
+      <div class="flex-1 min-w-0 flex flex-col sm:flex-row sm:items-start gap-2 sm:gap-4">
+        <div class="flex-1 min-w-0">
+          <div class="flex items-center gap-2 flex-wrap">
+            <span class="acct" style="color:var(--text-primary)">robson@semmi.se</span>
+            <span class="pill" style="background:var(--severity-success-bg); color:var(--severity-success-fg); border:1px solid var(--severity-success-border)">Serving now</span>
+            <span class="pill" style="background:var(--severity-info-bg); color:var(--severity-info-fg)">Yours</span>
+          </div>
+          <div class="text-xs mt-1" style="color:var(--text-tertiary)">Plus plan · kept signed in by the server · not shared</div>
+        </div>
+        <div class="ctls flex items-center gap-5 shrink-0">
+          <label class="ctl" style="color:var(--accent-blue)"><input type="radio" name="codex-primary" checked /> Primary</label>
+          <label class="ctl" style="color:var(--text-secondary)"><input type="checkbox" /> Shared</label>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Unshare confirmation — destructive because it is visible to other people -->
+  <section class="panel p-4 mb-5" style="border-color:var(--severity-warning-border)">
+    <div class="text-xs font-semibold mb-2" style="color:var(--text-tertiary)">STATE — confirming an unshare that affects others</div>
+    <div class="p-3 rounded" style="background:var(--severity-warning-bg); border:1px solid var(--severity-warning-border)">
+      <div class="text-sm font-medium mb-1" style="color:var(--severity-warning-fg)">Stop sharing robson@semmi.se?</div>
+      <p class="text-xs mb-3" style="color:var(--text-secondary)">
+        <b>Kata</b> and <b>Bence</b> are using this account right now. They lose it on their next request
+        and switch to another account. If none is available, their sessions will stop.
+      </p>
+      <div class="flex gap-2 flex-wrap">
+        <button class="text-xs px-3 py-2 rounded" style="background:var(--accent-red); color:#fff">Stop sharing</button>
+        <button class="text-xs px-3 py-2 rounded border" style="border-color:var(--border-secondary); color:var(--text-secondary)">Keep sharing</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Rotation notice -->
+  <section class="panel p-4 mb-5">
+    <div class="text-xs font-semibold mb-2" style="color:var(--text-tertiary)">STATE — rotation turned off for the whole team by an admin</div>
+    <div class="p-3 rounded flex items-start gap-3" style="background:var(--severity-warning-bg); border:1px solid var(--severity-warning-border)">
+      <input type="checkbox" disabled class="mt-0.5" />
+      <div class="flex-1 min-w-0">
+        <div class="text-sm" style="color:var(--severity-warning-fg)">Switching is turned off for everyone</div>
+        <div class="text-xs mt-0.5" style="color:var(--text-secondary)">
+          Turned off by <b>robson@semmi.se</b> (admin) 20 min ago. Only your own primary account is used,
+          and your session will stop when it runs out. Your own preference is kept and returns when the
+          admin turns switching back on.
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel p-4">
+    <div class="text-xs font-semibold mb-2" style="color:var(--text-tertiary)">STATE — a switch just happened (session-level notice)</div>
+    <div class="p-3 rounded flex items-start gap-2" style="background:var(--severity-info-bg); border:1px solid var(--severity-info-border)">
+      <span style="color:var(--severity-info-fg)">↻</span>
+      <div>
+        <div class="text-sm" style="color:var(--severity-info-fg)">Switched to <b>kata@semmi.se</b></div>
+        <div class="text-xs mt-0.5" style="color:var(--text-secondary)">
+          robson@semmi.se ran out. Your request went through anyway — nothing was lost.
+          <a href="#" class="underline">Why?</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <footer class="mt-8 text-xs" style="color:var(--text-muted)">
+    Tokens lifted verbatim from <code>packages/client/src/index.css</code>. Rationale in <code>ui-plan.md</code>.
+  </footer>
+</div>
+</body>
+</html>

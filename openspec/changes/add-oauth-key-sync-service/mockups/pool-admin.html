@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>keysync — keeper admin</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="tokens.css" />
+<script src="theme-init.js"></script>
+<style>
+  .panel { background: var(--bg-secondary); border: 1px solid var(--border-primary); border-radius: 0.75rem; }
+  .row { background: var(--bg-tertiary); border: 1px solid var(--border-subtle); border-radius: 0.5rem; }
+  .pill { border-radius: 999px; font-size: 0.6875rem; padding: 0.125rem 0.5rem; font-weight: 600; }
+  th { font-weight: 600; text-align: left; }
+</style>
+</head>
+<body class="min-h-screen" style="background:var(--bg-primary)">
+<div class="max-w-5xl mx-auto p-4 sm:p-8">
+
+  <header class="flex items-start justify-between mb-6 gap-4">
+    <div>
+      <h1 class="text-lg font-semibold" style="color:var(--text-primary)">Key keeper</h1>
+      <p class="text-sm mt-1" style="color:var(--text-tertiary)">Team access, pool health, and the record of who used what.</p>
+    </div>
+    <a href="index.html" class="px-3 py-1.5 rounded border text-sm shrink-0" style="border-color:var(--border-primary); color:var(--text-secondary)">← All mockups</a>
+  </header>
+
+  <!-- Keeper health -->
+  <section class="panel p-4 mb-5">
+    <h2 class="text-sm font-semibold mb-3" style="color:var(--text-primary)">Keeper</h2>
+    <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+      <div class="row p-3">
+        <div class="text-xs" style="color:var(--text-tertiary)">Refresher</div>
+        <div class="text-sm font-medium mt-1" style="color:var(--severity-success-fg)">● Running</div>
+        <div class="text-xs mt-0.5" style="color:var(--text-muted)">sole writer · no rival instance</div>
+      </div>
+      <div class="row p-3">
+        <div class="text-xs" style="color:var(--text-tertiary)">Accounts alive</div>
+        <div class="text-sm font-medium mt-1" style="color:var(--text-primary)">6 of 8</div>
+        <div class="text-xs mt-0.5" style="color:var(--text-muted)">1 cooling · 1 expired</div>
+      </div>
+      <div class="row p-3">
+        <div class="text-xs" style="color:var(--text-tertiary)">Member keys</div>
+        <div class="text-sm font-medium mt-1" style="color:var(--text-primary)">5 active</div>
+        <div class="text-xs mt-0.5" style="color:var(--text-muted)">revoke = instant</div>
+      </div>
+      <div class="row p-3">
+        <div class="text-xs" style="color:var(--text-tertiary)">Next refresh</div>
+        <div class="text-sm font-medium mt-1" style="color:var(--text-primary)">in 6 min</div>
+        <div class="text-xs mt-0.5" style="color:var(--text-muted)">anthropic / kata</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Members -->
+  <section class="panel p-4 mb-5">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-sm font-semibold" style="color:var(--text-primary)">Members</h2>
+      <button class="text-xs px-2.5 py-1 rounded border" style="border-color:var(--border-secondary); color:var(--text-secondary)">+ Invite</button>
+    </div>
+    <div class="space-y-2">
+      <div class="row p-3 flex items-center justify-between gap-3 flex-wrap">
+        <div class="min-w-0">
+          <div class="text-sm font-medium" style="color:var(--text-primary)">robson@semmi.se
+            <span class="pill ml-1" style="background:var(--severity-info-bg); color:var(--severity-info-fg)">Admin</span>
+          </div>
+          <div class="text-xs mt-0.5" style="color:var(--text-tertiary)">GitHub · shares 2 accounts · active now</div>
+        </div>
+        <span class="text-xs" style="color:var(--text-muted)">You</span>
+      </div>
+      <div class="row p-3 flex items-center justify-between gap-3 flex-wrap">
+        <div class="min-w-0">
+          <div class="text-sm font-medium" style="color:var(--text-primary)">kata@semmi.se</div>
+          <div class="text-xs mt-0.5" style="color:var(--text-tertiary)">Google · shares 1 account · active 3 min ago</div>
+        </div>
+        <button class="text-xs px-2.5 py-1 rounded border" style="border-color:var(--border-secondary); color:var(--accent-red)">Revoke key</button>
+      </div>
+      <div class="row p-3 flex items-center justify-between gap-3 flex-wrap" style="opacity:.8">
+        <div class="min-w-0">
+          <div class="text-sm font-medium" style="color:var(--text-primary)">bence@semmi.se
+            <span class="pill ml-1" style="background:var(--severity-error-bg); color:var(--severity-error-fg)">Revoked</span>
+          </div>
+          <div class="text-xs mt-0.5" style="color:var(--text-tertiary)">Key revoked 12 min ago · blocked at next request</div>
+        </div>
+        <button class="text-xs px-2.5 py-1 rounded border" style="border-color:var(--border-secondary); color:var(--text-secondary)">Restore</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pool: keeper's own view of exhaustion truth -->
+  <section class="panel p-4 mb-5">
+    <h2 class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Pool</h2>
+    <p class="text-xs mb-3" style="color:var(--text-muted)">
+      The keeper makes every upstream call itself, so it sees a rate limit first-hand — nothing to report or verify.
+    </p>
+
+    <!-- ADMIN KILL-SWITCH -->
+    <div class="row p-3 mb-3 flex items-start gap-3">
+      <input type="checkbox" id="rot-global" checked class="mt-0.5" />
+      <label for="rot-global" class="cursor-pointer flex-1 min-w-0">
+        <div class="text-sm" style="color:var(--text-primary)">Account switching · <b style="color:var(--severity-success-fg)">on for the team</b></div>
+        <div class="text-xs mt-0.5" style="color:var(--text-tertiary)">
+          Turning this off stops all cross-account traffic within one request — every member falls back to
+          their own primary account only. Members who switched it off for themselves stay off either way.
+          Use this if an account gets flagged.
+        </div>
+      </label>
+    </div>
+    <div class="space-y-2">
+      <div class="row p-3 flex items-center justify-between gap-3 flex-wrap">
+        <div class="min-w-0">
+          <div class="text-sm" style="color:var(--text-primary)">anthropic / robson@semmi.se</div>
+          <div class="text-xs mt-0.5" style="color:var(--text-tertiary)">shared by robson · 2 teammates using it</div>
+        </div>
+        <span class="pill" style="background:var(--severity-success-bg); color:var(--severity-success-fg)">Healthy</span>
+      </div>
+      <div class="row p-3 flex items-center justify-between gap-3 flex-wrap">
+        <div class="min-w-0">
+          <div class="text-sm" style="color:var(--text-primary)">anthropic / robson.alt@gmail.com</div>
+          <div class="text-xs mt-0.5" style="color:var(--text-tertiary)">private to robson · not shared</div>
+        </div>
+        <span class="pill" style="background:var(--severity-success-bg); color:var(--severity-success-fg)">Healthy</span>
+      </div>
+      <div class="row p-3 flex items-center justify-between gap-3 flex-wrap" style="border-color:var(--severity-warning-border)">
+        <div class="min-w-0">
+          <div class="text-sm" style="color:var(--text-primary)">anthropic / kata@semmi.se</div>
+          <div class="text-xs mt-0.5" style="color:var(--text-tertiary)">hit its limit at 14:22 · returns in 38 min</div>
+        </div>
+        <span class="pill" style="background:var(--severity-warning-bg); color:var(--severity-warning-fg)">Cooling</span>
+      </div>
+      <div class="row p-3 flex items-center justify-between gap-3 flex-wrap" style="opacity:.8">
+        <div class="min-w-0">
+          <div class="text-sm" style="color:var(--text-primary)">anthropic / old-team@semmi.se</div>
+          <div class="text-xs mt-0.5" style="color:var(--text-tertiary)">refresh failed · owner must sign in again</div>
+        </div>
+        <span class="pill" style="background:var(--severity-error-bg); color:var(--severity-error-fg)">Expired</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- Audit -->
+  <section class="panel p-4">
+    <h2 class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Record</h2>
+    <p class="text-xs mb-3" style="color:var(--text-muted)">Which member used which account, and when.</p>
+    <div class="overflow-x-auto">
+      <table class="w-full text-xs" style="color:var(--text-secondary)">
+        <thead style="color:var(--text-tertiary)">
+          <tr class="border-b" style="border-color:var(--border-primary)">
+            <th class="py-2 pr-4">When</th><th class="py-2 pr-4">Member</th><th class="py-2 pr-4">Account</th><th class="py-2">What</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="border-b" style="border-color:var(--border-subtle)">
+            <td class="py-2 pr-4" style="color:var(--text-muted)">14:22</td><td class="py-2 pr-4">kata</td>
+            <td class="py-2 pr-4">anthropic / robson</td><td class="py-2">Request re-sent here after limit — succeeded</td>
+          </tr>
+          <tr class="border-b" style="border-color:var(--border-subtle)">
+            <td class="py-2 pr-4" style="color:var(--text-muted)">14:22</td><td class="py-2 pr-4">kata</td>
+            <td class="py-2 pr-4">anthropic / kata</td><td class="py-2">429 from provider → cooling 45 min</td>
+          </tr>
+          <tr class="border-b" style="border-color:var(--border-subtle)">
+            <td class="py-2 pr-4" style="color:var(--text-muted)">14:19</td><td class="py-2 pr-4">robson</td>
+            <td class="py-2 pr-4">anthropic / robson</td><td class="py-2">142 requests forwarded</td>
+          </tr>
+          <tr class="border-b" style="border-color:var(--border-subtle)">
+            <td class="py-2 pr-4" style="color:var(--text-muted)">14:10</td><td class="py-2 pr-4">admin</td>
+            <td class="py-2 pr-4">—</td><td class="py-2">Revoked bence's key · blocked at next request</td>
+          </tr>
+          <tr class="border-b" style="border-color:var(--border-subtle)">
+            <td class="py-2 pr-4" style="color:var(--text-muted)">14:04</td><td class="py-2 pr-4">admin</td>
+            <td class="py-2 pr-4">—</td><td class="py-2">Account switching turned back on for the team</td>
+          </tr>
+          <tr>
+            <td class="py-2 pr-4" style="color:var(--text-muted)">13:58</td><td class="py-2 pr-4">keeper</td>
+            <td class="py-2 pr-4">anthropic / robson</td><td class="py-2">Token refreshed</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer class="mt-8 text-xs" style="color:var(--text-muted)">
+    The keeper issues every upstream request, so rate limits are observed rather than reported (design D5).
+  </footer>
+</div>
+</body>
+</html>

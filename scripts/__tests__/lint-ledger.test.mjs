@@ -13,6 +13,7 @@ import { beforeAll, describe, expect, it } from "vitest";
 import {
   enumerateSites,
   findOrphanSites,
+  runBiomeRule,
   sitesOwnedBy,
 } from "../lint-ledger.mjs";
 
@@ -23,7 +24,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../
  *
  * The suite runs in parallel and sibling tests write transient fixtures INTO
  * the source tree — `biome-undeclared-dependencies.test.mjs` drops
- * `packages/shared/src/__oracle_probe__.ts` for the duration of its run. A
+ * `packages/demo-plugin/src/__oracle_probe__.ts` for the duration of its run. A
  * repo-wide Biome invocation sees whatever happens to be on disk at that
  * instant, so the ledger must be judged against committed source, not the
  * working tree. Without this the assertion is a race, not a ledger check.
@@ -39,12 +40,7 @@ beforeAll(() => {
 });
 
 function liveSites(rule) {
-  const out = execFileSync(
-    "npx",
-    ["biome", "lint", `--only=lint/nursery/${rule}`, ".", "--max-diagnostics=20000", "--reporter=json"],
-    { cwd: repoRoot, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] },
-  );
-  return enumerateSites(JSON.parse(out)).filter((site) =>
+  return enumerateSites(runBiomeRule(rule, { cwd: repoRoot })).filter((site) =>
     trackedFiles.has(site.slice(0, site.lastIndexOf(":"))),
   );
 }

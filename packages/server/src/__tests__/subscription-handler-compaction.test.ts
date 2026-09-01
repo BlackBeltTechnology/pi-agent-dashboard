@@ -9,7 +9,7 @@ import type { ServerToBrowserMessage } from "@blackbelt-technology/pi-dashboard-
 import type { DashboardEvent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { describe, expect, it, vi } from "vitest";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
-import { handleSubscribe, sendEventBatches } from "../browser-handlers/subscription-handler.js";
+import { handleHistoryBackfill, handleSubscribe, peekGapState, sendEventBatches } from "../browser-handlers/subscription-handler.js";
 import { createMemoryEventStore } from "../persistence/memory-event-store.js";
 import { createMemorySessionManager } from "../session/memory-session-manager.js";
 import type { StoredEvent } from "../persistence/memory-event-store.js";
@@ -223,5 +223,54 @@ describe("handleSubscribe — unchanged paths", () => {
 
     expect(ctx.markReplaying).not.toHaveBeenCalled();
     expect(ctx.clearReplaying).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * E5 — a FULLY-SUPERSEDED slice still retreats the tail.
+ *
+ * Replay compaction can drop every event a backfill selected (a band of
+ * superseded `message_update`s whose `message_end` lives in the delivered
+ * tail). The credited `servedFrom` is fixed at the read/snap step — BEFORE
+ * compaction — so the empty delivery still retreats `tailMinSeq` and shrinks
+ * `remainingGapCount`; crediting from the delivered set instead would re-issue
+ * the identical request forever.
+ * See change: fix-history-backfill-holey-store (D5, test-plan #E5).
+ */
+describe("history_backfill — fully-superseded slice (E5)", () => {
+  it("E5: an all-superseded slice delivers [] and still retreats the tail", async () => {
+    const ctx = createMockContext({ maxReplayEvents: 500 });
+    const overrides: Record<number, string> = {};
+    for (let s = 4051; s <= 4550; s++) overrides[s] = "message_update";
+    for (let i = 1; i <= 5000; i++) ctx.eventStore.insertEvent("s1", makeEvent(overrides[i] ?? "tool_execution_end"));
+    const subs = new Set<string>();
+    handleSubscribe({ type: "subscribe", sessionId: "s1", lastSeq: 0 }, subs, ctx);
+    await new Promise((r) => setTimeout(r, 50));
+    const win = ((ctx.sendTo as any).mock.calls as Array<[unknown, ServerToBrowserMessage]>)
+      .map(([, m]) => m)
+      .filter((m): m is Extract<ServerToBrowserMessage, { type: "history_window" }> => m.type === "history_window")[0];
+    expect(win.headMaxSeq).toBe(50);
+    expect(win.tailMinSeq).toBe(4551);
+    (ctx.sendTo as any).mockClear();
+
+    await handleHistoryBackfill(
+      { type: "history_backfill", sessionId: "s1", fromSeq: win.headMaxSeq + 1, toSeq: win.tailMinSeq - 1 },
+      subs,
+      ctx,
+    );
+    const results = ((ctx.sendTo as any).mock.calls as Array<[unknown, ServerToBrowserMessage]>)
+      .map(([, m]) => m)
+      .filter((m): m is Extract<ServerToBrowserMessage, { type: "history_backfill_result" }> => m.type === "history_backfill_result");
+    const [res] = results;
+    expect(res.error).toBeUndefined();
+    // Compaction emptied the delivery…
+    expect(res.events).toEqual([]);
+    // …but the credit is the SELECTED slice's lowest seq, not the request's
+    // `from` and not the (empty) delivered set.
+    expect(res.servedFrom).toBe(4051);
+    expect(peekGapState(ctx.ws, "s1")!.tailMinSeq).toBe(4051);
+    // Strictly smaller than the announced gap: the walk advanced.
+    expect(res.remainingGapCount).toBe(4000);
+    expect(res.remainingGapCount).toBeLessThan(win.gapCount);
   });
 });

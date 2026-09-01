@@ -2,6 +2,9 @@
  * Tests for SpawnRegisterWatchdog.
  * Uses vitest fake timers. See change: spawn-failure-diagnostics.
  */
+import { chmodSync, mkdirSync, mkdtempSync, realpathSync, symlinkSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import WebSocket from "ws";
 
@@ -10,7 +13,8 @@ vi.mock("../spawn-process/spawn-failure-log.js", () => ({
   appendSpawnFailure: vi.fn(),
 }));
 
-import { SpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
+import { appendSpawnFailure } from "../spawn-process/spawn-failure-log.js";
+import { normalizeCwdKey, SpawnRegisterWatchdog } from "../spawn-process/spawn-register-watchdog.js";
 
 function makeMockWs(readyState: number = WebSocket.OPEN): { ws: WebSocket; messages: string[] } {
   const messages: string[] = [];
@@ -450,5 +454,282 @@ describe("SpawnRegisterWatchdog: never kills the server itself", () => {
     vi.advanceTimersByTime(10001);
 
     expect(killed).toEqual([18163]);
+  });
+});
+
+/**
+ * Recovery identity, cwd normalization and observability.
+ *
+ * See change: fix-spawn-correlation-ttl-coupling (test-plan E14, E16-E21,
+ * E36, E37, X1-X3, X11).
+ */
+describe("SpawnRegisterWatchdog: recovery identity and observability", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.mocked(appendSpawnFailure).mockClear();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  function recoveries(messages: string[]): string[] {
+    return messages.filter((m) => m.includes("spawn_register_recovered"));
+  }
+
+  // E14 — the fire must not touch the correlation map. The watchdog has no
+  // reference to it at all; this pins that absence.
+  it("firing leaves a separately-held correlation entry untouched", async () => {
+    const { createPendingClientCorrelations } = await import(
+      "../pending/pending-client-correlations.js"
+    );
+    const correlations = createPendingClientCorrelations();
+    correlations.record("tok_e14", "req-1", 95_000);
+
+    const { ws } = makeMockWs();
+    const w = new SpawnRegisterWatchdog(10_000);
+    w.arm({ cwd: "/p/e14", mechanism: "headless", ws, spawnToken: "tok_e14" });
+    vi.advanceTimersByTime(10_001);
+
+    expect(correlations.size()).toBe(1);
+    expect(correlations.consume("tok_e14")).toBe("req-1");
+    correlations.dispose();
+  });
+
+  // E16 — two same-cwd fires no longer collapse into one recovery record.
+  it("two same-cwd fires with distinct tokens keep independent recovery entries", () => {
+    const { ws, messages } = makeMockWs();
+    const w = new SpawnRegisterWatchdog(10_000);
+    w.arm({ cwd: "/p/e16", mechanism: "tmux", ws, spawnToken: "tok_A" });
+    w.arm({ cwd: "/p/e16", mechanism: "tmux", ws, spawnToken: "tok_B" });
+    vi.advanceTimersByTime(10_001);
+    expect(w._recentlyFiredSize()).toBe(2);
+
+    w.clearByToken("tok_A");
+    expect(recoveries(messages)).toHaveLength(1);
+    // B's fire is intact and still recoverable on its own token.
+    expect(w._recentlyFiredSize()).toBe(1);
+    w.clearByToken("tok_B");
+    expect(recoveries(messages)).toHaveLength(2);
+  });
+
+  // E17 — a cwd clear must not claim a token-indexed fire.
+  it("clearByCwd emits no recovery for a fire that has a token", () => {
+    const { ws, messages } = makeMockWs();
+    const w = new SpawnRegisterWatchdog(10_000);
+    w.arm({ cwd: "/p/e17", mechanism: "tmux", ws, spawnToken: "tok_e17" });
+    vi.advanceTimersByTime(10_001);
+
+    expect(w.clearByCwd("/p/e17")).toBe(false);
+    expect(recoveries(messages)).toHaveLength(0);
+    // The token entry survives and can still recover.
+    expect(w.clearByToken("tok_e17")).toBe(true);
+    expect(recoveries(messages)).toHaveLength(1);
+  });
+
+  // E18 — one fire, at most one recovery.
+  it("clearByToken then clearByCwd emits exactly one recovery", () => {
+    const { ws, messages } = makeMockWs();
+    const w = new SpawnRegisterWatchdog(10_000);
+    w.arm({ cwd: "/p/e18", mechanism: "tmux", ws, spawnToken: "tok_e18" });
+    vi.advanceTimersByTime(10_001);
+
+    w.clearByToken("tok_e18");
+    w.clearByCwd("/p/e18");
+    expect(recoveries(messages)).toHaveLength(1);
+  });
+
+  // E19 — the recovered message carries no requestId (D2).
+  it("the recovered message has no requestId field", () => {
+    const { ws, messages } = makeMockWs();
+    const w = new SpawnRegisterWatchdog(10_000);
+    w.arm({ cwd: "/p/e19", mechanism: "tmux", ws, spawnToken: "tok_e19" });
+    vi.advanceTimersByTime(10_001);
+    w.clearByToken("tok_e19");
+
+    const msg = JSON.parse(recoveries(messages)[0]!);
+    expect(msg).not.toHaveProperty("requestId");
+    expect(msg.cwd).toBe("/p/e19");
+  });
+
+  // E20 — /tmp vs /private/tmp, the miss that actually happens on macOS.
+  it("arm on a symlinked cwd is cancelled by a clear on its real path", (ctx) => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "wd-e20-")));
+    const link = join(mkdtempSync(join(tmpdir(), "wd-e20-link-")), "alias");
+    try {
+      symlinkSync(dir, link);
+    } catch {
+      // Unprivileged Windows cannot create a symlink; the normalization itself
+      // is covered by the fallback cases below.
+      ctx.skip();
+      return;
+    }
+
+    const { ws, messages } = makeMockWs();
+    const w = new SpawnRegisterWatchdog(10_000);
+    w.arm({ cwd: link, mechanism: "tmux", ws });
+    expect(w.clearByCwd(dir)).toBe(true);
+    vi.advanceTimersByTime(15_000);
+    expect(messages).toHaveLength(0);
+  });
+
+  // E21 / X3 — normalization can never throw; it falls back to the raw string.
+  it("arm on a non-existent path is cancelled by the identical raw string", () => {
+    const { ws, messages } = makeMockWs();
+    const w = new SpawnRegisterWatchdog(10_000);
+    const ghost = join(tmpdir(), "wd-e21-does-not-exist", "nested");
+    expect(() => w.arm({ cwd: ghost, mechanism: "tmux", ws })).not.toThrow();
+    expect(w.clearByCwd(ghost)).toBe(true);
+    vi.advanceTimersByTime(15_000);
+    expect(messages).toHaveLength(0);
+  });
+
+  // X3 — an EACCES (not ENOENT) realpath failure takes the same fallback.
+  it("falls back to the raw string when realpath fails with EACCES", () => {
+    const parent = mkdtempSync(join(tmpdir(), "wd-x3-"));
+    const child = join(parent, "inner");
+    mkdirSync(child);
+    chmodSync(parent, 0o000);
+    try {
+      // Precondition: the path really is unreadable, so this exercises the
+      // EACCES branch rather than silently passing on a resolvable path.
+      let code: string | undefined;
+      try {
+        realpathSync(child);
+      } catch (err) {
+        code = (err as NodeJS.ErrnoException).code;
+      }
+      if (code !== "EACCES" && code !== "EPERM") return; // running as root
+
+      expect(normalizeCwdKey(child)).toBe(child);
+      const { ws, messages } = makeMockWs();
+      const w = new SpawnRegisterWatchdog(10_000);
+      expect(() => w.arm({ cwd: child, mechanism: "tmux", ws })).not.toThrow();
+      expect(w.clearByCwd(child)).toBe(true);
+      vi.advanceTimersByTime(15_000);
+      expect(messages).toHaveLength(0);
+    } finally {
+      chmodSync(parent, 0o700);
+    }
+  });
+
+  // E36 — the failure entry gains the join key.
+  it("the persisted REGISTER_TIMEOUT carries the spawnToken", () => {
+    const { ws } = makeMockWs();
+    const w = new SpawnRegisterWatchdog(10_000);
+    w.arm({ cwd: "/p/e36", mechanism: "tmux", ws, spawnToken: "tok_e36" });
+    vi.advanceTimersByTime(10_001);
+
+    const entry = vi.mocked(appendSpawnFailure).mock.calls.at(-1)![0];
+    expect(entry.code).toBe("REGISTER_TIMEOUT");
+    expect(entry.spawnToken).toBe("tok_e36");
+  });
+
+  // E37 — the recorded timeout is the per-entry one, not the constructor default.
+  it("names the effective per-entry timeout, not the constructor default", () => {
+    const { ws, messages } = makeMockWs();
+    const w = new SpawnRegisterWatchdog(30_000);
+    w.arm({ cwd: "/p/e37", mechanism: "tmux", ws, timeoutMs: 90_000 });
+    vi.advanceTimersByTime(90_001);
+
+    const entry = vi.mocked(appendSpawnFailure).mock.calls.at(-1)![0];
+    expect(entry.message).toContain("90000");
+    expect(entry.message).not.toContain("30000");
+    expect(JSON.parse(messages[0]!).timeoutMs).toBe(90_000);
+  });
+
+  // X1 — nothing ever clears: the fire record is evicted on the window closing.
+  it("evicts the fire record once the recovery window closes, with no recovery", () => {
+    const { ws, messages } = makeMockWs();
+    const w = new SpawnRegisterWatchdog(10_000);
+    w.arm({ cwd: "/p/x1", mechanism: "tmux", ws, spawnToken: "tok_x1" });
+    vi.advanceTimersByTime(10_001);
+    expect(w._recentlyFiredSize()).toBe(1);
+
+    vi.advanceTimersByTime(60_001);
+    expect(w._recentlyFiredSize()).toBe(0);
+    expect(recoveries(messages)).toHaveLength(0);
+    expect(w.clearByToken("tok_x1")).toBe(false);
+    expect(recoveries(messages)).toHaveLength(0);
+  });
+
+  // X2 — a closed socket at recovery time: silent, entry still consumed.
+  it("a late clear on a closed socket deletes the entry and does not throw", () => {
+    const messages: string[] = [];
+    const ws = {
+      readyState: WebSocket.OPEN,
+      send: vi.fn((data: string) => messages.push(data)),
+    } as unknown as WebSocket;
+    const w = new SpawnRegisterWatchdog(10_000);
+    w.arm({ cwd: "/p/x2", mechanism: "tmux", ws, spawnToken: "tok_x2" });
+    vi.advanceTimersByTime(10_001);
+    (ws as unknown as { readyState: number }).readyState = WebSocket.CLOSED;
+
+    expect(() => w.clearByToken("tok_x2")).not.toThrow();
+    expect(recoveries(messages)).toHaveLength(0);
+    expect(w._recentlyFiredSize()).toBe(0);
+  });
+
+  // X11 — a fire that never recovers gets no companion record.
+  it("a never-recovered fire appends no REGISTER_RECOVERED companion", () => {
+    const { ws } = makeMockWs();
+    const w = new SpawnRegisterWatchdog(10_000, {
+      findPidsBySpawnToken: () => [4242],
+      kill: () => {},
+    });
+    w.arm({ cwd: "/p/x11", mechanism: "tmux", ws, spawnToken: "tok_x11" });
+    vi.advanceTimersByTime(70_002);
+
+    const codes = vi.mocked(appendSpawnFailure).mock.calls.map((c) => c[0].code);
+    expect(codes).toContain("REGISTER_TIMEOUT");
+    expect(codes).not.toContain("REGISTER_RECOVERED");
+  });
+
+  it("a recovered fire appends a companion joined by token", () => {
+    const { ws } = makeMockWs();
+    const w = new SpawnRegisterWatchdog(10_000);
+    w.arm({ cwd: "/p/rec", mechanism: "tmux", ws, spawnToken: "tok_rec" });
+    vi.advanceTimersByTime(10_001);
+    w.clearByToken("tok_rec");
+
+    const entry = vi.mocked(appendSpawnFailure).mock.calls.at(-1)![0];
+    expect(entry.code).toBe("REGISTER_RECOVERED");
+    expect(entry.spawnToken).toBe("tok_rec");
+    expect(entry.message).toContain("tier token");
+  });
+
+  // Review finding: two TOKEN-LESS same-cwd fires share one `recentlyFired`
+  // key, so the first fire's evict timer must not evict the second's record
+  // early and silently truncate its recovery window.
+  it("a second token-less same-cwd fire keeps its full recovery window", () => {
+    const { ws, messages } = makeMockWs();
+    const w = new SpawnRegisterWatchdog(10_000);
+
+    w.arm({ cwd: "/p/evict", mechanism: "tmux", ws });
+    vi.advanceTimersByTime(10_001); // fire #1 at t≈10s
+    expect(w._recentlyFiredSize()).toBe(1);
+
+    // A second token-less spawn into the same cwd fires 30s later.
+    vi.advanceTimersByTime(30_000);
+    w.arm({ cwd: "/p/evict", mechanism: "tmux", ws });
+    vi.advanceTimersByTime(10_001); // fire #2 at t≈50s
+    expect(w._recentlyFiredSize()).toBe(1);
+
+    // Past fire #1's eviction deadline, but well inside fire #2's window.
+    vi.advanceTimersByTime(25_000);
+    expect(w._recentlyFiredSize()).toBe(1);
+    expect(w.clearByCwd("/p/evict")).toBe(true);
+    expect(messages.filter((m) => m.includes("spawn_register_recovered"))).toHaveLength(1);
+  });
+
+  it("the recovery companion names the spawn mechanism, not \"unknown\"", () => {
+    const { ws } = makeMockWs();
+    const w = new SpawnRegisterWatchdog(10_000);
+    w.arm({ cwd: "/p/mech", mechanism: "tmux", ws, spawnToken: "tok_mech" });
+    vi.advanceTimersByTime(10_001);
+    w.clearByToken("tok_mech");
+
+    const entry = vi.mocked(appendSpawnFailure).mock.calls.at(-1)![0];
+    expect(entry.code).toBe("REGISTER_RECOVERED");
+    expect(entry.strategy).toBe("tmux");
   });
 });

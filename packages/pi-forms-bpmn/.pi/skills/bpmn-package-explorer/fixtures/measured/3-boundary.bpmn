@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_boundary" isExecutable="false">
+    <bpmn:startEvent id="Start_go" name="Go"><bpmn:outgoing>Flow_1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:userTask id="Task_wait" name="Wait"><bpmn:incoming>Flow_1</bpmn:incoming><bpmn:outgoing>Flow_2</bpmn:outgoing></bpmn:userTask>
+    <bpmn:endEvent id="End_ok" name="OK"><bpmn:incoming>Flow_2</bpmn:incoming></bpmn:endEvent>
+    <bpmn:endEvent id="End_timeout" name="Timeout"><bpmn:incoming>Flow_3</bpmn:incoming></bpmn:endEvent>
+    <bpmn:boundaryEvent id="Boundary_timer" name="Timer" attachedToRef="Task_wait"><bpmn:outgoing>Flow_3</bpmn:outgoing></bpmn:boundaryEvent>
+    <bpmn:sequenceFlow id="Flow_1" sourceRef="Start_go" targetRef="Task_wait"/>
+    <bpmn:sequenceFlow id="Flow_2" sourceRef="Task_wait" targetRef="End_ok"/>
+    <bpmn:sequenceFlow id="Flow_3" sourceRef="Boundary_timer" targetRef="End_timeout"/>
+  </bpmn:process>
+</bpmn:definitions>

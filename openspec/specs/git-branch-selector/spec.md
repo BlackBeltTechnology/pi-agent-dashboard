@@ -1,4 +1,10 @@
-## ADDED Requirements
+# git-branch-selector Specification
+
+## Purpose
+
+Lets the user see and change the git branch of a folder group from the dashboard. Defines the clickable branch indicator on the group header, a typeahead branch picker, the checkout orchestration behind it, and initialising a repository from the same affordance when the folder is not yet a git repo.
+
+## Requirements
 
 ### Requirement: Clickable branch icon at folder group level
 The `GroupGitInfo` component SHALL render the branch icon as a clickable button that opens the branch picker dialog. The icon SHALL be the entry point for all git branch operations at the folder level.

@@ -6,7 +6,13 @@ import {
   type DisplayPrefs,
   normalizeNotifyMinLevel,
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
+// From the BROWSER-SAFE module, never `config.js`: a value import of the latter
+// pulls node:fs/os/path into the bundle and the SPA dies at boot with
+// `uv.homedir is not a function`. See change: fix-lazy-history-backfill-ux (D7).
+import { DEFAULT_MEMORY_LIMITS } from "@blackbelt-technology/pi-dashboard-shared/memory-limits.js";
+import { mergeModelOptions } from "@blackbelt-technology/pi-dashboard-shared/model-catalogue.js";
 import type { NpmPackageResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
+import type { ModelInfo } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { mdiAlert, mdiArrowLeft, mdiBookOpenPageVariant, mdiCheckCircle, mdiClipboardText, mdiCloseCircle, mdiCog, mdiContentSave, mdiDelete, mdiFileDocumentEditOutline, mdiKey, mdiLoading, mdiLock, mdiPackageVariant, mdiPalette, mdiPlay, mdiPlus, mdiPuzzle, mdiPuzzleOutline, mdiRestart, mdiRobotOutline, mdiServer, mdiTextBoxOutline, mdiTunnel, mdiUpdate, mdiViewDashboard, mdiWeb, mdiWrench } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
@@ -14,26 +20,38 @@ import { useLocation, useRoute } from "wouter";
 import { useAsyncAction } from "../../hooks/useAsyncAction.js";
 import { useInstalledPackages } from "../../hooks/useInstalledPackages.js";
 import { usePackageOperations } from "../../hooks/usePackageOperations.js";
+import { usePiCompatibility } from "../../hooks/usePiCompatibility.js";
 import { usePiResources } from "../../hooks/usePiResources.js";
 import { usePluginList, usePluginToggle } from "../../hooks/usePluginToggle.js";
+import { PROVIDER_AUTH_EVENT } from "../../hooks/useProvidersReady.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { listKnownServers } from "../../lib/api/known-servers-api.js";
-import { type TestProviderResult, testProvider } from "../../lib/api/providers-api.js";
+import { fetchModelCatalogue, type ModelCatalogueResult } from "../../lib/api/models-api.js";
+import { type ProviderHealth, type TestProviderResult, testProvider } from "../../lib/api/providers-api.js";
 import { type BlockEvent, getBlockEvents } from "../../lib/gateway/gateway-api.js";
-import { suggestTrustEntries } from "../../lib/gateway/gateway-config-ops.js";
+import {
+  type BindReachability,
+  collectTrustedEntries,
+  dedupeInterfaceOffers,
+  pendingEffectiveHost,
+  suggestTrustEntries,
+  type TrustSuggestion,
+  unreachableTrustedEntries,
+} from "../../lib/gateway/gateway-config-ops.js";
 import { fetchAutoInitWorktreePref, fetchAutoNameSessionsPref, setAutoInitWorktreePref, setAutoNameSessionsPref } from "../../lib/git/git-api.js";
 import { t as i18nT, LANGUAGE_OPTIONS, type Language, useI18n } from "../../lib/i18n/i18n.js";
 import { buildPiResourceFileUrl } from "../../lib/nav/route-builders.js";
+import { logRejection } from "../../lib/report-error.js";
 import { useDisplayPrefsContext } from "../../lib/state/DisplayPrefsContext.js";
 import { PopoverBoundaryProvider } from "../../lib/state/PopoverBoundaryContext.js";
 import { KnownServersSection } from "../connectivity/KnownServersSection.js";
 import { NetworkDiscoverySection } from "../connectivity/NetworkDiscoverySection.js";
 import { PairedDevicesSection } from "../connectivity/PairedDevicesSection.js";
-import { PairingView } from "../connectivity/PairingView.js";
 import { InstructionsPage } from "../DirectorySettings/InstructionsPage.js";
 import { GatewayPage } from "../Gateway/GatewayPage.js";
 import { OpenSpecProfileSection } from "../openspec/OpenSpecProfileSection.js";
+import { useOverlayDismissGuard } from "../overlay/overlay-dismiss-guard.js";
 import { PackageBrowser } from "../packages/PackageBrowser.js";
 import { PackageInstallConfirmDialog } from "../packages/PackageInstallConfirmDialog.js";
 import { PackageReadmeDialog } from "../packages/PackageReadmeDialog.js";
@@ -42,16 +60,21 @@ import { PluginsSection } from "../packages/PluginsSection.js";
 import { UnifiedPackagesSection } from "../packages/UnifiedPackagesSection.js";
 import { DialogPortal } from "../primitives/DialogPortal.js";
 import type { ResourceType } from "../resource/ResourceCardGrid.js";
-import { ResourceGridPanel } from "../resource/ResourceGridPanel.js";
+import { RESOURCE_PAGE_TYPE, type ResourcePageId, ScopedResourceGrid } from "../resource/ScopedResourceGrid.js";
 import { CanvasTypesSettingsSection } from "./CanvasTypesSettingsSection.js";
 import { DiagnosticsSection } from "./DiagnosticsSection.js";
 import { ModelProxySection } from "./ModelProxySection.js";
 import { ModelSelector } from "./ModelSelector.js";
+// Curated pi-install picker; sits directly above the raw Tools escape hatch.
+// See change: select-pi-runtime-install (design D12).
+import { PiRuntimeSection } from "./PiRuntimeSection.js";
+import { NodeRuntimeSection } from "./NodeRuntimeSection.js";
+import { PiRuntimeStatusRow } from "./PiRuntimeStatusRow.js";
 import { PluginNotFoundNotice, PluginSettingsPage } from "./PluginSettingsPage.js";
 import { ProviderAuthSection } from "./ProviderAuthSection.js";
 import { RetrySettingsSection } from "./RetrySettingsSection.js";
+import { ThinkingLevelSelector } from "./ThinkingLevelSelector.js";
 import { SpawnFailuresSection, ToolsSection } from "./ToolsSection.js";
-import { logRejection } from "../../lib/report-error.js";
 
 interface ProviderConfig {
   clientId: string;
@@ -85,13 +108,36 @@ interface MemoryLimitsConfig {
   maxEventsPerSession: number;
   maxStringFieldSize: number;
   maxWsBufferBytes: number;
+  /** See change: lazy-load-session-history. */
+  maxReplayEvents: number;
+  /** See change: add-tail-only-replay-window (D10). */
+  replayWindowMode: "head-tail" | "tail-only";
 }
+
+/**
+ * Seed for the `!c.memoryLimits` branches below. Extracted so a new field can
+ * never be added to the interface and forgotten in one of four literals —
+ * which would silently drop the other three values on save.
+ */
+const MEMORY_LIMITS_SEED: MemoryLimitsConfig = {
+  maxEventsPerSession: 200,
+  maxStringFieldSize: 4000,
+  maxWsBufferBytes: 4194304,
+  maxReplayEvents: DEFAULT_MEMORY_LIMITS.maxReplayEvents,
+  replayWindowMode: DEFAULT_MEMORY_LIMITS.replayWindowMode,
+};
 
 interface NetworkInterfaceInfo {
   name: string;
   address: string;
   netmask: string;
   cidr: string;
+  /** Human-meaningful name (`tailnet`), falling back to the device name. */
+  label?: string;
+  /** True for a `/32` NIC — it covers its own address only. */
+  pointToPoint?: boolean;
+  /** Trust offers this interface can honestly make; empty = unofferable. */
+  suggestions?: TrustSuggestion[];
 }
 
 interface Config {
@@ -126,6 +172,8 @@ interface Config {
   };
   devBuildOnReload: boolean;
   defaultModel: string;
+  /** Default thinking level for brand-new sessions. "" = do not override. See change: add-default-thinking-level. */
+  defaultThinkingLevel: string;
   /** Display name for the PWA app label. See change: add-dynamic-pwa-manifest-naming. */
   dashboardName?: string;
   auth?: AuthConfig;
@@ -146,6 +194,12 @@ interface Config {
   windowsGitSource?: "auto" | "host" | "bundled";
   /** Keeper log behavior — gates capture of pi stdout/stderr into keeper-<id>.log. Default off. See change: add-keeper-output-capture-toggle. */
   keeperLog?: { capturePiOutput?: boolean };
+  /**
+   * COMPUTED, never persisted. The bind host this process actually bound, the
+   * one the next start would bind, and the trusted entries that bind host
+   * cannot serve. See change: warn-unreachable-trusted-networks.
+   */
+  reachability?: BindReachability | null;
 }
 
 const DEFAULT_OPENSPEC_UI = {
@@ -172,7 +226,7 @@ const CONFIG_FIELD_PAGE: Record<string, string> = {
   tunnel: "server", memoryLimits: "server",
   spawnStrategy: "sessions", reattachPlacement: "sessions", reopenSessionsAfterShutdown: "sessions", completedFirst: "sessions",
   questionFirst: "sessions", askUserPromptTimeoutSeconds: "sessions", spawnRegisterTimeoutMs: "sessions",
-  gitWorktreeEnabled: "sessions", dashboardName: "general", defaultModel: "sessions",
+  gitWorktreeEnabled: "sessions", dashboardName: "general", defaultModel: "sessions", defaultThinkingLevel: "sessions",
   windowsGitSource: "sessions", autoStart: "sessions",
   trustedNetworks: "security", auth: "security",
   modelProxy: "providers",
@@ -233,6 +287,7 @@ function computeConfigPartial(config: Config, original: Config): Record<string, 
   }
   if (config.devBuildOnReload !== original.devBuildOnReload) partial.devBuildOnReload = config.devBuildOnReload;
   if (config.defaultModel !== original.defaultModel) partial.defaultModel = config.defaultModel;
+  if (config.defaultThinkingLevel !== original.defaultThinkingLevel) partial.defaultThinkingLevel = config.defaultThinkingLevel;
   if ((config.dashboardName ?? "") !== (original.dashboardName ?? "")) {
     const trimmed = (config.dashboardName ?? "").trim();
     partial.dashboardName = trimmed.length > 0 ? trimmed : "";
@@ -240,8 +295,30 @@ function computeConfigPartial(config: Config, original: Config): Record<string, 
   if (JSON.stringify(config.trustedNetworks) !== JSON.stringify(original.trustedNetworks)) {
     partial.trustedNetworks = config.trustedNetworks ?? [];
   }
+  /**
+   * FIELD-level, not whole-object. `GET /api/config` returns the PARSED config,
+   * so every memory limit is materialized client-side; writing the whole object
+   * back would serialize an explicit `maxReplayEvents` the user never chose
+   * whenever they edit a sibling field — converting a defaulted field into a
+   * pinned one behind their back, and freezing the old default across upgrades.
+   * The server deep-merges `memoryLimits` over the RAW file, so a partial
+   * sub-object is safe: untouched keys stay exactly as the file has them
+   * (including an explicit `0`, the documented rollback lever).
+   * See change: fix-lazy-history-backfill-ux (D7).
+   */
   if (JSON.stringify(config.memoryLimits) !== JSON.stringify(original.memoryLimits)) {
-    partial.memoryLimits = config.memoryLimits;
+    const changed: Partial<MemoryLimitsConfig> = {};
+    const keys = Object.keys(config.memoryLimits ?? {}) as (keyof MemoryLimitsConfig)[];
+    for (const key of keys) {
+      if (config.memoryLimits[key] !== original.memoryLimits?.[key]) {
+        // `MemoryLimitsConfig` is no longer all-numeric (`replayWindowMode` is a
+        // string union), so TS cannot correlate the indexed read with the
+        // indexed write across the key union. The runtime shape is exact.
+        // See change: add-tail-only-replay-window (D10).
+        (changed as Record<string, unknown>)[key] = config.memoryLimits[key];
+      }
+    }
+    if (Object.keys(changed).length > 0) partial.memoryLimits = changed;
   }
   if (JSON.stringify(config.openspec) !== JSON.stringify(original.openspec)) {
     partial.openspec = config.openspec ?? DEFAULT_OPENSPEC_UI;
@@ -278,13 +355,10 @@ const VALID_PAGES = new Set<string>([...VALID_SETTINGS_TABS, "instructions", "ga
 
 // Global-scope resource card pages. Page id → the singular `PiResource.type` its
 // grid renders. See change: resources-card-tabs.
-const RESOURCE_TAB_TYPE: Record<string, ResourceType> = {
-  skills: "skill",
-  agents: "agent",
-  extensions: "extension",
-  prompts: "prompt",
-  themes: "theme",
-};
+/** Retired in favour of the single map in `ScopedResourceGrid` (D7): two
+ *  byte-identical copies could drift and render the wrong type under a
+ *  correct-looking URL. See change: add-route-backed-overlay-dialogs. */
+const RESOURCE_TAB_TYPE = RESOURCE_PAGE_TYPE;
 
 /** Resolve a raw id (route param or ?tab=) to a canonical page id, or null if invalid. */
 function resolveSettingsPage(raw: string | undefined | null): string | null {
@@ -301,7 +375,13 @@ function resolveSettingsPage(raw: string | undefined | null): string | null {
 const BACK_SENTINEL = "@@back";
 
 export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd }: {
-  availableModels?: Array<{ provider: string; id: string }>;
+  /**
+   * Per-session `models_list` union pushed by live bridges. Merged with the
+   * session-independent `GET /api/models` catalogue this panel fetches itself;
+   * session rows win on collision (they carry `name` / `metadataSource`).
+   * See change: settings-default-model-without-session.
+   */
+  availableModels?: ModelInfo[];
   /** Currently-selected session's cwd — backs the canvas-types project scope. */
   selectedCwd?: string;
   /** WS bus subscribe (from App) used to correlate the confirm:"ws" restart. */
@@ -320,6 +400,16 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
   const [config, setConfig] = useState<Config | null>(null);
   const [original, setOriginal] = useState<Config | null>(null);
   const [llmProviders, setLlmProviders] = useState<LlmProvider[]>([]);
+  /**
+   * Bind-vs-trust reachability, held OUTSIDE the editable config draft: it is
+   * computed server-side, must never enter `configPartial`, and is pushed over
+   * the WS independently of a config reload. Seeded from `GET /api/config`.
+   * See change: warn-unreachable-trusted-networks.
+   */
+  const [reachability, setReachability] = useState<BindReachability | null>(null);
+  // Cached per-provider health from GET /api/providers (`health[name]`), used to
+  // seed each row's pill. See change: surface-provider-health-in-settings.
+  const [providerHealth, setProviderHealth] = useState<Record<string, ProviderHealth>>({});
   // Detect upstream pi-model-proxy extension for ModelProxySection coexistence advisory.
   // See change: add-dashboard-model-proxy task 14.1.
   const installedTopLevel = useInstalledPackages("global");
@@ -475,10 +565,63 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     setting: string; source: string; gitPath: string | null;
     gitVersion: string | null; shellPath: string | null;
   } | null>(null);
+  // Session-independent model catalogue (GET /api/models). Owned here because
+  // this panel also owns the refetch triggers (credential writes) and the
+  // unavailable callout. `null` = no response yet (loading).
+  // See change: settings-default-model-without-session.
+  const [catalogue, setCatalogue] = useState<ModelCatalogueResult | null>(null);
+  // Last models a request actually returned. Held separately so a refetch that
+  // fails does not BLANK a catalogue that already loaded — the proxy editors
+  // would lose every option on one transient 503. The callout still fires, so
+  // the failure is reported rather than swallowed.
+  const [lastGoodModels, setLastGoodModels] = useState<ModelInfo[] | null>(null);
+  const [catalogueFetching, setCatalogueFetching] = useState(true);
+  // LAST-RESPONSE-wins, deliberately: whichever response arrives last is the
+  // rendered catalogue, even if its request was issued first. A stale payload
+  // may therefore win transiently; the next refetch corrects it. Spec'd that
+  // way so the rule is one observable sentence rather than request bookkeeping.
+  const refetchCatalogue = useCallback(() => {
+    setCatalogueFetching(true);
+    return fetchModelCatalogue()
+      .then((result) => {
+        setCatalogue(result);
+        if (result.status === "ok") setLastGoodModels(result.models);
+      })
+      .finally(() => setCatalogueFetching(false));
+  }, []);
+  useEffect(() => {
+    void refetchCatalogue();
+  }, [refetchCatalogue]);
+
+  const catalogueModels = useMemo(
+    () => (catalogue?.status === "ok" ? catalogue.models : (lastGoodModels ?? [])),
+    [catalogue, lastGoodModels],
+  );
+  /** Default Model options: catalogue ∪ every session list, session row wins. */
+  const defaultModelOptions = useMemo(
+    () => mergeModelOptions(catalogueModels, availableModels ?? []),
+    [catalogueModels, availableModels],
+  );
+  const catalogueUnavailable = catalogue?.status === "unavailable";
+  // Loading is the COLD state only: once a response has landed, a refetch keeps
+  // rendering the options it has instead of flipping back to a spinner.
+  const catalogueLoading = catalogueFetching && catalogue === null;
+
+  // LIVE gateway endpoint. The Pi Gateway Port field below is the CONFIGURED
+  // value, and since the gateway became socket-by-default that number names a
+  // port nothing is bound to — the field advertised a listener that did not
+  // exist. `/api/health.piGatewayPort` carries what is actually bound: a number
+  // for TCP, the socket PATH for a unix listener, null for neither.
+  // See change: add-pi-gateway-transport-identity (task 2.9).
+  const [gatewayEndpoint, setGatewayEndpoint] = useState<number | string | null | undefined>(undefined);
+
   const refreshGitSourceReadout = useCallback(() => {
     return fetch(`${getApiBase()}/api/health`)
       .then((res) => (res.ok ? res.json() : null))
-      .then((h) => setGitSourceReadout(h?.gitSource ?? null))
+      .then((h) => {
+        setGitSourceReadout(h?.gitSource ?? null);
+        setGatewayEndpoint(h ? (h.piGatewayPort ?? null) : null);
+      })
       .catch(() => {});
   }, []);
   useEffect(() => {
@@ -496,6 +639,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
         if (configData.success) {
           setConfig(configData.data);
           setOriginal(JSON.parse(JSON.stringify(configData.data)));
+          setReachability(configData.data.reachability ?? null);
         }
         if (providersData?.success && providersData.providers) {
           const list: LlmProvider[] = Object.entries(providersData.providers).map(
@@ -508,6 +652,9 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
           );
           setLlmProviders(list);
           setOriginalLlmProviders(JSON.parse(JSON.stringify(list)));
+          if (providersData.health && typeof providersData.health === "object") {
+            setProviderHealth(providersData.health as Record<string, ProviderHealth>);
+          }
         }
       })
       .catch(() => setMessage({ type: "error", text: t("settings.failedLoad", undefined, "Failed to load settings") }))
@@ -562,6 +709,51 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     for (const s of draftSources.values()) if (s.isDirty) pages.add(s.page);
     return pages;
   }, [configPartial, llmChanged, draftSources]);
+
+  // ── Bind-vs-trust reachability ───────────────────────────────────────
+  // The predicate's input is the RESOLVED bind host, never `config.bindHost`:
+  // a container seeds no `bindHost` key, so the saved value reads `127.0.0.1`
+  // while the server actually binds `0.0.0.0` from `PI_DASHBOARD_HOST` — the
+  // advisory would then fire in every container that has a trusted network.
+  // An UNSAVED listen-interface edit outranks even the server's pending value,
+  // because that draft is what the next restart applies.
+  // See change: warn-unreachable-trusted-networks.
+  useEffect(() => {
+    if (!onMessage) return;
+    return onMessage((msg) => {
+      if (msg.type === "reachability_updated") setReachability(msg.reachability);
+    });
+  }, [onMessage]);
+
+  const pendingBindHost = useMemo(
+    () =>
+      pendingEffectiveHost({
+        draftBindHost:
+          config && original && config.bindHost !== original.bindHost ? config.bindHost : null,
+        pendingBindHost: reachability?.pendingBindHost,
+        resolvedBindHost: reachability?.resolvedBindHost,
+      }),
+    [config, original, reachability],
+  );
+
+  // Recomputed CLIENT-SIDE from the draft, so adding an entry or flipping the
+  // listen interface converges the advisory without a save or a reload.
+  const unreachableEntries = useMemo(
+    () => (config ? unreachableTrustedEntries(pendingBindHost, collectTrustedEntries(config)) : []),
+    [config, pendingBindHost],
+  );
+
+  // `--host` / `PI_DASHBOARD_HOST` outrank `config.bindHost`, so under either
+  // the inline remediation (which writes config.bindHost) cannot take effect.
+  const bindHostShadowedBy =
+    reachability?.bindHostSource === "flag" || reachability?.bindHostSource === "env"
+      ? reachability.bindHostSource
+      : null;
+
+  // A saved-but-unapplied bind host. Surfaced through the header's EXISTING
+  // Restart affordance rather than a new notice component.
+  const restartPendingForBindHost =
+    !!reachability && reachability.resolvedBindHost !== reachability.pendingBindHost;
 
   // Plugin draft state lives in the plugin component and dies on unmount, so
   // leaving a dirty plugin page must guard. Scoped to THIS page's sources —
@@ -636,9 +828,37 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
           });
           const data = await res.json();
           if (!data.success) throw new Error(data.error || "providers");
+          // Success branch only — a body-level failure must not dispatch. The
+          // PUT has replace semantics, so this one dispatch covers adding,
+          // editing, and deleting a custom provider. Over-dispatch (a save
+          // that changes no credential) is accepted. See change:
+          // dispatch-provider-auth-event.
+          window.dispatchEvent(new CustomEvent(PROVIDER_AUTH_EVENT));
           const saved = validProviders.map(({ isNew, ...rest }) => rest);
           setLlmProviders(saved);
+          // A provider save/removal changes the catalogue; refetch off THIS
+          // response, never a fixed delay.
+          // See change: settings-default-model-without-session.
+          void refetchCatalogue();
           setOriginalLlmProviders(JSON.parse(JSON.stringify(saved)));
+          // The PUT awaited a server-side probe per provider; refetch so each
+          // pill reflects the freshly cached health without a remount. See
+          // change: surface-provider-health-in-settings.
+          try {
+            const refetched = await fetch(`${getApiBase()}/api/providers`).then((r) => (r.ok ? r.json() : null));
+            if (refetched?.health && typeof refetched.health === "object") {
+              setProviderHealth(refetched.health as Record<string, ProviderHealth>);
+            }
+          } catch {
+            // Refetch failed: the just-saved providers' cached health is stale
+            // (their config changed), so drop it to not-tested rather than show
+            // a stale pill. See change: surface-provider-health-in-settings.
+            setProviderHealth((prev) => {
+              const next = { ...prev };
+              for (const p of saved) delete next[p.name];
+              return next;
+            });
+          }
           return {};
         },
       });
@@ -692,10 +912,37 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
   // panel's `useState` and survives the switch. See design D5a.
   const pluginPageDirtyRef = useRef(activePluginPageDirty);
   pluginPageDirtyRef.current = activePluginPageDirty;
-  const requestRailNavigate = useCallback((to: string) => {
+  // Transient scroll intent for navigate-then-scroll (e.g. the General runtime
+  // row's `Change…` → the picker on Developer). Carried through the
+  // deferred-navigation round trip in its own ref — deliberately NOT a
+  // `pendingNav` type change, leaving the BACK_SENTINEL string comparisons
+  // untouched — and consumed once the destination page has rendered. Never
+  // encoded in the route. See change: surface-pi-runtime-on-general (D4).
+  const pendingScrollTargetRef = useRef<string | null>(null);
+  const requestRailNavigate = useCallback((to: string, scrollTarget?: string) => {
+    pendingScrollTargetRef.current = scrollTarget ?? null;
     if (pluginPageDirtyRef.current) setPendingNav(to);
     else navigate(to);
   }, [navigate]);
+  // Consume the scroll intent after the destination renders. `activeTab` is
+  // the dependency: the effect fires on the commit that paints the target
+  // page, whose section root (e.g. data-testid="pi-runtime-section") is
+  // rendered synchronously with it.
+  useEffect(() => {
+    const target = pendingScrollTargetRef.current;
+    if (!target) return;
+    pendingScrollTargetRef.current = null;
+    document.querySelector(`[data-testid="${target}"]`)?.scrollIntoView({ block: "start" });
+  }, [activeTab]);
+  // The runtime row + advisory share one navigate-then-scroll affordance.
+  const navigateToRuntimePicker = useCallback(() => {
+    requestRailNavigate("/settings/developer", "pi-runtime-section");
+  }, [requestRailNavigate]);
+  // One `/api/health` poller per panel (the hook is instance-scoped): its
+  // `compatibility` feeds the advisory, its `piRuntime` the status row.
+  // Invoked EXACTLY here — the row and the advisory poll nothing themselves.
+  // See change: surface-pi-runtime-on-general (D2 wiring rule).
+  const { compatibility, piRuntime } = usePiCompatibility();
 
   // Disabling the plugin whose page is open must resolve unsaved edits BEFORE
   // the rail drops the nav child, or a dirty source ends up filed under a page
@@ -721,6 +968,13 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     else performBack();
   }, [performBack]);
 
+  // Overlay dismissal (backdrop / Escape / ✕) — gestures the full page never
+  // had. Route them through the SAME prompt as the back arrow rather than
+  // letting the container navigate out from under unsaved edits (R1). Opt-in,
+  // so this arms only while dirty.
+  // See change: add-route-backed-overlay-dialogs (task 6.2).
+  useOverlayDismissGuard(isDirty, requestBack);
+
   // Hard exits (tab close / reload / Electron window close): native prompt,
   // registered only while dirty.
   useEffect(() => {
@@ -738,7 +992,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     const onPop = () => {
       if (isDirtyRef.current) {
         window.history.pushState(null, "", window.location.href);
-        setPendingNav("/");
+        // Discarding must return to the LAUNCHING route, not the card list.
+        // The old hardcoded "/" evicted the user to the cards — exactly the
+        // defect this change exists to fix (D1b).
+        // See change: add-route-backed-overlay-dialogs (task 6.3).
+        setPendingNav(BACK_SENTINEL);
       }
     };
     window.addEventListener("popstate", onPop);
@@ -757,7 +1015,12 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
     const to = pendingNav;
     const ok = await handleSave();
     setPendingNav(null);
-    if (!ok) return;
+    if (!ok) {
+      // Save failed: the navigation never happens, so the carried scroll
+      // intent must not survive for a later page switch to inherit.
+      pendingScrollTargetRef.current = null;
+      return;
+    }
     if (to === BACK_SENTINEL) performBack();
     else if (to) navigate(to);
   }, [pendingNav, handleSave, navigate, performBack]);
@@ -857,7 +1120,13 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
 
   return (
     <SettingsDraftProvider registry={draftRegistry}>
-    <div className="flex-1 flex flex-col min-w-0 h-full">
+    {/* `min-h-0`, not `h-full`: the flush Dialog panel is a max-h-capped flex
+        column with no definite height, so `h-full` resolves to `auto` and this
+        root grows to content (clipping, no scroller). `min-h-0` releases the
+        flex item's content floor so the body below can scroll. Shared with the
+        MobileShell detail panel, which is also a definite-height flex column.
+        See change: fix-flush-dialog-scroll-and-close-collision. */}
+    <div className="flex-1 flex flex-col min-w-0 min-h-0">
       {/* Header */}
       <div data-testid="settings-header" className="flex items-center gap-3 p-4 border-b border-[var(--border-primary)] shrink-0">
         <button
@@ -886,10 +1155,23 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
           onClick={() => { setMessage(null); restart.run(); }}
           disabled={restarting || saving}
           className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-[var(--bg-tertiary)] hover:bg-[var(--bg-secondary)] text-[var(--text-secondary)] text-sm font-medium disabled:opacity-50 border border-[var(--border-secondary)]"
-          title={t("settings.restartServer", undefined, "Restart server")}
+          title={
+            restartPendingForBindHost
+              ? t("settings.restartPendingBindHost", undefined, "Restart required — the saved listen interface is not the one this server bound")
+              : t("settings.restartServer", undefined, "Restart server")
+          }
+          data-testid="settings-restart-button"
+          data-restart-pending={restartPendingForBindHost ? "true" : "false"}
         >
           <Icon path={mdiRestart} size={0.6} />
           {restarting ? t("common.restarting", undefined, "Restarting...") : t("common.restart", undefined, "Restart")}
+          {restartPendingForBindHost && (
+            <span
+              data-testid="settings-restart-pending-dot"
+              aria-label={t("settings.restartPending", undefined, "Restart pending")}
+              className="ml-1 inline-block h-1.5 w-1.5 rounded-full bg-[var(--warn-fg,#e2b24a)]"
+            />
+          )}
         </button>
       </div>
 
@@ -1013,17 +1295,13 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
             <InstructionsPage />
           ) : activeTab in RESOURCE_TAB_TYPE ? (
             <div className="flex-1 overflow-y-auto min-w-0">
-              <ResourceGridPanel
+              <ScopedResourceGrid
+                page={activeTab as ResourcePageId}
                 data={piResources.data}
                 isLoading={piResources.isLoading}
                 error={piResources.error}
                 refresh={piResources.refresh}
                 activation={resourceActivation}
-                type={RESOURCE_TAB_TYPE[activeTab]}
-                scopes={["global"]}
-                showScopeFilter={false}
-                globalPill
-                onViewFile={(filePath, title) => navigate(buildPiResourceFileUrl(filePath, title))}
               />
             </div>
           ) : (
@@ -1031,7 +1309,12 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
 
             {activeTab === "general" && (
               <>
-                <PiVersionAdvisory />
+                <PiVersionAdvisory compatibility={compatibility} onChangeRuntime={navigateToRuntimePicker} />
+                {/* Always-visible read-only summary — NOT gated on the advisory's
+                    visibility condition (it renders from `piRuntime`, the
+                    advisory from `compatibility`). See change:
+                    surface-pi-runtime-on-general. */}
+                <PiRuntimeStatusRow piRuntime={piRuntime} onChangeRuntime={navigateToRuntimePicker} />
                 <Section title={t("settings.interface", undefined, "Interface")}>
                   <p className="text-xs text-[var(--text-tertiary)] mb-2">
                     {t("settings.interfaceDescription", undefined, "Choose the dashboard interface language. The selection is saved in this browser.")}
@@ -1073,6 +1356,22 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                 <Section title={t("settings.ports", undefined, "Ports")}>
                   <NumberField label={t("settings.httpPort", undefined, "HTTP Port")} value={config.port} onChange={(v) => update((c) => { c.port = v; })} hint={i18nT("settings.hint.httpPort", undefined, "Port the dashboard web UI and REST API listen on. Changing it needs a restart and breaks bookmarked URLs. Default 8000.")} />
                   <NumberField label={t("settings.piGatewayPort", undefined, "Pi Gateway Port")} value={config.piPort} onChange={(v) => update((c) => { c.piPort = v; })} hint={i18nT("settings.hint.piGatewayPort", undefined, "Port pi sessions connect their bridge WebSocket to. Must be free and reachable from every machine running pi. Default 8001.")} />
+                  {gatewayEndpoint !== undefined && (
+                    <p
+                      className="text-xs text-[var(--text-tertiary)] -mt-2 mb-3"
+                      data-testid="gateway-transport-live"
+                      data-transport={typeof gatewayEndpoint === "string" ? "unix" : gatewayEndpoint === null ? "none" : "tcp"}
+                    >
+                      {typeof gatewayEndpoint === "string"
+                        ? i18nT("settings.gatewayLiveSocket", undefined, "Currently serving bridges on a local socket:")
+                        : gatewayEndpoint === null
+                          ? i18nT("settings.gatewayLiveNone", undefined, "No bridge listener is currently bound.")
+                          : i18nT("settings.gatewayLiveTcp", undefined, "Currently listening on port:")}
+                      {gatewayEndpoint !== null && (
+                        <span className="ml-1 font-mono break-all">{String(gatewayEndpoint)}</span>
+                      )}
+                    </p>
+                  )}
                   <ListenInterfaceField
                     bindHost={config.bindHost ?? "127.0.0.1"}
                     hasGuardConfig={hasGuardConfig(config)}
@@ -1158,7 +1457,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     label={i18nT("session.maxEventsPerSession", undefined, "Max Events Per Session")}
                     value={config.memoryLimits?.maxEventsPerSession ?? 200}
                     onChange={(v) => update((c) => {
-                      if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
+                      if (!c.memoryLimits) c.memoryLimits = { ...MEMORY_LIMITS_SEED };
                       c.memoryLimits.maxEventsPerSession = v;
                     })}
                   />
@@ -1168,7 +1467,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     unit="chars"
                     value={config.memoryLimits?.maxStringFieldSize ?? 4000}
                     onChange={(v) => update((c) => {
-                      if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
+                      if (!c.memoryLimits) c.memoryLimits = { ...MEMORY_LIMITS_SEED };
                       c.memoryLimits.maxStringFieldSize = v;
                     })}
                   />
@@ -1178,10 +1477,78 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     unit="bytes"
                     value={config.memoryLimits?.maxWsBufferBytes ?? 4194304}
                     onChange={(v) => update((c) => {
-                      if (!c.memoryLimits) c.memoryLimits = { maxEventsPerSession: 200, maxStringFieldSize: 4000, maxWsBufferBytes: 4194304 };
+                      if (!c.memoryLimits) c.memoryLimits = { ...MEMORY_LIMITS_SEED };
                       c.memoryLimits.maxWsBufferBytes = v;
                     })}
                   />
+                  {/* The hint names the OUTCOME ("keeps the start and the most
+                      recent"), not the mechanism ("head/tail window"), mirroring
+                      the sibling maxEventsPerSession hint. The section's shared
+                      "Requires server restart" line covers this control too.
+                      See change: lazy-load-session-history. */}
+                  <NumberField
+                    hint={i18nT("settings.hint.maxReplayEvents", undefined, "Cap events sent to the browser when reopening a session. Keeps the start and the most recent messages; earlier ones load on demand. 0 = unlimited.")}
+                    label={i18nT("session.maxReplayEvents", undefined, "Max Replay Events")}
+                    value={config.memoryLimits?.maxReplayEvents ?? DEFAULT_MEMORY_LIMITS.maxReplayEvents}
+                    onChange={(v) => update((c) => {
+                      if (!c.memoryLimits) c.memoryLimits = { ...MEMORY_LIMITS_SEED };
+                      c.memoryLimits.maxReplayEvents = v;
+                    })}
+                  />
+                  {/* The mode is INERT at `maxReplayEvents: 0` — no window
+                      forms, so there is no shape to choose. Disabled with an
+                      explanation rather than hidden: hiding it would make the
+                      dependency invisible.
+
+                      The hint carries BOTH the tradeoff (opening messages are
+                      omitted) and the SCOPE. Scope is not a detail:
+                      `memoryLimits` is server config consulted before any
+                      per-client preference, so flipping this changes the
+                      transcript shape for every client of this server.
+                      See change: add-tail-only-replay-window (D1, D10). */}
+                  <SelectField
+                    label={i18nT("settings.replayWindowMode", undefined, "Replay window shape")}
+                    hint={
+                      (config.memoryLimits?.maxReplayEvents ?? DEFAULT_MEMORY_LIMITS.maxReplayEvents) === 0
+                        ? i18nT(
+                            "settings.hint.replayWindowModeInert",
+                            undefined,
+                            "Has no effect until Max Replay Events is set to a positive value.",
+                          )
+                        : i18nT(
+                            "settings.hint.replayWindowMode",
+                            undefined,
+                            "Keep start and recent: the session's opening messages stay pinned above the gap. Recent only: the transcript opens on the latest messages and loads earlier ones as you scroll up, omitting the opening messages. Affects every client of this server.",
+                          )
+                    }
+                    disabled={(config.memoryLimits?.maxReplayEvents ?? DEFAULT_MEMORY_LIMITS.maxReplayEvents) === 0}
+                    value={config.memoryLimits?.replayWindowMode ?? DEFAULT_MEMORY_LIMITS.replayWindowMode}
+                    options={[
+                      { value: "head-tail", label: i18nT("settings.replayWindowMode.headTail", undefined, "Keep start and recent") },
+                      { value: "tail-only", label: i18nT("settings.replayWindowMode.tailOnly", undefined, "Recent only") },
+                    ]}
+                    onChange={(v) => update((c) => {
+                      if (!c.memoryLimits) c.memoryLimits = { ...MEMORY_LIMITS_SEED };
+                      c.memoryLimits.replayWindowMode = v as "head-tail" | "tail-only";
+                    })}
+                  />
+                  {/* UNCONDITIONAL. A conditional warning comparing the two
+                      values is both backwards and undecidable: when
+                      `maxEventsPerSession <= maxReplayEvents` no window forms at
+                      all, so the warned-about pairing is inert; the genuinely
+                      harmful case depends on session size, unknowable at
+                      settings time. State the interaction instead.
+                      See change: fix-lazy-history-backfill-ux (D8). */}
+                  <p
+                    data-testid="memory-limits-replay-help"
+                    className="text-xs text-[var(--text-secondary)]"
+                  >
+                    {i18nT(
+                      "settings.help.replayWindowRetention",
+                      undefined,
+                      "Max Replay Events and Max Events Per Session work together: the replay window decides how much of a session the browser receives up front, while the event cap decides how much the server still holds. Earlier messages can only be loaded on demand while the server still holds them.",
+                    )}
+                  </p>
                 </Section>
               </>
             )}
@@ -1196,12 +1563,47 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   <div className="rounded border px-3 py-2.5 bg-[var(--severity-info-bg)] border-[var(--severity-info-border)]">
                     <div className="flex items-center justify-between">
                       <label className="text-sm font-medium text-[var(--severity-info-fg)]">{t("settings.defaultModel", undefined, "Default model")}</label>
-                      <ModelSelector
-                        current={config.defaultModel || undefined}
-                        models={availableModels}
-                        onSelect={(v) => update((c) => { c.defaultModel = v; })}
-                      />
+                      <div className="flex items-center gap-2">
+                        <ModelSelector
+                          current={config.defaultModel || undefined}
+                          models={defaultModelOptions}
+                          onSelect={(v) => update((c) => { c.defaultModel = v; })}
+                        />
+                        {(() => {
+                          // Thinking-level control paired with the Default Model. Levels
+                          // derive from the selected model's supportedThinkingLevels (same
+                          // source the composer uses). No model selected → locked to `off`:
+                          // only `off` renders and selection is a persistence no-op (the
+                          // field stays "", never a spurious `off`). See change:
+                          // add-default-thinking-level.
+                          const selected = config.defaultModel
+                            ? defaultModelOptions.find((m) => `${m.provider}/${m.id}` === config.defaultModel)
+                            : undefined;
+                          const locked = !config.defaultModel;
+                          return (
+                            <ThinkingLevelSelector
+                              current={config.defaultThinkingLevel || "off"}
+                              supportedLevels={locked ? ["off"] : selected?.supportedThinkingLevels}
+                              onSelect={(v) => { if (!locked) update((c) => { c.defaultThinkingLevel = v; }); }}
+                            />
+                          );
+                        })()}
+                      </div>
                     </div>
+                    {/* Catalogue states render HERE, beside the control: the
+                        selector trigger is disabled while its list is empty, so
+                        an in-picker state would be unreachable.
+                        See change: settings-default-model-without-session. */}
+                    {catalogueLoading && (
+                      <p className="mt-1 text-xs text-[var(--text-tertiary)]" data-testid="default-model-catalogue-loading">
+                        {i18nT("settings.modelCatalogueLoading", undefined, "Loading model catalogue…")}
+                      </p>
+                    )}
+                    {catalogueUnavailable && (
+                      <p className="mt-1 text-xs text-[var(--severity-warning-fg)]" data-testid="default-model-catalogue-unavailable">
+                        {i18nT("settings.modelCatalogueUnavailable", undefined, "The model catalogue could not be loaded. Only models reported by connected sessions are listed.")}
+                      </p>
+                    )}
                     <p className="mt-1 text-xs text-[var(--text-tertiary)]">
                       {i18nT("settings.hint.defaultModel", undefined, "Applied only to brand-new sessions. A resumed session keeps the model it was started with. Leave empty to use pi's own default.")}
                     </p>
@@ -1215,7 +1617,16 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   />
                   <AutoNameSessionsToggle
                     hint={<>
-                      {i18nT("settings.autoNameSessionsDesc", undefined, "Let pi automatically name new sessions by their topic using the fast model.")}
+                      {i18nT("settings.autoNameSessionsDesc", undefined, "Let pi automatically name new sessions by their topic.")}
+                      {" "}
+                      {/* The naming model is the `naming` role, so it is configured in
+                          the Roles panel rather than here — one source of truth, no
+                          second preference. This pointer exists so it is still
+                          discoverable at the point of use.
+                          See change: fix-auto-naming-reasoning-model (design D1). */}
+                      <span data-testid="auto-name-model-pointer">
+                        {i18nT("settings.autoNameModelPointer", undefined, "The model is the @naming role (Settings → Roles); when it is unassigned, @fast is used.")}
+                      </span>
                     </>}
                   />
                 </Section>
@@ -1452,13 +1863,45 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                 <TrustedNetworksSection
                   bypassHosts={config.auth?.bypassHosts ?? []}
                   legacyTrustedNetworks={config.trustedNetworks ?? []}
+                  pendingBindHost={pendingBindHost}
+                  unreachable={unreachableEntries}
+                  bindHostShadowedBy={bindHostShadowedBy}
+                  onListenOnAllInterfaces={() => update((c) => { c.bindHost = "0.0.0.0"; })}
+                  onGoToServerPage={() => navigate("/settings/server")}
                   onChange={(nets) => update((c) => {
                     if (!c.auth) c.auth = { secret: "", providers: {} };
                     c.auth.bypassHosts = nets;
                   })}
                 />
                 <Section title={t("settings.pairDevice", undefined, "Pair a device")}>
-                  <PairingView />
+                  {/* A route, not a duplicate (D2): Security keeps the words an
+                      operator expects and one click to the act, which lives on
+                      the Gateway "Connect a device" surface. Body names the
+                      destination and what happens there (NN/g link writing);
+                      button mirrors the Gateway page's `Open Security →` shape.
+                      See mockups/security-pair.html variant A1. */}
+                  <p className="mb-3 max-w-[56ch] text-xs text-[var(--text-secondary)]">
+                    {t(
+                      "settings.pairDeviceBody",
+                      undefined,
+                      "Pairing happens on the Gateway page, where you pick which endpoint the device connects over, scan the QR, and approve it with the code shown on the device.",
+                    )}
+                  </p>
+                  <button
+                    type="button"
+                    data-testid="security-pair-link"
+                    className="rounded border border-[var(--border-secondary)] px-3 py-1.5 text-sm text-[var(--text-primary)] hover:bg-[var(--bg-secondary)]"
+                    onClick={() => {
+                      navigate("/settings/gateway");
+                      // The section renders after the route swap — scroll once
+                      // it exists, so the link LANDS + SCROLLS (test-plan F3).
+                      requestAnimationFrame(() => {
+                        document.getElementById("connect-a-device")?.scrollIntoView({ block: "start" });
+                      });
+                    }}
+                  >
+                    {t("settings.pairDeviceLink", undefined, "Open Gateway ▸ Connect a device →")}
+                  </button>
                 </Section>
                 <Section title={t("settings.pairedDevices", undefined, "Paired Devices")}>
                   <PairedDevicesSection />
@@ -1469,16 +1912,27 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
             {activeTab === "providers" && (
               <>
                 <Section title={t("settings.providerAuth", undefined, "Provider Authentication")}>
-                  <ProviderAuthSection />
+                  <ProviderAuthSection onCredentialsChanged={refetchCatalogue} />
                 </Section>
                 <Section title={t("settings.llmProviders", undefined, "LLM Providers")}>
                   <p className="text-xs text-[var(--text-tertiary)] mb-3">
                     {t("settings.llmProvidersDescription", undefined, "Register custom OpenAI-compatible API endpoints for model access.")}
                   </p>
-                  {llmProviders.map((provider, index) => (
+                  {llmProviders.map((provider, index) => {
+                    // Suppress cached health for a row edited since its last save:
+                    // the cache reflects the SAVED config, so showing it against
+                    // unsaved edits would be misleading. See change:
+                    // surface-provider-health-in-settings.
+                    const savedOriginal = originalLlmProviders.find((o) => o.name === provider.name);
+                    const rowDirty = provider.isNew || !savedOriginal
+                      || savedOriginal.baseUrl !== provider.baseUrl
+                      || savedOriginal.apiKey !== provider.apiKey
+                      || savedOriginal.api !== provider.api;
+                    return (
                     <LlmProviderCard
                       key={`${provider.name}-${index}`}
                       provider={provider}
+                      health={rowDirty ? undefined : providerHealth[provider.name]}
                       onChange={(updated) => {
                         setLlmProviders((prev) => prev.map((p, i) => (i === index ? updated : p)));
                       }}
@@ -1486,7 +1940,8 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                         setLlmProviders((prev) => prev.filter((_, i) => i !== index));
                       }}
                     />
-                  ))}
+                    );
+                  })}
                   <button
                     onClick={() => setLlmProviders((prev) => [...prev, { name: "", baseUrl: "", apiKey: "", api: "openai-completions", isNew: true }])}
                     className="flex items-center gap-1.5 text-sm text-[var(--accent-blue)] hover:text-blue-400 mt-1"
@@ -1500,7 +1955,7 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                     config={config.modelProxy ?? {}}
                     onChange={(patch) => update((c) => { c.modelProxy = { ...c.modelProxy, ...patch }; })}
                     upstreamExtensionDetected={upstreamPiModelProxyInstalled}
-                    availableModels={availableModels}
+                    availableModels={catalogueModels}
                   />
                 </Section>
               </>
@@ -1631,6 +2086,11 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
                   />
                 </Section>
                 <DiagnosticsSection />
+                <PiRuntimeSection />
+                {/* Node family picker — same pattern as the pi picker above:
+                    one curated selection surface per family. See change:
+                    add-node-runtime-family-selection. */}
+                <NodeRuntimeSection />
                 <ToolsSection />
                 <SpawnFailuresSection />
                 {/* See change: auto-canvas (task 5.2). */}
@@ -1697,7 +2157,12 @@ export function SettingsPanel({ availableModels, onMessage, onBack, selectedCwd 
         saving={saving}
         onSave={confirmSaveLeave}
         onDiscard={confirmDiscardLeave}
-        onCancel={() => setPendingNav(null)}
+        onCancel={() => {
+          // Cancelled navigation: drop the carried scroll intent with the
+          // pending destination, so a later chip navigation can't inherit it.
+          pendingScrollTargetRef.current = null;
+          setPendingNav(null);
+        }}
       />
     )}
 
@@ -1740,7 +2205,7 @@ function UnsavedChangesDialog({ saving, onSave, onDiscard, onCancel }: {
   return (
     <DialogPortal>
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+        className="fixed inset-0 z-dialog flex items-center justify-center bg-black/50 p-4"
         onClick={onCancel}
       >
         <div
@@ -1860,11 +2325,24 @@ function DisplayPrefsSection() {
   const baselineKey = JSON.stringify(global ?? DISPLAY_PRESETS.standard);
   const [draft, setDraft] = useState<DisplayPrefs>(() => JSON.parse(baselineKey));
   const isDirty = JSON.stringify(draft) !== baselineKey;
-  const dirtyRef = useRef(isDirty); dirtyRef.current = isDirty;
   const baselineRef = useRef(baselineKey); baselineRef.current = baselineKey;
   const draftRef = useRef(draft); draftRef.current = draft;
   // Adopt a new baseline (e.g. cross-tab broadcast) only while clean.
-  useEffect(() => { if (!dirtyRef.current) setDraft(JSON.parse(baselineKey)); }, [baselineKey]);
+  //
+  // The MOUNT pass must be a no-op: `useState` already seeded the draft from
+  // this very baseline, and re-applying it here reverts a toggle flipped
+  // between the commit that painted it and the scheduler's passive-effect
+  // flush -- a real first-click-does-nothing bug, and the CI flake
+  // "Token stats bar did not flip". Dirtiness is therefore decided against the
+  // PREVIOUS baseline inside the updater, where the current draft is readable,
+  // instead of a ref written during render (still `false` for that edit).
+  const adoptedBaselineRef = useRef(baselineKey);
+  useEffect(() => {
+    const previous = adoptedBaselineRef.current;
+    if (previous === baselineKey) return;
+    adoptedBaselineRef.current = baselineKey;
+    setDraft((prev) => (JSON.stringify(prev) === previous ? JSON.parse(baselineKey) : prev));
+  }, [baselineKey]);
 
   type ToolCallPatch = Partial<DisplayPrefs["toolCalls"]>;
   type DisplayPrefsPatch = Partial<Omit<DisplayPrefs, "toolCalls">> & { toolCalls?: ToolCallPatch };
@@ -1919,6 +2397,14 @@ function DisplayPrefsSection() {
         onChange={(v) => patch({ notifyMinLevel: v as DisplayPrefs["notifyMinLevel"] })}
         hint={i18nT("settings.hint.notifyMinLevel", undefined, "Minimum level of extension notification shown in chat. Errors are never hidden, and questions that need an answer always appear.")}
       />
+      {/* Extension-row visibility pair, adjacent by contract (test-plan E10):
+          the fallback toggle sits DIRECTLY after the notifications select. */}
+      <ToggleField
+        label={t("settings.customEntryFallback", undefined, "Custom entries in chat")}
+        value={prefs.customEntryFallback}
+        onChange={(v) => patch({ customEntryFallback: v })}
+        hint={i18nT("settings.hint.customEntryFallback", undefined, "Show extension custom messages and entries as generic cards in the chat. Turn off to hide them (flow cards are always shown).")}
+      />
       <h3 className="text-xs font-semibold text-[var(--text-primary)] mt-3 mb-2">{t("settings.chatDisplayReasoning", undefined, "Reasoning")}</h3>
       <ToggleField label={t("settings.reasoningBlocks", undefined, "Reasoning blocks")} value={prefs.reasoning} onChange={(v) => patch({ reasoning: v })} hint={i18nT("settings.hint.reasoningBlocks", undefined, "Show the model's thinking. Off hides it entirely and disables the two settings below.")} />
       <GatedGroup>
@@ -1935,6 +2421,13 @@ function DisplayPrefsSection() {
           label={t("settings.keepReasoningOpenUntilTurnEnds", undefined, "Keep reasoning open until turn ends")}
           value={prefs.keepReasoningOpenUntilTurnEnds}
           onChange={(v) => patch({ keepReasoningOpenUntilTurnEnds: v })}
+          disabled={!prefs.reasoning}
+        />
+        <ToggleField
+          hint={i18nT("settings.hint.reasoningInlineFlow", undefined, "Let reasoning flow down the chat with no height cap instead of scrolling inside its own box. Changes height only — collapse behavior is unchanged.")}
+          label={t("settings.reasoningInlineFlow", undefined, "Inline reasoning flow")}
+          value={prefs.reasoningInlineFlow}
+          onChange={(v) => patch({ reasoningInlineFlow: v })}
           disabled={!prefs.reasoning}
         />
       </GatedGroup>
@@ -2063,13 +2556,120 @@ export function shouldShowLegacyHint(legacyTrustedNetworks: string[]): boolean {
   return legacyTrustedNetworks.length > 0;
 }
 
+/**
+ * "These trusted networks cannot reach this dashboard" advisory.
+ *
+ * Fills the silent quadrant: with a loopback or specific-NIC bind, a peer in an
+ * unreachable range is refused at the TCP layer, so no request handler runs, no
+ * block event is recorded, and `BlockEventTrustBanner` stays permanently blank.
+ *
+ * INDEPENDENT of that banner, not mutually exclusive with it — with
+ * `bindHost=10.0.0.5` and a trusted `192.168.1.0/24`, a peer at `10.0.0.9` IS
+ * accepted by the NIC, denied by the guard, and recorded. Both render; this one
+ * goes first, because it explains why block events may be MISSING for the
+ * unreachable range.
+ *
+ * A live region: the condition can arise while the section is already on screen
+ * (the user adds an entry, or a WS push moves `pendingBindHost`), so its
+ * appearance must be announced rather than silently painted.
+ *
+ * See change: warn-unreachable-trusted-networks.
+ */
+function UnreachableTrustedNetworksAdvisory({
+  pendingBindHost,
+  unreachable,
+  bindHostShadowedBy,
+  onListenOnAllInterfaces,
+  onGoToServerPage,
+}: {
+  pendingBindHost: string;
+  unreachable: string[];
+  /**
+   * `"flag"` / `"env"` when `--host` or `PI_DASHBOARD_HOST` decides the bind
+   * host. Both remediations write `config.bindHost`, which those two shadow —
+   * offering them there would hand the user a fix that silently does nothing.
+   */
+  bindHostShadowedBy?: "flag" | "env" | null;
+  onListenOnAllInterfaces?: () => void;
+  onGoToServerPage?: () => void;
+}) {
+  const { t } = useI18n();
+  if (unreachable.length === 0) return null;
+  const shadowed = bindHostShadowedBy === "flag" || bindHostShadowedBy === "env";
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      data-testid="unreachable-trusted-networks-advisory"
+      className="mb-2 rounded border border-[var(--warn-border,#4a3c14)] bg-[var(--warn-bg,#3a2e10)] px-2.5 py-2"
+    >
+      <p className="text-xs text-[var(--warn-body,var(--text-secondary))]">
+        {t(
+          "settings.unreachableTrustedNetworks",
+          { host: pendingBindHost, entries: unreachable.join(", ") },
+          `This dashboard listens on {host}, so devices in {entries} cannot reach it — these entries have no effect.`,
+        )}
+      </p>
+      {shadowed && (
+        <p className="mt-1.5 text-[11px] text-[var(--warn-body,var(--text-secondary))]" data-testid="unreachable-advisory-shadowed">
+          {bindHostShadowedBy === "flag"
+            ? t("settings.bindHostShadowedByFlag", undefined, "The listen interface comes from the --host flag, which overrides this setting. Restart the server with --host 0.0.0.0.")
+            : t("settings.bindHostShadowedByEnv", undefined, "The listen interface comes from PI_DASHBOARD_HOST, which overrides this setting. Set PI_DASHBOARD_HOST=0.0.0.0 and restart.")}
+        </p>
+      )}
+      <div className="mt-1.5 flex flex-wrap items-center gap-2">
+        {!shadowed && onListenOnAllInterfaces && (
+          <button
+            type="button"
+            onClick={onListenOnAllInterfaces}
+            data-testid="unreachable-advisory-listen-all"
+            className="rounded border border-[var(--warn-border,#4a3c14)] px-2 py-0.5 text-[11px] font-semibold text-[var(--warn-fg,#e2b24a)] hover:bg-[var(--warn-bg,#3a2e10)] cursor-pointer"
+          >
+            {t("settings.listenOnAllInterfacesAction", undefined, "Listen on all interfaces (0.0.0.0)")}
+          </button>
+        )}
+        {!shadowed && onGoToServerPage && (
+          <button
+            type="button"
+            onClick={onGoToServerPage}
+            data-testid="unreachable-advisory-server-link"
+            className="text-[11px] underline text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
+          >
+            {t("settings.chooseListenInterfaceOnServer", undefined, "Choose a listen interface on the Server page")}
+          </button>
+        )}
+      </div>
+      <p className="mt-1.5 text-[11px] text-[var(--text-tertiary)]">
+        {t(
+          "settings.bindHostRestartNote",
+          undefined,
+          "Changing the listen interface is a Server setting and takes effect after a restart.",
+        )}
+      </p>
+    </div>
+  );
+}
+
 function TrustedNetworksSection({
   bypassHosts,
   legacyTrustedNetworks,
+  pendingBindHost,
+  unreachable = [],
+  bindHostShadowedBy,
+  onListenOnAllInterfaces,
+  onGoToServerPage,
   onChange,
 }: {
   bypassHosts: string[];
   legacyTrustedNetworks: string[];
+  /** Effective bind host of the NEXT start, draft included. */
+  pendingBindHost?: string;
+  /** Trusted entries that bind host cannot serve. */
+  unreachable?: string[];
+  /** `--host` / `PI_DASHBOARD_HOST` shadowing, when either governs. */
+  bindHostShadowedBy?: "flag" | "env" | null;
+  onListenOnAllInterfaces?: () => void;
+  onGoToServerPage?: () => void;
   onChange: (nets: string[]) => void;
 }) {
   const { t } = useI18n();
@@ -2096,12 +2696,25 @@ function TrustedNetworksSection({
     setLoading(true);
     try {
       const res = await fetch(`${getApiBase()}/api/network-interfaces`);
-      const data = await res.json();
-      if (data.success) setInterfaces(data.data);
-    } catch { /* ignore */ }
+      const data = res.ok ? await res.json() : null;
+      // A failed enumeration degrades the dropdown to empty; the section and
+      // the manual-entry field stay usable (#X5).
+      setInterfaces(data?.success ? data.data : []);
+    } catch { setInterfaces([]); }
     setLoading(false);
     setDropdownOpen(true);
   };
+
+  // One row per OFFER, not per interface. Dedupe lives here rather than in the
+  // endpoint: the listen-interface picker consumes the same payload one option
+  // per ADDRESS, so collapsing server-side would make a real bind address
+  // unselectable (Decision 12). Keyed on the suggestion value, so two tunnels
+  // that both resolve to `100.64.0.0/10` produce one row.
+  const offerRows = React.useMemo(() => dedupeInterfaceOffers(interfaces), [interfaces]);
+  const unofferable = React.useMemo(
+    () => interfaces.filter((i) => i.pointToPoint && (i.suggestions?.length ?? 0) === 0),
+    [interfaces],
+  );
 
   const addNetwork = (entry: string) => {
     const next = addTrustedEntry(bypassHosts, entry);
@@ -2125,6 +2738,17 @@ function TrustedNetworksSection({
       <p className="text-xs text-[var(--text-tertiary)] mb-2">
         {t("settings.trustedNetworksDescription", undefined, "Devices matching these networks or hosts can access the dashboard without authentication. Accepts exact IP, wildcard, or CIDR.")}
       </p>
+
+      {/* Reachability advisory FIRST — it explains why block events may be
+          missing for the unreachable range. The two are independent and may
+          coexist. See change: warn-unreachable-trusted-networks. */}
+      <UnreachableTrustedNetworksAdvisory
+        pendingBindHost={pendingBindHost ?? "127.0.0.1"}
+        unreachable={unreachable}
+        bindHostShadowedBy={bindHostShadowedBy}
+        onListenOnAllInterfaces={onListenOnAllInterfaces}
+        onGoToServerPage={onGoToServerPage}
+      />
 
       {/* Block-event "Trust this network?" banner (task 7.2). */}
       <BlockEventTrustBanner trusted={bypassHosts} onTrust={addNetwork} />
@@ -2156,20 +2780,55 @@ function TrustedNetworksSection({
           >
             {loading ? t("settings.detecting", undefined, "Detecting...") : t("settings.addLocalNetwork", undefined, "+ Add Local Network")}
           </button>
-          {dropdownOpen && interfaces.length > 0 && (
-            <div className="absolute left-0 top-full mt-1 z-50 min-w-[260px] bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-lg shadow-xl py-1">
-              {interfaces.map((iface) => (
+          {dropdownOpen && (offerRows.length > 0 || unofferable.length > 0) && (
+            <div
+              className="absolute left-0 top-full mt-1 z-50 min-w-[280px] bg-[var(--bg-surface)] border border-[var(--border-primary)] rounded-lg shadow-xl py-1"
+              data-testid="trusted-networks-dropdown"
+            >
+              {offerRows.map((row) => (
                 <button
-                  key={`${iface.name}-${iface.cidr}`}
-                  onClick={() => addNetwork(iface.cidr)}
-                  disabled={bypassHosts.includes(iface.cidr)}
+                  key={row.value}
+                  onClick={() => addNetwork(row.value)}
+                  disabled={bypassHosts.includes(row.value)}
+                  data-testid={`trusted-networks-offer-${row.value}`}
+                  data-wide={row.wide ? "true" : "false"}
+                  title={
+                    row.wide
+                      ? i18nT("settings.trustWholeRangeTitle", { range: row.value }, "Grants unauthenticated access to the whole {range} range")
+                      : undefined
+                  }
                   className={`w-full flex items-center justify-between px-3 py-1.5 text-xs text-left hover:bg-[var(--bg-tertiary)] transition-colors cursor-pointer ${
-                    bypassHosts.includes(iface.cidr) ? "opacity-40" : ""
-                  }`}
+                    bypassHosts.includes(row.value) ? "opacity-40" : ""
+                  } ${row.wide ? "text-[var(--warn-fg,#e2b24a)]" : ""}`}
                 >
-                  <span className="font-mono text-[var(--text-primary)]">{iface.cidr}</span>
-                  <span className="text-[var(--text-tertiary)] ml-2">{iface.name}</span>
+                  <span className={`font-mono ${row.wide ? "text-[var(--warn-fg,#e2b24a)]" : "text-[var(--text-primary)]"}`}>
+                    {row.value}
+                  </span>
+                  <span className="text-[var(--text-tertiary)] ml-2">
+                    {row.label}
+                    {row.wide ? ` · ${i18nT("settings.wideRange", undefined, "whole range")}` : ""}
+                  </span>
                 </button>
+              ))}
+              {/* A /32 in no recognised range is SHOWN, not omitted: the user has
+                  the device and legitimately wants it trusted, so the absence of
+                  an offer has to be legible rather than a silent hole.
+                  See change: warn-unreachable-trusted-networks. */}
+              {unofferable.map((iface) => (
+                <div
+                  key={`unofferable-${iface.address}`}
+                  data-testid={`trusted-networks-unofferable-${iface.name}`}
+                  className="w-full px-3 py-1.5 text-xs text-left opacity-60"
+                >
+                  <span className="text-[var(--text-tertiary)]">{iface.label ?? iface.name}</span>
+                  <span className="block text-[10px] text-[var(--text-tertiary)]">
+                    {i18nT(
+                      "settings.noTrustRangeForInterface",
+                      { address: iface.address },
+                      "No range can be derived for {address} — add an entry manually below.",
+                    )}
+                  </span>
+                </div>
               ))}
             </div>
           )}
@@ -2633,13 +3292,22 @@ type TestState =
   | { kind: "ok"; modelCount: number; sample: string[] }
   | { kind: "err"; status?: number; message: string };
 
-export function LlmProviderCard({ provider, onChange, onRemove }: {
+export function LlmProviderCard({ provider, health, onChange, onRemove }: {
   provider: LlmProvider;
+  health?: ProviderHealth;
   onChange: (p: LlmProvider) => void;
   onRemove: () => void;
 }) {
   const { t } = useI18n();
   const [testState, setTestState] = useState<TestState>({ kind: "idle" });
+
+  // Reset the live Test result when the provider's config changes from OUTSIDE
+  // this card (e.g. Discard restoring saved values). derivePillView prioritizes
+  // testState, so a stale failed-Test would otherwise mask the restored cached
+  // health. See change: surface-provider-health-in-settings.
+  useEffect(() => {
+    setTestState({ kind: "idle" });
+  }, [provider.baseUrl, provider.apiKey, provider.api]);
 
   const handleChange = (update: LlmProvider) => {
     // Any change to baseUrl / apiKey / api clears a stale test result.
@@ -2670,8 +3338,10 @@ export function LlmProviderCard({ provider, onChange, onRemove }: {
     if (result.ok) {
       setTestState({ kind: "ok", modelCount: result.modelCount, sample: result.sample ?? [] });
     } else {
-      const firstLine = (result.error ?? "Test failed").split("\n")[0].trim();
-      setTestState({ kind: "err", status: result.status, message: firstLine || "Test failed" });
+      // Keep the verbatim error for the monospace error line; the pill itself
+      // shows only the status code / Unreachable. See change:
+      // surface-provider-health-in-settings.
+      setTestState({ kind: "err", status: result.status, message: result.error ?? "Test failed" });
     }
   };
 
@@ -2751,55 +3421,94 @@ export function LlmProviderCard({ provider, onChange, onRemove }: {
             ))}
           </select>
         </div>
-        {testState.kind !== "idle" && <TestPill state={testState} />}
+        <HealthPill state={testState} health={health} />
       </div>
     </div>
   );
 }
 
-function TestPill({ state }: { state: TestState }) {
+// Normalized pill view derived from either a live Test result (`state`) or the
+// server-cached health. Four registers per the spec: connected / error (HTTP
+// status) / unreachable (no status) / not-tested.
+type PillView =
+  | { kind: "testing" }
+  | { kind: "ok"; modelCount: number; sample: string[] }
+  | { kind: "error"; status: number; error: string }
+  | { kind: "unreachable"; error: string }
+  | { kind: "not-tested" };
+
+function derivePillView(state: TestState, health?: ProviderHealth): PillView {
+  if (state.kind === "testing") return { kind: "testing" };
+  if (state.kind === "ok") return { kind: "ok", modelCount: state.modelCount, sample: state.sample };
+  if (state.kind === "err") {
+    return state.status !== undefined
+      ? { kind: "error", status: state.status, error: state.message }
+      : { kind: "unreachable", error: state.message };
+  }
+  // idle — fall back to the server-cached health.
+  if (!health) return { kind: "not-tested" };
+  if (health.ok) return { kind: "ok", modelCount: health.modelCount ?? 0, sample: [] };
+  return health.status !== undefined
+    ? { kind: "error", status: health.status, error: health.error ?? "" }
+    : { kind: "unreachable", error: health.error ?? "" };
+}
+
+function HealthPill({ state, health }: { state: TestState; health?: ProviderHealth }) {
   const { t } = useI18n();
-  if (state.kind === "testing") {
+  const view = derivePillView(state, health);
+
+  if (view.kind === "testing") {
     return (
-      <div
-        className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]"
-        data-testid="test-pill"
-        data-state="testing"
-      >
+      <div className="flex items-center gap-1.5 text-xs text-[var(--text-secondary)]" data-testid="test-pill" data-state="testing">
         <Icon path={mdiLoading} size={0.45} className="animate-spin" />
         {t("common.testing", undefined, "Testing...")}
       </div>
     );
   }
-  if (state.kind === "ok") {
-    const label = state.modelCount > 0
-      ? t("settings.connectedModels", { count: state.modelCount }, `Connected · ${state.modelCount} models`)
+
+  if (view.kind === "ok") {
+    const label = view.modelCount > 0
+      ? t("settings.connectedModels", { count: view.modelCount }, `Connected · ${view.modelCount} models`)
       : t("settings.connectedOnly", undefined, "Connected");
     return (
       <div
         className="flex items-center gap-1.5 text-xs text-green-400"
         data-testid="test-pill"
         data-state="ok"
-        title={state.sample.length > 0 ? i18nT("settings.sampleModels", { list: state.sample.join(", ") }, "Sample: {list}") : undefined}
+        title={view.sample.length > 0 ? i18nT("settings.sampleModels", { list: view.sample.join(", ") }, "Sample: {list}") : undefined}
       >
         <Icon path={mdiCheckCircle} size={0.5} />
         {label}
       </div>
     );
   }
-  if (state.kind === "err") {
-    const prefix = state.status ? `${state.status} — ` : "";
+
+  if (view.kind === "not-tested") {
     return (
-      <div
-        className="flex items-center gap-1.5 text-xs text-red-400"
-        data-testid="test-pill"
-        data-state="err"
-      >
-        <Icon path={mdiCloseCircle} size={0.5} />
-        <span className="truncate" title={`${prefix}${state.message}`}>{prefix}{state.message}</span>
+      <div className="flex items-center gap-1.5 text-xs text-[var(--text-tertiary)]" data-testid="test-pill" data-state="not-tested">
+        {t("settings.providerNotTested", undefined, "Not tested")}
       </div>
     );
   }
-  // idle — parent guards against rendering, but keep a safe default.
-  return null;
+
+  // error (yellow, HTTP status) or unreachable (red, no status) — both carry a
+  // verbatim error line beneath the pill.
+  const isError = view.kind === "error";
+  return (
+    <>
+      <div
+        className={`flex items-center gap-1.5 text-xs ${isError ? "text-yellow-400" : "text-red-400"}`}
+        data-testid="test-pill"
+        data-state={view.kind}
+      >
+        <Icon path={isError ? mdiAlert : mdiCloseCircle} size={0.5} />
+        {isError ? String(view.status) : t("settings.providerUnreachable", undefined, "Unreachable")}
+      </div>
+      {view.error && (
+        <div className="font-mono text-[11px] text-[var(--text-tertiary)] break-all whitespace-pre-wrap" data-testid="provider-error-line">
+          {view.error}
+        </div>
+      )}
+    </>
+  );
 }

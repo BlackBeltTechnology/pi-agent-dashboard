@@ -1,0 +1,39 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "@blackbelt-technology/pi-dashboard-quota-plugin/configSchema",
+  "title": "Provider Quota config",
+  "description": "Plugin config persisted under plugins['quota'].* in ~/.pi/dashboard/config.json. Read by the server entry. Installing the plugin IS the opt-in, so tracking defaults ON for every provider EXCEPT anthropic, which stays OFF until the user ticks it (its endpoint is the ToS-sensitive one).",
+  "type": "object",
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "description": "Master gate. When false the server entry makes no subscription-quota endpoint call and /api/quota returns no providers.",
+      "default": true
+    },
+    "providers": {
+      "type": "object",
+      "description": "Per-provider enablement, keyed by provider id. Defaults ON for every provider EXCEPT anthropic: its /api/oauth/usage endpoint is the ToS-sensitive one, so it requires an explicit tick.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "default": {
+        "anthropic": { "enabled": false },
+        "openai-codex": { "enabled": true },
+        "github-copilot": { "enabled": true },
+        "openrouter": { "enabled": true },
+        "synthetic": { "enabled": true },
+        "zai": { "enabled": true },
+        "opencode-go": { "enabled": true },
+        "kimi-coding": { "enabled": true }
+      }
+    }
+  },
+  "additionalProperties": false
+}

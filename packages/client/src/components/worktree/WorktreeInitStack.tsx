@@ -48,7 +48,7 @@ export function WorktreeInitStack() {
 
   return (
     <div
-      className="fixed bottom-4 right-4 z-40 w-[360px] max-w-[calc(100vw-2rem)] rounded-xl border border-[var(--border-secondary)] bg-[var(--bg-secondary)] shadow-[0_8px_24px_rgba(0,0,0,0.5)] overflow-hidden"
+      className="fixed bottom-4 right-4 z-overlay w-[360px] max-w-[calc(100vw-2rem)] rounded-xl border border-[var(--border-secondary)] bg-[var(--bg-secondary)] shadow-[0_8px_24px_rgba(0,0,0,0.5)] overflow-hidden"
       data-testid="worktree-init-stack"
     >
       <div className="flex items-center gap-2 px-3 py-2.5 bg-[var(--bg-tertiary)] border-b border-[var(--border-subtle)]">

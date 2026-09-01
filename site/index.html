@@ -1,0 +1,1177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- No-FOUC theme init. Inherited from the Astro site's ThemeScript.astro and
+     kept FIRST in <head>, before any stylesheet: it must resolve before the
+     first paint or the page flashes the wrong theme. Storage key stays
+     `pi-theme` with the same three values, so anyone who already chose a theme
+     on the old site keeps it. The mockup's own `mockup-theme` key is gone.
+
+     One difference from the Astro version: that site signalled dark with
+     class="dark" (Tailwind's selector). This page is token-driven and light is
+     the deviation, so it signals with data-theme="light" -- which is also what
+     field.js already observes via MutationObserver. -->
+<script>
+(function(){
+  var mode = 'system';
+  try { mode = localStorage.getItem('pi-theme') || 'system'; } catch (e) {}
+  var mq = window.matchMedia ? window.matchMedia('(prefers-color-scheme: light)') : null;
+  var root = document.documentElement;
+  function resolve(m){ return m === 'system' ? (mq && mq.matches ? 'light' : 'dark') : m; }
+  function paint(m){
+    if (resolve(m) === 'light') root.setAttribute('data-theme','light');
+    else root.removeAttribute('data-theme');
+    root.dataset.themeChoice = m;
+  }
+  paint(mode);
+  // Follow the OS live, but only while the choice is still "system".
+  if (mq) {
+    var onFlip = function(){
+      var cur = 'system';
+      try { cur = localStorage.getItem('pi-theme') || 'system'; } catch (e) {}
+      if (cur === 'system') paint('system');
+    };
+    if (mq.addEventListener) mq.addEventListener('change', onFlip);
+    else if (mq.addListener) mq.addListener(onFlip);
+  }
+})();
+</script>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<title>PI Dashboard — your coding agents, visible from anywhere</title>
+<meta name="description" content="Every pi session mirrored to the browser as it runs. Read the transcript, answer the prompt, kill the runaway, resume it from your phone. Open source, self-hosted.">
+<link rel="canonical" href="https://pi-dashboard.dev/">
+<link rel="icon" type="image/png" href="favicon.png">
+
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://pi-dashboard.dev/">
+<meta property="og:title" content="PI Dashboard — your coding agents, visible from anywhere">
+<meta property="og:description" content="Every pi session mirrored to the browser as it runs. Open source, self-hosted.">
+<meta property="og:image" content="https://pi-dashboard.dev/og-card.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="PI Dashboard — your coding agents, visible from anywhere">
+<meta name="twitter:description" content="Every pi session mirrored to the browser as it runs. Open source, self-hosted.">
+<meta name="twitter:image" content="https://pi-dashboard.dev/og-card.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;500&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+/* ============================================================
+   TOKENS — lifted verbatim from packages/client/src/index.css
+   so the landing page and the product are the same object.
+   ============================================================ */
+:root{
+  --bg-primary:#0a0a0a;
+  --bg-secondary:#141414;
+  --bg-tertiary:#1e1e1e;
+
+  --text-primary:#e5e5e5;    /* 15.9:1 */
+  --text-secondary:#b0b0b0;  /*  9.07:1 */
+  --text-tertiary:#808080;   /*  4.98:1 — dark only */
+
+  --accent:#3b82f6;          /* borders / focus ring, 3:1 non-text */
+  --accent-solid:#2563eb;    /* fill behind white text, 5.17:1 */
+  --accent-text:#60a5fa;     /* accent TEXT on bg-primary, 7.79:1 */
+
+  --status-idle:#22c55e;
+  --status-working:#eab308;
+  --status-needs-you:#a855f7;
+  --attn-fg:#c99bf5;
+
+  /* Semantic alias for small UI labels. ui-contract.md: --text-tertiary is
+     DARK-ONLY (light is #777 = 4.48:1, under the 4.5:1 floor). Anything that
+     must survive BOTH themes resolves to --text-secondary in light. */
+  --label:var(--text-tertiary);
+
+  --border:#2a2a2a;
+  --elevation-rim:rgba(255,255,255,.10);
+  --shadow-card:rgba(0,0,0,.55);
+  --code-border:var(--border);
+
+  --sans:'Instrument Sans',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  --mono:'JetBrains Mono','SF Mono',Menlo,Monaco,'Cascadia Code',Consolas,monospace;
+
+  --gut:clamp(20px,5vw,72px);
+  --maxw:1280px;
+}
+
+/* ============================================================
+   LIGHT — [data-theme="light"], values lifted from the same file.
+   ============================================================ */
+[data-theme="light"]{
+  --bg-primary:#ffffff;
+  --bg-secondary:#fafafa;
+  --bg-tertiary:#f0f0f0;
+
+  --text-primary:#1a1a1a;    /* 16.1:1 */
+  --text-secondary:#444444;  /*  9.74:1 */
+  --text-tertiary:#777777;   /*  4.48:1 — decorative only in light */
+  --label:var(--text-secondary);
+
+  --accent:#2563eb;          /* 3:1 non-text */
+  --accent-solid:#2563eb;    /* white text on it, 5.17:1 */
+  --accent-text:#1d4ed8;     /* accent TEXT on white, 6.70:1 */
+
+  /* Status dots are meaningful non-text (WCAG 1.4.11, 3:1 floor). The dark
+     ramp fails on white (#22c55e = 2.28:1), so light gets its own ramp. */
+  --status-idle:#15803d;     /* 4.54:1 */
+  --status-working:#a16207;  /* 4.630:1 */
+  --status-needs-you:#7e22ce;/* 6.94:1 */
+  --attn-fg:#6b21a8;
+
+  --border:#e0e0e0;
+  --elevation-rim:rgba(255,255,255,.9);
+  --shadow-card:rgba(0,0,0,.08);
+  --code-border:#cccccc;
+}
+html{color-scheme:dark}
+:root{--glass-tint:74%}          /* see .glass — measured, not eyeballed */
+[data-theme="light"]{--glass-tint:70%}
+html[data-theme="light"]{color-scheme:light}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{
+  margin:0;background:var(--bg-primary);color:var(--text-primary);
+  font-family:var(--sans);font-size:16px;line-height:1.55;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:var(--maxw);margin-inline:auto;padding-inline:var(--gut)}
+
+/* ---------------- 3D field (see field.js) ----------------
+   Fixed, full-viewport, behind every band of the page and never interactive.
+   It shows through the transparent bands (hero, closing CTA) and is covered by
+   the opaque ones (spec strip, feature grid) — that alternation is deliberate:
+   the depth returns at the two moments the page is making a claim, and gets out
+   of the way while it is presenting evidence. Content is raised above it with
+   one rule rather than a z-index on each section. */
+#field{position:fixed;inset:0;z-index:0;display:block;width:100%;height:100%;pointer-events:none}
+/* :not(header) matters: this rule sits AFTER the header rule, so without the
+   exclusion it overwrote position:sticky with position:relative and the header
+   scrolled away. A blanket stacking rule must skip anything already positioned. */
+body > *:not(#field):not(header){position:relative;z-index:1}
+
+/* --- mono UI type: the entire "this is for developers" signal ---------- */
+.mono,nav a,.btn,.eyebrow,.chip,.stat-k,.foot a{
+  font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;
+}
+.eyebrow{color:var(--accent-text);display:flex;align-items:center;gap:8px;margin:0 0 18px}
+.eyebrow::before{content:"";width:5px;height:5px;border-radius:50%;background:var(--accent-text)}
+
+/* ---------------- nav ---------------- */
+header{position:sticky;top:0;z-index:20;background:color-mix(in srgb,var(--bg-primary) 86%,transparent);
+  backdrop-filter:blur(10px);border-bottom:1px solid var(--border)}
+.nav{display:flex;align-items:center;gap:32px;height:64px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:500;font-size:17px;letter-spacing:-.01em;
+  white-space:nowrap;margin-right:auto}
+/* The real app icon, taken from site/public/app-icon.png (the live site's Nav).
+   No shadow-pi-glow: the site's glow is the AI-slop tell this page avoids. */
+.logo{width:24px;height:24px;flex:none;border-radius:6px;display:block}
+nav{display:flex;gap:26px;margin-left:auto}
+nav a{color:var(--text-secondary);text-decoration:none}
+nav a:hover{color:var(--text-primary)}
+.nav .btn{margin-left:8px}
+/* .ic: a button whose label is preceded by a glyph. gap not margin, so the
+   icon never drifts when the label is hidden at narrow widths. */
+.btn.ic{display:inline-flex;align-items:center;gap:7px}
+.btn.ic svg{width:15px;height:15px;flex:none}
+@media(max-width:860px){
+  nav{display:none}
+  .nav{gap:10px}
+  .nav .btn{margin-left:0;padding:12px 14px;min-height:44px}
+}
+/* The header is a single row of five things; it runs out of room twice on the
+   way down. Shed in order of what the visitor can least afford to lose:
+   first the two LABELS (both buttons carry a recognised mark, so the glyph
+   still says where it goes), then the whole GitHub button (it is repeated in
+   the footer), then the in-page section links (every one of those destinations
+   is reachable by scrolling). Install and the theme toggle never leave.
+
+   Dropping a label before dropping a destination is the whole point of giving
+   GitHub an icon: an 87px button becomes a 40px one, which buys back more
+   width than deleting the link used to, and costs nothing. */
+.nav{gap:clamp(14px,2.4vw,32px)}
+nav{gap:clamp(14px,1.9vw,26px)}
+@media(max-width:1080px){.btn.ic .lbl{display:none}.btn.ic{padding-inline:12px}}
+@media(max-width:860px){.nav a[href*="github.com"]{display:none}}
+@media(max-width:720px){.nav nav{display:none}}
+@media(max-width:420px){.brand{font-size:15px}}
+@media(max-width:360px){.wm{display:none}}  /* logo alone; the wordmark is the last thing that fits */
+
+/* ---------------- buttons ---------------- */
+.btn{display:inline-flex;align-items:center;gap:8px;padding:11px 18px;border-radius:6px;
+  text-decoration:none;border:1px solid transparent;cursor:pointer;transition:background .15s,border-color .15s}
+.btn-primary{background:var(--accent-solid);color:#fff}
+.btn-primary:hover{background:#1d4ed8}
+.btn-ghost{border-color:var(--border);color:var(--text-primary);background:transparent}
+.btn-ghost:hover{border-color:var(--accent)}
+@media(max-width:860px){.btn{min-height:44px}}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* ---------------- hero ---------------- */
+/* Single column on purpose. The hero art is a 1920x1200 capture of a dense
+   operator UI; in the old 1.05fr/.95fr split it rendered ~540px wide, where
+   the product's own type is ~37% scale and reads as texture rather than as an
+   interface. Full container width is the smallest size at which a session
+   card, a model id and a cost are legible. */
+.hero{display:block;padding:clamp(56px,9vw,116px) 0 clamp(48px,7vw,88px)}
+
+/* Hero top row: copy only. The previous two-column split existed to hold a
+   boxed WebGL panel beside the title; the field is now the PAGE background, so
+   the box is gone and the headline gets its natural measure back. The right
+   half of the frame is not empty — the fleet's accent card sits there, behind
+   the page rather than inside a rectangle pasted into the layout. */
+.heroTop{margin:0 0 clamp(36px,4.5vw,60px)}
+.hero .copy{max-width:58ch;margin:0}
+h1{font-size:clamp(38px,5.6vw,74px);font-weight:400;line-height:1.03;letter-spacing:-.03em;margin:0 0 26px}
+h1 em{font-style:normal;color:var(--accent-text)}
+.lede{color:var(--text-secondary);font-size:clamp(16px,1.3vw,18px);max-width:46ch;margin:0 0 32px}
+.cta{display:flex;flex-wrap:wrap;gap:12px;align-items:center}
+.cta code{font-family:var(--mono);font-size:12.5px;color:var(--label);
+  border:1px dashed var(--code-border);border-radius:6px;padding:10px 14px}
+
+
+/* ---------------- hero film (the REAL dashboard, rendered by HyperFrames) --- */
+.dot{width:7px;height:7px;border-radius:50%;flex:none}
+.dot-working{background:var(--status-working);animation:pulse 1.4s ease-in-out infinite}
+.dot-idle{background:var(--status-idle)}
+.dot-needs{background:var(--status-needs-you)}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.35}}
+
+/* margin:0 because <figure> carries a UA default of 16px 40px, which inset the
+   film 40px from the copy above it and quietly broke the hero's left edge. */
+.film{position:relative;margin:0;border-radius:10px;overflow:hidden;background:var(--bg-secondary);
+  border:1px solid var(--border);
+  box-shadow:inset 0 1px 0 var(--elevation-rim),0 18px 40px var(--shadow-card)}
+/* 16:10 — the source aspect (1440x900 logical, captured at 2880x1800 and
+   rendered at 1920x1200). Declaring it reserves the box before metadata
+   loads, so swapping themes cannot jolt the page height. */
+.film video{display:block;width:100%;height:auto;aspect-ratio:16/10}
+.film figcaption{position:absolute;left:12px;bottom:12px;display:flex;align-items:center;gap:8px;
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;
+  color:#e5e5e5;background:rgba(10,10,10,.72);backdrop-filter:blur(6px);
+  border:1px solid rgba(255,255,255,.14);border-radius:5px;padding:6px 9px}
+
+/* ---------------- glass bands ----------------
+   The opaque bands (spec strip, download) stop being opaque: they sit on a
+   blurred, chromatically-split copy of the 3D field instead of hiding it.
+
+   Three layers, in this order, and the ORDER is the whole trick:
+
+     1. `background` — a translucent tint. Not decoration: it is the contrast
+        floor. Everything below is unpredictable moving imagery, so the text
+        can only be legible because this tint is doing the work. Measured, not
+        guessed (see the contrast probe in the commit).
+     2. `backdrop-filter: blur()` — the baseline every engine supports.
+     3. `backdrop-filter: url(#chroma)` — the same blur plus a per-channel
+        offset, applied ONLY where the browser accepts an SVG filter as a
+        backdrop filter (Chromium, Firefox). Safari parses filter functions
+        but not url() here, so it keeps step 2 and loses only the fringe.
+
+   Chromatic aberration is ±1.4px, which is roughly a lens defect and not an
+   effect: at the sizes this page sets type, it reads as depth on the blurred
+   slabs behind and is invisible on the flat tint. Pushed further it stops
+   looking like glass and starts looking like a broken display. */
+.glass{
+  /* Tint strength is per-theme and MEASURED, not chosen by eye. In dark the
+     field's slabs are LIGHTER than the page, so they eat the contrast of the
+     dim `.stat-k` labels; at 78% the worst run measured 4.27:1, under the 4.5
+     AA floor for small text. Light theme has the opposite problem and far more
+     headroom, so it can afford to show more of the field.
+
+     Raising the tint alone could NOT fix it: `--text-tertiary` measures 4.98:1
+     on the opaque background, so a label starts with 0.48 of margin and any
+     translucency spends it. Repeated sampling across random field frames put
+     the worst case at 4.4-4.6 — i.e. straddling the floor, which is a fail,
+     because "usually accessible" is not accessible. So the small labels get a
+     brighter colour ON GLASS ONLY (below); the tint stops being the only
+     lever and both layers keep their own margin. */
+  background:color-mix(in srgb, var(--bg-secondary) var(--glass-tint,86%), transparent);
+  -webkit-backdrop-filter:blur(18px) saturate(1.15);
+  backdrop-filter:blur(18px) saturate(1.15);
+}
+@supports (backdrop-filter: url(#chroma)) {
+  .glass{backdrop-filter:url(#chroma)}
+}
+/* Cost control. A full-width backdrop blur is recomputed EVERY frame while the
+   field animates behind it, and this page already runs a WebGL scene on
+   machines that manage ~30fps. Small screens are the ones least able to pay,
+   and are also where the bands are tallest relative to the viewport, so they
+   get the tint alone — same colour, no per-frame filter. */
+/* Small dim type is the first casualty of a moving backdrop. On glass only,
+   the label steps up one rung (tertiary -> secondary); everything else keeps
+   its designed colour. */
+.glass .spec .stat-k,.glass .rel .when,.glass .foot-note{color:var(--text-secondary)}
+
+@media(max-width:720px){
+  .glass{background:var(--bg-secondary);backdrop-filter:none;-webkit-backdrop-filter:none}
+}
+/* Some people ask the OS for less of exactly this. Honour it. */
+@media(prefers-reduced-transparency:reduce){
+  .glass{background:var(--bg-secondary);backdrop-filter:none;-webkit-backdrop-filter:none}
+}
+
+/* ---------------- spec strip ---------------- */
+.strip{border-block:1px solid var(--border)}
+.strip .wrap{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;padding-block:0}
+.spec{padding:26px 0}
+.spec .stat-k{color:var(--label);display:block;margin-bottom:6px}
+.spec .v{font-size:clamp(20px,2vw,27px);letter-spacing:-.02em;font-weight:400}
+@media(max-width:860px){.strip .wrap{grid-template-columns:repeat(2,1fr);gap:0 24px}}
+
+/* ---------------- sections ---------------- */
+section{padding-block:clamp(60px,8vw,110px)}
+h2{font-size:clamp(28px,3.6vw,46px);font-weight:400;letter-spacing:-.025em;line-height:1.1;margin:0 0 20px}
+h2 em{font-style:normal;color:var(--accent-text)}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:clamp(32px,5vw,72px);align-items:center}
+@media(max-width:960px){.two{grid-template-columns:1fr}}
+.p{color:var(--text-secondary);max-width:52ch;margin:0 0 14px}
+
+/* session grid mock */
+.cards{display:grid;gap:10px}
+.card{background:var(--bg-secondary);border:1px solid var(--border);border-radius:8px;padding:13px 15px;
+  box-shadow:inset 0 1px 0 var(--elevation-rim);display:flex;align-items:center;gap:11px}
+.card .nm{font-size:14px}
+.card .sub{font-family:var(--mono);font-size:11px;color:var(--label);margin-top:2px}
+.card .chip{margin-left:auto;color:var(--label);border:1px solid var(--border);
+  border-radius:4px;padding:3px 7px;font-size:10px}
+.card.attn{border-color:color-mix(in srgb,var(--status-needs-you) 45%,transparent)}
+.card.attn .chip{color:var(--attn-fg);border-color:color-mix(in srgb,var(--status-needs-you) 45%,transparent)}
+
+/* feature grid */
+.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:1px;background:var(--border);
+  border:1px solid var(--border);border-radius:10px;overflow:hidden}
+.cell{background:var(--bg-primary);padding:28px 26px 30px}
+.cell h3{font-size:17px;font-weight:500;margin:0 0 8px;letter-spacing:-.01em}
+.cell p{color:var(--text-secondary);font-size:14.5px;margin:0}
+.cell .stat-k{color:var(--label);display:block;margin-bottom:14px}
+
+/* Feature glyphs.
+   Each one is a SCHEMATIC OF THE SURFACE IT LABELS — a two-pane editor, a
+   branch graph, a parent/child flow tree, a trigger firing a session, four
+   providers converging on one proxy, a phone showing a pairing code. Drawn
+   rather than pulled from an icon pack: a generic pencil/branch/clock set is
+   the default-average look this design brief rules out, and none of those
+   glyphs would say anything specific about this product.
+   Stroke inherits from .ico so the whole figure re-colours per theme; exactly
+   one element per glyph carries the accent, which is the same discipline the
+   product UI uses (colour as data, not decoration). */
+.ico{display:block;color:var(--label);margin:0 auto 18px;transition:color .25s ease}
+.ico *{vector-effect:non-scaling-stroke}
+.ico .a{stroke:var(--accent-text)}
+.ico .af{fill:var(--accent-text);stroke:none}
+
+/* Liveness on contact: the glyph takes the accent and the cell lifts off the
+   grid. Colour only, no transform on the card itself -- the cells share 1px
+   gutters, so moving one would tear the grid lines it shares with neighbours. */
+.cell{transition:background .25s ease}
+.cell:hover{background:var(--bg-secondary)}
+.cell:hover .ico{color:var(--accent-text)}
+
+/* ---------------- scroll reveal (two-way, never a retrace) ----------------
+   A block animates IN as it arrives and animates OUT as it leaves. The old
+   objection to that -- exit is entry played backwards, i.e. ping-pong -- is
+   answered by --rv, the offset the block rests at while hidden. It is signed
+   by WHICH EDGE the block is leaving through: enter from below at +34px, exit
+   through the top at -34px. The block therefore keeps travelling in the
+   direction you are scrolling and never reverses through its own path.
+
+   Only opacity and transform animate: both are compositor-only, so this costs
+   the 3D field behind it no frame budget.
+
+   The hidden state is applied BY JS (the .reveal class is added at runtime),
+   never in static CSS. That matters because the prefers-reduced-motion rule
+   further down kills every transition: a static opacity:0 plus a dead
+   transition would leave the whole page permanently blank. Same protection if
+   JS fails or IntersectionObserver is missing -- no class, no hidden state,
+   content present from first paint exactly as before. */
+.reveal{opacity:0;transform:translateY(var(--rv,34px)) scale(.985);
+  transition:opacity .5s ease, transform .72s cubic-bezier(.22,.61,.36,1)}
+.reveal.in{opacity:1;transform:none}
+@media(max-width:960px){.grid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:620px){.grid{grid-template-columns:1fr}}
+
+/* ---------------- download + install ----------------
+   Adapted from the live site (site/src/components/DownloadSection.astro and
+   GetStartedSection.astro + InstallTabs.tsx). What changed in the port, and
+   why — the two pages are the same product, so the block keeps its INFORMATION
+   (release line, per-platform assets with sizes, three install routes, the
+   first-run unblocking notes) and drops the styling that contradicts this
+   page's rules:
+     - gradient buttons + shadow-pi-glow  → one flat --accent-solid fill. A glow
+       is the AI-slop tell this mockup's whole palette is built to avoid.
+     - backdrop-blur translucent cards    → flat --bg-secondary and a 1px border,
+       the same card the rest of the page uses.
+     - `data-reveal` fade/rise on scroll  → NOTHING. See the note below.
+     - <details> "other downloads"        → every asset listed. A disclosure that
+       opens and closes is a block appearing and disappearing, which is exactly
+       what this page is not doing.
+
+   NO REVEAL ANIMATION. The site fades and lifts each block in as it crosses the
+   viewport; that is deliberately not carried over. Two reasons: the background
+   field already supplies all the motion this page needs, and a block that
+   animates in also animates OUT on the way back up — the same retrace that was
+   just removed from the field's scroll physics. Content is present from first
+   paint, and scrolling only moves the page. */
+.band{border-block:1px solid var(--border)}
+.head{max-width:56ch;margin:0 0 40px}
+
+/* Release line: version, date, and where to read more. */
+.rel{display:flex;flex-wrap:wrap;align-items:center;gap:16px 22px;
+  padding-bottom:24px;margin-bottom:32px;border-bottom:1px solid var(--border)}
+.tag{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:11px;
+  letter-spacing:.08em;text-transform:uppercase;color:var(--accent-text);
+  border:1px solid color-mix(in srgb,var(--accent) 45%,transparent);border-radius:999px;padding:5px 11px}
+.rel .ver{font-size:clamp(20px,2vw,26px);letter-spacing:-.02em}
+.rel .when{font-family:var(--mono);font-size:11px;color:var(--label)}
+.rel .links{margin-left:auto;display:flex;gap:18px;flex-wrap:wrap}
+.rel .links a{font-family:var(--mono);font-size:11px;letter-spacing:.06em;
+  color:var(--text-secondary);text-decoration:none}
+.rel .links a:hover{color:var(--text-primary)}
+@media(max-width:620px){.rel .links{margin-left:0;width:100%}}
+
+/* Platform cards reuse the feature grid: same 1px hairline lattice, so the
+   download block reads as part of the page rather than a widget dropped in. */
+.plat{display:flex;align-items:center;gap:11px;margin:0 0 18px}
+.plat svg{color:var(--label);flex:none}
+.plat .nm{font-size:16px}
+.dl{display:flex;align-items:center;justify-content:space-between;gap:12px;
+  padding:11px 14px;border-radius:6px;text-decoration:none;margin-bottom:8px;
+  font-family:var(--mono);font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;
+  border:1px solid transparent;transition:background .15s,border-color .15s}
+.dl-1{background:var(--accent-solid);color:#fff}
+.dl-1:hover{background:#1d4ed8}
+.dl-2{border-color:var(--border);color:var(--text-primary)}
+.dl-2:hover{border-color:var(--accent)}
+.dl .sz{opacity:.75;letter-spacing:.04em}
+/* Secondary assets: a plain list, always visible. */
+.alt{list-style:none;margin:14px 0 0;padding:0}
+.alt a{display:flex;justify-content:space-between;gap:12px;padding:8px 0;
+  border-top:1px solid var(--border);text-decoration:none;
+  font-family:var(--mono);font-size:11px;color:var(--label)}
+.alt a:hover{color:var(--text-primary)}
+.foot-note{margin:26px 0 0;font-size:13px;color:var(--label);text-align:center}
+.foot-note a{color:var(--accent-text)}
+
+/* Install tabs. Switching is an instant swap — no cross-fade, no height
+   animation; the panel is sized by its content and the page does not reflow
+   under the pointer. */
+.tabs{display:flex;flex-wrap:wrap;border-bottom:1px solid var(--border)}
+.tab{background:transparent;border:0;border-bottom:2px solid transparent;margin-bottom:-1px;
+  padding:13px 18px;cursor:pointer;color:var(--text-secondary);
+  font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase}
+.tab:hover{color:var(--text-primary)}
+.tab[aria-selected="true"]{color:var(--text-primary);border-bottom-color:var(--accent)}
+/* The panel is OPAQUE while the section around it is not: the fleet keeps
+   drifting past the heading and around the card, but a code block a reader is
+   about to copy never has slabs sliding under it. */
+.panel{border:1px solid var(--border);border-top:0;border-radius:0 0 8px 8px;padding:22px;
+  background:var(--bg-secondary)}
+.panel .sub{color:var(--text-secondary);font-size:14px;margin:0 0 16px}
+.codebox{position:relative}
+.codebox pre{margin:0;overflow-x:auto;padding:16px 90px 16px 16px;border-radius:6px;
+  background:var(--bg-primary);border:1px solid var(--code-border);
+  font-family:var(--mono);font-size:12.5px;line-height:1.7;color:var(--text-secondary)}
+/* NAMED copy-btn, not .copy: the hero block is already .copy, and a bare
+   .copy rule here made the headline absolutely positioned, mono and
+   uppercase, floating over the film. A generic class name in a single-file
+   page is a collision waiting to happen. */
+.copy-btn{position:absolute;top:10px;right:10px;background:var(--bg-secondary);
+  border:1px solid var(--border);border-radius:5px;padding:5px 9px;cursor:pointer;
+  font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;
+  color:var(--text-secondary)}
+.copy-btn:hover{border-color:var(--accent);color:var(--text-primary)}
+.panel .note{margin:14px 0 0;font-size:13px;color:var(--label)}
+/* First-run unblocking. Kept verbatim in substance from the live site: these
+   builds are unsigned, and a download page that omits the Gatekeeper /
+   SmartScreen step sends every first-time user to a dead end. */
+.unsigned{margin-top:16px;border:1px solid var(--border);border-radius:8px;
+  padding:16px;background:var(--bg-primary)}
+.unsigned h4{margin:0 0 10px;font-size:13px;font-weight:500}
+.unsigned p{margin:0 0 10px;font-size:12.5px;line-height:1.65;color:var(--label)}
+.unsigned p:last-child{margin-bottom:0}
+.unsigned b{color:var(--text-secondary);font-weight:500}
+.unsigned code{font-family:var(--mono);font-size:11.5px;color:var(--text-secondary)}
+.unsigned pre{margin:0 0 10px;padding:10px 12px;border-radius:5px;overflow-x:auto;
+  background:var(--bg-secondary);border:1px solid var(--code-border);
+  font-family:var(--mono);font-size:11.5px;color:var(--text-secondary)}
+
+/* closing CTA */
+
+footer{border-top:1px solid var(--border);padding-block:30px}
+.foot{display:flex;flex-wrap:wrap;gap:18px;align-items:center}
+.foot a{color:var(--label);text-decoration:none}
+.foot a:hover{color:var(--text-primary)}
+/* The note is a deliberately low-contrast micro-caption (--label, ~2:1), which
+   is fine for decorative text and NOT fine for something clickable. The one
+   link inside it is lifted and underlined, so the only interactive thing in the
+   caption is both visible and reachable. --text-secondary, not tertiary:
+   tertiary measures 4.48:1 in LIGHT theme (the token is marked "decorative
+   only" there for exactly this reason) and would fail the 4.5 floor. */
+.foot .note a{color:var(--text-secondary);text-decoration:underline;text-underline-offset:2px;
+  text-decoration-thickness:1px;text-decoration-color:color-mix(in srgb,var(--text-secondary) 45%,transparent)}
+.foot .note a:hover{color:var(--text-primary);text-decoration-color:currentColor}
+.foot .note{margin-left:auto;font-family:var(--mono);font-size:10.5px;color:var(--label);
+  text-transform:none;letter-spacing:0}
+
+/* theme toggle */
+/* Three segments in one bordered box, divided by 1px rules rather than gaps:
+   a radiogroup should read as ONE control with a selected segment, not as
+   three buttons that happen to sit together. */
+.tt{display:inline-flex;align-items:center;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.tt button{background:transparent;border:0;border-left:1px solid var(--border);
+  color:var(--text-tertiary);cursor:pointer;padding:8px 10px;display:inline-flex;line-height:0}
+.tt button:first-child{border-left:0}
+.tt button:hover{color:var(--text-primary)}
+.tt button[aria-checked="true"]{background:var(--bg-tertiary);color:var(--accent-text)}
+.tt svg{width:14px;height:14px}
+
+.filters{position:absolute;width:0;height:0;overflow:hidden}
+
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<canvas id="field" aria-hidden="true"></canvas>
+
+<!-- Backdrop filter for .glass. Blur once, then split the blurred copy into
+     three channel-isolated layers, offset red left and blue right, and screen
+     them back together — which reconstructs the image with a chromatic fringe.
+     `color-interpolation-filters="sRGB"` is REQUIRED: the SVG default is
+     linearRGB, which would silently brighten every backdrop this touches.
+     The filter region is widened to -20%/140% so the blur samples beyond the
+     band edges instead of fading into transparency and leaving a dark seam. -->
+<svg class="filters" aria-hidden="true" focusable="false"><filter id="chroma"
+     x="-20%" y="-20%" width="140%" height="140%" color-interpolation-filters="sRGB">
+  <feGaussianBlur in="SourceGraphic" stdDeviation="9" result="bl"/>
+  <feOffset in="bl" dx="-1.4" dy="0" result="rOff"/>
+  <feOffset in="bl" dx="1.4" dy="0" result="bOff"/>
+  <feColorMatrix in="rOff" values="1 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 1 0" result="r"/>
+  <feColorMatrix in="bl"   values="0 0 0 0 0  0 1 0 0 0  0 0 0 0 0  0 0 0 1 0" result="g"/>
+  <feColorMatrix in="bOff" values="0 0 0 0 0  0 0 0 0 0  0 0 1 0 0  0 0 0 1 0" result="b"/>
+  <feBlend in="r" in2="g" mode="screen" result="rg"/>
+  <feBlend in="rg" in2="b" mode="screen" result="rgb"/>
+  <feColorMatrix in="rgb" type="saturate" values="1.15"/>
+</filter></svg>
+
+<header>
+  <div class="wrap nav">
+    <div class="brand">
+      <img class="logo" src="media/app-icon.png" width="24" height="24" alt="" aria-hidden="true">
+      <span class="wm">PI Dashboard</span>
+    </div>
+    <nav>
+      <a href="#live">Live</a>
+      <a href="#control">Control</a>
+      <a href="#features">Features</a>
+      <a href="#download">Download</a>
+      <a href="#install">Install</a>
+    </nav>
+    <!-- System / Light / Dark. Same three modes as the Astro site's toggle,
+         same aria shape (radiogroup + aria-checked), restyled from a pill of
+         floating circles into this page's square 1px-border language. -->
+    <div class="tt" id="tt" role="radiogroup" aria-label="Colour theme">
+      <button type="button" role="radio" data-mode="system" aria-checked="true" aria-label="Follow system" title="System">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/></svg>
+      </button>
+      <button type="button" role="radio" data-mode="light" aria-checked="false" aria-label="Light" title="Light">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true">
+          <circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M19.1 4.9l-1.4 1.4M6.3 17.7l-1.4 1.4"/></svg>
+      </button>
+      <button type="button" role="radio" data-mode="dark" aria-checked="false" aria-label="Dark" title="Dark">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" aria-hidden="true">
+          <path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8Z"/></svg>
+      </button>
+    </div>
+    <a class="btn btn-ghost ic" href="https://discord.gg/DrNebZ3pF5" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M20.317 4.369A19.79 19.79 0 0 0 15.446 3c-.21.375-.455.88-.624 1.28a18.27 18.27 0 0 0-5.644 0A12.6 12.6 0 0 0 8.548 3a19.74 19.74 0 0 0-4.874 1.372C.605 8.98-.232 13.475.186 17.905a19.9 19.9 0 0 0 6.026 3.05c.485-.66.917-1.362 1.29-2.1a12.9 12.9 0 0 1-2.03-.978c.17-.125.337-.256.498-.39a14.2 14.2 0 0 0 12.06 0c.163.135.33.266.5.39-.647.383-1.33.71-2.033.98a15.8 15.8 0 0 0 1.29 2.099 19.86 19.86 0 0 0 6.03-3.05c.49-5.138-.838-9.593-3.5-13.537ZM8.02 15.21c-1.182 0-2.152-1.086-2.152-2.42 0-1.332.95-2.42 2.152-2.42 1.21 0 2.18 1.096 2.16 2.42 0 1.334-.95 2.42-2.16 2.42Zm7.96 0c-1.183 0-2.152-1.086-2.152-2.42 0-1.332.95-2.42 2.152-2.42 1.21 0 2.18 1.096 2.16 2.42 0 1.334-.95 2.42-2.16 2.42Z"/></svg>
+      <span class="lbl">Discord</span>
+    </a>
+    <a class="btn btn-ghost ic" href="https://github.com/BlackBeltTechnology/pi-agent-dashboard" target="_blank" rel="noopener">
+      <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 .5C5.73.5.5 5.73.5 12.02c0 5.1 3.29 9.42 7.86 10.95.58.1.79-.25.79-.56v-2.1c-3.2.7-3.88-1.37-3.88-1.37-.53-1.35-1.29-1.71-1.29-1.71-1.05-.72.08-.7.08-.7 1.16.08 1.77 1.2 1.77 1.2 1.03 1.78 2.71 1.27 3.37.97.1-.75.4-1.27.73-1.56-2.56-.29-5.25-1.29-5.25-5.75 0-1.27.45-2.3 1.19-3.12-.12-.29-.52-1.47.11-3.06 0 0 .97-.31 3.18 1.19a11 11 0 0 1 5.79 0c2.2-1.5 3.17-1.19 3.17-1.19.63 1.59.23 2.77.12 3.06.74.82 1.19 1.85 1.19 3.12 0 4.47-2.7 5.45-5.27 5.74.41.36.78 1.07.78 2.16v3.2c0 .31.2.67.8.56A11.53 11.53 0 0 0 23.5 12.02C23.5 5.73 18.27.5 12 .5Z"/></svg>
+      <span class="lbl">GitHub</span>
+    </a>
+    <a class="btn btn-primary" href="#download">Install</a>
+  </div>
+</header>
+
+<!-- ============================ HERO ============================ -->
+<div class="wrap">
+  <!-- data-field selects the background physics preset for whichever block owns
+       the middle of the viewport. See field.js > MOODS. -->
+  <div class="hero" data-field="hero">
+    <div class="heroTop">
+    <div class="copy">
+      <p class="eyebrow">Open source · self hosted</p>
+      <h1>Your coding agents, <em>visible</em> from anywhere.</h1>
+      <p class="lede">
+        Every pi session mirrored to the browser as it runs. Read the transcript, answer the
+        prompt, kill the runaway, resume it from your phone. No screen sharing, no tmux gymnastics.
+      </p>
+      <div class="cta">
+        <a class="btn btn-primary" href="#download">Get started</a>
+        <a class="btn btn-ghost" href="#live">See it live</a>
+      </div>
+    </div>
+
+    </div>
+
+    <!-- The hero art is the actual product UI, captured live and cut to video.
+         No device mock, no gradient, no fake terminal. -->
+    <figure class="film" id="live">
+      <video id="film" poster="media/hero-dark-poster.jpg"
+             autoplay muted loop playsinline preload="metadata"
+             aria-label="Screen recording of the PI Dashboard: session list, live transcript, commit review, OpenSpec board and the built-in editor">
+        <source src="media/hero-dark-web.webm" type="video/webm">
+        <source src="media/hero-dark-web.mp4" type="video/mp4">
+      </video>
+      <figcaption><span class="dot dot-working"></span> Real UI · not a mockup</figcaption>
+    </figure>
+  </div>
+</div>
+
+<!-- ============================ SPEC STRIP ============================ -->
+<div class="strip glass">
+  <div class="wrap">
+    <!-- Not "Transport: WebSocket": how the bytes travel is an implementation
+         detail no visitor is choosing on. The strip is four decision facts, so
+         this slot answers the question a self-hosted tool actually gets asked. -->
+    <div class="spec"><span class="stat-k">Licence</span><div class="v">MIT · self-hosted</div></div>
+    <div class="spec"><span class="stat-k">Runs on</span><div class="v">macOS · Win · Linux</div></div>
+    <div class="spec"><span class="stat-k">Sign-in</span><div class="v">4 OAuth providers</div></div>
+    <div class="spec"><span class="stat-k">Interface</span><div class="v">EN · 简体中文 · Magyar</div></div>
+  </div>
+</div>
+
+<!-- ============================ CONTROL ============================ -->
+<section id="control" data-field="control">
+  <div class="wrap two">
+    <div data-rv>
+      <p class="eyebrow">Why it exists</p>
+      <h2>Agents run for hours. You <em>should not</em> have to sit there.</h2>
+      <p class="p">
+        A long agent run is mostly waiting, punctuated by one question you need to answer.
+        PI Dashboard turns that into a glanceable list: which session is working, which one
+        stopped, which one is blocked on you.
+      </p>
+      <p class="p">
+        Sessions group by project folder. Pin the folders you care about, name the runs,
+        and stop guessing which terminal tab holds what.
+      </p>
+    </div>
+    <div class="cards">
+      <div class="card">
+        <span class="dot dot-working"></span>
+        <div><div class="nm">Refactor session store</div><div class="sub">sonnet-4.5 · 41s · 18.2k tok</div></div>
+        <span class="chip">Working</span>
+      </div>
+      <div class="card attn">
+        <span class="dot dot-needs"></span>
+        <div><div class="nm">Migrate persistence layer</div><div class="sub">opus-4 · waiting 2m · 61.4k tok</div></div>
+        <span class="chip">Needs you</span>
+      </div>
+      <div class="card">
+        <span class="dot dot-idle"></span>
+        <div><div class="nm">Write E2E for worktrees</div><div class="sub">sonnet-4.5 · done · 33.9k tok</div></div>
+        <span class="chip">Idle</span>
+      </div>
+      <div class="card">
+        <span class="dot dot-idle"></span>
+        <div><div class="nm">Bump pi to 0.42.0</div><div class="sub">haiku-4.5 · done · 7.1k tok</div></div>
+        <span class="chip">Idle</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ FEATURES ============================ -->
+<section id="features" data-field="features">
+  <div class="wrap">
+    <h2 style="max-width:20ch">Not a viewer. The <em>whole workbench</em>.</h2>
+    <div class="grid" style="margin-top:44px">
+      <div class="cell">
+        <!-- Two-pane workbench: file tree left, code right, one row selected. -->
+        <svg class="ico" width="76" height="52" viewBox="0 0 76 52" fill="none"
+             stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+          <rect x=".75" y=".75" width="74.5" height="50.5" rx="4"/>
+          <path d="M25 1V51"/>
+          <path d="M8 13h9M8 29h9M8 37h7"/>
+          <path d="M8 21h9" class="a" stroke-width="2.5"/>
+          <path d="M32 13h35M32 21h27M32 29h32M32 37h20"/>
+        </svg>
+        <span class="stat-k">01 / Editor</span>
+        <h3>Monaco, in the page</h3>
+        <p>Open the file the agent just touched, side by side with the chat. Diff viewer, file tree, real terminal per folder.</p>
+      </div>
+      <div class="cell">
+        <!-- Trunk with a worktree branching off and continuing in parallel. -->
+        <svg class="ico" width="76" height="52" viewBox="0 0 76 52" fill="none"
+             stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+          <path d="M16 8V44"/>
+          <path d="M16 20c0 8 8 10 16 10h12" class="a"/>
+          <path d="M52 30v10"/>
+          <circle cx="16" cy="8" r="3.2"/>
+          <circle cx="16" cy="44" r="3.2"/>
+          <circle cx="16" cy="20" r="3.6" class="af"/>
+          <circle cx="48" cy="30" r="3.2" class="a"/>
+          <circle cx="52" cy="44" r="3.2"/>
+        </svg>
+        <span class="stat-k">02 / Git</span>
+        <h3>Branches and worktrees</h3>
+        <p>Switch branch from the card. Spin up a worktree per change. Review the diff and commit without leaving.</p>
+      </div>
+      <div class="cell">
+        <!-- One parent agent fanning out to three subagents; one is running. -->
+        <svg class="ico" width="76" height="52" viewBox="0 0 76 52" fill="none"
+             stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+          <rect x="26" y="3" width="24" height="13" rx="2.5"/>
+          <path d="M38 16v8M14 24h48M14 24v8M38 24v8M62 24v8"/>
+          <rect x="3" y="32" width="22" height="13" rx="2.5"/>
+          <rect x="27" y="32" width="22" height="13" rx="2.5" class="a"/>
+          <rect x="51" y="32" width="22" height="13" rx="2.5"/>
+          <path d="M31 38.5h6" class="a" stroke-width="2.5"/>
+        </svg>
+        <span class="stat-k">03 / Flows</span>
+        <h3>Watch multi-agent runs</h3>
+        <p>Agent cards, live graph, budget draw-down. Pop a subagent out and read its full timeline.</p>
+      </div>
+      <div class="cell">
+        <!-- A schedule firing, arrow spawning a session card. -->
+        <svg class="ico" width="76" height="52" viewBox="0 0 76 52" fill="none"
+             stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+          <circle cx="18" cy="26" r="13"/>
+          <path d="M18 17v9h7" class="a"/>
+          <path d="M36 26h20"/>
+          <path d="M51 21l5 5-5 5"/>
+          <rect x="60" y="16" width="13" height="20" rx="2.5"/>
+          <path d="M63.5 22h6M63.5 26h6"/>
+        </svg>
+        <span class="stat-k">04 / Automation</span>
+        <h3>Cron and file triggers</h3>
+        <p>Start a session on a schedule, or when a file lands. Set a goal with success criteria and let the supervisor drive.</p>
+      </div>
+      <div class="cell">
+        <!-- Four provider chips converging on one proxy endpoint. -->
+        <svg class="ico" width="76" height="52" viewBox="0 0 76 52" fill="none"
+             stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+          <rect x="2" y="3" width="19" height="10" rx="2.5"/>
+          <rect x="2" y="16" width="19" height="10" rx="2.5"/>
+          <rect x="2" y="29" width="19" height="10" rx="2.5"/>
+          <rect x="2" y="42" width="19" height="8" rx="2.5"/>
+          <path d="M21 8c16 0 14 18 26 18M21 21c10 0 16 5 26 5M21 34c10 0 16-8 26-8M21 46c16 0 14-20 26-20"/>
+          <circle cx="55" cy="26" r="7" class="a"/>
+          <path d="M62 26h12"/>
+        </svg>
+        <span class="stat-k">05 / Models</span>
+        <h3>Every provider, one place</h3>
+        <p>Sign in to Anthropic, Codex, Copilot, Gemini. Swap the model mid-session. Point other tools at the built-in proxy.</p>
+      </div>
+      <div class="cell">
+        <!-- Phone showing the pairing code that opens the tunnel. -->
+        <svg class="ico" width="76" height="52" viewBox="0 0 76 52" fill="none"
+             stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+          <rect x="24" y="2" width="28" height="48" rx="4.5"/>
+          <path d="M34 6h8"/>
+          <rect x="29" y="13" width="7" height="7" rx="1.5" class="a"/>
+          <rect x="40" y="13" width="7" height="7" rx="1.5"/>
+          <rect x="29" y="24" width="7" height="7" rx="1.5"/>
+          <path d="M40 24h3M44 27h3M40 30h7M29 35h7M40 35h7M29 39h18"/>
+          <path d="M8 20v-4a3 3 0 013-3h5M8 32v4a3 3 0 003 3h5M68 20v-4a3 3 0 00-3-3h-5M68 32v4a3 3 0 01-3 3h-5"/>
+        </svg>
+        <span class="stat-k">06 / Access</span>
+        <h3>Phone in 10 seconds</h3>
+        <p>Scan a QR to pair. Share over a zrok tunnel with OAuth and an allowlist. Install it as a PWA.</p>
+      </div>
+
+      <div class="cell">
+        <!-- MCP: three outside clients converging on one authenticated endpoint.
+             The accent element is the lock — the point of this feature is that
+             the door is open to tools but never open anonymously. -->
+        <svg class="ico" width="76" height="52" viewBox="0 0 76 52" fill="none"
+             stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+          <rect x="2" y="5" width="17" height="11" rx="2"/>
+          <rect x="2" y="20.5" width="17" height="11" rx="2"/>
+          <rect x="2" y="36" width="17" height="11" rx="2"/>
+          <path d="M19 10.5h9a4 4 0 0 1 4 4v8M19 26h13M19 41.5h9a4 4 0 0 0 4-4v-8"/>
+          <path d="M32 26h8"/>
+          <rect x="46" y="14" width="26" height="24" rx="3"/>
+          <path d="M54 24v-3a5 5 0 0 1 10 0v3" class="a"/>
+          <rect x="52" y="24" width="14" height="10" rx="2" class="a"/>
+        </svg>
+        <span class="stat-k">07 / MCP</span>
+        <h3>An MCP server, not just a client</h3>
+        <p>One <code>POST /mcp</code> endpoint puts every session behind an MCP tool call — Claude
+          Desktop, Cursor, or another pi. Bearer credential required, localhost included.</p>
+      </div>
+
+      <div class="cell">
+        <!-- Skills: a stack of procedure cards, the top one open and running.
+             Accent marks the step currently executing. -->
+        <svg class="ico" width="76" height="52" viewBox="0 0 76 52" fill="none"
+             stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+          <path d="M18 12h34a3 3 0 0 1 3 3v30a3 3 0 0 1-3 3H18a3 3 0 0 1-3-3V15a3 3 0 0 1 3-3Z"/>
+          <path d="M21 8h33a4 4 0 0 1 4 4M24 4h32a5 5 0 0 1 5 5"/>
+          <circle cx="23" cy="22" r="2.2" class="a"/>
+          <path d="M29 22h18" class="a"/>
+          <circle cx="23" cy="30" r="2.2"/><path d="M29 30h15"/>
+          <circle cx="23" cy="38" r="2.2"/><path d="M29 38h11"/>
+        </svg>
+        <span class="stat-k">08 / Skills</span>
+        <h3>Crafted skills, not prompts</h3>
+        <p>Ship procedures as skills the agent loads on the right trigger: review, debug, harden,
+          estimate, cut a release. Browse, install and move them per folder or globally.</p>
+      </div>
+
+      <div class="cell">
+        <!-- Plugins: the dashboard's slot grid with one slot claimed (accent). -->
+        <svg class="ico" width="76" height="52" viewBox="0 0 76 52" fill="none"
+             stroke="currentColor" stroke-width="1.5" stroke-linecap="round" aria-hidden="true">
+          <rect x="8" y="5" width="60" height="42" rx="3.5"/>
+          <path d="M8 15h60M26 15v32"/>
+          <rect x="32" y="21" width="30" height="9" rx="2" class="a"/>
+          <path d="M13 22h8M13 28h8M13 34h8"/>
+          <path d="M32 36h30M32 41h20"/>
+          <path d="M62 25.5h5a2.5 2.5 0 0 0 0-5h-1" class="a"/>
+        </svg>
+        <span class="stat-k">09 / Plugins</span>
+        <h3>Ten slots to claim</h3>
+        <p>The UI is composed of named slots. A plugin claims one with a React component — card
+          badge, content view, settings section, tool renderer — and ships as an npm package.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============================ DOWNLOAD ============================
+     Adapted from site/src/components/DownloadSection.astro. On the live site
+     the release line is fetched from the GitHub API at build time; here it is
+     a fixed illustrative release, since a mockup has no build step — the
+     numbers are shaped like real ones so the layout is judged at real width.
+     Band is OPAQUE: this is the block where the page stops asserting and
+     starts handing over files, so the depth behind it gets out of the way. -->
+<section class="band glass" id="download" data-field="control">
+  <div class="wrap">
+    <div class="head">
+      <p class="eyebrow mono">Download</p>
+      <h2>Get the desktop app. <em>No terminal required.</em></h2>
+      <p class="p">Pre-built installers for macOS, Linux and Windows. Bundles Node.js and
+        auto-installs pi + OpenSpec — you don't need any prerequisites.</p>
+    </div>
+
+    <div class="rel">
+      <span class="tag"><span class="dot dot-idle"></span>Latest</span>
+      <span class="ver" data-rel-tag>v0.8.0</span>
+      <span class="when" data-rel-date>Released 26 Aug 2026</span>
+      <span class="links">
+        <a data-rel-notes href="https://github.com/BlackBeltTechnology/pi-agent-dashboard/releases/tag/v0.8.0">Release notes ↗</a>
+        <a href="https://github.com/BlackBeltTechnology/pi-agent-dashboard/releases">All releases ↗</a>
+      </span>
+    </div>
+
+    <div class="grid">
+      <div class="cell">
+        <div class="plat">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M16.4 12.5c0-2.3 1.9-3.4 2-3.5-1.1-1.6-2.8-1.8-3.4-1.9-1.4-.1-2.8.9-3.5.9-.7 0-1.9-.8-3.1-.8-1.6 0-3.1.9-3.9 2.4-1.7 2.9-.4 7.1 1.2 9.5.8 1.2 1.8 2.5 3 2.4 1.2-.1 1.7-.8 3.1-.8 1.5 0 1.9.8 3.2.8 1.3 0 2.2-1.2 3-2.4.9-1.4 1.3-2.7 1.3-2.8-.1 0-2.5-1-2.6-3.8zM14.1 5.3c.7-.8 1.1-2 1-3.2-1 .1-2.2.7-2.9 1.5-.6.7-1.2 1.9-1 3 1.1.1 2.2-.5 2.9-1.3z"/></svg>
+          <span class="nm">macOS</span>
+        </div>
+        <!-- Both architectures are promoted, as on the live site: asking a Mac
+             user to work out which chip they have is the classic download-page
+             failure, and "universal" builds double the bytes. -->
+        <a class="dl dl-1" data-asset="mac-arm64" href="https://github.com/BlackBeltTechnology/pi-agent-dashboard/releases/download/v0.8.0/PI-Dashboard-0.8.0-arm64.dmg"><span>Apple Silicon · DMG</span><span class="sz">238.3 MB</span></a>
+        <a class="dl dl-2" data-asset="mac-x64" href="https://github.com/BlackBeltTechnology/pi-agent-dashboard/releases/download/v0.8.0/PI-Dashboard-0.8.0-x64.dmg"><span>Intel · DMG</span><span class="sz">242.2 MB</span></a>
+      </div>
+
+      <div class="cell">
+        <div class="plat">
+          <!-- Tux, drawn rather than borrowed: the site's one-path silhouette
+               loses the beak, the feet and the white belly at 22px and reads as
+               a ghost. Penguin needs four parts to be a penguin — body, white
+               front, beak, feet. The belly is a CONSTANT light, not the page
+               background: filling it with --bg-primary reads as a hole punched
+               through the bird in dark theme, where Tux's belly is meant to be
+               the brightest part. Beak and feet carry the only warm colour. -->
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M6.3 21c-.6-1.2.1-2.4.5-3.4.4-1 .2-1.9.2-3.4 0-2.6.6-4.4 1.5-5.6V6.1a3.5 3.5 0 1 1 7 0v2.5c.9 1.2 1.5 3 1.5 5.6 0 1.5-.2 2.4.2 3.4.4 1 1.1 2.2.5 3.4Z" fill="currentColor"/>
+            <path d="M12 10.4c1.7 0 3 1.9 3 4.7 0 1.6-.3 3-.7 4a2.6 2.6 0 0 1-4.6 0c-.4-1-.7-2.4-.7-4 0-2.8 1.3-4.7 3-4.7Z" fill="#f3f4f6"/>
+            <circle cx="10.5" cy="6" r=".85" fill="#f3f4f6"/>
+            <circle cx="13.5" cy="6" r=".85" fill="#f3f4f6"/>
+            <path d="M12 6.7c.8 0 1.4.5 1.4 1s-.6 1-1.4 1-1.4-.5-1.4-1 .6-1 1.4-1Z" fill="#e0a63c"/>
+            <path d="M8.6 21c-.5 0-2.3.7-2.3 1.4 0 .4 1 .6 2.3.6s2.2-.3 2.2-.8-.8-1.2-2.2-1.2ZM15.4 21c1.4 0 2.3.7 2.3 1.4 0 .4-1 .6-2.3.6s-2.2-.3-2.2-.8.8-1.2 2.2-1.2Z" fill="#e0a63c"/>
+          </svg>
+          <span class="nm">Linux</span>
+        </div>
+        <a class="dl dl-1" data-asset="linux-appimage-x64" href="https://github.com/BlackBeltTechnology/pi-agent-dashboard/releases/download/v0.8.0/PI-Dashboard-0.8.0-x64.AppImage"><span>AppImage · x64</span><span class="sz">225.3 MB</span></a>
+        <ul class="alt">
+          <li><a data-asset="linux-appimage-arm64" href="https://github.com/BlackBeltTechnology/pi-agent-dashboard/releases/download/v0.8.0/PI-Dashboard-0.8.0-arm64.AppImage"><span>AppImage (arm64)</span><span>223.8 MB</span></a></li>
+          <li><a data-asset="linux-deb-x64" href="https://github.com/BlackBeltTechnology/pi-agent-dashboard/releases/download/v0.8.0/pi-dashboard_0.8.0_amd64.deb"><span>.deb (x64)</span><span>178.0 MB</span></a></li>
+          <li><a data-asset="linux-deb-arm64" href="https://github.com/BlackBeltTechnology/pi-agent-dashboard/releases/download/v0.8.0/pi-dashboard_0.8.0_arm64.deb"><span>.deb (arm64)</span><span>175.6 MB</span></a></li>
+        </ul>
+      </div>
+
+      <div class="cell">
+        <div class="plat">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M3 5.5l8-1.1v8.1H3zm0 13l8 1.1v-8H3zm9 1.3l10 1.4v-9.7H12zm0-16l10-1.4v9.7H12z"/></svg>
+          <span class="nm">Windows</span>
+        </div>
+        <a class="dl dl-1" data-asset="win-exe-x64" href="https://github.com/BlackBeltTechnology/pi-agent-dashboard/releases/download/v0.8.0/PI-Dashboard-Setup-0.8.0-x64.exe"><span>Installer · EXE</span><span class="sz">234.2 MB</span></a>
+        <ul class="alt">
+          <li><a data-asset="win-exe-arm64" href="https://github.com/BlackBeltTechnology/pi-agent-dashboard/releases/download/v0.8.0/PI-Dashboard-Setup-0.8.0-arm64.exe"><span>Installer (arm64)</span><span>225.1 MB</span></a></li>
+          <li><a data-asset="win-zip-x64" href="https://github.com/BlackBeltTechnology/pi-agent-dashboard/releases/download/v0.8.0/PI-Dashboard-win32-x64.zip"><span>ZIP (x64)</span><span>327.6 MB</span></a></li>
+          <li><a data-asset="win-zip-arm64" href="https://github.com/BlackBeltTechnology/pi-agent-dashboard/releases/download/v0.8.0/PI-Dashboard-win32-arm64.zip"><span>ZIP (arm64)</span><span>324.6 MB</span></a></li>
+        </ul>
+      </div>
+    </div>
+
+    <p class="foot-note">Prefer a CLI install? <a href="#install">pi package and npm options below.</a></p>
+  </div>
+</section>
+
+<!-- ============================ INSTALL ============================
+     Adapted from site/src/components/GetStartedSection.astro + InstallTabs.tsx
+     (Preact → ~20 lines of vanilla, since a mockup ships no framework). Tabs
+     swap instantly; all three panels exist in the DOM from first paint and are
+     toggled with [hidden], so nothing fades, slides or reflows. -->
+<section id="install" data-field="close">
+  <div class="wrap">
+    <div class="head">
+      <p class="eyebrow mono">Get started</p>
+      <h2>Three ways in. <em>All easy.</em></h2>
+      <p class="p">Pick whichever fits your workflow. You can always switch later.</p>
+    </div>
+
+    <div class="tabs" role="tablist" aria-label="Install methods">
+      <button class="tab" role="tab" id="tab-electron" aria-controls="panel-electron" aria-selected="true">Electron app</button>
+      <button class="tab" role="tab" id="tab-pi" aria-controls="panel-pi" aria-selected="false">pi package</button>
+      <button class="tab" role="tab" id="tab-npm" aria-controls="panel-npm" aria-selected="false">npm (CLI)</button>
+    </div>
+
+    <div class="panel" role="tabpanel" id="panel-electron" aria-labelledby="tab-electron">
+      <p class="sub">Zero prerequisites. Guided setup wizard.</p>
+      <div class="codebox">
+        <button class="copy-btn" type="button">Copy</button>
+<pre># Download an installer:
+# github.com/BlackBeltTechnology/pi-agent-dashboard/releases
+#
+# macOS    — .dmg (arm64 / x64)
+# Linux    — .deb / .AppImage
+# Windows  — .exe (installer) / .zip</pre>
+      </div>
+      <p class="note">Bundles Node.js, auto-installs pi + openspec. System tray integration.
+        Builds are not yet code-signed — see the unblocking notes below.</p>
+      <div class="unsigned">
+        <h4>First-run unblocking</h4>
+        <p><b>Windows:</b> SmartScreen warns on first launch. Either <i>More info → Run anyway</i>,
+          or right-click the downloaded <code>.exe</code> / <code>.zip</code> → <i>Properties</i> →
+          tick <i>Unblock</i> → <i>OK</i> before running. For ZIPs, unblock the archive before extracting.</p>
+        <p><b>macOS:</b> the DMGs are not yet notarized. Either right-click <i>PI-Dashboard.app</i> →
+          <i>Open</i> the first time, or clear the quarantine attribute:</p>
+<pre>xattr -cr /Applications/PI-Dashboard.app</pre>
+        <p>If you see <code>No such xattr: com.apple.quarantine</code> from an older
+          <code>xattr -d</code> command, that's harmless — the attribute was never set. Just launch the app.</p>
+      </div>
+    </div>
+
+    <div class="panel" role="tabpanel" id="panel-pi" aria-labelledby="tab-pi" hidden>
+      <p class="sub">Already using pi? Add it as a package.</p>
+      <div class="codebox">
+        <button class="copy-btn" type="button">Copy</button>
+<pre># From inside any pi session:
+/packages add @blackbelt-technology/pi-agent-dashboard
+
+# That's it. The dashboard auto-starts
+# next time you launch pi.</pre>
+      </div>
+    </div>
+
+    <div class="panel" role="tabpanel" id="panel-npm" aria-labelledby="tab-npm" hidden>
+      <p class="sub">Classic Node.js install. Runs everywhere.</p>
+      <div class="codebox">
+        <button class="copy-btn" type="button">Copy</button>
+<pre>npm install -g @blackbelt-technology/pi-agent-dashboard
+
+# Start the server:
+pi-dashboard start
+# or in dev mode:
+pi-dashboard start --dev</pre>
+      </div>
+      <p class="note">Requires Node.js 20+ and a working pi installation.</p>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap foot">
+    <a href="https://github.com/BlackBeltTechnology/pi-agent-dashboard">GitHub</a
+    ><a href="https://github.com/BlackBeltTechnology/pi-agent-dashboard#readme">Docs</a
+    ><a href="https://github.com/BlackBeltTechnology/pi-agent-dashboard/blob/develop/CHANGELOG.md">Changelog</a
+    ><a href="https://github.com/BlackBeltTechnology/pi-agent-dashboard/blob/develop/LICENSE">Licence</a
+    ><a href="https://discord.gg/DrNebZ3pF5">Discord</a>
+    <!-- Name and link taken from the old site's Footer.astro, which is also how
+         packages/electron/package.json spells the author. Note the LICENSE file
+         still names an individual holder — see the commit message. -->
+    <span class="note">MIT · © 2026 <a href="https://blackbelt.hu" target="_blank" rel="noopener">BlackBelt Technology</a> · session data in screenshots is illustrative</span>
+  </div>
+</footer>
+
+<script>
+/* ---- theme ----
+   NOTE: the hero is a rendered video, so nothing here simulates the product. */
+const root = document.documentElement;
+const film = document.getElementById('film');
+
+/* The hero film ships in both themes, rendered from the SAME composition
+   source (design-scratch/video/hero2/build.mjs <theme>) against dark and light
+   captures of the same surfaces. Swapping it with the page keeps the product
+   shot and the page in one theme instead of showing a dark app on a white page.
+
+   Reassigning <source> elements does nothing on its own — the media element
+   only re-resolves them on an explicit load(). currentTime is restored so the
+   toggle does not visibly rewind the film. */
+let filmTheme = null;
+function setFilm(t){
+  if(!film || t === filmTheme) return;
+  filmTheme = t;
+  const at = film.currentTime || 0;
+  film.poster = `media/hero-${t}-poster.jpg`;
+  film.querySelector('source[type="video/webm"]').src = `media/hero-${t}-web.webm`;
+  film.querySelector('source[type="video/mp4"]').src  = `media/hero-${t}-web.mp4`;
+  film.load();
+  film.addEventListener('loadedmetadata', () => {
+    if(Number.isFinite(at) && at < film.duration) film.currentTime = at;
+    film.play().catch(() => { /* autoplay may be blocked; poster stands in */ });
+  }, { once: true });
+}
+
+/* Three-way System / Light / Dark, carried over from the Astro site's
+   ThemeToggle.tsx (a Preact island there, ~30 lines of vanilla here).
+
+   The head script already painted the page; this only wires the control and
+   keeps the film in sync. Deliberately the same three modes rather than a
+   two-state flip: "system" is a real answer, and dropping it would silently
+   demote every visitor who never touches the control into a hard choice. */
+const mq = window.matchMedia('(prefers-color-scheme: light)');
+const resolve = m => (m === 'system' ? (mq.matches ? 'light' : 'dark') : m);
+
+function applyTheme(mode, persist){
+  const t = resolve(mode);
+  if(t === 'light') root.setAttribute('data-theme','light'); else root.removeAttribute('data-theme');
+  root.dataset.themeChoice = mode;
+  themeBtns.forEach(b => b.setAttribute('aria-checked', String(b.dataset.mode === mode)));
+  setFilm(t);
+  if(persist){ try{ localStorage.setItem('pi-theme', mode); }catch(e){} }
+}
+
+const themeBtns = [...document.querySelectorAll('#tt [data-mode]')];
+let mode = 'system'; try{ mode = localStorage.getItem('pi-theme') || 'system'; }catch(e){}
+applyTheme(mode, false);
+themeBtns.forEach(b => b.addEventListener('click', () => applyTheme(b.dataset.mode, true)));
+/* Second listener, alongside the one in <head>: that one repaints the tokens
+   before first paint, this one also swaps the hero film source. */
+mq.addEventListener('change', () => {
+  let cur = 'system'; try{ cur = localStorage.getItem('pi-theme') || 'system'; }catch(e){}
+  if(cur === 'system') applyTheme('system', false);
+});
+
+/* ---- install tabs ----
+   The live site runs this as a hydrated Preact island; a static mockup does not
+   need one. Panels are toggled with [hidden] — no transition, no cross-fade, no
+   measured height. A tab change is a swap, not an animation. */
+const tabs = [...document.querySelectorAll('.tab')];
+tabs.forEach(tab => tab.addEventListener('click', () => {
+  tabs.forEach(t => {
+    const on = t === tab;
+    t.setAttribute('aria-selected', String(on));
+    document.getElementById(t.getAttribute('aria-controls')).hidden = !on;
+  });
+}));
+
+/* Copy button: the label is the only feedback, and it reverts on a timer.
+   Deliberately no toast — a toast is a block that appears and disappears. */
+document.querySelectorAll('.copy-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const code = btn.parentElement.querySelector('pre').textContent;
+    try { await navigator.clipboard.writeText(code); } catch(e) { return; }
+    btn.textContent = 'Copied';
+    setTimeout(() => { btn.textContent = 'Copy'; }, 1200);
+  });
+});
+
+</script>
+
+<script>
+/* ---------------- scroll reveal (two-way) ----------------
+   Blocks fade and rise in as they arrive, and fade and continue out as they
+   leave. Direction is set from the edge they exit through, so the motion is
+   monotonic rather than a retrace: see the .reveal note in the stylesheet.
+
+   Elements are tagged from JS instead of hand-marked in the markup, so the
+   list survives blocks being added or reordered, and the markup stays clean
+   for whoever edits this file next. */
+(function(){
+  var still = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  if (still || !('IntersectionObserver' in window)) return;  // content stays visible
+
+  var groups = ['.spec', '.card', '.cell', '.head', '.rel', '[data-rv]', 'section > .wrap > h2'];
+  var seen = [];
+
+  groups.forEach(function(sel){
+    var byParent = new Map();
+    document.querySelectorAll(sel).forEach(function(el){
+      if (seen.indexOf(el) !== -1) return;      // never tag one element twice
+      seen.push(el);
+      var list = byParent.get(el.parentElement) || [];
+      list.push(el);
+      byParent.set(el.parentElement, list);
+    });
+    // Stagger runs WITHIN a row/grid, so a six-cell grid ripples but the page
+    // as a whole never accumulates a long delay further down.
+    byParent.forEach(function(list){
+      list.forEach(function(el, i){
+        el.classList.add('reveal');
+        el.style.transitionDelay = Math.min(i, 5) * 70 + 'ms';
+      });
+    });
+  });
+
+  var io = new IntersectionObserver(function(entries){
+    entries.forEach(function(e){
+      if (e.isIntersecting) { e.target.classList.add('in'); return; }
+      /* Leaving: park the block on the side it is leaving through, so the exit
+         continues the travel instead of rewinding the entrance. boundingClientRect
+         is read from the entry, not re-measured, so this costs no layout. */
+      e.target.style.setProperty('--rv', e.boundingClientRect.top < 0 ? '-34px' : '34px');
+      e.target.classList.remove('in');
+    });
+  }, { rootMargin: '0px 0px -12% 0px', threshold: 0.05 });
+
+  document.querySelectorAll('.reveal').forEach(function(el){ io.observe(el); });
+
+  /* Anything already on screen at load reveals immediately rather than waiting
+     for a scroll that may never come on a short viewport. */
+  requestAnimationFrame(function(){
+    document.querySelectorAll('.reveal').forEach(function(el){
+      var r = el.getBoundingClientRect();
+      if (r.top < window.innerHeight && r.bottom > 0) el.classList.add('in');  // stays observed: the reveal is two-way
+    });
+  });
+})();
+</script>
+
+<script type="module">
+/* ---------------- page background: the session fleet (3D) -----------------
+   Replaces the earlier boxed 2D arc shader. That one borrowed Cerebrium's
+   motion idiom into a rectangle beside the headline; this is real geometry
+   behind the WHOLE page — matte untextured slabs, one soft key light, real
+   contact shadows, exactly one accent card lit ("needs you").
+
+   Rationale, palette and the photoreal-without-texture rules live in field.js.
+   It is imported rather than inlined so the lab page (bg3d.html) exercises the
+   identical module: a lab running a copy of the code proves nothing. */
+import { initField } from './field.js';
+initField(document.getElementById('field'));
+</script>
+</body>
+</html>

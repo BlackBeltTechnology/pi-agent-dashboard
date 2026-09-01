@@ -1,0 +1,45 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-mcp-server-plugin",
+  "version": "0.8.0",
+  "description": "Dashboard plugin exposing a stateless MCP endpoint at POST /mcp implementing protocol revision 2026-07-28: no initialize handshake, no session ids, server/discover, and subscriptions/listen streaming over a curated allowlist of ServerPluginContext verbs. Every request is authenticated, including loopback.",
+  "license": "MIT",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/mcp-server-plugin"
+  },
+  "exports": {
+    "./server": {
+      "types": "./src/server/index.ts",
+      "default": "./src/server/index.ts"
+    }
+  },
+  "files": [
+    "src/",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md",
+    "!**/__tests__",
+    "!**/*.test.ts"
+  ],
+  "pi-dashboard-plugin": {
+    "id": "mcp-server",
+    "displayName": "MCP Server",
+    "priority": 100,
+    "server": "./src/server/index.ts",
+    "claims": []
+  },
+  "peerDependencies": {
+    "fastify": "^5.0.0"
+  },
+  "dependencies": {
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0"
+  },
+  "devDependencies": {
+    "fastify": "^5.0.0"
+  }
+}

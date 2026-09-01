@@ -24,6 +24,25 @@ export interface RankingConfig {
   fieldWeights: { headingPath: number; heading: number; body: number };
   proximityBoost: boolean;
   diversity: { enabled: boolean; lambda: number };
+  /** Collapse hits to one per `(root, path)` (design D1). */
+  sourceDedup: boolean;
+  /** Share of the page reserved for the `agents` doc-type lane, 0..1 (design D3).
+   *  0 disables the quota. SWEPT over the bundled fixtures — see
+   *  openspec/changes/fix-kb-search-retrieval-quality/measurements.md. */
+  laneQuota: number;
+  /** Relative score margin that lets the reserved `agents` lane take result
+   *  slot 1, 0..1 (change fix-kb-search-lane-composition, design D2/D3).
+   *  `0` disables the rule and restores the pre-change interleaving exactly.
+   *  The running-share quota is structurally incapable of taking slot 1
+   *  (`(0+1)/(0+1) <= share` is false for every share < 1), so rank 1 needs
+   *  its own knob. Inert whenever there is no reserved lane: an explicit
+   *  `doc_type` or `laneQuota: 0` zeroes `laneShare` at the call site, so
+   *  `interleaveLanes` — and this rule inside it — is never reached. */
+  laneLeadMargin: number;
+  /** IDF-weighted coverage rerank over the candidate pool (design D4).
+   *  Implemented, DEFAULT OFF: on the bundled fixtures it costs markdown-intent
+   *  R@10 0.620 → 0.472 to buy source-intent 0.423 → 0.462, a net regression. */
+  coverageRerank: boolean;
 }
 export interface ExpandConfig {
   parent: boolean;
@@ -36,6 +55,8 @@ export interface RerankConfig {
 }
 export interface QueryExpansionConfig {
   mode: "off" | "prf" | "synonym" | "agent";
+  /** RM3-style pseudo-relevance-feedback tuning (design D4). */
+  prf: { terms: number; topK: number; dfCeiling: number };
 }
 export interface DirectoryLevelAgentsConfig {
   enabled: boolean;
@@ -46,6 +67,15 @@ export interface DirectoryLevelAgentsConfig {
 export interface FrontmatterConfig {
   searchableKeys: string[]; // frontmatter values indexed as searchable meta
   facetKeys: FacetKeyConfig[]; // whitelisted facet keys (+ optional declared type)
+}
+/** kb search-guard enforcement mode (arm B). Shipped default `warn` (resolved
+ *  at planning): a guard that is off does nothing about the measured 10:1
+ *  under-use; `block` can refuse tool calls and is therefore NEVER a default —
+ *  reachable only by explicit config. The KB_GUARD_MODE env override may
+ *  select `off`/`warn` only (it can weaken, never enable blocking — D14). */
+export type GuardMode = "off" | "warn" | "block";
+export interface ReadDisciplineConfig {
+  guard: { mode: GuardMode };
 }
 export interface KbConfig {
   sources: SourceConfig[];
@@ -67,6 +97,7 @@ export interface KbConfig {
   directoryLevelAgents: DirectoryLevelAgentsConfig;
   frontmatter: FrontmatterConfig;
   doxEnforcement: boolean; // opt-in Phase-2 hook Job 2 (default OFF)
+  readDiscipline: ReadDisciplineConfig;
   ranking: RankingConfig;
   expand: ExpandConfig;
   rerank: RerankConfig;
@@ -110,16 +141,31 @@ export const DEFAULTS: KbConfig = {
   directoryLevelAgents: { enabled: true, claudeMd: true, mode: "pull", fallbackManifest: true },
   frontmatter: { searchableKeys: DEFAULT_SEARCHABLE_KEYS, facetKeys: DEFAULT_FACET_KEYS },
   doxEnforcement: false,
-  ranking: { fieldWeights: { headingPath: 10, heading: 3, body: 1 }, proximityBoost: true, diversity: { enabled: true, lambda: 0.7 } },
+  readDiscipline: { guard: { mode: "warn" } },
+  ranking: {
+    fieldWeights: { headingPath: 10, heading: 3, body: 1 },
+    proximityBoost: true,
+    diversity: { enabled: true, lambda: 0.7 },
+    sourceDedup: true,
+    // 0.5 = the largest reserved share with NO markdown-intent regression
+    // (R@10 0.630 vs 0.611 unquota'd) while source-intent rises 0.317 → 0.500.
+    laneQuota: 0.5,
+    coverageRerank: false,
+    // Chosen by measurement over both golden sets — see
+    // openspec/changes/fix-kb-search-lane-composition/measurements.md.
+    laneLeadMargin: 0,
+  },
   expand: { parent: true, graph: false },
   rerank: { enabled: false, model: "ms-marco-MiniLM-L-6-v2", candidateK: 50 },
-  queryExpansion: { mode: "off" },
+  // PRF is implemented engine-side but DEFAULT OFF: it is gated on coverage
+  // rerank (which measures as a net regression), and adds ~3x search latency.
+  queryExpansion: { mode: "off", prf: { terms: 6, topK: 10, dfCeiling: 0.1 } },
   dbPath: ".pi/dashboard/kb/index.db",
 };
 
 // Nested object keys that need one-level field fill-in (not wholesale replace),
 // so a partial `{ranking:{proximityBoost:false}}` keeps default fieldWeights/diversity.
-const NESTED_KEYS = ["chunking", "dedup", "graph", "directoryLevelAgents", "frontmatter", "ranking", "expand", "rerank", "queryExpansion"] as const;
+const NESTED_KEYS = ["chunking", "dedup", "graph", "directoryLevelAgents", "frontmatter", "readDiscipline", "ranking", "expand", "rerank", "queryExpansion"] as const;
 
 /** Stable hash of the frontmatter routing config. A change forces a full reindex
  *  (design D6) since existing property rows/meta chunks reflect the old routing. */
@@ -160,6 +206,12 @@ export function validateConfig(c: Partial<KbConfig>, origin = "config"): KbConfi
   if (typeof merged.maxFileCount !== "number" && merged.maxFileCount !== null) throw err("maxFileCount must be a number or null");
   if (typeof merged.dbPath !== "string" || !merged.dbPath) throw err("dbPath must be a non-empty string");
   if (!/^(off|prf|synonym|agent)$/.test(merged.queryExpansion.mode)) throw err(`queryExpansion.mode "${merged.queryExpansion.mode}" unknown`);
+  const gm = merged.readDiscipline?.guard?.mode;
+  if (gm !== undefined && !/^(off|warn|block)$/.test(gm)) throw err(`readDiscipline.guard.mode "${gm}" unknown (off | warn | block)`);
+  const lq = merged.ranking.laneQuota;
+  if (typeof lq !== "number" || !Number.isFinite(lq) || lq < 0 || lq > 1) throw err("ranking.laneQuota must be a number in [0,1]");
+  const llm = merged.ranking.laneLeadMargin;
+  if (typeof llm !== "number" || !Number.isFinite(llm) || llm < 0 || llm > 1) throw err("ranking.laneLeadMargin must be a number in [0,1]");
   const fm = merged.frontmatter;
   if (!fm || !Array.isArray(fm.searchableKeys) || fm.searchableKeys.some((k) => typeof k !== "string")) throw err("frontmatter.searchableKeys must be a string array");
   if (!Array.isArray(fm.facetKeys)) throw err("frontmatter.facetKeys must be an array");

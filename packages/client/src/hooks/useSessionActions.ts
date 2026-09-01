@@ -23,6 +23,8 @@ export interface SessionActionDeps {
   sessions: Map<string, DashboardSession>;
   setSessions: React.Dispatch<React.SetStateAction<Map<string, DashboardSession>>>;
   setSessionStates: React.Dispatch<React.SetStateAction<Map<string, SessionState>>>;
+  /** Latest reducer state; stale UI callbacks must re-check retry eligibility. */
+  sessionStatesRef: React.MutableRefObject<Map<string, SessionState>>;
   setSpawningCwds: React.Dispatch<React.SetStateAction<Set<string>>>;
   setTerminals: React.Dispatch<React.SetStateAction<Map<string, TerminalSession>>>;
   clearSpawningCwd: (cwd: string) => void;
@@ -41,7 +43,7 @@ export interface SessionActionDeps {
 export function useSessionActions(deps: SessionActionDeps) {
   const {
     selectedId, send, navigate, setMobileOpen,
-    sessions, setSessions, setSessionStates, setSpawningCwds, setTerminals,
+    sessions, setSessions, setSessionStates, sessionStatesRef, setSpawningCwds, setTerminals,
     clearSpawningCwd, spawnTimeoutsRef, pendingTerminalCwdRef, terminals,
     pendingSpawnsRef,
   } = deps;
@@ -102,7 +104,7 @@ export function useSessionActions(deps: SessionActionDeps) {
 
   // ── Follow-up queue mutation (bridge-owned buffer) ──────────────────
   //
-  // These five senders dispatch the wire messages defined in
+  // These four senders dispatch the wire messages defined in
   // browser-protocol.ts. The bridge mutates `bridgeFollowUp` locally; pi
   // is not involved. Steer mutation is intentionally NOT exposed (steer
   // drains too fast for it to matter; user direction).
@@ -114,9 +116,13 @@ export function useSessionActions(deps: SessionActionDeps) {
     send({ type: "remove_followup_entry", sessionId: selectedId, index });
   }, [selectedId, send]);
 
-  const editFollowUpEntry = useCallback((index: number, text: string, images?: ImageContent[]) => {
+  // Text only: the entry's images live in the bridge buffer and are preserved
+  // across the edit. The browser never holds the bytes after the initial
+  // `send_prompt`, so it has nothing to re-send.
+  // See change: fix-bridge-followup-image-drop (D5).
+  const editFollowUpEntry = useCallback((index: number, text: string) => {
     if (!selectedId) return;
-    send({ type: "edit_followup_entry", sessionId: selectedId, index, text, images });
+    send({ type: "edit_followup_entry", sessionId: selectedId, index, text });
   }, [selectedId, send]);
 
   const promoteFollowUpEntry = useCallback((index: number) => {
@@ -270,6 +276,20 @@ export function useSessionActions(deps: SessionActionDeps) {
     },
     [send, setSessionStates],
   );
+
+  const handleRetrySession = useCallback((sessionId: string) => {
+    // A click can race with recovery after the button rendered. Re-read the
+    // latest lifecycle through a stable ref before routing the hidden command.
+    const current = sessionStatesRef.current.get(sessionId);
+    if (!current?.lastError || current.retryState || current.retryCancelled || current.isStreaming) return;
+    // Active settled sessions cannot use resume_session (that path safely
+    // rejects live carriers). The typed retry_session message is forwarded by
+    // the server to the owning bridge, which starts a non-user custom turn via
+    // pi.sendMessage(triggerTurn:true). Replaces the legacy send_prompt sentinel
+    // `/__dashboard_retry`. See change:
+    // replace-dashboard-retry-command-with-protocol-message.
+    send({ type: "retry_session", sessionId });
+  }, [send, sessionStatesRef]);
 
   const handleResumeSession = useCallback((sessionId: string, mode: "continue" | "fork", entryId?: string) => {
     setSessions((prev) => {
@@ -452,7 +472,7 @@ export function useSessionActions(deps: SessionActionDeps) {
   return {
     handleAbort, handleForceKill, handleStopAfterTurn, handleCancelPending, handleRespondToUi, handleFlowAction, handleSend,
     handleSelect, handleRenameSession, handleShutdownSession, handleKillProcess,
-    handleSendPromptToSession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
+    handleSendPromptToSession, handleRetrySession, handleResumeSession, handleResumeSessionKeepPosition, handleSpawnSession,
     handleHideSession, handleUnhideSession, handleSetSessionTags, removeTagGlobally,
     handleCreateTerminal, handleKillTerminal, handleRenameTerminal, handleTerminalTitle,
     handleOpenInlineTerminal, handleCloseInlineTerminal,

@@ -1,3 +1,12 @@
+// @vitest-environment node
+//
+// The `node` environment is REQUIRED, not cosmetic: this suite reaches
+// `packages/kb`'s sqlite store, and vite's client (jsdom) environment refuses
+// to bundle the `node:sqlite` builtin — the file then collects 0 tests and the
+// transform error surfaces as a bare run failure. The package's default
+// environment is jsdom for its React client tests.
+// See change: move-slot-actions-to-menu (this suite was collected by no vitest
+// project before and therefore never ran).
 /**
  * kb-plugin REST route tests — stats / reindex / config over a real Fastify
  * instance with a temp folder fixture. Covers tasks 1.1–1.5, 4.1–4.4.
@@ -171,6 +180,36 @@ describe("GET /api/kb/stats", () => {
     const staleDir = join(cwd, ".pi", "dashboard", "kb");
     mkdirSync(staleDir, { recursive: true });
     writeFileSync(join(staleDir, "dox-staleness.json"), JSON.stringify({ "src.ts": sha }));
+    const { app } = buildApp([cwd]);
+    const res = await app.inject({ method: "GET", url: `/api/kb/stats?cwd=${encodeURIComponent(cwd)}` });
+    expect(res.json().staleCount).toBe(0);
+    await app.close();
+  });
+
+  it("reads the v2 sidecar ({version, files} with stat baselines) — drifted file still counts (add-kb-trust-verdicts-and-search-guard)", async () => {
+    const cwd = makeFolder();
+    writeFileSync(join(cwd, "src.ts"), "export const changed = 2;\n");
+    const staleDir = join(cwd, ".pi", "dashboard", "kb");
+    mkdirSync(staleDir, { recursive: true });
+    writeFileSync(
+      join(staleDir, "dox-staleness.json"),
+      JSON.stringify({ version: 2, files: { "src.ts": { sha256: "deadbeef-not-the-real-sha", size: 20, mtimeMs: 1000 } } }),
+    );
+    const { app } = buildApp([cwd]);
+    const res = await app.inject({ method: "GET", url: `/api/kb/stats?cwd=${encodeURIComponent(cwd)}` });
+    expect(res.json().staleCount).toBe(1); // a v2 sidecar must never silently read as zero drift
+    await app.close();
+  });
+
+  it("a future sidecar version reads as empty, not as false positives", async () => {
+    const cwd = makeFolder();
+    writeFileSync(join(cwd, "src.ts"), "export const x = 1;\n");
+    const staleDir = join(cwd, ".pi", "dashboard", "kb");
+    mkdirSync(staleDir, { recursive: true });
+    writeFileSync(
+      join(staleDir, "dox-staleness.json"),
+      JSON.stringify({ version: 3, files: { "src.ts": { sha256: "whatever", size: 1, mtimeMs: 2 } } }),
+    );
     const { app } = buildApp([cwd]);
     const res = await app.inject({ method: "GET", url: `/api/kb/stats?cwd=${encodeURIComponent(cwd)}` });
     expect(res.json().staleCount).toBe(0);

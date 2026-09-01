@@ -1,0 +1,205 @@
+/* Mirrored verbatim from packages/client/src/index.css — do NOT edit here.
+   Mockups reference these exact custom-property names so PROMOTE is a 1:1 map. */
+
+:root {
+  /* Backgrounds — wider contrast gaps for dark mode */
+  --bg-primary: #0a0a0a;       /* page background */
+  --bg-secondary: #141414;     /* panels, sidebar, expanded areas */
+  --bg-tertiary: #1e1e1e;      /* cards, inputs, selected items */
+  --bg-surface: #2a2a2a;       /* badges, buttons, elevated surfaces */
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-selected: #1e1e1e;
+  --bg-code: #1a1a1a;          /* code blocks, tool output */
+  --bg-canvas: #141414;        /* PDF viewer gutter (pdf-preview-continuous-scroll) */
+  --bg-overlay: rgba(0, 0, 0, 0.6);
+  --table-stripe: rgba(255, 255, 255, 0.045); /* markdown table zebra overlay */
+
+  /* Text — clear hierarchy */
+  --text-primary: #e5e5e5;     /* headings, important text */
+  --text-secondary: #b0b0b0;   /* body text, descriptions */
+  --text-tertiary: #808080;    /* labels, secondary info */
+  --text-muted: #585858;       /* hints, disabled text */
+  --text-faint: #3a3a3a;       /* very subtle text */
+
+  /* Borders */
+  --border-primary: #252525;   /* main borders */
+  --border-secondary: #333333; /* subtle dividers */
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  /* Perceivable boundary for an overlay surface floating on --bg-primary.
+     Exists to satisfy WCAG 2.1 SC 1.4.11 (3:1 non-text contrast): measures
+     5.01:1 against --bg-primary. No other border token qualifies
+     (--border-secondary is 1.57:1). See change: fix-replay-pill-a11y-and-collision. */
+  --border-strong: #808080;
+
+  /* Sidebar directory rail: the gray vertical line that represents the folder
+     owning a session list, + the drag-grip dots that ride it in an opaque
+     bead. See change: session-card-directory-rail. */
+  --rail-directory: rgba(255, 255, 255, 0.22);
+  --grip-dot: #7a7a7a;
+
+  /* Accents */
+  --accent-blue: #3b82f6;
+  --accent-green: #22c55e;
+  --accent-yellow: #eab308;
+  --accent-red: #ef4444;
+  --accent-purple: #a855f7;
+  --accent-orange: #f97316;
+  --accent-primary: #3b82f6;
+  --link: #60a5fa;
+  --link-hover: #93bbfd;
+
+  /* Semantic session-status tokens (derive from accents; theme overrides via
+     inline vars for non-base themes). See change:
+     improve-dashboard-attention-routing. */
+  --status-needs-you: var(--accent-purple);
+  --status-working: var(--accent-yellow);
+  --status-idle: var(--accent-green);
+  --status-error: var(--accent-red);
+  /* Non-error info: model returned only reasoning, no answer.
+     See change: fix-gemini-subagent-silent-tool-schema-failure. */
+  --status-notice: var(--accent-blue);
+
+  /* Message-severity tokens — single color source of truth for every toast /
+     banner surface. Each accent tier is a triple derived from one base accent
+     via color-mix so the muted translucent-box look is theme-robust: bg tints
+     into --bg-tertiary, fg mixes toward --text-primary (both flip per theme),
+     border is the accent at 40% alpha. neutral is the ABSENCE of severity, so
+     it reuses the literal subdued base tokens (NOT a color-mix from
+     --text-muted, which fails contrast). --severity-info is its own token
+     (independent of the --status-notice protocol signal, though both may share
+     --accent-blue). Percentages (bg 10% / fg 46% / border 40%) tuned so the
+     derived triples clear a 3:1 legibility floor across all 9 themes ×
+     light+dark (AA 4.5:1 on the majority); the sole documented exception is
+     tokyo-night light `info` (that theme's own body text is already sub-AA at
+     3.5:1, so no derived tint can beat it). See change:
+     unify-message-severity-colors, design.md D4/D6. */
+  --severity-error-bg: color-mix(in srgb, var(--accent-red) 10%, var(--bg-tertiary));
+  --severity-error-fg: color-mix(in srgb, var(--accent-red) 46%, var(--text-primary));
+  --severity-error-border: color-mix(in srgb, var(--accent-red) 40%, transparent);
+  --severity-warning-bg: color-mix(in srgb, var(--accent-orange) 10%, var(--bg-tertiary));
+  --severity-warning-fg: color-mix(in srgb, var(--accent-orange) 46%, var(--text-primary));
+  --severity-warning-border: color-mix(in srgb, var(--accent-orange) 40%, transparent);
+  --severity-success-bg: color-mix(in srgb, var(--accent-green) 10%, var(--bg-tertiary));
+  --severity-success-fg: color-mix(in srgb, var(--accent-green) 46%, var(--text-primary));
+  --severity-success-border: color-mix(in srgb, var(--accent-green) 40%, transparent);
+  --severity-info-bg: color-mix(in srgb, var(--accent-blue) 10%, var(--bg-tertiary));
+  --severity-info-fg: color-mix(in srgb, var(--accent-blue) 46%, var(--text-primary));
+  --severity-info-border: color-mix(in srgb, var(--accent-blue) 40%, transparent);
+  --severity-neutral-bg: var(--bg-tertiary);
+  --severity-neutral-fg: var(--text-secondary);
+  --severity-neutral-border: var(--border-primary);
+
+  /* Shared focus-ring color (:focus-visible). ≥3:1 vs adjacent colors.
+     See change: extend-client-utils-state-feedback-primitives. */
+  --focus-ring: var(--accent-primary);
+
+  /* Advisory ramp (reachability advisory, wide-range trust offers,
+     restart-pending dot). ALIASES of the shared severity-warning tokens, not a
+     second palette — those stay the single colour source, so a theme that
+     retunes `--accent-orange` retunes this surface too and the WCAG 1.4.11
+     non-text contrast is inherited rather than hand-picked per theme.
+     See change: warn-unreachable-trusted-networks. */
+  --warn-bg: var(--severity-warning-bg);
+  --warn-border: var(--severity-warning-border);
+  --warn-fg: var(--severity-warning-fg);
+  --warn-body: var(--text-secondary);
+
+  /* Shadows */
+  --shadow-card: rgba(0, 0, 0, 0.4);
+
+  /* Panel-bevel inset top-highlight (dark mode). Theme-agnostic (white-based),
+     not in CSS_VAR_KEYS so it survives named-theme application.
+     See change: add-panel-elevation-system. */
+  --elevation-rim: rgba(255, 255, 255, 0.10);
+
+  /* Selected-card iridescent ring alphas.
+     See change: redesign-session-card-and-composer (1.1). */
+  --neon-rim-alpha: 0.45;
+  --neon-glow-alpha: 0.10;
+  --neon-glow-blur: 8px;
+  --neon-glow-opacity: 0.42;
+  --neon-bg-tint: rgba(96, 165, 250, 0.025);
+}
+
+[data-theme="light"] {
+  /* Backgrounds */
+  --bg-primary: #ffffff;       /* page background */
+  --bg-secondary: #fafafa;     /* panels, sidebar */
+  --bg-tertiary: #f0f0f0;      /* cards, inputs */
+  --bg-surface: #e0e0e0;       /* badges, buttons */
+  --bg-hover: rgba(0, 0, 0, 0.04);
+  --bg-selected: #e8e8e8;
+  --bg-code: #f5f5f5;
+  --bg-canvas: #e9e9ec;        /* PDF viewer gutter (pdf-preview-continuous-scroll) */
+  --bg-overlay: rgba(0, 0, 0, 0.3);
+  --table-stripe: rgba(0, 0, 0, 0.035); /* markdown table zebra overlay */
+
+  /* Text */
+  --text-primary: #1a1a1a;
+  --text-secondary: #444444;
+  --text-tertiary: #777777;
+  --text-muted: #aaaaaa;
+  --text-faint: #d0d0d0;
+
+  /* Borders */
+  --border-primary: #e0e0e0;
+  --border-secondary: #cccccc;
+  --border-subtle: rgba(0, 0, 0, 0.06);
+  /* WCAG 2.1 SC 1.4.11 overlay boundary — 4.48:1 against light --bg-primary.
+     See change: fix-replay-pill-a11y-and-collision. */
+  --border-strong: #777777;
+  --rail-directory: rgba(0, 0, 0, 0.18);
+  --grip-dot: #8a8a8a;
+
+  /* Accents stay the same */
+  --accent-primary: #2563eb;
+  --link: #2563eb;
+  --link-hover: #1d4ed8;
+  --focus-ring: var(--accent-primary);
+
+  /* Shadows */
+  --shadow-card: rgba(0, 0, 0, 0.08);
+
+  /* Panel-bevel inset top-highlight (light mode).
+     See change: add-panel-elevation-system. */
+  --elevation-rim: rgba(255, 255, 255, 0.9);
+
+  /* Light-theme override of the iridescent ring alphas.
+     See change: redesign-session-card-and-composer (1.1). */
+  --neon-rim-alpha: 0.50;
+  --neon-glow-alpha: 0.18;
+  --neon-glow-blur: 11px;
+  --neon-glow-opacity: 0.52;
+  --neon-bg-tint: rgba(37, 99, 235, 0.035);
+}
+
+/* ===================================================================
+   PROPOSED TOKEN — not yet in index.css.
+
+   White text on --accent-primary (#3b82f6) is 3.68:1 in dark theme, below
+   the WCAG 2.2 AA 4.5:1 floor. Eight shipped primary buttons currently do
+   exactly that (NewWorkspaceDialog, BranchSwitchDialog, …). This token gives
+   primary buttons a background that passes with white in BOTH themes
+   (7.6:1), without disturbing --accent-primary, which is also used for
+   links, focus rings, and tinted backgrounds where it is fine.
+
+   Promote by adding this line to :root in packages/client/src/index.css.
+   =================================================================== */
+:root {
+  --accent-primary-strong: #1d4ed8;
+  /* Text on a filled accent surface. Named so components never hardcode #fff. */
+  --on-accent: #ffffff;
+  /* Monospace stack for paths, ids, and transcript evidence. The dashboard uses
+     mono inline today but has no token for it. */
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+}
+
+/* --- minimal reset + primitives expressed ONLY through the tokens above --- */
+*{box-sizing:border-box}
+html{color-scheme:dark}
+html[data-theme="light"]{color-scheme:light}
+body{margin:0;background:var(--bg-primary);color:var(--text-primary);
+  font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+  font-size:13px;line-height:1.5;-webkit-font-smoothing:antialiased}
+:focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px;border-radius:3px}
+@media (prefers-reduced-motion: reduce){*{animation:none!important;transition:none!important}}

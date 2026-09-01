@@ -1,0 +1,39 @@
+{
+  "$provenance": [
+    "Derived from IMPLICIT relevance feedback in pi session transcripts: the file",
+    "the agent opened within 8 tool calls of a kb_search.",
+    "",
+    "MARKDOWN INTENT: counted only when the opened file actually appeared in that",
+    "search's own result text, so the open is feedback on the search and not on",
+    "prior knowledge.",
+    "",
+    "SOURCE INTENT: a source file can never appear in kb results (the KB indexes",
+    "markdown), so the target is the AGENTS.md record that documents it — the",
+    "sidecar if present, else the nearest ancestor AGENTS.md that names the file.",
+    "`openedFile` records which source file the agent actually opened.",
+    "",
+    "KNOWN BIAS: a pair exists only when the search succeeded well enough for the",
+    "agent to open something. Queries the agent abandoned, refined away, or",
+    "answered by falling through to rg/grep are absent BY CONSTRUCTION, so this",
+    "set systematically under-samples the failure population it is meant to fix.",
+    "An opened file is also not proof of relevance — it is the cheapest available",
+    "proxy for it.",
+    "",
+    "Regenerate: node packages/kb/eval/mine-golden-sets.mjs"
+  ],
+  "sessionsRoot": "~/.pi/agent/sessions",
+  "window": 8,
+  "minQueryTerms": 2,
+  "stats": {
+    "transcripts": 3312,
+    "withKbSearch": 521,
+    "kbSearchCalls": 497,
+    "clicks": 217,
+    "refines": 168,
+    "abandoned": 109
+  },
+  "fixtures": {
+    "markdownIntent": 108,
+    "sourceIntent": 104
+  }
+}

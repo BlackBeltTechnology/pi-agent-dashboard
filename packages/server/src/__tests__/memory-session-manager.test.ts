@@ -83,10 +83,54 @@ describe("memory-session-manager", () => {
       expect(s.hidden).toBe(false);
     });
 
-    it("keeps a dashboard-spawned headless session visible", () => {
+    // E24 — the signal, not `source`: at register time the bridge still
+    // self-reports "tui"; `decideDashboardSource` has not run yet.
+    // See change: fix-spawn-correlation-ttl-coupling (D3).
+    it("keeps a dashboard-spawned headless session visible, on the signal not the source", () => {
       const sm = createMemorySessionManager();
-      const s = sm.register({ id: "d1", cwd: "/tmp", source: "dashboard", hasUI: false });
+      const s = sm.register({
+        id: "d1", cwd: "/tmp", source: "tui", hasUI: false, dashboardSpawned: true,
+      });
       expect(s.hidden).toBe(false);
+    });
+
+    // E25 — no signal: a genuine headless worker still hides.
+    it("hides a headless first register carrying no dashboard-spawn signal", () => {
+      const sm = createMemorySessionManager();
+      const s = sm.register({ id: "w2", cwd: "/tmp", source: "tui", hasUI: false });
+      expect(s.hidden).toBe(true);
+    });
+
+    // E26 — explicit intent still outranks the heuristic.
+    it("honors visibilityIntent 'visible' over the missing signal", () => {
+      const sm = createMemorySessionManager();
+      const s = sm.register({
+        id: "v2", cwd: "/tmp", source: "tui", hasUI: false, visibilityIntent: "visible",
+      });
+      expect(s.hidden).toBe(false);
+    });
+
+    // E27 — reattach precedence untouched: the heuristic is not consulted.
+    it("keeps a prior hidden=true across reattach without consulting the heuristic", () => {
+      const sm = createMemorySessionManager();
+      sm.register({ id: "r1", cwd: "/tmp", source: "tui", hasUI: false });
+      expect(sm.get("r1")?.hidden).toBe(true);
+      const re = sm.register({
+        id: "r1", cwd: "/tmp", source: "tui", registerReason: "reattach", dashboardSpawned: true,
+      });
+      expect(re.hidden).toBe(true);
+    });
+
+    // E28 — a non-`true` signal must not un-hide.
+    it("does not un-hide on a non-boolean dashboardSpawned value", () => {
+      const sm = createMemorySessionManager();
+      for (const [i, bogus] of ["yes", 1, {}, null].entries()) {
+        const s = sm.register({
+          id: `n${i}`, cwd: "/tmp", source: "tui", hasUI: false,
+          dashboardSpawned: bogus as any,
+        });
+        expect(s.hidden).toBe(true);
+      }
     });
 
     it("does not auto-hide when hasUI is absent (legacy bridge)", () => {

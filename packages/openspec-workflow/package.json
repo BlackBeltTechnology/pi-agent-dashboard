@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-openspec-workflow",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "OpenSpec-lifecycle helper skills for pi sessions — spec-coherence-check (sweep active proposals for staleness/conflicts/obsolescence), pre-scaffold-openspec-coherence-check (guard before scaffolding a proposal against archived/shipped work), fix-worktree-opsx-skills-not-created (repair worktrees missing the generated opsx skills), reverse-spec-from-code (backfill capability specs from spec-less code). Pure-skill package, no extension.ts. Reusable in any OpenSpec + pi project.",
   "type": "module",
   "license": "MIT",
@@ -22,7 +22,9 @@
   },
   "files": [
     ".pi/skills/",
-    "README.md"
+    "README.md",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md"
   ],
   "keywords": [
     "pi-package",

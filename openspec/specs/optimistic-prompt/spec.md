@@ -5,7 +5,7 @@
 Optimistic user-message feedback in the dashboard chat: render a pending-prompt bubble the moment a prompt is sent and reconcile it against server-confirmed events, so the user sees instant confirmation instead of a blank gap during the send round-trip.
 ## Requirements
 ### Requirement: Pending prompt state
-`SessionState` SHALL include a `pendingPrompt` field (`{ text: string; images?: ChatImage[]; status: "sending" | "sent" } | undefined`) that represents a prompt sent by the user to an **idle** session and not yet confirmed by the server. `pendingPrompt` SHALL be written **only when the session is not mid-turn at send time** (a fresh-turn send). Mid-turn sends SHALL NOT set `pendingPrompt`; they are governed by `mid-turn-prompt-queue`.
+`SessionState` SHALL include a `pendingPrompt` field (`{ text: string; images?: ChatImage[]; status: "sending" | "sent" | "failed" } | undefined`) that represents a prompt sent by the user to an **idle** session, retained until the authoritative user message replaces it. `"sending"` = written optimistically, no bridge acknowledgement yet; `"sent"` = the bridge acknowledged a fresh-turn receipt (the record stays until `message_start`); `"failed"` = terminal failure (the send was never acknowledged), the text kept so the user can retry. `pendingPrompt` SHALL be written **only when the session is not mid-turn at send time** (a fresh-turn send). Mid-turn sends SHALL NOT set `pendingPrompt`; they are governed by `mid-turn-prompt-queue`.
 
 #### Scenario: Set pending prompt on idle send
 - **WHEN** the user sends a prompt while the session is idle (no turn in progress)
@@ -34,7 +34,7 @@ Optimistic user-message feedback in the dashboard chat: render a pending-prompt 
 - **THEN** `pendingPrompt` SHALL be cleared to `undefined`
 
 ### Requirement: Optimistic user card rendering
-When `pendingPrompt` exists, the chat view SHALL render an optimistic user message card at the bottom of the message list, sharing **identical bubble geometry** with a normal user card (same alignment, max-width, radius, left-accent border) so that confirmation introduces zero layout shift. The card SHALL render one of two progress states keyed off `pendingPrompt.status`. Because `pendingPrompt` is only written for idle sends, the optimistic card can never co-exist with a mid-turn queue chip; no text-equality suppression against `Session.pendingQueues` is required.
+When `pendingPrompt` exists, the chat view SHALL render an optimistic user message card at the bottom of the message list, sharing **identical bubble geometry** with a normal user card (same alignment, max-width, radius, left-accent border) so that confirmation introduces zero layout shift. The card SHALL render one of three progress states keyed off `pendingPrompt.status` (`sending`, `sent`, `failed`). Because `pendingPrompt` is only written for idle sends, the optimistic card can never co-exist with a mid-turn queue chip; no text-equality suppression against `Session.pendingQueues` is required.
 
 #### Scenario: Sending state appears immediately on idle send
 - **WHEN** an idle prompt is sent and `pendingPrompt.status === "sending"`
@@ -48,6 +48,11 @@ When `pendingPrompt` exists, the chat view SHALL render an optimistic user messa
 - **AND** the spinner SHALL be replaced by a success check icon with a "sent" label
 - **AND** the bubble box dimensions and position SHALL be unchanged from the sending state
 
+#### Scenario: Failed state when the send never settles
+- **WHEN** `pendingPrompt.status` transitions to `"failed"`
+- **THEN** the card SHALL keep the original prompt text so the user can retry
+- **AND** SHALL render a clearly-failed affordance, never the success check icon
+
 #### Scenario: Optimistic card shows images
 - **WHEN** `pendingPrompt` includes images
 - **THEN** the optimistic card SHALL render image attachments the same as a normal user card
@@ -58,15 +63,15 @@ When `pendingPrompt` exists, the chat view SHALL render an optimistic user messa
 - **AND** the transition SHALL not move or resize the bubble (only the status chip fades out)
 
 ### Requirement: Input disabled during pending
-The command input SHALL be disabled while `pendingPrompt` exists. Because `pendingPrompt` is only set for idle sends, this disables the input during the fresh-turn confirmation window, preventing duplicate sends. (Mid-turn input-enabled behaviour is governed by `mid-turn-prompt-queue`, where `pendingPrompt` is never set.)
+The command input SHALL be disabled while `pendingPrompt.status === "sending"`, and only then. A settled bubble (`sent` or `failed`) SHALL NOT disable it: settlement is governed by the acknowledgement, not by the bubble's continued existence. Because `pendingPrompt` is only set for idle sends, this disables the input during the fresh-turn confirmation window, preventing duplicate sends. (Mid-turn input-enabled behaviour is governed by `mid-turn-prompt-queue`, where `pendingPrompt` is never set.)
 
 #### Scenario: Input disabled after idle send
 - **WHEN** the user sends a prompt while the session is idle
-- **AND** `pendingPrompt` is set
+- **AND** `pendingPrompt` is set with `status: "sending"`
 - **THEN** the text input and send button SHALL be disabled
 
 #### Scenario: Input re-enabled after confirmation
-- **WHEN** `pendingPrompt` is cleared (by server event, bridge race-drop, cancellation, or timeout)
+- **WHEN** `pendingPrompt` reaches a settled status (`sent` or `failed`), or is cleared (by server event, bridge race-drop, or cancellation)
 - **THEN** the text input and send button SHALL be re-enabled
 
 ### Requirement: Cancel pending prompt
@@ -81,25 +86,70 @@ The user SHALL be able to cancel a pending prompt, which removes the optimistic 
 - **THEN** the same cancel behavior as the Stop button SHALL occur
 
 ### Requirement: Pending prompt survives client-side reset and replay
-`pendingPrompt` SHALL NOT be cleared by `session_state_reset` or by the full-replay reset branch of `event_replay`. Only reducer event handlers (e.g. user `message_start`, `agent_start`), the bridge race-drop ack, the safety timeout, and explicit user cancel SHALL clear `pendingPrompt`. The `status` field SHALL be carried across reset/replay unchanged.
+A SETTLED `pendingPrompt` (`sent` or `failed`) SHALL NOT be cleared by `session_state_reset` or by the full-replay reset branch of `event_replay`; its `status` SHALL be carried across unchanged. A `sending` prompt SHALL NOT be carried — nothing in the rebuilt state can settle it, so restoring it would strand the bubble. Only reducer event handlers (e.g. user `message_start`, `agent_start`), the bridge race-drop ack, and explicit user cancel SHALL clear `pendingPrompt`; the safety timeout SETTLES it to `failed` rather than clearing it.
 
-#### Scenario: session_state_reset preserves pendingPrompt
-- **WHEN** the client receives `session_state_reset` for a session whose `SessionState.pendingPrompt` is set
+#### Scenario: session_state_reset preserves a settled pendingPrompt
+- **WHEN** the client receives `session_state_reset` for a session whose `SessionState.pendingPrompt` is settled (`sent` or `failed`)
 - **THEN** the session's other state SHALL be reset to `createInitialState()`
 - **AND** `pendingPrompt` (including its `status`) SHALL be carried over unchanged into the new state
 
-#### Scenario: event_replay full-reset preserves pendingPrompt
-- **WHEN** the client receives `event_replay` with `shouldReset === true` for a session whose `SessionState.pendingPrompt` is set
+#### Scenario: event_replay full-reset preserves a settled pendingPrompt
+- **WHEN** the client receives `event_replay` with `shouldReset === true` for a session whose `SessionState.pendingPrompt` is settled
 - **THEN** the session's other state SHALL be reset to `createInitialState()` before applying the replayed events
 - **AND** `pendingPrompt` SHALL be carried over unchanged, then the replayed events SHALL be reduced on top of it
+
+#### Scenario: reset or replay does not carry a `sending` pendingPrompt
+- **WHEN** the client receives `session_state_reset` or a full-reset `event_replay` for a session whose `pendingPrompt.status` is `"sending"`
+- **THEN** no pending prompt SHALL be restored
 
 #### Scenario: Auto-resume of ended session keeps the optimistic bubble visible
 - **WHEN** the user sends a prompt to an ended session and the server triggers auto-resume (per `auto-resume-on-prompt`)
 - **AND** the bridge re-registers, causing the server to broadcast `session_state_reset` and/or `event_replay`
-- **THEN** the optimistic user-message bubble SHALL remain visible across the reset/replay
-- **AND** the bubble SHALL only disappear when the bridge emits the corresponding user `message_start` event (or one of the existing clear paths fires)
+- **THEN**, if `pendingPrompt.status` is `"sent"` or `"failed"` before the reset/replay, the optimistic user-message bubble SHALL remain visible across the reset/replay
+- **AND** a `"sending"` prompt SHALL NOT be restored (nothing in the rebuilt state could settle it); the server-replayed prompt surfaces as the authoritative user card instead
+- **AND** a carried bubble SHALL only disappear when the bridge emits the corresponding user `message_start` event (or one of the existing clear paths fires)
 
 #### Scenario: Safety timeout still fires after replay
-- **WHEN** `pendingPrompt` survives a reset/replay and 30 seconds elapse without confirmation
-- **THEN** the existing `usePendingPromptTimeout` safety path SHALL clear `pendingPrompt` and surface the existing error
+- **WHEN** a settled `pendingPrompt` survives a reset/replay, a later prompt is sent, and 30 seconds elapse without confirmation
+- **THEN** the existing `usePendingPromptTimeout` safety path SHALL mark `pendingPrompt.status` `"failed"` (keeping its text) and surface the existing error
+- **AND** the timer SHALL arm only while `status === "sending"`, so a `failed` bubble is never wiped by a later timeout
+
+### Requirement: An optimistic prompt SHALL always settle
+
+A prompt sent from the browser composer SHALL leave the `sending` state on
+EVERY terminal outcome — acknowledgement, send failure, or timeout. It MUST NOT
+remain `sending` indefinitely, and the composer MUST NOT stay disabled.
+
+Acknowledgement and response rendering are DISTINCT settlement points.
+`prompt_received{fresh:true}` promotes the pending prompt to `sent`; the
+assistant response renders later. Settlement of the optimistic card SHALL be
+governed by the acknowledgement, not by the arrival of the response.
+
+#### Scenario: Acknowledgement settles the optimistic card
+
+- **WHEN** the user sends a prompt through the composer
+- **AND** the server emits `prompt_received{fresh:true}`
+- **THEN** the optimistic prompt leaves `sending` and is marked `sent`
+- **AND** the composer is re-enabled, without waiting for the response
+
+#### Scenario: Send failure settles the optimistic card
+
+- **WHEN** a sent prompt is never acknowledged (transport failure or timeout)
+- **THEN** the optimistic prompt leaves `sending` into a visible failed state
+- **AND** the composer is re-enabled so the user can retry
+
+#### Scenario: Reset or replay does not resurrect `sending`
+
+- **GIVEN** a prompt that already settled
+- **WHEN** the session state is reset or replayed from cache
+- **THEN** no pending prompt is restored to `sending`
+
+#### Scenario: Faux E2E round-trips go green
+
+- **WHEN** `tests/e2e/faux-text.spec.ts` and `tests/e2e/faux-ask.spec.ts` run
+  against the docker harness
+- **THEN** both pass — the scripted answer renders for `plain-text` and the
+  interactive option button renders for `ask-select`
+- **AND** no pending prompt card remains in `sending`
+- **AND** the composer is enabled at the end of the round-trip
 

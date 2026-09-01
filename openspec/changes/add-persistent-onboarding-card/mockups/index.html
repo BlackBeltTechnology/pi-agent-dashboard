@@ -1,0 +1,380 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Persistent onboarding card — mockup</title>
+<style>
+/* Tokens copied verbatim from packages/client/src/index.css (dark :root + [data-theme=light]).
+   The severity ramp is the shipped color-mix definition — NOT a bespoke palette. See design.md D7. */
+:root{
+  --bg-primary:#0a0a0a; --bg-secondary:#141414; --bg-tertiary:#1e1e1e; --bg-surface:#2a2a2a;
+  --bg-hover:rgba(255,255,255,0.06);
+  --text-primary:#e5e5e5; --text-secondary:#b0b0b0; --text-tertiary:#808080; --text-muted:#585858;
+  --border-primary:#252525; --border-secondary:#333333; --border-subtle:rgba(255,255,255,0.06);
+  --accent-blue:#3b82f6; --accent-green:#22c55e; --accent-primary:#3b82f6; --link:#60a5fa;
+  --focus-ring:var(--accent-primary);
+  --shadow-card:rgba(0,0,0,0.4);
+}
+[data-theme="light"]{
+  --bg-primary:#ffffff; --bg-secondary:#fafafa; --bg-tertiary:#f0f0f0; --bg-surface:#e0e0e0;
+  --bg-hover:rgba(0,0,0,0.04);
+  --text-primary:#1a1a1a; --text-secondary:#444444; --text-tertiary:#777777; --text-muted:#aaaaaa;
+  --border-primary:#e0e0e0; --border-secondary:#cccccc; --border-subtle:rgba(0,0,0,0.06);
+  --accent-primary:#2563eb; --link:#2563eb;
+  --focus-ring:var(--accent-primary);
+  --shadow-card:rgba(0,0,0,0.08);
+}
+:root,[data-theme="light"]{
+  --severity-success-bg:color-mix(in srgb, var(--accent-green) 10%, var(--bg-tertiary));
+  --severity-success-fg:color-mix(in srgb, var(--accent-green) 46%, var(--text-primary));
+  --severity-success-border:color-mix(in srgb, var(--accent-green) 40%, transparent);
+  --severity-info-bg:color-mix(in srgb, var(--accent-blue) 10%, var(--bg-tertiary));
+  --severity-info-fg:color-mix(in srgb, var(--accent-blue) 46%, var(--text-primary));
+  --severity-info-border:color-mix(in srgb, var(--accent-blue) 40%, transparent);
+  --severity-neutral-bg:var(--bg-tertiary);
+  --severity-neutral-fg:var(--text-secondary);
+  --severity-neutral-border:var(--border-primary);
+}
+
+*{box-sizing:border-box}
+[hidden]{display:none !important}
+body{margin:0;background:var(--bg-primary);color:var(--text-primary);
+  font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+:focus-visible{outline:2px solid var(--focus-ring);outline-offset:2px;border-radius:4px}
+
+/* ── mockup chrome (not part of the design) ─────────────────────── */
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:10px 14px;
+  background:var(--bg-secondary);border-bottom:1px solid var(--border-secondary);
+  position:sticky;top:0;z-index:60}
+.bar h1{font-size:13px;margin:0 12px 0 0;font-weight:600}
+.bar button{min-height:28px;padding:5px 10px;font-size:12px;border-radius:6px;cursor:pointer;
+  background:var(--bg-tertiary);color:var(--text-secondary);border:1px solid var(--border-secondary)}
+.bar button[aria-pressed="true"]{background:var(--accent-primary);color:#fff;border-color:var(--accent-primary)}
+.note{font-size:11px;color:var(--text-tertiary);padding:8px 14px;border-bottom:1px solid var(--border-subtle)}
+
+/* ── faux shell background (context only) ───────────────────────── */
+.shell{display:flex;height:640px;position:relative}
+.overlay-layer{position:absolute;inset:0;pointer-events:none}
+.overlay-layer>*{pointer-events:auto}
+/* Content column clips its own scroll; the overlay layer must not be inside it. */
+.main{overflow:hidden}
+.side{width:220px;flex:none;background:var(--bg-secondary);border-right:1px solid var(--border-secondary);padding:12px}
+.side .row{height:30px;border-radius:6px;background:var(--bg-tertiary);margin-bottom:7px;opacity:.55}
+.main{flex:1;min-width:0;padding:22px 26px;overflow:auto;position:relative}
+.main h2{margin:0 0 4px;font-size:17px}
+.main p.sub{margin:0 0 18px;color:var(--text-tertiary);font-size:12.5px}
+.fake{height:44px;border-radius:8px;background:var(--bg-secondary);border:1px solid var(--border-primary);margin-bottom:10px;opacity:.75}
+.composer{position:absolute;left:16px;right:16px;bottom:12px;height:52px;border-radius:10px;
+  background:var(--bg-secondary);border:1px solid var(--border-secondary);opacity:.9;
+  display:flex;align-items:center;padding:0 14px;color:var(--text-muted);font-size:12.5px}
+
+/* ── landing page step cards (shipped surface, unchanged) ───────── */
+.landing{display:flex;flex-direction:column;align-items:center;gap:22px;padding-top:26px}
+.landing .pi{font-size:52px;color:var(--accent-primary);opacity:.5;line-height:1}
+.landing h3{margin:6px 0 2px;font-size:17px}
+.landing .hint{margin:0;font-size:12px;color:var(--text-tertiary)}
+.lcards{display:flex;gap:12px;flex-wrap:wrap;justify-content:center}
+.lcard{width:224px;padding:16px;border-radius:10px;background:var(--bg-secondary);
+  border:1px solid var(--border-secondary);display:flex;flex-direction:column;gap:10px}
+.lcard .step{font-size:11px;color:var(--text-tertiary)}
+.lcard .t{font-size:15px;font-weight:600}
+.lcard .d{font-size:11.5px;color:var(--text-tertiary);flex:1}
+
+/* ── THE CARD ───────────────────────────────────────────────────── */
+/* `raised` clears the composer on session routes — driven by one boolean prop
+   from the mount site (`!!selectedId`). Score pass 1 found the card sitting on
+   top of the composer's right end, where the send controls live. */
+.oc.raised{bottom:80px}
+.pill.raised{bottom:80px}
+/* ── position variants, for the placement comparison (?pos=) ───────
+   `tl-view` is top-left of the VIEWPORT (over the sidebar / hamburger);
+   `tl-content` is top-left of the CONTENT area (over the page heading). */
+.oc.pos-tl-view,.pill.pos-tl-view{top:16px;left:16px;bottom:auto;right:auto}
+.oc.pos-tl-content,.pill.pos-tl-content{top:16px;left:16px;bottom:auto;right:auto}
+/* content-anchored variant starts after the 220px sidebar */
+.oc.pos-tl-content,.pill.pos-tl-content{left:236px}
+@media (max-width:767px){ .oc.pos-tl-content,.pill.pos-tl-content{left:16px} }
+/* collision markers, mockup-only */
+.clash{outline:2px dashed #ef4444;outline-offset:3px}
+.clash-note{position:absolute;font-size:10.5px;color:#ef4444;font-weight:700;letter-spacing:.02em}
+.oc{position:absolute;bottom:16px;right:16px;z-index:30;width:320px;max-width:calc(100% - 32px);
+  border-radius:12px;background:var(--bg-secondary);border:1px solid var(--border-secondary);
+  box-shadow:0 8px 24px var(--shadow-card);overflow:hidden}
+.oc-head{display:flex;align-items:center;gap:8px;padding:9px 10px 9px 12px;
+  background:var(--bg-tertiary);border-bottom:1px solid var(--border-subtle)}
+.oc-title{font-size:12.5px;font-weight:600;flex:1}
+.oc-count{font-size:11px;color:var(--text-secondary);font-variant-numeric:tabular-nums;
+  background:var(--severity-neutral-bg);border:1px solid var(--severity-neutral-border);
+  padding:1px 7px;border-radius:999px}
+.oc-btn{min-width:28px;min-height:28px;display:grid;place-items:center;border-radius:6px;cursor:pointer;
+  background:transparent;border:1px solid transparent;color:var(--text-secondary);font-size:13px;line-height:1}
+.oc-btn:hover{background:var(--bg-hover);border-color:var(--border-secondary)}
+.oc-body{padding:9px;display:flex;flex-direction:column;gap:7px}
+
+.st{display:flex;gap:9px;align-items:flex-start;padding:8px 9px;border-radius:8px;
+  border:1px solid transparent;background:transparent}
+.st .idx{flex:none;width:20px;height:20px;border-radius:999px;display:grid;place-items:center;
+  font-size:11px;font-weight:700;font-variant-numeric:tabular-nums;margin-top:1px}
+/* Severity-4 defect, score pass 1: .lbl/.sub are inline spans, so label and
+   description ran together ("Setup credentialsConnect an LLM provider.").
+   Block-level is load-bearing, not cosmetic. */
+.st .txt{flex:1;min-width:0;display:flex;flex-direction:column}
+.st .lbl{display:block;font-size:12.5px;font-weight:600}
+/* Score pass 2 measured --text-tertiary on --severity-info-bg at 3.75:1 (dark) /
+   3.54:1 (light) — below AA. Descriptions use --text-secondary throughout. */
+.st .sub{display:block;font-size:11.5px;color:var(--text-secondary);margin-top:2px}
+
+.st.done{background:var(--severity-success-bg);border-color:var(--severity-success-border)}
+.st.done .idx{background:transparent;color:var(--severity-success-fg);font-size:13px}
+.st.done .lbl{color:var(--severity-success-fg);font-weight:500}
+
+.st.active{background:var(--severity-info-bg);border-color:var(--severity-info-border)}
+.st.active .idx{background:var(--severity-info-fg);color:var(--bg-primary)} /* 9.72:1 / 8.82:1 */
+.st.active .lbl{color:var(--text-primary)}
+
+.st.locked .idx{background:var(--severity-neutral-bg);color:var(--text-muted);
+  border:1px solid var(--severity-neutral-border)}
+/* --text-tertiary/-muted on the card surface measured 4.29:1 / 2.23:1 in light.
+   Locked is de-emphasised by the neutral chip + lock glyph + weight, NOT by
+   dropping text below the contrast floor. */
+.st.locked .lbl{color:var(--text-secondary);font-weight:500}
+.st.locked .sub{color:var(--text-secondary)}
+.st.locked .sub::before{content:"🔒 ";font-size:10px}
+/* Status must be real text in the a11y tree, not an aria-label on a plain div
+   (which UAs expose inconsistently) and not a decorative pseudo-element. */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;
+  clip:rect(0 0 0 0);white-space:nowrap;border:0}
+
+/* #fff on --accent-primary measures 3.68:1 in dark — an AA failure the shipped
+   filled-button idiom would have inherited. --severity-info-fg is the same ramp
+   the card already uses and clears 9.72:1 / 8.82:1. */
+.cta{margin-top:7px;min-height:30px;width:100%;padding:5px 11px;border-radius:7px;cursor:pointer;
+  font-size:12.5px;font-weight:600;background:var(--severity-info-fg);color:var(--bg-primary);
+  border:1px solid var(--severity-info-fg)}
+.cta:hover{filter:brightness(1.08)}
+
+/* collapsed pill */
+.pill{position:absolute;bottom:16px;right:16px;z-index:30;display:flex;align-items:center;gap:8px;
+  min-height:36px;padding:6px 12px;border-radius:999px;cursor:pointer;
+  background:var(--bg-secondary);border:1px solid var(--border-secondary);
+  box-shadow:0 6px 18px var(--shadow-card);color:var(--text-primary);font-size:12.5px;font-weight:600}
+.pill .dots{display:flex;gap:4px}
+.pill .dot{width:7px;height:7px;border-radius:999px;background:var(--severity-neutral-border)}
+.pill .dot.on{background:var(--severity-success-fg)}
+.pill .n{color:var(--text-secondary);font-weight:500;font-variant-numeric:tabular-nums}
+
+/* Real breakpoints, not a simulated phone frame — the score tool screenshots
+   actual viewport widths, so the mockup must respond to them. */
+@media (max-width:767px){ .side{display:none} }
+@media (max-width:639px){
+  .oc{left:12px;right:12px;width:auto}
+  /* WCAG 2.2 SC 2.5.8 — 44px primary targets on touch widths. */
+  .cta{min-height:44px;font-size:13.5px}
+  .oc-btn{min-width:44px;min-height:44px}
+  .pill{min-height:44px;padding:8px 14px}
+}
+</style>
+</head>
+<body>
+
+<div class="bar" role="group" aria-label="Mockup state controls">
+  <h1>Persistent onboarding card</h1>
+  <button data-s="A" aria-pressed="true">A · 0 of 3 (first run)</button>
+  <button data-s="B" aria-pressed="false">B · 1 of 3</button>
+  <button data-s="C" aria-pressed="false">C · 2 of 3</button>
+  <button data-s="D" aria-pressed="false">D · complete</button>
+  <button data-s="E" aria-pressed="false">E · collapsed</button>
+  <button data-s="F" aria-pressed="false">F · landing (both)</button>
+  <span style="flex:1"></span>
+  <button id="bg">bg: settings</button>
+  <button id="pos">pos: bottom-right</button>
+  <button id="theme" aria-pressed="false">light</button>
+</div>
+<p class="note" id="note"></p>
+
+<div id="root">
+<div class="shell">
+  <aside class="side" aria-hidden="true">
+    <div class="row" style="opacity:.8"></div><div class="row"></div><div class="row"></div>
+    <div class="row"></div><div class="row"></div><div class="row"></div>
+  </aside>
+
+  <main class="main" id="main">
+    <!-- background A: settings/providers (where step ① lands) -->
+    <div id="bg-settings">
+      <h2>Providers</h2>
+      <p class="sub">Settings → Providers · this is the page Step ① navigates to</p>
+      <div class="fake"></div><div class="fake"></div><div class="fake"></div><div class="fake"></div>
+    </div>
+    <!-- background B: landing page -->
+    <!-- background C: a chat session (the only route with a composer) -->
+    <div id="bg-session" hidden>
+      <h2>pi-agent-dashboard</h2>
+      <p class="sub">Session · this route owns the composer</p>
+      <div class="fake" style="height:70px"></div><div class="fake" style="height:120px"></div>
+      <div class="fake" style="height:90px"></div>
+    </div>
+    <div id="bg-landing" hidden>
+      <div class="landing">
+        <div style="text-align:center">
+          <div class="pi">π</div>
+          <h3>Welcome to pi-dashboard</h3>
+          <p class="hint">Three quick steps to get your first session running.</p>
+        </div>
+        <div class="lcards">
+          <div class="lcard"><span class="step">Step 1</span><span class="t">Setup credentials</span>
+            <span class="d">Connect an LLM provider so sessions can reach a model.</span>
+            <button class="cta">Open settings</button></div>
+          <div class="lcard"><span class="step">Step 2</span><span class="t">Add folder</span>
+            <span class="d">Pin a project directory to the sidebar.</span>
+            <button class="cta" style="opacity:.45;cursor:not-allowed" disabled>Add folder…</button></div>
+          <div class="lcard"><span class="step">Step 3</span><span class="t">Start session</span>
+            <span class="d">Your first pi session in a pinned folder.</span>
+            <button class="cta" style="opacity:.45;cursor:not-allowed" disabled>Start session</button></div>
+        </div>
+      </div>
+    </div>
+    <div class="composer" id="composer" hidden>Message…</div>
+  </main>
+
+  <!-- THE CARD — sibling of <main>, so the content column's overflow does not
+       clip it. Mirrors the real shell, where it is mounted outside the router. -->
+  <div class="overlay-layer">
+    <section class="oc" id="card" role="complementary" aria-labelledby="oc-title">
+      <div class="oc-head">
+        <span class="oc-title" id="oc-title">Finish setup</span>
+        <span class="oc-count" id="oc-count">0 of 3</span>
+        <button class="oc-btn" id="collapse" aria-label="Collapse setup checklist" aria-expanded="true">▾</button>
+      </div>
+      <div class="oc-body" id="oc-body"></div>
+    </section>
+
+    <button class="pill" id="pill" hidden aria-label="Expand setup checklist" aria-expanded="false">
+      <span class="dots" aria-hidden="true"><span class="dot" id="d1"></span><span class="dot" id="d2"></span><span class="dot" id="d3"></span></span>
+      <span>Finish setup</span><span class="n" id="pill-n">0 of 3</span>
+    </button>
+  </div>
+</div>
+</div>
+
+<script>
+const STEPS = [
+  {n:1, title:"Setup credentials", pending:"Connect an LLM provider.", done:"Credentials configured",
+   cta:"Open settings", lock:null},
+  {n:2, title:"Add folder", pending:"Pin a project directory.", done:"1 folder pinned",
+   cta:"Add folder…", lock:"Requires credentials"},
+  {n:3, title:"Start session", pending:"Launch your first pi session.", done:"1 active session",
+   cta:"Start session", lock:"Requires a pinned folder"},
+];
+// state → [step1, step2, step3] each of done|active|locked ; derived exactly like design.md D1
+const STATES = {
+  A:["active","locked","locked"],
+  B:["done","active","locked"],
+  C:["done","done","active"],
+  D:["done","done","done"],
+  E:["done","active","locked"],
+  F:["active","locked","locked"],
+};
+const NOTES = {
+  A:"First run. Step ① is the only actionable item; ② and ③ are visibly locked with their unmet prerequisite named. Background = the providers settings page, i.e. exactly where the shipped checklist would have vanished.",
+  B:"Credentials saved. useProvidersReady() refetches on provider-auth-event, so ① flips to done and ② unlocks WITHOUT the user navigating back.",
+  C:"Folder pinned. One action remains.",
+  D:"allDone → the card is not rendered at all. No dismiss button exists because completion IS the dismissal (design D4).",
+  E:"Collapsed pill. Progress is conveyed by count AND by filled dots (not colour alone). Default state below the sm breakpoint. Persisted in localStorage.",
+  F:"Landing route: the shipped LandingPage cards and the overlay are both visible. Accepted duplication (design D3) — the two renderings are deliberately different shapes so they do not read as a rendering bug.",
+};
+
+const BGS = ["settings", "session", "landing"];
+const POS = ["br", "tl-content", "tl-view"];
+const POSLBL = {br:"bottom-right", "tl-content":"top-left (content)", "tl-view":"top-left (viewport)"};
+let cur="A", bg="settings", pos="br", collapsedOverride=null;
+const narrow = () => window.matchMedia("(max-width:639px)").matches;
+
+function render(){
+  const st = STATES[cur];
+  const doneN = st.filter(x=>x==="done").length;
+  document.getElementById("note").textContent = NOTES[cur];
+
+  // D = complete → card absent entirely
+  const complete = doneN===3;
+  // Spec: default collapsed below the sm breakpoint; an explicit preference wins.
+  const collapsed = collapsedOverride !== null ? collapsedOverride : (cur==="E" || narrow());
+  document.getElementById("card").hidden = complete || collapsed;
+  document.getElementById("pill").hidden = complete || !collapsed;
+
+  document.getElementById("oc-count").textContent = doneN+" of 3";
+  document.getElementById("pill-n").textContent = doneN+" of 3";
+  [1,2,3].forEach(i=>document.getElementById("d"+i).classList.toggle("on", st[i-1]==="done"));
+
+  const body = document.getElementById("oc-body");
+  body.innerHTML = "";
+  st.forEach((s,i)=>{
+    const m = STEPS[i];
+    const el = document.createElement("div");
+    el.className = "st "+s;
+    const mark = s==="done" ? "✔" : String(m.n);
+    const sub  = s==="done" ? m.done : (s==="locked" ? m.lock : m.pending);
+    el.innerHTML =
+      '<span class="idx" aria-hidden="true">'+mark+'</span>'+
+      '<span class="txt"><span class="lbl">'+(s==="done"?m.done:m.title)+
+        '<span class="sr-only"> \u2014 '+(s==="done"?"done":s==="locked"?"locked":"next step")+'</span></span>'+
+      (s==="done" ? "" : '<span class="sub">'+sub+'</span>')+
+      (s==="active" ? '<button class="cta">'+m.cta+'</button>' : '')+
+      '</span>';
+    body.appendChild(el);
+  });
+
+  // A composer exists only on session routes; `raised` is the one boolean the
+  // mount site passes (`!!selectedId`).
+  const raised = bg === "session" && pos === "br";
+  for (const el of [document.getElementById("card"), document.getElementById("pill")]) {
+    el.classList.toggle("raised", raised);
+    POS.forEach(p => el.classList.toggle("pos-"+p, pos === p));
+  }
+  document.getElementById("pos").textContent = "pos: " + POSLBL[pos];
+  // Mark what the chosen anchor collides with.
+  document.getElementById("heading")?.classList.remove("clash");
+  document.querySelectorAll("#bg-settings h2,#bg-session h2").forEach(h=>h.classList.toggle("clash", pos==="tl-content"));
+  document.querySelector(".side")?.classList.toggle("clash", pos==="tl-view");
+
+  document.getElementById("bg-settings").hidden = bg !== "settings";
+  document.getElementById("bg-session").hidden = bg !== "session";
+  document.getElementById("bg-landing").hidden = bg !== "landing";
+  document.getElementById("composer").hidden = !raised;
+  document.getElementById("bg").textContent = "bg: " + bg;
+}
+
+document.querySelectorAll(".bar [data-s]").forEach(b=>b.addEventListener("click",()=>{
+  cur=b.dataset.s;
+  document.querySelectorAll(".bar [data-s]").forEach(x=>x.setAttribute("aria-pressed", String(x===b)));
+  bg = cur==="F" ? "landing" : (cur==="C" ? "session" : "settings");
+  render();
+}));
+document.getElementById("bg").addEventListener("click",()=>{
+  bg = BGS[(BGS.indexOf(bg)+1) % BGS.length]; render();
+});
+document.getElementById("pos").addEventListener("click",()=>{
+  pos = POS[(POS.indexOf(pos)+1) % POS.length]; render();
+});
+document.getElementById("theme").addEventListener("click",e=>{
+  const light = document.documentElement.getAttribute("data-theme")==="light";
+  document.documentElement.setAttribute("data-theme", light?"dark":"light");
+  e.target.setAttribute("aria-pressed",String(!light));
+  e.target.textContent = light?"light":"dark";
+});
+document.getElementById("collapse").addEventListener("click",()=>{ collapsedOverride=true; render(); });
+document.getElementById("pill").addEventListener("click",()=>{ collapsedOverride=false; render(); });
+window.addEventListener("resize", render);
+
+const qs=new URLSearchParams(location.search);
+if(qs.get("s") && STATES[qs.get("s")]) cur=qs.get("s");
+if(qs.get("theme")==="light") document.documentElement.setAttribute("data-theme","light");
+if(qs.get("collapsed")!==null) collapsedOverride = qs.get("collapsed")==="1";
+if(qs.get("pos") && POS.includes(qs.get("pos"))) pos=qs.get("pos");
+if(qs.get("bg") && BGS.includes(qs.get("bg"))) bg=qs.get("bg");
+else if(cur==="F") bg="landing"; else if(cur==="C") bg="session";
+render();
+</script>
+</body>
+</html>

@@ -120,7 +120,10 @@ export function FileLink({ path, line, col, absolute, context, children }: Props
       // Inline-only styling, no padding/margin so native text selection
       // across the link boundary is preserved (D8). Once resolved-absent the
       // link is struck through + dimmed and no longer opens (G1).
-      className={`bg-transparent border-0 p-0 m-0 font-inherit ${notFound ? "text-blue-400/60 line-through cursor-not-allowed" : "text-blue-400 hover:underline cursor-pointer"}`}
+      // `--link` is mode-aware; the raw `blue-400` it replaces failed the 3:1
+      // floor on `--bg-code` in every light theme.
+      // See change: repair-tool-error-surfaces (test-plan #F8).
+      className={`bg-transparent border-0 p-0 m-0 font-inherit ${notFound ? "text-[var(--link)]/60 line-through cursor-not-allowed" : "text-[var(--link)] hover:underline cursor-pointer"}`}
       style={{ font: "inherit", userSelect: "text" }}
     >
       {children}

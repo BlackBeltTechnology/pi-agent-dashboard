@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from "vitest";
-import { render } from "@testing-library/react";
+import { fireEvent, render } from "@testing-library/react";
 import React from "react";
 import { CtxToolRenderer } from "../CtxToolRenderer.js";
 import type { ToolContext } from "../index.js";
@@ -222,6 +222,108 @@ describe("CtxToolRenderer — error variants", () => {
       context: ctx,
     });
     expect(container.textContent).toMatch(/timeout error/i);
+  });
+
+  // ── repair-tool-error-surfaces: severity on the chrome, structure in the body ──
+  const errCard = (result: string) =>
+    renderCtx({ toolName: "ctx_execute", args: {}, status: "error", result, context: ctx });
+
+  it("the container carries the severity signal and the body does not", () => {
+    const { container } = errCard(fx.err_runtime_plain);
+    const card = container.querySelector("div.rounded.border") as HTMLElement;
+    expect(card.className).toContain("bg-[var(--severity-error-bg)]");
+    expect(card.className).toContain("border-[var(--severity-error-border)]");
+    // The label is the third redundant channel alongside fill + border.
+    const label = container.querySelector("div.uppercase") as HTMLElement;
+    expect(label.className).toContain("text-[var(--severity-error-fg)]");
+    // The body is code-coloured — no severity class, no raw red literal.
+    const body = container.querySelector("pre") as HTMLElement;
+    expect(body.className).toContain("text-[var(--text-secondary)]");
+    expect(body.className).toContain("bg-[var(--bg-code)]");
+    expect(body.className).not.toMatch(/severity|red-\d{3}/);
+  });
+
+  it("a structured runtime error renders sections, not raw fence/label text", () => {
+    const { container } = errCard(fx.err_runtime_fenced);
+    const text = container.textContent ?? "";
+    expect(text).toContain("npm run test:e2e"); // the command, via CodeBlock
+    expect(text).toContain("exit 1"); // the badge
+    expect(text).toContain("stdout");
+    expect(text).toContain("stderr");
+    expect(text).not.toContain("```");
+    expect(text).not.toContain("Exit code:");
+  });
+
+  it("an unstructured runtime error falls back to the flat message, verbatim", () => {
+    const { container } = errCard(fx.err_runtime_plain);
+    expect(container.textContent).toContain(fx.err_runtime_plain);
+    expect(container.textContent).not.toContain("exit ");
+  });
+
+  it("#F3 the error signal survives a neutral body on three independent channels", () => {
+    const { container } = errCard(fx.err_runtime_plain);
+    const card = container.querySelector("div.rounded.border") as HTMLElement;
+    const label = container.querySelector("div.uppercase") as HTMLElement;
+    // Asserted as three SEPARATE facts on purpose: deleting any one of fill,
+    // border or label must turn this test red, which is what licenses the body
+    // being neutral in the first place.
+    expect(card.className).toContain("bg-[var(--severity-error-bg)]");
+    expect(card.className).toContain("border-[var(--severity-error-border)]");
+    expect(label.className).toContain("text-[var(--severity-error-fg)]");
+    expect(label.textContent).toMatch(/error/i);
+  });
+
+  it("#F5 the receivedArgs block keeps code colours and gains no severity class", () => {
+    const { container, getByText } = errCard(fx.err_validation);
+
+    // The block lives in a Collapsible that renders `{open && …}`, so while it
+    // is closed its <pre> is NOT in the DOM at all. Scope to that collapsible's
+    // OWN subtree, and prove the <pre> appears only after expanding.
+    //
+    // Two vacuity traps are deliberately avoided here: picking the last <pre>
+    // of the card lands on the message body (same two classes — always green),
+    // and matching on the text "language" ALSO hits the message, whose text is
+    // `- language: must be equal to one of the allowed values`.
+    const toggle = getByText("Received arguments").closest("button") as HTMLElement;
+    const block = toggle.parentElement as HTMLElement;
+    expect(block.querySelector("pre"), "receivedArgs <pre> is mounted while collapsed").toBeNull();
+
+    fireEvent.click(toggle);
+
+    const recv = block.querySelector("pre") as HTMLElement;
+    expect(recv, "receivedArgs <pre> not mounted after expanding").toBeTruthy();
+    expect(recv.textContent).toContain("javascript");
+    expect(recv.className).toContain("text-[var(--text-secondary)]");
+    expect(recv.className).toContain("bg-[var(--bg-code)]");
+    expect(recv.className).not.toMatch(/severity|red-\d{2,3}/);
+  });
+
+  it("#X2 partial extraction omits the badge and the stream sections", () => {
+    // command extracted, but no exit line and no stream sections.
+    const { container } = errCard("```shell\nls /nope\n```");
+    const text = container.textContent ?? "";
+    expect(text).toContain("ls /nope");
+    expect(text).not.toContain("exit undefined");
+    expect(text).not.toMatch(/\bexit \d/);
+    // Absent sections are omitted entirely, not rendered as empty labelled ones.
+    expect(text).not.toContain("stdout");
+    expect(text).not.toContain("stderr");
+  });
+
+  it("#X3 an oversized stream inherits the renderer truncation and keeps the last line", () => {
+    const lines = Array.from({ length: 5000 }, (_, i) => `line ${i + 1}`);
+    const body = `\`\`\`shell\nyes\n\`\`\`\n\nExit code: 1\n\nstdout:\n${lines.join("\n")}`;
+    const { container } = errCard(body);
+    const text = container.textContent ?? "";
+    // Bounded, not an unbounded DOM dump: truncateOutputForDisplay keeps the
+    // last 200 lines behind a marker (event-reducer.ts).
+    expect(text).toMatch(/earlier lines hidden/);
+    expect(text).toContain("line 5000"); // trailing signal preserved
+    expect(text).not.toContain("line 1\n"); // the head is dropped, not rendered
+    const stdoutSection = [...container.querySelectorAll("pre")]
+      .map((p) => p.textContent ?? "")
+      .find((t) => t.includes("line 5000")) as string;
+    expect(stdoutSection.split("\n").length).toBeLessThanOrEqual(201);
   });
 });
 

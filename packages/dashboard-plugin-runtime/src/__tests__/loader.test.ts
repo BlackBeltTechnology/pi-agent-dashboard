@@ -27,6 +27,8 @@ function makeFakeContext(): ServerPluginContext {
     spawnSession: async () => ({ success: false }),
     abortSession: () => false,
     abortSpawnedRun: async () => false,
+    registerCwdPolicy: () => {},
+    unregisterCwdPolicy: () => {},
     provide: () => {},
     consume: () => undefined,
     registerBrowserHandler: () => {},

@@ -99,6 +99,46 @@ jobs:
       - name: Dry-run publish all workspaces (pack + validate, no network write)
         run: npm publish --workspaces --include-workspace-root --dry-run
 
+  # ── knip: whole-graph dead-code ratchet ────────────────────────────────────
+  # Nightly, never ci.yml: the scan is whole-graph (~8s) and its verdict does
+  # not depend on the PR's diff. Nightly runs AFTER merge, so this job DETECTS
+  # a regression; the job that PREVENTS one is the ship-it enforcer step.
+  # Fails on a class above its baseline (not continue-on-error) so a regression
+  # is visible in the nightly report rather than buried in the log.
+  knip:
+    name: knip dead-code ratchet
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # depth 2 so the baseline can be diffed against the previous commit.
+          fetch-depth: 2
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # An unrooted graph reports live files as dead, so the config is verified
+      # against the manifests before its verdict is trusted.
+      - name: Verify knip.json roots every manifest-declared entry
+        run: node scripts/knip-config.mjs
+
+      - name: Dead-code ratchet
+        run: node scripts/knip-ratchet.mjs
+
+      # The ship enforcer rejects a raised ceiling on the way IN; this catches
+      # one that already landed. Compared against HEAD~1, not origin/develop —
+      # nightly runs ON develop, so origin/develop is this very tree and the
+      # comparison would be vacuous.
+      - name: Baseline was not raised
+        run: node scripts/knip-ratchet.mjs --check-baseline-diff HEAD~1
+
   # ── electron: full matrix against a per-leg Verdaccio ──────────────────────
   # Delegates to the shared build. registry_url triggers the Verdaccio
   # round-trip inside _electron-build.yml. NO publish/github-release/tag jobs

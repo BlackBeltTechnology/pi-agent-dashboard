@@ -10,6 +10,11 @@
  *   [⇧]  promote to head   (disabled when idx === 0)
  *   [✕]  remove            (confirm only when entry > 50 chars)
  *
+ * A chip whose entry carries attachments shows a COUNT indicator, never a
+ * thumbnail: image bytes stay extension-side and never cross the wire, so the
+ * chip has nothing to render but the count (design D2).
+ * See change: fix-bridge-followup-image-drop.
+ *
  * Plus a panel-header "Clear all follow-up" button when length > 1.
  *
  * Steer is permanently pi-owned + display-only — steer drains too fast at
@@ -19,12 +24,14 @@
  * See change: rework-mid-turn-prompt-queue.
  */
 
+import type { FollowUpEntryView } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import {
   mdiArrowCollapseUp,
   mdiChevronDown,
   mdiChevronUp,
   mdiClose,
   mdiCloseCircleOutline,
+  mdiImageMultipleOutline,
   mdiPencilOutline,
 } from "@mdi/js";
 import Icon from "@mdi/react";
@@ -32,8 +39,8 @@ import { useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 
 interface Props {
-  /** The follow-up queue entries from `Session.pendingQueues.followUp`. */
-  followUp: string[];
+  /** The follow-up queue entries from `Session.pendingQueues.followUp`, normalised. */
+  followUp: FollowUpEntryView[];
   /** Dispatch `edit_followup_entry { index, text }` — mutates bridge buffer only. */
   onEdit?: (index: number, text: string) => void;
   /** Dispatch `remove_followup_entry { index }` — mutates bridge buffer only. */
@@ -71,7 +78,7 @@ function FollowupCycler({
   onPromote,
   onClearAll,
 }: {
-  entries: string[];
+  entries: FollowUpEntryView[];
   onEdit?: (index: number, text: string) => void;
   onRemove?: (index: number) => void;
   onPromote?: (index: number) => void;
@@ -102,7 +109,9 @@ function FollowupCycler({
   }, [entries.length, currentIndex]);
 
   const idx = Math.min(currentIndex, entries.length - 1);
-  const text = entries[idx] ?? "";
+  const entry = entries[idx];
+  const text = entry?.text ?? "";
+  const imageCount = entry?.imageCount ?? 0;
   const total = entries.length;
   const canPrev = idx > 0;
   const canNext = idx < total - 1;
@@ -223,11 +232,23 @@ function FollowupCycler({
         </div>
       ) : (
         <div className="flex items-start gap-1.5">
-          <div
-            data-testid="queue-chip-followup"
-            className="flex-1 min-w-0 max-h-80 overflow-auto text-sm text-[var(--text-primary)] whitespace-pre-wrap break-words leading-relaxed"
-          >
-            {text}
+          <div className="flex-1 min-w-0 flex flex-col gap-1">
+            <div
+              data-testid="queue-chip-followup"
+              className="min-w-0 max-h-80 overflow-auto text-sm text-[var(--text-primary)] whitespace-pre-wrap break-words leading-relaxed"
+            >
+              {text}
+            </div>
+            {imageCount > 0 && (
+              <span
+                data-testid="queue-followup-attachments"
+                title={i18nT("session.attachedImages", undefined, "Attached images")}
+                className="inline-flex items-center gap-1 self-start text-[10px] text-[var(--text-tertiary)]"
+              >
+                <Icon path={mdiImageMultipleOutline} size={0.55} />
+                {imageCount}
+              </span>
+            )}
           </div>
           <div className="flex items-center gap-0.5 flex-shrink-0">
             <button

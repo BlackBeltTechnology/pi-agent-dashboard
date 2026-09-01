@@ -2,10 +2,11 @@
  * Dual-scope scanner tests: scope tagging, merge, collision-across-scopes,
  * invalid-file isolation. See change: add-automation-plugin.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { scanAutomations } from "../server/scanner.js";
 
 const KNOWN = new Set(["schedule"]);
@@ -67,6 +68,21 @@ describe("scanAutomations", () => {
     expect(good?.valid).toBe(true);
     expect(bad?.valid).toBe(false);
     expect(bad?.error).toContain("slack.message");
+  });
+
+  it("E5: isolates an invalid fan-out automation while a valid one still loads", () => {
+    writeAutomation(repoRoot, "good", VALID);
+    // Both `action:` and `actions:` — mutually exclusive → invalid.
+    writeAutomation(
+      repoRoot,
+      "badfan",
+      `on: { kind: schedule, cron: "* * * * *" }\naction: { kind: prompt, prompt: ./p.md }\nactions: [ { kind: prompt, prompt: ./p.md } ]\nmodel: x`,
+    );
+    const out = scanAutomations({ repoRoot, homeDir }, KNOWN);
+    expect(out.find((a) => a.name === "good")?.valid).toBe(true);
+    const bad = out.find((a) => a.name === "badfan");
+    expect(bad?.valid).toBe(false);
+    expect(bad?.error).toMatch(/actions/);
   });
 
   it("ignores the runs/ store dir", () => {

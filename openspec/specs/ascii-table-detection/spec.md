@@ -1,4 +1,10 @@
-## ADDED Requirements
+# ascii-table-detection Specification
+
+## Purpose
+
+Detects ASCII/box-drawing table blocks in agent output and wraps them in code fences so they render as aligned monospace rather than being mangled by the markdown renderer. Defines the detection boundaries — existing fenced blocks are left alone — and requires a pure function interface so the rule is testable in isolation.
+
+## Requirements
 
 ### Requirement: Detect ASCII table blocks
 The `wrapAsciiTables` function SHALL detect consecutive lines containing box-drawing characters (`─│┌┐└┘├┤┬┴┼━┃┏┓┗┛┣┫┳┻╋═║╔╗╚╝╠╣╦╩╬`) or plain ASCII table patterns (`+---+`). A block of 2 or more consecutive matching lines SHALL be considered an ASCII table block.

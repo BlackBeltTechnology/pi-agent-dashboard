@@ -3,6 +3,12 @@
  * (state, event) → new state
  */
 
+import {
+  imageBlockData,
+  imageBlockMime,
+  isRenderableImageBlock,
+  isTruncatedImageBlock,
+} from "@blackbelt-technology/pi-dashboard-shared/image-block.js";
 // Flow + architect state derivation moved into flows-plugin per change
 // pluginize-flows-via-registry. The shell carries no flow knowledge.
 // Plugins consume `useSessionEvents(sessionId)` from
@@ -32,8 +38,20 @@ export interface ChatImage {
 
 export interface ChatMessage {
   id: string;
-  role: "user" | "assistant" | "toolResult" | "thinking" | "bashOutput" | "commandFeedback" | "interactiveUi" | "turnSeparator" | "rawEvent" | "inlineTerminal";
+  /**
+   * `historyGap` is a SYNTHETIC interstitial — never produced by `reduceEvent`.
+   * It is spliced into `messages[]` by the message handler to disclose a
+   * windowed replay's elided middle. See change: lazy-load-session-history.
+   */
+  role: "user" | "assistant" | "toolResult" | "thinking" | "bashOutput" | "commandFeedback" | "interactiveUi" | "turnSeparator" | "rawEvent" | "inlineTerminal" | "historyGap" | "custom";
   content: string;
+  /**
+   * Extension-authored `customType` label — present ONLY on `role: "custom"`
+   * rows (pi.sendMessage's customType, or pi.appendEntry's customType).
+   * Rendered as the card label by `CustomEntryCard`; never interpreted.
+   * See change: render-inline-reasoning-and-custom-entries.
+   */
+  customType?: string;
   images?: ChatImage[];
   toolName?: string;
   toolCallId?: string;
@@ -41,7 +59,15 @@ export interface ChatMessage {
   timestamp: number;
   args?: Record<string, unknown>;
   result?: string;
-  toolStatus?: "running" | "complete" | "error";
+  /**
+   * `elided` is a TERMINAL status meaning "the result is not loadable", not
+   * "the tool failed": a backfill segment ends mid-turn, orphaning a
+   * `tool_execution_start` whose end lies in already-delivered content and can
+   * therefore never arrive. Renderers must show a neutral "result not loaded"
+   * affordance — no spinner, no error styling.
+   * See change: fix-lazy-history-backfill-ux (D5).
+   */
+  toolStatus?: "running" | "complete" | "error" | "elided";
   /** Epoch ms when the block started (for live elapsed counter) */
   startedAt?: number;
   /** Duration in ms (set when complete) */
@@ -119,7 +145,8 @@ export interface ToolCallState {
   toolCallId: string;
   toolName: string;
   args?: Record<string, unknown>;
-  status: "running" | "complete" | "error";
+  /** See `ChatMessage.toolStatus` for the `elided` contract. */
+  status: "running" | "complete" | "error" | "elided";
   result?: string;
   /**
    * Epoch ms when `tool_execution_start` fired. Used by the session
@@ -214,11 +241,12 @@ export interface PendingPrompt {
   delivery?: "steer" | "followUp";
   /**
    * Progress state of the optimistic (idle-scoped) prompt bubble.
-   * "sending" on write; "sent" once the bridge acks a fresh-turn receipt.
+   * "sending" on write; "sent" once the bridge acks a fresh-turn receipt;
+   * "failed" when the safety timeout expires with no ack (text preserved).
    * Cleared entirely (→ confirmed) when the user `message_start` lands.
-   * See change: optimistic-prompt-progress.
+   * See change: optimistic-prompt-progress, fix-optimistic-prompt-stuck-sending.
    */
-  status: "sending" | "sent";
+  status: "sending" | "sent" | "failed";
 }
 
 /**
@@ -231,9 +259,40 @@ export interface PendingPrompt {
  */
 export function applyPromptReceived(state: SessionState, fresh: boolean): SessionState {
   if (!state.pendingPrompt) return state;
+  // Any settled status is terminal — a late ack must neither promote it
+  // (`fresh:true`) nor drop it (`fresh:false`). Checked BEFORE the race-drop
+  // branch, which only ever applies to a still-`sending` bubble.
+  // See change: fix-optimistic-prompt-stuck-sending.
+  if (state.pendingPrompt.status !== "sending") return state;
   if (!fresh) return { ...state, pendingPrompt: undefined };
-  if (state.pendingPrompt.status === "sent") return state;
   return { ...state, pendingPrompt: { ...state.pendingPrompt, status: "sent" } };
+}
+
+/**
+ * The `pendingPrompt` a reset/replay may carry across a state rebuild. Settled
+ * bubbles (`sent`/`failed`) carry as before (`preserve-pending-prompt-across-replay`);
+ * a `sending` bubble is NOT restored — nothing left in the rebuilt state can
+ * ever settle it, so it would be stuck forever.
+ * See change: fix-optimistic-prompt-stuck-sending.
+ */
+export function carryPendingPrompt(prompt: PendingPrompt | undefined): PendingPrompt | undefined {
+  return prompt && prompt.status !== "sending" ? prompt : undefined;
+}
+
+/**
+ * Settle a pending prompt whose safety timeout expired: the bubble stays, with
+ * the user's text, marked `failed`, and `lastError` is set (two deliberate
+ * surfaces). No-op unless the prompt is still `sending`, so a `failed` bubble
+ * is never re-settled or wiped.
+ * See change: fix-optimistic-prompt-stuck-sending.
+ */
+export function applyPromptTimeout(state: SessionState, message: string): SessionState {
+  if (state.pendingPrompt?.status !== "sending") return state;
+  return {
+    ...state,
+    pendingPrompt: { ...state.pendingPrompt, status: "failed" },
+    lastError: { message, timestamp: Date.now() },
+  };
 }
 
 export interface InteractiveUiRequest {
@@ -320,8 +379,11 @@ export interface SessionState {
    * inputs. See change: surface-input-streaming-behavior.
    */
   pendingInputBehavior?: "steer" | "followUp";
-  /** Last LLM provider error (set from agent_end, cleared on agent_start or dismiss) */
+  /** Last LLM provider error. Persists through retry; clears on recovery, abort, dismissal, or removal. */
   lastError?: { message: string; timestamp: number };
+  /** Cancellation tombstone for an aborted retry chain. Suppresses delayed
+   * provider/retry events until settle or a deliberate user run. */
+  retryCancelled?: boolean;
   /**
    * Non-error notice: the model returned only reasoning, no answer
    * (empty-actionable turn surfaced by the bridge guard). Set from the
@@ -486,6 +548,13 @@ export function synthesizeSupersededEnd(toolCallId: string, now: number): Dashbo
  *
  * If a future row role is added, it MUST be classified — add it here if
  * it terminates a turn, otherwise leave it out and it will be reorderable.
+ *
+ * Classification record (change: render-inline-reasoning-and-custom-entries,
+ * D9): `custom` is deliberately NOT a boundary. A custom row is side-channel
+ * content INSIDE a turn, not a hard delimiter — adding it would break
+ * thinking-reconstruction turn scans and the flushed-assistant-row stamp
+ * (both walk back to the first boundary). Reorderability is the correct
+ * classification for it.
  *
  * See change: fix-interactive-ui-reorder.
  */
@@ -882,6 +951,69 @@ export function truncateLines(text: string | unknown, maxLines: number): string 
   return lines.slice(0, maxLines).join("\n");
 }
 
+/**
+ * Extract the display body for a custom row from unknown payload content
+ * (design D4 of render-inline-reasoning-and-custom-entries).
+ *
+ * - string → as-is
+ * - content array → text parts joined with newlines, image parts noted as
+ *   `[image]` (a convention LOCAL to this card — the existing text-join
+ *   helpers produce text-only joins)
+ * - object → `JSON.stringify(·, null, 2)`, with a `String()` fallback when
+ *   stringification throws (circular refs — X1)
+ * - null/undefined → ""
+ * - anything else → `String(·)`
+ *
+ * Extraction FIRST, truncation SECOND — the caller truncates via
+ * `truncateOutputForDisplay` at row creation so live and replay render
+ * identically. Plain text throughout: the payload is untrusted
+ * extension-authored input and is never markdown-interpreted.
+ */
+/**
+ * Byte ceiling for a single custom row body, applied before the line
+ * truncation. The line ceiling (200 lines) cannot bound a payload of a few
+ * VERY LONG lines (minified JSON, base64 blobs), which would reach the DOM as
+ * one giant text node. Keeping the TAIL preserves the payload's end, where
+ * state summaries live. Extraction runs identically on live and replay, so
+ * parity holds. See change: render-inline-reasoning-and-custom-entries
+ * (security-hardening pass, advisory #2).
+ */
+const CUSTOM_BODY_MAX_CHARS = 64_000;
+
+function extractCustomEntryBody(content: unknown): string {
+  const body = extractCustomEntryBodyUncapped(content);
+  return body.length > CUSTOM_BODY_MAX_CHARS
+    ? body.slice(-CUSTOM_BODY_MAX_CHARS)
+    : body;
+}
+
+function extractCustomEntryBodyUncapped(content: unknown): string {
+  if (content == null) return "";
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    const parts: string[] = [];
+    for (const part of content) {
+      if (part && typeof part === "object" && (part as any).type === "image") {
+        parts.push("[image]");
+        continue;
+      }
+      const text =
+        typeof part === "string" ? part
+        : part && typeof part === "object" && typeof (part as any).text === "string" ? (part as any).text
+        : "";
+      if (text) parts.push(text);
+    }
+    return parts.join("\n");
+  }
+  if (typeof content === "object") {
+    try {
+      return JSON.stringify(content, null, 2);
+    } catch {
+      return String(content);
+    }
+  }
+  return String(content);
+}
 /** Marker prefix prepended to truncated tool output. U+00AB is visually
  * distinct from literal tool text, so the UI can detect truncation by
  * checking `result.startsWith("«")`. See change:
@@ -978,12 +1110,14 @@ export function addInteractiveRequest(
   // is sent to the dashboard exactly once, with the correct component.
   // No more client-side guessing about which prompts to suppress.
 
-  // Deduplicate by requestId (re-sent on reconnect) or by content
-  // (recursive proxy generates multiple requestIds for the same dialog)
-  if (state.interactiveRequests.some((r) =>
-    r.requestId === requestId ||
-    (r.status === "pending" && r.method === method && r.params.title === params.title),
-  )) {
+  // Deduplicate by requestId only. Under the PromptBus each prompt mints a
+  // unique id and is sent to the dashboard exactly once; a new requestId always
+  // denotes a new prompt. The only legitimate duplicate is a re-send of the
+  // SAME id (reconnect replay). The former content fallback (method +
+  // params.title) dropped two genuinely-distinct concurrent prompts that merely
+  // shared a title (e.g. two parallel `update_roles` confirms).
+  // See change: surface-concurrent-ask-user-prompts.
+  if (state.interactiveRequests.some((r) => r.requestId === requestId)) {
     return state;
   }
   const request: InteractiveUiRequest = { requestId, method, params, status: "pending" };
@@ -1081,35 +1215,46 @@ export function findLastUserPrompt(
 }
 
 /**
- * Humanize a provider error string. pi forwards some provider failures as a raw
- * JSON envelope (e.g. `{"type":"error","error":{"type":"overloaded_error",
- * "message":"Overloaded"},...}`). Render that as a compact `type: message` (or
- * just `message` when no type) instead of dumping the JSON. Any non-JSON string,
- * malformed JSON, or envelope without a string `error.message` passes through
- * UNCHANGED. Pure. See change: humanize-provider-error-json.
+ * The last ASSISTANT message in an `agent_end` payload, located by its
+ * structured `role` — never merely the final array element. A turn can end with
+ * a trailing non-assistant entry (e.g. a `toolResult`), so keying off
+ * `messages[length-1]` misreads the turn's disposition: an error goes unnoticed
+ * (no error anchor) and — the visible bug — a SUCCESSFUL retry is not recognized
+ * as confirmed-good, so the error card never clears. Mirrors pi's own
+ * `_willRetryAfterAgentEnd`, which scans backward for `role === "assistant"`.
+ *
+ * Returns `undefined` when NO entry carries an assistant role — deliberately no
+ * fallback to the final element. Falling back would let a `toolResult` decide
+ * the turn's disposition, synthesizing an error (or clearing a live one) off a
+ * message pi never used to make that decision, and would put this helper back
+ * out of step with `retry-tracker.ts`, which also arms nothing in that case.
+ * See change: unify-retry-visibility.
  */
-export function humanizeProviderError(raw: string): string {
-  const trimmed = raw.trim();
-  if (!trimmed.startsWith("{")) return raw;
-  try {
-    const parsed = JSON.parse(trimmed) as { error?: { type?: unknown; message?: unknown } };
-    const err = parsed?.error;
-    const message = typeof err?.message === "string" ? err.message.trim() : "";
-    if (!message) return raw;
-    const type = typeof err?.type === "string" ? err.type.trim() : "";
-    return type ? `${type}: ${message}` : message;
-  } catch {
-    return raw;
+function lastAssistantMessage(data: Record<string, unknown>): Record<string, unknown> | undefined {
+  const messages = data.messages;
+  if (!Array.isArray(messages)) return undefined;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i] as Record<string, unknown> | undefined;
+    if (m && m.role === "assistant") return m;
   }
+  return undefined;
 }
 
 /** Extract error info from agent_end event's messages array. */
 export function extractAgentEndError(data: Record<string, unknown>): string | undefined {
-  const messages = data.messages;
-  if (!Array.isArray(messages) || messages.length === 0) return undefined;
-  const last = messages[messages.length - 1] as Record<string, unknown> | undefined;
+  const last = lastAssistantMessage(data);
   if (!last || last.stopReason !== "error") return undefined;
-  return humanizeProviderError((last.errorMessage as string) || "An unknown error occurred");
+  // The raw provider string, verbatim. pi types `errorMessage` as a bare string
+  // and populates it from `String(error)`, so there is no envelope shape to rely
+  // on — `529 {…}`, `529 overloaded_error: Overloaded` and `terminated` are all
+  // real documented values. The surface prints it and offers Show more + Copy.
+  //
+  // Guarded on `typeof`, not asserted: a malformed `agent_end` can carry a
+  // non-string (e.g. `errorMessage: {}`), which would otherwise flow into
+  // `lastError.message` and crash the render with "Objects are not valid as a
+  // React child". See change: raw-error-render-and-retry-authority.
+  const raw = last.errorMessage;
+  return typeof raw === "string" && raw.length > 0 ? raw : "An unknown error occurred";
 }
 
 /**
@@ -1136,9 +1281,7 @@ const CONFIRMED_GOOD_STOP_REASONS: ReadonlySet<string> = new Set(["stop", "end_t
  * See change: unify-error-retry-lifecycle.
  */
 export function isCleanAgentEnd(data: Record<string, unknown>): boolean {
-  const messages = data.messages;
-  if (!Array.isArray(messages) || messages.length === 0) return false;
-  const last = messages[messages.length - 1] as Record<string, unknown> | undefined;
+  const last = lastAssistantMessage(data);
   return !!last && CONFIRMED_GOOD_STOP_REASONS.has(last.stopReason as string);
 }
 
@@ -1191,6 +1334,43 @@ export function deriveBannerState(state: SessionState): BannerState {
     };
   }
   return out;
+}
+
+/**
+ * Correctness floor for a fully-reduced BACKFILL segment: stamp every row still
+ * `running` as `elided`, and finalize every row the segment left mid-stream.
+ *
+ * Stamp ALL of them, not "the ones at a seam". Within a slice a dangling
+ * `tool_execution_start`'s end is always ABOVE the slice — i.e. in content the
+ * client already holds — and later slices are strictly lower, so every
+ * still-running row in a COMPLETED backfill segment is provably unjoinable. A
+ * seam-scoped rule would fire nowhere and ship the bug intact.
+ *
+ * Scoped to backfill segments, never the initial windowed replay: a live
+ * session reopened mid-tool-run has a dangling start whose end simply has not
+ * happened yet. Stamping that would label a genuinely running tool "not
+ * loaded" AND remove it from supersede-heal eligibility (the heal selects
+ * `status === "running"`).
+ *
+ * Row-level, because the splice merges `messages` only and discards
+ * `seg.toolCalls` — renderers read `msg.toolStatus`, so a status written into
+ * the tool-call map would be unobservable.
+ *
+ * `isStreaming` is the identical defect one type over: a slice whose top edge
+ * lands mid-message produces an assistant row nothing ever clears, i.e. a
+ * permanently "streaming" bubble.
+ * See change: fix-lazy-history-backfill-ux (D5).
+ */
+export function finalizeBackfillSegment(messages: ChatMessage[]): ChatMessage[] {
+  return messages.map((m) => {
+    const elide = m.toolStatus === "running";
+    const finalize = m.isStreaming === true;
+    if (!elide && !finalize) return m;
+    const out = { ...m };
+    if (elide) out.toolStatus = "elided";
+    if (finalize) out.isStreaming = false;
+    return out;
+  });
 }
 
 export function reduceEvent(
@@ -1264,12 +1444,9 @@ export function reduceEvent(
       next.status = "streaming";
       next.streamingText = "";
       next.pendingPrompt = undefined;
-      // lastError is NOT cleared here. The error anchor persists across the
-      // start of a retry/continuation turn and clears only on a confirmed
-      // non-error response (message_end end_turn / clean agent_end). This
-      // removes the optimistic-clear desync where the error vanished before
-      // the retry was confirmed good. See change: unify-error-retry-lifecycle.
-      next.retryState = undefined;
+      // lastError and retryState persist across pi-owned continuation. The
+      // typed auto_retry_start updates waiting → in-flight; the first non-error
+      // assistant completion clears both. See change: fix-retry-error-lifecycle.
       // A fresh turn clears any stale empty-actionable notice.
       // See change: fix-gemini-subagent-silent-tool-schema-failure.
       next.notice = undefined;
@@ -1300,14 +1477,15 @@ export function reduceEvent(
       next.streamingText = "";
       next.currentTool = undefined;
       next.pendingPrompt = undefined;
-      const errorMsg = extractAgentEndError(data);
-      if (errorMsg) {
-        next.lastError = { message: errorMsg, timestamp: event.timestamp };
-      } else if (isCleanAgentEnd(data)) {
-        // Confirmed-good clear: a terminal agent_end whose last message is a
-        // non-error stop clears the persistent error anchor.
-        // See change: unify-error-retry-lifecycle.
-        next.lastError = undefined;
+      if (!state.retryCancelled) {
+        const errorMsg = extractAgentEndError(data);
+        if (errorMsg) {
+          next.lastError = { message: errorMsg, timestamp: event.timestamp };
+        } else if (isCleanAgentEnd(data)) {
+          // Fallback recovery for sources that omit message_end.
+          next.lastError = undefined;
+          next.retryState = undefined;
+        }
       }
       // retryState is NOT cleared here: pi fires one agent_end PER attempt, so
       // clearing would wipe the waiting/in-flight state between every attempt.
@@ -1317,6 +1495,14 @@ export function reduceEvent(
     }
 
     case "agent_settled": {
+      // Floor-pi emits a compatibility settle after every agent_end. While the
+      // bridge still observes pi as busy, this is not terminal: preserve retry
+      // and abort suppression so Retry cannot overlap an automatic attempt.
+      if (data.retryPending === true) {
+        next.isStreaming = false;
+        next.status = "ended";
+        break;
+      }
       // The single terminal signal that resolves `"idle"`. The bridge
       // guarantees exactly one per run (real on pi ≥ 0.80.4, synthesized
       // synchronously after `agent_end` on floor pi), so this arm needs no
@@ -1330,6 +1516,7 @@ export function reduceEvent(
       // matching auto_retry_end (bridge-synthesized before this settle) already
       // set lastError on failure. See change: retry-forever-with-stop-control.
       next.retryState = undefined;
+      next.retryCancelled = undefined;
       break;
     }
 
@@ -1339,12 +1526,12 @@ export function reduceEvent(
       // countdown. No fresh-error guard here — this signal is EXPECTED to arrive
       // right after an error agent_end (which sets lastError).
       // See change: retry-forever-with-stop-control.
+      if (state.retryCancelled) break;
       const attempt = typeof data.attempt === "number" ? data.attempt : 1;
       const maxAttempts = typeof data.maxAttempts === "number" ? data.maxAttempts : 0;
       const delayMs = typeof data.delayMs === "number" ? data.delayMs : 0;
       const nextAttemptAt = typeof data.nextAttemptAt === "number" ? data.nextAttemptAt : undefined;
-      const reason =
-        typeof data.errorMessage === "string" ? humanizeProviderError(data.errorMessage) : "Provider error";
+      const reason = typeof data.errorMessage === "string" ? data.errorMessage : "Provider error";
       next.retryState = {
         attempt,
         maxAttempts,
@@ -1358,29 +1545,12 @@ export function reduceEvent(
     }
 
     case "auto_retry_start": {
-      // Defensive guard: drop the event when a fresh same-turn lastError is
-      // already set and the session is not streaming. This prevents the
-      // (yellow + red) banner-overlap state if any future bridge ordering
-      // bug ever delivers an `auto_retry_start` AFTER `agent_end` for the
-      // same terminal turn. Existing carry-over behavior (stale red from a
-      // prior turn + fresh yellow on a new turn) is preserved because by
-      // the time the new turn's `auto_retry_start` arrives, `agent_start`
-      // has already cleared `lastError` (so the guard's first precondition
-      // is false). See change: fix-retry-banner-stuck-on-limit-exceeded.
-      const FRESH_ERROR_WINDOW_MS = 1500;
-      if (
-        state.lastError &&
-        !state.isStreaming &&
-        event.timestamp - state.lastError.timestamp <= FRESH_ERROR_WINDOW_MS
-      ) {
-        break;
-      }
+      if (state.retryCancelled) break;
       const attempt = typeof data.attempt === "number" ? data.attempt : 1;
       const maxAttempts = typeof data.maxAttempts === "number" ? data.maxAttempts : 0;
       const delayMs = typeof data.delayMs === "number" ? data.delayMs : 0;
       const nextAttemptAt = typeof data.nextAttemptAt === "number" ? data.nextAttemptAt : undefined;
-      const reason =
-        typeof data.errorMessage === "string" ? humanizeProviderError(data.errorMessage) : "Provider error";
+      const reason = typeof data.errorMessage === "string" ? data.errorMessage : "Provider error";
       next.retryState = {
         attempt,
         maxAttempts,
@@ -1394,14 +1564,29 @@ export function reduceEvent(
     }
 
     case "auto_retry_end": {
-      // No-op if no retry was tracked (covers stale events / multi-call turns).
-      if (!state.retryState) {
+      const attempt = typeof data.attempt === "number" ? data.attempt : undefined;
+      if (attempt === -1) {
+        next.retryState = undefined;
+        next.lastError = undefined;
+        next.retryCancelled = true;
         break;
       }
+      if (state.retryCancelled) break;
+
       next.retryState = undefined;
-      // Surface terminal error early when no other lastError has fired yet.
-      if (data.success === false && typeof data.finalError === "string" && !state.lastError) {
-        next.lastError = { message: data.finalError, timestamp: event.timestamp };
+      if (data.success === true) {
+        next.lastError = undefined;
+        break;
+      }
+      if (data.success === false && typeof data.finalError === "string" && data.finalError.length > 0) {
+        const previousRevision = state.lastError?.timestamp;
+        const observedRevision = Number.isFinite(event.timestamp) ? event.timestamp : 0;
+        const nextRevision = typeof previousRevision === "number" && Number.isFinite(previousRevision)
+          ? Math.max(observedRevision, previousRevision + 1)
+          : observedRevision;
+        next.lastError = state.lastError
+          ? { ...state.lastError, timestamp: nextRevision }
+          : { message: data.finalError, timestamp: nextRevision };
       }
       break;
     }
@@ -1465,6 +1650,7 @@ export function reduceEvent(
       }
       if (msg?.role === "user") {
         next.pendingPrompt = undefined;
+        next.retryCancelled = undefined;
         let text = "";
         let images: ChatImage[] | undefined;
         if (Array.isArray(msg.content)) {
@@ -1476,17 +1662,31 @@ export function reduceEvent(
           // slot, otherwise the attachment position is lost and the later
           // `attachment_fitted` event has nothing to fill. Legacy inline blocks
           // (bytes present, no attachmentId) keep the original predicate.
-          // See change: fit-attachments-for-display (D12).
-          const imgBlocks = msg.content.filter(
-            (c: any) => c.type === "image" && c.mimeType && (c.data || c.attachmentId),
-          );
+          // Tolerate BOTH image block shapes via the shared detector: the flat
+          // pi shape `{data,mimeType}` and the nested Anthropic shape
+          // `{source:{media_type,data}}` (some provider/import/replay paths).
+          // See change: fit-attachments-for-display (D12); nested-shape
+          // tolerance: fix-pasted-image-message-vanishes.
+          const imgBlocks = msg.content.filter((c: any) => isRenderableImageBlock(c));
           if (imgBlocks.length > 0) {
-            images = imgBlocks.map((c: any) => ({
-              data: c.data ?? "",
-              mimeType: c.mimeType,
-              ...(c.attachmentId ? { attachmentId: c.attachmentId } : {}),
-              ...(c.attachmentState ? { attachmentState: c.attachmentState } : {}),
-            }));
+            // `isRenderableImageBlock` already guaranteed a non-empty mime, so
+            // the `?? ""` fallback is unreachable — it only narrows the type
+            // from `string | undefined` to `string` for ChatImage.mimeType.
+            images = imgBlocks.map((c: any) => {
+              // A RESCUED block (server stripped over-ceiling image bytes) has
+              // no bytes and no attachmentId — nothing will ever fill it, so it
+              // resolves straight to the explicit unavailable slot rather than
+              // pending forever. An existing attachmentState always wins.
+              // See change: fix-pasted-image-message-vanishes.
+              const attachmentState =
+                c.attachmentState ?? (isTruncatedImageBlock(c) ? "failed" : undefined);
+              return {
+                data: imageBlockData(c) ?? "",
+                mimeType: imageBlockMime(c) ?? "",
+                ...(c.attachmentId ? { attachmentId: c.attachmentId } : {}),
+                ...(attachmentState ? { attachmentState } : {}),
+              };
+            });
           }
         } else {
           text = String(msg.content ?? "");
@@ -1641,16 +1841,46 @@ export function reduceEvent(
 
     case "message_end": {
       const msg = data.message as any;
+      if (msg?.role === "custom") {
+        // Custom MESSAGE row (pi.sendMessage) — change:
+        // render-inline-reasoning-and-custom-entries. EXACT `display ===
+        // false` exclusion (D5): pi normalizes content but NOT display, so
+        // an untyped extension omitting the flag yields undefined — which
+        // RENDERS (absent flag = meant to be seen; a truthiness check would
+        // silently drop it). `display: false` is LLM-context-only. flow-event
+        // is refused for parity with the custom_entry arm (E8; label-
+        // spoofing guard).
+        if (msg.display === false) break;
+        if (msg.customType === "flow-event") break;
+        next.messages = [
+          ...next.messages,
+          {
+            id: `custom-${next.messages.length}`,
+            role: "custom",
+            customType: typeof msg.customType === "string" && msg.customType !== ""
+              ? msg.customType
+              : "custom",
+            // Extraction first, truncation second, AT ROW CREATION — live and
+            // replay render identically (D4).
+            content: truncateOutputForDisplay(extractCustomEntryBody(msg.content)),
+            timestamp: event.timestamp,
+            // entryId/nonce deliberately NOT stamped: bridge id resolution is
+            // unreliable for custom messages (no entry_persisted correlation
+            // guarantee on this path).
+          },
+        ];
+        break;
+      }
       if (msg?.role === "assistant") {
-        // Confirmed-good clear: an assistant message that completed with a
-        // terminal SUCCESS stop (pi-ai `"stop"`; `"end_turn"` accepted too)
-        // clears the persistent error anchor. Mid-turn / non-success stops
-        // (`toolUse`, `error`, `aborted`, `length`) do NOT clear — the turn can
-        // still error afterward, and clearing on them would flicker / drop the
-        // anchor across an interactive pause.
-        // See change: unify-error-retry-lifecycle.
-        if (CONFIRMED_GOOD_STOP_REASONS.has(msg.stopReason)) {
+        // Any structurally valid non-error, non-aborted assistant completion
+        // confirms provider recovery, including pi-owned continuation without
+        // a user message. Missing/non-string runtime data proves no disposition
+        // and must preserve the unresolved lifecycle.
+        // See change: fix-retry-error-lifecycle.
+        const stopReason = typeof msg.stopReason === "string" ? msg.stopReason : undefined;
+        if (!state.retryCancelled && stopReason && stopReason !== "error" && stopReason !== "aborted") {
           next.lastError = undefined;
+          next.retryState = undefined;
         }
         // Reasoning reconstruction on REPLAY. Live turns build `thinking` rows
         // from thinking_start/delta/end events (see message_update), but the
@@ -1833,6 +2063,36 @@ export function reduceEvent(
           ];
         }
       }
+      break;
+    }
+
+    case "custom_entry": {
+      // Generic custom ENTRY row (pi.appendEntry) — change:
+      // render-inline-reasoning-and-custom-entries. Same row shape as the
+      // message_end role=custom arm, so rendering is single-sourced (D1).
+      // Defense-in-depth (E8): the bridge AND state-replay already exclude
+      // `flow-event` (pi-flows owns its card); the reducer refuses it too, so
+      // a future forward path cannot double-render flow runs.
+      const customType = typeof data.customType === "string" && data.customType !== ""
+        ? data.customType
+        : "custom";
+      if (customType === "flow-event") break;
+      const entryId = typeof data.entryId === "string" ? data.entryId : undefined;
+      next.messages = [
+        ...next.messages,
+        {
+          id: entryId ? `custom-entry-${entryId}` : `custom-${next.messages.length}`,
+          role: "custom",
+          customType,
+          // Extraction first, truncation second, AT ROW CREATION (D4).
+          content: truncateOutputForDisplay(extractCustomEntryBody(data.data)),
+          timestamp: event.timestamp,
+          // The entryId arrives IN the event payload (bridge/replay both know
+          // it exactly), so it is reliable here — unlike the live message_end
+          // custom path above.
+          ...(entryId ? { entryId } : {}),
+        },
+      ];
       break;
     }
 

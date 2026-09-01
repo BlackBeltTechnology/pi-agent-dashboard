@@ -240,12 +240,19 @@ export function registerProviderAuthRoutes(
     },
   );
 
-  // Remove credential
+  // Remove credential. A refusal (corrupt auth.json whose bytes could not be
+  // backed up) maps to the SAME { error } shape PUT returns, so the Settings UI
+  // can show why. See change: fix-corrupt-auth-json-500.
   fastify.delete<{ Params: { provider: string } }>(
     "/api/provider-auth/:provider",
-    async (request) => {
-      const authJsonKey = resolveAuthJsonKey(request.params.provider);
-      removeCredential(authJsonKey);
+    async (request, reply) => {
+      try {
+        const authJsonKey = resolveAuthJsonKey(request.params.provider);
+        removeCredential(authJsonKey);
+      } catch (err: any) {
+        request.log.error(err, "Failed to remove credential");
+        return reply.code(500).send({ error: err.message || "Failed to remove credential" });
+      }
       notifyBridges();
       return { ok: true };
     },

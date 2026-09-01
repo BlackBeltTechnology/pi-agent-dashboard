@@ -3,19 +3,22 @@
 // Run (dev): NODE_OPTIONS=--experimental-sqlite tsx src/cli.ts <cmd> ...
 // Shipped bin builds to dist/cli.js (build step deferred).
 import { existsSync, readFileSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { join, relative, resolve } from "node:path";
 import { frontmatterConfigHash, loadConfig, type ResolvedConfig, type ResolvedSource } from "./config.js";
-import { ackTargets, applyDecisions, buildWorkItems } from "./dox-triage.js";
 import { agentsChain, doxInit, doxLint } from "./dox.js";
-import { evaluate, type GoldenItem } from "./eval.js";
+import { ackTargets, applyDecisions, buildWorkItems } from "./dox-triage.js";
+import { readStaleness } from "./staleness.js";
+import { evaluate, loadGolden } from "./eval.js";
 import { runIndexAtomic } from "./index-run.js";
 import { indexSource } from "./indexer.js";
 import { kbInit } from "./init.js";
 import { renderHits } from "./render.js";
+import { searchOptsFromConfig } from "./search-opts.js";
 import { classifyRef, type ResolvedSource as RResolvedSource, resolveAll } from "./sources.js";
 import { SCHEMA_VERSION, SqliteFtsStore } from "./sqlite-store.js";
 import { defaultPromptTrust } from "./trust.js";
 import type { DocType, SearchOpts } from "./types.js";
+import { enrichHits } from "./verdict.js";
 
 interface Flags {
   _: string[];
@@ -109,15 +112,22 @@ Usage:
   kb search  "<query>" [--limit N] [--root id] [--doc-type doc|agents|source-md]
              [--expand-parent|--no-expand-parent] [--expand-graph] [--rerank]
              [--expand-query] [--json] [--no-reindex] [--source <dir>...] [--db <path>]
+             [--no-source-dedup] [--no-lane-quota] [--no-coverage-rerank] [--verdicts]
+             (--limit bounds distinct SOURCES, not chunks; --verdicts = opt-in trust labels)
   kb neighbors "<node>" [--depth N] [--rel child_of|links_to|references|has_tag]
   kb backlinks "<node>"
   kb get <path> [--section "<heading_path>"]
   kb agents <path>                  nearest AGENTS.md chain (root→nearest); --fallback-manifest
   kb dox init [--dry-run]           scaffold a DOX AGENTS.md tree (path rows only)
-  kb dox lint [--json] [--fix]      audit DOX tree drift
+  kb dox lint [--json] [--fix] [--source-rows]   audit DOX tree drift
+                                    (--source-rows also reports undocumented .ts/.tsx)
   kb dox triage [--json] [--limit N]  triage STALE rows vs the git diff since ack
               [--apply <d.json> [--write]] [--ack <targets.json>]
   kb eval    --golden <file.json> [--limit N] [--doc-type ...] [--no-reindex]
+             [--allow-zero] [--verbose] [--json]
+             (--golden accepts a bare array of {q, expect} or an {"items": [...]} object;
+              items outside the configured roots are reported as unreachable;
+              a run with 0 scored items or 0 recall exits non-zero unless --allow-zero)
   kb config   show resolved config
 Global: --cwd <dir>  --config <file>`;
 
@@ -167,7 +177,9 @@ function main() {
       return;
     }
     if (sub === "lint") {
-      const r = doxLint({ cwd, json: !!flags.json, fix: !!flags.fix });
+      // --source-rows opts into the D9 source-file `missing` arm (off by default
+      // so an existing tree adopts it incrementally). See change: fix-kb-search-retrieval-quality.
+      const r = doxLint({ cwd, json: !!flags.json, fix: !!flags.fix, sourceFileRows: !!flags["source-rows"] });
       if (flags.json) console.log(JSON.stringify(r, null, 2));
       else for (const i of r.issues) console.log(`${i.kind}\t${i.agentsFile}${i.path ? "\t" + i.path : ""}\t${i.detail}`);
       if (r.issues.length) process.exit(1);
@@ -188,7 +200,7 @@ function main() {
         console.log(`re-acked ${ackTargets({ cwd, targets, stalenessFile })} entries`);
         return;
       }
-      const staleness = existsSync(stalenessFile) ? JSON.parse(readFileSync(stalenessFile, "utf8")) : {};
+      const staleness = readStaleness(stalenessFile);
       const items = buildWorkItems({ cwd, issues: doxLint({ cwd }).issues, staleness, limit: flags.limit ? Number(flags.limit) : undefined });
       if (flags.json) { console.log(JSON.stringify(items, null, 2)); return; }
       const noBase = items.filter((i) => !i.baselineFound);
@@ -241,20 +253,30 @@ async function runCmd(cmd: string, flags: Flags): Promise<void> {
       const limit = posInt(flags.limit, "--limit");
       const docType = enumFlag(flags["doc-type"], ["doc", "agents", "source-md"], "--doc-type");
       if (!flags["no-reindex"]) await runIndex(cfg, store, sources); // auto incremental freshness
+      // One shared mapping (design D2, fix-kb-eval-measurement-integrity): the
+      // CLI's flag-derived overrides are the ONLY difference from the tool.
       const so: SearchOpts = {
         limit: limit ?? 10,
         root: flags.root as string | undefined,
         docType: docType as DocType | undefined,
-        fieldWeights: cfg.ranking.fieldWeights,
-        proximityBoost: cfg.ranking.proximityBoost,
-        diversity: cfg.ranking.diversity,
-        expandParent: flags["no-expand-parent"] ? false : (cfg.expand.parent || !!flags["expand-parent"]),
-        expandGraph: cfg.expand.graph || !!flags["expand-graph"],
-        rerank: cfg.rerank.enabled || !!flags.rerank,
-        queryExpansion: flags["expand-query"] ? (cfg.queryExpansion.mode === "off" ? "synonym" : cfg.queryExpansion.mode) : cfg.queryExpansion.mode,
-        rootPriority: Object.fromEntries(sources.map((s) => [s.id, s.priority])),
+        ...searchOptsFromConfig(cfg, {
+          sources,
+          overrides: {
+            sourceDedup: flags["no-source-dedup"] ? false : undefined,
+            laneQuota: flags["no-lane-quota"] ? 0 : undefined,
+            coverageRerank: flags["no-coverage-rerank"] ? false : undefined,
+            expandParent: flags["no-expand-parent"] ? false : flags["expand-parent"] ? true : undefined,
+            expandGraph: flags["expand-graph"] ? true : undefined,
+            rerank: flags.rerank ? true : undefined,
+            queryExpansion: flags["expand-query"] && cfg.queryExpansion.mode === "off" ? "synonym" : undefined,
+          },
+        }),
       };
       const hits = store.search(q, so);
+      // Opt-in trust verdicts (arm A): post-search enrichment OUTSIDE the store
+      // (design D10) — labels only, ordering untouched (D1); bodies from disk.
+      // See change: add-kb-trust-verdicts-and-search-guard.
+      if (flags.verdicts) await enrichHits(hits, { cwd: cfg.cwd });
       if (flags.json) console.log(JSON.stringify(hits, null, 2));
       else if (hits.length) console.log(renderHits(hits, { leading: "score", parentGlyph: "[parent: ", multiline: false }));
     } else if (cmd === "neighbors") {
@@ -272,14 +294,50 @@ async function runCmd(cmd: string, flags: Flags): Promise<void> {
         c = store.getChunk(s.id, flags._[1], flags.section as string | undefined);
         if (c) break;
       }
-      console.log(c ? c.body : `(not found: ${flags._[1]})`);
+      // A path-only fetch of a multi-chunk file must never look like the whole
+      // file. See change: fix-kb-search-retrieval-quality (design D7).
+      const more = c?.suppressedSections ?? 0;
+      console.log(c ? (more > 0 ? `${c.body}\n\n(+${more} more section${more === 1 ? "" : "s"} in this file — pass --section <headingPath> to fetch one)` : c.body) : `(not found: ${flags._[1]})`);
     } else if (cmd === "eval") {
       const gf = flags.golden as string | undefined;
       if (!gf) { console.error("eval needs --golden <file.json>"); process.exit(2); }
       if (!flags["no-reindex"]) await runIndex(cfg, store, sources);
-      const golden = JSON.parse(readFileSync(resolve(cfg.cwd, gf), "utf8")) as GoldenItem[];
-      const m = evaluate(store, golden, { k: flags.limit ? Number(flags.limit) : 10, docType: flags["doc-type"] as DocType | undefined });
+      // Fixture contract (design D3): bare array | {items}, item shapes validated.
+      const golden = loadGolden(JSON.parse(readFileSync(resolve(cfg.cwd, gf), "utf8")) as unknown, gf);
+      // Eval measures the TOOL path (spec R1): the extension's option set. Roots
+      // enable repo-relative expect normalization + reachability (design D4).
+      const roots = sources.map((s) => ({ id: s.id, relPrefix: relative(cfg.cwd, s.dir), dir: s.dir }));
+      // Same validation contract as `search`: reject garbage instead of
+      // passing an invalid limit to the backend or an unknown doc-type as an
+      // empty filter (CodeRabbit round, fix-kb-eval-measurement-integrity).
+      const limit = posInt(flags.limit, "--limit") ?? 10;
+      const docType = enumFlag(flags["doc-type"], ["doc", "agents", "source-md"], "--doc-type");
+      const m = evaluate(store, golden, {
+        k: limit,
+        docType: docType as DocType | undefined,
+        verbose: !!flags.verbose,
+        roots,
+        ...searchOptsFromConfig(cfg, { sources, overrides: { expandGraph: false, rerank: false } }),
+      });
       console.log(JSON.stringify(m, null, flags.json ? 2 : 0));
+      if (flags.verbose && m.unreachablePaths?.length) {
+        for (const p of m.unreachablePaths) console.error(`[kb eval] unreachable: ${p}`);
+      }
+      // Vacuous-run guard (design D5): an all-zero score is a harness fault far
+      // more often than a retrieval fault. Metrics stay on stdout; the failure
+      // signal is the exit code. --allow-zero measures anyway.
+      const why =
+        m.n === 0
+          ? golden.length === 0
+            ? "the golden fixture has no items"
+            : `all ${m.unreachable} of ${golden.length} golden items are unreachable under the configured roots (${roots.map((r) => r.relPrefix || ".").join(", ")}) — check root normalization`
+          : m["Recall@K"] === 0
+            ? `recall is 0 across all ${m.n} scored items — check the fixture shape and root normalization`
+            : null;
+      if (why) {
+        console.error(`[kb eval] VACUOUS RUN: ${why}. Re-run with --allow-zero to measure anyway.`);
+        if (!flags["allow-zero"]) process.exit(1);
+      }
     } else {
       console.error(`unknown command: ${cmd}\n\n${HELP}`);
       process.exit(2);

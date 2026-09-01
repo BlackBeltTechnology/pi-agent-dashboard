@@ -302,5 +302,5 @@ This cap applies to invalidation events that result in decorator changes; Phase 
 
 - `interactive-ui-dialogs` — handles `ctx.ui.*` one-shot prompts (orthogonal: PromptBus is request/response; this capability is push-based descriptors).
 - `ui-proxy` — wraps `ctx.ui.*` calls in the bridge for dashboard forwarding (orthogonal: same boundary, different mechanism).
-- `extension-ui-forwarding` — historical placeholder for catch-all event-bus forwarding (this capability supersedes it for declarative UI; raw event-forwarding remains for arbitrary extension events).
+- `extension-ui-forwarding` — historical placeholder for catch-all event-bus forwarding. Its spec was never authored (0 bytes since the initial commit) and was removed; this capability supersedes it for declarative UI, and raw event-forwarding remains for arbitrary extension events.
 - `pi-resource-scanner` — discovers extensions on disk; this capability operates on extensions already loaded in a pi session, after their UI listeners have registered.

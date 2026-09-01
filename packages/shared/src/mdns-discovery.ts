@@ -39,10 +39,97 @@ function getBonjour(): Bonjour {
   return bonjourInstance;
 }
 
+/** Publish configuration handed to the (injectable) publisher. */
+export interface AdvertisePublishConfig {
+  name: string;
+  type: string;
+  port: number;
+  txt: Record<string, string>;
+}
+
+export interface AdvertiseDeps {
+  /** Publisher seam (tests inject a spy; production uses bonjour). */
+  publish?: (config: AdvertisePublishConfig) => Service;
+}
+
+export interface AdvertiseVerdict {
+  advertise: boolean;
+  /** Names the bind host either way — the skip must be explainable in the log. */
+  reason: string;
+}
+
+/**
+ * Whether a server bound to `bindHost` may advertise itself over mDNS.
+ *
+ * Honest advertisement (fix-bridge-mdns-migration-hijack D4): a server bound
+ * only to LOOPBACK used to advertise under the machine's LAN hostname — a
+ * record every consumer, including processes on the same machine, resolves
+ * to an address the server never answers on. That record is poison: the
+ * bridge-side migration gate exists because of it. So a loopback-bound
+ * server advertises NOTHING. Unset/all-interfaces/specific-LAN binds keep
+ * advertising — the record is true for those.
+ */
+/** Expand an IPv6 literal (including `::` compression) to its canonical
+ * colon form, or undefined when the host is not an IPv6 literal. Group
+ * values are hex-normalized so spelled-out and compressed spellings of the
+ * same address compare equal. */
+function normalizeIPv6(host: string): string | undefined {
+  const halves = host.split("::");
+  if (halves.length > 2) return undefined;
+  const head = halves[0] ? halves[0].split(":") : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(":") : [];
+  if (halves.length === 1 && head.length !== 8) return undefined;
+  const fill = 8 - head.length - tail.length;
+  if (fill < 0 || (halves.length === 2 && fill === 0)) return undefined;
+  const groups = [...head, ...Array<string>(fill).fill("0"), ...tail];
+  if (groups.length !== 8 || groups.some((g) => g === "" || !/^[0-9a-f]{1,4}$/.test(g)))
+    return undefined;
+  return groups.map((g) => Number.parseInt(g, 16).toString(16)).join(":");
+}
+
+export function shouldAdvertise(bindHost: string | undefined): AdvertiseVerdict {
+  const h = (bindHost ?? "").trim().toLowerCase().replace(/^\[/, "").replace(/\]$/, "");
+  // Any spelling of the IPv6 loopback address — `::1` and the spelled-out
+  // `0:0:0:0:0:0:0:1` are the SAME address (CodeRabbit review,
+  // fix-bridge-mdns-migration-hijack) — while `::` (all-interfaces) advertises.
+  const ipv6 = h.includes(":") ? normalizeIPv6(h) : undefined;
+  if (
+    h === "localhost" ||
+    h.endsWith(".localhost") ||
+    ipv6 === "0:0:0:0:0:0:0:1" ||
+    /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(h)
+  ) {
+    return {
+      advertise: false,
+      reason: `server is bound only to loopback (${bindHost}) — not advertising an address it does not serve`,
+    };
+  }
+  return {
+    advertise: true,
+    reason: `server serves ${bindHost || "all interfaces"} — advertising`,
+  };
+}
+
 /**
  * Advertise this dashboard server on mDNS.
+ *
+ * `opts.bindHost` is the address the server ACTUALLY listens on (task 4.1:
+ * determined at advertise time from the bind config, never from what the
+ * hostname resolves to). A loopback-bound server skips advertising entirely
+ * (task 4.2) — the alternative, publishing a `localhost`-resolvable record,
+ * would still hand every OTHER machine an endpoint it cannot reach.
  */
-export function advertiseDashboard(port: number, piPort: number): void {
+export function advertiseDashboard(
+  port: number,
+  piPort: number,
+  opts: { bindHost?: string } & AdvertiseDeps = {},
+): AdvertiseVerdict {
+  const verdict = shouldAdvertise(opts.bindHost);
+  if (!verdict.advertise) {
+    console.log(`mDNS: ${verdict.reason}`);
+    return verdict;
+  }
+
   const bonjour = getBonjour();
   const pkg = { version: "0.0.0" }; // Will be replaced by actual version
   try {
@@ -50,7 +137,8 @@ export function advertiseDashboard(port: number, piPort: number): void {
     pkg.version = pkgJson.version ?? "0.0.0";
   } catch { /* ignore */ }
 
-  publishedService = bonjour.publish({
+  const publish = opts.publish ?? ((config: AdvertisePublishConfig) => bonjour.publish(config));
+  publishedService = publish({
     name: `pi-dashboard-${os.hostname()}-${port}`,
     type: SERVICE_TYPE,
     port,
@@ -60,6 +148,7 @@ export function advertiseDashboard(port: number, piPort: number): void {
       piPort: String(piPort),
     },
   });
+  return verdict;
 }
 
 /**

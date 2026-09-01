@@ -10,7 +10,7 @@ import type React from "react";
 import { KbSettingsPanel } from "./KbSettingsPanel.js";
 import { decodeFolderPath } from "./kb-api.js";
 
-export interface KbSettingsClaimProps {
+interface KbSettingsClaimProps {
   params: Record<string, string>;
   onBack: () => void;
 }

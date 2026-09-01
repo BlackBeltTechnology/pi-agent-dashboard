@@ -5,7 +5,7 @@
  * (`@blackbelt-technology/pi-dashboard-kb`) — no runtime coupling.
  * See change: add-kb-folder-slot.
  */
-import type { KbConfig, SourceConfig } from "@blackbelt-technology/pi-dashboard-kb";
+import type { KbConfig, ResolvedConfig, SourceConfig } from "@blackbelt-technology/pi-dashboard-kb";
 
 export const KB_PLUGIN_ID = "kb";
 
@@ -44,9 +44,13 @@ export interface KbReindexRunning {
   jobId: string;
 }
 
-/** Response shape of `GET /api/kb/config?cwd=`. */
+/** Response shape of `GET /api/kb/config?cwd=`. `config` is the engine's
+ *  `ResolvedConfig` (`loadConfig(cwd)` output — the server has always returned
+ *  it, cast wide). `resolvedSources` composes the NARROW `config.ts`
+ *  `ResolvedSource` (id/dir/priority), NOT the wide publicly-re-exported
+ *  `sources.ts` one (identity/revision) — see change: fix-kb-settings-reindex-gate. */
 export interface KbConfigResponse {
-  config: KbConfig;
+  config: ResolvedConfig;
   origin: "project" | "global" | "defaults";
   projectPath: string;
 }

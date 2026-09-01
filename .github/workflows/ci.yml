@@ -33,12 +33,30 @@ jobs:
       # on develop, not only at release. See change: provision-openspec-cli-in-sessions.
       - name: Verify release dependency shape
         run: node scripts/verify-release-deps.mjs
+      # Spec-integrity gate. The openspec-version gate above checks the CLI, not
+      # the specs it reads. In that blind spot 80 of 546 main specs had drifted
+      # into unparseable states (delta headers copied verbatim by the archive
+      # path), hiding 384 requirement blocks from validate/list/show/archive.
+      # A change that archives into a corrupt spec now fails here instead of
+      # rotting. Reproduce locally with `npm run spec:validate`.
+      # See change: repair-corrupted-main-specs.
+      - name: Validate OpenSpec main specs
+        run: npm run spec:validate
       # Skill frontmatter guard. Errors (missing/empty/unparseable `description`
       # — pi drops the skill) block the PR; warnings (pi's length/charset limits
       # and the repository description budget) only annotate.
       # See change: fix-skill-discovery-parity.
       - name: Skill frontmatter guard
         run: node scripts/check-skill-frontmatter.mjs
+      # Portability gate on committed `.pi/settings.json`. `pi install <path>`
+      # and `pi config` both WRITE the resolved absolute path, so the
+      # machine-specific form is the tooling's default output, not a typo. The
+      # repo shipped `/Users/robson/...` long enough that kb-extension silently
+      # failed to load for every other developer. A relative source resolves
+      # against the settings file's own directory, so `".."` is the repo root
+      # everywhere. See issue #371.
+      - name: No machine-specific paths in .pi/settings.json
+        run: node scripts/check-pi-settings-paths.mjs
       # Publish-correctness gate. Stricter than Biome's noUndeclaredDependencies:
       # it derives each workspace's shipped file set from `npm pack --dry-run`
       # and refuses a devDependency as justification for a shipped import,
@@ -47,6 +65,13 @@ jobs:
       # See change: cleanup-undeclared-dependencies.
       - name: Verify published imports are declared
         run: node scripts/verify-published-imports.mjs
+      # kb engine freshness gate. dist/ is gitignored, so a CI build is fresh by
+      # construction and can never observe lag; the COMMITTED engine-fingerprint
+      # can. A commit that edits packages/kb src without rebuilding fails here
+      # instead of shipping a `kb` bin that runs a week-old engine against the
+      # fresh kb_search tool. See change: fix-kb-eval-measurement-integrity.
+      - name: kb dist freshness (engine fingerprint)
+        run: node scripts/check-kb-dist-fresh.mjs
       # `ci`-level scenarios (test-plan E15, E26, P1). Held out of `pnpm test`
       # because they shell out to `npm pack`/`npm publish --dry-run` across every
       # workspace; run in parallel with the unit suite their CPU spike starves

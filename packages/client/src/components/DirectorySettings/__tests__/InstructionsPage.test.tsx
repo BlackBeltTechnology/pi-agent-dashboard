@@ -8,6 +8,7 @@ vi.mock("../../editor-pane/MarkdownEditor.js", () => ({
   ),
 }));
 
+import { RouteBackedOverlay } from "../../overlay/RouteBackedOverlay.js";
 import { InstructionsPage } from "../InstructionsPage.js";
 
 const CANDIDATES = [
@@ -152,6 +153,63 @@ describe("InstructionsPage", () => {
     fireEvent.click(items[1]);
     await waitFor(() => {
       expect(screen.getByTestId("instructions-switch-confirm")).toBeDefined();
+    });
+  });
+
+  // Task 6.4 / risk R1. This page owns its dirty state and does NOT thread
+  // through `SettingsPanel`, so converting folder settings into an overlay gave
+  // it three dismissal gestures no existing guard covered.
+  describe("overlay dismissal guard", () => {
+    const inOverlay = (onDismiss: () => void) =>
+      render(
+        <RouteBackedOverlay
+          background={{ path: "/", search: "" }}
+          backgroundContent={<div />}
+          onDismiss={onDismiss}
+          testId="fs"
+        >
+          <InstructionsPage cwd="/repo" />
+        </RouteBackedOverlay>,
+      );
+
+    it("prompts instead of discarding when the buffer is dirty", async () => {
+      mockFetch();
+      const onDismiss = vi.fn();
+      inOverlay(onDismiss);
+      const ta = (await screen.findByTestId("monaco")) as HTMLTextAreaElement;
+      fireEvent.change(ta, { target: { value: "# changed" } });
+
+      fireEvent.keyDown(document, { key: "Escape" });
+
+      expect(onDismiss).not.toHaveBeenCalled();
+      expect(screen.getByTestId("instructions-overlay-leave-confirm")).toBeDefined();
+      // The edit is still there to be saved.
+      expect((screen.getByTestId("monaco") as HTMLTextAreaElement).value).toBe("# changed");
+    });
+
+    it("leaves once the discard is confirmed", async () => {
+      mockFetch();
+      const onDismiss = vi.fn();
+      inOverlay(onDismiss);
+      const ta = (await screen.findByTestId("monaco")) as HTMLTextAreaElement;
+      fireEvent.change(ta, { target: { value: "# changed" } });
+      fireEvent.keyDown(document, { key: "Escape" });
+
+      fireEvent.click(screen.getByTestId("instructions-overlay-leave-confirm-action"));
+
+      await waitFor(() => expect(onDismiss).toHaveBeenCalledTimes(1));
+    });
+
+    it("dismisses immediately while clean", async () => {
+      mockFetch();
+      const onDismiss = vi.fn();
+      inOverlay(onDismiss);
+      await screen.findByTestId("monaco");
+
+      fireEvent.keyDown(document, { key: "Escape" });
+
+      expect(onDismiss).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId("instructions-overlay-leave-confirm")).toBeNull();
     });
   });
 });

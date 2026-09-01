@@ -227,6 +227,80 @@ biome check --changed --error-on-warnings --write && tsc --noEmit && npm test
 `.github/` workflows, `ship-it`, `ship-change`. Human or `code-quality` skill
 invokes it.
 
+## Dead-code oracle — Knip
+
+Whole-graph dead-code detection. Tool = Knip 6.32.2. Config `knip.json` +
+`knip-baseline.json` at repo root. Generator `scripts/knip-config.mjs`.
+Ratchet `scripts/knip-ratchet.mjs`.
+
+npm scripts:
+
+| Script | Command |
+|---|---|
+| `knip` | run Knip against generated config |
+| `knip:config` | regenerate config from manifests |
+| `knip:ratchet` | per-class baseline ratchet |
+
+### Scope split
+
+Per-change checks live in `quality:changed` (Biome, tsc, tests). Whole-graph
+checks do NOT. Reachability not decidable from changed-file scope. Dead code
+is a property of the whole graph. Split deliberate.
+
+### Baseline
+
+Measured 2026-08-13. Files 10, exports 227, types 189, duplicates 11,
+enumMembers 0. Total 437. Runtime ~8s whole-workspace.
+
+### Entry points derived, not declared
+
+`scripts/knip-config.mjs` derives entries from manifests:
+`pi-dashboard-plugin.{client,server,bridge}`, `pi.extensions`. Knip reads
+`bin`/`main`/`exports` natively. Deliberately not re-declared.
+
+### WHY rooting matters
+
+Unrooted graph does not under-report, it INVERTS. No config → 723 findings /
+90 unused files. False-positives: `packages/extension/src/canvas-tool.ts`, which
+`bridge.ts` imports directly. Rooted: 437 / 10, all ten exact-verified true
+positives.
+
+### Known blind spot — `scripts/**`
+
+`scripts/**` = entry glob. Scripts invoked by shell/CI, edge Knip cannot see
+(`node x.mjs` from `.sh` files, `docker cp` + node). Consequence: genuinely dead
+script undetectable. Accepted trade-off.
+
+### Gate — per-class ratchet, never a scalar total
+
+`scripts/knip-ratchet.mjs` enforces per-class baseline. Deleting one dead file
+must not pay for two new dead exports. Baseline = debt ceiling.
+`--check-baseline-diff <ref>` rejects raised class. Lowering always allowed.
+Missing baseline = hard error. Never implicit adoption of current counts.
+
+### Where it runs
+
+- `ship-it` step 4.4 enforcer = PREVENTION. Blocks before landing.
+- `.github/workflows/nightly.yml` knip job = DETECTION. Runs after merge.
+- Docker harness `docker/scripts/knip-harness-check.sh` = reproducibility.
+
+### Rule ownership
+
+Dependency classes `off` in `knip.json`: `unlisted`, `binaries`, `dependencies`,
+`devDependencies`, `optionalPeerDependencies`, `unresolved`. Owned by
+`noUndeclaredDependencies` in `biome.json` at repo-root scope. Currently 0
+findings. Its overrides deliberately exempt `**/__tests__/**`,
+`**/vitest.config.ts`, `tests/e2e/**`, `qa/scripts/**`,
+`.pi/skills/**/scripts/**`. One rule, one owning engine.
+
+### Harness caveat
+
+Harness image carries `knip.json`, `knip-baseline.json`, `playwright.config.ts`,
+`.github/`, `tests/`, `qa/`, `public/`, `.pi/skills`. NEVER `.pi/settings.json`
+(pins a host absolute path). Host + container agree on unused-FILES set. `types`
+count may differ by one (Node 24.15 vs 24.19), not tree. Exact cross-environment
+scalar equality not asserted.
+
 ## Ship gate — `ship-it` step 4.4
 
 Separate from `quality:changed`. Runs in order. First non-zero exit stops ship,

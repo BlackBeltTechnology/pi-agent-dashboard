@@ -1,0 +1,3 @@
+# nightly-verdaccio-publish.mjs — index
+
+Nightly Verdaccio publish: bump every non-private workspace + root to `<base>-nightly.<YYYYMMDD>.<sha7>` (or the `NIGHTLY_VERSION` env from the workflow resolve job) → sync-versions.js → lockfile regen → verify-lockfile-versions.mjs → publish all to `$REGISTRY` (loopback-only; default http://localhost:4873) sub-packages first (topological), root last. Publish set DERIVED from filesystem (new workspace auto-included). Sets a dummy per-registry `_authToken` to avoid ENEEDAUTH. Exports pure helpers (nextPatch/computeNightlyVersion/discoverWorkspaces/orderPublishSet) for unit tests. Run per-leg by `_electron-build.yml` when `registry_url` set. See change: add-nightly-verdaccio-build.

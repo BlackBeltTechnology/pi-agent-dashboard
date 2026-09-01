@@ -7,9 +7,9 @@
 // Job 2 (opt-in via doxEnforcement, default OFF): a write/edit to a non-md
 // source file nudges the nearest AGENTS.md row upkeep, once per path, deduped.
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, isAbsolute, join, relative, resolve } from "node:path";
-import { agentsChain, indexSource, loadConfig, parseRowPaths, type ResolvedConfig, SqliteFtsStore } from "@blackbelt-technology/pi-dashboard-kb";
+import { type AckRecord, agentsChain, indexSource, loadConfig, parseRowPaths, type ResolvedConfig, readStaleness, stalenessVersionOnDisk, SqliteFtsStore, STALENESS_VERSION } from "@blackbelt-technology/pi-dashboard-kb";
 
 /** Resolve a DOX row path relative to its AGENTS.md dir, with a project-root
  *  fallback (a nested AGENTS.md may document a file living at the root).
@@ -45,20 +45,32 @@ export function createReindexState(): ReindexState {
 function stalenessPath(cwd: string): string {
   return join(cwd, ".pi", "dashboard", "kb", "dox-staleness.json");
 }
-function loadStaleness(cwd: string): Record<string, string> {
-  const p = stalenessPath(cwd);
-  if (!existsSync(p)) return {};
-  try { return JSON.parse(readFileSync(p, "utf8")); } catch { return {}; }
+/** Tolerant reader (v1 sha-only / v2 records / future rejected) — kb's
+ *  `readStaleness`, shared verbatim with lint + triage + query-time verdicts
+ *  so all four agree on what "acknowledged" means. */
+function loadStaleness(cwd: string): Record<string, AckRecord> {
+  return readStaleness(stalenessPath(cwd));
 }
-function saveStaleness(cwd: string, map: Record<string, string>): void {
+/** Acknowledgement writes v2: hash + stat baseline per documented file.
+ *  Fail-closed on a NEWER on-disk version — never stomp records we cannot read. */
+function saveStaleness(cwd: string, map: Record<string, AckRecord>): void {
   const p = stalenessPath(cwd);
-  try { mkdirSync(dirname(p), { recursive: true }); writeFileSync(p, JSON.stringify(map, null, 2)); } catch { /* */ }
+  const onDisk = stalenessVersionOnDisk(p);
+  if (onDisk != null && onDisk > STALENESS_VERSION) {
+    console.warn(`[kb] dox-staleness.json is version ${onDisk} (> supported ${STALENESS_VERSION}); skipping ack write`);
+    return;
+  }
+  try {
+    mkdirSync(dirname(p), { recursive: true });
+    writeFileSync(p, `${JSON.stringify({ version: STALENESS_VERSION, files: map }, null, 2)}\n`);
+  } catch { /* */ }
 }
 function fileSha(p: string): string {
   try { return createHash("sha256").update(readFileSync(p)).digest("hex"); } catch { return ""; }
 }
 
-/** Editing an AGENTS.md acknowledges its rows (clears their stale flags). */
+/** Editing an AGENTS.md acknowledges its rows (clears their stale flags) —
+ *  recording sha256 + stat baseline (v2) so query-time freshness can skip the read. */
 export function acknowledgeRows(cwd: string, agentsFile: string): void {
   const abs = isAbsolute(agentsFile) ? agentsFile : resolve(cwd, agentsFile);
   if (!existsSync(abs)) return;
@@ -67,7 +79,13 @@ export function acknowledgeRows(cwd: string, agentsFile: string): void {
   for (const rp of parseRowPaths(abs)) {
     // Rows are relative to their AGENTS.md dir; key staleness by cwd-relative path.
     const ap = resolveRowPath(dir, cwd, rp);
-    if (existsSync(ap)) map[relative(cwd, ap)] = fileSha(ap);
+    let st;
+    try {
+      st = statSync(ap); // may vanish between existsSync and here (TOCTOU) — skip the row, keep the rest of the ack
+    } catch {
+      continue;
+    }
+    map[relative(cwd, ap)] = { sha256: fileSha(ap), size: st.size, mtimeMs: st.mtimeMs };
   }
   saveStaleness(cwd, map);
 }
@@ -91,7 +109,7 @@ export function decideNudge(cwd: string, editedPath: string): NudgeDecision {
   if (!rowAbs.has(abs)) return { kind: "missing", agentsFile: nearest.rel };
   const map = loadStaleness(cwd);
   const disk = fileSha(abs);
-  if (map[rel] && disk && map[rel] !== disk) return { kind: "stale", agentsFile: nearest.rel };
+  if (map[rel]?.sha256 && disk && map[rel]!.sha256 !== disk) return { kind: "stale", agentsFile: nearest.rel };
   return null;
 }
 

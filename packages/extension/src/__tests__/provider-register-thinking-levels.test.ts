@@ -102,3 +102,40 @@ describe("deriveSupportedThinkingLevels — runtime-gated max (E11)", () => {
     expect(deriveSupportedThinkingLevels(false, MAX_ONLY, true)).toEqual(["off"]);
   });
 });
+
+// ── Endpoint-advertised thinking capability ───────────────────────────────
+//
+// A provider that advertises `reasoning: true` with an underdetermined range
+// (`thinkingRange: null`) restores level AVAILABILITY without a synthesized
+// map: absent means downstream applies its existing defaults, which is exactly
+// what every native model with no map already does. A guessed table would
+// replace "no thinking levels" with "wrong thinking levels".
+// See change: fix-custom-provider-model-metadata (test-plan E11/E12).
+
+describe("toModelInfo — endpoint reasoning without a synthesized map (E11)", () => {
+  it("reasoning:true with no map yields the full canonical level set", () => {
+    const info = toModelInfo({ provider: "proxy", id: "cc/claude-opus-5", reasoning: true });
+    // No map declared → nothing is disabled except the opt-in tiers.
+    expect(info.supportedThinkingLevels).toContain("high");
+    expect(info.supportedThinkingLevels).toContain("off");
+    expect(info.reasoning).toBe(true);
+  });
+
+  it("reasoning:false still collapses to off only (the bug this change ends)", () => {
+    const info = toModelInfo({ provider: "proxy", id: "cc/claude-opus-5", reasoning: false });
+    expect(info.supportedThinkingLevels).toEqual(["off"]);
+  });
+
+  it("a native map still wins over the endpoint's bare reasoning flag (E12)", () => {
+    // registerEntry resolves native metadata ahead of advertised metadata, so a
+    // model carrying a native map projects that map, not a synthesized one.
+    const info = toModelInfo({
+      provider: "proxy",
+      id: "cc/claude-opus-5",
+      reasoning: true,
+      thinkingLevelMap: { minimal: null, xhigh: "xhigh" },
+    });
+    expect(info.supportedThinkingLevels).not.toContain("minimal");
+    expect(info.supportedThinkingLevels).toContain("xhigh");
+  });
+});

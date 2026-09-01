@@ -1,4 +1,10 @@
-## ADDED Requirements
+# markdown-fuzzy-search Specification
+
+## Purpose
+
+Provides fuzzy text search inside the markdown preview, with fuse.js matching, prev/next match navigation, and a reusable search component so any markdown surface can adopt it.
+
+## Requirements
 
 ### Requirement: Fuzzy text search in markdown preview
 The `MarkdownPreviewView` SHALL support an optional fuzzy text search capability powered by fuse.js. When enabled via a `searchable` prop, a search bar SHALL appear in the header area.

@@ -27,24 +27,24 @@ The skill exists because both halves are easy to get wrong:
 
    src/client/ (dev mode)   →  nothing, Vite HMR
    src/client/ (prod mode)  →  npm run build && restart
-   Multi-component / openspec  →  npx tsx ./scripts/full-rebuild.ts
+   Multi-component / openspec  →  npx tsx .pi/skills/implement/scripts/full-rebuild.ts
 ```
 
 Quick check current mode:
 ```bash
-npx tsx ./scripts/check-mode.ts           # prints "dev" or "production"
+npx tsx .pi/skills/implement/scripts/check-mode.ts    # prints "dev" or "production"
 ```
 
 Restart server (preserves mode unless overridden):
 ```bash
-npx tsx ./scripts/restart-server.ts             # graceful restart, keeps mode
-npx tsx ./scripts/restart-server.ts --dev       # force dev mode
-npx tsx ./scripts/restart-server.ts --prod      # force production mode
+npx tsx .pi/skills/implement/scripts/restart-server.ts          # graceful restart, keeps mode
+npx tsx .pi/skills/implement/scripts/restart-server.ts --dev    # force dev mode
+npx tsx .pi/skills/implement/scripts/restart-server.ts --prod   # force production mode
 ```
 
 Full rebuild (after `openspec-apply` or multi-component change):
 ```bash
-npx tsx ./scripts/full-rebuild.ts
+npx tsx .pi/skills/implement/scripts/full-rebuild.ts
 ```
 
 > `full-rebuild.ts` **deploys the checked-out dev version to the local running instance** (build + restart + reload). It is NOT a feature-implementation step — worktree / Docker-isolated feature work does not run it. The code-review gate is separate (below).
@@ -62,9 +62,9 @@ Review is split by moment. The inner loop runs on an **unlimited** engine every 
 **Ship gate (opt-in, PR-time) — CodeRabbit.** Reserved for the pull request so its quota is unspent during dev. **Worktree-safe and server-independent** — no build, no restart:
 
 ```bash
-RUN_CR_REVIEW=1 npx tsx ./scripts/review-changes.ts             # opt in (uncommitted)
-npx tsx ./scripts/review-changes.ts --ship -t committed --base main
-npx tsx ./scripts/review-changes.ts                            # default: skips → use review-code
+RUN_CR_REVIEW=1 npx tsx .pi/skills/implement/scripts/review-changes.ts   # opt in (uncommitted)
+npx tsx .pi/skills/implement/scripts/review-changes.ts --ship -t committed --base main
+npx tsx .pi/skills/implement/scripts/review-changes.ts                   # default: skips → use review-code
 ```
 
 **Warn-and-continue, never blocks**: CodeRabbit is cloud rate-limited; on limit / missing CLI / auth failure it prints "deferred to a later cycle" and exits 0. Fix Critical/Warning findings, then commit. See the **`code-review`** skill for the CodeRabbit severity triage + fix loop.

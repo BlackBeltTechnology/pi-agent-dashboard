@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Grammar corrections — compact view mockups</title>
+<style>
+  /* ── Real dashboard tokens, copied verbatim from packages/client/src/index.css ── */
+  :root {
+    --bg-primary: #0a0a0a;
+    --bg-secondary: #141414;
+    --bg-tertiary: #1e1e1e;
+    --bg-surface: #2a2a2a;
+    --bg-hover: rgba(255,255,255,0.06);
+    --text-primary: #e5e5e5;
+    --text-secondary: #b0b0b0;
+    --text-tertiary: #808080;
+    --text-muted: #585858;
+    --border-primary: #252525;
+    --border-secondary: #333333;
+    --accent-green: #22c55e;
+    --accent-red: #ef4444;
+    --accent-primary: #3b82f6;
+    --severity-error-fg: color-mix(in srgb, var(--accent-red) 46%, var(--text-primary));
+    --elevation-rim: rgba(255,255,255,0.10);
+  }
+  [data-theme="light"] {
+    --bg-primary: #ffffff;
+    --bg-secondary: #fafafa;
+    --bg-tertiary: #f0f0f0;
+    --bg-surface: #e0e0e0;
+    --bg-hover: rgba(0,0,0,0.04);
+    --text-primary: #1a1a1a;
+    --text-secondary: #444444;
+    --text-tertiary: #777777;
+    --text-muted: #aaaaaa;
+    --border-primary: #e0e0e0;
+    --border-secondary: #cccccc;
+    --accent-primary: #2563eb;
+    --elevation-rim: rgba(255,255,255,0.9);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    background: var(--bg-primary);
+    color: var(--text-secondary);
+    font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    padding: 24px 16px 96px;
+  }
+  .wrap { max-width: 680px; margin: 0 auto; }
+
+  /* ── Page header ── */
+  header.page { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; flex-wrap: wrap; }
+  header.page h1 { font-size: 18px; color: var(--text-primary); margin: 0; font-weight: 650; }
+  header.page p { margin: 0; color: var(--text-muted); font-size: 12.5px; flex-basis: 100%; }
+  .spacer { flex: 1; }
+  .toggle-theme {
+    border: 1px solid var(--border-secondary); background: var(--bg-tertiary); color: var(--text-secondary);
+    border-radius: 8px; padding: 6px 12px; font-size: 12.5px; cursor: pointer;
+  }
+  .toggle-theme:hover { background: var(--bg-hover); }
+
+  /* ── Section framing ── */
+  section.view { margin-top: 28px; }
+  .view-label { display: flex; align-items: baseline; gap: 8px; margin-bottom: 8px; }
+  .view-label .tag {
+    font-size: 10.5px; letter-spacing: .05em; text-transform: uppercase; font-weight: 700;
+    color: var(--bg-primary); background: var(--accent-primary); border-radius: 5px; padding: 2px 7px;
+  }
+  .view-label .tag.alt { background: var(--text-tertiary); }
+  .view-label h2 { font-size: 14px; color: var(--text-primary); margin: 0; font-weight: 600; }
+  .view-label .note { color: var(--text-muted); font-size: 12px; }
+
+  /* ── The composer stack: panel sits directly above the input (real layout) ── */
+  .composer-stack {
+    border: 1px solid var(--border-primary); border-radius: 12px; overflow: hidden;
+    background: var(--bg-secondary);
+    box-shadow: inset 0 1px 0 var(--elevation-rim);
+  }
+
+  /* Corrections panel shell — matches GrammarPanel.tsx */
+  .panel { border-bottom: 1px solid var(--border-primary); background: color-mix(in srgb, var(--bg-secondary) 60%, transparent);
+           padding: 8px 12px; display: flex; flex-direction: column; gap: 8px; }
+  .panel-head { display: flex; align-items: center; gap: 8px; }
+  .panel-head .ico { color: var(--accent-primary); font-size: 14px; }
+  .summary { color: var(--text-secondary); flex: 1; font-size: 13px; }
+  .btn-apply-all {
+    display: inline-flex; align-items: center; gap: 5px; border: none; cursor: pointer;
+    background: var(--accent-primary); color: #fff; font-weight: 600; font-size: 12px;
+    border-radius: 7px; padding: 5px 10px;
+  }
+  .btn-apply-all:hover { opacity: .9; }
+  .btn-close {
+    width: 26px; height: 26px; border: none; background: transparent; color: var(--text-secondary);
+    border-radius: 7px; cursor: pointer; font-size: 15px; line-height: 1;
+  }
+  .btn-close:hover { background: var(--bg-hover); }
+
+  /* ── VIEW A: segmented mode toggle ── */
+  .segmented { display: inline-flex; align-self: flex-start; border: 1px solid var(--border-secondary); border-radius: 8px; overflow: hidden; }
+  .segmented button { border: none; background: transparent; color: var(--text-secondary); font-size: 11.5px; padding: 4px 11px; cursor: pointer; line-height: 1.6; }
+  .segmented button + button { border-left: 1px solid var(--border-secondary); }
+  .segmented button.active { background: var(--accent-primary); color: #fff; }
+  .segmented button:not(.active):hover { background: var(--bg-hover); }
+
+  /* ── VIEW A: inline redline ── */
+  .redline { font-size: 13.5px; color: var(--text-secondary); line-height: 2.0; }
+  .chg { position: relative; border-radius: 4px; padding: 0 1px; cursor: default; }
+  .chg .del { color: var(--accent-red); text-decoration: line-through; text-decoration-thickness: 1.5px; }
+  .chg .ins { color: var(--accent-green); margin-left: 3px; }
+  .chg:hover, .chg:focus-within { background: var(--bg-hover); outline: none; }
+  /* mini per-change toolbar */
+  .chg .tools {
+    position: absolute; left: 50%; transform: translateX(-50%); top: -26px;
+    display: none; gap: 2px; background: var(--bg-surface); border: 1px solid var(--border-secondary);
+    border-radius: 7px; padding: 2px; box-shadow: 0 4px 12px rgba(0,0,0,.35); z-index: 5;
+  }
+  .chg:hover .tools, .chg:focus-within .tools { display: inline-flex; }
+  .chg .tools button { width: 22px; height: 22px; border: none; border-radius: 5px; cursor: pointer; background: transparent; font-size: 13px; line-height: 1; }
+  .chg .tools .ok { color: var(--accent-green); }
+  .chg .tools .no { color: var(--text-secondary); }
+  .chg .tools button:hover { background: var(--bg-hover); }
+  /* resolved states */
+  .chg.applied .del { display: none; }
+  .chg.applied .ins { color: var(--text-secondary); margin-left: 0; }
+  .chg.applied .tools, .chg.rejected .tools { display: none !important; }
+  .chg.rejected .ins { display: none; }
+  .chg.rejected .del { color: var(--text-secondary); text-decoration: none; }
+  .chg.applied, .chg.rejected { cursor: default; }
+  .chg.applied::after { content: "✓"; font-size: 9px; color: var(--accent-green); vertical-align: super; margin-left: 1px; }
+  /* plain original / corrected preview lenses */
+  .redline.plain { color: var(--text-secondary); }
+  .redline.plain .was { color: var(--accent-red); }
+  .redline.plain .now { color: var(--accent-green); }
+
+  /* ── VIEW B: chip strip ── */
+  .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px; background: var(--bg-tertiary);
+    border: 1px solid var(--border-primary); border-radius: 999px; padding: 3px 4px 3px 10px; font-size: 12.5px;
+  }
+  .chip .del { color: var(--accent-red); text-decoration: line-through; }
+  .chip .arrow { color: var(--text-muted); }
+  .chip .ins { color: var(--accent-green); }
+  .chip .cbtn { width: 20px; height: 20px; border: none; border-radius: 50%; cursor: pointer; background: transparent; font-size: 12px; line-height: 1; }
+  .chip .cbtn.ok { color: var(--accent-green); }
+  .chip .cbtn.no { color: var(--text-secondary); }
+  .chip .cbtn:hover { background: var(--bg-hover); }
+  .chip.applied { opacity: .55; }
+  .chip.applied .del { display: none; }
+  .chip.applied .arrow { display: none; }
+  .chip.rejected { opacity: .4; text-decoration: none; }
+  .chip.rejected .ins, .chip.rejected .arrow { display: none; }
+  .chip.applied .cbtn, .chip.rejected .cbtn { display: none; }
+  .chip.applied::after, .chip.rejected::after { content: attr(data-tail); font-size: 10px; color: var(--text-muted); padding-right: 8px; }
+
+  /* ── VIEW C: current list ── */
+  .slist { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+  .srow { display: flex; align-items: flex-start; gap: 8px; background: color-mix(in srgb, var(--bg-primary) 40%, transparent); border-radius: 7px; padding: 6px 8px; }
+  .srow .body { flex: 1; min-width: 0; }
+  .srow .diffline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; }
+  .srow .del { color: var(--accent-red); text-decoration: line-through; }
+  .srow .ins { color: var(--accent-green); }
+  .srow .kind { font-size: 10px; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+  .srow .msg { font-size: 11.5px; color: var(--text-muted); }
+  .srow .rbtn { width: 26px; height: 26px; border: none; border-radius: 7px; cursor: pointer; background: transparent; font-size: 14px; line-height: 1; }
+  .srow .rbtn.ok { color: var(--accent-green); }
+  .srow .rbtn.no { color: var(--text-secondary); }
+  .srow .rbtn:hover { background: var(--bg-hover); }
+  .srow.gone { display: none; }
+
+  /* composer input mock */
+  .composer-input { display: flex; align-items: flex-end; gap: 8px; padding: 10px 12px; }
+  .composer-input .field {
+    flex: 1; min-height: 40px; border: 1px solid var(--border-secondary); border-radius: 9px;
+    background: var(--bg-tertiary); color: var(--text-primary); padding: 9px 11px; font-size: 13.5px;
+    white-space: pre-wrap;
+  }
+  .composer-input .send { width: 38px; height: 38px; border-radius: 9px; border: none; background: var(--accent-primary); color: #fff; font-size: 16px; cursor: pointer; }
+
+  .caption { font-size: 12px; color: var(--text-muted); margin-top: 8px; }
+  .caption b { color: var(--text-tertiary); font-weight: 600; }
+  .empty-hint { color: var(--text-muted); font-size: 12px; padding: 4px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="page">
+    <h1>Grammar corrections — compact view</h1>
+    <button class="toggle-theme" id="themeBtn">◐ Light / dark</button>
+    <p>Same correction set, three presentations. Hover (or Tab to) a change to accept/reject it individually, or use <b>Apply&nbsp;all</b>. Draft: <em>"i beleive their are alot of things that dont work good."</em></p>
+  </header>
+
+  <!-- VIEW A -->
+  <section class="view" data-view="A">
+    <div class="view-label">
+      <span class="tag">A · proposed default</span>
+      <h2>Inline redline (one-liner)</h2>
+      <span class="note">whole draft, wrong + good in place · lens: Redline / Original / Corrected</span>
+    </div>
+    <div class="composer-stack">
+      <div class="panel">
+        <div class="panel-head">
+          <span class="ico">✎</span>
+          <span class="summary"></span>
+          <button class="btn-apply-all">✓ Apply all</button>
+          <button class="btn-close" title="Dismiss">✕</button>
+        </div>
+        <div class="segmented" role="tablist" aria-label="Correction view">
+          <button data-mode="redline" class="active">Redline</button>
+          <button data-mode="original">Original</button>
+          <button data-mode="corrected">Corrected</button>
+        </div>
+        <div class="redline"></div>
+      </div>
+      <div class="composer-input">
+        <div class="field"></div>
+        <button class="send">➤</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- VIEW B -->
+  <section class="view" data-view="B">
+    <div class="view-label">
+      <span class="tag">B · alt compact</span>
+      <h2>Chip strip</h2>
+      <span class="note">one chip per change, wraps</span>
+    </div>
+    <div class="composer-stack">
+      <div class="panel">
+        <div class="panel-head">
+          <span class="ico">✎</span>
+          <span class="summary"></span>
+          <button class="btn-apply-all">✓ Apply all</button>
+          <button class="btn-close" title="Dismiss">✕</button>
+        </div>
+        <div class="chips"></div>
+      </div>
+      <div class="composer-input">
+        <div class="field"></div>
+        <button class="send">➤</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- VIEW C -->
+  <section class="view" data-view="C">
+    <div class="view-label">
+      <span class="tag alt">current</span>
+      <h2>List view</h2>
+      <span class="note">today's GrammarPanel — one stacked row per change</span>
+    </div>
+    <div class="composer-stack">
+      <div class="panel">
+        <div class="panel-head">
+          <span class="ico">✎</span>
+          <span class="summary"></span>
+          <button class="btn-apply-all">✓ Apply all</button>
+          <button class="btn-close" title="Dismiss">✕</button>
+        </div>
+        <ul class="slist"></ul>
+      </div>
+      <div class="composer-input">
+        <div class="field"></div>
+        <button class="send">➤</button>
+      </div>
+    </div>
+  </section>
+
+  <p class="caption"><b>Try it:</b> in A, use the <b>Redline / Original / Corrected</b> toggle to switch lenses — Redline is editable (hover/Tab a coloured word → ✓/✕), while Original and Corrected are read-only before/after previews. In B, each chip has its own ✓/✕. Accept updates the composer field below; Apply&nbsp;all resolves every remaining change at once — proving "one or together" works in every view.</p>
+</div>
+
+<script>
+  // ── Shared correction model (mirrors GrammarSuggestion) ──
+  // The draft is an ordered list of parts: plain text runs + change spans.
+  const makeParts = () => ([
+    { t: "chg", id: "s0", del: "i", ins: "I", kind: "grammar", msg: "Capitalize the sentence start" },
+    { t: "txt", v: " " },
+    { t: "chg", id: "s1", del: "beleive", ins: "believe", kind: "spelling", msg: "Misspelling" },
+    { t: "txt", v: " " },
+    { t: "chg", id: "s2", del: "their", ins: "there", kind: "grammar", msg: "Wrong word (their → there)" },
+    { t: "txt", v: " are " },
+    { t: "chg", id: "s3", del: "alot", ins: "a lot", kind: "spelling", msg: "\u201calot\u201d is not a word" },
+    { t: "txt", v: " of things that " },
+    { t: "chg", id: "s4", del: "dont", ins: "don't", kind: "punctuation", msg: "Missing apostrophe" },
+    { t: "txt", v: " " },
+    { t: "chg", id: "s5", del: "work good", ins: "work well", kind: "style", msg: "Use the adverb" },
+    { t: "txt", v: "." },
+  ]);
+
+  const summaryText = "2 spelling · 2 grammar · 1 punctuation · 1 style";
+
+  // Each view keeps its OWN state so you can experiment independently.
+  const views = {};
+  document.querySelectorAll("section.view").forEach((sec) => {
+    const key = sec.dataset.view;
+    views[key] = { sec, parts: makeParts(), status: {}, mode: "redline" }; // status[id] = 'open'|'applied'|'rejected'
+    for (const p of views[key].parts) if (p.t === "chg") views[key].status[p.id] = "open";
+    sec.querySelector(".summary").textContent = summaryText;
+    sec.querySelector(".btn-apply-all").addEventListener("click", () => applyAll(key));
+    sec.querySelector(".btn-close").addEventListener("click", () => { sec.querySelector(".panel").style.display = "none"; });
+    // View A lens toggle (Redline / Original / Corrected)
+    sec.querySelectorAll(".segmented button").forEach((b) => {
+      b.addEventListener("click", () => {
+        views[key].mode = b.dataset.mode;
+        sec.querySelectorAll(".segmented button").forEach((x) => x.classList.toggle("active", x === b));
+        render(key);
+      });
+    });
+    render(key);
+  });
+
+  function currentDraft(v) {
+    // reflect resolved state into the composer field text
+    return v.parts.map((p) => {
+      if (p.t === "txt") return p.v;
+      const st = v.status[p.id];
+      return st === "applied" ? p.ins : p.del; // open shows original in the field
+    }).join("");
+  }
+
+  function resolve(key, id, decision) {
+    views[key].status[id] = decision;
+    render(key);
+  }
+  function applyAll(key) {
+    const v = views[key];
+    for (const id in v.status) if (v.status[id] === "open") v.status[id] = "applied";
+    render(key);
+  }
+
+  function render(key) {
+    const v = views[key];
+    v.sec.querySelector(".field").textContent = currentDraft(v);
+    if (key === "A") renderRedline(v);
+    if (key === "B") renderChips(v);
+    if (key === "C") renderList(v);
+    // summary reflects remaining
+    const remaining = Object.values(v.status).filter((s) => s === "open").length;
+    v.sec.querySelector(".summary").textContent = remaining ? summaryText : "All changes resolved";
+    v.sec.querySelector(".btn-apply-all").style.display = remaining ? "" : "none";
+  }
+
+  function renderRedline(v) {
+    const host = v.sec.querySelector(".redline");
+    host.innerHTML = "";
+    // Plain before/after lenses: read-only straight text, changed words tinted.
+    if (v.mode === "original" || v.mode === "corrected") {
+      host.className = "redline plain";
+      for (const p of v.parts) {
+        if (p.t === "txt") { host.appendChild(document.createTextNode(p.v)); continue; }
+        const word = v.mode === "original" ? p.del : p.ins;
+        const span = document.createElement("span");
+        span.className = v.mode === "original" ? "was" : "now";
+        span.textContent = word;
+        host.appendChild(span);
+      }
+      return;
+    }
+    host.className = "redline";
+    for (const p of v.parts) {
+      if (p.t === "txt") { host.appendChild(document.createTextNode(p.v)); continue; }
+      const st = v.status[p.id];
+      const span = document.createElement("span");
+      span.className = "chg" + (st !== "open" ? " " + st : "");
+      span.tabIndex = 0;
+      span.innerHTML = `<span class="del">${p.del}</span><span class="ins">${p.ins}</span>`;
+      if (st === "open") {
+        const tools = document.createElement("span");
+        tools.className = "tools";
+        tools.innerHTML = `<button class="ok" title="Accept">✓</button><button class="no" title="Reject">✕</button>`;
+        tools.querySelector(".ok").onclick = () => resolve("A", p.id, "applied");
+        tools.querySelector(".no").onclick = () => resolve("A", p.id, "rejected");
+        span.appendChild(tools);
+      }
+      host.appendChild(span);
+    }
+  }
+
+  function renderChips(v) {
+    const host = v.sec.querySelector(".chips");
+    host.innerHTML = "";
+    const openChanges = v.parts.filter((p) => p.t === "chg");
+    for (const p of openChanges) {
+      const st = v.status[p.id];
+      const chip = document.createElement("span");
+      chip.className = "chip" + (st !== "open" ? " " + st : "");
+      if (st === "applied") chip.dataset.tail = "applied";
+      if (st === "rejected") chip.dataset.tail = "kept original";
+      chip.innerHTML = `<span class="del">${p.del}</span><span class="arrow">→</span><span class="ins">${p.ins}</span>`;
+      if (st === "open") {
+        const ok = document.createElement("button"); ok.className = "cbtn ok"; ok.textContent = "✓"; ok.title = "Accept";
+        const no = document.createElement("button"); no.className = "cbtn no"; no.textContent = "✕"; no.title = "Reject";
+        ok.onclick = () => resolve("B", p.id, "applied");
+        no.onclick = () => resolve("B", p.id, "rejected");
+        chip.appendChild(ok); chip.appendChild(no);
+      }
+      host.appendChild(chip);
+    }
+    if (!openChanges.length) host.innerHTML = '<span class="empty-hint">No issues found</span>';
+  }
+
+  function renderList(v) {
+    const host = v.sec.querySelector(".slist");
+    host.innerHTML = "";
+    for (const p of v.parts) {
+      if (p.t !== "chg") continue;
+      const st = v.status[p.id];
+      const li = document.createElement("li");
+      li.className = "srow" + (st !== "open" ? " gone" : "");
+      li.innerHTML = `
+        <div class="body">
+          <div class="diffline"><span><span class="del">${p.del}</span> <span class="ins">${p.ins}</span></span><span class="kind">${p.kind}</span></div>
+          <div class="msg">${p.msg}</div>
+        </div>
+        <button class="rbtn ok" title="Accept">✓</button>
+        <button class="rbtn no" title="Dismiss">✕</button>`;
+      li.querySelector(".ok").onclick = () => resolve("C", p.id, "applied");
+      li.querySelector(".no").onclick = () => resolve("C", p.id, "rejected");
+      host.appendChild(li);
+    }
+  }
+
+  // theme toggle
+  document.getElementById("themeBtn").addEventListener("click", () => {
+    const html = document.documentElement;
+    html.dataset.theme = html.dataset.theme === "dark" ? "light" : "dark";
+  });
+</script>
+</body>
+</html>

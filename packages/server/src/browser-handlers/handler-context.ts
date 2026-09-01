@@ -49,6 +49,17 @@ export interface BrowserHandlerContext {
    * See change: fit-attachments-for-display (test-plan #E9).
    */
   fitWorkerPool?: import("../attachments/fit-worker-pool.js").FitWorkerPool;
+  /**
+   * Max events replayed on a FULL-stream subscribe (0 / absent = unlimited).
+   * Never applied to a genuine delta.
+   * See change: lazy-load-session-history (D1).
+   */
+  maxReplayEvents?: number;
+  /**
+   * SHAPE of the replay window when one applies. Absent → `head-tail`.
+   * See change: add-tail-only-replay-window (D1).
+   */
+  replayWindowMode?: import("@blackbelt-technology/pi-dashboard-shared/memory-limits.js").ReplayWindowMode;
   directoryService?: DirectoryService;
   terminalManager?: TerminalManager;
   headlessPidRegistry: HeadlessPidRegistry;
@@ -107,6 +118,13 @@ export interface BrowserHandlerContext {
    * See change: fix-recovery-offer-bridge-liveness-gate.
    */
   isRecoveryLivenessPending?(sessionId: string): boolean;
+  /**
+   * Remember that THIS connection asked for a subagent resync, so the bridge's
+   * reply is delivered back to it instead of fanned out to every subscriber of
+   * the session. Absent → the reply falls back to the broadcast path.
+   * See change: reduce-subagent-details-payload (C5).
+   */
+  recordResyncRequester?(requestId: string, ws: WebSocket): void;
   /** Send message to a specific WebSocket */
   sendTo(ws: WebSocket, msg: ServerToBrowserMessage): void;
   /** Broadcast to all connected browsers */

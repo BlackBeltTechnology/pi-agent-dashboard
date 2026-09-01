@@ -6,7 +6,8 @@
  * Pi-coding-agent installs packages into three different filesystem
  * layouts depending on how the user added them to `settings.json#packages[]`:
  *
- *   npm:<name>[@version]   → ~/.pi/agent/node_modules/<name>/  (user scope)
+ *   npm:<name>[@version]   → ~/.pi/agent/npm/node_modules/<name>/ (user, MANAGED)
+ *                            └ fallback: pnpm global dir / `npm root -g` (LEGACY)
  *                            <cwd>/.pi/npm/node_modules/<name>/ (project)
  *   git+https://… / git@…/ → ~/.pi/agent/git/<host>/<owner>/<repo>/ (user)
  *                            <cwd>/.pi/git/<host>/<owner>/<repo>/  (project)
@@ -263,8 +264,16 @@ function computeInstallPath(
         if (!ctx.cwd) return null;
         return path.join(ctx.cwd, ".pi", "npm", "node_modules", parsed.value);
       }
-      if (!ctx.npmRoot) return null;
-      return path.join(ctx.npmRoot, parsed.value);
+      // User scope mirrors pi-coding-agent `getNpmInstallPath`
+      // (dist/core/package-manager.js): the MANAGED dir is authoritative and
+      // checked FIRST; the global npm root is only a LEGACY fallback for
+      // packages installed before pi managed its own npm prefix. Checking only
+      // the legacy root made every modern `npm:` install unresolvable.
+      const managed = path.join(ctx.agentDir, "npm", "node_modules", parsed.value);
+      if (fs.existsSync(managed)) return managed;
+      if (!ctx.npmRoot) return managed;
+      const legacy = path.join(ctx.npmRoot, parsed.value);
+      return fs.existsSync(legacy) ? legacy : managed;
     }
     case "git": {
       if (scope === "project") {

@@ -3,8 +3,9 @@
  * engine hook is absent, 400 on a failed stop, and ok when the injected
  * stopRun hook succeeds. See change: automation-ui-mockup-parity.
  */
-import { describe, it, expect, vi } from "vitest";
+
 import Fastify from "fastify";
+import { describe, expect, it, vi } from "vitest";
 import { mountAutomationRoutes } from "../server/routes.js";
 
 async function appWith(hooks: Parameters<typeof mountAutomationRoutes>[1]) {
@@ -62,5 +63,80 @@ describe("POST /api/plugins/automation/stop", () => {
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("not running");
     await app.close();
+  });
+});
+
+// ── Engine stop cascade (parent vs child) ───────────────────────────────────
+// See change: add-automation-concurrent-spawn.
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach } from "vitest";
+import { createEngine } from "../server/engine.js";
+import { listRuns, readChildRuns } from "../server/run-store.js";
+import type { DiscoveredAutomation, RunRecord } from "../shared/automation-types.js";
+
+describe("engine stopRun cascade", () => {
+  let repo: string;
+  beforeEach(() => { repo = fs.mkdtempSync(path.join(os.tmpdir(), "auto-stop-")); });
+  afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
+  const flushSpawn = async () => { await Promise.resolve(); await Promise.resolve(); };
+
+  function fanout(name: string, count: number): DiscoveredAutomation {
+    const dir = path.join(repo, ".pi", "automation", name);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "prompt.md"), "do it");
+    return {
+      name, scope: "folder", dir, valid: true,
+      config: {
+        on: { kind: "schedule", cron: "* * * * *" },
+        action: { kind: "prompt", prompt: "./prompt.md", count },
+        model: "@fast", mode: "local", sandbox: "workspace-write", concurrency: "skip",
+      },
+    };
+  }
+  function makeEngine(terminations: any[]) {
+    return createEngine({
+      spawnSession: async () => ({ success: true, spawnToken: `tok-${Math.random()}` }),
+      abortSpawnedRun: async (a) => { terminations.push(a); return true; },
+      listScopes: () => [{ base: repo, scope: "folder" }],
+      config: () => ({ defaultVisibility: "hidden", retention: 100, defaultModel: "m", scanFolder: true, scanGlobal: false, maxRunAgeMs: 30 * 60 * 1000 }),
+      readRoles: () => ({ fast: "m" }),
+      warn: () => {},
+    });
+  }
+  const parentOf = (name: string, runId: string): RunRecord =>
+    listRuns(repo, name).find((r) => r.runId === runId)!;
+  const kidsOf = (name: string, runId: string) => readChildRuns(repo, parentOf(name, runId));
+
+  it("X8: stopping a parent aborts every child, finalizes each stopped, parent once", async () => {
+    const terminations: any[] = [];
+    const engine = makeEngine(terminations);
+    const r = engine.startRunFor(fanout("cascade", 3))!;
+    await flushSpawn();
+    kidsOf("cascade", r.runId).forEach((k, i) => engine.onSessionRegisteredForRun(`s${i}`, k.runId));
+
+    expect(await engine.stopRun(r.runId)).toBe(true);
+    expect(terminations).toHaveLength(3);
+    const parent = parentOf("cascade", r.runId);
+    expect(parent.status).toBe("stopped");
+    expect(typeof parent.endedAt).toBe("number");
+    expect(kidsOf("cascade", r.runId).every((k) => k.status === "stopped")).toBe(true);
+  });
+
+  it("X9: stopping a single child leaves siblings + parent running", async () => {
+    const terminations: any[] = [];
+    const engine = makeEngine(terminations);
+    const r = engine.startRunFor(fanout("single", 3))!;
+    await flushSpawn();
+    const kids = kidsOf("single", r.runId);
+    kids.forEach((k, i) => engine.onSessionRegisteredForRun(`s${i}`, k.runId));
+
+    expect(await engine.stopRun(kids[1]!.runId)).toBe(true);
+    const after = kidsOf("single", r.runId);
+    expect(after[1]!.status).toBe("stopped");
+    expect(after[0]!.status).toBe("running");
+    expect(after[2]!.status).toBe("running");
+    expect(parentOf("single", r.runId).status).toBe("running");
   });
 });

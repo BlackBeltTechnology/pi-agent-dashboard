@@ -6,7 +6,7 @@
  * feature-implementation step — worktree / Docker-isolated work does not run this.
  * For the implementation-phase code-review gate, see review-changes.ts.
  *
- * Invoke:  npx tsx ./scripts/full-rebuild.ts
+ * Invoke:  npx tsx .pi/skills/implement/scripts/full-rebuild.ts
  *
  * Cross-platform — uses npm CLI (npm is cross-platform).
  */

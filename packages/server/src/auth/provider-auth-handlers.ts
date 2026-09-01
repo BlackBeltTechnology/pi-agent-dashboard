@@ -48,7 +48,8 @@ export interface DeviceCodeHandler {
   pollForToken(deviceCode: string, interval: number, expiresIn: number, extra?: Record<string, unknown>): Promise<OAuthCredential>;
 }
 
-export interface DeviceCodeData {
+/** Device-code flow payload returned by `requestDeviceCode`. File-local: nothing imports it. */
+interface DeviceCodeData {
   deviceCode: string;
   userCode: string;
   verificationUri: string;

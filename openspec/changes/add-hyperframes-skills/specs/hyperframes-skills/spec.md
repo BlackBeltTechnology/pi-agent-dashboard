@@ -1,116 +1,104 @@
 ## ADDED Requirements
 
-### Requirement: Vendored HyperFrames skill bundle is discoverable by pi sessions
+### Requirement: One documented command installs the HyperFrames skill bundle
 
-The repo SHALL ship the upstream HyperFrames `skills/` tree at a stable, versioned in-repo path, and pi sessions opened against this repo SHALL discover all bundled SKILL.md files via the standard pi skill loader without per-machine setup.
+The repo SHALL document a single supported command that installs the HyperFrames skill bundle, and pi sessions opened against this repo SHALL discover the installed skills without any repo-level configuration.
 
-#### Scenario: Fresh clone discovers all 15 HyperFrames skills
+#### Scenario: Documented command installs the core set
 
-- **WHEN** a contributor clones the repo and starts a pi session from the repo root
-- **THEN** every SKILL.md under the vendored tree is enumerated by pi's skill loader
-- **AND** the skill names appear in the system prompt's available-skills list
-- **AND** invoking any of them via `/skill:<name>` loads the full SKILL.md body
+- **WHEN** a contributor with no HyperFrames skills installed runs the install command documented in `docs/hyperframes.md`
+- **THEN** the command exits 0
+- **AND** the core set is present in the universal skill store `~/.agents/skills`
+- **AND** the core set includes `hyperframes`, `hyperframes-animation`, `hyperframes-audio`, `hyperframes-cli`, `hyperframes-core`, `hyperframes-creative`, `hyperframes-keyframes`, `hyperframes-registry`, and `media-use`
 
-#### Scenario: Discovery requires no manual install step
+#### Scenario: pi discovers installed skills with no repo configuration
 
-- **WHEN** a contributor has a fresh checkout and has not run any setup beyond `git clone`
-- **THEN** pi discovers the vendored skills automatically via `.pi/settings.json`
-- **AND** no `npm install`, no `npx skills add`, and no environment variable is required for discovery
+- **WHEN** the core set is installed and a contributor starts a pi session from the repo root
+- **THEN** the installed skills appear in the session's available-skills listing
+- **AND** invoking `/hyperframes` loads the full SKILL.md body
+- **AND** no entry in `.pi/settings.json` is required for that discovery
 
-### Requirement: Vendored tree carries license and version metadata
+#### Scenario: Installing leaves the repo untouched
 
-The vendored tree SHALL preserve upstream license text verbatim and SHALL declare its pinned upstream version in a machine-readable file.
+- **WHEN** a contributor runs the documented install command from inside the repo checkout
+- **THEN** `git status` reports no changes
+- **AND** no file is created under `vendor/`
+- **AND** `.pi/settings.json` is unmodified
 
-#### Scenario: Apache-2.0 LICENSE is preserved
+### Requirement: Router lazy-install is documented as expected behaviour
 
-- **WHEN** an auditor inspects `vendor/hyperframes/LICENSE`
-- **THEN** the file content is byte-identical to upstream `LICENSE` at the pinned tag
-- **AND** no project header, comment, or modification has been added
+The documentation SHALL state that the `/hyperframes` router installs creation workflows on demand, so that a contributor does not mistake the install step for a fault.
 
-#### Scenario: Pinned version is readable as a single line
+#### Scenario: Routing to an uninstalled workflow installs it
 
-- **WHEN** a script or contributor reads `vendor/hyperframes/VERSION`
-- **THEN** the file contains exactly one line: the upstream tag string (e.g. `0.6.48`)
-- **AND** no other file in the vendored tree is treated as authoritative for the pin
+- **WHEN** a contributor invokes `/hyperframes` with a request that routes to a workflow that is not yet installed
+- **THEN** the router installs that workflow before entering it
+- **AND** `docs/hyperframes.md` describes this as expected behaviour
+- **AND** `docs/hyperframes.md` states that author-time network access is required for it
 
-#### Scenario: Provenance README documents source
+### Requirement: Prerequisites are documented before they fail
 
-- **WHEN** a contributor opens `vendor/hyperframes/README.md`
-- **THEN** the README states the upstream repository URL
-- **AND** the README states the pinned version
-- **AND** the README summarizes licensing (Apache-2.0 for code, Pixabay Content License for the SFX under `website-to-hyperframes/assets/sfx/`)
-- **AND** the README documents the supported upgrade procedure
+The documentation SHALL state every prerequisite that this repo does not already satisfy, so that a contributor learns of them before a render fails.
 
-### Requirement: Upgrade procedure is idempotent and re-runnable
+#### Scenario: FFmpeg requirement is stated
 
-The repo SHALL provide a single script that pulls a specified upstream tag and synchronizes `vendor/hyperframes/` to it; re-running the script with the same tag SHALL be a no-op.
+- **WHEN** a contributor reads `docs/hyperframes.md`
+- **THEN** the doc states that FFmpeg is required for rendering
+- **AND** the doc states that FFmpeg is not installed by this repo's setup and is not present in the `docker/` image
+- **AND** the doc describes the failure mode observed when FFmpeg is absent
 
-#### Scenario: First run populates the vendor tree
+#### Scenario: Node version requirement is stated and reconciled
 
-- **WHEN** `vendor/hyperframes/skills/` does not exist
-- **AND** a contributor runs `./scripts/update-hyperframes.sh 0.6.48`
-- **THEN** the script exits 0
-- **AND** `vendor/hyperframes/skills/` contains the upstream `skills/` tree at tag `0.6.48`
-- **AND** `vendor/hyperframes/LICENSE` matches upstream LICENSE at that tag
-- **AND** `vendor/hyperframes/VERSION` contains `0.6.48`
+- **WHEN** a contributor reads `docs/hyperframes.md`
+- **THEN** the doc states the Node.js 22+ requirement
+- **AND** the doc notes that this repo's `engines.node` constraint already satisfies it
 
-#### Scenario: Re-run at the same tag is a no-op
+### Requirement: Trust and reproducibility limitations are stated, not implied
 
-- **WHEN** `vendor/hyperframes/` is already at tag `0.6.48`
-- **AND** a contributor runs `./scripts/update-hyperframes.sh 0.6.48`
-- **THEN** the script exits 0
-- **AND** `git status` shows no changes in `vendor/hyperframes/`
+The documentation SHALL disclose that the workflow executes unpinned third-party code with machine-global effect, and that the installed bundle cannot be pinned.
 
-#### Scenario: Upgrade to a newer tag updates the tree atomically
+#### Scenario: Security posture is disclosed
 
-- **WHEN** `vendor/hyperframes/VERSION` contains `0.6.48`
-- **AND** a contributor runs `./scripts/update-hyperframes.sh 0.6.49`
-- **THEN** the script exits 0
-- **AND** `vendor/hyperframes/VERSION` contains `0.6.49`
-- **AND** `vendor/hyperframes/skills/` matches upstream `skills/` at tag `0.6.49`
-- **AND** any file removed upstream between `0.6.48` and `0.6.49` is removed locally
-- **AND** any file added upstream is present locally
+- **WHEN** a contributor reads `docs/hyperframes.md`
+- **THEN** the doc states that `npx hyperframes` executes third-party code fetched at run time
+- **AND** the doc states that skills are installed into a machine-global store affecting every project on that machine, not only this repo
 
-#### Scenario: Default tag is read from VERSION
+#### Scenario: Version drift is disclosed
 
-- **WHEN** a contributor runs `./scripts/update-hyperframes.sh` without arguments
-- **THEN** the script reads the pinned tag from `vendor/hyperframes/VERSION`
-- **AND** the run is equivalent to passing that tag explicitly
+- **WHEN** a contributor reads `docs/hyperframes.md`
+- **THEN** the doc states that the install command tracks upstream `main`
+- **AND** the doc states that no supported version pin exists
+- **AND** the doc states that renders are therefore not reproducible across time
 
-### Requirement: Project skill namespace stays uncontaminated
+### Requirement: Project skill namespace and repo contents stay uncontaminated
 
-The vendored skills SHALL NOT be copied into, symlinked into, or otherwise mixed with the project-curated skills under `.pi/skills/`.
+The HyperFrames bundle SHALL NOT be copied into the repo, and no rendered output SHALL be committed by this change.
 
 #### Scenario: .pi/skills/ contains only project-authored skills
 
 - **WHEN** an auditor lists `.pi/skills/`
-- **THEN** no entry under `.pi/skills/` is a HyperFrames skill
-- **AND** no entry under `.pi/skills/` points (directly or transitively) at `vendor/hyperframes/`
+- **THEN** no entry is a HyperFrames skill
+- **AND** no entry points, directly or transitively, at an installed HyperFrames skill
 
-#### Scenario: Vendored skills are discoverable purely via settings
+#### Scenario: No vendored copy and no media in version control
 
-- **WHEN** `.pi/settings.json` is inspected
-- **THEN** the `skills` array contains an entry pointing at the vendored skills directory
-- **AND** removing that entry alone is sufficient to disable HyperFrames skill discovery
+- **WHEN** an auditor inspects the repo tree after this change
+- **THEN** no copy of the upstream `skills/` tree exists in version control
+- **AND** no update script for such a copy exists
+- **AND** no rendered video, composition, or media asset was committed
 
-### Requirement: Documentation points contributors at the vendored bundle
+### Requirement: Documentation is reachable through existing conventions
 
-The repo SHALL document the existence, purpose, and upgrade path of the vendored bundle in a location contributors can find via the project's existing documentation conventions.
+The topic doc SHALL be recorded in the directory `AGENTS.md` tree, and the root `AGENTS.md` SHALL be left unchanged.
 
-#### Scenario: Topic doc exists at the expected path
+#### Scenario: Topic doc exists and is indexed
 
-- **WHEN** a contributor browses `docs/`
+- **WHEN** a contributor runs `kb agents docs/hyperframes.md`
 - **THEN** `docs/hyperframes.md` exists
-- **AND** the doc covers: what HyperFrames is, where the vendored copy lives, how to render locally, how to upgrade, licensing summary
+- **AND** `docs/AGENTS.md` carries a row for it
+- **AND** that row's purpose field follows caveman style
 
-#### Scenario: AGENTS.md points to the topic doc
+#### Scenario: Root AGENTS.md is unchanged
 
-- **WHEN** a contributor reads `AGENTS.md`
-- **THEN** AGENTS.md contains a one-line pointer to `docs/hyperframes.md`
-- **AND** AGENTS.md does NOT enumerate vendored files inline (per the Documentation Update Protocol)
-
-#### Scenario: File-index split records new files
-
-- **WHEN** a contributor checks the matching `docs/file-index-<area>.md` split
-- **THEN** rows exist for `vendor/hyperframes/README.md`, `vendor/hyperframes/LICENSE`, `vendor/hyperframes/VERSION`, and `scripts/update-hyperframes.sh`
-- **AND** each row's purpose field follows caveman style
+- **WHEN** a contributor diffs the root `AGENTS.md`
+- **THEN** the file is unmodified by this change

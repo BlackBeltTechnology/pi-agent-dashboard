@@ -16,6 +16,7 @@ derives-from:
   - managed ~/.pi-dashboard node_modules (live)
   - createRequire(sessionCwd) resolution (live)
   - packages/server/package.json#piCompatibility.minimum (floor)
+  - packages/shared/src/pi-installs/ (enumeration + floor reader, shared)
 ---
 
 ## SCOPE
@@ -35,9 +36,22 @@ versions. Never assume "pi is one thing":
 - Per-session-cwd `createRequire(cwd+'/_').resolve(...)` — what a launched
   session actually loads.
 
+TWO divergence questions. Never conflate them:
+- **Consumer divergence** — the `pi` (session spawn) and `pi-coding-agent`
+  (server import) tools resolve to DIFFERENT installs. Predicate: realpath'd
+  package-directory inequality, NOT version inequality. Two different installs
+  at the same version ARE diverged.
+- **Install-set divergence** — >1 distinct version anywhere on the box. One
+  unused old install triggers this and NOT consumer divergence.
+`/api/health.piRuntime` reports both under distinct fields
+(`consumerDiverged` + `installSetDiverged`); the Settings runtime picker
+reports consumer divergence only.
+
 Failure modes:
 - Dashboard `/api/health` `piVersion` ≠ the version resolved at the session cwd
   → dashboard and sessions run different pi.
+- Consumer divergence → the runtime is split in half: sessions spawn one pi,
+  the server imports another.
 - Any location below `piCompatibility.minimum` → that consumer fails.
 
 ## CHECKS
@@ -45,7 +59,13 @@ Failure modes:
 - Read version from repo `node_modules/@earendil-works/pi-coding-agent/package.json`.
 - `node -e "console.log(require('module').createRequire(process.cwd()+'/_').resolve('@earendil-works/pi-coding-agent'))"` — session cwd resolution.
 - Use `enumeratePiInstalls({ label: dir })` + `piVersionDivergence()` from
-  `_lib/checks.ts`; compare each to `readPiFloor(serverPkgJsonPath)`.
+  `_lib/checks.ts` (re-exports `shared/src/pi-installs/` — ONE implementation,
+  shared with the server); compare each to `readPiFloor(serverPkgJsonPath)`.
+  `piVersionDivergence` answers INSTALL-SET divergence only.
+- `enumeratePiCandidates()` (same module) derives the candidate set the picker
+  offers; `GET /api/pi/installs` returns it with per-consumer `usedBy`.
+- `curl -s localhost:8000/api/health | jq .piRuntime` — both divergence labels
+  plus the two consumer versions, with the server up.
 - Multiple versions are OK **only** if every one ≥ floor.
 
 ## FIX ROUTING

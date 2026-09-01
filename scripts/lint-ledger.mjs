@@ -15,6 +15,7 @@
  *
  * See change: cleanup-client-plugin-promises.
  */
+import { spawnSync } from "node:child_process";
 
 /** Scopes claimed by the ladder's rungs. Order is irrelevant; coverage is not. */
 export const LADDER_SCOPES = [
@@ -29,6 +30,36 @@ export const LADDER_SCOPES = [
 export function enumerateSites(report) {
   const diagnostics = report?.diagnostics ?? [];
   return diagnostics.map((d) => `${d.location.path}:${d.location.start.line}`);
+}
+
+/**
+ * Biome's JSON report, tolerating the non-zero exit it returns for ANY
+ * diagnostic.
+ *
+ * Callers narrow the sites to git-tracked files afterwards, so a diagnostic in
+ * an untracked scratch file is noise they already handle. Treating the exit
+ * CODE as the failure signal defeats that: `execFileSync` throws before the
+ * filter runs, and one stray unparseable file anywhere in the tree takes out
+ * every test in this harness. Only unparseable stdout is a real failure.
+ */
+export function parseBiomeReport(stdout) {
+  try {
+    return JSON.parse(stdout);
+  } catch (cause) {
+    const head = String(stdout ?? "").slice(0, 200);
+    throw new Error(`biome did not emit parseable JSON (--reporter=json). First 200 chars: ${head}`, { cause });
+  }
+}
+
+/** Run one Biome rule repo-wide and return its parsed report. */
+export function runBiomeRule(rule, { cwd, maxDiagnostics = 20000 } = {}) {
+  const { stdout, error } = spawnSync(
+    "npx",
+    ["biome", "lint", `--only=lint/nursery/${rule}`, ".", `--max-diagnostics=${maxDiagnostics}`, "--reporter=json"],
+    { cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] },
+  );
+  if (error) throw error;
+  return parseBiomeReport(stdout);
 }
 
 /** Sites falling outside every claimed scope — i.e. owned by no rung. */

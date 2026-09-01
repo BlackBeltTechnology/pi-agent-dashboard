@@ -1,3 +1,9 @@
+# spawn-error-persistence Specification
+
+## Purpose
+
+Makes a failed spawn or resume visible until the user acts on it, instead of a transient toast they can miss. Defines persistent spawn and resume error banners, a distinct banner for a spawn register timeout, the failure code rendered as an actionable hint, and the stderr tail available in collapsed details.
+
 ## Requirements
 
 ### Requirement: Persistent spawn error display

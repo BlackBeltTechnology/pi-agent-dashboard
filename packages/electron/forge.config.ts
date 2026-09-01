@@ -65,21 +65,33 @@ const config: ForgeConfig = {
     executableName: "pi-dashboard",
     icon: path.resolve(__dirname, "resources/icon"),
     appBundleId: "com.blackbelt-technology.pi-dashboard",
-    // macOS: support Catalina (10.15) and newer.
+    // macOS: support Monterey (12.0) and newer.
     //
-    // The 10.15 floor is enforced at THREE points so a future runner-image
+    // Electron dropped macOS 11 at v38 and macOS 10.15 at v33; the pinned
+    // runtime is on the 43 line, so 12.0 is the lowest OS the shipped binary
+    // can launch on. Both dropped versions are also past Apple's own security
+    // window (10.15 EOL 2022-09, 11 EOL 2023-09).
+    //
+    // The 12.0 floor is enforced at THREE points so a future runner-image
     // upgrade or source-built native module cannot silently raise it:
     //   1. extendInfo.LSMinimumSystemVersion (below) — user-visible min in Info.plist;
     //      Gatekeeper / launchd refuse to launch the app on older OSes.
-    //   2. .github/workflows/publish.yml step env MACOSX_DEPLOYMENT_TARGET=10.15 —
-    //      every Mach-O the build produces (Electron framework, custom binaries,
-    //      any source-compiled node-gyp module) declares 10.15 as its minos.
-    //   3. CI verification step that greps the produced Info.plist + otool -l
-    //      output and fails the job on any drift.
-    // See change: add-darwin-x64-build (Tasks group 6b, post-impl extension).
+    //   2. .github/workflows/_electron-build.yml step env
+    //      MACOSX_DEPLOYMENT_TARGET=12.0 — every Mach-O the build itself
+    //      COMPILES (custom binaries, any source-compiled node-gyp module)
+    //      declares 12.0 as its minos.
+    //   3. CI verification step that plutil-extracts the produced Info.plist
+    //      and otool -l's the inner Mach-O, failing the job on any drift.
+    //      NOTE: that binary is the renamed Electron PREBUILT, whose minos is
+    //      baked upstream and only copied by the packager — so the otool leg is
+    //      an upstream-floor tripwire, not a check on (2). It compares for
+    //      EQUALITY: at a 12.0 floor a below-floor value is reachable, unlike
+    //      at the old 10.15 target. See scripts/macos-floor.mjs, which is the
+    //      single source of truth for the constants and the predicate.
+    // See change: upgrade-electron-runtime (supersedes add-darwin-x64-build 6b).
     darwinDarkModeSupport: true,
     extendInfo: {
-      LSMinimumSystemVersion: "10.15",
+      LSMinimumSystemVersion: "12.0",
     },
     // macOS universal binary (arm64 + x64)
     ...(process.platform === "darwin" ? { arch: "universal" as any } : {}),

@@ -18,6 +18,10 @@ test.describe("subagents inspector (L3)", () => {
   test("spawned subagent renders its inspector surface", async ({ page }) => {
     const card = await spawnFreshGitSession(page);
     await card.click();
+    // A card-centre click can land on the card's OpenSpec "Propose" affordance,
+    // leaving a modal overlay that intercepts the composer's send button. Not a
+    // product assertion — just dismiss a stray modal before prompting.
+    await page.keyboard.press("Escape").catch(() => {});
 
     await sendPrompt(page, "[[faux:subagent-spawn]] go");
 
@@ -102,3 +106,10 @@ test.describe("subagents inspector (L3)", () => {
     );
   });
 });
+
+// F4 (D5 sibling non-interaction, change: reduce-bridge-tick-bandwidth) is now
+// L1-owned in packages/extension/src/__tests__/bridge-queue-update-forward.test.ts
+// ("resync / subagents:* sibling frames pass 1:1 and move no throttle counter").
+// The L3 version was structurally unconstructible: the faux subagent dies in
+// ~400 ms (Bug 2, measurement.md) before an inspector-open can trigger a resync,
+// and the synthetic Agent-tick producer emits no subagents:* frames.

@@ -1,8 +1,10 @@
+# dashboard-command-context Specification
+
 ## Purpose
 
 Hidden dashboard command registration and extension context capture for session control.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Hidden dashboard command registration
 The bridge extension SHALL register a command named `__dashboard` via `pi.registerCommand()` during initialization. This command SHALL NOT have a description, ensuring it does not appear in user-facing command lists.
