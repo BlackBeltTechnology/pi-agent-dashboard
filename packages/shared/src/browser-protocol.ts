@@ -963,55 +963,6 @@ export interface RecoveryDismissMessage {
 }
 
 /**
- * Server → browser (app-level, no per-session subscribe): a forwarded
- * InvoiceBot lifecycle domain event (`ib_*`) rebroadcast to EVERY connected
- * browser. `sessionId` is the originating session so a consumer can drill in;
- * `event.eventType` is the stable renamed `ib_*` type and `event.data` is the
- * payload verbatim. One envelope carries any lifecycle domain event, so new
- * `ib_*` kinds add no protocol member. Additive — the per-session `event`
- * stream is unchanged. See change: surface-invoice-domain-events-app-level.
- *
- * `replay` marks a frame the server replayed from its latest-per-invoice cache
- * on connect (absent/false on live frames). A consumer MUST treat a
- * `replay: true` frame as an idempotent state-set (converge to it), never as an
- * incremental delta, so counters/animations driven by live deltas are not
- * double-applied. See change: replay-invoice-domain-events.
- *
- * `greetingId` / `greetingOrder` are additive fields the server stamps onto
- * greeting-type frames (`event.eventType === IB_GREETING_EVENT_TYPE`) on BOTH
- * the replay and the live path. They give a consumer the greeting's stable
- * identity and its per-session emission-ordering key (epoch-ms) so the greeting
- * stream folds into chronological chat rows and dedupes idempotently across
- * live+replay delivery. The producer's greeting payload carries no id of its
- * own (the identity is the structured `state` field, design D3), so the server
- * is the single source of the stable id — it MUST ride the live frame too, else
- * a live greeting arrives id-less and is dropped. Non-greeting frames never
- * carry them. See change: restore-assistant-greeting-stream.
- */
-export interface IbDomainEventMessage {
-  type: "ib_domain_event";
-  sessionId: string;
-  event: { eventType: string; data: unknown };
-  replay?: boolean;
-  greetingId?: string;
-  greetingOrder?: number;
-}
-
-/**
- * Wire `eventType` for greeting-type `ib_domain_event` frames — the mechanical
- * rename of the engine's `ib:greeting` EventBus channel (`:`/`-` → `_`). The
- * SINGLE source of truth for the greeting classifier shared by the server
- * retention/replay path and the client chat reducer, so the two never drift.
- * See change: restore-assistant-greeting-stream.
- */
-export const IB_GREETING_EVENT_TYPE = "ib_greeting";
-
-/** True only for greeting-type domain-event frames. */
-export function isIbGreetingEventType(eventType: string | undefined): boolean {
-  return eventType === IB_GREETING_EVENT_TYPE;
-}
-
-/**
  * Server → browser: automatic session naming failed for `sessionId`. Forwarded
  * from the bridge's `auto_name_error`; the client renders a one-shot toast
  * ("Couldn't auto-name session: <reason>"). See change: add-auto-session-naming.
@@ -1039,7 +990,6 @@ export interface AutoNameOutcomeBrowserMessage {
 
 export type ServerToBrowserMessage =
   | ServerRestartingMessage
-  | IbDomainEventMessage
   | AutoNameErrorBrowserMessage
   | AutoNameOutcomeBrowserMessage
   | RecoveryOfferMessage

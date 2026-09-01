@@ -1870,26 +1870,6 @@ const ChatViewInner = forwardRef<ChatViewHandle, Props>(function ChatView({ sess
 
         // assistant
         const bMax = hasMermaid(msg.content) ? bubbleWide : bubbleMax;
-        // Greeting rows (folded from the ib_greeting domain event) carry a
-        // structured `state`; expose it as a queryable row attribute
-        // `data-greeting-marker="<state>"` via a greeting-SPECIFIC wrapper. The
-        // shared MessageBubble (every assistant row in every session) is NOT
-        // modified; non-greeting rows render the wrapper below byte-identical
-        // with no such attribute. See change: restore-assistant-greeting-stream.
-        if (msg.state !== undefined) {
-          return (
-            <div key={msg.id} data-greeting-marker={msg.state} className="mt-4 mb-4 flex justify-start">
-              <MessageBubble
-                content={msg.content}
-                className={`bg-[var(--bg-tertiary)] border border-[var(--border-subtle)] rounded-xl shadow-md px-4 py-2 ${bMax}`}
-                timestamp={msg.timestamp}
-                entryId={msg.entryId}
-                onFork={onForkFromMessage}
-                context={toolContext}
-              />
-            </div>
-          );
-        }
         return (
           <div key={msg.id} className="mt-4 mb-4 flex justify-start">
             <MessageBubble
