@@ -1,210 +1,301 @@
 # automation-per-invoice-fanout Specification
 
 ## Purpose
-TBD - created by archiving change wire-per-invoice-automation-drain. Update Purpose after archive.
+
+Per-invoice automation fan-out: ONE spawned session per queued invoice, each
+bound to a DISTINCT invoice, driven by the automation plugin's generic
+work-source seam.
+
+The capability moved. It used to live in the automation engine as a payload
+discriminator (`scope: per-invoice`) plus an injected queued-invoice enumerator,
+which put invoice knowledge inside a domain-free package. It now sits in two
+cleanly separated halves:
+
+- **the generic half (automation plugin)** — a fenced competing-consumers
+  work-source seam (`WorkSource`: lease N distinct items, `ack`/`nack`), the
+  `schedule.batch` trigger, `${{trigger}}` substitution, and the spawn bound. The
+  automation plugin knows nothing about invoices; the requirements stated of it
+  below are domain-free and use only work-item vocabulary.
+- **the invoice half (invoicebot plugin)** — a queued-invoice work source over
+  the InvoiceEngine's queued list, registered through the generic seam. Every
+  invoice-shaped guarantee is stated of THAT source.
+
+The retired `scope: per-invoice` / `${invoice_id}` / per-key vocabulary is not
+part of this capability. The generic mechanics of the seam itself are specified
+by `automation-work-source`; this capability specifies the additions that let a
+domain plugin own a source, and the invoice source that does.
 
 ## Requirements
 
-### Requirement: Per-invoice fan-out on fire
+### Requirement: Cross-plugin work-source registration
 
-When a fired automation's action declares `scope: per-invoice` in its payload,
-the engine SHALL, instead of dispatching a single run, enumerate the invoices
-currently queued for the automation's run workspace and fire the automation once
-per queued invoice. Each per-invoice fire SHALL carry that invoice's id as a
-per-fire variable (`invoice_id`) so the payload resolves per invoice, and SHALL
-be bound to that invoice. An action that does not declare `scope: per-invoice`
-SHALL fire exactly once, unchanged.
+The automation plugin SHALL let ANOTHER plugin supply a work-source, so a source
+backed by that plugin's own state can drive `schedule.batch` fan-out without the
+automation plugin gaining any knowledge of the domain. A plugin SHALL publish a
+`{ id, source }` descriptor under the `automation.worksource.` service-key prefix
+and SHALL retain ownership of the instance (a work-source carries lease state, so
+it MUST be constructed once by its owner). The automation plugin SHALL collect
+published descriptors LAZILY on every registry read, so plugin load order is
+irrelevant, and a published id SHALL be accepted by `on.source` schema validation
+exactly as a locally configured one is. A descriptor with a missing/empty id, a
+value that is not a work-source, or a duplicate id SHALL be ignored with a
+warning without affecting other descriptors. A source registered from the
+automation plugin's own configuration SHALL win an id collision.
 
-#### Scenario: One run per queued invoice
+#### Scenario: A published source drives fan-out
 
-- **WHEN** a `scope: per-invoice` automation fires and the queued-invoice enumerator returns three ids
-- **THEN** the engine SHALL start three runs, one bound to each queued invoice id
-- **AND** a non-`per-invoice` automation firing SHALL still start exactly one run
+- **WHEN** a plugin publishes `{ id, source }` under `automation.worksource.<name>`
+- **AND** an automation declares `on: { kind: schedule.batch, cron, source: <id> }`
+- **THEN** the automation SHALL validate as a known source
+- **AND** a fire SHALL lease from that published source and spawn one child per leased item
 
-#### Scenario: Empty queue fires nothing
+#### Scenario: Registration is order-independent
 
-- **WHEN** a `scope: per-invoice` automation fires and the enumerator returns no queued invoices
-- **THEN** the engine SHALL start no run and spawn no session
+- **WHEN** a descriptor is published AFTER the automation engine initialized
+- **THEN** the next registry read SHALL resolve it (no restart, no re-registration)
 
-#### Scenario: Missing enumerator skips the fan-out fire
+#### Scenario: A malformed or duplicate descriptor is isolated
 
-- **WHEN** a `scope: per-invoice` automation fires and no queued-invoice enumerator is available
-- **THEN** the engine SHALL start no run and SHALL NOT dispatch a single run carrying the unresolved `${invoice_id}` token
+- **WHEN** several descriptors are published and one has an empty id, one is not a work-source, and one duplicates an accepted id
+- **THEN** each invalid descriptor SHALL be ignored with a warning
+- **AND** every valid descriptor SHALL still resolve
 
-### Requirement: Per-invoice runs resolve the invoice id and scope env
+### Requirement: A work-source may vend asynchronously
 
-For each per-invoice fire the engine SHALL resolve the `${invoice_id}` token
-throughout the action payload to the bound invoice id — in both the flow
-`inputs` delivered to the run and the action `env` map — and SHALL forward the
-resolved `env` map to the spawned run session so the run is scoped to that one
-invoice.
+A work-source's `next(n, ctx?)` MAY return either leased handles or a promise of
+them, so a source whose availability lives behind an asynchronous port can
+participate. The engine SHALL await an asynchronous vend. The widening SHALL be
+strictly additive: a synchronous source SHALL satisfy the contract unchanged, and
+`ctx` (carrying the firing automation's workspace, so one registered id can serve
+several workspaces) MAY be ignored by an implementation.
 
-#### Scenario: Invoice id resolved in flow inputs
+For an asynchronous vend the engine SHALL write the parent occurrence record and
+return its identity IMMEDIATELY (a manual run must yield a run id without
+awaiting), and SHALL then settle that occurrence exactly once:
 
-- **WHEN** a per-invoice run for invoice `inv-3` is dispatched and the action payload declares `inputs: { invoice_id: "${invoice_id}" }`
-- **THEN** the dispatched flow SHALL receive `inputs.invoice_id` equal to `"inv-3"`
+- an EMPTY vend SHALL spawn ZERO children and settle the occurrence `done`;
+- a REJECTED vend SHALL leave NOTHING leased, spawn ZERO children, and settle the
+  occurrence with an error;
+- a child whose spawn fails after its item was leased SHALL return (nack) THAT
+  item, leaving no item stranded and no occurrence counter unresolved.
 
-#### Scenario: Scope env forwarded to the run session
+#### Scenario: Asynchronous vend fans out
 
-- **WHEN** a per-invoice run for invoice `inv-3` spawns and the action payload declares `env: { IB_TOOLSET: "scoped-invoice", IB_INVOICE_ID: "${invoice_id}" }`
-- **THEN** the spawn SHALL carry `env.IB_TOOLSET` = `"scoped-invoice"` and `env.IB_INVOICE_ID` = `"inv-3"`
+- **WHEN** a `schedule.batch` automation fires against a source whose `next` resolves three items
+- **THEN** the engine SHALL spawn exactly three children, one per item, each bound to a DISTINCT item
 
-### Requirement: Fan-out honours the automation concurrency policy
+#### Scenario: Empty asynchronous vend spawns nothing
 
-Per-invoice fires SHALL flow through the runner's concurrency policy for the
-automation key, so a `concurrency: queue` automation drains its queued invoices
-serially (one active run, the remainder queued and started as each completes)
-rather than spawning all runs at once.
+- **WHEN** the vend resolves zero items
+- **THEN** no session SHALL be spawned
+- **AND** the occurrence SHALL settle `done` with zero children and release the automation's concurrency slot
 
-#### Scenario: queue concurrency serialises the fan-out
+#### Scenario: Rejected vend strands nothing
 
-- **WHEN** a `scope: per-invoice`, `concurrency: queue` automation fans out over three queued invoices
-- **THEN** exactly one run SHALL be active for the automation key and the remaining two SHALL be queued
-- **AND** completing the active run SHALL start the next queued invoice's run
+- **WHEN** the vend rejects
+- **THEN** no session SHALL be spawned, nothing SHALL remain leased, and the occurrence SHALL settle with an error
 
-### Requirement: Manual run-now always issues a settling run
+#### Scenario: Failed spawn returns its item
 
-The manual run-now trigger SHALL honour a `scope: per-invoice` action by
-enumerating the invoices currently queued for the automation's run workspace and
-starting one run per queued invoice, each bound to its invoice id with
-`${invoice_id}` resolved throughout the payload and the resolved `env` map
-forwarded to the spawn. Because run-now is an explicit operator action, it SHALL
-always issue a settling run id: when the queue is EMPTY it SHALL start ONE idle
-run (no invoice bound) that settles, and two consecutive empty run-nows SHALL
-each return a DISTINCT run id. A run-now on a non-`per-invoice` automation SHALL
-start exactly one run, unchanged. When per-invoice fan-out is genuinely
-unavailable (no queued-invoice enumerator wired) run-now SHALL start no run and
-report failure. Run-now SHALL return the started run's id (the first, when it
-fans out) so its result contract (`{ ok, runId? }`) holds. The SCHEDULER fire
-path is unchanged and still starts no run on an empty queue.
+- **WHEN** an item is leased and the spawn for its child fails
+- **THEN** that item SHALL be nacked back to the source and the occurrence SHALL still settle
 
-#### Scenario: Run-now fans out one run per queued invoice
+#### Scenario: A synchronous source is unaffected
 
-- **WHEN** run-now is invoked for a `scope: per-invoice` automation and the queued-invoice enumerator returns three ids
-- **THEN** the engine SHALL start three runs, one bound to each queued invoice id, each spawn carrying `env.IB_INVOICE_ID` equal to its id and `env.IB_TOOLSET` = `"scoped-invoice"`
-- **AND** run-now SHALL return the first started run's id
+- **WHEN** a source vends synchronously
+- **THEN** its fan-out, empty-vend and vend-failure behaviour SHALL be unchanged
 
-#### Scenario: Run-now on an empty queue starts one idle settling run
+### Requirement: Targeted single-item run
 
-- **WHEN** run-now is invoked for a `scope: per-invoice` automation and the enumerator returns no queued invoices
-- **THEN** the engine SHALL start exactly one idle run (no invoice bound) and return its run id
-- **AND** two consecutive empty run-nows SHALL each return a distinct run id
+The automation plugin SHALL expose starting EXACTLY ONE run for a single work
+item addressed by its idempotency key, through the same child path a batch fire
+uses (so the item rides `${{trigger}}` into the payload and the action `env`
+resolves against it). It SHALL lease that item via the source's OPTIONAL
+`take(key, ctx?)` and SHALL NOT enumerate or fan out.
 
-#### Scenario: Run-now with no enumerator wired starts no run
+The LEASE SHALL be the single-flight guard, in both directions: a key already
+leased — whether by a batch fire or an earlier targeted run — SHALL be refused
+with a distinct `in_flight` verdict and no second spawn, and an item leased by a
+targeted run SHALL NOT be vended to a later batch fire. An automation with no
+work source, or a source that does not implement `take`, SHALL report
+`unsupported`. This capability SHALL be published on the cross-plugin service
+board as `automation:runWorkItem(cwd, key)`, resolving the workspace's
+`schedule.batch` automation and delegating to the engine; when none exists, or
+the engine is not ready, it SHALL return a not-started verdict.
 
-- **WHEN** run-now is invoked for a `scope: per-invoice` automation and no queued-invoice enumerator is available
-- **THEN** the engine SHALL start no run and SHALL NOT start a single run carrying the unresolved `${invoice_id}` token
-- **AND** run-now SHALL report failure
+#### Scenario: One run for the named item
 
-#### Scenario: Run-now on a non-per-invoice automation starts one run
+- **WHEN** a targeted run is requested for key `k` while other items are available
+- **THEN** exactly one child SHALL be spawned, bound to `k`, with `k` resolved in both the payload and the action `env`
+- **AND** no child SHALL be spawned for any other item
 
-- **WHEN** run-now is invoked for an automation whose action does not declare `scope: per-invoice`
-- **THEN** the engine SHALL start exactly one run and return its id, unchanged
+#### Scenario: A leased item is refused
 
-#### Scenario: Scheduler fire on an empty queue still starts no run
+- **WHEN** a targeted run is requested for a key that already holds a live lease
+- **THEN** the request SHALL be refused `in_flight` and no second session SHALL be spawned
 
-- **WHEN** a `scope: per-invoice` automation fires from the scheduler and the enumerator returns no queued invoices
-- **THEN** the engine SHALL start no run
+#### Scenario: The guard is shared with batch fan-out
 
-### Requirement: Start exactly one invoice by id
+- **WHEN** a batch fire holds a lease for `k` and a targeted run is requested for `k`
+- **THEN** the request SHALL be refused `in_flight`
+- **AND** when a targeted run holds `k`, a later batch fire SHALL NOT dispatch `k` again
 
-The fan-out engine SHALL expose a start-one-invoice entry point that, given a
-`scope: per-invoice` automation and a single `invoice_id`, starts **exactly one**
-run bound to that invoice through the same per-invoice run core used by the
-scheduler fan-out and manual run-now — so the run resolves `${invoice_id}` in the
-action payload and forwards the scoped `env` (`IB_TOOLSET`, `IB_INVOICE_ID`) to
-the spawned session. It SHALL NOT enumerate the queue or fan out over other
-invoices. Each started run SHALL record its bound invoice id.
+#### Scenario: A source without targeted lease reports unsupported
 
-#### Scenario: one run bound to the given invoice
+- **WHEN** a targeted run is requested against an automation with no work source, or a source that cannot address items by key
+- **THEN** the request SHALL report `unsupported` and spawn nothing
 
-- **WHEN** the start-one-invoice entry point is called for automation `A` and
-  invoice `inv-7`
-- **THEN** exactly one run SHALL be started, bound to `inv-7`, with the scoped
-  `env` (`IB_TOOLSET=scoped-invoice`, `IB_INVOICE_ID=inv-7`)
-- **AND** no run SHALL be started for any other invoice
+### Requirement: Per-run action env forwarding
 
-### Requirement: Refuse a start when the invoice already has a run in flight
+An automation action payload MAY carry an `env` map. For each spawned child the
+engine SHALL resolve that map with the SAME per-fire substitution as the rest of
+the payload (so a fan-out child's env is scoped to ITS work item) and SHALL
+forward the result to the spawn as an arbitrary, NON-namespaced string map, which
+the host folds beneath its own guard-managed keys (a guard-managed key wins a
+collision). An action with no `env` map SHALL spawn with unchanged env.
 
-The start-one-invoice entry point SHALL refuse to start a run when a run bound to
-the same invoice id is already in flight (tracked by the engine from spawn until
-finalization), returning a distinct `in_flight` verdict and starting no second
-run. This SHALL cover a run started by the scheduler fan-out as well as a prior
-start-one-invoice call, so two runs never process the same record.
+The keys are opaque to the automation plugin: a consumer may use them for profile
+selection OR for authorization narrowing, and dropping, renaming or namespacing
+the channel fails OPEN (a wider surface, no error and no failing assertion). The
+forwarding is therefore a required behaviour, not an optimization.
 
-#### Scenario: in-flight invoice refused
+#### Scenario: Env resolved per child
 
-- **WHEN** a run bound to `inv-7` is in flight and the start-one-invoice entry
-  point is called again for `inv-7`
-- **THEN** it SHALL return an `in_flight` verdict and start no second run
+- **WHEN** a fan-out action declares `env: { PROFILE: "scoped", ITEM: "${{trigger}}" }` and three items are vended
+- **THEN** each spawn SHALL carry `env.PROFILE` = `"scoped"` and `env.ITEM` equal to ITS OWN item
 
-#### Scenario: refusal covers scheduler-started runs
+#### Scenario: No env map, no env change
 
-- **WHEN** the scheduler fan-out has a run in flight for `inv-7` and
-  start-one-invoice is called for `inv-7`
-- **THEN** it SHALL return an `in_flight` verdict and start no second run
+- **WHEN** an action declares no `env` map
+- **THEN** the spawn SHALL carry no caller-supplied env
 
-### Requirement: Single-invoice run offered as a cross-plugin service
+### Requirement: Queued-invoice work source
 
-The automation plugin SHALL publish the start-one-invoice capability on the
-existing cross-plugin service board (`automation:runInvoice(cwd, invoiceId)`),
-resolving the workspace's `scope: per-invoice` automation for the given `cwd` and
-delegating to the engine's start-one-invoice entry point, so a consumer plugin
-starts one scoped invoice run without a second dispatch path. When no
-`scope: per-invoice` automation exists for the workspace, or the engine is not
-ready, it SHALL return a not-started verdict.
+The invoicebot plugin SHALL register a work source over the InvoiceEngine's
+queued-invoice list, through the generic registration seam, and SHALL own its
+instance. It vends invoice ids, so ONE leased handle is ONE invoice and therefore
+ONE spawned session is bound to exactly one invoice, ALWAYS.
 
-#### Scenario: service starts one scoped run
+The source SHALL:
 
-- **WHEN** a consumer invokes `automation:runInvoice(cwd, "inv-7")` and the
-  workspace has a `scope: per-invoice` automation
-- **THEN** the service SHALL start exactly one run bound to `inv-7` and return its
-  identity
+- lease up to `n` DISTINCT queued invoices per vend, so concurrent children of
+  one fire never race for the same record;
+- carry each invoice's OWN id as the `idempotencyKey` (never the lease token), so
+  a redelivered invoice is recognisably the same work;
+- NEVER re-vend an invoice that holds a live lease, and refuse a targeted
+  `take` for it — the single-flight guarantee, shared by the scheduled drain and
+  a run-this-invoice-now request;
+- vend ZERO handles when no invoice is queued (so no session is spawned at all)
+  and when the engine supplies no workspace (rather than guessing one);
+- leave the excess unleased when more invoices are queued than the bound allows,
+  deferring them to a later fire;
+- release an invoice on `nack` (making it immediately dispatchable again), drop
+  the lease on `ack`, and treat a stale/unknown lease token as a no-op;
+- reclaim a lease whose visibility window elapsed, so an invoice whose run died
+  without any terminal signal is never stranded.
 
-#### Scenario: no per-invoice automation
+Read failures of the underlying queued list SHALL yield an empty vend (never a
+throw, never a spawn).
 
-- **WHEN** the workspace has no `scope: per-invoice` automation
-- **THEN** the service SHALL return a not-started verdict and start no run
+#### Scenario: One session per invoice, each distinct
 
-### Requirement: Per-invoice dispatch is single-flight across fan-out paths
+- **WHEN** three invoices are queued and a fire leases three items
+- **THEN** three handles SHALL be vended, one per invoice, all distinct
+- **AND** each handle's idempotency key SHALL be its invoice id
 
-Before creating a per-invoice fire context, the automation engine SHALL exclude
-a queued invoice id that already has a live run bound to that id. The scheduler
-fan-out (`dispatchFire`) and folder/manual run-now (`runNow`) SHALL use this same
-filter through their shared `perInvoiceFanout` core. The direct one-invoice
-entry point SHALL use the same live-run predicate, so no path starts a second
-processing run for the same invoice while the first remains live.
+#### Scenario: Empty queue spawns nothing
 
-#### Scenario: scheduler does not re-dispatch a queued live invoice
+- **WHEN** no invoice is queued
+- **THEN** the vend SHALL be empty and the fire SHALL spawn no session
 
-- **WHEN** a scheduler fan-out starts a run for queued invoice `inv-1`
-- **AND** `inv-1` remains queued while that run is live
-- **AND** the scheduler fires again
-- **THEN** the second fan-out SHALL not start another run for `inv-1`
+#### Scenario: An in-flight invoice is never dispatched twice
 
-#### Scenario: a new invoice is not blocked
+- **WHEN** an invoice holds a live lease
+- **THEN** a later vend SHALL NOT include it
+- **AND** a targeted `take` for it SHALL be refused
 
-- **WHEN** `inv-1` has a live run and a new queued `inv-2` is enumerated
-- **THEN** the fan-out SHALL skip `inv-1` and SHALL still start one run for
-  `inv-2`
+#### Scenario: Bound respected, excess deferred
 
-#### Scenario: REST and scheduler share the guard
+- **WHEN** three invoices are queued and the bound is two
+- **THEN** two SHALL be leased and the third SHALL remain queued for a later fire
 
-- **WHEN** a scheduler-started run for `inv-1` is live
-- **THEN** a one-invoice start for `inv-1` SHALL return `in_flight`
-- **AND** when a one-invoice run for `inv-1` is live, scheduler fan-out SHALL
-  not start another run for it
+#### Scenario: A dead run releases its invoice
 
-### Requirement: A dead run releases its invoice dispatch claim
+- **WHEN** a leased invoice's run finalizes with any non-`done` status, or its lease expires without a terminal signal
+- **THEN** the invoice SHALL become dispatchable again
 
-The live-run registry SHALL remove a bound invoice when its run finalizes through
-normal completion, session death, stop, spawn failure, or a reaper backstop. No
-persistent claim SHALL be created. After removal the invoice SHALL become
-eligible for a subsequent fan-out dispatch.
+### Requirement: Per-invoice run parallelism is a deployment setting
 
-#### Scenario: session death releases the invoice
+The number of invoices processed concurrently per fire SHALL be the automation
+plugin's spawn bound: the automation's own `maxConcurrentSpawns` when declared,
+else the dashboard setting, else the `PI_AUTOMATION_MAX_CONCURRENT_SPAWNS`
+environment value, else the built-in default. The deployed intake automation
+SHALL NOT declare its own bound, so the deployment environment governs.
 
-- **WHEN** a live run bound to queued `inv-1` dies before completion
-- **AND** the engine processes that session death
-- **THEN** a subsequent scheduler fan-out SHALL be able to start a new run for
-  `inv-1`
+#### Scenario: Environment-supplied bound caps the fan-out
+
+- **WHEN** the effective bound is two and three invoices are queued
+- **THEN** exactly two sessions SHALL be spawned for that fire
+- **AND** the third invoice SHALL be leased by a later fire
+
+### Requirement: Deployed intake automation is migrated on touch
+
+A deployed intake `automation.yaml` is authored by the invoice engine and, once
+written, is never rewritten by it — so a deployed workspace would keep the
+retired fan-out shape and silently stop draining. The invoicebot plugin SHALL
+therefore migrate it IN PLACE, on the same first-touch path that ensures it
+exists, and SHALL be the party that does so (the automation plugin must not learn
+the retired invoice vocabulary).
+
+The migration SHALL convert the trigger to `on: { kind: schedule.batch, cron, source }`
+naming the queued-invoice source, remove the retired payload discriminator, and
+rewrite the retired per-invoice token to `${{trigger}}` throughout the payload —
+including the `env` map, whose keys SHALL all survive because that map is
+authorization-bearing. The `cron` cadence, comments, and every unrelated field
+SHALL be preserved, the result SHALL be re-validated before replacing the file,
+and the write SHALL be atomic. The migration SHALL be IDEMPOTENT (an
+already-migrated file is left byte-identical), SHALL leave a file that is not the
+retired shape untouched, and SHALL degrade quietly (never fail a request) on an
+absent or unparseable file.
+
+#### Scenario: Legacy automation migrated
+
+- **WHEN** a workspace is touched and its intake automation still declares the retired schedule + per-invoice payload shape
+- **THEN** its trigger SHALL become `schedule.batch` naming the queued-invoice source
+- **AND** the retired discriminator SHALL be gone, the retired token SHALL be replaced by `${{trigger}}`, and the cron, comments, env keys and all other fields SHALL be preserved
+
+#### Scenario: Migration is idempotent
+
+- **WHEN** an already-migrated automation is touched again
+- **THEN** the file SHALL be left byte-identical
+
+#### Scenario: Unrelated automation untouched
+
+- **WHEN** the file is not the retired shape, is absent, or does not parse
+- **THEN** no rewrite SHALL occur and the touch SHALL still succeed
+
+### Requirement: Run settling bounds are domain-free
+
+A child run that never reached delivery SHALL be finalized as an error and its
+concurrency slot freed once it passes the undelivered bound, and a DELIVERED
+event-dispatched child (one whose action declared a completion event) SHALL be
+finalized as an error once it goes quiet past the stall bound, with its spawned
+process terminated in both cases. Observed session activity SHALL reset the stall
+clock. A delivered PROMPT-dispatched child SHALL NOT be subject to the stall
+bound. Parent occurrence records SHALL NOT be swept by either bound — a parent
+settles solely via its child counter.
+
+#### Scenario: Undelivered child does not starve the schedule
+
+- **WHEN** a child's stamped session never registers and the undelivered bound elapses
+- **THEN** that child SHALL be finalized as an error, its process terminated, and the automation's slot freed for the next fire
+
+#### Scenario: A live event run is not reaped
+
+- **WHEN** a delivered event-dispatched child keeps producing observed activity
+- **THEN** it SHALL NOT be reaped, and it SHALL still settle normally on its real completion
+
+#### Scenario: A delivered prompt run may think long
+
+- **WHEN** a delivered prompt-dispatched child is quiet well past the stall bound
+- **THEN** it SHALL be left untouched
