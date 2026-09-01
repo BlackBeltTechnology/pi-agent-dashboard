@@ -10,7 +10,8 @@
  * See change: add-invoicebot-rest-plugin (Decision 0, risk "Fake drift").
  */
 import { createHash } from "node:crypto";
-import type { EngineResult, FlowRunSpec, IngestFile, IngestResult, InvoiceEngine } from "./port.js";
+import { createInMemoryQueuedInvoiceSource } from "../queued-invoice-work-source.js";
+import type { EngineResult, EngineWorkSource, FlowRunSpec, IngestFile, IngestResult, InvoiceEngine } from "./port.js";
 
 /** Shared per-file cap (bytes) — the boundary and the engine enforce the same 20 MB. */
 const INGEST_MAX_BYTES = 20 * 1024 * 1024;
@@ -266,6 +267,8 @@ export class FakeInvoiceEngine implements InvoiceEngine {
   // Deterministic ingest simulation: magic-byte type gate + size cap + content-
   // hash dedup (seen-set scoped to this instance). `cwd` accepted and ignored.
   private readonly seen = new Set<string>();
+  /** cwd → its in-memory queued-invoice source (leases must be stable per cwd). */
+  private readonly queuedSources = new Map<string, EngineWorkSource>();
   async ingest(_cwd: string, files: IngestFile[]): Promise<IngestResult> {
     const results = files.map((f) => this.classify(f));
     return {
@@ -280,6 +283,45 @@ export class FakeInvoiceEngine implements InvoiceEngine {
   // CI/worktree green while the routes exercise the ensure seam.
   async ensureAutomation(_cwd: string): Promise<{ automation: string[] }> {
     return { automation: [] };
+  }
+
+  /**
+   * An IN-MEMORY stand-in for the engine's fenced lease store, one per cwd.
+   *
+   * The Fake binds wherever the `file:` sibling is absent (CI, worktrees,
+   * release-cut), so without this fan-out would silently vend nothing under the
+   * Fake — and an E2E run would then look like a pass while processing zero
+   * invoices. Queued ids come from this binding's own `list` view, so the
+   * fixtures drive it. Leases are process-local: NOT cross-process fenced and
+   * NOT restart-durable, unlike the real engine's SQLite claims.
+   * See change: relocate-fanout-to-work-source.
+   */
+  queuedWorkSource(cwd: string): EngineWorkSource {
+    const hit = this.queuedSources.get(cwd);
+    if (hit) return hit;
+    const src = createInMemoryQueuedInvoiceSource({
+      listQueued: async () => {
+        const res = await this.query(cwd, { view: "list", state: "queued" });
+        const items = (res.details as { items?: Array<{ id?: unknown }> }).items;
+        if (!Array.isArray(items)) return [];
+        return items.map((i) => i.id).filter((id): id is string => typeof id === "string" && id.length > 0);
+      },
+    });
+    this.queuedSources.set(cwd, src);
+    return src;
+  }
+
+  /**
+   * The Fake stands in for the engine, so it performs the engine's job: rewrite
+   * a DEPLOYED intake automation to the SAME target shape the engine emits (the
+   * host-side implementation in `automation-migrate.ts`). Without this, a
+   * Fake-bound deployment would keep a legacy automation forever and its drain
+   * would arm without fanning out.
+   */
+  async migrateIntakeAutomation(cwd: string): Promise<{ migrated: string[]; skipped: string[] }> {
+    const { migrateIntakeAutomation } = await import("../automation-migrate.js");
+    const res = migrateIntakeAutomation(cwd);
+    return res.migrated ? { migrated: [res.path], skipped: [] } : { migrated: [], skipped: [`${res.path} (${res.reason})`] };
   }
 
   private classify(file: IngestFile): { filename: string; hash: string; status: "landed" | "skipped" | "rejected"; reason?: string } {

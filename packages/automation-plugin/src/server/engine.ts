@@ -25,7 +25,7 @@ import type {
   Sandbox,
   Visibility
 } from "../shared/automation-types.js";
-import type { LeasedHandle, WorkSource } from "../shared/work-source.js";
+import type { AnyWorkSource, LeasedHandle, WorkSourceContext } from "../shared/work-source.js";
 import {
   type ActionCompletion,
   type ActionRegistry,
@@ -36,6 +36,7 @@ import { fileTrigger } from "./file-trigger.js";
 import { interpolate } from "./interpolate.js";
 import { resolveModel } from "./model-resolver.js";
 import {
+  type ChildSpec,
   DEFAULT_MAX_CONCURRENT_SPAWNS,
   effectiveBound,
   resolveChildren,
@@ -132,6 +133,36 @@ export function buildRunDispatch(
   return { kind: "prompt", text: buildRunPrompt(automation, actionRegistry, payload) };
 }
 
+/**
+ * Resolve an action's `env` block into a flat string→string map for the spawn.
+ *
+ * An action payload MAY carry `env: { KEY: value }`; the map is resolved with
+ * the SAME per-fire `${{trigger}}` substitution as the rest of the payload, so
+ * a fan-out child's env is scoped to ITS work item, and forwarded verbatim as
+ * the spawn's arbitrary (non-namespaced) env map. The keys are opaque to this
+ * plugin — a consumer may use them for profile selection OR for authorization
+ * narrowing, and a dropped/renamed key fails OPEN (widens the child's surface
+ * with no crash), so this forwarding is load-bearing, not cosmetic.
+ *
+ * Returns undefined for an absent/non-object/empty `env` — a run with no env
+ * block spawns byte-identically to one built before this existed.
+ * See change: relocate-fanout-to-work-source.
+ */
+export function resolveActionEnv(
+  automation: DiscoveredAutomation,
+  ctx?: FireContext,
+): Record<string, string> | undefined {
+  const raw = (automation.config?.action?.payload as Record<string, unknown> | undefined)?.env;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const resolved = interpolate(raw, ctx?.value) as Record<string, unknown>;
+  const out: Record<string, string> = {};
+  for (const [k, v] of Object.entries(resolved)) {
+    if (typeof v === "string") out[k] = v;
+    else if (v !== undefined && v !== null) out[k] = String(v);
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
+}
+
 /** Effective board visibility: per-automation field ?? settings default. */
 export function effectiveVisibility(
   automation: DiscoveredAutomation,
@@ -155,6 +186,14 @@ export interface SpawnLike {
     /** Sandbox level requested for the run. Honored by the host spawn hook. */
     sandbox?: Sandbox;
     automationRun?: { name: string; runId: string; visibility?: Visibility; idempotencyKey?: string };
+    /**
+     * Caller-supplied env forwarded into the spawned run session — the action's
+     * resolved `env` block (see {@link resolveActionEnv}). Arbitrary,
+     * non-namespaced keys; the host folds them beneath its own guard-managed
+     * keys, which win a collision. Absent ⇒ unchanged spawn env.
+     * See change: relocate-fanout-to-work-source.
+     */
+    env?: Record<string, string>;
   }): Promise<{ success: boolean; spawnToken?: string; message?: string }>;
 }
 
@@ -177,6 +216,25 @@ export interface EngineConfig {
    * add-automation-concurrent-spawn.
    */
   maxConcurrentSpawns?: number;
+  /**
+   * Max age (ms) a child may stay `running` UNDELIVERED (no session ever bound,
+   * so its action was never dispatched) before it is finalized `error` and its
+   * slot freed. Far shorter than `maxRunAgeMs`: such a run has no session it
+   * will ever hear from, so waiting the full backstop only starves the
+   * schedule. <= 0 disables. See change: fix-automation-stamp-correlation.
+   */
+  undeliveredRunTimeoutMs?: number;
+  /**
+   * Max quiet time (ms) a DELIVERED event-dispatched child (its action declared
+   * an `ActionEvent.completion`) may go without observed session activity before
+   * it is finalized `error` and its slot freed. Such a run emits no `agent_end`
+   * and is terminated only by the completion event, so a dropped completion
+   * frame otherwise wedges it `running` until `maxRunAgeMs`. Silence IS the
+   * stall signal: a live flow run keeps forwarding events. Prompt-dispatch runs
+   * are never subject to this bound — a long think is legitimate. <= 0 disables.
+   * See change: bound-stalled-event-run-settle.
+   */
+  stalledRunTimeoutMs?: number;
 }
 
 export interface EngineDeps {
@@ -253,9 +311,17 @@ export interface RunContext {
    * (returns to pool). Absent for static `count`/`actions` fan-out.
    * See change: automation-work-source-fanout.
    */
-  lease?: { source: WorkSource; token: string };
+  lease?: { source: AnyWorkSource; token: string };
   /** Stable per-item idempotency key injected on the spawn stamp (work-source). */
   idempotencyKey?: string;
+  /** Wall-clock spawn time — drives the undelivered bound. */
+  startedAt: number;
+  /**
+   * Last observed session activity (set at delivery, refreshed by
+   * `noteRunActivity`) — drives the stalled-event-run bound.
+   * See change: bound-stalled-event-run-settle.
+   */
+  lastActivityAt?: number;
   /**
    * Set when a stop landed during the spawn→register window (no sessionId, no
    * token yet). The spawn continuation aborts immediately with the freshly
@@ -288,6 +354,27 @@ export interface Engine {
   /** Spawn-side of a fire — exposed for tests. Returns the run id or null.
    *  `ctx` carries the per-fire value for `${{trigger}}` resolution. */
   startRunFor(automation: DiscoveredAutomation, ctx?: FireContext): { runId: string } | null;
+  /**
+   * TARGETED fan-out: start EXACTLY ONE child for the single work item whose
+   * idempotency key is `key`, leased through the work-source's optional `take`.
+   * The lease IS the single-flight guard — an item already leased (by a batch
+   * fire or a prior targeted run) is refused `{ ok:false, reason:"in_flight" }`,
+   * so two children never process the same item. Never enumerates, never fans
+   * out. `unsupported` when the automation is not `schedule.batch` or its source
+   * cannot address items by key.
+   * See change: relocate-fanout-to-work-source.
+   */
+  runWorkItem(
+    automation: DiscoveredAutomation,
+    key: string,
+  ): Promise<{ ok: boolean; runId?: string; reason?: "in_flight" | "unsupported"; error?: string }>;
+  /**
+   * Record observed activity for a tracked run session, resetting its stall
+   * clock. Called for every forwarded event of a tracked run session, so a
+   * genuinely live event-dispatched run is never reaped by the stall bound.
+   * Unknown sessions are a no-op. See change: bound-stalled-event-run-settle.
+   */
+  noteRunActivity(sessionId: string): void;
   /**
    * Stop a `running` run: terminate its spawned process via the host hook
    * (hard-kill by sessionId, or by spawnToken during the spawn→register
@@ -403,7 +490,81 @@ export function createEngine(deps: EngineDeps): Engine {
     }
     return undefined;
   }
+  /**
+   * Best-effort terminate a reaped child's spawned process. A reaped
+   * `--mode rpc` session never self-exits, so without this it outlives its run.
+   * Fire-and-forget; finalization already happened.
+   * See change: fix-automation-stamp-correlation.
+   */
+  function terminate(ctx: RunContext): void {
+    if (!deps.abortSpawnedRun) return;
+    void deps
+      .abortSpawnedRun({
+        ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+        ...(ctx.spawnToken ? { spawnToken: ctx.spawnToken } : {}),
+      })
+      .catch((e) => warn(`[engine] terminate failed for ${ctx.runId}: ${e instanceof Error ? e.message : String(e)}`));
+  }
+
+  /**
+   * Sweep children that never reached delivery. Such a child's stamped session
+   * never registered (or registered carrying someone else's stamp), so no
+   * completion event, `agent_end`, or session-death signal will ever name it —
+   * only the 30-minute backstop would, holding the automation's
+   * `concurrency: skip` slot the whole time. Reads only `pending` (children),
+   * so a parent is never swept here — a parent finalizes solely via its child
+   * counter. See change: fix-automation-stamp-correlation.
+   */
+  function reapUndeliveredRuns(): void {
+    const timeoutMs = deps.config().undeliveredRunTimeoutMs ?? 0;
+    if (timeoutMs <= 0) return;
+    const now = deps.now?.() ?? Date.now();
+    for (const q of [...pending.values()]) {
+      for (const ctx of [...q]) {
+        if (ctx.delivered) continue;
+        if (now - ctx.startedAt <= timeoutMs) continue;
+        warn(`[finalize] path=undelivered-reap run ${ctx.runId} (undelivered > ${timeoutMs}ms)`);
+        finalizeChild(ctx, {
+          status: "error",
+          error: "run action never delivered",
+          result: "_(run action never delivered)_",
+        });
+        terminate(ctx);
+      }
+    }
+  }
+
+  /**
+   * Sweep DELIVERED event-dispatched children that went silent. Such a run
+   * declared a completion event, produces no `agent_end`, and its session is
+   * terminated only on that completion — so a dropped completion frame leaves it
+   * `running` (slot held) until the max-age backstop. A live run keeps forwarding
+   * events, so quiet past the bound is the stall signal.
+   * See change: bound-stalled-event-run-settle.
+   */
+  function reapStalledEventRuns(): void {
+    const timeoutMs = deps.config().stalledRunTimeoutMs ?? 0;
+    if (timeoutMs <= 0) return;
+    const now = deps.now?.() ?? Date.now();
+    for (const q of [...pending.values()]) {
+      for (const ctx of [...q]) {
+        if (!ctx.delivered) continue; // the undelivered bound owns these
+        if (!ctx.emitEvent?.completion) continue; // prompt runs may think long
+        if (now - (ctx.lastActivityAt ?? ctx.startedAt) <= timeoutMs) continue;
+        warn(`[finalize] path=stalled-reap run ${ctx.runId} (quiet > ${timeoutMs}ms)`);
+        finalizeChild(ctx, {
+          status: "error",
+          error: "run stalled: completion event never observed",
+          result: "_(run stalled: completion event never observed)_",
+        });
+        terminate(ctx);
+      }
+    }
+  }
+
   function reapStaleRuns(): void {
+    reapUndeliveredRuns();
+    reapStalledEventRuns();
     const cfg = deps.config();
     const maxAgeMs = cfg.maxRunAgeMs;
     if (!maxAgeMs || maxAgeMs <= 0) return;
@@ -575,7 +736,10 @@ export function createEngine(deps: EngineDeps): Engine {
   // Stale-run reaper backstop timer. Sweeps on an interval; also callable
   // directly (reapStaleRuns) for tests. See change:
   // finalize-automation-run-on-session-death.
-  const REAP_INTERVAL_MS = 60_000;
+  // Sweep cadence. 15 s (was 60 s) so the much tighter undelivered bound is a
+  // real bound and not rounded up by the timer.
+  // See change: fix-automation-stamp-correlation.
+  const REAP_INTERVAL_MS = 15_000;
   let reapTimer: ReturnType<typeof setInterval> | null = null;
 
   /** Spawn one child session for a resolved child spec. */
@@ -588,7 +752,7 @@ export function createEngine(deps: EngineDeps): Engine {
     vis: Visibility,
     fireCtx: FireContext | undefined,
     /** Work-source extras: the lease this child holds + its idempotency key. */
-    extra?: { lease?: { source: WorkSource; token: string }; idempotencyKey?: string },
+    extra?: { lease?: { source: AnyWorkSource; token: string }; idempotencyKey?: string },
   ): void {
     let ctx: RunContext | undefined;
     try {
@@ -621,12 +785,18 @@ export function createEngine(deps: EngineDeps): Engine {
           }
         : {}),
       ...(resolved.error ? { modelError: resolved.error } : {}),
+      startedAt: deps.now?.() ?? Date.now(),
       delivered: false,
     };
     // Non-optional alias so the async closures see a defined RunContext (the
     // outer `ctx` is `| undefined` only for the synchronous-setup catch below).
     const c: RunContext = ctx;
     enqueuePending(c);
+
+    // Per-child action `env`, resolved against THIS child's work item, so a
+    // fan-out child's session is scoped to its own item. See change:
+    // relocate-fanout-to-work-source.
+    const spawnEnv = resolveActionEnv(childAutomation, fireCtx);
 
     void deps
       .spawnSession({
@@ -640,6 +810,7 @@ export function createEngine(deps: EngineDeps): Engine {
           visibility: vis,
           ...(extra?.idempotencyKey ? { idempotencyKey: extra.idempotencyKey } : {}),
         },
+        ...(spawnEnv ? { env: spawnEnv } : {}),
       })
       .then((res) => {
         if (!res.success) {
@@ -715,11 +886,28 @@ export function createEngine(deps: EngineDeps): Engine {
     }
   }
 
+  /** True for a thenable — how an ASYNC work-source vend is detected. */
+  function isThenable<T>(v: T[] | Promise<T[]>): v is Promise<T[]> {
+    return typeof (v as Promise<T[]>)?.then === "function";
+  }
+
   /**
    * Resolve + lease + spawn for a `schedule.batch` work-source fan-out. Leases
    * up to `bound` items and spawns one child per leased handle. Empty vend →
    * completed no-op; `next` throw → errored, nothing leased. Excess items are
    * left unleased (deferred to a later fire) — no truncation warning.
+   *
+   * A source MAY vend asynchronously (its availability living behind an async
+   * port). The two paths differ ONLY in when the parent record is written:
+   *   - SYNCHRONOUS vend (unchanged): resolve first, then write the parent —
+   *     an empty/failed vend writes a standalone settled record and returns null;
+   *   - ASYNCHRONOUS vend: the parent record is written and its id returned
+   *     IMMEDIATELY (a caller — Run-now — must get a run id without awaiting),
+   *     and the lease + spawn happen in the continuation. Every async exit
+   *     finalizes that parent exactly once: empty vend → `done` with zero
+   *     children, rejection → `error` with nothing leased, and a per-child
+   *     failure nacks its own handle via `finalizeChild`.
+   * See change: relocate-fanout-to-work-source.
    */
   function startWorkSourceFire(
     automation: DiscoveredAutomation,
@@ -750,9 +938,48 @@ export function createEngine(deps: EngineDeps): Engine {
       return null;
     }
 
-    let handles: LeasedHandle[];
+    const firedAt = env.firedAt ?? (deps.now?.() ?? Date.now());
+
+    /** Write a tracked parent occurrence record (children attach to it). */
+    const openParent = (remaining: number): ParentState => {
+      const rec = storeStartParentRun(scopeBase, automation.name, {});
+      const p: ParentState = {
+        parentRunId: rec.runId,
+        key: automationKey(automation),
+        scopeBase,
+        name: automation.name,
+        remaining,
+        statuses: [],
+        findings: 0,
+        finalized: false,
+      };
+      parents.set(p.parentRunId, p);
+      return p;
+    };
+
+    /** Spawn exactly one child per leased handle under `parent`. */
+    const spawnForHandles = (parent: ParentState, handles: LeasedHandle[], base: ChildSpec): void => {
+      for (const handle of handles) {
+        // Per-child automation view carrying the single action; each child
+        // resolves its OWN `${{trigger}}` from its leased item (per-child ctx).
+        const childAutomation: DiscoveredAutomation = {
+          ...automation,
+          config: { ...automation.config!, action: base.action, actions: undefined },
+        };
+        const childCtx: FireContext = { firedAt, value: handle.item };
+        spawnChild(parent, childAutomation, base.actionLabel, runCwd, resolved, vis, childCtx, {
+          lease: { source, token: handle.leaseToken },
+          idempotencyKey: handle.idempotencyKey,
+        });
+      }
+      log(
+        `[engine] started parent run ${parent.parentRunId} (${parent.key}) work-source children=${handles.length}`,
+      );
+    };
+
+    let vended: LeasedHandle[] | Promise<LeasedHandle[]>;
     try {
-      handles = source.next(bound);
+      vended = source.next(bound, { cwd: scopeBase });
     } catch (e) {
       warn(
         `[engine] work source "${sourceId}" next() failed for ${automation.name}: ${e instanceof Error ? e.message : String(e)}`,
@@ -761,6 +988,50 @@ export function createEngine(deps: EngineDeps): Engine {
       return null;
     }
 
+    // ── Asynchronous vend: parent first, lease + spawn in the continuation ──
+    if (isThenable(vended)) {
+      const parent = openParent(0);
+      void vended
+        .then((handles) => {
+          if (handles.length === 0) {
+            // Completed no-op: zero children spawned, parent settles `done`
+            // (aggregateStatus of no statuses), releasing the runner slot.
+            finalizeParent(parent);
+            log(`[engine] work-source fire ${automation.name} vended 0 items (no-op)`);
+            return;
+          }
+          const base = resolveChildren(automation, 1).specs[0];
+          if (!base) {
+            // Defensive (schema guarantees one action): RETURN the leased items
+            // rather than strand them until the visibility timeout.
+            for (const h of handles) {
+              try {
+                source.nack(h.leaseToken);
+              } catch {
+                /* best-effort */
+              }
+            }
+            parent.statuses.push("error");
+            finalizeParent(parent);
+            return;
+          }
+          parent.remaining = handles.length;
+          spawnForHandles(parent, handles, base);
+        })
+        .catch((e) => {
+          // A rejected vend leases nothing (the source owns that invariant) —
+          // settle the already-open parent so the runner slot is never held.
+          warn(
+            `[engine] work source "${sourceId}" next() failed for ${automation.name}: ${e instanceof Error ? e.message : String(e)}`,
+          );
+          parent.statuses.push("error");
+          finalizeParent(parent);
+        });
+      return { runId: parent.parentRunId };
+    }
+
+    // ── Synchronous vend (unchanged): resolve first, then write the parent ──
+    const handles = vended;
     if (handles.length === 0) {
       settleParent("done"); // completed no-op
       log(`[engine] work-source fire ${automation.name} vended 0 items (no-op)`);
@@ -778,38 +1049,90 @@ export function createEngine(deps: EngineDeps): Engine {
       return null;
     }
 
+    const parent = openParent(handles.length);
+    spawnForHandles(parent, handles, base);
+    return { runId: parent.parentRunId };
+  }
+
+  /**
+   * TARGETED single-item fan-out (`Engine.runWorkItem`). Leases the ONE item
+   * addressed by `key` through the source's optional `take`, then spawns exactly
+   * one child for it — the same child path a batch fire uses, so the item rides
+   * `${{trigger}}` and the action `env` resolves against it identically.
+   *
+   * The LEASE is the single-flight guard: `take` returns null when the item is
+   * already leased (by a batch fire or an earlier targeted run) and this reports
+   * `in_flight`. No `pending`-registry scan, no second dispatch path.
+   * See change: relocate-fanout-to-work-source.
+   */
+  async function runWorkItem(
+    automation: DiscoveredAutomation,
+    key: string,
+  ): Promise<{ ok: boolean; runId?: string; reason?: "in_flight" | "unsupported"; error?: string }> {
+    if (!automation.valid || !automation.config) return { ok: false, error: "automation invalid" };
+    const on = automation.config.on;
+    const sourceId = on.kind === "schedule.batch" && typeof on.source === "string" ? on.source : undefined;
+    if (!sourceId) return { ok: false, reason: "unsupported", error: "automation has no work source" };
+    const source = workSources.get(sourceId);
+    if (!source) return { ok: false, error: `work source "${sourceId}" not registered` };
+    if (typeof source.take !== "function") {
+      return { ok: false, reason: "unsupported", error: `work source "${sourceId}" cannot address items by key` };
+    }
+
+    const cfg = deps.config();
+    const scopeBase = scopeBaseFor(automation);
+    const wsCtx: WorkSourceContext = { cwd: scopeBase };
+    let handle: LeasedHandle | null;
+    try {
+      handle = await source.take(key, wsCtx);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      warn(`[engine] work source "${sourceId}" take(${key}) failed: ${msg}`);
+      return { ok: false, error: msg };
+    }
+    if (!handle) {
+      log(`[engine] work item ${key}: unavailable (leased or gone); refusing`);
+      return { ok: false, reason: "in_flight" };
+    }
+
+    const base = resolveChildren(automation, 1).specs[0];
+    if (!base) {
+      try {
+        source.nack(handle.leaseToken);
+      } catch {
+        /* best-effort */
+      }
+      return { ok: false, error: "automation resolves no action" };
+    }
+
+    const vis = effectiveVisibility(automation, cfg.defaultVisibility);
+    const resolved = resolveModel(automation.config.model, {
+      defaultModel: cfg.defaultModel,
+      ...(deps.readRoles ? { readRoles: deps.readRoles } : {}),
+    });
     const parentRec = storeStartParentRun(scopeBase, automation.name, {});
     const parent: ParentState = {
       parentRunId: parentRec.runId,
       key: automationKey(automation),
       scopeBase,
       name: automation.name,
-      remaining: handles.length,
+      remaining: 1,
       statuses: [],
       findings: 0,
       finalized: false,
     };
     parents.set(parent.parentRunId, parent);
 
-    const firedAt = env.firedAt ?? (deps.now?.() ?? Date.now());
-    for (const handle of handles) {
-      // Per-child automation view carrying the single action; each child
-      // resolves its OWN `${{trigger}}` from its leased item (per-child ctx).
-      const childAutomation: DiscoveredAutomation = {
-        ...automation,
-        config: { ...automation.config!, action: base.action, actions: undefined },
-      };
-      const childCtx: FireContext = { firedAt, value: handle.item };
-      spawnChild(parent, childAutomation, base.actionLabel, runCwd, resolved, vis, childCtx, {
-        lease: { source, token: handle.leaseToken },
-        idempotencyKey: handle.idempotencyKey,
-      });
-    }
-
-    log(
-      `[engine] started parent run ${parentRec.runId} (${parent.key}) work-source children=${handles.length}`,
-    );
-    return { runId: parentRec.runId };
+    const childAutomation: DiscoveredAutomation = {
+      ...automation,
+      config: { ...automation.config, action: base.action, actions: undefined },
+    };
+    const childCtx: FireContext = { firedAt: deps.now?.() ?? Date.now(), value: handle.item };
+    spawnChild(parent, childAutomation, base.actionLabel, scopeBase, resolved, vis, childCtx, {
+      lease: { source, token: handle.leaseToken },
+      idempotencyKey: handle.idempotencyKey,
+    });
+    return { ok: true, runId: parent.parentRunId };
   }
 
   function startRunFor(automation: DiscoveredAutomation, fireCtx?: FireContext): { runId: string } | null {
@@ -926,6 +1249,13 @@ export function createEngine(deps: EngineDeps): Engine {
     },
 
     startRunFor,
+    runWorkItem,
+
+    noteRunActivity(sessionId: string): void {
+      const ctx = findBySession(sessionId);
+      if (!ctx) return;
+      ctx.lastActivityAt = deps.now?.() ?? Date.now();
+    },
 
     pendingForCwd(cwd: string): RunContext | undefined {
       return firstUndeliveredForCwd(cwd);
@@ -940,6 +1270,7 @@ export function createEngine(deps: EngineDeps): Engine {
       if (!ctx) return;
       ctx.sessionId = sessionId;
       ctx.delivered = true;
+      ctx.lastActivityAt = deps.now?.() ?? Date.now();
       // Persist the child's sessionId on disk for the monitor link (decision 4c).
       storeSetSessionId(ctx.scopeBase, ctx.runId, sessionId);
       log(`[engine] delivering action to run ${ctx.runId} (session ${sessionId})`);
@@ -950,6 +1281,7 @@ export function createEngine(deps: EngineDeps): Engine {
       if (!ctx) return;
       ctx.sessionId = sessionId;
       ctx.delivered = true;
+      ctx.lastActivityAt = deps.now?.() ?? Date.now();
       // Persist the child's sessionId on disk for the monitor link (decision 4c).
       storeSetSessionId(ctx.scopeBase, ctx.runId, sessionId);
       log(`[engine] delivering action to run ${ctx.runId} (session ${sessionId})`);

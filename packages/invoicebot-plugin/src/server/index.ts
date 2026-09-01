@@ -15,7 +15,10 @@ import { homedir } from "node:os";
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { IB_DOMAIN_EVENT_MESSAGE } from "../shared/ib-events.js";
+import { QUEUED_INVOICE_SOURCE_ID } from "./automation-migrate.js";
 import { createCanonicalSessionStore, defaultCanonicalStorePath } from "./canonical-session-store.js";
+import type { InvoiceEngine } from "./engine/port.js";
+import { createQueuedInvoiceWorkSource } from "./queued-invoice-work-source.js";
 import { selectEngine } from "./engine/select.js";
 import { mountInvoiceBotRoutes } from "./routes.js";
 import { auditRoleModels, describeRoleAudit, readRoleMap } from "./role-models.js";
@@ -101,7 +104,7 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   // engine's `list` view filtered to the `queued` state and projects the ids.
   // Never throws — an unreadable query yields an empty list (no fan-out).
   // See change: wire-per-invoice-automation-drain.
-  ctx.provide("invoicebot:queuedInvoices", async (cwd: string): Promise<string[]> => {
+  const listQueued = async (cwd: string): Promise<string[]> => {
     try {
       const result = await engine.query(cwd, { view: "list", state: "queued" });
       const items = (result.details as { items?: Array<{ id?: unknown }> }).items;
@@ -111,6 +114,29 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
       ctx.logger.warn(`invoicebot queued-invoice enumerate failed: ${err instanceof Error ? err.message : String(err)}`);
       return [];
     }
+  };
+  ctx.provide("invoicebot:queuedInvoices", listQueued);
+
+  // Register the queued-invoice WORK SOURCE through the automation plugin's
+  // generic cross-plugin seam, under EXACTLY the id the engine's emitted
+  // automation names in `on.source` (a mismatch isolates every fire as "unknown
+  // work source" instead of fanning out). The automation plugin collects the
+  // published descriptor lazily, so load order between the two plugins is
+  // irrelevant.
+  //
+  // The LEASES live in the ENGINE (fenced in its SQLite store, cross-process
+  // safe, restart-durable). This wrapper deliberately holds none: two lease
+  // authorities would race, and the failure would be two children processing one
+  // invoice — the exact bug this change removes. It only routes per workspace.
+  // See change: relocate-fanout-to-work-source.
+  const queuedInvoiceSource = createQueuedInvoiceWorkSource({
+    sourceFor: (cwd) => engine.queuedWorkSource?.(cwd),
+    log: (m) => ctx.logger.info(m),
+    warn: (m) => ctx.logger.warn(m),
+  });
+  ctx.provide("automation.worksource.invoicebot", {
+    id: QUEUED_INVOICE_SOURCE_ID,
+    source: queuedInvoiceSource,
   });
 
   // App-level InvoiceBot domain-event rebroadcast. The plugin BRIDGE entry
@@ -153,13 +179,50 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   // See change: serve-and-start-queued-invoice.
   const runInvoice = (cwd: string, invoiceId: string) => {
     const fn = ctx.consume<
-      (cwd: string, invoiceId: string) => Promise<{ ok: boolean; runId?: string; reason?: string; error?: string }>
-    >("automation:runInvoice");
+      (cwd: string, key: string) => Promise<{ ok: boolean; runId?: string; reason?: string; error?: string }>
+    >("automation:runWorkItem");
     return fn ? fn(cwd, invoiceId) : Promise.resolve(undefined);
   };
 
+  // Migrate a DEPLOYED intake automation onto the work-source contract on the
+  // same first-touch choke point that ensures it exists (decision D-YAML).
+  //
+  // The ENGINE owns the rewrite (it owns the emitted YAML shape); the HOST owns
+  // WHEN it runs, because the engine never reads a deployed automation at fire
+  // time — only the automation plugin does, so migrate-on-read is implementable
+  // only here. Wrapping the port — rather than editing the routes — covers every
+  // workspace-touching endpoint through one choke point. Idempotent + non-fatal.
+  // See change: relocate-fanout-to-work-source.
+  // Explicit per-method delegation (never a spread — the bindings are class
+  // instances whose methods live on the prototype and would not be copied).
+  const engineWithMigration: InvoiceEngine = {
+    query: (cwd, args) => engine.query(cwd, args),
+    review: (cwd, args) => engine.review(cwd, args),
+    setup: (cwd, args) => engine.setup(cwd, args),
+    rules: (cwd, args) => engine.rules(cwd, args),
+    ingest: (cwd, files) => engine.ingest(cwd, files),
+    ...(engine.queuedWorkSource ? { queuedWorkSource: (cwd: string) => engine.queuedWorkSource!(cwd) } : {}),
+    ...(engine.migrateIntakeAutomation
+      ? { migrateIntakeAutomation: (cwd: string) => engine.migrateIntakeAutomation!(cwd) }
+      : {}),
+    ensureAutomation: async (cwd: string) => {
+      const res = await engine.ensureAutomation(cwd);
+      try {
+        const m = (await engine.migrateIntakeAutomation?.(cwd)) ?? { migrated: [] };
+        for (const p of m.migrated) {
+          ctx.logger.info(`invoicebot: migrated intake automation to schedule.batch (${p})`);
+        }
+      } catch (err) {
+        ctx.logger.warn(
+          `invoicebot intake automation migration failed: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+      return res;
+    },
+  };
+
   mountInvoiceBotRoutes(ctx.fastify, {
-    engine,
+    engine: engineWithMigration,
     dispatchFlow: sessionLink.dispatchFlow,
     ensureScopedSession: sessionLink.ensureScopedSession,
     runInvoice,

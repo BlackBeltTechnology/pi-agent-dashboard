@@ -23,7 +23,7 @@ import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { ActionRegistry } from "../server/action-registry.js";
 import { createEngine } from "../server/engine.js";
-import { listRuns } from "../server/run-store.js";
+import { listRuns, readChildRuns } from "../server/run-store.js";
 import type { DiscoveredAutomation } from "../shared/automation-types.js";
 
 const UNDELIVERED_MS = 60_000;
@@ -81,6 +81,7 @@ function promptAutomation(name: string): DiscoveredAutomation {
 
 function makeEngine() {
   let now = 1_000_000;
+  const spawnCalls: Array<{ automationRun?: { runId: string } }> = [];
   const aborted: Array<{ sessionId?: string; spawnToken?: string; graceful?: boolean }> = [];
   let spawns = 0;
   const registry = new ActionRegistry({ warn: () => {} });
@@ -94,8 +95,9 @@ function makeEngine() {
     }),
   });
   const engine = createEngine({
-    spawnSession: async () => {
+    spawnSession: async (o) => {
       spawns += 1;
+      spawnCalls.push(o as { automationRun?: { runId: string } });
       return { success: true, spawnToken: `tok-${spawns}` };
     },
     abortSpawnedRun: async (args) => {
@@ -120,14 +122,27 @@ function makeEngine() {
   return {
     engine,
     aborted,
+    spawnCalls,
     advance: (ms: number) => {
       now += ms;
     },
   };
 }
 
-const runs = () => listRuns(repo);
-const byId = (runId: string) => runs().find((r) => r.runId === runId);
+// A fire is a PARENT occurrence with one child per spawned session; the child
+// is the record a session's lifecycle (and therefore every reap bound) acts on.
+const parents = () => listRuns(repo);
+const byId = (runId: string) => {
+  for (const p of parents()) {
+    if (p.runId === runId) return p;
+    const hit = readChildRuns(repo, p).find((c) => c.runId === runId);
+    if (hit) return hit;
+  }
+  return undefined;
+};
+/** The child run id of the only spawn so far (what a session binds to). */
+const childRunId = (h: { spawnCalls: Array<{ automationRun?: { runId: string } }> }, i = 0) =>
+  h.spawnCalls[i]!.automationRun!.runId;
 
 describe("a delivered event run whose completion never arrives settles on the stall bound", () => {
   it("is finalized error + terminated instead of holding the slot to max age", async () => {
@@ -136,7 +151,7 @@ describe("a delivered event run whose completion never arrives settles on the st
 
     h.engine.runner.fire(a);
     await Promise.resolve();
-    const wedged = runs()[0]!;
+    const wedged = byId(childRunId(h))!;
     expect(wedged.status).toBe("running");
 
     // Delivered: the session registered and received the dispatched event.
@@ -172,7 +187,7 @@ describe("a delivered event run whose completion never arrives settles on the st
 
     h.engine.runner.fire(a);
     await Promise.resolve();
-    const live = runs()[0]!;
+    const live = byId(childRunId(h))!;
     h.engine.onSessionRegisteredForRun("sess-1", live.runId);
 
     // Heartbeat of forwarded activity keeps resetting the stall clock.
@@ -193,8 +208,9 @@ describe("a delivered event run whose completion never arrives settles on the st
     const h = makeEngine();
     const a = promptAutomation("nightly");
 
-    const started = h.engine.startRunFor(a)!;
+    h.engine.startRunFor(a)!;
     await Promise.resolve();
+    const started = byId(childRunId(h))!;
     h.engine.onSessionRegisteredForRun("sess-1", started.runId);
 
     h.advance(STALLED_MS * 5);

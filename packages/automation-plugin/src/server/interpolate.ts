@@ -15,10 +15,10 @@
  *   - Single-brace `${name}` tokens resolve against an optional per-fire
  *     variable map: a known name is replaced with its mapped string, an unknown
  *     name (or no map) is left intact. Additive to and independent of the
- *     double-brace trigger token. Per-invoice fan-out supplies `{ invoice_id }`.
+ *     double-brace trigger token.
  *   - Objects/arrays are walked recursively; other primitives pass through.
  *
- * See change: wire-flow-inputs-in-automation, wire-per-invoice-automation-drain.
+ * See change: wire-flow-inputs-in-automation, relocate-fanout-to-work-source.
  */
 
 const WHOLE = /^\$\{\{trigger\}\}$/;

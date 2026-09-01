@@ -9,7 +9,7 @@
 import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import { Popover } from "@blackbelt-technology/pi-dashboard-client-utils/Popover";
 import { UI_PRIMITIVE_KEYS } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { encodeFolderPath } from "../client/folder-encoding.js";
@@ -102,20 +102,33 @@ describe("AutomationBoard", () => {
   it("shows full actions for valid cards and only Edit/Delete (under overflow) for invalid", async () => {
     const { getByTestId, queryByTestId } = renderBoard({ params });
     await waitFor(() => expect(getByTestId("automation-def-nightly")).toBeTruthy());
-    // valid → run/toggle direct; edit/delete under the ⋯ overflow
-    expect(getByTestId("run-now-nightly")).toBeTruthy();
+    // valid → run/toggle direct; edit/delete under the ⋯ overflow. Run-now
+    // carries the stable `automation-run-now` testid, scoped per card row.
+    expect(within(getByTestId("automation-def-nightly")).getByTestId("automation-run-now")).toBeTruthy();
     expect(getByTestId("toggle-nightly")).toBeTruthy();
     expect(queryByTestId("edit-nightly")).toBeNull();
     fireEvent.click(getByTestId("overflow-nightly"));
     expect(screen.getByTestId("edit-nightly")).toBeTruthy();
     expect(screen.getByTestId("delete-nightly")).toBeTruthy();
     // invalid → no run/toggle; only edit/delete under overflow
-    expect(queryByTestId("run-now-broken")).toBeNull();
+    expect(within(getByTestId("automation-def-broken")).queryByTestId("automation-run-now")).toBeNull();
     expect(queryByTestId("toggle-broken")).toBeNull();
     fireEvent.click(getByTestId("overflow-broken"));
     expect(screen.getByTestId("edit-broken")).toBeTruthy();
     expect(screen.getByTestId("delete-broken")).toBeTruthy();
     expect(getByTestId("automation-error-broken").textContent).toContain("bad kind");
+  });
+
+  it("the row's run-now control fires a run-now via the API", async () => {
+    const { runAutomationNow } = await import("../client/api.js");
+    const { getByTestId } = renderBoard({ params });
+    await waitFor(() => expect(getByTestId("automation-def-nightly")).toBeTruthy());
+    const row = getByTestId("automation-def-nightly");
+    expect(row.className).toContain("auto-row");
+    const btn = within(row).getByTestId("automation-run-now") as HTMLButtonElement;
+    expect(btn.disabled).toBe(false);
+    fireEvent.click(btn);
+    await waitFor(() => expect(runAutomationNow).toHaveBeenCalledWith("folder", "/r", "nightly"));
   });
 
   it("applies session-card visuals: rail, status dot, headless icon, status pill", async () => {
@@ -154,9 +167,9 @@ describe("AutomationBoard", () => {
     ];
     const api = await import("../client/api.js");
     vi.mocked(api.listRuns).mockImplementation(async (scope: string) => (scope === "folder" ? runningRuns : []));
-    const { getByTestId, queryByTestId } = renderBoard({ params });
+    const { getByTestId } = renderBoard({ params });
     await waitFor(() => expect(getByTestId("stop-nightly")).toBeTruthy());
-    expect(queryByTestId("run-now-nightly")).toBeNull();
+    expect(within(getByTestId("automation-def-nightly")).queryByTestId("automation-run-now")).toBeNull();
     fireEvent.click(getByTestId("stop-nightly"));
     await waitFor(() => expect(stopAutomationRun).toHaveBeenCalledWith("folder", "/r", "2026-06-21-nightly"));
   });
