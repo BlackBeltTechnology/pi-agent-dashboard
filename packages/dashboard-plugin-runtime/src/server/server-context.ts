@@ -154,9 +154,9 @@ export interface PluginSpawnOptions {
   env?: Record<string, string>;
   /**
    * When set, RESUME the given session file's transcript (`--continue`)
-   * instead of spawning a fresh session, so re-running in a stopped session
-   * keeps its history. Absent ⇒ a fresh spawn.
-   * See change: make-invoice-session-canonical (§6).
+   * instead of spawning a fresh session, so re-running work in a stopped
+   * session keeps its history rather than starting a one-shot beside it.
+   * Absent ⇒ a fresh spawn.
    */
   resumeSessionFile?: string;
   /**
@@ -348,8 +348,8 @@ export function pluginSpawnToSessionOptions(opts: PluginSpawnOptions): MappedSpa
   // it did not spell out. See change: constrain-agent-tool-surface.
   if (input.guard === true) result.guard = true;
 
-  // §6 re-run: resume the given transcript with `--continue` instead of
-  // spawning a fresh session. See change: make-invoice-session-canonical.
+  // Re-run: resume the given transcript with `--continue` instead of spawning
+  // a fresh session.
   if (isSafeArgvString(input.resumeSessionFile)) {
     result.sessionFile = input.resumeSessionFile;
     result.mode = "continue";

@@ -381,13 +381,12 @@ export async function handleSendPrompt(
     sessionManager.update(msg.sessionId, { resuming: true });
     broadcast({ type: "session_updated", sessionId: msg.sessionId, updates: { resuming: true } });
     const autoResumeConfig = loadConfig();
-    // Re-apply the session's bound spawn env on resume. The original spawn's
-    // env is what NARROWS the session's tool surface, and a continue-spawn
-    // reproduces none of it — so without this fold a resumed scoped session
-    // silently comes back on the FULL surface (a fail-open with no error and
-    // no failing test). Absent resolver / non-scoped session ⇒ no `env` key,
-    // byte-identical to a bare resume. See change:
-    // make-invoice-session-canonical (§5.4), scope-session-toolset-by-profile.
+    // Re-apply the session's original spawn env on resume. That env is what
+    // NARROWS a scoped session's tool surface, and a continue-spawn reproduces
+    // none of it — so without this fold a resumed session silently comes back
+    // on the FULL surface (a fail-open with no error and no failing test).
+    // Absent resolver / unscoped session ⇒ no `env` key, byte-identical to a
+    // bare resume. See change: scope-session-toolset-by-profile.
     const resumeEnv = ctx.resumeSpawnEnv?.(msg.sessionId);
     const spawnResult = await spawnPiSession(promptSession.cwd, {
       sessionFile: promptSession.sessionFile,
@@ -422,7 +421,6 @@ export async function handleSendPrompt(
     // gone — `sendToSession` returns false and the prompt is dropped with only
     // a "no bridge connection" line that reads like a transport hiccup. Report
     // the real reason instead of pretending we tried to deliver.
-    // See change: make-invoice-session-canonical (§5).
     console.error(
       `[dashboard] send_prompt failed: session ${msg.sessionId} has no live bridge and no session file to resume from`,
     );

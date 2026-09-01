@@ -187,9 +187,9 @@ export interface SessionOptions {
    * Arbitrary, NON-namespaced environment map forwarded verbatim into the
    * spawned process env. Distinct from `extensionConfig` (which projects into
    * the namespaced `PI_EXT_<NAME>_<KEY>` channel): a consumer inside the
-   * session reads these keys LITERALLY (e.g. `IB_TOOLSET`, `IB_INVOICE_ID`,
-   * `IB_ALLOWED_TOOLS`), so the channel cannot be replaced by the namespaced
-   * projection without changing the reader.
+   * session reads these keys LITERALLY, by their exact spelling, so the
+   * channel cannot be replaced by the namespaced projection without changing
+   * that reader.
    *
    * This map is AUTHORIZATION-BEARING: it is how a caller narrows the spawned
    * session's tool surface. It is folded in BEFORE every host-managed key, so

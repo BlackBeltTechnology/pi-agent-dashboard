@@ -65,11 +65,13 @@ export interface BrowserHandlerContext {
   headlessPidRegistry: HeadlessPidRegistry;
   pendingResumeRegistry: PendingResumeRegistry;
   /**
-   * §5.4: resolve the bound scope env (e.g. invoicebot IB_TOOLSET/IB_INVOICE_ID)
-   * to re-apply when auto-resuming a session's continue-spawn, so a resumed
-   * scoped session boots scoped instead of on the full surface. Provided by a
-   * plugin via `ctx.provide`; undefined for non-scoped sessions.
-   * See change: make-invoice-session-canonical.
+   * Resolve the environment a session was originally spawned with, to re-apply
+   * on its auto-resume continue-spawn. A spawn env can carry the keys that
+   * NARROW a session's tool surface, and a continue-spawn reproduces none of
+   * them — so without this the resumed session silently comes back on the full
+   * surface. Provided by a plugin via `ctx.provide`; `undefined` for a session
+   * that was not spawned with one ⇒ the resume is unchanged.
+   * See change: scope-session-toolset-by-profile.
    */
   resumeSpawnEnv?: (sessionId: string) => Record<string, string> | undefined;
   pendingDashboardSpawns?: Map<string, number>;
