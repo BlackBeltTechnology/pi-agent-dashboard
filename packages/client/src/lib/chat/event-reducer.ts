@@ -52,6 +52,16 @@ export interface ChatMessage {
    * See change: render-inline-reasoning-and-custom-entries.
    */
   customType?: string;
+  /**
+   * Extension-authored structured metadata carried verbatim from
+   * `pi.sendMessage({ details })` — present ONLY on `role: "custom"` rows,
+   * alongside `customType`. NEVER interpreted here: the reducer neither reads
+   * nor validates its shape, it only stops dropping it, so a renderer can key a
+   * structural attribute off it instead of scraping human-readable content.
+   * (Without this the sender's structure is unobservable in the browser and
+   * assertions degrade to language-fragile text matching.)
+   */
+  details?: Record<string, unknown>;
   images?: ChatImage[];
   toolName?: string;
   toolCallId?: string;
@@ -1797,6 +1807,11 @@ export function reduceEvent(
             // Extraction first, truncation second, AT ROW CREATION — live and
             // replay render identically (D4).
             content: truncateOutputForDisplay(extractCustomEntryBody(msg.content)),
+            // Carry the sender's structured metadata through verbatim, exactly
+            // as `customType` is carried. Opaque to the reducer.
+            ...(msg.details && typeof msg.details === "object"
+              ? { details: msg.details as Record<string, unknown> }
+              : {}),
             timestamp: event.timestamp,
             // entryId/nonce deliberately NOT stamped: bridge id resolution is
             // unreliable for custom messages (no entry_persisted correlation
