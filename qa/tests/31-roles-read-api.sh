@@ -28,6 +28,9 @@ QA_HOME=""
 SRV_PID=""
 
 cleanup() {
+  # Stop the detached daemon by pidfile+port (HOME-scoped); SRV_PID only covers
+  # the launch shell, which `pi-dashboard start` may outlive.
+  [ -n "$QA_HOME" ] && HOME="$QA_HOME" pi-dashboard stop >/dev/null 2>&1 || true
   [ -n "$SRV_PID" ] && kill -9 "$SRV_PID" 2>/dev/null || true
   [ -n "$QA_HOME" ] && rm -rf "$QA_HOME" 2>/dev/null || true
 }
@@ -42,6 +45,7 @@ mkdir -p "$QA_HOME/.pi/dashboard"
 
 HOME="$QA_HOME" pi-dashboard start --port "$PORT" --pi-port "$GATEWAY" --no-tunnel \
   > "$QA_HOME/start.log" 2>&1 &
+SRV_PID=$!
 
 WAITED=0
 while [ "$WAITED" -lt 90 ]; do

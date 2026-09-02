@@ -167,7 +167,7 @@ export function parseRoleConfig(raw: unknown): RoleConfig {
 /** Keep entries whose value is a non-empty string, trimmed. */
 function parseRoles(raw: unknown): Record<string, string> {
   const roles: Record<string, string> = {};
-  if (raw && typeof raw === "object") {
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
     for (const [k, v] of Object.entries(raw)) {
       if (typeof v === "string" && v.trim() !== "") roles[k] = v.trim();
     }

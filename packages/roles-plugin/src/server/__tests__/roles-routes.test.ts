@@ -9,19 +9,36 @@
  *
  * Covers tasks 6.1–6.12 and 7.1–7.7. See change: add-roles-read-api.
  */
-import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import Fastify, { type FastifyInstance } from "fastify";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { mountRolesRoutes } from "../roles-routes.js";
+
+// Route-under-test reads config with a static `readFileSync` import. To exercise
+// the permission-denied path deterministically (chmod 0o000 is a no-op for a
+// root-equivalent process — how CI runs — and unsupported on Windows), wrap
+// node:fs so a single opted-in path throws EACCES while every other fs call is
+// the real one.
+const fsMock = vi.hoisted(() => ({ eaccesPath: null as string | null }));
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    readFileSync: ((path: unknown, ...rest: unknown[]) => {
+      if (fsMock.eaccesPath !== null && path === fsMock.eaccesPath) {
+        throw Object.assign(new Error("EACCES: permission denied"), { code: "EACCES" });
+      }
+      return (actual.readFileSync as (...a: unknown[]) => unknown)(path, ...rest);
+    }) as typeof actual.readFileSync,
+  };
+});
 
 const cleanup: string[] = [];
 afterEach(() => {
+  fsMock.eaccesPath = null;
   for (const r of cleanup.splice(0)) {
-    try {
-      chmodSync(r, 0o700);
-    } catch {}
     rmSync(r, { recursive: true, force: true });
   }
 });
@@ -267,7 +284,7 @@ describe("failure modes (X1–X4)", () => {
 
   it("permission denied degrades, no unhandled error (X2)", async () => {
     const path = writeConfig({ roles: { coding: "a/b" } });
-    chmodSync(path, 0o000);
+    fsMock.eaccesPath = path; // reset in afterEach
     const { status, body } = await get(path);
     expect(status).toBe(200);
     for (const r of live(body).roles) expect(r.ref).toBeNull();
