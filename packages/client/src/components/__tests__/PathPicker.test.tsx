@@ -1,6 +1,9 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, fireEvent, waitFor, screen, cleanup, act } from "@testing-library/react";
+import { normalizePath } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
+import { mdiChevronRight, mdiFolderOpen } from "@mdi/js";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { inferPlatform, pathKey } from "../../lib/session/session-grouping.js";
 import { PathPicker } from "../primitives/PathPicker.js";
 
 // Mock browse-api
@@ -937,7 +940,9 @@ describe("PathPicker multi-select mode", () => {
     renderMulti();
     await waitFor(() => expect(screen.getByText("Desktop")).toBeTruthy());
     const input = screen.getByRole("textbox");
-    // Highlight the first entry row (index 1 — index 0 is the `..` parent row).
+    // Highlight the first child entry row (index 2 — index 0 is the current-dir
+    // self-row, index 1 is the `..` parent row).
+    fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: " " });
@@ -955,6 +960,174 @@ describe("PathPicker multi-select mode", () => {
     render(<PathPicker initialPath="/Users/robson/" onSelect={onSelect} onCancel={onCancel} />);
     await waitFor(() => expect(screen.getByText("Project")).toBeTruthy());
     expect(screen.queryByTestId("path-picker-check-/Users/robson/Project")).toBeNull();
+  });
+});
+
+// add-current-folder-to-add-flow — the multi-select picker gains a current-dir
+// self-row (open-folder glyph, no chevron, same checkbox/basket grammar) above
+// a presentational CONTENTS eyebrow. These cover the picker-level observables;
+// basket-label / pill / commit-pin observables live in AddFoldersDialog.test.tsx.
+// Reference: openspec/changes/add-current-folder-to-add-flow/mockups/self-row.html
+describe("PathPicker self-row (add current folder)", () => {
+  const onSelect = vi.fn();
+  const onCancel = vi.fn();
+
+  const userHome = makeBrowseResult("/home/user", [{ name: "work" }, { name: "projects" }], "/home");
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockBrowse.mockResolvedValue(userHome);
+    mockClassify.mockResolvedValue({});
+    mockMkdir.mockResolvedValue({ path: "/home/user/new" });
+  });
+
+  /** Stateful host mirroring AddFoldersDialog's basket contract (normalizePath
+   * on toggle) so picker-level selection is observable. */
+  function SelfHarness(props: {
+    initialPath?: string;
+    initialSelected?: string[];
+    sessionCounts?: Map<string, number>;
+  }) {
+    const [selected, setSelected] = React.useState<string[]>(props.initialSelected ?? []);
+    const toggle = (raw: string) => {
+      const path = normalizePath(raw.trim(), inferPlatform([raw]));
+      if (!path) return;
+      setSelected((prev) => (prev.includes(path) ? prev.filter((p) => p !== path) : [...prev, path]));
+    };
+    return (
+      <>
+        <PathPicker
+          initialPath={props.initialPath ?? "/home/user/"}
+          onSelect={onSelect}
+          onCancel={onCancel}
+          selection={{ selected: new Set(selected), onToggle: toggle }}
+          sessionCounts={props.sessionCounts}
+        />
+        <div data-testid="harness-basket">{selected.join("|")}</div>
+      </>
+    );
+  }
+  const basket = () => screen.getByTestId("harness-basket").textContent ?? "";
+
+  it("E2 — activation toggles the self-row OFF", async () => {
+    render(<SelfHarness initialSelected={["/home/user"]} />);
+    await waitFor(() => expect(screen.getByTestId("path-picker-self")).toBeTruthy());
+    expect(basket()).toBe("/home/user");
+    // Enter while the self-row is highlighted (index 0) toggles it off.
+    const input = screen.getByRole("textbox");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(basket()).toBe("");
+  });
+
+  it("E3 — self-row uses the open-folder glyph and renders no chevron", async () => {
+    render(<SelfHarness />);
+    const selfRow = await screen.findByTestId("path-picker-self");
+    const paths = Array.from(selfRow.querySelectorAll("svg path")).map((p) => p.getAttribute("d"));
+    expect(paths).toContain(mdiFolderOpen);
+    expect(paths).not.toContain(mdiChevronRight);
+  });
+
+  it("E6 — self-row + equivalent child do not double-count", async () => {
+    // Browse a trailing-separator path, tick the self-row, navigate up: the
+    // equivalent child renders checked and the basket holds it exactly once.
+    mockBrowse.mockResolvedValue(makeBrowseResult("/home/user/work/", [], "/home/user"));
+    render(<SelfHarness initialPath="/home/user/work/" />);
+    await screen.findByTestId("path-picker-self");
+    fireEvent.click(screen.getByTestId("path-picker-check-/home/user/work/"));
+    expect(basket()).toBe("/home/user/work");
+
+    mockBrowse.mockResolvedValue(userHome);
+    const dotdot = screen.getAllByRole("option").find((o) => o.textContent?.includes(".."))!;
+    fireEvent.click(dotdot);
+    await waitFor(() => expect(screen.getByText("work")).toBeTruthy());
+
+    expect(screen.getByTestId("path-picker-check-/home/user/work").getAttribute("aria-checked")).toBe("true");
+    expect(basket()).toBe("/home/user/work");
+  });
+
+  it("E7 — current dir with live sessions is badged on the self-row", async () => {
+    const counts = new Map([[pathKey("/home/user", inferPlatform(["/home/user"])), 2]]);
+    render(<SelfHarness sessionCounts={counts} />);
+    await screen.findByTestId("path-picker-self");
+    expect(screen.getByTestId("path-picker-sessions-/home/user").textContent).toMatch(/2/);
+  });
+
+  it("E9 — self-row is absent while no current directory is resolved", async () => {
+    mockBrowse.mockReturnValue(new Promise(() => { /* never resolves */ }));
+    render(<SelfHarness />);
+    expect(screen.getByText(/loading/i)).toBeTruthy();
+    expect(screen.queryByTestId("path-picker-self")).toBeNull();
+  });
+
+  it("E9b — self-row absent when a resolved current path is empty or relative", async () => {
+    // The render-gate requires an ABSOLUTE path, so a browse that resolves with
+    // an empty or relative `current` must NOT produce a selectable self-row.
+    for (const current of ["", "relative/dir"]) {
+      mockBrowse.mockResolvedValue({ current, parent: null, entries: [{ name: "child", path: `${current}/child` }] });
+      const { unmount } = render(<SelfHarness />);
+      await waitFor(() => expect(screen.getByText("child")).toBeTruthy());
+      expect(screen.queryByTestId("path-picker-self")).toBeNull();
+      unmount();
+    }
+  });
+
+  it("E10 — child-row activation still descends (regression)", async () => {
+    render(<SelfHarness />);
+    await waitFor(() => expect(screen.getByText("work")).toBeTruthy());
+    mockBrowse.mockResolvedValue(makeBrowseResult("/home/user/work", [], "/home/user"));
+    fireEvent.click(screen.getByText("work"));
+    await waitFor(() => {
+      expect(mockBrowse.mock.calls.some((c) => c[0] === "/home/user/work")).toBe(true);
+    });
+    expect(basket()).toBe("");
+  });
+
+  it("E11 — single-select mode renders no self-row, CONTENTS label, or checkboxes", async () => {
+    render(<PathPicker initialPath="/home/user/" onSelect={onSelect} onCancel={onCancel} />);
+    await waitFor(() => expect(screen.getByText("work")).toBeTruthy());
+    expect(screen.queryByTestId("path-picker-self")).toBeNull();
+    expect(screen.queryByTestId("path-picker-contents-label")).toBeNull();
+    expect(screen.queryByTestId("path-picker-check-/home/user/work")).toBeNull();
+  });
+
+  it("F1 — CONTENTS label is skipped by keyboard traversal", async () => {
+    render(<SelfHarness />);
+    await screen.findByTestId("path-picker-self");
+    const label = screen.getByTestId("path-picker-contents-label");
+    expect(label.getAttribute("role")).not.toBe("option");
+    const input = screen.getByRole("textbox");
+    // From the self-row (index 0), the next highlight lands on the `..` row.
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    const options = screen.getAllByRole("option");
+    const selected = options.find((o) => o.getAttribute("aria-selected") === "true");
+    expect(selected?.textContent).toContain("..");
+    expect(label.hasAttribute("aria-selected")).toBe(false);
+  });
+
+  it("F2 — CONTENTS label sits below the self-row and above `..`", async () => {
+    render(<SelfHarness />);
+    const selfRow = await screen.findByTestId("path-picker-self");
+    const label = screen.getByTestId("path-picker-contents-label");
+    const listbox = screen.getByRole("listbox");
+    const kids = Array.from(listbox.querySelectorAll("[data-testid='path-picker-self'], [data-testid='path-picker-contents-label'], [role='option']"));
+    const selfIdx = kids.indexOf(selfRow);
+    const labelIdx = kids.indexOf(label);
+    const dotdotIdx = kids.findIndex((k) => k.getAttribute("role") === "option" && k.textContent?.includes(".."));
+    expect(selfIdx).toBeLessThan(labelIdx);
+    expect(labelIdx).toBeLessThan(dotdotIdx);
+  });
+
+  it("F3 — Space toggles the self-row and inserts no literal space", async () => {
+    render(<SelfHarness />);
+    await screen.findByTestId("path-picker-self");
+    const input = screen.getByRole("textbox") as HTMLInputElement;
+    const before = input.value;
+    fireEvent.keyDown(input, { key: "ArrowDown" }); // highlight the self-row
+    fireEvent.keyDown(input, { key: " " });
+    expect(basket()).toBe("/home/user");
+    expect(input.value).toBe(before);
   });
 });
 

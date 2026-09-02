@@ -1,4 +1,4 @@
-import { parsePathInput, withTrailingSep } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
+import { normalizePath, parsePathInput, withTrailingSep } from "@blackbelt-technology/pi-dashboard-shared/platform/paths.js";
 import type { BrowseEntry, BrowseResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import {
   mdiArrowUp,
@@ -6,11 +6,12 @@ import {
   mdiCheckboxMarked,
   mdiChevronRight,
   mdiFolder,
+  mdiFolderOpen,
   mdiFolderPlusOutline,
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import type React from "react";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { browseDirectory, classifyPaths, createDirectory } from "../../lib/api/browse-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { inferPlatform, pathKey } from "../../lib/session/session-grouping.js";
@@ -62,11 +63,23 @@ function parseInput(value: string): { parent: string; partial: string } {
   return parsePathInput(value, platform);
 }
 
+/**
+ * True when `p` is a non-empty absolute path (POSIX root, Windows drive root,
+ * or UNC root). The self-row render-gate uses this so an empty/relative/malformed
+ * current-directory value never produces a bogus selectable row (design D4).
+ */
+function isAbsolutePath(p: string): boolean {
+  // POSIX root, Windows drive root, or a UNC path with at least a server segment
+  // (`\\host…`) — a bare `\\` / `\\\` is malformed and does not qualify.
+  return p.startsWith("/") || /^[A-Za-z]:[\\/]/.test(p) || /^\\\\[^\\/]/.test(p);
+}
+
 const DEBOUNCE_MS = 150;
 
 type DisplayItem =
   | { type: "parent" }
   | { type: "entry"; entry: BrowseEntry }
+  | { type: "self"; path: string }
   | { type: "create-here"; name: string };
 
 export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenServers, selection, sessionCounts }: Props) {
@@ -103,6 +116,24 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
    * browsing HOME). Adopt the server default ONLY while the field is pristine.
    */
   const userEditedRef = useRef(false);
+
+  /**
+   * Normalized snapshot of the caller's basket for the checkbox checked-state
+   * test. Both the stored paths and the compared row path are run through
+   * `normalizePath` (collapses trailing-separator / `.` / `..` drift, PRESERVES
+   * case) so a directory ticked via the self-row — whose path may carry a
+   * trailing separator — and the same directory ticked via a child row resolve
+   * to ONE checked state. Case-insensitive dedup is deliberately NOT introduced.
+   * See change: add-current-folder-to-add-flow (design D5).
+   */
+  const normalizedSelected = useMemo(() => {
+    const set = new Set<string>();
+    if (selection) {
+      for (const p of selection.selected) set.add(normalizePath(p, inferPlatform([p])));
+    }
+    return set;
+  }, [selection]);
+  const isPathSelected = (p: string) => normalizedSelected.has(normalizePath(p, inferPlatform([p])));
 
   /**
    * Fetch directory contents. If `q` is non-empty, filters server-side.
@@ -249,6 +280,12 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
 
   const showDotDot = parentPath !== null;
   const displayItems: DisplayItem[] = [];
+  // Self-row (multi-select only): the directory currently being browsed is
+  // itself selectable. Render-gated on a resolved, non-empty absolute current
+  // path so the initial default-directory load shows no row (design D1/D4).
+  const selfDir = fetchedDirRef.current;
+  const showSelfRow = multiSelect && selfDir !== null && isAbsolutePath(selfDir);
+  if (showSelfRow && selfDir) displayItems.push({ type: "self", path: selfDir });
   if (showDotDot) displayItems.push({ type: "parent" });
   for (const entry of filtered) {
     displayItems.push({ type: "entry", entry });
@@ -311,6 +348,9 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
       descendInto(parentPath);
     } else if (item.type === "entry") {
       descendInto(item.entry.path);
+    } else if (item.type === "self") {
+      // The current directory cannot be descended into — activation TOGGLES it.
+      selection?.onToggle(item.path);
     } else if (item.type === "create-here") {
       if (!fetchedDirRef.current) return;
       void createFolder(fetchedDirRef.current, item.name);
@@ -391,6 +431,9 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
         if (item.type === "entry") {
           e.preventDefault();
           selection?.onToggle(item.entry.path);
+        } else if (item.type === "self") {
+          e.preventDefault();
+          selection?.onToggle(item.path);
         }
       }
     } else if (e.key === "Enter") {
@@ -402,9 +445,10 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
           handleItemClick(item);
           return;
         }
-        // Multi-select: Enter on a highlighted directory descends into it. The
-        // basket — not the input — is the answer, so tryConfirm never runs.
-        if (multiSelect && item.type === "entry") {
+        // Multi-select: Enter on a highlighted child directory descends into it
+        // (the basket — not the input — is the answer, so tryConfirm never runs);
+        // Enter on the self-row toggles its selection (nowhere to descend).
+        if (multiSelect && (item.type === "entry" || item.type === "self")) {
           handleItemClick(item);
           return;
         }
@@ -521,6 +565,59 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
               const baseClass = `px-3 py-1 text-sm cursor-pointer flex items-center gap-2 ${
                 isHighlighted ? "bg-blue-600/30" : "hover:bg-[var(--bg-secondary)]"
               }`;
+              if (item.type === "self") {
+                // Current-directory self-row: open-folder glyph, NO descend
+                // chevron (you cannot descend into where you already are),
+                // accent-tinted, followed by a presentational CONTENTS eyebrow
+                // that marks where browsing begins. The label is NOT a
+                // role="option" and is not in displayItems, so it never offsets
+                // highlight traversal (design D1/D3/D7).
+                const checked = isPathSelected(item.path);
+                const selfSessions = sessionCounts?.get(pathKey(item.path, inferPlatform([item.path])));
+                return (
+                  <Fragment key="__self">
+                    <div
+                      role="option"
+                      aria-selected={isHighlighted}
+                      className={`${baseClass} bg-[var(--accent-blue)]/5`}
+                      onClick={() => handleItemClick(item)}
+                      data-testid="path-picker-self"
+                    >
+                      <button
+                        type="button"
+                        role="checkbox"
+                        aria-checked={checked}
+                        aria-label={i18nT("folders.selectFolder", { name: item.path }, `Select ${item.path}`)}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          selection?.onToggle(item.path);
+                        }}
+                        className="focus-ring shrink-0 inline-flex items-center justify-center min-w-6 min-h-6 -m-1 rounded text-[var(--text-tertiary)] hover:text-[var(--accent-blue)]"
+                        data-testid={`path-picker-check-${item.path}`}
+                      >
+                        <Icon path={checked ? mdiCheckboxMarked : mdiCheckboxBlankOutline} size={0.65} />
+                      </button>
+                      <Icon path={mdiFolderOpen} size={0.6} className="shrink-0 text-[var(--text-secondary)]" />
+                      <span className="flex-1 truncate">{item.path}</span>
+                      {selfSessions ? (
+                        <span
+                          className="text-[10px] px-1.5 py-px rounded-full bg-[var(--accent-blue)]/15 text-[var(--accent-blue)] shrink-0"
+                          data-testid={`path-picker-sessions-${item.path}`}
+                        >
+                          {i18nT("folders.sessionCount", { count: selfSessions }, `${selfSessions} sessions`)}
+                        </span>
+                      ) : null}
+                    </div>
+                    <div
+                      aria-hidden="true"
+                      className="px-3 pt-1.5 pb-0.5 text-[10px] uppercase tracking-wide font-bold text-[var(--text-muted)]"
+                      data-testid="path-picker-contents-label"
+                    >
+                      {i18nT("folders.contents", undefined, "Contents")}
+                    </div>
+                  </Fragment>
+                );
+              }
               if (item.type === "parent") {
                 return (
                   <div
@@ -566,7 +663,7 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
                     <button
                       type="button"
                       role="checkbox"
-                      aria-checked={selection.selected.has(entry.path)}
+                      aria-checked={isPathSelected(entry.path)}
                       aria-label={i18nT("folders.selectFolder", { name: entry.name }, `Select ${entry.name}`)}
                       // stopPropagation so ticking never navigates.
                       onClick={(e) => {
@@ -580,7 +677,7 @@ export function PathPicker({ initialPath, onSelect, onCancel, rows = 8, onOpenSe
                       data-testid={`path-picker-check-${entry.path}`}
                     >
                       <Icon
-                        path={selection.selected.has(entry.path) ? mdiCheckboxMarked : mdiCheckboxBlankOutline}
+                        path={isPathSelected(entry.path) ? mdiCheckboxMarked : mdiCheckboxBlankOutline}
                         size={0.65}
                       />
                     </button>
