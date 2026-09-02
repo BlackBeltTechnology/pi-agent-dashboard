@@ -168,8 +168,9 @@ describe("contributed folder-scope bases (reconcile degrade)", () => {
     expect(() => reconcileWatchers(fake, [good, bad])).not.toThrow();
     expect(fake.attachedBases()).toEqual([good]);
     expect(badAttachCalls).toBe(1);
-    // Steady-state re-reconcile: good is not re-attached, bad is retried (non-fatal).
+    // Steady-state re-reconcile: good is not re-attached, bad IS retried (non-fatal).
     reconcileWatchers(fake, [good, bad]);
     expect(fake.attachedBases()).toEqual([good]);
+    expect(badAttachCalls).toBe(2); // unattached base retried each reconcile, no give-up
   });
 });

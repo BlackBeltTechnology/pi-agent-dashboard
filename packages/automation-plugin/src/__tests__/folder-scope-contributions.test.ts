@@ -67,6 +67,20 @@ describe("collectFolderScopeBases", () => {
     expect(out).toEqual([path.resolve("/a")]);
   });
 
+  it("rejects a relative `base` (spec requires absolute; `.` would resolve against server cwd)", () => {
+    const warn = vi.fn();
+    const out = collectFolderScopeBases(
+      [
+        entry("automation.folderscope.dot", { base: "." }),
+        entry("automation.folderscope.rel", { base: "sub/dir" }),
+        entry("automation.folderscope.abs", { base: "/repo" }),
+      ],
+      { warn },
+    );
+    expect(out).toEqual([path.resolve("/repo")]);
+    expect(warn).toHaveBeenCalledTimes(2);
+  });
+
   it("E5: guards a path.resolve throw — no throw propagates, warned once", () => {
     const warn = vi.fn();
     const realResolve = path.resolve;
@@ -79,7 +93,7 @@ describe("collectFolderScopeBases", () => {
     try {
       let out: string[] = [];
       expect(() => {
-        out = collectFolderScopeBases([entry("automation.folderscope.bad", { base: "\u0000/bad" })], { warn });
+        out = collectFolderScopeBases([entry("automation.folderscope.bad", { base: "/\u0000bad" })], { warn });
       }).not.toThrow();
       expect(out).toEqual([]);
       expect(warn).toHaveBeenCalledTimes(1);

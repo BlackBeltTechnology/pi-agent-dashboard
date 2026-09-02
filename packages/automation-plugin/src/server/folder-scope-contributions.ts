@@ -26,8 +26,10 @@ export const FOLDER_SCOPE_CONTRIBUTION_PREFIX = "automation.folderscope.";
  *
  * A contribution value is accepted ONLY when it is a PLAIN object (prototype
  * `Object.prototype` or `null` — never a `Date`/`Map`/class instance/array/null)
- * with a `base` string that is non-empty after `trim()` and that `path.resolve`
- * accepts; anything else is ignored and warned once per key (`warnedKeys`
+ * with a `base` string that is non-empty after `trim()` and ABSOLUTE (the spec
+ * requires an absolute repo root; a relative base would resolve against the
+ * server's `process.cwd()` and arm an unintended directory); anything else is
+ * ignored and warned once per key (`warnedKeys`
  * dedupes across the repeated per-read calls). The whole per-entry read is
  * wrapped so a hostile getter/proxy that throws on property access is isolated
  * (fail-open) and cannot abort collection of the remaining valid entries.
@@ -65,7 +67,12 @@ export function collectFolderScopeBases(
         rejected("`base` must be a non-empty string");
         continue;
       }
-      const resolved = path.resolve(base.trim());
+      const trimmed = base.trim();
+      if (!path.isAbsolute(trimmed)) {
+        rejected("`base` must be an absolute path (relative bases would resolve against the server cwd)");
+        continue;
+      }
+      const resolved = path.resolve(trimmed);
       if (resolvedHome !== undefined && resolved === resolvedHome) continue;
       bases.add(resolved);
     } catch (e) {
