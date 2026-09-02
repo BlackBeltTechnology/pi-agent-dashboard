@@ -162,6 +162,17 @@ describe("QuotaSettings retry block", () => {
     expect(getByTestId("quota-retry-total").textContent).toBe("1.1 min");
   });
 
+  it("F4b: a malformed persisted maxAttempts is clamped, preview stays bounded", async () => {
+    const { getByTestId } = await mountSettings({
+      enabled: true,
+      providers: { "openai-codex": { enabled: true } },
+      // 1e9 would spin computeSchedule forever without the client-side clamp.
+      retry: { enabled: true, maxAttempts: 1e9, baseDelayMs: 1000, maxDelayMs: 60_000 },
+    });
+    // Clamped to RETRY_MAX_ATTEMPTS (5): sequence has exactly 5 entries.
+    expect(getByTestId("quota-retry-sequence").textContent).toBe("1 s → 2 s → 4 s → 8 s → 16 s");
+  });
+
   it("E10: toggling a provider preserves the retry config through commit", async () => {
     const { getByTestId, src, sent } = await mountSettings({
       enabled: true,

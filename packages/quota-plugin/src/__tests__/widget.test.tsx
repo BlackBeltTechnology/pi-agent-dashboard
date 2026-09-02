@@ -119,6 +119,35 @@ describe("useQuota", () => {
     expect(result.current.lastUpdated).toBe(updatedAfterRefresh); // never regresses
   });
 
+  it("F1b: a failed NEWER refresh still supersedes a slower older poll", async () => {
+    let resolveSlow!: (r: Response) => void;
+    const slow = new Promise<Response>((r) => {
+      resolveSlow = r;
+    });
+    const calls: Array<() => Promise<Response>> = [
+      () => slow, // seq1 — initial poll, resolves LAST, with real data
+      () => Promise.reject(new Error("network")), // seq2 — refresh, fails FIRST
+    ];
+    let i = 0;
+    global.fetch = vi.fn(() => calls[Math.min(i++, calls.length - 1)]()) as unknown as typeof fetch;
+
+    const { result } = renderHook(() => useQuota());
+    await act(async () => {
+      result.current.refresh(); // issues seq2, which rejects
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    // seq1 (older poll) now resolves with data — it must NOT clobber, since a
+    // newer request (seq2) was already issued. Snapshot stays empty.
+    await act(async () => {
+      resolveSlow(jsonRes({ providers: snap("openai-codex", 10) }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(result.current.providers).toEqual([]);
+    expect(result.current.lastUpdated).toBeNull();
+  });
+
   it("F2: refresh is a no-op while a request is already in flight", async () => {
     let pending!: (r: Response) => void;
     const held = new Promise<Response>((r) => {

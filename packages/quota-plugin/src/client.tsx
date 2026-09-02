@@ -122,14 +122,15 @@ export function useQuota(pollMs = 60_000): QuotaState {
   const [lastUpdated, setLastUpdated] = useState<number | null>(null);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const seqRef = useRef(0);
-  const appliedRef = useRef(0);
   const refreshingRef = useRef(false);
   const aliveRef = useRef(true);
 
   const apply = useCallback((seq: number, json: ApiQuotaResponse): void => {
-    // Apply only if this is still the newest response (drops out-of-order races).
-    if (!aliveRef.current || seq <= appliedRef.current) return;
-    appliedRef.current = seq;
+    // Apply ONLY the newest issued request's response (D7). Comparing against the
+    // last *issued* sequence — not the last *applied* one — means a superseded
+    // response is dropped even when the newer request FAILED before this older
+    // one resolved; the retained snapshot then survives (honest degradation).
+    if (!aliveRef.current || seq !== seqRef.current) return;
     setProviders(Array.isArray(json.providers) ? json.providers : []);
     setLastUpdated(Date.now());
   }, []);
@@ -539,10 +540,19 @@ function humanMs(ms: number): string {
  * `maxAttempts + 1` (design D4).
  */
 function computeSchedule(
-  maxAttempts: number,
-  baseDelayMs: number,
-  maxDelayMs: number,
+  maxAttemptsRaw: number,
+  baseDelayMsRaw: number,
+  maxDelayMsRaw: number,
 ): { seq: string[]; totalMs: number } {
+  // Clamp to the schema bounds BEFORE looping — number inputs don't normalize
+  // typed values, and a malformed persisted `maxAttempts` (e.g. 1e9) would
+  // otherwise spin this loop and freeze the settings UI before the server's
+  // own clamp ever runs. Mirrors the server-side clampRetry bounds.
+  const clamp = (v: number, lo: number, hi: number, dflt: number) =>
+    Number.isFinite(v) ? Math.min(Math.max(v, lo), hi) : dflt;
+  const maxAttempts = clamp(Math.trunc(maxAttemptsRaw), 0, RETRY_MAX_ATTEMPTS, 3);
+  const baseDelayMs = clamp(baseDelayMsRaw, 100, 10_000, 1_000);
+  const maxDelayMs = clamp(maxDelayMsRaw, 100, 60_000, 60_000);
   const seq: string[] = [];
   let sleepMs = 0;
   for (let n = 0; n < maxAttempts; n++) {
