@@ -53,11 +53,16 @@ interface Props {
   onOpenServers?: () => void;
 }
 
-/** Trailing path segment, for the pill label. */
+/**
+ * Trailing path segment, for the pill label. Filesystem roots (`/`, `C:\`, a
+ * UNC share root) strip to an empty leaf — fall back to the full path so the
+ * pill and its accessible remove label are never empty (design D6).
+ */
 function leafName(p: string): string {
   const trimmed = p.replace(/[/\\]+$/, "");
   const idx = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
-  return idx >= 0 ? trimmed.slice(idx + 1) : trimmed;
+  const leaf = idx >= 0 ? trimmed.slice(idx + 1) : trimmed;
+  return leaf || p;
 }
 
 export function AddFoldersDialog({

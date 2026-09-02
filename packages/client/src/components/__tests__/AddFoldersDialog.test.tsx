@@ -183,6 +183,81 @@ describe("AddFoldersDialog", () => {
   });
 });
 
+// add-current-folder-to-add-flow — the current-directory self-row lets the user
+// add the folder they have navigated INTO. These cover the dialog-level
+// observables (basket label, pill label, commit → onPin); picker-level self-row
+// mechanics live in PathPicker.test.tsx.
+describe("AddFoldersDialog current-directory self-row", () => {
+  const onPin = vi.fn();
+  const onCancel = vi.fn();
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockBrowse.mockResolvedValue(HOME);
+    mockClassify.mockResolvedValue({});
+    mockMkdir.mockResolvedValue({ path: "/home/user/new" });
+  });
+
+  function renderDialog(props: Record<string, unknown> = {}) {
+    return render(
+      <AddFoldersDialog
+        workspaces={WORKSPACES}
+        initialPath="/home/user/"
+        onPin={onPin}
+        onCancel={onCancel}
+        {...props}
+      />,
+    );
+  }
+  const commit = () => screen.getByTestId("add-folders-commit") as HTMLButtonElement;
+
+  it("E1 — self-row activation adds the current directory to the basket", async () => {
+    renderDialog();
+    await screen.findByTestId("path-picker-self");
+    const browseCalls = mockBrowse.mock.calls.length;
+    // Click the self-row body — activation toggles (never browses).
+    fireEvent.click(screen.getByTestId("path-picker-self"));
+    expect(screen.getByTestId("add-folders-pill-/home/user")).toBeTruthy();
+    expect(commit().textContent).toMatch(/1/);
+    expect(mockBrowse.mock.calls.length).toBe(browseCalls); // no navigation
+  });
+
+  it("E4 — committing a sole self-row selection pins the current directory and closes", async () => {
+    renderDialog();
+    await screen.findByTestId("path-picker-self");
+    fireEvent.click(screen.getByTestId("path-picker-check-/home/user"));
+    fireEvent.click(commit());
+    expect(onPin.mock.calls).toEqual([["/home/user"]]);
+    expect(onCancel).toHaveBeenCalled();
+  });
+
+  it("E5 — self-row selection coexists with a child selection", async () => {
+    renderDialog();
+    await screen.findByTestId("path-picker-self");
+    fireEvent.click(screen.getByTestId("path-picker-check-/home/user"));
+
+    mockBrowse.mockResolvedValue(PROJECTS);
+    fireEvent.click(screen.getByTestId("path-picker-open-/home/user/projects"));
+    await waitFor(() => expect(screen.getByText("alpha")).toBeTruthy());
+    fireEvent.click(screen.getByTestId("path-picker-check-/home/user/projects/alpha"));
+
+    expect(screen.getByTestId("add-folders-pill-/home/user")).toBeTruthy();
+    expect(screen.getByTestId("add-folders-pill-/home/user/projects/alpha")).toBeTruthy();
+    expect(commit().textContent).toMatch(/2/);
+  });
+
+  it("E8 — filesystem-root self-row yields a non-empty pill label and remove aria-label", async () => {
+    mockBrowse.mockResolvedValue({ current: "/", parent: null, entries: [{ name: "home", path: "/home" }] });
+    renderDialog({ initialPath: "/" });
+    await screen.findByTestId("path-picker-self");
+    fireEvent.click(screen.getByTestId("path-picker-check-/"));
+    const pill = screen.getByTestId("add-folders-pill-/");
+    expect(pill.textContent?.trim()).not.toBe("");
+    const remove = screen.getByTestId("add-folders-pill-remove-/");
+    expect(remove.getAttribute("aria-label")?.trim()).toBeTruthy();
+  });
+});
+
 describe("AddFoldersDialog footer", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -325,8 +400,9 @@ describe("AddFoldersDialog keyboard: Space selects, Enter descends (never commit
     );
     await waitFor(() => expect(screen.getByText("work")).toBeTruthy());
     const input = screen.getByRole("textbox");
-    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "ArrowDown" }); // skip the current-dir self-row
     fireEvent.keyDown(input, { key: "ArrowDown" }); // skip the `..` parent row
+    fireEvent.keyDown(input, { key: "ArrowDown" }); // land on the `work` child row
     fireEvent.keyDown(input, { key: " " });
 
     expect(screen.getByTestId("add-folders-pill-/home/user/work")).toBeTruthy();
@@ -342,8 +418,9 @@ describe("AddFoldersDialog keyboard: Space selects, Enter descends (never commit
     );
     await waitFor(() => expect(screen.getByText("work")).toBeTruthy());
     const input = screen.getByRole("textbox");
-    fireEvent.keyDown(input, { key: "ArrowDown" });
-    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "ArrowDown" }); // skip the current-dir self-row
+    fireEvent.keyDown(input, { key: "ArrowDown" }); // skip the `..` parent row
+    fireEvent.keyDown(input, { key: "ArrowDown" }); // land on the `work` child row
 
     mockBrowse.mockResolvedValue(PROJECTS);
     fireEvent.keyDown(input, { key: "Enter" });
