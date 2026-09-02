@@ -1494,6 +1494,55 @@ Bridge-side. `packages/extension/src/auto-session-namer.ts`. After each terminal
 
 See change: fix-auto-naming-reasoning-model.
 
+### HTTP Role Read Surface (change: add-roles-read-api)
+
+**Endpoint.**
+
+- `GET /api/roles` — read-only role catalogue. Ungated beyond dashboard auth gate. No `pi-proxy-...` Bearer key. No live pi session required. Mirrors `GET /api/models` envelope + auth posture.
+
+**Route ownership and registration.**
+
+- Owned by roles-plugin, NOT `packages/server/src/routes/`. Manifest entry `"server": "./src/server/index.ts"` in `packages/roles-plugin/package.json`. Entry point `registerPlugin(ctx)` calls `mountRolesRoutes(ctx.fastify)` in `packages/roles-plugin/src/server/index.ts`. Route impl at `packages/roles-plugin/src/server/roles-routes.ts`. Registered WITHOUT `networkGuard` preHandler. Host owns `fastify.listen`; plugin only registers.
+
+**Response structure.**
+
+- Envelope: `{ object: "list", data: RoleGroup[] }`.
+- Each group: `{ preset, active, roles }`.
+- Live group first (`preset: null`); then preset groups in stored order. Exactly one group `active: true`.
+- Row: `{ role, ref, assigned, builtin }` always; `model`, `provider`, `thinkingLevel` added only when derivable.
+- `ref: null` for unassigned role (expected state, never an error).
+- `builtin` = role name in `DEFAULT_ROLE_NAMES`.
+
+**Role axis construction.**
+
+- Canonical axis = (defaults → user-added → assigned) ∪ preset-only names (first-referencing-preset order) − `removedRoles`.
+- Same axis + order in every group.
+- `ref` split: last colon → `model`/`thinkingLevel`; first `/` → `provider`.
+- Bare legacy id → `provider` omitted, never guessed. Stored value never rewritten.
+- Model registry NOT consulted.
+- Dangling `activePreset` (names no stored preset) → live group active.
+- Duplicate preset names collapse first-wins.
+
+**Resilience and error handling.**
+
+- Never 503. Never empty `data`.
+- Missing / unparseable / EACCES / EISDIR / TOCTOU config all degrade to "no assignments" → overlay still yields built-in names with `ref: null`.
+- Config file never created or modified by read.
+- Credential safety: rows built field-by-field from role/preset maps. Parsed config never serialized or spread into response. Credential-bearing sibling key of `providers.json` cannot reach payload.
+
+**Per-key ownership split of `~/.pi/agent/providers.json`.**
+
+- `role-manager.ts` (`packages/extension/src/`) = SOLE WRITER of role slice: `roles`, `rolePresets`, `activePreset`, `roleNames`, `removedRoles`. Atomic tmp+rename; preserves sibling keys.
+- `provider-routes.ts` (`packages/server/src/routes/`) writes `providers` key of same file. Atomic tmp+rename; preserves other fields.
+- Role slice reading is NON-exclusive. Every reader normalizes through one shared TOTAL normalizer `parseRoleConfig(raw)` in `packages/shared/src/role-schema.ts`. Pure role-schema helpers (`DEFAULT_ROLE_NAMES`, `effectiveRoleNames`, `overlayRoles`, `splitRef`/`joinRef`, types) live there — no `node:fs`, so client bundles it. `role-manager.ts` `loadRoleConfig` keeps file read but delegates normalization to `parseRoleConfig`.
+
+**Declared read corrections vs old `roles:get-all`.**
+
+- Structurally invalid preset entry now dropped (was relayed uninspected).
+- Role with both removal marker AND assignment now omitted (old trailing spread reintroduced it).
+
+See change: add-roles-read-api.
+
 ### Context Usage Tracking
 1. On each `turn_end`, the bridge calls pi's `ctx.getContextUsage()` API to get real-time context usage (tokens used + actual context window from the provider)
 2. Bridge enriches the `turn_end` event with this `contextUsage` data before forwarding to the server

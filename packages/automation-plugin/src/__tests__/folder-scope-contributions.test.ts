@@ -97,6 +97,51 @@ describe("collectFolderScopeBases", () => {
     expect(warn.mock.calls[0][0]).toContain("automation.folderscope.badkey");
   });
 
+  it("rejects non-plain objects (Date/Map/class instance) even with a valid `base`", () => {
+    const warn = vi.fn();
+    class RepoRef {
+      base = "/repo";
+    }
+    const map = new Map<string, string>();
+    map.set("base", "/repo");
+    const out = collectFolderScopeBases(
+      [
+        entry("automation.folderscope.cls", new RepoRef()),
+        entry("automation.folderscope.date", Object.assign(new Date(), { base: "/repo" })),
+        entry("automation.folderscope.map", map),
+        entry("automation.folderscope.nullproto", Object.assign(Object.create(null), { base: "/ok" })),
+      ],
+      { warn },
+    );
+    // Date/Map/class instances rejected; a null-prototype plain-data object is accepted.
+    expect(out).toEqual([path.resolve("/ok")]);
+    expect(warn).toHaveBeenCalledTimes(3);
+  });
+
+  it("isolates a hostile throwing `base` getter (fail-open) without aborting valid survivors", () => {
+    const warn = vi.fn();
+    const hostile: Record<string, unknown> = {};
+    Object.defineProperty(hostile, "base", {
+      enumerable: true,
+      get() {
+        throw new Error("boom");
+      },
+    });
+    let out: string[] = [];
+    expect(() => {
+      out = collectFolderScopeBases(
+        [
+          entry("automation.folderscope.hostile", hostile),
+          entry("automation.folderscope.good", { base: "/repo" }),
+        ],
+        { warn },
+      );
+    }).not.toThrow();
+    expect(out).toEqual([path.resolve("/repo")]);
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain("automation.folderscope.hostile");
+  });
+
   it("E7: drops a contributed base equal to the resolved home dir", () => {
     const warn = vi.fn();
     const home = path.resolve("/home/user");

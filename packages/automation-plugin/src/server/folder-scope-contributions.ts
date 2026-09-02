@@ -24,12 +24,15 @@ export const FOLDER_SCOPE_CONTRIBUTION_PREFIX = "automation.folderscope.";
 /**
  * Collect published folder-scope contributions into resolved, deduped bases.
  *
- * A contribution value is accepted ONLY when it is a plain, non-null, non-array
- * object with a `base` string that is non-empty after `trim()` and that
- * `path.resolve` accepts; anything else is ignored and warned once per key
- * (`warnedKeys` dedupes across the repeated per-read calls). Returned bases are
- * deduped by resolved path. A base whose resolved path equals `homeDir` is
- * dropped so it does not double-arm as both `folder` and `global`.
+ * A contribution value is accepted ONLY when it is a PLAIN object (prototype
+ * `Object.prototype` or `null` — never a `Date`/`Map`/class instance/array/null)
+ * with a `base` string that is non-empty after `trim()` and that `path.resolve`
+ * accepts; anything else is ignored and warned once per key (`warnedKeys`
+ * dedupes across the repeated per-read calls). The whole per-entry read is
+ * wrapped so a hostile getter/proxy that throws on property access is isolated
+ * (fail-open) and cannot abort collection of the remaining valid entries.
+ * Returned bases are deduped by resolved path. A base whose resolved path equals
+ * `homeDir` is dropped so it does not double-arm as both `folder` and `global`.
  */
 export function collectFolderScopeBases(
   entries: Array<{ key: string; value: unknown }>,
@@ -44,24 +47,30 @@ export function collectFolderScopeBases(
       warnedKeys?.add(key);
       warn(`[folder-scope] ignored contribution "${key}": ${reason}`);
     };
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-      rejected("value must be a non-null, non-array object with a { base } string");
-      continue;
-    }
-    const base = (value as { base?: unknown }).base;
-    if (typeof base !== "string" || base.trim().length === 0) {
-      rejected("`base` must be a non-empty string");
-      continue;
-    }
-    let resolved: string;
+    // Wrap the entire per-entry read: a proxy/getter can throw on prototype or
+    // property access, and `path.resolve` can throw on some inputs. A throw for
+    // one entry must not propagate out of a `listScopes()` read.
     try {
-      resolved = path.resolve(base.trim());
+      if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        rejected("value must be a non-null, non-array object with a { base } string");
+        continue;
+      }
+      const proto = Object.getPrototypeOf(value);
+      if (proto !== null && proto !== Object.prototype) {
+        rejected("value must be a plain object (no Date/Map/class instance)");
+        continue;
+      }
+      const base = (value as { base?: unknown }).base;
+      if (typeof base !== "string" || base.trim().length === 0) {
+        rejected("`base` must be a non-empty string");
+        continue;
+      }
+      const resolved = path.resolve(base.trim());
+      if (resolvedHome !== undefined && resolved === resolvedHome) continue;
+      bases.add(resolved);
     } catch (e) {
-      rejected(`path.resolve failed: ${e instanceof Error ? e.message : String(e)}`);
-      continue;
+      rejected(`rejected — read threw: ${e instanceof Error ? e.message : String(e)}`);
     }
-    if (resolvedHome !== undefined && resolved === resolvedHome) continue;
-    bases.add(resolved);
   }
   return [...bases];
 }
