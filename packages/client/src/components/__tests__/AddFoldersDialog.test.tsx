@@ -256,6 +256,33 @@ describe("AddFoldersDialog current-directory self-row", () => {
     const remove = screen.getByTestId("add-folders-pill-remove-/");
     expect(remove.getAttribute("aria-label")?.trim()).toBeTruthy();
   });
+
+  it("E8b — Windows drive root pill preserves the full root, not the drive-relative `C:`", async () => {
+    // leafName must return `C:\` (the drive ROOT), never `C:` (drive-RELATIVE).
+    mockBrowse.mockResolvedValue({ current: "C:\\", parent: null, entries: [{ name: "Users", path: "C:\\Users" }] });
+    renderDialog({ initialPath: "C:\\" });
+    await screen.findByTestId("path-picker-self");
+    fireEvent.click(screen.getByTestId("path-picker-check-C:\\"));
+    const pill = screen.getByTestId("add-folders-pill-C:\\");
+    expect(pill.textContent).toContain("C:\\"); // full root, with the separator
+    const remove = screen.getByTestId("add-folders-pill-remove-C:\\");
+    expect(remove.getAttribute("aria-label")).toContain("C:\\");
+  });
+
+  it("E8c — UNC share root pill preserves the full share root", async () => {
+    mockBrowse.mockResolvedValue({
+      current: "\\\\server\\share\\",
+      parent: null,
+      entries: [{ name: "pub", path: "\\\\server\\share\\pub" }],
+    });
+    renderDialog({ initialPath: "\\\\server\\share\\" });
+    await screen.findByTestId("path-picker-self");
+    const check = screen.getByTestId("path-picker-self").querySelector("[role='checkbox']")!;
+    fireEvent.click(check);
+    const pill = screen.getByTestId("add-folders-basket").querySelector("[data-testid^='add-folders-pill-\\\\']");
+    expect(pill?.textContent).toContain("server");
+    expect(pill?.textContent).toContain("share");
+  });
 });
 
 describe("AddFoldersDialog footer", () => {

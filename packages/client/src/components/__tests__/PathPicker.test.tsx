@@ -1060,6 +1060,18 @@ describe("PathPicker self-row (add current folder)", () => {
     expect(screen.queryByTestId("path-picker-self")).toBeNull();
   });
 
+  it("E9b — self-row absent when a resolved current path is empty or relative", async () => {
+    // The render-gate requires an ABSOLUTE path, so a browse that resolves with
+    // an empty or relative `current` must NOT produce a selectable self-row.
+    for (const current of ["", "relative/dir"]) {
+      mockBrowse.mockResolvedValue({ current, parent: null, entries: [{ name: "child", path: `${current}/child` }] });
+      const { unmount } = render(<SelfHarness />);
+      await waitFor(() => expect(screen.getByText("child")).toBeTruthy());
+      expect(screen.queryByTestId("path-picker-self")).toBeNull();
+      unmount();
+    }
+  });
+
   it("E10 — child-row activation still descends (regression)", async () => {
     render(<SelfHarness />);
     await waitFor(() => expect(screen.getByText("work")).toBeTruthy());
