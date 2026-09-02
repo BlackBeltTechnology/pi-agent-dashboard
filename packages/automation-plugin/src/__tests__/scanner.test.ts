@@ -104,3 +104,16 @@ describe("scanAutomations", () => {
     expect(globalOnly.map((a) => a.name)).toEqual(["g"]);
   });
 });
+
+// See change: add-automation-folder-scope-contribution.
+describe("contributed base scan degrade", () => {
+  it("X2: a contributed base lacking .pi/automation yields zero automations, no crash", () => {
+    const contributed = fs.mkdtempSync(path.join(os.tmpdir(), "auto-contrib-"));
+    try {
+      expect(() => scanAutomations({ repoRoot: contributed, scanGlobal: false }, KNOWN)).not.toThrow();
+      expect(scanAutomations({ repoRoot: contributed, scanGlobal: false }, KNOWN)).toEqual([]);
+    } finally {
+      fs.rmSync(contributed, { recursive: true, force: true });
+    }
+  });
+});
