@@ -814,6 +814,10 @@ importers:
       yaml:
         specifier: ^2.9.0
         version: 2.9.0
+    optionalDependencies:
+      '@blackbelt-technology/invoicebot':
+        specifier: file:../../../pi-invoice-bot
+        version: file:../pi-invoice-bot(@earendil-works/pi-ai@0.75.5(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1))(@earendil-works/pi-coding-agent@0.84.4(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1))(@earendil-works/pi-tui@0.84.4)(pi-blackhole@0.4.10(@earendil-works/pi-agent-core@0.84.4(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1))(@earendil-works/pi-ai@0.75.5(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1))(@earendil-works/pi-coding-agent@0.84.4(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1))(@earendil-works/pi-tui@0.84.4))(typebox@1.3.20)
 
   packages/kb: {}
 
@@ -1504,6 +1508,17 @@ packages:
     engines: {node: '>=14.21.3'}
     cpu: [x64]
     os: [win32]
+
+  '@blackbelt-technology/invoicebot@file:../pi-invoice-bot':
+    resolution: {directory: ../pi-invoice-bot, type: directory}
+    peerDependencies:
+      '@earendil-works/pi-ai': '*'
+      '@earendil-works/pi-coding-agent': 0.84.4
+      '@earendil-works/pi-tui': '*'
+      pi-blackhole: '>=0.4.7'
+      typebox: '*'
+    bundledDependencies:
+      - '@blackbelt-technology/pi-flows'
 
   '@blackbelt-technology/pi-anthropic-messages@0.3.4':
     resolution: {integrity: sha512-aqAGbHghmrDMM1AjQQ9e5446ETKTtgCFEAiDDLq75tLtiLD1XZfijhO0Fzu1vVNC9D1q1NbfNpowu9++/qA07A==}
@@ -8287,6 +8302,14 @@ packages:
     engines: {node: '>= 8'}
     deprecated: Package no longer supported. Contact Support at https://www.npmjs.com/support for more info.
 
+  pi-blackhole@0.4.10:
+    resolution: {integrity: sha512-19NvAUBHiZLrOWzsb77md62YojkhU4Vzd6ziSE+wG4zd/fVS7SsDpflbojtOwP2s2Qa3HCRnfII8Zu4Ae3Slgw==}
+    peerDependencies:
+      '@earendil-works/pi-agent-core': '>=0.81.1 <1.0.0'
+      '@earendil-works/pi-ai': '>=0.81.1 <1.0.0'
+      '@earendil-works/pi-coding-agent': 0.84.4
+      '@earendil-works/pi-tui': '>=0.81.1 <1.0.0'
+
   pi-mcp-adapter@2.30.0:
     resolution: {integrity: sha512-B/XuvxWdB9Xx0eTJ56T7ePmeUEhd+gttvJDlVxTVMJxbvSo25DL1H4mJxfFHiqW5rx1mjURdOcEAohbCA+NuBQ==}
     engines: {node: '>=20'}
@@ -10570,6 +10593,15 @@ snapshots:
     optional: true
 
   '@biomejs/cli-win32-x64@2.5.11':
+    optional: true
+
+  '@blackbelt-technology/invoicebot@file:../pi-invoice-bot(@earendil-works/pi-ai@0.75.5(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1))(@earendil-works/pi-coding-agent@0.84.4(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1))(@earendil-works/pi-tui@0.84.4)(pi-blackhole@0.4.10(@earendil-works/pi-agent-core@0.84.4(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1))(@earendil-works/pi-ai@0.75.5(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1))(@earendil-works/pi-coding-agent@0.84.4(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1))(@earendil-works/pi-tui@0.84.4))(typebox@1.3.20)':
+    dependencies:
+      '@earendil-works/pi-ai': 0.75.5(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1)
+      '@earendil-works/pi-coding-agent': 0.84.4(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1)
+      '@earendil-works/pi-tui': 0.84.4
+      pi-blackhole: 0.4.10(@earendil-works/pi-agent-core@0.84.4(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1))(@earendil-works/pi-ai@0.75.5(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1))(@earendil-works/pi-coding-agent@0.84.4(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1))(@earendil-works/pi-tui@0.84.4)
+      typebox: 1.3.20
     optional: true
 
   '@blackbelt-technology/pi-anthropic-messages@0.3.4(@earendil-works/pi-coding-agent@0.84.4(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1))':
@@ -18529,6 +18561,14 @@ snapshots:
       centra: 2.7.0(debug@4.4.3(supports-color@8.1.1))
     transitivePeerDependencies:
       - debug
+    optional: true
+
+  pi-blackhole@0.4.10(@earendil-works/pi-agent-core@0.84.4(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1))(@earendil-works/pi-ai@0.75.5(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1))(@earendil-works/pi-coding-agent@0.84.4(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1))(@earendil-works/pi-tui@0.84.4):
+    dependencies:
+      '@earendil-works/pi-agent-core': 0.84.4(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1)
+      '@earendil-works/pi-ai': 0.75.5(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1)
+      '@earendil-works/pi-coding-agent': 0.84.4(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1)
+      '@earendil-works/pi-tui': 0.84.4
     optional: true
 
   pi-mcp-adapter@2.30.0(@earendil-works/pi-ai@0.84.4(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(supports-color@8.1.1)(ws@8.21.3)(zod@4.5.1))(@earendil-works/pi-tui@0.84.4)(@modelcontextprotocol/sdk@1.30.0(supports-color@8.1.1)(zod@4.5.1))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)(typebox@1.3.20)(zod@4.5.1):
