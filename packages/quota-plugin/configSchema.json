@@ -33,6 +33,40 @@
         "opencode-go": { "enabled": true },
         "kimi-coding": { "enabled": true }
       }
+    },
+    "retry": {
+      "type": "object",
+      "description": "In-request retry of a TRANSIENT quota-fetch failure (HTTP 429/5xx, timeout, network) with expanding backoff. Off by default. Every numeric field is also clamped on read, so a malformed persisted value can never drive an unbounded wait or a timer overflow.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Master gate for retry. When false the server makes exactly one attempt per provider.",
+          "default": false
+        },
+        "maxAttempts": {
+          "type": "integer",
+          "description": "Retries AFTER the initial attempt (0 disables retry). The initial attempt always runs, so the worst-case attempt count is maxAttempts + 1.",
+          "minimum": 0,
+          "maximum": 5,
+          "default": 3
+        },
+        "baseDelayMs": {
+          "type": "integer",
+          "description": "First backoff delay in ms; doubles each retry, capped at maxDelayMs.",
+          "minimum": 100,
+          "maximum": 10000,
+          "default": 1000
+        },
+        "maxDelayMs": {
+          "type": "integer",
+          "description": "Ceiling for a single backoff delay in ms.",
+          "minimum": 100,
+          "maximum": 60000,
+          "default": 60000
+        }
+      },
+      "additionalProperties": false,
+      "default": { "enabled": false, "maxAttempts": 3, "baseDelayMs": 1000, "maxDelayMs": 60000 }
     }
   },
   "additionalProperties": false

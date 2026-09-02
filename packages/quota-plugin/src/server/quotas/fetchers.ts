@@ -17,7 +17,7 @@
  * them. See change: publish-quota-plugin.
  */
 import type { QuotaWindowDto } from "../../types.js";
-import { fetchJson } from "./http.js";
+import { fetchJson, type JsonResult } from "./http.js";
 import { parseAnthropic, parseCodex, parseCopilot, parseKimi, parseOpenRouter, parseSynthetic, parseZai } from "./parse.js";
 
 /** The host-provided credential seam. Mirrors the server plugin context. */
@@ -31,9 +31,44 @@ type FetchFailure = "no-credential" | "peer-rejected" | "no-data" | "no-adapter"
 
 export type FetchResult =
   | { windows: QuotaWindowDto[]; failure?: undefined }
-  | { windows?: undefined; failure: FetchFailure; detail?: string };
+  | { windows?: undefined; failure: FetchFailure; transient?: boolean; detail?: string };
 
 const bearer = (token: string): Record<string, string> => ({ Authorization: `Bearer ${token}` });
+
+/**
+ * Classify a FAILED `fetchJson` result into a client-facing reason plus a
+ * transient/terminal verdict (design D2). `http` is transient ONLY for 429/5xx;
+ * every other status is terminal (a 4xx will not fix itself on retry).
+ * `timeout`/`network` are transient. The reason stays `peer-rejected` so the
+ * wire contract is unchanged.
+ */
+export function classifyHttpFailure(res: Extract<JsonResult, { ok: false }>): {
+  failure: FetchFailure;
+  transient: boolean;
+  detail?: string;
+} {
+  if (res.kind === "http") {
+    const status = res.status ?? 0;
+    const transient = status === 429 || (status >= 500 && status <= 599);
+    return { failure: "peer-rejected", transient, detail: res.message };
+  }
+  // timeout | network — a blip that a retry may clear.
+  return { failure: "peer-rejected", transient: true, detail: res.message };
+}
+
+/**
+ * Turn a parsed body into windows, or a TERMINAL `no-data`. A malformed-but-200
+ * body or a thrown parse error is never transient — retrying a well-formed HTTP
+ * 200 we simply cannot parse only burns the budget (design D2).
+ */
+function toWindows(data: unknown, parse: (data: unknown) => QuotaWindowDto[]): FetchResult {
+  try {
+    const windows = parse(data);
+    return windows.length > 0 ? { windows } : { failure: "no-data" };
+  } catch {
+    return { failure: "no-data" };
+  }
+}
 
 /** Run a parse over a fetched endpoint, mapping every outcome onto FetchResult. */
 async function get(
@@ -43,9 +78,8 @@ async function get(
   signal?: AbortSignal,
 ): Promise<FetchResult> {
   const res = await fetchJson(url, headers, signal);
-  if (!res.ok) return { failure: "peer-rejected", detail: res.message };
-  const windows = parse(res.data);
-  return windows.length > 0 ? { windows } : { failure: "no-data" };
+  if (!res.ok) return classifyHttpFailure(res);
+  return toWindows(res.data, parse);
 }
 
 /**
@@ -117,16 +151,12 @@ async function githubCopilot(auth: AuthLike, signal?: AbortSignal): Promise<Fetc
   // The endpoint accepts either scheme depending on token vintage; try both
   // before declaring failure.
   const asBearer = await fetchJson(url, copilotHeaders(`Bearer ${githubToken}`), signal);
-  if (asBearer.ok) {
-    const windows = parseCopilot(asBearer.data);
-    return windows.length > 0 ? { windows } : { failure: "no-data" };
-  }
+  if (asBearer.ok) return toWindows(asBearer.data, parseCopilot);
   const asToken = await fetchJson(url, copilotHeaders(`token ${githubToken}`), signal);
-  if (asToken.ok) {
-    const windows = parseCopilot(asToken.data);
-    return windows.length > 0 ? { windows } : { failure: "no-data" };
-  }
-  return { failure: "peer-rejected", detail: asBearer.message };
+  if (asToken.ok) return toWindows(asToken.data, parseCopilot);
+  // Both schemes failed; this whole bearer→token fallback is ONE attempt (D6).
+  // Classify off the last result so the transient verdict reflects it.
+  return classifyHttpFailure(asToken);
 }
 
 async function openrouter(auth: AuthLike, signal?: AbortSignal): Promise<FetchResult> {
