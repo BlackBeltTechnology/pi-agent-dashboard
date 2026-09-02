@@ -378,6 +378,7 @@ export const PLUGIN_REGISTRY: RegistryEntry[] = [
             }
         ],
         "client": "./src/index.tsx",
+        "server": "./src/server/index.ts",
         "i18nCatalog": "catalog"
     },
     claims: [
