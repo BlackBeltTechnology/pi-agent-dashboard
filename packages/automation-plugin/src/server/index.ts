@@ -126,6 +126,10 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     stopRun: ({ runId }) => stopRunViaEngine(runId),
     listActions: (cwd) => descriptorsForCwdCached(cwd ?? process.cwd()),
     actionIds: () => collectRegistry!().ids(),
+    // Live registries, so /list + /definition agree with what the scheduler will
+    // actually arm. See the FALLBACK_KINDS note in routes.ts.
+    triggerKinds: () => engineRef?.registry.kinds() ?? new Set(["schedule"]),
+    workSourceIds: () => engineRef?.workSources.ids() ?? new Set<string>(),
   });
   // plugin_action handler: run/stop/create dispatch to the SAME engine cores
   // and writer the REST routes call (no HTTP re-entry). Fan-out routes this

@@ -22,8 +22,14 @@ import type { FastifyInstance } from "fastify";
 import type { ActionDescriptor, AutomationConfig, AutomationScope } from "../shared/automation-types.js";
 import { BUILTIN_ACTION_ALIASES } from "../shared/automation-types.js";
 
-/** Phase-1 registered trigger kinds (mirrors the server registry). */
-const KNOWN_KINDS = new Set(["schedule"]);
+/**
+ * Fallback trigger kinds, used ONLY when the engine supplies no live registry
+ * (e.g. a bare route mount in a test). The engine is the source of truth: it
+ * registers `schedule` AND `schedule.batch`, so a frozen constant here silently
+ * marks a valid `schedule.batch` automation invalid in `/list` + `/definition`
+ * while the scheduler happily fires it. Prefer `hooks.triggerKinds()`.
+ */
+const FALLBACK_KINDS = new Set(["schedule"]);
 
 /** Resolve the scope base dir for a (scope, cwd) pair. */
 function scopeBaseFor(scope: AutomationScope, cwd: string | undefined): string {
@@ -176,8 +182,9 @@ export function mountAutomationRoutes(
     const { scanAutomations } = await import("./scanner.js");
     const automations = scanAutomations(
       { repoRoot: q.cwd, homeDir: os.homedir(), scanFolder: !!q.cwd, scanGlobal: true },
-      KNOWN_KINDS,
+      hooks.triggerKinds?.() ?? FALLBACK_KINDS,
       hooks.actionIds?.(),
+      hooks.workSourceIds?.(),
     );
     return { automations };
   });
@@ -319,7 +326,12 @@ export function mountAutomationRoutes(
       reply.code(404);
       return { error: "automation not found" };
     }
-    const { config, error } = parseAutomationYaml(rawText, KNOWN_KINDS, hooks.actionIds?.());
+    const { config, error } = parseAutomationYaml(
+      rawText,
+      hooks.triggerKinds?.() ?? FALLBACK_KINDS,
+      hooks.actionIds?.(),
+      hooks.workSourceIds?.(),
+    );
     if (!config) {
       reply.code(422);
       return { error: error ?? "invalid automation.yaml" };
