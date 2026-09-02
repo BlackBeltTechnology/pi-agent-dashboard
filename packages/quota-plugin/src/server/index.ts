@@ -27,9 +27,75 @@ import type {
   ApiQuotaResponse,
   ProviderQuota,
   QuotaPluginConfig,
+  QuotaRetryConfig,
   QuotaUnavailableDto,
 } from "../types.js";
 import { type AuthLike, type FetchResult, PROVIDER_FETCHERS, SUPPORTED_PROVIDERS } from "./quotas/fetchers.js";
+
+/** Schema bounds (design D5), enforced again on read — the file is external. */
+const RETRY_BOUNDS = {
+  maxAttempts: { min: 0, max: 5, dflt: 3 },
+  baseDelayMs: { min: 100, max: 10_000, dflt: 1_000 },
+  maxDelayMs: { min: 100, max: 60_000, dflt: 60_000 },
+} as const;
+
+interface ClampedRetry {
+  enabled: boolean;
+  maxAttempts: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+}
+
+/**
+ * Read + clamp the retry config to the schema bounds BEFORE any arithmetic or
+ * timer (design D5). A hand-edited overflow/negative/NaN value is coerced to a
+ * safe bound, so retry can never produce an unbounded wait or a timer overflow.
+ */
+export function clampRetry(retry: QuotaRetryConfig | undefined): ClampedRetry {
+  const clamp = (v: unknown, b: { min: number; max: number; dflt: number }): number => {
+    const n = typeof v === "number" && Number.isFinite(v) ? v : b.dflt;
+    return Math.min(b.max, Math.max(b.min, n));
+  };
+  return {
+    enabled: retry?.enabled === true,
+    maxAttempts: Math.round(clamp(retry?.maxAttempts, RETRY_BOUNDS.maxAttempts)),
+    baseDelayMs: clamp(retry?.baseDelayMs, RETRY_BOUNDS.baseDelayMs),
+    maxDelayMs: clamp(retry?.maxDelayMs, RETRY_BOUNDS.maxDelayMs),
+  };
+}
+
+const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * One provider's fetch + bounded transient retry (design D1/D3/D6). One fetcher
+ * invocation = one attempt. Stops early on success or a TERMINAL failure; else
+ * retries up to `maxAttempts` times with delay `min(baseDelayMs·2^n, maxDelayMs)`.
+ * The finite capped schedule IS the bound — no separate budget knob.
+ */
+async function fetchWithRetry(
+  fetcher: (auth: AuthLike) => Promise<FetchResult>,
+  auth: AuthLike,
+  retry: ClampedRetry,
+  provider: string,
+  logger?: ServerPluginContext["logger"],
+): Promise<FetchResult> {
+  const maxRetries = retry.enabled ? retry.maxAttempts : 0;
+  for (let attempt = 0; ; attempt++) {
+    let result: FetchResult;
+    try {
+      result = await fetcher(auth);
+    } catch {
+      // Never log the error object — it can carry a URL or header. A thrown
+      // error is terminal (a parse throw is already mapped to no-data upstream).
+      logger?.warn?.(`quota fetch threw for ${provider}`);
+      return { failure: "peer-rejected" };
+    }
+    if (!result.failure) return result; // success
+    if (result.transient !== true) return result; // terminal — retry cannot help
+    if (attempt >= maxRetries) return result; // schedule exhausted
+    await sleep(Math.min(retry.baseDelayMs * 2 ** attempt, retry.maxDelayMs));
+  }
+}
 
 /**
  * Adapt the host credential seams onto the 2-method shape the fetchers use.
@@ -109,18 +175,13 @@ export async function computeQuota(
 
   if (enabled.size === 0) return { providers: [] };
 
+  const retry = clampRetry(config.retry);
   const order = [...enabled];
   const results = await Promise.all(
     order.map(async (provider): Promise<FetchResult> => {
       const fetcher = PROVIDER_FETCHERS[provider];
       if (!fetcher) return { failure: "no-adapter" };
-      try {
-        return await fetcher(auth);
-      } catch {
-        // Never log the error object — it can carry a URL or header.
-        logger?.warn?.(`quota fetch threw for ${provider}`);
-        return { failure: "peer-rejected" as const };
-      }
+      return fetchWithRetry(fetcher, auth, retry, provider, logger);
     }),
   );
 

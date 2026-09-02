@@ -99,28 +99,76 @@ function worstWindow(windows: QuotaWindowDto[], now: number): WindowPace | null 
   return best;
 }
 
-/** Poll `/api/quota`; returns the latest provider snapshot (empty on any failure). */
-function useQuota(pollMs = 60_000): ProviderQuota[] {
+/** Shared quota fetch/refresh state. One owner (`QuotaWidget`) instantiates it. */
+export interface QuotaState {
+  providers: ProviderQuota[];
+  /** Epoch ms of the most recently APPLIED snapshot, or null before the first. */
+  lastUpdated: number | null;
+  /** Force a fresh `GET /api/quota`. No-op while a request is already in flight. */
+  refresh: () => void;
+  isRefreshing: boolean;
+}
+
+/**
+ * Poll `/api/quota` and expose an on-demand refresh (design D7). BOTH the poll
+ * and the manual refresh carry a monotonically increasing sequence id; a
+ * response is applied only when its id is the newest issued, so an out-of-order
+ * race can never clobber a newer snapshot and `lastUpdated` never regresses. On
+ * failure the prior snapshot is retained (honest degradation, no error UI).
+ * `refresh` is a no-op while `isRefreshing` (disable-while-in-flight).
+ */
+export function useQuota(pollMs = 60_000): QuotaState {
   const [providers, setProviders] = useState<ProviderQuota[]>([]);
-  useEffect(() => {
-    let alive = true;
-    async function load(): Promise<void> {
+  const [lastUpdated, setLastUpdated] = useState<number | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+  const seqRef = useRef(0);
+  const appliedRef = useRef(0);
+  const refreshingRef = useRef(false);
+  const aliveRef = useRef(true);
+
+  const apply = useCallback((seq: number, json: ApiQuotaResponse): void => {
+    // Apply only if this is still the newest response (drops out-of-order races).
+    if (!aliveRef.current || seq <= appliedRef.current) return;
+    appliedRef.current = seq;
+    setProviders(Array.isArray(json.providers) ? json.providers : []);
+    setLastUpdated(Date.now());
+  }, []);
+
+  const load = useCallback(
+    async (manual: boolean): Promise<void> => {
+      if (manual && refreshingRef.current) return; // single-flight: ignore while in flight
+      if (manual) {
+        refreshingRef.current = true;
+        setIsRefreshing(true);
+      }
+      const seq = ++seqRef.current;
       try {
         const res = await fetch("/api/quota");
-        const json = (await res.json()) as ApiQuotaResponse;
-        if (alive) setProviders(Array.isArray(json.providers) ? json.providers : []);
+        apply(seq, (await res.json()) as ApiQuotaResponse);
       } catch {
-        if (alive) setProviders([]);
+        // Keep the prior snapshot — a failed refresh must not blank the widget.
+      } finally {
+        if (manual) {
+          refreshingRef.current = false;
+          if (aliveRef.current) setIsRefreshing(false);
+        }
       }
-    }
-    void load();
-    const timer = setInterval(() => void load(), pollMs);
+    },
+    [apply],
+  );
+
+  useEffect(() => {
+    aliveRef.current = true;
+    void load(false);
+    const timer = setInterval(() => void load(false), pollMs);
     return () => {
-      alive = false;
+      aliveRef.current = false;
       clearInterval(timer);
     };
-  }, [pollMs]);
-  return providers;
+  }, [load, pollMs]);
+
+  const refresh = useCallback(() => void load(true), [load]);
+  return { providers, lastUpdated, refresh, isRefreshing };
 }
 
 /**
@@ -242,7 +290,8 @@ function MiniBar({ pace, usedPercent, height = 4 }: { pace: Pace; usedPercent: n
 
 /** content-inline-footer: per-provider mini-sliders. Renders nothing when empty. */
 export function QuotaWidget() {
-  const providers = useQuota();
+  const quota = useQuota();
+  const { providers } = quota;
   const paceText = usePaceText();
   const now = Date.now();
   const [dialogProvider, setDialogProvider] = useState<string | null>(null);
@@ -291,32 +340,77 @@ export function QuotaWidget() {
         </button>
       ))}
       {dialogProvider !== null && (
-        <QuotaDialog providers={providers} initial={dialogProvider} onClose={() => setDialogProvider(null)} />
+        <QuotaDialog quota={quota} initial={dialogProvider} onClose={() => setDialogProvider(null)} />
       )}
     </div>
   );
 }
 
+/** Relative "last updated" caption text, or null before the first snapshot. */
+function lastUpdatedText(lastUpdated: number | null | undefined, now: number, t: ReturnType<typeof useT>): string | null {
+  if (lastUpdated == null) return null;
+  const secs = Math.max(0, Math.round((now - lastUpdated) / 1000));
+  if (secs < 5) return t("updatedJustNow", undefined, "updated just now");
+  if (secs < 60) return t("updatedSecondsAgo", { s: secs }, `updated ${secs}s ago`);
+  const mins = Math.round(secs / 60);
+  return t("updatedMinutesAgo", { m: mins }, `updated ${mins}m ago`);
+}
+
 /** Detail dialog via the shared `ui:dialog` primitive; selector: All · per-provider. */
 export function QuotaDialog({
-  providers,
+  quota,
   initial,
   onClose,
 }: {
-  providers: ProviderQuota[];
+  quota: QuotaState;
   initial: string;
   onClose: () => void;
 }) {
+  const { providers, lastUpdated, refresh, isRefreshing } = quota;
   const t = useT();
   const paceText = usePaceText();
   const Dialog = useUiPrimitive(UI_PRIMITIVE_KEYS.dialog);
   const [selected, setSelected] = useState<string>(initial);
   const now = Date.now();
 
+  // A refresh can drop the selected provider from the snapshot; fall back to All
+  // rather than render an empty detail view (design D7).
+  useEffect(() => {
+    if (selected !== "__all__" && !providers.some((p) => p.provider === selected)) {
+      setSelected("__all__");
+    }
+  }, [providers, selected]);
+
   const shown = selected === "__all__" ? providers : providers.filter((p) => p.provider === selected);
+  const updatedLabel = lastUpdatedText(lastUpdated, now, t);
 
   return (
     <Dialog open onClose={onClose} title={t("heading", undefined, "Provider Quota")} size="md" testId="quota-dialog">
+      <div
+        style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8, marginBottom: 10 }}
+      >
+        <span data-testid="quota-last-updated" style={{ fontSize: 10, color: "var(--text-muted, #71717a)" }}>
+          {updatedLabel}
+        </span>
+        <button
+          type="button"
+          data-testid="quota-refresh"
+          onClick={refresh}
+          disabled={isRefreshing}
+          style={{
+            fontSize: 11,
+            padding: "2px 10px",
+            borderRadius: 999,
+            border: "1px solid var(--border-subtle, rgba(82,82,91,0.6))",
+            background: "transparent",
+            color: "var(--text-secondary, #a1a1aa)",
+            cursor: isRefreshing ? "default" : "pointer",
+            opacity: isRefreshing ? 0.5 : 1,
+          }}
+        >
+          {isRefreshing ? t("refreshing", undefined, "Refreshing…") : t("refresh", undefined, "Refresh")}
+        </button>
+      </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginBottom: 12 }}>
         <SelectorPill label={t("all", undefined, "All")} active={selected === "__all__"} onClick={() => setSelected("__all__")} />
         {providers.map((p) => (
@@ -420,6 +514,133 @@ function SelectorPill({ label, active, onClick }: { label: string; active: boole
 }
 
 /**
+ * Per-request timeout the server bounds each fetch attempt with
+ * (`FETCH_TIMEOUT_MS` in server/quotas/http.ts). Reproduced here — the client
+ * cannot import the server tree — so the preview's wall-clock total is honest.
+ */
+const REQUEST_TIMEOUT_MS = 15_000;
+/** Retry schema bounds, mirrored from configSchema.json for the input attrs. */
+const RETRY_MAX_ATTEMPTS = 5;
+
+/** Humanize a millisecond delay. Mirrors RetrySettingsSection.human. */
+function humanMs(ms: number): string {
+  const s = ms / 1000;
+  if (s < 60) return `${s % 1 === 0 ? s : s.toFixed(1)} s`;
+  if (s < 3600) return `${(s / 60).toFixed(1)} min`;
+  if (s < 86400) return `${(s / 3600).toFixed(1)} h`;
+  return `${(s / 86400).toFixed(1)} days`;
+}
+
+/**
+ * The quota backoff schedule: delay_n = min(baseDelayMs·2^n, maxDelayMs) for
+ * n = 0..maxAttempts-1. `totalMs` is the wall-clock worst case the retries add
+ * before a provider is marked unavailable: the between-attempt SLEEPS plus every
+ * attempt's request timeout — including the initial one, so the count is
+ * `maxAttempts + 1` (design D4).
+ */
+function computeSchedule(
+  maxAttempts: number,
+  baseDelayMs: number,
+  maxDelayMs: number,
+): { seq: string[]; totalMs: number } {
+  const seq: string[] = [];
+  let sleepMs = 0;
+  for (let n = 0; n < maxAttempts; n++) {
+    const d = Math.min(baseDelayMs * 2 ** n, maxDelayMs);
+    sleepMs += d;
+    seq.push(humanMs(d));
+  }
+  return { seq, totalMs: sleepMs + (maxAttempts + 1) * REQUEST_TIMEOUT_MS };
+}
+
+/** Retry schedule preview — backoff sequence + honest wall-clock total. */
+function SchedulePreview({
+  maxAttempts,
+  baseDelayMs,
+  maxDelayMs,
+  t,
+}: {
+  maxAttempts: number;
+  baseDelayMs: number;
+  maxDelayMs: number;
+  t: ReturnType<typeof useT>;
+}) {
+  const { seq, totalMs } = computeSchedule(maxAttempts, baseDelayMs, maxDelayMs);
+  return (
+    <div
+      data-testid="quota-retry-preview"
+      style={{ fontSize: 10, color: "var(--text-muted, #71717a)", marginTop: 6, lineHeight: 1.5 }}
+    >
+      <div>
+        {t("retryPreviewTotal", undefined, "Worst-case wait before a provider is marked unavailable:")}{" "}
+        <b data-testid="quota-retry-total" style={{ color: "var(--text-secondary, #a1a1aa)" }}>
+          {maxAttempts === 0 ? t("retryNone", undefined, "no retries") : humanMs(totalMs)}
+        </b>
+      </div>
+      {seq.length > 0 && (
+        <div data-testid="quota-retry-sequence" style={{ fontFamily: "monospace", marginTop: 2 }}>
+          {seq.join(" → ")}
+        </div>
+      )}
+      <div style={{ marginTop: 2 }}>
+        {t(
+          "retryMultiCallCaveat",
+          undefined,
+          "Includes each attempt's request timeout. A provider that issues multiple calls per attempt (e.g. Copilot) may exceed this.",
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** A labelled number input for a retry field. */
+function RetryNumField({
+  label,
+  testId,
+  value,
+  onChange,
+  disabled,
+  min,
+  max,
+  step,
+}: {
+  label: string;
+  testId: string;
+  value: number;
+  onChange: (v: number) => void;
+  disabled?: boolean;
+  min: number;
+  max?: number;
+  step: number;
+}) {
+  return (
+    <label style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 4 }}>
+      <span style={{ width: 130, color: "var(--text-secondary, #a1a1aa)" }}>{label}</span>
+      <input
+        type="number"
+        data-testid={testId}
+        value={value}
+        min={min}
+        max={max}
+        step={step}
+        disabled={disabled}
+        onChange={(e) => onChange(Number(e.target.value))}
+        style={{
+          width: 90,
+          fontSize: 11,
+          padding: "2px 6px",
+          borderRadius: 4,
+          border: "1px solid var(--border-subtle, rgba(82,82,91,0.6))",
+          background: "var(--bg-tertiary, rgba(63,63,70,0.5))",
+          color: "var(--text-primary, #e4e4e7)",
+          opacity: disabled ? 0.4 : 1,
+        }}
+      />
+    </label>
+  );
+}
+
+/**
  * settings-section: printed ToS warning (NOT a gate) + master enable +
  * per-provider toggles. Edits buffer into a draft and commit through the host
  * Settings panel's global Save (`useSettingsDraftSource`) — no local button.
@@ -444,9 +665,11 @@ export function QuotaSettings() {
     }
   };
 
+  // Spread the FULL loaded config so unknown/future fields (notably `retry`)
+  // round-trip a save instead of being erased by an allowlist rebuild (D8).
   const base = useMemo<QuotaPluginConfig>(
-    () => ({ enabled: !!config?.enabled, providers: { ...(config?.providers ?? {}) } }),
-    [config?.enabled, config?.providers],
+    () => ({ ...(config ?? {}), enabled: !!config?.enabled, providers: { ...(config?.providers ?? {}) } }),
+    [config],
   );
 
   const [draft, setDraft] = useState<QuotaPluginConfig>(base);
@@ -455,8 +678,13 @@ export function QuotaSettings() {
   const setProvider = (id: string, enabled: boolean) =>
     setDraft((d) => ({ ...d, providers: { ...(d.providers ?? {}), [id]: { enabled } } }));
 
+  const retry = draft.retry ?? {};
+  const setRetry = (patch: Partial<NonNullable<QuotaPluginConfig["retry"]>>) =>
+    setDraft((d) => ({ ...d, retry: { ...(d.retry ?? {}), ...patch } }));
+
   const isDirty =
     draft.enabled !== base.enabled ||
+    JSON.stringify(draft.retry ?? {}) !== JSON.stringify(base.retry ?? {}) ||
     SUPPORTED_PROVIDERS.some(
       (id) => !!draft.providers?.[id]?.enabled !== !!base.providers?.[id]?.enabled,
     );
@@ -541,6 +769,65 @@ export function QuotaSettings() {
           </label>
           );
         })}
+      </fieldset>
+
+      {/* Transient-retry block (mirrors the shell's RetrySettingsSection element
+          vocabulary; the schedule helper is reproduced, not imported — the
+          client cannot reach the server tree). Off by default. */}
+      <fieldset
+        data-testid="quota-retry"
+        style={{ border: "none", padding: 0, margin: "12px 0 0", fontSize: 11 }}
+      >
+        <legend style={{ fontSize: 11, color: "var(--text-secondary, #a1a1aa)", padding: 0, marginBottom: 4 }}>
+          {t("retryLegend", undefined, "Retry transient failures")}
+        </legend>
+        <label style={{ display: "flex", gap: 6, alignItems: "center", marginBottom: 8 }}>
+          <input
+            type="checkbox"
+            data-testid="quota-retry-enabled"
+            checked={!!retry.enabled}
+            onChange={(e) => setRetry({ enabled: e.target.checked })}
+          />
+          {t("retryEnable", undefined, "Retry on HTTP 429/5xx, timeout, or network error")}
+        </label>
+        <RetryNumField
+          label={t("retryMaxAttempts", undefined, "Max retries")}
+          testId="quota-retry-maxAttempts"
+          value={retry.maxAttempts ?? 3}
+          onChange={(v) => setRetry({ maxAttempts: v })}
+          disabled={!retry.enabled}
+          min={0}
+          max={RETRY_MAX_ATTEMPTS}
+          step={1}
+        />
+        <RetryNumField
+          label={t("retryBaseDelay", undefined, "Base delay (ms)")}
+          testId="quota-retry-baseDelayMs"
+          value={retry.baseDelayMs ?? 1000}
+          onChange={(v) => setRetry({ baseDelayMs: v })}
+          disabled={!retry.enabled}
+          min={100}
+          max={10000}
+          step={100}
+        />
+        <RetryNumField
+          label={t("retryMaxDelay", undefined, "Max delay (ms)")}
+          testId="quota-retry-maxDelayMs"
+          value={retry.maxDelayMs ?? 60000}
+          onChange={(v) => setRetry({ maxDelayMs: v })}
+          disabled={!retry.enabled}
+          min={100}
+          max={60000}
+          step={1000}
+        />
+        {retry.enabled && (
+          <SchedulePreview
+            maxAttempts={retry.maxAttempts ?? 3}
+            baseDelayMs={retry.baseDelayMs ?? 1000}
+            maxDelayMs={retry.maxDelayMs ?? 60000}
+            t={t}
+          />
+        )}
       </fieldset>
     </section>
   );
