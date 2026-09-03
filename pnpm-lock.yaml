@@ -960,6 +960,9 @@ importers:
       '@types/react':
         specifier: ^19.0.0
         version: 19.2.18
+      fastify:
+        specifier: ^5.0.0
+        version: 5.12.1
       react:
         specifier: ^19.0.0
         version: 19.2.8

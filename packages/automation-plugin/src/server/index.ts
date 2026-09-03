@@ -36,6 +36,7 @@ import {
   collectActionRegistry,
   coreActionContributions,
 } from "./action-registry.js";
+import { FOLDER_SCOPE_CONTRIBUTION_PREFIX, collectFolderScopeBases } from "./folder-scope-contributions.js";
 import type { Engine } from "./engine.js";
 import { settingsDefaultBound } from "./resolve-children.js";
 import { mountAutomationRoutes, unknownActionKind } from "./routes.js";
@@ -290,7 +291,16 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
     get: (id) => contributedSources().find((c) => c.id === id)?.source,
   });
 
-  /** Distinct repo roots derived from known session cwds (per-folder scope). */
+  // Warned folder-scope contribution keys, deduped across reads. `folderScopeBases()`
+  // runs on every `listScopes()` call (refresh, watcher reconcile, stale-run reaper),
+  // so a malformed contribution must warn once per key, never once per read.
+  const folderScopeWarnedKeys = new Set<string>();
+
+  // Distinct repo roots the automation engine scans/arms/reaps/watches. Derived
+  // from live session cwds AND unioned with published `automation.folderscope.`
+  // contributions (collected each read → load-order independent). The boot arm is
+  // one-shot, anchored to `engine.start()` → `refresh()` + the initial
+  // `attachWatchers()`; contributions are process-lifetime (host has no `unprovide`).
   function folderScopeBases(): string[] {
     const bases = new Set<string>();
     try {
@@ -300,6 +310,13 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
       }
     } catch {
       /* ignore */
+    }
+    for (const base of collectFolderScopeBases(ctx.consumeAll(FOLDER_SCOPE_CONTRIBUTION_PREFIX), {
+      warn: (m) => ctx.logger.warn(m),
+      homeDir,
+      warnedKeys: folderScopeWarnedKeys,
+    })) {
+      bases.add(base);
     }
     return [...bases];
   }

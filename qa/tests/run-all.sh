@@ -28,6 +28,7 @@ TESTS=(
   "23-gateway-socket-fallback.sh" # an unrepresentable socket path falls back to loopback + token, never discovery (#X17). See change: add-pi-gateway-transport-identity.
   "24-gateway-where.sh"         # /dashboard-where reports endpoint + instance id + pinned (#F7); skips when pi absent. See change: add-pi-gateway-transport-identity.
   "30-gateway-instance-mismatch.sh" # a record naming one instance, another answering: refused, both ids named, no substitute (D14, task 5.4b); skips when pi absent. See change: add-pi-gateway-transport-identity.
+  "31-roles-read-api.sh"        # GET /api/roles answerable with ZERO sessions (#X8). See change: add-roles-read-api.
   # 25-gateway-remote-join-perf.sh and 26-gateway-promotion-soak.sh are OPT-IN:
   # one moves ~1 GB through a socket, the other soaks for ten minutes.
 )
