@@ -12,6 +12,7 @@
  * add-invoicebot-rest-plugin.
  */
 import { homedir } from "node:os";
+import path from "node:path";
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
 import { loadConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { IB_DOMAIN_EVENT_MESSAGE } from "../shared/ib-events.js";
@@ -138,6 +139,35 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     id: QUEUED_INVOICE_SOURCE_ID,
     source: queuedInvoiceSource,
   });
+
+  // Arm the automation.yaml watcher/scan for InvoiceBot workspaces that have NO
+  // live session at boot. The automation plugin already derives folder scopes
+  // from live session cwds, so a workspace opened in a session arms itself; this
+  // covers the COLD-START case — the container boots with an enabled intake
+  // automation but no session, so `IB_CWD` (`/data/workspace`) would otherwise
+  // never be scanned/armed. Each session-less known cwd is published through the
+  // generic folder-scope contribution seam (`automation.folderscope.<id>`),
+  // collected lazily by the automation plugin (load-order independent). Session
+  // cwds are NOT duplicated here — the session-derived path already owns them.
+  // See change: add-automation-folder-scope-contribution.
+  const hostKnownFolders = ctx.consume<() => string[]>("host.knownFolderCwds");
+  const bootScopeCwds = new Set<string>();
+  const ibCwd = process.env.IB_CWD;
+  if (typeof ibCwd === "string" && ibCwd.trim().length > 0) bootScopeCwds.add(path.resolve(ibCwd.trim()));
+  if (hostKnownFolders) {
+    try {
+      for (const cwd of hostKnownFolders()) {
+        if (typeof cwd === "string" && cwd.trim().length > 0) bootScopeCwds.add(path.resolve(cwd.trim()));
+      }
+    } catch (err) {
+      ctx.logger.warn(`invoicebot folder-scope enumerate failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  let ibScopeIndex = 0;
+  for (const base of bootScopeCwds) {
+    ctx.provide(`automation.folderscope.invoicebot:${ibScopeIndex++}`, { base });
+    ctx.logger.info(`invoicebot folder-scope armed: ${base}`);
+  }
 
   // App-level InvoiceBot domain-event rebroadcast. The plugin BRIDGE entry
   // observes the declared `ib:*` bus channels in-session and forwards each as
