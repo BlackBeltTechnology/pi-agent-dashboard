@@ -25,7 +25,7 @@
   "pi-dashboard-plugin": {
     "id": "invoicebot",
     "displayName": "InvoiceBot",
-    "priority": 100,
+    "priority": 99,
     "server": "./src/server/index.ts",
     "bridge": "./src/bridge/index.ts",
     "claims": []

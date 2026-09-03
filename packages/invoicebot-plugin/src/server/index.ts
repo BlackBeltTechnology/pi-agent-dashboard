@@ -149,6 +149,15 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   // generic folder-scope contribution seam (`automation.folderscope.<id>`),
   // collected lazily by the automation plugin (load-order independent). Session
   // cwds are NOT duplicated here — the session-derived path already owns them.
+  //
+  // ORDER MATTERS AT COLD START: this plugin declares priority 99 so the loader
+  // activates it (and AWAITS this registerPlugin) BEFORE the priority-100
+  // automation plugin registers + arms its init scan. Combined with the eager
+  // `ensureAutomation` below — which creates `<base>/.pi/automation/` + deploys
+  // the disabled intake yaml NOW rather than lazily on first GET/POST — the
+  // directory and file are on disk before automation's boot scan/watcher-attach
+  // runs, so the workspace is watched and the enabled intake is armed with zero
+  // sessions. See change: deploy-intake-automation-at-activation.
   // See change: add-automation-folder-scope-contribution.
   const hostKnownFolders = ctx.consume<() => string[]>("host.knownFolderCwds");
   const bootScopeCwds = new Set<string>();
@@ -165,6 +174,15 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
   }
   let ibScopeIndex = 0;
   for (const base of bootScopeCwds) {
+    // Deploy the disabled intake automation eagerly so the automation dir + yaml
+    // exist before automation's boot scan. Idempotent (byte-preserves an
+    // existing file) and non-fatal — a deploy failure on one cwd must not abort
+    // activation of the whole plugin.
+    try {
+      await engine.ensureAutomation(base);
+    } catch (err) {
+      ctx.logger.warn(`invoicebot intake ensure failed for ${base}: ${err instanceof Error ? err.message : String(err)}`);
+    }
     ctx.provide(`automation.folderscope.invoicebot:${ibScopeIndex++}`, { base });
     ctx.logger.info(`invoicebot folder-scope armed: ${base}`);
   }
