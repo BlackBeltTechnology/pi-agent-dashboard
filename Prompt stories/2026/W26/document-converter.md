@@ -99,4 +99,4 @@ The quality bars the human imposed implicitly: **honest scope up front**, **neve
 
 ---
 
-_Generated from session `019ef713-7d0b-7c4e-86c5-a3f51a0f3377` · `pi-agent-dashboard` · 2026-06-24. Source extract: `/tmp/facts-55138-12360.md`._
+_Generated from session `019ef713-7d0b-7c4e-86c5-a3f51a0f3377` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-24. Source extract: `/tmp/facts-55138-12360.md`._

@@ -22,8 +22,14 @@ import type { FastifyInstance } from "fastify";
 import type { ActionDescriptor, AutomationConfig, AutomationScope } from "../shared/automation-types.js";
 import { BUILTIN_ACTION_ALIASES } from "../shared/automation-types.js";
 
-/** Phase-1 registered trigger kinds (mirrors the server registry). */
-const KNOWN_KINDS = new Set(["schedule"]);
+/**
+ * Fallback trigger kinds, used ONLY when the engine supplies no live registry
+ * (e.g. a bare route mount in a test). The engine is the source of truth: it
+ * registers `schedule` AND `schedule.batch`, so a frozen constant here silently
+ * marks a valid `schedule.batch` automation invalid in `/list` + `/definition`
+ * while the scheduler happily fires it. Prefer `hooks.triggerKinds()`.
+ */
+const FALLBACK_KINDS = new Set(["schedule"]);
 
 /** Resolve the scope base dir for a (scope, cwd) pair. */
 function scopeBaseFor(scope: AutomationScope, cwd: string | undefined): string {
@@ -43,10 +49,24 @@ export function unknownActionKind(
   config: AutomationConfig | undefined,
   ids: ReadonlySet<string> | undefined,
 ): string | undefined {
+  const acceptable = (kind: unknown): boolean =>
+    typeof kind === "string" &&
+    kind.length > 0 &&
+    (BUILTIN_ACTION_KINDS.has(kind) || !!ids?.has(kind));
+  // Fan-out form: validate every `actions:` entry, naming the offending index
+  // so `/create` + `/update` cannot persist a config `/list` would mark
+  // invalid. See change: add-automation-concurrent-spawn.
+  if (Array.isArray(config?.actions)) {
+    for (let i = 0; i < config.actions.length; i++) {
+      const kind = config.actions[i]?.kind;
+      if (typeof kind !== "string" || kind.length === 0) continue; // writer surfaces shape errors
+      if (!acceptable(kind)) return `actions[${i}]: ${kind}`;
+    }
+    return undefined;
+  }
   const kind = config?.action?.kind;
   if (typeof kind !== "string" || kind.length === 0) return undefined; // writer surfaces shape errors
-  if (BUILTIN_ACTION_KINDS.has(kind)) return undefined;
-  if (ids?.has(kind)) return undefined;
+  if (acceptable(kind)) return undefined;
   return kind;
 }
 
@@ -162,17 +182,23 @@ export function mountAutomationRoutes(
     const { scanAutomations } = await import("./scanner.js");
     const automations = scanAutomations(
       { repoRoot: q.cwd, homeDir: os.homedir(), scanFolder: !!q.cwd, scanGlobal: true },
-      KNOWN_KINDS,
+      hooks.triggerKinds?.() ?? FALLBACK_KINDS,
       hooks.actionIds?.(),
+      hooks.workSourceIds?.(),
     );
     return { automations };
   });
 
   fastify.get("/api/plugins/automation/runs", async (req) => {
     const q = (req.query ?? {}) as { cwd?: string; scope?: AutomationScope; name?: string };
-    const { listRuns } = await import("./run-store.js");
+    const { listRuns, readChildRuns } = await import("./run-store.js");
     const base = scopeBaseFor(q.scope ?? "folder", q.cwd);
-    const runs = listRuns(base, q.name);
+    // Top-level records (parents + legacy flat). Attach child summaries so the
+    // board can render a parent expandable to its children.
+    // See change: add-automation-concurrent-spawn.
+    const runs = listRuns(base, q.name).map((rec) =>
+      rec.children ? { ...rec, childRuns: readChildRuns(base, rec) } : rec,
+    );
     return { runs };
   });
 
@@ -184,10 +210,16 @@ export function mountAutomationRoutes(
     }
     const fs = await import("node:fs");
     const path = await import("node:path");
+    const { resolveRunDir } = await import("./run-store.js");
     const base = scopeBaseFor(q.scope ?? "folder", q.cwd);
-    const file = path.join(base, ".pi", "automation", "runs", q.runId, "result.md");
+    // Resolve a parent OR child run id to its on-disk dir (decision 1a).
+    const dir = resolveRunDir(base, q.runId);
+    if (!dir) {
+      reply.code(404);
+      return { error: "result not found" };
+    }
     try {
-      return { result: fs.readFileSync(file, "utf-8") };
+      return { result: fs.readFileSync(path.join(dir, "result.md"), "utf-8") };
     } catch {
       reply.code(404);
       return { error: "result not found" };
@@ -294,13 +326,18 @@ export function mountAutomationRoutes(
       reply.code(404);
       return { error: "automation not found" };
     }
-    const { config, error } = parseAutomationYaml(rawText, KNOWN_KINDS, hooks.actionIds?.());
+    const { config, error } = parseAutomationYaml(
+      rawText,
+      hooks.triggerKinds?.() ?? FALLBACK_KINDS,
+      hooks.actionIds?.(),
+      hooks.workSourceIds?.(),
+    );
     if (!config) {
       reply.code(422);
       return { error: error ?? "invalid automation.yaml" };
     }
     let promptBody: string | undefined;
-    if (config.action.kind === "prompt") {
+    if (config.action?.kind === "prompt") {
       try {
         promptBody = fs.readFileSync(path.join(dir, "prompt.md"), "utf-8");
       } catch {

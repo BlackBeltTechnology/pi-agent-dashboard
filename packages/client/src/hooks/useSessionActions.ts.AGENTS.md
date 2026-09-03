@@ -1,0 +1,3 @@
+# useSessionActions.ts — index
+
+Session action callbacks extracted from App.tsx. Sends send/abort/force_kill/stop_after_turn/resume/spawn/shutdown/hide/rename/terminal/follow-up-queue messages; writes optimistic prompt/closing/resuming state. `handleRetrySession(id)` rechecks latest `sessionStatesRef` for a settled, non-cancelled error, then sends hidden `/__dashboard_retry`; bridge intercepts into non-user trigger-turn, never process resume or prompt replay. Exports `useSessionActions`, `SessionActionDeps`. See changes: add-session-tags, sidebar-tag-collapse-and-delete, fix-retry-error-lifecycle.

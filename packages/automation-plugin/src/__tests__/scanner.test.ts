@@ -2,10 +2,11 @@
  * Dual-scope scanner tests: scope tagging, merge, collision-across-scopes,
  * invalid-file isolation. See change: add-automation-plugin.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { scanAutomations } from "../server/scanner.js";
 
 const KNOWN = new Set(["schedule"]);
@@ -69,6 +70,21 @@ describe("scanAutomations", () => {
     expect(bad?.error).toContain("slack.message");
   });
 
+  it("E5: isolates an invalid fan-out automation while a valid one still loads", () => {
+    writeAutomation(repoRoot, "good", VALID);
+    // Both `action:` and `actions:` — mutually exclusive → invalid.
+    writeAutomation(
+      repoRoot,
+      "badfan",
+      `on: { kind: schedule, cron: "* * * * *" }\naction: { kind: prompt, prompt: ./p.md }\nactions: [ { kind: prompt, prompt: ./p.md } ]\nmodel: x`,
+    );
+    const out = scanAutomations({ repoRoot, homeDir }, KNOWN);
+    expect(out.find((a) => a.name === "good")?.valid).toBe(true);
+    const bad = out.find((a) => a.name === "badfan");
+    expect(bad?.valid).toBe(false);
+    expect(bad?.error).toMatch(/actions/);
+  });
+
   it("ignores the runs/ store dir", () => {
     fs.mkdirSync(path.join(repoRoot, ".pi", "automation", "runs"), { recursive: true });
     const out = scanAutomations({ repoRoot, homeDir }, KNOWN);
@@ -86,5 +102,18 @@ describe("scanAutomations", () => {
     expect(folderOnly.map((a) => a.name)).toEqual(["f"]);
     const globalOnly = scanAutomations({ repoRoot, homeDir, scanFolder: false }, KNOWN);
     expect(globalOnly.map((a) => a.name)).toEqual(["g"]);
+  });
+});
+
+// See change: add-automation-folder-scope-contribution.
+describe("contributed base scan degrade", () => {
+  it("X2: a contributed base lacking .pi/automation yields zero automations, no crash", () => {
+    const contributed = fs.mkdtempSync(path.join(os.tmpdir(), "auto-contrib-"));
+    try {
+      expect(() => scanAutomations({ repoRoot: contributed, scanGlobal: false }, KNOWN)).not.toThrow();
+      expect(scanAutomations({ repoRoot: contributed, scanGlobal: false }, KNOWN)).toEqual([]);
+    } finally {
+      fs.rmSync(contributed, { recursive: true, force: true });
+    }
   });
 });

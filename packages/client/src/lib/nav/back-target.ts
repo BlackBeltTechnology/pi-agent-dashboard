@@ -41,6 +41,18 @@ function parentSession(params: Record<string, string>): string {
 }
 
 /**
+ * Owning folder for the folder-scoped settings routes.
+ *
+ * These are depth 1, so the depth default would send them to `/` — losing the
+ * folder, which is the defect this change exists to fix. Depth is unchanged;
+ * only the parent is narrowed, so no path moves.
+ * See change: add-route-backed-overlay-dialogs (task 5.8).
+ */
+function parentFolder(params: Record<string, string>): string {
+  return `/folder/${params.cwd}`;
+}
+
+/**
  * Core static descriptors — a behavior-preserving migration of the prior
  * hardcoded switch. Ordered most-specific-first for readability; the resolver
  * sorts by specificity regardless.
@@ -64,8 +76,8 @@ const STATIC_DESCRIPTORS: StaticRouteDescriptor[] = [
   { pattern: "/folder/:cwd", depth: 1 },
   { pattern: "/folder/:cwd/terminals", depth: 1 },
   { pattern: "/folder/:cwd/editor", depth: 1 },
-  { pattern: "/folder/:cwd/settings", depth: 1 },
-  { pattern: "/folder/:cwd/settings/:page", depth: 1 },
+  { pattern: "/folder/:cwd/settings", depth: 1, computeParent: parentFolder },
+  { pattern: "/folder/:cwd/settings/:page", depth: 1, computeParent: parentFolder },
   { pattern: "/settings", depth: 1 },
   { pattern: "/settings/:page", depth: 1 },
   { pattern: "/tunnel-setup", depth: 1 },

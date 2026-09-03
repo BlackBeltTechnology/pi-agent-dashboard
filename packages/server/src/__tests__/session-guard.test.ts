@@ -1,77 +1,41 @@
 /**
- * Session guard (change: constrain-agent-tool-surface).
- * Verifies the extensible guard policy, the origin ∪ cwd registry resolution,
- * the policy→spawn translation, the pure containment helpers, and that the
- * guard flags actually reach the pi argv.
+ * Tool-call containment guard (change: constrain-agent-tool-surface), after the
+ * adoption of the host's generic capability-scope mechanism.
+ *
+ * The former host-side guard REGISTRY and its bespoke flag translation are gone
+ * — `spawn-process/cwd-policy.ts` (cwd-keyed tightening floor) and the `scope`
+ * block (per-spawn capability fields) provide both. What has NO generic
+ * equivalent, and is therefore still ours, is the in-session `tool_call`
+ * interceptor: this file locks its config decoding, its containment helpers,
+ * and the spawn-funnel expansion that loads it.
  */
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect } from "vitest";
 import path from "node:path";
 import {
-  registerGuardedDir,
-  unregisterGuardedDir,
-  isGuardedDir,
-  resolveGuardForSpawn,
-  guardPolicyToSpawn,
   collectPathCandidates,
+  decodeGuardEnvList,
   pathWithinRoots,
-  DEFAULT_GUARD_POLICY,
-} from "../session-guard.js";
+  GUARD_EXTENSION_PATH,
+} from "../session-guard-extension.js";
 import { buildHeadlessArgs } from "../spawn-process/process-manager.js";
 
 const CWD = path.resolve("/tmp/ib-workspace");
-const OTHER = path.resolve("/tmp/other");
 
-describe("session-guard registry + resolution (origin ∪ cwd)", () => {
-  beforeEach(() => {
-    unregisterGuardedDir(CWD);
-    unregisterGuardedDir(OTHER);
+describe("guard config decoding (PI_EXT_GUARD_* channel)", () => {
+  it("decodes the host's JSON-encoded array projection", () => {
+    // The host projects `extensionConfig.guard.allowedRoots` as JSON — lossless
+    // for paths containing a delimiter, a space, or a comma.
+    expect(decodeGuardEnvList(JSON.stringify(["/a/b", "/c d,e"]))).toEqual(["/a/b", "/c d,e"]);
   });
 
-  it("registers and queries a guarded directory", () => {
-    expect(isGuardedDir(CWD)).toBe(false);
-    registerGuardedDir(CWD);
-    expect(isGuardedDir(CWD)).toBe(true);
-    unregisterGuardedDir(CWD);
-    expect(isGuardedDir(CWD)).toBe(false);
+  it("accepts a scalar projection as a one-element list", () => {
+    expect(decodeGuardEnvList("/only/root")).toEqual(["/only/root"]);
   });
 
-  it("guards a session in a registered cwd (client-spawned Ask case)", () => {
-    registerGuardedDir(CWD);
-    const policy = resolveGuardForSpawn({ cwd: CWD });
-    expect(policy).not.toBeNull();
-    expect(policy!.noBuiltinTools).toBe(true);
-  });
-
-  it("guards a plugin-originated spawn even in an UNregistered cwd (origin)", () => {
-    const policy = resolveGuardForSpawn({ cwd: OTHER, origin: true });
-    expect(policy).not.toBeNull();
-    expect(policy!.noBuiltinTools).toBe(true);
-  });
-
-  it("does NOT guard an unrelated session (neither origin nor guarded cwd)", () => {
-    expect(resolveGuardForSpawn({ cwd: OTHER })).toBeNull();
-  });
-
-  it("overlays an origin policy over the cwd policy", () => {
-    registerGuardedDir(CWD, { noBuiltinTools: true });
-    const policy = resolveGuardForSpawn({ cwd: CWD, origin: { deniedTools: ["xx_danger"] } });
-    expect(policy!.noBuiltinTools).toBe(true);
-    expect(policy!.deniedTools).toEqual(["xx_danger"]);
-  });
-});
-
-describe("guardPolicyToSpawn translation", () => {
-  it("emits --no-builtin-tools by default (no extension when no folder policy)", () => {
-    const flags = guardPolicyToSpawn(DEFAULT_GUARD_POLICY, CWD);
-    expect(flags.noBuiltinTools).toBe(true);
-    expect(flags.loadExtensions ?? []).toEqual([]);
-    expect(flags.env).toBeUndefined();
-  });
-
-  it("loads the guard extension + passes allowed roots when a folder policy is set", () => {
-    const flags = guardPolicyToSpawn({ noBuiltinTools: true, allowedRoots: [CWD] }, CWD);
-    expect(flags.loadExtensions?.[0]).toMatch(/session-guard-extension\.ts$/);
-    expect(flags.env?.IB_GUARD_ALLOWED_ROOTS).toBe(CWD);
+  it("absent or malformed config never throws (degrades, no crash)", () => {
+    expect(decodeGuardEnvList(undefined)).toEqual([]);
+    expect(decodeGuardEnvList("")).toEqual([]);
+    expect(decodeGuardEnvList("[not json")).toEqual(["[not json"]);
   });
 });
 
@@ -88,13 +52,17 @@ describe("pure containment helpers", () => {
     expect(pathWithinRoots("/etc/passwd", [CWD], CWD)).toBe(false);
     expect(pathWithinRoots(path.join(CWD, "sub", "a"), [CWD], CWD)).toBe(true);
   });
+
+  it("rejects a traversal that climbs out of the root", () => {
+    expect(pathWithinRoots("../outside/x", [CWD], CWD)).toBe(false);
+  });
 });
 
-describe("guard flags reach the pi argv", () => {
-  it("buildHeadlessArgs emits --no-builtin-tools and -e for guarded options", () => {
-    const args = buildHeadlessArgs({ noBuiltinTools: true, loadExtensions: ["/x/guard.ts"] });
+describe("guard scope reaches the pi argv", () => {
+  it("buildHeadlessArgs emits --no-builtin-tools and -e for a guarded spawn", () => {
+    const args = buildHeadlessArgs({ noBuiltinTools: true, extensions: [GUARD_EXTENSION_PATH] });
     expect(args).toContain("--no-builtin-tools");
-    expect(args.join(" ")).toContain("-e /x/guard.ts");
+    expect(args.join(" ")).toContain(`-e ${GUARD_EXTENSION_PATH}`);
   });
 
   it("buildHeadlessArgs stays clean for an unguarded spawn", () => {

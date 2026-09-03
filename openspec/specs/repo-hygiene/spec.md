@@ -2,6 +2,10 @@
 
 Repo-level ignore rules that keep local-only working directories (git worktrees, build outputs, caches) out of git.
 
+## Purpose
+
+Repository-level hygiene rules that are easy to violate silently. Requires git worktree directories to be ignored, so a worktree checkout cannot be committed into the parent repository.
+
 ## Requirements
 
 ### Requirement: Repo MUST ignore git worktree directories

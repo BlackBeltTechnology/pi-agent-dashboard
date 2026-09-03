@@ -162,4 +162,4 @@ archived at `openspec/changes/archive/2026-06-14-stepper-compact-done-letters/`;
 
 ---
 
-_Generated from session `019ec6d1-158f-7abf-bca4-bfe79a69adb7` · `pi-agent-dashboard` · 2026-06-14. Source extract: `/tmp/facts-1784849341-55046.md`._
+_Generated from session `019ec6d1-158f-7abf-bca4-bfe79a69adb7` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-14. Source extract: `/tmp/facts-1784849341-55046.md`._

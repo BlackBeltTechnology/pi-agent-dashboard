@@ -1,4 +1,10 @@
-## ADDED Requirements
+# terminal-emulator Specification
+
+## Purpose
+
+Provides a real terminal against a folder group from inside the dashboard. Covers spawning, rendering, resize, the binary WebSocket transport, server-side PTY management, output buffering and replay, instance keep-alive, naming, routing, theme matching, and lifecycle cleanup. Carries the robustness rules that make it survive real use: cross-platform shell detection, working terminal creation on a fresh install, and rejection of degenerate PTY resize messages.
+
+## Requirements
 
 ### Requirement: Spawn terminal from folder group
 The system SHALL provide a `+Terminal` button in the folder action bar. Clicking it SHALL create a new terminal session with cwd set to that folder's directory AND navigate to the TerminalsView content area for that folder.

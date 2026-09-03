@@ -175,4 +175,4 @@ at `openspec/changes/archive/2026-06-13-fix-editor-settings-persistence/`, merge
 
 ---
 
-_Generated from session `019ebece-e8a7-768b-b9c1-79b4e4c98011` · `pi-agent-dashboard` · 2026-06-13. Source extract: session facts sheet._
+_Generated from session `019ebece-e8a7-768b-b9c1-79b4e4c98011` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-13. Source extract: session facts sheet._

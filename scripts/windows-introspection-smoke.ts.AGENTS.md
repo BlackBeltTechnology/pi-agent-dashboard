@@ -1,0 +1,3 @@
+# windows-introspection-smoke.ts — index
+
+Windows introspection smoke driver (CI: `_smoke.yml` standalone-install-smoke-windows). Spawns `_windows-introspection-probe.ts` via `npx tsx` (buildSafeArgv), captures stdio. Asserts: probe exit 0; probe stderr no `wmic`/`is not recognized` signature; `isVirtualMachine` returns boolean; `defaultGetCmdline` returns string\|null, non-empty on win32 for own pid. Proves PowerShell Get-CimInstance path works on real Windows host (stub unit tests cannot). Cross-platform; win32 cmdline check load-bearing. Exit 0 pass. See change: replace-wmic-with-powershell.

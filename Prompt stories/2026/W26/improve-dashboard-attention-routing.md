@@ -169,4 +169,4 @@ score), and **merged PR #174** (`improve-dashboard-attention-routing`).
 
 ---
 
-_Generated from session `019f0900-d61e-73ff-947c-d7de239f0e59` · `pi-agent-dashboard` · 2026-06-27. Source extract: session facts sheet (deterministic extract)._
+_Generated from session `019f0900-d61e-73ff-947c-d7de239f0e59` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-27. Source extract: session facts sheet (deterministic extract)._

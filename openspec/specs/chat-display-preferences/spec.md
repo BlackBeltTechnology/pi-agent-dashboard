@@ -67,7 +67,7 @@ The server MUST ALSO send a `display_prefs_updated { prefs }` snapshot to each b
 
 A browser-to-server WS message `setSessionDisplayPrefs { sessionId, override }` SHALL update the per-session override. `override: null` clears it.
 
-The server SHALL broadcast `session_updated` with `updates.displayPrefsOverride: null` (not `undefined`) so the field survives JSON serialization. The client's `getSessionOverride` SHALL normalize `null` to `undefined` before returning to consumers.
+The server SHALL broadcast `session_updated` with `updates.displayPrefsOverride: null` (not `undefined`) so the field survives JSON serialization. The client's `getSessionOverride` SHALL normalize `null` to `undefined` before returning to consumers, so a cleared session merges as pure global prefs and its "modified" indicator turns off without a page reload.
 
 #### Scenario: PATCH broadcasts to other tabs
 - **GIVEN** two browser tabs A and B connected to the same server
@@ -92,6 +92,13 @@ The server SHALL broadcast `session_updated` with `updates.displayPrefsOverride:
 - **THEN** the broadcast `session_updated` carries `updates.displayPrefsOverride: null`
 - **AND** `JSON.stringify` does not drop the field
 - **AND** all connected browsers apply the clear
+
+#### Scenario: Client normalizes cleared override to undefined
+- **GIVEN** a session whose in-memory record carries `displayPrefsOverride: null` after applying a clearing `session_updated` broadcast
+- **WHEN** a consumer reads the override via `getSessionOverride(sessionId)`
+- **THEN** the returned value SHALL be `undefined`, not `null`
+- **AND** `useDisplayPrefs` SHALL merge to pure global prefs (no override applied)
+- **AND** the `ChatViewMenu` "modified" pill SHALL NOT render for that session
 
 #### Scenario: PATCH deep-merges toolCalls
 - **GIVEN** stored `toolCalls = { read:true, bash:true, edit:true, agent:true, generic:true }`
@@ -367,4 +374,20 @@ SHALL render.
 - **GIVEN** an `interactiveUi` row that the notify predicate does not positively identify as a notify
 - **WHEN** visibility is evaluated at any `notifyMinLevel`
 - **THEN** the row SHALL render
+
+### Requirement: reasoningInlineFlow and customEntryFallback display preferences
+`DisplayPrefs` SHALL include `reasoningInlineFlow: boolean` and `customEntryFallback: boolean`. Both SHALL default to `reasoningInlineFlow: false` and `customEntryFallback: true` in every preset (`simple`, `standard`, `everything`) and in the legacy-backfill path, so out-of-the-box behavior is unchanged. The legacy defaults SHALL be injected at every `DisplayPrefs` construction site for persisted prefs — the server's per-field backfill (`backfillDisplayPrefs`) and the `setDisplayPrefs` base/merged literals — not only in `mergeDisplayPrefs`, because a legacy file without the fields must resolve to the defaults (a missing `customEntryFallback` backfill would leave the gate `undefined` and hide custom rows for existing users). `mergeDisplayPrefs` SHALL additionally resolve both as plain top-level arms (override value when present, else global). Existing persisted preferences files and per-session overrides without the new fields SHALL load unchanged and resolve to the defaults.
+
+#### Scenario: Defaults preserve current behavior
+- **WHEN** a preferences file predates the new fields (or a fresh preset is applied)
+- **THEN** the effective prefs SHALL resolve `reasoningInlineFlow` to `false` and `customEntryFallback` to `true`
+- **AND** a legacy global file without the fields SHALL resolve `customEntryFallback` to `true` via the server backfill (not stay `undefined`)
+
+#### Scenario: Per-session override wins
+- **WHEN** a per-session override sets `reasoningInlineFlow` or `customEntryFallback`
+- **THEN** `mergeDisplayPrefs` SHALL return the override value for that field and the global value for every other field
+
+#### Scenario: PATCH round-trips the new fields
+- **WHEN** a client PATCHes `/api/preferences/display` with the new fields (globally or as a per-session override)
+- **THEN** the fields SHALL persist, broadcast via `display_prefs_updated`, and be included in the connect snapshot
 

@@ -18,11 +18,42 @@
  * See changes: fix-release-lockfile-drift, adopt-pnpm-for-dev-ci (§6.6).
  */
 
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
 const root = JSON.parse(readFileSync("package.json", "utf8"));
 const expected = `^${root.version}`;
 const lines = readFileSync("pnpm-lock.yaml", "utf8").split("\n");
+
+/**
+ * The set of names this repo actually publishes from `packages/*`.
+ *
+ * A cross-ref is "internal" iff the dep name is a WORKSPACE MEMBER — not
+ * merely because it carries the @blackbelt-technology scope. The org also
+ * publishes packages from other repos (e.g.
+ * `@blackbelt-technology/pi-anthropic-messages`, an ordinary external dep
+ * pinned at `>=0.3.4`); a scope-prefix test flagged those as drift and
+ * failed every release. `scripts/sync-versions.js` uses this same
+ * definition (`if (!(depName in versionMap)) continue;`) — keep them
+ * aligned. Scope is not membership.
+ */
+const workspaceNames = new Set();
+for (const dir of readdirSync("packages", { withFileTypes: true })) {
+	if (!dir.isDirectory()) continue;
+	try {
+		const pkg = JSON.parse(readFileSync(join("packages", dir.name, "package.json"), "utf8"));
+		if (typeof pkg.name === "string") workspaceNames.add(pkg.name);
+	} catch (err) {
+		// Not a workspace (build output, stray dir) — skip. Anything else is fatal.
+		if (err.code !== "ENOENT") throw err;
+	}
+}
+if (workspaceNames.size === 0) {
+	console.error(
+		"::error::verify-lockfile-versions.mjs found zero workspace packages under packages/ — run it from the repo root.",
+	);
+	process.exit(1);
+}
 
 const unquote = (s) => s.replace(/^['"]|['"]$/g, "");
 const indentOf = (l) => l.length - l.trimStart().length;
@@ -32,7 +63,7 @@ let checkedCount = 0; // specifiers actually inspected — guards against a vacu
 let inImporters = false;
 let importer = null; // current importer path
 let checkImporter = false; // is it a packages/* importer we verify
-let pendingName = null; // last @blackbelt-technology/* dep name awaiting its specifier
+let pendingName = null; // last workspace-member dep name awaiting its specifier
 
 for (const line of lines) {
 	if (/^importers:\s*$/.test(line)) {
@@ -60,7 +91,7 @@ for (const line of lines) {
 	// Dependency name: 6-space indent, ends with ':' (section headers are at 4).
 	if (ind === 6 && trimmed.endsWith(":")) {
 		const name = unquote(trimmed.slice(0, -1));
-		pendingName = name.startsWith("@blackbelt-technology/") ? name : null;
+		pendingName = workspaceNames.has(name) ? name : null;
 		continue;
 	}
 

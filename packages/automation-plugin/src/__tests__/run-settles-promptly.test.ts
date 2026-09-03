@@ -12,7 +12,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { createEngine } from "../server/engine.js";
-import { listRuns } from "../server/run-store.js";
+import { listRuns, readChildRuns } from "../server/run-store.js";
 import type { DiscoveredAutomation } from "../shared/automation-types.js";
 
 const UNDELIVERED_MS = 60_000;
@@ -49,11 +49,13 @@ function automation(name: string): DiscoveredAutomation {
 
 function makeEngine() {
   let now = 1_000_000;
+  const spawnCalls: Array<{ automationRun?: { runId: string } }> = [];
   const aborted: Array<{ sessionId?: string; spawnToken?: string }> = [];
   let spawns = 0;
   const engine = createEngine({
-    spawnSession: async () => {
+    spawnSession: async (o) => {
       spawns += 1;
+      spawnCalls.push(o as { automationRun?: { runId: string } });
       return { success: true, spawnToken: `tok-${spawns}` };
     },
     abortSpawnedRun: async (args) => {
@@ -76,6 +78,7 @@ function makeEngine() {
   return {
     engine,
     aborted,
+    spawnCalls,
     advance: (ms: number) => {
       now += ms;
     },
@@ -83,16 +86,31 @@ function makeEngine() {
   };
 }
 
-const runs = () => listRuns(repo);
-const byId = (runId: string) => runs().find((r) => r.runId === runId);
+// A fire is a PARENT occurrence with one child per spawned session; a session's
+// lifecycle (and every reap bound) acts on the CHILD record, and the parent
+// settles when its last child does.
+const parents = () => listRuns(repo);
+const children = () => parents().flatMap((p) => readChildRuns(repo, p));
+const byId = (runId: string) => {
+  for (const p of parents()) {
+    if (p.runId === runId) return p;
+    const hit = readChildRuns(repo, p).find((c) => c.runId === runId);
+    if (hit) return hit;
+  }
+  return undefined;
+};
+/** The child run id of spawn `i` (what a session binds to). */
+const childRunId = (h: { spawnCalls: Array<{ automationRun?: { runId: string } }> }, i = 0) =>
+  h.spawnCalls[i]!.automationRun!.runId;
 
 describe("a completed run settles without waiting for max age", () => {
   it("reaches done on its terminal signal and is never touched by a later sweep", async () => {
     const h = makeEngine();
     const a = automation("nightly");
 
-    const started = h.engine.startRunFor(a)!;
+    const fire = h.engine.startRunFor(a)!;
     await Promise.resolve();
+    const started = { runId: childRunId(h) };
     expect(byId(started.runId)?.status).toBe("running");
 
     // Session registers with the run's own stamp, then ends.
@@ -102,6 +120,9 @@ describe("a completed run settles without waiting for max age", () => {
     const rec = byId(started.runId)!;
     expect(rec.status).toBe("done");
     expect(rec.error).toBeUndefined();
+
+    // The parent occurrence settles with its last child.
+    expect(byId(fire.runId)?.status).toBe("done");
 
     // Well past BOTH bounds: an already-settled run must stay settled.
     h.advance(MAX_AGE_MS + UNDELIVERED_MS + 1);
@@ -119,8 +140,9 @@ describe("two consecutive idle runs both settle", () => {
 
     h.engine.runner.fire(a);
     await Promise.resolve();
-    const first = runs()[0]!;
-    expect(h.engine.runner.activeRunId("folder:nightly")).toBe(first.runId);
+    const firstParent = parents()[0]!;
+    const first = byId(childRunId(h))!;
+    expect(h.engine.runner.activeRunId("folder:nightly")).toBe(firstParent.runId);
 
     h.engine.onSessionRegisteredForRun("sess-1", first.runId);
     h.engine.onSessionEnded("sess-1", "- first result");
@@ -131,14 +153,15 @@ describe("two consecutive idle runs both settle", () => {
     h.advance(1_000);
     h.engine.runner.fire(a);
     await Promise.resolve();
-    const second = runs().find((r) => r.runId !== first.runId)!;
+    const second = byId(childRunId(h, 1))!;
     expect(second).toBeDefined();
 
     h.engine.onSessionRegisteredForRun("sess-2", second.runId);
     h.engine.onSessionEnded("sess-2", "- second result");
 
-    expect(runs().map((r) => r.status)).toEqual(["done", "done"]);
-    expect(runs().every((r) => r.error === undefined)).toBe(true);
+    expect(children().map((r) => r.status)).toEqual(["done", "done"]);
+    expect(children().every((r) => r.error === undefined)).toBe(true);
+    expect(parents().map((r) => r.status)).toEqual(["done", "done"]);
     expect(h.spawnCount()).toBe(2);
   });
 });
@@ -150,7 +173,7 @@ describe("a cold-start run that loses its lifecycle race cannot starve the sched
 
     h.engine.runner.fire(a);
     await Promise.resolve();
-    const wedged = runs()[0]!;
+    const wedged = byId(childRunId(h))!;
     expect(wedged.status).toBe("running");
 
     // Its stamped session never registers — nothing will ever name this run.
@@ -173,7 +196,7 @@ describe("a cold-start run that loses its lifecycle race cannot starve the sched
     expect(h.engine.runner.activeRunId("folder:nightly")).toBeNull();
     h.engine.runner.fire(a);
     await Promise.resolve();
-    const next = runs().find((r) => r.runId !== wedged.runId)!;
+    const next = byId(childRunId(h, 1))!;
     expect(next.status).toBe("running");
 
     h.engine.onSessionRegisteredForRun("sess-2", next.runId);
@@ -185,8 +208,9 @@ describe("a cold-start run that loses its lifecycle race cannot starve the sched
     const h = makeEngine();
     const a = automation("nightly");
 
-    const started = h.engine.startRunFor(a)!;
+    h.engine.startRunFor(a)!;
     await Promise.resolve();
+    const started = { runId: childRunId(h) };
     h.engine.onSessionRegisteredForRun("sess-1", started.runId);
 
     h.advance(UNDELIVERED_MS * 5);

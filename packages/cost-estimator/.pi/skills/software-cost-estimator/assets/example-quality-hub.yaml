@@ -1,0 +1,230 @@
+# Worked example: a manufacturing quality-management web platform.
+# Shape mirrors a real SME offer so the numbers are sanity-checkable.
+
+project:
+  name: Quality Hub
+  client: Example Manufacturing Ltd
+  currency: EUR
+  region: HU
+  phase: requirements-complete
+
+context:
+  codebase: greenfield
+  domain: manufacturing quality management
+  compliance: [GDPR, GMP]
+
+stack:
+  backend: node-typescript
+  frontend: react-typescript
+  data: postgres
+  cloud: hetzner
+  integrations: [SAP Business One, sensor gateway]
+
+rates_file: ./rates.default.yaml
+
+actors:
+  - name: Production operator
+    type: human
+  - name: Quality supervisor
+    type: human
+  - name: Lab technician
+    type: human
+  - name: SAP Business One
+    type: api
+  - name: Sensor gateway
+    type: protocol
+
+use_cases:
+  - id: UC-01
+    name: Authentication, RBAC and audit trail
+    transactions: 6
+    ai_class: boilerplate
+    risk: low
+  - id: UC-02
+    name: Workflow state machine with step guards
+    transactions: 9
+    ai_class: algorithmic
+    risk: medium
+  - id: UC-03
+    name: Configurable production data-entry forms
+    transactions: 8
+    ai_class: crud
+    risk: medium
+  - id: UC-04
+    name: Parametrised range validation with block-on-breach
+    transactions: 5
+    ai_class: algorithmic
+    risk: medium
+  - id: UC-05
+    name: Non-conformance and CAPA handling
+    transactions: 7
+    ai_class: crud
+    risk: medium
+  - id: UC-06
+    name: Laboratory sample registration and results
+    transactions: 6
+    ai_class: crud
+    risk: low
+  - id: UC-07
+    name: Batch traceability report and PDF export
+    transactions: 5
+    ai_class: crud
+    risk: low
+  - id: UC-08
+    name: SAP Business One master-data and posting integration
+    transactions: 9
+    ai_class: integration
+    risk: high
+  - id: UC-09
+    name: Sensor gateway ingestion
+    transactions: 6
+    ai_class: integration
+    risk: high
+  - id: UC-10
+    name: Operator tablet UI (touch-optimised, bilingual)
+    transactions: 7
+    ai_class: ux-heavy
+    risk: medium
+
+nfrs:
+  - id: NFR-01
+    attribute: availability
+    target: "99.5% during production shifts"
+    path: derived-scope
+    derived_components:
+      - name: Health probes and readiness endpoints
+        transactions: 2
+        ai_class: ops
+        risk: low
+      - name: Automated backup and restore drill
+        hours: 24
+        ai_class: ops
+        risk: medium
+  - id: NFR-02
+    attribute: security
+    target: "Role-based access, immutable audit log, WORM storage"
+    path: derived-scope
+    derived_components:
+      - name: Immutable audit log with WORM retention
+        transactions: 4
+        ai_class: ops
+        risk: medium
+      - name: Penetration test remediation window
+        hours: 40
+        ai_class: ops
+        risk: high
+  - id: NFR-03
+    attribute: compliance
+    target: "GMP computerised-system validation documentation"
+    path: derived-scope
+    derived_components:
+      - name: Validation protocol set (IQ/OQ/PQ) and traceability matrix
+        hours: 120
+        ai_class: docs
+        risk: medium
+  - id: NFR-04
+    attribute: performance-efficiency
+    target: "Form save < 500 ms on shop-floor tablets over WiFi"
+    path: multiplier
+    multiplier: 1.06
+  - id: NFR-05
+    attribute: portability
+    target: "Runs on customer-managed Linux or managed cloud"
+    path: multiplier
+    multiplier: 1.04
+
+factors:
+  technical:
+    T1: 3   # distributed
+    T2: 4   # response time
+    T3: 4   # end-user efficiency
+    T4: 4   # complex internal processing
+    T5: 3   # reusable code
+    T6: 3   # easy to install
+    T7: 4   # easy to use
+    T8: 2   # portable
+    T9: 4   # easy to change
+    T10: 3  # concurrent
+    T11: 5  # special security
+    T12: 3  # third-party access
+    T13: 3  # user training
+  environmental:
+    E1: 4   # process familiarity
+    E2: 3   # application experience
+    E3: 4   # paradigm experience
+    E4: 4   # lead analyst
+    E5: 4   # motivation
+    E6: 2   # stable requirements
+    E7: 1   # part-time staff
+    E8: 1   # difficult language
+  cocomo_scale:
+    PREC: nominal
+    FLEX: high
+    RESL: high
+    TEAM: high
+    PMAT: nominal
+
+delivery_modes:
+  - human_only
+  - human_with_ai
+  - ai_steered_human_supervised
+  - agentic_hitl
+
+team:
+  hours_per_day: 8
+  fte: 3
+  seniority_mix:
+    senior: 0.4
+    mid: 0.4
+    junior: 0.2
+
+ai:
+  # Agent capacity is bought on flat seat plans, not metered per token.
+  # Cost therefore scales with seats x calendar months, NOT with work volume.
+  cost_basis: subscription
+  subscriptions:
+    - plan: anthropic-max-20x   # $200/seat/month
+      seats: 2
+      utilisation: 1.0          # both seats fully on this project
+  # Meter-equivalent, measured over 542 sessions / 737.5 h. Not cash out here —
+  # it is only used to report subscription leverage (measured 6.4x locally).
+  cost_per_steering_hour: 10.41
+  context_factor: 5.10            # measured (ACEM illustrative value was 1.25)
+  revision_factor: 1.25           # measured lower bound 1.05, held above the floor
+  hitl_intensity: 2
+  steering_overhead: 1.8
+  infra_monthly: 400
+
+calibration:
+  # Calibrated, not textbook. See assets/calibration/reference-classes.md:
+  # the `wms-reference` class implies 12.97 h/UCP for this kind of team and stack.
+  # Karner's 20 would over-quote this project by ~54%.
+  hours_per_ucp: 13
+  reference_ucp: 100
+  contingency: 0.15
+  iterations: 20000
+  seed: 20260101
+
+business:
+  discount_rate: 0.12
+  horizon_years: 3
+  benefits:
+    - name: Paper-record elimination and QA labour saving
+      annual_value: 68000
+      confidence: 0.8
+    - name: Reduced batch rejection and rework
+      annual_value: 45000
+      confidence: 0.6
+      start_year: 2
+  run_costs:
+    - name: Hosting and backup
+      annual_value: 6000
+    - name: Support and maintenance retainer
+      annual_value: 18000
+  scope_tiers:
+    - tier: must
+      use_cases: [UC-01, UC-02, UC-03, UC-04, UC-05]
+    - tier: should
+      use_cases: [UC-06, UC-07, UC-10]
+    - tier: could
+      use_cases: [UC-08, UC-09]

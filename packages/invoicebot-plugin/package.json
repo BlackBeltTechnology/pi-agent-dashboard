@@ -1,6 +1,7 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-invoicebot-plugin",
   "version": "0.5.4",
+  "private": true,
   "description": "InvoiceBot REST plugin for pi-dashboard — exposes the four ib_* selectors over /api/plugins/invoicebot/*, keyed by cwd, behind an InvoiceEngine port.",
   "license": "MIT",
   "publishConfig": {
@@ -24,14 +25,14 @@
   "pi-dashboard-plugin": {
     "id": "invoicebot",
     "displayName": "InvoiceBot",
-    "priority": 100,
+    "priority": 99,
     "server": "./src/server/index.ts",
     "bridge": "./src/bridge/index.ts",
     "claims": []
   },
   "dependencies": {
-    "@blackbelt-technology/dashboard-plugin-runtime": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
     "@fastify/multipart": "^9.4.0",
     "yaml": "^2.9.0"
   },

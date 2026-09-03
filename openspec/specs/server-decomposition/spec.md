@@ -1,4 +1,10 @@
-## ADDED Requirements
+# server-decomposition Specification
+
+## Purpose
+
+Splits the dashboard server's entry point into focused modules — route registration, event wiring, session bootstrap, and the idle timer — each with a defined boundary.
+
+## Requirements
 
 ### Requirement: Route module extraction
 server.ts SHALL register API routes via separate route module functions grouped by domain: session-routes, git-routes, file-routes, openspec-routes, and system-routes.

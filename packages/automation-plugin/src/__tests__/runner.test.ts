@@ -104,3 +104,80 @@ describe("runner concurrency", () => {
     expect(values).toEqual(["/spool/a.pdf", "/spool/b.pdf", "/spool/c.pdf"]);
   });
 });
+
+// ── Fire-slot ownership under fan-out (parent releases, not first child) ─────
+// See change: add-automation-concurrent-spawn.
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach } from "vitest";
+import { createEngine } from "../server/engine.js";
+import { listRuns, readChildRuns } from "../server/run-store.js";
+
+describe("runner fire-slot ownership (fan-out)", () => {
+  let repo: string;
+  beforeEach(() => { repo = fs.mkdtempSync(path.join(os.tmpdir(), "auto-runner-")); });
+  afterEach(() => { fs.rmSync(repo, { recursive: true, force: true }); });
+  const flushSpawn = async () => { await Promise.resolve(); await Promise.resolve(); };
+
+  function fanout(name: string, count: number, concurrency: Concurrency): DiscoveredAutomation {
+    const dir = path.join(repo, ".pi", "automation", name);
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(path.join(dir, "prompt.md"), "do it");
+    return {
+      name, scope: "folder", dir, valid: true,
+      config: {
+        on: { kind: "schedule", cron: "* * * * *" },
+        action: { kind: "prompt", prompt: "./prompt.md", count },
+        model: "@fast", mode: "local", sandbox: "workspace-write", concurrency,
+      },
+    };
+  }
+  function makeEngine(calls: any[]) {
+    return createEngine({
+      spawnSession: async (o) => { calls.push(o); return { success: true, spawnToken: `tok-${calls.length}` }; },
+      listScopes: () => [{ base: repo, scope: "folder" }],
+      config: () => ({ defaultVisibility: "hidden", retention: 100, defaultModel: "m", scanFolder: true, scanGlobal: false, maxRunAgeMs: 30 * 60 * 1000 }),
+      readRoles: () => ({ fast: "m" }),
+      warn: () => {},
+    });
+  }
+  const parents = (name: string) => listRuns(repo, name);
+
+  it("X5: a queued fire starts only after the whole occurrence is terminal", () => {
+    const engine = makeEngine([]);
+    const key = "folder:q";
+    const a = fanout("q", 3, "queue");
+    engine.runner.fire(a); // parent1 + 3 children
+    const p1 = engine.runner.activeRunId(key)!;
+    const kids1 = readChildRuns(repo, parents("q").find((r) => r.runId === p1)!);
+    kids1.forEach((k, i) => engine.onSessionRegisteredForRun(`a${i}`, k.runId));
+
+    engine.runner.fire(a); // queued while parent1 runs
+    expect(engine.runner.queuedCount(key)).toBe(1);
+    expect(parents("q")).toHaveLength(1);
+
+    engine.onSessionEnded("a0", "- x"); // first child done — must NOT release the slot
+    expect(parents("q")).toHaveLength(1);
+    expect(engine.runner.queuedCount(key)).toBe(1);
+
+    engine.onSessionEnded("a1", "- y");
+    engine.onSessionEnded("a2", "- z"); // last child → parent1 finalizes → queued starts
+    expect(parents("q")).toHaveLength(2);
+  });
+
+  it("X7: an overlapping skip fire is dropped and spawns no extra children", async () => {
+    const calls: any[] = [];
+    const engine = makeEngine(calls);
+    const a = fanout("s", 3, "skip");
+    engine.runner.fire(a);
+    await flushSpawn();
+    expect(calls).toHaveLength(3);
+    expect(parents("s")).toHaveLength(1);
+
+    engine.runner.fire(a); // parent still running → dropped
+    await flushSpawn();
+    expect(calls).toHaveLength(3); // no additional spawns
+    expect(parents("s")).toHaveLength(1);
+  });
+});

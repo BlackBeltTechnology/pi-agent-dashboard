@@ -231,4 +231,4 @@ learned-the-hard-way diagnosis.
 
 ---
 
-_Generated from session `019f596f-b0a4-7464-96f0-9d8a07517ca2` · `pi-agent-dashboard` · 2026-07-13. Source extract: `/tmp/facts-32066.md`._
+_Generated from session `019f596f-b0a4-7464-96f0-9d8a07517ca2` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-13. Source extract: `/tmp/facts-32066.md`._

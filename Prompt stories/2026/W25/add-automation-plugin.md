@@ -151,4 +151,4 @@ plugin to mirror, `gh` auth for the PR, and the worktree checkout.
 
 ---
 
-_Generated from session `019ee67f-db97-7ecd-9b69-d2359b0c4580` · `pi-agent-dashboard` · 2026-06-21. Source extract: `/tmp/session_facts_57496_1784848042.md`._
+_Generated from session `019ee67f-db97-7ecd-9b69-d2359b0c4580` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-21. Source extract: `/tmp/session_facts_57496_1784848042.md`._

@@ -1,4 +1,10 @@
-## ADDED Requirements
+# interactive-ui-dialogs Specification
+
+## Purpose
+
+Lets a pi extension's interactive prompts — confirm, select, input, editor, notify — be answered from the dashboard instead of only from the TUI. Defines the bridge-side UI proxy with pending-request tracking, the race pattern that lets a TUI session and a browser both be valid responders, headless-only mode, the request/response/dismiss protocol messages and their routing, the renderer registry, and inline rendering of each dialog type in the chat view.
+
+## Requirements
 
 ### Requirement: UI proxy module in bridge extension
 The bridge extension SHALL include a `ui-proxy.ts` module that wraps `ctx.ui` dialog methods (`confirm`, `select`, `input`, `editor`) and fire-and-forget methods (`notify`). The proxy SHALL be activated in the `session_start` handler by replacing methods on `ctx.ui`.

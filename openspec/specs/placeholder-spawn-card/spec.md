@@ -1,4 +1,10 @@
-## ADDED Requirements
+# placeholder-spawn-card Specification
+
+## Purpose
+
+Gives the user immediate feedback that a session spawn is in flight by showing a placeholder card, disabling the New button, and replacing the placeholder when the session arrives with the matching request id. Defines the failure paths that matter more than the happy one: removal on spawn failure, a safety timeout for a stuck placeholder, and a fallback clear when no spawn request id is present.
+
+## Requirements
 
 ### Requirement: Placeholder card shown during session spawn
 When the user (or programmatic flow) issues a spawn, the system SHALL immediately render a placeholder skeleton card at the top of the target group's session list. The placeholder SHALL display a pulse/loading animation. Placeholders SHALL be keyed by the spawn `requestId` (UUIDv4 minted by the client at dispatch time), NOT by the cwd. Multiple placeholders MAY render simultaneously in the same group when multiple spawns are in-flight for the same cwd.

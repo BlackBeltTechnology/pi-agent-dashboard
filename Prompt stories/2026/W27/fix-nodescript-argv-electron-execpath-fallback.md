@@ -170,4 +170,4 @@ into `develop` (SHA `d67adf89`).
 
 ---
 
-_Generated from session `019f2ca0` · `pi-agent-dashboard` · 2026-07-04. Source extract: facts sheet (mktemp)._
+_Generated from session `019f2ca0` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-04. Source extract: facts sheet (mktemp)._

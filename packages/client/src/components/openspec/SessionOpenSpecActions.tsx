@@ -362,7 +362,8 @@ export function SessionOpenSpecActions({ session, changes, onAttach, onDetach, o
   }
 
   const state = deriveChangeState(change);
-  const allArtifactsDone = change.artifacts.length > 0 && change.artifacts.every((a) => a.status === "done");
+  // `skipped` (skip_specs change) satisfies — mirrors the CLI's isPlanningComplete.
+  const allArtifactsDone = change.artifacts.length > 0 && change.artifacts.every((a) => a.status === "done" || a.status === "skipped");
   const hasParseableTasks = change.totalTasks > 0;
   const showArchiveAnyway =
     state === ChangeState.IMPLEMENTING && change.isComplete === true && allArtifactsDone;

@@ -185,4 +185,4 @@ running, system Chrome (`PW_CHANNEL=chrome`), `gh` authed, worktree on a branch 
 
 ---
 
-_Generated from session `019f545e-a356-7482-a68f-746cd2a00d62` · `pi-agent-dashboard` · 2026-07-12. Source extract: session-facts for fix-table-copy-empty-clipboard._
+_Generated from session `019f545e-a356-7482-a68f-746cd2a00d62` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-12. Source extract: session-facts for fix-table-copy-empty-clipboard._

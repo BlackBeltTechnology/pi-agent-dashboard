@@ -92,4 +92,4 @@ Recommended skill to create: a **`ship-openspec-change`** playbook capturing the
 
 ---
 
-_Generated from session `019eec13` · `pi-agent-dashboard/.worktrees/os-fix-automation-slot-parity-and-routing` · 2026-06-21. Source extract: session facts sheet._
+_Generated from session `019eec13` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-fix-automation-slot-parity-and-routing` · 2026-06-21. Source extract: session facts sheet._

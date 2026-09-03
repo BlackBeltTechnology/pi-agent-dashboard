@@ -1,0 +1,302 @@
+<!doctype html>
+<html lang="en" data-resolution="custom" data-theme="light">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1920, height=1200" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      *{margin:0;padding:0;box-sizing:border-box}
+      html,body{width:1920px;height:1200px;overflow:hidden;background:#ffffff}
+      :root{
+        --fg:#1a1a1a; --sub:#444444; --accent:#1d4ed8;
+        --mono:"JetBrains Mono","SF Mono",Menlo,Monaco,monospace;
+        --sans:"Instrument Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+      }
+      body{font-family:var(--sans)}
+
+      /* .clip is the marker HyperFrames uses to recognise a timed element.
+         It carries NO geometry here on purpose, so .scene and #rail keep
+         owning their own boxes. Styling it inset:0 full-canvas (as the hero
+         cut did) would fight #rail, which is a hairline, not a scene.
+         NOTE: no backticks in this file's CSS/JS comments — the whole
+         document is emitted from a JS template literal. */
+      .clip{}
+
+      /* A scene is the full canvas. Scenes SLIDE past one another, so each one
+         spends part of its life off-canvas by design. */
+      .scene{position:absolute;top:0;left:0;width:1920px;height:1200px;overflow:hidden}
+
+      /* Full-bleed shot. The push-in scales the WHOLE stage, not the base
+         image, so the theme band below rides the same transform and stays
+         registered with the pixels underneath it. */
+      .stage{position:absolute;top:0;left:0;width:1920px;height:1200px;transform-origin:50% 45%}
+      .stage img{display:block;width:1920px;height:1200px}
+      .stage .base{position:absolute;top:0;left:0}
+
+      /* THEME BAND — the travelling blue line is a dark/light separator, the
+         same device as the wipe cut. Here it carries a narrow window of the
+         OPPOSITE theme across the frame, so a dark film flashes its light
+         counterpart (and vice versa) in a moving strip. The two captures are
+         the same viewport at the same scroll offset, so the strip registers
+         pixel-for-pixel and reads as the UI repainting under the line.
+         .bandinner counter-translates by exactly the band offset, which is
+         what keeps the ghost anchored instead of sliding. */
+      .band{position:absolute;top:0;left:0;width:340px;height:1200px;overflow:hidden;opacity:0}
+      .bandinner{position:absolute;top:0;left:0;width:1920px;height:1200px}
+      .edge{position:absolute;top:0;width:2px;height:1200px;background:#1d4ed8}
+      .edge.lead{right:0;box-shadow:0 0 34px 6px #1d4ed866}
+      .edge.trail{left:0;opacity:.45}
+
+      /* Readability floor for the caption, which sits over LIVE UI — a dense
+         transcript or a board full of cards, not a flat backdrop. The ramp
+         reaches full opacity well above the caption so the text never has
+         session-card edges running through it. */
+      /* Grown from 460px to 540px, and full opacity pulled up to 46%, because
+         the caption below is now bigger and centred: its block top sits ~250px
+         off the floor, which the old ramp had not yet reached full strength at.
+         The scrim has to be opaque BEHIND the whole block, not just under it. */
+      .scrim{position:absolute;left:0;right:0;bottom:0;height:540px;
+        background:linear-gradient(to bottom, rgba(255,255,255,0) 0%, rgba(255,255,255,.97) 46%, rgba(255,255,255,.97) 100%)}
+
+
+      /* Centred lower-third. left:0/right:0 rather than a fixed width, so the
+         block self-centres at any title length and nothing has to be measured.
+         The underline now grows from its MIDDLE (transform-origin 50%) to match
+         the centred axis; drawing it from the left edge would have made a
+         centred block visibly grow off-axis. */
+      .cap{position:absolute;left:0;right:0;bottom:112px;text-align:center}
+      .cap .row{display:flex;align-items:baseline;justify-content:center;gap:28px}
+      .cap .n{font-family:var(--mono);font-size:22px;letter-spacing:.18em;color:var(--accent)}
+      /* Hidden twin of the number on the trailing side. Without it the flex row
+         centres (number + gap + title) as one block, which pushes the TITLE ~44px
+         right of centre while the underline centres on the container -- the two
+         end up on different axes. Balancing the row costs one hidden span and
+         needs no width measurement, so it holds for any title length. */
+      .cap .n.ghost{visibility:hidden}
+      .cap .t{font-size:74px;font-weight:400;letter-spacing:-.022em;color:var(--fg);white-space:nowrap}
+      .cap .ul{height:2px;width:520px;background:var(--accent);margin:24px auto 0;transform-origin:50% 50%}
+      .cap .s{font-family:var(--mono);font-size:24px;letter-spacing:.05em;color:var(--sub);margin:18px 0 0}
+
+      #rail{position:absolute;left:96px;right:96px;bottom:48px;height:2px;
+        background:#dcdcdc;border-radius:1px}
+      #railfill{height:100%;width:0;background:var(--accent);border-radius:1px}
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="21.8"
+         data-width="1920" data-height="1200">
+
+      <div id="s0" class="scene clip" data-start="0.0" data-duration="5.0"
+           data-track-index="1" data-layout-allow-overlap data-layout-allow-overflow>
+        <div class="stage">
+          <img class="base" src="assets/sessions-light.png" alt="Every session, in one place" data-layout-allow-overflow />
+          <div class="band" data-layout-allow-overflow>
+            <div class="bandinner" data-layout-allow-overflow>
+              <img src="assets/sessions-dark.png" alt="" data-layout-allow-overflow />
+            </div>
+            <div class="edge trail"></div>
+            <div class="edge lead"></div>
+          </div>
+        </div>
+        <div class="scrim"></div>
+        <div class="cap">
+          <div class="row">
+            <span class="n" data-layout-allow-overlap>01</span>
+            <span class="t" data-layout-allow-overlap>Every session, in one place</span>
+            <span class="n ghost" aria-hidden="true" data-layout-allow-overlap>01</span>
+          </div>
+          <div class="ul"></div>
+          <div class="s" data-layout-allow-overlap>grouped by folder</div>
+        </div>
+      </div>
+
+      <div id="s1" class="scene clip" data-start="4.2" data-duration="5.0"
+           data-track-index="2" data-layout-allow-overlap data-layout-allow-overflow>
+        <div class="stage">
+          <img class="base" src="assets/chat-light.png" alt="Follow the whole transcript" data-layout-allow-overflow />
+          <div class="band" data-layout-allow-overflow>
+            <div class="bandinner" data-layout-allow-overflow>
+              <img src="assets/chat-dark.png" alt="" data-layout-allow-overflow />
+            </div>
+            <div class="edge trail"></div>
+            <div class="edge lead"></div>
+          </div>
+        </div>
+        <div class="scrim"></div>
+        <div class="cap">
+          <div class="row">
+            <span class="n" data-layout-allow-overlap>02</span>
+            <span class="t" data-layout-allow-overlap>Follow the whole transcript</span>
+            <span class="n ghost" aria-hidden="true" data-layout-allow-overlap>02</span>
+          </div>
+          <div class="ul"></div>
+          <div class="s" data-layout-allow-overlap>tools, tokens, cost</div>
+        </div>
+      </div>
+
+      <div id="s2" class="scene clip" data-start="8.4" data-duration="5.0"
+           data-track-index="3" data-layout-allow-overlap data-layout-allow-overflow>
+        <div class="stage">
+          <img class="base" src="assets/diff-commit-light.png" alt="Review the diff, then commit" data-layout-allow-overflow />
+          <div class="band" data-layout-allow-overflow>
+            <div class="bandinner" data-layout-allow-overflow>
+              <img src="assets/diff-commit-dark.png" alt="" data-layout-allow-overflow />
+            </div>
+            <div class="edge trail"></div>
+            <div class="edge lead"></div>
+          </div>
+        </div>
+        <div class="scrim"></div>
+        <div class="cap">
+          <div class="row">
+            <span class="n" data-layout-allow-overlap>03</span>
+            <span class="t" data-layout-allow-overlap>Review the diff, then commit</span>
+            <span class="n ghost" aria-hidden="true" data-layout-allow-overlap>03</span>
+          </div>
+          <div class="ul"></div>
+          <div class="s" data-layout-allow-overlap>per file, from the browser</div>
+        </div>
+      </div>
+
+      <div id="s3" class="scene clip" data-start="12.6" data-duration="5.0"
+           data-track-index="4" data-layout-allow-overlap data-layout-allow-overflow>
+        <div class="stage">
+          <img class="base" src="assets/openspec-light.png" alt="Plan the work on a board" data-layout-allow-overflow />
+          <div class="band" data-layout-allow-overflow>
+            <div class="bandinner" data-layout-allow-overflow>
+              <img src="assets/openspec-dark.png" alt="" data-layout-allow-overflow />
+            </div>
+            <div class="edge trail"></div>
+            <div class="edge lead"></div>
+          </div>
+        </div>
+        <div class="scrim"></div>
+        <div class="cap">
+          <div class="row">
+            <span class="n" data-layout-allow-overlap>04</span>
+            <span class="t" data-layout-allow-overlap>Plan the work on a board</span>
+            <span class="n ghost" aria-hidden="true" data-layout-allow-overlap>04</span>
+          </div>
+          <div class="ul"></div>
+          <div class="s" data-layout-allow-overlap>grouped, ordered, tallied</div>
+        </div>
+      </div>
+
+      <div id="s4" class="scene clip" data-start="16.8" data-duration="5.0"
+           data-track-index="5" data-layout-allow-overlap data-layout-allow-overflow>
+        <div class="stage">
+          <img class="base" src="assets/editor-light.png" alt="Open the file right there" data-layout-allow-overflow />
+          <div class="band" data-layout-allow-overflow>
+            <div class="bandinner" data-layout-allow-overflow>
+              <img src="assets/editor-dark.png" alt="" data-layout-allow-overflow />
+            </div>
+            <div class="edge trail"></div>
+            <div class="edge lead"></div>
+          </div>
+        </div>
+        <div class="scrim"></div>
+        <div class="cap">
+          <div class="row">
+            <span class="n" data-layout-allow-overlap>05</span>
+            <span class="t" data-layout-allow-overlap>Open the file right there</span>
+            <span class="n ghost" aria-hidden="true" data-layout-allow-overlap>05</span>
+          </div>
+          <div class="ul"></div>
+          <div class="s" data-layout-allow-overlap>editor, tree and terminal</div>
+        </div>
+      </div>
+
+      <div id="rail" class="clip" data-start="0" data-duration="21.8" data-track-index="0">
+        <div id="railfill"></div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      const W = 1920, STEP = 4.2, HOLD = 5, TOTAL = 21.8;
+      const SLIDE = 0.95;   // scene-to-scene push
+      const BAND = 340, BAND_DUR = 2.8;   // theme-band width and sweep time
+      const N = 5;
+
+      /* Scenes are stacked; only their x offset decides what is on screen.
+         A push (old exits left while new enters right) keeps a single
+         direction of travel and reads as one continuous strip of UI, which
+         suits an instrument panel better than a dissolve. */
+      for (let i = 0; i < N; i++) {
+        const sc = "#s" + i, at = i * STEP;
+
+        gsap.set(sc, { x: i === 0 ? 0 : W });
+        gsap.set(sc + " .cap .ul", { scaleX: 0 });
+
+        if (i === 0) {
+          tl.fromTo(sc, { opacity: 0 }, { opacity: 1, duration: 0.7, ease: "power2.out" }, 0);
+        } else {
+          tl.to(sc,             { x: 0,  duration: SLIDE, ease: "power3.inOut" }, at);
+          tl.to("#s" + (i - 1), { x: -W, duration: SLIDE, ease: "power3.inOut" }, at);
+        }
+
+        /* Push-in runs the WHOLE scene at constant speed, so the frame is
+           never still but never visibly moving either.
+           Target is .stage, NOT .stage img: the theme band is a child of the
+           stage, so scaling the stage carries the band with it and the strip
+           stays registered with the pixels underneath. Scaling the image alone
+           would slide the base out from under the band.
+           Range is deliberately wide (1.22 -> 1.06 vs the old 1.07 -> 1.00) and
+           carries a lateral drift. The floor stays at 1.06 rather than 1.00
+           because the drift needs overhang to travel into: at 1.06 the stage
+           laps the canvas by 57.6px per side, so a 34px drift never exposes an
+           edge. Ending at 1.00 would pin the drift to zero. */
+        const dir = i % 2 === 0 ? 1 : -1;
+        tl.fromTo(sc + " .stage",
+                  { scale: 1.22, x: dir * 34, y: -dir * 12 },
+                  { scale: 1.06, x: -dir * 34, y: dir * 12,
+                    duration: HOLD + SLIDE, ease: "none" }, at);
+
+        /* Caption builds after the slide lands, not during it.
+           The build now SLIDES laterally instead of rising: scenes push
+           horizontally, so a horizontal caption entry shares that axis and
+           reads as one motion language rather than two competing ones.
+           Title and sub-label travel different distances (120 vs 80) so they
+           arrive as two beats, not one block. */
+        const capAt = at + (i === 0 ? 0.5 : SLIDE * 0.75);
+        tl.fromTo(sc + " .cap .row", { opacity: 0, x: 120 },
+                  { opacity: 1, x: 0, duration: 0.95, ease: "power3.out" }, capAt);
+        tl.to(sc + " .cap .ul", { scaleX: 1, duration: 0.80, ease: "power2.inOut" }, capAt + 0.26);
+        tl.fromTo(sc + " .cap .s", { opacity: 0, x: 80 },
+                  { opacity: 1, x: 0, duration: 0.80, ease: "power3.out" }, capAt + 0.38);
+
+        /* THEME BAND — one pass per scene, alternating direction with the
+           drift so the line and the frame never fight each other.
+           .bandinner counter-translates by exactly the band offset (same
+           duration, same ease, mirrored values) which pins the opposite-theme
+           capture at stage x=0 while its window travels. That is what makes
+           the strip read as the UI repainting under the line rather than a
+           picture sliding past a hole. */
+        const bFrom = dir === 1 ? -BAND : W;
+        const bTo   = dir === 1 ? W : -BAND;
+        const bandAt = capAt + 0.5;
+
+        // Leading edge carries the glow, so it has to sit on the side the
+        // band is travelling toward.
+        if (dir === -1) {
+          gsap.set(sc + " .edge.lead",  { left: 0, right: "auto" });
+          gsap.set(sc + " .edge.trail", { left: "auto", right: 0 });
+        }
+
+        tl.set(sc + " .band",      { x: bFrom, opacity: 0 }, at);
+        tl.set(sc + " .bandinner", { x: -bFrom }, at);
+        tl.to(sc + " .band", { opacity: 1, duration: 0.28, ease: "power2.out" }, bandAt);
+        tl.to(sc + " .band",      { x: bTo,  duration: BAND_DUR, ease: "power1.inOut" }, bandAt);
+        tl.to(sc + " .bandinner", { x: -bTo, duration: BAND_DUR, ease: "power1.inOut" }, bandAt);
+        tl.to(sc + " .band", { opacity: 0, duration: 0.32, ease: "power2.in" },
+              bandAt + BAND_DUR - 0.32);
+      }
+
+      tl.fromTo("#railfill", { width: "0%" }, { width: "100%", duration: TOTAL, ease: "none" }, 0);
+
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

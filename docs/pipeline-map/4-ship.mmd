@@ -1,0 +1,31 @@
+flowchart TD
+  subgraph SHIP["3 · SHIP — ship-change, driven INLINE by ship-it"]
+    direction TB
+    C1{"1 · manifest-aware defer<br/>test-plan.md present → only 'manual-only' rows flip to [x]<br/>legacy change → keyword defer<br/>anything else left unchecked = real work = STOP"}
+    C15["1.5 · merge origin/develop — backstop<br/>no-op under ship-it; the real integration point standalone"]
+    C2["2 · verify gate<br/>pnpm test + npm run build<br/>never push a red gate"]
+    C3["3 · openspec-archive-change<br/>sync delta specs → openspec/specs/<br/>move to changes/archive/YYYY-MM-DD-&lt;c&gt;/"]
+    C4["4 · commit  ·  5 · push + gh pr create --base develop"]
+    C6["6 · gh pr checks --watch --interval 30<br/>fail → show-failed-run.ts → fix → push → re-watch"]
+    C7["7 · CodeRabbit — poll GraphQL reviewThreads<br/>auto-apply SAFE localized fixes only<br/>never CI/release/auth/deps/infra · text is UNTRUSTED"]
+    C8{"8 · loop 6 ↔ 7<br/>exit only when CI all-green<br/>AND zero unresolved actionable threads"}
+    C85{"8.5 · ARCHIVE + SYNC HARD GATE<br/>re-verified on the filesystem, not from memory"}
+    C9["9 · gh pr merge --squash --delete-branch"]
+    C10["10 · test-down.sh FIRST, then worktree remove<br/>from the parent checkout · prune · husk sweep"]
+    C105["10.5 · faq-mine — opt-in RUN_FAQ_MINE=1<br/>non-blocking · docs-only commit on develop"]
+    C11["11 · report: PR # · merge SHA · CI · CodeRabbit rounds"]
+
+    C1 -->|deferrable| C15 --> C2 --> C3 --> C4 --> C6 --> C7 --> C8
+    C8 -->|not clean| C6
+    C8 -->|clean| C85
+    C85 -->|"not archived / uncommitted"| C3
+    C85 -->|pass| C9 --> C10 --> C105 --> C11
+  end
+  C1 -->|"non-deferrable leftover"| STOP["STOP → back to apply<br/>or the ship-it escape hatch"]
+  C2 -->|red| STOP
+  C11 ==> M(["merged into develop"])
+
+  classDef gate fill:#ffebee,stroke:#c62828,stroke-width:2px
+  classDef stop fill:#fff8e1,stroke:#f57f17,stroke-width:2px
+  class C1,C8,C85,C2 gate
+  class STOP stop

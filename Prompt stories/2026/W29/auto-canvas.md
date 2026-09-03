@@ -223,4 +223,4 @@ green; specs archived to `archive/2026-07-15-auto-canvas/`.
 
 ---
 
-_Generated from session `019f6474-28d0-7036-8acd-4645bd3da409` · `pi-agent-dashboard/.worktrees/os-auto-canvas` · 2026-07-15. Source extract: `/tmp/facts-1784848562N.md`._
+_Generated from session `019f6474-28d0-7036-8acd-4645bd3da409` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-auto-canvas` · 2026-07-15. Source extract: `/tmp/facts-1784848562N.md`._

@@ -113,7 +113,7 @@ RUN if getent passwd 1000 >/dev/null; then userdel -r "$(getent passwd 1000 | cu
 # 1.4 Global pi coding agent + openspec (spawned/probed by the dashboard).
 # Install must be fatal; the version probes stay non-fatal (grouped so a
 # non-zero `--version` can't mask an `npm install -g` failure).
-RUN npm install -g @earendil-works/pi-coding-agent@0.84.1 openspec \
+RUN npm install -g @earendil-works/pi-coding-agent@0.84.4 openspec \
  && { pi --version || true; } \
  && { openspec --version || true; }
 
@@ -158,8 +158,28 @@ COPY packages ./packages
 # Faux model fixture (provider + scenario catalog). test-entrypoint.sh stages
 # these as a global auto-discovered pi extension under PI_E2E_SEED so UI-spawned
 # sessions drive a key-free faux model. See change: add-e2e-faux-model-roundtrip.
-COPY qa/fixtures ./qa/fixtures
+# qa/ in full (not just fixtures) because qa/scripts/*.mjs is part of the module
+# graph the dead-code oracle analyses.
+COPY qa ./qa
+# Dead-code oracle inputs. Knip's verdict is only reproducible against the SAME
+# tree: analysing a subset silently changes the counts, so every tree the
+# knip.json entries name must be present or the harness answers a different
+# question than the host does.
+# NOTE: `.pi/skills` ONLY — never `.pi/settings.json`, which pins a host
+# absolute path for its extension packages and would break container sessions.
+# playwright.config.ts roots tests/e2e/global-setup.ts, and Knip's
+# GitHub-Actions plugin reads .github/workflows/*.yml to root the scripts they
+# invoke (e.g. scripts/sync-versions.js). Without either, the container reported
+# 13 unused files / 233 exports against the host's 10 / 227.
+COPY knip.json knip-baseline.json playwright.config.ts ./
+COPY tests ./tests
+COPY public ./public
+COPY .github ./.github
+COPY .pi/skills ./.pi/skills
 COPY --chmod=0755 docker/entrypoint.sh /usr/local/bin/entrypoint.sh
+# Sourced by both entrypoints so the deployment and the test harness supervise
+# the detached daemon identically.
+COPY --chmod=0755 docker/supervise-daemon.sh /usr/local/bin/supervise-daemon.sh
 COPY docker/scripts ./docker/scripts
 
 # pnpm re-resolves the full platform optional-dep tree from pnpm-lock.yaml
@@ -173,6 +193,13 @@ RUN pnpm install --frozen-lockfile \
  && apt-get purge -y --auto-remove build-essential python3 \
  && rm -rf /var/lib/apt/lists/* \
  && chown -R pi:pi /app
+
+# The VOLUME paths below are created by the VOLUME instruction itself, as ROOT,
+# regardless of the USER in force — and a fresh named volume inherits that
+# root:root ownership on first use, which a container running as `pi` cannot
+# write. Create them here, owned by pi, so the copy-on-first-use hands the
+# volume to the user that actually runs.
+RUN mkdir -p /home/pi/.pi /home/pi/.zrok2 && chown pi:pi /home/pi/.pi /home/pi/.zrok2
 
 USER pi
 ENV HOME=/home/pi

@@ -132,4 +132,4 @@ route (`/folder/:encodedCwd`) and eligibility guard. **Artifacts produced:**
 
 ---
 
-_Generated from session `019f74c5` · `pi-agent-dashboard` · 2026-07-18. Source extract: `/tmp/facts-wuWNXy.md`._
+_Generated from session `019f74c5` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-18. Source extract: `/tmp/facts-wuWNXy.md`._

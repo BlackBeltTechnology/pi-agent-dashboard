@@ -24,11 +24,16 @@ describe("consent prompts resolve to an inline placement", () => {
 
   it("a consent confirmation not claimed as widget-bar is inline (generic-dialog)", () => {
     bus.registerAdapter(nonClaimingAdapter("noop")); // no widget-bar claim
-    bus.request({
-      pipeline: "invoicebot",
-      type: "confirm",
-      question: "Aktiv\u00e1ljam a szab\u00e1lyt?",
-    } as any);
+    // Fire-and-forget: the request resolves only once a consumer answers, which this
+    // test deliberately never does. `.catch` handles the rejection without awaiting
+    // (an `await` would hang) and without a bare `void` discard.
+    bus
+      .request({
+        pipeline: "invoicebot",
+        type: "confirm",
+        question: "Aktiv\u00e1ljam a szab\u00e1lyt?",
+      } as any)
+      .catch(() => {});
     expect(onDashboardRequest).toHaveBeenCalledWith(
       expect.objectContaining({ question: "Aktiv\u00e1ljam a szab\u00e1lyt?" }),
       expect.objectContaining({ type: "generic-dialog" }),

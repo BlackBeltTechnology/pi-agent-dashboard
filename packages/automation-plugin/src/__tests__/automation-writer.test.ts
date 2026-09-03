@@ -2,12 +2,13 @@
  * automation-writer tests: create-writes-scope + prompt.md.
  * See change: add-automation-plugin.
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { writeAutomation, isValidAutomationName, deleteAutomation } from "../server/automation-writer.js";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { parseAutomationYaml } from "../server/automation-schema.js";
+import { deleteAutomation, isValidAutomationName, writeAutomation } from "../server/automation-writer.js";
 import type { AutomationConfig } from "../shared/automation-types.js";
 
 const KNOWN = new Set(["schedule"]);
@@ -61,6 +62,30 @@ describe("writeAutomation", () => {
     writeAutomation({ scopeBase: base, name: "s", config: skillConfig });
     const dir = path.join(base, ".pi", "automation", "s");
     expect(fs.existsSync(path.join(dir, "prompt.md"))).toBe(false);
+  });
+
+  // E26 — see change: add-automation-concurrent-spawn.
+  it("round-trips an `actions:` config with per-entry count", () => {
+    const IDS = new Set(["flows.run", "core.skill"]);
+    const actionsConfig: AutomationConfig = {
+      on: { kind: "schedule", cron: "0 9 * * 1" },
+      actions: [
+        { kind: "flows.run", payload: { flow: "A" }, count: 2 },
+        { kind: "core.skill", payload: { skill: "B" } },
+      ],
+      maxConcurrentSpawns: 3,
+      model: "@fast",
+      mode: "local",
+      sandbox: "workspace-write",
+      concurrency: "skip",
+    };
+    writeAutomation({ scopeBase: base, name: "fan", config: actionsConfig });
+    const yamlPath = path.join(base, ".pi", "automation", "fan", "automation.yaml");
+    const parsed = parseAutomationYaml(fs.readFileSync(yamlPath, "utf-8"), KNOWN, IDS);
+    expect(parsed.error).toBeUndefined();
+    expect(parsed.config?.actions).toEqual(actionsConfig.actions);
+    expect(parsed.config?.maxConcurrentSpawns).toBe(3);
+    expect(parsed.config?.action).toBeUndefined();
   });
 
   it("create (default intent) rejects an existing-name collision", () => {

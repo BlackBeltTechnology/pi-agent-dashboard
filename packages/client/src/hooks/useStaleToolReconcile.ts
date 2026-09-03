@@ -63,7 +63,13 @@ export interface StaleToolRef {
  * recovery is exhausted (≥ `min404` reconcile 404s) AND the transcript proves
  * completion (`hasLaterAssistantInference`). Terminal rows are never returned,
  * so a superseded/real completion is never re-healed.
- * See change: fix-stuck-tool-card-superseded-heal.
+ *
+ * `elided` is terminal, so the `status !== "running"` guard already excludes it:
+ * an unloadable result must never be relabelled as a fault. Note the reconcile
+ * never sees a SPLICED row at all — the backfill splice merges `messages` only
+ * and discards `seg.toolCalls`, which is why `elided` is stamped at the row
+ * level. See change: fix-stuck-tool-card-superseded-heal,
+ * fix-lazy-history-backfill-ux (D5).
  */
 export function selectSupersededHealTargets(
   sessionStates: Map<string, SessionState>,

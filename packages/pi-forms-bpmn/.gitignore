@@ -1,0 +1,5 @@
+# Working-copy artifacts — never committed, restored by postinstall / build.
+**/node_modules
+**/canvas-dist
+**/dist
+*.log

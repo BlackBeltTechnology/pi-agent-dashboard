@@ -111,11 +111,22 @@ describe("boot record", () => {
     // away longer than any grace window, so they reattach too late to retract.
     expect(isRecoveryAllowed("restart")).toBe(false);
     expect(isRecoveryAllowed("shutdown")).toBe(false);
+    // Ephemeral (fix-autostart-discovery-precedence 5.5): a self-exiting
+    // ephemeral server is a DELIBERATE exit, not a crash to recover from.
+    expect(isRecoveryAllowed("ephemeral")).toBe(false);
     // Allowed: liveness decides. `idle` kills every spawned pi outright.
     expect(isRecoveryAllowed("idle")).toBe(true);
     expect(isRecoveryAllowed("signal")).toBe(true);
     expect(isRecoveryAllowed("user-quit")).toBe(true);
     expect(isRecoveryAllowed(null)).toBe(true);
     expect(isRecoveryAllowed(undefined)).toBe(true);
+  });
+
+  it("records the ephemeral exit intent (fix-autostart-discovery-precedence 5.5)", () => {
+    stampBootStart(1);
+    recordExitIntent("ephemeral");
+    const raw = readRaw();
+    expect(raw.exitIntent).toBe("ephemeral");
+    expect(isRecoveryAllowed(resolveExitIntent(raw.bootId as number))).toBe(false);
   });
 });

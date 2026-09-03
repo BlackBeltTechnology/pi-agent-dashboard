@@ -176,4 +176,4 @@ in its own worktree; `gh` authenticated; access to pi's `dist/core/*.d.ts`.
 
 ---
 
-_Generated from session `019f2ca3` · `pi-agent-dashboard` · 2026-07-04. Source extract: deterministic facts sheet._
+_Generated from session `019f2ca3` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-04. Source extract: deterministic facts sheet._

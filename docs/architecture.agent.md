@@ -76,7 +76,7 @@ Web dashboard monitors + interacts with pi sessions. Three components + shared t
   - Genuine-local trust — D10. `isGenuinelyLocal(ip,headers)` loopback AND no proxy header.
   - CORS default — `https://pi-dashboard.dev` + `*.share.zrok.io`. `cors.allowedOrigins`.
   - Versioned protocol — D9. `PAIRING_PROTOCOL_VERSION`, `SUPPORTED_PAIRING_VERSIONS`.
-  - Operator pairing view (client) — `PairingView.tsx`. Settings→Security. `GET /api/pair/payload`. `qrcode` dep.
+  - Operator pairing view (client) — `GatewayPairQR.tsx`. Gateway page + Gateway dialog. `GET /api/pair/payload`. `qrcode` dep. Sole pairing surface; Settings→Security links to it. See change: collapse-pairing-into-gateway.
 - Settings Panel — gear icon → `/settings`. `GET /api/config` (secrets `***`).
 - Reconnection Flow — browser reconnect `subscribe{lastSeq}`. Server replays missed events, batches of 50 backpressure.
 - Bridge Reconnection (State Reset) — `session_register` with `eventCount` re-registers.
@@ -116,7 +116,13 @@ Server CLI + bridge read `~/.pi/dashboard/config.json` via `src/shared/config.ts
 - Cross-Platform Server Launch — `node --import <loader> <cli.ts>` from 4 call sites. `file://` URL wrapping.
   - stdout + stderr capture parity — both call sites capture both streams into log.
   - CJS preload for Fastify (nodejs/node#58515) — inject `--require preload-fastify.cjs` before `--import jiti`.
-  - Node-version preflight — `node-version-check.ts::isKnownBadNode(version)`. CLI warns, proceeds.
+  - Node-version preflight — `packages/shared/src/node-version.ts`. Single source of truth.
+    - Floor 22.19 (`MIN_SUPPORTED_NODE`). Affected: 22.0–22.18 + 24.1–24.2 (nodejs/node#58515). Cap <27.
+    - Startup guard `auth/node-guard.ts::assertNodeVersionSupported` refuses, exits(1).
+  - Spawn runtime resolution — `platform/spawn-runtime.ts::resolveSpawnRuntime`.
+    - 4-rung ladder: override → tool-overrides node → user Node → managed → bundled/execPath.
+    - Publishes `runtime.resolved` to `~/.pi/dashboard/config.json` (diagnostic-only). Electron child identity via `PI_DASHBOARD_ELECTRON` + `PI_DASHBOARD_RESOURCES_PATH` env (stamped by launcher, stripped from grandchildren).
+    - See change: unify-pi-runtime-identity.
   - AppImage CLI self-recursion guard — power-user launch prefers installed `pi-dashboard` on PATH; guards recursion.
 - Cross-OS Platform Primitives — `packages/shared/src/platform/` win32 branches. Optional `platform` param injection.
 - Windows runtime dependencies (git + bash) — Windows needs `git.exe` + POSIX shell. Installers embed dugite-native (git 2.53.0 + bash). `windowsGitSource` auto/host/bundled.

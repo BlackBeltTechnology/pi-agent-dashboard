@@ -591,3 +591,42 @@ describe("deriveProposalCardState", () => {
     expect(deriveProposalCardState([])).toBe("");
   });
 });
+
+/**
+ * Dropping the `!lastError` gate in `App.tsx` widened `retrySessionIds` to
+ * include errored-and-retrying sessions. That must be VISUALLY INERT for every
+ * status channel: all four check `hasError` first, so the error branch still
+ * wins. This pins the additive claim — the activity label is the only changed
+ * pixel. See change: unify-retry-visibility (design D3).
+ */
+describe("error + retry together: the status channels stay the ERROR variants", () => {
+  const flags = { hasError: true, isRetrying: true };
+
+  it("dot color is the error token, not the working amber", () => {
+    const dot = deriveDotColorWithFlags(makeSession({ status: "streaming" }), flags);
+    expect(dot).toBe("bg-[var(--status-error)]");
+    expect(dot).not.toContain("--status-working");
+  });
+
+  it("status shape is `error`, not `working`", () => {
+    expect(deriveStatusShape(makeSession({ status: "streaming" }), flags)).toBe("error");
+  });
+
+  it("rail tint is the error mix in both selected and unselected", () => {
+    for (const selected of [false, true]) {
+      const rail = deriveRailBgColor(makeSession({ status: "streaming" }), flags, selected);
+      expect(rail).toContain("--status-error");
+      expect(rail).not.toContain("--status-working");
+    }
+  });
+
+  it("folder-capsule bucket is `error`, not `working`", () => {
+    const s = makeSession({ id: "s1", status: "streaming" });
+    const counts = countStatusCapsule([s], {
+      errorSessionIds: new Set(["s1"]),
+      retrySessionIds: new Set(["s1"]),
+    });
+    expect(counts.error).toBe(1);
+    expect(counts.working).toBe(0);
+  });
+});

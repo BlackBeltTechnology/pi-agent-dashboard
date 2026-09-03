@@ -175,4 +175,4 @@ spec `openspec/specs/kb-folder-slot/spec.md`, **merged PR #219** (squash `6e325e
 
 ---
 
-_Generated from session `019f2593` · `pi-agent-dashboard` · 2026-07-03. Source extract: `/tmp/kb_facts_final.md`._
+_Generated from session `019f2593` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-03. Source extract: `/tmp/kb_facts_final.md`._

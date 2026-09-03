@@ -171,4 +171,4 @@ shared module + 4 test files (43 tests), the wrapper script, the anti-drift lint
 
 ---
 
-_Generated from session `019dd0df-dee9-724c-aedc-fd99cc39dbea` · `pi-agent-dashboard` · 2026-04-28. Source extract: `/tmp/session_facts.zL94X6.md`._
+_Generated from session `019dd0df-dee9-724c-aedc-fd99cc39dbea` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-28. Source extract: `/tmp/session_facts.zL94X6.md`._

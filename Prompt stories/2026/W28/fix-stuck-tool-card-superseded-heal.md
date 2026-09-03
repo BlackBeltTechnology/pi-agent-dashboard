@@ -176,4 +176,4 @@ disciplines, and two facts are worth persisting:
 
 ---
 
-_Generated from session `019f529e` · `pi-agent-dashboard/.worktrees/os-fix-stuck-tool-card-superseded-heal` · 2026-07-11. Source extract: session facts sheet._
+_Generated from session `019f529e` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-fix-stuck-tool-card-superseded-heal` · 2026-07-11. Source extract: session facts sheet._

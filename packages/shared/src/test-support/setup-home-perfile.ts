@@ -24,8 +24,8 @@
  * per-fork). So no per-file localStorage path is needed here.
  */
 import { mkdirSync, mkdtempSync } from "node:fs";
-import { join } from "node:path";
 import os from "node:os";
+import { join } from "node:path";
 
 const home = mkdtempSync(join(os.tmpdir(), "pi-test-"));
 process.env.HOME = home;
@@ -41,3 +41,29 @@ if (process.platform === "win32") { // platform-branch-ok: test HOME isolation; 
 // production code that reads those paths finds empty but well-formed dirs.
 mkdirSync(join(home, ".pi", "agent", "sessions"), { recursive: true });
 mkdirSync(join(home, ".pi", "dashboard"), { recursive: true });
+
+// The gateway's TCP listener is an explicit opt-in in production (D10, task
+// 8.1 — a default POSIX start binds no bridge port at all), but the server
+// corpus dials `ws://127.0.0.1:<piPort>` throughout. Opt in here so tests keep
+// exercising the TCP transport, which remains supported for remote and
+// container bridges. See change: add-pi-gateway-transport-identity.
+process.env.PI_GATEWAY_TCP ??= "1";
+
+// Scrub the dashboard's session-pin env. When the suite itself is run from a
+// dashboard-spawned session (a very natural way to work in this repo), the
+// child vitest process inherits PI_DASHBOARD_URL / PI_DASHBOARD_SOCKET /
+// PI_DASHBOARD_SPAWN_TOKEN / PI_DASHBOARD_SPAWNED — and every suite that
+// reads them inherits the LIVE dashboard as a phantom dependency:
+// auto-start's pinned-endpoint gate then skips launches suite-wide, and
+// spawned faux pi sessions register against the live dashboard instead of
+// the test server ("did not register within timeout"). Tests that need a
+// pin set their own (per-test) value after this scrub.
+// See change: fix-bridge-autostart-port-resolution.
+for (const k of [
+  "PI_DASHBOARD_URL",
+  "PI_DASHBOARD_SOCKET",
+  "PI_DASHBOARD_SPAWN_TOKEN",
+  "PI_DASHBOARD_SPAWNED",
+] as const) {
+  delete process.env[k];
+}

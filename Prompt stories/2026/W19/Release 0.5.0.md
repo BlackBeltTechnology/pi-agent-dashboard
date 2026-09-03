@@ -131,4 +131,4 @@ bumped `package.json` (root + all workspaces) + `package-lock.json`, commit
 
 ---
 
-_Generated from session `019dfaa4-d5b6-76ea-a370-0fa4d50d207a` · `pi-agent-dashboard` · 2026-05-06. Source extract: session facts sheet._
+_Generated from session `019dfaa4-d5b6-76ea-a370-0fa4d50d207a` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-06. Source extract: session facts sheet._

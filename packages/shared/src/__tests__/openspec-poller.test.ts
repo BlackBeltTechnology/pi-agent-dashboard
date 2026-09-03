@@ -41,4 +41,22 @@ describe("buildOpenSpecData - isComplete pass-through", () => {
     expect("isComplete" in data.changes.find((c) => c.name === "a")!).toBe(false);
     expect(data.changes.find((c) => c.name === "b")!.isComplete).toBeUndefined();
   });
+
+  // skip_specs changes: the raw CLI emits `specs: "skipped"` (the change's
+  // .openspec.yaml declares skip_specs). The mapper must pass it through as
+  // its own status — collapsing it to `blocked` broke poller/CLI parity.
+  // See change: dispatch-provider-auth-event (develop-borne CI fix).
+  it("passes a raw `skipped` artifact status through instead of collapsing it to blocked", () => {
+    const statusResults = new Map<string, any>([
+      ["a", { artifacts: [
+        { id: "proposal", status: "done" },
+        { id: "specs", status: "skipped" },
+      ], isComplete: true }],
+      ["b", null],
+      ["c", null],
+    ]);
+    const data = buildOpenSpecData(listResult, statusResults);
+    const arts = data.changes.find((c) => c.name === "a")!.artifacts;
+    expect(arts.find((x) => x.id === "specs")!.status).toBe("skipped");
+  });
 });

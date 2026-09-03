@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-document-converter",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "TypeScript facade over a Dockerized Python document engine (pi-doc-engine). Bidirectional: ingest any format to provenance-stamped Markdown for kb, produce templated DOCX/PDF with diagrams. Engine quarantined in Docker; TS is the only call surface.",
   "type": "module",
   "license": "MIT",
@@ -16,6 +16,12 @@
     "skills": [
       ".pi/skills/document-converter",
       ".pi/skills/doc-summarizer"
+    ],
+    "tools": [
+      {
+        "id": "pi-doc-engine",
+        "probe": "docker-image"
+      }
     ]
   },
   "exports": {
@@ -30,13 +36,16 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0"
+    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0"
   },
   "files": [
     "dist",
     "src",
     "engine",
     ".pi/skills/",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md",
+    "!engine/tests",
     "!**/__tests__",
     "!**/*.test.ts",
     "!**/*.test.tsx"

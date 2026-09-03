@@ -1,0 +1,807 @@
+import { expect, type Locator, type Page, test } from "./fixtures.js";
+import { gotoDashboard, sendPrompt, spawnFreshGitSession } from "./helpers/index.js";
+import { DASHBOARD_PORT } from "./lifecycle.js";
+
+/**
+ * L3 gate for `fix-lazy-history-backfill-ux` — the gap affordance in a REAL
+ * browser against a REAL windowed session.
+ *
+ * ── Why one serial spec, not nine ───────────────────────────────────────────
+ * `test-plan.md` routes these rows across nine existing spec files. That
+ * routing is not implementable as written: every row needs the SERVER running
+ * with a non-zero `memoryLimits.maxReplayEvents`, which is a restart-only field
+ * on the ONE container all ~90 specs share. Spreading it across nine files
+ * means nine restart-and-restore dances, nine chances to leak a windowing
+ * config into an unrelated spec, and a cross-file ordering dependency for the
+ * expensive session build. They are consolidated here, in a `serial` file that
+ * OWNS the config mutation and restores it in `afterAll`.
+ *
+ * ── How a windowed session is arranged ──────────────────────────────────────
+ * `maxReplayEvents` is set to `MIN_REPLAY_WINDOW` (100) rather than the shipped
+ * 2000 default: the harness cannot cheaply build a 2000-event session, and the
+ * window CODE PATH is identical at either value — `computeReplayWindow` is
+ * parametric, and its behaviour at the shipped default is pinned
+ * deterministically at L1 (`subscription-handler-window.test.ts`, E7/E8/E9).
+ * What only a browser can show is what this file asserts: scroll behaviour,
+ * splice ordering, and the rendered affordance.
+ *
+ * A windowed replay is deliberately NOT written to the client's replay cache
+ * (D12), so every reload re-fetches the full stream and re-windows. That is
+ * what makes each test able to start from a fresh divider by reloading.
+ *
+ * The dashboard port comes from the Playwright baseURL, which docker/test-up.sh
+ * derived into `.pi-test-harness.json`. Never hardcode `:18000`.
+ *
+ * See change: fix-lazy-history-backfill-ux (D1-D8).
+ */
+
+/** `MIN_REPLAY_WINDOW`. Head 20 (the `HEAD_MIN` floor), tail 80. */
+const WINDOW = 100;
+/** ≤8px — the tolerance the change's own scroll requirement is written to. */
+const SCROLL_TOLERANCE_PX = 8;
+
+type MemoryLimits = Record<string, number>;
+
+let originalLimits: MemoryLimits = {};
+let sessionId = "";
+
+async function restartDashboard(): Promise<void> {
+  await fetch(`http://localhost:${DASHBOARD_PORT}/api/restart`, { method: "POST" }).catch(
+    () => undefined, // the connection dies with the daemon; that is the point
+  );
+  await new Promise((r) => setTimeout(r, 2_000));
+  const deadline = Date.now() + 120_000;
+  while (Date.now() < deadline) {
+    try {
+      if ((await fetch(`http://localhost:${DASHBOARD_PORT}/api/health`)).ok) return;
+    } catch {
+      // still down
+    }
+    await new Promise((r) => setTimeout(r, 1_000));
+  }
+  throw new Error("dashboard did not come back after POST /api/restart");
+}
+
+async function writeLimits(page: Page, limits: MemoryLimits): Promise<void> {
+  const res = await page.request.put("/api/config", { data: { memoryLimits: limits } });
+  expect(res.ok()).toBeTruthy();
+  await restartDashboard();
+}
+
+/** The gap divider's row. Present only once `history_window` has landed. */
+const divider = (page: Page): Locator => page.getByTestId("history-gap-divider");
+const loadEarlier = (page: Page): Locator => page.getByTestId("history-gap-load");
+
+/**
+ * Bring the divider into the MOUNTED set.
+ *
+ * The transcript is virtualized: only the viewport plus overscan is in the DOM,
+ * and the view opens pinned to the BOTTOM while the divider sits at the
+ * head→tail boundary near the top. So `getByTestId("history-gap-divider")` is
+ * legitimately absent until the user scrolls up — absence here is virtualization,
+ * NOT a missing affordance, and a spec that did not climb first would report a
+ * product bug that is not there.
+ */
+async function scrollDividerIntoDom(page: Page): Promise<void> {
+  const scroller = page.getByTestId("chat-scroll-container");
+  await scroller.waitFor({ state: "visible", timeout: 60_000 });
+
+  /**
+   * Climb by writing `scrollTop = 0` repeatedly.
+   *
+   * A single write is not reliable and the reason matters: it does not go
+   * through `handleScroll`'s gesture path, so `stickToBottomRef` can stay armed
+   * and the next measurement-driven growth re-pins the view to the bottom,
+   * unmounting the divider again. Observed directly. The loop simply out-lasts
+   * that: each pass re-establishes the top, and the virtualizer converges as
+   * the above-viewport rows measure.
+   *
+   * Callers must therefore treat "at the top" as PERISHABLE and re-pin
+   * immediately before measuring or clicking — see `pinDividerToTop`.
+   */
+  await expect
+    .poll(
+      async () => {
+        await scroller.evaluate((el) => {
+          el.scrollTop = 0;
+        });
+        return (await divider(page).count()) > 0;
+      },
+      { timeout: 120_000, intervals: [900] },
+    )
+    .toBe(true);
+}
+
+/**
+ * Re-establish the divider at the top and let the virtualizer settle. Cheap,
+ * idempotent, and the only safe thing to do immediately before a measurement or
+ * a click: the transcript is virtualized and the position is perishable.
+ */
+async function pinDividerToTop(page: Page): Promise<void> {
+  const scroller = page.getByTestId("chat-scroll-container");
+  for (let i = 0; i < 6; i++) {
+    await scroller.evaluate((el) => {
+      el.scrollTop = 0;
+    });
+    await page.waitForTimeout(400);
+    if ((await divider(page).count()) > 0) break;
+  }
+  await expect(divider(page)).toHaveCount(1, { timeout: 30_000 });
+  await page.waitForTimeout(400);
+}
+
+/**
+ * Open the windowed session in a transcript that has finished hydrating.
+ * Returns once the divider is mounted and the affordance is ARMED — the client
+ * disarms backfill until the terminal replay batch lands (D11), so asserting
+ * before that would be racing hydration rather than testing it.
+ */
+async function openWindowedSession(page: Page): Promise<void> {
+  await gotoDashboard(page);
+  const card = page.locator(`[data-session-id="${sessionId}"]`).first();
+  await card.waitFor({ state: "visible", timeout: 60_000 });
+  await card.click();
+  await scrollDividerIntoDom(page);
+  await pinDividerToTop(page);
+  await expect(divider(page)).toBeVisible({ timeout: 60_000 });
+  await expect(loadEarlier(page)).toBeEnabled({ timeout: 60_000 });
+}
+
+/** Bring the divider into view and let it settle, ready to measure or click. */
+async function centerDivider(page: Page): Promise<void> {
+  await pinDividerToTop(page);
+  await divider(page).scrollIntoViewIfNeeded().catch(() => undefined);
+  await page.waitForTimeout(600);
+}
+
+/**
+ * Perform the SCROLL half of a click up front, so a scroll measurement taken
+ * afterwards is not polluted by it.
+ *
+ * `locator.click()` auto-scrolls the target into view before dispatching. That
+ * scroll is Playwright's, not the product's, and it lands BETWEEN a naive
+ * `before` snapshot and the splice — which is how this file first "measured"
+ * a 280px jump that the product does not cause. Verified directly: dispatching
+ * the same click WITHOUT the auto-scroll leaves `scrollTop` at exactly 0 across
+ * the splice, while a real click moved it 280px before the splice even landed.
+ *
+ * Settling here means the later click is a no-op scroll-wise, so what the
+ * assertion sees is the SPLICE and nothing else.
+ */
+async function settleClickTarget(page: Page): Promise<void> {
+  await loadEarlier(page).scrollIntoViewIfNeeded().catch(() => undefined);
+  await page.waitForTimeout(600);
+}
+
+/**
+ * Invoke the load action WITHOUT letting the click move the viewport.
+ *
+ * Used ONLY by the scroll-measurement tests, and this is a deliberate,
+ * evidence-backed choice rather than a convenience. `locator.click()` brings
+ * two scrolls of its own: Playwright's pre-click auto-scroll, and the browser
+ * scrolling the freshly-FOCUSED button when the divider re-renders and that
+ * button is replaced. Measured side by side against this same session:
+ *
+ *   real click            scrollTop 0 -> 280   (before the splice even landed)
+ *   dispatched click      scrollTop 0 -> 0     divider y 589 -> 589
+ *                                              while scrollHeight 4309 -> 40883
+ *
+ * `dispatchEvent("click")` runs the identical React handler and the identical
+ * product code path; all it removes is the harness's own scrolling. The
+ * assertions stay at the ≤8px requirement even though the observed product
+ * drift is 0.
+ *
+ * Functional tests below deliberately keep a REAL `.click()` — they assert what
+ * the click DOES, not where the viewport ends up.
+ */
+async function clickLoadEarlierWithoutScrolling(page: Page): Promise<void> {
+  await loadEarlier(page).dispatchEvent("click");
+}
+
+/**
+ * Wait until the divider's viewport `y` STOPS moving, then return it.
+ *
+ * This is load-bearing for the scroll assertions, and not a convenience. The
+ * transcript is virtualized with ESTIMATED row sizes, so rows above the divider
+ * keep re-measuring for a while after they mount and the divider drifts on its
+ * own — measured at ~21px over 2.5s with no backfill at all. Taking `before`
+ * against an unsettled baseline would attribute that pre-existing convergence
+ * to the splice, and the test would report a defect that is not there.
+ *
+ * Returns `null` if it never settles, which the caller must treat as a failure
+ * rather than silently continuing.
+ */
+async function settledDividerY(page: Page, timeoutMs = 30_000): Promise<number | null> {
+  const deadline = Date.now() + timeoutMs;
+  let stable = 0;
+  let last: number | null = null;
+  while (Date.now() < deadline) {
+    const box = await divider(page).boundingBox().catch(() => null);
+    const y = box?.y ?? null;
+    if (y !== null && last !== null && Math.abs(y - last) <= 1) {
+      if (++stable >= 3) return y;
+    } else {
+      stable = 0;
+    }
+    last = y;
+    await page.waitForTimeout(300);
+  }
+  return null;
+}
+
+/** Every `history_backfill*` frame seen on this page's WebSocket. */
+function watchBackfillFrames(page: Page) {
+  const sent: Array<Record<string, unknown>> = [];
+  const received: Array<Record<string, unknown>> = [];
+  page.on("websocket", (ws) => {
+    const read = (frame: { payload: string | Buffer }) => {
+      const raw = typeof frame.payload === "string" ? frame.payload : frame.payload.toString("utf8");
+      try {
+        return JSON.parse(raw) as Record<string, unknown>;
+      } catch {
+        return null;
+      }
+    };
+    ws.on("framesent", (f) => {
+      const m = read(f);
+      if (m?.type === "history_backfill") sent.push(m);
+    });
+    ws.on("framereceived", (f) => {
+      const m = read(f);
+      if (m?.type === "history_backfill_result" || m?.type === "history_window") received.push(m);
+    });
+  });
+  return { sent, received };
+}
+
+test.describe.configure({ mode: "serial" });
+
+test.describe("history gap — tail-anchored backfill in the browser", () => {
+  test.setTimeout(300_000);
+
+  test.beforeAll(async ({ browser }) => {
+    // `test.setTimeout` at describe scope does NOT reach hooks (they keep the
+    // 60s default), and this hook builds a whole transcript AND restarts the
+    // daemon. Raise it here or the file fails in setup, not in an assertion.
+    // 25 min, not 15: on a COLD container the first spawn also pays the
+    // pi-flows jiti compile, and observed 900s exhaustion when this file runs
+    // alongside the sibling session-building spec.
+    test.setTimeout(1_500_000);
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    try {
+      const cfg = (await (await page.request.get("/api/config")).json()) as {
+        data?: { memoryLimits?: MemoryLimits };
+      };
+      originalLimits = cfg.data?.memoryLimits ?? {};
+      // Build the session BEFORE windowing is armed, so the transcript is
+      // rendered from an unwindowed replay and the build itself is not racing
+      // the affordance under test.
+      const card = await spawnFreshGitSession(page);
+      sessionId = (await card.getAttribute("data-session-id")) ?? "";
+      expect(sessionId).toBeTruthy();
+      await card.click();
+
+      const composer = page.getByPlaceholder(/message/i).first();
+      await composer.waitFor({ state: "visible", timeout: 60_000 });
+      await composer.fill("warmup");
+      await expect(page.getByTestId("send-button")).toBeEnabled({ timeout: 120_000 });
+      await composer.fill("");
+      // `long-transcript` is the repo's existing "many turns, heterogeneous
+      // rows" fixture — thinking + prose + a real bash tool call per turn, so
+      // the stream carries tool pairs the window can split (which is what D5's
+      // `elided` stamp exists for).
+      await sendPrompt(page, "[[faux:long-transcript]] go");
+      await expect(page.getByText(/long-transcript complete/).first()).toBeVisible({
+        timeout: 240_000,
+      });
+      await page.waitForTimeout(2_000);
+
+      await writeLimits(page, { ...originalLimits, maxReplayEvents: WINDOW });
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test.afterAll(async ({ browser }) => {
+    test.setTimeout(300_000);
+    // RESTORE the shared harness. A leftover window would silently truncate
+    // every later spec's replay, which presents as unrelated mass failure.
+    const ctx = await browser.newContext();
+    const page = await ctx.newPage();
+    try {
+      /**
+       * End the session this file BUILT. The auto-reap fixture snapshots ids
+       * around each test BODY, so a `beforeAll` spawn is never in a delta and
+       * would survive the file — which is exactly the leak the residual-session
+       * budget exists to catch, and it fires as an unrelated-looking failure in
+       * whichever spec happens to run afterwards.
+       */
+      if (sessionId) {
+        await page.request
+          .post(`/api/session/${sessionId}/shutdown`, { timeout: 20_000 })
+          .catch(() => undefined);
+      }
+      await page.request.put("/api/config", {
+        // Restore EXACTLY what was read, never `?? 0`: coercing an absent
+        // field into an explicit `0` would persist unlimited replay for every
+        // later spec — the same presence bug D7 fixes in the settings panel.
+        data: { memoryLimits: originalLimits },
+      });
+    } finally {
+      await ctx.close();
+      await restartDashboard();
+    }
+  });
+
+  /**
+   * The premise every other test in this file rests on. Asserted separately so
+   * a harness that failed to window reports THAT, rather than presenting as a
+   * scroll or splice failure.
+   */
+  test("premise: the session replays windowed and discloses a gap", async ({ page }) => {
+    const frames = watchBackfillFrames(page);
+    // Assert the SERVER half before touching the DOM: if no window was
+    // announced, that is the finding, and a DOM assertion would misreport it as
+    // a missing affordance.
+    await gotoDashboard(page);
+    const card = page.locator(`[data-session-id="${sessionId}"]`).first();
+    await card.waitFor({ state: "visible", timeout: 60_000 });
+    await card.click();
+    await expect
+      .poll(() => frames.received.filter((m) => m.type === "history_window").length, {
+        timeout: 90_000,
+      })
+      .toBeGreaterThan(0);
+    await scrollDividerIntoDom(page);
+
+    const win = frames.received.find((m) => m.type === "history_window");
+    expect(win, "server announced a history_window").toBeTruthy();
+    // Head 20 (`HEAD_MIN` floor) + tail 80 at a budget of 100 — the geometry the
+    // rest of the file leans on.
+    expect(win?.headMaxSeq as number).toBeLessThanOrEqual(WINDOW);
+    expect(win?.gapCount as number).toBeGreaterThan(0);
+    expect(win?.headMaxSeq as number).toBeGreaterThan(0);
+    expect(win?.tailMinSeq as number).toBeGreaterThan(win?.headMaxSeq as number);
+    await expect(page.getByTestId("history-gap-count")).toBeVisible();
+  });
+
+  /**
+   * F5 — the headline behaviour of the change. "Load earlier" must deliver the
+   * events IMMEDIATELY PRECEDING what the user is reading, so the spliced rows
+   * land BELOW the divider and above the tail.
+   */
+  test("F5: one backfill requests the TAIL-adjacent slice and splices below the divider", async ({
+    page,
+  }) => {
+    const frames = watchBackfillFrames(page);
+    await openWindowedSession(page);
+    const win = frames.received.find((m) => m.type === "history_window")!;
+
+    const rowsBefore = await page.locator("[data-index]").count();
+    await centerDivider(page);
+    await settleClickTarget(page);
+    await loadEarlier(page).click();
+    await expect
+      .poll(() => frames.received.filter((m) => m.type === "history_backfill_result").length, {
+        timeout: 30_000,
+      })
+      .toBeGreaterThan(0);
+    await page.waitForTimeout(1_000);
+
+    // The REQUEST is tail-anchored: it ends one below the tail edge, which is
+    // the whole point of D2. A head-anchored request would end far below it.
+    expect(frames.sent).toHaveLength(1);
+    expect(frames.sent[0].toSeq).toBe((win.tailMinSeq as number) - 1);
+
+    // The RESPONSE credited the tail edge, not the head.
+    const res = frames.received.find((m) => m.type === "history_backfill_result")!;
+    expect(res.error).toBeUndefined();
+    expect(res.servedTo).toBe((win.tailMinSeq as number) - 1);
+
+    // ...and rows actually arrived.
+    expect(await page.locator("[data-index]").count()).toBeGreaterThan(rowsBefore);
+  });
+
+  /**
+   * F1/F2 — the scroll requirement, and the reason D6 DELETES the old anchor
+   * rather than relocating it. Events splice below the divider, so nothing
+   * above the reading position moves and absolute `scrollTop` is the invariant.
+   * The old distance-to-bottom anchor would have added the full inserted height
+   * and scrolled the divider clean out of view.
+   *
+   * F2 is the same assertion taken AFTER the virtualizer has measured the
+   * spliced rows, which is when a naive implementation drifts.
+   */
+  test("F1/F2: the divider does not move when the slice splices, or after it measures", async ({
+    page,
+  }) => {
+    const frames = watchBackfillFrames(page);
+    await openWindowedSession(page);
+    await centerDivider(page);
+
+    // Baseline must be SETTLED, and taken AFTER the click's own auto-scroll,
+    // or the virtualizer's estimate convergence and Playwright's pre-click
+    // scroll both get charged to the splice.
+    await settleClickTarget(page);
+    const scroller = page.getByTestId("chat-scroll-container");
+    const heightBefore = await scroller.evaluate((el) => el.scrollHeight);
+    /**
+     * `scrollTop` is the DIRECT statement of the invariant, and the divider's
+     * `y` is only a proxy for it: `y = rowOffset - scrollTop`, so it also
+     * carries the virtualizer's ongoing size-estimate convergence for rows
+     * above the divider (~21px, measured, with no backfill at all). Both are
+     * asserted — `y` right after the commit, before that noise accumulates, and
+     * `scrollTop` across the whole settle window, where it is exact.
+     */
+    const scrollTopBefore = await scroller.evaluate((el) => el.scrollTop);
+    const before = await settledDividerY(page);
+    expect(before, "the divider settled before the click").not.toBeNull();
+
+    await clickLoadEarlierWithoutScrolling(page);
+    await expect
+      .poll(() => frames.received.filter((m) => m.type === "history_backfill_result").length, {
+        timeout: 30_000,
+      })
+      .toBeGreaterThan(0);
+
+    // F1 — immediately after the splice commit, before any remeasure.
+    await page.waitForTimeout(400);
+    const afterSplice = await divider(page).boundingBox();
+    expect(afterSplice).toBeTruthy();
+    expect(Math.abs(afterSplice!.y - before!)).toBeLessThanOrEqual(SCROLL_TOLERANCE_PX);
+
+    // F2 — and still, once the virtualizer has MEASURED the spliced rows. This
+    // is the assertion the old distance-to-bottom anchor could not have passed:
+    // it would have added the full inserted height to `scrollTop`.
+    await settledDividerY(page);
+    await page.waitForTimeout(2_000);
+    expect(await scroller.evaluate((el) => el.scrollTop)).toBe(scrollTopBefore);
+
+    /**
+     * NON-VACUITY. Holding a position is only meaningful if a large insertion
+     * actually happened, so prove the content grew substantially while the
+     * divider stood still — measured at 4309px → 40883px for one max-span slice.
+     *
+     * An idle "does it drift on its own?" control was tried here and REMOVED:
+     * it fails by itself. The virtualizer keeps converging its size estimates
+     * for rows above the divider well after any reasonable settle window (~21px
+     * over 3s, observed), so such a control tests TanStack's convergence rather
+     * than this change, and is unstable by construction. Growth is the property
+     * that cannot be satisfied accidentally.
+     */
+    const heightAfter = await scroller.evaluate((el) => el.scrollHeight);
+    expect(heightAfter).toBeGreaterThan(heightBefore * 2);
+  });
+
+  /**
+   * F3 — the illegal edge. The virtualizer's grow-pin fires on any content
+   * growth while the user is inside the 50px near-bottom band, and a splice IS
+   * content growth. Disarming at click is not enough: `handleScroll` can re-arm
+   * stick-to-bottom mid-flight. This is the half of D6 that is real work.
+   */
+  test("F3: a splice does not yank the transcript to the bottom from the near-bottom band", async ({
+    page,
+  }) => {
+    const frames = watchBackfillFrames(page);
+    await openWindowedSession(page);
+
+    // Park the viewport inside the near-bottom band WITH the divider reachable.
+    const scroller = page.getByTestId("chat-scroll-container");
+    await centerDivider(page);
+    await settleClickTarget(page);
+    const scrollTopBefore = await scroller.evaluate((el) => el.scrollTop);
+
+    await clickLoadEarlierWithoutScrolling(page);
+    await expect
+      .poll(() => frames.received.filter((m) => m.type === "history_backfill_result").length, {
+        timeout: 30_000,
+      })
+      .toBeGreaterThan(0);
+    await page.waitForTimeout(2_000);
+
+    const atBottom = await scroller.evaluate(
+      (el) => el.scrollHeight - el.scrollTop - el.clientHeight < 50,
+    );
+    expect(atBottom, "the splice must not pin the view to the bottom").toBe(false);
+    /**
+     * `scrollTop` itself is the invariant D6 preserves: nothing above the
+     * reading position moved, so the correct correction is NONE. This is the
+     * assertion that would catch the grow-pin re-arming mid-flight.
+     *
+     * The divider's `y` is deliberately NOT re-asserted here — F1/F2 owns that,
+     * and repeating it only re-imports the virtualizer's estimate-convergence
+     * noise into a test about a different property.
+     */
+    expect(await scroller.evaluate((el) => el.scrollTop)).toBe(scrollTopBefore);
+  });
+
+  /**
+   * F9 — the affordance is armed only after the terminal replay batch. For an
+   * evicted cold session the store is empty until hydration finishes, so an
+   * early request would report the gap unservable and hydration would then make
+   * it servable again: availability flapping across hydration.
+   */
+  test("F9: the load action is disabled until the replay terminates, and sends nothing", async ({
+    page,
+  }) => {
+    const frames = watchBackfillFrames(page);
+    await gotoDashboard(page);
+    const card = page.locator(`[data-session-id="${sessionId}"]`).first();
+    await card.waitFor({ state: "visible", timeout: 60_000 });
+    await card.click();
+
+    // The divider is placed DURING the fold, so it can be on screen while the
+    // replay is still arriving — exactly the window this rule protects.
+    await scrollDividerIntoDom(page);
+    await expect(divider(page)).toBeVisible({ timeout: 60_000 });
+    const btn = loadEarlier(page);
+    if (await btn.isDisabled()) {
+      // A disabled button cannot be clicked, which IS the guarantee.
+      expect(frames.sent).toHaveLength(0);
+    }
+    await expect(btn).toBeEnabled({ timeout: 60_000 });
+    // Nothing was sent before arming.
+    expect(frames.sent).toHaveLength(0);
+  });
+
+  /**
+   * F10 — single-flight under scroll-spam. The client refuses to issue a second
+   * request while one is pending (the divider swaps to a busy, non-actionable
+   * state), so the server's own `in_flight` refusal is not reachable from the
+   * UI at all — it is gated at L1 instead (`subscription-handler-backfill`, X2).
+   * What IS observable here is the client half: exactly ONE request leaves.
+   */
+  test("F10: two rapid clicks issue exactly one request and never strand the divider", async ({
+    page,
+  }) => {
+    const frames = watchBackfillFrames(page);
+    await openWindowedSession(page);
+    await centerDivider(page);
+
+    const btn = loadEarlier(page);
+    await btn.click();
+    // The second click lands on whatever the divider became; force it so a
+    // disabled/re-rendered control does not silently swallow the gesture.
+    await page.getByTestId("history-gap-divider").click({ force: true }).catch(() => undefined);
+
+    await expect
+      .poll(() => frames.received.filter((m) => m.type === "history_backfill_result").length, {
+        timeout: 30_000,
+      })
+      .toBeGreaterThan(0);
+    await page.waitForTimeout(1_500);
+
+    expect(frames.sent).toHaveLength(1);
+    // Not stuck pending: the divider settled into an actionable or terminal
+    // state, never the busy one.
+    await expect(page.getByTestId("history-gap-loading")).toHaveCount(0);
+  });
+
+  /**
+   * F6 — a gap smaller than one span is filled by a single backfill, and the
+   * divider is then removed ENTIRELY. A residual "0 earlier messages" affordance
+   * would be a promise the transcript no longer needs to make.
+   */
+  test("F6: draining the gap removes the divider entirely", async ({ page }) => {
+    const frames = watchBackfillFrames(page);
+    await openWindowedSession(page);
+
+    // Walk the gap to exhaustion. The loop is bounded: `remainingGapCount` is a
+    // store read over both edges, so it strictly decreases.
+    for (let i = 0; i < 25; i++) {
+      if ((await divider(page).count()) === 0) break;
+      const btn = loadEarlier(page);
+      if ((await btn.count()) === 0) break;
+      if (!(await btn.isEnabled())) break;
+      const seen = frames.received.filter((m) => m.type === "history_backfill_result").length;
+      await centerDivider(page);
+      await btn.click();
+      await expect
+        .poll(() => frames.received.filter((m) => m.type === "history_backfill_result").length, {
+          timeout: 30_000,
+        })
+        .toBeGreaterThan(seen);
+      await page.waitForTimeout(400);
+    }
+
+    // Either the gap drained (divider gone) or it resolved to the not-retained
+    // terminus. Both are terminal; a still-actionable divider is not.
+    // (The old `history-gap-unavailable` tombstone was retired by
+    // fix-history-backfill-holey-store — an exhausted gap now resolves to a
+    // classified terminus or removal, never a mid-walk dead end.)
+    const drained = (await divider(page).count()) === 0;
+    const terminus = (await page.getByTestId("history-gap-not-retained").count()) > 0;
+    expect(drained || terminus, "the affordance reached a terminal state").toBe(true);
+    if (drained) expect(await page.getByTestId("history-gap-count").count()).toBe(0);
+  });
+
+  /**
+   * F11 — a backfill in flight across a resubscribe completes against the OLD
+   * window, so it must be answered `stale_generation` and never spliced: a late
+   * response computed against the old window can carry seqs that overlap the
+   * new one.
+   */
+  test("F11: navigating away and back invalidates an in-flight backfill", async ({ page }) => {
+    const frames = watchBackfillFrames(page);
+    await openWindowedSession(page);
+    await centerDivider(page);
+
+    await loadEarlier(page).click();
+    // Resubscribe immediately, racing the response.
+    await page.reload();
+    const card = page.locator(`[data-session-id="${sessionId}"]`).first();
+    await card.waitFor({ state: "visible", timeout: 60_000 });
+    await card.click();
+    await scrollDividerIntoDom(page);
+    await expect(divider(page)).toBeVisible({ timeout: 60_000 });
+
+    // Whatever happened to the in-flight request, the divider recovered into a
+    // USABLE state rather than a permanent spinner.
+    await expect(loadEarlier(page).or(page.getByTestId("history-gap-unavailable"))).toBeVisible({
+      timeout: 60_000,
+    });
+    await expect(page.getByTestId("history-gap-loading")).toHaveCount(0);
+    // No result was spliced twice: the transcript still renders coherently.
+    expect(await page.locator("[data-index]").count()).toBeGreaterThan(0);
+  });
+
+  /**
+   * F4 — the illegal edge for the OTHER deleted-by-D6 writer. The
+   * selection-anchor compensator writes `scrollTop` on every commit while a
+   * selection is held; a splice above a held selection displaces the anchor
+   * row, which it would read as drift and "correct" — on the one commit that
+   * must not move.
+   */
+  test("F4: a selection held in the transcript survives the splice, with no correction", async ({
+    page,
+  }) => {
+    const frames = watchBackfillFrames(page);
+    await openWindowedSession(page);
+    await centerDivider(page);
+    await settleClickTarget(page);
+    const scroller = page.getByTestId("chat-scroll-container");
+
+    // Hold a real selection over a mounted transcript row.
+    const selected = await page.evaluate(() => {
+      const row = document.querySelector("[data-index] p, [data-index] div");
+      if (!row || !row.textContent?.trim()) return null;
+      const range = document.createRange();
+      range.selectNodeContents(row);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+      return sel?.toString() ?? null;
+    });
+    expect(selected, "a selection was established").toBeTruthy();
+
+    const scrollTopBefore = await scroller.evaluate((el) => el.scrollTop);
+    await clickLoadEarlierWithoutScrolling(page);
+    await expect
+      .poll(() => frames.received.filter((m) => m.type === "history_backfill_result").length, {
+        timeout: 30_000,
+      })
+      .toBeGreaterThan(0);
+    await page.waitForTimeout(2_000);
+
+    // The selection still holds the same text...
+    expect(await page.evaluate(() => window.getSelection()?.toString() ?? null)).toBe(selected);
+    // ...and no correction was applied.
+    expect(await scroller.evaluate((el) => el.scrollTop)).toBe(scrollTopBefore);
+  });
+
+  /**
+   * X3 — the socket drops after the request and before the response. The
+   * divider must not be left pending: a stranded busy state is unrecoverable
+   * without a reload, and the affordance has no retry in that state.
+   */
+  test("X3: a socket drop mid-backfill leaves the affordance usable after resubscribe", async ({
+    page,
+  }) => {
+    await openWindowedSession(page);
+    await centerDivider(page);
+    await settleClickTarget(page);
+
+    await clickLoadEarlierWithoutScrolling(page);
+    // Cut the network immediately, so the in-flight response cannot land.
+    await page.context().setOffline(true);
+    await page.waitForTimeout(2_000);
+    await page.context().setOffline(false);
+
+    // After the client reconnects and resubscribes, the divider must be back in
+    // a state the user can act on — either loadable again, or an honest
+    // tombstone. What it must NOT be is stuck busy forever.
+    await page.reload();
+    const card = page.locator(`[data-session-id="${sessionId}"]`).first();
+    await card.waitFor({ state: "visible", timeout: 60_000 });
+    await card.click();
+    await scrollDividerIntoDom(page);
+    await expect(
+      loadEarlier(page).or(page.getByTestId("history-gap-unavailable")),
+    ).toBeVisible({ timeout: 60_000 });
+    await expect(page.getByTestId("history-gap-loading")).toHaveCount(0);
+  });
+
+  /**
+   * X5 — the server restarts between the window announcement and the backfill.
+   * The client resubscribes against a NEW generation; nothing may be spliced
+   * twice and the transcript must stay coherent.
+   */
+  test("X5: a server restart mid-gap leaves no crash and no double splice", async ({ page }) => {
+    await openWindowedSession(page);
+    const rowsBefore = await page.locator("[data-index]").count();
+    expect(rowsBefore).toBeGreaterThan(0);
+
+    await restartDashboard();
+
+    await page.reload();
+    const card = page.locator(`[data-session-id="${sessionId}"]`).first();
+    await card.waitFor({ state: "visible", timeout: 90_000 });
+    await card.click();
+    await page.waitForSelector("[data-index]", { timeout: 120_000 });
+
+    /**
+     * The scenario asks for "no crash, no double splice, transcript coherent".
+     * It deliberately does NOT require the divider to re-appear, and asserting
+     * that would test a different subsystem: after a restart the in-memory
+     * store is empty and the session re-hydrates from disk, so whether a window
+     * forms on the next subscribe depends on cold-hydration timing rather than
+     * on anything this change controls. An earlier revision did require it and
+     * failed for exactly that reason.
+     */
+    expect(await page.locator("[data-index]").count()).toBeGreaterThan(0);
+    // No duplicate divider — the singleton invariant survived the resubscribe.
+    expect(await divider(page).count()).toBeLessThanOrEqual(1);
+    // If a gap IS disclosed, its count is sane rather than a stale or negative
+    // artifact of the pre-restart window.
+    const count = page.getByTestId("history-gap-count");
+    if ((await count.count()) > 0) {
+      const text = await count.textContent();
+      expect(text).toMatch(/\d/);
+      expect(text).not.toMatch(/-\d/);
+    }
+  });
+
+  /**
+   * F8 — the `elided` affordance, on the row type most likely to be windowed.
+   * Snapping is best-effort, so a slice can still orphan a tool call whose end
+   * is in already-delivered content and can never arrive. It must read as "not
+   * loaded", never as a spinner and never as an error.
+   */
+  test("F8: an orphaned tool row renders the neutral 'result not loaded' affordance", async ({
+    page,
+  }) => {
+    const frames = watchBackfillFrames(page);
+    await openWindowedSession(page);
+
+    for (let i = 0; i < 6; i++) {
+      if ((await page.getByTestId("tool-elided-badge").count()) > 0) break;
+      const btn = loadEarlier(page);
+      if ((await btn.count()) === 0 || !(await btn.isEnabled())) break;
+      const seen = frames.received.filter((m) => m.type === "history_backfill_result").length;
+      await centerDivider(page);
+      await btn.click();
+      await expect
+        .poll(() => frames.received.filter((m) => m.type === "history_backfill_result").length, {
+          timeout: 30_000,
+        })
+        .toBeGreaterThan(seen);
+      await page.waitForTimeout(600);
+    }
+
+    const elided = page.getByTestId("tool-elided-badge");
+    if ((await elided.count()) === 0) {
+      // Snapping did its job on every slice this session produced. That is a
+      // GOOD outcome, not a passing test — record it rather than assert a
+      // vacuous truth. The stamp itself is gated deterministically at L1
+      // (`event-reducer.window-edges.test.ts`, E24).
+      test.skip(true, "no slice orphaned a tool call in this session; E24 gates the stamp at L1");
+      return;
+    }
+    await expect(elided.first()).toBeVisible();
+    await expect(elided.first()).toHaveText(/result not loaded/i);
+    // The whole point: no spinner is left behind on a spliced row.
+    const spinners = page.locator("[data-index] .mdi-loading, [data-index] [class*='animate-spin']");
+    expect(await spinners.count()).toBe(0);
+  });
+});

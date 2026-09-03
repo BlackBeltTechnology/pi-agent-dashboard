@@ -27,13 +27,22 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/openspec-poller.js";
 import type { PiResourcesResult } from "@blackbelt-technology/pi-dashboard-shared/rest-api.js";
 import { createSemaphore, type Semaphore } from "@blackbelt-technology/pi-dashboard-shared/semaphore.js";
+import { inferPlatform, pathKey } from "@blackbelt-technology/pi-dashboard-shared/session-group-path.js";
 import type { OpenSpecChange, OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { computeFolderGroupKeys, createFolderHeadPoll, type FolderHeadPoll } from "./git-worktree/folder-head-poll.js";
 import type { EventLoopSpikeMetrics, EventLoopTurn } from "./metrics/eventloop-spike-metrics.js";
-import { createFolderHeadPoll, type FolderHeadPoll } from "./git-worktree/folder-head-poll.js";
+import { type BrokeReason, deriveOpenSpecReadiness } from "./openspec/readiness.js";
+
+/**
+ * Debounce for the folder-HEAD entry refresh, so a registration burst collapses
+ * into one bounded fan-out. See change: fix-folder-header-worktree-branch-leak.
+ */
+const FOLDER_HEAD_ENTRY_DEBOUNCE_MS = 500;
+
 import { createFolderHeadWatcher, type FolderHeadWatcher } from "./git-worktree/folder-head-watcher.js";
 import type { HeadInfo } from "./git-worktree/git-operations.js";
+import { resolveConfigRoot } from "./git-worktree/git-operations.js";
 import type { HydrationMetrics } from "./metrics/hydration-metrics.js";
-import type { SessionManager } from "./session/memory-session-manager.js";
 import { createOpenSpecChangeWatcher, type OpenSpecChangeWatcher } from "./openspec/openspec-change-watcher.js";
 import {
   effectiveMtimeOr,
@@ -48,8 +57,9 @@ import {
   createOpenSpecPollWorkerPool,
   type PollWorkerPool,
 } from "./openspec/openspec-poll-worker-pool.js";
-import { scanPiResources } from "./pi/pi-resource-scanner.js";
 import type { PreferencesStore } from "./persistence/preferences-store.js";
+import { scanPiResources } from "./pi/pi-resource-scanner.js";
+import type { SessionManager } from "./session/memory-session-manager.js";
 import { discoverSessionsForCwd } from "./session/session-discovery.js";
 import {
   createSessionLoadWorkerPool,
@@ -157,7 +167,33 @@ export interface DirectoryService {
   stopPolling(): void;
   /** Apply a new OpenSpecPollConfig without losing cache. Safe to call mid-stream. */
   reconfigurePolling(config: OpenSpecPollConfig): void;
+  /**
+   * Drop the memoized current-global-signature. Called by the routes after a
+   * profile save, init, or update so the next poll tick recomputes it instead
+   * of serving a stale value. See change: add-openspec-init-affordances.
+   */
+  invalidateOpenSpecSignatureCache(): void;
   onDirectoryAdded(cwd: string): Promise<DirectoryAddedResult>;
+  /**
+   * Read-only snapshot of the folder-HEAD diff cache, for the browser connect
+   * snapshot. Empty when the lazily-created poll does not exist (polling not
+   * started, or already stopped). PURE — never mutates the cache.
+   * See change: fix-folder-header-worktree-branch-leak.
+   */
+  folderHeadSnapshot(): Array<{ cwd: string; branch: string | null }>;
+  /**
+   * Refresh the HEAD of every folder group key that ENTERED the observed set
+   * since the last recompute, without waiting for the next periodic cycle.
+   * Debounced (~500ms) so a registration burst collapses into one fan-out.
+   *
+   * Declared REQUIRED, but call sites still guard (`?.()` in `event-wiring`,
+   * `typeof … === "function"` in `browser-gateway`): hand-built
+   * `DirectoryService` fakes cast a fixed field set through
+   * `as unknown as DirectoryService`, so the type is only a compile-time claim
+   * about a runtime object that lacks the method.
+   * See change: fix-folder-header-worktree-branch-leak.
+   */
+  refreshFolderHeadsForEnteringKeys(): void;
 }
 
 // ── Jitter ─────────────────────────────────────────────────────────
@@ -280,6 +316,17 @@ export interface DirectoryServiceOptions {
    * change: offload-session-events-load-to-worker.
    */
   useLoadWorker?: boolean;
+  /**
+   * Provider for the CURRENT global OpenSpec workflow-set signature, injected
+   * from the routes layer (the CLI-spawning helper is closure-local there).
+   * The signature is machine-global — identical for every cwd — so the polling
+   * service calls it at most once per poll generation and memoizes the
+   * promise; the memo is dropped on `invalidateOpenSpecSignatureCache()`.
+   * Resolving `undefined` (or rejecting) means unknown/failed this tick —
+   * a cwd is NEVER marked STALE on that basis. See change:
+   * add-openspec-init-affordances.
+   */
+  currentGlobalSignature?: (cwd: string) => Promise<string | undefined>;
 }
 
 export function createDirectoryService(
@@ -289,6 +336,102 @@ export function createDirectoryService(
   options: DirectoryServiceOptions = {},
 ): DirectoryService {
   let cfg: OpenSpecPollConfig = { ...DEFAULT_OPENSPEC_POLL, ...(initialConfig ?? {}) };
+
+  // ── Readiness fold machinery (add-openspec-init-affordances) ──────
+  //
+  // Memoized per-cwd config-root resolution. `resolveConfigRoot` spawns git;
+  // calling it per cwd per TICK would blow the stat-pass budget (P4), so each
+  // cwd resolves at most once per process (a cwd does not stop being a
+  // worktree). `null` (unresolvable) falls back to the cwd itself (E15/X11).
+  const readinessConfigRoots = new Map<string, string | null>();
+  function configRootFor(cwd: string): string {
+    if (!readinessConfigRoots.has(cwd)) {
+      let root: string | null = null;
+      try {
+        root = resolveConfigRoot(cwd);
+      } catch {
+        root = null;
+      }
+      readinessConfigRoots.set(cwd, root);
+    }
+    return readinessConfigRoots.get(cwd) ?? cwd;
+  }
+
+  /** `.pi/skills/openspec-explore/` exists at the resolved config root. */
+  function hasOpenSpecSkillsFor(cwd: string): boolean {
+    const root = configRootFor(cwd);
+    return statMtimeOr(path.join(root, ".pi", "skills", "openspec-explore")) !== undefined;
+  }
+
+  /** cwd listed in `openspec.optOutDirectories` (pathKey-normalized match). */
+  function isOptedOutCwd(cwd: string): boolean {
+    if (cfg.optOutDirectories.length === 0) return false;
+    const platform = inferPlatform([cwd, ...cfg.optOutDirectories]);
+    const cwdKey = pathKey(cwd, platform);
+    return cfg.optOutDirectories.some((d) => pathKey(d, platform) === cwdKey);
+  }
+
+  // Memoized current-global-signature, keyed by poll generation. One spawn
+  // per tick (P1); bumped generations and explicit invalidation recompute.
+  // `resolved` tracks the provider's value so the SYNCHRONOUS reconfigure
+  // path can reuse it; a failed provider leaves it undefined and no cwd is
+  // ever falsely STALE (X10).
+  let sigGeneration = 0;
+  let sigMemo: { gen: number; promise: Promise<string | undefined>; resolved?: string } | null = null;
+  function signatureForTick(): Promise<string | undefined> {
+    if (!options.currentGlobalSignature) return Promise.resolve(undefined);
+    if (!sigMemo || sigMemo.gen !== sigGeneration) {
+      const memo: (typeof sigMemo) = { gen: sigGeneration, promise: Promise.resolve(undefined) };
+      memo.promise = options.currentGlobalSignature(process.cwd()).then(
+        (v) => {
+          memo.resolved = v;
+          return v;
+        },
+        () => undefined,
+      );
+      sigMemo = memo;
+    }
+    return sigMemo.promise;
+  }
+  function invalidateOpenSpecSignatureCache(): void {
+    sigMemo = null;
+  }
+
+  /**
+   * Attach `hasOpenSpecSkills` + `readiness` to a polled payload. Awaited at
+   * every pollOne exit; the signature await is already-resolved in the
+   * steady state (memoized per tick).
+   */
+  async function finalizeOpenSpecData(cwd: string, d: OpenSpecData, breakReason?: BrokeReason): Promise<OpenSpecData> {
+    const skills = d.hasOpenSpecSkills ?? hasOpenSpecSkillsFor(cwd);
+    // Optional call: standalone directory-service constructions (tests) may
+    // pass a narrower preferences-store stub without the signature API.
+    const recorded = preferencesStore.getOpenSpecUpdateSignature?.(cwd) as string | undefined;
+    const needsSigCheck =
+      recorded !== undefined && skills !== false && d.initialized === true && d.pending !== true;
+    const current = needsSigCheck ? await signatureForTick() : undefined;
+    const readiness = deriveOpenSpecReadiness(
+      {
+        enabled: cfg.enabled !== false,
+        optedOut: isOptedOutCwd(cwd),
+        pending: d.pending === true,
+        hasOpenspecDir: d.hasOpenspecDir === true,
+        initialized: d.initialized === true,
+        hasOpenSpecSkills: skills,
+        recordedSignature: recorded,
+        currentSignature: current,
+      },
+      d,
+      { breakReason },
+    );
+    return { ...d, hasOpenSpecSkills: skills, readiness };
+  }
+
+  /** Cleared disabled payload — allocation-only, no stat, no CLI. */
+  function clearedDisabledPayload(): OpenSpecData {
+    return { initialized: false, pending: false, changes: [], hasOpenspecDir: false, readiness: { state: "GLOBAL_OFF" } };
+  }
+
   const enrichOpenSpecData = options.enrichOpenSpecData;
   const getOpenSpecGroupAssignments = options.getOpenSpecGroupAssignments;
   const hydrationMetrics = options.hydrationMetrics;
@@ -368,6 +511,20 @@ export function createDirectoryService(
     onChange: (cwd) => { folderHeadPoll?.refreshOne(cwd)?.catch(() => { /* logged inside */ }); },
   });
   const attachedFolderHeadCwds = new Set<string>();
+  // The most recently COMPUTED folder group-key set, held as CANONICAL
+  // `pathKey`s rather than display paths: cosmetic display drift (`/repo` vs
+  // `/repo/`, drive-letter or case changes, a pin swapping which display path
+  // wins a collision) would otherwise read as a key ENTERING the set and cost a
+  // redundant git read on every drift. `computeFolderGroupKeys` already
+  // de-duplicates by `pathKey`, so this just keeps the entry predicate on the
+  // same footing. Display paths are still what gets read and broadcast.
+  //
+  // Single writer: `recomputeFolderHeadKeys` below, called by the periodic tick
+  // and by every entry trigger. Two independent updaters would let a
+  // trigger-side recompute mark a key "previously seen" that no refresh read.
+  // See change: fix-folder-header-worktree-branch-leak.
+  let previousFolderHeadKeys = new Set<string>();
+  let folderHeadEntryTimer: ReturnType<typeof setTimeout> | null = null;
 
   const caches = new Map<string, DirCache>();
   const piResourcesCache = new Map<string, PiResourcesResult>();
@@ -498,10 +655,18 @@ export function createDirectoryService(
     // behavior re: list polling). `hasOpenspecDir` still carries the broader
     // "is this an OpenSpec project?" signal for the client.
     if (rootMtime === undefined) {
-      const empty: OpenSpecData = { initialized: false, changes: [], hasOpenspecDir };
+      // BROKEN · missing-changes-dir: `openspec/` exists but `changes/` does
+      // not — remediable by re-running init. See change:
+      // add-openspec-init-affordances.
+      const empty = await finalizeOpenSpecData(
+        cwd,
+        { initialized: false, changes: [], hasOpenspecDir },
+        "missing-changes-dir",
+      );
       cache.data = empty;
       cache.listMtimeMs = undefined;
       cache.listResult = undefined;
+      cache.serialized = undefined;
       cache.changes.clear();
       caches.set(cwd, cache);
       return empty;
@@ -526,10 +691,18 @@ export function createDirectoryService(
     if (!listCacheValid) {
       const raw = await semaphore.run(() => runOpenSpecList(cwd));
       if (!raw || !Array.isArray(raw.changes)) {
-        const empty: OpenSpecData = { initialized: false, changes: [], hasOpenspecDir };
+        // BROKEN · cli-failed: the CLI itself failed — NOT remediable by
+        // re-running init with --force. See change:
+        // add-openspec-init-affordances.
+        const empty = await finalizeOpenSpecData(
+          cwd,
+          { initialized: false, changes: [], hasOpenspecDir },
+          "cli-failed",
+        );
         cache.data = empty;
         cache.listMtimeMs = rootMtime;
         cache.listResult = undefined;
+        cache.serialized = undefined;
         cache.changes.clear();
         caches.set(cwd, cache);
         return empty;
@@ -602,10 +775,17 @@ export function createDirectoryService(
         if (racySet.has(change.name)) continue; // preserve prior cache for racy
         cache.changes.set(change.name, { mtimeMs: out.stampMtimes[change.name], change });
       }
-      cache.data = out.data;
-      cache.serialized = out.serialized;
+      // Attach hasOpenSpecSkills + readiness on the main thread — the worker
+      // has neither the config, the preferences store, nor the signature
+      // provider. The worker's pre-serialized payload no longer matches, so
+      // the cached form is invalidated (one extra stringify per tick — the
+      // correctness cost of the fold). See change:
+      // add-openspec-init-affordances.
+      const finalized = await finalizeOpenSpecData(cwd, out.data);
+      cache.data = finalized;
+      cache.serialized = undefined;
       caches.set(cwd, cache);
-      return out.data;
+      return finalized;
     }
 
     // ── Force path (force === true): per-change `openspec status` CLI ──
@@ -709,6 +889,10 @@ export function createDirectoryService(
       }
     }
 
+    // Attach hasOpenSpecSkills + readiness (force path). See change:
+    // add-openspec-init-affordances.
+    data = await finalizeOpenSpecData(cwd, data);
+
     // Stamp the cache with the pre-call mtime — i.e. the mtime that
     // demonstrably reflects the file state observed by the CLI. Skip racy
     // names so the next gated tick re-polls. See change:
@@ -737,9 +921,11 @@ export function createDirectoryService(
     // See change: auto-hide-empty-session-subcards.
     if (cfg.enabled === false) {
       // Disabled state: `hasOpenspecDir: false` ensures the client wrapper
-      // hides the OPENSPEC subcard for every cwd. See change:
-      // auto-hide-empty-session-subcards.
-      const cleared: OpenSpecData = { initialized: false, pending: false, changes: [], hasOpenspecDir: false };
+      // hides the OPENSPEC subcard for every cwd; `readiness` carries
+      // GLOBAL_OFF so current clients never fall into the legacy gate.
+      // Allocation-only — no stat, no CLI. See changes:
+      // auto-hide-empty-session-subcards, add-openspec-init-affordances.
+      const cleared = clearedDisabledPayload();
       const cache = caches.get(cwd) ?? emptyDirCache();
       cache.data = cleared;
       caches.set(cwd, cache);
@@ -829,14 +1015,55 @@ export function createDirectoryService(
    * HEAD refresh). No-op until `startPolling` installs the broadcast callback.
    * See change: refresh-folder-header-branch.
    */
+  /**
+   * THE single recompute path for the folder group-key set. Returns the fresh
+   * key list plus the keys that were NOT in the previously computed set, and
+   * atomically installs the fresh set as "previously computed". Called by the
+   * periodic tick and by every entry trigger.
+   * See change: fix-folder-header-worktree-branch-leak.
+   */
+  function recomputeFolderHeadKeys(): { keys: string[]; entering: string[] } {
+    const sessions = sessionManager.listAll();
+    const pinned = preferencesStore.getPinnedDirectories();
+    const keys = computeFolderGroupKeys(sessions, pinned);
+    // Same inference inputs as `computeFolderGroupKeys` uses internally, so the
+    // canonical keys here fold exactly the drift it folds.
+    const platform = inferPlatform([...sessions.map((s) => s.cwd), ...pinned]);
+    const canonical = keys.map((k) => pathKey(k, platform));
+    const entering = keys.filter((_k, i) => !previousFolderHeadKeys.has(canonical[i]));
+    previousFolderHeadKeys = new Set(canonical);
+    return { keys, entering };
+  }
+
+  /**
+   * Entry refresh: read the HEAD of every key that entered the observed set
+   * since the last recompute. Debounced so a registration burst collapses into
+   * one bounded fan-out; the fan-out reuses the poll's read → diff → broadcast
+   * funnel and its concurrency cap, so this is not a second broadcast path.
+   * See change: fix-folder-header-worktree-branch-leak.
+   */
+  function refreshFolderHeadsForEnteringKeys(): void {
+    if (!folderHeadPoll) return;
+    if (folderHeadEntryTimer) return; // burst already collapsing into one fan-out
+    folderHeadEntryTimer = setTimeout(() => {
+      folderHeadEntryTimer = null;
+      const poll = folderHeadPoll;
+      if (!poll) return;
+      const { entering } = recomputeFolderHeadKeys();
+      if (entering.length === 0) return;
+      void poll.refreshMany(entering).catch((err) => {
+        console.warn("[folder-head] entry refresh failed:", err);
+      });
+    }, FOLDER_HEAD_ENTRY_DEBOUNCE_MS);
+    folderHeadEntryTimer.unref?.();
+  }
+
   async function tickFolderHeads(): Promise<void> {
     if (!folderHeadPoll) return;
     // Async, concurrency-bounded HEAD reads (no `execSync` burst on this turn).
     // See change: attribute-openspec-poll-eventloop-stalls.
-    const keys = await folderHeadPoll.poll(
-      sessionManager.listAll(),
-      preferencesStore.getPinnedDirectories(),
-    );
+    const { keys } = recomputeFolderHeadKeys();
+    await folderHeadPoll.refreshMany(keys);
     const known = new Set(keys);
     for (const cwd of keys) {
       if (!attachedFolderHeadCwds.has(cwd)) {
@@ -869,18 +1096,41 @@ export function createDirectoryService(
     if (statMtimeOr(path.join(cwd, "openspec", "changes")) === undefined) return; // not pollable → no spinner
     if (caches.get(cwd)?.data?.initialized === true) return; // already authoritative
     pendingEmittedCwds.add(cwd);
-    onChangeCallback?.(cwd, { initialized: false, pending: true, changes: [], hasOpenspecDir: true });
+    onChangeCallback?.(cwd, {
+      initialized: false,
+      pending: true,
+      changes: [],
+      hasOpenspecDir: true,
+      readiness: { state: "PENDING" },
+    });
   }
 
   async function pollDirectoryGated(cwd: string): Promise<OpenSpecData> {
     // Master gate: when `openspec.enabled` is false, never spawn a CLI for the
     // periodic poll path either. See change: auto-hide-empty-session-subcards.
     if (cfg.enabled === false) {
-      const cleared: OpenSpecData = { initialized: false, pending: false, changes: [], hasOpenspecDir: false };
+      const cleared = clearedDisabledPayload();
       const cache = caches.get(cwd) ?? emptyDirCache();
       cache.data = cleared;
       caches.set(cwd, cache);
       return cleared;
+    }
+    // Opt-out gate: an opted-out cwd is never polled and never spawns the
+    // CLI. Its payload keeps the last observed shape but always carries the
+    // OPTED_OUT readiness. See change: add-openspec-init-affordances.
+    if (isOptedOutCwd(cwd)) {
+      const base = caches.get(cwd)?.data;
+      const payload: OpenSpecData = {
+        initialized: false,
+        pending: false,
+        changes: [],
+        hasOpenspecDir: base?.hasOpenspecDir ?? statMtimeOr(path.join(cwd, "openspec")) !== undefined,
+        readiness: { state: "OPTED_OUT" },
+      };
+      const cache = caches.get(cwd) ?? emptyDirCache();
+      cache.data = payload;
+      caches.set(cwd, cache);
+      return payload;
     }
     emitPendingIfDiscovered(cwd);
     return pollOne(cwd, false);
@@ -905,6 +1155,10 @@ export function createDirectoryService(
     // self-record at each synchronous exit (early return OR just before the
     // `await Promise.all`). See change: attribute-openspec-poll-eventloop-stalls.
     const tickOpenStart = performance.now();
+    // New poll generation: the memoized global signature recomputes lazily on
+    // first use this tick (P1: at most one spawn per tick). See change:
+    // add-openspec-init-affordances.
+    sigGeneration++;
     // Folder-HEAD poll runs every tick regardless of openspec enablement and
     // regardless of an in-flight openspec tick. The HEAD reads are now async +
     // non-blocking (change: attribute-openspec-poll-eventloop-stalls) — the
@@ -927,7 +1181,9 @@ export function createDirectoryService(
     let spawnsBefore = 0;
     let spawnsAfter = 0;
     try {
-      const dirs = computeKnownDirectories();
+      // Opted-out cwds are never polled (no timers created for them). See
+      // change: add-openspec-init-affordances.
+      const dirs = computeKnownDirectories().filter((d) => !isOptedOutCwd(d));
       // Track spawn count by hooking the semaphore's size(). Approximation.
       spawnsBefore = semaphore.size();
       // End of the `tickOpen` synchronous turn: everything above ran in the
@@ -1027,6 +1283,8 @@ export function createDirectoryService(
       return caches.get(cwd)?.data;
     },
 
+    invalidateOpenSpecSignatureCache,
+
     refreshOpenSpec,
     pollDirectoryGated,
 
@@ -1067,6 +1325,8 @@ export function createDirectoryService(
       // refresh-folder-header-branch.
       try { folderHeadWatcher.detachAll(); } catch { /* best-effort */ }
       attachedFolderHeadCwds.clear();
+      if (folderHeadEntryTimer) { clearTimeout(folderHeadEntryTimer); folderHeadEntryTimer = null; }
+      previousFolderHeadKeys = new Set();
       folderHeadPoll = null;
       // Terminate the OpenSpec poll worker pool (best-effort — callers that
       // restart polling will respawn it lazily). See change:
@@ -1088,6 +1348,7 @@ export function createDirectoryService(
     reconfigurePolling(newCfg: OpenSpecPollConfig) {
       const oldInterval = cfg.pollIntervalSeconds;
       const wasEnabled = cfg.enabled;
+      const prev = cfg;
       cfg = { ...newCfg };
       semaphore.setMax(cfg.maxConcurrentSpawns);
       // Worker-pool sizing tracks maxConcurrentSpawns. Reconfigure by
@@ -1102,13 +1363,31 @@ export function createDirectoryService(
       if (pollTimer && oldInterval !== cfg.pollIntervalSeconds) {
         installTimers();
       }
+
+      // ── Readiness re-broadcast (add-openspec-init-affordances) ──
+      // Re-broadcast ONLY when a readiness-affecting key changed, so
+      // poll-tuning writes (interval, concurrency, jitter, worker flag) do
+      // not trigger a readiness storm (E24). Membership changes re-broadcast
+      // only the cwds whose membership changed (E25); `enabled` /
+      // `offerInitialization` are global and re-broadcast every cached cwd.
+      const optOutKeys = (dirs: string[]): string[] => {
+        const platform = inferPlatform(dirs.length > 0 ? dirs : [process.cwd()]);
+        return dirs.map((d) => pathKey(d, platform)).sort();
+      };
+      const readinessKey = (c: OpenSpecPollConfig): string =>
+        JSON.stringify({ e: c.enabled, o: c.offerInitialization, d: optOutKeys(c.optOutDirectories) });
+      const prevKey = readinessKey(prev);
+      const nextKey = readinessKey(cfg);
+
       // On the `true → false` transition, clear every per-cwd `OpenSpecData`
       // cache and notify the broadcast channel so connected browsers converge
-      // to the disabled-state shape. The `false → true` transition is a
-      // no-op here — the next regular poll tick will re-populate caches.
-      // See change: auto-hide-empty-session-subcards.
+      // to the disabled-state shape — which now carries readiness GLOBAL_OFF
+      // explicitly (E26). The `false → true` transition falls through to the
+      // global-flip broadcast below; the next regular poll tick repopulates
+      // caches with authoritative data. See changes:
+      // auto-hide-empty-session-subcards, add-openspec-init-affordances.
       if (wasEnabled !== false && cfg.enabled === false) {
-        const cleared: OpenSpecData = { initialized: false, pending: false, changes: [], hasOpenspecDir: false };
+        const cleared = clearedDisabledPayload();
         for (const [cwd, cache] of caches.entries()) {
           cache.data = cleared;
           caches.set(cwd, cache);
@@ -1118,6 +1397,57 @@ export function createDirectoryService(
             console.warn(`[openspec-poll] onChange after disable failed for ${cwd}:`, err);
           }
         }
+        return;
+      }
+
+      if (prevKey === nextKey) return;
+
+      const rebroadcast = (cwds: string[]): void => {
+        for (const cwd of cwds) {
+          const cache = caches.get(cwd);
+          if (!cache?.data) continue;
+          // Recompute readiness synchronously against the NEW config. The
+          // signature check uses the last resolved value (never spawns here);
+          // a STALE correction arrives on the next tick.
+          const d = cache.data;
+          const readiness = deriveOpenSpecReadiness(
+            {
+              enabled: cfg.enabled !== false,
+              optedOut: isOptedOutCwd(cwd),
+              pending: d.pending === true,
+              hasOpenspecDir: d.hasOpenspecDir === true,
+              initialized: d.initialized === true,
+              hasOpenSpecSkills: d.hasOpenSpecSkills,
+              recordedSignature: preferencesStore.getOpenSpecUpdateSignature?.(cwd) as string | undefined,
+              currentSignature: sigMemo?.resolved,
+            },
+            d,
+          );
+          const payload: OpenSpecData = { ...d, readiness };
+          cache.data = payload;
+          caches.set(cwd, cache);
+          try {
+            onChangeCallback?.(cwd, payload);
+          } catch (err) {
+            console.warn(`[openspec-poll] onChange after reconfigure failed for ${cwd}:`, err);
+          }
+        }
+      };
+
+      const globalFlip =
+        prev.enabled !== cfg.enabled || prev.offerInitialization !== cfg.offerInitialization;
+      if (globalFlip) {
+        rebroadcast([...caches.keys()]);
+      } else {
+        // optOut membership diff — broadcast only the changed cwds (E25).
+        const before = new Set(optOutKeys(prev.optOutDirectories));
+        const after = new Set(optOutKeys(cfg.optOutDirectories));
+        const platformDirs = [...before, ...after];
+        const platform = inferPlatform(platformDirs.length > 0 ? platformDirs : [process.cwd()]);
+        const changed = new Set<string>();
+        for (const d of prev.optOutDirectories) if (!after.has(pathKey(d, platform))) changed.add(d);
+        for (const d of cfg.optOutDirectories) if (!before.has(pathKey(d, platform))) changed.add(d);
+        rebroadcast([...changed]);
       }
     },
 
@@ -1143,7 +1473,20 @@ export function createDirectoryService(
       if (!attachedWatcherCwds.has(cwd)) {
         if (changeWatcher.attach(cwd)) attachedWatcherCwds.add(cwd);
       }
+      // A pinned/added directory enters the folder-HEAD key set with no session
+      // at all — refresh it rather than waiting a full poll interval. For a
+      // brand-new session cwd this is the SECOND trigger (the `session_register`
+      // handler already fired one); the debounce collapses the pair, so the
+      // duplicate costs nothing and neither call site depends on the other.
+      // See change: fix-folder-header-worktree-branch-leak.
+      refreshFolderHeadsForEnteringKeys();
       return { sessions, openspecData };
     },
+
+    folderHeadSnapshot(): Array<{ cwd: string; branch: string | null }> {
+      return folderHeadPoll?.snapshot() ?? [];
+    },
+
+    refreshFolderHeadsForEnteringKeys,
   };
 }

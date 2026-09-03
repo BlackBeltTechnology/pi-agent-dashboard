@@ -95,4 +95,4 @@ No new skill or memory was created — this session was a *consumer* of the exis
 
 ---
 
-_Generated from session `019f1613-f092-7138-b3e3-291724d152f6` · `pi-agent-dashboard` · 2026-06-30. Source extract: `/tmp/facts-1784864193.md`._
+_Generated from session `019f1613-f092-7138-b3e3-291724d152f6` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-30. Source extract: `/tmp/facts-1784864193.md`._

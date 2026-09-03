@@ -1,4 +1,10 @@
-## ADDED Requirements
+# json-file-persistence Specification
+
+## Purpose
+
+Persists workspace data to a JSON file on disk, replacing the retired SQLite store for this data.
+
+## Requirements
 
 ### Requirement: Workspace JSON file persistence
 Workspaces SHALL be persisted in `~/.pi/dashboard/workspaces.json` as a JSON array. The file SHALL be read on server startup and written atomically on every mutation (create, update, delete).

@@ -153,10 +153,32 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
           logRequests: false,
           apiKeys: [{ id: "e2e", label: "e2e-oauth-filter", hash, scopes: ["all"], createdAt: 0 }],
         },
+        // Folder-backed work-source for the schedule.batch fan-out e2e
+        // (tests/e2e/automation-fanout.spec.ts F3). The engine reads this at
+        // plugin init, so it MUST be present before boot. The inbox dir is
+        // seeded below. See change: automation-work-source-fanout.
+        plugins: {
+          automation: {
+            workSources: [{ id: "e2e-inbox", dir: "/fixtures/sample-git/.pi/inbox" }],
+          },
+        },
       };
       fs.writeFileSync(out, JSON.stringify(cfg) + "\n");
     ' "${E2E_PROXY_KEY}" "${PI_SPAWN_STRATEGY:-tmux}" "${PI_DIR}/dashboard/config.json" "${PI_E2E_TRUSTED_NETWORKS:-}"
     echo "[test-entrypoint] PI_E2E_SEED: seeded trustedNetworks (${PI_E2E_TRUSTED_NETWORKS:-0.0.0.0/0}) + defaultModel + modelProxy apiKey → config.json"
+  fi
+
+  # --- Work-source inbox seed (schedule.batch fan-out e2e) ------------------
+  # Three plain files the `e2e-inbox` folder work-source drains on one fire.
+  # Idempotent: only seeds when the inbox is absent/empty so a re-up does not
+  # clobber in-flight state. See change: automation-work-source-fanout.
+  E2E_INBOX="/fixtures/sample-git/.pi/inbox"
+  if [ ! -d "${E2E_INBOX}" ] || [ -z "$(ls -A "${E2E_INBOX}" 2>/dev/null)" ]; then
+    mkdir -p "${E2E_INBOX}"
+    printf 'work-a\n' > "${E2E_INBOX}/a.txt"
+    printf 'work-b\n' > "${E2E_INBOX}/b.txt"
+    printf 'work-c\n' > "${E2E_INBOX}/c.txt"
+    echo "[test-entrypoint] PI_E2E_SEED: seeded 3 work-source items → ${E2E_INBOX}"
   fi
 
   # --- OAuth provider seed (PI_E2E_OAUTH=1) ---------------------------------
@@ -227,6 +249,41 @@ if [ "${PI_E2E_SEED:-}" = "1" ]; then
     cp "${FAUX_SRC}/e2e-notify.ext.ts" "${NOTIFY_EXT_DIR}/index.ts"
     ln -sfn /app/node_modules "${NOTIFY_EXT_DIR}/node_modules"
     echo "[test-entrypoint] PI_E2E_SEED: staged notify driver → ${NOTIFY_EXT_DIR}"
+  fi
+
+  # --- Custom-entry driver (change: render-inline-reasoning-and-custom-entries):
+  # the faux model can only emit tool calls, so `pi.sendMessage` /
+  # `pi.appendEntry` need a fixture tool — the `custom-entries` scenario calls
+  # `e2e_custom_message` / `e2e_custom_entry` to drive the REAL bridge forward
+  # + replay paths.
+  CUSTOM_EXT_DIR="${PI_DIR}/agent/extensions/e2e-custom"
+  if [ -f "${FAUX_SRC}/e2e-custom.ext.ts" ]; then
+    # Copy index.ts only when absent; repair the node_modules link whenever
+    # absent — a prior partial seed (index.ts without the link) must still
+    # resolve its imports (CodeRabbit: idempotent seeding).
+    if [ ! -f "${CUSTOM_EXT_DIR}/index.ts" ]; then
+      mkdir -p "${CUSTOM_EXT_DIR}"
+      cp "${FAUX_SRC}/e2e-custom.ext.ts" "${CUSTOM_EXT_DIR}/index.ts"
+      echo "[test-entrypoint] PI_E2E_SEED: staged custom-entry driver → ${CUSTOM_EXT_DIR}"
+    fi
+    [ -e "${CUSTOM_EXT_DIR}/node_modules" ] || ln -sfn /app/node_modules "${CUSTOM_EXT_DIR}/node_modules"
+  fi
+
+  # --- Synthetic Agent-tick producer (throttle L3, change: reduce-bridge-tick-
+  # bandwidth) --- Registers an `Agent` tool that streams tool_execution_update
+  # frames at a deterministic cadence (via a `[[ticks:N@Mms]]` sentinel) for the
+  # cadence rows (F1/P1/P2/P3/F5). It SHADOWS the real subagents Agent tool
+  # (first-registration-wins), so it is staged ONLY under PI_SYNTH_AGENT_TICKS=1
+  # and `register_subagents` is SKIPPED below — the two never coexist. The
+  # nested-faux subagent cannot be scripted in the harness (see change
+  # measurement.md, Bug 2), so a synthetic same-shape producer is the L3
+  # substrate.
+  SYNTH_EXT_DIR="${PI_DIR}/agent/extensions/faux-agent-ticks"
+  if [ "${PI_SYNTH_AGENT_TICKS:-}" = "1" ] && [ -f "${FAUX_SRC}/faux-agent-ticks.ext.ts" ] && [ ! -f "${SYNTH_EXT_DIR}/index.ts" ]; then
+    mkdir -p "${SYNTH_EXT_DIR}"
+    cp "${FAUX_SRC}/faux-agent-ticks.ext.ts" "${SYNTH_EXT_DIR}/index.ts"
+    ln -sfn /app/node_modules "${SYNTH_EXT_DIR}/node_modules"
+    echo "[test-entrypoint] PI_SYNTH_AGENT_TICKS: staged synthetic Agent-tick producer → ${SYNTH_EXT_DIR}"
   fi
 
   # Also seed pi's own settings.json default model (read at pi startup) so the
@@ -470,7 +527,14 @@ JSON
       ' "${SETTINGS}" "${SA_GLOBAL}" "/app/packages/extension" \
         && echo "[test-entrypoint] registered pi-dashboard-subagents (tool_execution_update producer)"
     }
-    register_subagents
+    # Skip the real subagents producer on the synthetic-tick arm: the synthetic
+    # `Agent` tool owns the tool name there (first-registration-wins), and the
+    # two must never coexist. See change: reduce-bridge-tick-bandwidth.
+    if [ "${PI_SYNTH_AGENT_TICKS:-}" = "1" ]; then
+      echo "[test-entrypoint] PI_SYNTH_AGENT_TICKS=1: skipping subagents producer (synthetic Agent tool owns the tool name)"
+    else
+      register_subagents
+    fi
 
     case "${PI_TEST_PEERS}" in
       both)
@@ -533,7 +597,10 @@ echo "[test-entrypoint] launching dashboard daemon via base entrypoint..."
 # server is spawned DETACHED (unref'd) and SURVIVES that timeout — cold-start
 # via the jiti TS loader can exceed 30s on a loaded host. Tolerate a non-zero
 # return; our own health poll below is the authority on readiness.
-/usr/local/bin/entrypoint.sh "$@" \
+# NO_SUPERVISE: the base entrypoint now supervises the daemon itself, which
+# would block before this script's smoke checks ever ran. We do our own
+# supervising in step 4, with the same shared helper.
+PI_ENTRYPOINT_NO_SUPERVISE=1 /usr/local/bin/entrypoint.sh "$@" \
   || echo "[test-entrypoint] base launcher exited non-zero (likely readiness timeout); daemon is detached, polling health..."
 
 # --- 3. Fail-fast smoke check ----------------------------------------------
@@ -616,34 +683,28 @@ if [ "${PI_E2E_INDEPENDENT_SESSION:-0}" = "1" ] && [ "${PI_E2E_SEED:-}" = "1" ];
   fi
 fi
 
-# --- 4. Keep PID 1 alive for the daemon's lifetime -------------------------
-SERVER_PID="$(cat "${PIDFILE}" 2>/dev/null || true)"
-[ -n "${SERVER_PID}" ] || smoke_fail "server.pid not found at ${PIDFILE}"
-# Always signal whoever owns the pidfile NOW, not the pid captured at boot — an
-# in-place restart replaces it.
-trap 'kill -TERM "$(cat "${PIDFILE}" 2>/dev/null || echo "${SERVER_PID}")" 2>/dev/null || true' TERM INT
-# Re-read the pidfile each tick and tolerate a restart window. Watching the
-# BOOT pid alone made `POST /api/restart` fatal to the container: the server
-# exits and comes back under a NEW pid, the old `kill -0` went false, PID 1
-# fell through, and the whole harness died mid-test. The grace window keeps the
-# supervisor alive across that gap while still exiting when the daemon is
-# genuinely gone. See change: restore-ask-user-tool-state-on-reconnect.
-RESTART_GRACE_TICKS=24   # x5s = up to 120s down before we call it dead
-missed=0
-while :; do
-  cur="$(cat "${PIDFILE}" 2>/dev/null || true)"
-  if [ -n "${cur}" ] && kill -0 "${cur}" 2>/dev/null; then
-    if [ "${cur}" != "${SERVER_PID}" ]; then
-      echo "[test-entrypoint] daemon restarted: pid ${SERVER_PID} -> ${cur}"
-      SERVER_PID="${cur}"
-    fi
-    missed=0
-  else
-    missed=$((missed + 1))
-    if [ "${missed}" -ge "${RESTART_GRACE_TICKS}" ]; then
-      break
-    fi
+# Single-dashboard invariant (fix-bridge-autostart-port-resolution, test-plan
+# #X6) — deliberately run AFTER the boot-session step: autoStartServer fires
+# when a SESSION connects, never at daemon boot, so a pre-3b check would pass
+# tautologically. With PI_E2E_INDEPENDENT_SESSION=1 a session has connected
+# above and its bridge has run the full auto-start chain; without it this
+# still guards the daemon itself having come up on the production default
+# port. The original mid-run split-brain (a spec-spawned session launching a
+# competitor on :8000) is exercised by the specs; this smoke catches the
+# boot-time shapes.
+if [ "${PORT}" != "8000" ]; then
+  # No -f: ANY HTTP response (even 4xx/5xx) proves a listener; -f would read
+  # an erroring squatter as "port free".
+  if curl --connect-timeout 1 --max-time 2 -sS "http://localhost:8000/api/health" >/dev/null 2>&1; then
+    smoke_fail "a second dashboard answers on default port 8000 (split-brain: auto-start launched a competitor)"
   fi
-  sleep 5
-done
-echo "[test-entrypoint] dashboard daemon (pid ${SERVER_PID}) exited"
+  echo "[test-entrypoint] single-dashboard invariant OK (nothing on :8000)"
+fi
+
+# --- 4. Keep PID 1 alive for the daemon's lifetime -------------------------
+# Same helper the base entrypoint uses, so the harness and the deployment
+# cannot drift apart again — this loop existing ONLY here is what let the
+# deployment ship without supervision while every E2E run stayed green.
+# shellcheck source=docker/supervise-daemon.sh
+. /usr/local/bin/supervise-daemon.sh
+supervise_daemon "${PIDFILE}" "dashboard daemon" || smoke_fail "server.pid not found at ${PIDFILE}"

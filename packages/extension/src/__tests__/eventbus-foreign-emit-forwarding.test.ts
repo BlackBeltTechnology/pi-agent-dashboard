@@ -71,6 +71,9 @@ function makeDeps(over: Partial<EventBusForwardingDeps> = {}) {
         buffered.push({ channel, data });
         return true;
       },
+      // Identity by default: this suite characterises FORWARDING, not the
+      // strip. See change: reduce-subagent-details-payload.
+      stripForForward: (data: Record<string, unknown>) => data,
     },
     ...over,
   };

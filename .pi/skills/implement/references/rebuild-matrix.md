@@ -70,7 +70,7 @@ curl -X POST http://localhost:8000/api/restart
 npm run reload
 ```
 
-Or just run `npx tsx ./scripts/full-rebuild.ts` from this skill.
+Or just run `npx tsx .pi/skills/implement/scripts/full-rebuild.ts` from repo root.
 
 ## Mode mechanics
 
@@ -111,7 +111,7 @@ If client changes don't appear in dev mode → check that Vite is actually runni
 | Edited `src/extension/` → restarted server | Bridge code lives in pi sessions, not server. Need `npm run reload`. |
 | Edited `src/client/` in dev mode → ran `npm run build && restart` | Vite HMR was already reloading it. The build was wasted. |
 | Edited `src/shared/` → only restarted server | Shared types may also be imported by extension and client. Reload + rebuild if those import paths are affected. |
-| Multi-component change → forgot one component | Use `npx tsx ./scripts/full-rebuild.ts` — does all three in correct order. |
+| Multi-component change → forgot one component | Use `npx tsx .pi/skills/implement/scripts/full-rebuild.ts` — does all three in correct order. |
 
 ## Reference: AGENTS.md Build & Restart Workflow
 

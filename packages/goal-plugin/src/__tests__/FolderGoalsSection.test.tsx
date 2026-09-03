@@ -1,13 +1,20 @@
 /**
  * FolderGoalsSection — sidebar-folder-section claim.
  * Verifies the slot renders `Goals (N)` from the REST count and opens the
- * board route on click (task 3.1), and the `+ Goal` create flow posts +
- * navigates (task 3.2).
+ * board route on click (task 3.1), and the create flow posts + navigates
+ * (task 3.2) — now driven from the folder-actions-menu `CREATE` item rather
+ * than a `+ Goal` pill button, which no longer exists.
  *
- * See change: add-goals-folder-page.
+ * See change: add-goals-folder-page; move-slot-actions-to-menu
+ * (test-plan #E3, #E20, #E21, #F2).
  */
 
-import { cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import {
+  CurrentPluginLayer,
+  createFolderMenuStore,
+  FolderMenuProvider,
+} from "@blackbelt-technology/dashboard-plugin-runtime";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
 import React from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Router } from "wouter";
@@ -29,12 +36,17 @@ function mockFetch(goals: unknown[]) {
 beforeEach(() => { (globalThis as any).fetch = mockFetch([{ id: "g1" }, { id: "g2" }]); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
-function renderSlot(hook?: any) {
-  return render(
+function renderSlot(hook?: any, store = createFolderMenuStore()) {
+  const utils = render(
     <Router hook={hook}>
-      <FolderGoalsSection folder={{ cwd }} />
+      <FolderMenuProvider store={store}>
+        <CurrentPluginLayer pluginId="goal-plugin">
+          <FolderGoalsSection folder={{ cwd }} />
+        </CurrentPluginLayer>
+      </FolderMenuProvider>
     </Router>,
   );
+  return { ...utils, store };
 }
 
 describe("FolderGoalsSection", () => {
@@ -53,10 +65,50 @@ describe("FolderGoalsSection", () => {
     expect(history[history.length - 1]).toBe(goalsBoardUrl(cwd));
   });
 
-  it("+ Goal opens the shared dialog (no inline panel) and creates on Enter", async () => {
+  it("renders a STATE-ONLY pill \u2014 no refresh, no create control", async () => {
+    const { getByTestId, queryByTestId } = renderSlot();
+    const board = await waitFor(() => getByTestId("folder-goals-open-board"));
+    expect(queryByTestId("folder-goals-refresh")).toBeNull();
+    expect(queryByTestId("folder-goal-new-btn")).toBeNull();
+    const section = getByTestId("folder-goals-section");
+    expect(
+      Array.from(section.querySelectorAll("button, a, [role='button'], [tabindex]:not([tabindex='-1'])")),
+    ).toEqual([board]);
+  });
+
+  it("E3: contributes one CREATE item, stamped with the goal plugin's identity", async () => {
+    const { store, getByTestId } = renderSlot();
+    await waitFor(() => expect(getByTestId("folder-goals-count").textContent).toBe("2"));
+    expect(store.getItems(cwd).map((i) => [i.pluginId, i.id, i.group])).toEqual([
+      ["goal-plugin", "new-goal", "create"],
+    ]);
+  });
+
+  it("E20/E21: registers a refresher with no item of its own", async () => {
+    const { store, getByTestId } = renderSlot();
+    await waitFor(() => expect(getByTestId("folder-goals-count").textContent).toBe("2"));
+    const before = ((globalThis as any).fetch as any).mock.calls.length;
+    await act(async () => {
+      store.runRefreshers(cwd);
+    });
+    await waitFor(() =>
+      expect(((globalThis as any).fetch as any).mock.calls.length).toBeGreaterThan(before),
+    );
+    expect(store.getItems(cwd).map((i) => i.id)).toEqual(["new-goal"]);
+  });
+
+  it("F2: unmounting the section deregisters its item", async () => {
+    const { store, getByTestId, unmount } = renderSlot();
+    await waitFor(() => expect(getByTestId("folder-goals-count").textContent).toBe("2"));
+    unmount();
+    expect(store.getItems(cwd)).toHaveLength(0);
+  });
+
+  it("the CREATE item opens the shared dialog (no inline panel) and creates on Enter", async () => {
     const { hook, history } = memoryLocation({ path: "/", record: true });
-    const { getByTestId, queryByTestId, getByPlaceholderText } = renderSlot(hook);
-    fireEvent.click(getByTestId("folder-goal-new-btn"));
+    const { store, getByTestId, queryByTestId, getByPlaceholderText } = renderSlot(hook);
+    await waitFor(() => expect(store.getItems(cwd)).toHaveLength(1));
+    act(() => store.getItems(cwd)[0]!.onSelect());
     expect(getByTestId("goal-create-dialog")).toBeTruthy();
     expect(queryByTestId("folder-goal-create")).toBeNull();
     const input = getByPlaceholderText("Goal objective…");

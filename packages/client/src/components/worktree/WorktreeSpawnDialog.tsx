@@ -32,9 +32,10 @@ import {
   type WorktreeEntry,
 } from "../../lib/git/git-api.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
+import { logRejection } from "../../lib/report-error.js";
 import { BranchCombobox } from "./BranchCombobox.js";
 import { PrCombobox } from "./PrCombobox.js";
-import { logRejection } from "../../lib/report-error.js";
+import { WorktreeList } from "./WorktreeList.js";
 
 // Ternary source toggle (change: worktree-checkout-existing-branch),
 // widening the binary "branch"/"pr" toggle introduced by
@@ -206,6 +207,23 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
     if (!data) return [];
     return [...data.localBranches, ...data.remoteBranches];
   }, [data]);
+
+  // Pre-submit fork collision check. Fork runs `git worktree add -b <name>`,
+  // which git refuses when <name> already exists locally — surfacing only as
+  // a post-submit `branch_exists`/`branch_in_use` error. The branch list is
+  // already loaded, so detect it up front and route to the action that
+  // actually works:
+  //   holder === null -> branch lingers with no worktree -> reuse as checkout
+  //   holder !== null -> branch is held by a worktree -> spawn into it
+  //                      (checkout would fail with branch_in_use)
+  // See change: warn-fork-branch-collision-before-submit.
+  const forkCollision = useMemo<{ name: string; holder: WorktreeEntry | null } | null>(() => {
+    if (!data || sourceMode !== "fork") return null;
+    const name = newBranch.trim();
+    if (!name) return null;
+    if (!data.localBranches.some((b) => b.name === name)) return null;
+    return { name, holder: data.worktrees.find((w) => w.branch === name) ?? null };
+  }, [data, sourceMode, newBranch]);
 
   // Fork needs a new branch name + base; checkout needs only a branch
   // ref. See change: worktree-checkout-existing-branch.
@@ -439,26 +457,12 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
         <h4 className="text-xs uppercase tracking-wider text-[var(--text-muted)] mb-2">
           {i18nT("worktree.existingWorktreesOfThisRepo", undefined, "Existing worktrees of this repo")}
         </h4>
-        <div className="rounded border border-[var(--border-subtle)] overflow-hidden">
-          {data.worktrees.map((wt) => (
-            <button
-              key={wt.path}
-              type="button"
-              onClick={() => handleSpawnExisting(wt)}
-              data-testid={`worktree-row-${wt.isMain ? "main" : encodeURIComponent(wt.path)}`}
-              className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-[var(--bg-tertiary)] border-b border-[var(--border-subtle)] last:border-b-0 disabled:opacity-60"
-            >
-              <span className="text-[11px] text-[var(--text-tertiary)]">
-                {wt.detached ? "(detached)" : wt.branch ?? "(none)"}
-              </span>
-              <span className="text-[11px] text-[var(--text-muted)] truncate flex-1">{wt.path}</span>
-              {wt.isMain && (
-                <span className="text-[9px] uppercase tracking-wider text-[var(--text-muted)] border border-[var(--border-subtle)] rounded-full px-1.5 py-px">main</span>
-              )}
-              <span className="text-[11px] text-blue-400">{i18nT("session.session2", undefined, "+Session →")}</span>
-            </button>
-          ))}
-        </div>
+        {/* §1 is delegated to the shared list (change: manage-worktrees-filter-cleanup). */}
+        <WorktreeList
+          entries={data.worktrees}
+          mode="spawn"
+          onSpawn={(_path, entry) => handleSpawnExisting(entry)}
+        />
       </section>
 
       {/* ── create new ─────────────────────────────────────────────── */}
@@ -550,6 +554,43 @@ export function WorktreeSpawnDialog({ cwd, onSpawn, onCancel, initialBranch, att
                     placeholder="feat/dark-mode"
                     className="w-full mt-0.5 px-2 py-1 text-sm rounded border border-[var(--border-subtle)] bg-[var(--bg-tertiary)] font-mono"
                   />
+                  {/* Advisory (does NOT disable submit, mirroring the
+                      orphan-path warning). See change:
+                      warn-fork-branch-collision-before-submit. */}
+                  {forkCollision && (
+                    <div
+                      className="mt-1 p-2 rounded border border-yellow-500/40 bg-yellow-500/5 text-[11px]"
+                      data-testid="worktree-fork-collision"
+                    >
+                      <p className="text-yellow-300">
+                        {forkCollision.holder
+                          ? `Branch "${forkCollision.name}" already exists and is checked out at ${forkCollision.holder.path}.`
+                          : `Branch "${forkCollision.name}" already exists with no worktree — forking it will fail.`}
+                      </p>
+                      <div className="mt-1 flex items-center gap-2">
+                        {forkCollision.holder ? (
+                          <button
+                            type="button"
+                            onClick={() => handleSpawnExisting(forkCollision.holder as WorktreeEntry)}
+                            data-testid="worktree-collision-spawn"
+                            className="px-2 py-0.5 text-[11px] rounded border border-yellow-500/40 text-yellow-200 hover:bg-yellow-500/10"
+                          >
+                            {i18nT("git.spawnIntoThatWorktree", undefined, "Spawn into that worktree →")}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={submitting}
+                            onClick={handleReuseAsCheckout}
+                            data-testid="worktree-collision-checkout"
+                            className="px-2 py-0.5 text-[11px] rounded border border-yellow-500/40 text-yellow-200 hover:bg-yellow-500/10 disabled:opacity-50"
+                          >
+                            {i18nT("git.checkOutThisBranchInstead", undefined, "Check out this branch instead →")}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  )}
                 </label>
               )}
             </>

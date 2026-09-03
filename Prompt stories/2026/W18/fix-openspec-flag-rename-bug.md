@@ -169,4 +169,4 @@ OpenSpec skill suite, `HOME=$(mktemp -d)` for isolated vitest runs.
 
 ---
 
-_Generated from session `019dd0ce` · `pi-agent-dashboard` · 2026-04-28. Source extract: `/tmp/session_facts.oBZBYR.md`._
+_Generated from session `019dd0ce` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-28. Source extract: `/tmp/session_facts.oBZBYR.md`._

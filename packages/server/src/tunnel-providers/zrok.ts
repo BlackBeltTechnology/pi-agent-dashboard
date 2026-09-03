@@ -10,7 +10,7 @@
 import fs from "node:fs";
 import { CONFIG_FILE } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
-import { execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { execFile, execFileSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
 import type {
   ProviderEndpoints,
   ProviderStatus,
@@ -64,6 +64,21 @@ export function _resetBinaryCache(): void {
   zrokBinaryPath = null;
 }
 
+/**
+ * PUBLIC invalidation of the module-scope binary memo.
+ *
+ * `zrokAvailable` is memoized once and never re-consulted, so an install or
+ * removal performed in a terminal is invisible for the life of the process.
+ * `ToolRegistry.rescan()` cannot reach this memo — it clears the registry's own
+ * cache, not ours. Readiness therefore needs a supported entry point rather
+ * than the test-only `_resetBinaryCache`, whose name says it must not be wired
+ * into production paths. See change: add-zrok-custom-reserved-name (D6.2).
+ */
+function invalidateZrokBinaryCache(): void {
+  zrokAvailable = null;
+  zrokBinaryPath = null;
+}
+
 export function _setBinaryAvailable(available: boolean): void {
   zrokAvailable = available;
   if (!available) zrokBinaryPath = null;
@@ -72,6 +87,53 @@ export function _setBinaryAvailable(available: boolean): void {
 export function loadZrokEnv(): ZrokEnv | null {
   const r = readZrokEnvironment();
   return r.found ? r.env : null;
+}
+
+/**
+ * Why a reservation did not produce a usable name.
+ *
+ * A bare `null` collapsed four distinct causes into one, and the reason died in
+ * a `console.warn` on the server. Every layer above then reported a perfectly
+ * healthy ephemeral tunnel, so the user saw a green tunnel at a URL they did
+ * not choose with no record of why. See change: add-zrok-custom-reserved-name.
+ */
+export type ReservedNameOutcome =
+  | { status: "ok"; name: string }
+  /**
+   * The name could not be reserved and is not ours to use.
+   *
+   * `cause` separates a POSITIVELY identified collision from an unrecognised
+   * failure. The spec fixes the outcome vocabulary at four values, so an
+   * unclassifiable stderr lands here too — but it must never be dressed up as a
+   * known collision, and it must never fall through to reuse-mine, which would
+   * hand the operator another account's name on a wording change.
+   */
+  | { status: "taken"; name: string; message: string; cause: "another-account" | "unknown" }
+  /** Rejected by RESERVED_NAME_RE before reaching argv. zrok is never invoked. */
+  | { status: "invalid"; name: string; message: string }
+  /** Reserved remotely, but persisting it failed — serving it would orphan it on restart. */
+  | { status: "write-failed"; name: string; message: string };
+
+/**
+ * Classify `zrok create name` stderr.
+ *
+ * Load-bearing the moment a reason is shown to a user: a zrok CLI wording
+ * change would otherwise silently reclassify "taken by someone else" as "reuse
+ * mine" and hand the user another account's name. Pinned by test against
+ * captured real output. When NEITHER branch matches, we say so honestly rather
+ * than guessing — defaulting to reuse-mine on an unrecognised string is how a
+ * classifier turns a network error into a wrong answer.
+ *
+ * See change: add-zrok-custom-reserved-name.
+ */
+export type StderrClass = "exists-mine" | "taken" | "unknown";
+export function classifyCreateNameError(stderr: string): StderrClass {
+  const msg = String(stderr ?? "");
+  const anotherAccount = /another|different account|owned by/i.test(msg);
+  if (/already exist/i.test(msg)) return anotherAccount ? "taken" : "exists-mine";
+  // "owned by" without "already exists" is still unambiguously someone else's.
+  if (anotherAccount) return "taken";
+  return "unknown";
 }
 
 /**
@@ -137,30 +199,150 @@ export function releaseShare(name: string): boolean {
  * success persists the name and returns it. See change: support-zrok-v2.
  */
 export function mintReservedName(existing?: string): string | null {
-  const name = existing || generateReservedName();
+  const r = reserveName(existing);
+  return r.status === "ok" ? r.name : null;
+}
+
+/**
+ * Reserve a name and say WHY when it does not work.
+ *
+ * The typed sibling of {@link mintReservedName}, which is retained as the
+ * connect-time adapter (a connect genuinely only needs "name or ephemeral").
+ * Every caller that reports to a human uses this one instead.
+ *
+ * Ordering note for the replace path: this function never releases anything.
+ * Release is the caller's decision and MUST follow a successful reservation,
+ * so a failed replace can never leave the user holding neither name.
+ */
+/**
+ * Async twin of {@link reserveName}, for the REQUEST path.
+ *
+ * `execFileSync` blocks the Node event loop for the whole call — up to its 30s
+ * ceiling. Calling the sync version from a Fastify handler therefore freezes
+ * every WebSocket heartbeat, session event and poll in the dashboard whenever
+ * the zrok control plane is slow or unreachable: a single user action stalls
+ * the entire process, not just its own request.
+ *
+ * The classification, the ordering contract (this never releases anything) and
+ * the outcome vocabulary are identical; only the exec is non-blocking.
+ */
+export async function reserveNameAsync(existing?: string): Promise<ReservedNameOutcome> {
+  const name = existing ?? generateReservedName();
+  if (!isDnsSafeReservedName(name)) return invalidOutcome(name);
+
+  const failure = await new Promise<string | null>((resolve) => {
+    execFile(
+      getZrokBinary(),
+      ["create", "name", "-n", "public", name],
+      { timeout: 30_000 },
+      (err: (Error & { stderr?: string }) | null, _stdout: unknown, stderr: string | Buffer) =>
+        resolve(err ? String(stderr ?? err.stderr ?? err.message ?? err) : null),
+    );
+  });
+
+  if (failure !== null) {
+    const classified = classifyOutcomeFromStderr(name, failure);
+    if (classified) return classified;
+  }
+  return persistOutcome(name);
+}
+
+/** Shared by both twins so the two cannot drift in what they say. */
+function invalidOutcome(name: string): ReservedNameOutcome {
+  return {
+    status: "invalid",
+    name,
+    message:
+      "Use 1\u201363 letters, digits or hyphens, starting with a letter or digit (no leading hyphen, no underscores).",
+  };
+}
+
+/** `null` means "treat as success" (already reserved by THIS account). */
+function classifyOutcomeFromStderr(name: string, stderr: string): ReservedNameOutcome | null {
+  switch (classifyCreateNameError(stderr)) {
+    case "exists-mine":
+      return null;
+    case "taken":
+      return {
+        status: "taken",
+        name,
+        cause: "another-account",
+        message: `\u201c${name}\u201d is reserved on another zrok account. The zrok namespace is shared across all accounts, so short names are often gone \u2014 try a more specific one.`,
+      };
+    default:
+      return {
+        status: "taken",
+        name,
+        cause: "unknown",
+        message: `Could not reserve \u201c${name}\u201d. zrok reported: ${stderr.trim().slice(0, 200) || "no output"}`,
+      };
+  }
+}
+
+function persistOutcome(name: string): ReservedNameOutcome {
+  if (!saveReservedName(name)) {
+    return {
+      status: "write-failed",
+      name,
+      message: `Reserved \u201c${name}\u201d with zrok but could not write it to the dashboard config, so it would be lost on restart. Check permissions on ${CONFIG_FILE}.`,
+    };
+  }
+  return { status: "ok", name };
+}
+
+export function reserveName(existing?: string): ReservedNameOutcome {
+  // `??`, NOT `||`: an EMPTY string is a user who submitted nothing, not a user
+  // asking us to generate one. `||` would treat "" as absent and silently mint
+  // a random `pi-dash-<hex>` reservation — a remote resource and a config write
+  // the caller never asked for. Clearing is a distinct intent, expressed as
+  // `null` at the endpoint.
+  const name = existing ?? generateReservedName();
   if (!isDnsSafeReservedName(name)) {
-    console.warn("zrok reserved name is not DNS-safe; falling back to an ephemeral tunnel");
-    return null;
+    return {
+      status: "invalid",
+      name,
+      message:
+        "Use 1\u201363 letters, digits or hyphens, starting with a letter or digit (no leading hyphen, no underscores).",
+    };
   }
   try {
     execFileSync(getZrokBinary(), ["create", "name", "-n", "public", name], {
       timeout: 30_000,
       stdio: ["ignore", "ignore", "pipe"],
     });
-    // Persistence is the whole point of a reserved name: if the config write
-    // fails, do NOT serve it (it would be lost on restart + orphaned remotely).
-    if (!saveReservedName(name)) return null;
-    return name;
   } catch (err: any) {
-    const msg = String(err?.stderr ?? err?.message ?? err);
-    // Already reserved by THIS account → reuse it (idempotent reconnect).
-    if (/already exist/i.test(msg) && !/another|different account|owned by/i.test(msg)) {
-      return saveReservedName(name) ? name : null;
+    const stderr = String(err?.stderr ?? err?.message ?? err);
+    switch (classifyCreateNameError(stderr)) {
+      // Already reserved by THIS account → reuse it (idempotent reconnect).
+      case "exists-mine":
+        break;
+      case "taken":
+        return {
+          status: "taken",
+          name,
+          cause: "another-account",
+          message: `“${name}” is reserved on another zrok account. The zrok namespace is shared across all accounts, so short names are often gone — try a more specific one.`,
+        };
+      default:
+        return {
+          status: "taken",
+          name,
+          cause: "unknown",
+          // Honest-but-vague: we do NOT claim to know which cause this was.
+          message: `Could not reserve “${name}”. zrok reported: ${stderr.trim().slice(0, 200) || "no output"}`,
+        };
     }
-    // Taken by another account, or any other failure → ephemeral fallback.
-    console.warn("zrok create name failed; falling back to an ephemeral tunnel");
-    return null;
   }
+  // Persistence is the whole point of a reserved name: if the config write
+  // fails, do NOT serve it (it would be lost on restart + orphaned remotely).
+  if (!saveReservedName(name)) {
+    return {
+      status: "write-failed",
+      name,
+      message: `Reserved “${name}” with zrok but could not write it to the dashboard config, so it would be lost on restart. Check permissions on ${CONFIG_FILE}.`,
+    };
+  }
+  return { status: "ok", name };
 }
 
 /**
@@ -221,6 +403,16 @@ export class ZrokProvider implements TunnelProvider {
   }
   detectBinary(): boolean {
     return detectZrokBinary();
+  }
+  /**
+   * Drop the module-scope binary memo so the NEXT `detectBinary()` re-resolves.
+   * Readiness calls this before probing, because `ToolRegistry.rescan()` cannot
+   * reach a memo this module holds. See change: add-zrok-custom-reserved-name.
+   */
+  invalidateBinaryCache(): void {
+    // Module-scope function, deliberately named differently from this method so
+    // the call cannot be misread as recursion.
+    invalidateZrokBinaryCache();
   }
   isEnrolled(): boolean {
     return loadZrokEnv() !== null;

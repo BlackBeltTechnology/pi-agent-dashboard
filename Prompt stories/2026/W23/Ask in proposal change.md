@@ -131,4 +131,4 @@ scoped commit. This session executed that exact loop by hand; it is clearly repe
 
 ---
 
-_Generated from session `019e9ec2` · `pi-agent-dashboard` · 2026-06-06. Source extract: deterministic facts sheet._
+_Generated from session `019e9ec2` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-06. Source extract: deterministic facts sheet._

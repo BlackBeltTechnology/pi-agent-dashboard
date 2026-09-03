@@ -19,17 +19,43 @@ import {
 } from "@mdi/js";
 import { Icon } from "@mdi/react";
 import React, { useCallback, useEffect, useRef, useState } from "react";
+import {
+  ANTHROPIC_PEER_SOURCE,
+  IMPORT_FAILURE_PREFIX,
+  useAnthropicPeerProbe,
+} from "../../hooks/useAnthropicPeerProbe.js";
 import { useAsyncAction } from "../../hooks/useAsyncAction.js";
+import { usePackageOperations } from "../../hooks/usePackageOperations.js";
+import { PROVIDER_AUTH_EVENT } from "../../hooks/useProvidersReady.js";
 import { getApiBase } from "../../lib/api/api-context.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { Toast, type ToastVariant, useToast } from "../primitives/Toast.js";
 import { logRejection } from "../../lib/report-error.js";
+import { InlineMessage } from "../primitives/InlineMessage.js";
+import { Toast, type ToastVariant, useToast } from "../primitives/Toast.js";
 
 // ── Fetch helpers ────────────────────────────────────────────────────────────
 
+/** Consecutive malformed/non-ok poll responses tolerated before an auth-code login aborts. */
+const POLL_MAX_CONSECUTIVE_FAILURES = 3;
+
+/**
+ * Fail closed on BOTH failure classes — a non-ok response and a body that is
+ * not an array — instead of feeding a Fastify error envelope (or any object)
+ * into `statuses.filter(...)`, which white-screened the whole Settings panel
+ * on a corrupt auth.json. See change: fix-corrupt-auth-json-500.
+ */
 async function fetchStatus(): Promise<ProviderAuthStatus[]> {
   const res = await fetch(`${getApiBase()}/api/provider-auth/status`);
-  return res.json();
+  if (!res.ok) {
+    throw new Error(i18nT("err.providerAuthStatusHttp", undefined, `Provider status request failed (${res.status}).`));
+  }
+  const data: unknown = await res.json();
+  // Array.isArray accepts [null] — and a null item would still crash the
+  // rows' property access at render. Validate the items too.
+  if (!Array.isArray(data) || !data.every((s) => s !== null && typeof s === "object")) {
+    throw new Error(i18nT("err.providerAuthStatusShape", undefined, "Provider status response was malformed."));
+  }
+  return data;
 }
 
 /** Provider ids the dashboard can actually complete a login flow for. */
@@ -67,22 +93,50 @@ function relativeExpiry(expires: number): string {
 
 // ── Main component ───────────────────────────────────────────────────────────
 
-export function ProviderAuthSection() {
+export function ProviderAuthSection({ onCredentialsChanged }: {
+  /**
+   * Fired after a credential write lands (API-key save/removal, OAuth or
+   * device-code completion) so the owner can refetch the model catalogue.
+   * See change: settings-default-model-without-session.
+   */
+  onCredentialsChanged?: () => void;
+} = {}) {
   const [statuses, setStatuses] = useState<ProviderAuthStatus[]>([]);
+  // Set when fetchStatus fails (non-ok, non-array, network). The section stays
+  // mounted and interactive — the inline error carries a Retry so credentials
+  // remain repairable from this state. See change: fix-corrupt-auth-json-500.
+  const [statusError, setStatusError] = useState<string | null>(null);
   // null = not yet known (loading or fetch failed). Never gate OAuth rows
   // closed while unknown — a secondary capability probe must not become a
   // hard sign-in outage. See change: adopt-pi-071-072-073-features.
   const [handlerIds, setHandlerIds] = useState<Set<string> | null>(null);
   const [loading, setLoading] = useState(true);
   const { messages, showToast, dismissToast } = useToast();
+  // One probe read for the whole section — per-row hooks would fan out one
+  // /api/health fetch per provider. See change: warn-missing-anthropic-messages-peer.
+  const { peerMissing, peerReason } = useAnthropicPeerProbe();
 
   const refresh = useCallback(async () => {
     try {
       const data = await fetchStatus();
       setStatuses(data);
-    } catch { /* ignore */ }
+      setStatusError(null);
+    } catch (err: any) {
+      setStatusError(err?.message || i18nT("err.providerAuthStatusUnknown", undefined, "Provider status is unavailable."));
+    }
     setLoading(false);
   }, []);
+
+  // Row-level credential change: dispatch the readiness hint, refresh this
+  // section AND notify the owner. Deliberately NOT folded into `refresh`,
+  // which also runs on mount — a mount must not look like a credential write.
+  // The event carries no payload: it is a hint to refetch, never a claim that
+  // the credential count changed. See change: dispatch-provider-auth-event.
+  const handleChanged = useCallback(() => {
+    window.dispatchEvent(new CustomEvent(PROVIDER_AUTH_EVENT));
+    void refresh().catch(logRejection("ProviderAuthSection.refresh"));
+    onCredentialsChanged?.();
+  }, [refresh, onCredentialsChanged]);
 
   useEffect(() => { void refresh().catch(logRejection("ProviderAuthSection.refresh")); }, [refresh]);
   useEffect(() => {
@@ -99,11 +153,28 @@ export function ProviderAuthSection() {
   return (
     <div className="space-y-4">
       <Toast messages={messages} onDismiss={dismissToast} />
+      {statusError && (
+        <InlineMessage
+          severity="error"
+          icon={mdiAlert}
+          testId="provider-auth-status-error"
+          title={statusError}
+          actions={
+            <button
+              type="button"
+              onClick={() => void refresh().catch(logRejection("ProviderAuthSection.refresh"))}
+              className="focus-ring px-2 py-1 text-[11px] rounded border border-current bg-transparent disabled:opacity-60"
+            >
+              {i18nT("common.retry", undefined, "Retry")}
+            </button>
+          }
+        />
+      )}
       {/* OAuth Providers */}
       <div className="space-y-2">
         <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider">{i18nT("gateway.subscriptionsOauth", undefined, "Subscriptions (OAuth)")}</h3>
         {oauthProviders.map((p) => (
-          <OAuthProviderRow key={p.id} provider={p} supported={handlerIds === null ? true : handlerIds.has(p.id)} onChanged={refresh} showToast={showToast} />
+          <OAuthProviderRow key={p.id} provider={p} supported={handlerIds === null ? true : handlerIds.has(p.id)} onChanged={handleChanged} showToast={showToast} peerMissing={p.id === "anthropic" && peerMissing} peerReason={peerReason} />
         ))}
       </div>
 
@@ -111,7 +182,7 @@ export function ProviderAuthSection() {
       <div className="space-y-2">
         <h3 className="text-xs font-semibold text-[var(--text-muted)] uppercase tracking-wider mt-4">{i18nT("gateway.apiKeys", undefined, "API Keys")}</h3>
         {apiKeyProviders.map((p) => (
-          <ApiKeyRow key={p.id} provider={p} onChanged={refresh} showToast={showToast} />
+          <ApiKeyRow key={p.id} provider={p} onChanged={handleChanged} showToast={showToast} />
         ))}
       </div>
     </div>
@@ -120,7 +191,7 @@ export function ProviderAuthSection() {
 
 // ── OAuth Provider Row ───────────────────────────────────────────────────────
 
-function OAuthProviderRow({ provider, supported, onChanged, showToast }: { provider: ProviderAuthStatus; supported: boolean; onChanged: () => void; showToast: (text: string, variant?: ToastVariant) => void }) {
+function OAuthProviderRow({ provider, supported, onChanged, showToast, peerMissing = false, peerReason }: { provider: ProviderAuthStatus; supported: boolean; onChanged: () => void; showToast: (text: string, variant?: ToastVariant) => void; peerMissing?: boolean; peerReason?: string }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [deviceModal, setDeviceModal] = useState<DeviceCodeResponse | null>(null);
@@ -152,18 +223,36 @@ function OAuthProviderRow({ provider, supported, onChanged, showToast }: { provi
       if (pollingRef.current) clearInterval(pollingRef.current);
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
 
+      let consecutivePollFailures = 0;
+      const stopPolling = () => {
+        if (pollingRef.current) clearInterval(pollingRef.current);
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      };
+
       pollingRef.current = setInterval(async () => {
         try {
           const statusRes = await fetch(`${getApiBase()}/api/provider-auth/status`);
-          const statuses: ProviderAuthStatus[] = await statusRes.json();
-          const updated = statuses.find((s) => s.id === provider.id);
+          if (!statusRes.ok) throw new Error(`provider-auth status ${statusRes.status}`);
+          const pollStatuses: unknown = await statusRes.json();
+          if (!Array.isArray(pollStatuses)) throw new Error("provider-auth status body is not an array");
+          consecutivePollFailures = 0;
+          const updated = (pollStatuses as ProviderAuthStatus[]).find((s) => s.id === provider.id);
           if (updated?.authenticated) {
-            if (pollingRef.current) clearInterval(pollingRef.current);
-            if (timeoutRef.current) clearTimeout(timeoutRef.current);
+            stopPolling();
             setBusy(false);
             onChanged();
           }
-        } catch { /* retry */ }
+        } catch {
+          // Transient failures keep polling (a mid-login /api/restart must not
+          // kill an in-flight OAuth login), but a PERSISTENT failure must end
+          // the flow instead of silently waiting for the 5-minute timeout.
+          consecutivePollFailures += 1;
+          if (consecutivePollFailures >= POLL_MAX_CONSECUTIVE_FAILURES) {
+            stopPolling();
+            setBusy(false);
+            setError(i18nT("providers.pollLostContact", undefined, "Lost contact with the dashboard while signing in — please try again."));
+          }
+        }
       }, 2000);
 
       // Stop polling after 5 minutes (matches callback server timeout)
@@ -336,6 +425,9 @@ function OAuthProviderRow({ provider, supported, onChanged, showToast }: { provi
         </div>
       )}
 
+      {/* Bridge peer hint — only on the authenticated Anthropic OAuth row. */}
+      <AnthropicPeerHint show={peerMissing && provider.authenticated} reason={peerReason} />
+
       {error && (
         <div className="flex items-center gap-1 mt-1 text-xs text-red-400">
           <Icon path={mdiAlert} size={0.45} />
@@ -343,6 +435,89 @@ function OAuthProviderRow({ provider, supported, onChanged, showToast }: { provi
         </div>
       )}
     </div>
+  );
+}
+
+// ── Anthropic bridge-peer hint ───────────────────────────────────────────────
+
+/**
+ * Inline advisory under the Connected marker when the bridge's probe reports
+ * the `@pi/anthropic-messages` peer unresolved. Copy leads with the next step,
+ * not with a failure (the OAuth sign-in itself succeeded).
+ *
+ * See change: warn-missing-anthropic-messages-peer.
+ */
+function AnthropicPeerHint({ show, reason }: { show: boolean; reason?: string }) {
+  const { install, statusFor, messageFor } = usePackageOperations("global", undefined);
+  // Explicit latch: `statusFor(source) === "success"` auto-clears after 3 s and
+  // would silently revert to the warning + Install button (D6b). Released when
+  // the probe reports the peer resolving (i.e. `show` goes false).
+  const [installed, setInstalled] = useState(false);
+  const status = statusFor(ANTHROPIC_PEER_SOURCE);
+  const message = messageFor(ANTHROPIC_PEER_SOURCE);
+
+  useEffect(() => {
+    if (status === "success") setInstalled(true);
+  }, [status]);
+  useEffect(() => {
+    if (!show) setInstalled(false);
+  }, [show]);
+
+  if (!show) return null;
+
+  if (installed) {
+    return (
+      <InlineMessage
+        severity="info"
+        icon={mdiCheck}
+        testId="anthropic-peer-hint"
+        title={i18nT("providers.anthropicPeerInstalled", undefined, "Peer installed — applies on the next pi session start")}
+      />
+    );
+  }
+
+  // An import failure means the package IS installed; installing again is wrong,
+  // so both the control AND the copy switch away from "install this".
+  const importFailed = typeof reason === "string" && reason.startsWith(IMPORT_FAILURE_PREFIX);
+  const pending = status === "queued" || status === "running";
+
+  return (
+    <InlineMessage
+      severity="warning"
+      icon={mdiAlert}
+      testId="anthropic-peer-hint"
+      title={importFailed
+        ? i18nT("providers.anthropicPeerImportFailedTitle", undefined, "The Anthropic peer package is installed but failed to load")
+        : i18nT("providers.anthropicPeerMissingTitle", undefined, "One more step: install the Anthropic peer package")}
+      actions={
+        importFailed ? undefined : (
+          <button
+            type="button"
+            onClick={() => install(ANTHROPIC_PEER_SOURCE)}
+            disabled={pending}
+            className="focus-ring px-2 py-1 text-[11px] rounded border border-current bg-transparent disabled:opacity-60"
+          >
+            {pending
+              ? i18nT("common.installing", undefined, "Installing…")
+              : i18nT("providers.installPeer", undefined, "Install peer")}
+          </button>
+        )
+      }
+    >
+      <div>
+        {importFailed
+          ? i18nT("providers.anthropicPeerImportFailedBody", undefined, "Claude is connected, but the bridge could not import")
+          : i18nT("providers.anthropicPeerMissingBody", undefined, "Claude is connected, but the bridge cannot resolve")}{" "}
+        <code className="font-mono">@blackbelt-technology/pi-anthropic-messages</code>
+        {i18nT(
+          "providers.anthropicPeerMissingBody2",
+          undefined,
+          ", so flows stay in waiting_peers and tool calls fall back.",
+        )}
+      </div>
+      {reason && <div className="mt-0.5 opacity-80">{reason}</div>}
+      {message && <div className="mt-0.5 opacity-80">{message}</div>}
+    </InlineMessage>
   );
 }
 

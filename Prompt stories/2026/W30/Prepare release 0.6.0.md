@@ -200,4 +200,4 @@ trusted-publisher configured on npmjs.com, ~1–2 hrs for CI cycles.
 
 ---
 
-_Generated from session `019f8070-3a92-7bb3-8199-0edabd0347b1` · `pi-agent-dashboard` · 2026-07-20. Source extract: `/tmp/facts-release060.md`._
+_Generated from session `019f8070-3a92-7bb3-8199-0edabd0347b1` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-20. Source extract: `/tmp/facts-release060.md`._

@@ -1,4 +1,10 @@
-## ADDED Requirements
+# package-update Specification
+
+## Purpose
+
+Lets the server update installed pi packages through `PackageManager` and list what is currently installed.
+
+## Requirements
 
 ### Requirement: Server updates pi packages via PackageManager
 The server SHALL expose `POST /api/packages/update` accepting `{ source?, scope, cwd? }`. If `source` is provided, only that package is updated. If omitted, all packages for the given scope are updated. The endpoint SHALL return immediately with an `operationId` and stream progress via WebSocket.

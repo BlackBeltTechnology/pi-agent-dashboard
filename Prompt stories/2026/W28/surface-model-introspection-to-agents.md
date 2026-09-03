@@ -97,4 +97,4 @@ No pi *skills or memories* were created this session — the work rode existing 
 
 ---
 
-_Generated from session `019f34c1` · `pi-agent-dashboard` · 2026-07-06. Source extract: deterministic facts sheet (session-to-guideline)._
+_Generated from session `019f34c1` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-06. Source extract: deterministic facts sheet (session-to-guideline)._

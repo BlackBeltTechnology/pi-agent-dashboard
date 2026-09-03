@@ -200,4 +200,4 @@ in `playwright.config.ts`.
 
 ---
 
-_Generated from session `019f5361-eb4d-7b0e-8a2b-a8771bd4e205` · `pi-agent-dashboard` · 2026-07-12. Source extract: `facts.XXXXXX.TiBkNXwNO5`._
+_Generated from session `019f5361-eb4d-7b0e-8a2b-a8771bd4e205` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-12. Source extract: `facts.XXXXXX.TiBkNXwNO5`._

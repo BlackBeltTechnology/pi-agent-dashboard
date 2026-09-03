@@ -157,4 +157,4 @@ Landed as squash commit `a2e0140` on `develop` (PR #75).
 
 ---
 
-_Generated from session `019e9545-4da2-7aa4-a07e-e02fdc6fd09e` · `pi-agent-dashboard/.worktrees/os-fix-file-mention-search-ranking` · 2026-06-05. Source extract: session facts sheet._
+_Generated from session `019e9545-4da2-7aa4-a07e-e02fdc6fd09e` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-fix-file-mention-search-ranking` · 2026-06-05. Source extract: session facts sheet._

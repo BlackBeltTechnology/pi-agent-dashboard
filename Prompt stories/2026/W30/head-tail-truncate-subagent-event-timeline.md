@@ -190,4 +190,4 @@ walk; 21 automated scenarios; change archived + specs synced.
 
 ---
 
-_Generated from session `019f8c91-fb7d-717e-835c-fec4515d9fed` · `pi-agent-dashboard` · 2026-07-23. Source extract: session facts sheet._
+_Generated from session `019f8c91-fb7d-717e-835c-fec4515d9fed` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-23. Source extract: session facts sheet._

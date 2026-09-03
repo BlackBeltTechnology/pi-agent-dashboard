@@ -2,17 +2,6 @@
 
 The Pi Resources view is the workspace's content-area surface for browsing every pi-resource (skill, extension, prompt) available to a session — loose files in `<cwd>/.pi/` and `~/.pi/agent/` plus the resources contributed by installed packages — and for managing the workspace's installed packages.
 ## Requirements
-### Requirement: Folder header navigation button
-The sidebar folder header SHALL include a button to navigate to the Pi Resources view.
-
-#### Scenario: Button presence
-- **WHEN** a folder group is rendered in the sidebar
-- **THEN** a Pi Resources button SHALL appear in the button row alongside [+ Session] and [+ Terminal]
-
-#### Scenario: Button click
-- **WHEN** the user clicks the Pi Resources button
-- **THEN** the content area SHALL display the PiResourcesView for that folder's cwd
-
 ### Requirement: PiResourcesView content area
 The dashboard SHALL display a PiResourcesView in the main content area.
 
@@ -105,14 +94,6 @@ The PiResourcesView SHALL work on mobile using MobileShell patterns.
 - **WHEN** the user navigates to PiResourcesView on mobile
 - **THEN** it SHALL render as a full-screen panel with slide transition
 - **AND** swipe-back gesture SHALL return to the previous view
-
-### Requirement: Pi Resources button icon
-The Pi Resources button in the folder action bar SHALL use `mdiToyBrickOutline` (or `mdiPackageVariantClosed`) from the MDI icon set instead of `mdiPuzzleOutline`.
-
-#### Scenario: Icon displayed
-- **WHEN** the folder action bar is rendered
-- **THEN** the Pi Resources button SHALL display the updated icon
-- **THEN** the button SHALL retain its right-aligned position in the action bar
 
 ### Requirement: Resources view shows installed pi resources for a workspace
 The PiResourcesView SHALL include a tab bar with "Installed" (existing view) and "Packages" (new) tabs. The "Packages" tab SHALL display the PackageBrowser in local scope, showing installed local packages and allowing search/install/remove/update for the workspace's `.pi/settings.json`.
@@ -506,3 +487,53 @@ Because `.pi/settings.json` is tracked in version control, a folder-scope disabl
 - **GIVEN** the folder Resources surface
 - **WHEN** the user disables a resource
 - **THEN** the surface indicates the change is written to the repository's `.pi/settings.json` and shared with anyone using the folder
+
+### Requirement: Global and folder resource surfaces SHALL be one scope-switched surface
+
+`/settings/{skills,agents,extensions,prompts,themes}` and `/folder/:cwd/settings/{skills,agents,extensions,prompts,themes}` render the same `ResourceGridPanel`, differing only in props: the global surface passes `scopes={["global"]}` with the scope filter hidden and routes file views to `/pi-resource`; the folder surface passes both scopes with the filter shown and routes file views to `/folder/:cwd/view`.
+
+These ten route destinations SHALL collapse into one scope-switched surface. The surface SHALL derive its scope set, its scope-filter visibility, and its file-view target from the matched route rather than from a duplicated component tree. All ten paths SHALL continue to resolve and SHALL continue to render the resource type named in the path.
+
+The two routes are never mounted simultaneously, so this is not a correctness defect — the justification is duplication cost alone: ten destinations maintaining one grid's wiring at two call sites, both of which this change already edits.
+
+#### Scenario: Global resource path renders global scope only
+
+- **WHEN** the user navigates to `/settings/skills`
+- **THEN** the surface SHALL render the skills resource grid at global scope
+- **AND** the scope filter SHALL NOT be shown
+
+#### Scenario: Folder resource path renders both scopes with a filter
+
+- **WHEN** the user navigates to `/folder/<encodedCwd>/settings/skills`
+- **THEN** the surface SHALL render the skills resource grid across local and global scope
+- **AND** the scope filter SHALL be shown
+
+#### Scenario: File view target follows the matched scope
+
+- **GIVEN** the user is on `/settings/skills`
+- **WHEN** the user opens a resource file
+- **THEN** the file view SHALL be routed to the global resource file path
+
+#### Scenario: Folder file view target follows the folder scope
+
+- **GIVEN** the user is on `/folder/<encodedCwd>/settings/skills`
+- **WHEN** the user opens a resource file
+- **THEN** the file view SHALL be routed to `/pi-resource?path=<path>&title=<title>`
+- **AND** the target SHALL be identical from the global entry point: both entry
+  points share ONE file-view route, which is what lets a single surface serve
+  both scopes. (Corrected: an earlier draft of this scenario named a
+  folder-scoped `/folder/:cwd/view` target that no implementation has ever
+  used.)
+
+#### Scenario: All ten resource paths still resolve
+
+- **WHEN** each of `/settings/{skills,agents,extensions,prompts,themes}` and `/folder/<encodedCwd>/settings/{skills,agents,extensions,prompts,themes}` is opened
+- **THEN** each SHALL render the resource type named in its path
+- **AND** no path SHALL 404 or fall through to the card list
+
+#### Scenario: One grid renders per matched route
+
+- **GIVEN** a resource route is open as a route-backed overlay
+- **WHEN** the surface renders
+- **THEN** exactly one `ResourceGridPanel` SHALL be mounted for that route
+

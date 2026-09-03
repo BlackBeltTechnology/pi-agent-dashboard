@@ -1,23 +1,73 @@
-## ADDED Requirements
+# openspec-folder-section Specification
 
+## Purpose
+
+The OpenSpec surface on a folder group header: the change list with status, linked sessions, task counters, and per-change actions (refresh, specs browser, archive, spawn, spawn-with-attach, worktree spawn). Defines the organisation model — group sections, pill row, name-substring filter, per-row group picker, drag-and-drop reassignment, an always-present ungrouped drop target — plus the row layout, linked-session status and selection indicators, unfiltered header count, pending-poll spinner, and empty-state messaging.
+## Requirements
 ### Requirement: Folder group header shows OpenSpec section
-Each folder group in the session list SHALL render a `FolderOpenSpecSection` component in the folder header, below git info and above editor/spawn buttons, when OpenSpec data for that directory is either `initialized: true` or `pending: true`.
+
+Each folder group in the session list SHALL render a `FolderOpenSpecSection` component in the
+folder header, below git info and above editor/spawn buttons, driven by the cwd's broadcast
+readiness state (see `openspec-readiness`).
+
+The previous gate — render only when `initialized: true` or `pending: true` — is retired. It
+made the two states a user must act on (`ABSENT`, `BROKEN`) the two states with no affordance.
+
+The section SHALL NOT render for `GLOBAL_OFF`, for `OPTED_OUT`, or for `ABSENT` when
+`offerInitialization` is `false`. It SHALL render in every other state.
+
+The section SHALL render as a single-line pill in every state, matching the READY pill's height
+and chrome. It SHALL NOT render as a banner in any state, because a directory whose OpenSpec is
+missing or broken is not blocked from proceeding.
 
 #### Scenario: Directory with initialized OpenSpec
-- **WHEN** a folder group is rendered for cwd `/project/foo` and OpenSpec data for that cwd has `initialized: true`
-- **THEN** a `FolderOpenSpecSection` SHALL be rendered in the folder header showing the standard collapsed header
+
+- **WHEN** a folder group is rendered for a cwd whose readiness state is `READY`
+- **THEN** a `FolderOpenSpecSection` SHALL be rendered showing the standard collapsed header
 
 #### Scenario: Directory with openspec dir but slow poll pending
-- **WHEN** a folder group is rendered for cwd `/project/foo` and OpenSpec data has `initialized: false` and `pending: true`
-- **THEN** a `FolderOpenSpecSection` SHALL be rendered in the folder header showing the grey loading spinner (no buttons, no chevron)
 
-#### Scenario: Directory without OpenSpec
-- **WHEN** a folder group is rendered for cwd `/project/foo` and OpenSpec data has `initialized: false` and `pending: false` (or is not available)
+- **WHEN** a folder group is rendered for a cwd whose readiness state is `PENDING`
+- **THEN** a `FolderOpenSpecSection` SHALL be rendered showing the grey loading spinner (no
+  buttons, no chevron)
+
+#### Scenario: Directory without OpenSpec now offers initialization
+
+- **WHEN** a folder group is rendered for a cwd whose readiness state is `ABSENT` and
+  `offerInitialization` is `true`
+- **THEN** a `FolderOpenSpecSection` SHALL be rendered showing a not-set-up label, an
+  Initialize action, and a dismiss action
+- **AND** it SHALL NOT render a change count or a navigation affordance to the board
+
+#### Scenario: Fleet switch suppresses the offer
+
+- **WHEN** a folder group is rendered for a cwd whose readiness state is `ABSENT` and
+  `offerInitialization` is `false`
 - **THEN** no OpenSpec section SHALL be rendered in the folder header
 
+#### Scenario: Directory without OpenSpec
+
+- **WHEN** a folder group is rendered for a cwd whose OpenSpec data carries no `readiness`
+  (an older server) and reports neither `initialized: true` nor `pending: true`
+- **THEN** no OpenSpec section SHALL be rendered in the folder header
+- **AND** no disabled or stale state SHALL be inferred from the absent data — the
+  pre-readiness hide behaviour is preserved verbatim for legacy payloads
+
+#### Scenario: Globally disabled renders nothing
+
+- **WHEN** a folder group is rendered for a cwd whose readiness state is `GLOBAL_OFF`
+- **THEN** no OpenSpec section SHALL be rendered in the folder header
+
+#### Scenario: Opted-out directory renders nothing
+
+- **WHEN** a folder group is rendered for a cwd whose readiness state is `OPTED_OUT`
+- **THEN** no OpenSpec section SHALL be rendered in the folder header
+- **AND** the folder actions menu SHALL offer re-enabling (see `folder-actions-menu`)
+
 #### Scenario: Pinned directory with no sessions
+
 - **WHEN** a pinned directory has OpenSpec data but no active sessions
-- **THEN** the `FolderOpenSpecSection` SHALL still be rendered showing change list and folder-level actions
+- **THEN** the `FolderOpenSpecSection` SHALL still be rendered for its readiness state
 
 ### Requirement: Folder section renders pending spinner when slow poll in flight
 
@@ -59,11 +109,13 @@ session cards.
 - **AND** no spinner SHALL be visible at any point
 
 ### Requirement: Collapsible change list in folder section
-The folder OpenSpec section SHALL render as a single-line entry that navigates to the full-page OpenSpec board instead of expanding inline. The entry SHALL show the OpenSpec label, the change count, and a Refresh control, and SHALL act as a button that opens the board route `/folder/:encodedCwd/openspec`. The inline collapsible change tree, group pills, and in-section search SHALL be removed (their functionality moves to the board).
+
+The folder OpenSpec section SHALL render as a single-line entry that navigates to the full-page OpenSpec board instead of expanding inline. The entry SHALL show the OpenSpec label and the change count, and SHALL act as a button that opens the board route `/folder/:encodedCwd/openspec`. It SHALL NOT render a Refresh control — refreshing is an item in the folder actions menu. The inline collapsible change tree, group pills, and in-section search SHALL be removed (their functionality moves to the board).
 
 #### Scenario: Single-line navigation entry
 - **WHEN** the folder OpenSpec section is rendered for a cwd with N changes
-- **THEN** it SHALL show `OpenSpec (N) →` with a Refresh control and SHALL NOT render an inline change tree
+- **THEN** it SHALL show `OpenSpec (N) →` and SHALL NOT render an inline change tree
+- **AND** it SHALL NOT render a Refresh control
 
 #### Scenario: Click opens the board
 - **WHEN** the user clicks the folder OpenSpec entry
@@ -142,43 +194,6 @@ The expanded folder OpenSpec change list SHALL show clickable session indicators
 #### Scenario: Artifact letter colors
 - **WHEN** artifacts have statuses done/ready/blocked
 - **THEN** letters SHALL be green/yellow/muted respectively (same as current `OpenSpecSection`)
-
-### Requirement: Folder-level Refresh button
-The folder OpenSpec section header SHALL include a refresh button that triggers an immediate re-poll of OpenSpec data for that directory.
-
-#### Scenario: Refresh sends openspec_refresh with cwd
-- **WHEN** the user clicks the refresh button on folder `/project/foo`
-- **THEN** the browser SHALL send `{ type: "openspec_refresh", cwd: "/project/foo" }`
-
-### Requirement: Folder-level Specs button opens specs browser
-The folder OpenSpec section SHALL include a Specs control rendered as an **icon-only** button (`mdiFileDocumentOutline`, cyan accent) inside the `SlotPill` trailing action cluster, after the Refresh and Archive controls. It SHALL carry an accessible name (`title` + `aria-label`) of "Specs" since no text label is shown. Clicking it SHALL open the specs browser view in the content area for that folder's cwd.
-
-#### Scenario: Specs button visible in pill action cluster
-- **WHEN** the folder OpenSpec section is rendered with an `onOpenSpecs` callback
-- **THEN** an icon-only Specs button (accessible name "Specs") SHALL appear in the pill's trailing action cluster, ordered after Refresh and Archive
-
-#### Scenario: Specs button opens specs browser
-- **WHEN** the user clicks the "Specs" button on folder `/project/foo`
-- **THEN** the content area SHALL switch to the `SpecsBrowserView` showing all specs from `openspec/specs/` in cwd `/project/foo`
-
-#### Scenario: Specs button click does not navigate to the board
-- **WHEN** the user clicks the Specs button in the pill action cluster
-- **THEN** the click SHALL NOT trigger the pill's board navigation (event propagation is stopped)
-
-### Requirement: Archive button in folder OpenSpec section
-The folder OpenSpec section SHALL include an Archive control rendered as an **icon-only** button (`mdiArchiveOutline`, purple accent) inside the `SlotPill` trailing action cluster, positioned between the Refresh and Specs controls, visible only when OpenSpec is initialized. It SHALL carry an accessible name (`title` + `aria-label`) of "Archive" since no text label is shown.
-
-#### Scenario: Archive button rendered
-- **WHEN** a folder OpenSpec section is rendered with `initialized: true` and an `onOpenArchive` callback is provided
-- **THEN** an icon-only Archive button (accessible name "Archive") SHALL be displayed in the pill's trailing action cluster, between Refresh and Specs
-
-#### Scenario: Archive button opens archive browser
-- **WHEN** the user clicks the "Archive" button on folder `/project/foo`
-- **THEN** the `ArchiveBrowserView` SHALL open in the content area for that cwd
-
-#### Scenario: Archive button not rendered without callback
-- **WHEN** the `onOpenArchive` prop is not provided
-- **THEN** the "Archive" button SHALL NOT be rendered
 
 ### Requirement: Change row task counter is clickable to open TasksPopover
 For each change row in the expanded folder OpenSpec change list, when `totalTasks > 0` the `{completedTasks}/{totalTasks} tasks` indicator SHALL be rendered as a `<button>` that, when clicked, opens a `TasksPopover` with `cwd` set to the folder's cwd and `change` set to that row's change name. The popover is the existing component used by session cards — no parallel toggle logic is introduced.
@@ -534,3 +549,67 @@ The existing `▶` spawn-attached button is unchanged.
 - **WHEN** the user clicks the `⑂+` button for change `add-dark-mode` on folder `/project/foo`
 - **THEN** `onSpawnAttachedWorktree("/project/foo", "add-dark-mode")` SHALL be called exactly once
 - **THEN** event propagation SHALL be stopped so the surrounding row click does not also fire
+
+### Requirement: Folder section renders a state-specific recovery action
+
+For each rendered non-`READY`, non-`PENDING` state the section SHALL render the action that
+resolves that state, keyed on the readiness reason:
+
+| state · reason | label | action |
+|---|---|---|
+| `ABSENT` | not set up | Initialize — `POST /api/openspec/init` |
+| `BROKEN` · `missing-changes-dir` | not initialized properly | Repair — confirm, then `POST /api/openspec/init` |
+| `BROKEN` · `cli-failed` | OpenSpec command failed | **no destructive action** — show the error |
+| `STALE` · `missing-skills` | skills missing | Update — `POST /api/openspec/update` |
+| `STALE` · `profile-stale` | needs update | Update — `POST /api/openspec/update` |
+
+`BROKEN` · `cli-failed` SHALL NOT offer Repair. Re-running init cannot fix a failing CLI, and
+the invocation carries `--force`, which auto-cleans files in a directory that may hold real
+proposals.
+
+`ABSENT` SHALL additionally render a dismiss control that adds the cwd to the opt-out list.
+`BROKEN` and `STALE` SHALL NOT render a dismiss control: the user has already opted in, and
+silencing a broken state is not a resolution.
+
+#### Scenario: Initialize triggers server-side init
+
+- **WHEN** the user activates Initialize on an `ABSENT` folder section
+- **THEN** the client SHALL call `POST /api/openspec/init` for that cwd
+- **AND** on success the section SHALL re-render in its new readiness state without a manual
+  refresh
+
+#### Scenario: Initialize over legacy files requires confirmation
+
+- **WHEN** the user activates Initialize for a directory that already contains legacy OpenSpec
+  files that the invocation would auto-clean
+- **THEN** a confirmation naming the directory SHALL be shown before any request is sent
+
+#### Scenario: Repair requires confirmation
+
+- **WHEN** the user activates Repair on a `BROKEN` · `missing-changes-dir` folder section
+- **THEN** a confirmation naming the directory SHALL be shown before any request is sent
+- **AND** dismissing the confirmation SHALL send no request
+
+#### Scenario: CLI failure offers no repair
+
+- **WHEN** the folder section renders for `BROKEN` · `cli-failed`
+- **THEN** no Repair or Initialize control SHALL be present
+- **AND** the underlying error SHALL be shown
+
+#### Scenario: Dismiss opts the directory out
+
+- **WHEN** the user activates dismiss on an `ABSENT` folder section
+- **THEN** the cwd SHALL be added to `openspec.optOutDirectories`
+- **AND** the section SHALL stop rendering for that cwd
+
+#### Scenario: Broken and stale states offer no dismiss
+
+- **WHEN** a folder section renders in state `BROKEN` or `STALE`
+- **THEN** no dismiss control SHALL be present
+
+#### Scenario: Init failure surfaces the CLI error
+
+- **WHEN** an Initialize or Repair request fails
+- **THEN** the CLI's stderr SHALL be surfaced to the user
+- **AND** the section SHALL remain in its previous state rather than showing success
+

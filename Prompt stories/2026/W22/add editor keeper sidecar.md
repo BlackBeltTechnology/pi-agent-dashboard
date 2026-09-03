@@ -142,4 +142,4 @@ Final artifacts: rebased commit `24b3c4b4`, fix commit `41c3ab4a`, CI run `26687
 
 ---
 
-_Generated from session `019e7975-b890-733c-a3df-a2955fcd2b51` · `pi-agent-dashboard` · 2026-05-30. Source extract: `facts.XXXXXX.4ziupwVUEB`._
+_Generated from session `019e7975-b890-733c-a3df-a2955fcd2b51` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-30. Source extract: `facts.XXXXXX.4ziupwVUEB`._

@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-video-production",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "TypeScript port of the veo-generator + veo-showreel-production-kit pi skills. Parses a scripted shot package (shots/*.md) and renders one mp4 clip per camera cut with the Google Veo 3.1 API, plus storyboard first-frame generation via nano-banana. Exposed as pi skills and the pi-veo CLI (parse/plan/render/storyboard).",
   "type": "module",
   "repository": {
@@ -26,6 +26,22 @@
     "skills": [
       ".pi/skills/veo-showreel-production-kit",
       ".pi/skills/veo-generator"
+    ],
+    "tools": [
+      {
+        "id": "ffmpeg",
+        "probe": "resolve",
+        "optional": true
+      },
+      {
+        "id": "imagemagick",
+        "probe": "resolve",
+        "optional": true
+      },
+      {
+        "id": "GEMINI_API_KEY",
+        "probe": "env"
+      }
     ]
   },
   "exports": {
@@ -40,14 +56,16 @@
     "!src/__tests__",
     ".pi/skills/",
     ".env.example",
-    "README.md"
+    "README.md",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md"
   ],
   "scripts": {
     "test": "vitest run"
   },
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-nano-banana": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
+    "@blackbelt-technology/pi-dashboard-nano-banana": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
     "@google/genai": "^1.52.0"
   },
   "peerDependencies": {

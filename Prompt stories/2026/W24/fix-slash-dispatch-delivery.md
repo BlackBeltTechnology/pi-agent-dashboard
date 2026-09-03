@@ -159,4 +159,4 @@ No skill or memory was created this session. But the workflow is textbook-repeat
 
 ---
 
-_Generated from session `019ebd87-adc3-7598-b726-d4a8edc79bf9` · `pi-agent-dashboard` · 2026-06-12. Source extract: `/tmp/session_facts.f1q9R9.md`._
+_Generated from session `019ebd87-adc3-7598-b726-d4a8edc79bf9` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-12. Source extract: `/tmp/session_facts.f1q9R9.md`._

@@ -1,4 +1,10 @@
-## ADDED Requirements
+# zoomable-mermaid Specification
+
+## Purpose
+
+Makes rendered Mermaid diagrams readable when they are larger than their bubble. Defines zoom and pan interaction, zoom control buttons, a click-to-activate focus model so page scrolling is not hijacked, a wide bubble layout, and viewport containment.
+
+## Requirements
 
 ### Requirement: Zoom interaction
 The MermaidBlock component SHALL support zooming via mouse wheel scroll and pinch-to-zoom gestures. Zoom SHALL be centered on the cursor/pinch midpoint. Zoom scale SHALL be bounded between 0.5× and 4×.

@@ -11,11 +11,11 @@ import {
 } from "@blackbelt-technology/pi-dashboard-shared/display-prefs.js";
 import { cleanup, render } from "@testing-library/react";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { DisplayPrefsProvider } from "../../lib/state/DisplayPrefsContext.js";
 import type { ChatMessage } from "../../lib/chat/event-reducer.js";
 import type { ChatItem } from "../../lib/chat/group-tool-calls.js";
-import { ThemeProvider } from "../settings/ThemeProvider.js";
+import { DisplayPrefsProvider } from "../../lib/state/DisplayPrefsContext.js";
 import { ToolBurstGroup } from "../chat/ToolBurstGroup.js";
+import { ThemeProvider } from "../settings/ThemeProvider.js";
 import type { ToolContext } from "../tool-renderers/index.js";
 
 const toolContext: ToolContext = {};
@@ -104,6 +104,21 @@ describe("ToolBurstGroup", () => {
     expect(container.querySelector('[data-testid="tool-burst-failed-badge"]')!.textContent).toContain("1 failed");
   });
 
+  // #F4 (repair-tool-error-surfaces) — this badge is one of the five single-line
+  // error surfaces: the whole element takes the severity accent, no chrome/content
+  // split, and no raw red literal may return.
+  it("#F4 the failed badge sources its colour from the severity tokens", () => {
+    const { container } = renderBurst([
+      tool({ toolName: "read", toolStatus: "error", args: { path: "/x" } }),
+      tool({ toolName: "grep" }),
+    ]);
+    const badge = container.querySelector('[data-testid="tool-burst-failed-badge"]') as HTMLElement;
+    expect(badge.className).toContain("bg-[var(--severity-error-bg)]");
+    expect(badge.className).toContain("text-[var(--severity-error-fg)]");
+    expect(badge.className).toContain("border-[var(--severity-error-border)]");
+    expect(badge.className).not.toMatch(/\bred-\d{2,3}\b/);
+  });
+
   it("renders absorbed thinking as a ThinkingBlock when reasoning is on and expanded", () => {
     const think: ChatMessage = {
       id: "th-1",
@@ -130,5 +145,46 @@ describe("ToolBurstGroup", () => {
     const on = renderBurst(running, { ...DISPLAY_PRESETS.standard, toolGroupDefaultCollapsed: true });
     expect(on.container.querySelector('[data-testid="tool-burst-body"]')).toBeNull();
     expect(on.container.querySelector('[data-testid="tool-burst-header"]')!.textContent).toContain("Working");
+  });
+});
+
+/**
+ * An `elided` member must not let the burst read as a success — the second half
+ * of the CodeRabbit-found gap in D5's renderer audit.
+ *
+ * Excluding elided from `doneCount` was necessary but not sufficient: with no
+ * member running, the header glyph still took the green completion accent, so a
+ * burst holding an unloadable result looked fully succeeded before the user
+ * expanded it.
+ * See change: fix-lazy-history-backfill-ux (D5).
+ */
+describe("ToolBurstGroup — an elided member (fix-lazy-history-backfill-ux)", () => {
+  it("does not count an elided member as done", () => {
+    const { container } = renderBurst([
+      tool({ toolStatus: "complete" }),
+      tool({ toolStatus: "elided" }),
+      tool({ toolStatus: "running" }),
+    ]);
+    // Running burst → header reports "<doneCount> done"; the elided member is
+    // terminal but its result never arrived, so only the completed one counts.
+    expect(container.querySelector('[data-testid="tool-burst-header"]')!.textContent).toContain("1 done");
+  });
+
+  it("takes a neutral glyph instead of the green completion accent", () => {
+    const { container } = renderBurst([
+      tool({ toolStatus: "complete" }),
+      tool({ toolStatus: "elided" }),
+    ]);
+    expect(container.querySelector('[data-testid="tool-burst-elided-glyph"]')).not.toBeNull();
+    expect(container.querySelector(".text-green-400")).toBeNull();
+  });
+
+  it("CONTROL: an all-complete burst keeps the green completion accent", () => {
+    const { container } = renderBurst([
+      tool({ toolStatus: "complete" }),
+      tool({ toolStatus: "complete" }),
+    ]);
+    expect(container.querySelector('[data-testid="tool-burst-elided-glyph"]')).toBeNull();
+    expect(container.querySelector(".text-green-400")).not.toBeNull();
   });
 });

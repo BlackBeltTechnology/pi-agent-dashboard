@@ -280,6 +280,35 @@ function buildLongTranscript(turns = 120): FauxResponseStep[] {
 }
 
 /**
+ * Steps for `subagent-streaming-inner`: pure token streaming, no sleeps.
+ *
+ * At the faux provider's default `FAUX_TPS=50`, ~50 streamed tokens cost ~1 s of
+ * wall clock and produce ~50 inner `message_update` deltas. `messages` blocks of
+ * `wordsPerMessage` words therefore span ~`messages * wordsPerMessage / 50`
+ * seconds while ticking continuously — the streaming burst P1/P2 measure. The
+ * default (12 x 60 = 720 words) targets ~14 s, comfortably past the >= 10 s
+ * measurement window with margin for a slower runner.
+ * See change: reduce-bridge-tick-bandwidth (task 1.2).
+ */
+function buildStreamingBurst(messages = 12, wordsPerMessage = 60): FauxResponseStep[] {
+  const steps: FauxResponseStep[] = [];
+  for (let i = 0; i < messages; i++) {
+    const words = Array.from({ length: wordsPerMessage }, (_, w) => `stream-${i}-${w}`).join(" ");
+    // A trivial (non-sleeping) tool call is what keeps the inner agent loop
+    // running to the next streamed block — same continuation device as
+    // `buildLongTranscript`. `echo` returns instantly, so it adds no idle.
+    steps.push(
+      fauxAssistantMessage(
+        [fauxText(words), fauxToolCall("bash", { command: `echo stream-${i}` })],
+        { stopReason: "toolUse" },
+      ),
+    );
+  }
+  steps.push(fauxAssistantMessage([fauxText("streaming inner complete")]));
+  return steps;
+}
+
+/**
  * Tail marker for the `scroll-top-heavy` scenario (change: fix-chat-scroll-to-
  * top-estimate-drift). The scroll-to-top e2e waits for it to know the transcript
  * settled at the bottom before climbing.
@@ -369,6 +398,20 @@ export const SUPERSEDE_HEAL_MARKER = "supersede-heal follow-up landed";
  * See change: bound-subagent-event-serialization.
  */
 export const OVERSIZED_TURN_MARKER = "oversized-turn complete";
+
+/**
+ * Completion marker for the `custom-entries` scenario (change:
+ * render-inline-reasoning-and-custom-entries). The scenario drives the REAL
+ * custom-entry surfaces through the `e2e_custom_message` / `e2e_custom_entry`
+ * fixture tools: a display:true custom message, a display:false one, a short
+ * appendEntry entry, and a 300-line appendEntry entry (truncation parity).
+ */
+export const CUSTOM_ENTRIES_TAIL = "all custom entries sent";
+
+export const CUSTOM_MESSAGE_VISIBLE = "visible custom message body";
+export const CUSTOM_MESSAGE_HIDDEN = "llm-only custom message body";
+export const CUSTOM_ENTRY_SHORT_TYPE = "e2e:state";
+export const CUSTOM_ENTRY_LONG_TYPE = "e2e:big";
 
 export const SCENARIOS: Record<string, Scenario> = {
   // ── Server-side round-trip scenarios ────────────────────────────────────
@@ -517,6 +560,27 @@ export const SCENARIOS: Record<string, Scenario> = {
       ]),
     ],
     expect: { text: "done thinking" },
+  },
+
+  /**
+   * LONG reasoning block (change: render-inline-reasoning-and-custom-entries,
+   * test-plan #E12/#P1): a body of dozens of lines (30 — ~660px, well past the 400px cap) — genuinely taller than
+   * the 400px cap — so the inline-flow pref's cap removal is observable in the
+   * rendered UI (and the perf gates get a realistic workload).
+   */
+  "thinking-long": {
+    script: [
+      fauxAssistantMessage([
+        fauxThinking(
+          Array.from(
+            { length: 30 },
+            (_, i) => `Reasoning step ${i + 1}: weigh the tradeoff of approach ${(i % 7) + 1}.`,
+          ).join("\n"),
+        ),
+        fauxText("long thinking done"),
+      ]),
+    ],
+    expect: { text: "long thinking done" },
   },
 
   // ── ask_user answer round-trip ──────────────────────────────────────────
@@ -951,6 +1015,160 @@ export const SCENARIOS: Record<string, Scenario> = {
     expect: { text: "sustained subagent complete" },
   },
 
+  // NOTE: the `subagent-slow-inner-long` / `subagent-sustained-long` fixtures
+  // (task 1.1) were REMOVED. A nested faux subagent cannot sustain a >= 10 s
+  // tick stream in the harness (its inner `createAgentSession` resolves an empty
+  // faux response queue and dies after ~2 no-op turns; see measurement.md Bug 2),
+  // so F1/P3/F5 could never run on them. Those cadence rows now use the synthetic
+  // `faux-agent-ticks.ext.ts` producer (`synthetic-agent-ticks`[-quiet]).
+  // See change: reduce-bridge-tick-bandwidth.
+
+  // Inner scenario for `subagent-streaming`: STREAMING-heavy, minimal idle. The
+  // faux provider streams at `FAUX_TPS` (default 50 tok/s), and every inner
+  // `message_update` delta drives one producer `pushUpdate` -> one parent
+  // `tool_execution_update`. So token volume, not sleeping, sets the tick rate
+  // here — which is exactly the burst this change throttles. `subagent-slow-
+  // inner` is ~50 % asleep and under-represents it, so P1/P2 would measure the
+  // fixture rather than the throttle.
+  // See change: reduce-bridge-tick-bandwidth (task 1.2).
+  "subagent-streaming-inner": {
+    script: buildStreamingBurst(),
+    expect: { text: "streaming inner complete" },
+  },
+
+  // Parent spawning the streaming-heavy inner run. Drives P1 (throttled rate
+  // <= 2.2 frames/s) and P2 (throttle OFF is >= 4x that).
+  // See change: reduce-bridge-tick-bandwidth (task 1.2).
+  "subagent-streaming": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "faux streaming subagent",
+            prompt: "[[faux:subagent-streaming-inner]] run the streaming subagent probe",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("streaming subagent complete")]),
+    ],
+    expect: { text: "streaming subagent complete" },
+  },
+
+  // Parent that spawns the SYNTHETIC Agent-tick producer (qa/fixtures/faux-
+  // agent-ticks.ext.ts, registered as the `Agent` tool under
+  // PI_SYNTH_AGENT_TICKS=1). The `[[ticks:N@Mms]]` sentinel sets the source
+  // cadence: 240 ticks @ 50 ms ≈ 12 s of 20 fps — a deterministic ≥ 10 s
+  // Agent-tick stream the throttle L3 rows (F1/P1/P2/P3/P4) assert against,
+  // with no nested faux subagent. See change: reduce-bridge-tick-bandwidth.
+  "synthetic-agent-ticks": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "synthetic agent ticks",
+            prompt: "[[ticks:240@50]] stream synthetic agent ticks",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("synthetic ticks scenario complete")]),
+    ],
+    expect: { text: "synthetic ticks scenario complete" },
+  },
+
+  // A quiet-producer variant for F5: a > 2 s gap before tick index 30, so the
+  // cadence floor may not be asserted across that stretch.
+  // See change: reduce-bridge-tick-bandwidth (F5).
+  "synthetic-agent-ticks-quiet": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "synthetic agent ticks (quiet)",
+            prompt: "[[ticks:120@50+gap2500@30]] stream synthetic agent ticks with a quiet gap",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("synthetic ticks scenario complete")]),
+    ],
+    expect: { text: "synthetic ticks scenario complete" },
+  },
+
+  // Watched-growth substrate for the PULL path (change:
+  // verify-subagent-pull-under-load, V1). Same synthetic Agent-tick producer,
+  // with the two additive sentinels switched on:
+  //   [[ticks:240@50]]      — 240 ticks @ 50 ms ≈ 12 s of run
+  //   [[entries:5..30@60]]  — timeline grows 5 → 30 over the first 60 ticks
+  //                           (≈ 3 s), then PLATEAUS for the remaining ≈ 9 s
+  //   [[bus:250]]           — `subagents:*` frames coalesced at the real
+  //                           producer's 250 ms, so the strip → frame-buffer →
+  //                           RESYNC path actually runs
+  // The ≈ 9 s plateau is load-bearing, not padding: it is ≥ 3 cadence intervals
+  // (CADENCE_BASE_MS = 2000), so the rendered count can reach 30 via a cadence
+  // resync reply WHILE THE AGENT IS STILL RUNNING. Without it the count would
+  // only converge on the never-stripped terminal frame and F1 would be vacuous.
+  "subagent-watched-growth": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "watched growing subagent",
+            prompt: "[[ticks:240@50]][[entries:5..30@60]][[bus:250]] stream a watched growing timeline",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("watched growth scenario complete")]),
+    ],
+    expect: { text: "watched growth scenario complete" },
+  },
+
+  // Bus-cadence variants of `subagent-watched-growth`, for the P4 sensitivity
+  // table. The pull-vs-push byte verdict is a function of how fast the PUSH
+  // carrier runs, so a single cadence would report arithmetic on one fixture
+  // constant as if it were a property of the pipeline. 250 ms is the
+  // production-matched headline; these are the faster/slower flanks.
+  // See change: verify-subagent-pull-under-load (V5).
+  "subagent-watched-growth-bus100": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "watched growing subagent",
+            prompt: "[[ticks:240@50]][[entries:5..30@60]][[bus:100]] stream a watched growing timeline",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("watched growth scenario complete")]),
+    ],
+    expect: { text: "watched growth scenario complete" },
+  },
+
+  "subagent-watched-growth-bus1000": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("Agent", {
+            subagent_type: "Explore",
+            description: "watched growing subagent",
+            prompt: "[[ticks:240@50]][[entries:5..30@60]][[bus:1000]] stream a watched growing timeline",
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText("watched growth scenario complete")]),
+    ],
+    expect: { text: "watched growth scenario complete" },
+  },
+
   // ── OpenSpec auto-attach locality gate (change:
   // scope-openspec-auto-attach-to-session-cwd) ───────────────────────────────
   // The verbatim incident shape: an openspec CLI invocation prefixed with a
@@ -1147,6 +1365,64 @@ export const SCENARIOS: Record<string, Scenario> = {
   "ask-unknown-method": askScenario("totally-unknown-method", {
     title: "Mystery",
   }),
+
+  /**
+   * Custom-entry surfaces end to end (change:
+   * render-inline-reasoning-and-custom-entries). Drives the REAL paths via
+   * the `e2e-custom` fixture extension's tools:
+   * - `e2e_custom_message` display:true  → message_end role=custom → visible row
+   * - `e2e_custom_message` display:false → excluded (LLM-context-only)
+   * - `e2e_custom_entry` short JSON      → custom_entry → generic card
+   * - `e2e_custom_entry` 300-line JSON   → truncation parity live vs replay
+   * Custom MESSAGES are queued and flushed on agent_settled (pi.sendMessage
+   * only steers while streaming); the ENTRY calls flush synchronously.
+   */
+  "custom-entries": {
+    script: [
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_custom_message", {
+            customType: "e2e:note",
+            content: CUSTOM_MESSAGE_VISIBLE,
+            display: true,
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_custom_message", {
+            customType: "e2e:hidden",
+            content: CUSTOM_MESSAGE_HIDDEN,
+            display: false,
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_custom_entry", {
+            customType: CUSTOM_ENTRY_SHORT_TYPE,
+            data: JSON.stringify({ branch: "main", lines: 3 }),
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage(
+        [
+          fauxToolCall("e2e_custom_entry", {
+            customType: CUSTOM_ENTRY_LONG_TYPE,
+            data: JSON.stringify({
+              note: Array.from({ length: 300 }, (_, i) => `line-${i + 1}`),
+            }),
+          }),
+        ],
+        { stopReason: "toolUse" },
+      ),
+      fauxAssistantMessage([fauxText(CUSTOM_ENTRIES_TAIL)]),
+    ],
+    expect: { toolName: "e2e_custom_entry" },
+  },
 };
 
 export type ScenarioId = keyof typeof SCENARIOS;

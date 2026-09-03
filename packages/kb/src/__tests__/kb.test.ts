@@ -306,7 +306,11 @@ describe("doc-example integration", () => {
     expect(nbrs.length).toBeGreaterThan(0);
     store.close();
     rmSync(db, { force: true }); rmSync(db + "-wal", { force: true }); rmSync(db + "-shm", { force: true });
-  });
+    // Indexes a real multi-file corpus from disk, unlike every other test here,
+    // which builds a tiny fixture. The default 5 s is enough in isolation but
+    // not under a fully parallel suite, where it timed out as a phantom
+    // failure with nothing actually broken.
+  }, 30_000);
 });
 
 describe("source resolvers + trust", () => {

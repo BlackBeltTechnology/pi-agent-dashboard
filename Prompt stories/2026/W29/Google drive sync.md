@@ -232,4 +232,4 @@ instead of after three pressure-test rounds.
 
 ---
 
-_Generated from session `019f688e-a601-7ff8-9e24-dbb2cfe619f0` · `pi-agent-dashboard` · 2026-07-17. Source extract: `/tmp/gdrive_facts.md`._
+_Generated from session `019f688e-a601-7ff8-9e24-dbb2cfe619f0` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-17. Source extract: `/tmp/gdrive_facts.md`._

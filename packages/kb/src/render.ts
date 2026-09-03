@@ -7,7 +7,7 @@
 //   - leading token: raw BM25 score (CLI) vs 1-based rank ordinal (tool)
 //   - parent glyph:  "[parent: " (CLI, bracketed inline) vs "⤷ " (tool)
 //   - line structure: single-line + indented snippet (CLI) vs multi-line (tool)
-import type { KbHit } from "./types.js";
+import type { HitVerdict, KbHit } from "./types.js";
 
 export interface RenderOpts {
   /** Leading token per hit: raw BM25 `score` (CLI) or 1-based `rank` (tool). */
@@ -20,14 +20,46 @@ export interface RenderOpts {
 
 const SNIPPET_MAX = 160;
 
+/** Leaf of a `A > B > C` breadcrumb. 47% of a rendered page was breadcrumb text
+ *  and 38% of that was a prefix repeated inside one file group, while the leaf
+ *  carries the discriminating token. Full `headingPath` stays in `KbHit` and in
+ *  the JSON format so `kb_get(path, section)` addressing still works.
+ *  See change: fix-kb-search-retrieval-quality (design D5). */
+function leafHeading(headingPath: string): string {
+  const parts = headingPath.split(" > ");
+  return parts[parts.length - 1] || headingPath;
+}
+
+/** Inline trust-verdict form shared by both text renders: `LABEL (n of m
+ *  subjects checked)`. null/absent renders NOTHING — never a placeholder.
+ *  See change: add-kb-trust-verdicts-and-search-guard. */
+function verdictText(v: HitVerdict | null | undefined): string | null {
+  if (!v) return null;
+  return `${v.label} (${v.counts.checked} of ${v.counts.total} subject${v.counts.total === 1 ? "" : "s"} checked)`;
+}
+
 /** Render hits to text. `rank` is a 1-based ordinal over the given (post-limit) list. */
 export function renderHits(hits: KbHit[], opts: RenderOpts): string {
   const { leading, parentGlyph, multiline } = opts;
   return hits
     .map((h, i) => {
       const lead = leading === "rank" ? String(i + 1) : h.score.toFixed(2);
-      const head = `${lead}  ${h.path}  ::  ${h.headingPath}`;
-      const dup = h.akaPaths && h.akaPaths.length ? `(+${h.akaPaths.length} dup)` : "";
+      const head = `${lead}  ${h.path}  ::  ${leafHeading(h.headingPath)}`;
+      const marks: string[] = [];
+      if (h.akaPaths?.length) marks.push(`(+${h.akaPaths.length} dup)`);
+      // Per-source match count from source-level dedup: a free relevance signal
+      // ("this file is the topic authority") in five tokens.
+      const sup = h.suppressedSections ?? 0;
+      if (sup > 0) marks.push(`(+${sup} more section${sup === 1 ? "" : "s"})`);
+      // Trust verdict: a LABEL, never a ranking signal. null renders nothing.
+      const vt = verdictText(h.verdict);
+      if (vt) marks.push(vt);
+      // Record-type mark (design D5, fix-kb-search-lane-composition): makes a
+      // wrong-lane page legible, so the `doc_type` fallback self-suggests.
+      // Topic prose (`doc`) is the unmarked majority — marking it would grow
+      // every page for no signal. This is the RECORD type, not the lane origin.
+      if (h.docType === "agents" || h.docType === "source-md") marks.push(`[${h.docType}]`);
+      const dup = marks.join(" ");
       const snippet = h.snippet.replace(/\s+/g, " ").slice(0, SNIPPET_MAX);
       if (multiline) {
         const lines = [head];

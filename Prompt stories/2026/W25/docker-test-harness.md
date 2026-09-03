@@ -176,4 +176,4 @@ session rediscovered all of it live; a skill would remove the trial-and-error.
 
 ---
 
-_Generated from session `019ee68a-d763-7a68-87fd-3a8a7ede0ca6` · `pi-agent-dashboard` · 2026-06-22. Source extract: `/tmp/facts-1784848825N.md`._
+_Generated from session `019ee68a-d763-7a68-87fd-3a8a7ede0ca6` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-22. Source extract: `/tmp/facts-1784848825N.md`._

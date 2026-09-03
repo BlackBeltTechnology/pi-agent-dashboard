@@ -9,10 +9,12 @@
 [![CI](https://github.com/BlackBeltTechnology/pi-agent-dashboard/actions/workflows/ci.yml/badge.svg)](https://github.com/BlackBeltTechnology/pi-agent-dashboard/actions/workflows/ci.yml)
 [![npm](https://img.shields.io/npm/v/@blackbelt-technology/pi-agent-dashboard)](https://www.npmjs.com/package/@blackbelt-technology/pi-agent-dashboard)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Discord](https://img.shields.io/badge/Discord-join%20chat-5865F2?logo=discord&logoColor=white)](https://discord.gg/DrNebZ3pF5)
 
 **One browser tab to command an army of [pi](https://github.com/badlogic/pi-mono) agents.** Spawn parallel sessions, watch reasoning live, attach OpenSpec changes, ship work — from your laptop or phone.
 
 🌐 **Website & demo:** [blackbelttechnology.github.io/pi-agent-dashboard](https://blackbelttechnology.github.io/pi-agent-dashboard) — animated tour, screenshots, and install guide.
+💬 **Community:** [Join our Discord](https://discord.gg/DrNebZ3pF5) — questions, help, and release news.
 📝 **Changelog:** [`CHANGELOG.md`](CHANGELOG.md)
 
 > **Note:** This dashboard only works with [pi](https://github.com/badlogic/pi-mono). Oh My Pi is **not** supported.
@@ -65,6 +67,8 @@ Download a pre-built installer from [GitHub Releases](https://github.com/BlackBe
 | **Linux** (x64 / ARM64) | `.deb` or `.AppImage` |
 | **Windows** (x64 / ARM64) | `.zip` |
 
+> **macOS requirement:** macOS 12 (Monterey) or newer — Intel and Apple Silicon both supported. macOS 10.15 (Catalina) and 11 (Big Sur) are not supported; users on those versions keep their currently installed version (Electron 32) and are not offered the newer update.
+
 On first launch a setup wizard walks you through mode selection (standalone vs. power-user), API key / OAuth sign-in, and [recommended extensions](#recommended-extensions). The standalone mode bundles Node.js and auto-installs pi + dashboard + openspec into `~/.pi-dashboard/` — **no terminal, npm, or Node.js required**.
 
 **Picking the right macOS DMG:** run `uname -m` in Terminal — `arm64` means Apple Silicon (M1/M2/M3/M4), `x86_64` means Intel. Or open   Apple menu → About This Mac and read the chip name. Download the matching DMG; if you grab the wrong one macOS will refuse to launch the app with a "cannot be opened" error.
@@ -113,13 +117,13 @@ Windows has a few extra one-time setup steps. Run the following in an **Administ
 # 1. Enable long paths (required — npm node_modules nesting exceeds 260 chars)
 reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f
 
-# 2. Install Node.js LTS 22 via winget (ships >= 22.18 so no node-guard refusal)
+# 2. Install Node.js LTS 22 via winget (ships >= 22.19 so no node-guard refusal)
 winget install -e --id OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements
 
 # 3. CLOSE this PowerShell, open a NEW one as Administrator (PATH refresh)
 
 # 4. Verify
-node --version    # expect v22.18+ (any 22.x >= 22.18, NOT v22.0–v22.17)
+node --version    # expect v22.19+ (any 22.x >= 22.19, NOT v22.0–v22.18)
 npm --version     # expect 10.x
 
 # 5. Install
@@ -135,6 +139,8 @@ start http://localhost:8000
 C++ build tools are typically **not** required — `node-pty` ships a Windows x64 prebuild. Install Visual Studio Build Tools only if the prebuild fails to load. See [docs/installation-windows.md](docs/installation-windows.md) for more detail (offline / tarball / nvm-windows caveats).
 
 ### C — From source (contributors)
+
+Before your first change, read [CONTRIBUTING.md](CONTRIBUTING.md) — features and bugfixes go through a spec-first pipeline (explore → plan → build → ship), not a plain branch-and-PR flow.
 
 ```bash
 git clone https://github.com/BlackBeltTechnology/pi-agent-dashboard.git
@@ -210,6 +216,7 @@ State persists in a named volume; API keys seed into `auth.json` on first run (o
 - **Browser-based provider auth** — sign in to Anthropic, OpenAI Codex, GitHub Copilot, Gemini CLI, and Antigravity from Settings. Enter API keys for other providers. Credentials saved to `~/.pi/agent/auth.json` and live-synced to running sessions.
 - **Custom LLM providers** — add OpenAI-compatible, Anthropic-compatible, or Google Generative AI endpoints (Settings → Providers → LLM Providers). **Test** button verifies the base URL + API key before saving. Adding / editing / removing takes effect live in every running session — no restart.
 - **Package management** — browse, install, update, remove, and **move** pi packages between global and project scopes from a single rich-row UI used in both Settings and Pi Resources. Install dialog exposes a Local/Global radio when launched from a per-folder context. Search the npm registry for pi-package extensions/skills/themes; install from npm or git URL. Active sessions auto-reload after changes.
+- **MCP endpoint** — `POST /mcp` exposes dashboard sessions to MCP clients (Claude Desktop, Cursor) once the server runs. Every request needs a bearer credential, including localhost. `~/.pi/agent/mcp.json` gets a `pi-dashboard` entry automatically on first server start; external clients authenticate with a paired-device token. Local pi sessions need `pi-mcp-adapter >= 2.20.0`.
 
 **Dev tools**
 - **Integrated terminal** — full browser-based terminal emulator (xterm.js + node-pty) with ANSI colors, scrollback, and keep-alive
@@ -243,7 +250,8 @@ This keeps plugin-provided dynamic content, package names, model names, and comm
 | Requirement | Why | Install |
 |-------------|-----|---------|
 | **[pi](https://github.com/badlogic/pi-mono)** | The AI coding agent the dashboard monitors | `npm i -g @mariozechner/pi-coding-agent` |
-| **Node.js ≥ 22.18.0** | Server runtime. Older 22.x / 24.x < 24.3.0 are affected by [nodejs/node#58515](https://github.com/nodejs/node/issues/58515) which crashes Fastify at startup. | [nodejs.org](https://nodejs.org/) |
+| **pi-mcp-adapter ≥ 2.20.0** | Lets local pi sessions call the dashboard's `POST /mcp` endpoint | `pi ext update pi-mcp-adapter` |
+| **Node.js ≥ 22.19.0** | Server runtime. Node 22.0.0–22.18.x and 24.1.0–24.2.x refused (affected by [nodejs/node#58515](https://github.com/nodejs/node/issues/58515), crashes Fastify at startup). Cap < 27 for tested range. | [nodejs.org](https://nodejs.org/) |
 | **C++ build tools** | Required by `node-pty` native addon for the integrated terminal | Xcode CLI Tools (macOS) / `build-essential` (Linux) |
 
 Optional:
@@ -588,7 +596,7 @@ The log is append-mode with timestamped headers per start attempt, so previous c
 
 - **`ERR_UNSUPPORTED_ESM_URL_SCHEME` on Windows** — fully fixed in 0.4.0+. The 0.2.10 release wrapped the `--import` loader position as a `file://` URL, but the entry-script position stayed a raw Windows path — which crashed Node on non-`C:` drives (`A:\`, `B:\`, …) because the drive-letter heuristic has gaps there. 0.4.0 routes all four server-spawn call sites through a single `spawnNodeScript` / `toFileUrl` helper that wraps both positions unconditionally, and a repo-level lint test prevents regression. Upgrade the package.
 - **`Cannot find pi's TypeScript loader`** — pi is not installed globally. Run `npm install -g @mariozechner/pi-coding-agent`.
-- **Fastify crash at startup** — you're on Node 22.0.0–22.17.x or 24.1.0–24.2.x which are affected by [nodejs/node#58515](https://github.com/nodejs/node/issues/58515). Upgrade to 22.18+ or 24.3+.
+- **Fastify crash at startup** — you're on Node 22.0.0–22.18.x or 24.1.0–24.2.x which are affected by [nodejs/node#58515](https://github.com/nodejs/node/issues/58515). Upgrade to 22.19+ or 24.3+.
 
 ### Port already in use
 

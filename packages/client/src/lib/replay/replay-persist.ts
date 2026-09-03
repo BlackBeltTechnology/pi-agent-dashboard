@@ -35,11 +35,19 @@ export interface ReplayPersister {
   drop(sessionId: string): Promise<void>;
   /** Force an immediate flush (tests / unmount). */
   flush(sessionId: string): Promise<void>;
+  /** Discard ALL in-memory buffers, timers and provenance (server switch).
+   *  Purely in-memory and cannot fail — NOT an invalidation: the durable store
+   *  is untouched, because entries are server-scoped and the previous server's
+   *  entries stay valid for a switch back. */
+  resetBuffers(): void;
 }
 
 export function createReplayPersister(
   cache: ReplayCache = replayCache,
   debounceMs = 1000,
+  /** Current server identity, read at FLUSH time (not construction time) so a
+   *  buffer flushed after a switch is attributed to the server now connected. */
+  getServerKey: () => string = () => "",
 ): ReplayPersister {
   const buffers = new Map<string, CachedEvent[]>();
   const timers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -70,7 +78,7 @@ export function createReplayPersister(
     // No provenance → skip silently. Never delete: a sibling tab may hold a
     // valid entry for this session (design D2/D3).
     if (!descended.has(sessionId)) return;
-    await cache.put(sessionId, { maxSeq: maxSeqOf(buf), payload: buf });
+    await cache.put(sessionId, { maxSeq: maxSeqOf(buf), payload: buf }, getServerKey());
   }
 
   function schedule(sessionId: string): void {
@@ -133,5 +141,19 @@ export function createReplayPersister(
     await cache.delete(sessionId);
   }
 
-  return { record, seed, drop, flush };
+  function resetBuffers(): void {
+    // Clear timers so no pending debounce fires against the new server's key
+    // (flush reads getServerKey() at fire time). The ordering is NOT itself
+    // load-bearing — both clears run in one synchronous tick, so no timer can
+    // fire between them. clearTimeout cancels the pending debounce; the buffer
+    // clear is the backstop for a callback already queued past cancellation,
+    // since flush() early-returns on an empty buffer.
+    for (const t of timers.values()) clearTimeout(t);
+    timers.clear();
+    buffers.clear();
+    descended.clear();
+    contaminated.clear();
+  }
+
+  return { record, seed, drop, flush, resetBuffers };
 }

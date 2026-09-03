@@ -29,13 +29,14 @@
 #     This is the macOS analog of running the Linux smoke under xvfb.
 #
 # LIMITATION — boot-proof, NOT floor-proof. The runner OS (macOS 14/15)
-# is ABOVE the advertised minimum floor (LSMinimumSystemVersion 10.15).
+# is ABOVE the advertised minimum floor (LSMinimumSystemVersion 12.0).
 # This smoke proves the binary BOOTS on the runner's macOS version only,
 # NOT that it boots on the oldest allowed macOS. The complementary
 # (label-only) floor check is the static `otool minos` assertion in
 # .github/workflows/_electron-build.yml ("Verify macOS deployment target
 # floor"). True floor-proof on the oldest allowed macOS remains a
-# separate, unimplemented QA gap (needs a macOS-12/-10.15 VM).
+# separate, unimplemented QA gap (needs a macOS-12 VM).
+# Floor raised 10.15 → 12.0 by change: upgrade-electron-runtime.
 #
 # Skips with exit 0 when the .app artifact is absent (common on PR runs
 # without `npm run make`). Fails with actionable message when curl is

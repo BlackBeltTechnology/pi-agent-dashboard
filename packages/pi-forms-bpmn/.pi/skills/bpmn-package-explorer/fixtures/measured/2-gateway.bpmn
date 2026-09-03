@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_gateway" isExecutable="false">
+    <bpmn:startEvent id="Start_in" name="In"><bpmn:outgoing>Flow_1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:task id="Activity_check" name="Check"><bpmn:incoming>Flow_1</bpmn:incoming><bpmn:outgoing>Flow_2</bpmn:outgoing></bpmn:task>
+    <bpmn:exclusiveGateway id="Gateway_split" name="OK?"><bpmn:incoming>Flow_2</bpmn:incoming><bpmn:outgoing>Flow_3</bpmn:outgoing><bpmn:outgoing>Flow_4</bpmn:outgoing></bpmn:exclusiveGateway>
+    <bpmn:task id="Activity_accept" name="Accept"><bpmn:incoming>Flow_3</bpmn:incoming><bpmn:outgoing>Flow_5</bpmn:outgoing></bpmn:task>
+    <bpmn:task id="Activity_reject" name="Reject"><bpmn:incoming>Flow_4</bpmn:incoming><bpmn:outgoing>Flow_6</bpmn:outgoing></bpmn:task>
+    <bpmn:exclusiveGateway id="Gateway_join"><bpmn:incoming>Flow_5</bpmn:incoming><bpmn:incoming>Flow_6</bpmn:incoming><bpmn:outgoing>Flow_7</bpmn:outgoing></bpmn:exclusiveGateway>
+    <bpmn:endEvent id="End_out" name="Out"><bpmn:incoming>Flow_7</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_1" sourceRef="Start_in" targetRef="Activity_check"/>
+    <bpmn:sequenceFlow id="Flow_2" sourceRef="Activity_check" targetRef="Gateway_split"/>
+    <bpmn:sequenceFlow id="Flow_3" sourceRef="Gateway_split" targetRef="Activity_accept"/>
+    <bpmn:sequenceFlow id="Flow_4" sourceRef="Gateway_split" targetRef="Activity_reject"/>
+    <bpmn:sequenceFlow id="Flow_5" sourceRef="Activity_accept" targetRef="Gateway_join"/>
+    <bpmn:sequenceFlow id="Flow_6" sourceRef="Activity_reject" targetRef="Gateway_join"/>
+    <bpmn:sequenceFlow id="Flow_7" sourceRef="Gateway_join" targetRef="End_out"/>
+  </bpmn:process>
+</bpmn:definitions>

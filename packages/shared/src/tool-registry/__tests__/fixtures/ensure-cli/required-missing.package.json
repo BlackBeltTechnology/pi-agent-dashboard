@@ -1,0 +1,8 @@
+{
+  "name": "ensure-cli-fixture-required-missing",
+  "pi": {
+    "tools": [
+      { "id": "PI_ENSURE_CLI_UNSET_VAR", "probe": "env" }
+    ]
+  }
+}

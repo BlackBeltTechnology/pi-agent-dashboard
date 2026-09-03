@@ -1,0 +1,76 @@
+{
+  "name": "@blackbelt-technology/pi-dashboard-quota-plugin",
+  "version": "0.8.0",
+  "description": "Surface per-account provider subscription quota (Anthropic, Codex, Copilot, OpenRouter, Z.ai, Kimi, Synthetic) in the dashboard. Self-contained: the plugin owns each provider's usage-endpoint contract and fetches server-side through the host credential seam — no peer extensions required. Per-provider opt-in, default off. No bridge.",
+  "license": "MIT",
+  "type": "module",
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BlackBeltTechnology/pi-agent-dashboard",
+    "directory": "packages/quota-plugin"
+  },
+  "exports": {
+    ".": {
+      "types": "./src/client.tsx",
+      "default": "./src/client.tsx"
+    },
+    "./client": {
+      "types": "./src/client.tsx",
+      "default": "./src/client.tsx"
+    },
+    "./server": {
+      "types": "./src/server/index.ts",
+      "default": "./src/server/index.ts"
+    }
+  },
+  "files": [
+    "src/",
+    "configSchema.json",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md",
+    "!**/__tests__",
+    "!**/*.test.ts",
+    "!**/*.test.tsx"
+  ],
+  "scripts": {
+    "test": "vitest run"
+  },
+  "pi-dashboard-plugin": {
+    "id": "quota",
+    "displayName": "Provider Quota",
+    "i18nCatalog": "catalog",
+    "priority": 600,
+    "client": "./src/client.tsx",
+    "server": "./src/server/index.ts",
+    "configSchema": "./configSchema.json",
+    "claims": [
+      {
+        "slot": "content-inline-footer",
+        "component": "QuotaWidget"
+      },
+      {
+        "slot": "settings-section",
+        "component": "QuotaSettings",
+        "tab": "general"
+      }
+    ]
+  },
+  "dependencies": {
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0"
+  },
+  "peerDependencies": {
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0"
+  },
+  "devDependencies": {
+    "@blackbelt-technology/pi-dashboard-client-utils": "^0.8.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  }
+}

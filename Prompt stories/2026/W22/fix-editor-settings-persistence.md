@@ -159,4 +159,4 @@ design, tasks, specs/editor-keeper-sidecar, specs/editor-manager).
 
 ---
 
-_Generated from session `019e6b67-1058-7846-8330-2a3f302b22da` · `pi-agent-dashboard` · 2026-05-28. Source extract: deterministic facts sheet (session-to-guideline)._
+_Generated from session `019e6b67-1058-7846-8330-2a3f302b22da` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-28. Source extract: deterministic facts sheet (session-to-guideline)._

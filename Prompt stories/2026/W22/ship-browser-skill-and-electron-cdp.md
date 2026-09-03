@@ -164,4 +164,4 @@ installed `agent-browser` CLI (v0.27.0+), and electron installable in the worktr
 
 ---
 
-_Generated from session `019e6bc2-2ed2-7732-b1a0-1bc7a7955dc8` · `pi-agent-dashboard` · 2026-05-28. Source extract: deterministic facts sheet._
+_Generated from session `019e6bc2-2ed2-7732-b1a0-1bc7a7955dc8` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-28. Source extract: deterministic facts sheet._

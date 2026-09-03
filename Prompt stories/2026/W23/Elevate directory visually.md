@@ -162,4 +162,4 @@ subagent (which missed — see Pitfalls).
 
 ---
 
-_Generated from session `019e9ee7` · `pi-agent-dashboard` · 2026-06-06. Source extract: deterministic facts sheet (session-to-guideline)._
+_Generated from session `019e9ee7` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-06. Source extract: deterministic facts sheet (session-to-guideline)._

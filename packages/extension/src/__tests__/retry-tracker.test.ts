@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { settleFollowUp } from "../agent-settled.js";
 import { RetryTracker } from "../retry-tracker.js";
 
 /**
@@ -54,6 +55,23 @@ describe("RetryTracker (observe-based, agent_end/agent_settled model)", () => {
     expect(t.observeAgentStart("s1")).toBeNull();
   });
 
+  // test-plan #6: a manual dashboard retry (retry_session / legacy sentinel)
+  // disarms the chain via noteExplicitRun BEFORE its re-drive, so the manual
+  // turn's native agent_start is NOT converted into a synthetic
+  // auto_retry_start — no attempt counter renders for a user-initiated retry.
+  // See change: replace-dashboard-retry-command-with-protocol-message.
+  it("#6 an armed chain disarmed by noteExplicitRun yields no counter for the next agent_start", () => {
+    const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 2000 });
+    t.observeMessageEnd("s1", { ...errAssistant });
+    t.observeAgentEnd("s1", errAgentEnd); // arms the next attempt
+    expect(t.isRetrying("s1")).toBe(true);
+
+    t.noteExplicitRun("s1"); // the disarm the bridge performs before a manual retry
+
+    expect(t.isRetrying("s1")).toBe(false);
+    expect(t.observeAgentStart("s1")).toBeNull();
+  });
+
   it("increments delay geometrically across the chain", () => {
     const t = new RetryTracker({ maxRetries: 5, baseDelayMs: 2000 });
     t.observeMessageEnd("s1", { ...errAssistant });
@@ -97,6 +115,17 @@ describe("RetryTracker (observe-based, agent_end/agent_settled model)", () => {
 
   it("degrades to delayMs:0 (elapsed-only) when settings are unreadable", () => {
     const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 0 });
+    t.observeMessageEnd("s1", { ...errAssistant });
+    const ev = t.observeAgentEnd("s1", errAgentEnd)!;
+    expect(ev.data.delayMs).toBe(0);
+    expect(ev.data.nextAttemptAt).toBeUndefined();
+  });
+
+  it("degrades an overflowing exponential delay to unknown instead of Infinity", () => {
+    const t = new RetryTracker({ maxRetries: 3, baseDelayMs: Number.MAX_VALUE });
+    t.observeMessageEnd("s1", { ...errAssistant });
+    t.observeAgentEnd("s1", errAgentEnd);
+    t.observeAgentStart("s1");
     t.observeMessageEnd("s1", { ...errAssistant });
     const ev = t.observeAgentEnd("s1", errAgentEnd)!;
     expect(ev.data.delayMs).toBe(0);
@@ -236,5 +265,230 @@ describe("RetryTracker — pi's real event order (regression: zero-events defect
       expect(s.data.delayMs).not.toBe(-1);
       expect(s.data.errorMessage).toBe(ERR);
     }
+  });
+});
+
+describe("RetryTracker — arms on the last ASSISTANT message, not the last array element", () => {
+  // Regression: a turn can end with a non-assistant entry (e.g. a toolResult)
+  // after the failed assistant message. The tracker must scan backward for the
+  // last `role === "assistant"` message (matching pi's `_willRetryAfterAgentEnd`)
+  // rather than inspecting only `messages[length-1]`, or it never arms and no
+  // retry counting shows. See change: unify-retry-visibility.
+  const errAssistantMsg = { role: "assistant", stopReason: "error", errorMessage: ERR };
+
+  it("arms when the assistant error is followed by a toolResult entry", () => {
+    const t = new RetryTracker({ maxRetries: 20, baseDelayMs: 2000 });
+    const ev = t.observeAgentEnd("s1", {
+      messages: [{ ...errAssistantMsg }, { role: "toolResult" }],
+    });
+    expect(ev).not.toBeNull();
+    expect(ev!.eventType).toBe("auto_retry_waiting");
+    expect(ev!.data.attempt).toBe(1);
+    // The next agent_start then goes in-flight.
+    const start = t.observeAgentStart("s1");
+    expect(start!.eventType).toBe("auto_retry_start");
+  });
+
+  it("still treats a clean last assistant message as success (no arming)", () => {
+    const t = new RetryTracker({ maxRetries: 20, baseDelayMs: 2000 });
+    const ev = t.observeAgentEnd("s1", {
+      messages: [{ role: "assistant", stopReason: "end_turn" }, { role: "toolResult" }],
+    });
+    expect(ev).toBeNull();
+  });
+
+  it("counts attempts 1 → 2 → 3 across three toolResult-trailed failures", () => {
+    const t = new RetryTracker({ maxRetries: 20, baseDelayMs: 2000 });
+    const trailed = () => ({ messages: [{ ...errAssistantMsg }, { role: "toolResult" }] });
+    const attempts: unknown[] = [];
+    for (let i = 0; i < 3; i++) {
+      if (i > 0) t.observeAgentStart("s1");
+      attempts.push(t.observeAgentEnd("s1", trailed())!.data.attempt);
+    }
+    expect(attempts).toEqual([1, 2, 3]);
+  });
+
+  it("a clean toolResult-trailed turn closes an ARMED chain successfully", () => {
+    const t = new RetryTracker({ maxRetries: 20, baseDelayMs: 2000 });
+    // Arm the chain with a trailed failure, then succeed with a trailed success.
+    t.observeAgentEnd("s1", { messages: [{ ...errAssistantMsg }, { role: "toolResult" }] });
+    t.observeAgentStart("s1");
+    expect(
+      t.observeAgentEnd("s1", {
+        messages: [{ role: "assistant", stopReason: "stop" }, { role: "toolResult" }],
+      }),
+    ).toBeNull();
+    const end = t.observeAgentSettled("s1");
+    expect(end!.eventType).toBe("auto_retry_end");
+    expect(end!.data.success).toBe(true);
+    expect(t.isRetrying("s1")).toBe(false);
+  });
+
+  it("arms nothing when no entry carries an assistant role", () => {
+    const t = new RetryTracker({ maxRetries: 20, baseDelayMs: 2000 });
+    expect(
+      t.observeAgentEnd("s1", {
+        messages: [{ role: "toolResult", stopReason: "error" }, { role: "user" }],
+      }),
+    ).toBeNull();
+    expect(t.isRetrying("s1")).toBe(false);
+    expect(t.observeAgentStart("s1")).toBeNull();
+  });
+
+  it("a missing assistant message is NO disposition — it never closes an ACTIVE chain as success", () => {
+    // Regression: `isError` is false both when the last assistant message is
+    // clean AND when there is no assistant message at all. Collapsing those two
+    // cases let a payload carrying no disposition mark a live retry chain
+    // successful, so `agent_settled` reported success for a turn that never
+    // succeeded. See change: raw-error-render-and-retry-authority.
+    const t = new RetryTracker({ maxRetries: 20, baseDelayMs: 2000 });
+    // Arm a chain with a real failure.
+    expect(t.observeAgentEnd("s1", { messages: [{ ...errAssistantMsg }] })).not.toBeNull();
+    expect(t.isRetrying("s1")).toBe(true);
+    // A payload with no assistant entry must leave the chain's disposition alone.
+    expect(t.observeAgentEnd("s1", { messages: [{ role: "toolResult" }] })).toBeNull();
+    expect(t.isRetrying("s1")).toBe(true);
+    const end = t.observeAgentSettled("s1");
+    expect(end!.eventType).toBe("auto_retry_end");
+    expect(end!.data.success).toBe(false);
+  });
+
+  it("an empty / absent messages array is likewise no disposition", () => {
+    for (const payload of [{ messages: [] }, {}, null]) {
+      const t = new RetryTracker({ maxRetries: 20, baseDelayMs: 2000 });
+      t.observeAgentEnd("s1", { messages: [{ ...errAssistantMsg }] });
+      t.observeAgentEnd("s1", payload as { messages?: unknown } | null);
+      const end = t.observeAgentSettled("s1")!;
+      expect(end.data.success).toBe(false);
+      expect(end.data.finalError).toBe(ERR);
+    }
+  });
+});
+
+describe("RetryTracker — terminal convergence", () => {
+  it("E1/X1 automatic continuation succeeds on clean assistant message_end without a user message", () => {
+    const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 2000 });
+    t.observeMessageEnd("s1", { ...errAssistant });
+    t.observeAgentEnd("s1", errAgentEnd);
+    t.observeAgentStart("s1");
+
+    const end = t.observeMessageEnd("s1", {
+      role: "assistant",
+      stopReason: "toolUse",
+    });
+
+    expect(end).toEqual({
+      eventType: "auto_retry_end",
+      data: { success: true, attempt: 1 },
+    });
+    expect(t.isRetrying("s1")).toBe(false);
+    expect(t.observeAgentEnd("s1", okAgentEnd)).toBeNull();
+    expect(t.observeAgentSettled("s1")).toBeNull();
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["non-string", 42 as unknown as string],
+  ])("does not close an active chain when message_end has a %s stopReason", (_label, stopReason) => {
+    const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 2000 });
+    t.observeMessageEnd("s1", { ...errAssistant });
+    t.observeAgentEnd("s1", errAgentEnd);
+    t.observeAgentStart("s1");
+
+    expect(t.observeMessageEnd("s1", { role: "assistant", stopReason })).toBeNull();
+    expect(t.isRetrying("s1")).toBe(true);
+  });
+
+  it.each([
+    ["missing", undefined],
+    ["empty", ""],
+    ["non-string", 42 as unknown as string],
+  ])("does not mark agent_end with a %s stopReason as successful disposition", (_label, stopReason) => {
+    const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 2000 });
+    t.observeMessageEnd("s1", { ...errAssistant });
+    t.observeAgentEnd("s1", errAgentEnd);
+    t.observeAgentStart("s1");
+
+    expect(t.observeAgentEnd("s1", { messages: [{ role: "assistant", stopReason }] })).toBeNull();
+    expect(t.observeAgentSettled("s1")).toEqual({
+      eventType: "auto_retry_end",
+      data: { success: false, attempt: 1, finalError: ERR },
+    });
+  });
+
+  it("E2/X2 repeated assistant errors retain the latest provider error until exhaustion", () => {
+    const t = new RetryTracker({ maxRetries: 1, baseDelayMs: 2000 });
+    t.observeMessageEnd("s1", { ...errAssistant });
+    t.observeAgentEnd("s1", errAgentEnd);
+    t.observeAgentStart("s1");
+    t.observeMessageEnd("s1", {
+      role: "assistant",
+      stopReason: "error",
+      errorMessage: "504: second failure",
+    });
+    expect(
+      t.observeAgentEnd("s1", {
+        messages: [{ role: "assistant", stopReason: "error", errorMessage: "504: second failure" }],
+      }),
+    ).toBeNull();
+
+    expect(t.observeAgentSettled("s1")).toEqual({
+      eventType: "auto_retry_end",
+      data: { success: false, attempt: 2, finalError: "504: second failure" },
+    });
+  });
+
+  it("E3 aborted assistant completion is neither recovery nor another retry", () => {
+    const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 2000 });
+    t.observeMessageEnd("s1", { ...errAssistant });
+    t.observeAgentEnd("s1", errAgentEnd);
+    t.observeAgentStart("s1");
+
+    expect(t.observeMessageEnd("s1", { role: "assistant", stopReason: "aborted" })).toEqual({
+      eventType: "auto_retry_end",
+      data: { success: false, attempt: -1 },
+    });
+    expect(t.observeAgentEnd("s1", { messages: [{ role: "assistant", stopReason: "aborted" }] })).toBeNull();
+    expect(t.observeAgentStart("s1")).toBeNull();
+    expect(t.observeAgentSettled("s1")?.data.success).not.toBe(true);
+  });
+
+  it("X3/X4 abort tombstone suppresses delayed cancelled-chain events", () => {
+    const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 2000 });
+    t.observeMessageEnd("s1", { ...errAssistant });
+    t.observeAgentEnd("s1", errAgentEnd);
+    t.noteAbort("s1");
+
+    expect(t.observeAgentStart("s1")).toBeNull();
+    expect(t.observeMessageEnd("s1", { ...errAssistant })).toBeNull();
+    expect(t.observeAgentEnd("s1", errAgentEnd)).toBeNull();
+    expect(t.observeAgentSettled("s1")).toBeNull();
+    expect(t.isRetrying("s1")).toBe(false);
+  });
+
+  it("floor-pi compatibility settles do not terminate a multi-attempt tracker chain", () => {
+    const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 2000 });
+    t.observeMessageEnd("s1", { ...errAssistant });
+    t.observeAgentEnd("s1", errAgentEnd);
+    expect(settleFollowUp("agent_end", false, 1000)?.eventType).toBe("agent_settled");
+    // The bridge forwards floor compatibility settles to the client only; it
+    // must not feed them into RetryTracker because one is emitted per attempt.
+    expect(t.isRetrying("s1")).toBe(true);
+    expect(t.observeAgentStart("s1")?.eventType).toBe("auto_retry_start");
+
+    t.observeMessageEnd("s1", { ...errAssistant, errorMessage: "second" });
+    expect(t.observeAgentEnd("s1", { messages: [{ ...errAssistant, errorMessage: "second" }] })?.data.attempt).toBe(2);
+    expect(t.isRetrying("s1")).toBe(true);
+  });
+
+  it("X4 a new explicit run releases abort suppression", () => {
+    const t = new RetryTracker({ maxRetries: 3, baseDelayMs: 2000 });
+    t.noteAbort("s1");
+    t.observeMessageEnd("s1", { ...errAssistant });
+    expect(t.isRetrying("s1")).toBe(false);
+
+    t.noteExplicitRun("s1");
+    t.observeMessageEnd("s1", { ...errAssistant });
+    expect(t.isRetrying("s1")).toBe(true);
   });
 });

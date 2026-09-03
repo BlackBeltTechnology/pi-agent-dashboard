@@ -1,0 +1,293 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Retry surface — spinner, short status, collapse vs close</title>
+
+<!--
+  FIDELITY CONTRACT
+  =================
+  Loads the RUNNING dashboard's compiled stylesheet. Card class strings copied
+  VERBATIM from primitives/InlineMessage.tsx on origin/develop, including its
+  existing `variant="compact"` one-liner (reused for the collapsed row — not a
+  new layout). mdi paths taken from @mdi/js at the versions the app imports.
+  `animate-spin` is present in the shipped bundle (verified).
+
+  SCOPE
+  =====
+  Error PRINTING is unchanged from develop: whitespace-pre-wrap, Show more /
+  Show less past 240 chars, Copy. The only printing change is that the RAW
+  errorMessage arrives (humanizeProviderError dropped).
+
+  NO new Stop control anywhere. The `Stop` drawn in the composer is the EXISTING
+  session Stop — shown only to make its presence/absence visible. Session abort
+  already stops the retry (bridge.ts:1216 abortLatch.request → cachedCtx.abort,
+  re-armed every 200ms for 2s, plus abort-on-sight when the turn wakes).
+  The bug is that ✕ deletes retryState, which unmounts that existing Stop.
+-->
+<link rel="stylesheet" href="http://localhost:8000/assets/index-DzXLxU36.css">
+
+<style>
+  body{background:var(--bg-primary);color:var(--text-secondary);
+    font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+    margin:0;padding:24px 16px 80px}
+  .page{max-width:800px;margin:0 auto}
+  h1{color:var(--text-primary);font-size:17px;margin:0 0 4px}
+  .lead{color:var(--text-tertiary);font-size:12.5px;margin:0 0 6px;line-height:1.55}
+  .cap{font-size:10.5px;text-transform:uppercase;letter-spacing:.09em;
+    color:var(--text-muted);font-weight:600;margin:28px 0 8px}
+  .desc{font-size:11.5px;color:var(--text-tertiary);margin:8px 0 0;line-height:1.6}
+  .desc b{color:var(--text-secondary);font-weight:600}
+  .bad{color:var(--severity-error-fg);font-weight:600}
+  .good{color:var(--severity-success-fg,#3fb950);font-weight:600}
+  .kbd{font-family:'SF Mono',Menlo,Monaco,monospace;font-size:11px;
+    background:var(--bg-code);padding:1px 4px;border-radius:3px;color:var(--text-secondary)}
+  .row{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}
+  .row button{font-size:11px;padding:4px 10px;border-radius:6px;cursor:pointer;
+    background:var(--bg-tertiary);color:var(--text-secondary);
+    border:1px solid var(--border-subtle,rgba(128,128,128,.3))}
+  .row button[aria-pressed=true]{background:var(--bg-surface);color:var(--text-primary);
+    border-color:var(--severity-error-border)}
+  hr{border:0;border-top:1px solid var(--border-subtle,rgba(128,128,128,.2));margin:30px 0}
+  .themeToggle{position:fixed;top:12px;right:12px;display:flex;gap:6px}
+  .themeToggle button{font-size:11px;padding:3px 9px;border-radius:6px;cursor:pointer;
+    background:var(--bg-tertiary);color:var(--text-secondary);
+    border:1px solid var(--border-subtle,rgba(128,128,128,.3))}
+  table{width:100%;border-collapse:collapse;font-size:11.5px;margin-top:10px}
+  th,td{border:1px solid var(--border-subtle,rgba(128,128,128,.25));padding:6px 8px;
+    text-align:left;vertical-align:top;color:var(--text-tertiary)}
+  th{color:var(--text-secondary);font-weight:600;background:var(--bg-tertiary)}
+  .log{font-family:'SF Mono',Menlo,Monaco,monospace;font-size:10.5px;line-height:1.6;
+    background:var(--bg-code);border-radius:8px;padding:8px 10px;margin-top:10px;
+    color:var(--text-muted);white-space:pre-wrap;max-height:120px;overflow:auto}
+  .composer{display:flex;align-items:center;gap:8px;margin-top:8px;padding:8px 10px;
+    border-radius:10px;background:var(--bg-tertiary);
+    border:1px solid var(--border-subtle,rgba(128,128,128,.3))}
+  .stopPill{font-size:11px;font-weight:600;padding:3px 10px;border-radius:6px;
+    background:var(--severity-error-bg);color:var(--severity-error-fg);
+    border:1px solid var(--severity-error-border)}
+  .noStop{font-size:11px;color:var(--text-muted);font-style:italic}
+  .cardline{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:10px;
+    background:var(--bg-tertiary);font-size:11.5px;margin-bottom:8px}
+  .stack{display:flex;flex-direction:column;gap:8px}
+  .lbl{font-size:10px;text-transform:uppercase;letter-spacing:.08em;
+    color:var(--text-muted);font-weight:600;margin:14px 0 4px}
+</style>
+</head>
+<body>
+<div class="themeToggle">
+  <button onclick="document.documentElement.setAttribute('data-theme','light')">light</button>
+  <button onclick="document.documentElement.setAttribute('data-theme','dark')">dark</button>
+</div>
+
+<div class="page">
+<h1>Retry surface — collapse while retrying, close once stopped</h1>
+<p class="lead">
+  Session <b>Stop already stops the retry</b> (<span class="kbd">abortLatch.request</span> →
+  <span class="kbd">cachedCtx.abort()</span>, re-armed for 2 s, plus abort-on-sight when the turn
+  wakes). <b>No new control is added anywhere.</b> The one bug: ✕ deletes
+  <span class="kbd">retryState</span>, which unmounts that existing Stop.
+</p>
+
+<!-- ───────────────────────────────────────────────────────────── -->
+<p class="cap">1 · the three states</p>
+<div class="lbl">retrying · expanded — spinner, short status, <b>chevron</b> collapses</div>
+<div id="s1"></div>
+<div class="lbl">retrying · collapsed — one line (InlineMessage <span class="kbd">variant="compact"</span>)</div>
+<div id="s2"></div>
+<div class="lbl">stopped / settled — no spinner, real ✕ closes for good</div>
+<div id="s3"></div>
+<p class="desc">
+  Status text is short: <span class="kbd">Retry 3 · 12s</span> while waiting,
+  <span class="kbd">Retry 3</span> while in flight. No "attempt", no "next attempt in", no
+  <b>Copy</b> word — the copy affordance is the icon alone, as everywhere else in the app.
+</p>
+<p class="desc">
+  <b>The trailing control changes icon with its meaning.</b> While retrying it is a chevron
+  (<span class="kbd">mdiChevronUp</span>, <span class="kbd">error-banner-collapse</span>) because the
+  action is collapse. An ✕ there would <b class="bad">promise a close it does not perform</b>. Once
+  retrying stops it becomes a real ✕ (<span class="kbd">mdiClose</span>,
+  <span class="kbd">error-banner-dismiss</span>) and does close the card.
+</p>
+
+<hr>
+
+<!-- ───────────────────────────────────────────────────────────── -->
+<p class="cap">2 · lifecycle — <span class="good">collapse only while retrying</span></p>
+<p class="desc">
+  ✕ collapses <b>only while a retry is pending</b>. Once retrying stops, ✕ closes the card for
+  good. A successful turn removes everything with no user action at all.
+</p>
+<div id="stage" style="margin-top:12px"></div>
+<div class="row">
+  <button onclick="ev('dismiss')">press chevron / ✕</button>
+  <button onclick="ev('next')">next attempt</button>
+  <button onclick="ev('stop')">press Stop</button>
+  <button onclick="ev('ok')">retry succeeds</button>
+  <button onclick="ev('giveup')">retries exhausted</button>
+  <button onclick="ev('reset')">reset</button>
+</div>
+<div class="log" id="log"></div>
+
+<hr>
+
+<p class="cap">3 · state table</p>
+<table>
+  <tr><th>phase</th><th>trailing control</th><th>existing session Stop</th><th>clears by itself?</th></tr>
+  <tr><td>retrying (waiting / in flight)</td>
+      <td class="good">chevron → collapses to one line — <span class="kbd">retryState</span> untouched</td>
+      <td class="good">visible</td>
+      <td>on success</td></tr>
+  <tr><td>retries exhausted / stopped</td>
+      <td>✕ → closes the card</td>
+      <td>gone — nothing to stop</td>
+      <td>no — user closes</td></tr>
+  <tr><td>successful turn</td>
+      <td colspan="3" class="good">surface removed automatically, no user action (<span class="kbd">isCleanAgentEnd</span>)</td></tr>
+</table>
+
+<p class="cap" style="margin-top:24px">4 · what changes</p>
+<table>
+  <tr><th>&nbsp;</th><th>today</th><th>change</th></tr>
+  <tr><td>error printing</td><td>Show more / Show less + Copy</td>
+      <td class="good">unchanged — same printer, raw string</td></tr>
+  <tr><td><span class="kbd">humanizeProviderError</span></td>
+      <td>flattens to <span class="kbd">"type: message"</span></td>
+      <td>deleted — 3 call sites, all in <span class="kbd">event-reducer.ts</span></td></tr>
+  <tr><td>retry status</td><td>—</td>
+      <td>spinner <span class="kbd">mdiLoading</span> + <span class="kbd">Retry N · 12s</span></td></tr>
+  <tr><td>"Copy" word</td><td>rendered next to the icon</td><td>icon only</td></tr>
+  <tr><td>control while retrying</td>
+      <td class="bad">✕ that clears <span class="kbd">retryState</span> → Stop unmounts</td>
+      <td class="good">chevron that collapses; <span class="kbd">retryState</span> kept → Stop stays</td></tr>
+  <tr><td>icon matches action</td>
+      <td class="bad">✕ shown for a non-closing action</td>
+      <td class="good">chevron while retrying, ✕ only when it really closes</td></tr>
+  <tr><td>new Stop control</td><td colspan="2" class="good">none — session abort already ends the chain</td></tr>
+</table>
+
+</div>
+
+<script>
+var d=document;
+var P={
+  alert  :'M13 14H11V9H13M13 18H11V16H13M1 21H23L12 2L1 21Z',
+  close  :'M19,6.41L17.59,5L12,10.59L6.41,5L5,6.41L10.59,12L5,17.59L6.41,19L12,13.41L17.59,19L19,17.59L13.41,12L19,6.41Z',
+  copy   :'M19,21H8V7H19M19,5H8A2,2 0 0,0 6,7V21A2,2 0 0,0 8,23H19A2,2 0 0,0 21,21V7A2,2 0 0,0 19,5M16,1H4A2,2 0 0,0 2,3V17H4V3H16V1Z',
+  loading:'M12,4V2A10,10 0 0,0 2,12H4A8,8 0 0,1 12,4Z',
+  chevD  :'M7.41,8.58L12,13.17L16.59,8.58L18,10L12,16L6,10L7.41,8.58Z',
+  chevU  :'M7.41,15.41L12,10.83L16.59,15.41L18,14L12,8L6,14L7.41,15.41Z'
+};
+function svg(p,s,cls){var px=Math.round(24*s);
+  return '<svg viewBox="0 0 24 24" width="'+px+'" height="'+px+'" class="'+(cls||'')+'" style="vertical-align:-2px;display:inline-block"><path fill="currentColor" d="'+p+'"/></svg>';}
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+
+var RAW='529 {"type":"error","error":{"type":"overloaded_error","message":"Overloaded"}}';
+var THRESH=240;
+
+/* short status text */
+function statusText(r){ return r.waiting ? 'Retry '+r.attempt+' · 12s' : 'Retry '+r.attempt; }
+
+/* ── expanded card — verbatim InlineMessage default variant ── */
+function cardExpanded(o){
+  var t=o.text||'', isLong=t.length>THRESH;
+  var shown=(!isLong||o.expanded)?t:t.slice(0,THRESH).replace(/\s+$/,'')+'…';
+  return '<div data-testid="error-banner" class="relative overflow-hidden rounded-xl border pl-3.5 pr-3 py-2 flex gap-2.5 items-start bg-[var(--severity-error-bg)] border-[var(--severity-error-border)] text-[var(--severity-error-fg)]">'
+   + '<span data-testid="inline-message-accent" class="absolute inset-y-0 left-0 w-[3px] bg-[var(--severity-error-fg)]" aria-hidden="true"></span>'
+   + '<span class="shrink-0 mt-0.5">'+svg(P.alert,0.7)+'</span>'
+   + '<div class="flex-1 min-w-0">'
+   +   '<div class="text-[12.5px] font-bold break-words"><span data-testid="error-banner-text" class="whitespace-pre-wrap break-words font-normal">'+esc(shown)+'</span></div>'
+   +   (o.retry
+        ? '<div data-testid="inline-message-body" class="mt-0.5 text-[11.5px] break-words">'
+          + '<span data-testid="retry-banner" class="inline-flex items-center gap-1 text-[var(--severity-warning-fg)]">'
+          + svg(P.loading,0.55,'animate-spin')+' '+esc(statusText(o.retry))+'</span></div>'
+        : '')
+   +   '<div class="mt-1 flex items-center gap-3 text-[11px]">'
+   +     (isLong?'<button type="button" data-testid="error-banner-toggle" class="underline-offset-2 hover:underline" onclick="'+(o.onToggle||'')+'">'+(o.expanded?'Show less':'Show more')+'</button>':'')
+   +     '<button type="button" class="opacity-70 hover:opacity-100" title="Copy error message" aria-label="Copy error message">'+svg(P.copy,0.6)+'</button>'
+   +   '</div>'
+   + '</div>'
+   // The control's ICON states what it does. While a retry is pending the
+   // action is COLLAPSE, so it is a chevron — never an ✕, which would promise a
+   // close it does not perform. Once retrying stops it becomes a real ✕.
+   + (o.retry
+      ? '<button type="button" data-testid="error-banner-collapse" class="shrink-0 opacity-70 hover:opacity-100" title="Collapse" aria-label="Collapse" onclick="'+(o.onDismiss||'void 0')+'">'+svg(P.chevU,0.6)+'</button>'
+      : '<button type="button" data-testid="error-banner-dismiss" class="shrink-0 opacity-70 hover:opacity-100" title="Dismiss" aria-label="Dismiss" onclick="'+(o.onDismiss||'void 0')+'">'+svg(P.close,0.6)+'</button>')
+   + '</div>';
+}
+
+/* ── collapsed row — InlineMessage variant="compact", verbatim ── */
+function cardCompact(o){
+  return '<div data-testid="error-banner" class="relative overflow-hidden rounded-xl border pl-3.5 pr-3 py-2 flex gap-2.5 items-center bg-[var(--severity-error-bg)] border-[var(--severity-error-border)] text-[var(--severity-error-fg)]">'
+   + '<span data-testid="inline-message-accent" class="absolute inset-y-0 left-0 w-[3px] bg-[var(--severity-error-fg)]" aria-hidden="true"></span>'
+   + '<span class="shrink-0 inline-flex text-[var(--severity-warning-fg)]">'+svg(P.loading,0.7,'animate-spin')+'</span>'
+   + '<div class="flex-1 min-w-0 flex items-center gap-2">'
+   +   '<span data-testid="retry-banner" class="text-xs font-semibold min-w-0 text-[var(--severity-warning-fg)]">'+esc(statusText(o.retry))+'</span>'
+   +   '<div class="ml-auto flex items-center gap-1.5">'
+   +     '<button type="button" data-testid="error-banner-expand" class="opacity-70 hover:opacity-100" title="Show error" aria-label="Show error" onclick="'+(o.onExpand||'void 0')+'">'+svg(P.chevD,0.6)+'</button>'
+   +   '</div>'
+   + '</div>'
+   + '</div>';
+}
+
+/* 1 · the three states (static) */
+d.getElementById('s1').innerHTML = cardExpanded({text:RAW,retry:{attempt:3,waiting:true}});
+d.getElementById('s2').innerHTML = cardCompact({retry:{attempt:3,waiting:true}});
+d.getElementById('s3').innerHTML = cardExpanded({text:RAW,retry:null});
+
+/* 2 · lifecycle */
+var S;
+function reset(){ S={retry:{attempt:1,waiting:true},err:RAW,collapsed:false,live:true}; log('initial — Retry 1, waiting'); render(); }
+function log(m){var el=d.getElementById('log');el.textContent+=(el.textContent?'\n':'')+m;el.scrollTop=el.scrollHeight;}
+function stopVisible(){ return !!S.retry; }
+
+function render(){
+  var line='<div class="cardline"><span style="color:var(--text-primary);font-weight:600">rate-limited session</span>'
+    +(S.retry?'<span class="inline-flex items-center gap-1" style="color:var(--severity-warning-fg)">'
+        +svg(P.loading,0.5,'animate-spin')+' '+esc(statusText(S.retry))+'</span>'
+             :'<span style="color:var(--text-tertiary)">Idle</span>')+'</div>';
+  var banner='';
+  if(S.retry||S.err){
+    banner = (S.collapsed && S.retry)
+      ? cardCompact({retry:S.retry,onExpand:"ev('expand')"})
+      : cardExpanded({text:S.err||'',retry:S.retry,onDismiss:"ev('dismiss')"});
+  }
+  var composer='<div class="composer"><span style="flex:1;color:var(--text-muted);font-size:11.5px">composer — type a prompt…</span>'
+    +(stopVisible()?'<span class="stopPill">■ Stop</span>':'<span class="noStop">(no Stop — nothing running)</span>')+'</div>';
+  d.getElementById('stage').innerHTML=line+banner+composer;
+}
+function ev(k){
+  if(k==='reset'){ d.getElementById('log').textContent=''; reset(); return; }
+  if(k==='expand'){ S.collapsed=false; log('expand → error text back'); }
+  if(k==='dismiss'){
+    if(S.retry){ S.collapsed=true; log('chevron while retrying → COLLAPSE. retryState kept → Stop stays, card keeps '+statusText(S.retry)); }
+    else if(S.err){ S.err=undefined; log('✕ once stopped → CLOSED for good'); }
+    else { log('nothing to dismiss'); }
+  }
+  if(k==='next'){
+    if(!S.retry){ log('next attempt — nothing retrying'); return; }
+    S.retry={attempt:S.retry.attempt+1,waiting:true}; S.err=RAW;
+    log('auto_retry_waiting → '+statusText(S.retry)+(S.collapsed?' (stays collapsed, number updates)':''));
+  }
+  if(k==='stop'){
+    if(!stopVisible()){ log('Stop — not on screen'); return; }
+    S.retry=null; S.collapsed=false;
+    log('Stop → abortLatch.request → chain ends without waiting out the backoff; error stays, now closable');
+  }
+  if(k==='ok'){
+    if(!S.retry){ log('success — nothing retrying'); return; }
+    S={retry:null,err:undefined,collapsed:false};
+    log('clean agent_end → error + retry cleared automatically, NO user action');
+  }
+  if(k==='giveup'){
+    if(!S.retry){ log('already stopped'); return; }
+    S.retry=null; S.collapsed=false;
+    log('auto_retry_end success=false → retrying stopped; error remains and is now closable');
+  }
+  render();
+}
+reset();
+</script>
+</body>
+</html>

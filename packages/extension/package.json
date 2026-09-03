@@ -1,7 +1,8 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-extension",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Pi bridge extension for pi-dashboard",
+  "license": "MIT",
   "type": "module",
   "repository": {
     "type": "git",
@@ -20,6 +21,17 @@
       ".pi/skills/browser",
       ".pi/skills/project-init",
       ".pi/skills/doctor"
+    ],
+    "tools": [
+      {
+        "id": "agent-browser",
+        "probe": "resolve"
+      },
+      {
+        "id": "chromium",
+        "probe": "pw-browser",
+        "optional": true
+      }
     ]
   },
   "files": [
@@ -29,14 +41,16 @@
     ".pi/skills/project-init/",
     ".pi/skills/doctor/",
     "agents/",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md",
     "!**/__tests__",
     "!**/*.test.ts",
     "!**/*.test.tsx"
   ],
   "dependencies": {
-    "@blackbelt-technology/pi-dashboard-bus-client": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
-    "@fission-ai/openspec": "^1.6.0",
+    "@blackbelt-technology/pi-dashboard-bus-client": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
+    "@fission-ai/openspec": "1.11.0",
     "minimatch": "^10.0.0",
     "ws": "^8.18.0"
   },

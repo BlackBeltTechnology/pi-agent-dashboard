@@ -11,12 +11,15 @@ Web dashboard to monitor + control pi agent sessions remotely. Three components:
 | `grep -rn "SymbolName"` — find where a fn/type/const lives | `kb_search --doc-type agents "SymbolName"` |
 | `grep -rn "topic" src/` — how does X work / where's X handled | `kb_search "feature topic"` |
 | `cat`/`Read` a file to learn its purpose before editing | `kb agents <path>` — purpose + exports + `See change:` |
-| chase imports / callers across files | `kb_neighbors <path\|heading>` |
+| chase imports / callers across files | `rg "<symbol>"` — the Tier-1 graph is markdown-structure only and CANNOT resolve code refs |
 | read one doc section in full | `kb_get <path> <section>` |
+| a kb hit shows `STALE` / `GONE` / `UNVERIFIED` (trust verdict) | verify the row against source before acting — `MOVED` verifies at its reported successor path; `FRESH` may be acted on without re-reading; see `kb_search` verdicts (trust label, never ranking) |
 | build / run / install / setup / release / "how do I X" | `grep -i <kw> docs/faq.md README.md docs/` — then quote |
 | derive a fact from a large file / big command output | `ctx_execute_file` / `ctx_execute` **when present** (context-mode is optional); else `Read` w/ `offset`+`limit`, or `rg`/`awk` via Bash |
 
-`kb_search` indexes repo markdown (`docs/ openspec/ packages/ .pi/`). `ctx_search`/`memory_search` index session memory, NOT repo docs — different corpus.
+`kb_search` indexes repo markdown (`docs/ openspec/ packages/ .pi/`) — NOT `tests/ qa/ scripts/ docker/`. `ctx_search`/`memory_search` index session memory, NOT repo docs — different corpus.
+
+**Pick the lane — this is the single highest-yield kb habit.** Looking for a FILE or SYMBOL → pass `doc_type:"agents"` (measured P@1 0.048 → 0.231, MRR 0.187 → 0.327 on the 104 mined file-lookup queries; unfiltered, verbose `openspec/` spec prose takes rank 1 and buries the per-file row at rank 5-10). Asking how something WORKS, or anything conceptual → leave `doc_type` unset; the `agents` filter measurably HURTS prose queries (P@1 0.151 → 0.068, R@10 0.575 → 0.205). Reproduce: `tsx packages/kb/eval/run-fixtures.ts`.
 
 **Per-file record = directory `AGENTS.md` tree.** Every file (incl. `docker/ scripts/ .pi/skills/ public/ qa/ tests/ .github/`) has a row in its directory's `AGENTS.md`. `docs/` topic docs + root config (`biome.json`, `playwright.config.ts`, `.pi-test-harness.json`) → `docs/AGENTS.md`. `kb agents <path>` returns the root→nearest chain; `kb_search --doc-type agents` ranks rows by symbol/topic. Tree files are tiny — no subagent needed. The `docs/file-index*.md` splits are RETIRED.
 
@@ -130,7 +133,7 @@ Context inheritance: this repo ships `pi-dashboard-subagents` (default `inheritC
 
 ## OpenSpec Conventions
 
-In a worktree, resolve OpenSpec skills from the main repo root, not the checkout. Place change artifacts at `openspec/changes/<name>/` (never under `active/`/`archive/`); prefer `openspec change new <name>`. In `proposal.md`, add a `## Discipline Skills` section naming the `eng-disciplines` skills its tasks trigger (per the checkpoint tables above); when none apply, say so under the heading rather than omitting it. **Gating** on any `proposal.md` a change touches (`ship-it` step 4.4 via `scripts/check-conventions.mjs`); untouched proposals are not backfilled. Use `ask_user` (batch for multi-question) for any needed input.
+In a worktree, resolve OpenSpec skills from the main repo root, not the checkout. **Create** change artifacts at `openspec/changes/<name>/` (never under `active/`/`archive/`); prefer `openspec change new <name>`. Creation-time only — `ship-change` MOVES a completed change into `openspec/changes/archive/<date>-<name>/`, which `scripts/check-conventions.mjs` skips as immutable history; a review asking to move an archived change back is a false positive. In `proposal.md`, add a `## Discipline Skills` section naming the `eng-disciplines` skills its tasks trigger (per the checkpoint tables above); when none apply, say so under the heading rather than omitting it. **Gating** on any `proposal.md` a change touches (`ship-it` step 4.4 via `scripts/check-conventions.mjs`); untouched proposals are not backfilled. Use `ask_user` (batch for multi-question) for any needed input.
 
 ## Key Files
 

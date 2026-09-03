@@ -32,7 +32,7 @@ const KIND_CLASS: Record<string, string> = {
   mesh: "bg-[#152a3a] text-[#5cb8e6]",
   magicdns: "bg-[#152a3a] text-[#5cb8e6]",
   lan: "bg-[#2a2440] text-[#b79cf0]",
-  local: "bg-[var(--bg-secondary)] text-[var(--text-muted)]",
+  local: "bg-[var(--bg-secondary)] text-[var(--text-secondary)]",
 };
 
 function EndpointRow({ ep }: { ep: TunnelEndpoint }) {
@@ -75,7 +75,7 @@ function EndpointRow({ ep }: { ep: TunnelEndpoint }) {
         onClick={copy}
         title={copied ? t("gateway.copied", undefined, "Copied!") : t("gateway.copy", undefined, "Copy")}
         data-testid="gateway-endpoint-copy"
-        className="shrink-0 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+        className="shrink-0 text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
       >
         <Icon path={copied ? mdiCheck : mdiContentCopy} size={0.6} />
       </button>
@@ -135,12 +135,12 @@ export function GatewayEndpoints({ endpoints: provided, onEndpointsChange }: Pro
 
   return (
     <div data-testid="gateway-endpoints">
-      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-muted)]">
+      <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-[var(--text-secondary)]">
         {t("gateway.accessibleAt", undefined, "Accessible at")}
       </p>
       <div className="flex flex-col gap-1.5">
         {endpoints.length === 0 ? (
-          <p className="text-xs text-[var(--text-muted)]">{t("gateway.noEndpoints", undefined, "No reachable endpoints yet.")}</p>
+          <p className="text-xs text-[var(--text-secondary)]">{t("gateway.noEndpoints", undefined, "No reachable endpoints yet.")}</p>
         ) : (
           endpoints.map((ep) => <EndpointRow key={`${ep.kind}:${ep.url}`} ep={ep} />)
         )}
@@ -175,7 +175,7 @@ export function GatewayEndpoints({ endpoints: provided, onEndpointsChange }: Pro
           {error}
         </p>
       )}
-      <p className="mt-1.5 text-[10.5px] text-[var(--text-muted)]">
+      <p className="mt-1.5 text-[10.5px] text-[var(--text-secondary)]">
         {t(
           "gateway.addUrlHint",
           undefined,

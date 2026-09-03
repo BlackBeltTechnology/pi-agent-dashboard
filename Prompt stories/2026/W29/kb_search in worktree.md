@@ -260,4 +260,4 @@ the trigger action-based ("you're about to edit X") rather than intent-based.
 
 ---
 
-_Generated from session `019f6d89-a33a-7fa0-8377-ed5068a5a9f5` · `pi-agent-dashboard` · 2026-07-17._
+_Generated from session `019f6d89-a33a-7fa0-8377-ed5068a5a9f5` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-17._

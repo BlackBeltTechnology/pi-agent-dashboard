@@ -72,9 +72,25 @@ describe("handleSubscribe — stale lastSeq detection", () => {
     expect(allEvents[1].seq).toBe(5);
   });
 
-  it("sends session_state_reset and full replay when lastSeq > server maxSeq", async () => {
+  /**
+   * The stale-`lastSeq` path no longer emits a call-site `session_state_reset`;
+   * D3 moved the reset into `sendEventBatches`, keyed on `replayWindow !== null`.
+   *
+   * The two arms below are split deliberately, because they fail differently
+   * and only together prove the guarantee survived the move:
+   *   - UNWINDOWED — no reset frame, and none is required. The replay starts at
+   *     seq 1 and the reducer's `firstSeq === 1` rule wipes transcript state.
+   *     Asserting `allEvents[0].seq === 1` is what makes the absence SAFE
+   *     rather than merely tolerated, so it is not a weakened assertion.
+   *   - WINDOWED — exactly one reset, ordered BEFORE `history_window`. This is
+   *     the arm that pins the guarantee D3 relocated; without it, deleting the
+   *     call-site guard would have left the reset untested on this path.
+   * See change: add-tail-only-replay-window (D3, task 2.11).
+   */
+  it("replays the full stream from seq 1 when lastSeq > server maxSeq, with NO reset frame when unwindowed", async () => {
     const ctx = createMockContext();
-    // Insert 3 events (maxSeq = 3)
+    // Insert 3 events (maxSeq = 3). Far below MIN_REPLAY_WINDOW, so no window
+    // can form and `sendEventBatches` has nothing to announce.
     for (let i = 0; i < 3; i++) ctx.eventStore.insertEvent("s1", makeEvent(`e${i}`));
 
     const subs = new Set<string>();
@@ -84,15 +100,43 @@ describe("handleSubscribe — stale lastSeq detection", () => {
     await new Promise((r) => setTimeout(r, 50));
 
     const calls = (ctx.sendTo as any).mock.calls as Array<[any, ServerToBrowserMessage]>;
-    // Should have sent session_state_reset first
     const resets = calls.filter(([, msg]) => msg.type === "session_state_reset");
-    expect(resets).toHaveLength(1);
+    expect(resets).toHaveLength(0);
+    // No window applied, so no gap is disclosed either.
+    expect(calls.filter(([, msg]) => msg.type === "history_window")).toHaveLength(0);
 
-    // Should have replayed ALL events from seq 1
+    // Should have replayed ALL events from seq 1 — the property that makes the
+    // missing reset harmless, via the reducer's `firstSeq === 1` rule.
     const replays = calls.filter(([, msg]) => msg.type === "event_replay");
     const allEvents = replays.flatMap(([, msg]: any) => msg.events);
     expect(allEvents).toHaveLength(3);
     expect(allEvents[0].seq).toBe(1);
+  });
+
+  it("emits exactly one session_state_reset, before history_window, when the stale-lastSeq replay IS windowed", async () => {
+    // 300 events against a 100 budget: a window necessarily applies.
+    const ctx = createMockContext({ maxReplayEvents: 100 });
+    for (let i = 0; i < 300; i++) ctx.eventStore.insertEvent("s1", makeEvent(`e${i}`));
+
+    const subs = new Set<string>();
+    handleSubscribe({ type: "subscribe", sessionId: "s1", lastSeq: 9_999 }, subs, ctx);
+
+    await new Promise((r) => setTimeout(r, 50));
+
+    const calls = (ctx.sendTo as any).mock.calls as Array<[any, ServerToBrowserMessage]>;
+    const types = calls.map(([, msg]) => msg.type);
+
+    // Exactly one — the pre-D3 code emitted two here (call-site + callee).
+    expect(types.filter((t) => t === "session_state_reset")).toHaveLength(1);
+
+    // Ordering is the contract: the gap must never be announced ahead of the
+    // state wipe that precedes its transcript.
+    const resetAt = types.indexOf("session_state_reset");
+    const windowAt = types.indexOf("history_window");
+    expect(windowAt).toBeGreaterThan(-1);
+    expect(resetAt).toBeLessThan(windowAt);
+    // ...and both precede any replayed events.
+    expect(windowAt).toBeLessThan(types.indexOf("event_replay"));
   });
 
   it("marks replaying during delta replay and clears after", async () => {

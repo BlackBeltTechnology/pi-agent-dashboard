@@ -133,4 +133,4 @@ resolvable; git write access.
 
 ---
 
-_Generated from session `ebba6e24-afb6-4548-82a3-f471841e4ced` · `pi-agent-dashboard` · 2026-04-13. Source extract: `/tmp/facts-9105-1685.md`._
+_Generated from session `ebba6e24-afb6-4548-82a3-f471841e4ced` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-13. Source extract: `/tmp/facts-9105-1685.md`._

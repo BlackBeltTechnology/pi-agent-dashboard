@@ -46,22 +46,22 @@ describe("interpolate ${{trigger}}", () => {
 
 describe("interpolate named ${name} vars", () => {
   it("resolves a known named token from the variable map", () => {
-    expect(interpolate("${invoice_id}", undefined, { invoice_id: "inv-42" })).toBe("inv-42");
-    expect(interpolate("id=${invoice_id}", undefined, { invoice_id: "inv-42" })).toBe("id=inv-42");
+    expect(interpolate("${item_id}", undefined, { item_id: "item-42" })).toBe("item-42");
+    expect(interpolate("id=${item_id}", undefined, { item_id: "item-42" })).toBe("id=item-42");
   });
 
   it("leaves an unknown named token (or absent map) intact", () => {
-    expect(interpolate("${unknown}", undefined, { invoice_id: "inv-1" })).toBe("${unknown}");
-    expect(interpolate("${invoice_id}", undefined)).toBe("${invoice_id}");
+    expect(interpolate("${unknown}", undefined, { item_id: "item-1" })).toBe("${unknown}");
+    expect(interpolate("${item_id}", undefined)).toBe("${item_id}");
   });
 
   it("coexists with ${{trigger}} resolution", () => {
     const out = interpolate(
-      { a: "${{trigger}}", b: "${invoice_id}" },
+      { a: "${{trigger}}", b: "${item_id}" },
       "/spool/x.pdf",
-      { invoice_id: "inv-7" },
+      { item_id: "item-7" },
     );
-    expect(out).toEqual({ a: "/spool/x.pdf", b: "inv-7" });
+    expect(out).toEqual({ a: "/spool/x.pdf", b: "item-7" });
   });
 
   it("does not mistake the double-brace trigger token for a named var", () => {
@@ -73,15 +73,15 @@ describe("interpolate named ${name} vars", () => {
   it("resolves named tokens inside nested inputs and env", () => {
     const out = interpolate(
       {
-        inputs: { invoice_id: "${invoice_id}" },
-        env: { IB_INVOICE_ID: "${invoice_id}", IB_TOOLSET: "scoped-invoice" },
+        inputs: { item_id: "${item_id}" },
+        env: { IB_ITEM_ID: "${item_id}", IB_TOOLSET: "scoped-item" },
       },
       undefined,
-      { invoice_id: "inv-9" },
+      { item_id: "item-9" },
     );
     expect(out).toEqual({
-      inputs: { invoice_id: "inv-9" },
-      env: { IB_INVOICE_ID: "inv-9", IB_TOOLSET: "scoped-invoice" },
+      inputs: { item_id: "item-9" },
+      env: { IB_ITEM_ID: "item-9", IB_TOOLSET: "scoped-item" },
     });
   });
 });

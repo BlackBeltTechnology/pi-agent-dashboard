@@ -18,10 +18,10 @@
 
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import os from "node:os";
 import path from "node:path";
 import type { SpawnFailureCode } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import { loadConfig, type SpawnStrategy } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { resolveLocalGatewayEndpoint } from "@blackbelt-technology/pi-dashboard-shared/dashboard-paths.js";
 import { MANAGED_BIN } from "@blackbelt-technology/pi-dashboard-shared/managed-paths.js";
 import { ToolResolver } from "@blackbelt-technology/pi-dashboard-shared/platform/binary-lookup.js";
 import {
@@ -29,8 +29,13 @@ import {
   waitForNoCrash,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/detached-spawn.js";
 import type { ChildProcess } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
-import { buildSafeArgv, execSync, spawnSync } from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
-import { prependManagedNodeToPath } from "@blackbelt-technology/pi-dashboard-shared/platform/managed-node-path.js";
+import {
+  buildSafeArgv,
+  execFileSync,
+  execSync,
+  spawnSync,
+} from "@blackbelt-technology/pi-dashboard-shared/platform/exec.js";
+import { prependSelectedNodeToPath } from "@blackbelt-technology/pi-dashboard-shared/node-installs/index.js";
 import { electronAsNodeRequired } from "@blackbelt-technology/pi-dashboard-shared/platform/runner.js";
 import {
   buildWtArgs,
@@ -39,12 +44,22 @@ import {
   sessionFlagsToArgv,
   type UserSpawnStrategy,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js";
+import {
+  type ResolvedRuntime,
+  piEntryFromArgv,
+  validateResolvedRuntime,
+} from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
 import { mintSpawnToken } from "../auth/spawn-token.js";
-import { resolveGuardForSpawn, guardPolicyToSpawn, type GuardOrigin } from "../session-guard.js";
 import {
   createKeeperManager,
   type KeeperManager,
 } from "../rpc-keeper/keeper-manager.js";
+import {
+  currentSpawnRuntime,
+  resolveLiveSpawnRuntime,
+} from "../runtime-resolution.js";
+import { type CwdPolicyRegistry, mergeCwdPolicy } from "./cwd-policy.js";
+import { GUARD_EXTENSION_CONFIG_NAME, GUARD_EXTENSION_PATH } from "../session-guard-extension.js";
 
 // ── Resolver seam (injectable for tests) ────────────────────────────────────
 
@@ -77,6 +92,20 @@ export function setSpawnDashboardPiPort(piPort: number | null): void {
   spawnDashboardPiPort = piPort;
 }
 
+// ── Cwd-policy registry seam (Part B — host-cwd-policy) ──────────────────────
+//
+// A SINGLE registry instance is wired here AND into every plugin context by the
+// server. `spawnPiSession` resolves + merges the cwd policy BEFORE building
+// argv/env, so EVERY spawn (plugin or generic) honors the tightening floor.
+// When unset (tests that don't wire one, or the pre-change default), the merge
+// is a no-op and argv/env are byte-identical. See change: add-plugin-spawn-scope.
+let cwdPolicyRegistry: CwdPolicyRegistry | null = null;
+
+/** Wire the shared cwd-policy registry into the spawn funnel. */
+export function setCwdPolicyRegistry(registry: CwdPolicyRegistry | null): void {
+  cwdPolicyRegistry = registry;
+}
+
 // ── KeeperManager seam (injectable for tests) ──────────────────────────
 
 let keeperManager: KeeperManager | null = null;
@@ -94,7 +123,16 @@ export function setKeeperManager(km: KeeperManager | null): void {
  * See change: add-rpc-stdin-dispatch-with-keeper-sidecar (Phase 6 + 8).
  */
 export function getKeeperManager(): KeeperManager {
-  if (!keeperManager) keeperManager = createKeeperManager();
+  if (!keeperManager) {
+    // Composition root (design D7): the sweep cap comes from the operator's
+    // config so the server-side sweep and the spawn-time keeper env share one
+    // source of truth. sweepMinAgeMs/statsTtlMs stay option-seamed defaults —
+    // they are not operator knobs. Deliberately NOT a loadConfig import inside
+    // keeper-manager.ts: that module has no config dependency and its tests
+    // stay cheap because of it.
+    const keeperLog = loadConfig().keeperLog;
+    keeperManager = createKeeperManager({ maxBytes: keeperLog.maxBytes });
+  }
   return keeperManager;
 }
 
@@ -104,17 +142,6 @@ export interface SessionOptions {
   sessionFile?: string;
   mode?: "continue" | "fork";
   strategy?: SpawnStrategy;
-  /**
-   * Session guard. `true` (or a policy object) marks this spawn as invoice-bot-
-   * originated → guarded regardless of cwd. Combined with the guarded-cwd
-   * registry (origin ∪ cwd) inside `spawnPiSession`. See change:
-   * constrain-agent-tool-surface.
-   */
-  guard?: GuardOrigin;
-  /** Resolved guard flags (internal; set by spawnPiSession, read by arg/env builders). */
-  noBuiltinTools?: boolean;
-  loadExtensions?: string[];
-  guardEnv?: Record<string, string>;
   /**
    * Server-minted spawn correlation token. When provided, injected into
    * the spawned process env as `PI_DASHBOARD_SPAWN_TOKEN`. The bridge
@@ -131,19 +158,61 @@ export interface SessionOptions {
    */
   model?: string;
   /**
-   * Optional caller-supplied environment map forwarded into the spawned
-   * process env. Folded BENEATH the resolved guard env (caller first, guard
-   * last) so the guard always wins on a key collision and a caller can never
-   * weaken it. Absent ⇒ env byte-identical to today. See change:
-   * scope-session-toolset-by-profile.
-   */
-  env?: Record<string, string>;
-  /**
    * Optional session name appended as `--name <name>` (pi 0.78.0+) so a
    * worktree / flow spawn lands with an intended title at creation instead of
    * relying only on post-hoc auto-naming. See change: adopt-pi-074-080-features.
    */
   name?: string;
+  /**
+   * Capability-scope fields threaded to `sessionFlagsToArgv` (they extend
+   * `SessionFlags` structurally). Populated by `pluginSpawnToSessionOptions`
+   * from a plugin's `scope` block. See change: add-plugin-spawn-scope.
+   */
+  tools?: string[];
+  excludeTools?: string[];
+  noBuiltinTools?: boolean;
+  noTools?: boolean;
+  skills?: string[];
+  noSkills?: boolean;
+  extensions?: string[];
+  /**
+   * Per-extension config projected to namespaced env (`PI_EXT_<NAME>_<KEY>`)
+   * by `buildSpawnEnv` on the headless mechanism. Name+key are uppercased
+   * with every non-`[A-Z0-9_]` char replaced by `_`. Scalar values project
+   * verbatim; array values as `JSON.stringify(value)` (design D8). See change:
+   * add-plugin-spawn-scope.
+   */
+  extensionConfig?: Record<string, Record<string, string | string[]>>;
+  /**
+   * Arbitrary, NON-namespaced environment map forwarded verbatim into the
+   * spawned process env. Distinct from `extensionConfig` (which projects into
+   * the namespaced `PI_EXT_<NAME>_<KEY>` channel): a consumer inside the
+   * session reads these keys LITERALLY, by their exact spelling, so the
+   * channel cannot be replaced by the namespaced projection without changing
+   * that reader.
+   *
+   * This map is AUTHORIZATION-BEARING: it is how a caller narrows the spawned
+   * session's tool surface. It is folded in BEFORE every host-managed key, so
+   * a caller can never overwrite a host key (`PI_DASHBOARD_*`, `PI_EXT_*`) —
+   * i.e. it can only carry keys the host does not own. Absent ⇒ env
+   * byte-identical to a bare spawn.
+   *
+   * Dropping or renaming this channel fails OPEN silently (the consumer falls
+   * back to its unnarrowed default with no crash), which is why
+   * `spawn-env-authorization-channel.test.ts` locks it.
+   * See change: scope-session-toolset-by-profile.
+   */
+  env?: Record<string, string>;
+  /**
+   * Mark this spawn as GUARDED: built-in tools removed and the host-shipped
+   * tool-call containment guard loaded, contained to `cwd`. Expanded at the
+   * spawn funnel (the only layer that knows both the spawn cwd and the
+   * host-shipped extension path) into the same `scope` fields a caller could
+   * pass explicitly — `noBuiltinTools` + `extensions` + `extensionConfig.guard`
+   * — so the guard is ordinary capability scope, not a parallel mechanism.
+   * Absent ⇒ argv/env byte-identical. See change: constrain-agent-tool-surface.
+   */
+  guard?: boolean;
 }
 
 export interface SpawnResult {
@@ -182,10 +251,15 @@ export interface SpawnResult {
  * Build env for pi-session spawns.
  *
  * Order of PATH prepends (highest priority first):
- *   1. Managed Node runtime (`<managedDir>/node/{bin,}`) when installed.
+ *   1. With `opts.spawnRuntime` (pi-session spawns): the RESOLVED runtime's
+ *      bin dir (change unify-pi-runtime-identity, task 3.1) — the managed
+ *      prepend below is skipped.
+ *   2. Without it (legacy / managed-tree callers such as pi-core-updater):
+ *      the managed Node runtime (`<managedDir>/node/{bin,}`) when installed.
  *      See change: embed-managed-node-runtime.
- *   2. Managed bin (`<managedDir>/node_modules/.bin`).
- *   3. Current Node binary dir, extra bin dirs, common user bin dirs.
+ *   3. Managed bin (`<managedDir>/node_modules/.bin`), current Node binary
+ *      dir, extra bin dirs, common user bin dirs — from
+ *      `resolver.buildSpawnEnv`.
  *
  * The managed-Node prepend happens AFTER the resolver's prepends so it
  * lands at the very head of `PATH` — spawned children invoking plain
@@ -205,12 +279,59 @@ export function buildSpawnEnv(
     argv0?: string;
     /** Injected `execPath`/`electronVersion` for deterministic tests. */
     electronDeps?: { execPath?: string; electronVersion?: string };
-    /** Extra env merged last (e.g. session-guard policy). See change: constrain-agent-tool-surface. */
+    /**
+     * Per-extension config projected to namespaced env. For each
+     * `name`/`key`, sets `PI_EXT_<NAME>_<KEY>` where name+key are uppercased
+     * with every `[^A-Z0-9_]` char replaced by `_`. Scalar values project
+     * verbatim; array values as `JSON.stringify(value)` (design D8). Absent ⇒
+     * env untouched. Applied on the headless (plugin-spawn) mechanism. See
+     * change: add-plugin-spawn-scope.
+     */
+    extensionConfig?: Record<string, Record<string, string | string[]>>;
+    /**
+     * Ladder-resolved pi spawn runtime (change unify-pi-runtime-identity).
+     * When present, the child env derives from the RESOLVED runtime:
+     * `spawnRuntime.nodeBinDir` becomes the FIRST `PATH` entry and the
+     * managed Node directory is NOT prepended ahead of it (spec
+     * managed-node-runtime scenarios "Pi session inherits the resolved
+     * runtime" + "Process environment is not globally mutated"). Absent or
+     * null ⇒ legacy behavior byte-identical (unconditional managed prepend)
+     * for non-pi-session callers — the pi-core-updater managed-tree path
+     * (spec scenario "pi-core-updater inherits managed Node").
+     * See change: unify-pi-runtime-identity (task 3.1).
+     */
+    spawnRuntime?: ResolvedRuntime | null;
+    /**
+     * Caller-supplied, non-namespaced env forwarded verbatim. Applied BEFORE
+     * every host-managed injection (`PI_DASHBOARD_URL`,
+     * `PI_DASHBOARD_SPAWN_TOKEN`, `PI_EXT_*`) so a host key always wins a
+     * collision and a caller can never weaken it. Absent ⇒ no-op.
+     * See change: scope-session-toolset-by-profile.
+     */
     extraEnv?: Record<string, string>;
   },
 ): NodeJS.ProcessEnv {
   // Defensive copy: never mutate the caller's env (often `process.env`).
-  const env = { ...prependManagedNodeToPath(resolver.buildSpawnEnv(baseEnv)) };
+  // With a resolved spawn runtime the child PATH leads with the resolved
+  // bin dir (spec "Pi session inherits the resolved runtime"); without one
+  // the child follows the family SELECTION directly, falling back to the
+  // legacy managed prepend when no selection exists — the unconditional
+  // managed prepend no longer remains on this path.
+  // See change: add-node-runtime-family-selection (section 4, design D7).
+  const env = opts?.spawnRuntime
+    ? prependResolvedBinDir(resolver.buildSpawnEnv(baseEnv), opts.spawnRuntime)
+    : { ...prependSelectedNodeToPath(resolver.buildSpawnEnv(baseEnv)) };
+  // The launcher-stamped Electron identity markers are PARENT-identity
+  // signals (this server was launched by the Electron app) — they must not
+  // leak to grandchildren: a pi session that outlives Electron and
+  // bridge-auto-starts a new server would otherwise inherit
+  // `PI_DASHBOARD_ELECTRON=1` + a stale `PI_DASHBOARD_RESOURCES_PATH` and
+  // misdetect its arm (login-shell-first ordering + stale bundle paths).
+  // Same class as the ELECTRON_RUN_AS_NODE strip in resolver.buildSpawnEnv.
+  // See change: unify-pi-runtime-identity (CodeRabbit review, round 2
+  // non-blocking finding — grandchild marker leak).
+  delete env.PI_DASHBOARD_ELECTRON;
+  delete env.PI_DASHBOARD_RESOURCES_PATH;
   // Re-add the Electron-as-node flag that `resolver.buildSpawnEnv` strips,
   // but ONLY when the argv[0] we are about to spawn is the Electron binary.
   // The argv-aware chokepoint that keeps this builder in agreement with
@@ -218,11 +339,28 @@ export function buildSpawnEnv(
   if (opts?.argv0 && electronAsNodeRequired(opts.argv0, opts.electronDeps)) {
     env.ELECTRON_RUN_AS_NODE = "1";
   }
+  // Caller-supplied env, folded in BEFORE the host-managed keys below so the
+  // host always wins a collision (a caller-forged `PI_DASHBOARD_SPAWN_TOKEN` or
+  // `PI_EXT_*` value is overwritten, never honored). Distinct caller keys
+  // survive. See change: scope-session-toolset-by-profile.
+  if (opts?.extraEnv) {
+    for (const [k, v] of Object.entries(opts.extraEnv)) env[k] = v;
+  }
   // Point spawned bridges at THIS server's gateway so they register with the
   // server that spawned them, not the config-default piPort. Overrides any
   // inherited PI_DASHBOARD_URL. See setSpawnDashboardPiPort above.
   if (spawnDashboardPiPort != null) {
     env.PI_DASHBOARD_URL = `ws://localhost:${spawnDashboardPiPort}`;
+    // Pin over the socket too when this instance is serving one. The URL pin
+    // alone stops working the moment the default TCP listener goes away (task
+    // 8.1), and an inherited `PI_DASHBOARD_SOCKET` from another instance would
+    // outrank our URL in the bridge's precedence ladder — the same
+    // cross-instance capture, via a different variable (task 2.0f).
+    delete env.PI_DASHBOARD_SOCKET;
+    const local = resolveLocalGatewayEndpoint({ homedir: env.HOME }, spawnDashboardPiPort);
+    if (local.transport === "unix" && existsSync(local.path)) {
+      env.PI_DASHBOARD_SOCKET = local.path;
+    }
   }
   if (opts?.spawnToken) {
     // Inject the correlation token so the bridge inside the spawned pi
@@ -230,10 +368,104 @@ export function buildSpawnEnv(
     // See change: spawn-correlation-token.
     env.PI_DASHBOARD_SPAWN_TOKEN = opts.spawnToken;
   }
-  if (opts?.extraEnv) {
-    for (const [k, v] of Object.entries(opts.extraEnv)) env[k] = v;
+  if (opts?.extensionConfig) {
+    // Project per-extension config into namespaced env. Name+key are
+    // normalized to a valid env identifier: a camelCase boundary
+    // (`allowedRoots`) gets an underscore inserted, then the token is
+    // uppercased and every non-`[A-Z0-9_]` char replaced by `_` (so
+    // `allowedRoots`→`ALLOWED_ROOTS`, `api.key`→`API_KEY`, design D4).
+    // See change: add-plugin-spawn-scope.
+    for (const [name, config] of Object.entries(opts.extensionConfig)) {
+      const normName = normalizeEnvSegment(name);
+      for (const [key, value] of Object.entries(config)) {
+        const normKey = normalizeEnvSegment(key);
+        // Scalar string projects verbatim; array projects as JSON so the
+        // value is lossless for filesystem paths (design D8).
+        env[`PI_EXT_${normName}_${normKey}`] =
+          typeof value === "string" ? value : JSON.stringify(value);
+      }
+    }
   }
   return env;
+}
+
+/**
+ * Normalize an `extensionConfig` name/key segment into a valid uppercase env
+ * identifier: split camelCase boundaries with `_` (`allowedRoots` →
+ * `ALLOWED_ROOTS`), uppercase, then replace every non-`[A-Z0-9_]` char with
+ * `_` (`api.key` → `API_KEY`, `my-ext` → `MY_EXT`). See change:
+ * add-plugin-spawn-scope (design D4).
+ */
+function normalizeEnvSegment(segment: string): string {
+  return segment
+    .replace(/([a-z0-9])([A-Z])/g, "$1_$2")
+    .toUpperCase()
+    .replace(/[^A-Z0-9_]/g, "_");
+}
+
+// ── Spawn-runtime application (change unify-pi-runtime-identity) ────────────
+
+/**
+ * Prepend a resolved runtime's bin dir as the FIRST `PATH` entry of a
+ * cloned child env, dropping exact duplicates from the tail. Pure: never
+ * mutates the input env or `process.env` (spec managed-node-runtime
+ * scenario "Process environment is not globally mutated").
+ * See change: unify-pi-runtime-identity (task 3.1).
+ */
+function prependResolvedBinDir(
+  env: NodeJS.ProcessEnv,
+  rt: ResolvedRuntime,
+): NodeJS.ProcessEnv {
+  const out: NodeJS.ProcessEnv = { ...env };
+  const currentPath = out.PATH ?? "";
+  const rest = currentPath
+    ? currentPath.split(path.delimiter).filter((p) => p !== rt.nodeBinDir)
+    : [];
+  out.PATH = [rt.nodeBinDir, ...rest].join(path.delimiter);
+  return out;
+}
+
+/**
+ * Fresh spawn runtime for a pi-session spawn: read the process-lifetime
+ * holder (`runtime-resolution.ts`), re-validate immediately (spec
+ * managed-node-runtime scenario "Spawn-time re-validation"), and re-resolve
+ * live through the ladder when the stored resolution went stale (e.g. the
+ * resolved user Node was deleted since startup — fault X5). Returns null
+ * when startup resolution has not run yet; callers then keep the legacy
+ * managed-prepend env.
+ * See change: unify-pi-runtime-identity (task 9.23 / test-plan X5).
+ */
+export function spawnRuntimeForSession(): ResolvedRuntime | null {
+  const rt = currentSpawnRuntime();
+  if (!rt) return null;
+  if (validateResolvedRuntime(rt).ok) return rt;
+  // Re-resolve with the gate floor of the pi copy THIS session will spawn
+  // (design D2) — the same entry resolvePiCommand is about to exec.
+  const piCmd = resolver.resolvePi();
+  return resolveLiveSpawnRuntime(piCmd ? { piEntry: piEntryFromArgv(piCmd) } : {});
+}
+
+/**
+ * Re-point an explicit `[<node>, <script>.js]` argv pair — the node-wrapped
+ * shape `makeNodeScriptToArgv` produces, e.g. the Windows headless
+ * `node.exe + cli.js` pairing — at the resolved spawn runtime's binary
+ * (spec managed-node-runtime scenario "Explicit-argv spawns use the
+ * resolved binary"). Non-pair argv (bare `pi`), a null runtime, or an
+ * argv that already leads with the resolved binary pass through
+ * unchanged. Pure and platform-neutral: the pair shape (`.js` second
+ * element) is itself the Windows mechanic — on non-Windows the pair only
+ * ever re-points when a ladder-resolved runtime differs, which is exactly
+ * the ABI-coherence the change establishes.
+ * See change: unify-pi-runtime-identity (task 3.2).
+ */
+export function applySpawnRuntimeToPiArgv(
+  piCmd: string[],
+  rt: ResolvedRuntime | null,
+): string[] {
+  if (!rt || piCmd.length < 2) return piCmd;
+  if (!/\.js$/i.test(piCmd[1])) return piCmd;
+  if (piCmd[0] === rt.nodeBinary) return piCmd;
+  return [rt.nodeBinary, ...piCmd.slice(1)];
 }
 
 /**
@@ -262,28 +494,43 @@ export function buildInteractivePiArgs(options?: SessionOptions): string[] {
 }
 
 /**
- * Build a tmux shell command string to run pi in a new tmux window/session.
- * Kept as a string (not argv) because tmux is invoked via `execSync(cmd)`.
+ * Build the tmux argv to run pi in a new tmux window/session.
+ *
+ * Returns an argument vector (NOT a shell string): tmux is invoked via
+ * `buildSafeArgv` + `execFileSync` with `shell: false`, so `cwd` travels as a
+ * literal `-c <cwd>` element — no dashboard-side shell interprets it. The
+ * redundant `cd <cwd> &&` prefix is gone: tmux's own `-c` flag already sets the
+ * pane working directory.
+ *
+ * Layers removed: (1) dashboard-side `/bin/sh` from `execSync`, (3) cmd.exe, and
+ * (4) WSL's default shell. Layer (2) — the tmux pane shell that runs
+ * `shell-command` — remains BY DESIGN: tmux executes the pane command through a
+ * shell of its own, so `shellEscape` is still applied to the pane tokens (pi
+ * invocation + session flags). Do not strip it.
  */
-export function buildTmuxCommand(cwd: string, sessionExists: boolean, options?: SessionOptions): string {
-  const safeCwd = shellEscape(cwd);
-  const flags = sessionFlagsToArgv(options ?? {})
-    .map(shellEscape)
-    .join(" ");
-  const piCmd = flags ? `cd ${safeCwd} && pi ${flags}` : `cd ${safeCwd} && pi`;
-  // Per-window token. `execSync(cmd, { env })` only sets the tmux CLIENT's env;
-  // once a `pi-dashboard` server is running, `new-window` inherits the SERVER's
-  // environment, so every later window carried the FIRST spawn's token (three
-  // concurrent panes were measured sharing one). `-e` scopes it to this window,
-  // which is what makes the token a usable identity at all.
+export function buildTmuxCommand(
+  cwd: string,
+  sessionExists: boolean,
+  options?: SessionOptions,
+  piInvocation: string[] = ["pi"],
+): string[] {
+  const paneCommand = [
+    ...piInvocation.map(shellEscape),
+    ...sessionFlagsToArgv(options ?? {}).map(shellEscape),
+  ].join(" ");
+  // Per-window token. `execFileSync(cmd, { env })` only sets the tmux CLIENT's
+  // env; once a `pi-dashboard` server is running, `new-window` inherits the
+  // SERVER's environment, so every later window carried the FIRST spawn's token
+  // (three concurrent panes were measured sharing one). `-e` scopes it to this
+  // window, which is what makes the token a usable identity at all.
   // See change: fix-tmux-session-shutdown-leak (design D5).
-  const tokenEnv = options?.spawnToken
-    ? ` -e PI_DASHBOARD_SPAWN_TOKEN=${shellEscape(options.spawnToken)}`
-    : "";
+  const tokenEnv: string[] = options?.spawnToken
+    ? ["-e", `PI_DASHBOARD_SPAWN_TOKEN=${options.spawnToken}`]
+    : [];
   if (sessionExists) {
-    return `tmux new-window -t pi-dashboard${tokenEnv} -c ${safeCwd} "${piCmd}"`;
+    return ["tmux", "new-window", "-t", "pi-dashboard", ...tokenEnv, "-c", cwd, paneCommand];
   }
-  return `tmux new-session -d -s pi-dashboard${tokenEnv} -c ${safeCwd} "${piCmd}"`;
+  return ["tmux", "new-session", "-d", "-s", "pi-dashboard", ...tokenEnv, "-c", cwd, paneCommand];
 }
 
 // ── Availability probes (isolated, one place) ───────────────────────────────
@@ -359,9 +606,15 @@ function dashboardSessionExists(): boolean {
   }
 }
 
-/** Resolve pi as argv. Prefers node.exe + cli.js on Windows (avoids .cmd). */
-function resolvePiCommand(): string[] | null {
-  return resolver.resolvePi();
+/**
+ * Resolve pi as argv. Prefers node.exe + cli.js on Windows (avoids .cmd).
+ * When a spawn runtime is passed, an explicit `[<node>, <script>.js]` argv
+ * pair is re-pointed at the resolved binary (task 3.2).
+ * See change: unify-pi-runtime-identity.
+ */
+function resolvePiCommand(rt?: ResolvedRuntime | null): string[] | null {
+  const piCmd = resolver.resolvePi();
+  return piCmd ? applySpawnRuntimeToPiArgv(piCmd, rt ?? null) : null;
 }
 
 // ── Mechanism dispatch ─────────────────────────────────────────────────────
@@ -438,26 +691,18 @@ export async function spawnPiSession(
   // SpawnResult so callers can register it with the registries.
   // See change: spawn-correlation-token.
   const spawnToken = options?.spawnToken ?? mintSpawnToken();
-  const opts: SessionOptions & { electronMode?: boolean } = { ...(options ?? {}), spawnToken };
+  const baseOpts: SessionOptions & { electronMode?: boolean } = { ...(options ?? {}), spawnToken };
 
-  // Session guard: resolve origin ∪ guarded-cwd, fold into spawn flags + env.
-  // Every invoice-bot-spawned session (per-invoice main, "Ask"/Kérdezz, or any
-  // plugin spawn) is guarded here. See change: constrain-agent-tool-surface.
-  const guardPolicy = resolveGuardForSpawn({ cwd, origin: opts.guard });
-  if (guardPolicy) {
-    const gf = guardPolicyToSpawn(guardPolicy, cwd);
-    if (gf.noBuiltinTools) opts.noBuiltinTools = true;
-    if (gf.loadExtensions?.length) opts.loadExtensions = [...(opts.loadExtensions ?? []), ...gf.loadExtensions];
-    if (gf.env) opts.guardEnv = { ...(opts.guardEnv ?? {}), ...gf.env };
-  }
-
-  // Fold caller-supplied env BENEATH the guard env into the single extraEnv
-  // slot: caller first, guard last, so the guard wins on any key collision and
-  // can never be weakened by a caller-supplied value; distinct keys from both
-  // sources survive. See change: scope-session-toolset-by-profile.
-  if (opts.env && Object.keys(opts.env).length > 0) {
-    opts.guardEnv = { ...opts.env, ...(opts.guardEnv ?? {}) };
-  }
+  // Resolve + merge the cwd capability floor BEFORE argv/env are built, for
+  // EVERY spawn regardless of origin (design B1). No matching policy ⇒
+  // `mergeCwdPolicy` returns `baseOpts` unchanged ⇒ byte-identical argv/env.
+  // Expand the guard marker into scope fields FIRST, so the cwd floor below can
+  // only tighten it further (it never widens). See applyGuardScope.
+  const guardedOpts: SessionOptions & { electronMode?: boolean } = baseOpts.guard
+    ? { ...applyGuardScope(cwd, baseOpts), electronMode: baseOpts.electronMode }
+    : baseOpts;
+  const policy = cwdPolicyRegistry?.resolve(cwd);
+  const opts = policy ? mergeCwdPolicy(policy, guardedOpts) : guardedOpts;
 
   const mechanism = chooseMechanism(opts, opts?.electronMode ?? false);
 
@@ -473,17 +718,70 @@ export async function spawnPiSession(
   return { ...result, spawnToken };
 }
 
+/**
+ * Expand `guard: true` into explicit capability scope, contained to the spawn
+ * `cwd`:
+ *  - `noBuiltinTools` — remove pi's general tool surface (the STRONGER of the
+ *    two boundaries: a removed tool cannot be vetoed wrongly);
+ *  - `extensions += <host-shipped guard extension>` — the `tool_call`
+ *    interceptor that vetoes a path argument escaping `cwd` (defence in depth
+ *    for the extension/custom tools that remain);
+ *  - `extensionConfig.guard.allowedRoots = [cwd, ...caller-supplied roots]` —
+ *    its config, delivered on develop's namespaced `PI_EXT_GUARD_ALLOWED_ROOTS`
+ *    channel.
+ *
+ * The cwd is ALWAYS a root; caller-supplied roots are ADDED to it, never
+ * replace it. A caller legitimately needs a folder outside the session cwd
+ * (a drop/intake directory), and containing hard to `[cwd]` alone would break
+ * that silently. The host stays domain-free: it accepts roots, it does not
+ * interpret them. Additive elsewhere too — a caller's own `extensions` and
+ * other `extensionConfig` entries survive untouched.
+ */
+function applyGuardScope(cwd: string, options: SessionOptions): SessionOptions {
+  const existingGuardConfig = options.extensionConfig?.[GUARD_EXTENSION_CONFIG_NAME] ?? {};
+  const supplied = existingGuardConfig.allowedRoots;
+  const extraRoots = (Array.isArray(supplied) ? supplied : supplied ? [supplied] : []).map((r) => path.resolve(r));
+  const roots = [path.resolve(cwd), ...extraRoots.filter((r) => r !== path.resolve(cwd))];
+  const extensions = options.extensions ?? [];
+  return {
+    ...options,
+    noBuiltinTools: true,
+    extensions: extensions.includes(GUARD_EXTENSION_PATH) ? extensions : [...extensions, GUARD_EXTENSION_PATH],
+    extensionConfig: {
+      ...(options.extensionConfig ?? {}),
+      [GUARD_EXTENSION_CONFIG_NAME]: { ...existingGuardConfig, allowedRoots: roots },
+    },
+  };
+}
+
 // ── Per-mechanism spawn ────────────────────────────────────────────────────
 
-function spawnTmux(cwd: string, options?: SessionOptions): SpawnResult {
+export function spawnTmux(cwd: string, options?: SessionOptions): SpawnResult {
   const exists = dashboardSessionExists();
-  const cmd = buildTmuxCommand(cwd, exists, options);
+  // Carry the registry-resolved pi argv into the pane so tmux sessions honour
+  // the SELECTED runtime instead of the shell's first PATH `pi`. Without this,
+  // the picker's divergence banner and "new sessions use it immediately" would
+  // describe a selection the default interactive path ignores.
+  // See change: select-pi-runtime-install (design D9).
+  const rt = spawnRuntimeForSession();
+  const piCmd = resolvePiCommand(rt);
+  if (!piCmd) {
+    return { success: false, code: "PI_NOT_FOUND", message: `pi binary not found. Checked: ${MANAGED_BIN} and system PATH.` };
+  }
+  const cmd = buildTmuxCommand(cwd, exists, options, piCmd);
   // Pass env explicitly so PI_DASHBOARD_SPAWN_TOKEN reaches the tmux pane's
   // pi process (tmux inherits the caller's env into new windows/sessions).
+  // argv0 re-adds the Electron-as-node flag when piCmd[0] is the Electron binary.
   // See change: spawn-correlation-token.
-  const env = buildSpawnEnv(process.env, { spawnToken: options?.spawnToken, extraEnv: options?.guardEnv });
+  const env = buildSpawnEnv(process.env, {
+    spawnToken: options?.spawnToken,
+    argv0: piCmd[0],
+    spawnRuntime: rt,
+    extraEnv: options?.env,
+  });
   try {
-    execSync(cmd, { stdio: "ignore", env });
+    const { argv, spawnOptions } = buildSafeArgv(cmd[0], cmd.slice(1));
+    execFileSync(argv[0], argv.slice(1), { stdio: "ignore", env, ...spawnOptions });
     return {
       success: true,
       dashboardSpawned: true,
@@ -494,11 +792,19 @@ function spawnTmux(cwd: string, options?: SessionOptions): SpawnResult {
   }
 }
 
-function spawnWslTmux(cwd: string, options?: SessionOptions): SpawnResult {
+export function spawnWslTmux(cwd: string, options?: SessionOptions): SpawnResult {
   try {
-    const cmd = `wsl ${buildTmuxCommand(cwd, false, options)}`;
-    const env = buildSpawnEnv(process.env, { spawnToken: options?.spawnToken, extraEnv: options?.guardEnv });
-    execSync(cmd, { stdio: "ignore", env });
+    // `wsl.exe --exec <tmux argv>`: `.exe` bypasses the cmd.exe branch in
+    // buildSafeArgv; `--exec` runs tmux directly instead of through WSL's
+    // default shell. `pi` stays literal so it resolves inside the WSL namespace.
+    const tmuxArgv = buildTmuxCommand(cwd, false, options, ["pi"]);
+    const env = buildSpawnEnv(process.env, {
+      spawnToken: options?.spawnToken,
+      spawnRuntime: spawnRuntimeForSession(),
+      extraEnv: options?.env,
+    });
+    const { argv, spawnOptions } = buildSafeArgv("wsl.exe", ["--exec", ...tmuxArgv]);
+    execFileSync(argv[0], argv.slice(1), { stdio: "ignore", env, ...spawnOptions });
     return { success: true, dashboardSpawned: true, message: "Pi session spawned via WSL tmux" };
   } catch (err: any) {
     return { success: false, code: "TMUX_MISSING", message: `Failed to spawn via WSL tmux (wsl-tmux mechanism): ${err.message}` };
@@ -510,7 +816,8 @@ async function spawnWt(cwd: string, options?: SessionOptions): Promise<SpawnResu
   if (!wt) {
     return { success: false, code: "WT_MISSING", message: "Windows Terminal (wt.exe) not found" };
   }
-  const piCmd = resolvePiCommand();
+  const rt = spawnRuntimeForSession();
+  const piCmd = resolvePiCommand(rt);
   if (!piCmd) {
     return { success: false, code: "PI_NOT_FOUND", message: `pi binary not found. Checked: ${MANAGED_BIN} and system PATH.` };
   }
@@ -524,7 +831,12 @@ async function spawnWt(cwd: string, options?: SessionOptions): Promise<SpawnResu
     cwd,
     // pass the node-wrapped pi argv[0] so the Electron-as-node flag is
     // re-added when it is the Electron binary (execpath-fallback topology).
-    env: buildSpawnEnv(process.env, { spawnToken: options?.spawnToken, argv0: piCmd[0], extraEnv: options?.guardEnv }),
+    env: buildSpawnEnv(process.env, {
+      spawnToken: options?.spawnToken,
+      argv0: piCmd[0],
+      spawnRuntime: rt,
+      extraEnv: options?.env,
+    }),
   });
 
   if (!r.ok) {
@@ -549,14 +861,21 @@ async function spawnHeadless(cwd: string, options?: SessionOptions): Promise<Spa
   // See change: add-rpc-stdin-dispatch-with-keeper-sidecar (introduced keeper),
   //             enable-rpc-keeper-by-default (made keeper the only path).
   const args = buildHeadlessArgs(options);
-  const piCmd = resolvePiCommand();
+  const rt = spawnRuntimeForSession();
+  const piCmd = resolvePiCommand(rt);
   if (!piCmd) {
     return { success: false, code: "PI_NOT_FOUND", message: `pi binary not found. Checked: ${MANAGED_BIN} and system PATH.` };
   }
   // Build env AFTER resolving piCmd so the node-wrapped pi argv[0] re-adds
   // the Electron-as-node flag when it is the Electron binary. This env is
   // the keeper's base env, so the forwarded pi child inherits the flag too.
-  const env = buildSpawnEnv(process.env, { spawnToken: options?.spawnToken, argv0: piCmd[0], extraEnv: options?.guardEnv });
+  const env = buildSpawnEnv(process.env, {
+    spawnToken: options?.spawnToken,
+    argv0: piCmd[0],
+    extensionConfig: options?.extensionConfig,
+    spawnRuntime: rt,
+    extraEnv: options?.env,
+  });
   return spawnHeadlessViaKeeper(cwd, env, args, piCmd);
 }
 
@@ -593,9 +912,24 @@ async function spawnHeadlessViaKeeper(
   // config flag (default OFF). Read at spawn time so toggling takes effect on
   // the next spawn without a server restart. The keeper reads this env var to
   // pick its pi-child stdio sink. See change: add-keeper-output-capture-toggle.
-  if (loadConfig().keeperLog.capturePiOutput) {
+  const keeperLog = loadConfig().keeperLog;
+  if (keeperLog.capturePiOutput) {
     env = { ...env, PI_KEEPER_CAPTURE_PI_OUTPUT: "1" };
   }
+  // The keeper is CJS-pure and cannot import the shared config, so the cap and
+  // check interval ride the same env path as capturePiOutput. Read at spawn
+  // time (per D7: the keeper's cap is a spawn-time value; keepers started
+  // before a config change keep the old cap until their session ends). The
+  // keeper strips both vars from pi's env before spawning pi. Note: no
+  // "only when default" elision — an explicit value must survive even when it
+  // equals the default, so a changed default cannot silently fork behavior
+  // between keeper generations.
+  // See change: fix-runaway-keeper-log-growth (D7, task 1.3).
+  env = {
+    ...env,
+    PI_KEEPER_LOG_MAX_BYTES: String(keeperLog.maxBytes),
+    PI_KEEPER_LOG_CHECK_INTERVAL_MS: String(keeperLog.checkIntervalMs),
+  };
 
   // piArgs already includes `--mode rpc` plus any per-spawn flags from
   // `buildHeadlessArgs(options)` (e.g. `--session-file <path>` for resume,

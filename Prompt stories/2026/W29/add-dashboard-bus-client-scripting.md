@@ -188,7 +188,7 @@ OpenSpec anomalies safely.
 
 **Inputs:**
 - The OpenSpec change name (e.g., `add-dashboard-bus-client-scripting`).
-- The cwd (this project, `pi-agent-dashboard`).
+- The cwd (this project, `/Users/robson/Project/pi-agent-dashboard`).
 - Git access to see PR history and commits.
 
 **Steps:**
@@ -208,4 +208,4 @@ OpenSpec anomalies safely.
 
 ---
 
-*Generated from session `019f6c7a-0d69-7781-b3b9-673bcf51ab09` · `pi-agent-dashboard` · 2026-07-16. Duration: 15m 12s. Cost: $2.05. Source extract: `/tmp/facts_019f6c7a.md`.*
+*Generated from session `019f6c7a-0d69-7781-b3b9-673bcf51ab09` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-16. Duration: 15m 12s. Cost: $2.05. Source extract: `/tmp/facts_019f6c7a.md`.*

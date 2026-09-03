@@ -109,4 +109,4 @@ Final artifacts produced:
 
 ---
 
-_Generated from session `019e7a6d-0bce-7bec-a5c5-b8451e7a8032` · `pi-agent-dashboard` · 2026-05-30. Source extract: session-to-guideline facts sheet._
+_Generated from session `019e7a6d-0bce-7bec-a5c5-b8451e7a8032` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-30. Source extract: session-to-guideline facts sheet._

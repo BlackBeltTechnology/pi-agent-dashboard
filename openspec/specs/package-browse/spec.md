@@ -63,17 +63,6 @@ When a user initiates an install, the UI SHALL show a confirmation dialog displa
 - **WHEN** user clicks "Install" and then cancels the confirmation
 - **THEN** no install occurs
 
-### Requirement: Install progress feedback
-When a package install/remove/update is in progress, the UI SHALL show real-time progress received via WebSocket `package_progress` messages.
-
-#### Scenario: Install with progress
-- **WHEN** a confirmed install begins
-- **THEN** a full-width Install button progress indicator appears showing streamed progress events until completion
-
-#### Scenario: Install completes
-- **WHEN** a `package_progress` event with `type: "complete"` arrives
-- **THEN** the progress indicator disappears, the card updates to show "Installed" badge, and the installed packages list refreshes
-
 ### Requirement: Check for updates on demand
 The installed packages list SHALL include a "Check for Updates" button. Clicking it SHALL call the server to check for available updates and mark packages that have updates available. No proactive polling or update badges.
 

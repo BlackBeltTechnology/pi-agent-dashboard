@@ -154,4 +154,4 @@ archived `openspec/changes/archive/2026-07-12-fix-remote-connect-cors-gates/`.
 
 ---
 
-_Generated from session `019f547b` · `pi-agent-dashboard` · 2026-07-12. Source extract: session facts sheet (mktemp)._
+_Generated from session `019f547b` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-12. Source extract: session facts sheet (mktemp)._

@@ -1,0 +1,13 @@
+flowchart LR
+  subgraph L["the six inner loops and what stops each"]
+    direction TB
+    L1["<b>doubt cycle</b> · PLAN<br/>actor: fresh-context SUBAGENT + cross-model<br/>STOP: trivial findings | 3 cycles | 'ship it'"]
+    L2["<b>mockup loop</b> · PLAN<br/>actor: main session + serve_mockup / score_mockup<br/>STOP: rubric pass — contrast + responsive + anti-slop,<br/>both themes, 3 breakpoints"]
+    L3["<b>fold gate</b> · PLAN<br/>actor: main session<br/>STOP: every manifest row ↔ exactly one task"]
+    L4["<b>red-test fix</b> · BUILD 4<br/>actor: ship-it ITSELF — never apply<br/>STOP: a cycle that changes nothing → escape hatch"]
+    L5["<b>review round</b> · BUILD 4.5<br/>actor: isolated @review SUBAGENT<br/>STOP: hard cap 2 rounds, 300 s per call<br/>— NOT a no-progress bound: a model always 'progresses'"]
+    L6["<b>CI ↔ CodeRabbit</b> · SHIP 6 ↔ 8<br/>actor: session drives, GitHub executes<br/>STOP: all checks green AND no actionable threads"]
+    L1 --> L2 --> L3 --> L4 --> L5 --> L6
+  end
+  classDef s fill:#e8eaf6,stroke:#283593,stroke-width:2px
+  class L1,L2,L3,L4,L5,L6 s

@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en" data-resolution="custom">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=1520, height=1000" />
+    <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.2/dist/gsap.min.js"></script>
+    <style>
+      *{margin:0;padding:0;box-sizing:border-box}
+      html,body{width:1520px;height:1000px;overflow:hidden;background:#0a0a0a}
+
+      /* Tokens mirrored from packages/client/src/index.css so the clip and the
+         product read as one object. */
+      :root{
+        --bg:#0a0a0a; --panel:#141414; --rim:rgba(255,255,255,.10);
+        --fg:#e5e5e5; --fg2:#b0b0b0; --fg3:#808080; --accent:#60a5fa;
+        --mono:"JetBrains Mono","SF Mono",Menlo,Monaco,monospace;
+        --sans:"Instrument Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+      }
+      body{font-family:var(--sans);background:var(--bg)}
+
+      .clip{position:absolute;inset:0;width:1520px;height:1000px}
+
+      /* Screenshot stage — the real UI, framed by nothing but a rim. */
+      .shot{
+        position:absolute;left:50%;top:34px;transform-origin:50% 42%;
+        width:1440px;height:900px;margin-left:-720px;
+        border-radius:12px;overflow:hidden;
+        box-shadow:inset 0 1px 0 var(--rim), 0 40px 90px rgba(0,0,0,.75);
+        outline:1px solid #2a2a2a;outline-offset:-1px;
+      }
+      .shot img{display:block;width:1440px;height:900px}
+
+      /* Caption rail, bottom margin. Mono uppercase = the product's own UI type. */
+      .cap{position:absolute;left:40px;bottom:26px;display:flex;align-items:baseline;gap:18px}
+      .cap .n{font-family:var(--mono);font-size:15px;letter-spacing:.14em;color:var(--accent)}
+      .cap .t{font-size:31px;font-weight:400;letter-spacing:-.02em;color:var(--fg)}
+      .cap .s{font-family:var(--mono);font-size:15px;color:var(--fg3);letter-spacing:.04em}
+
+      /* Progress hairline across the full clip. */
+      /* Overrides .clip's full-canvas box — the rail is a hairline, not a scene. */
+      #rail.clip{position:absolute;inset:auto;left:40px;right:40px;bottom:12px;
+        width:auto;height:2px;background:#1e1e1e;border-radius:1px}
+      #railfill{height:100%;width:0;background:var(--accent);border-radius:1px}
+    </style>
+  </head>
+  <body>
+    <div id="root" data-composition-id="main" data-start="0" data-duration="12"
+         data-width="1520" data-height="1000">
+
+      <!-- SCENE 1 — sessions overview -->
+      <div id="s1" class="clip" data-start="0" data-duration="4.4" data-track-index="1"
+           data-layout-allow-overlap>
+        <div class="shot"><img src="assets/sessions.png" alt="Sessions grouped by project folder" /></div>
+        <div class="cap">
+          <span class="n" data-layout-allow-overlap>01</span>
+          <span class="t" data-layout-allow-overlap>Every session, in one place</span>
+          <span class="s" data-layout-allow-overlap>grouped by folder</span>
+        </div>
+      </div>
+
+      <!-- SCENE 2 — live chat + decision dialog -->
+      <div id="s2" class="clip" data-start="4" data-duration="4.4" data-track-index="2"
+           data-layout-allow-overlap>
+        <div class="shot"><img src="assets/chat.png" alt="Live transcript with an interactive decision dialog" /></div>
+        <div class="cap">
+          <span class="n" data-layout-allow-overlap>02</span>
+          <span class="t" data-layout-allow-overlap>Answer it from anywhere</span>
+          <span class="s" data-layout-allow-overlap>the agent waits for you</span>
+        </div>
+      </div>
+
+      <!-- SCENE 3 — split workbench -->
+      <div id="s3" class="clip" data-start="8" data-duration="4" data-track-index="3"
+           data-layout-allow-overlap>
+        <div class="shot"><img src="assets/workbench.png" alt="Split view: transcript beside the file tree and editor" /></div>
+        <div class="cap">
+          <span class="n" data-layout-allow-overlap>03</span>
+          <span class="t" data-layout-allow-overlap>Read the diff, right there</span>
+          <span class="s" data-layout-allow-overlap>editor + files, split view</span>
+        </div>
+      </div>
+
+      <div id="rail" class="clip" data-start="0" data-duration="12" data-track-index="0">
+        <div id="railfill"></div>
+      </div>
+    </div>
+
+    <script>
+      window.__timelines = window.__timelines || {};
+      const tl = gsap.timeline({ paused: true });
+
+      /* Each scene: settle-in (scale down toward rest) + fade at both ends.
+         Slow, single-direction motion — no bounce, no parallax. */
+      function scene(sel, at, dur){
+        tl.fromTo(sel,   { opacity: 0 }, { opacity: 1, duration: 0.55, ease: "power2.out" }, at);
+        tl.fromTo(sel + " .shot", { scale: 1.035 }, { scale: 1, duration: dur, ease: "none" }, at);
+        tl.fromTo(sel + " .cap", { opacity: 0, y: 14 },
+                                 { opacity: 1, y: 0, duration: 0.7, ease: "power3.out" }, at + 0.2);
+        tl.to(sel, { opacity: 0, duration: 0.45, ease: "power2.in" }, at + dur - 0.45);
+      }
+
+      scene("#s1", 0, 4.4);
+      scene("#s2", 4, 4.4);
+      scene("#s3", 8, 4.0);
+
+      tl.fromTo("#railfill", { width: "0%" }, { width: "100%", duration: 12, ease: "none" }, 0);
+
+      window.__timelines["main"] = tl;
+    </script>
+  </body>
+</html>

@@ -116,6 +116,14 @@ export interface PopoverFlipState {
   anchorRight: boolean;
   /** Clamped max width (px) for the popover in the chosen anchor direction. */
   maxWidth: number;
+  /**
+   * The trigger's viewport rect on the last measure, or null while closed.
+   * ADDITIVE: existing (inline-`absolute`) consumers ignore it. A PORTALED
+   * consumer (see the overlay-layering spec) positions its `fixed` panel from
+   * this rect + `flipUp`/`anchorRight`, since a portaled panel is no longer
+   * anchored by an `absolute` wrapper. See change: add-overlay-layering-system.
+   */
+  triggerRect: { top: number; bottom: number; left: number; right: number; width: number } | null;
 }
 
 /** Default readable-height floor (`minHeight`) so a popover is never a sliver. */
@@ -134,6 +142,7 @@ const CLOSED_STATE: PopoverFlipState = {
   minHeight: 0,
   anchorRight: true,
   maxWidth: MIN_POPOVER_WIDTH,
+  triggerRect: null,
 };
 
 export function usePopoverFlip(
@@ -214,7 +223,14 @@ export function usePopoverFlip(
     const anchorRight = preferLeft ? flipHorizontal : !flipHorizontal;
     const chosenSpace = flipHorizontal ? otherSpace : preferredSpace;
     const maxWidth = Math.max(MIN_POPOVER_WIDTH, chosenSpace);
-    setState({ flipUp, maxHeight, minHeight, anchorRight, maxWidth });
+    const triggerRect = {
+      top: rect.top,
+      bottom: rect.bottom,
+      left: rect.left,
+      right: rect.right,
+      width: rect.width,
+    };
+    setState({ flipUp, maxHeight, minHeight, anchorRight, maxWidth, triggerRect });
   }, [triggerRef, boundaryRef, estimatedHeight, gap, threshold, estimatedWidth, preferredAnchor, minContentWidth, minPopoverHeight]);
 
   // Measure BEFORE paint (layout effect): a plain effect paints one frame at the

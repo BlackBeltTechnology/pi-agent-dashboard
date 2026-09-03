@@ -148,4 +148,4 @@ and emit the missing-tasks list. It removes the manual three-way diff and the
 
 ---
 
-_Generated from session `019de134-7498-73e0-858c-2a9e2fe887d2` · `pi-agent-dashboard` · 2026-05-02. Source extract: `/tmp/facts-1979-17249.md`._
+_Generated from session `019de134-7498-73e0-858c-2a9e2fe887d2` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-02. Source extract: `/tmp/facts-1979-17249.md`._

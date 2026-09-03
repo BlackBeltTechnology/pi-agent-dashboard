@@ -381,6 +381,9 @@ export function FlowAgentCard({
             size="lg"
             flush
           >
+            {/* STAYS: a DEFINITE height pin, not a duplicated flex context —
+                the popout keeps a stable height as the transcript grows.
+                See change: fix-flush-dialog-scroll-and-close-collision. */}
             <div className="h-[70vh] overflow-hidden flex flex-col">
               <FlowAgentDetail
                 agent={agent}

@@ -25,6 +25,8 @@ function deps(abortSession: ServerContextDeps["abortSession"]): ServerContextDep
     spawnSession: async () => ({ success: true }),
     abortSession,
     abortSpawnedRun: async () => false,
+    registerCwdPolicy: () => {},
+    unregisterCwdPolicy: () => {},
     provide: () => {},
     consume: () => undefined,
     getPluginConfig: () => ({}),

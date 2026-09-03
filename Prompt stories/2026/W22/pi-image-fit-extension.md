@@ -169,4 +169,4 @@ a running dashboard + the `pi-dashboard` and `browser` skills.
 
 ---
 
-_Generated from session `019e7b7e` · `pi-agent-dashboard/.worktrees/os-pi-image-fit-extension` · 2026-05-31. Source extract: facts sheet (mktemp)._
+_Generated from session `019e7b7e` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-pi-image-fit-extension` · 2026-05-31. Source extract: facts sheet (mktemp)._

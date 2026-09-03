@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-roles-plugin",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Bundled built-in plugin — ships first-party dashboard contributions (e.g. roles settings UI) so they're replaceable/augmentable by third-party plugins via the same slot system.",
   "license": "MIT",
   "publishConfig": {
@@ -20,23 +20,31 @@
     "./client": {
       "types": "./src/index.tsx",
       "default": "./src/index.tsx"
+    },
+    "./server": {
+      "types": "./src/server/index.ts",
+      "default": "./src/server/index.ts"
     }
   },
   "files": [
     "src/",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md",
     "!**/__tests__",
     "!**/*.test.ts",
     "!**/*.test.tsx"
   ],
   "peerDependencies": {
+    "fastify": "^5.0.0",
     "react": ">=18.0.0"
   },
   "dependencies": {
-    "@blackbelt-technology/dashboard-plugin-runtime": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0"
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",
+    "fastify": "^5.0.0",
     "react": "^19.0.0"
   },
   "pi-dashboard-plugin": {
@@ -45,6 +53,7 @@
     "i18nCatalog": "catalog",
     "priority": 100,
     "client": "./src/index.tsx",
+    "server": "./src/server/index.ts",
     "claims": [
       {
         "slot": "settings-section",

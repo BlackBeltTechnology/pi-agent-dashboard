@@ -1,4 +1,10 @@
-## ADDED Requirements
+# flow-browser-protocol Specification
+
+## Purpose
+
+Defines the flow control messages a browser sends to the dashboard server, so flow start/stop actions taken in the UI have a specified wire contract rather than an ad-hoc one.
+
+## Requirements
 
 ### Requirement: Flow control messages from browser to server
 The browser protocol SHALL define a `flow_control` message type for flow-specific actions sent from the browser to the server.

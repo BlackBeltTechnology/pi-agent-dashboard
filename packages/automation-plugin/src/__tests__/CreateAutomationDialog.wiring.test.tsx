@@ -5,17 +5,18 @@
  *
  * api + ui-primitive mocked (mirrors CreateAutomationDialog.test.tsx).
  */
-import React from "react";
-import { describe, it, expect, afterEach, vi, beforeEach } from "vitest";
-import { render, cleanup, fireEvent, waitFor, act } from "@testing-library/react";
-import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
+
+import { createSlotRegistry, type SlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
 import {
   applyPluginConfigUpdate,
-  PluginContextProvider,
   CurrentPluginLayer,
+  PluginContextProvider,
 } from "@blackbelt-technology/dashboard-plugin-runtime/context";
-import { createSlotRegistry, type SlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
+import { withUiPrimitiveProvider } from "@blackbelt-technology/dashboard-plugin-runtime/test-support";
 import type { UiModelSelectorProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react";
+import type React from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { TriggerCategoryDescriptor } from "../shared/automation-types.js";
 
 const { createAutomation, updateAutomation, listTriggerKinds, isGitCapable, listActions } = vi.hoisted(() => ({
@@ -89,7 +90,12 @@ function StubEditor({
 
 function wrap(node: React.ReactNode, registry: SlotRegistry) {
   return withUiPrimitiveProvider(
-    { "ui:model-selector": MockModelSelector },
+    {
+      "ui:model-selector": MockModelSelector,
+      // Paired level control on the direct-model branch.
+      // See change: add-default-thinking-level.
+      "ui:thinking-level-selector": () => null,
+    },
     <PluginContextProvider registry={registry} sessions={[]} send={() => {}}>
       <CurrentPluginLayer pluginId="automation">{node}</CurrentPluginLayer>
     </PluginContextProvider>,
@@ -171,6 +177,37 @@ describe("CreateAutomationDialog — automation-action-editor slot (group 5)", (
       kind: "flows.run",
       payload: { flow: "invoicebot:process", task: "", inputs: { invoice: "${{trigger}}" } },
     });
+  });
+});
+
+// F4 — see change: add-automation-concurrent-spawn.
+describe("CreateAutomationDialog — multi-action fan-out editor", () => {
+  it("a single entry submits `action:` (no `actions:`)", async () => {
+    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />, createSlotRegistry()));
+    fireEvent.change(getByTestId("create-name"), { target: { value: "solo" } });
+    fireEvent.click(getByTestId("create-submit"));
+    await waitFor(() => expect(createAutomation).toHaveBeenCalled());
+    const cfg = createAutomation.mock.calls[0]![0]!.config;
+    expect(cfg.action).toEqual({ kind: "prompt", prompt: "./prompt.md" });
+    expect(cfg.actions).toBeUndefined();
+  });
+
+  it("adding an entry with a count submits `actions:` with 2 entries", async () => {
+    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />, createSlotRegistry()));
+    fireEvent.change(getByTestId("create-name"), { target: { value: "fan" } });
+    // Add a second action entry, point it at flows.run, set count 3.
+    fireEvent.click(getByTestId("add-action-entry"));
+    await waitFor(() => expect(getByTestId("entry-action-0")).toBeTruthy());
+    fireEvent.change(getByTestId("entry-action-0"), { target: { value: "flows.run" } });
+    fireEvent.change(getByTestId("entry-count-0"), { target: { value: "3" } });
+    fireEvent.click(getByTestId("create-submit"));
+    await waitFor(() => expect(createAutomation).toHaveBeenCalled());
+    const cfg = createAutomation.mock.calls[0]![0]!.config;
+    expect(cfg.action).toBeUndefined();
+    expect(cfg.actions).toEqual([
+      { kind: "prompt", prompt: "./prompt.md" },
+      { kind: "flows.run", payload: {}, count: 3 },
+    ]);
   });
 });
 

@@ -186,5 +186,5 @@ files; PR #338 merged into `develop` (commit `eafbbd7fc`).
 
 ---
 
-_Generated from session `019f6770` · `pi-agent-dashboard` · 2026-07-16.
+_Generated from session `019f6770` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-16.
 Source extract: `/var/folders/qb/m1_q3v6d5bnfzbpmc0dkkqx40000gn/T/tmp.0Sgszy63Nk`._

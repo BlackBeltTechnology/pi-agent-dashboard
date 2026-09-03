@@ -139,6 +139,56 @@ describe("GET /api/health — shape", () => {
     expect(typeof storeTrim.evictedSessions).toBe("number");
   });
 
+  // Same additive contract for the subagent-tick byte counters: surfaced on
+  // /api/health via the store's exported TrimStats, nothing pre-existing moved.
+  // See change: reduce-subagent-details-payload (D6, task 9.2).
+  it("storeTrim gains the subagent-tick byte counters additively", async () => {
+    delete process.env.DASHBOARD_STARTER;
+    handle = await createTestServer();
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = (await res.json()) as Record<string, unknown>;
+    const storeTrim = body.storeTrim as Record<string, unknown>;
+    for (const field of [
+      "subagentTicks",
+      "subagentTickBytes",
+      "subagentFatTicks",
+      "subagentTickFatBytes",
+    ]) {
+      expect(typeof storeTrim[field]).toBe("number");
+      expect(storeTrim[field]).toBe(0);
+    }
+    expect(typeof storeTrim.collapsedUpdates).toBe("number");
+    expect(typeof storeTrim.evictedSessions).toBe("number");
+  });
+
+  // The throttle's counters are additive on the SAME response: nothing that
+  // shipped before moved, and the four fields are present (all-zero on a fresh
+  // server with no bridge). Asserted in the same commit as the transport, so a
+  // shape drift between bridge heartbeat and route can never land silently.
+  // See change: reduce-bridge-tick-bandwidth (D6, task 4.2).
+  it("gains the subagent-tick throttle counters additively", async () => {
+    delete process.env.DASHBOARD_STARTER;
+    handle = await createTestServer();
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = (await res.json()) as Record<string, unknown>;
+
+    const throttle = body.subagentTickThrottle as Record<string, unknown>;
+    expect(throttle).toBeDefined();
+    expect(Object.keys(throttle).sort()).toEqual([
+      "tickCoalesced",
+      "tickDiscardedAtTerminal",
+      "tickDroppedNotReady",
+      "tickForwarded",
+    ]);
+    for (const v of Object.values(throttle)) expect(v).toBe(0);
+
+    // Pre-existing fields unchanged (the additive half of the contract).
+    expect(typeof body.pid).toBe("number");
+    expect(typeof body.storeTrim).toBe("object");
+    expect(typeof body.droppedFrames).toBe("object");
+    expect(Array.isArray(body.agents)).toBe(true);
+  });
+
   // X6: the `??` fallback the route takes when no event store is wired. It is
   // the store's explicitly-typed EMPTY_TRIM_STATS, not an inline literal —
   // `a ?? b` does not check `b` against `A`, so an inline literal could silently
@@ -167,5 +217,71 @@ describe("GET /api/health — shape", () => {
     // even with zero connected bridges.
     expect(body.launchSourceEffective).toBe("bridge");
     assertOwnershipShape(body);
+  });
+
+  // surface-pi-runtime-on-general #E7 (design D2 gate): /api/health is
+  // unauthenticated (no preHandler — system-routes.ts), so its `piRuntime`
+  // shape must stay VERSIONS + DIVERGENCE ONLY. No filesystem path, no
+  // pinned/override indicator may ever be added — the General status row
+  // reads this shape. The whole key SET is pinned, not a subset: silent
+  // shrinkage would break the row's data source just as surely as growth
+  // would leak. NOTE: the set includes `installSetDiverged` +
+  // `installSetVersions` (select-pi-runtime-install D5) — they are versions
+  // and divergence data, exactly what the D2 comment permits; the task text's
+  // four-key transcription was incomplete. Any SEVENTH key — a path, a pinned
+  // flag, anything — fails this assertion.
+  it("piRuntime carries versions and divergence only — no path, no pinned indicator", async () => {
+    delete process.env.DASHBOARD_STARTER;
+    handle = await createTestServer();
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = await res.json() as Record<string, unknown>;
+    const rt = body.piRuntime as Record<string, unknown> | null | undefined;
+    // `piRuntime: null` is a legitimate state (discovery failure is
+    // deliberately indistinguishable from "nothing to report") — the shape
+    // guard is vacuous there and the client row renders nothing.
+    if (rt === undefined || rt === null) return;
+    expect(Object.keys(rt).sort()).toEqual([
+      "consumerDiverged",
+      "consumerMessage",
+      "installSetDiverged",
+      "installSetVersions",
+      "moduleVersion",
+      "spawnVersion",
+    ]);
+    // The version fields carry version strings or null — not resolved paths.
+    for (const k of ["spawnVersion", "moduleVersion"] as const) {
+      expect(rt[k] === null || typeof rt[k] === "string").toBe(true);
+    }
+    expect(Array.isArray(rt.installSetVersions)).toBe(true);
+    for (const k of ["consumerDiverged", "installSetDiverged"] as const) {
+      expect(typeof rt[k]).toBe("boolean");
+    }
+    expect(rt.consumerMessage === null || typeof rt.consumerMessage === "string").toBe(true);
+  });
+
+  // Keeper-log disk posture (fix-runaway-keeper-log-growth, task 4.2):
+  // additive beside storeTrim; all seven fields numeric and explicitly typed.
+  // Fresh server → zeros; a fresh boot has reclaimed nothing and no keeper
+  // logs exist under the ephemeral test HOME.
+  it("gains the keeperLogs block additively (seven numeric fields, zeros on a fresh server)", async () => {
+    delete process.env.DASHBOARD_STARTER;
+    handle = await createTestServer();
+    const res = await fetch(`http://localhost:${handle.httpPort}/api/health`);
+    const body = (await res.json()) as Record<string, unknown>;
+    const keeperLogs = body.keeperLogs as Record<string, unknown>;
+    expect(keeperLogs).toBeDefined();
+    expect(Object.keys(keeperLogs).sort()).toEqual([
+      "fileCount",
+      "largestBytes",
+      "launchLogBytes",
+      "launchLogFiles",
+      "reclaimedBytes",
+      "runawayFiles",
+      "totalBytes",
+    ]);
+    for (const v of Object.values(keeperLogs)) expect(typeof v).toBe("number");
+    // Pre-existing fields unchanged (the additive half of the contract).
+    expect(typeof body.storeTrim).toBe("object");
+    expect(typeof body.pid).toBe("number");
   });
 });

@@ -1,4 +1,10 @@
-## ADDED Requirements
+# package-search Specification
+
+## Purpose
+
+Lets the dashboard search npm for pi packages and read their READMEs by proxying both through the server, so the browser needs no direct npm access.
+
+## Requirements
 
 ### Requirement: Server proxies npm search for pi packages
 The server SHALL expose `GET /api/packages/search` that proxies search requests to the npm registry filtered by `keywords:pi-package`. The endpoint SHALL accept `q` (search text) and `type` (extension/skill/theme/prompt) query parameters. Results SHALL be cached server-side with a 5-minute TTL.

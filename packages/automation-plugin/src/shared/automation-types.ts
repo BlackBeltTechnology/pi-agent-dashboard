@@ -60,6 +60,12 @@ export interface AutomationAction {
   skill?: string;
   /** Schema-driven values for plugin-registered actions. */
   payload?: Record<string, unknown>;
+  /**
+   * How many independent child sessions to spawn for this action within a
+   * single fire. Default `1`, minimum `1` (integer). Honored on the single
+   * `action:` block too. See change: add-automation-concurrent-spawn.
+   */
+  count?: number;
 }
 
 /** Bare `action.kind` aliases that map to the built-in `core.*` actions.
@@ -103,7 +109,21 @@ export interface ActionDescriptor {
 /** A fully-parsed, valid `automation.yaml`. */
 export interface AutomationConfig {
   on: AutomationTrigger;
-  action: AutomationAction;
+  /** The single canonical action form. Mutually exclusive with `actions`. */
+  action?: AutomationAction;
+  /**
+   * Fan-out action list. Each entry is a complete action spec; distinct
+   * entries MAY select distinct flows/skills. Mutually exclusive with
+   * `action`. See change: add-automation-concurrent-spawn.
+   */
+  actions?: AutomationAction[];
+  /**
+   * Per-automation cap on how many child sessions one fire may spawn.
+   * Integer ≥1; falls back to the settings default when absent. Excess
+   * resolved children are truncated with a warning, not failed.
+   * See change: add-automation-concurrent-spawn.
+   */
+  maxConcurrentSpawns?: number;
   model: string;
   mode: RunMode;
   sandbox: Sandbox;
@@ -129,8 +149,10 @@ export interface DiscoveredAutomation {
   error?: string;
 }
 
-/** Run status surfaced in the Triage list. */
-export type RunStatus = "running" | "done" | "error";
+/** Run status surfaced in the Triage list. `stopped` is a terminal state
+ *  distinct from `error`, used when a run (child or parent) is stopped by the
+ *  user. See change: add-automation-concurrent-spawn. */
+export type RunStatus = "running" | "done" | "error" | "stopped";
 
 /** A run record persisted under `<scope>/.pi/automation/runs/<runId>/`. */
 export interface RunRecord {
@@ -154,4 +176,21 @@ export interface RunRecord {
    *  lines). `0` for an auto-archived empty run. Absent on old records.
    *  See change: automation-ui-mockup-parity. */
   findings?: number;
+  /**
+   * Child run ids of a PARENT occurrence record. Present only on parents; a
+   * legacy flat record and a child record both omit it. `findings` on a
+   * parent is summed across children; the parent has no `result.md`.
+   * See change: add-automation-concurrent-spawn.
+   */
+  children?: string[];
+  /** Parent run id of a CHILD record (absent on parents + legacy flat runs). */
+  parentRunId?: string;
+  /** Human label of the action a child was dispatched with (child records). */
+  actionLabel?: string;
+  /** Bounded-truncation warning recorded on a parent when a fire resolved
+   *  more children than the effective bound allowed. */
+  warning?: string;
+  /** Client-facing: child records attached by the `/runs` route for a parent
+   *  occurrence (not persisted on disk). */
+  childRuns?: RunRecord[];
 }

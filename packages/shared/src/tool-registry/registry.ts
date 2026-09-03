@@ -11,6 +11,9 @@
  *     the loaded ES module alongside the Resolution.
  */
 import { pathToFileURL } from "node:url";
+import { invalidateNodeCandidatesCache } from "../node-installs/candidates.js";
+import { invalidatePiCandidatesCache } from "../pi-installs/candidates.js";
+import { OverridesStore } from "./overrides.js";
 import {
   type ExecutorResolution,
   ModuleResolutionError,
@@ -19,10 +22,9 @@ import {
   type StrategyCtx,
   type ToolDefinition,
   type ToolListEntry,
-  UnknownToolError,
   type TriedEntry,
+  UnknownToolError,
 } from "./types.js";
-import { OverridesStore } from "./overrides.js";
 
 /**
  * Minimal platform-environment snapshot injected into strategies.
@@ -67,6 +69,12 @@ const DEFAULT_CLASSIFY = (strategyName: string): Source => {
       return "npm-global";
     case "bundled-node":
       return "bundled";
+    case "static-npm":
+      return "static-npm";
+    case "env":
+    case "docker-image":
+    case "pw-browser":
+      return "probe";
     default:
       return "system";
   }
@@ -153,7 +161,7 @@ export class ToolRegistry {
     };
 
     const tried: TriedEntry[] = [];
-    let winner: { strategy: string; path: string } | null = null;
+    let winner: { strategy: string; path: string | null } | null = null;
 
     // Platform-specific strategy chain overrides the default when
     // present. Use case: tool resolution chain itself differs per OS
@@ -168,7 +176,8 @@ export class ToolRegistry {
         continue;
       }
       // Optional validation (existence check, "must end in dist/index.js", ...).
-      if (def.validate) {
+      // Null paths (non-path probe kinds) have nothing to validate.
+      if (def.validate && result.path !== null) {
         const v = def.validate(result.path);
         if (!v.ok) {
           tried.push({ strategy: strategy.name, result: `invalid: ${v.reason}` });
@@ -198,7 +207,6 @@ export class ToolRegistry {
           tried,
           resolvedAt: this.now(),
         };
-
     this.cache.set(name, resolution);
     return resolution;
   }
@@ -266,6 +274,13 @@ export class ToolRegistry {
 
   /** Drop cached Resolution(s). Next resolve() re-runs strategies. */
   rescan(name?: string): void {
+    // The pi + node enumeration caches hold per-LOCATION intermediates the
+    // registry cache does not (they hold one winning Resolution per tool),
+    // so they need their own invalidation on the same signal.
+    // See change: select-pi-runtime-install (design D3);
+    // change: add-node-runtime-family-selection.
+    invalidatePiCandidatesCache();
+    invalidateNodeCandidatesCache();
     if (name === undefined) {
       this.cache.clear();
       this.moduleCache.clear();
@@ -276,12 +291,38 @@ export class ToolRegistry {
     this.moduleCache.delete(name);
   }
 
+  /** Snapshot of current overrides (read-through, lazy disk load). */
+  listOverrides(): Readonly<Record<string, string>> {
+    return this.overrides.list();
+  }
+
   /** Set a path override. Invalidates the target's cache. */
   setOverride(name: string, overridePath: string): void {
     if (!this.definitions.has(name)) throw new UnknownToolError(name);
     this.overrides.set(name, overridePath);
     this.cache.delete(name);
     this.moduleCache.delete(name);
+  }
+
+  /**
+   * Set and/or clear several overrides in ONE persist (`null` clears).
+   * Every named tool's cached Resolution is invalidated afterwards.
+   *
+   * Two sequential `setOverride` calls are two writes with a crash window
+   * between them, which can leave the pi spawn consumer pinned and the pi
+   * import consumer not — the exact mismatch the picker forbids while linked.
+   * See change: select-pi-runtime-install (design D7).
+   */
+  setOverrides(changes: Record<string, string | null>): void {
+    for (const name of Object.keys(changes)) {
+      if (!this.definitions.has(name)) throw new UnknownToolError(name);
+    }
+    this.overrides.setMany(changes);
+    for (const name of Object.keys(changes)) {
+      this.cache.delete(name);
+      this.moduleCache.delete(name);
+    }
+    invalidatePiCandidatesCache();
   }
 
   /** Clear a path override. Invalidates the target's cache. */

@@ -231,5 +231,5 @@ Final artifacts produced:
 ---
 
 _Generated from session `019f6cdb-137a-7632-b301-bbccbd675c3c` ·
-`pi-agent-dashboard` · 2026-07-17. Source extract:
+`/Users/robson/Project/pi-agent-dashboard` · 2026-07-17. Source extract:
 `/tmp/sf2.md`._

@@ -4,15 +4,20 @@
  * Test plan rows: G13, G14, G15, G16, G17, G18, G19, G20, G21.
  * Change: config-override-oauth-redirect-base.
  */
-import { describe, expect, it } from "vitest";
+
 import type { GatewayRecord } from "@blackbelt-technology/pi-dashboard-shared/config.js";
+import { describe, expect, it } from "vitest";
 import {
   buildGatewayAddPatch,
   buildGatewayFixPatch,
+  buildGatewayModeOffer,
   buildGatewayRemovePatch,
   computeGatewayStatus,
-  validateGatewayDraft,
   type GatewayConfigShape,
+  everyModeAvailable,
+  isUnregisteredGatewayUrl,
+  retainAvailableModes,
+  validateGatewayDraft,
 } from "../gateway/gateway-action.js";
 import { suggestTrustEntries } from "../gateway/gateway-config-ops.js";
 
@@ -239,5 +244,156 @@ describe("G20: Fix writes exactly the delta", () => {
       gateways: [record],
     };
     expect(buildGatewayFixPatch(healthy, record)).toEqual({});
+  });
+});
+
+/**
+ * Offering a live tunnel URL as a gateway — folded from test-plan.md
+ * (add-zrok-custom-reserved-name): E18, E19, plus 9.3a/9.3b/9.4.
+ *
+ * The offer is automatic; the DECISION is not. The auth mode cannot be inferred
+ * from a URL, and the sharp case is `oauth` on a non-primary: it writes
+ * `auth.redirectBaseUrl`, the single value `resolveRedirectBase()` returns, so
+ * an unguarded offer would move the sign-in origin off the primary through a
+ * path that bypasses the primary-switch confirmation.
+ */
+describe("gateway mode offer (E18/E19)", () => {
+  const MESH = "http://10.147.20.4:8000";
+  const ZROK = "https://x.shares.zrok.io";
+  const modeOf = (offers: ReturnType<typeof buildGatewayModeOffer>, m: string) =>
+    offers.find((o) => o.mode === m)!;
+
+  it("E18: on an http mesh IP, pairing and oauth are unavailable WITH reasons", () => {
+    const offers = buildGatewayModeOffer({ url: MESH, isPrimary: true });
+    expect(modeOf(offers, "pairing").available).toBe(false);
+    expect(modeOf(offers, "pairing").reason).toMatch(/TLS/i);
+    expect(modeOf(offers, "oauth").available).toBe(false);
+    expect(modeOf(offers, "oauth").reason).toMatch(/TLS/i);
+  });
+
+  it("E18: trusted-network is the only option on http, and it requires a CIDR", () => {
+    const offers = buildGatewayModeOffer({ url: MESH, isPrimary: true });
+    expect(modeOf(offers, "trusted-network").available).toBe(true);
+    expect(modeOf(offers, "trusted-network").requires).toBe("cidr");
+  });
+
+  it("9.3: an ineligible mode is returned disabled-with-reason, never omitted", () => {
+    // Hiding it leaves the operator unable to tell "not allowed" from "not
+    // implemented".
+    const offers = buildGatewayModeOffer({ url: MESH, isPrimary: true });
+    expect(offers.map((o) => o.mode).sort()).toEqual(["oauth", "pairing", "trusted-network"]);
+    for (const o of offers) {
+      if (!o.available) expect(o.reason, o.mode).toBeTruthy();
+    }
+  });
+
+  it("E19: oauth is UNAVAILABLE for a non-primary https URL, citing the sign-in origin", () => {
+    const offers = buildGatewayModeOffer({ url: ZROK, isPrimary: false });
+    const oauth = modeOf(offers, "oauth");
+    expect(oauth.available).toBe(false);
+    expect(oauth.reason).toMatch(/primary/i);
+    expect(oauth.reason).toMatch(/sign-in origin/i);
+    // The other two are unaffected — non-primacy is an OAuth constraint only.
+    expect(modeOf(offers, "pairing").available).toBe(true);
+    expect(modeOf(offers, "trusted-network").available).toBe(true);
+  });
+
+  it("oauth IS available on the primary's https URL", () => {
+    expect(modeOf(buildGatewayModeOffer({ url: ZROK, isPrimary: true }), "oauth").available).toBe(true);
+  });
+
+  it("9.3a: a non-primary registration leaves auth.redirectBaseUrl unwritten", () => {
+    // The guard above is the offer; this is the write path proving the
+    // consequence it exists to prevent.
+    const patch = buildGatewayAddPatch(
+      { gateways: [] },
+      { url: ZROK, authModes: ["pairing"] },
+    );
+    expect(patch.auth).toBeUndefined();
+  });
+
+  it("9.3b: registering with only trusted-network/pairing never touches auth.redirectBaseUrl", () => {
+    const patch = buildGatewayAddPatch(
+      { gateways: [] },
+      { url: ZROK, authModes: ["trusted-network", "pairing"], trustedNetworks: ["10.0.0.0/8"] },
+    );
+    expect(patch.auth).toBeUndefined();
+    expect(patch.trustedNetworks).toEqual(["10.0.0.0/8"]);
+  });
+
+  it("9.4: no gateway record is ever created without an explicit auth-mode choice", () => {
+    expect(() => buildGatewayAddPatch({ gateways: [] }, { url: ZROK, authModes: [] })).toThrow();
+    expect(validateGatewayDraft({ url: ZROK, authModes: [] }).errors).toContain("no-auth-mode");
+  });
+
+  it("an unparseable URL offers nothing, rather than defaulting to something", () => {
+    const offers = buildGatewayModeOffer({ url: "not a url", isPrimary: true });
+    expect(offers.every((o) => !o.available)).toBe(true);
+  });
+});
+
+describe("F8: the offer appears but never writes", () => {
+  it("reports an unregistered URL as offerable", () => {
+    expect(isUnregisteredGatewayUrl({ gateways: [] }, "https://x.shares.zrok.io")).toBe(true);
+  });
+
+  it("stops offering once the URL is registered", () => {
+    const config = { gateways: [{ url: "https://x.shares.zrok.io", authModes: ["pairing" as const], wrote: {} }] };
+    expect(isUnregisteredGatewayUrl(config, "https://x.shares.zrok.io")).toBe(false);
+  });
+
+  it("ignores a trailing slash, which would otherwise offer the same URL forever", () => {
+    const config = { gateways: [{ url: "https://x.shares.zrok.io", authModes: ["pairing" as const], wrote: {} }] };
+    expect(isUnregisteredGatewayUrl(config, "https://x.shares.zrok.io/")).toBe(false);
+  });
+});
+
+/**
+ * The offer's mode selection is state that OUTLIVES the fact that justified it:
+ * the board re-polls every 5s and the row component is keyed by provider, so a
+ * provider demoted from primary between "check OAuth" and "Register" keeps the
+ * checked box. A disabled checkbox is not a guard — `checked` survives
+ * `disabled`, and `buildGatewayAddPatch` trusts whatever `authModes` it is
+ * handed. Without this filter that sequence writes `auth.redirectBaseUrl` to a
+ * NON-primary URL: the silent off-primary redirect move D9 exists to prevent.
+ */
+describe("D9: a mode that stopped being available cannot ride a stale selection", () => {
+  const nonPrimary = buildGatewayModeOffer({ url: "https://ts.example.com", isPrimary: false });
+
+  it("drops oauth once the URL is no longer the primary's", () => {
+    expect(retainAvailableModes(nonPrimary, ["pairing", "oauth"])).toEqual(["pairing"]);
+  });
+
+  it("keeps every still-available mode", () => {
+    expect(retainAvailableModes(nonPrimary, ["pairing", "trusted-network"])).toEqual([
+      "pairing",
+      "trusted-network",
+    ]);
+  });
+
+  it("reports the selection as no longer wholly available, so the save can refuse", () => {
+    expect(everyModeAvailable(nonPrimary, ["pairing", "oauth"])).toBe(false);
+    expect(everyModeAvailable(nonPrimary, ["pairing"])).toBe(true);
+  });
+
+  it("still permits oauth while the URL IS the primary's", () => {
+    const primary = buildGatewayModeOffer({ url: "https://ts.example.com", isPrimary: true });
+    expect(retainAvailableModes(primary, ["oauth"])).toEqual(["oauth"]);
+  });
+});
+
+describe("D9: trusted-network always demands its CIDR", () => {
+  it("requires a CIDR on an https URL too — an empty list grants access to nobody", () => {
+    const offers = buildGatewayModeOffer({ url: "https://ts.example.com", isPrimary: true });
+    const tn = offers.find((o) => o.mode === "trusted-network");
+    expect(tn).toMatchObject({ available: true, requires: "cidr" });
+  });
+
+  it("agrees with validateGatewayDraft, which rejects an empty selection under either scheme", () => {
+    for (const url of ["https://ts.example.com", "http://ts.example.com"]) {
+      expect(
+        validateGatewayDraft({ url, authModes: ["trusted-network"], trustedNetworks: [] }).errors,
+      ).toContain("trusted-network-empty");
+    }
   });
 });

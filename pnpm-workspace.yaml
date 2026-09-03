@@ -34,7 +34,7 @@ overrides:
   bonjour-service: 1.4.2
   # ONE pi version in the tree. Several workspaces declare a deliberately broad
   # `>=0.80.10` peer/dev range while `packages/server` pins the governed
-  # `^0.84.1`; under `nodeLinker: hoisted` that resolves TWO copies (0.84.1
+  # `^0.84.4`; under `nodeLinker: hoisted` that resolves TWO copies (0.84.4
   # nested for the server, an older one hoisted to the root). `/api/health`'s
   # version probe then reports the HOISTED copy, so the dashboard claimed to be
   # running a pi it was not and raised a spurious `upgradeRecommended`.
@@ -44,7 +44,7 @@ overrides:
   # `piCompatibility.minimum` and the broad peer ranges are untouched (design D2).
   # Caught by the docker harness, not by any unit test.
   # See change: update-pi-core-0-84-adopt-apis.
-  "@earendil-works/pi-coding-agent": 0.84.1
+  "@earendil-works/pi-coding-agent": 0.84.4
 
 # pnpm 11 treats un-approved dependency build scripts as a FATAL error
 # (ERR_PNPM_IGNORED_BUILDS, non-zero exit) — which would red every CI
@@ -74,6 +74,20 @@ ignoredBuiltDependencies:
   - sharp
 
 allowBuilds:
+  # ffmpeg-static downloads its binary via `install: node install.js`;
+  # @ffprobe-installer platform packages ship the binary 0644 and
+  # `postinstall: chmod u+x ffprobe`. Without these the static-npm
+  # strategy resolves a dead/never-downloaded path.
+  # See change: add-skill-tool-provisioning.
+  'ffmpeg-static': true
+  '@ffprobe-installer/darwin-arm64': true
+  '@ffprobe-installer/darwin-x64': true
+  '@ffprobe-installer/linux-arm': true
+  '@ffprobe-installer/linux-arm64': true
+  '@ffprobe-installer/linux-ia32': true
+  '@ffprobe-installer/linux-x64': true
+  '@ffprobe-installer/win32-ia32': true
+  '@ffprobe-installer/win32-x64': true
   '@fission-ai/openspec': true
   '@google/genai': true
   electron: true

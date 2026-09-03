@@ -160,4 +160,4 @@ new test files; change archived to
 
 ---
 
-_Generated from session `019deee6` · `pi-agent-dashboard` · 2026-05-03. Source extract: `/tmp/session_facts.5377.1784862808.md`._
+_Generated from session `019deee6` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-03. Source extract: `/tmp/session_facts.5377.1784862808.md`._

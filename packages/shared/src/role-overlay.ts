@@ -53,6 +53,10 @@ export const DEFAULT_ROLE_NAMES = [
   "fast",
   "vision",
   "research",
+  // Auto session naming resolves `@naming` first and falls back to `@fast`, so
+  // making naming work does not force a global downgrade of the shared `fast`
+  // slot. See change: fix-auto-naming-reasoning-model (design D1).
+  "naming",
 ] as const;
 
 /**

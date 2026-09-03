@@ -1,4 +1,10 @@
-## ADDED Requirements
+# command-autocomplete Specification
+
+## Purpose
+
+Replaces the plain message input with a command-aware input that can autocomplete the slash commands a session actually exposes. Defines where the command list lives, when it is requested from the session, and how selection callbacks reach the current draft-change handler so a stale closure cannot drop the user's input.
+
+## Requirements
 
 ### Requirement: Commands state in App
 The App component SHALL store per-session commands in a `Map<string, CommandInfo[]>` keyed by session ID. When a `commands_list` message is received from the server, the commands for that session SHALL be updated. The active session's commands SHALL be passed to the `CommandInput` component.

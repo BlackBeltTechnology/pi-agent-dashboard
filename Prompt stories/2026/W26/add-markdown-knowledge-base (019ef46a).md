@@ -169,4 +169,4 @@ CLI. **Final artifacts:** branch `os/add-markdown-knowledge-base`, commit `80d3e
 
 ---
 
-_Generated from session `019ef46a-924d-788d-8688-423376e15754` · `pi-agent-dashboard` · 2026-06-23. Source extract: deterministic facts sheet._
+_Generated from session `019ef46a-924d-788d-8688-423376e15754` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-23. Source extract: deterministic facts sheet._

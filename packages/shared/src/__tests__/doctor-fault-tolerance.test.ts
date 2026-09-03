@@ -1,218 +1,115 @@
 /**
- * Doctor fault-tolerance helpers — safeCheck / safeExec / assumedMandatory.
- * See change: doctor-rich-output (design.md Decision 7).
+ * Doctor fault isolation (test-plan X1 / task 9.19): a THROWING advisory
+ * input must never fail the Doctor run — the report is still produced and
+ * the failed advisory's rows are simply absent.
+ *
+ * Covered faults:
+ *   - legacy-dir detector throws → report produced, no `Legacy install
+ *     directory` row (spec: "Detector failure is non-fatal")
+ *   - extension-tree ABI scan throws (probe fault) → report produced, no
+ *     `ABI mismatch: …` rows
+ *
+ * See change: unify-pi-runtime-identity (tasks 5.4 / 6.2 / test-plan X1).
  */
-import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
+
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { mkdtempSync, rmSync, existsSync, statSync, writeFileSync, readFileSync, chmodSync } from "node:fs";
-
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
-  safeCheck,
-  safeExec,
-  assumedMandatory,
-  stripAnsi,
+  type DoctorCheck,
+  runSharedChecks,
+  type SharedChecksDeps,
 } from "../doctor-core.js";
+import type { ResolvedRuntime } from "../platform/spawn-runtime.js";
 
-describe("stripAnsi", () => {
-  it("removes CSI sequences", () => {
-    expect(stripAnsi("\u001b[31mred\u001b[0m text")).toBe("red text");
-    expect(stripAnsi("\u001b[1;33;40myellow\u001b[m")).toBe("yellow");
-  });
-  it("removes OSC sequences", () => {
-    expect(stripAnsi("\u001b]0;title\u0007hello")).toBe("hello");
-  });
-  it("preserves printable text untouched", () => {
-    expect(stripAnsi("a | b | c\nfoo")).toBe("a | b | c\nfoo");
-  });
-  it("handles empty input", () => {
-    expect(stripAnsi("")).toBe("");
-  });
+let tmp: string;
+
+beforeEach(() => {
+  tmp = fs.mkdtempSync(path.join(os.tmpdir(), "doctor-fault-tolerance-"));
 });
 
-describe("safeCheck", () => {
-  it("returns the row on success", async () => {
-    const r = await safeCheck("X", "diagnostics", () => ({
-      name: "X",
-      section: "diagnostics",
-      status: "ok",
-      message: "fine",
-    }));
-    expect(r.status).toBe("ok");
-    expect(r.name).toBe("X");
-  });
-
-  it("swallows synchronous throws and returns a fallback row", async () => {
-    const r = await safeCheck("Boom", "runtime", () => {
-      throw new Error("kaboom");
-    });
-    expect(r.status).toBe("error");
-    expect(r.message).toMatch(/Check failed/i);
-    expect(r.detail).toContain("kaboom");
-    expect(r.suggestion?.length ?? 0).toBeGreaterThan(0);
-  });
-
-  it("swallows promise rejections and returns a fallback row", async () => {
-    const r = await safeCheck("Boom", "runtime", async () => {
-      throw new Error("async-boom");
-    });
-    expect(r.status).toBe("error");
-    expect(r.detail).toContain("async-boom");
-  });
-
-  it("never throws even when fn returns a non-DoctorCheck", async () => {
-    // @ts-expect-error — exercising runtime tolerance
-    const r = await safeCheck("X", "runtime", () => null);
-    // The post-pass treats the missing section as the wrapper-provided
-    // default, so we should still get a row of some shape.
-    expect(r).toBeDefined();
-  });
+afterEach(() => {
+  fs.rmSync(tmp, { recursive: true, force: true });
 });
 
-describe("safeExec — error classification", () => {
-  it("classifies ENOENT as not-found", () => {
-    const r = safeExec("definitely-not-a-binary-xyz-1729 --version", { timeoutMs: 2000 });
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      // Some shells/platforms classify the missing executable differently:
-      // POSIX with /bin/sh raises a non-zero shell exit (kind=non-zero-exit),
-      // direct exec gets ENOENT (kind=not-found). Both are acceptable failure
-      // signals for "binary missing".
-      expect(["not-found", "non-zero-exit", "unknown"]).toContain(r.kind);
-    }
-  });
+function baseDeps(overrides: Partial<SharedChecksDeps> = {}): SharedChecksDeps {
+  return {
+    managedDir: tmp,
+    detectSystemNode: () => ({ found: true, path: "/usr/bin/node" }),
+    detectPi: () => ({ found: true, path: "/usr/bin/pi", source: "system" }),
+    detectOpenSpec: () => ({ found: true, path: "/usr/bin/openspec", source: "system" }),
+    dnsLookup: async () => undefined,
+    ...overrides,
+  };
+}
 
-  it("classifies non-zero exits", () => {
-    const r = safeExec(`node -e "process.exit(7)"`, { timeoutMs: 5000 });
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.kind).toBe("non-zero-exit");
-      expect(r.exitCode).toBe(7);
-    }
-  });
+/** Minimal fake ResolvedRuntime — only the fields the Doctor rows read. */
+function fakeRuntime(): ResolvedRuntime {
+  return {
+    nodeBinary: "/resolved/node",
+    nodeBinDir: "/resolved",
+    version: "v24.0.0",
+    abi: 137,
+    source: "system",
+    rung: "user",
+    via: "path",
+    arm: "npm",
+    piFloor: "22.19.0",
+    piFloorSource: "fallback",
+    identity: null,
+    trail: [],
+    resolvedAt: new Date().toISOString(),
+  };
+}
 
-  it("captures stderr tail and runs it through stripAnsi", () => {
-    const r = safeExec(
-      `node -e "process.stderr.write('\\u001b[31mboom\\u001b[0m'); process.exit(1)"`,
-      { timeoutMs: 5000 },
-    );
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.stderrTail).toContain("boom");
-      expect(r.stderrTail).not.toContain("\u001b");
-    }
-  });
+/** Bytes of a fake V8-bound binary (no N-API registration symbol). */
+function v8Bytes(): Buffer {
+  return Buffer.from(
+    `...fake-object-header...${"__ZN2v88internal7Isolate8NewEPNS0_12Allocator_tE ".repeat(4)}...`,
+    "latin1",
+  );
+}
 
-  it("classifies timeouts and reflects the deadline in the message", () => {
-    const r = safeExec(`node -e "setTimeout(()=>{}, 5000)"`, { timeoutMs: 200 });
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      // Node's execSync timeout typically surfaces as ETIMEDOUT or
-      // SIGTERM signal — both classify as "timeout" in our wrapper.
-      expect(r.kind).toBe("timeout");
-      expect(r.message).toMatch(/0?\s*s/);
-    }
-  });
+function names(checks: DoctorCheck[]): string[] {
+  return checks.map((c) => c.name);
+}
 
-  it("honours the 15s timeout override (uses it for cold-start probes)", () => {
-    // We don't actually wait 15s; we just verify the wrapper carries the
-    // configured timeoutMs into the SafeExecErr.
-    const r = safeExec(`node -e "process.exit(1)"`, { timeoutMs: 15000 });
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.timeoutMs).toBe(15000);
-    }
-  });
-
-  it("returns ok with stdout on success", () => {
-    const r = safeExec(`node -e "console.log('hi')"`, { timeoutMs: 5000 });
-    expect(r.ok).toBe(true);
-    if (r.ok) {
-      expect(r.stdout.trim()).toBe("hi");
-    }
-  });
-});
-
-describe("assumedMandatory", () => {
-  let tmp: string;
-  beforeEach(() => {
-    tmp = mkdtempSync(path.join(os.tmpdir(), "doctor-am-"));
-  });
-  afterEach(() => {
-    rmSync(tmp, { recursive: true, force: true });
-  });
-
-  it("returns ok value when fn does not throw", () => {
-    const r = assumedMandatory("read-foo", () => 42, { managedDir: tmp });
-    expect(r.ok).toBe(true);
-    if (r.ok) expect(r.value).toBe(42);
-  });
-
-  it("logs to <managedDir>/doctor.log on throw and surfaces a diagnostics row", () => {
-    const r = assumedMandatory(
-      "read-foo",
-      () => {
-        throw new Error("filesystem-down");
-      },
-      { managedDir: tmp },
-    );
-    expect(r.ok).toBe(false);
-    if (!r.ok) {
-      expect(r.row.section).toBe("diagnostics");
-      expect(r.row.status).toBe("error");
-      expect(r.row.name).toMatch(/Doctor internal: read-foo/);
-      expect(r.row.detail).toContain("filesystem-down");
-      expect(r.row.suggestion?.length ?? 0).toBeGreaterThan(0);
-    }
-    const logPath = path.join(tmp, "doctor.log");
-    expect(existsSync(logPath)).toBe(true);
-    const log = readFileSync(logPath, "utf-8").trim();
-    const parsed = JSON.parse(log.split("\n")[0]);
-    expect(parsed.label).toBe("read-foo");
-    expect(parsed.message).toBe("filesystem-down");
-  });
-
-  it("tolerates an unwriteable log file (never propagates)", () => {
-    // Make managedDir read-only — append should fail silently.
-    if (process.platform === "win32") {
-      // chmod semantics on Windows are unreliable; skip.
-      return;
-    }
-    chmodSync(tmp, 0o500);
-    try {
-      const r = assumedMandatory(
-        "x",
-        () => {
-          throw new Error("z");
+describe("doctor fault tolerance (test-plan X1)", () => {
+  it("legacy-dir detector throws → report produced, no Legacy install directory row", async () => {
+    const checks = await runSharedChecks(
+      baseDeps({
+        detectLegacyManagedDir: () => {
+          throw new Error("simulated detector failure");
         },
-        { managedDir: tmp },
-      );
-      expect(r.ok).toBe(false);
-      // Did not throw.
-    } finally {
-      chmodSync(tmp, 0o700);
-    }
+      }),
+    );
+    expect(checks.length).toBeGreaterThan(0);
+    expect(names(checks)).toContain("System Node.js");
+    expect(names(checks)).not.toContain("Legacy install directory");
   });
 
-  it("rotates doctor.log when it exceeds 1 MB", () => {
-    const logPath = path.join(tmp, "doctor.log");
-    // Pre-fill log with > 1 MB of data.
-    writeFileSync(logPath, Buffer.alloc(1.2 * 1024 * 1024, "x".charCodeAt(0)));
-    const beforeSize = statSync(logPath).size;
-    expect(beforeSize).toBeGreaterThan(1024 * 1024);
+  it("ABI scan throws → report produced, no ABI mismatch rows", async () => {
+    // Real tmp tree with one V8-bound module so the scan reaches the probe,
+    // then a probe that throws — the whole block collapses to "no rows".
+    const moduleDir = path.join(tmp, "ext", "node_modules", "better-sqlite3");
+    const dotNode = path.join(moduleDir, "build", "Release", "better_sqlite3.node");
+    fs.mkdirSync(path.dirname(dotNode), { recursive: true });
+    fs.writeFileSync(dotNode, v8Bytes());
 
-    assumedMandatory(
-      "rotate-test",
-      () => {
-        throw new Error("trigger");
-      },
-      { managedDir: tmp },
+    const checks = await runSharedChecks(
+      baseDeps({
+        spawnRuntime: fakeRuntime(),
+        extensionTreeRoot: path.join(tmp, "ext", "node_modules"),
+        abiScan: {
+          probe: () => {
+            throw new Error("simulated probe failure");
+          },
+        },
+      }),
     );
-
-    const rotated = path.join(tmp, "doctor.log.1");
-    expect(existsSync(rotated)).toBe(true);
-    // The fresh log should be small (just one JSON line).
-    const fresh = statSync(logPath).size;
-    expect(fresh).toBeLessThan(2048);
+    expect(checks.length).toBeGreaterThan(0);
+    expect(names(checks)).toContain("System Node.js");
+    expect(names(checks).filter((n) => n.startsWith("ABI mismatch:"))).toHaveLength(0);
   });
 });

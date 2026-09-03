@@ -203,4 +203,4 @@ package + `README`/`NOTICE`/`AGENTS.md`), updated `publish.yml` allowlist and
 
 ---
 
-_Generated from session `019f5e17` · `pi-agent-dashboard` · 2026-07-14. Source extract: session facts sheet (mktemp)._
+_Generated from session `019f5e17` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-14. Source extract: session facts sheet (mktemp)._

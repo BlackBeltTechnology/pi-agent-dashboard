@@ -1,0 +1,461 @@
+{
+  "$provenance": [
+    "Derived from IMPLICIT relevance feedback in pi session transcripts: the file",
+    "the agent opened within 8 tool calls of a kb_search.",
+    "",
+    "MARKDOWN INTENT: counted only when the opened file actually appeared in that",
+    "search's own result text, so the open is feedback on the search and not on",
+    "prior knowledge.",
+    "",
+    "SOURCE INTENT: a source file can never appear in kb results (the KB indexes",
+    "markdown), so the target is the AGENTS.md record that documents it — the",
+    "sidecar if present, else the nearest ancestor AGENTS.md that names the file.",
+    "`openedFile` records which source file the agent actually opened.",
+    "",
+    "KNOWN BIAS: a pair exists only when the search succeeded well enough for the",
+    "agent to open something. Queries the agent abandoned, refined away, or",
+    "answered by falling through to rg/grep are absent BY CONSTRUCTION, so this",
+    "set systematically under-samples the failure population it is meant to fix.",
+    "An opened file is also not proof of relevance — it is the cheapest available",
+    "proxy for it.",
+    "",
+    "Regenerate: node packages/kb/eval/mine-golden-sets.mjs"
+  ],
+  "intent": "markdown documents",
+  "minedAt": "2026-08-12",
+  "n": 108,
+  "items": [
+    {
+      "q": "kb learning from sessions memory distillation",
+      "expect": ".pi/skills/distill-session-knowledge/SKILL.md"
+    },
+    {
+      "q": "pi-resource-scanner scanPiResources resolveActivation",
+      "expect": ".pi/skills/openspec-apply-change/SKILL.md"
+    },
+    {
+      "q": "bridge auto-start readiness timeout dashboard server probe",
+      "expect": "architecture.md"
+    },
+    {
+      "q": "Editor view terminal tab toggle",
+      "expect": "architecture.md"
+    },
+    {
+      "q": "LAN endpoint reachable urls wss race pin",
+      "expect": "architecture.md"
+    },
+    {
+      "q": "npm pnpm package manager workspace publish",
+      "expect": "architecture.md"
+    },
+    {
+      "q": "pair desktop laptop remote dashboard sessions",
+      "expect": "architecture.md"
+    },
+    {
+      "q": "pairing code token device",
+      "expect": "architecture.md"
+    },
+    {
+      "q": "pairing server routes endpoint AGENTS",
+      "expect": "architecture.md"
+    },
+    {
+      "q": "restart endpoint dev production mode",
+      "expect": "architecture.md"
+    },
+    {
+      "q": "session_register bridge reconnect status resync streaming",
+      "expect": "architecture.md"
+    },
+    {
+      "q": "tool call row component running status duration client",
+      "expect": "architecture.md"
+    },
+    {
+      "q": "zrok tunnel remote access reverse proxy",
+      "expect": "architecture.md"
+    },
+    {
+      "q": "BusClient read.sessions connect close bus-client",
+      "expect": "bus-client/AGENTS.md"
+    },
+    {
+      "q": "knowledge base kb dox graph neighbors tier index architecture",
+      "expect": "changes/add-kb-code-symbol-index/proposal.md"
+    },
+    {
+      "q": "deriveTranscriptCapBytes DEFAULT_TRANSCRIPT_CAP_BYTES terminal transcript cap",
+      "expect": "changes/fit-attachments-for-display/design.md"
+    },
+    {
+      "q": "session-status-visuals deriveDotColor deriveRailBgColor",
+      "expect": "client/src/components/session/SessionCard.tsx.AGENTS.md"
+    },
+    {
+      "q": "tag input add remove tags UI component",
+      "expect": "client/src/components/tags/AGENTS.md"
+    },
+    {
+      "q": "dashboard features session control prompt abort spawn flows terminal git browser collaboration",
+      "expect": "docs/architecture.md"
+    },
+    {
+      "q": "electron app pairing inherited key",
+      "expect": "docs/architecture.md"
+    },
+    {
+      "q": "git diff untracked file session tool call edit write diff display",
+      "expect": "docs/architecture.md"
+    },
+    {
+      "q": "plugin message pi_plugin PluginPiMessage PluginEmitEvent bridge generic extension protocol",
+      "expect": "docs/architecture.md"
+    },
+    {
+      "q": "QR code connect share URL zrok LAN",
+      "expect": "docs/architecture.md"
+    },
+    {
+      "q": "embeddable ChatView example",
+      "expect": "docs/embedding-chat-view.md"
+    },
+    {
+      "q": "duplicate server bind 0.0.0.0 127.0.0.1 port 8000 takeover bridge auto-start race stale port",
+      "expect": "docs/faq.md"
+    },
+    {
+      "q": "file preview viewer dashboard client attachments",
+      "expect": "docs/faq.md"
+    },
+    {
+      "q": "agents subagents plugin discovery .pi/agents presented dashboard",
+      "expect": "docs/skills-as-subagents.md"
+    },
+    {
+      "q": "Zenit megbeszeles meeting transcript recording",
+      "expect": "Documents/Projektek/Zenit/RackInspect/Jegyzokonyv Eszrevetelek/AGENTS.md"
+    },
+    {
+      "q": "EuroDNS semmi.se domain",
+      "expect": "eurodns_recovery/RECOVERY_STATUS.md"
+    },
+    {
+      "q": "connection.ts bridge WebSocket message pump onMessage maxBufferSize",
+      "expect": "extension/src/connection.ts.AGENTS.md"
+    },
+    {
+      "q": "spawn session tmux new-session dashboard spawn-process",
+      "expect": "faq.md"
+    },
+    {
+      "q": "websocket upgrade routing ticket",
+      "expect": "openspec/changes/fix-ticketed-ws-upgrade-routing/specs/bearer-device-auth/spec.md"
+    },
+    {
+      "q": "orphan resident pi processes compare live sessions",
+      "expect": "openspec/changes/fix-tmux-session-shutdown-leak/design.md"
+    },
+    {
+      "q": "FolderNeedsYouPill FolderStatusRollup countStatusRollup session-status-visuals",
+      "expect": "openspec/changes/unify-folder-status-capsule/design.md"
+    },
+    {
+      "q": "assertNoWeakening parseManifest deferDecision filesystemRealityCheck",
+      "expect": "openspec/changes/wire-local-review-gate/specs/local-review-gate/spec.md"
+    },
+    {
+      "q": "settings panel View section client preferences localStorage",
+      "expect": "openspec/specs/chat-display-preferences/spec.md"
+    },
+    {
+      "q": "history replay backfill message events client store",
+      "expect": "openspec/specs/chat-history-loading-indicator/spec.md"
+    },
+    {
+      "q": "Plugins tab enable disable extension install manage settings client",
+      "expect": "openspec/specs/directory-settings-page/spec.md"
+    },
+    {
+      "q": "project initialization marker AGENTS.md settings.json detect configured project",
+      "expect": "openspec/specs/folder-action-bar/spec.md"
+    },
+    {
+      "q": "project-init skill scaffold unconfigured directory Initialize",
+      "expect": "openspec/specs/folder-action-bar/spec.md"
+    },
+    {
+      "q": "project-init unconfigured directory detect AGENTS.md settings",
+      "expect": "openspec/specs/folder-action-bar/spec.md"
+    },
+    {
+      "q": "seq cursor lastSeq delta replay reconnect dropped event gap detection contiguous",
+      "expect": "openspec/specs/incremental-event-sync/spec.md"
+    },
+    {
+      "q": "file editor browser open file in session client",
+      "expect": "openspec/specs/internal-monaco-editor-pane/spec.md"
+    },
+    {
+      "q": "directory AGENTS.md per-file record maintenance documentation update protocol",
+      "expect": "openspec/specs/markdown-knowledge-base/spec.md"
+    },
+    {
+      "q": "knowledge base plugin search FTS5 BM25 indexing",
+      "expect": "openspec/specs/markdown-knowledge-base/spec.md"
+    },
+    {
+      "q": "knowledge base update trigger file index rebuild indexing",
+      "expect": "openspec/specs/markdown-knowledge-base/spec.md"
+    },
+    {
+      "q": "knowledge graph entities relations frontmatter indexing kb tier-1",
+      "expect": "openspec/specs/markdown-knowledge-base/spec.md"
+    },
+    {
+      "q": "stale knowledge base entries lint check",
+      "expect": "openspec/specs/markdown-knowledge-base/spec.md"
+    },
+    {
+      "q": "session filter search UI client session list sidebar",
+      "expect": "openspec/specs/meta-json-session-cache/spec.md"
+    },
+    {
+      "q": "plugin marketplace installed version detect update available",
+      "expect": "openspec/specs/package-source-matching/spec.md"
+    },
+    {
+      "q": "installed packages source field npm: git: local path discovery pi packages list",
+      "expect": "openspec/specs/package-update/spec.md"
+    },
+    {
+      "q": "model 404 Not Found error provider routing gemini pro",
+      "expect": "openspec/specs/provider-auth-bridge/spec.md"
+    },
+    {
+      "q": "tool call created file artifact detection",
+      "expect": "openspec/specs/session-diff-extraction/spec.md"
+    },
+    {
+      "q": "TOFU trust on first use external directory session project",
+      "expect": "openspec/specs/worktree-init-hook/spec.md"
+    },
+    {
+      "q": "worktree init setup new worktree session node_modules skills",
+      "expect": "openspec/specs/worktree-init-hook/spec.md"
+    },
+    {
+      "q": "burst group consecutive tool calls collapse component implementation",
+      "expect": "packages/client/src/components/ChatView.tsx.AGENTS.md"
+    },
+    {
+      "q": "ChatView message grouping collapsed streaming reasoning reply",
+      "expect": "packages/client/src/components/ChatView.tsx.AGENTS.md"
+    },
+    {
+      "q": "View popover ChatView toolbar menu checkbox",
+      "expect": "packages/client/src/components/ChatViewMenu.tsx.AGENTS.md"
+    },
+    {
+      "q": "Diff view empty file content render diff",
+      "expect": "packages/client/src/components/DiffPanel.tsx.AGENTS.md"
+    },
+    {
+      "q": "content editor file tree browser PDF markdown viewer",
+      "expect": "packages/client/src/components/editor-pane/AGENTS.md"
+    },
+    {
+      "q": "OpenSpec artifact badges proposal design spec tasks P D S T navigation",
+      "expect": "packages/client/src/components/openspec-helpers.tsx.AGENTS.md"
+    },
+    {
+      "q": "MarkdownPreview component img src rewrite",
+      "expect": "packages/client/src/components/preview/AGENTS.md"
+    },
+    {
+      "q": "SessionCard component",
+      "expect": "packages/client/src/components/session/SessionCard.tsx.AGENTS.md"
+    },
+    {
+      "q": "CtxToolRenderer component registry which tools mapped",
+      "expect": "packages/client/src/components/tool-renderers/AGENTS.md"
+    },
+    {
+      "q": "MinimalChatView AgentToolRenderer subagent timeline",
+      "expect": "packages/client/src/components/tool-renderers/AGENTS.md"
+    },
+    {
+      "q": "SessionCard component status badge",
+      "expect": "packages/client/src/lib/session/session-status-visuals.ts.AGENTS.md"
+    },
+    {
+      "q": "SessionCard status badge",
+      "expect": "packages/client/src/lib/session/session-status-visuals.ts.AGENTS.md"
+    },
+    {
+      "q": "SessionCard status badge color",
+      "expect": "packages/client/src/lib/session/session-status-visuals.ts.AGENTS.md"
+    },
+    {
+      "q": "dashboard plugin contributions server client lifecycle",
+      "expect": "packages/dashboard-plugin-runtime/README.md"
+    },
+    {
+      "q": "subagent inheritContext toolset restrict tools spawned session",
+      "expect": "packages/electron/resources/bundled-extensions/pi-flows/openspec/changes/fix-subagent-tool-injection/specs/subagent-spawn/spec.md"
+    },
+    {
+      "q": "Open file button editor deep link vscode open href",
+      "expect": "packages/extension/.pi/skills/pi-dashboard/references/api-reference.md"
+    },
+    {
+      "q": "pi-dashboard REST API spawn prompt session",
+      "expect": "packages/extension/.pi/skills/pi-dashboard/references/api-reference.md"
+    },
+    {
+      "q": "HTTP API routes server control flow git branch",
+      "expect": "packages/extension/.pi/skills/pi-dashboard/SKILL.md"
+    },
+    {
+      "q": "worktreeInit status needsInit detection settings.json hook folder scan",
+      "expect": "packages/extension/src/project-init/AGENTS.md"
+    },
+    {
+      "q": "subagent timeline entries mapSubagentEntries readSubagentDetails",
+      "expect": "packages/server/src/persistence/memory-event-store.ts.AGENTS.md"
+    },
+    {
+      "q": "worktree init-status endpoint hasHook needsInit trusted gate evaluation server",
+      "expect": "packages/server/src/routes/AGENTS.md"
+    },
+    {
+      "q": "git ownership sessionId attribution diff",
+      "expect": "packages/server/src/session/session-diff.ts.AGENTS.md"
+    },
+    {
+      "q": "subagent agentId session popout not found",
+      "expect": "packages/subagents-plugin/src/client/AGENTS.md"
+    },
+    {
+      "q": "subagent inheritContext pi-dashboard-subagents timeline inspector stream child",
+      "expect": "packages/subagents-plugin/src/client/AGENTS.md"
+    },
+    {
+      "q": "SubagentCard subagent messages popout",
+      "expect": "packages/subagents-plugin/src/client/AGENTS.md"
+    },
+    {
+      "q": "pairing AGENTS dox server routes pairing",
+      "expect": "server/src/pairing/AGENTS.md"
+    },
+    {
+      "q": "pairing code token device",
+      "expect": "server/src/pairing/AGENTS.md"
+    },
+    {
+      "q": "pi-version-skew verify-release-deps piCompatibility health-compatibility",
+      "expect": "server/src/pi/pi-version-skew.ts.AGENTS.md"
+    },
+    {
+      "q": "git diff ownership sessionId attribution",
+      "expect": "server/src/session/session-diff.ts.AGENTS.md"
+    },
+    {
+      "q": "ownership other sessions changes git status",
+      "expect": "server/src/session/session-diff.ts.AGENTS.md"
+    },
+    {
+      "q": "agent spawn event subagent_start bridge forwarding",
+      "expect": "specs/agent-tool-rendering/spec.md"
+    },
+    {
+      "q": "subagent card display spawn timeline",
+      "expect": "specs/agent-tool-rendering/spec.md"
+    },
+    {
+      "q": "replay cache IndexedDB backfill progress",
+      "expect": "specs/chat-history-loading-indicator/spec.md"
+    },
+    {
+      "q": "dependency-declarations test scripts __tests__ undeclared",
+      "expect": "specs/code-quality-loop/spec.md"
+    },
+    {
+      "q": "user message transcript image rendering component",
+      "expect": "specs/event-reducer/spec.md"
+    },
+    {
+      "q": "canvas links open panel artifact preview",
+      "expect": "specs/file-and-url-preview/spec.md"
+    },
+    {
+      "q": "goal API endpoint create goal model",
+      "expect": "specs/goal-authoring/spec.md"
+    },
+    {
+      "q": "electron shell connect server URL pairing token crypto.subtle",
+      "expect": "specs/neutral-shell-pairing/spec.md"
+    },
+    {
+      "q": "peer pairing electron desktop remote dashboard",
+      "expect": "specs/neutral-shell-server-connect/spec.md"
+    },
+    {
+      "q": "oauth callback redirect port loopback server listen code exchange",
+      "expect": "specs/oauth-callback-server/spec.md"
+    },
+    {
+      "q": "session card openspec block attached change",
+      "expect": "specs/openspec-attach-combo/spec.md"
+    },
+    {
+      "q": "openspec board group ungrouped",
+      "expect": "specs/openspec-board/spec.md"
+    },
+    {
+      "q": "pending prompt request persisted browser reload session card awaiting input",
+      "expect": "specs/prompt-derived-tool-state/spec.md"
+    },
+    {
+      "q": "code expires seconds timeout type code PWA phone",
+      "expect": "specs/qr-device-pairing/spec.md"
+    },
+    {
+      "q": "session slot card contribution slots list",
+      "expect": "specs/session-card-subcards/spec.md"
+    },
+    {
+      "q": "git status changed files tracker",
+      "expect": "specs/session-diff-extraction/spec.md"
+    },
+    {
+      "q": "git worktree changed files per session attribution",
+      "expect": "specs/session-diff-extraction/spec.md"
+    },
+    {
+      "q": "workspace directory drag drop reorder",
+      "expect": "specs/sidebar-drag-reorder/spec.md"
+    },
+    {
+      "q": "file browser open file editor panel",
+      "expect": "specs/split-editor-workspace/spec.md"
+    },
+    {
+      "q": "AgentToolRenderer SubagentDetailView SubagentPopoutPage",
+      "expect": "subagents-plugin/src/client/AGENTS.md"
+    },
+    {
+      "q": "subagent entries reducer partialResult",
+      "expect": "subagents-plugin/src/client/AGENTS.md"
+    },
+    {
+      "q": "ITLINE domain átadás semmi.se transfer",
+      "expect": "Szemelyes/Simon_Viktoria/emails/domain lemondo.md"
+    },
+    {
+      "q": "playwright install chromium e2e setup",
+      "expect": "tests/e2e/README.md"
+    }
+  ]
+}

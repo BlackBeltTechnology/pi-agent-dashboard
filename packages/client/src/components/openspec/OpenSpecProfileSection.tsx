@@ -19,14 +19,18 @@ import {
 import type React from "react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
-import { logRejection } from "../../lib/report-error.js";
 import {
   type CwdUpdateStatus,
   fetchGlobalOpenSpecConfig,
+  fetchOpenSpecPollSettings,
   fetchUpdateStatus,
+  type OpenSpecPollSettings,
+  removeOpenSpecOptOut,
   runOpenSpecUpdate,
   saveOpenSpecConfig,
+  setOfferInitialization,
 } from "../../lib/openspec/openspec-config-api.js";
+import { logRejection } from "../../lib/report-error.js";
 
 type Profile = OpenSpecConfig["profile"];
 type LoadStatus = "loading" | "ready" | "error";
@@ -58,6 +62,49 @@ export function OpenSpecProfileSection() {
   const [statuses, setStatuses] = useState<CwdUpdateStatus[]>([]);
   const [expanded, setExpanded] = useState(false);
   const [updating, setUpdating] = useState<string | null>(null); // cwd or "__all__"
+
+  // ── Initialization affordances (add-openspec-init-affordances, task 4.7) ──
+  // Fleet-level offer switch + per-directory opt-out list, both dashboard
+  // config (`PUT /api/config` partial writes, deep-merged server-side).
+  const [pollSettings, setPollSettings] = useState<OpenSpecPollSettings | null>(null);
+  const [settingsBusy, setSettingsBusy] = useState(false);
+
+  const refreshPollSettings = useCallback(async () => {
+    try {
+      setPollSettings(await fetchOpenSpecPollSettings());
+    } catch {
+      /* tolerated — the block renders its load-failure note */
+    }
+  }, []);
+
+  useEffect(() => {
+    void refreshPollSettings().catch(logRejection("OpenSpecProfileSection.refreshPollSettings"));
+  }, [refreshPollSettings]);
+
+  async function handleToggleOffer(next: boolean) {
+    setSettingsBusy(true);
+    try {
+      await setOfferInitialization(next);
+      await refreshPollSettings();
+    } catch {
+      /* tolerated — refetch restores the persisted truth */
+      await refreshPollSettings();
+    } finally {
+      setSettingsBusy(false);
+    }
+  }
+
+  async function handleRemoveOptOut(cwd: string) {
+    setSettingsBusy(true);
+    try {
+      await removeOpenSpecOptOut(cwd);
+      await refreshPollSettings();
+    } catch {
+      await refreshPollSettings();
+    } finally {
+      setSettingsBusy(false);
+    }
+  }
 
   const refreshStatus = useCallback(async () => {
     try {
@@ -249,6 +296,71 @@ export function OpenSpecProfileSection() {
           (Claude Code, Cursor, the CLI). Saving does not touch project files — use the Update buttons below to regenerate
           a project's <code>/opsx:</code> {i18nT("common.skillFiles", undefined, "skill files.")}
         </span>
+      </div>
+
+      {/* Initialization affordances — fleet offer switch + opt-out list.
+          Instant-apply like the Update controls (NOT draft-buffered like the
+          profile radios): both are switches, not authored content.
+          See change: add-openspec-init-affordances (task 4.7). */}
+      <div className="mt-4 pt-3 border-t border-[var(--border-subtle)]" data-testid="openspec-init-affordances">
+        <label className="flex items-start gap-2.5 cursor-pointer" data-testid="offer-init-row">
+          <input
+            type="checkbox"
+            data-testid="offer-init-toggle"
+            checked={pollSettings?.offerInitialization ?? true}
+            disabled={settingsBusy || pollSettings === null}
+            onChange={(e) => void handleToggleOffer(e.target.checked)}
+            className="mt-0.5"
+          />
+          <span className="flex-1 min-w-0">
+            <span className="block text-[13px] font-semibold text-[var(--text-primary)]">
+              {i18nT("openspec.offerInitLabel", undefined, "Offer OpenSpec initialization")}
+            </span>
+            <span className="block text-[10px] text-[var(--text-tertiary)] leading-relaxed">
+              {i18nT(
+                "openspec.offerInitHint",
+                undefined,
+                "When on, directories without OpenSpec show a one-line initialize offer on the folder card. When off, they show nothing — broken or stale projects keep their notices.",
+              )}
+            </span>
+          </span>
+        </label>
+
+        <div className="mt-3">
+          <div className="text-[11px] font-semibold text-[var(--text-secondary)] mb-1.5">
+            {i18nT("openspec.optedOutTitle", undefined, "Opted-out directories")}
+          </div>
+          {pollSettings === null ? (
+            <p className="text-[11px] text-[var(--text-muted)]" data-testid="optout-loading">
+              {i18nT("status.loadingCurrentProfile", undefined, "Loading current profile…")}
+            </p>
+          ) : pollSettings.optOutDirectories.length === 0 ? (
+            <p className="text-[11px] text-[var(--text-muted)]" data-testid="optout-empty">
+              {i18nT("openspec.optedOutEmpty", undefined, "No directories are opted out.")}
+            </p>
+          ) : (
+            <div className="space-y-1.5" data-testid="optout-list">
+              {pollSettings.optOutDirectories.map((dir) => (
+                <div
+                  key={dir}
+                  data-testid={`optout-row-${dir}`}
+                  className="flex items-center gap-2.5 px-2.5 py-2 rounded border border-[var(--border-subtle)] bg-[var(--bg-tertiary)]"
+                >
+                  <span className="font-mono text-[11px] text-[var(--text-secondary)] truncate flex-1 min-w-0">{dir}</span>
+                  <button
+                    type="button"
+                    data-testid={`optout-remove-${dir}`}
+                    disabled={settingsBusy}
+                    onClick={() => void handleRemoveOptOut(dir)}
+                    className="text-[10px] px-2 py-1 rounded text-cyan-400 border border-cyan-500/40 bg-cyan-500/[0.06] disabled:opacity-35"
+                  >
+                    {i18nT("openspec.optedOutRemove", undefined, "Re-enable")}
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Projects: update-all + collapsible per-cwd list */}

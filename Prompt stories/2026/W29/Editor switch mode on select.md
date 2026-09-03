@@ -233,5 +233,5 @@ configured `@propose-review-N` reviewer roles.
 ---
 
 _Generated from session `019f6c93-9bdb-7f1c-b38a-213ce1376632` ·
-`pi-agent-dashboard` · 2026-07-17. Source extract:
+`/Users/robson/Project/pi-agent-dashboard` · 2026-07-17. Source extract:
 `/tmp/session_facts.md`._

@@ -1,0 +1,45 @@
+{
+  "formTitle": "All Field Types",
+  "formDescription": "A fixture exercising every one of the 14 upstream field types.",
+  "pages": [
+    {
+      "title": "Details",
+      "sections": [
+        {
+          "title": "Section A",
+          "rows": [
+            { "columns": [{ "width": 12, "fields": [{ "type": "header", "key": "hdr", "label": "Applicant" }] }] },
+            { "columns": [{ "width": 12, "fields": [{ "type": "paragraph", "key": "intro", "label": "Please complete all fields." }] }] },
+            { "columns": [
+              { "width": 6, "fields": [{ "type": "text", "key": "firstName", "label": "First name", "required": true }] },
+              { "width": 6, "fields": [{ "type": "text", "key": "lastName", "label": "Last name" }] }
+            ] },
+            { "columns": [{ "width": 12, "fields": [{ "type": "textarea", "key": "bio", "label": "About you", "rows": 3 }] }] },
+            { "columns": [
+              { "width": 6, "fields": [{ "type": "number", "key": "hours", "label": "Hours" }] },
+              { "width": 6, "fields": [{ "type": "number", "key": "rate", "label": "Rate" }] }
+            ] },
+            { "columns": [{ "width": 6, "fields": [{ "type": "number", "key": "total", "label": "Total", "isCalculated": true, "formulaExpression": "{hours} * {rate}" }] }] },
+            { "columns": [{ "width": 6, "fields": [{ "type": "date", "key": "startDate", "label": "Start date" }] }] },
+            { "columns": [{ "width": 12, "fields": [{ "type": "boolean", "key": "agree", "label": "I agree to the terms", "required": true }] }] },
+            { "columns": [{ "width": 6, "fields": [{ "type": "dropdown", "key": "country", "label": "Country", "options": [{ "value": "hu", "label": "Hungary" }, { "value": "us", "label": "United States" }] }] }] },
+            { "columns": [{ "width": 6, "fields": [{ "type": "radio", "key": "contactMethod", "label": "Preferred contact", "options": [{ "value": "email", "label": "Email" }, { "value": "phone", "label": "Phone" }] }] }] },
+            { "columns": [{ "width": 12, "fields": [{ "type": "checkbox", "key": "interests", "label": "Interests", "options": [{ "value": "a", "label": "Alpha" }, { "value": "b", "label": "Beta" }] }] }] },
+            { "columns": [{ "width": 12, "fields": [{ "type": "matrix", "key": "survey", "label": "Satisfaction", "matrixRows": [{ "value": "speed", "label": "Speed" }, { "value": "cost", "label": "Cost" }], "matrixColumns": [{ "value": "low", "label": "Low" }, { "value": "high", "label": "High" }] }] }] },
+            { "columns": [{ "width": 12, "fields": [{ "type": "repeater", "key": "people", "label": "People", "minItems": 0, "rows": [{ "columns": [{ "width": 6, "fields": [{ "type": "text", "key": "name", "label": "Name" }] }, { "width": 6, "fields": [{ "type": "number", "key": "age", "label": "Age" }] }] }] }] }] },
+            { "columns": [{ "width": 12, "fields": [{ "type": "signature", "key": "sign", "label": "Signature" }] }] },
+            { "columns": [{ "width": 12, "fields": [{ "type": "file", "key": "attachment", "label": "Attachment", "maxFileSizeMB": 5, "acceptedTypes": [".pdf", "image/*"] }] }] }
+          ]
+        }
+      ]
+    }
+  ],
+  "crossFieldRules": [
+    {
+      "id": "rate-sanity",
+      "andGroups": [{ "conditions": [{ "dependentFieldKey": "rate", "operator": "greaterThan", "equalsValue": 1000 }] }],
+      "targetFields": ["rate"],
+      "errorMessage": "Rate looks unusually high; please confirm."
+    }
+  ]
+}

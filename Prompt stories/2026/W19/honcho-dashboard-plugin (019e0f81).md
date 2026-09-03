@@ -115,4 +115,4 @@ No new pi skill or memory was saved this session, but three reusable assets emer
 
 ---
 
-_Generated from session `019e0f81-1a6f-71a1-8a75-4da922f4e4cb` · `pi-agent-dashboard` · 2026-05-10. Source extract: `/tmp/facts-1784861869N.md`._
+_Generated from session `019e0f81-1a6f-71a1-8a75-4da922f4e4cb` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-10. Source extract: `/tmp/facts-1784861869N.md`._

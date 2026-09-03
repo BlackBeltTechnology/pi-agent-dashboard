@@ -187,4 +187,4 @@ went green, PR #218 went green, and the AI squash-merged + cleaned up the worktr
 
 ---
 
-_Generated from session `019f258f-ee81-7f29-99b8-245e5e4485f6` · `pi-agent-dashboard` · 2026-07-03. Source extract: deterministic facts sheet from `session-to-guideline/scripts/extract_session.ts`._
+_Generated from session `019f258f-ee81-7f29-99b8-245e5e4485f6` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-03. Source extract: deterministic facts sheet from `session-to-guideline/scripts/extract_session.ts`._

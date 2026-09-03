@@ -1,0 +1,3 @@
+# windows-job-object-smoke.ts — index
+
+Windows Job Object kill-on-close smoke (task 7.4a; CI: `ci-e2e-electron.yml` job `job-object-windows`). win32-only (skips + exit 0 elsewhere). Requires :8000 free → launches packaged app with throwaway HOME (no fake server → launch-server arm SPAWNS a real server) → reads server pid from `/api/health` → `taskkill /F /PID <electron-pid>` (NO `/T`, kills parent only) → asserts server pid dies + :8000 frees within 15s (Job Object `KILL_ON_JOB_CLOSE` cascade). Distinct `INFRA` vs `FAIL` exit signals (server-never-booted vs invariant-broken). See change: electron-attach-ownership-fixes.

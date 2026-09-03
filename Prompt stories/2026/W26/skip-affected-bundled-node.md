@@ -212,4 +212,4 @@ off `origin/develop`; `gh` auth; the parent repo path for cleanup.
 
 ---
 
-_Generated from session `019f1041-2667-7913-8e79-52a2f584128e` · `pi-agent-dashboard` · 2026-06-29. Source extract: `facts.t9rEebW48R.md`._
+_Generated from session `019f1041-2667-7913-8e79-52a2f584128e` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-29. Source extract: `facts.t9rEebW48R.md`._

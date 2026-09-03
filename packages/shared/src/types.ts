@@ -1,3 +1,26 @@
+/**
+ * The auto-namer's enumerated durable state set: carried across an extension
+ * reload as VALUES (never the namer object, whose closures would hold a stale
+ * connection and ctx) and persisted into `.meta.json` so a permanent stop also
+ * survives a process restart.
+ * See change: fix-auto-naming-reasoning-model (design D7).
+ */
+export interface AutoNamerPersistedState {
+  hardStopped: boolean;
+  errorEmitted: boolean;
+  attemptsUsed: number;
+  starvedCount: number;
+  waitingCount: number;
+  sawStarved: boolean;
+  stoppedModelRef?: string;
+  stopCause?: string;
+  /** The cause-matched stop reason, so a later re-report stays actionable. */
+  stoppedReason?: string;
+  nameSource?: "auto" | "user";
+  hasAutoName: boolean;
+  lastSelfApplied?: string;
+}
+
 /** Source environment where a pi session is running */
 export type SessionSource =
   | "tui"
@@ -99,6 +122,12 @@ export interface DashboardSession {
    * lockout. See change: add-auto-session-naming.
    */
   nameSource?: "auto" | "user";
+  /**
+   * The auto-namer's durable stop state, restored on cold start so a
+   * permanent stop survives a process restart rather than re-spending a full
+   * attempt budget. See change: fix-auto-naming-reasoning-model (design D7).
+   */
+  autoNamerState?: AutoNamerPersistedState;
   source: SessionSource;
   /**
    * Disposability marker. Absent ⇒ `"durable"`. Only `"ephemeral"` sessions
@@ -108,7 +137,40 @@ export interface DashboardSession {
    * See change: add-embed-session-lifecycle.
    */
   lifecyclePolicy?: LifecyclePolicy;
+  /**
+   * Paired-device id of the host this session RAN on, when that host is not
+   * this one. Absent means local — which is what every pre-existing session is,
+   * so absent must keep meaning "our filesystem" (task 11.12).
+   *
+   * Derived server-side from the bridge's credential, never from a field the
+   * bridge sends: a self-reported origin is a claim by the party being
+   * identified. Display-safe, but its real job is gating every filesystem read
+   * of `sessionFile` — two hosts with the same username produce the same path.
+   * See change: add-pi-gateway-transport-identity (tasks 11.7, 11.8).
+   */
+  originDeviceId?: string;
+  /**
+   * Set when this session left for another dashboard instance (D11, task 9.3).
+   *
+   * The session's `status` stays `"ended"` — it genuinely did end HERE — but a
+   * plain `ended` with no explanation is indistinguishable from a crash, which
+   * is the exact confusion this field exists to remove. Absent means the
+   * session ended for any other reason.
+   * See change: add-pi-gateway-transport-identity.
+   */
+  movedTo?: { instanceId: string; endpoint?: string; at: number };
   status: SessionStatus;
+  /**
+   * True while the session is compacting its context. Derived server-side
+   * from the bridge-forwarded `session_before_compact` (start) and
+   * `session_compact` (end) events, because `SessionStatus` has no
+   * compaction member. Consumed by the reload dispatcher: pi runs an
+   * extension command immediately even mid-compaction, and `ctx.reload()`
+   * would invalidate the runner, so a compacting session refuses a reload.
+   * Cleared on compaction end and never carried onto a re-registration.
+   * See change: fix-out-of-band-reload.
+   */
+  compacting?: boolean;
   model?: string;
   thinkingLevel?: string;
   startedAt: number;
@@ -246,9 +308,12 @@ export interface DashboardSession {
    * Sparse per-session override for chat-view display preferences. Mirror
    * of `SessionMeta.displayPrefsOverride`. Deep-merged onto the global
    * `DisplayPrefs` on the client side via `mergeDisplayPrefs`.
-   * See change: configurable-chat-display.
+   * A clearing `session_updated` broadcast carries `null` (not `undefined`,
+   * which `JSON.stringify` would drop) so the client can overwrite a stale
+   * override; `getSessionOverride` normalizes `null → undefined`.
+   * See change: configurable-chat-display, fix-clear-display-override-broadcast.
    */
-  displayPrefsOverride?: import("./display-prefs.js").PartialDisplayPrefs;
+  displayPrefsOverride?: import("./display-prefs.js").PartialDisplayPrefs | null;
   /**
    * Per-session collapse state for the PROCESS subcard's background-
    * processes drawer. Mirror of `SessionMeta.processDrawerCollapsed`.
@@ -341,10 +406,14 @@ export interface DashboardSession {
    * Mirror of pi's native steering + follow-up queues for this session.
    * Populated from pi's `queue_update` event, forwarded by the bridge.
    * `steering[]` typically empties every turn boundary (1-15 s); `followUp`
-   * is dashboard-enforced capacity 1 and drains on `agent_end`.
-   * See capability `mid-turn-prompt-queue`. See change: add-followup-edit-and-steer-cancel.
+   * holds up to 20 entries (and a 32 MiB aggregate byte ceiling, both bridge-
+   * enforced) and drains ONE entry per `agent_end`.
+   * `followUp` carries entry objects (text + image COUNT); `steering` stays a
+   * plain string array (pi-owned, display-only).
+   * See capability `mid-turn-prompt-queue`. See change: add-followup-edit-and-steer-cancel,
+   *   fix-bridge-followup-image-drop.
    */
-  pendingQueues?: { steering: string[]; followUp: string[] };
+  pendingQueues?: { steering: string[]; followUp: FollowUpEntryView[] };
   /**
    * Session classification. Currently the only non-default value is
    * `"automation"`, stamped on sessions spawned by the automation-plugin's
@@ -553,6 +622,23 @@ export interface ImageContent {
   mimeType: string;
 }
 
+/**
+ * One bridge follow-up buffer entry as it crosses the wire.
+ *
+ * Image BYTES never leave the extension (design D2): the browser already had
+ * them when it sent them, so echoing them back would double the hold and put
+ * megabytes on the WebSocket on every queue mutation. `imageCount` is
+ * display-only — it drives the chip's attachment indicator and nothing else.
+ *
+ * BREAKING vs the prior `string[]`: every consumer reads `.text`. The client
+ * normalises `string | FollowUpEntryView` on read for one release (design D2b).
+ * See change: fix-bridge-followup-image-drop.
+ */
+export interface FollowUpEntryView {
+  text: string;
+  imageCount: number;
+}
+
 // PendingPrompt removed in change: add-followup-edit-and-steer-cancel.
 // Pi's native queues are now the single source of truth; `Session.pendingQueues`
 // holds `string[]` arrays directly from pi's `queue_update` event.
@@ -592,13 +678,18 @@ export interface ModelInfo {
   /**
    * Confidence of `reasoning`/`vision`: `"catalog"` when the bridge's
    * `enrichModelMetadata()` probe resolved the model against pi's registry
-   * (real capabilities); `"fallback"` when it force-defaulted
-   * (`input:["text","image"]`, `reasoning:false`) because the provider
-   * reported no capability data. Drives confident-badge vs `?`-badge in the
-   * selector. Absent = old bridge that sent no capability fields (render no
-   * badge, NOT `?`). See change: enrich-model-selector-capabilities-favorites.
+   * (real capabilities); `"endpoint"` when the custom provider itself
+   * advertised every projected field in its model list (also confirmed, but
+   * self-reported by the proxy rather than pi's bundled catalog);
+   * `"fallback"` when it force-defaulted (`input:["text","image"]`,
+   * `reasoning:false`) because the provider reported no capability data for at
+   * least one field. Drives confident-badge vs `?`-badge in the selector. A
+   * mixed-tier model reports its WEAKEST tier, so a floor value is never shown
+   * as confirmed. Absent = old bridge that sent no capability fields (render no
+   * badge, NOT `?`). See changes: enrich-model-selector-capabilities-favorites,
+   * fix-custom-provider-model-metadata.
    */
-  metadataSource?: "catalog" | "fallback";
+  metadataSource?: "catalog" | "endpoint" | "fallback";
   /**
    * Thinking levels this model supports, derived from pi 0.72+'s per-model
    * `thinkingLevelMap`. Keys whose value is non-null (string | true) are
@@ -654,7 +745,13 @@ export interface RoleInfo {
 /** OpenSpec artifact status */
 export interface OpenSpecArtifact {
   id: string;
-  status: "done" | "ready" | "blocked";
+  /**
+   * `skipped`: the change's `.openspec.yaml` declares `skip_specs: true`, so
+   * the raw CLI emits the specs artifact as skipped and it satisfies planning
+   * completeness without a specs dir. See change: dispatch-provider-auth-event
+   * (develop-borne CI fix for poller/CLI parity).
+   */
+  status: "done" | "ready" | "blocked" | "skipped";
 }
 
 /** A single OpenSpec change */
@@ -942,7 +1039,11 @@ export enum ChangeState {
 
 /** Derive the lifecycle state of an OpenSpec change from its data */
 export function deriveChangeState(change: OpenSpecChange): ChangeState {
-  const allDone = change.artifacts.length > 0 && change.artifacts.every((a) => a.status === "done");
+  // "skipped" counts as done (e.g. skip_specs changes): the CLI reports
+  // isPlanningComplete for them, and OpenSpecStepper already renders them as done.
+  const allDone =
+    change.artifacts.length > 0 &&
+    change.artifacts.every((a) => a.status === "done" || a.status === "skipped");
   if (!allDone) return ChangeState.PLANNING;
   if (change.status === "complete") return ChangeState.COMPLETE;
   if (change.status === "in-progress") return ChangeState.IMPLEMENTING;
@@ -950,6 +1051,32 @@ export function deriveChangeState(change: OpenSpecChange): ChangeState {
 }
 
 /** OpenSpec data for a session's project */
+/** Server-derived per-cwd OpenSpec readiness state. See change: add-openspec-init-affordances. */
+export type OpenSpecReadinessState =
+  | "GLOBAL_OFF"
+  | "OPTED_OUT"
+  | "PENDING"
+  | "ABSENT"
+  | "BROKEN"
+  | "STALE"
+  | "READY";
+
+/**
+ * Why a cwd is not READY. `missing-changes-dir` / `cli-failed` subdivide BROKEN
+ * (only the first is remediable by re-running init); `missing-skills` /
+ * `profile-stale` subdivide STALE (missing-skills wins when both hold).
+ */
+export type OpenSpecReadinessReason =
+  | "missing-changes-dir"
+  | "cli-failed"
+  | "missing-skills"
+  | "profile-stale";
+
+export interface OpenSpecReadiness {
+  state: OpenSpecReadinessState;
+  reason?: OpenSpecReadinessReason;
+}
+
 export interface OpenSpecData {
   /**
    * `openspec list` returned authoritative data for this cwd. Requires both
@@ -987,6 +1114,25 @@ export interface OpenSpecData {
    * See change: auto-hide-empty-session-subcards.
    */
   hasOpenspecDir?: boolean;
+  /**
+   * Whether `<configRoot>/.pi/skills/openspec-explore/` exists — i.e. will
+   * `/skill:openspec-explore` resolve. Resolved at the cwd's config root
+   * (main checkout for a worktree) because `.pi/skills/openspec-*` is
+   * gitignored and never checks out into a worktree.
+   *
+   * Optional for backwards compatibility — absence means "unknown, infer
+   * nothing". See change: add-openspec-init-affordances.
+   */
+  hasOpenSpecSkills?: boolean;
+  /**
+   * Server-derived readiness fold (see `OpenSpecReadinessState` for the
+   * precedence). Clients render from it; they do not re-derive. Optional:
+   * absence (older server) degrades every client to its previous gate and
+   * SHALL NOT present a disabled or stale state.
+   *
+   * See change: add-openspec-init-affordances.
+   */
+  readiness?: OpenSpecReadiness;
 }
 
 /** OpenSpec workflow phase detected from tool calls */
@@ -1289,6 +1435,28 @@ export interface ApiResponse<T = unknown> {
    * See change: openspec-worktree-spawn-button.
    */
   orphanLikely?: boolean;
+  /**
+   * `POST /api/session/:id/prompt`: whether the prompt was WRITTEN to the
+   * owning bridge's socket. Transmission, not delivery — the response is
+   * deliberately not gated on the bridge acknowledging, so `delivered` cannot
+   * appear here at all. Pair with `promptId`.
+   * See change: fix-spawn-correlation-ttl-coupling (D7).
+   */
+  transmitted?: boolean;
+  /**
+   * Per-prompt handle echoed by the bridge on `prompt_received`, making the
+   * acknowledged state observable on the session event stream.
+   * See change: fix-spawn-correlation-ttl-coupling (D7).
+   */
+  promptId?: string;
+  /**
+   * `"contended"` when a second bridge recently claimed this session id and was
+   * refused. Annotation only — `success` is unaffected.
+   * See change: fix-duplicate-bridge-registration (D4).
+   */
+  bridgeState?: string;
+  /** Human-readable annotation paired with `bridgeState`. */
+  warning?: string;
 }
 
 /**

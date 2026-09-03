@@ -267,8 +267,9 @@ export function mountInvoiceBotRoutes(fastify: FastifyInstance, deps: InvoiceBot
   });
 
   // ── /run-invoice — start ONE scoped run for exactly one queued invoice ─────
-  // Reuses the SAME per-invoice fan-out core the scheduler + manual run-now
-  // share (via the automation plugin's `automation:runInvoice` service), so the
+  // Reuses the SAME fan-out child path the scheduled batch drain uses (via the
+  // automation plugin's generic `automation:runWorkItem` service, which leases
+  // exactly this invoice from the queued-invoice work source), so the
   // run carries IB_TOOLSET=scoped-invoice + IB_INVOICE_ID and gets its own scoped
   // session. Never a global/folder-level run, never a fan-out over other
   // invoices. Refuses (409 / {ok:false,reason:"in_flight"}) when the invoice
@@ -282,7 +283,7 @@ export function mountInvoiceBotRoutes(fastify: FastifyInstance, deps: InvoiceBot
       return { error: "invoice_id is required" };
     }
     if (!deps.runInvoice) {
-      req.log.warn("invoicebot run-invoice: automation:runInvoice service unavailable");
+      req.log.warn("invoicebot run-invoice: automation:runWorkItem service unavailable");
       reply.code(503);
       return { error: "run service unavailable" };
     }

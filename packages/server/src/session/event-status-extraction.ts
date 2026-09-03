@@ -6,7 +6,7 @@ import type { DashboardEvent, DashboardSession, SessionStatus } from "@blackbelt
 
 // Use null (not undefined) for fields that must be cleared — undefined is
 // dropped during JSON serialisation so the browser would keep the stale value.
-type SessionUpdates = Partial<Pick<DashboardSession, "status" | "model" | "thinkingLevel">> & {
+type SessionUpdates = Partial<Pick<DashboardSession, "status" | "model" | "thinkingLevel" | "compacting">> & {
   currentTool?: string | null;
 };
 
@@ -87,6 +87,36 @@ function extractRawSessionUpdates(event: DashboardEvent): SessionUpdates | null 
 
     case "agent_end":
       return { status: "idle", currentTool: null };
+
+    // Compaction start/end. `SessionStatus` has no compacting member, so the
+    // state rides a dedicated boolean the reload dispatcher reads to refuse a
+    // mid-compaction reload. Both events are already forwarded by the bridge
+    // (`session_before_compact` pass-through, `session_compact` enriched), so
+    // no new protocol message is needed — only the derivation.
+    // See change: fix-out-of-band-reload.
+    case "session_before_compact":
+      return { compacting: true };
+
+    case "session_compact":
+      return { compacting: false };
+
+    // pi >= 0.84.3 reports a compaction that failed or was aborted. Without
+    // this arm the `compacting` latch set by `session_before_compact` never
+    // clears on the failure path, and the reload dispatcher refuses every
+    // later reload for the session. Older pi never emits it, so the arm is
+    // inert below the floor — no version gate needed.
+    case "session_compact_failed":
+      return { compacting: false };
+
+    // pi >= 0.84.4 brackets a BLOCKING extension UI prompt (`ctx.ui`). While
+    // pi is parked on one, the agent is not working — reuse the existing
+    // input-requested surface rather than leaving the last tool name up.
+    // `status` is deliberately untouched: a UI prompt is not a run boundary.
+    case "ui_prompt_start":
+      return { currentTool: "ask_user" };
+
+    case "ui_prompt_end":
+      return { currentTool: null };
 
     case "tool_execution_start":
       return { currentTool: (event.data.toolName as string) ?? null };

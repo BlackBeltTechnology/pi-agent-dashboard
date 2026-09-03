@@ -7,7 +7,7 @@ import type {
   PluginIntentsMessage,
 } from "./dashboard-plugin/intent-types.js";
 import type { DisplayPrefs, PartialDisplayPrefs } from "./display-prefs.js";
-import type { NotifyLevel } from "./protocol.js";
+import type { AutoNameOutcome, NotifyLevel } from "./protocol.js";
 import type { TerminalSession } from "./terminal-types.js";
 import type {
   CommandInfo,
@@ -17,6 +17,7 @@ import type {
   ExtensionUiModule,
   FileEntry,
   FlowInfo,
+  FollowUpEntryView,
   GoalRecord,
   ImageContent,
   ModelInfo,
@@ -46,6 +47,30 @@ export type {
 export interface DisplayPrefsUpdatedMessage {
   type: "display_prefs_updated";
   prefs: DisplayPrefs;
+}
+
+/**
+ * Server → browser: the bind-vs-trust reachability fact changed (the operator
+ * saved a new `bindHost`, or edited the trusted entries). Pushed so the Security
+ * page advisory converges without a reload or a panel reopen, and REPLAYED on
+ * connect so a browser that was disconnected during the change still converges.
+ * See change: warn-unreachable-trusted-networks.
+ */
+export interface ReachabilityUpdatedMessage {
+  type: "reachability_updated";
+  reachability: import("./bind-reachability.js").BindReachability;
+}
+
+/**
+ * Server → browser: a config section changed over PUT /api/config. Clients
+ * re-hydrate the affected settings without a reload (the OpenSpec fleet
+ * switches gate live folder-section rendering). NOT replayed on connect —
+ * connect-time state comes from the normal snapshot + /api/config fetch.
+ * See change: add-openspec-init-affordances.
+ */
+export interface ConfigUpdatedMessage {
+  type: "config_updated";
+  section: string;
 }
 
 /**
@@ -150,6 +175,86 @@ export interface EventReplayMessage {
   isLast: boolean;
 }
 
+/**
+ * Describes the shape of a WINDOWED replay: a head segment, a gap, a tail
+ * segment. Sent once per subscriber immediately after `session_state_reset` /
+ * asset replay and BEFORE the first `event_replay`, on full-stream paths only
+ * — a genuine delta subscribe never emits it, so a transient reconnect cannot
+ * reset a client's in-progress gap browsing.
+ *
+ * ZERO-GAP SEMANTICS: this message is emitted ONLY when a window was actually
+ * applied. A full stream that fits entirely inside the budget emits NOTHING —
+ * not a `gapCount: 0` announcement. Same rationale as excluding deltas: a
+ * client mid-gap-browsing that received a zero-gap announcement would have its
+ * gap bookkeeping silently reset. `gapCount` is therefore always `>= 1` on the
+ * wire; the field is typed as a plain number only because `0` remains the
+ * meaningful "no window" value in the client's own state.
+ * See change: lazy-load-session-history (D5).
+ */
+export interface SessionHistoryWindowMessage {
+  type: "history_window";
+  sessionId: string;
+  /**
+   * Last seq of the head segment. `>= 1` in a `head-tail` window; exactly `0`
+   * in a `tail-only` one, where `0` means "nothing above the gap" rather than
+   * "no window". The invariant widened from `>= 1` to `>= 0`.
+   * See change: add-tail-only-replay-window (D2).
+   */
+  headMaxSeq: number;
+  /** First seq of the tail segment. */
+  tailMinSeq: number;
+  /**
+   * Events elided between head and tail that the store ACTUALLY HOLDS — never
+   * the seq distance, which overstates a middle-trimmed store. 0 = no window.
+   */
+  gapCount: number;
+  /** Lowest gap seq the store can still serve. */
+  oldestGapSeq: number;
+  /**
+   * SHAPE of this window, ANNOUNCED rather than inferred from a
+   * `headMaxSeq === 0` sentinel: the client needs the answer in three places
+   * (auto-load on scroll at all, floor the request at `oldestGapSeq`, and
+   * whether exhaustion removes the divider or resolves to a terminus) and it
+   * never sees `memoryLimits`.
+   *
+   * OPTIONAL and additive: an older client that ignores it falls back to
+   * `head-tail`, which is what a server that never sets the mode always sends.
+   * See change: add-tail-only-replay-window (D2a).
+   */
+  windowShape?: "head-tail" | "tail-only";
+}
+
+/**
+ * Client request for an explicit seq RANGE inside the gap described by
+ * `history_window`. A range — not a `beforeSeq` cursor — because the gap is
+ * bounded on both sides and the client knows both bounds.
+ * See change: lazy-load-session-history (D6).
+ */
+export interface HistoryBackfillRequestMessage {
+  type: "history_backfill";
+  sessionId: string;
+  /** Inclusive. */
+  fromSeq: number;
+  /** Inclusive. */
+  toSeq: number;
+}
+
+/**
+ * Exactly ONE of these is sent per `history_backfill`, including every refusal
+ * path — a dropped request would strand the client pending with no retry.
+ * See change: lazy-load-session-history (D6, D9).
+ */
+export interface HistoryBackfillResultMessage {
+  type: "history_backfill_result";
+  sessionId: string;
+  events: Array<{ seq: number; event: DashboardEvent }>;
+  servedFrom: number;
+  servedTo: number;
+  /** Still-servable events in the gap; 0 = nothing more. Client stop rule. */
+  remainingGapCount: number;
+  error?: "not_subscribed" | "in_flight" | "out_of_range" | "stale_generation";
+}
+
 export interface BrowserCommandsListMessage {
   type: "commands_list";
   sessionId: string;
@@ -239,6 +344,12 @@ export interface BrowserModelsListMessage {
   type: "models_list";
   sessionId: string;
   models: ModelInfo[];
+  /**
+   * Per-provider refresh failures forwarded verbatim from the bridge. Absent on
+   * a clean refresh and on older bridges.
+   * See change: upgrade-model-selector-primitives.
+   */
+  refreshErrors?: import("./protocol.js").ProviderRefreshError[];
 }
 
 export interface ModelsRefreshedMessage {
@@ -766,6 +877,20 @@ export interface PluginActionErrorMessage {
   error: string;
 }
 
+/**
+ * Server → browser: a `retry_session` could not be delivered (unknown or
+ * disconnected session, or a bridge lacking the handler). Structured
+ * negative-ack, mirroring `plugin_action_error` — never a silent drop. The
+ * client re-enables the one-shot Retry control and surfaces a toast on receipt.
+ * See change: replace-dashboard-retry-command-with-protocol-message.
+ */
+export interface RetrySessionErrorMessage {
+  type: "retry_session_error";
+  sessionId: string;
+  /** Human-readable error description. */
+  error: string;
+}
+
 /** Sent when a plugin's config changes; carries only that plugin's namespace. */
 export interface PluginConfigUpdateMessage {
   type: "plugin_config_update";
@@ -838,55 +963,6 @@ export interface RecoveryDismissMessage {
 }
 
 /**
- * Server → browser (app-level, no per-session subscribe): a forwarded
- * InvoiceBot lifecycle domain event (`ib_*`) rebroadcast to EVERY connected
- * browser. `sessionId` is the originating session so a consumer can drill in;
- * `event.eventType` is the stable renamed `ib_*` type and `event.data` is the
- * payload verbatim. One envelope carries any lifecycle domain event, so new
- * `ib_*` kinds add no protocol member. Additive — the per-session `event`
- * stream is unchanged. See change: surface-invoice-domain-events-app-level.
- *
- * `replay` marks a frame the server replayed from its latest-per-invoice cache
- * on connect (absent/false on live frames). A consumer MUST treat a
- * `replay: true` frame as an idempotent state-set (converge to it), never as an
- * incremental delta, so counters/animations driven by live deltas are not
- * double-applied. See change: replay-invoice-domain-events.
- *
- * `greetingId` / `greetingOrder` are additive fields the server stamps onto
- * greeting-type frames (`event.eventType === IB_GREETING_EVENT_TYPE`) on BOTH
- * the replay and the live path. They give a consumer the greeting's stable
- * identity and its per-session emission-ordering key (epoch-ms) so the greeting
- * stream folds into chronological chat rows and dedupes idempotently across
- * live+replay delivery. The producer's greeting payload carries no id of its
- * own (the identity is the structured `state` field, design D3), so the server
- * is the single source of the stable id — it MUST ride the live frame too, else
- * a live greeting arrives id-less and is dropped. Non-greeting frames never
- * carry them. See change: restore-assistant-greeting-stream.
- */
-export interface IbDomainEventMessage {
-  type: "ib_domain_event";
-  sessionId: string;
-  event: { eventType: string; data: unknown };
-  replay?: boolean;
-  greetingId?: string;
-  greetingOrder?: number;
-}
-
-/**
- * Wire `eventType` for greeting-type `ib_domain_event` frames — the mechanical
- * rename of the engine's `ib:greeting` EventBus channel (`:`/`-` → `_`). The
- * SINGLE source of truth for the greeting classifier shared by the server
- * retention/replay path and the client chat reducer, so the two never drift.
- * See change: restore-assistant-greeting-stream.
- */
-export const IB_GREETING_EVENT_TYPE = "ib_greeting";
-
-/** True only for greeting-type domain-event frames. */
-export function isIbGreetingEventType(eventType: string | undefined): boolean {
-  return eventType === IB_GREETING_EVENT_TYPE;
-}
-
-/**
  * Server → browser: automatic session naming failed for `sessionId`. Forwarded
  * from the bridge's `auto_name_error`; the client renders a one-shot toast
  * ("Couldn't auto-name session: <reason>"). See change: add-auto-session-naming.
@@ -897,19 +973,37 @@ export interface AutoNameErrorBrowserMessage {
   reason: string;
 }
 
+/**
+ * Server → browser: the last auto-naming attempt outcome for `sessionId`,
+ * forwarded from the bridge's deduplicated `auto_name_outcome`. Rendered in
+ * Settings → Diagnostics so a silent stop is discoverable without reading
+ * `server.log`. See change: fix-auto-naming-reasoning-model (design D9).
+ */
+export interface AutoNameOutcomeBrowserMessage {
+  type: "auto_name_outcome";
+  sessionId: string;
+  outcome: AutoNameOutcome;
+  reason: string;
+  modelRef?: string;
+  at: number;
+}
+
 export type ServerToBrowserMessage =
   | ServerRestartingMessage
-  | IbDomainEventMessage
   | AutoNameErrorBrowserMessage
+  | AutoNameOutcomeBrowserMessage
   | RecoveryOfferMessage
   | PluginConfigUpdateMessage
   | PluginActionErrorMessage
+  | RetrySessionErrorMessage
   | SessionAddedMessage
   | SessionUpdatedMessage
   | SessionRemovedMessage
   | SessionOrphanedMessage
   | EventMessage
   | EventReplayMessage
+  | SessionHistoryWindowMessage
+  | HistoryBackfillResultMessage
   | BrowserCommandsListMessage
   | BrowserFlowsListMessage
   | BrowserExtensionUiRequestMessage
@@ -961,6 +1055,8 @@ export type ServerToBrowserMessage =
   | PluginIntentsMessage
   | PluginEventBroadcast
   | DisplayPrefsUpdatedMessage
+  | ReachabilityUpdatedMessage
+  | ConfigUpdatedMessage
   | QueueUpdateToBrowserMessage
   | PromptReceivedToBrowserMessage
   | CanvasIntentMessage
@@ -1048,6 +1144,20 @@ export interface AbortToBrowserMessage {
   sessionId: string;
 }
 
+/**
+ * Browser → server: re-drive a settled-error turn as a first-class protocol
+ * message. Replaces the legacy `send_prompt` sentinel `/__dashboard_retry`,
+ * which smuggled a control signal through the user-prompt channel. The server
+ * forwards a `retry_session` to the owning bridge, which re-drives the turn via
+ * `pi.sendMessage({ customType: "pi-dashboard:retry", display: false },
+ * { triggerTurn: true })`. See change:
+ * replace-dashboard-retry-command-with-protocol-message.
+ */
+export interface RetrySessionBrowserMessage {
+  type: "retry_session";
+  sessionId: string;
+}
+
 // ── Follow-up queue mutation (bridge-owned buffer) ──────────────────
 //
 // Pi's ExtensionAPI (verified through 0.76.0) exposes no queue-mutation
@@ -1070,13 +1180,17 @@ export interface ClearFollowupEntriesFromBrowserMessage {
   indices: number[] | "all";
 }
 
-/** Replaces `bridgeFollowUp[index]`. Mutates bridge buffer only — no pi call. */
+/**
+ * Replaces the TEXT of `bridgeFollowUp[index]`; the entry's buffered images are
+ * preserved. Mutates bridge buffer only — no pi call. The former `images` field
+ * was retired in `fix-bridge-followup-image-drop` (design D5): the browser never
+ * holds the bytes after the initial `send_prompt`, so it was unpopulatable.
+ */
 export interface EditFollowupEntryFromBrowserMessage {
   type: "edit_followup_entry";
   sessionId: string;
   index: number;
   text: string;
-  images?: ImageContent[];
 }
 
 /** Splices `bridgeFollowUp[index]`. Mutates bridge buffer only — no pi call. */
@@ -1102,7 +1216,8 @@ export interface QueueUpdateToBrowserMessage {
   type: "queue_update";
   sessionId: string;
   steering: string[];
-  followUp: string[];
+  /** Entry views: text + image COUNT. Image bytes never cross the wire (design D2). */
+  followUp: FollowUpEntryView[];
 }
 
 /**
@@ -1115,6 +1230,13 @@ export interface PromptReceivedToBrowserMessage {
   type: "prompt_received";
   sessionId: string;
   fresh: boolean;
+  /**
+   * Handle of the REST prompt this acknowledges, when the prompt carried one.
+   * How the acknowledged state of a `POST /api/session/:id/prompt` becomes
+   * observable without gating the response on the bridge.
+   * See change: fix-spawn-correlation-ttl-coupling (D7).
+   */
+  promptId?: string;
 }
 
 // The `/view` inline surface is retired (change:
@@ -1652,8 +1774,10 @@ export interface UiManagementBrowserMessage {
 export type BrowserToServerMessage =
   | SubscribeMessage
   | UnsubscribeMessage
+  | HistoryBackfillRequestMessage
   | BrowserExtensionUiResponseMessage
   | SendPromptToBrowserMessage
+  | RetrySessionBrowserMessage
   | AbortToBrowserMessage
   | RequestCommandsToBrowserMessage
   | FetchContentMessage
@@ -1739,6 +1863,20 @@ export interface SubagentResyncRequestBrowserMessage {
   type: "subagent_resync_request";
   sessionId: string;
   agentId: string;
+  /**
+   * Correlation token so the reply is delivered to THIS connection instead of
+   * fanning out to every subscriber of the session. Optional: an older client
+   * omits it and the reply falls back to the broadcast path.
+   * See change: reduce-subagent-details-payload (C5).
+   */
+  requestId?: string;
+  /**
+   * Why this resync fired: `"open"` = the user opened/expanded the inspector,
+   * `"cadence"` = the D4 v1 open-inspector pull loop. Counted separately by the
+   * bridge so the pull loop is provably not a new firehose.
+   * See change: reduce-subagent-details-payload (D6, task 9.4).
+   */
+  reason?: "open" | "cadence";
 }
 
 /**

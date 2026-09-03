@@ -1,7 +1,7 @@
 {
   "name": "@blackbelt-technology/frontend-mockup-loop",
-  "version": "0.7.0",
-  "description": "Pi extension + skill for a ground→contract→mockup→test→fix→learn frontend design loop. Ships a live mockup server tool, a Playwright breakpoint-screenshot tool, and a design-contract scaffolder. Works in any React/Tailwind/shadcn project.",
+  "version": "0.8.0",
+  "description": "Pi extension + skill for a ground\u2192contract\u2192mockup\u2192test\u2192fix\u2192learn frontend design loop. Ships a live mockup server tool, a Playwright breakpoint-screenshot tool, and a design-contract scaffolder. Works in any React/Tailwind/shadcn project.",
   "type": "module",
   "repository": {
     "type": "git",
@@ -30,6 +30,13 @@
     ],
     "skills": [
       ".pi/skills/frontend-mockup-loop"
+    ],
+    "tools": [
+      {
+        "id": "chromium",
+        "probe": "pw-browser",
+        "optional": true
+      }
     ]
   },
   "files": [
@@ -38,7 +45,9 @@
     "presets-data/",
     ".pi/skills/",
     "references/",
-    "README.md"
+    "README.md",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md"
   ],
   "dependencies": {
     "@axe-core/playwright": "^4.10.0",

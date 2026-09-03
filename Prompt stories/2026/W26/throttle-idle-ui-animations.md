@@ -111,4 +111,4 @@ Two constant, correct instincts worth repeating: (1) the AI **isolated pre-exist
 
 ---
 
-_Generated from session `019ef156-6d7b-7f8d-964f-2e2c59a6e204` · `pi-agent-dashboard` · 2026-06-22. Source extract: mktemp facts sheet._
+_Generated from session `019ef156-6d7b-7f8d-964f-2e2c59a6e204` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-22. Source extract: mktemp facts sheet._

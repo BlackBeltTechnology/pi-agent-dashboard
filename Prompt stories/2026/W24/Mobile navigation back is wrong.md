@@ -153,4 +153,4 @@ commit `01d8d082` on `develop`.
 
 ---
 
-_Generated from session `019ec134` · `pi-agent-dashboard` · 2026-06-13. Source extract: deterministic facts sheet (session-to-guideline)._
+_Generated from session `019ec134` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-13. Source extract: deterministic facts sheet (session-to-guideline)._

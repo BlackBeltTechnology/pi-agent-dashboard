@@ -189,4 +189,4 @@ that's the candidate worth saving as a memory/skill.
 
 ---
 
-_Generated from session `019f5aeb` · `pi-agent-dashboard` · 2026-07-13. Source extract: deterministic facts sheet (mktemp)._
+_Generated from session `019f5aeb` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-13. Source extract: deterministic facts sheet (mktemp)._

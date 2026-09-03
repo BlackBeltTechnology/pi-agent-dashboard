@@ -1,0 +1,8 @@
+{
+  "name": "ensure-cli-fixture-all-present",
+  "pi": {
+    "tools": [
+      { "id": "PI_ENSURE_CLI_SET_VAR", "probe": "env" }
+    ]
+  }
+}

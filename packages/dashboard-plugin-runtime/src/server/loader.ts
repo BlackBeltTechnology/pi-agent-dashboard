@@ -32,6 +32,12 @@ import {
 export interface DiscoveredPlugin {
   manifest: PluginManifest;
   packageDir: string;
+  /**
+   * The npm package name from the plugin's package.json ("" when absent).
+   * Identity signal for host trust gates that must not overload `priority`
+   * (which doubles as slot render-order). See change: publish-quota-plugin.
+   */
+  packageName: string;
   /** Absolute path to the server entry (if declared and resolved). */
   serverEntryPath?: string;
   /** Absolute path to the bridge entry (if declared and resolved). */
@@ -185,6 +191,7 @@ export function discoverPlugins(repoRoot?: string): DiscoveredPlugin[] {
       results.push({
         manifest,
         packageDir: pkgDir,
+        packageName: typeof raw.name === "string" ? raw.name : "",
         serverEntryPath: resolve(manifest.server),
         bridgeEntryPath: resolve(manifest.bridge),
         clientEntryPath: resolve(manifest.client),

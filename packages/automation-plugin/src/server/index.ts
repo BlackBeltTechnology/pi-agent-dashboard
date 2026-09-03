@@ -29,14 +29,16 @@ const RESCAN_DEBOUNCE_MS = 15_000;
 import os from "node:os";
 import path from "node:path";
 import type { ServerPluginContext } from "@blackbelt-technology/dashboard-plugin-runtime/server";
-import type { AutomationScope, DiscoveredAutomation, Visibility } from "../shared/automation-types.js";
+import type { AutomationScope, Visibility } from "../shared/automation-types.js";
 import {
   ACTION_CONTRIBUTION_PREFIX,
   type ActionRegistry,
   collectActionRegistry,
   coreActionContributions,
 } from "./action-registry.js";
+import { FOLDER_SCOPE_CONTRIBUTION_PREFIX, collectFolderScopeBases } from "./folder-scope-contributions.js";
 import type { Engine } from "./engine.js";
+import { settingsDefaultBound } from "./resolve-children.js";
 import { mountAutomationRoutes, unknownActionKind } from "./routes.js";
 
 const PLUGIN_ID = "automation";
@@ -57,17 +59,31 @@ interface AutomationPluginConfig {
    */
   maxRunAgeMs?: number;
   /**
-   * Max age (ms) a run may stay `running` WITHOUT its action ever being
+   * Max age (ms) a child may stay `running` WITHOUT its action ever being
    * delivered before it is finalized `error` + its slot freed. Default 60 s;
    * <= 0 disables. See change: fix-automation-stamp-correlation.
    */
   undeliveredRunTimeoutMs?: number;
   /**
-   * Max quiet time (ms) a DELIVERED event-dispatched run may go without any
+   * Max quiet time (ms) a DELIVERED event-dispatched child may go without any
    * observed session activity before it is finalized `error` + its slot freed.
    * Default 120 s; <= 0 disables. See change: bound-stalled-event-run-settle.
    */
   stalledRunTimeoutMs?: number;
+  /**
+   * Settings-default cap on concurrent child spawns per fire when an
+   * automation declares no `maxConcurrentSpawns`. Precedence: this value →
+   * `PI_AUTOMATION_MAX_CONCURRENT_SPAWNS` env → hard default 4.
+   * See change: add-automation-concurrent-spawn, automation-work-source-fanout.
+   */
+  maxConcurrentSpawns?: number;
+  /**
+   * Folder-backed reference work-sources for `schedule.batch` fan-out, keyed
+   * by the `on.source` id an automation names. Each drains files under `dir`.
+   * Reference-only; production sources register through the same registry.
+   * See change: automation-work-source-fanout.
+   */
+  workSources?: Array<{ id: string; dir: string; visibilityTimeoutMs?: number }>;
 }
 
 /** Shared holder so the synchronously-mounted run route can reach the engine
@@ -111,6 +127,10 @@ export async function registerPlugin(ctx: ServerPluginContext): Promise<void> {
     stopRun: ({ runId }) => stopRunViaEngine(runId),
     listActions: (cwd) => descriptorsForCwdCached(cwd ?? process.cwd()),
     actionIds: () => collectRegistry!().ids(),
+    // Live registries, so /list + /definition agree with what the scheduler will
+    // actually arm. See the FALLBACK_KINDS note in routes.ts.
+    triggerKinds: () => engineRef?.registry.kinds() ?? new Set(["schedule"]),
+    workSourceIds: () => engineRef?.workSources.ids() ?? new Set<string>(),
   });
   // plugin_action handler: run/stop/create dispatch to the SAME engine cores
   // and writer the REST routes call (no HTTP re-entry). Fan-out routes this
@@ -195,10 +215,92 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
       maxRunAgeMs: cfg.maxRunAgeMs ?? 30 * 60 * 1000,
       undeliveredRunTimeoutMs: cfg.undeliveredRunTimeoutMs ?? 60_000,
       stalledRunTimeoutMs: cfg.stalledRunTimeoutMs ?? 120_000,
+      maxConcurrentSpawns: settingsDefaultBound(
+        cfg.maxConcurrentSpawns,
+        process.env.PI_AUTOMATION_MAX_CONCURRENT_SPAWNS,
+      ),
     };
   }
 
-  /** Distinct repo roots derived from known session cwds (per-folder scope). */
+  // Build the stable work-source registry from plugin config (reference
+  // folder-backed sources). A source carries lease state, so it is created
+  // ONCE here and reused for the engine's life. See change:
+  // automation-work-source-fanout.
+  const { WorkSourceRegistry } = await import("./work-source-registry.js");
+  const { createFolderWorkSource } = await import("./folder-work-source.js");
+  const workSources = new WorkSourceRegistry();
+  // Validate untrusted runtime config at the boundary: workSources must be an
+  // array; each entry needs a non-empty id + dir; a non-positive/non-finite
+  // visibility timeout would mint immediately-expired leases; a dir may back
+  // only ONE live source (leases are in-memory — see createFolderWorkSource).
+  const rawSources = ctx.getPluginConfig<AutomationPluginConfig>()?.workSources;
+  const seenDirs = new Set<string>();
+  for (const ws of Array.isArray(rawSources) ? rawSources : []) {
+    const label = typeof ws?.id === "string" && ws.id.trim() ? ws.id : "<unnamed>";
+    if (typeof ws?.id !== "string" || !ws.id.trim()) {
+      ctx.logger.warn(`automation work-source: entry ignored — missing/empty id`);
+      continue;
+    }
+    if (typeof ws?.dir !== "string" || !ws.dir.trim()) {
+      ctx.logger.warn(`automation work-source "${label}": ignored — missing/empty dir`);
+      continue;
+    }
+    if (ws.visibilityTimeoutMs !== undefined && (!Number.isFinite(ws.visibilityTimeoutMs) || ws.visibilityTimeoutMs <= 0)) {
+      ctx.logger.warn(`automation work-source "${label}": ignored — visibilityTimeoutMs must be a positive finite number`);
+      continue;
+    }
+    const resolvedDir = path.resolve(ws.dir);
+    if (seenDirs.has(resolvedDir)) {
+      ctx.logger.warn(`automation work-source "${label}": ignored — duplicate dir "${resolvedDir}" (one live source per dir)`);
+      continue;
+    }
+    seenDirs.add(resolvedDir);
+    // Construction touches the filesystem (ensureDirs/reclaim) — an unwritable
+    // dir must not abort engine init; isolate the failure to this one entry.
+    try {
+      workSources.register(
+        ws.id,
+        createFolderWorkSource({
+          dir: ws.dir,
+          ...(typeof ws.visibilityTimeoutMs === "number" ? { visibilityTimeoutMs: ws.visibilityTimeoutMs } : {}),
+        }),
+      );
+    } catch (e) {
+      ctx.logger.warn(
+        `automation work-source "${label}": failed to initialize dir "${resolvedDir}": ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  // CROSS-PLUGIN registration seam (the consume half): any plugin publishes
+  // `{ id, source }` under `automation.worksource.<source>` and owns the
+  // instance (a work-source carries lease state, so its owner must construct it
+  // once). Collected LAZILY on every registry read, so plugin load order is
+  // irrelevant — a source published after engine init is picked up on the next
+  // scan/fire. Config-declared ids above win a collision.
+  // See change: relocate-fanout-to-work-source.
+  const { collectWorkSourceContributions, WORK_SOURCE_CONTRIBUTION_PREFIX } = await import(
+    "./work-source-contributions.js"
+  );
+  const contributedSources = () =>
+    collectWorkSourceContributions(ctx.consumeAll(WORK_SOURCE_CONTRIBUTION_PREFIX), {
+      warn: (m) => ctx.logger.warn(m),
+    });
+  workSources.addProvider({
+    ids: () => contributedSources().map((c) => c.id),
+    get: (id) => contributedSources().find((c) => c.id === id)?.source,
+  });
+
+  // Warned folder-scope contribution keys, deduped across reads. `folderScopeBases()`
+  // runs on every `listScopes()` call (refresh, watcher reconcile, stale-run reaper),
+  // so a malformed contribution must warn once per key, never once per read.
+  const folderScopeWarnedKeys = new Set<string>();
+
+  // Distinct repo roots the automation engine scans/arms/reaps/watches. Derived
+  // from live session cwds AND unioned with published `automation.folderscope.`
+  // contributions (collected each read → load-order independent). The boot arm is
+  // one-shot, anchored to `engine.start()` → `refresh()` + the initial
+  // `attachWatchers()`; contributions are process-lifetime (host has no `unprovide`).
   function folderScopeBases(): string[] {
     const bases = new Set<string>();
     try {
@@ -208,6 +310,13 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
       }
     } catch {
       /* ignore */
+    }
+    for (const base of collectFolderScopeBases(ctx.consumeAll(FOLDER_SCOPE_CONTRIBUTION_PREFIX), {
+      warn: (m) => ctx.logger.warn(m),
+      homeDir,
+      warnedKeys: folderScopeWarnedKeys,
+    })) {
+      bases.add(base);
     }
     return [...bases];
   }
@@ -226,16 +335,8 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
     spawnSession: (opts) => ctx.spawnSession(opts),
     abortSpawnedRun: (args) => ctx.abortSpawnedRun(args),
     resolveRegistry: () => collectActionRegistry(ctx.consumeAll(ACTION_CONTRIBUTION_PREFIX), { warn: (m) => ctx.logger.warn(m) }),
-    // Per-invoice fan-out enumerator, resolved LAZILY at fire time from the
-    // cross-plugin service seam so load order is irrelevant (the invoicebot
-    // plugin publishes it) and a re-publish is picked up live. Absent when the
-    // invoicebot plugin is not loaded → a `scope: per-invoice` fire is skipped.
-    // See change: wire-per-invoice-automation-drain.
-    enumerateQueued: (cwd: string) => {
-      const fn = ctx.consume<(cwd: string) => Promise<string[]>>("invoicebot:queuedInvoices");
-      return fn ? fn(cwd) : Promise.resolve(null);
-    },
     listScopes,
+    workSources,
     config: pluginConfig,
     homeDir,
     log: (m) => logger.info(m),
@@ -243,18 +344,19 @@ async function initEngine(ctx: ServerPluginContext): Promise<void> {
   });
   engineRef = engine;
 
-  // Cross-plugin service: start EXACTLY ONE scoped run for a single queued
-  // invoice through the same per-invoice fan-out core the scheduler + manual
-  // run-now use. The reverse direction of `invoicebot:queuedInvoices`: a
-  // consumer (the invoicebot plugin's /run-invoice route) invokes this to start
-  // one invoice without a second dispatch path. Refuses `{ok:false,
-  // reason:"in_flight"}` when the invoice already has a run in flight.
-  // See change: serve-and-start-queued-invoice.
+  // Cross-plugin service: start ONE run for a SINGLE work item, addressed by
+  // its idempotency key, through the same child path a batch fire uses. The
+  // work-source lease is the single-flight guard, so a key already leased is
+  // refused `{ ok:false, reason:"in_flight" }`. Domain-free: the caller knows
+  // what a key means; this plugin does not.
+  // See change: relocate-fanout-to-work-source.
   ctx.provide(
-    "automation:runInvoice",
-    async (cwd: string, invoiceId: string): Promise<{ ok: boolean; runId?: string; reason?: string; error?: string }> => {
-      return runInvoiceViaEngine(cwd, invoiceId);
-    },
+    "automation:runWorkItem",
+    async (
+      cwd: string,
+      key: string,
+    ): Promise<{ ok: boolean; runId?: string; reason?: string; error?: string }> =>
+      runWorkItemViaEngine(cwd, key),
   );
 
   const watcher = createAutomationWatcher({
@@ -448,11 +550,8 @@ function concatText(content: unknown): string {
 }
 
 /**
- * Manual run trigger for the Run-now board action. Scans the target scope for
- * the named automation and runs it via the engine's fan-out-aware `runNow`: a
- * `scope: per-invoice` automation fans out to one scoped run per queued invoice
- * (mirroring the scheduler fire), every other automation starts exactly one run.
- * See change: run-now-fans-out-per-invoice.
+ * Manual single-run trigger for the Run-now board action. Scans the target
+ * scope for the named automation and fires exactly one run via the engine.
  */
 async function runNowViaEngine(
   scope: AutomationScope,
@@ -470,35 +569,36 @@ async function runNowViaEngine(
       : { repoRoot: base, scanFolder: true, scanGlobal: false },
     eng.registry.kinds(),
     eng.actionRegistry.ids(),
+    eng.workSources.ids(),
   ).find((a) => a.name === name && a.scope === scope && a.valid);
   if (!found) return { ok: false, error: `automation "${name}" not found or invalid in ${scope} scope` };
-  return eng.runNow(found);
+  const r = eng.startRunFor(found);
+  return r ? { ok: true, runId: r.runId } : { ok: false, error: "run not started" };
 }
 
 /**
- * Start exactly ONE scoped run for a single queued invoice. Scans the folder
- * scope for the workspace's `scope: per-invoice` automation (the intake drain)
- * and delegates to the engine's start-one-invoice core (`runInvoice`), which
- * enforces the one-in-flight refusal. Backs the `automation:runInvoice`
- * cross-plugin service. See change: serve-and-start-queued-invoice.
+ * Start ONE run for a SINGLE work item in a workspace. Scans the folder scope
+ * for its `schedule.batch` automation and delegates to the engine's targeted
+ * lease core (`runWorkItem`), which refuses an item that is already leased.
+ * Backs the `automation:runWorkItem` cross-plugin service.
+ * See change: relocate-fanout-to-work-source.
  */
-async function runInvoiceViaEngine(
+async function runWorkItemViaEngine(
   cwd: string,
-  invoiceId: string,
+  key: string,
 ): Promise<{ ok: boolean; runId?: string; reason?: string; error?: string }> {
   const eng = engineRef;
   if (!eng) return { ok: false, error: "engine not ready" };
   const base = path.resolve(cwd);
   const { scanAutomations } = await import("./scanner.js");
-  const isPerInvoice = (a: DiscoveredAutomation): boolean =>
-    (a.config?.action?.payload as Record<string, unknown> | undefined)?.scope === "per-invoice";
   const found = scanAutomations(
     { repoRoot: base, scanFolder: true, scanGlobal: false },
     eng.registry.kinds(),
     eng.actionRegistry.ids(),
-  ).find((a) => a.valid && isPerInvoice(a));
-  if (!found) return { ok: false, error: "no per-invoice automation for workspace" };
-  return eng.runInvoice(found, invoiceId);
+    eng.workSources.ids(),
+  ).find((a) => a.valid && a.config?.on.kind === "schedule.batch");
+  if (!found) return { ok: false, error: "no work-source automation for workspace" };
+  return eng.runWorkItem(found, key);
 }
 
 /** Stop a running run via the engine (terminate process + finalize idempotently). */

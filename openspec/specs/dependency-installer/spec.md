@@ -1,4 +1,10 @@
-## ADDED Requirements
+# dependency-installer Specification
+
+## Purpose
+
+Gets a working pi toolchain onto a machine that may have nothing installed. Detects which CLI tools are present, installs into a managed location in standalone mode, verifies and repairs in power-user mode, and resolves the TypeScript loader. Defines the ordering rule that bundled-extension activation precedes any dynamic install, and honours a bundle's `skipPackages` list.
+
+## Requirements
 
 ### Requirement: Detect installed CLI tools
 The dependency installer SHALL detect whether `pi`, `openspec`, and the dashboard package are available, checking system PATH first, then the managed install location.

@@ -86,4 +86,4 @@ If you close out OpenSpec changes often, the *should-exist* skill is a single **
 
 ---
 
-_Generated from session `019e1236` · `pi-agent-dashboard` · 2026-05-10. Source extract: deterministic facts sheet._
+_Generated from session `019e1236` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-10. Source extract: deterministic facts sheet._

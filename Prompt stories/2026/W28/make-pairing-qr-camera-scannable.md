@@ -105,4 +105,4 @@ No skills were created; **2 project memories** were saved:
 
 ---
 
-_Generated from session `019f5856` · `pi-agent-dashboard` · 2026-07-13. Source extract: session facts sheet (make-pairing-qr-camera-scannable)._
+_Generated from session `019f5856` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-13. Source extract: session facts sheet (make-pairing-qr-camera-scannable)._

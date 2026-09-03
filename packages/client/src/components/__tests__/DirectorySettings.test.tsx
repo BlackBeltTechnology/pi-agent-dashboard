@@ -54,7 +54,7 @@ function renderAt(page: "instructions" | "packages" | "skills" | "agents", path 
   const { hook, history } = memoryLocation({ path, record: true });
   const utils = render(
     <Router hook={hook}>
-      <DirectorySettings cwd={CWD} page={page} onBack={vi.fn()} onViewFile={vi.fn()} />
+      <DirectorySettings cwd={CWD} page={page} onBack={vi.fn()} />
     </Router>,
   );
   return { ...utils, history };

@@ -159,4 +159,4 @@ dashboard on `:8000`, write access to the worktree branch.
 
 ---
 
-_Generated from session `019e6ffb-7618-7fb6-8cb4-47ee4297637c` · `pi-agent-dashboard` · 2026-05-29. Source extract: `/var/folders/qb/m1_q3v6d5bnfzbpmc0dkkqx40000gn/T/facts.XXXXXX.7AKsYbfqdD`._
+_Generated from session `019e6ffb-7618-7fb6-8cb4-47ee4297637c` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-29. Source extract: `/var/folders/qb/m1_q3v6d5bnfzbpmc0dkkqx40000gn/T/facts.XXXXXX.7AKsYbfqdD`._

@@ -43,7 +43,8 @@ export interface ToolContext {
 export interface ToolRendererProps {
   toolName: string;
   args?: Record<string, unknown>;
-  status: "running" | "complete" | "error";
+  /** `elided` = result not loadable. See change: fix-lazy-history-backfill-ux (D5). */
+  status: "running" | "complete" | "error" | "elided";
   result?: string;
   images?: ChatImage[];
   context: ToolContext;

@@ -122,10 +122,14 @@ describe("AgentToolRenderer — expand + popout", () => {
       />
     ));
     fireEvent.click(screen.getByTitle(/Expand to inspect/i));
+    // `requestId` is the requester-scoping correlation token (a fresh uuid per
+    // request). See change: reduce-subagent-details-payload (C5).
     expect(send).toHaveBeenCalledWith({
       type: "subagent_resync_request",
       sessionId: "sess_42",
       agentId: "abc123",
+      requestId: expect.any(String),
+      reason: "open",
     });
   });
 
@@ -204,6 +208,34 @@ describe("AgentToolRenderer — expand + popout", () => {
     expect(open).not.toHaveBeenCalled();
     open.mockRestore();
     // Tear the portal down within the test (flush the scheduler).
+    fireEvent.keyDown(document, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+  });
+
+  // F9 / design D5 — the `h-[70vh]` pin SURVIVES the flush-panel flex change.
+  // It is a deliberate definite-height choice (a stable popout as transcript
+  // entries stream in), not a workaround for the indefinite parent the panel
+  // used to be, so the primitive fix must not tempt anyone to "finish the job"
+  // and delete it. With the pin present, height stability is a CSS tautology;
+  // the real risk is its removal, which is what this asserts.
+  // See change: fix-flush-dialog-scroll-and-close-collision.
+  it("F9: the popout keeps its definite-height pin under a flush dialog", async () => {
+    render(wrapInProviders(
+      <AgentToolRenderer
+        toolName="Agent"
+        args={{ subagent_type: "Explore" }}
+        status="running"
+        context={makeContext(sessionWithAgent("abc123"), "sess_42")}
+        toolDetails={{ displayName: "explorer", status: "running", agentId: "abc123" }}
+      />
+    ));
+    fireEvent.click(screen.getByTitle(/Open subagent detail/i));
+    const dialog = await screen.findByRole("dialog");
+    // The panel itself is the flush flex column...
+    expect(dialog.className).toContain("flex-col");
+    expect(dialog.className).toContain("min-h-0");
+    // ...and the pin is still the direct child inside it.
+    expect(dialog.querySelector(".h-\\[70vh\\]")).toBeTruthy();
     fireEvent.keyDown(document, { key: "Escape" });
     await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
   });

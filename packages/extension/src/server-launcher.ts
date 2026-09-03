@@ -86,6 +86,13 @@ export function buildSpawnEnv(
     if (v !== undefined) out[k] = v;
   }
   out["DASHBOARD_STARTER"] = "Bridge";
+  // Electron launcher-identity markers are parent-scoped (see
+  // process-manager.buildSpawnEnv) — a bridge-relaunched server is NOT an
+  // Electron child and must not inherit them. See change:
+  // unify-pi-runtime-identity (CodeRabbit review round 2 non-blocking
+  // finding — grandchild marker leak).
+  delete out.PI_DASHBOARD_ELECTRON;
+  delete out.PI_DASHBOARD_RESOURCES_PATH;
   // Only add heap headroom when the user has not already pinned a limit.
   const existing = out["NODE_OPTIONS"] ?? "";
   if (!/--max[-_]old[-_]space[-_]size/.test(existing)) {

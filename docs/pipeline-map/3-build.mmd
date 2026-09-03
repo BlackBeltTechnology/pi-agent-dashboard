@@ -1,0 +1,29 @@
+flowchart TD
+  subgraph BUILD["2 · BUILD — worktree os/&lt;c&gt; · ship-it · headless-capable"]
+    direction TB
+    S1["1 · orient<br/>openspec status = orientation ONLY<br/>filesystemRealityCheck: test file exists AND passes<br/><b>a checkbox is NEVER proof</b>"]
+    S2["2 · openspec-apply-change<br/>+ inject resolved harness-exemplar path<br/>SUBAGENTS: Explore · Audit · DocScribe<br/>react-expert · nodejs-expert · typescript-expert · tailwind-expert"]
+    S25["2.5 · git fetch + merge origin/develop<br/>integration UPSTREAM of the strong gate<br/>merge, never rebase · conflict → abort + STOP"]
+    S3["3 · docker harness<br/>test-up.sh → read dashboardPort from .pi-test-harness.json<br/>L1 vitest · L2 qa/*.sh · L3 tests/e2e/*.spec.ts<br/>trap EXIT = test-down.sh ALWAYS"]
+    S4{"4 · red-test fix loop — OWNED BY ship-it<br/>never re-invoke apply on a checked task<br/>assertNoWeakening on every test diff<br/>bound = a no-progress cycle"}
+    S44["4.4 · deterministic enforcers — offline, before any model call<br/>check-conventions --base origin/develop · dox-byte-gate<br/>i18n-lint --strict · i18n-parity<br/>knip-config → knip-ratchet → --check-baseline-diff"]
+    S45{{"4.5 · local review checkpoint — UNCONDITIONAL<br/>isolated SUBAGENT model @review, review-code rubric<br/>REQUIRED — no fallback to session default = self-review<br/>300 s cap · classifyFindings · MAX 2 ROUNDS"}}
+
+    S1 --> S2 --> S25 --> S3 --> S4
+    S4 -->|red| S3
+    S4 -->|green| S44
+    S44 -->|non-zero exit| S4
+    S44 -->|clean| S45
+    S45 -->|"issue(blocking)"| S4
+  end
+  S45 -->|clean| OK(["→ ship-change, inline"])
+  S4 -->|no-progress / design gap| ESC["SHIP_IT_BLOCKED.md<br/>worktree left intact · exit non-zero<br/>surfaced on the dashboard"]
+  S45 -->|"unsatisfiable without weakening a test"| ESC
+  ESC -.->|"REVERSE BOUNDARY — human re-enters plan-proposal"| BACK(["← PLAN"])
+
+  classDef gate fill:#ffebee,stroke:#c62828,stroke-width:2px
+  classDef sub fill:#ede7f6,stroke:#4527a0,stroke-width:2px
+  classDef esc fill:#fff8e1,stroke:#f57f17,stroke-width:2px
+  class S4,S44 gate
+  class S45,S2 sub
+  class ESC esc

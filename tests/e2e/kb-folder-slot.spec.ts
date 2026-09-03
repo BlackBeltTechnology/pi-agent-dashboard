@@ -20,6 +20,19 @@ const KB_FIXTURE = "/fixtures/kb-sample";
 const KB_PARENT = "/fixtures/kb-parent";
 const KB_WORKTREE = "/fixtures/kb-parent/worktrees/kb-wt";
 
+/**
+ * Trigger the folder's KB index/reindex from the folder actions menu.
+ *
+ * The KB pill lost its own `index-now` / `retry` / `reindex` controls: they are
+ * ONE `MAINTENANCE` item now. See change: move-slot-actions-to-menu.
+ */
+async function reindexFromMenu(page: Page, cwd: string): Promise<void> {
+  await page.getByTestId(`folder-actions-menu-${cwd}`).first().click();
+  const item = page.getByTestId("folder-menu-item-kb-reindex");
+  await expect(item).toBeVisible({ timeout: 15_000 });
+  await item.click();
+}
+
 /** The folder-kb-section under the nearest folder-card of a cwd's header anchor. */
 function kbRowFor(page: Page, cwd: string) {
   return page.locator(
@@ -82,7 +95,7 @@ test.describe("KB folder slot", () => {
     // /api/kb/reindex runs in the dashboard-server process (no pi session) →
     // chunks>0 → the row flips to populated live.
     if ((await kbRow.getAttribute("data-state")) === "not-indexed") {
-      await kbRow.getByTestId("folder-kb-index-now").click();
+      await reindexFromMenu(page, KB_FIXTURE);
     }
     await expect(kbRow).toHaveAttribute("data-state", "populated", { timeout: 30_000 });
     await expect(kbRow.getByTestId("folder-kb-count")).toContainText(/chunks/i);
@@ -95,6 +108,9 @@ test.describe("KB folder slot", () => {
     // The fixture's single source is listed; the dbPath field is editable.
     await expect(page.getByTestId("kb-source-row")).toHaveCount(1);
     await expect(page.getByTestId("kb-dbpath")).toHaveValue(/index\.db$/);
+    // fix-kb-settings-reindex-gate: with resolved sources and a clean form,
+    // the standalone rebuild is enabled (no config edit needed).
+    await expect(page.getByTestId("kb-reindex-now")).toBeEnabled();
   });
 
   test("worktree bootstrap: Copy from parent repo seeds config + indexes", async ({ page }) => {
@@ -141,6 +157,25 @@ test.describe("KB folder slot", () => {
     const wtRowReloaded = kbRowFor(page, KB_WORKTREE);
     await expect(wtRowReloaded).toHaveAttribute("data-state", "populated", { timeout: 30_000 });
     await expect(wtRowReloaded.getByTestId("folder-kb-count")).toContainText(/chunks/i);
+
+    // fix-kb-settings-reindex-gate — F7 (the reported complaint): the worktree
+    // card's ONLY KB path is the `→` pill; on the page it opens, `Reindex now`
+    // must be ENABLED (resolved sources non-empty, clean form) and the trigger
+    // POST must be ACCEPTED — a reachable rebuild without editing the config.
+    await wtRowReloaded.getByTestId("folder-kb-open-settings").click();
+    await expect(page.getByTestId("kb-settings-page")).toBeVisible({ timeout: 15_000 });
+    const reindexNow = page.getByTestId("kb-reindex-now");
+    await expect(reindexNow).toBeEnabled({ timeout: 15_000 });
+    const postAccepted = page.waitForResponse(
+      (r) => r.url().includes("/api/kb/reindex") && r.request().method() === "POST" && r.status() === 202,
+      { timeout: 15_000 },
+    );
+    await reindexNow.click();
+    await postAccepted;
+    // The job runs server-side; the action re-enables once it settles and the
+    // page keeps showing the live count (no wedge, no contradiction).
+    await expect(reindexNow).toBeEnabled({ timeout: 30_000 });
+    await expect(page.getByTestId("kb-config-count")).toContainText(/files/i, { timeout: 30_000 });
   });
 });
 

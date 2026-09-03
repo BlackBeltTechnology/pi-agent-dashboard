@@ -154,4 +154,4 @@ harness, the faux-scenario mechanism.
 
 ---
 
-_Generated from session `019f5363-40df-717e-b569-425a399caa39` · `pi-agent-dashboard` · 2026-07-12. Source extract: session facts sheet (deterministic extract)._
+_Generated from session `019f5363-40df-717e-b569-425a399caa39` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-12. Source extract: session facts sheet (deterministic extract)._

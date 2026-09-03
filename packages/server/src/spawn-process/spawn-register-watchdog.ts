@@ -27,7 +27,7 @@
  * See change: spawn-failure-diagnostics, fix-tmux-session-shutdown-leak (D5).
  */
 
-import { readFileSync } from "node:fs";
+import { readFileSync, realpathSync } from "node:fs";
 import type {
   SpawnRegisterRecoveredMessage,
   SpawnRegisterTimeoutMessage,
@@ -38,6 +38,22 @@ import { findPidsBySpawnToken } from "@blackbelt-technology/pi-dashboard-shared/
 import type { SpawnMechanism } from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-mechanism.js";
 import WebSocket from "ws";
 import { appendSpawnFailure } from "./spawn-failure-log.js";
+import { RECOVERY_GRACE_MS } from "./spawn-recovery-window.js";
+
+/**
+ * Compare cwds the same way on both sides of the arm/clear pair. A tmux spawn
+ * armed with `/tmp/x` used to miss a register reporting `/private/tmp/x`.
+ * Falls back to the raw string on ANY error (ENOENT for a path not yet created,
+ * EACCES for an unreadable parent) so normalization can never throw on a hot
+ * path. See change: fix-spawn-correlation-ttl-coupling (D4).
+ */
+export function normalizeCwdKey(cwd: string): string {
+  try {
+    return realpathSync(cwd);
+  } catch {
+    return cwd;
+  }
+}
 
 /** Injection seam for the reclaim path, so tests never touch real processes. */
 export interface WatchdogReclaimDeps {
@@ -50,7 +66,14 @@ export interface WatchdogArmOptions {
   cwd: string;
   mechanism: SpawnMechanism;
   logPath?: string;
-  ws: WebSocket;
+  /**
+   * Browser transport for the diagnostic, when the caller has one. REST
+   * resume, zombie reopen and headless reload arm without a browser socket;
+   * the *reclaim* must still run, so this is optional and only the diagnostic
+   * is skipped when absent.
+   * See change: fix-duplicate-bridge-registration (D0/D2).
+   */
+  ws?: WebSocket;
   /**
    * Server-minted spawn correlation token. When provided, the entry is
    * indexed in `byToken` for strong-identity clearing via `clearByToken`.
@@ -61,23 +84,31 @@ export interface WatchdogArmOptions {
 
 interface Entry {
   timer: ReturnType<typeof setTimeout>;
+  /** Raw cwd as the caller reported it — what the browser diagnostic names. */
   cwd: string;
+  /** Normalized cwd — the `byCwd` index key. */
+  cwdKey: string;
   pid?: number;
   mechanism: SpawnMechanism;
   logPath?: string;
-  ws: WebSocket;
+  ws?: WebSocket;
   timeoutMs: number;
   spawnToken?: string;
 }
 
 interface RecentlyFiredEntry {
   firedAt: number;
+  cwd: string;
+  mechanism: SpawnMechanism;
   pid?: number;
-  ws: WebSocket;
+  ws?: WebSocket;
   spawnToken?: string;
+  /** Evicts the entry once the recovery window closes. */
+  evictTimer: ReturnType<typeof setTimeout>;
 }
 
-const RECENTLY_FIRED_TTL_MS = 60_000;
+/** Which identity tier matched a late clear — logged, and nothing else. */
+type ClearTier = "token" | "pid" | "cwd";
 
 export class SpawnRegisterWatchdog {
   /** Default timeout used when arm() callers do not supply one. */
@@ -109,9 +140,10 @@ export class SpawnRegisterWatchdog {
     // See change: spawn-failure-diagnostics (fix W1).
     const effectiveTimeout = clampSpawnRegisterTimeoutMs(opts.timeoutMs ?? this.timeoutMs);
     const { pid, cwd, mechanism, logPath, ws, spawnToken } = opts;
+    const cwdKey = normalizeCwdKey(cwd);
     const entry: Entry = {
       timer: null as unknown as ReturnType<typeof setTimeout>,
-      cwd, pid, mechanism, logPath, ws,
+      cwd, cwdKey, pid, mechanism, logPath, ws,
       timeoutMs: effectiveTimeout,
       spawnToken,
     };
@@ -124,7 +156,7 @@ export class SpawnRegisterWatchdog {
     // for strong-identity clearing. See change: spawn-correlation-token,
     // enable-rpc-keeper-by-default.
     // Replace any prior entry for the same cwd/pid/token to avoid leaking timers.
-    const priorCwd = this.byCwd.get(cwd);
+    const priorCwd = this.byCwd.get(cwdKey);
     // Only DISARM a prior entry that has no strong identity of its own. A prior
     // spawn with its own token is a separate, still-unregistered process: three
     // concurrent spawns into one cwd used to collapse into one watch, so two
@@ -132,7 +164,7 @@ export class SpawnRegisterWatchdog {
     // own `clearByToken` cancels it when it actually registers.
     // See change: fix-tmux-session-shutdown-leak.
     if (priorCwd && !priorCwd.spawnToken) clearTimeout(priorCwd.timer);
-    this.byCwd.set(cwd, entry);
+    this.byCwd.set(cwdKey, entry);
     if (pid !== undefined) {
       const priorPid = this.byPid.get(pid);
       if (priorPid && priorPid !== priorCwd) clearTimeout(priorPid.timer);
@@ -150,82 +182,105 @@ export class SpawnRegisterWatchdog {
    * Tier 1 of the three-tier match in `event-wiring.ts`. Removes the entry
    * from all three indices. See change: spawn-correlation-token.
    */
-  clearByToken(spawnToken: string): void {
+  clearByToken(spawnToken: string): boolean {
     const entry = this.byToken.get(spawnToken);
     if (entry) {
       clearTimeout(entry.timer);
-      this.byToken.delete(spawnToken);
-      const cwdEntry = this.byCwd.get(entry.cwd);
-      if (cwdEntry === entry) this.byCwd.delete(entry.cwd);
-      if (entry.pid !== undefined) {
-        const pidEntry = this.byPid.get(entry.pid);
-        if (pidEntry === entry) this.byPid.delete(entry.pid);
-      }
-      return;
+      this._dropFromIndices(entry);
+      return true;
     }
-    // Check for late recovery: scan recentlyFired for matching token.
-    for (const [cwd, fired] of this.recentlyFired) {
-      if (fired.spawnToken === spawnToken) {
-        this._emitRecovery(cwd, fired);
-        return;
-      }
+    // Check for late recovery: `recentlyFired` is keyed by token when the entry
+    // has one, so this is a direct lookup rather than a scan.
+    const fired = this.recentlyFired.get(spawnToken);
+    if (fired && fired.spawnToken === spawnToken) {
+      return this._emitRecovery(spawnToken, fired, "token");
     }
+    return false;
   }
 
-  clearByPid(pid: number): void {
+  clearByPid(pid: number): boolean {
     const entry = this.byPid.get(pid);
     if (entry) {
       clearTimeout(entry.timer);
-      this.byPid.delete(pid);
-      // Also clear cwd / token entries if they point at the same arm.
-      const cwdEntry = this.byCwd.get(entry.cwd);
-      if (cwdEntry === entry) this.byCwd.delete(entry.cwd);
-      if (entry.spawnToken) {
-        const tokEntry = this.byToken.get(entry.spawnToken);
-        if (tokEntry === entry) this.byToken.delete(entry.spawnToken);
-      }
-      return;
+      this._dropFromIndices(entry);
+      return true;
     }
     // Check for late recovery.
-    this._checkRecoveryByPid(pid);
+    return this._checkRecoveryByPid(pid);
   }
 
-  clearByCwd(cwd: string): void {
-    const entry = this.byCwd.get(cwd);
+  clearByCwd(cwd: string): boolean {
+    const cwdKey = normalizeCwdKey(cwd);
+    const entry = this.byCwd.get(cwdKey);
     if (entry) {
       clearTimeout(entry.timer);
-      this.byCwd.delete(cwd);
-      // Also clear pid / token entries if they point at the same arm.
-      if (entry.pid !== undefined) {
-        const pidEntry = this.byPid.get(entry.pid);
-        if (pidEntry === entry) this.byPid.delete(entry.pid);
-      }
-      if (entry.spawnToken) {
-        const tokEntry = this.byToken.get(entry.spawnToken);
-        if (tokEntry === entry) this.byToken.delete(entry.spawnToken);
-      }
-      return;
+      this._dropFromIndices(entry);
+      return true;
     }
-    // Check for late recovery.
-    this._checkRecoveryByCwd(cwd);
+    // Check for late recovery. An entry that HAS a token is indexed under it,
+    // so a cwd clear cannot recover another spawn's fire.
+    const fired = this.recentlyFired.get(cwdKey);
+    if (!fired) return false;
+    return this._emitRecovery(cwdKey, fired, "cwd");
+  }
+
+  /** Remove an entry from every index that still points at it. */
+  private _dropFromIndices(entry: Entry): void {
+    const cwdEntry = this.byCwd.get(entry.cwdKey);
+    if (cwdEntry === entry) this.byCwd.delete(entry.cwdKey);
+    if (entry.pid !== undefined) {
+      const pidEntry = this.byPid.get(entry.pid);
+      if (pidEntry === entry) this.byPid.delete(entry.pid);
+    }
+    if (entry.spawnToken) {
+      const tokEntry = this.byToken.get(entry.spawnToken);
+      if (tokEntry === entry) this.byToken.delete(entry.spawnToken);
+    }
+  }
+
+  /** Number of fires still inside their recovery window (tests only). */
+  _recentlyFiredSize(): number {
+    return this.recentlyFired.size;
   }
 
   private _fireEntry(entry: Entry): void {
     const { cwd, pid, logPath, ws, timeoutMs: entryTimeoutMs } = entry;
     // Remove from active maps.
-    if (pid !== undefined) {
-      const pidEntry = this.byPid.get(pid);
-      if (pidEntry === entry) this.byPid.delete(pid);
-    }
-    const cwdEntry = this.byCwd.get(cwd);
-    if (cwdEntry === entry) this.byCwd.delete(cwd);
+    this._dropFromIndices(entry);
 
-    // Record in recentlyFired for late-recovery detection (also drop token entry).
-    if (entry.spawnToken) {
-      const tokEntry = this.byToken.get(entry.spawnToken);
-      if (tokEntry === entry) this.byToken.delete(entry.spawnToken);
-    }
-    this.recentlyFired.set(cwd, { firedAt: Date.now(), pid, ws, spawnToken: entry.spawnToken });
+    // Record for late-recovery detection under ONE index: the token when the
+    // entry has one, the normalized cwd only when it does not. Keying every
+    // fire by cwd let a second same-cwd fire overwrite the first's recovery
+    // entry. See change: fix-spawn-correlation-ttl-coupling (D4).
+    const firedKey = entry.spawnToken ?? entry.cwdKey;
+    const fired: RecentlyFiredEntry = {
+      firedAt: Date.now(),
+      cwd,
+      mechanism: entry.mechanism,
+      pid,
+      ws,
+      spawnToken: entry.spawnToken,
+      // Evict on the window closing rather than only when some later clear
+      // happens to look: 5 000 spawns that never register must not retain
+      // their fire records forever.
+      //
+      // Guarded on IDENTITY, not just the key: two token-less spawns in one
+      // cwd share a key, so the first fire's timer would otherwise evict the
+      // SECOND fire's record early and silently truncate its recovery window.
+      evictTimer: null as unknown as ReturnType<typeof setTimeout>,
+    };
+    fired.evictTimer = setTimeout(() => {
+      if (this.recentlyFired.get(firedKey) === fired) this.recentlyFired.delete(firedKey);
+    }, RECOVERY_GRACE_MS);
+    // A same-key predecessor is being replaced here; drop its timer with it.
+    const priorFired = this.recentlyFired.get(firedKey);
+    if (priorFired) clearTimeout(priorFired.evictTimer);
+    this.recentlyFired.set(firedKey, fired);
+
+    console.error(
+      `[watchdog] FIRE cwd=${cwd} pid=${pid ?? "unknown"} ` +
+        `token=${entry.spawnToken ?? "none"} timeout=${entryTimeoutMs}ms`,
+    );
 
     // Read stderr tail if logPath available.
     let stderrTail: string | undefined;
@@ -239,8 +294,12 @@ export class SpawnRegisterWatchdog {
       cwd,
       strategy: entry.mechanism,
       code: "REGISTER_TIMEOUT",
-      message: `Pi session spawned but never registered (timeout ${this.timeoutMs}ms)`,
+      // The timeout that ACTUALLY applied to this entry, not the constructor
+      // default — the latter is stale after any live Settings change.
+      // See change: fix-spawn-correlation-ttl-coupling (D5).
+      message: `Pi session spawned but never registered (timeout ${entryTimeoutMs}ms)`,
       ...(pid !== undefined ? { pid } : {}),
+      ...(entry.spawnToken ? { spawnToken: entry.spawnToken } : {}),
       ...(stderrTail ? { stderrTail } : {}),
     });
 
@@ -248,7 +307,7 @@ export class SpawnRegisterWatchdog {
     // not a browser is still listening for the diagnostic.
     this._reclaimSpawn(entry);
 
-    if (ws.readyState !== WebSocket.OPEN) return;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return;
 
     const msg: SpawnRegisterTimeoutMessage = {
       type: "spawn_register_timeout",
@@ -283,39 +342,58 @@ export class SpawnRegisterWatchdog {
     }
   }
 
-  private _checkRecoveryByPid(pid: number): void {
-    // recentlyFired is keyed by cwd; scan to find matching pid.
-    for (const [cwd, fired] of this.recentlyFired) {
+  private _checkRecoveryByPid(pid: number): boolean {
+    // recentlyFired is keyed by token-or-cwd; scan to find a matching pid.
+    for (const [key, fired] of this.recentlyFired) {
       if (fired.pid === pid) {
-        this._emitRecovery(cwd, fired);
-        return;
+        return this._emitRecovery(key, fired, "pid");
       }
     }
+    return false;
   }
 
-  private _checkRecoveryByCwd(cwd: string): void {
-    const fired = this.recentlyFired.get(cwd);
-    if (!fired) return;
-    this._emitRecovery(cwd, fired);
-  }
+  /**
+   * Emit at most one `spawn_register_recovered` per fire. The entry is dropped
+   * whether or not a message goes out, so a second clear on another tier cannot
+   * emit a duplicate. Returns whether the fire was claimed by this clear.
+   */
+  private _emitRecovery(key: string, fired: RecentlyFiredEntry, tier: ClearTier): boolean {
+    this.recentlyFired.delete(key);
+    clearTimeout(fired.evictTimer);
 
-  private _emitRecovery(cwd: string, fired: RecentlyFiredEntry): void {
-    // TTL check.
-    if (Date.now() - fired.firedAt > RECENTLY_FIRED_TTL_MS) {
-      this.recentlyFired.delete(cwd);
-      return;
-    }
+    // TTL check — the recovery window is the SAME constant every correlation
+    // TTL derives from. See change: fix-spawn-correlation-ttl-coupling.
+    if (Date.now() - fired.firedAt > RECOVERY_GRACE_MS) return false;
 
-    this.recentlyFired.delete(cwd);
+    console.error(
+      `[watchdog] RECOVERED cwd=${fired.cwd} pid=${fired.pid ?? "unknown"} ` +
+        `token=${fired.spawnToken ?? "none"} tier=${tier}`,
+    );
+    // Companion record joined to the fire by token, so a triaged
+    // REGISTER_TIMEOUT can be told from one that never recovered.
+    // See change: fix-spawn-correlation-ttl-coupling (D5).
+    appendSpawnFailure({
+      ts: new Date().toISOString(),
+      cwd: fired.cwd,
+      strategy: fired.mechanism,
+      code: "REGISTER_RECOVERED",
+      message: `Pi session registered after its watchdog fired (tier ${tier})`,
+      ...(fired.pid !== undefined ? { pid: fired.pid } : {}),
+      ...(fired.spawnToken ? { spawnToken: fired.spawnToken } : {}),
+    });
 
-    if (fired.ws.readyState !== WebSocket.OPEN) return;
+    if (!fired.ws || fired.ws.readyState !== WebSocket.OPEN) return true;
 
+    // No `requestId` here by design: the watchdog has no access to the
+    // correlation map, and `session_added` is what carries the value.
+    // See change: fix-spawn-correlation-ttl-coupling (D2).
     const msg: SpawnRegisterRecoveredMessage = {
       type: "spawn_register_recovered",
-      cwd,
+      cwd: fired.cwd,
       ...(fired.pid !== undefined ? { pid: fired.pid } : {}),
     };
     fired.ws.send(JSON.stringify(msg));
+    return true;
   }
 }
 
@@ -338,6 +416,61 @@ export function getSpawnRegisterWatchdog(): SpawnRegisterWatchdog {
 /** Swap the singleton for tests. Pass `null` to reset. */
 export function _setSpawnRegisterWatchdogForTests(w: SpawnRegisterWatchdog | null): void {
   _instance = w;
+}
+
+/** The subset of a `spawnPiSession` result the watchdog needs to arm. */
+export interface ArmableSpawnResult {
+  success?: boolean;
+  pid?: number;
+  logPath?: string;
+  spawnToken?: string;
+}
+
+/**
+ * Arm the watchdog for a successful spawn from ANY entry point.
+ *
+ * Every spawn must be armed, not just the WebSocket one: a duplicate whose
+ * `session_register` is refused for contention is only reclaimed because its
+ * watchdog is still armed, and the incident's duplicate was minted through the
+ * REST path. `ws` is optional — a transport-less caller still gets the reclaim,
+ * only the browser diagnostic is skipped.
+ *
+ * See change: fix-duplicate-bridge-registration (D0/D2).
+ */
+export function armSpawnWatchdog(
+  cwd: string,
+  mechanism: SpawnMechanism,
+  result: ArmableSpawnResult,
+  ws?: WebSocket,
+  timeoutMs?: number,
+): number | undefined {
+  if (result.success === false) return undefined;
+  // One config read per spawn: a caller that already read the config passes its
+  // value in, and every TTL that must outlive this arm derives from the value
+  // RETURNED here. Only callers with no read of their own fall back to reading
+  // now. See change: fix-spawn-correlation-ttl-coupling (D1).
+  const effectiveTimeout = clampSpawnRegisterTimeoutMs(
+    timeoutMs ?? loadConfig().spawnRegisterTimeoutMs,
+  );
+  // Never throws: the watchdog is a diagnostic + reclaim safety net layered on
+  // top of the spawn. Failing to arm it must not abort the spawn it is
+  // watching — that would turn a missing safety net into a broken feature.
+  try {
+    getSpawnRegisterWatchdog().arm({
+      cwd,
+      mechanism,
+      pid: result.pid,
+      logPath: result.logPath,
+      spawnToken: result.spawnToken,
+      timeoutMs: effectiveTimeout,
+      ...(ws ? { ws } : {}),
+    });
+  } catch (err) {
+    console.error(
+      `[watchdog] failed to arm for ${cwd}: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  return effectiveTimeout;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────────────────

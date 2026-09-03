@@ -15,7 +15,10 @@ import {
   CurrentPluginLayer,
 } from "@blackbelt-technology/dashboard-plugin-runtime/context";
 import { createSlotRegistry } from "@blackbelt-technology/dashboard-plugin-runtime";
-import type { UiModelSelectorProps } from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
+import type {
+  UiModelSelectorProps,
+  UiThinkingLevelSelectorProps,
+} from "@blackbelt-technology/pi-dashboard-shared/dashboard-plugin/ui-primitives.js";
 import type { TriggerCategoryDescriptor, AutomationConfig } from "../shared/automation-types.js";
 
 const { createAutomation, updateAutomation, listTriggerKinds, isGitCapable, listActions } = vi.hoisted(() => ({
@@ -58,9 +61,24 @@ function MockModelSelector({ models, onSelect }: UiModelSelectorProps) {
   );
 }
 
+function MockThinkingLevelSelector({ current, onSelect, supportedLevels }: UiThinkingLevelSelectorProps) {
+  return (
+    <div data-testid="mock-thinking-level" data-current={current ?? ""}>
+      {(supportedLevels ?? ["off", "low", "medium", "high"]).map((l) => (
+        <button key={l} data-testid={`level-opt-${l}`} onClick={() => onSelect(l)}>
+          {l}
+        </button>
+      ))}
+    </div>
+  );
+}
+
 function wrap(node: React.ReactNode) {
   return withUiPrimitiveProvider(
-    { "ui:model-selector": MockModelSelector },
+    {
+      "ui:model-selector": MockModelSelector,
+      "ui:thinking-level-selector": MockThinkingLevelSelector,
+    },
     <PluginContextProvider registry={createSlotRegistry()} sessions={[]} send={() => {}}>
       <CurrentPluginLayer pluginId="automation">{node}</CurrentPluginLayer>
     </PluginContextProvider>,
@@ -74,7 +92,13 @@ function seedRoles() {
       id: "roles",
       config: {
         roles: { fast: "anthropic/claude-haiku-4-5", coding: "anthropic/claude-sonnet-4-5" },
-        models: [{ provider: "anthropic", id: "claude-sonnet-4-5" }],
+        models: [
+          {
+            provider: "anthropic",
+            id: "claude-sonnet-4-5",
+            supportedThinkingLevels: ["off", "medium", "high"],
+          },
+        ],
       },
     });
   });
@@ -304,5 +328,63 @@ describe("CreateAutomationDialog (redesign)", () => {
     const body = updateAutomation.mock.calls[0]![0]!;
     expect(body.name).toBe("existing");
     expect(body.config.on).toEqual({ kind: "schedule", cron: "0 6 * * *" });
+  });
+});
+
+/**
+ * Thinking level on the direct-model branch only — written as a `:<level>`
+ * suffix on the existing `model` field, no schema change.
+ * See change: add-default-thinking-level (tasks 5.x / test-plan A1-A2).
+ */
+describe("CreateAutomationDialog — thinking level", () => {
+  // A1
+  it("writes the level as a suffix on the model field", async () => {
+    const { getByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    fireEvent.change(getByTestId("create-name"), { target: { value: "m" } });
+    fireEvent.click(getByTestId("create-model-mode-model"));
+    fireEvent.click(getByTestId("model-opt-anthropic/claude-sonnet-4-5"));
+    fireEvent.click(getByTestId("level-opt-high"));
+    fireEvent.click(getByTestId("create-submit"));
+    await waitFor(() => expect(createAutomation).toHaveBeenCalled());
+    expect(createAutomation.mock.calls[0]![0]!.config.model).toBe("anthropic/claude-sonnet-4-5:high");
+  });
+
+  it("offers only the picked model's supported levels", () => {
+    const { getByTestId, queryByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    fireEvent.click(getByTestId("create-model-mode-model"));
+    fireEvent.click(getByTestId("model-opt-anthropic/claude-sonnet-4-5"));
+    expect(getByTestId("level-opt-high")).toBeTruthy();
+    expect(queryByTestId("level-opt-low")).toBeNull();
+  });
+
+  // A2
+  it("renders NO level control on the @role branch and writes the bare token", async () => {
+    const { getByTestId, queryByTestId } = render(wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} />));
+    expect(queryByTestId("mock-thinking-level")).toBeNull();
+    expect(getByTestId("create-model-role-level-hint")).toBeTruthy();
+    fireEvent.change(getByTestId("create-name"), { target: { value: "r" } });
+    fireEvent.change(getByTestId("create-model-role"), { target: { value: "@coding" } });
+    fireEvent.click(getByTestId("create-submit"));
+    await waitFor(() => expect(createAutomation).toHaveBeenCalled());
+    expect(createAutomation.mock.calls[0]![0]!.config.model).toBe("@coding");
+  });
+
+  // 5.3 — edit path parity
+  it("splits an existing suffixed model when seeding the edit form", () => {
+    const initial = {
+      name: "x",
+      on: { kind: "schedule", cron: "0 9 * * *" },
+      model: "anthropic/claude-sonnet-4-5:high",
+      action: { kind: "prompt", prompt: "hi" },
+    } as unknown as AutomationConfig;
+    const { getByTestId } = render(
+      wrap(<CreateAutomationDialog cwd="/repo" onClose={() => {}} initialConfig={initial} initialName="x" />),
+    );
+    // Level lands in the level control; the echo below the pair shows the
+    // rejoined ref that will be written.
+    expect(getByTestId("mock-thinking-level").getAttribute("data-current")).toBe("high");
+    expect(getByTestId("create-model-selector").textContent).toContain(
+      "anthropic/claude-sonnet-4-5:high",
+    );
   });
 });

@@ -5,7 +5,13 @@ TBD - created by archiving change redesign-directory-card. Update Purpose after 
 ## Requirements
 ### Requirement: Folder slots render as single-concern pills in a responsive grid
 
-The directory card (`SessionList.renderGroup`) SHALL present its folder slot sections — Automations, Goals, KB, OpenSpec — as discrete pills arranged in a grid, instead of dense one-line `LABEL (n) → ⟳ [action]` rows. Each slot pill SHALL show, at minimum: a slot-colored leading glyph, an uppercase slot label, and the slot's primary count/value; the slot's state (e.g. KB `⚠ N stale`, Automations `⚠ N invalid`) SHALL render inline within the same pill. Each pill SHALL remain a single click target that performs the slot's existing primary navigation (open board / open settings), and each slot section SHALL keep its own data hook and secondary actions (refresh, create). The grid SHALL use two columns at sidebar/desktop width and SHALL collapse to a single column at narrow (mobile) width. A slot section that renders nothing (e.g. a plugin disabled, or data not yet loaded) SHALL simply be absent from the grid without breaking the layout of the remaining pills.
+The directory card (`SessionList.renderGroup`) SHALL present its folder slot sections — Automations, Goals, KB, OpenSpec — as discrete pills arranged in a grid, instead of dense one-line `LABEL (n) → ⟳ [action]` rows. Each slot pill SHALL show, at minimum: a slot-colored leading glyph, an uppercase slot label, and the slot's primary count/value; the slot's state (e.g. KB `⚠ N stale`, Automations `⚠ N invalid`) SHALL render inline within the same pill. Each pill SHALL remain a single click target that performs the slot's existing primary navigation (open board / open settings), and each slot section SHALL keep its own data hook.
+
+Slot pills SHALL be **state-only**: a pill SHALL render no secondary action buttons of any kind — no refresh, no create, no navigation shortcut. Pills read a number; the folder actions menu changes something. Every action a slot needs SHALL be contributed to the folder actions menu instead.
+
+The pill component SHALL NOT expose a prop accepting arbitrary action markup. State markers that are *facts* rather than controls — such as the KB pill's inline stale marker — remain inside the pill; a stale badge appearing both on the pill (as state) and on the menu's reindex item (as that action's context) is intended, not duplication.
+
+The grid SHALL use two columns at sidebar/desktop width and SHALL collapse to a single column at narrow (mobile) width. A slot section that renders nothing (e.g. a plugin disabled, or data not yet loaded) SHALL simply be absent from the grid without breaking the layout of the remaining pills.
 
 #### Scenario: KB stale state renders inline in the KB pill
 - **WHEN** the KB slot for a folder reports `chunks: 20230` and `staleCount: 1`
@@ -14,6 +20,11 @@ The directory card (`SessionList.renderGroup`) SHALL present its folder slot sec
 #### Scenario: Pill click performs the slot's primary navigation
 - **WHEN** the user clicks the OpenSpec slot pill for a folder
 - **THEN** the OpenSpec board for that folder SHALL open (same navigation the previous `OpenSpec (N) →` row performed)
+
+#### Scenario: No slot pill renders an action button
+- **WHEN** the directory card renders all four slot pills
+- **THEN** the pill grid SHALL contain zero focusable or interactive elements other than the pill roots themselves
+- **AND** no `mdiRefresh`, `mdiPlus`, `mdiArchiveOutline` or `mdiFileDocumentOutline` control SHALL render inside a pill
 
 #### Scenario: Grid collapses to one column at mobile width
 - **WHEN** the directory card is rendered below the mobile breakpoint
@@ -89,8 +100,6 @@ A directory card for a folder that is NOT a member of a workspace SHALL render w
 - **WHEN** the active theme changes
 - **THEN** the root-folder tint SHALL derive from that theme's `--accent-blue` (not a hardcoded color), staying subtle in every theme
 
-
-
 ### Requirement: Folder slot pill exposes a surface variant selected by placement
 
 `SlotPill` (`packages/dashboard-plugin-runtime/src/SlotPill.tsx`) SHALL accept an optional
@@ -129,3 +138,54 @@ renders; the `sidebar-folder-section` consumer SHALL NOT set `placement` (defaul
 #### Scenario: KB section stays raised in the sidebar
 - **WHEN** the KB folder section is rendered via the `sidebar-folder-section` slot in the sidebar folder card (no placement supplied)
 - **THEN** the KB pill SHALL render with the raised opaque surface (`bg-[var(--bg-secondary)]` + shadow), unchanged from today
+
+### Requirement: The directory card has a named tier model with a call-to-action tier
+
+The directory card SHALL be organised into named tiers, so that every element on the card has one defensible home:
+
+| Tier | Content | Rule |
+|---|---|---|
+| 1 | identity + urgency — folder icon, path, status, the folder actions menu trigger | — |
+| 2 | git facts — branch, dirty state | facts only, no call-to-action control |
+| 0 | the call-to-action banner | renders only when the folder cannot proceed |
+| 3 | directory state pills — Automations, Goals, KB, OpenSpec | state only |
+
+Tier 0 SHALL render **below tier 2** — below the git row when one exists, and directly below the tier-1 header row when the directory has no git row. It is numbered 0 because, when present, it outranks every other tier in importance while remaining below the identity block visually.
+
+The tier model was previously described only in change prose and bound nothing. It is promoted here because tier 0 is introduced by this change and its placement, exclusivity and gating rules need a normative home.
+
+#### Scenario: Tier 0 sits below the git row
+
+- **GIVEN** a git-backed directory qualifying for a banner
+- **WHEN** the card renders
+- **THEN** the banner SHALL render below the git row and above the slot-pill grid
+
+#### Scenario: Tier 0 sits below the header when there is no git row
+
+- **GIVEN** a non-git directory qualifying for a banner
+- **WHEN** the card renders
+- **THEN** the banner SHALL render directly below the header row and above the slot-pill grid
+
+### Requirement: Card invariants govern where an element may live
+
+The directory card SHALL uphold four invariants:
+
+1. **Pills read a number; the menu changes something.** A state pill SHALL NOT host a mutation control.
+2. **Tier 2 is facts only.** The git row SHALL carry no call-to-action beyond the branch/dirty affordances themselves.
+3. **Tier 0 means the folder cannot proceed.** An optional, non-blocking or merely-informational state SHALL NOT render a banner; it is a menu affordance.
+4. **No glyph may mean two things on the same card.** Glyph distinctness SHALL be assessed against what the rendered card shows, not against a repo-wide inventory.
+
+#### Scenario: A non-blocking state does not banner
+
+- **GIVEN** a directory whose only pending state is optional or informational
+- **WHEN** the card renders
+- **THEN** no tier-0 banner SHALL render
+- **AND** the state SHALL be reachable from the folder actions menu
+
+#### Scenario: The git row carries no call to action
+
+- **GIVEN** a directory with a pending initialization
+- **WHEN** the card renders
+- **THEN** the git row SHALL carry only branch and dirty-state affordances
+- **AND** the initialization control SHALL render in tier 0
+

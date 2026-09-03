@@ -1,4 +1,10 @@
-## ADDED Requirements
+# openspec-change-state Specification
+
+## Purpose
+
+Defines the `ChangeState` enum and the pure `deriveChangeState` function, so every surface that displays an OpenSpec change's state derives it the same way from the same inputs.
+
+## Requirements
 
 ### Requirement: ChangeState enum
 The shared types SHALL export a `ChangeState` enum with values `PLANNING`, `READY`, `IMPLEMENTING`, `COMPLETE` representing the lifecycle stages of an OpenSpec change.

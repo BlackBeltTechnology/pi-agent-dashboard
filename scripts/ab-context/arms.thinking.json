@@ -1,0 +1,4 @@
+{
+  "A": { "model": "anthropic/claude-opus-5:medium" },
+  "B": { "model": "anthropic/claude-opus-5:minimal" }
+}

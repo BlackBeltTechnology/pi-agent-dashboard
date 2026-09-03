@@ -101,4 +101,4 @@ The session leaned on existing OpenSpec tooling — `openspec new change`, `open
 
 ---
 
-_Generated from session `019e0f61` · `pi-agent-dashboard` · 2026-05-10. Source extract: deterministic facts sheet via `extract_session.ts`._
+_Generated from session `019e0f61` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-10. Source extract: deterministic facts sheet via `extract_session.ts`._

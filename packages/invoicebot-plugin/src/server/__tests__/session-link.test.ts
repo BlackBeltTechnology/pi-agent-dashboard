@@ -143,7 +143,7 @@ describe("spawn + runId correlation", () => {
 describe("per-invoice scope env", () => {
   it("a bound invoiceId spawn carries IB_TOOLSET=scoped-invoice + IB_INVOICE_ID", async () => {
     const link = createSessionLink(ctx.deps);
-    link.dispatchFlow({ cwd: CWD, flow: FLOW, invoiceId: "inv-42" });
+    void link.dispatchFlow({ cwd: CWD, flow: FLOW, invoiceId: "inv-42" });
     await Promise.resolve();
     expect(ctx.spawns).toHaveLength(1);
     expect(ctx.spawns[0].env).toEqual({ IB_TOOLSET: "scoped-invoice", IB_INVOICE_ID: "inv-42" });
@@ -151,7 +151,7 @@ describe("per-invoice scope env", () => {
 
   it("an unbound spawn (no invoiceId) carries no env — Ask session unchanged", async () => {
     const link = createSessionLink(ctx.deps);
-    link.dispatchFlow({ cwd: CWD, flow: FLOW });
+    void link.dispatchFlow({ cwd: CWD, flow: FLOW });
     await Promise.resolve();
     expect(ctx.spawns).toHaveLength(1);
     expect(ctx.spawns[0].env).toBeUndefined();
@@ -693,7 +693,7 @@ describe("§1c.5 — only a scoped session may become the card's canonical", () 
     const canonicalStore = mkStore();
     ctx = makeDeps([], canonicalStore);
     const link = createSessionLink(ctx.deps);
-    link.dispatchFlow({ cwd: CWD, flow: FLOW, invoiceId: "inv-42" });
+    void link.dispatchFlow({ cwd: CWD, flow: FLOW, invoiceId: "inv-42" });
     await new Promise((r) => setTimeout(r, 0));
     expect(ctx.spawns[0].automationRun.name).toBe("invoicebot-scoped:inv-42");
 
@@ -709,7 +709,7 @@ describe("§1c.5 — only a scoped session may become the card's canonical", () 
   it("an UNBOUND flow spawn keeps the flow name (intake/ask are not invoice-scoped)", async () => {
     ctx = makeDeps([]);
     const link = createSessionLink(ctx.deps);
-    link.dispatchFlow({ cwd: CWD, flow: FLOW });
+    void link.dispatchFlow({ cwd: CWD, flow: FLOW });
     await new Promise((r) => setTimeout(r, 0));
     expect(ctx.spawns[0].automationRun.name).toBe("invoicebot:process");
     expect(ctx.spawns[0].env).toBeUndefined();
@@ -755,8 +755,8 @@ describe("§3 single-flight resolution", () => {
 
   it("3.1 distinct invoices resolve independently (guard is per-invoice)", async () => {
     const link = createSessionLink(ctx.deps);
-    link.ensureScopedSession(CWD, "inv-a");
-    link.ensureScopedSession(CWD, "inv-b");
+    void link.ensureScopedSession(CWD, "inv-a");
+    void link.ensureScopedSession(CWD, "inv-b");
     await new Promise((r) => setTimeout(r, 5));
     expect(ctx.spawns).toHaveLength(2);
   });

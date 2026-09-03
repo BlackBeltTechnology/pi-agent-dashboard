@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_chain" isExecutable="false">
+    <bpmn:startEvent id="Start_c" name="Start"><bpmn:outgoing>Flow_1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:task id="Task_step_1" name="Step 1"><bpmn:incoming>Flow_1</bpmn:incoming><bpmn:outgoing>Flow_2</bpmn:outgoing></bpmn:task>
+    <bpmn:task id="Task_step_2" name="Step 2"><bpmn:incoming>Flow_2</bpmn:incoming><bpmn:outgoing>Flow_3</bpmn:outgoing></bpmn:task>
+    <bpmn:task id="Task_step_3" name="Step 3"><bpmn:incoming>Flow_3</bpmn:incoming><bpmn:outgoing>Flow_4</bpmn:outgoing></bpmn:task>
+    <bpmn:task id="Task_step_4" name="Step 4"><bpmn:incoming>Flow_4</bpmn:incoming><bpmn:outgoing>Flow_5</bpmn:outgoing></bpmn:task>
+    <bpmn:task id="Task_step_5" name="Step 5"><bpmn:incoming>Flow_5</bpmn:incoming><bpmn:outgoing>Flow_6</bpmn:outgoing></bpmn:task>
+    <bpmn:task id="Task_step_6" name="Step 6"><bpmn:incoming>Flow_6</bpmn:incoming><bpmn:outgoing>Flow_7</bpmn:outgoing></bpmn:task>
+    <bpmn:task id="Task_step_7" name="Step 7"><bpmn:incoming>Flow_7</bpmn:incoming><bpmn:outgoing>Flow_8</bpmn:outgoing></bpmn:task>
+    <bpmn:task id="Task_step_8" name="Step 8"><bpmn:incoming>Flow_8</bpmn:incoming><bpmn:outgoing>Flow_9</bpmn:outgoing></bpmn:task>
+    <bpmn:task id="Task_step_9" name="Step 9"><bpmn:incoming>Flow_9</bpmn:incoming><bpmn:outgoing>Flow_10</bpmn:outgoing></bpmn:task>
+    <bpmn:task id="Task_step_10" name="Step 10"><bpmn:incoming>Flow_10</bpmn:incoming><bpmn:outgoing>Flow_11</bpmn:outgoing></bpmn:task>
+    <bpmn:task id="Task_step_11" name="Step 11"><bpmn:incoming>Flow_11</bpmn:incoming><bpmn:outgoing>Flow_12</bpmn:outgoing></bpmn:task>
+    <bpmn:task id="Task_step_12" name="Step 12"><bpmn:incoming>Flow_12</bpmn:incoming><bpmn:outgoing>Flow_end</bpmn:outgoing></bpmn:task>
+    <bpmn:endEvent id="End_c" name="End"><bpmn:incoming>Flow_end</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_1" sourceRef="Start_c" targetRef="Task_step_1"/>
+    <bpmn:sequenceFlow id="Flow_2" sourceRef="Task_step_1" targetRef="Task_step_2"/>
+    <bpmn:sequenceFlow id="Flow_3" sourceRef="Task_step_2" targetRef="Task_step_3"/>
+    <bpmn:sequenceFlow id="Flow_4" sourceRef="Task_step_3" targetRef="Task_step_4"/>
+    <bpmn:sequenceFlow id="Flow_5" sourceRef="Task_step_4" targetRef="Task_step_5"/>
+    <bpmn:sequenceFlow id="Flow_6" sourceRef="Task_step_5" targetRef="Task_step_6"/>
+    <bpmn:sequenceFlow id="Flow_7" sourceRef="Task_step_6" targetRef="Task_step_7"/>
+    <bpmn:sequenceFlow id="Flow_8" sourceRef="Task_step_7" targetRef="Task_step_8"/>
+    <bpmn:sequenceFlow id="Flow_9" sourceRef="Task_step_8" targetRef="Task_step_9"/>
+    <bpmn:sequenceFlow id="Flow_10" sourceRef="Task_step_9" targetRef="Task_step_10"/>
+    <bpmn:sequenceFlow id="Flow_11" sourceRef="Task_step_10" targetRef="Task_step_11"/>
+    <bpmn:sequenceFlow id="Flow_12" sourceRef="Task_step_11" targetRef="Task_step_12"/>
+    <bpmn:sequenceFlow id="Flow_end" sourceRef="Task_step_12" targetRef="End_c"/>
+  </bpmn:process>
+</bpmn:definitions>

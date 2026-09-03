@@ -184,4 +184,4 @@ globally (`npm list -g @mariozechner/pi-coding-agent`), npm registry access.
 
 ---
 
-_Generated from session `0d1d9972` · `pi-agent-dashboard` · 2026-04-19. Source extract: session facts sheet (mktemp)._
+_Generated from session `0d1d9972` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-19. Source extract: session facts sheet (mktemp)._

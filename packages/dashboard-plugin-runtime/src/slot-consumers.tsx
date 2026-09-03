@@ -217,6 +217,46 @@ export function WorkspaceActionBarSlot({ session }: { session: DashboardSession 
   );
 }
 
+/**
+ * `composer-panel` — rendered below the chat composer input. Passes slot
+ * components a READ-ONLY composer context `{ draft, language? }` (the current
+ * input value). The slot component owns its own debounce/side-effects (e.g. a
+ * grammar check); core does not debounce or interpret the draft. Renders
+ * nothing when no plugin claims the slot, so the composer is unchanged from
+ * before the slot existed. See change: make-grammar-fully-plugin-contained.
+ */
+export function ComposerPanelSlot({
+  draft,
+  language,
+  sessionId,
+  sessionStatus,
+  onApplyText,
+}: {
+  draft: string;
+  language?: string;
+  sessionId?: string;
+  sessionStatus?: string;
+  onApplyText: (text: string) => void;
+}) {
+  const registry = useSlotRegistryOrNull();
+  if (!registry) return null;
+  const claims = registry.getClaims("composer-panel");
+  if (!claims.length) return null;
+  return (
+    <>
+      {claims.map((c) =>
+        renderClaim(c as Parameters<typeof renderClaim>[0], "composer-panel", {
+          draft,
+          language,
+          sessionId,
+          sessionStatus,
+          onApplyText,
+        }),
+      )}
+    </>
+  );
+}
+
 export function ContentViewSlot({
   session,
   routeParams,
@@ -495,6 +535,10 @@ interface ShellOverlayRouteClaim {
   depth?: 1 | 2;
   /** Back-action parent path pattern for depth-2 routes. See change: fix-plugin-and-scoped-back-navigation. */
   parentPath?: string;
+  /** Container selection: route-backed dialog (default) or full-viewport page.
+   *  First-class only — unlike `path`/`sessionParam` there are no legacy
+   *  manifests carrying it under `config`. See change: add-route-backed-overlay-dialogs. */
+  presentation?: "page" | "dialog";
   /** Legacy fallback: some older manifests put `path` / `sessionParam` under `config`. */
   config?: Record<string, unknown>;
   Component?: React.ComponentType<Record<string, unknown>>;
@@ -520,6 +564,7 @@ function overlaySessionParam(c: ShellOverlayRouteClaim): string {
  * `MobileShell.detailPanel`. The shell falls through to its own rendering
  * when this returns null.
  */
+
 export function ShellOverlayRouteSlot({
   onBack,
   registry: registryProp,
@@ -527,6 +572,11 @@ export function ShellOverlayRouteSlot({
   onBack: () => void;
   /** Optional registry override. Same fallback rules as `useShellOverlayRouteMatched`: when omitted, falls back to `useSlotRegistryOrNull()`. */
   registry?: SlotRegistry | null;
+  /**
+   * Container for claims whose effective `presentation` is `"dialog"`.
+   * When omitted, every claim renders in the page container — so a host that
+   * has not opted in behaves exactly as it did before this change.
+   */
 }) {
   const ctxRegistry = useSlotRegistryOrNull();
   const effective = registryProp ?? ctxRegistry;
@@ -574,6 +624,41 @@ export function useShellOverlayRouteMatched(registry?: SlotRegistry | null): boo
     }
   }
   return matched;
+}
+
+/**
+ * Effective `presentation` of the matched `shell-overlay-route` claim, or
+ * `null` when none matches.
+ *
+ * The shell needs this in `App.tsx`'s body — BEFORE it renders — to pick the
+ * mobile layout: a `"page"` claim renders full-viewport OUTSIDE the
+ * `MobileShell` detail panel, while a `"dialog"` claim renders inside it at its
+ * declared depth (D3a). Same registry-argument rules as
+ * `useShellOverlayRouteMatched`.
+ *
+ * **Known caveat (D2a):** this shares `matchWouterPattern` with
+ * `useShellOverlayRouteMatched`, which supports `:param` but not wouter's regex
+ * segments, whereas the in-slot probes use the real `useRoute`. For a claim
+ * using a regex segment the two could disagree, giving page layout with a
+ * dialog container or vice versa. No bundled claim uses one today; fixing the
+ * divergence means routing both through the router's own parser and is
+ * deliberately out of this change's scope.
+ *
+ * See change: add-route-backed-overlay-dialogs.
+ */
+export function useShellOverlayRoutePresentation(
+  registry?: SlotRegistry | null,
+): "page" | "dialog" | null {
+  const ctxRegistry = useSlotRegistryOrNull();
+  const effective = registry ?? ctxRegistry;
+  const claims = (effective?.getClaims("shell-overlay-route") ?? []) as ShellOverlayRouteClaim[];
+  const [location] = useLocation();
+  for (const c of claims) {
+    const path = overlayPath(c);
+    if (!path) continue;
+    if (matchWouterPattern(path, location)) return c.presentation ?? "dialog";
+  }
+  return null;
 }
 
 // ── Internal helpers (one useRoute call per claim via per-claim component) ───
@@ -691,16 +776,30 @@ function ShellOverlayRouteSwitch({
 
   if (matchedClaimIndex === null) return <>{probes}</>;
   const claim = claims[matchedClaimIndex]!;
+
+  // The height-propagation wrapper is part of the claim's contract, so it is
+  // identical under BOTH containers — a claim that sizes itself against a flex
+  // parent renders the same either way (task 4.2).
+  const body = (
+    <div className="flex-1 min-h-0 relative">
+      <ShellOverlayRouteRender
+        claim={claim}
+        params={matchedParams}
+        onBack={onBack}
+      />
+    </div>
+  );
+
+  // The slot renders the claim body only. `presentation` is consumed by the
+  // HOST via `useShellOverlayRoutePresentation`, which lifts a dialog claim out
+  // of the content region entirely — the underlay has to cover the viewport, so
+  // it cannot be wrapped from in here. An earlier draft injected a container
+  // through this component; that seam could not position the underlay and was
+  // removed. See design D2a.
   return (
     <>
       {probes}
-      <div className="flex-1 min-h-0 relative">
-        <ShellOverlayRouteRender
-          claim={claim}
-          params={matchedParams}
-          onBack={onBack}
-        />
-      </div>
+      {body}
     </>
   );
 }

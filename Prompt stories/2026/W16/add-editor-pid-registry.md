@@ -116,4 +116,4 @@ No new pi skill or memory was created this session — the work rode entirely on
 
 ---
 
-_Generated from session `019da4e4-b9ea-771c-89e4-11d1beacb2b9` · `pi-agent-dashboard` · 2026-04-19. Source extract: deterministic facts sheet._
+_Generated from session `019da4e4-b9ea-771c-89e4-11d1beacb2b9` · `/Users/robson/Project/pi-agent-dashboard` · 2026-04-19. Source extract: deterministic facts sheet._

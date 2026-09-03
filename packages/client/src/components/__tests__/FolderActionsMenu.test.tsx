@@ -16,7 +16,15 @@ import React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { FolderActionsMenu, type FolderMenuItem } from "../folder/FolderActionsMenu.js";
 
-afterEach(() => cleanup());
+// Controllable form factor. Default false (desktop) preserves every existing
+// case; the both-forms portal test (test-plan #F2) flips it to true.
+const mobileState = vi.hoisted(() => ({ value: false }));
+vi.mock("../../hooks/useMobile.js", () => ({ useMobile: () => mobileState.value }));
+
+afterEach(() => {
+  cleanup();
+  mobileState.value = false;
+});
 
 const CWD = "/a/b";
 
@@ -124,5 +132,50 @@ describe("FolderActionsMenu grouping", () => {
     fireEvent.click(screen.getByTestId(`folder-actions-menu-${CWD}`));
     expect(screen.queryByTestId("folder-menu-group-workspace")).toBeNull();
     expect(screen.getByTestId("folder-menu-group-directory")).toBeTruthy();
+  });
+});
+
+/**
+ * Overlay-layering contract: the desktop panel must PORTAL out of the trigger's
+ * subtree (so it escapes the `isolate` stacking context every SessionCard
+ * creates) and carry the `z-popover` layer token, not an inline `absolute z-50`.
+ * See change: add-overlay-layering-system.
+ */
+describe("FolderActionsMenu overlay-layering (desktop portal)", () => {
+  it("portals the panel outside the trigger subtree", () => {
+    render(<Harness items={makeItems()} />);
+    const trigger = screen.getByTestId(`folder-actions-menu-${CWD}`);
+    fireEvent.click(trigger);
+    const panel = screen.getByTestId(`folder-actions-menu-panel-${CWD}`);
+    // Portaled to the layer root → the trigger's wrapper does not contain it.
+    const wrapper = trigger.closest("span");
+    expect(wrapper).not.toBeNull();
+    expect(wrapper!.contains(panel)).toBe(false);
+  });
+
+  it("carries the z-popover token and fixed positioning, never absolute/z-50", () => {
+    render(<Harness items={makeItems()} />);
+    fireEvent.click(screen.getByTestId(`folder-actions-menu-${CWD}`));
+    const panel = screen.getByTestId(`folder-actions-menu-panel-${CWD}`);
+    expect(panel.className).toContain("z-popover");
+    expect(panel.className).toContain("fixed");
+    expect(panel.className).not.toContain("absolute");
+    expect(panel.className).not.toContain("z-50");
+  });
+
+  // test-plan #F2 — ALL form factors portal out of the trigger subtree.
+  it("portals out of the trigger subtree in BOTH mobile and desktop forms", () => {
+    for (const mobile of [true, false]) {
+      mobileState.value = mobile;
+      const { unmount } = render(<Harness items={makeItems()} />);
+      const trigger = screen.getByTestId(`folder-actions-menu-${CWD}`);
+      fireEvent.click(trigger);
+      const panel = screen.getByTestId(`folder-actions-menu-panel-${CWD}`);
+      expect(panel.getAttribute("data-menu-form"), `form for mobile=${mobile}`).toBe(
+        mobile ? "sheet" : "popover",
+      );
+      expect(trigger.closest("span")!.contains(panel), `portaled for mobile=${mobile}`).toBe(false);
+      unmount();
+    }
   });
 });

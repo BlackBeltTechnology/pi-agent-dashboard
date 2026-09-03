@@ -46,6 +46,8 @@ function poisonedEvent(seq: number): CachedEvent {
   };
 }
 
+const KEY = "a:8000";
+
 describe("rehydrateSession — poisoned cache entry", () => {
   let factory: IDBFactory;
   beforeEach(() => {
@@ -58,15 +60,15 @@ describe("rehydrateSession — poisoned cache entry", () => {
 
   it("falls back to a cache miss (null) instead of throwing when a cached event re-reduces to a throw", async () => {
     const cache = createReplayCache({ factory });
-    await cache.put("s1", { maxSeq: 9, payload: [userMsg(5, "hi"), poisonedEvent(9)] });
+    await cache.put("s1", { maxSeq: 9, payload: [userMsg(5, "hi"), poisonedEvent(9)] }, KEY);
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     // Must not throw; a re-reduce failure degrades to a cache miss (null) so
     // the caller performs a full replay (lastSeq: 0).
-    const result = await rehydrateSession("s1", cache);
+    const result = await rehydrateSession("s1", cache, KEY);
     expect(result).toBeNull();
     // The poisoned entry is discarded so it cannot re-poison a later load.
-    expect(await cache.get("s1")).toBeNull();
+    expect(await cache.get("s1", KEY)).toBeNull();
     // Exactly one operator-facing signal for the exceptional path (test-plan #X3).
     const rehydrateWarns = warn.mock.calls.filter((c) => String(c[0]).includes("[rehydrate]"));
     expect(rehydrateWarns).toHaveLength(1);
@@ -74,9 +76,9 @@ describe("rehydrateSession — poisoned cache entry", () => {
 
   it("still delta-rehydrates a healthy cache entry", async () => {
     const cache = createReplayCache({ factory });
-    await cache.put("s2", { maxSeq: 7, payload: [userMsg(5, "hello"), userMsg(7, "world")] });
+    await cache.put("s2", { maxSeq: 7, payload: [userMsg(5, "hello"), userMsg(7, "world")] }, KEY);
 
-    const result = await rehydrateSession("s2", cache);
+    const result = await rehydrateSession("s2", cache, KEY);
     expect(result).not.toBeNull();
     expect(result?.lastSeq).toBe(7);
     expect(result?.state.messages.length).toBeGreaterThan(0);

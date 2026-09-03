@@ -120,6 +120,7 @@ export function deleteAuthProvider(
     delete providers[id];
     const merged: Record<string, unknown> = { ...existing, auth: { ...auth, providers } };
     delete merged.resolvedTrustedNetworks;
+    delete merged.reachability;
     fs.mkdirSync(dir, { recursive: true });
     fs.writeFileSync(file, `${JSON.stringify(merged, null, 2)}\n`);
     return { success: true, deleted: true, remaining: Object.keys(providers).length };
@@ -248,8 +249,12 @@ export function writeConfigPartial(partial: Record<string, any>): WriteConfigRes
 
     const merged = { ...existing, ...partial };
 
-    // Remove computed fields that shouldn't be persisted
+    // Remove computed fields that shouldn't be persisted. `reachability` is
+    // derived per-request from the bind host + trusted entries; echoing it back
+    // in a PUT body must not create a phantom config key.
+    // See change: warn-unreachable-trusted-networks.
     delete merged.resolvedTrustedNetworks;
+    delete merged.reachability;
 
     // Write
     fs.mkdirSync(dir, { recursive: true });

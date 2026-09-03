@@ -139,4 +139,4 @@ assets that *were* leaned on:
 
 ---
 
-_Generated from session `019ebffd-0af8-79c2-b51b-e66ed617bb88` · `pi-agent-dashboard` · 2026-06-13. Source extract: facts sheet (mktemp)._
+_Generated from session `019ebffd-0af8-79c2-b51b-e66ed617bb88` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-13. Source extract: facts sheet (mktemp)._

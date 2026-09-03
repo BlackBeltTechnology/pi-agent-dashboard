@@ -1,4 +1,10 @@
-## ADDED Requirements
+# persistence-migration Specification
+
+## Purpose
+
+Moves existing installations onto the current persistence layout automatically on first startup: session data into meta files, hidden state out of `state.json`, and global preferences into their new home. Requires old files to be renamed after migration and the whole migration to be idempotent, so an interrupted or repeated run cannot corrupt or duplicate data.
+
+## Requirements
 
 ### Requirement: Automatic migration on first startup
 The system SHALL automatically migrate from `sessions.json` + `state.json` to the new persistence model when old files are detected at server startup. Migration SHALL run before normal session restoration.

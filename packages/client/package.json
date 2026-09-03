@@ -1,7 +1,8 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-web",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Web client for pi-dashboard",
+  "license": "MIT",
   "type": "module",
   "repository": {
     "type": "git",
@@ -12,7 +13,9 @@
     "access": "public"
   },
   "files": [
-    "dist/"
+    "dist/",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md"
   ],
   "exports": {
     "./chat-embed": "./src/chat-embed/index.ts",
@@ -24,21 +27,23 @@
     "prepare": "node scripts/vite-build.mjs build && node scripts/precompress.mjs"
   },
   "dependencies": {
-    "@blackbelt-technology/dashboard-plugin-runtime": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-apple-tools": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-automation-plugin": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-blackhole-plugin": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-client-utils": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-flows-plugin": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-goal-plugin": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-hermes-memory-plugin": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-kb-plugin": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-roles-plugin": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-subagents-plugin": "^0.7.0",
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-apple-tools": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-automation-plugin": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-blackhole-plugin": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-client-utils": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-cost-estimator": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-flows-anthropic-bridge-plugin": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-flows-plugin": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-goal-plugin": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-grammar-plugin": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-hermes-memory-plugin": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-kb-plugin": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-quota-plugin": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-roles-plugin": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-subagents-plugin": "^0.8.0",
     "@dnd-kit/core": "^6.3.1",
-    "@vitejs/plugin-react": "^4.3.4",
     "@dnd-kit/sortable": "^10.0.0",
     "@dnd-kit/utilities": "^3.2.2",
     "@git-diff-view/core": "^0.1.3",
@@ -49,7 +54,8 @@
     "@mdi/react": "^1.6.1",
     "@monaco-editor/react": "^4.7.0",
     "@tailwindcss/vite": "^4.1.0",
-    "@tanstack/react-virtual": "3.13.12",
+    "@tanstack/react-virtual": "3.14.10",
+    "@vitejs/plugin-react": "^4.3.4",
     "@xterm/addon-attach": "^0.12.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
@@ -78,8 +84,8 @@
     "yaml": "^2.6.1"
   },
   "devDependencies": {
-    "@blackbelt-technology/demo-plugin": "^0.7.0",
-    "@testing-library/jest-dom": "^6.6.3",
+    "@blackbelt-technology/demo-plugin": "^0.8.0",
+    "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.1.0",
     "@types/dompurify": "^3.0.5",
     "@types/qrcode": "^1.5.6",

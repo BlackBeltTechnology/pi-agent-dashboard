@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A · Quarantine review — share-session-archives</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="app.css">
+<script src="nav.js"></script>
+</head>
+<body>
+<div class="shell">
+  <div data-chrome data-title="Quarantine review" data-sub="Segments held before their first upload · F7, F8"></div>
+
+  <div class="card card-pad stack-loose">
+
+    <!-- header: count framed as review work, never as a backlog to clear -->
+    <div class="row">
+      <span class="count" aria-hidden="true">3</span>
+      <div>
+        <div style="font-size:14px;font-weight:600">3 findings need review</div>
+        <div class="muted" style="font-size:11px">
+          Nothing is uploaded until you decide. Clean segments keep publishing meanwhile.
+        </div>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn btn-sm" type="button">Redact all matches</button>
+    </div>
+
+    <div class="callout callout-info">
+      <span class="glyph" aria-hidden="true">◆</span>
+      <div>
+        <strong>Approving publishes the segment to the shared archive.</strong>
+        <span class="body">Removing it later means deleting the blob and rotating the credential. Redacting a false positive only hides a few characters in an old transcript.</span>
+      </div>
+    </div>
+
+    <!-- ============ finding 1 ============ -->
+    <section class="panel" style="padding:14px" aria-labelledby="f1-title">
+      <div class="row" style="align-items:flex-start">
+        <div style="flex:1">
+          <div class="wrap" style="margin-bottom:6px">
+            <span class="chip chip-error"><span class="glyph" aria-hidden="true">▲</span> Anthropic API key</span>
+            <span class="chip chip-neutral"><span class="glyph" aria-hidden="true">▪</span> pattern <code style="font-family:var(--mono)">sk-ant-</code></span>
+          </div>
+          <div id="f1-title" style="font-size:13px;font-weight:600">seg-0041 · line 412</div>
+          <div class="path">019dea61-8c04-7a11-b2f5-3d90ee61c4aa · 2026-05-02T20-28-46</div>
+        </div>
+      </div>
+
+      <!-- H6 recognition over recall: judge the real thing, in context, masked -->
+      <div class="code" style="margin-top:10px" role="group" aria-label="Matched text in transcript context">
+        <div><span class="ln">410</span>  "role": "user",</div>
+        <div><span class="ln">411</span>  "content": "deploy with this key so the CI can run:</div>
+        <div><span class="ln">412</span>  <span class="mark">sk-ant-api03-••••••••••••••••••••••••••••••••••••Yh4A</span>"</div>
+        <div><span class="ln">413</span>  "timestamp": "2026-05-02T20:31:09.412Z"</div>
+      </div>
+
+      <div class="note">
+        <b>Why this matched:</b> the literal prefix <code style="font-family:var(--mono)">sk-ant-</code> followed by 95 base62 characters.
+        <b>If published:</b> anyone with archive read access can use this key until it is rotated.
+      </div>
+
+      <!-- Von Restorff: ONE dominant action, and it is the SAFE one -->
+      <div class="row" style="margin-top:12px">
+        <button class="btn btn-safe" type="button">Redact this match</button>
+        <button class="btn" type="button">Drop segment</button>
+        <div class="spacer"></div>
+        <button class="btn btn-risky btn-sm" type="button" aria-describedby="f1-approve-hint">Approve &amp; publish…</button>
+      </div>
+      <div id="f1-approve-hint" class="muted" style="font-size:10px;text-align:right;margin-top:4px">
+        Asks you to confirm. This one cannot be undone.
+      </div>
+    </section>
+
+    <!-- ============ finding 2 — expanded confirm state for the risky path ============ -->
+    <section class="panel" style="padding:14px" aria-labelledby="f2-title">
+      <div class="wrap" style="margin-bottom:6px">
+        <span class="chip chip-error"><span class="glyph" aria-hidden="true">▲</span> AWS access key</span>
+        <span class="chip chip-neutral"><span class="glyph" aria-hidden="true">▪</span> pattern <code style="font-family:var(--mono)">AKIA</code></span>
+      </div>
+      <div id="f2-title" style="font-size:13px;font-weight:600">seg-0007 · line 890</div>
+      <div class="path">019f8604-08ea-79a0-b226-fee2a5dd09d2</div>
+
+      <div class="code" style="margin-top:10px" role="group" aria-label="Matched text in transcript context">
+        <div><span class="ln">889</span>  "output": "  aws_access_key_id = <span class="mark">AKIA••••••••••••M7QZ</span></div>
+        <div><span class="ln">890</span>   aws_secret_access_key = <span class="mark">••••••••••••••••••••••••••••••••••••</span>"</div>
+      </div>
+
+      <!-- H5: the ONLY confirm in this surface guards the irreversible direction -->
+      <div class="callout callout-error" style="margin-top:12px">
+        <span class="glyph" aria-hidden="true">▲</span>
+        <div style="flex:1">
+          <strong>Publish seg-0007 with the AWS access key intact?</strong>
+          <span class="body">This uploads to <code style="font-family:var(--mono)">s3://pi-archive/blobs/</code> and cannot be undone. Recovery means deleting the blob and rotating the key.</span>
+          <label class="row" style="margin-top:10px;font-size:12px;cursor:pointer">
+            <input type="checkbox" style="min-width:16px;min-height:16px">
+            <span>I checked this is not a live credential</span>
+          </label>
+          <div class="row" style="margin-top:10px">
+            <button class="btn btn-sm btn-risky" type="button" disabled>Publish anyway</button>
+            <button class="btn btn-sm btn-quiet" type="button">Cancel</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ finding 3 — index object, not a segment ============ -->
+    <section class="panel" style="padding:14px" aria-labelledby="f3-title">
+      <div class="wrap" style="margin-bottom:6px">
+        <span class="chip chip-error"><span class="glyph" aria-hidden="true">▲</span> Connection string</span>
+        <span class="chip chip-warning"><span class="glyph" aria-hidden="true">◆</span> session metadata</span>
+      </div>
+      <div id="f3-title" style="font-size:13px;font-weight:600">meta · firstMessage</div>
+      <div class="path">01a0168c-4f79-74c5-ae75-d67bae3f01a8</div>
+
+      <div class="code" style="margin-top:10px" role="group" aria-label="Matched text in session title">
+        <div><span class="ln">—</span>  "firstMessage": "why can't the server reach</div>
+        <div><span class="ln"> </span>   <span class="mark">postgres://pi:••••••••@db.internal:5432/dash</span> from docker?"</div>
+      </div>
+
+      <div class="note">
+        <b>Why this matters here:</b> the session title is shown in the archive listing, so this string would be visible before anyone opens the session.
+      </div>
+
+      <div class="row" style="margin-top:12px">
+        <button class="btn btn-safe" type="button">Redact this match</button>
+        <button class="btn" type="button">Drop segment</button>
+        <div class="spacer"></div>
+        <button class="btn btn-risky btn-sm" type="button">Approve &amp; publish…</button>
+      </div>
+    </section>
+
+    <div class="divider"></div>
+
+    <!-- resolved strip: undo available while unpublished (H3 prefer undo over confirm) -->
+    <div>
+      <h3 class="h-sec">Resolved in this session</h3>
+      <div class="panel row" style="padding:8px 12px">
+        <span class="chip chip-success"><span class="glyph" aria-hidden="true">✓</span> Redacted</span>
+        <span style="font-size:12px">seg-0012 · JWT on line 77</span>
+        <div class="spacer"></div>
+        <button class="btn btn-sm btn-quiet" type="button">Undo</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ the good state ============ -->
+  <h3 class="h-sec" style="margin-top:24px">Empty state — nothing flagged</h3>
+  <div class="card card-pad" style="text-align:center;padding:32px 16px">
+    <div style="font-size:20px" aria-hidden="true">✓</div>
+    <div style="font-size:13px;font-weight:600;margin-top:6px">No findings to review</div>
+    <div class="muted" style="font-size:11px;max-width:380px;margin:4px auto 0">
+      Every sealed segment passed the scan and published normally. Findings appear here only when a known credential pattern matches.
+    </div>
+  </div>
+
+  <!-- ============ scan failure ============ -->
+  <h3 class="h-sec" style="margin-top:24px">Scanner failure — segment held, never skipped</h3>
+  <div class="card card-pad">
+    <div class="callout callout-error">
+      <span class="glyph" aria-hidden="true">▲</span>
+      <div style="flex:1">
+        <strong>Scan failed for seg-0044</strong>
+        <span class="body">The scanner threw before finishing, so this segment was held rather than uploaded. An unscanned segment is never published.</span>
+        <div class="row" style="margin-top:10px">
+          <button class="btn btn-sm" type="button">Retry scan</button>
+          <button class="btn btn-sm btn-quiet" type="button">View error</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="note" style="margin-top:20px">
+    <b>Deliberately absent:</b> there is no “approve all”. Bulk actions in the permissive
+    direction are the main driver of reflexive approval (test-plan F11), so only
+    bulk <i>redact</i> is offered. Findings are also never pre-sorted into a
+    “probably fine” bucket.
+  </div>
+</div>
+</body>
+</html>

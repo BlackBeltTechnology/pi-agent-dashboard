@@ -8,7 +8,9 @@ Complements (does NOT replace) the existing Fastify-bug guard `isAffectedNode` �
 
 - `isAffectedNode` — Node v22.0–v22.18 and v24.1–v24.2 (Fastify ajv-compiler `ERR_INTERNAL_ASSERTION`, nodejs/node#58515).
 - `isOutOfEnginesRange` — Node `<22.19.0` OR `>=27` (engines-cap mirror).
+
 ## Requirements
+
 ### Requirement: Refuse server start on Node outside engines range
 
 `packages/server/src/auth/node-guard.ts` SHALL expose a pure predicate `isOutOfEnginesRange(version: string): boolean` returning `true` when the running Node falls outside the cap declared in root `package.json#engines.node` (`>=22.19.0 <27`). `assertNodeVersionSupported()` — called at the top of every server entry point (`cmdStart`, `runForeground`) — SHALL write `buildEnginesRangeMessage(version)` to stderr and exit with code `1` when the predicate is true. The check fires AFTER the existing `isAffectedNode` Fastify-bug guard so both messages remain distinguishable.
@@ -54,12 +56,28 @@ CI lockstep contract: the `.github/workflows/_smoke.yml` `standalone-install-smo
 
 ### Requirement: Engines-range message references bundled-Node remediation
 
-`buildEnginesRangeMessage(version: string): string` SHALL include three remediation hints (nvm, bundled, brew). The bundled hint SHALL reference `$HOME/.pi-dashboard/node/bin` as a PATH prepend — read-only advisory text, NOT a runtime read or write of that directory. This file is therefore allowlisted in `packages/shared/src/__tests__/no-managed-dir-reference.test.ts` under change `eliminate-electron-runtime-install` (R3).
+`buildEnginesRangeMessage(version: string): string` SHALL always include the nvm and brew
+remediation hints. The managed-Node hint (`PATH="$HOME/.pi-dashboard/node/bin` prepend) SHALL be
+included only when a managed Node runtime is actually installed under `<managedDir>/node/` — on
+machines without one the hint is dead advice and SHALL be omitted. The managed-dir mention remains
+advisory text plus an existence probe, not a write; the file stays allowlisted in
+`packages/shared/src/__tests__/no-managed-dir-reference.test.ts` under change
+`eliminate-electron-runtime-install` (R3), with the allowlist rationale updated to cover the
+existence probe.
 
 #### Scenario: Message lists three install paths
 
-- **WHEN** `buildEnginesRangeMessage("v27.0.0")` is called
-- **THEN** the returned string SHALL contain the substrings `nvm install`, `PATH="$HOME/.pi-dashboard/node/bin`, and `brew install node`
+- **WHEN** the engines-range message is built on a machine where `<managedDir>/node/` contains a
+  managed runtime
+- **THEN** the returned string SHALL contain the substrings `nvm install`,
+  `PATH="$HOME/.pi-dashboard/node/bin`, and `brew install node`
+
+#### Scenario: Message omits managed hint without a managed Node
+
+- **WHEN** the engines-range message is built on a machine with no managed runtime under
+  `<managedDir>/node/`
+- **THEN** the returned string SHALL contain `nvm install` and `brew install node`
+- **AND** SHALL NOT contain the substring `.pi-dashboard`
 
 ### Requirement: Single-source Node-version predicates
 
@@ -85,4 +103,3 @@ Lockstep contract: when `package.json#engines.node` or the Fastify-affected rang
 - **AND** the range SHALL additionally be asserted to match the `Required: …` string literal emitted by `buildEnginesRangeMessage`, which is a defining occurrence the arithmetic scan below cannot detect
 - **WHEN** the repository is scanned for the literal affected-range arithmetic (`major === 22 && minor < 19`, `major === 24 && minor >= 1 && minor < 3`) and the engines-cap arithmetic (`major >= 27`)
 - **THEN** the only defining occurrence SHALL be `packages/shared/src/node-version.ts` (consumers reference the exported predicates)
-

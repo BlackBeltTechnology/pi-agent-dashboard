@@ -23,7 +23,22 @@ const FOCUSABLE_SELECTOR = [
 function getFocusable(container: HTMLElement): HTMLElement[] {
   return Array.from(
     container.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
-  ).filter((el) => !el.hasAttribute("hidden") && el.getAttribute("aria-hidden") !== "true");
+  ).filter((el) => !isHiddenWithin(el, container));
+}
+
+/**
+ * `hidden` / `aria-hidden` on an ANCESTOR hides the element just as effectively
+ * as on the element itself, so checking only the candidate's own attributes
+ * would let focus land inside a subtree assistive technology cannot see. Walk
+ * up to (and excluding) the container, which is where this dialog's world ends.
+ */
+function isHiddenWithin(el: HTMLElement, container: HTMLElement): boolean {
+  let node: HTMLElement | null = el;
+  while (node && node !== container) {
+    if (node.hasAttribute("hidden") || node.getAttribute("aria-hidden") === "true") return true;
+    node = node.parentElement;
+  }
+  return false;
 }
 
 export function useFocusTrap(
@@ -38,10 +53,48 @@ export function useFocusTrap(
     const previouslyFocused = document.activeElement as HTMLElement | null;
 
     const focusable = getFocusable(container);
+    // When a child renders NOTHING focusable on its first paint, the container
+    // fallback below fires and focus is stranded on a non-interactive box even
+    // though the surface fills with controls a tick later. That was masked while
+    // every dialog rendered a built-in ✕ (always focusable[0]); suppressing it
+    // for `flush` surfaces exposed it — measured on `/settings/general`, which
+    // reaches 51 focusables but has 0 at mount. Watch for the first one and
+    // hand focus over, at most once, and only while focus is still parked on
+    // the container (never steal it back from the user).
+    // See change: fix-flush-dialog-scroll-and-close-collision.
+    let observer: MutationObserver | undefined;
     if (focusable.length > 0) {
       focusable[0].focus();
     } else {
       container.focus();
+      if (typeof MutationObserver !== "undefined") {
+        observer = new MutationObserver(() => {
+          if (document.activeElement !== container) {
+            observer?.disconnect();
+            return;
+          }
+          const late = getFocusable(container);
+          if (late.length === 0) return;
+          observer?.disconnect();
+          late[0].focus();
+        });
+        // Attributes matter as much as insertion: `getFocusable` keys on
+        // `:not([disabled])`, `[hidden]` and `aria-hidden`, so a button that is
+        // rendered DISABLED at mount and enables when data lands is a focusable
+        // that appears without any node being inserted (`href` likewise, for
+        // an anchor that gains one). Watching childList alone would strand
+        // focus in exactly that case.
+        //
+        // Cost is bounded by construction: the observer only exists for a
+        // dialog that opened with ZERO focusables, and it disconnects on the
+        // first one it finds (or the moment focus leaves the container).
+        observer.observe(container, {
+          childList: true,
+          subtree: true,
+          attributes: true,
+          attributeFilter: ["disabled", "hidden", "aria-hidden", "tabindex", "href"],
+        });
+      }
     }
 
     function onKeyDown(e: KeyboardEvent) {
@@ -73,6 +126,7 @@ export function useFocusTrap(
     document.addEventListener("keydown", onKeyDown, true);
 
     return () => {
+      observer?.disconnect();
       document.removeEventListener("keydown", onKeyDown, true);
       if (previouslyFocused && document.contains(previouslyFocused)) {
         previouslyFocused.focus();

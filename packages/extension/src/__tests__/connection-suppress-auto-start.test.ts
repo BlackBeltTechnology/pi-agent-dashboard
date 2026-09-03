@@ -3,6 +3,9 @@
  * See change: fix-restart-bridge-auto-start-race.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { ConnectionManager } from "../connection.js";
 import { autoStartServer, type AutoStartDeps } from "../server-auto-start.js";
 
@@ -59,6 +62,12 @@ describe("autoStartServer respects shouldSuppressAutoStart", () => {
       isDashboardRunning: vi.fn().mockResolvedValue({ running: false }),
       launchServer: vi.fn().mockResolvedValue({ success: true, message: "ok" }),
       notify: vi.fn(),
+      resolveCliPath: () => join(tmpdir(), "host-install", "packages", "server", "src", "cli.ts"),
+      // Isolate the single-flight lock from the shared `~/.pi/dashboard`
+      // path so parallel vitest workers cannot contend on one real lockfile.
+      // See change: fix-worktree-server-autostart-leak.
+      lockDir: mkdtempSync(join(tmpdir(), "auto-start-lock-")),
+      lossPollIntervalMs: 5,
       ...overrides,
     };
   }

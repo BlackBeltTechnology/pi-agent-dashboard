@@ -1,4 +1,10 @@
-## ADDED Requirements
+# optional-static-serving Specification
+
+## Purpose
+
+Lets the server run with or without a built web client: it discovers client static files when present and serves them, and falls back to API-only mode when it finds none.
+
+## Requirements
 
 ### Requirement: Server discovers client static files
 The server SHALL search for pre-built client files in the following order:

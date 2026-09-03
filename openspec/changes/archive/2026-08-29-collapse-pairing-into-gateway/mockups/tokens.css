@@ -1,0 +1,146 @@
+/* Lifted verbatim from packages/client/src/index.css — dark (default) + light theme.
+   No raw hex may appear outside this file. */
+:root {
+  --bg-primary: #0a0a0a;
+  --bg-secondary: #141414;
+  --bg-tertiary: #1e1e1e;
+  --bg-surface: #2a2a2a;
+  --bg-hover: rgba(255, 255, 255, 0.06);
+  --bg-code: #1a1a1a;
+
+  --text-primary: #e5e5e5;
+  --text-secondary: #b0b0b0;
+  --text-tertiary: #808080;
+  --text-muted: #585858;
+
+  --border-primary: #252525;
+  --border-secondary: #333333;
+  --border-subtle: rgba(255, 255, 255, 0.06);
+  --border-strong: #808080;
+
+  --accent-green: #22c55e;
+  --accent-primary: #3b82f6;
+  --accent: #3b82f6;        /* border, ring, focus — 3:1 non-text */
+  --accent-soft: #1d3a63;   /* fill behind --text-primary — 9.07:1 */
+  --accent-solid: #2563eb;  /* fill behind white text — 5.17:1 */
+  --accent-text: #60a5fa;   /* link text on --bg-primary — 7.79:1 */
+  --focus-ring: var(--accent-primary);
+  --amber: #d29922;
+}
+
+[data-theme="light"] {
+  --bg-primary: #ffffff;
+  --bg-secondary: #fafafa;
+  --bg-tertiary: #f0f0f0;
+  --bg-surface: #e0e0e0;
+  --bg-hover: rgba(0, 0, 0, 0.04);
+  --bg-code: #f5f5f5;
+
+  --text-primary: #1a1a1a;
+  --text-secondary: #444444;
+  --text-tertiary: #777777;
+  --text-muted: #aaaaaa;
+
+  --border-primary: #e0e0e0;
+  --border-secondary: #cccccc;
+  --border-subtle: rgba(0, 0, 0, 0.06);
+  --border-strong: #777777;
+
+  --accent-primary: #2563eb;
+  --accent: #2563eb;
+  --accent-soft: #dbeafe;   /* fill behind --text-primary — 14.27:1 */
+  --accent-solid: #2563eb;  /* fill behind white text — 5.17:1 */
+  --accent-text: #1d4ed8;   /* link text on --bg-primary — 6.70:1 */
+  --focus-ring: var(--accent-primary);
+  /* Dark-theme --amber #d29922 is 2.6:1 on white — fails AA. Darkened to the
+     same hue at 4.6:1 for the light scope. Cited: WCAG 1.4.3. */
+  --amber: #8a6100;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  background: var(--bg-primary);
+  color: var(--text-primary);
+  /* Matches the shipped client stack — deliberately NOT Inter-by-default. */
+  font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+/* Shipped focus contract: 2px solid var(--focus-ring), offset 2.
+   index.css:258 — .focus-ring:focus-visible */
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
+
+.panel {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-primary);
+  border-radius: 8px;
+  padding: 20px;
+}
+
+/* Section header — verbatim shape of SettingsPanel.tsx:2737 */
+.section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 12px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border-secondary);
+}
+
+/* Eyebrow — verbatim shape of GatewayPairQR.tsx:334 */
+.eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--text-secondary);
+  margin: 0 0 8px;
+}
+
+/* Secondary button — verbatim shape of GatewayPage.tsx:118 (`Open Security →`).
+   min-height 44px per rubric item 2 (primary actions ≥ 44×44px). */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 14px;
+  font-size: 14px;
+  font-family: inherit;
+  color: var(--text-primary);
+  background: transparent;
+  border: 1px solid var(--border-strong);
+  border-radius: 6px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.btn:hover { background: var(--bg-hover); }
+
+/* The single dominant action on a view (Von Restorff / rubric 6). */
+.btn-primary {
+  background: var(--accent-solid);
+  border-color: var(--accent-solid);
+  color: #ffffff;
+}
+.btn-primary:hover { background: var(--accent-solid); filter: brightness(1.1); }
+
+.muted { color: var(--text-secondary); }
+.hint { color: var(--text-tertiary); font-size: 12px; }
+code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  background: var(--bg-code);
+  padding: 1px 4px;
+  border-radius: 3px;
+}

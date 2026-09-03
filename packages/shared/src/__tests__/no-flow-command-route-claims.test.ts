@@ -12,7 +12,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PACKAGES_DIR = path.resolve(__dirname, "..", "..", "..", "..");
+// packages/shared/src/__tests__ → src → shared → packages.
+// This was four levels (the repo root), whose only package.json carries no
+// plugin manifest — so readPluginManifests() returned [] and this lint passed
+// by checking nothing. See the non-vacuity test below.
+const PACKAGES_DIR = path.resolve(__dirname, "..", "..", "..");
 
 interface PluginClaim {
   slot?: string;
@@ -50,6 +54,10 @@ function readPluginManifests(): Array<{ pkg: string; manifest: ManifestSlice }> 
 }
 
 describe("repo-lint: no dashboard plugin claims command-route for /flows*", () => {
+  it("actually discovers plugin manifests (guard is not vacuous)", () => {
+    expect(readPluginManifests().length).toBeGreaterThan(5);
+  });
+
   it("every monorepo plugin manifest is free of /flows* command-route claims", () => {
     const offenders: string[] = [];
     for (const { pkg, manifest } of readPluginManifests()) {

@@ -1,8 +1,10 @@
+# developer-workflow Specification
+
 ## Purpose
 
 Protocol for handling large-divergence rebases with safety guarantees. Defines backup, conflict-resolution, verification, and push rules for rebase operations where local and upstream commit counts exceed heuristic thresholds.
 
-## ADDED Requirements
+## Requirements
 
 ### Requirement: Large-divergence rebase SHALL follow the pre-rebase backup + interactive + verification protocol
 

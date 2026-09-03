@@ -167,4 +167,4 @@ repo `owner/name` for the API URL; a sibling OpenSpec change to mirror.
 
 ---
 
-_Generated from session `019efbfd-610c-7b66-859d-a6d580236ec0` · `pi-agent-dashboard` · 2026-06-25. Source extract: session facts sheet (configurable-bind-host)._
+_Generated from session `019efbfd-610c-7b66-859d-a6d580236ec0` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-25. Source extract: session facts sheet (configurable-bind-host)._

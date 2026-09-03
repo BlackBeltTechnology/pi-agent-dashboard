@@ -24,8 +24,11 @@ vi.mock("../spawn-process/process-manager.js", () => ({
   spawnPiSession: vi.fn(),
 }));
 
-vi.mock("@blackbelt-technology/pi-dashboard-shared/config.js", () => ({
-  loadConfig: vi.fn().mockReturnValue({ spawnStrategy: "headless" }),
+vi.mock("@blackbelt-technology/pi-dashboard-shared/config.js", async (importOriginal) => ({
+  // Spread the real module: stubbing it wholesale erased
+  // `clampSpawnRegisterTimeoutMs`, which the watchdog needs.
+  ...(await importOriginal<typeof import("@blackbelt-technology/pi-dashboard-shared/config.js")>()),
+  loadConfig: vi.fn().mockReturnValue({ spawnStrategy: "headless", spawnRegisterTimeoutMs: 30_000 }),
 }));
 
 import { handleResumeSession } from "../browser-handlers/session-action-handler.js";

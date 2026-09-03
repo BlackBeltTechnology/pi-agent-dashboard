@@ -199,4 +199,4 @@ landed on `develop` as `plan(openspec): provision-openspec-cli-in-sessions`.
 
 ---
 
-_Generated from session `019f80f5` · `pi-agent-dashboard` · 2026-07-20. Source extract: `/tmp/facts-NvbkKU.md`._
+_Generated from session `019f80f5` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-20. Source extract: `/tmp/facts-NvbkKU.md`._

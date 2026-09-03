@@ -187,4 +187,4 @@ dashboard on `:8000`, and a sample tsx/code block to eyeball.
 
 ---
 
-_Generated from session `019de0d5-666e-7795-a6a7-3e171af2fe02` · `pi-agent-dashboard` · 2026-05-02. Source extract: session facts sheet._
+_Generated from session `019de0d5-666e-7795-a6a7-3e171af2fe02` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-02. Source extract: session facts sheet._

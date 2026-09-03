@@ -206,4 +206,4 @@ Electron test scripts, doc updates (`docs/electron-session.md`,
 
 ---
 
-_Generated from session `019e79e9` · `pi-agent-dashboard` · 2026-05-30. Source extract: `/tmp/facts-TnRAZI`._
+_Generated from session `019e79e9` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-30. Source extract: `/tmp/facts-TnRAZI`._

@@ -46,6 +46,21 @@
  */
 
 /**
+ * Canonical minimum Node version — the engines floor shared by the dashboard
+ * root (`>=22.19.0 <27`), `packages/server` (`>=22.19.0`), and every pi copy
+ * the dashboard spawns (pi 0.75+ ships `engines.node: ">=22.19.0"`).
+ *
+ * Single defining occurrence: `isOutOfEnginesRange` implements its floor half
+ * THROUGH this constant + `meetsFloor`, and the spawn-runtime ladder
+ * (`packages/shared/src/platform/spawn-runtime.ts`) gates candidates against
+ * floors read from the spawned pi copy (or this constant as fallback) — so no
+ * consumer carries a private floor literal. Lockstep-guarded by
+ * `node-version.test.ts` (constant ⇄ predicate agreement).
+ * See change: unify-pi-runtime-identity (task 1.1).
+ */
+export const MIN_SUPPORTED_NODE = "22.19.0";
+
+/**
  * Accept a clean semver triplet, optionally `v`-prefixed, optionally with a
  * `-prerelease` / `+build` suffix (node nightlies report `v25.0.0-nightly...`).
  * Anchored so trailing junk is rejected: `v22.19.0 extra` (space) and a 4th
@@ -53,6 +68,51 @@
  * the "reject unparseable strings" contract holds uniformly.
  */
 const NODE_VERSION_RE = /^v?(\d+)\.(\d+)\.(\d+)(?:[-+].*)?$/;
+
+/** Parse a clean semver triplet (see NODE_VERSION_RE), or null. */
+function parseVersionTriplet(version: string): [number, number, number] | null {
+  const m = version.match(NODE_VERSION_RE);
+  if (!m) return null;
+  return [Number(m[1]), Number(m[2]), Number(m[3])];
+}
+
+function compareTriplets(
+  a: [number, number, number],
+  b: [number, number, number],
+): number {
+  for (let i = 0; i < 3; i++) {
+    if (a[i] !== b[i]) return a[i] < b[i] ? -1 : 1;
+  }
+  return 0;
+}
+
+/**
+ * True when `version` is at or above the dashboard's TESTED engines cap
+ * (`>=27`, root package.json). Deliberately separate from
+ * `isOutOfEnginesRange`: the pi-spawn gate treats cap excess as advisory
+ * (pi declares no cap — a Node 27 user wins step 2 with a Doctor note),
+ * while the server's own usability check treats it as a refusal. The `27`
+ * literal stays here — the single defining occurrence.
+ * See change: unify-pi-runtime-identity (proposal — Version gate, cap divergence).
+ */
+export function isAtOrAboveEnginesCap(version: string): boolean {
+  const v = parseVersionTriplet(version);
+  if (!v) return false;
+  return v[0] >= 27;
+}
+
+/**
+ * True when `version` is at or above `floor` (full semver-triplet compare;
+ * `v` prefix tolerated; unparseable input on EITHER side is false — a floor
+ * we cannot parse must not silently accept a candidate).
+ * See change: unify-pi-runtime-identity (task 1.1).
+ */
+export function meetsFloor(version: string, floor: string): boolean {
+  const v = parseVersionTriplet(version);
+  const f = parseVersionTriplet(floor);
+  if (!v || !f) return false;
+  return compareTriplets(v, f) >= 0;
+}
 
 /** True when `version` is in the nodejs/node#58515 Fastify-affected range. */
 export function isAffectedNode(version: string): boolean {
@@ -73,19 +133,19 @@ export function isAffectedNode(version: string): boolean {
 export function isOutOfEnginesRange(version: string): boolean {
   const m = version.match(NODE_VERSION_RE);
   if (!m) return false;
-  const major = Number(m[1]);
-  const minor = Number(m[2]);
-  if (major < 22) return true;
-  if (major === 22 && minor < 19) return true;
-  if (major >= 27) return true;
-  return false;
+  // Floor half implemented THROUGH the canonical constant — lockstep by
+  // construction, not by convention.
+  if (!meetsFloor(version, MIN_SUPPORTED_NODE)) return true;
+  return isAtOrAboveEnginesCap(version);
 }
 
 /**
  * True when `version` is something the dashboard server will actually run on:
  * within the engines range AND not Fastify-affected. Accept-set:
- * Node 22.19+, 24.0, 24.3–24.x, 25.x, 26.x. Rejected: 21.x, 22.0–22.18,
- * 24.1–24.2, 27+.
+ * Node 22.19+, 23.x, 24.0, 24.3–24.x, 25.x, 26.x. Rejected: 21.x, 22.0–22.18,
+ * 24.1–24.2, 27+. (The accept of 23.x is deliberate — the predicates accept
+ * every major between the floor and the cap; the doc comment previously
+ * omitted it. See change: unify-pi-runtime-identity, Part 3 docs-drift pass.)
  */
 export function isUsableNodeVersion(version: string): boolean {
   // Unparseable / non-version strings are NOT usable. Without this guard a

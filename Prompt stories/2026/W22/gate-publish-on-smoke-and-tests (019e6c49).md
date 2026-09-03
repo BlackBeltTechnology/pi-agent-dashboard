@@ -98,4 +98,4 @@ No new skill or memory was created this session — the work rode existing skill
 
 ---
 
-_Generated from session `019e6c49-155f-7565-b430-89eeb6ced017` · `pi-agent-dashboard` · 2026-05-28. Source extract: `/tmp/facts-20958-1784848634.md`._
+_Generated from session `019e6c49-155f-7565-b430-89eeb6ced017` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-28. Source extract: `/tmp/facts-20958-1784848634.md`._

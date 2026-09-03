@@ -6,12 +6,12 @@
  *
  * See change: platform-command-executor.
  */
-import { describe, it, expect } from "vitest";
+import { describe, expect, it } from "vitest";
 import {
-  OPENSPEC_LIST,
-  OPENSPEC_STATUS,
   OPENSPEC_ARCHIVE_COMPLETED,
+  OPENSPEC_LIST,
   OPENSPEC_RECIPES,
+  OPENSPEC_STATUS,
 } from "../platform/openspec.js";
 
 describe("OPENSPEC_LIST", () => {
@@ -80,6 +80,8 @@ describe("OPENSPEC_RECIPES registry", () => {
       "OPENSPEC_ARCHIVE_COMPLETED",
       "OPENSPEC_CONFIG_LIST",
       "OPENSPEC_CONFIG_PROFILE",
+      "OPENSPEC_INIT",
+      "OPENSPEC_INIT_HELP",
       "OPENSPEC_LIST",
       "OPENSPEC_STATUS",
       "OPENSPEC_UPDATE",

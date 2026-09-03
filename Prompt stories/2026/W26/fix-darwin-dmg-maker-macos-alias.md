@@ -184,4 +184,4 @@ synced `openspec/specs/electron-build-pipeline/spec.md`, **merged PR #187** (`9b
 
 ---
 
-_Generated from session `019f103c` · `pi-agent-dashboard` · 2026-06-29. Source extract: `/var/folders/qb/m1_q3v6d5bnfzbpmc0dkkqx40000gn/T/session_facts.BML1cHDyKS`._
+_Generated from session `019f103c` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-29. Source extract: `/var/folders/qb/m1_q3v6d5bnfzbpmc0dkkqx40000gn/T/session_facts.BML1cHDyKS`._

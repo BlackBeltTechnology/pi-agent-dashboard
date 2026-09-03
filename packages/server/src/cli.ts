@@ -1,4 +1,7 @@
 #!/usr/bin/env node
+import os from "node:os";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 /**
  * PI Dashboard Server CLI
  *
@@ -8,6 +11,7 @@
  *   pi-dashboard stop               Stop running daemon
  *   pi-dashboard restart [flags]    Restart daemon
  *   pi-dashboard status             Show daemon status
+ *   pi-dashboard runtime            Print the resolved spawn runtime (diagnostic)
  *
  * Flags:
  *   --port <n>       HTTP port (default: 8000)
@@ -19,29 +23,26 @@
 // top-level module-resolution failure (missing `fastify` etc.) can be
 // caught and degraded into the recovery HTTP server instead of crashing
 // the process. The type-only import here is fully erased at runtime.
-import type { createServer as _CreateServerType, ServerConfig } from "./server.js";
-import {
-  startRecoveryServer,
-  isModuleNotFoundError,
-  parseModuleNotFoundError,
-} from "./lifecycle/recovery-server.js";
-import { loadConfig, ensureConfig } from "@blackbelt-technology/pi-dashboard-shared/config.js";
-import {
-  launchDashboardServer,
-  JitiNotFoundError,
-  PortConflictError,
-  EarlyExitError,
-} from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
-import { fileURLToPath } from "node:url";
-import os from "node:os";
-import path from "node:path";
-import { readPid, removePid, isServerRunning } from "./spawn-process/server-pid.js";
+import { ensureConfig, loadConfig, SERVER_STARTUP_DEADLINE_MS } from "@blackbelt-technology/pi-dashboard-shared/config.js";
 import {
   findPortHolders as platformFindPortHolders,
   isProcessAlive as platformIsProcessAlive,
   killProcess as platformKillProcess,
   parseNetstatListeners as platformParseNetstatListeners,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/process.js";
+import {
+  EarlyExitError,
+  JitiNotFoundError,
+  launchDashboardServer,
+  PortConflictError,
+} from "@blackbelt-technology/pi-dashboard-shared/server-launcher.js";
+import {
+  isModuleNotFoundError,
+  parseModuleNotFoundError,
+  startRecoveryServer,
+} from "./lifecycle/recovery-server.js";
+import type { createServer as _CreateServerType, ServerConfig } from "./server.js";
+import { isServerRunning, readPid, removePid } from "./spawn-process/server-pid.js";
 
 // Re-exports for back-compat — other modules / tests may import these from cli.
 export const parseNetstatListeners = platformParseNetstatListeners;
@@ -51,19 +52,26 @@ export function findPortHolders(
 ): number[] {
   return platformFindPortHolders(port, execImpl ? { exec: execImpl } : undefined);
 }
-import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
-import { discoverDashboard } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
 
-import { assertNodeVersionSupported } from "./auth/node-guard.js";
-import { recordExitIntent } from "./persistence/boot-state.js";
-import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import {
   findBundledExtension,
   registerBridgeExtension,
 } from "@blackbelt-technology/pi-dashboard-shared/bridge-register.js";
 import { parseDashboardStarter } from "@blackbelt-technology/pi-dashboard-shared/dashboard-starter.js";
+import { discoverDashboard } from "@blackbelt-technology/pi-dashboard-shared/mdns-discovery.js";
+import {
+  type ResolvedRuntime,
+  piEntryFromArgv,
+  resolveSpawnRuntime,
+} from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
+import { isDashboardRunning } from "@blackbelt-technology/pi-dashboard-shared/server-identity.js";
+import { getDefaultRegistry, ingestInstalledSkillTools, resolveInstallRoot } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { assertNodeVersionSupported } from "./auth/node-guard.js";
+import { recordExitIntent } from "./persistence/boot-state.js";
+import { publishResolvedRuntime, readPublishedRuntimeBlock } from "./runtime-publication.js";
+import { resolveLiveSpawnRuntime } from "./runtime-resolution.js";
 
-const SUBCOMMANDS = ["start", "stop", "restart", "status"] as const;
+const SUBCOMMANDS = ["start", "stop", "restart", "status", "runtime"] as const;
 type Subcommand = (typeof SUBCOMMANDS)[number];
 
 export interface ParsedArgs {
@@ -100,6 +108,13 @@ export function parseArgs(args: string[]): ParsedArgs {
       i++;
     } else if (arg === "--dev") {
       flags.dev = true;
+    } else if (arg === "--ephemeral") {
+      // Flag-only opt-in (fix-autostart-discovery-precedence, task 5.1): the
+      // server exits gracefully once its boot parent is proven absent. There
+      // is deliberately NO env var — an inherited PI_DASHBOARD_EPHEMERAL=1 in
+      // a shell would make a user's real standalone dashboard exit when that
+      // shell dies. See design D5 (F8).
+      flags.ephemeral = true;
     } else if (arg === "--no-tunnel") {
       flags.tunnel = false;
     }
@@ -157,7 +172,16 @@ export function buildConfig(flags: Partial<ServerConfig>): ServerConfig {
     port: guardTempHomePort(resolvedPort, os.homedir(), os.tmpdir()),
     piPort: flags.piPort ?? (parseInt(process.env.PI_DASHBOARD_PI_PORT ?? "") || null) ?? fileConfig.piPort,
     host: flags.host ?? (process.env.PI_DASHBOARD_HOST || null) ?? fileConfig.bindHost,
+    // The `--host` FLAG, kept alongside the resolved value. `pendingBindHost`
+    // must re-resolve the same chain against the CURRENT config, and a flag
+    // wins on the next start too — so the flag has to survive resolution.
+    // See change: warn-unreachable-trusted-networks.
+    hostFlag: flags.host ?? null,
     dev: flags.dev ?? false,
+    // Ephemeral: FLAG ONLY (see parseArgs note) — never sourced from env or
+    // config file, never inferred from a temp HOME / loopback bind / port.
+    // See change: fix-autostart-discovery-precedence (D5, task 5.1).
+    ephemeral: flags.ephemeral === true,
     autoShutdown: fileConfig.autoShutdown,
     shutdownIdleSeconds: fileConfig.shutdownIdleSeconds,
     tunnel: flags.tunnel ?? fileConfig.tunnel.enabled,
@@ -167,10 +191,13 @@ export function buildConfig(flags: Partial<ServerConfig>): ServerConfig {
     tunnelReservedName: fileConfig.tunnel.zrok?.reservedName,
     tunnelPersistent: fileConfig.tunnel.zrok?.persistent,
     tunnelWatchdog: fileConfig.tunnel.watchdog,
+    tunnelConfig: fileConfig.tunnel,
     authConfig: fileConfig.auth,
     maxEventsPerSession: fileConfig.memoryLimits.maxEventsPerSession,
     maxStringFieldSize: fileConfig.memoryLimits.maxStringFieldSize,
     maxWsBufferBytes: fileConfig.memoryLimits.maxWsBufferBytes,
+    maxReplayEvents: fileConfig.memoryLimits.maxReplayEvents,
+    replayWindowMode: fileConfig.memoryLimits.replayWindowMode,
     openspec: fileConfig.openspec,
     sessions: fileConfig.sessions,
     reattachPlacement: fileConfig.reattachPlacement,
@@ -222,6 +249,15 @@ async function runForeground(config: ServerConfig): Promise<void> {
   // at startup. A miss here means the install tree is corrupted.
   {
     const registry = getDefaultRegistry();
+    // Ingest skill-package pi.tools manifests (installed tree + monorepo
+    // dev) so skill tools surface through /api/tools + Settings → Tools.
+    // Best-effort: an invalid manifest is skipped, never fatal. The scan
+    // root is the tree THIS server runs from (layout-aware: monorepo vs
+    // npm i -g) — a dashboard launched from a user shell has an unrelated
+    // process.cwd(). See change: add-skill-tool-provisioning (task 6.2).
+    ingestInstalledSkillTools(registry, {
+      root: resolveInstallRoot(fileURLToPath(import.meta.url)),
+    });
     const res = registry.resolve("pi");
     if (res.ok) {
       console.log(`[bootstrap] ready (pi resolved via ${res.source})`);
@@ -237,18 +273,25 @@ async function runForeground(config: ServerConfig): Promise<void> {
   }
 
   // One-time advisory: legacy `~/.pi-dashboard/` directory left behind
-  // from pre-R3 versions. Nothing reads or writes it now — surface a
-  // single log line so the user knows it's safe to delete. Doctor UI
-  // shows the same advisory more visibly.
+  // from pre-R3 versions. The same orphan test as the Doctor row applies:
+  // "safe to delete" ONLY when genuinely orphaned (no managed runtime,
+  // wizard state, non-empty node_modules, or logs); live content is named
+  // and never suggested for deletion.
+  // See change: unify-pi-runtime-identity (task 6.2).
   try {
     const { detectLegacyManagedDir } = await import(
       "@blackbelt-technology/pi-dashboard-shared/legacy-managed-dir.js"
     );
     const legacy = detectLegacyManagedDir();
-    if (legacy.present) {
+    if (legacy.present && legacy.orphaned) {
       console.log(
         `[legacy] legacy install directory detected at ${legacy.path} ` +
-        `(${legacy.pkgCount} packages, ~${legacy.sizeMb} MB). No longer used — safe to delete.`,
+        `(~${legacy.sizeMb} MB). No longer used — safe to delete.`,
+      );
+    } else if (legacy.present) {
+      console.log(
+        `[legacy] legacy directory ${legacy.path} is still in use ` +
+        `(${legacy.consumers.join(", ")}) — not deleted.`,
       );
     }
   } catch {
@@ -277,7 +320,41 @@ async function runForeground(config: ServerConfig): Promise<void> {
   process.on("SIGTERM", onExitSignal);
   process.on("SIGINT", onExitSignal);
 
-  await server.start();
+  // Standalone server process: nobody else is watching this boot, so bound it.
+  // See change: fix-worktree-server-autostart-leak.
+  await server.start({ deadlineMs: SERVER_STARTUP_DEADLINE_MS });
+
+  // END of successful startup: resolve the pi spawn runtime live (the ladder
+  // re-runs here; this also stores the process-lifetime holder the spawn
+  // surfaces read) and publish the diagnostic `runtime.resolved` block.
+  // Failure-tolerant by contract — a publication error logs a warning and
+  // never prevents startup. Nothing consumes the block for execution;
+  // resolution always runs live (spec: managed-node-runtime).
+  // See change: unify-pi-runtime-identity (task 4.1, design D8).
+  try {
+    // The gate reads the floor of THE pi copy that will spawn (design D2):
+    // derive its entry from the registry's own pi resolution.
+    let piEntry: string | null = null;
+    try {
+      const registry = getDefaultRegistry();
+      if (registry?.has("pi")) {
+        const exec = registry.resolveExecutor("pi");
+        if (exec.ok && exec.argv.length > 0) piEntry = piEntryFromArgv(exec.argv);
+      }
+    } catch {
+      /* registry not initialised — fallback floor (canonical constant) */
+    }
+    const rt = resolveLiveSpawnRuntime(piEntry ? { piEntry } : {});
+    const { block } = publishResolvedRuntime(rt);
+    console.log(
+      `[runtime] spawn runtime published (source=${block.source}, abi=${block.abi}` +
+        `${typeof block.nodeBinary === "string" ? `, ${block.nodeBinary}` : ", bundled — path-free"})`,
+    );
+  } catch (err) {
+    console.warn(
+      `[runtime] publication failed (startup continues): ${(err as Error).message ?? err}`,
+    );
+  }
 }
 
 
@@ -523,6 +600,58 @@ async function cmdStatus(port: number): Promise<void> {
 }
 
 /**
+ * `pi-dashboard runtime` — print the published `runtime.resolved` block
+ * plus a fresh live ladder resolution (task 4.2). Diagnostic only: the
+ * published block is never consumed for execution. The CLI has no
+ * tool-registry context, so the live half resolves with `piEntry: null` —
+ * the pi engines floor falls back to the canonical floor, noted in output
+ * when it does. Plain synchronous print, exit 0.
+ * See change: unify-pi-runtime-identity.
+ */
+export function cmdRuntime(
+  opts: {
+    configPath?: string;
+    resolve?: () => ResolvedRuntime;
+    out?: (line: string) => void;
+  } = {},
+): void {
+  const out = opts.out ?? console.log;
+
+  out("pi-session spawn runtime (diagnostic)");
+  out("");
+  out("published (config.json → runtime.resolved):");
+  const published = readPublishedRuntimeBlock(opts.configPath);
+  out(
+    published
+      ? JSON.stringify(published, null, 2)
+      : "  (none — the server has not completed a startup yet)",
+  );
+
+  out("");
+  out("live resolution (ladder re-run now, pi entry null → canonical floor fallback):");
+  const rt = opts.resolve ? opts.resolve() : resolveSpawnRuntime();
+  out(
+    JSON.stringify(
+      {
+        nodeBinary: rt.nodeBinary,
+        nodeBinDir: rt.nodeBinDir,
+        version: rt.version,
+        abi: rt.abi,
+        source: rt.source,
+        rung: rt.rung,
+        arm: rt.arm,
+        piFloor: rt.piFloor,
+        ...(rt.piFloorSource === "fallback"
+          ? { note: `canonical floor ${rt.piFloor} — no pi entry context in the CLI` }
+          : {}),
+      },
+      null,
+      2,
+    ),
+  );
+}
+
+/**
  * Install process-level safety net so a single misbehaving plugin or
  * library cannot kill the whole dashboard. Logs the offending error and
  * keeps the event loop running. We do NOT exit; the surrounding daemon
@@ -558,6 +687,9 @@ async function main() {
       break;
     case "status":
       await cmdStatus(config.port);
+      break;
+    case "runtime":
+      cmdRuntime();
       break;
     default:
       // No subcommand — run in foreground (backward compatible)

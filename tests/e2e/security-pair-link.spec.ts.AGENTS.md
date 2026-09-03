@@ -1,0 +1,3 @@
+# security-pair-link.spec.ts — index
+
+Browser E2E for collapse-pairing-into-gateway test-plan F3: the Settings▸Security "Pair a device" link is a ROUTE, not a duplicate pairing surface. Asserts the journey only a real layout engine can see: clicking `security-pair-link` on `/settings/security` swaps the route to `/settings/gateway` (waitForURL) AND brings the `#connect-a-device` section (GatewayPage anchor) into the viewport via `toBeInViewport` (land+scroll decision). No payload/endpoints seeding — the link is static Security content and the destination renders regardless of endpoint state. Imports `test`/`expect` from `./fixtures.js` (reap/latch/budget apply); `gotoDashboard` from `./helpers/index.js`.

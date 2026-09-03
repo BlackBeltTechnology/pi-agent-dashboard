@@ -1,0 +1,24 @@
+flowchart TD
+  subgraph PLAN["1 · PLAN — branch develop · plan-proposal · MAIN SESSION ONLY"]
+    direction TB
+    P1["openspec-new / -ff / -continue<br/>proposal.md · design.md<br/>specs/**/spec.md · tasks.md"]
+    P2{{"doubt-driven-review<br/>SUBAGENT fresh-context<br/>+ cross-model 2nd reviewer offer<br/>ARTIFACT + CONTRACT only, never the CLAIM"}}
+    P3["frontend-mockup-loop-dashboard<br/>GROUND → CONTRACT → MOCKUP → TEST<br/>→ FIX → PROMOTE → LEARN<br/>changes/&lt;c&gt;/mockups/ + ui-plan.md"]
+    P4["scenario-design — MANDATORY<br/>writes test-plan.md manifest<br/>level: L1 | L2 | L3 | electron | ci<br/>disposition: automated | manual-only"]
+    P5["FOLD manifest → tasks.md<br/>vanilla '- [ ]' only<br/>+ harness-exemplar pointer<br/>+ Triple: input · trigger · observable"]
+    P6{"fold-completeness gate<br/>every manifest row ↔<br/>exactly one task"}
+    P7["commit 'docs(&lt;c&gt;): plan …' to develop"]
+
+    P1 --> P2
+    P2 -->|"valid + actionable finding → PAUSE"| P1
+    P2 -->|"stop: trivial / 3 cycles / ship it"| P3
+    P3 --> P4 --> P5 --> P6
+    P6 -->|incomplete| P5
+    P6 -->|pass| P7
+  end
+  P7 ==>|"STOP at the boundary<br/>worktree spawned from this commit"| OUT(["→ ship-it"])
+
+  classDef gate fill:#ffebee,stroke:#c62828,stroke-width:2px
+  classDef sub fill:#ede7f6,stroke:#4527a0,stroke-width:2px
+  class P6 gate
+  class P2 sub

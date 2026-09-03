@@ -156,4 +156,4 @@ change for coherence context.
 
 ---
 
-_Generated from session `019f07e7-6575-767e-86d5-7d05dce6546f` · `pi-agent-dashboard` · 2026-06-27. Source extract: `/tmp/session_facts.vji6hm.md`._
+_Generated from session `019f07e7-6575-767e-86d5-7d05dce6546f` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-27. Source extract: `/tmp/session_facts.vji6hm.md`._

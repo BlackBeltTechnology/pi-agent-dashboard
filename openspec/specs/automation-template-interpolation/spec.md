@@ -3,7 +3,9 @@
 ## Purpose
 
 Resolve the `${{trigger}}` template token inside an automation action's payload against the single per-fire value produced by its trigger. Interpolation runs centrally over the whole payload before the action executes, so individual actions carry no substitution logic. A payload string that is exactly the token preserves the resolved value's type, while a token embedded in surrounding text is stringified in place.
+
 ## Requirements
+
 ### Requirement: Whole-token type-preserving resolution
 
 The interpolator SHALL, when a payload string equals exactly `${{trigger}}`, replace it with the trigger value unchanged, preserving that value's runtime type. When the trigger value is absent (`undefined`) or `null`, the interpolator SHALL resolve the whole token to an empty string.
@@ -63,9 +65,9 @@ resolved throughout the payload under the same recursive traversal as
 
 #### Scenario: Named token resolves from the variable map
 
-- **WHEN** a payload string is `"${invoice_id}"` and the variable map is `{ invoice_id: "inv-42" }`
-- **THEN** the interpolator returns `"inv-42"`
-- **AND** a payload string `"id=${invoice_id}"` returns `"id=inv-42"`
+- **WHEN** a payload string is `"${item_id}"` and the variable map is `{ item_id: "item-42" }`
+- **THEN** the interpolator returns `"item-42"`
+- **AND** a payload string `"id=${item_id}"` returns `"id=item-42"`
 
 #### Scenario: Unknown named token is left intact
 
@@ -74,11 +76,11 @@ resolved throughout the payload under the same recursive traversal as
 
 #### Scenario: Named resolution coexists with trigger resolution
 
-- **WHEN** the payload is `{ a: "${{trigger}}", b: "${invoice_id}" }`, the trigger value is `"/spool/x.pdf"`, and the variable map is `{ invoice_id: "inv-7" }`
-- **THEN** the interpolator returns `{ a: "/spool/x.pdf", b: "inv-7" }`
+- **WHEN** the payload is `{ a: "${{trigger}}", b: "${item_id}" }`, the trigger value is `"/spool/x.pdf"`, and the variable map is `{ item_id: "item-7" }`
+- **THEN** the interpolator returns `{ a: "/spool/x.pdf", b: "item-7" }`
 
 #### Scenario: Named tokens resolve inside nested inputs and env
 
-- **WHEN** the payload is `{ inputs: { invoice_id: "${invoice_id}" }, env: { IB_INVOICE_ID: "${invoice_id}", IB_TOOLSET: "scoped-invoice" } }` and the variable map is `{ invoice_id: "inv-9" }`
-- **THEN** the interpolator returns `{ inputs: { invoice_id: "inv-9" }, env: { IB_INVOICE_ID: "inv-9", IB_TOOLSET: "scoped-invoice" } }`
+- **WHEN** the payload is `{ inputs: { item_id: "${item_id}" }, env: { RUN_ITEM_ID: "${item_id}", RUN_TOOLSET: "scoped" } }` and the variable map is `{ item_id: "item-9" }`
+- **THEN** the interpolator returns `{ inputs: { item_id: "item-9" }, env: { RUN_ITEM_ID: "item-9", RUN_TOOLSET: "scoped" } }`
 

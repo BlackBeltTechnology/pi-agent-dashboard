@@ -36,10 +36,32 @@ interface PluginClaim {
   command?: string;              // for "command-route" slot
   trigger?: string;              // for "anchored-popover" slot
   toolName?: string;             // for "tool-renderer" slot
+  path?: string;                 // for "shell-overlay-route"; wouter path pattern, must start with "/"
+  sessionParam?: string;         // for "shell-overlay-route"; URL param holding session id; default "sid"
+  depth?: 1 | 2;                 // for "shell-overlay-route"; shell nav depth; 1 = detail, 2 = overlay-on-detail
+  parentPath?: string;           // for "shell-overlay-route" depth 2; back target pattern; :params interpolated
+  presentation?: "dialog" | "page"; // for "shell-overlay-route"; default "dialog"
   config?: Record<string, unknown>; // slot-specific config (e.g. { tab: "general" })
   predicate?: string;            // optional name of an exported predicate function
 }
 ```
+
+### `shell-overlay-route` claim fields
+
+Route-backed overlay claim. Component receives `{ params, onBack, session? }`.
+
+`presentation` selects container. Optional. Default `"dialog"`.
+
+- `"dialog"` — route-backed overlay. Desktop: `Dialog` over scrim over pinned background underlay. Mobile: inside `MobileShell` detail panel at declared `depth`.
+- `"page"` — full-viewport on desktop AND mobile, outside `MobileShell` detail panel. Opt-out. Use for width-hungry surfaces (boards, wide tables).
+
+Unknown `presentation` value → FATAL `ManifestValidationError`. NOT warn-and-default. Typo like `"modal"` would silently restore the behaviour the author opted out of. Validator: `packages/dashboard-plugin-runtime/src/manifest-validator.ts`.
+
+Container selection: the HOST decides. It reads the effective `presentation` via `useShellOverlayRoutePresentation` (`packages/dashboard-plugin-runtime/src/slot-consumers.tsx`) and lifts a `dialog` claim out of the content region into its route-backed overlay; `ShellOverlayRouteSlot` itself renders only the claim body plus a height wrapper. A hook returning a string avoids the `client-utils` → `dashboard-plugin-runtime` dependency cycle a component import would close.
+
+Bundled-plugin gate (`packages/dashboard-plugin-runtime/src/__tests__/bundled-overlay-claims.test.ts`): explicit `depth` required; `depth: 2` requires `parentPath`; `parentPath` interpolable from claim path's own `:params`; claim nested under `/folder/:x` or `/session/:x` must NOT declare `depth: 1`. Third-party manifests: runtime degrades to `/` as safety net.
+
+See change: add-route-backed-overlay-dialogs.
 
 ## Forward-compat contract
 

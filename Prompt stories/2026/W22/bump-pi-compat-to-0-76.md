@@ -188,4 +188,4 @@ knowledge that this repo is **git-only (no jj)** and **commit-on-explicit-word-o
 
 ---
 
-_Generated from session `019e6c34` · `pi-agent-dashboard/.worktrees/bump-pi-compat-to-0-76` · 2026-05-28. Source extract: `/tmp/session_facts.PFQtob.md`._
+_Generated from session `019e6c34` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/bump-pi-compat-to-0-76` · 2026-05-28. Source extract: `/tmp/session_facts.PFQtob.md`._

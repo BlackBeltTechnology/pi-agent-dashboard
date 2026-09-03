@@ -1,6 +1,6 @@
 {
   "name": "@blackbelt-technology/pi-dashboard-blackhole-plugin",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Dashboard settings surface for the pi-blackhole extension — reads and writes its on-disk pi-blackhole-config.json through validated server routes, including an ordered per-worker model fallback-chain editor.",
   "license": "MIT",
   "publishConfig": {
@@ -28,6 +28,8 @@
   },
   "files": [
     "src/",
+    "!**/AGENTS.md",
+    "!**/*.AGENTS.md",
     "!**/__tests__",
     "!**/*.test.ts",
     "!**/*.test.tsx"
@@ -60,8 +62,8 @@
     "wouter": ">=3.0.0"
   },
   "dependencies": {
-    "@blackbelt-technology/dashboard-plugin-runtime": "^0.7.0",
-    "@blackbelt-technology/pi-dashboard-shared": "^0.7.0"
+    "@blackbelt-technology/dashboard-plugin-runtime": "^0.8.0",
+    "@blackbelt-technology/pi-dashboard-shared": "^0.8.0"
   },
   "devDependencies": {
     "@types/react": "^19.0.0",

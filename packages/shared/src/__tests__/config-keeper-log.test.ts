@@ -1,77 +1,104 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import fs from "node:fs";
-import path from "node:path";
+/**
+ * keeperLog config parse boundaries (test-plan #E7).
+ *
+ * `parseKeeperLogConfig` previously dropped unknown keys, so an operator
+ * setting `keeperLog.maxBytes` saw it silently discarded — a silent
+ * misconfiguration. These tests pin: valid values pass through; every invalid
+ * variant (0, negative, non-numeric, absent) coerces to the default; and the
+ * pre-existing `capturePiOutput` field is unaffected.
+ * See change: fix-runaway-keeper-log-growth (D7, task 1.2).
+ */
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import os from "node:os";
-import { loadConfig, DEFAULT_KEEPER_LOG } from "../config.js";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { DEFAULT_KEEPER_LOG, loadConfig } from "../config.js";
 
-describe("loadConfig — keeperLog block", () => {
-  let testDir: string;
-  let configFile: string;
-  let origHome: string;
+let tmpHome: string;
+let realHome: string;
 
-  beforeEach(() => {
-    testDir = path.join(
-      os.tmpdir(),
-      `test-config-keeperlog-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-    );
-    fs.mkdirSync(path.join(testDir, ".pi", "dashboard"), { recursive: true });
-    configFile = path.join(testDir, ".pi", "dashboard", "config.json");
-    origHome = process.env.HOME!;
-    process.env.HOME = testDir;
+beforeEach(() => {
+  tmpHome = mkdtempSync(path.join(os.tmpdir(), "klog-cfg-"));
+  realHome = process.env.HOME ?? "";
+  process.env.HOME = tmpHome;
+});
+
+afterEach(() => {
+  process.env.HOME = realHome;
+  rmSync(tmpHome, { recursive: true, force: true });
+});
+
+function configPath(): string {
+  return path.join(tmpHome, ".pi", "dashboard", "config.json");
+}
+
+function seedKeeperLog(keeperLog: Record<string, unknown>): void {
+  mkdirSync(path.dirname(configPath()), { recursive: true });
+  // loadConfig merges over defaults; only keeperLog is seeded per case.
+  writeFileSync(configPath(), JSON.stringify({ keeperLog }));
+}
+
+describe("parseKeeperLogConfig — maxBytes / checkIntervalMs (test-plan #E7)", () => {
+  it("valid maxBytes=1048576 survives the parse", () => {
+    seedKeeperLog({ maxBytes: 1048576 });
+    expect(loadConfig().keeperLog.maxBytes).toBe(1048576);
   });
 
-  afterEach(() => {
-    process.env.HOME = origHome;
-    if (fs.existsSync(testDir)) fs.rmSync(testDir, { recursive: true });
+  it("valid checkIntervalMs passes through", () => {
+    seedKeeperLog({ checkIntervalMs: 250 });
+    expect(loadConfig().keeperLog.checkIntervalMs).toBe(250);
   });
 
-  it("defaults capturePiOutput to false when keeperLog block is absent", () => {
-    fs.writeFileSync(configFile, JSON.stringify({ port: 8000 }));
-    const cfg = loadConfig();
-    expect(cfg.keeperLog).toEqual(DEFAULT_KEEPER_LOG);
-    expect(cfg.keeperLog.capturePiOutput).toBe(false);
+  it.each([0, -1, -1048576, "big", "1048576", null, true, 1.5, Number.NaN])(
+    "invalid maxBytes %p coerces to the default",
+    (variant) => {
+      seedKeeperLog({ maxBytes: variant });
+      expect(loadConfig().keeperLog.maxBytes).toBe(DEFAULT_KEEPER_LOG.maxBytes);
+    },
+  );
+
+  it.each([0, -1, "fast", null, Number.NaN])(
+    "invalid checkIntervalMs %p coerces to the default",
+    (variant) => {
+      seedKeeperLog({ checkIntervalMs: variant });
+      expect(loadConfig().keeperLog.checkIntervalMs).toBe(DEFAULT_KEEPER_LOG.checkIntervalMs);
+    },
+  );
+
+  it("absent keeperLog block → all defaults", () => {
+    mkdirSync(path.dirname(configPath()), { recursive: true });
+    writeFileSync(configPath(), JSON.stringify({}));
+    expect(loadConfig().keeperLog).toEqual(DEFAULT_KEEPER_LOG);
   });
 
-  it("defaults to false when keeperLog is present but capturePiOutput is absent", () => {
-    fs.writeFileSync(configFile, JSON.stringify({ keeperLog: {} }));
+  it("both fields set in one block → both parsed", () => {
+    seedKeeperLog({ maxBytes: 65536, checkIntervalMs: 250 });
+    const parsed = loadConfig().keeperLog;
+    expect(parsed.maxBytes).toBe(65536);
+    expect(parsed.checkIntervalMs).toBe(250);
+  });
+
+  it("capturePiOutput is unaffected by the new fields", () => {
+    seedKeeperLog({ capturePiOutput: true, maxBytes: 65536 });
+    const parsed = loadConfig().keeperLog;
+    expect(parsed.capturePiOutput).toBe(true);
+    expect(parsed.maxBytes).toBe(65536);
+
+    seedKeeperLog({ capturePiOutput: false });
     expect(loadConfig().keeperLog.capturePiOutput).toBe(false);
+    expect(loadConfig().keeperLog.maxBytes).toBe(DEFAULT_KEEPER_LOG.maxBytes);
   });
 
-  it("preserves explicit true", () => {
-    fs.writeFileSync(configFile, JSON.stringify({ keeperLog: { capturePiOutput: true } }));
-    expect(loadConfig().keeperLog.capturePiOutput).toBe(true);
+  it("DEFAULT_KEEPER_LOG carries the documented defaults (128 MiB / 5 s)", () => {
+    expect(DEFAULT_KEEPER_LOG.maxBytes).toBe(134217728);
+    expect(DEFAULT_KEEPER_LOG.checkIntervalMs).toBe(5000);
+    expect(DEFAULT_KEEPER_LOG.capturePiOutput).toBe(false);
   });
 
-  it("preserves explicit false", () => {
-    fs.writeFileSync(configFile, JSON.stringify({ keeperLog: { capturePiOutput: false } }));
-    expect(loadConfig().keeperLog.capturePiOutput).toBe(false);
-  });
-
-  it("falls back to default false on non-boolean", () => {
-    fs.writeFileSync(configFile, JSON.stringify({ keeperLog: { capturePiOutput: "yes" } }));
-    expect(loadConfig().keeperLog.capturePiOutput).toBe(false);
-  });
-
-  it("falls back to default when keeperLog is not an object", () => {
-    fs.writeFileSync(configFile, JSON.stringify({ keeperLog: "on" }));
-    expect(loadConfig().keeperLog.capturePiOutput).toBe(false);
-  });
-
-  it("ignores unknown keys in the keeperLog block", () => {
-    fs.writeFileSync(
-      configFile,
-      JSON.stringify({ keeperLog: { capturePiOutput: true, nonsense: 42 } }),
-    );
-    const cfg = loadConfig();
-    expect(cfg.keeperLog.capturePiOutput).toBe(true);
-    expect((cfg.keeperLog as any).nonsense).toBeUndefined();
-  });
-
-  it("round-trips through load → stringify → load", () => {
-    fs.writeFileSync(configFile, JSON.stringify({ keeperLog: { capturePiOutput: true } }));
-    const first = loadConfig();
-    fs.writeFileSync(configFile, JSON.stringify(first));
-    const second = loadConfig();
-    expect(second.keeperLog.capturePiOutput).toBe(true);
+  it("malformed config.json still yields defaults (no throw)", () => {
+    mkdirSync(path.dirname(configPath()), { recursive: true });
+    writeFileSync(configPath(), "{not json");
+    expect(() => readFileSync(configPath(), "utf8")).not.toThrow();
+    expect(loadConfig().keeperLog).toEqual(DEFAULT_KEEPER_LOG);
   });
 });

@@ -49,16 +49,29 @@ export interface BrowserHandlerContext {
    * See change: fit-attachments-for-display (test-plan #E9).
    */
   fitWorkerPool?: import("../attachments/fit-worker-pool.js").FitWorkerPool;
+  /**
+   * Max events replayed on a FULL-stream subscribe (0 / absent = unlimited).
+   * Never applied to a genuine delta.
+   * See change: lazy-load-session-history (D1).
+   */
+  maxReplayEvents?: number;
+  /**
+   * SHAPE of the replay window when one applies. Absent → `head-tail`.
+   * See change: add-tail-only-replay-window (D1).
+   */
+  replayWindowMode?: import("@blackbelt-technology/pi-dashboard-shared/memory-limits.js").ReplayWindowMode;
   directoryService?: DirectoryService;
   terminalManager?: TerminalManager;
   headlessPidRegistry: HeadlessPidRegistry;
   pendingResumeRegistry: PendingResumeRegistry;
   /**
-   * §5.4: resolve the bound scope env (e.g. invoicebot IB_TOOLSET/IB_INVOICE_ID)
-   * to re-apply when auto-resuming a session's continue-spawn, so a resumed
-   * scoped session boots scoped instead of on the full surface. Provided by a
-   * plugin via `ctx.provide`; undefined for non-scoped sessions.
-   * See change: make-invoice-session-canonical.
+   * Resolve the environment a session was originally spawned with, to re-apply
+   * on its auto-resume continue-spawn. A spawn env can carry the keys that
+   * NARROW a session's tool surface, and a continue-spawn reproduces none of
+   * them — so without this the resumed session silently comes back on the full
+   * surface. Provided by a plugin via `ctx.provide`; `undefined` for a session
+   * that was not spawned with one ⇒ the resume is unchanged.
+   * See change: scope-session-toolset-by-profile.
    */
   resumeSpawnEnv?: (sessionId: string) => Record<string, string> | undefined;
   pendingDashboardSpawns?: Map<string, number>;
@@ -107,6 +120,13 @@ export interface BrowserHandlerContext {
    * See change: fix-recovery-offer-bridge-liveness-gate.
    */
   isRecoveryLivenessPending?(sessionId: string): boolean;
+  /**
+   * Remember that THIS connection asked for a subagent resync, so the bridge's
+   * reply is delivered back to it instead of fanned out to every subscriber of
+   * the session. Absent → the reply falls back to the broadcast path.
+   * See change: reduce-subagent-details-payload (C5).
+   */
+  recordResyncRequester?(requestId: string, ws: WebSocket): void;
   /** Send message to a specific WebSocket */
   sendTo(ws: WebSocket, msg: ServerToBrowserMessage): void;
   /** Broadcast to all connected browsers */

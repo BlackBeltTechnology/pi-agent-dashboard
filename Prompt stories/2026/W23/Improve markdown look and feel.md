@@ -142,4 +142,4 @@ folded into those rather than a new skill.)
 
 ---
 
-_Generated from session `019e9e8c` · `pi-agent-dashboard` · 2026-06-07. Source extract: session facts sheet._
+_Generated from session `019e9e8c` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-07. Source extract: session facts sheet._

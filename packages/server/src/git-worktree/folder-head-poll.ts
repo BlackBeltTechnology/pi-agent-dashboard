@@ -63,10 +63,15 @@ export type FolderGroupSession = Pick<
 >;
 
 /**
- * Resolve the set of folder group-key DISPLAY paths the client renders, in a
- * stable order: pinned directories first (their display path wins on a key
+ * Resolve the folder group-key DISPLAY paths derived from LIVE sessions and
+ * pinned directories, in a stable order: pinned directories first (their display path wins on a key
  * collision, matching the client's pinned-group `cwd`), then each non-ended
  * session's resolved group path. De-duplicated by the shared `pathKey`.
+ *
+ * NOT the set of folders the client renders: workspace folders render
+ * regardless of session count, and ended-only folders are still grouped by the
+ * client while being skipped here. That is why the diff cache is never evicted
+ * on set-leave. See change: fix-folder-header-worktree-branch-leak.
  */
 export function computeFolderGroupKeys(
   sessions: ReadonlyArray<FolderGroupSession>,
@@ -121,19 +126,29 @@ export interface FolderHeadPollDeps {
 }
 
 export interface FolderHeadPoll {
-  /**
-   * Recompute the group-key set from current sessions + pinned dirs, refresh
-   * each (async, concurrency-bounded), and resolve with the set (so the caller
-   * can drive watcher attach/detach). Resolves only after every HEAD read +
-   * broadcast for this fan-out has completed — callers `await` it to preserve
-   * `git_head_update`-before-`openspec_update` ordering.
-   */
-  poll(
-    sessions: ReadonlyArray<FolderGroupSession>,
-    pinnedDirectories: ReadonlyArray<string>,
-  ): Promise<string[]>;
   /** Refresh a single cwd (read → diff cache → broadcast). Watcher trigger. */
   refreshOne(cwd: string): Promise<void>;
+  /**
+   * Refresh a set of cwds (async, concurrency-bounded) through the single
+   * read → diff → broadcast funnel. Used by BOTH the periodic tick and the
+   * entry refresh, so entry is not a second broadcast path and cannot fire an
+   * unbounded git-read burst. Resolves only after every HEAD read + broadcast
+   * for this fan-out has completed — callers `await` it to preserve
+   * `git_head_update`-before-`openspec_update` ordering.
+   *
+   * The key set is recomputed by the CALLER (`directory-service`), which owns
+   * the single recompute path so the periodic tick and the entry triggers
+   * cannot interleave into an inconsistent view of "previously observed".
+   * See change: fix-folder-header-worktree-branch-leak.
+   */
+  refreshMany(cwds: ReadonlyArray<string>): Promise<void>;
+  /**
+   * Read-only snapshot of the diff cache as `{ cwd, branch }` entries, for the
+   * browser connect snapshot. PURE: must not mutate the cache — mutating it
+   * would suppress a later legitimate broadcast to all browsers.
+   * See change: fix-folder-header-worktree-branch-leak.
+   */
+  snapshot(): Array<{ cwd: string; branch: string | null }>;
   /** Test helper: number of cached cwds. */
   size(): number;
 }
@@ -162,14 +177,13 @@ export function createFolderHeadPoll(deps: FolderHeadPollDeps): FolderHeadPoll {
     deps.broadcast({ type: "git_head_update", cwd, branch });
   }
 
-  async function poll(
-    sessions: ReadonlyArray<FolderGroupSession>,
-    pinnedDirectories: ReadonlyArray<string>,
-  ): Promise<string[]> {
-    const keys = computeFolderGroupKeys(sessions, pinnedDirectories);
-    await mapBounded(keys, concurrency, refreshOne);
-    return keys;
+  async function refreshMany(cwds: ReadonlyArray<string>): Promise<void> {
+    await mapBounded(cwds, concurrency, refreshOne);
   }
 
-  return { poll, refreshOne, size: () => cache.size };
+  function snapshot(): Array<{ cwd: string; branch: string | null }> {
+    return Array.from(cache, ([cwd, branch]) => ({ cwd, branch }));
+  }
+
+  return { refreshOne, refreshMany, snapshot, size: () => cache.size };
 }

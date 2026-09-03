@@ -113,18 +113,6 @@ export interface SessionFlags {
    */
   model?: string;
   /**
-   * Disable pi's built-in tools (keeps extension/custom tools). Emits
-   * `--no-builtin-tools`. Set by the session-guard for guarded sessions.
-   * See change: constrain-agent-tool-surface.
-   */
-  noBuiltinTools?: boolean;
-  /**
-   * Extra pi extensions to load; each emits `-e <path>`. Used to attach the
-   * tool-call containment guard to guarded sessions.
-   * See change: constrain-agent-tool-surface.
-   */
-  loadExtensions?: string[];
-  /**
    * Optional session name appended as `--name <name>` (pi 0.78.0+). Set the
    * pi session name AT CREATION so worktree / flow spawns land with an
    * intended title instead of relying only on post-hoc auto-naming. Composes
@@ -132,35 +120,64 @@ export interface SessionFlags {
    * See change: adopt-pi-074-080-features.
    */
   name?: string;
+  /**
+   * Capability-scope fields mapped 1:1 to pi CLI flags. Populated by
+   * `pluginSpawnToSessionOptions` from a plugin's `scope` block. Flat
+   * primitives (not a nested sub-object), matching the `model`/`name`
+   * convention; the argv builder wants primitives. Each is optional and,
+   * when absent, emits nothing — so absent-scope argv is byte-identical to
+   * the pre-change output. There is deliberately NO `noExtensions` field:
+   * disabling extension discovery would stop the dashboard bridge from
+   * loading and make the spawned session uncontrollable (design D2/D6).
+   * See change: add-plugin-spawn-scope.
+   */
+  tools?: string[];
+  excludeTools?: string[];
+  noBuiltinTools?: boolean;
+  noTools?: boolean;
+  skills?: string[];
+  noSkills?: boolean;
+  extensions?: string[];
 }
 
 /**
- * Return `["--session", file]` or `["--fork", file]` or `[]`, always followed
- * by any guard flags (`--no-builtin-tools`, `-e <ext>`). Every mechanism MUST
- * use this to append flags; dropping them silently is the exact bug that
- * motivated this change (B1, B2).
+ * Return `["--session", file]` or `["--fork", file]` or `[]`, followed by
+ * any capability-scope flags. Every mechanism MUST use this to append flags;
+ * dropping them silently is the exact bug that motivated this change (B1, B2).
  */
 export function sessionFlagsToArgv(flags: SessionFlags): string[] {
-  const guard = guardFlagsToArgv(flags);
+  const scope = scopeFlags(flags);
   if (flags.sessionFile && flags.mode === "continue") {
-    return [...nameFlag(flags), "--session", flags.sessionFile, ...guard];
+    return [...nameFlag(flags), "--session", flags.sessionFile, ...scope];
   }
   if (flags.sessionFile && flags.mode === "fork") {
-    return [...nameFlag(flags), "--fork", flags.sessionFile, ...modelFlag(flags), ...guard];
+    return [...nameFlag(flags), "--fork", flags.sessionFile, ...modelFlag(flags), ...scope];
   }
-  return [...nameFlag(flags), ...modelFlag(flags), ...guard];
+  return [...nameFlag(flags), ...modelFlag(flags), ...scope];
+}
+
+/**
+ * Emit capability-scope flags: comma-joined single arg for allowlists
+ * (`--tools`/`--exclude-tools`), repeatable `--skill <path>` / `-e <path>`,
+ * and bare boolean toggles. Each only when present; an empty array emits
+ * nothing. Appended after session/model/name so absent-scope argv is
+ * byte-identical. See change: add-plugin-spawn-scope.
+ */
+function scopeFlags(flags: SessionFlags): string[] {
+  const argv: string[] = [];
+  if (flags.tools && flags.tools.length > 0) argv.push("--tools", flags.tools.join(","));
+  if (flags.excludeTools && flags.excludeTools.length > 0)
+    argv.push("--exclude-tools", flags.excludeTools.join(","));
+  if (flags.noBuiltinTools) argv.push("--no-builtin-tools");
+  if (flags.noTools) argv.push("--no-tools");
+  for (const skill of flags.skills ?? []) argv.push("--skill", skill);
+  if (flags.noSkills) argv.push("--no-skills");
+  for (const ext of flags.extensions ?? []) argv.push("-e", ext);
+  return argv;
 }
 
 function modelFlag(flags: SessionFlags): string[] {
   return flags.model ? ["--model", flags.model] : [];
-}
-
-/** Guard flags shared by every spawn mechanism (headless/tmux/wt). */
-function guardFlagsToArgv(flags: SessionFlags): string[] {
-  const out: string[] = [];
-  if (flags.noBuiltinTools) out.push("--no-builtin-tools");
-  for (const ext of flags.loadExtensions ?? []) out.push("-e", ext);
-  return out;
 }
 
 /**

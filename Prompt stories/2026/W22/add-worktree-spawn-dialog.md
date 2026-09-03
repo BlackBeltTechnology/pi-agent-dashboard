@@ -170,4 +170,4 @@ proposal for scope boundaries.
 
 ---
 
-_Generated from session `019e6615` · `pi-agent-dashboard` · 2026-05-26. Source extract: deterministic facts sheet (add-worktree-lifecycle-actions)._
+_Generated from session `019e6615` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-26. Source extract: deterministic facts sheet (add-worktree-lifecycle-actions)._

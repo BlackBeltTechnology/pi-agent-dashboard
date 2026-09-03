@@ -34,7 +34,7 @@ The `.pi` tree SHALL NOT be excluded wholesale. `.pi/skills/`, `.pi/agents/` and
 - **AND** no files are written to disk
 
 ### Requirement: Drift lint
-The `dox lint` operation SHALL scan all `AGENTS.md` files and report drift issues in the categories `stale`, `orphan`, `missing`, `missing-companion`, `broken-pointer`, `broken-ref`, and `over-threshold`, and MAY auto-correct a subset when fix mode is enabled.
+The `dox lint` operation SHALL scan all `AGENTS.md` files and report drift issues in the categories `stale`, `orphan`, `missing`, `missing-companion`, `broken-pointer`, `broken-ref`, and `over-threshold`, and MAY auto-correct a subset when fix mode is enabled. The `missing` category SHALL cover source files as well as markdown files, because a source file with no per-file record is unreachable through the `agents` document-type lane that retrieval depends on.
 
 Only table rows under a `# DOX` heading are treated as file-index rows; rows under other headings are ignored.
 
@@ -56,6 +56,20 @@ Only table rows under a `# DOX` heading are treated as file-index rows; rows und
 - **WHEN** a markdown file lives in a directory covered by an `AGENTS.md` (itself or an ancestor) and has no row
 - **THEN** a `missing` issue is reported against the nearest ancestor `AGENTS.md` (deepest matching directory)
 - **AND** in fix mode a blank-purpose row for that file is appended to that owner
+
+#### Scenario: Undocumented source file in an area
+- **WHEN** a source file lives in a directory covered by an `AGENTS.md` (itself or an ancestor), has no row in any ancestor `AGENTS.md`, and has no `<file>.AGENTS.md` sidecar
+- **THEN** a `missing` issue is reported against the nearest ancestor `AGENTS.md`
+- **AND** the same exclusions that apply to the source-file walk (declaration files, test and spec files, excluded trees) SHALL apply, so they are never reported
+
+#### Scenario: A sidecar satisfies the source-file row requirement
+- **WHEN** a source file has no row in its directory `AGENTS.md` but does have a `<file>.AGENTS.md` sidecar
+- **THEN** no `missing` issue is reported for that file
+
+#### Scenario: Source-file missing rows are separately selectable
+- **WHEN** `dox lint` runs
+- **THEN** source-file `missing` findings SHALL be distinguishable from markdown `missing` findings by their reported target
+- **AND** the source-file arm SHALL be independently enableable, so an existing tree can adopt it without failing wholesale on first run
 
 #### Scenario: DOX row path resolves outside its own AGENTS.md directory
 - **WHEN** a DOX row path is relative and the dir-relative target (resolved against the row's own `AGENTS.md` directory) does not exist
@@ -199,4 +213,37 @@ blocking gate. The gate SHALL consume `kb dox lint --json` and fail only on
 - **WHEN** the byte-arm gate is wired into step 4.4
 - **THEN** the over-cap `AGENTS.md` measured on this branch has been split
 - **AND** the gate exits 0 on the change's own tree
+
+### Requirement: A DOX row's documented subject is resolvable at query time
+The DOX tree SHALL expose the resolution from an indexed `AGENTS.md` row to the source file that row documents, using the same resolution rule as lint, so that lint and query-time verification can never disagree about which file a row describes.
+
+#### Scenario: A row resolves to its documented file
+- **WHEN** a row in a directory `AGENTS.md` names a file
+- **THEN** it SHALL resolve to the same path that lint resolves it to
+
+#### Scenario: An unresolvable row yields no subject
+- **WHEN** a row's path cannot be resolved against its own directory or the repository root
+- **THEN** it SHALL yield no subject rather than a guessed one
+
+### Requirement: Acknowledgement records a stat baseline beside the hash
+When a documented file's row is acknowledged, the record SHALL persist the file's content hash together with its size and modification time. The record SHALL be versioned so a reader can distinguish a hash-only record from a hash-plus-stat record, and a hash-only record SHALL be readable without error by consumers expecting the stat fields.
+
+#### Scenario: Acknowledgement persists the stat baseline
+- **WHEN** a row is acknowledged
+- **THEN** the stored record SHALL carry the sha256, the byte size, and the modification time observed at acknowledgement
+
+#### Scenario: A hash-only record degrades gracefully
+- **WHEN** a consumer reads a record persisted before stat baselines existed
+- **THEN** the absent stat fields SHALL be treated as unknown, not as zero or mismatch
+
+### Requirement: Acknowledged row hashes are readable outside lint
+The acknowledged content hash recorded for a documented file SHALL be readable by consumers other than lint, so freshness can be established at query time without re-running a lint pass.
+
+#### Scenario: Query-time freshness uses the acknowledged hash
+- **WHEN** a consumer asks whether a documented file has changed since its row was acknowledged
+- **THEN** the acknowledged hash SHALL be available without executing a lint run
+
+#### Scenario: A file with no acknowledged hash is not reported as changed
+- **WHEN** a documented file has never had a row acknowledged
+- **THEN** the absence of a hash SHALL NOT be reported as a change
 

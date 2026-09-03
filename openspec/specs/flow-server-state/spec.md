@@ -1,4 +1,10 @@
-## ADDED Requirements
+# flow-server-state Specification
+
+## Purpose
+
+Makes the dashboard server the holder of per-session flow metadata rather than each browser deriving it independently. The server tracks flow state per session and broadcasts flow events to subscribed browsers.
+
+## Requirements
 
 ### Requirement: Server tracks per-session flow metadata
 The server SHALL extract flow metadata from `flow_started` and `flow_complete` events and update the `DashboardSession` with flow-related fields: `activeFlowName`, `flowAgentsDone`, `flowAgentsTotal`, `flowStatus`.

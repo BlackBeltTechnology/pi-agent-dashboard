@@ -1,4 +1,10 @@
-## ADDED Requirements
+# multiselect-dialog Specification
+
+## Purpose
+
+Adds multi-selection to the `ask_user` tool end to end: the tool method, the `MultiselectRenderer`, routing of `ctx.ui.multiselect` through the PromptBus, JSON-stringified `values` in the dashboard encoder, and a polyfill that prefers the bridge-routed implementation. Requires that a dashboard multiselect prompt is never auto-dismissed by an in-process TUI adapter.
+
+## Requirements
 
 ### Requirement: ask_user tool supports multiselect method
 The `ask_user` tool SHALL accept `multiselect` as a valid `method` value. When `method` is `multiselect`, the tool SHALL require `title` (string) and `options` (string array) parameters. The tool SHALL return the user's selected items as an array of strings.

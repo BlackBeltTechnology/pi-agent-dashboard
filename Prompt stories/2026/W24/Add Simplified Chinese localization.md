@@ -170,4 +170,4 @@ target language, and the repo's `npm run build` / vitest toolchain.
 
 ---
 
-_Generated from session `019ec725` · `pi-agent-dashboard/.worktrees/pr-93` · 2026-06-14. Source extract: deterministic facts sheet._
+_Generated from session `019ec725` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/pr-93` · 2026-06-14. Source extract: deterministic facts sheet._

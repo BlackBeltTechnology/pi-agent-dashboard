@@ -5,7 +5,9 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { DEFAULT_MEMORY_LIMITS, type MemoryLimitsConfig, MIN_REPLAY_WINDOW, type ReplayWindowMode } from "./memory-limits.js";
 import type { WindowsGitSourceSetting } from "./platform/select-git-source.js";
+import { inferPlatform, pathKey } from "./session-group-path.js";
 import {
   providerSupportsMode,
   type TunnelMode,
@@ -86,23 +88,20 @@ export interface AuthConfig {
   admin?: string;
 }
 
-export interface MemoryLimitsConfig {
-  /** Max events stored per session (0 = unlimited). Default: 200 */
-  maxEventsPerSession: number;
-  /** Max chars before truncating string fields in events (0 = no truncation). Default: 0 (disabled) */
-  maxStringFieldSize: number;
-  /** Max bytes in browser WebSocket send buffer before dropping messages (0 = no limit). Default: 4194304 (4MB) */
-  maxWsBufferBytes: number;
-}
-
-export const DEFAULT_MEMORY_LIMITS: MemoryLimitsConfig = {
-  // 20000 (was 5000): subagent-heavy turns forward thousands of inner events
-  // into the parent buffer; the old cap trimmed the chat head.
-  // See change: preserve-chat-head-on-event-trim.
-  maxEventsPerSession: 20000,
-  maxStringFieldSize: 0,
-  maxWsBufferBytes: 4 * 1024 * 1024,
-};
+/**
+ * Memory-limit types + defaults live in a BROWSER-SAFE module and are
+ * re-exported here so existing `config.js` importers are unaffected. The client
+ * settings panel needs `DEFAULT_MEMORY_LIMITS` as a VALUE, and a value import of
+ * THIS module would drag `node:fs`/`node:os`/`node:path` into the browser
+ * bundle — a blank page at boot, not a build error.
+ * See change: fix-lazy-history-backfill-ux (D7).
+ */
+export {
+  DEFAULT_MEMORY_LIMITS,
+  type MemoryLimitsConfig,
+  MIN_REPLAY_WINDOW,
+  type ReplayWindowMode,
+} from "./memory-limits.js";
 
 export interface OpenSpecPollConfig {
   /**
@@ -134,6 +133,21 @@ export interface OpenSpecPollConfig {
    * offload-openspec-poll-to-worker.
    */
   useWorker: boolean;
+  /**
+   * Cwds for which OpenSpec is suppressed entirely — no polling, no
+   * affordance on any surface. Default `[]`. Entries are normalized with the
+   * same `pathKey` normalization pinned directories use, so `/a/b/` and
+   * `/a/b` collapse to one entry. See change: add-openspec-init-affordances.
+   */
+  optOutDirectories: string[];
+  /**
+   * Fleet-level escape for the ABSENT initialization offer. When `false`, a
+   * directory without OpenSpec renders no affordance anywhere while
+   * BROKEN/STALE/READY keep working. Distinct from `enabled`, which disables
+   * the feature outright. Default `true`. See change:
+   * add-openspec-init-affordances.
+   */
+  offerInitialization: boolean;
 }
 
 export const DEFAULT_OPENSPEC_POLL: OpenSpecPollConfig = {
@@ -146,7 +160,15 @@ export const DEFAULT_OPENSPEC_POLL: OpenSpecPollConfig = {
   changeDetection: "mtime",
   useWorker: true,
   jitterSeconds: 5,
+  optOutDirectories: [],
+  offerInitialization: true,
 };
+
+// ── Grammar / spell check ───────────────────────────────────────────
+
+// Composer grammar/spell-check config moved into the grammar plugin
+// (packages/grammar-plugin) — persisted under `plugins.grammar.*`, not core.
+// See change: make-grammar-fully-plugin-contained.
 
 export interface SessionsConfig {
   /**
@@ -174,10 +196,29 @@ export interface KeeperLogConfig {
    * See change: add-keeper-output-capture-toggle.
    */
   capturePiOutput: boolean;
+  /**
+   * Per-session keeper-log size cap in bytes. At/over the cap the keeper
+   * truncates its log IN PLACE (`ftruncate(fd, 0)`) — no rename, no retained
+   * generation. The bound is steady-state, not instantaneous: a burst writer
+   * overshoots by one `checkIntervalMs` of output before the next check fires.
+   * Plumbed to the CJS keeper as `PI_KEEPER_LOG_MAX_BYTES` (the keeper cannot
+   * import this module). See change: fix-runaway-keeper-log-growth (D2/D7).
+   */
+  maxBytes: number;
+  /**
+   * Keeper-log size-check cadence in milliseconds. Drives both triggers: the
+   * throttled check inside the keeper's `log()` and the keeper's unref'd
+   * interval timer (child-driven growth produces no `log()` calls). Plumbed
+   * to the keeper as `PI_KEEPER_LOG_CHECK_INTERVAL_MS`.
+   * See change: fix-runaway-keeper-log-growth (D3/D7).
+   */
+  checkIntervalMs: number;
 }
 
 export const DEFAULT_KEEPER_LOG: KeeperLogConfig = {
   capturePiOutput: false,
+  maxBytes: 134217728, // 128 MiB
+  checkIntervalMs: 5000,
 };
 
 // ── Embed session lifecycle ─────────────────────────────────────────
@@ -302,16 +343,41 @@ export interface DashboardConfig {
   autoStart: boolean;
   autoShutdown: boolean;
   shutdownIdleSeconds: number;
+  /**
+   * Coalescing window (ms) the bridge applies to subagent `Agent` ticks on the
+   * `tool_execution_update` carrier. `0` disables the throttle entirely and is
+   * the byte-identical rollback path. Only Agent updates carrying a
+   * `details.agentId` are affected; every other tool forwards 1:1.
+   * Non-numeric / negative values fall back to the default.
+   * See change: reduce-bridge-tick-bandwidth (D2/D3/D4).
+   */
+  subagentTickThrottleMs: number;
   spawnStrategy: SpawnStrategy;
   tunnel: {
     enabled: boolean;
     /**
-     * Which provider backs the tunnel. Required (non-undefined) once a
-     * post-migration config is written; a legacy config with only
-     * `reservedToken` is normalized to `provider: "zrok"` at read time.
+     * Which provider backs the tunnel — now specifically **the PRIMARY**.
+     *
+     * The field keeps its shape and gains a meaning, which is what keeps
+     * concurrency cheap: `getTunnelUrl()` returns the primary's URL, so every
+     * existing OAuth, cookie and redirect scenario stays true verbatim and the
+     * legacy `reservedToken` migration is untouched. Additional providers opt
+     * in via `tunnel.<id>.enabled`.
+     *
+     * Required (non-undefined) once a post-migration config is written; a
+     * legacy config with only `reservedToken` is normalized to
+     * `provider: "zrok"` at read time.
      */
     provider?: TunnelProviderId;
-    /** public reverse-proxy vs private mesh. Required when enabled + provider set. */
+    /**
+     * public reverse-proxy vs private mesh, for the PRIMARY.
+     *
+     * A single shared mode cannot express "zrok primary + zerotier enabled":
+     * `PROVIDER_MODES` makes zerotier private-only and zrok public-only, so one
+     * field would make that combination inexpressible. Non-primary providers
+     * carry their own `tunnel.<id>.mode`. See change:
+     * add-zrok-custom-reserved-name (D3).
+     */
     mode?: TunnelMode;
     /**
      * Legacy top-level zrok reserved token. Preserved on read for downgrade
@@ -325,10 +391,10 @@ export interface DashboardConfig {
      * `persistent` (default false) opts in to minting/serving a reserved name.
      * See change: support-zrok-v2.
      */
-    zrok?: { reservedToken?: string; reservedName?: string; persistent?: boolean };
-    ngrok?: { authtoken?: string; domain?: string };
-    tailscale?: { authKey?: string };
-    zerotier?: { networkId?: string };
+    zrok?: { reservedToken?: string; reservedName?: string; persistent?: boolean; enabled?: boolean; mode?: TunnelMode };
+    ngrok?: { authtoken?: string; domain?: string; enabled?: boolean; mode?: TunnelMode };
+    tailscale?: { authKey?: string; enabled?: boolean; mode?: TunnelMode };
+    zerotier?: { networkId?: string; enabled?: boolean; mode?: TunnelMode };
     watchdog?: {
       enabled: boolean;
       intervalMs: number;
@@ -339,6 +405,13 @@ export interface DashboardConfig {
   devBuildOnReload: boolean;
   auth?: AuthConfig;
   defaultModel: string;
+  /**
+   * Default thinking level applied to brand-new startup sessions alongside
+   * `defaultModel`. Empty string means "do not override" — the bridge leaves
+   * pi's own thinking-level resolution intact (mirrors `defaultModel: ""`).
+   * See change: add-default-thinking-level.
+   */
+  defaultThinkingLevel: string;
   memoryLimits: MemoryLimitsConfig;
   /** OpenSpec background polling behavior (interval, concurrency, change detection, jitter) */
   openspec: OpenSpecPollConfig;
@@ -566,15 +639,98 @@ export function clampSpawnRegisterTimeoutMs(v: unknown): number {
   return Math.max(5000, Math.min(120000, v));
 }
 
+/**
+ * Startup timing budgets shared by the bridge auto-start path and the
+ * dashboard server's own bounded startup. Single source of truth so the three
+ * values cannot drift apart.
+ *
+ * `SPAWN_READINESS_BUDGET_MS` (Clarification C1) is deliberately LARGER than
+ * the health poll: a slow cold start (jiti compile + plugin load) can exceed
+ * the health window without being dead. It bounds the auto-start lock's
+ * staleness and the lock loser's wait.
+ *
+ * `SERVER_STARTUP_DEADLINE_MS` (Clarification C4) is derived from the same
+ * constant, so it cannot drift from the budget. It is a MULTIPLE of it,
+ * because the two bound different things: the budget bounds how long a
+ * SPAWNER waits, while the deadline decides when a booting server is declared
+ * hung and killed. A cold start on a loaded CI runner (jiti compile + 12
+ * plugins) legitimately takes far longer than a spawner is willing to wait,
+ * and killing that boot would be a false positive — the failure mode this
+ * value must avoid, since a hang is bounded either way.
+ *
+ * They live in `config.ts` rather than a module of their own because the
+ * server and the extension resolve `@blackbelt-technology/pi-dashboard-shared`
+ * through the workspace link; a brand-new shared file is not resolvable from a
+ * git worktree until the tree is reinstalled, and a boot-time
+ * `Cannot find module` drops the server into recovery mode.
+ * See change: fix-worktree-server-autostart-leak.
+ */
+export const HEALTH_CHECK_TIMEOUT_MS = 10_000;
+export const SPAWN_READINESS_BUDGET_MS = HEALTH_CHECK_TIMEOUT_MS * 3;
+export const SERVER_STARTUP_DEADLINE_MS = SPAWN_READINESS_BUDGET_MS * 4;
+
+/**
+ * The shared production ports. Exported because the bridge's worktree
+ * auto-start refusal keys on them (`autostart-guard.ts`) and a silent desync
+ * between the two would let a worktree take the host's ports again.
+ * See change: fix-worktree-server-autostart-leak.
+ */
+export const DEFAULT_DASHBOARD_PORT = 8000;
+export const DEFAULT_GATEWAY_PORT = 9999;
+
+/**
+ * Resolve the dashboard HTTP + gateway ports with the shared precedence:
+ * env → parsed config.json → the shared defaults above. HTTP role reads
+ * `PI_DASHBOARD_PORT` then `DASHBOARD_PORT`; gateway role reads
+ * `PI_DASHBOARD_PI_PORT` then `PI_GATEWAY_PORT` (the server CLI's env names,
+ * `cli.ts buildConfig`; `PI_GATEWAY_PORT` is the docker-compose spelling).
+ * Parse rules are pinned to the historic private resolver: `Number(v)`
+ * finite and > 0, first var of a role wins; an unusable value is ignored,
+ * never shadows a lower-precedence source.
+ *
+ * `env` and `fileConfig` are ARGUMENTS, not `process.env` reads, so the
+ * resolver stays pure and unit-testable without environment mutation.
+ * Deliberately NOT folded into `loadConfig()`: the server's `buildConfig`
+ * (`packages/server/src/cli.ts`) already applies its own flags > env > file
+ * chain for its bind, and double-applying would change server behaviour.
+ *
+ * The dashboard SERVER injects only `PI_DASHBOARD_URL` /
+ * `PI_DASHBOARD_SOCKET` / `PI_DASHBOARD_SPAWN_TOKEN` into the sessions it
+ * spawns (`spawn-process/process-manager.ts`); these PORT env vars reach
+ * sessions via their runtime environment (e.g. the docker harness compose
+ * env), not via the server.
+ * See change: fix-bridge-autostart-port-resolution (D1).
+ */
+export function resolveDashboardPorts(
+  env: Record<string, string | undefined>,
+  fileConfig?: { port?: number; piPort?: number },
+): { port: number; piPort: number } {
+  const usable = (v: string | undefined): number | null => {
+    if (!v) return null;
+    const n = Number(v);
+    return Number.isInteger(n) && n > 0 && n <= 65535 ? n : null;
+  };
+  const fromConfig = (v: number | undefined): number | null =>
+    typeof v === "number" && Number.isInteger(v) && v > 0 && v <= 65535 ? v : null;
+  const port = usable(env.PI_DASHBOARD_PORT) ?? usable(env.DASHBOARD_PORT)
+    ?? fromConfig(fileConfig?.port) ?? DEFAULT_DASHBOARD_PORT;
+  const piPort = usable(env.PI_DASHBOARD_PI_PORT) ?? usable(env.PI_GATEWAY_PORT)
+    ?? fromConfig(fileConfig?.piPort) ?? DEFAULT_GATEWAY_PORT;
+  return { port, piPort };
+}
+
 const DEFAULTS: DashboardConfig = {
   plugins: {},
   modelProxy: { ...DEFAULT_MODEL_PROXY },
-  port: 8000,
-  piPort: 9999,
+  port: DEFAULT_DASHBOARD_PORT,
+  piPort: DEFAULT_GATEWAY_PORT,
   bindHost: "127.0.0.1",
   autoStart: true,
   autoShutdown: false,
   shutdownIdleSeconds: 300,
+  // Rollout default `0` (off). Flipped to 500 once the throttle's suites are
+  // green. See change: reduce-bridge-tick-bandwidth (D4, task 6.1).
+  subagentTickThrottleMs: 0,
   spawnStrategy: "headless",
   tunnel: {
     enabled: true,
@@ -588,6 +744,7 @@ const DEFAULTS: DashboardConfig = {
   },
   devBuildOnReload: false,
   defaultModel: "",
+  defaultThinkingLevel: "",
   memoryLimits: { ...DEFAULT_MEMORY_LIMITS },
   openspec: { ...DEFAULT_OPENSPEC_POLL },
   sessions: { ...DEFAULT_SESSIONS },
@@ -721,6 +878,18 @@ function parseOpenSpecPollConfig(raw: any): OpenSpecPollConfig {
     raw.changeDetection === "always" || raw.changeDetection === "mtime"
       ? raw.changeDetection
       : DEFAULT_OPENSPEC_POLL.changeDetection;
+  // Opt-out entries normalize through the same `pathKey` pinned directories
+  // use, so `/a/b/` and `/a/b` (and case-differing spellings on
+  // case-insensitive platforms) collapse to one entry. Non-string entries are
+  // dropped. See change: add-openspec-init-affordances.
+  const optOutRaw: unknown[] = Array.isArray(raw.optOutDirectories) ? raw.optOutDirectories : [];
+  const optOutStrings = optOutRaw.filter(
+    (p: unknown): p is string => typeof p === "string" && p.length > 0,
+  );
+  const optOutPlatform = inferPlatform(optOutStrings);
+  const optOutDirectories = [
+    ...new Set(optOutStrings.map((p: string) => pathKey(p, optOutPlatform))),
+  ];
   return {
     enabled:
       typeof raw.enabled === "boolean" ? raw.enabled : DEFAULT_OPENSPEC_POLL.enabled,
@@ -730,7 +899,28 @@ function parseOpenSpecPollConfig(raw: any): OpenSpecPollConfig {
     jitterSeconds: clampNumber(raw.jitterSeconds, DEFAULT_OPENSPEC_POLL.jitterSeconds, 0, 60),
     useWorker:
       typeof raw.useWorker === "boolean" ? raw.useWorker : DEFAULT_OPENSPEC_POLL.useWorker,
+    optOutDirectories,
+    offerInitialization:
+      typeof raw.offerInitialization === "boolean"
+        ? raw.offerInitialization
+        : DEFAULT_OPENSPEC_POLL.offerInitialization,
   };
+}
+
+/**
+ * Absent / non-numeric / non-finite / non-integer / <= 0 → the DEFAULT. Unlike
+ * `parseMaxReplayEvents`, an explicit `0` is NOT preserved: a zero-byte
+ * rotation cap would truncate the keeper log on every check (and a zero check
+ * interval would spin), so both coerce to the default rather than disabling
+ * the bound. The cap is a safety bound, not a tuning knob — silently keeping
+ * the bound is the safe direction.
+ * See change: fix-runaway-keeper-log-growth (D7).
+ */
+function parseKeeperLogPositiveInt(raw: unknown, fallback: number): number {
+  if (typeof raw !== "number" || !Number.isInteger(raw) || raw <= 0) {
+    return fallback;
+  }
+  return raw;
 }
 
 function parseKeeperLogConfig(raw: any): KeeperLogConfig {
@@ -740,7 +930,38 @@ function parseKeeperLogConfig(raw: any): KeeperLogConfig {
       typeof raw.capturePiOutput === "boolean"
         ? raw.capturePiOutput
         : DEFAULT_KEEPER_LOG.capturePiOutput,
+    maxBytes: parseKeeperLogPositiveInt(raw.maxBytes, DEFAULT_KEEPER_LOG.maxBytes),
+    checkIntervalMs: parseKeeperLogPositiveInt(
+      raw.checkIntervalMs,
+      DEFAULT_KEEPER_LOG.checkIntervalMs,
+    ),
   };
+}
+
+/**
+ * Absent / negative / non-numeric → the DEFAULT; explicit `0` → `0`.
+ *
+ * Presence detection is load-bearing once the default is non-zero: the previous
+ * shape collapsed absent, negative, non-numeric and explicit `0` into `0`, so a
+ * non-zero default would have been unreachable from a config file that simply
+ * omits the field. The `MIN_REPLAY_WINDOW` clamp is unchanged.
+ * See change: fix-lazy-history-backfill-ux (D7).
+ */
+function parseMaxReplayEvents(raw: unknown): number {
+  if (typeof raw !== "number" || !Number.isFinite(raw) || raw < 0) {
+    return DEFAULT_MEMORY_LIMITS.maxReplayEvents;
+  }
+  if (raw === 0) return 0;
+  return Math.max(MIN_REPLAY_WINDOW, Math.floor(raw));
+}
+
+/**
+ * An unknown value COERCES to the default rather than throwing, matching the
+ * fallback convention every sibling in `parseMemoryLimits` already follows.
+ * See change: add-tail-only-replay-window (D1).
+ */
+function parseReplayWindowMode(raw: unknown): ReplayWindowMode {
+  return raw === "tail-only" || raw === "head-tail" ? raw : DEFAULT_MEMORY_LIMITS.replayWindowMode;
 }
 
 function parseMemoryLimits(raw: any): MemoryLimitsConfig {
@@ -749,6 +970,11 @@ function parseMemoryLimits(raw: any): MemoryLimitsConfig {
     maxEventsPerSession: typeof raw.maxEventsPerSession === "number" ? raw.maxEventsPerSession : DEFAULT_MEMORY_LIMITS.maxEventsPerSession,
     maxStringFieldSize: typeof raw.maxStringFieldSize === "number" ? raw.maxStringFieldSize : DEFAULT_MEMORY_LIMITS.maxStringFieldSize,
     maxWsBufferBytes: typeof raw.maxWsBufferBytes === "number" ? raw.maxWsBufferBytes : DEFAULT_MEMORY_LIMITS.maxWsBufferBytes,
+    // Absent / non-numeric / negative → the default. A positive value below
+    // MIN_REPLAY_WINDOW clamps up; an explicit 0 is preserved, never clamped.
+    // See change: lazy-load-session-history (D3), fix-lazy-history-backfill-ux (D7).
+    maxReplayEvents: parseMaxReplayEvents(raw.maxReplayEvents),
+    replayWindowMode: parseReplayWindowMode(raw.replayWindowMode),
   };
 }
 
@@ -891,6 +1117,32 @@ const KNOWN_TUNNEL_MODES: TunnelMode[] = ["public", "private"];
  *  - an explicit `provider` wins over a stray legacy `reservedToken`.
  * See change: add-tunnel-providers.
  */
+/**
+ * The per-provider concurrency flags (D3), validated.
+ *
+ * `zrok` is RECONSTRUCTED rather than spread (it carries the legacy token
+ * migration), so without this helper its `enabled`/`mode` were silently dropped
+ * on every load: the operator's second tunnel never connected and the config
+ * showed nothing to explain it. An invalid value is DROPPED rather than
+ * preserved — `resolveTunnelPlan` treats absent `enabled` as false, which is
+ * the safe reading; a bogus `mode` string would instead surface later as an
+ * unsupported-mode connect failure far from its cause.
+ */
+function perProviderFlags(raw: any): { enabled?: boolean; mode?: TunnelMode } {
+  return {
+    ...(typeof raw?.enabled === "boolean" ? { enabled: raw.enabled } : {}),
+    ...(typeof raw?.mode === "string" && (KNOWN_TUNNEL_MODES as string[]).includes(raw.mode)
+      ? { mode: raw.mode as TunnelMode }
+      : {}),
+  };
+}
+
+/** A provider sub-config with its flags re-derived from the validated pair. */
+function withProviderFlags(raw: any): Record<string, unknown> {
+  const { enabled: _e, mode: _m, ...rest } = raw as Record<string, unknown>;
+  return { ...rest, ...perProviderFlags(raw) };
+}
+
 export function normalizeTunnelConfig(
   raw: any,
   defaults: DashboardConfig["tunnel"],
@@ -919,6 +1171,7 @@ export function normalizeTunnelConfig(
   const zrok = {
     ...(zrokToken ? { reservedToken: zrokToken } : {}),
     ...(zrokReservedName ? { reservedName: zrokReservedName } : {}),
+    ...perProviderFlags(rawZrok),
     persistent: zrokPersistent,
   };
 
@@ -928,9 +1181,16 @@ export function normalizeTunnelConfig(
     ...(mode ? { mode } : {}),
     ...(legacyToken ? { reservedToken: legacyToken } : {}),
     zrok,
-    ...(raw?.ngrok && typeof raw.ngrok === "object" ? { ngrok: { ...raw.ngrok } } : {}),
-    ...(raw?.tailscale && typeof raw.tailscale === "object" ? { tailscale: { ...raw.tailscale } } : {}),
-    ...(raw?.zerotier && typeof raw.zerotier === "object" ? { zerotier: { ...raw.zerotier } } : {}),
+    // The raw `enabled`/`mode` are STRIPPED before the spread and re-added from
+    // the validated pair, so a junk value cannot ride the spread into the
+    // concurrency resolver.
+    ...(raw?.ngrok && typeof raw.ngrok === "object" ? { ngrok: withProviderFlags(raw.ngrok) } : {}),
+    ...(raw?.tailscale && typeof raw.tailscale === "object"
+      ? { tailscale: withProviderFlags(raw.tailscale) }
+      : {}),
+    ...(raw?.zerotier && typeof raw.zerotier === "object"
+      ? { zerotier: withProviderFlags(raw.zerotier) }
+      : {}),
     watchdog: {
       enabled: raw?.watchdog?.enabled ?? defaults.watchdog!.enabled,
       intervalMs:
@@ -1002,10 +1262,18 @@ export function loadConfig(): DashboardConfig {
       autoStart: parsed.autoStart ?? defaults.autoStart,
       autoShutdown: parsed.autoShutdown ?? defaults.autoShutdown,
       shutdownIdleSeconds: parsed.shutdownIdleSeconds ?? defaults.shutdownIdleSeconds,
+      subagentTickThrottleMs:
+        typeof parsed.subagentTickThrottleMs === "number" &&
+        Number.isFinite(parsed.subagentTickThrottleMs) &&
+        parsed.subagentTickThrottleMs >= 0
+          ? parsed.subagentTickThrottleMs
+          : defaults.subagentTickThrottleMs,
       spawnStrategy,
       tunnel: normalizeTunnelConfig(parsed.tunnel, defaults.tunnel),
       devBuildOnReload: parsed.devBuildOnReload ?? defaults.devBuildOnReload,
       defaultModel: typeof parsed.defaultModel === "string" ? parsed.defaultModel : defaults.defaultModel,
+      defaultThinkingLevel:
+        typeof parsed.defaultThinkingLevel === "string" ? parsed.defaultThinkingLevel : defaults.defaultThinkingLevel,
       auth: parseAuthConfig(parsed.auth),
       memoryLimits: parseMemoryLimits(parsed.memoryLimits),
       openspec: parseOpenSpecPollConfig(parsed.openspec),
@@ -1092,6 +1360,7 @@ export function ensureConfig(): void {
     autoStart: DEFAULTS.autoStart,
     autoShutdown: DEFAULTS.autoShutdown,
     shutdownIdleSeconds: DEFAULTS.shutdownIdleSeconds,
+    subagentTickThrottleMs: DEFAULTS.subagentTickThrottleMs,
     spawnStrategy: DEFAULTS.spawnStrategy,
     tunnel: DEFAULTS.tunnel,
     devBuildOnReload: DEFAULTS.devBuildOnReload,

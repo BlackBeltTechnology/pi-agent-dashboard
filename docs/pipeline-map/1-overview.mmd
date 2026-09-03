@@ -1,0 +1,24 @@
+flowchart LR
+  X["0 · EXPLORE<br/>interview-me → openspec-explore<br/><i>thinking only, no code</i>"]
+  P["1 · PLAN<br/>branch develop<br/>MAIN SESSION ONLY<br/>human present"]
+  B["2 · BUILD<br/>worktree .worktrees/os-&lt;c&gt;<br/>ship-it<br/>headless-capable"]
+  S["3 · SHIP<br/>ship-change driven INLINE<br/>PR → CI → CodeRabbit"]
+  M(["merged into develop"])
+  CI["4 · CI — GitHub Actions<br/>machine side, no model"]
+  POST["post-merge<br/>deploy-site · nightly · release"]
+
+  X --> P
+  P ==>|"WORKTREE BOUNDARY<br/>= interactive / headless line"| B
+  B --> S
+  S <-.->|"gh pr checks --watch"| CI
+  S ==> M --> POST
+  B -.->|"SHIP_IT_BLOCKED.md<br/>REVERSE BOUNDARY"| P
+
+  classDef plan fill:#e3f2fd,stroke:#1565c0,stroke-width:2px
+  classDef build fill:#fff3e0,stroke:#e65100,stroke-width:2px
+  classDef ship fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px
+  classDef ci fill:#f3e5f5,stroke:#6a1b9a,stroke-width:2px
+  class X,P plan
+  class B build
+  class S,M ship
+  class CI,POST ci

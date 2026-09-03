@@ -1,4 +1,10 @@
-## ADDED Requirements
+# qr-code-dialog Specification
+
+## Purpose
+
+Lets the user get the dashboard onto a phone without typing an address: a unified tunnel/QR button in the sidebar header, lazily fetched tunnel status, a QR code dialog, and disconnect and setup-navigation actions from within it.
+
+## Requirements
 
 ### Requirement: Unified tunnel/QR button in sidebar header
 The sidebar header SHALL display a single unified button that combines tunnel status indication and QR code access. The button's icon and behavior SHALL change based on tunnel state.

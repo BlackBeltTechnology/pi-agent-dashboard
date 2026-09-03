@@ -158,4 +158,4 @@ reusable procedure worth capturing as a debug/verify skill.
 
 ---
 
-_Generated from session `019f548b` · `pi-agent-dashboard` · 2026-07-12. Source extract: facts sheet._
+_Generated from session `019f548b` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-12. Source extract: facts sheet._

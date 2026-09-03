@@ -188,4 +188,4 @@ memorizing as the standard "land a pre-scoped OpenSpec change" recipe.
 
 ---
 
-_Generated from session `019f3b7a` · `pi-agent-dashboard/.worktrees/os-fix-first-launch-display-modal-stuck-on-mobile` · 2026-07-07. Source extract: session facts sheet._
+_Generated from session `019f3b7a` · `/Users/robson/Project/pi-agent-dashboard/.worktrees/os-fix-first-launch-display-modal-stuck-on-mobile` · 2026-07-07. Source extract: session facts sheet._

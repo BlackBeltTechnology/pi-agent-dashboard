@@ -176,4 +176,4 @@ server/bridge/shared instrumentation edits, corrected OpenSpec artifacts. Commit
 
 ---
 
-_Generated from session `019f4412-bad4-7793-aaab-3125f5347154` · `pi-agent-dashboard` · 2026-07-09. Source extract: session facts sheet._
+_Generated from session `019f4412-bad4-7793-aaab-3125f5347154` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-09. Source extract: session facts sheet._

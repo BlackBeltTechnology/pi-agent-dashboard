@@ -5,7 +5,8 @@
  *
  * See change: add-followup-edit-and-steer-cancel.
  */
-import { describe, it, expect, vi } from "vitest";
+import { describe, expect, it, vi } from "vitest";
+import { isSubagentTick, SubagentTickThrottle } from "../subagent-tick-throttle.js";
 
 // We don't test the full bridge here (too much wiring) — we drive the
 // listener-registration-and-forward shape directly with a fake pi.
@@ -73,5 +74,145 @@ describe("bridge queue_update forwarding (shape contract)", () => {
     listeners["queue_update"]({ type: "queue_update" });
 
     expect(sent).toEqual([{ type: "queue_update", sessionId: "S3", steering: [], followUp: [] }]);
+  });
+});
+
+/**
+ * E10 — the subagent tick throttle is scoped to Agent ticks only; every OTHER
+ * event type still forwards 1:1 through the enriched loop.
+ *
+ * Mirrors the bridge's forward site (`bridge.ts`, `tool_execution_update`
+ * branch): the throttle is consulted ONLY when `isSubagentTick` matches; any
+ * other event type never reaches it. The regression this guards against is a
+ * throttle hooked one level too high, where a streaming `message_update` or a
+ * `tool_call` burst would silently inherit the 500 ms window.
+ *
+ * See change: reduce-bridge-tick-bandwidth (task 3.16, test-plan E10).
+ */
+describe("bridge forward loop — non-subagent events pass 1:1 (E10)", () => {
+  it("forwards message_update / tool_execution_start / tool_call untouched", () => {
+    vi.useFakeTimers();
+    try {
+      const sent: any[] = [];
+      const throttle = new SubagentTickThrottle<any>({
+        windowMs: 500,
+        send: (m) => sent.push(m),
+        canSend: () => true,
+      });
+
+      // The bridge's forward site, reduced to its throttle decision.
+      const forward = (eventType: string, event: any) => {
+        if (eventType === "tool_execution_update" && isSubagentTick(event)) {
+          if (throttle.offer(event.toolCallId, event, "S1")) sent.push(event);
+          return;
+        }
+        sent.push(event);
+      };
+
+      // A burst of events that must NOT be throttled, all inside one window.
+      for (let i = 0; i < 10; i++) forward("message_update", { kind: "message_update", i });
+      for (let i = 0; i < 5; i++) forward("tool_execution_start", { kind: "tool_execution_start", i });
+      for (let i = 0; i < 8; i++) forward("tool_call", { kind: "tool_call", i });
+
+      expect(sent).toHaveLength(23);
+      expect(sent.filter((e) => e.kind === "message_update")).toHaveLength(10);
+      expect(sent.filter((e) => e.kind === "tool_execution_start")).toHaveLength(5);
+      expect(sent.filter((e) => e.kind === "tool_call")).toHaveLength(8);
+      // Untouched means untouched: the throttle kept no state for them.
+      expect(throttle.size).toBe(0);
+      expect(throttle.stats.tickForwarded).toBe(0);
+      expect(throttle.stats.tickCoalesced).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("throttle state does not leak across event types sharing a toolCallId", () => {
+    vi.useFakeTimers();
+    try {
+      let clock = 0;
+      const sent: any[] = [];
+      const throttle = new SubagentTickThrottle<any>({
+        windowMs: 500,
+        now: () => clock,
+        send: (m) => sent.push(m),
+        canSend: () => true,
+      });
+      const forward = (eventType: string, event: any) => {
+        if (eventType === "tool_execution_update" && isSubagentTick(event)) {
+          if (throttle.offer(event.toolCallId, event, "S1")) sent.push(event);
+          return;
+        }
+        sent.push(event);
+      };
+
+      const agentTick = (i: number) => ({
+        kind: "agent-tick",
+        i,
+        toolCallId: "tc1",
+        toolName: "Agent",
+        partialResult: { details: { agentId: "a1" } },
+      });
+
+      forward("tool_execution_update", agentTick(0)); // leading edge
+      clock += 100;
+      forward("tool_execution_update", agentTick(1)); // held
+      // A non-subagent event on the SAME toolCallId must still pass immediately.
+      forward("message_update", { kind: "message_update", toolCallId: "tc1" });
+
+      expect(sent.map((e) => e.kind)).toEqual(["agent-tick", "message_update"]);
+      expect(throttle.stats.tickForwarded).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // D5 sibling non-interaction (test-plan #F4). Owns the claim that used to be an
+  // L3 e2e (`subagent-inspector` resync round-trip): the throttle must NEVER
+  // touch the sibling PULL carrier. That carrier is a DIFFERENT event type
+  // (`subagents:started`/resync replies, forwarded outside the
+  // `tool_execution_update` site), so `isSubagentTick` is never even consulted
+  // for it. The L3 version is structurally unconstructible in the harness (the
+  // faux subagent dies in ~400 ms, before an inspector-open can trigger a
+  // resync; and the synthetic Agent-tick producer emits no `subagents:*`), so
+  // the invariant is proven here at L1 instead. See change:
+  // reduce-bridge-tick-bandwidth (test-plan F4, L1-owned).
+  it("resync / subagents:* sibling frames pass 1:1 and move no throttle counter", () => {
+    vi.useFakeTimers();
+    try {
+      const sent: any[] = [];
+      const throttle = new SubagentTickThrottle<any>({
+        windowMs: 500,
+        send: (m) => sent.push(m),
+        canSend: () => true,
+      });
+      const forward = (eventType: string, event: any) => {
+        if (eventType === "tool_execution_update" && isSubagentTick(event)) {
+          if (throttle.offer(event.toolCallId, event, "S1")) sent.push(event);
+          return;
+        }
+        sent.push(event);
+      };
+
+      // A resync reply burst on the sibling carrier, all inside one window. These
+      // carry an `agentId` (like a real `subagents:started`) to prove it is the
+      // EVENT TYPE, not the payload shape, that keeps them off the throttle.
+      for (let i = 0; i < 12; i++) {
+        forward("subagents:started", {
+          kind: "subagents:started",
+          i,
+          toolName: "Agent",
+          partialResult: { details: { agentId: "a1" } },
+        });
+      }
+
+      expect(sent).toHaveLength(12);
+      expect(sent.every((e) => e.kind === "subagents:started")).toBe(true);
+      expect(throttle.size).toBe(0);
+      expect(throttle.stats.tickForwarded).toBe(0);
+      expect(throttle.stats.tickCoalesced).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

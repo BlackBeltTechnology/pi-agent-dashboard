@@ -54,11 +54,31 @@ function makeGateway(sessions: Record<string, { cwd: string; status?: string }>)
 
 const passGuard = async () => {};
 
+/**
+ * Reload is delivered by the server's `dispatchReload` ladder (keeper →
+ * respawn → bridge), not by a raw `sendToSession` loop, so the route is
+ * observed through the dispatched session ids.
+ * See change: fix-out-of-band-reload.
+ */
+const dispatchedReloads: string[] = [];
+let registrySessions: Array<{ sessionId: string; cwd: string }> = [];
+function reloadDeps() {
+  return {
+    dispatchReload: async (sid: string) => {
+      dispatchedReloads.push(sid);
+      return "forwarded";
+    },
+    registrySessions: () => registrySessions,
+  };
+}
+
 describe("resource-activation-routes", () => {
   let app: FastifyInstance;
 
   beforeEach(() => {
     vi.clearAllMocks();
+    dispatchedReloads.length = 0;
+    registrySessions = [];
     applyResourceToggleMock.mockResolvedValue({ ok: true });
   });
 
@@ -74,6 +94,7 @@ describe("resource-activation-routes", () => {
     });
     app = Fastify();
     registerResourceActivationRoutes(app, {
+      ...reloadDeps(),
       networkGuard: passGuard,
       piGateway: gw,
       sessionManager: makeSessions({ a: { cwd: "/proj/x" }, b: { cwd: "/proj/x/sub" }, c: { cwd: "/other" } }),
@@ -95,7 +116,7 @@ describe("resource-activation-routes", () => {
     applyResourceToggleMock.mockResolvedValue({ ok: false, status: 404, error: "not found" });
     const { gw } = makeGateway({});
     app = Fastify();
-    registerResourceActivationRoutes(app, { networkGuard: passGuard, piGateway: gw, sessionManager: makeSessions({}) });
+    registerResourceActivationRoutes(app, { ...reloadDeps(), networkGuard: passGuard, piGateway: gw, sessionManager: makeSessions({}) });
     await app.ready();
 
     const res = await app.inject({
@@ -112,7 +133,7 @@ describe("resource-activation-routes", () => {
     };
     const { gw } = makeGateway({});
     app = Fastify();
-    registerResourceActivationRoutes(app, { networkGuard: denyGuard, piGateway: gw, sessionManager: makeSessions({}) });
+    registerResourceActivationRoutes(app, { ...reloadDeps(), networkGuard: denyGuard, piGateway: gw, sessionManager: makeSessions({}) });
     await app.ready();
 
     const res = await app.inject({
@@ -128,7 +149,7 @@ describe("resource-activation-routes", () => {
     const sessions = { a: { cwd: "/proj/x" }, b: { cwd: "/proj/x/sub" }, c: { cwd: "/other" } };
     const { gw, sent } = makeGateway(sessions);
     app = Fastify();
-    registerResourceActivationRoutes(app, { networkGuard: passGuard, piGateway: gw, sessionManager: makeSessions(sessions) });
+    registerResourceActivationRoutes(app, { ...reloadDeps(), networkGuard: passGuard, piGateway: gw, sessionManager: makeSessions(sessions) });
     await app.ready();
 
     const res = await app.inject({
@@ -138,21 +159,72 @@ describe("resource-activation-routes", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body).data.reloaded).toBe(2);
-    expect(sent.map((s) => s.sid).sort()).toEqual(["a", "b"]);
-    expect(sent.every((s) => s.text === "/reload")).toBe(true);
+    expect([...dispatchedReloads].sort()).toEqual(["a", "b"]);
+    expect(sent).toHaveLength(0);
+  });
+
+  it("reload global also targets a registry-known session with a dead bridge", async () => {
+    // The keeper-backed session `z` has no WS connection and is stamped
+    // `ended` in the session map — exactly the session the old
+    // getConnectedSessionIds()-only fan-out could never reach.
+    // See change: fix-out-of-band-reload (test-plan #E12).
+    const sessions = { a: { cwd: "/proj/x" } };
+    const { gw } = makeGateway(sessions);
+    registrySessions = [{ sessionId: "z", cwd: "/proj/z" }];
+    app = Fastify();
+    registerResourceActivationRoutes(app, {
+      ...reloadDeps(),
+      networkGuard: passGuard,
+      piGateway: gw,
+      sessionManager: makeSessions({ a: { cwd: "/proj/x" }, z: { cwd: "/proj/z", status: "ended" } }),
+    });
+    await app.ready();
+
+    const res = await app.inject({ method: "POST", url: "/api/resources/reload", payload: { scope: "global" } });
+    expect(res.statusCode).toBe(200);
+    expect([...dispatchedReloads].sort()).toEqual(["a", "z"]);
+  });
+
+  it("reload local also targets a registry-known session governed by the cwd", async () => {
+    // `findSessionsByCwd` sees OPEN sockets only, so a headless session in the
+    // folder whose bridge died was silently skipped — while it is exactly the
+    // pi that must re-read the toggled setting.
+    // See change: fix-out-of-band-reload.
+    const sessions = { a: { cwd: "/proj/x" } };
+    const { gw } = makeGateway(sessions);
+    registrySessions = [
+      { sessionId: "dead", cwd: "/proj/x/sub" },
+      { sessionId: "elsewhere", cwd: "/other" },
+    ];
+    app = Fastify();
+    registerResourceActivationRoutes(app, {
+      ...reloadDeps(),
+      networkGuard: passGuard,
+      piGateway: gw,
+      sessionManager: makeSessions({ a: { cwd: "/proj/x" } }),
+    });
+    await app.ready();
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/resources/reload",
+      payload: { scope: "local", cwd: "/proj/x" },
+    });
+    expect(res.statusCode).toBe(200);
+    expect([...dispatchedReloads].sort()).toEqual(["a", "dead"]);
   });
 
   it("reload global targets all connected sessions", async () => {
     const sessions = { a: { cwd: "/proj/x" }, b: { cwd: "/other" } };
-    const { gw, sent } = makeGateway(sessions);
+    const { gw } = makeGateway(sessions);
     app = Fastify();
-    registerResourceActivationRoutes(app, { networkGuard: passGuard, piGateway: gw, sessionManager: makeSessions(sessions) });
+    registerResourceActivationRoutes(app, { ...reloadDeps(), networkGuard: passGuard, piGateway: gw, sessionManager: makeSessions(sessions) });
     await app.ready();
 
     const res = await app.inject({ method: "POST", url: "/api/resources/reload", payload: { scope: "global" } });
     expect(res.statusCode).toBe(200);
     expect(JSON.parse(res.body).data.reloaded).toBe(2);
-    expect(sent.map((s) => s.sid).sort()).toEqual(["a", "b"]);
+    expect([...dispatchedReloads].sort()).toEqual(["a", "b"]);
   });
 });
 
@@ -196,6 +268,7 @@ describe("resource-activation-routes \u2014 guard and trust gate (real write)", 
     const { gw } = makeGateway({});
     app = Fastify();
     registerResourceActivationRoutes(app, {
+      ...reloadDeps(),
       networkGuard: passGuard,
       piGateway: gw,
       sessionManager: makeSessions({}),

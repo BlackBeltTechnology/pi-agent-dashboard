@@ -81,6 +81,16 @@ function makeFakeKeeperManager(
     },
     discoverExistingKeepers: async () => [],
     isKeeperAlive: () => false,
+    sweepKeeperLogs: () => ({ scanned: 0, reclaimedFiles: 0, reclaimedBytes: 0, skippedLive: 0 }),
+    getKeeperLogStats: () => ({
+      totalBytes: 0,
+      fileCount: 0,
+      largestBytes: 0,
+      reclaimedBytes: 0,
+      runawayFiles: 0,
+      launchLogFiles: 0,
+      launchLogBytes: 0,
+    }),
   };
   return { km, state: full };
 }
@@ -257,4 +267,82 @@ describe("spawnHeadless (headless via keeper)", () => {
     expect(state.spawnCalls).toEqual([]);
   });
 
+});
+
+// ── keeperLog config → spawn env (test-plan #E6) ──────────────────────────
+// The keeper is CJS-pure and cannot import the shared config, so maxBytes /
+// checkIntervalMs ride the spawn env as PI_KEEPER_LOG_* vars, set per spawn
+// from `loadConfig().keeperLog` (spawn-time read per D7). Seeded via a real
+// config.json under the isolated HOME — the same shape the composition root
+// reads in production.
+// See change: fix-runaway-keeper-log-growth (task 1.4).
+import fs from "node:fs";
+import os from "node:os";
+// Source-relative (not the package name) so tsc sees the NEW fields — the
+// workspace resolution for the package name still points at the last build.
+import { DEFAULT_KEEPER_LOG } from "../../../shared/src/config.js";
+
+describe("spawnHeadless — keeperLog env plumbing (E6)", () => {
+  const ABSENT = Symbol("absent");
+  let configBackup: string | typeof ABSENT | null = null;
+
+  function configPath(): string {
+    // HOME is ephemeral (setup-home global setup), so this never touches the
+    // real user config.
+    return path.join(os.homedir(), ".pi", "dashboard", "config.json");
+  }
+
+  function seedKeeperLog(keeperLog: Record<string, unknown>): void {
+    fs.mkdirSync(path.dirname(configPath()), { recursive: true });
+    const present = fs.existsSync(configPath());
+    if (configBackup === null) configBackup = present ? fs.readFileSync(configPath(), "utf-8") : ABSENT;
+    const existing = present ? JSON.parse(fs.readFileSync(configPath(), "utf-8")) : {};
+    fs.writeFileSync(configPath(), JSON.stringify({ ...existing, keeperLog }));
+  }
+
+  afterEach(() => {
+    if (configBackup === null) return;
+    if (configBackup === ABSENT) fs.rmSync(configPath(), { force: true });
+    else fs.writeFileSync(configPath(), configBackup);
+    configBackup = null;
+  });
+
+  async function spawnHeadlessCapturingEnv(): Promise<NodeJS.ProcessEnv> {
+    const fakeChild = new FakeKeeperChild(55555);
+    const { km, state } = makeFakeKeeperManager({
+      spawnResult: {
+        success: true,
+        pid: 55555,
+        sockPath: "/fake/sessions/e6.sock",
+        process: fakeChild as unknown as import("node:child_process").ChildProcess,
+      },
+    });
+    setKeeperManager(km);
+    const result = await spawnPiSession(tmpCwd, { strategy: "headless" });
+    expect(result.success).toBe(true);
+    expect(state.spawnCalls).toHaveLength(1);
+    return state.spawnCalls[0].env;
+  }
+
+  it("env carries PI_KEEPER_LOG_MAX_BYTES / _CHECK_INTERVAL_MS from config.keeperLog", async () => {
+    seedKeeperLog({ maxBytes: 65536, checkIntervalMs: 250 });
+    const env = await spawnHeadlessCapturingEnv();
+    expect(env.PI_KEEPER_LOG_MAX_BYTES).toBe("65536");
+    expect(env.PI_KEEPER_LOG_CHECK_INTERVAL_MS).toBe("250");
+  });
+
+  it("env carries the documented defaults when config omits keeperLog", async () => {
+    seedKeeperLog({});
+    const env = await spawnHeadlessCapturingEnv();
+    expect(env.PI_KEEPER_LOG_MAX_BYTES).toBe(String(DEFAULT_KEEPER_LOG.maxBytes));
+    expect(env.PI_KEEPER_LOG_CHECK_INTERVAL_MS).toBe(String(DEFAULT_KEEPER_LOG.checkIntervalMs));
+  });
+
+  it("values ride ALONGSIDE PI_KEEPER_CAPTURE_PI_OUTPUT (not instead of it)", async () => {
+    seedKeeperLog({ capturePiOutput: true, maxBytes: 65536, checkIntervalMs: 250 });
+    const env = await spawnHeadlessCapturingEnv();
+    expect(env.PI_KEEPER_CAPTURE_PI_OUTPUT).toBe("1");
+    expect(env.PI_KEEPER_LOG_MAX_BYTES).toBe("65536");
+    expect(env.PI_KEEPER_LOG_CHECK_INTERVAL_MS).toBe("250");
+  });
 });

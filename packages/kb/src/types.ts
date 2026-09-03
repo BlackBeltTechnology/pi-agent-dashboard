@@ -17,6 +17,10 @@ export interface Chunk {
   docType: DocType;
   body: string; // section text (breadcrumb is indexed via columns, not prepended)
   bodyHash: string; // sha256 of trimmed body (exact-content dedup)
+  /** Further sections of this file NOT returned by this fetch. Set by a
+   *  path-only `getChunk` so it can never silently truncate a multi-chunk file
+   *  (design D7). Absent/0 = this is the whole story. */
+  suppressedSections?: number;
 }
 
 export interface GraphNode {
@@ -31,6 +35,31 @@ export interface GraphEdge {
   weight?: number;
 }
 
+/** Trust label over a hit's DOX-row subject set (verdict.ts, arm A of
+ *  add-kb-trust-verdicts-and-search-guard). A trust LABEL, never a relevance
+ *  signal — verdicts SHALL NOT reorder results. */
+export type VerdictLabel = "FRESH" | "STALE" | "MOVED" | "GONE" | "UNVERIFIED";
+
+/** Per-label subject counts over the CHECKED set, plus the total number of
+ *  resolvable subjects the section documents — a capped check (SUBJECT_CAP 8)
+ *  is never indistinguishable from a full one. */
+export interface VerdictCounts {
+  fresh: number;
+  stale: number;
+  moved: number;
+  gone: number;
+  unverified: number;
+  checked: number;
+  total: number;
+}
+
+export interface HitVerdict {
+  label: VerdictLabel; // worst-of the checked subjects
+  counts: VerdictCounts;
+  /** Successor paths (cwd-relative) for MOVED subjects, when any. */
+  movedTo?: string[];
+}
+
 export interface KbHit {
   root: string;
   path: string;
@@ -40,7 +69,17 @@ export interface KbHit {
   score: number; // lower = more relevant (BM25 convention)
   snippet: string;
   akaPaths?: string[]; // duplicate copies collapsed by dedup
+  /** Further matching sections of this same source collapsed by source-level
+   *  dedup (design D1). 0 = this source matched exactly once. */
+  suppressedSections?: number;
   parent?: { headingPath: string } | null; // small-to-big parent context (expand.parent); display-only, NOT a refetch key; non-recursive
+  /** Trust verdict over the hit's resolvable DOX-row subjects (verdict.ts).
+   *  null = the hit documents no resolvable subject; absent = enrichment
+   *  disabled. Label-only — ordering is byte-identical with it on or off. */
+  verdict?: HitVerdict | null;
+  /** Opt-in content-coverage score (0..1): share of query terms present in the
+   *  subject files. Default OFF (uncalibrated); separate from the verdict. */
+  coverage?: number;
 }
 
 /** A pluggable reranker: rescoring BM25 top-k. Default = none (no-op). */
@@ -73,6 +112,20 @@ export interface SearchOpts {
   root?: string;
   docType?: DocType;
   dedup?: boolean; // exact-content collapse (default true)
+  sourceDedup?: boolean; // collapse to one hit per (root, path) (default true; design D1)
+  /** Share of the result page reserved for `doc_type='agents'` (0..1). 0 disables
+   *  the lane quota. Ignored when the caller passes an explicit `docType`. */
+  laneQuota?: number;
+  /** Relative score margin (0..1) letting the reserved `agents` lane take slot 1
+   *  when `r0 - m0 <= margin * |m0|` on raw BM25(+proximity) scores. `0` = off
+   *  and byte-identical to the pre-change interleave. Inert without a reserved
+   *  lane (explicit `docType`, or `laneQuota: 0`).
+   *  See change: fix-kb-search-lane-composition. */
+  laneLeadMargin?: number;
+  /** IDF-weighted coverage rerank (design D4). Opt-IN: default OFF, because it
+   *  measured a net regression on the bundled fixtures. Gates PRF expansion. */
+  coverageRerank?: boolean;
+  prf?: { terms?: number; topK?: number; dfCeiling?: number }; // PRF tuning (design D4)
   fieldWeights?: { headingPath: number; heading: number; body: number };
   rootPriority?: Record<string, number>; // root id → priority (higher = preferred on dedup)
   proximityBoost?: boolean; // Tier A: in-order/proximity aux ranker

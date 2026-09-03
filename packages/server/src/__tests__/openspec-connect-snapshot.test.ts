@@ -4,9 +4,10 @@
  *
  * See change: fix-cold-boot-openspec-protocol.
  */
-import { describe, it, expect, vi } from "vitest";
-import { buildOpenSpecConnectSnapshot } from "../pairing/browser-gateway.js";
+
 import type { OpenSpecData } from "@blackbelt-technology/pi-dashboard-shared/types.js";
+import { describe, expect, it, vi } from "vitest";
+import { buildOpenSpecConnectSnapshot } from "../pairing/browser-gateway.js";
 
 function ds(map: Record<string, OpenSpecData | undefined>) {
   return {
@@ -38,6 +39,33 @@ describe("buildOpenSpecConnectSnapshot", () => {
       () => false,
       () => false, // probe disagrees — cached value wins
     );
+    expect(msgs[0].data).toEqual(cached);
+  });
+
+  it("passes through a cached non-initialized payload that carries readiness (add-openspec-init-affordances)", () => {
+    // Finalized ABSENT payload from the poll (with readiness) must reach the
+    // connecting browser VERBATIM — the hand-built no-readiness shapes would
+    // drop every ABSENT client into the legacy gate and lose the Initialize
+    // offer on reload. See change: add-openspec-init-affordances.
+    const cached: OpenSpecData = {
+      initialized: false,
+      changes: [],
+      hasOpenspecDir: false,
+      hasOpenSpecSkills: false,
+      readiness: { state: "ABSENT" },
+    };
+    const msgs = buildOpenSpecConnectSnapshot(ds({ "/p": cached }), () => false);
+    expect(msgs[0].data).toEqual(cached);
+  });
+
+  it("passes through a cached BROKEN payload with readiness verbatim", () => {
+    const cached: OpenSpecData = {
+      initialized: false,
+      changes: [],
+      hasOpenspecDir: true,
+      readiness: { state: "BROKEN", reason: "missing-changes-dir" },
+    };
+    const msgs = buildOpenSpecConnectSnapshot(ds({ "/p": cached }), () => true);
     expect(msgs[0].data).toEqual(cached);
   });
 

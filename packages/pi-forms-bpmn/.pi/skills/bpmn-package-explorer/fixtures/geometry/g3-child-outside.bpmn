@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_g3" isExecutable="false">
+    <bpmn:startEvent id="Start_g3"><bpmn:outgoing>Flow_x</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:subProcess id="Activity_container" name="Container">
+      <bpmn:task id="Activity_child" name="Child"/>
+    </bpmn:subProcess>
+    <bpmn:sequenceFlow id="Flow_x" sourceRef="Start_g3" targetRef="Activity_container"/>
+  </bpmn:process>
+  <bpmndi:BPMNDiagram id="Dia_1"><bpmndi:BPMNPlane id="Plane_1" bpmnElement="Process_g3">
+    <bpmndi:BPMNShape id="Start_g3_di" bpmnElement="Start_g3"><dc:Bounds x="100" y="300" width="36" height="36"/></bpmndi:BPMNShape>
+    <bpmndi:BPMNShape id="Activity_container_di" bpmnElement="Activity_container" isExpanded="true"><dc:Bounds x="200" y="200" width="100" height="80"/></bpmndi:BPMNShape>
+    <bpmndi:BPMNShape id="Activity_child_di" bpmnElement="Activity_child"><dc:Bounds x="500" y="500" width="100" height="80"/></bpmndi:BPMNShape>
+    <bpmndi:BPMNEdge id="Flow_x_di" bpmnElement="Flow_x"><di:waypoint x="136" y="318"/><di:waypoint x="200" y="240"/></bpmndi:BPMNEdge>
+  </bpmndi:BPMNPlane></bpmndi:BPMNDiagram>
+</bpmn:definitions>

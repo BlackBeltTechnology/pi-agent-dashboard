@@ -148,6 +148,14 @@ export interface WorktreeEntry {
   bare: boolean;
   detached: boolean;
   isMain: boolean;
+  /**
+   * Whether the registered directory still exists on disk. Mirror of the
+   * server `WorktreeEntry` (there is no shared declaration). Optional:
+   * consumers MUST treat `undefined` as present.
+   *
+   * See change: manage-worktrees-filter-cleanup.
+   */
+  exists?: boolean;
 }
 
 export interface CreateWorktreeOk {
@@ -233,6 +241,16 @@ export interface WorktreeInitHook {
     | { type: "agent"; prompt: string; model?: string; settings?: unknown };
 }
 
+/**
+ * One entry of the per-artifact setup checklist. Reported for a fixed five-entry
+ * set; exactly one (`settings`) is `required`. See change: add-folder-action-banner.
+ */
+export interface SetupArtifact {
+  id: "settings" | "agents" | "prompts" | "openspec" | "kb";
+  present: boolean;
+  required: boolean;
+}
+
 /** GET /api/git/worktree/init-status result. */
 export interface WorktreeInitStatus {
   hasHook: boolean;
@@ -241,12 +259,24 @@ export interface WorktreeInitStatus {
   /** Present only when hasHook === true. */
   trusted?: boolean;
   /**
-   * Present only when hasHook === false. Distinguishes an unconfigured
-   * directory (`false`, state ① → offer scaffold) from a configured project
-   * with no worktreeInit hook (`true`, state ③ → no button). Absent on the
-   * fail-open path. See change: distinguish-initialize-actions.
+   * @deprecated Transitional. Superseded by `checklist`; consumers SHALL read
+   * the checklist first and consult `configured` only in its absence. Present
+   * only when hasHook === false. Absent on the fail-open path.
+   * See change: distinguish-initialize-actions, add-folder-action-banner.
    */
   configured?: boolean;
+  /**
+   * Per-artifact setup checklist, computed on every response at the config root.
+   * Absent (omitted) on the fail-open path — absence means "unknown", NOT "zero
+   * present". See change: add-folder-action-banner.
+   */
+  checklist?: SetupArtifact[];
+  /**
+   * Templates moved on since the directory was scaffolded. A menu-badge signal
+   * only, never a banner. No server emits it yet (detection is a follow-up);
+   * absent SHALL be treated as "not outdated". See change: add-folder-action-banner.
+   */
+  setupOutdated?: boolean;
 }
 
 /** GET /api/git/worktree/init-status?cwd=<path>. Fail-open: returns hasHook:false on error. */
@@ -465,9 +495,54 @@ async function postLifecycle<T = unknown>(
   };
 }
 
+/**
+ * Outcome of the optional post-removal `git branch -d`. Disjoint from the
+ * removal's own error codes — a refused branch delete is still a 200.
+ */
+type BranchDeleteCode =
+  | "deleted"
+  | "unmerged"
+  | "no_branch"
+  | "branch_gone"
+  | "delete_failed";
+
+export interface RemoveWorktreeOk {
+  removed: true;
+  branchDeleted: boolean;
+  branchDeleteCode?: BranchDeleteCode;
+}
+
 /** POST /api/git/worktree/remove */
-export async function removeWorktree(params: { cwd: string; force?: boolean }): Promise<LifecycleResult<{ removed: true }>> {
+export async function removeWorktree(params: {
+  cwd: string;
+  force?: boolean;
+  deleteBranch?: boolean;
+}): Promise<LifecycleResult<RemoveWorktreeOk>> {
   return postLifecycle("/api/git/worktree/remove", params);
+}
+
+/** One row of a `remove-batch` response, in input order. */
+export interface RemoveBatchItemResult {
+  cwd: string;
+  ok: boolean;
+  code: string;
+  /** Present on `active_sessions` — carry these into the escalation retry. */
+  sessionIds?: string[];
+  branchDeleted?: boolean;
+  branchDeleteCode?: BranchDeleteCode;
+  stderr?: string;
+}
+
+/** POST /api/git/worktree/remove-batch — never aborts on first failure. */
+export async function removeWorktreeBatch(
+  items: Array<{ cwd: string; force?: boolean; deleteBranch?: boolean }>,
+): Promise<LifecycleResult<{ results: RemoveBatchItemResult[] }>> {
+  return postLifecycle("/api/git/worktree/remove-batch", { items });
+}
+
+/** POST /api/git/worktree/prune — repo-global: clears EVERY stale registration. */
+export async function pruneWorktrees(params: { cwd: string }): Promise<LifecycleResult<{ pruned: number }>> {
+  return postLifecycle("/api/git/worktree/prune", params);
 }
 
 /** POST /api/git/worktree/merge */

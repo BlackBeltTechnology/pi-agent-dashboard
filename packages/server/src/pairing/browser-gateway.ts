@@ -10,6 +10,7 @@ import type {
 } from "@blackbelt-technology/pi-dashboard-shared/browser-protocol.js";
 import type { NotifyLogEntry } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { WebSocket, WebSocketServer } from "ws";
+import { getLastBindReachability } from "../auth/bind-reachability-service.js";
 import { type DirectoryService, hasOpenSpecDir, hasOpenSpecRoot } from "../directory-service.js";
 import type { PendingForkRegistry } from "../pending/pending-fork-registry.js";
 import type { EventStore } from "../persistence/memory-event-store.js";
@@ -48,6 +49,13 @@ export function buildOpenSpecConnectSnapshot(
         ? { ...cached, hasOpenspecDir: root }
         : cached;
       out.push({ type: "openspec_update", cwd, data });
+    } else if (cached?.readiness) {
+      // Finalized non-initialized payload from the readiness fold (ABSENT /
+      // BROKEN / OPTED_OUT / GLOBAL_OFF). Pass through VERBATIM — rebuilding a
+      // shape here would drop `readiness` and force the connecting browser
+      // into the legacy gate, losing the ABSENT Initialize offer on every
+      // reload. See change: add-openspec-init-affordances.
+      out.push({ type: "openspec_update", cwd, data: cached });
     } else if (hasDir(cwd)) {
       out.push({
         type: "openspec_update",
@@ -67,14 +75,14 @@ export function buildOpenSpecConnectSnapshot(
 
 import { handleAddFolderToWorkspace, handleCreateWorkspace, handleDeleteWorkspace, handleExtensionUiResponse, handleFavoriteModel, handleMoveFolderToWorkspace, handleOpenSpecBulkArchive, handleOpenSpecRefresh, handlePiGatewayForward, handlePinDirectory, handleRemoveFolderFromWorkspace, handleRenameWorkspace, handleReorderPinnedDirs, handleReorderSessions, handleReorderWorkspaceFolders, handleReorderWorkspaces, handleSetWorkspaceCollapsed, handleUnfavoriteModel, handleUnpinDirectory } from "../browser-handlers/directory-handler.js";
 import type { BrowserHandlerContext } from "../browser-handlers/handler-context.js";
-import { handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handleRemoveFollowupEntry, handleResumeSession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
+import { handleAbort, handleClearFollowupEntries, handleEditFollowupEntry, handleFlowControl, handleForceKill, handleKillProcess, handlePromoteFollowupEntry, handleRemoveFollowupEntry, handleResumeSession, handleRetrySession, handleSendPrompt, handleShutdown, handleSpawnSession, handleStopAfterTurn, handleSubagentResyncRequest, shutdownSession as shutdownSessionImpl } from "../browser-handlers/session-action-handler.js";
 import { handleAcceptReplaceProposal, handleAttachProposal, handleDetachProposal, handleDismissReplaceProposal, handleFetchContent, handleHideSession, handleListSessions, handleRemoveTagGlobally, handleRenameSession, handleSetSessionDisplayPrefs, handleSetSessionProcessDrawer, handleSetSessionTags, handleUnhideSession } from "../browser-handlers/session-meta-handler.js";
-import { handleSubscribe } from "../browser-handlers/subscription-handler.js";
-import { ibDomainEventCache } from "../ib-domain-event-cache.js";
+import { clearGapState, handleHistoryBackfill, handleSubscribe } from "../browser-handlers/subscription-handler.js";
 import { handleCloseInlineTerminal, handleCreateTerminal, handleKillTerminal, handleOpenInlineTerminal, handleRenameTerminal } from "../browser-handlers/terminal-handler.js";
 import { createPendingResumeRegistry, type PendingResumeRegistry } from "../pending/pending-resume-registry.js";
 import { createViewedSessionTracker, type ViewedSessionTracker } from "../session/viewed-session-tracker.js";
 import type { TerminalManager } from "../terminal/terminal-manager.js";
+import { ResyncRequesterRegistry, resyncRequestIdOf } from "./subagent-resync-routing.js";
 
 
 
@@ -260,10 +268,12 @@ export function createBrowserGateway(
   /** Display-fit pool, so session hydration fits inline images like the live
    *  path does. See change: fit-attachments-for-display (test-plan #E9). */
   fitWorkerPool?: import("../attachments/fit-worker-pool.js").FitWorkerPool,
-  /** Resolve the env map a plugin registered for a session resume (e.g. the
-   *  invoicebot scoped-session profile env), re-applied on continue-spawn.
-   *  See change: make-invoice-session-canonical (§5.4). */
-  resumeSpawnEnv?: (sessionId: string) => Record<string, string> | undefined,
+  /** Max events replayed on a FULL-stream subscribe (0 = unlimited).
+   *  See change: lazy-load-session-history (D1). */
+  maxReplayEvents?: number,
+  /** Shape of the replay window when one applies. Absent → `head-tail`.
+   *  See change: add-tail-only-replay-window (D1). */
+  replayWindowMode?: import("@blackbelt-technology/pi-dashboard-shared/memory-limits.js").ReplayWindowMode,
 ): BrowserGateway {
   const wss = new WebSocketServer({ noServer: true });
 
@@ -300,6 +310,8 @@ export function createBrowserGateway(
   // Track which browser is viewing which session (for unread state machine).
   // See change: session-card-unread-stripes.
   const viewedSessionTracker = createViewedSessionTracker();
+  /** requestId → the browser awaiting that subagent-resync reply (C5). */
+  const resyncRequesters = new ResyncRequesterRegistry<WebSocket>();
 
   // Track pending interactive UI requests per session for replay on reconnect
   const pendingUiRequests = new Map<string, Map<string, { requestId: string; method: string; params: Record<string, unknown> }>>();
@@ -567,12 +579,33 @@ export function createBrowserGateway(
       }
     }
 
+    // Replay the current bind-vs-trust reachability so a browser that was
+    // disconnected while `pendingBindHost` changed converges on connect rather
+    // than showing a stale advisory until the next reload (#X6).
+    // See change: warn-unreachable-trusted-networks.
+    {
+      const reachability = getLastBindReachability();
+      if (reachability) sendTo(ws, { type: "reachability_updated", reachability });
+    }
+
     // Send OpenSpec data for every known directory — exactly one
     // `openspec_update` per cwd, never silently omit.
     // See change: fix-cold-boot-openspec-protocol.
     if (directoryService) {
       for (const msg of buildOpenSpecConnectSnapshot(directoryService, hasOpenSpecDir, hasOpenSpecRoot)) {
         sendTo(ws, msg);
+      }
+      // Replay the cached folder-HEAD map to THIS socket only. `git_head_update`
+      // is broadcast on first-seen-or-change, so a browser connecting after the
+      // server cached a folder would otherwise never learn its HEAD. Unicast
+      // replay of already-computed state — no git read, no diff, no fan-out.
+      // `typeof` guard: hand-built `DirectoryService` fakes lack the accessor
+      // (precedent: `preferencesStore.getDisplayPrefs` above).
+      // See change: fix-folder-header-worktree-branch-leak.
+      if (typeof directoryService.folderHeadSnapshot === "function") {
+        for (const { cwd, branch } of directoryService.folderHeadSnapshot()) {
+          sendTo(ws, { type: "git_head_update", cwd, branch });
+        }
       }
     }
 
@@ -581,25 +614,6 @@ export function createBrowserGateway(
       for (const terminal of terminalManager.list()) {
         sendTo(ws, { type: "terminal_added", terminal });
       }
-    }
-
-    // Replay the latest cached InvoiceBot domain event per invoice so a board
-    // surface that connects/mounts AFTER a live delta converges on current
-    // truth instead of waiting for the next accidental delta. Marked
-    // `replay: true` so consumers apply it as an idempotent state-set and never
-    // double-apply it. See change: replay-invoice-domain-events.
-    for (const frame of ibDomainEventCache.getAll()) {
-      sendTo(ws, { ...frame, replay: true });
-    }
-
-    // Replay the ordered greeting stream (exempt from latest-per-key
-    // convergence) IN EMISSION ORDER so a mounting/reconnecting browser gets the
-    // full chronological greeting stream, not a single collapsed newest frame.
-    // Each frame carries its stable id + ordering key so the consumer folds it
-    // into chat rows chronologically and dedupes across live+replay.
-    // See change: restore-assistant-greeting-stream.
-    for (const g of ibDomainEventCache.getGreetingsForConnect()) {
-      sendTo(ws, { ...g.frame, replay: true, greetingId: g.id, greetingOrder: g.order });
     }
 
     // Notify server of new connection (for mDNS peer list etc.)
@@ -624,15 +638,18 @@ export function createBrowserGateway(
           pendingForkRegistry, sessionOrderManager, preferencesStore,
           metaPersistence,
           fitWorkerPool,
+          maxReplayEvents,
+          replayWindowMode,
           directoryService, terminalManager,
           headlessPidRegistry, pendingResumeRegistry, pendingDashboardSpawns,
-          resumeSpawnEnv,
           pendingAttachRegistry,
           pendingInitialPromptRegistry,
           pendingResumeIntents,
           pendingClientCorrelations,
           pendingWorktreeBaseRegistry,
           isRecoveryLivenessPending: gateway.isRecoveryLivenessPending,
+          recordResyncRequester: (requestId, requesterWs) =>
+            resyncRequesters.record(requestId, requesterWs),
           sendTo, broadcast, getSubscribers, replayPendingUiRequests, replayNotifyLog,
           broadcastEvent: gateway.broadcastEvent,
           trackUiRequest: trackUiRequest,
@@ -666,8 +683,15 @@ export function createBrowserGateway(
           case "subscribe":
             handleSubscribe(msg, subs, ctx);
             break;
+          // Backfill for the gap left by a windowed replay. Serves the
+          // in-memory store only; `clearReplaying` catch-up is untouched.
+          // See change: lazy-load-session-history.
+          case "history_backfill":
+            await handleHistoryBackfill(msg, subs, ctx);
+            break;
           case "unsubscribe":
             subs.delete(msg.sessionId);
+            clearGapState(ws, msg.sessionId);
             // Cancel an in-flight hydration once the last subscriber leaves,
             // so clicking session A then B doesn't waste A's parse+replay and
             // deliver an event_replay to a now-unsubscribed ws. Guarded by the
@@ -682,6 +706,19 @@ export function createBrowserGateway(
             break;
           case "abort":
             handleAbort(msg, ctx);
+            break;
+          // First-class settled-error retry. MUST be an explicit case: the
+          // default forwarder drops unknown types, so a bare union addition
+          // would let the server silently swallow the message. See change:
+          // replace-dashboard-retry-command-with-protocol-message.
+          case "retry_session":
+            // Validate the wire input before dispatch (JSON.parse does not check
+            // the discriminated union at runtime), mirroring the adjacent
+            // stop_after_turn guard. A malformed payload is ignored rather than
+            // driving a negative-ack with a bogus sessionId.
+            if (typeof msg.sessionId === "string" && msg.sessionId.length > 0) {
+              handleRetrySession(msg, ctx);
+            }
             break;
           case "stop_after_turn":
             if (typeof msg.sessionId === "string" && msg.sessionId.length > 0) {
@@ -1025,6 +1062,9 @@ export function createBrowserGateway(
       console.error(`[browser-gw] browser client disconnected (remaining: ${subscriptions.size - 1})`);
       subscriptions.delete(ws);
       replayingSessions.delete(ws);
+      // A disconnected requester can never receive its reply; drop its tokens
+      // so the map cannot accumulate them. See change: reduce-subagent-details-payload.
+      resyncRequesters.forget(ws);
       // Drop this ws from every viewed-session entry so disconnected browsers
       // don't hold sessions in the viewed state. See change: session-card-unread-stripes.
       viewedSessionTracker.unviewAll(ws);
@@ -1076,6 +1116,21 @@ export function createBrowserGateway(
         seq,
         event,
       };
+      // Requester-scoped resync delivery (C5): a reply carrying a known
+      // correlation token goes to the ONE connection that asked, so a cadence
+      // of fat replies is not multiplied by the number of viewers. An unknown
+      // or expired token falls through to the ordinary fan-out below.
+      // See change: reduce-subagent-details-payload.
+      const requestId = resyncRequestIdOf(event?.data as Record<string, unknown> | undefined);
+      if (requestId) {
+        const requester = resyncRequesters.take(requestId);
+        if (requester && subscribers.includes(requester)) {
+          if (!replayingSessions.get(requester)?.has(sessionId)) {
+            sendTo(requester, msg, { sessionId, seq });
+          }
+          return;
+        }
+      }
       for (const ws of subscribers) {
         // Skip WebSockets that are mid-replay for this session
         const replaying = replayingSessions.get(ws);

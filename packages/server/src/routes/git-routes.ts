@@ -3,12 +3,10 @@
  */
 
 import fs from "node:fs";
-import { join } from "node:path";
+import { join, resolve as pathResolve } from "node:path";
 import { getDefaultRegistry } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
 import type { ApiResponse } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import type { FastifyInstance } from "fastify";
-import { activeSessionsUnder, sessionsUnder } from "../session/active-sessions-in-cwd.js";
-import type { BrowserGateway } from "../pairing/browser-gateway.js";
 import {
   addWorktree,
   addWorktreeFromPr,
@@ -25,19 +23,23 @@ import {
   listWorktrees,
   mergeWorktree,
   orphanCleanup,
+  pruneWorktrees,
   pushBranch,
   readHead,
   removeWorktree,
   resolveConfigRoot,
+  resolveMainPath,
   stashPop,
   worktreeDiffStat,
 } from "../git-worktree/git-operations.js";
-import type { SessionManager } from "../session/memory-session-manager.js";
-import { safeRealpathSync } from "../resolve-path.js";
 import { evaluateGate, type GateResult, hookDefHash, type InitProgress, readInitHook, runInitHook, type WorktreeInitHook } from "../git-worktree/worktree-init.js";
 import { mapInitStderrToHint } from "../git-worktree/worktree-init-errors.js";
 import type { WorktreeInitRegistry } from "../git-worktree/worktree-init-registry.js";
 import { isTrusted, recordTrust } from "../git-worktree/worktree-init-trust.js";
+import type { BrowserGateway } from "../pairing/browser-gateway.js";
+import { safeRealpathSync } from "../resolve-path.js";
+import { activeSessionsUnder, sessionsUnder } from "../session/active-sessions-in-cwd.js";
+import type { SessionManager } from "../session/memory-session-manager.js";
 import type { NetworkGuard } from "./route-deps.js";
 
 export interface GitRoutesDeps {
@@ -70,6 +72,42 @@ export interface GitRoutesDeps {
 const GATE_CACHE_TTL_MS = 30 * 1000;
 const gateCache = new Map<string, { needsInit: boolean; evaluatedAt: number }>();
 function invalidateGateCache(checkoutPath: string) { gateCache.delete(checkoutPath); }
+
+/**
+ * Per-artifact setup checklist for the init-status probe (change:
+ * add-folder-action-banner, D5). A `stat` of a fixed five-entry list resolved at
+ * the CONFIG ROOT (for a worktree row that is the main checkout, not the row's
+ * own cwd — matching the legacy `configured` computation). Exactly one entry,
+ * `settings`, is required; its absence is the only state that means "not a pi
+ * project". Computed on EVERY response (D-B) and deliberately UNCACHED: the gate
+ * cache never covers a no-hook directory (the only kind that banners), and a
+ * dedicated cache would need a "project-init session completed" invalidation the
+ * session manager emits no event for. Five `existsSync` calls are cheap.
+ */
+const SETUP_ARTIFACTS = [
+  { id: "settings", rel: [".pi", "settings.json"], required: true },
+  { id: "agents", rel: ["AGENTS.md"], required: false },
+  { id: "prompts", rel: [".pi", "prompts"], required: false },
+  { id: "openspec", rel: ["openspec"], required: false },
+  { id: "kb", rel: [".pi", "dashboard", "knowledge_base.json"], required: false },
+] as const;
+interface SetupArtifact { id: string; present: boolean; required: boolean; }
+/**
+ * Returns the checklist, or `undefined` to fail open (probe threw). A `null`
+ * config root is a valid answer — "nothing here" — not an error, so it reports
+ * every artifact absent rather than omitting the field.
+ */
+function buildSetupChecklist(configRoot: string | null): SetupArtifact[] | undefined {
+  try {
+    return SETUP_ARTIFACTS.map((a) => ({
+      id: a.id,
+      present: configRoot != null && fs.existsSync(join(configRoot, ...a.rel)),
+      required: a.required,
+    }));
+  } catch {
+    return undefined;
+  }
+}
 
 /**
  * Last non-empty line of the progress tail, for the ghost preview. The tail is
@@ -351,27 +389,33 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
       // `.pi/settings.json` resolves to itself so its declared hook is read.
       // See change: support-non-git-init-hook.
       const configRoot = resolveConfigRoot(validated.cwd);
+      // Per-artifact checklist (change: add-folder-action-banner). Computed on
+      // every branch; `undefined` (probe threw) omits the field to fail open.
+      const checklist = buildSetupChecklist(configRoot);
+      const withChecklist = <T extends object>(data: T) =>
+        checklist === undefined ? data : { ...data, checklist };
       if (!configRoot) {
         // State ①: no reachable config root at all — truly unconfigured.
-        return { success: true, data: { hasHook: false, configured: false } } satisfies ApiResponse;
+        return { success: true, data: withChecklist({ hasHook: false, configured: false }) } satisfies ApiResponse;
       }
       const hook = readInitHook(configRoot);
       if (!hook) {
         // No worktreeInit hook. Distinguish state ① (git repo, no
         // `.pi/settings.json`) from state ③ (configured project, no hook).
-        // See change: distinguish-initialize-actions.
+        // `configured` is retained (deprecated) alongside the checklist for the
+        // transitional window. See change: distinguish-initialize-actions.
         const configured = fs.existsSync(join(configRoot, ".pi", "settings.json"));
-        return { success: true, data: { hasHook: false, configured } } satisfies ApiResponse;
+        return { success: true, data: withChecklist({ hasHook: false, configured }) } satisfies ApiResponse;
       }
       const trusted = isTrusted(configRoot, hookDefHash(hook));
       // TOFU: do NOT execute the repo-declared `gate` (arbitrary bash) until the
       // hook is trusted. An untrusted hook reports presence only; `needsInit` is
       // unknown until the user confirms. See change: generalize-worktree-init-hook.
       if (!trusted) {
-        return { success: true, data: { hasHook: true, trusted: false } } satisfies ApiResponse;
+        return { success: true, data: withChecklist({ hasHook: true, trusted: false }) } satisfies ApiResponse;
       }
       const gate = await evaluateGateCached(validated.cwd, hook);
-      return { success: true, data: { hasHook: true, needsInit: gate.needsInit, trusted: true } } satisfies ApiResponse;
+      return { success: true, data: withChecklist({ hasHook: true, needsInit: gate.needsInit, trusted: true }) } satisfies ApiResponse;
     },
   );
 
@@ -592,7 +636,25 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
   // ── Worktree lifecycle endpoints (remove / merge / push / pr / diff-stat) ──────────────────
   // See change: add-worktree-lifecycle-actions.
 
-  fastify.post<{ Body: { cwd?: string; force?: boolean } }>(
+  /** True when `cwd` resolves to the repo's OWN main worktree (not removable). */
+  function isMainWorktree(cwd: string): boolean {
+    const mainPath = resolveMainPath(cwd);
+    return mainPath != null && pathResolve(mainPath) === pathResolve(cwd);
+  }
+
+  /**
+   * Optimistic stamp: every session under a removed path gets `cwdMissing: true`
+   * plus a `sessionUpdated` broadcast. Shared by the single + batch endpoints.
+   */
+  function stampCwdMissing(cwd: string): void {
+    if (!sessionManager || !browserGateway) return;
+    for (const id of sessionsUnder(cwd, sessionManager.listAll())) {
+      sessionManager.update(id, { cwdMissing: true });
+      browserGateway.broadcastSessionUpdated(id, { cwdMissing: true });
+    }
+  }
+
+  fastify.post<{ Body: { cwd?: string; force?: boolean; deleteBranch?: boolean } }>(
     "/api/git/worktree/remove",
     { preHandler: networkGuard },
     async (request, reply) => {
@@ -602,7 +664,17 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
         reply.code(400);
         return { success: false, code: validated.code, error: validated.message } satisfies ApiResponse;
       }
+      // Removing the main worktree is a clean rejection, not a 500 from git.
+      if (isMainWorktree(validated.cwd)) {
+        reply.code(400);
+        return {
+          success: false,
+          code: "is_main_worktree",
+          error: "is_main_worktree",
+        } satisfies ApiResponse;
+      }
       const force = body.force === true;
+      const deleteBranch = body.deleteBranch === true;
       if (sessionManager) {
         const activeIds = activeSessionsUnder(validated.cwd, sessionManager.listAll());
         if (activeIds.length > 0 && !force) {
@@ -615,7 +687,7 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
           } satisfies ApiResponse;
         }
       }
-      const result = removeWorktree({ cwd: validated.cwd, force });
+      const result = removeWorktree({ cwd: validated.cwd, force, deleteBranch });
       // Trace every call so failed clicks leave a breadcrumb in
       // ~/.pi/dashboard/server.log (the request itself is not
       // otherwise logged by fastify in default config).
@@ -638,15 +710,77 @@ export function registerGitRoutes(fastify: FastifyInstance, deps: GitRoutesDeps)
           ...(result.stderr ? { stderr: result.stderr } : {}),
         } satisfies ApiResponse;
       }
-      // Optimistic stamp: every session under the removed path gets cwdMissing: true.
-      if (sessionManager && browserGateway) {
-        const ids = sessionsUnder(validated.cwd, sessionManager.listAll());
-        for (const id of ids) {
-          sessionManager.update(id, { cwdMissing: true });
-          browserGateway.broadcastSessionUpdated(id, { cwdMissing: true });
-        }
+      stampCwdMissing(validated.cwd);
+      return { success: true, data: result.data } satisfies ApiResponse;
+    },
+  );
+
+  // ── Batch removal + prune (change: manage-worktrees-filter-cleanup) ──
+
+  /** Max items per `remove-batch`; `removeWorktree` is execSync-blocking. */
+  const REMOVE_BATCH_CAP = 50;
+
+  fastify.post<{ Body: { items?: Array<{ cwd?: string; force?: boolean; deleteBranch?: boolean }> } }>(
+    "/api/git/worktree/remove-batch",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const items = (request.body ?? {}).items;
+      if (!Array.isArray(items)) {
+        reply.code(400);
+        return { success: false, code: "items_invalid", error: "items must be an array" } satisfies ApiResponse;
       }
-      return { success: true, data: { removed: true } } satisfies ApiResponse;
+      if (items.length > REMOVE_BATCH_CAP) {
+        reply.code(400);
+        return {
+          success: false,
+          code: "batch_too_large",
+          error: `at most ${REMOVE_BATCH_CAP} items per batch`,
+        } satisfies ApiResponse;
+      }
+      // Per-item containment + removal; never abort on first failure (design D4).
+      const results = items.map((item) => {
+        const validated = validateCwd(item?.cwd);
+        if (!validated.ok) return { cwd: item?.cwd ?? "", ok: false, code: "cwd_invalid" };
+        if (isMainWorktree(validated.cwd)) {
+          return { cwd: validated.cwd, ok: false, code: "is_main_worktree" };
+        }
+        const force = item.force === true;
+        if (sessionManager) {
+          const activeIds = activeSessionsUnder(validated.cwd, sessionManager.listAll());
+          if (activeIds.length > 0 && !force) {
+            return { cwd: validated.cwd, ok: false, code: "active_sessions", sessionIds: activeIds };
+          }
+        }
+        const result = removeWorktree({
+          cwd: validated.cwd,
+          force,
+          deleteBranch: item.deleteBranch === true,
+        });
+        if (!result.ok) {
+          return { cwd: validated.cwd, ok: false, code: result.code, ...(result.stderr ? { stderr: result.stderr } : {}) };
+        }
+        stampCwdMissing(validated.cwd);
+        return { cwd: validated.cwd, ok: true, code: "ok", ...result.data };
+      });
+      return { success: true, data: { results } } satisfies ApiResponse;
+    },
+  );
+
+  fastify.post<{ Body: { cwd?: string } }>(
+    "/api/git/worktree/prune",
+    { preHandler: networkGuard },
+    async (request, reply) => {
+      const validated = validateCwd((request.body ?? {}).cwd);
+      if (!validated.ok) {
+        reply.code(400);
+        return { success: false, code: validated.code, error: validated.message } satisfies ApiResponse;
+      }
+      const result = pruneWorktrees(validated.cwd);
+      if (!result.ok) {
+        reply.code(result.code === "not_a_worktree" ? 400 : 500);
+        return { success: false, code: result.code, error: result.code } satisfies ApiResponse;
+      }
+      return { success: true, data: result.data } satisfies ApiResponse;
     },
   );
 

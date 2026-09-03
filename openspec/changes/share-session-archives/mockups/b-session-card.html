@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>B · Session card provenance — share-session-archives</title>
+<link rel="stylesheet" href="tokens.css">
+<link rel="stylesheet" href="app.css">
+<script src="nav.js"></script>
+<style>
+  /* card internals modelled on the shipped SessionCard density */
+  .sc { padding: 12px 14px; }
+  .sc-head { display: flex; align-items: flex-start; gap: 8px; }
+  .sc-dot { position: relative; flex: none; width: 10px; height: 10px; border-radius: 999px; margin-top: 3px; }
+  .sc-shape {
+    position: absolute; right: -4px; bottom: -4px; font-size: 8px; line-height: 1;
+    color: var(--text-primary); background: var(--bg-tertiary); border-radius: 999px; padding: 1px;
+  }
+  .sc-title { font-size: 13px; font-weight: 600; line-height: 1.35; }
+  .sc-meta { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+  .sc-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }   /* within-group */
+  .sc-actions { display: flex; gap: 6px; margin-top: 12px; }                 /* between-group */
+</style>
+</head>
+<body>
+<div class="shell">
+  <div data-chrome data-title="Session card provenance" data-sub="Imported badge, origin alias, substitution, non-resumable · F1, F2, F3, F6"></div>
+
+  <div class="stack-loose">
+
+    <!-- 1. LOCAL — the common case pays nothing -->
+    <div>
+      <h3 class="h-sec">Local session — no provenance chrome at all</h3>
+      <div class="card sc">
+        <div class="sc-head">
+          <span class="sc-dot" style="background:var(--status-idle)" aria-hidden="true"></span>
+          <div style="flex:1">
+            <div class="sc-title">Fix the bridge reconnect race in session-bootstrap</div>
+            <div class="sc-meta">pi-agent-dashboard · claude-opus-4-8 · 41k / 1M</div>
+          </div>
+          <span class="chip chip-neutral">idle</span>
+        </div>
+      </div>
+      <div class="note">
+        A “Local” badge on every card would tax the common case to serve the rare one
+        (<b>H8, minimalist design</b>). Absence is the signal.
+      </div>
+    </div>
+
+    <!-- 2. IMPORTED -->
+    <div>
+      <h3 class="h-sec">Imported session</h3>
+      <div class="card sc">
+        <div class="sc-head">
+          <span class="sc-dot" style="background:var(--status-idle)" aria-hidden="true">
+            <span class="sc-shape" aria-hidden="true">▼</span>
+          </span>
+          <div style="flex:1">
+            <div class="sc-title">Trace why spawn_register_timeout fires on a cold boot</div>
+            <div class="sc-meta">pi-agent-dashboard · claude-opus-4-8 · 128k / 1M</div>
+            <div class="sc-chips">
+              <span class="chip chip-info">
+                <span class="glyph" aria-hidden="true">▼</span> Imported from studio-mini
+              </span>
+            </div>
+          </div>
+          <span class="chip chip-neutral">idle</span>
+        </div>
+      </div>
+      <div class="note">
+        Shape <b>▼</b> + text, never colour alone (<b>WCAG 1.4.1</b>), reusing the house
+        <code style="font-family:var(--mono)">StatusShapeBadge</code> pattern rather than a new visual language
+        (<b>Jakob’s Law</b>). The holder is named by <b>display alias</b> — the transport spec forbids hostnames in the index.
+      </div>
+    </div>
+
+    <!-- 3. MODEL SUBSTITUTED -->
+    <div>
+      <h3 class="h-sec">Imported + model substituted</h3>
+      <div class="card sc">
+        <div class="sc-head">
+          <span class="sc-dot" style="background:var(--status-working)" aria-hidden="true">
+            <span class="sc-shape" aria-hidden="true">▼</span>
+          </span>
+          <div style="flex:1">
+            <div class="sc-title">Rework the attachment fit worker pool fallback</div>
+            <div class="sc-meta">pi-agent-dashboard · <b style="color:var(--severity-warning-fg)">claude-sonnet-4-5</b> · 88k / 200k</div>
+            <div class="sc-chips">
+              <span class="chip chip-info"><span class="glyph" aria-hidden="true">▼</span> Imported from studio-mini</span>
+              <span class="chip chip-warning" title="Recorded model was not available on this machine">
+                <span class="glyph" aria-hidden="true">◆</span> Model changed · opus-4-8 → sonnet-4-5
+              </span>
+            </div>
+          </div>
+          <span class="chip chip-neutral">working</span>
+        </div>
+      </div>
+      <div class="note">
+        The substitution is disclosed <b>on the card</b>, not only in the dialog that caused it —
+        the consequence outlives the dialog (<b>H1, visibility of system status</b>).
+      </div>
+    </div>
+
+    <!-- 4. NON-RESUMABLE -->
+    <div>
+      <h3 class="h-sec">Imported but not resumable here</h3>
+      <div class="card sc">
+        <div class="sc-head">
+          <span class="sc-dot" style="background: var(--text-tertiary)" aria-hidden="true">
+            <span class="sc-shape" aria-hidden="true">▼</span>
+          </span>
+          <div style="flex:1">
+            <div class="sc-title">Bisect the flaky reconnect spec in tests/e2e</div>
+            <div class="sc-meta">pi-agent-dashboard · claude-opus-4-8 · 33k / 1M</div>
+            <div class="sc-chips">
+              <span class="chip chip-info"><span class="glyph" aria-hidden="true">▼</span> Imported from studio-mini</span>
+              <span class="chip chip-neutral"><span class="glyph" aria-hidden="true">▪</span> Read-only here</span>
+            </div>
+            <div class="callout callout-warning" style="margin-top:10px">
+              <span class="glyph" aria-hidden="true">◆</span>
+              <div>
+                <strong>Can’t resume: the worktree this session ran in doesn’t exist here</strong>
+                <span class="body">
+                  Recorded cwd <code style="font-family:var(--mono)">.worktrees/flaky-reconnect</code> is missing under your project root.
+                  Create that worktree to resume, or open the transcript read-only.
+                </span>
+              </div>
+            </div>
+            <div class="sc-actions">
+              <button class="btn btn-sm" type="button">Open read-only</button>
+              <button class="btn btn-sm btn-quiet" type="button" disabled>Resume</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="note">
+        A greyed-out button with no explanation is a dead end. This states the cause
+        <i>and</i> the fix (<b>H9</b>) and keeps a forward path (<b>H3, user control</b>).
+      </div>
+    </div>
+
+    <!-- 5. CLAIMED ELSEWHERE -->
+    <div>
+      <h3 class="h-sec">Held by another machine</h3>
+      <div class="card sc">
+        <div class="sc-head">
+          <span class="sc-dot" style="background:var(--status-notice)" aria-hidden="true">
+            <span class="sc-shape" aria-hidden="true">▮</span>
+          </span>
+          <div style="flex:1">
+            <div class="sc-title">Draft the archive threat model section</div>
+            <div class="sc-meta">pi-agent-dashboard · claude-opus-4-8 · 12k / 1M</div>
+            <div class="sc-chips">
+              <span class="chip chip-info"><span class="glyph" aria-hidden="true">▼</span> Imported from studio-mini</span>
+              <span class="chip"><span class="glyph" aria-hidden="true">▮</span> studio-mini is working on this</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="note">See surface F for the full refusal and handover path.</div>
+    </div>
+
+  </div>
+</div>
+</body>
+</html>

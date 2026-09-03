@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL" xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI" xmlns:dc="http://www.omg.org/spec/DD/20100524/DC" xmlns:di="http://www.omg.org/spec/DD/20100524/DI" id="Definitions_1" targetNamespace="http://bpmn.io/schema/bpmn">
+  <bpmn:process id="Process_ithrow" isExecutable="false">
+    <bpmn:startEvent id="Start_it" name="Start"><bpmn:outgoing>Flow_1</bpmn:outgoing></bpmn:startEvent>
+    <bpmn:intermediateThrowEvent id="ThrowEvent_signal" name="Signal"><bpmn:incoming>Flow_1</bpmn:incoming><bpmn:outgoing>Flow_2</bpmn:outgoing></bpmn:intermediateThrowEvent>
+    <bpmn:endEvent id="End_it" name="End"><bpmn:incoming>Flow_2</bpmn:incoming></bpmn:endEvent>
+    <bpmn:sequenceFlow id="Flow_1" sourceRef="Start_it" targetRef="ThrowEvent_signal"/>
+    <bpmn:sequenceFlow id="Flow_2" sourceRef="ThrowEvent_signal" targetRef="End_it"/>
+  </bpmn:process>
+</bpmn:definitions>

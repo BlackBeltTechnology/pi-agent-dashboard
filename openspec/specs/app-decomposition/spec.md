@@ -1,4 +1,10 @@
-## ADDED Requirements
+# app-decomposition Specification
+
+## Purpose
+
+Keeps the dashboard client's root `App` component tractable by extracting its state, message handling, session actions, OpenSpec actions, content views, session detail view, and layout into dedicated hooks and components. Defines what each extracted unit owns so behaviour stays identical while the root component stops accreting responsibilities, and pins the reconnect path's ordering so a session-registry reset cannot race the incoming snapshot.
+
+## Requirements
 
 ### Requirement: App state hook extraction
 App.tsx SHALL delegate all useState and useRef declarations to a `useAppState` hook that returns a typed state object and setter functions.
@@ -52,8 +58,6 @@ App.tsx SHALL delegate desktop and mobile layout rendering to `DesktopLayout` an
 #### Scenario: Mobile layout renders MobileShell
 - **WHEN** viewport is mobile
 - **THEN** MobileLayout renders MobileShell with list panel and detail panel with correct depth and back navigation
-
-## ADDED Requirements
 
 ### Requirement: Reconnect handler defers session-registry reset to snapshot
 

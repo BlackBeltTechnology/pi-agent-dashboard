@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>keysync — mockups</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="tokens.css" />
+<script src="theme-init.js"></script>
+<style>
+  .card { background: var(--bg-tertiary); border: 1px solid var(--border-subtle); border-radius: 0.75rem; }
+  .card:hover { background: var(--bg-hover); }
+</style>
+</head>
+<body class="min-h-screen" style="background:var(--bg-primary)">
+<div class="max-w-3xl mx-auto p-6 sm:p-10">
+  <header class="flex items-center justify-between mb-8 gap-4">
+    <div>
+      <h1 class="text-xl font-semibold" style="color:var(--text-primary)">keysync — OAuth key sharing</h1>
+      <p class="text-sm mt-1" style="color:var(--text-tertiary)">UX mockup pass — openspec/changes/add-oauth-key-sync-service</p>
+    </div>
+    <button onclick="document.documentElement.dataset.theme = document.documentElement.dataset.theme==='light' ? '' : 'light'" class="px-3 py-1.5 rounded border text-sm shrink-0" style="border-color:var(--border-primary); color:var(--text-secondary)">Toggle theme</button>
+  </header>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <a href="provider-accounts.html" class="card p-4 block">
+      <div class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Provider accounts</div>
+      <div class="text-xs" style="color:var(--text-tertiary)">The main surface — pool, primary, share toggle, health, unshare confirmation, switch notice</div>
+    </a>
+    <a href="add-account.html" class="card p-4 block">
+      <div class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Add another account</div>
+      <div class="text-xs" style="color:var(--text-tertiary)">5 states — idle, waiting, added, already enrolled, failed</div>
+    </a>
+    <a href="pool-admin.html" class="card p-4 block">
+      <div class="text-sm font-semibold mb-1" style="color:var(--text-primary)">Key keeper (admin)</div>
+      <div class="text-xs" style="color:var(--text-tertiary)">Members, key revoke, pool health, audit record</div>
+    </a>
+    <a href="ui-plan.md" class="card p-4 block">
+      <div class="text-sm font-semibold mb-1" style="color:var(--text-primary)">ui-plan.md</div>
+      <div class="text-xs" style="color:var(--text-tertiary)">The UX rules behind each decision, and what was deliberately rejected</div>
+    </a>
+  </div>
+
+  <div class="card p-4 mt-6">
+    <div class="text-sm font-semibold mb-2" style="color:var(--text-primary)">The one idea to get right</div>
+    <p class="text-xs leading-relaxed" style="color:var(--text-secondary)">
+      Three things look similar and are not: <b>serving now</b> is derived and changes by itself;
+      <b>primary</b> is your preference and holds one value per provider; <b>shared</b> is a lending decision
+      that affects other people. Rendering all three as checkboxes would be the single biggest failure available
+      here — so each gets a different control shape.
+    </p>
+    <p class="text-xs leading-relaxed mt-2" style="color:var(--text-tertiary)">
+      Architecture note: sign-ins live on the keysync server and never reach a member's machine, so these
+      screens manage a <em>remote</em> pool. Nothing here writes a credential locally.
+    </p>
+  </div>
+
+  <footer class="mt-8 text-xs" style="color:var(--text-muted)">
+    Tokens lifted verbatim from <code>packages/client/src/index.css</code> (<code>tokens.css</code>).
+    Dark default; <code>?theme=light</code> or the toggle for light.
+  </footer>
+</div>
+</body>
+</html>

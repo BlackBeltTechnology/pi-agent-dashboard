@@ -68,7 +68,7 @@ function batchAnswerNode(answer: unknown): React.ReactNode {
 
 function AskUserBatchRenderer({ args, result, toolDetails }: ToolRendererProps) {
   const title = (args?.title as string) ?? "Questions";
-  const questions = (Array.isArray(args?.questions) ? (args?.questions as BatchSubQuestion[]) : []).filter(Boolean);
+  const questions = (Array.isArray(args?.questions) ? (args.questions as BatchSubQuestion[]) : []).filter(Boolean);
   const results = Array.isArray(toolDetails?.results) ? (toolDetails!.results as unknown[]) : undefined;
   const cancelled = toolDetails?.cancelled === true || /cancelled batch/i.test(result ?? "");
 
@@ -217,8 +217,8 @@ export function AskUserToolRenderer(props: ToolRendererProps) {
       {/* Error output */}
       {isError && result && (
         <div className="flex items-start gap-1.5 text-xs">
-          <Icon path={mdiAlertCircle} size={0.45} className="text-red-400 shrink-0 mt-0.5" />
-          <pre className="whitespace-pre-wrap text-red-400/80">{result}</pre>
+          <Icon path={mdiAlertCircle} size={0.45} className="text-[var(--severity-error-fg)] shrink-0 mt-0.5" />
+          <pre className="whitespace-pre-wrap text-[var(--text-secondary)]">{result}</pre>
         </div>
       )}
     </div>

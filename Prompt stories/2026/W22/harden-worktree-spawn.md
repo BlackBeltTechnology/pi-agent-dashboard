@@ -168,4 +168,4 @@ knowledge that PRs base on `develop`; the failing Actions run/job URL if CI is a
 
 ---
 
-_Generated from session `019e7667-19ef-7b71-bd3f-4962203e3901` · `pi-agent-dashboard` · 2026-05-30. Source extract: session facts sheet (mktemp)._
+_Generated from session `019e7667-19ef-7b71-bd3f-4962203e3901` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-30. Source extract: session facts sheet (mktemp)._

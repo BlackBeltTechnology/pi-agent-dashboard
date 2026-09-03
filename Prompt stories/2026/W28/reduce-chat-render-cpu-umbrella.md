@@ -206,4 +206,4 @@ from this checkout; Playwright + system Google Chrome installed.
 
 ---
 
-_Generated from session `019f4385` · `pi-agent-dashboard` · 2026-07-08. Source extract: `/tmp/facts-cKVgXL.md`._
+_Generated from session `019f4385` · `/Users/robson/Project/pi-agent-dashboard` · 2026-07-08. Source extract: `/tmp/facts-cKVgXL.md`._

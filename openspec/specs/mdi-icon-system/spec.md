@@ -1,4 +1,10 @@
-## ADDED Requirements
+# mdi-icon-system Specification
+
+## Purpose
+
+Replaces emoji icons throughout the UI with MDI icons, so iconography renders consistently across platforms. Defines the component contracts this requires — icon props accepting `ReactNode`, icon lookup maps returning `ReactNode`, the icon-plus-text pattern for labelled actions — and the deliberate exception that cancel buttons stay text-only.
+
+## Requirements
 
 ### Requirement: MDI icons replace all emoji icons
 The system SHALL use Material Design Icons (`@mdi/js` + `@mdi/react`) for all icons in client components. No emoji characters SHALL be used as icons. All buttons SHALL display an MDI `<Icon>` component for their visual indicator — text-only labels, emoji characters, and Unicode symbols (✕, ×, ←, ↻, ▶, ▼, +) SHALL NOT be used as button icons.

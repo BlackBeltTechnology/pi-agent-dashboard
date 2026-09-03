@@ -190,4 +190,4 @@ edits to `.github/workflows/_electron-build.yml`, `packages/client/package.json`
 
 ---
 
-_Generated from session `019e5f42-1d1a-7d92-9e0b-ac0f43cefddb` · `pi-agent-dashboard` · 2026-05-25. Source extract: `/tmp/facts-57149-1784854194.md`._
+_Generated from session `019e5f42-1d1a-7d92-9e0b-ac0f43cefddb` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-25. Source extract: `/tmp/facts-57149-1784854194.md`._

@@ -260,3 +260,55 @@ describe("useStaleToolReconcile hook", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 });
+
+/**
+ * `elided` is invisible to both reconcile selectors — test-plan E28.
+ *
+ * An unloadable result must never be relabelled as a fault: the supersede heal
+ * would stamp it with the SUPERSEDE sentinel ("result unavailable — recovered
+ * by supersede heal"), which attributes a deliberate WINDOWING decision to a
+ * failure. `elided` is terminal, so the existing `status !== "running"` guard
+ * is what excludes it; these tests pin that it stays excluded.
+ * See change: fix-lazy-history-backfill-ux (D5).
+ */
+describe("reconcile selectors reject `elided` (E28)", () => {
+  function elidedToolState(toolCallId: string, startedAt: number): SessionState {
+    const s = runningToolState(toolCallId, startedAt);
+    s.toolCalls.set(toolCallId, { ...s.toolCalls.get(toolCallId)!, status: "elided" });
+    const row = s.messages.find((m) => m.toolCallId === toolCallId)!;
+    row.toolStatus = "elided";
+    return s;
+  }
+
+  const states = (s: SessionState) => new Map([["sess-1", s]]);
+  // Long past any staleness threshold, and past the supersede 404 floor: the
+  // ONLY thing keeping these selectors away is the terminal status.
+  const LONG_AGO = 1;
+  const NOW = LONG_AGO + STALE_TOOL_MS * 100;
+
+  it("E28: selectStaleRunningTools does not select an elided row", () => {
+    // Control: the same row while `running` IS selected, so the test cannot
+    // pass for an unrelated reason.
+    expect(selectStaleRunningTools(states(runningToolState("t1", LONG_AGO)), NOW, STALE_TOOL_MS, () => false))
+      .toHaveLength(1);
+    expect(selectStaleRunningTools(states(elidedToolState("t1", LONG_AGO)), NOW, STALE_TOOL_MS, () => false))
+      .toEqual([]);
+  });
+
+  it("E28: selectSupersededHealTargets does not select an elided row", () => {
+    // `hasLaterAssistantInference` reads the inference COUNTER, not the row
+    // list: the tool must have been emitted at an earlier inference than the
+    // session has since reached.
+    const withInference = (s: SessionState) => {
+      s.toolCalls.set("t1", { ...s.toolCalls.get("t1")!, emittedAtInferenceSeq: 1 });
+      s.assistantInferenceSeq = 2;
+      return s;
+    };
+    const exhausted = () => SUPERSEDE_MIN_404;
+    // Control: `running` + exhausted recovery + a later inference IS a target.
+    expect(selectSupersededHealTargets(states(withInference(runningToolState("t1", LONG_AGO))), SUPERSEDE_MIN_404, exhausted))
+      .toHaveLength(1);
+    expect(selectSupersededHealTargets(states(withInference(elidedToolState("t1", LONG_AGO))), SUPERSEDE_MIN_404, exhausted))
+      .toEqual([]);
+  });
+});

@@ -181,4 +181,4 @@ delta spec; a clean-ish working tree; baseline per-package test pass counts.
 
 ---
 
-_Generated from session `019e0d7e-d122-7615-9bd9-369e55fa2840` · `pi-agent-dashboard` · 2026-05-09. Source extract: session facts sheet (mktemp)._
+_Generated from session `019e0d7e-d122-7615-9bd9-369e55fa2840` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-09. Source extract: session facts sheet (mktemp)._

@@ -1,4 +1,10 @@
-## ADDED Requirements
+# directory-path-display Specification
+
+## Purpose
+
+Shows the user which directory a session group actually belongs to. Displays the full path in group headers, truncates in the middle so both the leading and trailing path boundaries stay readable, and resolves symlinks when a directory is pinned so the same folder is not pinned twice under two names.
+
+## Requirements
 
 ### Requirement: Full path display in group headers
 Directory group headers SHALL display the full absolute path instead of only the basename. The displayed path SHALL be the original form as reported by pi (preserving case and separators as the filesystem sees them). For grouping and equality decisions (matching a session's `cwd` to a pinned directory entry), the dashboard SHALL use `platform/paths.samePath` — NOT exact string equality — so that sessions group correctly under their pinned folder even when the stored path and the session's reported `cwd` differ in trailing separator, separator style, or case (per the OS's filesystem semantics).

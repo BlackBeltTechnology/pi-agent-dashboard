@@ -79,7 +79,7 @@ Cross-refs:
 Three install paths. Pick one.
 
 - **A — Electron desktop app**: pre-built installer from GitHub Releases. No prerequisites. Standalone mode bundles Node.js, auto-installs pi + dashboard + openspec into `~/.pi-dashboard/`.
-- **B — pi package**: `pi install npm:@blackbelt-technology/pi-agent-dashboard`. Bridge auto-starts server on first `pi` launch. Requires Node.js ≥ 22.18.0, pi, C++ build tools.
+- **B — pi package**: `pi install npm:@blackbelt-technology/pi-agent-dashboard`. Bridge auto-starts server on first `pi` launch. Requires Node.js ≥ 22.19.0, pi, C++ build tools.
 - **C — From source**: `git clone` + `npm install` + `pi install /path/to/pi-agent-dashboard`. Contributors.
 
 Cross-refs:
@@ -97,7 +97,7 @@ Command: `pi install npm:@blackbelt-technology/pi-agent-dashboard`.
 - Run `pi` afterward. Bridge auto-starts dashboard server on first launch.
 - First-launch banner: `🌐 Dashboard started at http://localhost:8000`.
 - Open `http://localhost:8000`. Active sessions appear automatically.
-- Prerequisites apply (Node.js ≥ 22.18.0, pi, C++ build tools for `node-pty`).
+- Prerequisites apply (Node.js ≥ 22.19.0, pi, C++ build tools for `node-pty`).
 
 Cross-refs:
 - README.md:54
@@ -117,7 +117,7 @@ pi-dashboard start
 - No first-run install delay. pi/openspec/tsx ship as regular deps of `@blackbelt-technology/pi-dashboard-server`; npm pulls them in at install time.
 - `cli.ts` logs `[bootstrap] ready (pi resolved via <source>)` on successful resolve.
 - Resolution failure throws hard with `corrupted node_modules` hint. Reinstall to recover.
-- Requires Node.js ≥ 22.18.0. `npm` on PATH.
+- Requires Node.js ≥ 22.19.0. `npm` on PATH.
 
 Cross-refs:
 - docs/service-bootstrap.md — "Standalone npm install"
@@ -151,7 +151,7 @@ Required for paths B + C only. Path A (Electron) bundles everything.
 | Requirement | Why |
 |---|---|
 | **pi** (`@earendil-works/pi-coding-agent`) | Agent monitored by dashboard |
-| **Node.js ≥ 22.18.0** | Server runtime. 22.0.0–22.17.x and 24.1.0–24.2.x crash Fastify per nodejs/node#58515 |
+| **Node.js ≥ 22.19.0** | Server runtime. 22.0.0–22.18.x and 24.1.0–24.2.x crash Fastify per nodejs/node#58515 |
 | **C++ build tools** | `node-pty` native addon for terminal. Xcode CLI (macOS) / `build-essential` (Linux) |
 
 Optional:
@@ -374,6 +374,29 @@ Selecting All interfaces with no auth providers and no trusted networks shows an
 Docker all-in-one already sets `PI_DASHBOARD_HOST=0.0.0.0` to stay reachable through published ports.
 
 See change: configurable-bind-host.
+
+## I added a trusted network and the device still cannot connect?
+
+Trust does not open a socket. A loopback or specific-NIC bind refuses the peer at the TCP layer before any handler runs — the trusted entry is never consulted and no block event records. The entry stays listed; what is missing is the signal. No block event means no "Trust this network?" banner, so nothing tells you the entry is inert.
+
+Diagnose:
+- Grep server.log for `[bind-reachability]` warn line. Lists trusted entries the current bind cannot serve.
+- Settings → Security shows the advisory banner naming the unreachable entries.
+- Remediation on Settings → Server: set Listen Interface to `0.0.0.0` (All interfaces) or the NIC inside the trusted range. Restart required.
+
+Bind host wins over trust. `trustedNetworks` only ever admits peers the socket already accepts.
+
+See change: warn-unreachable-trusted-networks.
+
+## My Tailscale device is not trusted after Add Local Network?
+
+Old offer was `<self>/32`. Tailscale gives each node its own `/32` from `100.64.0.0/10`, so netmask-only offer trusted nobody new — host already loopback-exempt.
+
+Dropdown now offers `100.64.0.0/10`, marked wide. Whole CGNAT space, shared across tailnets and some ISP CGNAT.
+
+Real mitigation: bind to the Tailscale NIC. Settings → Server → Listen Interface → pick the `utun`/tailnet interface. Restart required.
+
+See change: warn-unreachable-trusted-networks.
 
 ## Pairing ≠ LAN access; how to get a secure road for LAN pairing
 
@@ -630,7 +653,7 @@ Remove with `pi remove /path/to/pi-agent-dashboard`. Or add path directly to `~/
 
 Prerequisites:
 - pi (`npm i -g @earendil-works/pi-coding-agent`)
-- Node.js ≥ 22.18.0 (older 22.x / 24.x < 24.3.0 hit nodejs/node#58515 Fastify crash)
+- Node.js ≥ 22.19.0 (22.0–22.18 / 24.1–24.2 hit nodejs/node#58515 Fastify crash)
 - C++ build tools for `node-pty` (Xcode CLI Tools / `build-essential`)
 
 Dev commands:
@@ -1194,7 +1217,7 @@ Only for Path 2 (tarball / npm). Path 1 (Electron Setup.exe) bundles everything.
 
 | Requirement | Why | Command |
 |---|---|---|
-| **Node.js ≥ 22.18.0** | Server runtime; 22.0.0–22.17.x and 24.1.0–24.2.x crash Fastify per nodejs/node#58515 | Install [MSI](https://nodejs.org/dist/v22.18.0/node-v22.18.0-x64.msi) or use [fnm](https://github.com/Schniz/fnm) |
+| **Node.js ≥ 22.19.0** | Server runtime; 22.0.0–22.18.x and 24.1.0–24.2.x crash Fastify per nodejs/node#58515 | Install [MSI](https://nodejs.org/dist/v22.19.0/node-v22.19.0-x64.msi) or use [fnm](https://github.com/Schniz/fnm) |
 | **Git for Windows** | Version control | [git-scm.com](https://git-scm.com/download/win); select "Use Git from Windows Command Prompt" |
 | **Long paths enabled** | Node's node_modules nesting exceeds Windows default 260-char limit | `reg add "HKLM\SYSTEM\CurrentControlSet\Control\FileSystem" /v LongPathsEnabled /t REG_DWORD /d 1 /f` then `git config --global core.longpaths true`; reboot |
 | **Windows Build Tools** (optional) | Only if native modules fail to compile (node-pty) | `npm install --global windows-build-tools` or install Visual Studio Build Tools with "Desktop development with C++" workload |
@@ -1344,7 +1367,7 @@ Cross-refs:
 
 Advanced path for developers validating pre-release builds or headless server-only installs without Electron.
 
-Prerequisites: Node.js ≥ 22.18.0, Git for Windows, long paths enabled, Windows Build Tools (optional).
+Prerequisites: Node.js ≥ 22.19.0, Git for Windows, long paths enabled, Windows Build Tools (optional).
 
 Steps:
 
@@ -1598,6 +1621,42 @@ Cross-refs:
 - docs/electron-session.md:571
 - packages/electron/src/lib/bundled-node.ts
 - packages/electron/src/lib/server-lifecycle.ts
+
+---
+
+## Why does the dashboard server host die at startup with `NameTooLong` / `data:text/javascript`?
+
+jiti ESM fallback fails on Bun compiled binaries. One defect, two symptoms.
+
+Symptom A — async path:
+- Host dies at startup. Error: `ResolveMessage: NameTooLong while resolving package 'data:text/javascript;base64,…'`.
+- Seen on Bun single-file hosts. Built with `bun build --compile`.
+
+Symptom B — sync path:
+- Bare `SyntaxError`. Mentions `import.meta`. No `NameTooLong` text.
+- Same defect. jiti ESM fallback async-only. Sync load path surfaces as plain syntax error.
+
+Cause:
+- jiti transpiles TypeScript to CommonJS. Evaluates in a `vm` function wrapper.
+- Raw `import.meta` there is a `SyntaxError`.
+- jiti recovery: re-import module as native ESM. Uses `data:text/javascript;base64,…` specifier.
+- Node accepts that specifier. Bun compiled-binary resolver treats it as package name. Resolves against embedded filesystem. ~10 KB "name" exceeds filename limit.
+- jiti oversized-payload guard keys on `err.code === "ENAMETOOLONG"`. Bun throws `ResolveMessage` with no such `code`. Guard misses.
+
+Remedy:
+- Set `JITI_ESM_EVAL_TEMP_FILE=1`.
+- jiti writes fallback module to temp `.mjs` file. Imports by path instead of `data:` URL.
+
+Precondition:
+- Writable `os.tmpdir()` required. Sandboxed or read-only host may not provide one.
+
+`-ne` NOT acceptable workaround:
+- Disables bridge. Loses dashboard visibility. Exactly the unattended runs worth observing.
+
+First-party cause fixed as of change `fix-jiti-cjs-transpile-safety` (issue #408). Env var stays valid for older installs + any third-party module reintroducing the shape.
+
+Cross-refs:
+- openspec/changes/fix-jiti-cjs-transpile-safety/
 
 ---
 
@@ -2229,6 +2288,51 @@ See change: fix-pi-flows-end-to-end.
 Cross-refs:
 - packages/roles-plugin/src/RolesSettingsSection.tsx
 
+## Why are my sessions never auto-named?
+
+Check Settings → Diagnostics → auto-naming outcomes.
+One retained outcome per session.
+`starved` and `waiting` shown separately.
+
+**`starved`** = model could not emit title under output cap.
+Reasoning model spends whole cap on reasoning tokens.
+Stream truncated. `done` reason `"length"`. No text.
+Truncated text NEVER applied as a name.
+Fix: assign a different model to the `naming` role.
+
+**`waiting`** = model behaved correctly. No nameable topic.
+Cause: `NULL` sentinel, or over-40-chars, or over-6-words.
+Nothing to fix. Session simply has no clear topic.
+
+**Budget.**
+3 attempts per session.
+Shared by `starved` + `waiting`.
+Exhaustion ⇒ permanent stop + exactly one `auto_name_error`.
+Remedy matches dominant cause. Tie ⇒ `starved`.
+Transient errors + aborts spend no budget.
+
+**Stop.**
+Persists in session `.meta.json` (`autoNamerState`).
+Survives process restart.
+Clears when resolved naming reference changes.
+Clears when blocking cause (credentials/registry) resolves.
+Clearing resets budget + re-arms error.
+
+**Naming model.**
+`@naming` first. Fallback `@fast`.
+Neither configured ⇒ stop + `auto_name_error` naming both slots.
+Configure in Settings → Roles (`/settings/plugins/roles`).
+Not on the sessions page. Toggle there carries a pointer.
+
+**Old bug (pre-fix).**
+Empty text mapped onto `wait`. Same verdict as legitimate `NULL`.
+Naming retried forever. Applied nothing. Emitted nothing.
+Zero successes AND zero errors.
+Measured: 0 of 3380 sessions `nameSource: "auto"`.
+Measured: 0 `auto_name_error` lines in 6.8 MB `server.log`.
+
+See change: fix-auto-naming-reasoning-model.
+
 ## Why does Doctor sometimes show server "Not running" while dashboard works?
 
 Old bug: `probeServer` inside `/api/doctor` shelled out `curl http://localhost:8000/api/health` via `execSync`. Server was handling the request when curl called — self-deadlock. After 3 s timeout, curl failed and probe reported "Not running". Fixed in change `harvest-bootstrap-survivor-fixes`: server-side probe reads process state directly; Electron Doctor uses native `fetch`. No subprocess spawned. Result: Doctor reports "ok" correctly while server handles load.
@@ -2285,6 +2389,24 @@ Cross-refs:
 - packages/client/src/components/OpenSpecProfileSection.tsx
 - packages/server/src/routes/openspec-routes.ts
 - packages/shared/src/platform/openspec.ts
+
+## Why do the OpenSpec buttons do nothing?
+
+The dashboard derives one per-directory readiness state (`OpenSpecData.readiness`) and renders exactly the action that resolves that state. A button that does nothing means the state does not offer it. States and their fixes:
+
+- `BROKEN` · `missing-changes-dir` — Repair on the folder card (confirm, then re-runs init).
+- `BROKEN` · `cli-failed` — fix the openspec CLI itself. Error text shown; no Repair — init would auto-clean files in a directory that may hold real proposals.
+- `STALE` · `missing-skills` — Update on the folder card. Runs `openspec update --tools pi`, writes `.pi/skills/openspec-*`.
+- `STALE` · `profile-stale` — Settings → OpenSpec Workflow Profile → Update.
+- `ABSENT` — Initialize on the folder card. Or dismiss (adds cwd to `openspec.optOutDirectories`), or set `openspec.offerInitialization: false` to hide the offer fleet-wide.
+- `OPTED_OUT` — cwd listed in `openspec.optOutDirectories`. Re-enable via folder `⋯` menu → Enable OpenSpec for this folder.
+- `GLOBAL_OFF` — `openspec.enabled === false`. Enable in Settings → Background polling (OpenSpec).
+
+Cross-refs:
+- docs/architecture.md (OpenSpec Readiness section)
+- packages/server/src/openspec/readiness.ts
+- packages/server/src/routes/openspec-routes.ts
+- openspec/changes/add-openspec-init-affordances/
 
 ## Install bash
 
@@ -2415,6 +2537,80 @@ curl -sSf https://get.openziti.io/install.bash | sudo bash -s zrok
 ```
 
 Vendor docs: https://docs.zrok.io/docs/guides/install/
+
+## Install ffmpeg
+
+Media skills (video-transcription, video-production) run ffmpeg for encode/decode. See change: add-skill-tool-provisioning.
+
+macOS:
+
+```bash
+brew install ffmpeg
+```
+
+Windows:
+
+```bash
+winget install --id Gyan.FFmpeg -e
+choco install ffmpeg
+scoop install ffmpeg
+```
+
+Linux:
+
+```bash
+sudo apt install ffmpeg
+sudo dnf install ffmpeg
+```
+
+No PATH entry needed — dashboard resolves ffmpeg via `ffmpeg-static` npm package too (optional dependency of video-transcription).
+
+Vendor docs: https://ffmpeg.org/download.html
+
+## Install ffprobe
+
+ffprobe ships inside the ffmpeg package on every channel — same install commands as ffmpeg.
+
+Standalone: `@ffprobe-installer/ffprobe` npm package resolves it.
+
+## Install ImageMagick
+
+macOS:
+
+```bash
+brew install imagemagick
+```
+
+Windows:
+
+```bash
+winget install --id ImageMagick.ImageMagick -e
+choco install imagemagick
+scoop install imagemagick
+```
+
+Linux:
+
+```bash
+sudo apt install imagemagick
+sudo dnf install ImageMagick
+```
+
+Binary name is `convert`.
+
+Windows: command is `magick`, not `convert`. `C:\Windows\System32\convert.exe` is the filesystem conversion tool.
+
+Vendor docs: https://imagemagick.org/script/download.php
+
+## Install chromium
+
+Playwright browsers cache. Dashboard probes `PLAYWRIGHT_BROWSERS_PATH` or per-OS cache dir.
+
+```bash
+npx playwright install chromium
+```
+
+Network + exec command — registry marks it `requiresConfirm`; dashboard asks before auto-running.
 
 ## Electron build shows "Bundled server already present" but my changes don't appear — what now?
 

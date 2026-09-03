@@ -12,6 +12,10 @@ import * as crypto from "node:crypto";
 import * as os from "node:os";
 import * as path from "node:path";
 import {
+  type ResolvedRuntime,
+  resolvedFamilyEntries,
+} from "@blackbelt-technology/pi-dashboard-shared/platform/spawn-runtime.js";
+import {
   getDefaultSubprocessAdapter,
   type SubprocessAdapter,
 } from "@blackbelt-technology/pi-dashboard-shared/platform/subprocess-adapter.js";
@@ -21,7 +25,40 @@ import {
   type Resolution,
   type ToolRegistry,
 } from "@blackbelt-technology/pi-dashboard-shared/tool-registry/index.js";
+import { currentSpawnRuntime, resolveLiveSpawnRuntime } from "../runtime-resolution.js";
 import { computeIdentity, parseSourceKind } from "./package-source-helpers.js";
+
+/**
+ * Shared-tree family routing — install/load coherence (change
+ * unify-pi-runtime-identity, task 3.3): extension-tree mutations the
+ * dashboard performs through this package manager (recommended-extension
+ * installs and their npm queries, e.g. `npm install -g` / `npm root -g`)
+ * SHALL use the SAME node/npm family the ladder resolved for pi spawns, so
+ * `~/.pi/agent/npm/node_modules` is always built by the runtime that will
+ * load it (spec managed-node-runtime scenario "Extension install uses the
+ * resolved family"). Dashboard-tooling resolution chains are deliberately
+ * untouched — this routing applies only at this subprocess seam.
+ *
+ * Returns the family argv for `npm`/`npx` commands (a `.js` entry spawns as
+ * `[<nodeEntry>, <entry>]`; a shim fallback spawns directly), or null when
+ * the command is not a family member — the caller then falls back to the
+ * registry executor chain. Exported for unit tests.
+ * See change: unify-pi-runtime-identity (design D3, test-plan E13).
+ */
+export function resolvedSharedTreeFamilyArgv(
+  command: string,
+  args: readonly string[],
+  rt?: ResolvedRuntime | null,
+): string[] | null {
+  if (command !== "npm" && command !== "npx") return null;
+  const resolved =
+    rt !== undefined ? rt : (currentSpawnRuntime() ?? resolveLiveSpawnRuntime());
+  if (!resolved) return null;
+  const entries = resolvedFamilyEntries(resolved);
+  const entry = command === "npm" ? entries.npmEntry : entries.npxEntry;
+  if (!entry) return null;
+  return /\.js$/i.test(entry) ? [entries.nodeEntry, entry, ...args] : [entry, ...args];
+}
 
 /**
  * Resolve a command name through the tool registry's executor API.
@@ -30,13 +67,20 @@ import { computeIdentity, parseSourceKind } from "./package-source-helpers.js";
  * bypassing .cmd shims. Otherwise returns `[command, ...args]` verbatim
  * so callers fall through to buildSafeArgv's generic handling.
  *
- * See change: consolidate-windows-spawn-and-platform-handlers.
+ * npm/npx go through the ladder-resolved family first (see
+ * `resolvedSharedTreeFamilyArgv`); the registry chain remains the
+ * fallback for every other command.
+ *
+ * See change: consolidate-windows-spawn-and-platform-handlers,
+ *             unify-pi-runtime-identity (task 3.3).
  */
 function resolveViaRegistry(
   registry: ToolRegistry,
   command: string,
   args: readonly string[],
 ): string[] {
+  const family = resolvedSharedTreeFamilyArgv(command, args);
+  if (family) return family;
   if (registry.has(command)) {
     const exec = registry.resolveExecutor(command);
     if (exec.ok && exec.argv.length > 0) {

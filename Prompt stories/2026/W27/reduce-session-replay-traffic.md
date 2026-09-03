@@ -139,4 +139,4 @@ system Chrome installed, a clean worktree.
 
 ---
 
-_Generated from session `019f15ae-fa68-7b45-b976-c5060b33a9bc` · `pi-agent-dashboard` · 2026-06-30. Source extract: `/tmp/facts-1784847997-27189.md`._
+_Generated from session `019f15ae-fa68-7b45-b976-c5060b33a9bc` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-30. Source extract: `/tmp/facts-1784847997-27189.md`._

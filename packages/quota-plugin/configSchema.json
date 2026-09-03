@@ -1,0 +1,73 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "@blackbelt-technology/pi-dashboard-quota-plugin/configSchema",
+  "title": "Provider Quota config",
+  "description": "Plugin config persisted under plugins['quota'].* in ~/.pi/dashboard/config.json. Read by the server entry. Installing the plugin IS the opt-in, so tracking defaults ON for every provider EXCEPT anthropic, which stays OFF until the user ticks it (its endpoint is the ToS-sensitive one).",
+  "type": "object",
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "description": "Master gate. When false the server entry makes no subscription-quota endpoint call and /api/quota returns no providers.",
+      "default": true
+    },
+    "providers": {
+      "type": "object",
+      "description": "Per-provider enablement, keyed by provider id. Defaults ON for every provider EXCEPT anthropic: its /api/oauth/usage endpoint is the ToS-sensitive one, so it requires an explicit tick.",
+      "additionalProperties": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean",
+            "default": true
+          }
+        },
+        "additionalProperties": false
+      },
+      "default": {
+        "anthropic": { "enabled": false },
+        "openai-codex": { "enabled": true },
+        "github-copilot": { "enabled": true },
+        "openrouter": { "enabled": true },
+        "synthetic": { "enabled": true },
+        "zai": { "enabled": true },
+        "opencode-go": { "enabled": true },
+        "kimi-coding": { "enabled": true }
+      }
+    },
+    "retry": {
+      "type": "object",
+      "description": "In-request retry of a TRANSIENT quota-fetch failure (HTTP 429/5xx, timeout, network) with expanding backoff. Off by default. Every numeric field is also clamped on read, so a malformed persisted value can never drive an unbounded wait or a timer overflow.",
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "description": "Master gate for retry. When false the server makes exactly one attempt per provider.",
+          "default": false
+        },
+        "maxAttempts": {
+          "type": "integer",
+          "description": "Retries AFTER the initial attempt (0 disables retry). The initial attempt always runs, so the worst-case attempt count is maxAttempts + 1.",
+          "minimum": 0,
+          "maximum": 5,
+          "default": 3
+        },
+        "baseDelayMs": {
+          "type": "integer",
+          "description": "First backoff delay in ms; doubles each retry, capped at maxDelayMs.",
+          "minimum": 100,
+          "maximum": 10000,
+          "default": 1000
+        },
+        "maxDelayMs": {
+          "type": "integer",
+          "description": "Ceiling for a single backoff delay in ms.",
+          "minimum": 100,
+          "maximum": 60000,
+          "default": 60000
+        }
+      },
+      "additionalProperties": false,
+      "default": { "enabled": false, "maxAttempts": 3, "baseDelayMs": 1000, "maxDelayMs": 60000 }
+    }
+  },
+  "additionalProperties": false
+}

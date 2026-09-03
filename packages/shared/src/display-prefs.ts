@@ -195,6 +195,26 @@ export interface DisplayPrefs {
    * See change: gate-notify-rows-by-level.
    */
   notifyMinLevel: NotifyMinLevel;
+  /**
+   * When true, a reasoning block's body renders with NO vertical height cap
+   * and NO inner vertical scrollbar, flowing down the chat transcript like
+   * any other row. When false (default), the body is capped at 400px with an
+   * inner vertical scrollbar (today's behavior). HEIGHT ONLY — open/closed
+   * state stays owned by the collapse machinery (auto-collapse timer,
+   * turn-scoped hold, manual toggle).
+   * See change: render-inline-reasoning-and-custom-entries.
+   */
+  reasoningInlineFlow: boolean;
+  /**
+   * When true (default), non-`flow-event` extension custom content (both
+   * `pi.sendMessage({customType})` messages and `pi.appendEntry()` entries)
+   * renders as a bounded generic chat row. When false, those rows are hidden
+   * (kill switch) — `flow-event` keeps its dedicated rendering at every
+   * value. Render-time gate only: rows still exist in state, so toggling
+   * never replays anything.
+   * See change: render-inline-reasoning-and-custom-entries.
+   */
+  customEntryFallback: boolean;
 }
 
 /**
@@ -223,6 +243,8 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     reserveProcessLineAtIdle: false,
     showOutOfCwdSessionDiffs: false,
     notifyMinLevel: "all",
+    reasoningInlineFlow: false,
+    customEntryFallback: true,
   },
   standard: {
     tokenStatsBar: true,
@@ -239,6 +261,8 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     reserveProcessLineAtIdle: false,
     showOutOfCwdSessionDiffs: false,
     notifyMinLevel: "all",
+    reasoningInlineFlow: false,
+    customEntryFallback: true,
   },
   everything: {
     tokenStatsBar: true,
@@ -255,6 +279,8 @@ export const DISPLAY_PRESETS: Record<"simple" | "standard" | "everything", Displ
     reserveProcessLineAtIdle: true,
     showOutOfCwdSessionDiffs: false,
     notifyMinLevel: "all",
+    reasoningInlineFlow: false,
+    customEntryFallback: true,
   },
 };
 
@@ -292,6 +318,8 @@ export function mergeDisplayPrefs(
     showOutOfCwdSessionDiffs:
       override.showOutOfCwdSessionDiffs ?? global.showOutOfCwdSessionDiffs,
     notifyMinLevel: override.notifyMinLevel ?? global.notifyMinLevel,
+    reasoningInlineFlow: override.reasoningInlineFlow ?? global.reasoningInlineFlow,
+    customEntryFallback: override.customEntryFallback ?? global.customEntryFallback,
   };
 }
 

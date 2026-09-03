@@ -166,4 +166,4 @@ comment on issue #99.
 
 ---
 
-_Generated from session `019f1548-95de-7295-89d8-d07228983b66` · `pi-agent-dashboard` · 2026-06-29. Source extract: `/tmp/facts-ZT4i8X.md`._
+_Generated from session `019f1548-95de-7295-89d8-d07228983b66` · `/Users/robson/Project/pi-agent-dashboard` · 2026-06-29. Source extract: `/tmp/facts-ZT4i8X.md`._

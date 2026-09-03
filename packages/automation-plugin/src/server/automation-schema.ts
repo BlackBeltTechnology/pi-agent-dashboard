@@ -12,17 +12,17 @@
  */
 import { parse as parseYaml } from "yaml";
 import type {
-  AutomationConfig,
   AutomationAction,
+  AutomationConfig,
   Concurrency,
   RunMode,
   Sandbox,
   Visibility,
 } from "../shared/automation-types.js";
 import {
-  TRIGGER_TAXONOMY,
-  onKindForCategory,
   categoryForOnKind,
+  onKindForCategory,
+  TRIGGER_TAXONOMY,
 } from "./trigger-registry.js";
 
 /** On-disk `on.kind` values the taxonomy recognizes (schedule, openspec, …). */
@@ -59,11 +59,15 @@ function isRecord(v: unknown): v is Record<string, unknown> {
  * @param knownKinds  Set of registered trigger kinds (e.g. `{"schedule"}`).
  *                    An `on.kind` outside this set fails validation with an
  *                    error naming the kind.
+ * @param knownActionIds  Registered `<source>.<verb>` action ids.
+ * @param knownSourceIds  Registered work-source ids. An `on.source` outside
+ *                    this set isolates the automation (mirrors unknown kind).
  */
 export function parseAutomationYaml(
   rawText: string,
   knownKinds: ReadonlySet<string>,
   knownActionIds: ReadonlySet<string> = new Set(),
+  knownSourceIds: ReadonlySet<string> = new Set(),
 ): ParseResult {
   let doc: unknown;
   try {
@@ -109,13 +113,74 @@ export function parseAutomationYaml(
     };
   }
 
-  // ── action ───────────────────────────────────────────────────────────
-  const action = doc.action;
-  if (!isRecord(action)) {
-    return { error: "missing or invalid `action:` block" };
+  // ── schedule.batch (work-source fan-out) ─────────────────────────────
+  // Requires a registered `on.source`; one item maps to one child running the
+  // single `action:`, so `actions:`/`count` are rejected below.
+  const isBatch = kind === "schedule.batch";
+  if (isBatch) {
+    const source = on.source;
+    if (typeof source !== "string" || source.length === 0) {
+      return { error: "`schedule.batch` requires a non-empty `on.source`" };
+    }
+    if (!knownSourceIds.has(source)) {
+      return { error: `unknown work source: "${source}"` };
+    }
   }
-  const actionResult = validateAction(action, knownActionIds);
-  if ("error" in actionResult) return { error: actionResult.error };
+
+  // ── action / actions (mutually exclusive) ─────────────────────────────
+  const action = doc.action;
+  const actionsRaw = doc.actions;
+  if (action !== undefined && actionsRaw !== undefined) {
+    return { error: "`action` and `actions` are mutually exclusive — declare only one" };
+  }
+  if (action === undefined && actionsRaw === undefined) {
+    return { error: "missing `action:` or `actions:` block" };
+  }
+  if (isBatch && actionsRaw !== undefined) {
+    return {
+      error: "`schedule.batch` requires a single `action:` (one leased item → one child); `actions:` is not allowed",
+    };
+  }
+
+  let singleAction: AutomationAction | undefined;
+  let actions: AutomationAction[] | undefined;
+  if (actionsRaw !== undefined) {
+    if (!Array.isArray(actionsRaw) || actionsRaw.length === 0) {
+      return { error: "`actions` must be a non-empty array" };
+    }
+    actions = [];
+    for (let i = 0; i < actionsRaw.length; i++) {
+      const entry = actionsRaw[i];
+      if (!isRecord(entry)) {
+        return { error: `actions[${i}]: must be a mapping` };
+      }
+      const r = validateAction(entry, knownActionIds);
+      if ("error" in r) return { error: `actions[${i}]: ${r.error}` };
+      actions.push(r.value);
+    }
+  } else {
+    if (!isRecord(action)) {
+      return { error: "missing or invalid `action:` block" };
+    }
+    const actionResult = validateAction(action, knownActionIds);
+    if ("error" in actionResult) return { error: actionResult.error };
+    singleAction = actionResult.value;
+  }
+  if (isBatch && singleAction?.count !== undefined) {
+    return {
+      error: "`count` is not allowed on a `schedule.batch` action — fan-out width is the number of leased items",
+    };
+  }
+
+  // ── maxConcurrentSpawns (per-automation bound) ────────────────────────
+  let maxConcurrentSpawns: number | undefined;
+  if (doc.maxConcurrentSpawns !== undefined) {
+    const m = doc.maxConcurrentSpawns;
+    if (typeof m !== "number" || !Number.isInteger(m) || m < 1) {
+      return { error: "`maxConcurrentSpawns` must be an integer >= 1" };
+    }
+    maxConcurrentSpawns = m;
+  }
 
   // ── model ────────────────────────────────────────────────────────────
   const model = doc.model;
@@ -149,7 +214,9 @@ export function parseAutomationYaml(
 
   const config: AutomationConfig = {
     on: { ...on, kind, ...(events ? { events } : {}) },
-    action: actionResult.value,
+    ...(singleAction ? { action: singleAction } : {}),
+    ...(actions ? { actions } : {}),
+    ...(maxConcurrentSpawns !== undefined ? { maxConcurrentSpawns } : {}),
     model,
     mode: mode.value,
     sandbox: sandbox.value,
@@ -176,8 +243,22 @@ function validateAction(
     }
     payload = action.payload as Record<string, unknown>;
   }
-  const withPayload = (v: AutomationAction): AutomationAction =>
-    payload ? { ...v, payload } : v;
+  // Optional per-entry spawn count (integer >= 1). Honored on the single
+  // `action:` block too. See change: add-automation-concurrent-spawn.
+  let count: number | undefined;
+  if (action.count !== undefined) {
+    const c = action.count;
+    if (typeof c !== "number" || !Number.isInteger(c) || c < 1) {
+      return { error: "`count` must be an integer >= 1" };
+    }
+    count = c;
+  }
+  const withPayload = (v: AutomationAction): AutomationAction => {
+    let out = v;
+    if (payload) out = { ...out, payload };
+    if (count !== undefined) out = { ...out, count };
+    return out;
+  };
 
   if (kind === "prompt") {
     const prompt = action.prompt;

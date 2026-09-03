@@ -55,3 +55,94 @@ describe("sessionFlagsToArgv --name", () => {
     expect(argv).toEqual(["--name", tricky]);
   });
 });
+
+/**
+ * `sessionFlagsToArgv` — capability-scope flag emission (add-plugin-spawn-scope).
+ *
+ * These assert the flat-field → argv contract that `pluginSpawnToSessionOptions`
+ * produces: comma-joined allowlists, repeatable `--skill` / `-e`, bare boolean
+ * toggles, empty-array-emits-nothing, and the invariant that `--no-extensions`
+ * is NEVER emitted (design D2). The mapper's input-sanitization path (dropping
+ * non-string / NUL entries) is covered in the dashboard-plugin-runtime mapper
+ * suite, since sanitization lives in the mapper, not this builder.
+ */
+describe("sessionFlagsToArgv capability-scope", () => {
+  it("E2: partial scope — tools only, no other scope flag", () => {
+    const argv = sessionFlagsToArgv({ tools: ["read"] });
+    expect(argv).toEqual(["--tools", "read"]);
+    expect(argv).not.toContain("--skill");
+    expect(argv).not.toContain("-e");
+    expect(argv).not.toContain("--no-builtin-tools");
+  });
+
+  it("E3: allowlist is a single comma-joined arg", () => {
+    const argv = sessionFlagsToArgv({ tools: ["read", "grep", "ls"] });
+    expect(argv).toEqual(["--tools", "read,grep,ls"]);
+    expect(argv[argv.indexOf("--tools") + 1]).toBe("read,grep,ls");
+  });
+
+  it("E3: excludeTools is a single comma-joined arg", () => {
+    expect(sessionFlagsToArgv({ excludeTools: ["write", "bash"] })).toEqual([
+      "--exclude-tools",
+      "write,bash",
+    ]);
+  });
+
+  it("E4: --skill repeats once per entry", () => {
+    const argv = sessionFlagsToArgv({ skills: ["/a/skill.md", "/b/skill.md"] });
+    expect(argv).toEqual(["--skill", "/a/skill.md", "--skill", "/b/skill.md"]);
+  });
+
+  it("E5: -e repeats once per entry", () => {
+    const argv = sessionFlagsToArgv({ extensions: ["/x/ext.js", "/y/ext.js"] });
+    expect(argv).toEqual(["-e", "/x/ext.js", "-e", "/y/ext.js"]);
+  });
+
+  it("E6: boolean toggles emit bare flags", () => {
+    const argv = sessionFlagsToArgv({ noTools: true, noSkills: true, noBuiltinTools: true });
+    expect(argv).toContain("--no-tools");
+    expect(argv).toContain("--no-skills");
+    expect(argv).toContain("--no-builtin-tools");
+  });
+
+  it("E7: an empty allowlist emits no flag", () => {
+    expect(sessionFlagsToArgv({ tools: [] })).toEqual([]);
+    expect(sessionFlagsToArgv({ extensions: [], skills: [] })).toEqual([]);
+  });
+
+  it("E8: conflicting noTools + tools are BOTH forwarded", () => {
+    const argv = sessionFlagsToArgv({ noTools: true, tools: ["read"] });
+    expect(argv).toContain("--no-tools");
+    expect(argv).toContain("--tools");
+    expect(argv[argv.indexOf("--tools") + 1]).toBe("read");
+  });
+
+  it("E14: --no-extensions is NEVER emitted, even with every boolean set", () => {
+    const argv = sessionFlagsToArgv({
+      tools: ["read"],
+      excludeTools: ["write"],
+      noBuiltinTools: true,
+      noTools: true,
+      skills: ["/s.md"],
+      noSkills: true,
+      extensions: ["/e.js"],
+    });
+    expect(argv).not.toContain("--no-extensions");
+  });
+
+  it("scope flags append after session/model/name (byte-identical prefix)", () => {
+    const argv = sessionFlagsToArgv({
+      name: "n",
+      sessionFile: "/s.jsonl",
+      mode: "fork",
+      model: "m",
+      tools: ["read"],
+    });
+    expect(argv).toEqual(["--name", "n", "--fork", "/s.jsonl", "--model", "m", "--tools", "read"]);
+  });
+
+  it("E1: no scope fields ⇒ byte-identical to pre-scope output", () => {
+    expect(sessionFlagsToArgv({})).toEqual([]);
+    expect(sessionFlagsToArgv({ model: "m" })).toEqual(["--model", "m"]);
+  });
+});

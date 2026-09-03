@@ -21,8 +21,8 @@ import { usePiResources } from "../../hooks/usePiResources.js";
 import { useResourceActivation } from "../../hooks/useResourceActivation.js";
 import { t as i18nT } from "../../lib/i18n/i18n.js";
 import { buildFolderSettingsUrl } from "../../lib/nav/route-builders.js";
-import { countResources, type ResourceType } from "../resource/ResourceCardGrid.js";
-import { ResourceGridPanel } from "../resource/ResourceGridPanel.js";
+import { countResources } from "../resource/ResourceCardGrid.js";
+import { RESOURCE_PAGE_TYPE, ScopedResourceGrid } from "../resource/ScopedResourceGrid.js";
 import { InstructionsPage } from "./InstructionsPage.js";
 import { PackagesPage } from "./PackagesPage.js";
 
@@ -30,13 +30,7 @@ export type DirectorySettingsResourcePage = "skills" | "agents" | "extensions" |
 export type DirectorySettingsPage = "instructions" | "packages" | DirectorySettingsResourcePage;
 
 /** Resource-page id → the singular `PiResource.type` its grid renders. */
-const RESOURCE_PAGE_TYPE: Record<DirectorySettingsResourcePage, ResourceType> = {
-  skills: "skill",
-  agents: "agent",
-  extensions: "extension",
-  prompts: "prompt",
-  themes: "theme",
-};
+
 
 const ALL_SCOPES = ["local", "global"] as const;
 
@@ -44,10 +38,9 @@ interface Props {
   cwd: string;
   page: DirectorySettingsPage;
   onBack: () => void;
-  onViewFile: (filePath: string, title: string) => void;
 }
 
-export function DirectorySettings({ cwd, page, onBack, onViewFile }: Props) {
+export function DirectorySettings({ cwd, page, onBack }: Props) {
   const [, navigate] = useLocation();
   const { data, isLoading, error, refresh } = usePiResources(cwd);
   const activation = useResourceActivation(cwd);
@@ -102,7 +95,11 @@ export function DirectorySettings({ cwd, page, onBack, onViewFile }: Props) {
   };
 
   return (
-    <div className="flex-1 flex flex-col min-w-0 h-full" data-testid="directory-settings">
+    // `min-h-0`, not `h-full` — same reason as SettingsPanel: the flush Dialog
+    // panel has a cap but no definite height. Three mount contexts share this
+    // root (flush overlay, live chain, mobile).
+    // See change: fix-flush-dialog-scroll-and-close-collision.
+    <div className="flex-1 flex flex-col min-w-0 min-h-0" data-testid="directory-settings">
       {/* Header */}
       <div className="flex items-center gap-3 p-4 border-b border-[var(--border-primary)] shrink-0">
         <button
@@ -153,16 +150,13 @@ export function DirectorySettings({ cwd, page, onBack, onViewFile }: Props) {
           {page === "instructions" && <InstructionsPage cwd={cwd} />}
           {page === "packages" && <PackagesPage cwd={cwd} />}
           {page in RESOURCE_PAGE_TYPE && (
-            <ResourceGridPanel
+            <ScopedResourceGrid
+              page={page as DirectorySettingsResourcePage}
               data={data}
               isLoading={isLoading}
               error={error}
               refresh={refresh}
               activation={activation}
-              type={RESOURCE_PAGE_TYPE[page as DirectorySettingsResourcePage]}
-              scopes={[...ALL_SCOPES]}
-              showScopeFilter
-              onViewFile={onViewFile}
             />
           )}
         </div>

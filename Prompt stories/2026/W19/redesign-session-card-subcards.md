@@ -88,4 +88,4 @@ No new skill or memory was created — the session was driven by the existing `o
 
 ---
 
-_Generated from session `019e0c91-c03f-7324-9978-0f1a3ca9f5ab` · `pi-agent-dashboard` · 2026-05-09. Source extract: `facts.XXXXXX.ORWZtdDi78`._
+_Generated from session `019e0c91-c03f-7324-9978-0f1a3ca9f5ab` · `/Users/robson/Project/pi-agent-dashboard` · 2026-05-09. Source extract: `facts.XXXXXX.ORWZtdDi78`._
