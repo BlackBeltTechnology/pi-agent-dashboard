@@ -50,11 +50,11 @@
 
 ## 8. Verification and documentation
 
-- [ ] 8.1 Run `npx openspec validate add-custom-event-group-filters --strict` and verify it reports valid
-- [ ] 8.2 Run the full suite per AGENTS.md (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`) and verify no failures
-- [ ] 8.3 Invoke the `security-hardening` discipline skill against the config-load and matcher paths (untrusted regex, malformed JSON, path handling) and verify findings are resolved or explicitly accepted
-- [ ] 8.4 Invoke the `performance-optimization` discipline skill to measure that per-row render cost is unchanged and resolution cost is bounded by distinct `customType` count, and verify the measurement is recorded rather than assumed
-- [ ] 8.5 Invoke the `doubt-driven-review` discipline skill on the `customEntryFallback` removal plus prefs migration before it lands, and verify the rollback path in `design.md` still holds
-- [ ] 8.6 Delegate to DocScribe: add `custom-event-groups.json` to the `docs/architecture.md` config reference (noting restart-to-apply) and update the `~/.pi/dashboard/` file inventory, and verify the docs tree rows are applied
-- [ ] 8.7 Add a CHANGELOG entry calling out that `om.*` memory telemetry now defaults to hidden, and verify the entry is under `## [Unreleased]`
+- [x] 8.1 Run `npx openspec validate add-custom-event-group-filters --strict` and verify it reports valid
+- [x] 8.2 Run the full suite per AGENTS.md (`set -o pipefail; npm test 2>&1 | tee /tmp/pi-test.log`) and verify no failures
+- [x] 8.3 Invoke the `security-hardening` discipline skill against the config-load and matcher paths (untrusted regex, malformed JSON, path handling) and verify findings are resolved or explicitly accepted
+- [x] 8.4 Invoke the `performance-optimization` discipline skill to measure that per-row render cost is unchanged and resolution cost is bounded by distinct `customType` count, and verify the measurement is recorded rather than assumed
+- [x] 8.5 Invoke the `doubt-driven-review` discipline skill on the `customEntryFallback` removal plus prefs migration before it lands, and verify the rollback path in `design.md` still holds
+- [x] 8.6 Delegate to DocScribe: add `custom-event-groups.json` to the `docs/architecture.md` config reference (noting restart-to-apply) and update the `~/.pi/dashboard/` file inventory, and verify the docs tree rows are applied
+- [x] 8.7 Add a CHANGELOG entry calling out that `om.*` memory telemetry now defaults to hidden, and verify the entry is under `## [Unreleased]`
 - [x] 8.8 Invoke the `review-code` discipline skill on the full diff before commit and verify findings are resolved

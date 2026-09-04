@@ -2724,6 +2724,7 @@ The per-message ⤘ Fork button needs each chat bubble to carry the entry id of 
 | Session order | `~/.pi/dashboard/preferences.json` | Per-cwd ordering managed by `session-order-manager.ts`. |
 | Server PID | `~/.pi/dashboard/server.pid` | Tracks running server process for daemon management. |
 | Headless PIDs | `~/.pi/dashboard/headless-pids.json` | Maps spawned headless processes to sessions. Unix: `tail -f /dev/null \| pi --mode rpc` (uses tail instead of sleep to avoid stdin pipeline bug). Windows: `pi.cmd --mode rpc` with `shell: true` and quoted paths for spaces in usernames. |
+| Custom event groups | `~/.pi/dashboard/custom-event-groups.json` | Group definitions: `customType` regex → named toggleable chat groups. Shipped defaults written on first boot. User-editable; restart-to-apply. See change: add-custom-event-group-filters. |
 | Bridge extension | `~/.pi/agent/settings.json` | On bundled installs (Electron DEB/DMG), the server auto-registers the bridge extension path in pi's global settings so all spawned pi sessions discover and load it. No-op in dev mode. |
 | Session files | `~/.pi/agent/sessions/` (pi's own) | Source of truth. Bridge loads on demand. |
 
@@ -2936,6 +2937,34 @@ A repo-level lint (`packages/client/src/__tests__/no-bare-external-anchor.test.t
 See change: `harden-external-link-handling`.
 
 | `devBuildOnReload` | false | Rebuild Vite client + restart server on `/reload` |
+
+### Custom Event Groups
+
+Custom (non-pi) extension chat rows grouped by `customType`. Definitions live in `~/.pi/dashboard/custom-event-groups.json` — maps `customType` regex patterns to named, toggleable chat groups. Created with shipped defaults on first boot. User-editable. Restart-to-apply like `config.json`; no file watcher, edits ignored until next server start.
+
+```json
+{
+  "version": 1,
+  "groups": [
+    { "id": "memory", "label": "Memory telemetry", "pattern": "^om\\.", "default": false },
+    { "id": "search", "label": "Web search results", "pattern": "^web-search-results$", "default": true },
+    { "id": "subagents", "label": "Subagents", "pattern": "^subagents:|^subagent-notification$", "default": true },
+    { "id": "flows", "label": "Flows help", "pattern": "^pi-flows-help$", "default": true },
+    { "id": "goals", "label": "Goals", "pattern": "^pi-goal-hermes:", "default": true }
+  ],
+  "seenShippedIds": ["memory", "search", "subagents", "flows", "goals"]
+}
+```
+
+- Shipped groups default visible except `memory` (`^om\.`, default hidden).
+- Reserved catch-all group `other` always exists — label "Other extension entries". Unmatched `customType` lands there. Not removable via file.
+- `id` = identity, pref key, merge key. `pattern` + `label` freely editable; `id` not.
+- `seenShippedIds` gates upgrade-merge. Deleted shipped group never resurrected by later default-group upgrades.
+- Malformed file → shipped defaults used; file left untouched; failure logged. Invalid individual entry (missing `id`, duplicate `id`, uncompilable pattern) → that entry skipped, others retained.
+- Matching runs server-side in a long-lived `worker_threads` worker, one pattern per message, per-match timeout. Pathological pattern → group quarantined for process lifetime; logged.
+- Read-only `GET /api/custom-event-groups` → `{ groups: [{ id, label, default }] }`. Patterns never transmitted — server-side concern.
+
+See change: `add-custom-event-group-filters`.
 
 ## Shared Config
 

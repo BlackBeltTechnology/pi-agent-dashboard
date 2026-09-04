@@ -10,6 +10,22 @@ see [`docs/release-process.md`](docs/release-process.md).
 
 ## [Unreleased]
 
+### Changed
+
+- **Custom chat entries are now gated per group, not by one switch.** The
+  single "Custom entries in chat" toggle is replaced by `customEventGroups`:
+  one toggle per group in Settings ▸ Chat display and the session View popover,
+  driven by a new user-editable config file
+  `~/.pi/dashboard/custom-event-groups.json` (shipped defaults on first boot;
+  restart-to-apply; patterns matched server-side in a worker with a kill
+  timeout, so a pathological regex can never freeze the chat).
+  **`om.*` memory telemetry now ships hidden by default** (~74% of gated rows
+  in a real-session scan); `web-search-results`, subagents, flows help, and
+  goal entries ship visible. Unmatched extension types follow the catch-all
+  "Other extension entries" group. The old `customEntryFallback` pref is
+  removed and one-shot-migrated on load — a user who had hidden custom entries
+  keeps the same rows hidden. See change: add-custom-event-group-filters.
+
 ### Added
 
 - **Video-transcription: AssemblyAI backend.** `pi-transcribe` now supports an
