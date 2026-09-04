@@ -1,11 +1,12 @@
 import { defineConfig } from "vitest/config";
+import { PARALLEL_MAX_WORKERS } from "../../vitest.workers";
 
 export default defineConfig({
   test: {
     include: ["src/**/__tests__/**/*.test.ts"],
     environment: "node",
     pool: "forks",
-    maxWorkers: "50%",
+    maxWorkers: PARALLEL_MAX_WORKERS,
     globalSetup: ["@blackbelt-technology/pi-dashboard-shared/test-support/setup-home.ts"],
   },
 });

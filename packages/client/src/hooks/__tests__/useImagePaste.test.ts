@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook, act } from "@testing-library/react";
+import { renderHook, act, waitFor } from "@testing-library/react";
 import type { ImageContent } from "@blackbelt-technology/pi-dashboard-shared/types.js";
 import { useImagePaste } from "../useImagePaste.js";
 
@@ -23,11 +23,10 @@ function makePasteEvent(files: File[]): React.ClipboardEvent {
 	return event as unknown as React.ClipboardEvent;
 }
 
-// FileReader.readAsDataURL is async — wait one microtask + onload tick.
-async function flushFileReader() {
-	await new Promise((r) => setTimeout(r, 0));
-	await new Promise((r) => setTimeout(r, 0));
-}
+// FileReader.readAsDataURL is async — its callback lands on the macrotask
+// queue at a scheduler-dependent time, so every assertion below POLLS via
+// `waitFor` instead of awaiting a fixed number of ticks (which races under
+// parallel-fork contention). See change: make-test-suite-deterministic.
 
 describe("useImagePaste — uncontrolled mode (legacy)", () => {
 	it("starts with empty pendingImages and null error", () => {
@@ -41,7 +40,7 @@ describe("useImagePaste — uncontrolled mode (legacy)", () => {
 		const evt = makePasteEvent([makeFile("image/png")]);
 
 		act(() => { result.current.handlePaste(evt); });
-		await act(async () => { await flushFileReader(); });
+		await waitFor(() => expect(result.current.pendingImages).toHaveLength(1));
 
 		expect(result.current.pendingImages).toHaveLength(1);
 		expect(result.current.pendingImages[0].mimeType).toBe("image/png");
@@ -71,7 +70,7 @@ describe("useImagePaste — uncontrolled mode (legacy)", () => {
 		const evt = makePasteEvent([makeFile("image/png"), makeFile("image/jpeg")]);
 
 		act(() => { result.current.handlePaste(evt); });
-		await act(async () => { await flushFileReader(); });
+		await waitFor(() => expect(result.current.pendingImages).toHaveLength(2));
 		expect(result.current.pendingImages).toHaveLength(2);
 
 		act(() => { result.current.removeImage(0); });
@@ -79,13 +78,31 @@ describe("useImagePaste — uncontrolled mode (legacy)", () => {
 		expect(result.current.pendingImages[0].mimeType).toBe("image/jpeg");
 	});
 
+	it("converges when decode lands later than any fixed tick count (F1)", async () => {
+		const { result } = renderHook(() => useImagePaste());
+		const evt = makePasteEvent([makeFile("image/png"), makeFile("image/png")]);
+
+		// Defer the real readAsDataURL well past the tick budget the old
+		// 2-tick barrier used to wait for: convergence must come from polling,
+		// never from guessing a tick count. See test-plan F1.
+		const original = FileReader.prototype.readAsDataURL;
+		FileReader.prototype.readAsDataURL = function (this: FileReader, blob: Blob) {
+			setTimeout(() => original.call(this, blob), 50);
+		};
+		try {
+			act(() => { result.current.handlePaste(evt); });
+			await waitFor(() => expect(result.current.pendingImages).toHaveLength(2));
+		} finally {
+			FileReader.prototype.readAsDataURL = original;
+		}
+	});
+
 	it("clearImages empties the list and clears errors", async () => {
 		const { result } = renderHook(() => useImagePaste());
 		const evt = makePasteEvent([makeFile("image/png")]);
 
 		act(() => { result.current.handlePaste(evt); });
-		await act(async () => { await flushFileReader(); });
-		expect(result.current.pendingImages).toHaveLength(1);
+		await waitFor(() => expect(result.current.pendingImages).toHaveLength(1));
 
 		act(() => { result.current.clearImages(); });
 		expect(result.current.pendingImages).toEqual([]);
@@ -113,7 +130,7 @@ describe("useImagePaste — controlled mode", () => {
 
 		const evt = makePasteEvent([makeFile("image/png")]);
 		act(() => { result.current.handlePaste(evt); });
-		await act(async () => { await flushFileReader(); });
+		await waitFor(() => expect(onImagesChange).toHaveBeenCalledTimes(1));
 
 		expect(onImagesChange).toHaveBeenCalledTimes(1);
 		expect(onImagesChange.mock.calls[0][0]).toHaveLength(1);

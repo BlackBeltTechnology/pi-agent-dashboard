@@ -48,6 +48,13 @@ jobs:
       # See change: fix-skill-discovery-parity.
       - name: Skill frontmatter guard
         run: node scripts/check-skill-frontmatter.mjs
+      # Fixed-tick wait guard. Bans the "await a bare-resolve setTimeout as a
+      # barrier, then assert one-shot" pattern in client tests — the scheduling
+      # race that made local runs rotate red while CI stayed green. Deliberate
+      # timer yields opt out per occurrence with an inline comment naming the
+      # reason. See change: make-test-suite-deterministic.
+      - name: Fixed-tick wait guard
+        run: node scripts/check-fixed-tick-waits.mjs
       # Portability gate on committed `.pi/settings.json`. `pi install <path>`
       # and `pi config` both WRITE the resolved absolute path, so the
       # machine-specific form is the tooling's default output, not a typo. The

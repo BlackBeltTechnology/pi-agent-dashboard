@@ -66,8 +66,8 @@ describe("WorktreeActionsMenu — desktop", () => {
   it("hides the PR button when gh is NOT resolvable (no existing PR)", async () => {
     ghOk = false;
     renderMenu(makeSession());
-    // Allow the gh probe to resolve.
-    await act(async () => { await new Promise((r) => setTimeout(r, 0)); });
+    // Allow the gh probe to resolve (act flushes the mocked fetch chain).
+    await act(async () => {});
     expect(screen.queryByTestId("worktree-action-pr")).toBeNull();
   });
 

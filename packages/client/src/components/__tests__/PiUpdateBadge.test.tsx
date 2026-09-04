@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { render, screen, cleanup, waitFor, fireEvent } from "@testing-library/react";
+import { render, screen, cleanup, waitFor, fireEvent, act } from "@testing-library/react";
 import React from "react";
 import { PiUpdateBadge } from "../packages/PiUpdateBadge.js";
 
@@ -36,8 +36,12 @@ describe("PiUpdateBadge", () => {
 	it("renders nothing when there are no updates", async () => {
 		mockVersions(0);
 		const { container } = render(<PiUpdateBadge />);
-		// Give the hook a chance to run
-		await new Promise((r) => setTimeout(r, 20));
+		// Poll until the versions fetch actually landed (mock state), then assert
+		// the stable absence — not a fixed tick count.
+		await waitFor(() =>
+			expect((globalThis.fetch as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBeGreaterThan(0),
+		);
+		await act(async () => {});
 		expect(container.querySelector("[data-testid='pi-update-badge']")).toBeNull();
 	});
 

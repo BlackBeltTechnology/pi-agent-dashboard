@@ -39,6 +39,12 @@ The directory is **not** produced by a current build step. `packages/electron/fo
 
 ### D1 — Exclude generated trees by git-ignore status, layered over the basename prune
 
+> **DROPPED by scope amendment (2026-08-01).** The defect D1 addressed was already
+> fixed on `develop` by `71ea6e593` (tracked-file filter in `analyzeRepository`),
+> landed while this change sat in planning. Residual hardening idea (the landed
+> fix's no-git degraded mode judges all files, unlike D1's prune-only fallback)
+> is a follow-up, not a defect. Full evidence: `SHIP_IT_BLOCKED.md`.
+
 `collectSkillManifests()` keeps its existing `SKIP_DIRS` prune during the walk, then filters the collected candidate list through a single batched `git check-ignore --stdin` call. Git-ignore is an **additional** exclusion layer, not a replacement.
 
 *Why layered, not replacing:* the spec's intent is "don't scan things that aren't source", and git already owns that answer. But making git the *only* layer has two failure modes the first draft of this design missed:

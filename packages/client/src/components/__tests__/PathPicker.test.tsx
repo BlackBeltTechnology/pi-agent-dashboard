@@ -300,8 +300,10 @@ describe("PathPicker", () => {
     renderPicker();
     await waitFor(() => expect(screen.getByText("Desktop")).toBeTruthy());
     fireEvent.change(getInput(), { target: { value: "/Users/robson/Desktop" } });
-    // allow debounced refetch (mock still returns homeEntries so Desktop is visible)
-    await new Promise((r) => setTimeout(r, 200));
+    // The debounced refetch must land before Enter — poll on the fetch,
+    // not on a fixed tick count.
+    const callsBeforeEnter = mockBrowse.mock.calls.length;
+    await waitFor(() => expect(mockBrowse.mock.calls.length).toBeGreaterThan(callsBeforeEnter));
     fireEvent.keyDown(getInput(), { key: "Enter" });
     await waitFor(() =>
       expect(onSelect).toHaveBeenCalledWith("/Users/robson/Desktop"),
@@ -342,7 +344,8 @@ describe("PathPicker", () => {
     });
 
     fireEvent.keyDown(getInput(), { key: "Enter" });
-    await new Promise((r) => setTimeout(r, 100));
+    // Flush microtasks; the no-op decision is synchronous after the settle.
+    await act(async () => {});
     expect(onSelect).not.toHaveBeenCalled();
   });
 
@@ -357,7 +360,7 @@ describe("PathPicker", () => {
     });
 
     fireEvent.click(screen.getByText("Select"));
-    await new Promise((r) => setTimeout(r, 100));
+    await act(async () => {});
     expect(onSelect).not.toHaveBeenCalled();
   });
 
@@ -543,7 +546,9 @@ describe("PathPicker", () => {
 
     // homeEntries still mocked; partial 'Desktop' matches exactly → no Create row
     fireEvent.change(getInput(), { target: { value: "/Users/robson/Desktop" } });
-    await new Promise((r) => setTimeout(r, 200));
+    // The debounced refetch must land before asserting the row state.
+    const callsBeforeRow = mockBrowse.mock.calls.length;
+    await waitFor(() => expect(mockBrowse.mock.calls.length).toBeGreaterThan(callsBeforeRow));
 
     expect(screen.queryByText(/Create ".*" here/)).toBeNull();
   });

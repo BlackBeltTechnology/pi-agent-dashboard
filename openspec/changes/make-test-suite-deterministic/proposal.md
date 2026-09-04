@@ -1,3 +1,9 @@
+> **Scope amendment (2026-08-01, approved).** Defect A below was already fixed on
+> `develop` by `71ea6e593` (tracked-file filter in `analyzeRepository`) while this
+> change sat in planning; its tasks, the `skill-frontmatter-validity` delta, and
+> design D1 were removed. Evidence: `SHIP_IT_BLOCKED.md`. Shipped scope: defect B
+> (fixed-tick barriers + guard) and the maxWorkers consolidation.
+
 ## Why
 
 `npm test` does not exit clean on a developer machine while CI is green on the same commit, and the failing set **rotates between runs** — jimp/bus-client in one session, `useImagePaste` in another. A rotating red set trains developers to dismiss failures as "pre-existing", which is exactly how a real regression gets waved through. Both root causes are violations of already-shipped requirements, not new ground.
@@ -14,7 +20,7 @@ Measured on clean `develop` @ `3053db19` (CI: 0 failures):
 
 ## What Changes
 
-- **Exclude gitignored trees from the skill-frontmatter guard.** `collectSkillManifests()` prunes by directory basename (`dist`, `build`, `out`, `.next`, `coverage`, `.worktrees`, …). `packages/electron/resources/bundled-extensions/` matches none of them, so the walk descends into it and picks up the 13 `SKILL.md` files it holds (out of 80 collected repo-wide). Two of those 13 — `release-cut` at 411 chars and `release-revoke` at 431, both vendored copies from the third-party `pi-anthropic-messages` package — exceed the 400-char description budget, failing `has no budget warning outside the exempt skills`. The directory is gitignored (`.gitignore:26`) and is **stale residue** — `packages/electron/forge.config.ts:109` records that bundled-extensions resources were removed under `eliminate-electron-runtime-install`, so nothing populates it any more. It persists only on machines that ran the old build; a fresh checkout, and therefore CI, never sees it. Exclusion SHALL be driven by git-ignore status so that any generated or vendored tree is skipped regardless of its name.
+- ~~**Exclude gitignored trees from the skill-frontmatter guard.**~~ **REMOVED by scope amendment** — already fixed by `71ea6e593` via a tracked-file filter in `analyzeRepository()`; see `SHIP_IT_BLOCKED.md`.
 
 - **Remove fixed-tick async waits from client tests — all of them.** `useImagePaste.test.ts` uses `flushFileReader() = 2 × setTimeout(0)` then asserts one-shot; under contention the `FileReader` callback has not landed, giving `expected [] to have a length of 2`. The `parallel-test-execution` spec already requires polled assertions over "a fixed number of macrotask ticks", but **11 client test files** await a bare `setTimeout`. **10 are barriers** gating a one-shot assertion — pre-existing violations of a shipped requirement, converted to `waitFor`. The 11th, `PairLanding.test.tsx:54`, yields a macrotask *inside a `postJson` mock* to let React commit a render; it gates no assertion, is already commented, and is left alone as the guard's opt-out exemplar. Then add a guard test that hard-fails on the barrier pattern so it cannot return.
 
@@ -32,13 +38,12 @@ None. Both defects are gaps in shipped requirements.
 
 ### Modified Capabilities
 
-- `skill-frontmatter-validity`: the existing exclusion ("excluding `node_modules`, build output, and worktree checkouts") SHALL be enforced by git-ignore status in addition to — not instead of — the basename prune, so generated and vendored trees are excluded regardless of name, and the guarantee survives when git is unavailable.
+- ~~`skill-frontmatter-validity`~~ — REMOVED by scope amendment (defect A already fixed upstream).
 - `parallel-test-execution`: the existing prohibition on fixed-tick waits SHALL be machine-enforced by a guard test and the client suite SHALL be brought into compliance; the worker setting SHALL be defined once rather than duplicated per package.
 
 ## Impact
 
-- `scripts/check-skill-frontmatter.mjs` — `collectSkillManifests()` exclusion logic
-- `scripts/__tests__/skill-frontmatter.test.mjs` — coverage for gitignored trees, degraded mode, Windows separators
+- ~~`scripts/check-skill-frontmatter.mjs` / `scripts/__tests__/skill-frontmatter.test.mjs`~~ — dropped with the scope amendment.
 - **10 client test files converted** (fixed-tick barrier → `waitFor`) — `useImagePaste`, `WorktreeActionsMenu`, `PluginStalenessBanner`, `UnifiedPackagesSection.auto-check`, `PathPicker`, `LlmProviderCard`, `ServerSelector`, `PiUpdateBadge`, `chat-input-draft-integration`, `usePiChangelog`
 - **1 client test file annotated, not converted** — `PairLanding.test.tsx` gains an explicit opt-out comment on its existing mock yield
 - New guard test banning fixed-tick barriers in client tests

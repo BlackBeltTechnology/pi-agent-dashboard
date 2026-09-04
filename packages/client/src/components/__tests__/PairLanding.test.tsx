@@ -50,7 +50,9 @@ describe("PairLanding", () => {
       if (path === "/api/pair/redeem") return { pendingId: "p1", confirmCode: "77 88 99" };
       if (path === "/api/pair/poll") {
         // Yield a macrotask so React commits the polling/confirm-code render
-        // before approval flips the phase to done.
+        // before approval flips the phase to done. This is a mock-internal
+        // yield, not an assertion barrier — hence the opt-out below.
+        // fixed-tick-waits: opt-out — mock-internal macrotask yield, gates no assertion
         await new Promise((r) => setTimeout(r, 0));
         return { status: "approved", token: "BEARER-XYZ" };
       }

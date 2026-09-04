@@ -155,8 +155,8 @@ describe("UnifiedPackagesSection auto-check", () => {
       );
       await Promise.resolve();
     });
-    // Settle event-loop and confirm no extra fire.
-    await new Promise((r) => setTimeout(r, 20));
+    // Flush microtasks and confirm no extra fire.
+    await act(async () => {});
     expect(checkUpdatesCalls()).toBe(before);
   });
 
@@ -183,7 +183,7 @@ describe("UnifiedPackagesSection auto-check", () => {
       }
       await Promise.resolve();
     });
-    await new Promise((r) => setTimeout(r, 30));
+    await act(async () => {});
     const after = checkUpdatesCalls();
     expect(after - before).toBeLessThanOrEqual(2);
   });

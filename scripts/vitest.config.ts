@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config";
+import { PARALLEL_MAX_WORKERS } from "../vitest.workers";
 
 /**
  * Vitest project for repo-root /scripts.
@@ -11,6 +12,6 @@ export default defineConfig({
     include: ["__tests__/**/*.test.mjs"],
     environment: "node",
     pool: "forks",
-    maxWorkers: "50%",
+    maxWorkers: PARALLEL_MAX_WORKERS,
   },
 });
