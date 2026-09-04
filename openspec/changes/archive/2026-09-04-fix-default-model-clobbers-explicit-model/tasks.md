@@ -30,4 +30,4 @@
 ## 5. Docs & ticket
 
 - [x] 5.1 Update `packages/extension/src/bridge-default-model-gate.ts.AGENTS.md` row (and the `src/AGENTS.md` summary row) with the new `hasExplicitModel` input + `hasExplicitModelArg` helper + `See change:` reference. Verify: `kb dox lint` reports no stale row for the file.
-- [ ] 5.2 Comment on GitHub issue #595 when the fix lands: link the PR, note the argv-based generalization vs the proposed `PI_SUBAGENT_CHILD` guard, and clarify the single-source/release relationship of the two bridge "copies". Verify: comment visible on the issue.
+- [x] 5.2 Comment on GitHub issue #595 when the fix lands: link the PR, note the argv-based generalization vs the proposed `PI_SUBAGENT_CHILD` guard, and clarify the single-source/release relationship of the two bridge "copies". Verify: comment visible on the issue.
